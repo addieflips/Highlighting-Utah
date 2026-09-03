@@ -1318,7 +1318,8 @@
     <!-- ADD A CUSTOMER -->
     <div class="panel" id="panel-addcustomer">
       <div class="panel-head" style="display:flex; align-items:flex-start; gap:12px;"><div><h2>Customers</h2><p>Add new customers, and see everyone in one place &mdash; invoices, routes, and house maps together.</p></div>
-        <button type="button" class="btn btn-outline btn-sm" id="cAddTestPersonBtn" style="margin-left:auto; flex:0 0 auto;">Create Test Person</button></div>
+        <button type="button" class="btn btn-outline btn-sm" id="cAddTestPersonBtn" style="margin-left:auto; flex:0 0 auto;">Create Test Person</button>
+        <button type="button" class="btn btn-outline btn-sm" id="cResetTestRsvpBtn" style="flex:0 0 auto;" title="Put every Test record back to a returning customer who has not answered, so the RSVP can be tried again">Reset Test for RSVP</button></div>
       <div class="route-tabs" id="custSectionTabs" style="margin-bottom:20px;">
         <button class="route-tab-btn active" data-custtab="add" draggable="true">Add a Customer</button>
         <button class="route-tab-btn" data-custtab="all" draggable="true">All Customers</button>
@@ -12130,7 +12131,29 @@ async function buildTestPerson(){
     street: '209 S 850 W', city: 'Lehi',
     housePrice: 250, measuredFeet: 125,
     lightColors: ['Warm White'], lightsDescription: 'Warm White', wireColor: 'White',
-    rsvpStatus: 'yes', numberOfBins: 1, needsLightBuild: true, lightsQueuedAt: serverTimestamp(),
+    /* ⭐ 'unanswered', NOT 'yes' (2026-09-03). Addie: "need to be able to make test
+       person for new person in quotes and costumer for old person." The two test
+       builders make the two kinds she has to try the RSVP against, and this is the
+       OLD one — a returning customer who has not replied yet.
+
+       ⚠ THE STORED 'yes' WAS WHAT KEPT THEM OUT OF THE RSVP. `etRsvpAnswered` reads
+       the RAW field and counts any non-empty value except 'unanswered' as answered,
+       so the one record she made to test the RSVP with was excluded from the send —
+       and a send that skips somebody looks exactly like a send that worked.
+
+       ⚠ IT WAS ALREADY DRAWN AS PENDING, which is why this was easy to miss: a bare
+       'yes' with no rsvpRespondedAt is normalised away by effectiveRsvpStatus, so the
+       badge said Pending while the send list disagreed. Two halves, one record.
+
+       ⚠ 'unanswered' RATHER THAN BLANK is Addie's own 2026-08-20 ruling: blank means
+       nobody ever asked them, unanswered means we asked this season and they have not
+       replied. The second is what a returning customer looks like when the RSVP goes
+       out, so it is what a test of the RSVP needs.
+
+       ⚠ AND THEY ARE STILL A FINISHED, ROUTABLE CUSTOMER — which is what the stored
+       'yes' was there for. 'unanswered' is not 'no' or 'backnextyear' and sets no
+       flag, so isOutForSeason keeps them in and the price-edit trial is unaffected. */
+    rsvpStatus: 'unanswered', numberOfBins: 1, needsLightBuild: true, lightsQueuedAt: serverTimestamp(),
     customerNumber: '', scheduled: false, isTestRecord: true,
     createdAt: serverTimestamp()
   };
@@ -12175,6 +12198,92 @@ _tpBtn.addEventListener('click', async function(){
   }
   btn.disabled = false;
 });
+})();
+/* ⭐ PUT THE TEST RECORD BACK TO SOMEBODY WHO HAS NOT ANSWERED (2026-09-03). Addie:
+   "for this Test account specifically I need to see if the RSVP works using this Test
+   account or I'm going into this blind and don't know if my badges work. So I need to
+   make costumer named Test into an old costumer."
+
+   ⚠ TWO THINGS MADE THE TEST ACCOUNT UNTESTABLE and the code fix only covers one.
+   `audienceNeverAsked` now treats a test record as RETURNING, so it is in the send and
+   is no longer auto-approved — but `buildTestPerson` writes `rsvpStatus: 'yes'`, so the
+   record still reads as already answered and there is nothing left to press. That 'yes'
+   is deliberate elsewhere (it is what makes the test person a finished, routable
+   customer for the price-edit trial), so it is reset HERE rather than changed there.
+
+   ⭐ AND IT IS A BUTTON RATHER THAN A ONE-OFF, because testing the RSVP means testing
+   it THREE TIMES — yes, no, back next year — and watching the badge each time. A reset
+   somebody has to do by hand between each answer is a reset that gets skipped, and then
+   the second answer is being read on top of the first one's state.
+
+   ⚠ IT TOUCHES ONLY WHAT AN UNANSWERED RETURNING CUSTOMER LOOKS LIKE, and nothing else
+   about the record: the answer, the reply date, the Back Next Year flag and the $30
+   new-member tick. Price, footage, colours, customer number, routes and the invoice are
+   left exactly as they are — this is a reset of the RSVP, not of the customer, and
+   wiping their bin or their number would cost her the rest of the test.
+
+   ⚠ `needsLightRecycle` IS DELIBERATELY NOT CLEARED. A previous test answering "no"
+   queues a real recycle, and that is warehouse work somebody may have acted on; the
+   file's own rule is that Back Next Year neither creates a recycle nor destroys one.
+   The count is reported instead, so she can see one is outstanding.
+
+   ⚠ AND IT REFUSES WHEN THERE IS NO TEST RECORD rather than reporting a cheerful
+   nought. "0 reset" and "there is nobody called Test" read the same and mean different
+   things — one of them means the button is pointed at nothing. */
+(function(){
+  const testRsvpResetBtn = document.getElementById('cResetTestRsvpBtn');
+  if(!testRsvpResetBtn) return;
+  testRsvpResetBtn.addEventListener('click', async function(){
+    const targets = (jobAddresses || []).filter(function(item){
+      return isTestRecordData(item && item.data);
+    });
+    if(!targets.length){
+      toast('No test records found \u2014 press Create Test Person first.');
+      return;
+    }
+    const names = targets.map(function(t){ return (t.data.name || '(no name)'); }).join(', ');
+    if(!confirm('Put ' + targets.length + ' test record' + (targets.length === 1 ? '' : 's') +
+      ' back to an unanswered returning customer?\n\n' + names +
+      '\n\nThis clears their RSVP answer, the Back Next Year badge and the new-member ' +
+      'fee tick, so you can send the RSVP to them and watch the badges move.\n\n' +
+      'Nothing else is touched \u2014 price, footage, colours, customer number, routes ' +
+      'and their invoice all stay as they are.')) return;
+    testRsvpResetBtn.disabled = true;
+    let done = 0, failed = 0, stillRecycling = 0;
+    for(const item of targets){
+      try{
+        /* ⚠ 'unanswered', NOT BLANK. Blank means nobody ever asked them — a record just
+           created — and unanswered means we DID ask this season and they have not
+           replied. That distinction is Addie's own ruling of 2026-08-20, and it is the
+           state a returning customer is actually in when the RSVP goes out. */
+        await updateDoc(doc(db,'jobAddresses', item.id), {
+          rsvpStatus: 'unanswered',
+          rsvpRespondedAt: null,
+          maybeNextYear: false,
+          maybeNextYearAt: null,
+          chargeNewMemberFee: false
+        });
+        /* The panel repaints from the cache, not from Firestore. */
+        item.data.rsvpStatus = 'unanswered';
+        item.data.rsvpRespondedAt = null;
+        item.data.maybeNextYear = false;
+        item.data.maybeNextYearAt = null;
+        item.data.chargeNewMemberFee = false;
+        if(item.data.needsLightRecycle) stillRecycling++;
+        done++;
+      }catch(err){
+        console.error('Could not reset the test record', item.id, err);
+        failed++;
+      }
+    }
+    safeRender('allCustomersTable');
+    let msg = done + ' test record' + (done === 1 ? '' : 's') + ' reset \u2014 they now read Unanswered.';
+    if(stillRecycling) msg += ' ' + stillRecycling + ' still queued to recycle from an earlier "no" \u2014 left alone on purpose.';
+    if(failed) msg += ' ' + failed + ' could not be saved \u2014 see the console.';
+    toast(msg);
+    logActivity('Reset the test record(s) for RSVP testing', 'customers', '');
+    testRsvpResetBtn.disabled = false;
+  });
 })();
 /* ⭐ WHY THE PRICE MOVED, WHEN THE OFFICE WANTS THEM ASKED. Owner, 2026-08-21: "when
    theres a requote because of a price change there should be a spot for explaing why

@@ -25849,9 +25849,36 @@ suite('Suite 115. A price change asks');
           written.email === 'highlightingutah@gmail.com' &&
           written.housePrice === 250 && written.measuredFeet === 125 &&
           written.lightsDescription === 'Warm White');
+        /* ⚠ REPOINTED 2026-09-03, NOT WEAKENED. This required rsvpStatus === 'yes' — but
+           its own sentence says FINISHED CUSTOMER, and the RSVP answer has nothing to do
+           with whether a price edit can be tried. The stored 'yes' was actively wrong:
+           etRsvpAnswered reads the raw field, so it kept the test person out of the RSVP
+           send, which is the one thing she made them for. What must stay true is that
+           they are complete enough to behave like a real customer. */
         check('S115', 'and is a FINISHED customer, so the price edit can be tried on them',
-          written.rsvpStatus === 'yes' && written.needsLightBuild === true,
+          written.needsLightBuild === true && Number(written.housePrice) > 0 &&
+          Number(written.measuredFeet) > 0 && !!written.lightsDescription,
           'a half-made record does not exercise what she is testing');
+        /* ⭐ THE TEST PERSON IS THE *OLD* CUSTOMER OF THE PAIR (2026-09-03). Addie: "need
+           to be able to make test person for new person in quotes and costumer for old
+           person." Quotes → Build Test Customer makes the NEW one; this one has to be a
+           returning customer who has not replied, or there is nothing to RSVP.
+           ⚠ ASSERTED THROUGH etRsvpAnswered, THE REAL PREDICATE, rather than by matching
+           the string — that function is what decides the send audience, and it counts any
+           non-empty value except 'unanswered' as answered. A check for 'unanswered' alone
+           would pass on a value that predicate still reads as a reply. */
+        const answered = new Function('d', extractFn(admin, 'etRsvpAnswered') +
+          'return etRsvpAnswered(d);');
+        check('S115', 'and has NOT answered, so the RSVP can actually be sent to them',
+          answered(written) === false,
+          'a stored answer keeps them out of the RSVP send — the one thing they are ' +
+          'made for; got ' + JSON.stringify(written.rsvpStatus));
+        /* ⚠ AND STILL IN THE SEASON. 'unanswered' must not read as sitting out, or the
+           test person cannot be routed and half the point of them is gone. */
+        check('S115', 'and is still in the season, so they can be routed',
+          new Function('d', seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
+            'return isOutForSeason(d);')(written) === false,
+          'got out-for-season on a customer who has simply not replied yet');
         check('S115', 'and is marked as a test',
           written.isTestRecord === true && written.name === 'Test',
           'the address is a real one now (see Suite 113), so the flag and the name ' +
