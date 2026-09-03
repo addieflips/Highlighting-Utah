@@ -1733,16 +1733,26 @@ check('badging Back Next Year clears the build but not the recycle',
     if (p) opts[p[1]] = p[2].trim();
   });
 
-  /* The three the customer is actually offered, named exactly as the email names them. */
-  check('the three RSVP answers are named as the email names them',
-    opts.yes === 'Yes' && opts.no === 'No' && opts.backnextyear === 'Back Next Year',
+  /* ⚠ TWO, NOT THREE, SINCE 2026-09-03 (RS-49). Addie: "we can just get rid of the no
+     under rsvp because it means the same thing as back next year." The customer is still
+     offered three buttons in the email and portalRsvp still writes 'no' — what changed is
+     that the OFFICE cannot pick it, because picking it also queued the warehouse to pull
+     that customer's bundle apart. The naming rule is unchanged for the ones that remain,
+     and the No option is asserted ABSENT rather than simply dropped from the list, so
+     putting it back is a failing build rather than a silent return of the side effect. */
+  check('the RSVP answers the office can pick are named as the email names them',
+    opts.yes === 'Yes' && opts.backnextyear === 'Back Next Year',
     'the office has to match these against the buttons a customer pressed; got ' +
-    JSON.stringify({yes: opts.yes, no: opts.no, backnextyear: opts.backnextyear}));
+    JSON.stringify({yes: opts.yes, backnextyear: opts.backnextyear}));
+  check('and No is not one of them',
+    !('no' in opts),
+    'choosing it set needsLightRecycle — physical, irreversible warehouse work started ' +
+    'from an option in a list. That belongs to Recycle Their Old Set, which says so.');
 
   /* ⚠ AND ALL FIVE STATES ARE STILL OFFERED. Renaming must not quietly drop one —
      Pending and Unanswered are different questions and both have to be settable. */
-  check('and all five states are still offered',
-    Object.keys(opts).length === 5 && '' in opts && 'unanswered' in opts,
+  check('and the four remaining states are still offered',
+    Object.keys(opts).length === 4 && '' in opts && 'unanswered' in opts,
     'got ' + JSON.stringify(Object.keys(opts)));
 }
 
