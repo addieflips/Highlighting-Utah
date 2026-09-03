@@ -16892,7 +16892,45 @@ document.getElementById('ccSaveBtn').addEventListener('click', async function(){
     statusEl.textContent = 'Something went wrong — try again.';
   }
 });
-const DEFAULT_TOPIC_FOLDERS = ['Billing / Payment Question','Change My Light Colors','Report an Issue','Reschedule Install or Removal','General Question','Something Else'];
+/* ⭐ CANCELLATIONS AND THE MEMBER PORTAL GET THEIR OWN FOLDERS (2026-09-02). Addie:
+   "we need a place for cancelation messages to go. Can we have it go to inbox but these
+   will have it's own no section ... Also can we have inbox for member portal."
+   ⚠ THE FIRST SIX ARE THE CONTACT FORM'S OWN TOPIC LIST and must stay exactly as the
+   form spells them, or a message arrives naming a folder that does not exist. The two
+   added here are ours, and are named after where the message CAME FROM rather than
+   after a topic, which is why they are listed separately. */
+const DEFAULT_TOPIC_FOLDERS = ['Billing / Payment Question','Change My Light Colors','Report an Issue','Reschedule Install or Removal','General Question','Something Else','Cancellations','Member Portal'];
+/* ⭐ WHERE A MESSAGE BELONGS, DERIVED FROM ITS TOPIC (2026-09-02). One table, read by
+   the sidebar counts and the list, so a message cannot be counted in one folder and
+   drawn in another.
+
+   ⚠ DERIVED, NEVER STORED, WHICH IS THE WHOLE REASON IT WORKS ON DAY ONE. Every
+   cancellation already in the book was written folder:'Inbox' — routing only NEW
+   messages would leave her existing ones in the undifferentiated pile and the feature
+   would look broken on the only data she has. Nothing is migrated and nothing is
+   rewritten; the same messages simply sort.
+
+   ⚠ AND IT ONLY EVER DECIDES FOR A MESSAGE NOBODY HAS FILED. `filedByHand` is stamped
+   by every route that MOVES one — the drag, the right-click, Move to…, and a folder
+   being deleted out from under it — so the office's own filing always wins and a
+   message dragged to Inbox stays in Inbox instead of springing back to its topic.
+
+   ⚠ IT SAYS NOTHING ABOUT folder:'System'. That is not a folder in this sidebar, it is
+   what makes a message a system notice at all — the System tab reads it, and the
+   customer list excludes it unconditionally. Deriving that would let a topic quietly
+   move a notice between the two tabs. The raw field decides it, here as before. */
+const MESSAGE_HOME_FOLDER = {
+  'Cancellation Request': 'Cancellations',
+  'Note Added': 'Member Portal',
+  'Existing Customer - Address Changed': 'Member Portal'
+};
+function messageFolderOf(d){
+  d = d || {};
+  const stored = d.folder || 'Inbox';
+  if(stored === 'System') return 'System';
+  if(d.filedByHand) return stored;
+  return MESSAGE_HOME_FOLDER[d.topic] || stored;
+}
 let messageFolders = [];
 let foldersSeeded = false;
 let draggingFolderId = null;
@@ -16922,7 +16960,7 @@ function loadMessageFolders(){
    counted unread (renderMessagesList) while the sidebar counted everything, so the
    two sat there disagreeing about the same folder. */
 function folderUnread(folderName){
-  return allMessages.filter(m => (m.data.folder || 'Inbox') === folderName && !m.data.read).length;
+  return allMessages.filter(m => messageFolderOf(m.data) === folderName && !m.data.read).length;
 }
 /* Every folder nested under this one, at any depth. */
 function folderDescendantNames(folderId){
@@ -17093,7 +17131,10 @@ function renderFolderSidebar(){
         return;
       }
       const messageId = e.dataTransfer.getData('text/plain');
-      if(messageId) updateDoc(doc(db,'messages',messageId), {folder: item.dataset.folder});
+      /* ⚠ filedByHand IS WHAT MAKES THE OFFICE'S FILING STICK. Without it a message
+         dragged out of the folder its topic sends it to would spring straight back on
+         the next render, which reads as the drag not working. See messageFolderOf. */
+      if(messageId) updateDoc(doc(db,'messages',messageId), {folder: item.dataset.folder, filedByHand: true});
     });
   });
   /* Rename. Messages store the folder by NAME (not id), so a rename has to
@@ -17111,6 +17152,10 @@ function renderFolderSidebar(){
       if(newName.toLowerCase() === 'inbox' || newName.toLowerCase() === 'system'){ toast('That name is reserved'); return; }
       if(messageFolders.some(f => f.id !== folderId && f.name.toLowerCase() === newName.toLowerCase())){ toast('A folder with that name already exists'); return; }
       updateDoc(doc(db,'messageFolders',folderId), {name: newName});
+      /* ⚠ A RENAME IS NOT A FILING, so it does NOT stamp filedByHand — it follows the
+         folder rather than overruling the topic. It matches on the STORED name because
+         that is what it is rewriting; a message sitting here only because its topic
+         sends it here has no stored name to fix and needs none. */
       allMessages.filter(m => m.data.folder === oldName).forEach(function(m){
         updateDoc(doc(db,'messages',m.id), {folder: newName});
       });
@@ -17132,7 +17177,10 @@ function renderFolderSidebar(){
       const deletedFolder = messageFolders.find(f => f.id === folderId);
       // reassign affected messages back to Inbox
       const affected = allMessages.filter(m => m.data.folder === folderName);
-      affected.forEach(function(m){ updateDoc(doc(db,'messages',m.id), {folder: 'Inbox'}); });
+      /* ⚠ filedByHand HERE TOO, AND FOR A DIFFERENT REASON: without it a message whose
+         TOPIC sends it to the folder being deleted would be re-homed straight back into
+         a folder that no longer exists, and would then be in no list at all. */
+      affected.forEach(function(m){ updateDoc(doc(db,'messages',m.id), {folder: 'Inbox', filedByHand: true}); });
       // any subfolders move up to this folder's own parent (instead of vanishing)
       const children = messageFolders.filter(f => f.parentId === folderId);
       children.forEach(function(c){ updateDoc(doc(db,'messageFolders',c.id), {parentId: deletedFolder ? deletedFolder.parentId : null}); });
@@ -17202,7 +17250,7 @@ function openContextMenu(x, y, messageId){
   contextMenuEl.classList.add('open');
   contextMenuEl.querySelectorAll('[data-movefolder]').forEach(function(btn){
     btn.addEventListener('click', function(){
-      updateDoc(doc(db,'messages',messageId), {folder: btn.dataset.movefolder});
+      updateDoc(doc(db,'messages',messageId), {folder: btn.dataset.movefolder, filedByHand: true});
       contextMenuEl.classList.remove('open');
     });
   });
@@ -17330,7 +17378,7 @@ function noticeIsRoutine(d){
 }
 function renderMessagesList(){
   const list = document.getElementById('messagesList');
-  let filtered = msgFilter === 'awaiting' ? allMessages.slice() : allMessages.filter(m => (m.data.folder || 'Inbox') === selectedFolder);
+  let filtered = msgFilter === 'awaiting' ? allMessages.slice() : allMessages.filter(m => messageFolderOf(m.data) === selectedFolder);
   if(msgFilter === 'unread') filtered = filtered.filter(m => !m.data.read);
   if(msgFilter === 'important') filtered = filtered.filter(m => m.data.important);
   if(msgFilter === 'awaiting') filtered = filtered.filter(m => !m.data.responded);
@@ -17562,7 +17610,7 @@ function pickedIds(){ return Array.from(pickedMsgIds); }
     const folder = mv.value;
     const ids = pickedIds();
     if(!folder || !ids.length){ mv.value = ''; return; }
-    await msgBulkApply(ids, {folder: folder}, 'moved to \u201C' + folder + '\u201D');
+    await msgBulkApply(ids, {folder: folder, filedByHand: true}, 'moved to \u201C' + folder + '\u201D');
   });
   const readBtn = document.getElementById('msgMarkReadBtn');
   if(readBtn) readBtn.addEventListener('click', function(){
@@ -51292,6 +51340,52 @@ function systemMessages(){
 /* Whether the folded-away routine notes are currently open. Deliberately not
    remembered anywhere: the point is that the folder is quiet again next time. */
 let sysShowRoutine = false;
+/* ⭐ WHICH SECTION A SYSTEM NOTICE FALLS IN (2026-09-02). Addie asked for folders in
+   the System tab "instead of just having it all in one spot", and named one of them:
+   "schedule also has it's own folder".
+
+   ⚠ DERIVED FROM THE TOPIC AT RENDER TIME, never stored. Every notice already in the
+   book was written before these sections existed, so storing a section would leave the
+   whole history in none of them — the same argument as messageFolderOf above, and as
+   One Man Installs.
+
+   ⚠ AND THE ORDER OF THIS LIST IS THE ORDER ON SCREEN, most-urgent first: money, then
+   the crews, then quotes, then the warehouse. A section holding nothing is not drawn.
+
+   ⚠ EVERYTHING UNMAPPED FALLS IN "Everything else", WHICH IS THE FAIL-SAFE DIRECTION.
+   A topic added later with no entry here still appears; the alternative is a notice
+   that exists, counts towards the badge, and is in no section on screen. `other` must
+   stay last, and must have no topic list of its own — it is the default, not a group.
+*/
+const SYSTEM_NOTICE_SECTIONS = [
+  {key:'money',     label:'Money',              icon:'\uD83D\uDCB5'},
+  {key:'schedule',  label:'Schedule & Routes',  icon:'\uD83D\uDE90'},
+  {key:'quotes',    label:'Quotes',             icon:'\uD83D\uDCDD'},
+  {key:'warehouse', label:'Warehouse & Lights', icon:'\uD83D\uDCA1'},
+  {key:'other',     label:'Everything else',    icon:'\u2699\uFE0F'}
+];
+const SYSTEM_NOTICE_SECTION_OF = {
+  'Payment With No Bill': 'money',
+  'Cannot Be Billed': 'money',
+  'Paid \u2014 Still Needs to RSVP': 'money',
+  'Routes Kept Up To Date': 'schedule',
+  'Moved To Another Day': 'schedule',
+  'A Route Sheet Is Out Of Date': 'schedule',
+  'Quote Approved': 'quotes',
+  'Quote Declined': 'quotes',
+  'Quote - Maybe Next Year': 'quotes',
+  'Re-quote Declined': 'quotes',
+  'Add-On Declined': 'quotes',
+  'Light Color Change': 'warehouse',
+  'Wire Color Change': 'warehouse',
+  'Outlet Timer Change': 'warehouse',
+  'Lights Changed After Assignment': 'warehouse',
+  'Rejoined After Recycling': 'warehouse',
+  'Customer Number Needs Fixing': 'warehouse'
+};
+function systemNoticeSection(d){
+  return SYSTEM_NOTICE_SECTION_OF[(d || {}).topic] || 'other';
+}
 function renderSystemMessagesTab(){
   const msgs = systemMessages();
   /* See noticeIsRoutine: the sweep's own ⚠ decides which side a note falls on. */
@@ -51307,7 +51401,28 @@ function renderSystemMessagesTab(){
   if(!list) return;
   if(!msgs.length){ list.innerHTML = '<div class="empty-note">No system notices right now.</div>'; return; }
   const parts = [];
-  if(needsEye.length) parts.push(needsEye.map(systemNoticeRow).join(''));
+  if(needsEye.length){
+    /* ⭐ SECTIONS, NOT ONE PILE (2026-09-02). Addie: "Can we make folders in system
+       messages. instead of just having it all in one spot", and "schedule also has
+       it's own folder". Twenty-one different notices were arriving in one undivided
+       list, so the one that needed her was read at the same speed as the one that did
+       not. Grouped by what the notice is ABOUT. */
+    SYSTEM_NOTICE_SECTIONS.forEach(function(sec){
+      const rows = needsEye.filter(function(m){ return systemNoticeSection(m.data) === sec.key; });
+      if(!rows.length) return;
+      const un = rows.filter(function(m){ return !m.data.read; }).length;
+      parts.push('<h4 style="margin:18px 0 6px; font-family:\'Fraunces\',serif; font-size:15px; '+
+        'border-bottom:1px solid var(--line); padding-bottom:5px;">'+
+        sec.icon+' '+esc(sec.label)+
+        /* ⚠ THE COUNT BESIDE A HEADING IS UNREAD, matching the message folder sidebar's
+           own rule, and a nought is drawn as nothing at all — a column of zeroes reads
+           as a broken counter. The section is only drawn when it holds something. */
+        (un ? ' <span class="status-pill status-new">'+un+'</span>' : '')+
+        ' <span style="color:var(--slate); font-weight:400; font-size:12px;">'+rows.length+'</span>'+
+      '</h4>');
+      parts.push(rows.map(systemNoticeRow).join(''));
+    });
+  }
   else parts.push('<div class="empty-note">Nothing here needs you right now.</div>');
   if(routine.length){
     parts.push(

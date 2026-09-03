@@ -43524,7 +43524,11 @@ suite('273. Inbox - the count is unread, and a message can be filed without a mo
    source, because every claim here is about a NUMBER ON SCREEN or a ROW THAT EXISTS,
    which a regex cannot see. */
 {
-  const names = ['folderUnread', 'folderDescendantNames', 'folderCount', 'folderRowHtml', 'renderFolderNode'];
+  /* ⚠ messageFolderOf IS LIFTED, NEVER STUBBED (added 2026-09-02). It is what decides
+     which folder a message counts in — a stub would let this suite go green while the
+     sidebar's numbers and the list underneath them disagreed, which is the one thing
+     the whole suite exists to prove. sandboxDeps caught it missing on the first run. */
+  const names = ['folderUnread', 'folderDescendantNames', 'folderCount', 'folderRowHtml', 'renderFolderNode', 'messageFolderOf'];
   const bodies = names.map(function (n) { return extractFn(admin, n); });
   const missing = names.filter(function (n, i) { return !bodies[i]; });
   check('S273', 'the inbox counting and tree functions are all still in admin.html',
@@ -43537,12 +43541,18 @@ suite('273. Inbox - the count is unread, and a message can be filed without a mo
     const escSrc = extractFn(admin, 'esc');
     check('S273', 'esc lifted from admin.html for the sandbox', !!escSrc,
       'without the real one the rendered rows prove nothing about escaping');
+    /* MESSAGE_HOME_FOLDER is read out of admin.html rather than retyped: a copy here
+       would agree with itself and say nothing about where a real message lands. */
+    const homeMap = (admin.match(/const MESSAGE_HOME_FOLDER = \{[\s\S]*?\};/) || [])[0];
+    check('S273', 'the topic-to-folder table was lifted, not retyped', !!homeMap,
+      'a copy in this file would agree with itself and prove nothing');
     const preamble =
       'let allMessages = [], messageFolders = [], selectedFolder = "Inbox";' +
       'let collapsedFolders = new Set();' +
+      (homeMap || 'const MESSAGE_HOME_FOLDER = {};') +
       (escSrc || 'function esc(x){return String(x==null?"":x);}') + ';';
     const code = preamble + bodies.join(';') + ';' +
-      'return {folderUnread, folderDescendantNames, folderCount, folderRowHtml, renderFolderNode,' +
+      'return {folderUnread, folderDescendantNames, folderCount, folderRowHtml, renderFolderNode, messageFolderOf,' +
       ' set(m, f, c, sel){ allMessages = m; messageFolders = f; collapsedFolders = new Set(c||[]);' +
       ' if(sel) selectedFolder = sel; }};';
     assertSandbox('S273', 'inbox folder tree', code, admin,
@@ -46639,8 +46649,17 @@ suite('287. The routine route sweep does not bury the notice that matters');
     check('S287', 'the routine ones are still rendered, behind a toggle',
       /routine\.map\(systemNoticeRow\)/.test(sysTab) && /sysRoutineToggle/.test(sysTab),
       'they record days that moved under customers; hiding them for good is worse than the flood');
-    check('S287', 'and both piles are drawn by the SAME row builder',
-      /needsEye\.map\(systemNoticeRow\)/.test(sysTab),
+    /* ⚠ REPOINTED 2026-09-02, NOT WEAKENED. This matched `needsEye.map(systemNoticeRow)`
+       — the needs-an-eye half is now drawn a SECTION at a time (`rows.map`), so it went
+       red on code that is right: the §7 slow-fuse shape, pinned to where a name happened
+       to sit. The invariant is that there is exactly ONE row builder, which is what stops
+       the folded list drifting from the one above it. */
+    check('S287', 'and every pile is drawn by the SAME row builder',
+      (sysTab.match(/\.map\(systemNoticeRow\)/g) || []).length >= 2 &&
+      /* ⚠ NOT "no row-item markup" — the routine toggle is legitimately a row-item and
+         is not a notice card. What a SECOND card builder would need is the two lookups
+         systemNoticeRow uses to fill one in; neither belongs in this function. */
+      !/messageAddressLookup|messageFeetEstimate/.test(sysTab),
       'two renderers for one card is how the folded list quietly stops matching the one above it');
     /* ⚠ THE HANDLERS HAVE TO REACH THE FOLDED ROWS. Mark-as-read and Send to Warehouse
        are bound once per render over the whole list; bound only over the visible half,
@@ -47197,6 +47216,198 @@ suite('287. The routine route sweep does not bury the notice that matters');
         r.created.length === 0,
         'a library that refills itself every morning is worse than a missing template');
     }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+  }
+}
+
+/* =====================================================================
+ * Suite 292 — cancellations, the member portal, and folders in the System tab
+ *
+ * ⚠ NUMBERED 292, NOT 290. Suites 290 and 291 were taken by two parallel sessions
+ * on the same day; the file already records the same collision at 268/269 and at
+ * 287/291, and the rule is that whatever is already on main keeps the number.
+ *
+ * Addie, 2026-09-02: "we need a place for cancelation messages to go. Can we have it
+ * go to inbox but these will have it's own no section and schedule also has it's own
+ * folder. Can we make folders in system messages. instead of just having it all in
+ * one spot. Also can we have inbox for member portal."
+ *
+ * ⚠ IT RUNS THE RULES rather than matching their source. Every claim here is about
+ * WHICH FOLDER A MESSAGE LANDS IN, which a regex cannot see — and this repo has been
+ * caught four times by a check that read the source of something that could never
+ * reach the screen.
+ * ===================================================================== */
+suite('292. Cancellations, the member portal, and folders in the System tab');
+{
+  const NL292 = String.fromCharCode(10);
+  const homeMap = (admin.match(/const MESSAGE_HOME_FOLDER = \{[\s\S]*?\};/) || [])[0];
+  const folderOf = extractFn(admin, 'messageFolderOf');
+  const sectionOf = extractFn(admin, 'systemNoticeSection');
+  const secMap = (admin.match(/const SYSTEM_NOTICE_SECTION_OF = \{[\s\S]*?\};/) || [])[0];
+  const secList = (admin.match(/const SYSTEM_NOTICE_SECTIONS = \[[\s\S]*?\];/) || [])[0];
+  check('S292', 'the two tables and the two rules were all found',
+    !!homeMap && !!folderOf && !!sectionOf && !!secMap && !!secList,
+    'renamed? update this suite rather than deleting it');
+
+  if (homeMap && folderOf && sectionOf && secMap && secList) {
+    const api = new Function(
+      homeMap + NL292 + folderOf + NL292 + secMap + NL292 + secList + NL292 + sectionOf + NL292 +
+      'return {folderOf: messageFolderOf, sectionOf: systemNoticeSection,' +
+      ' sections: SYSTEM_NOTICE_SECTIONS, home: MESSAGE_HOME_FOLDER};')();
+
+    /* ---- her three asks, run ------------------------------------------- */
+    /* ⭐ THE FIXTURE IS SHAPED THE WAY index.html REALLY WRITES ONE — folder:'Inbox',
+       important:true — because that is the shape of every cancellation already in her
+       book. A fixture carrying the new folder would pass whether the fix exists or not. */
+    check('S292', 'a cancellation lands in its own folder',
+      api.folderOf({topic: 'Cancellation Request', folder: 'Inbox', important: true}) === 'Cancellations',
+      'got ' + api.folderOf({topic: 'Cancellation Request', folder: 'Inbox'}));
+    /* ⚠ THE ONES ALREADY WRITTEN ARE THE POINT. Routing only new messages would leave
+       her existing cancellations in the undivided pile, and the feature would look
+       broken on the only data she has. Nothing is migrated; the same rows just sort. */
+    check('S292', 'and so does one written before any of this existed',
+      api.folderOf({topic: 'Cancellation Request', folder: 'Inbox'}) === 'Cancellations',
+      'no message is rewritten, so a stored folder must not be able to win by default');
+    check('S292', 'a member-portal note lands in Member Portal',
+      api.folderOf({topic: 'Note Added', folder: 'Inbox'}) === 'Member Portal' &&
+      api.folderOf({topic: 'Existing Customer - Address Changed', folder: 'Inbox'}) === 'Member Portal',
+      'got ' + api.folderOf({topic: 'Note Added', folder: 'Inbox'}));
+
+    /* ---- the office's own filing always wins ---------------------------- */
+    /* ⚠ WITHOUT THIS A DRAGGED MESSAGE SPRINGS BACK on the next render, which reads as
+       the drag not working — the exact complaint the folder tree was rebuilt for. */
+    check('S292', 'a message the office filed stays where they put it',
+      api.folderOf({topic: 'Cancellation Request', folder: 'Report an Issue', filedByHand: true}) === 'Report an Issue',
+      'got ' + api.folderOf({topic: 'Cancellation Request', folder: 'Report an Issue', filedByHand: true}));
+    check('S292', 'including back to a plain Inbox',
+      api.folderOf({topic: 'Cancellation Request', folder: 'Inbox', filedByHand: true}) === 'Inbox',
+      'unfiling has to be possible or the folder is a one-way trip');
+
+    /* ---- the fail-safe directions -------------------------------------- */
+    check('S292', 'an unmapped topic keeps the folder it was written to',
+      api.folderOf({topic: 'Something nobody has written yet', folder: 'General Question'}) === 'General Question' &&
+      api.folderOf({folder: 'Inbox'}) === 'Inbox' &&
+      api.folderOf({}) === 'Inbox',
+      'a topic added later must not vanish out of every list');
+    /* ⚠ folder:'System' IS NOT A FOLDER IN THIS SIDEBAR — it is what makes a message a
+       system notice at all. Deriving it would let a topic quietly move a notice between
+       the two tabs, and the customer list excludes System unconditionally. */
+    check('S292', 'a system notice is never re-homed into the customer sidebar',
+      api.folderOf({topic: 'Light Color Change', folder: 'System'}) === 'System' &&
+      api.folderOf({topic: 'Cancellation Request', folder: 'System'}) === 'System' &&
+      api.folderOf({topic: 'Note Added', folder: 'System', filedByHand: true}) === 'System',
+      'that field decides which TAB a message is on; a topic must not be able to move it');
+
+    /* ---- the System tab's sections -------------------------------------- */
+    check('S292', 'schedule notices have their own section',
+      api.sectionOf({topic: 'Routes Kept Up To Date'}) === 'schedule' &&
+      api.sectionOf({topic: 'Moved To Another Day'}) === 'schedule' &&
+      api.sectionOf({topic: 'A Route Sheet Is Out Of Date'}) === 'schedule',
+      'she named this one: "schedule also has it\'s own folder"');
+    check('S292', 'money, quotes and the warehouse are separated too',
+      api.sectionOf({topic: 'Payment With No Bill'}) === 'money' &&
+      api.sectionOf({topic: 'Quote Declined'}) === 'quotes' &&
+      api.sectionOf({topic: 'Light Color Change'}) === 'warehouse',
+      'one undivided list is what she asked to be rid of');
+    /* ⚠ THE FAIL-SAFE DIRECTION. A topic added later with no entry must still appear;
+       the alternative is a notice that exists, counts towards the badge, and is drawn
+       in no section at all. */
+    check('S292', 'a topic nobody has mapped still lands somewhere visible',
+      api.sectionOf({topic: 'A Background Check Has Stopped'}) === 'other' &&
+      api.sectionOf({}) === 'other' && api.sectionOf(null) === 'other',
+      'a notice in no section is worse than a notice in the wrong one');
+    check('S292', 'and "Everything else" is last, and is a default rather than a group',
+      api.sections[api.sections.length - 1].key === 'other' &&
+      Object.keys(api.home).length > 0 &&
+      Object.values(JSON.parse(JSON.stringify(
+        (function(){ const o = {}; api.sections.forEach(s => o[s.key] = 1); return o; })()
+      )).constructor === Object ? {} : {}).length === 0 &&
+      !Object.values(api.sections.reduce(function (o, s) { o[s.key] = s; return o; }, {}))
+        .some(function (s) { return s.key === 'other' && s.topics; }),
+      'ordered above a real group it would swallow everything drawn after it');
+
+    /* ⚠ EVERY MAPPED SECTION KEY MUST BE ONE THIS TAB ACTUALLY DRAWS. A typo in the
+       table is invisible: that topic silently falls in no section, because the render
+       walks SYSTEM_NOTICE_SECTIONS and asks for rows matching each key. */
+    const known = api.sections.map(function (s) { return s.key; });
+    const strays = Object.keys(JSON.parse(JSON.stringify(
+      (function () { const o = {}; const m = secMap.match(/'[^']+':\s*'([a-z]+)'/g) || [];
+        m.forEach(function (pair) { o[pair.split(':').pop().trim().replace(/'/g, '')] = 1; });
+        return o; })()))).filter(function (k) { return known.indexOf(k) === -1; });
+    check('S292', 'every section a topic names is one the tab draws',
+      strays.length === 0,
+      'these keys are in no section and their notices would be invisible: ' + strays.join(', '));
+
+    /* ⚠ AND EVERY SYSTEM TOPIC THE APP ACTUALLY WRITES IS ACCOUNTED FOR. Not a
+       requirement that each be MAPPED — "other" is a legitimate home — but the count is
+       what shows somebody that a new topic was added and never considered. */
+    const written = {};
+    [admin, fnsSrc, publicSite].forEach(function (src) {
+      (src.match(/topic: '[^']+'/g) || []).forEach(function (t) {
+        written[t.slice(8, -1)] = 1;
+      });
+    });
+    /* ⚠ THE CUSTOMER-SIDE TOPICS ARE EXCLUDED, OR THIS NOTE CRIES WOLF. Cancellation
+       Request, Note Added and Existing Customer - Address Changed are written to an
+       Inbox folder, never to System, so they have no business in a count of unplaced
+       SYSTEM notices — listing them would put three permanent names in a line whose
+       whole value is that a NEW name appearing in it means somebody added a topic and
+       never placed it. They are identified by having a home folder of their own. */
+    const unmapped = Object.keys(written).filter(function (t) {
+      return api.sectionOf({topic: t}) === 'other' && !api.home[t];
+    });
+    /* ⚠ note() TAKES ONE ARGUMENT. Passing a suite tag first printed a bare "S292" and
+       swallowed the whole count — a note that says nothing is the same as no note. */
+    note('S292: ' + Object.keys(written).length + ' topics are written by the app; ' +
+      Object.keys(api.home).length + ' are customer-side and have their own folder; ' +
+      unmapped.length + (unmapped.length === 1 ? ' system topic falls' : ' system topics fall') +
+      ' in "Everything else"' +
+      (unmapped.length ? ': ' + unmapped.join(', ') : '') +
+      ' — that is a home, not a fault, but a new one appearing here means nobody placed it.');
+  }
+
+  /* ---- the four hand-file sites stamp it, and the rename deliberately does not ---- */
+  /* ⚠ SCOPED TO THE SIDEBAR, because `folder:` appears all over this file. A file-wide
+     count would pass with any one of the four unstamped. */
+  const sidebar = (admin.split('function renderFolderSidebar(){')[1] || '').split(NL292 + 'function ')[0];
+  check('S292', 'dropping a message onto a folder files it by hand',
+    /\{folder: item\.dataset\.folder, filedByHand: true\}/.test(sidebar),
+    'a dragged message would spring back to its topic on the next render');
+  check('S292', 'deleting a folder files its messages into Inbox by hand',
+    /\{folder: 'Inbox', filedByHand: true\}/.test(sidebar),
+    'a message whose topic points at the deleted folder would be re-homed into a ' +
+    'folder that no longer exists, and would be in no list at all');
+  /* ⚠ A RENAME IS NOT A FILING. It follows the folder rather than overruling the topic,
+     so stamping it would silently pin every message in a renamed folder for ever. */
+  check('S292', 'a rename does NOT claim the office filed them',
+    /allMessages\.filter\(m => m\.data\.folder === oldName\)[\s\S]{0,160}\{folder: newName\}\)/.test(sidebar) &&
+    !/\{folder: newName, filedByHand/.test(sidebar),
+    'renaming a folder would pin everything in it against its topic for ever');
+  check('S292', 'the right-click move and Move to… both file by hand',
+    /\{folder: btn\.dataset\.movefolder, filedByHand: true\}/.test(admin) &&
+    /msgBulkApply\(ids, \{folder: folder, filedByHand: true\}/.test(admin),
+    'two of the four ways to move a message would not stick');
+
+  /* ---- the two new folders are seeded ---------------------------------- */
+  const seed = (admin.match(/const DEFAULT_TOPIC_FOLDERS = \[[^\]]*\]/) || [''])[0];
+  check('S292', 'both new folders are seeded so they exist to be clicked',
+    /'Cancellations'/.test(seed) && /'Member Portal'/.test(seed),
+    'the rule would file messages into folders with no row in the sidebar');
+  /* ⚠ THE FIRST SIX ARE THE CONTACT FORM'S OWN TOPIC LIST and a message arrives naming
+     one of them, so renaming one there orphans every message on that topic. */
+  check('S292', 'and the contact form\'s own six are untouched',
+    ["Billing / Payment Question", "Change My Light Colors", "Report an Issue",
+     "Reschedule Install or Removal", "General Question", "Something Else"]
+      .every(function (n) { return seed.indexOf("'" + n + "'") !== -1; }),
+    'a message arrives naming its topic folder; renaming one here orphans it');
+
+  /* ⚠ AND EVERY FOLDER A TOPIC IS SENT TO MUST BE SEEDED. A home folder with no
+     sidebar row is a message nobody can reach — invisible, and counted nowhere. */
+  if (homeMap) {
+    const homes = (homeMap.match(/:\s*'([^']+)'/g) || []).map(function (x) { return x.split("'")[1]; });
+    const orphan = homes.filter(function (f) { return seed.indexOf("'" + f + "'") === -1; });
+    check('S292', 'every folder a topic is sent to has a row in the sidebar',
+      orphan.length === 0,
+      'messages would be filed somewhere with nothing to click: ' + orphan.join(', '));
   }
 }
 
