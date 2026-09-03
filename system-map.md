@@ -217,6 +217,28 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
 
    ⚠ **NONE OF THE THREE SHOWS THE INSTALL-DETAILS FORM, and until 2026-08-31 all three did.** The router added `body.quote-minimal` instead — a different class, for the *quote* screens, which force-shows `#page-quote-details` with `!important`. So an existing member pressing Approve was handed the form a brand-new customer fills in (colours, wire, timer), asking again for everything already on their record. ⚠ **The answer was being saved correctly the whole time** — `portalRsvp` ran before any of the UI, and both confirmation messages were built correctly — so nothing anywhere went red and no data was lost or wrong. Only the screen was. That is why it is proved by `test/rsvp-link.spec.js`, which **drives all three links in a real browser**: a source check over `index.html` passes on the broken version, because every message and every handler was present and correct.
 
+   ⭐ **THE TWO TEST BUTTONS MAKE THE TWO KINDS OF CUSTOMER** (2026-09-03, RS-45). Addie:
+   *"need to be able to make test person for new person in quotes and costumer for old
+   person."* **Quotes → Build Test Customer** makes the **new** one (it comes through a
+   quote, so it carries the join); **Customers → Create Test Person** makes the **old**
+   one — a returning customer who has not replied, which is what the RSVP can be tried on.
+
+   ⚠ **The stored `rsvpStatus: 'yes'` was what made the test account untestable, and the
+   badge hid it.** A bare yes with no `rsvpRespondedAt` is normalised away by
+   `effectiveRsvpStatus`, so the row read **Pending** — while `etRsvpAnswered`, which
+   decides the send audience, reads the **raw** field and counted it as answered. The one
+   record made to test the RSVP was the one record the send would skip, and a send that
+   skips somebody looks exactly like a send that worked. It is `'unanswered'` now.
+
+   ⚠ **`'unanswered'`, not blank** — blank means nobody ever asked them, unanswered means
+   we asked this season and they have not replied. ⚠ **And they are still routable**: it
+   sets no flag and is not `no`, so `isOutForSeason` keeps them in the season.
+
+   ⭐ **Customers → Reset Test for RSVP** puts every test record back to that state —
+   answer, reply date, Back Next Year badge and new-member tick cleared, nothing else
+   touched. Testing the RSVP means testing it three times and watching the badge each
+   time, and a reset done by hand between answers is one that gets skipped.
+
    ⭐ **THE GATE CODE IS ASKED ON THE WAY PAST A YES** (added 2026-08-31). Addie: *"Lets do gate code before changes."* After the yes is recorded and before *"do you want to make any changes?"*, the customer is asked about their gate code — the RSVP is the one email everybody opens and acts on, so it is the cheapest chance each season to catch a wrong code before a crew is standing at a locked gate.
    - **It confirms a code we already hold, and asks nobody else** (narrowed 2026-09-02, RS-44). A code on file is quoted back (*"We have 4417 as your gate code. Is that still right?"*) with **Yes, that's right** / **It has changed**; confirming writes nothing, so `gateCodeUpdatedAt` marks a real change rather than every RSVP.
    - ⚠ **This line used to say it also ASKED anybody without a code, and that half is gone.** Dax: *"make it so the gate code question after they accept gate code only applys to people that already have a gate code in the system so not everyone is seeing it."* It narrows RS-29 rather than reversing it — the value was always in catching a code that went stale over the summer, and asking the majority, who have no gate at all, a question whose honest answer is *no* was a toll on the way into their own portal. ⚠ **Nothing is lost for the people who now skip it**: gate code is on My Info and on the office record, so somebody who fits a gate later can still tell us. ⚠ **And the early return still hands on to `thenFn`** — that is what raises the arrears pop-up behind it, so skipping the question must never skip what follows it.
