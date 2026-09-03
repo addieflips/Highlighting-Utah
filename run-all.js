@@ -4743,18 +4743,28 @@ suite('8. Quote decline / maybe next year');
     !/20\d\d/.test(stripComments(seasonCell)),
     'a hardcoded year is wrong the moment a season turns, and wrong in the ' +
     'direction that matters — it would call a 2026 debt a 2025 one');
-  check('quoteresp', 'the badge can be flipped both ways from All Customers',
-    /data-seasontoggle/.test(admin) && /data-to="maybe"/.test(admin) && /data-to="confirmed"/.test(admin),
+  /* ⚠ REPOINTED 2026-09-03. The row's own season toggle is gone — Addie: "I don't know
+     why it shows maybe next year underneath. We can just switch this inside there
+     costumer." The CLAIM is unchanged and still worth a check: the office must be able to
+     set the answer BOTH ways, or somebody can be put out of the season and not brought
+     back. It is the Edit Customer dropdown that has to offer both now.
+     ⚠ CHECKED BEFORE THE BUTTON WENT: it called setCustomerSeason, which also takes them
+     off upcoming routes, and the Edit Customer save does the same on the same transition
+     (removeCustomerFromUpcomingRoutes). Nothing is stranded on a route by the removal. */
+  check('quoteresp', 'the office can still set the season both ways, from Edit Customer',
+    /<select id="editCustRsvp">/.test(admin) &&
+    /value="backnextyear"/.test(admin) && /value="yes"/.test(admin),
     'the office could only ever set it one way');
   check('quoteresp', 'confirming does not silently re-route them',
     /NOT put them back on a route|NOT added back to any route/.test(admin),
     'quietly rebuilding a route behind the office is worse than re-adding a stop');
-  // Caught live: the write landed but the row kept showing the badge until the
-  // search was retyped, so the button read as dead — the same failure the quote
-  // email had. Nothing re-renders this table on a jobAddresses change.
-  check('quoteresp', 'the toggle repaints the row it just changed',
-    /renderAllCustomersTable\(\);[\s\S]{0,200}toast\(toMaybe/.test(admin),
-    'the badge would stay on screen after the click and the button would look dead');
+  /* ⚠ THIS CHECKED THE ROW TOGGLE'S OWN REPAINT AND THE TOGGLE IS GONE (2026-09-03), so
+     the anchor went with it. The failure it was written for — "the write landed but the
+     row kept showing the badge until the search was retyped" — is now covered by the
+     check directly below instead: All Customers redraws on ANY customer change, which is
+     the general form of the same guarantee and covers the Edit Customer save that
+     replaced the button. Kept as a comment rather than deleted so the incident is still
+     findable from here. */
   // All Customers was the only list left out of the jobAddresses snapshot sweep,
   // so a saved edit sat stale until the search was retyped. Caught live.
   check('quoteresp', 'All Customers refreshes on any customer change',
