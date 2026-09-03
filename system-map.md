@@ -73,7 +73,8 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
      arrears pop-up behind it. The entry box is now reached only by *It has changed*, which makes RS-32's
      contrast fix load-bearing rather than cosmetic.
    - ⚠ **The gate-code question stays, and since 2026-09-02 it is not in between at all** (RS-35). Dax:
-     *"gate codes change so make sure it asks if theres a gate code"* — RS-29 reaffirmed, not reversed —
+     *"gate codes change so make sure it asks if theres a gate code"* — RS-29 reaffirmed, not reversed, and
+     since narrowed to customers who already have one (RS-44) —
      then *"after they answer the gate code question it should just put them into their member portal"*
      and *"make it so the gate code question is just a pop up in the member portal but keep the buttons
      exactly as is instead of an entire page."* So the portal loads first and the question arrives **on

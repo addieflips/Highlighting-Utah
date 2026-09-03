@@ -4784,14 +4784,19 @@ function handleRsvpLink(token, rsvpValue){
          from the invoice rather than repeated from this answer, so there is one
          place saying it instead of two that can disagree. Do not delete them from
          the server — renderPortalInvoice is not the only caller. */
-      /* ⚠ THE GATE CODE STILL COMES FIRST, and it is now the ONLY thing between a
-         yes and their portal. Dax, 2026-09-01: "gate codes change so make sure it
-         asks if theres a gate code" — which is why this step survived the change
-         below. showRsvpGateCodeStep already asks every time: it offers "We have
-         1234 as your gate code. Is that still right?" when one is on file and
-         "is there a gate code our crew needs to get in?" when there is not, so a
-         code that changed over the summer is caught on the one screen a customer
-         reliably answers. Do NOT skip it for somebody who already has one stored.
+      /* ⚠ THE GATE CODE STILL COMES FIRST, and for the customers it is put to it is
+         the ONLY thing between a yes and their portal. Dax, 2026-09-01: "gate codes
+         change so make sure it asks if theres a gate code" — which is why this step
+         survived the change below.
+
+         ⚠ BUT IT IS NO LONGER ASKED OF EVERYBODY (narrowed 2026-09-02, RS-44). Dax:
+         "only applys to people that already have a gate code in the system so not
+         everyone is seeing it." showRsvpGateCodeStep offers "We have 1234 as your gate
+         code. Is that still right?" to somebody who has one on file, and returns
+         without drawing anything for somebody who has not. So a code that changed over
+         the summer is still caught on the one screen a customer reliably answers, and
+         nobody else is stopped on the way in. Do NOT skip it for somebody who already
+         has one stored — that is the whole remaining point of it.
 
          ⭐ AND THEN STRAIGHT INTO THE PORTAL (Dax, 2026-09-01: the RSVP buttons
          "should also automatically send the customer to their member portal").
@@ -4960,11 +4965,14 @@ function handleRsvpLink(token, rsvpValue){
        ever seeing the account they were being let into, and the portal arrived only
        once they had dealt with it.
 
-       ⚠ THE ORDER IS REVERSED, THE ASKING IS NOT. Addie's ruling still holds — every
-       confirming customer is still asked every year, still confirms a code we already
-       hold rather than being asked whether one exists, and the answer still lands
-       through portalSetGateCode. What changed is where they are standing when they
-       answer it.
+       ⚠ THE ORDER IS REVERSED, THE ASKING IS NOT — for the customers it is still put
+       to. Addie's ruling holds where it counts: a confirming customer who ALREADY has
+       a gate code is still asked every year, still confirms the code we hold rather
+       than being asked whether one exists, and the answer still lands through
+       portalSetGateCode. What changed here is where they are standing when they answer
+       it; what changed in RS-44 is that somebody with no code on file is not asked at
+       all, because the value was always in catching a stale code rather than in
+       collecting a "no" from people with no gate.
 
        ⚠ AND NOW IT CANNOT STRAND ANYBODY BY CONSTRUCTION, rather than by the careful
        fail-open paths inside the step. The question is the last thing to happen, after
