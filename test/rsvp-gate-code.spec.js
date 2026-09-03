@@ -17,7 +17,7 @@
 
 const { test, expect } = require('@playwright/test');
 const { installFirebaseStub } = require('./firebase-stub');
-const { CUSTOMERS } = require('./fixtures');
+const { CUSTOMERS, INVOICES } = require('./fixtures');
 
 const BLOCKED_RESOURCE = /Failed to load resource|net::ERR_|ERR_TUNNEL|ERR_CONNECTION/;
 
@@ -119,31 +119,65 @@ test.describe('Gate code on the RSVP yes', () => {
     stub.assertNoRealCalls();
   });
 
-  test('a customer with no code on file is asked whether there is one', async ({ page }) => {
+  /* ⚠ INVERTED 2026-09-02, AND THE GUARANTEE IS THE OPPOSITE ONE NOW (RS-44). Dax:
+     "only applys to people that already have a gate code in the system so not everyone
+     is seeing it." These two tests used to prove that somebody with NO code was asked
+     whether they had one, and that answering no carried them on. That question is gone:
+     most customers have no gate at all, and asking them on the way into their own
+     portal is a toll for an answer we can already assume.
+
+     ⚠ WHAT REPLACES THEM IS STRICTER, not looser. "Is not asked" is easy to satisfy by
+     accident — a broken dialog is also not asked — so this checks the whole way
+     through: no dialog, nothing written, and they are IN the portal. */
+  test('a customer with no code on file is never asked at all', async ({ page }) => {
     const stub = await openRsvpYes(page, 'testtokennogate0001', noGateCode());
 
-    await expect(page.locator('#rsvpGateCodeQuestion')).toContainText(/is there a gate code/i);
-    await expect(page.locator('#rsvpGateCodeYesBtn')).toContainText(/yes, i have one/i);
-
-    stub.assertNoRealCalls();
-  });
-
-  test('saying there is none goes straight to the portal', async ({ page }) => {
-    const stub = await openRsvpYes(page, 'testtokennogate0001', noGateCode());
-    await page.locator('#rsvpGateCodeNoBtn').click();
-
+    /* The portal is the proof that they got somewhere, not just that a div is hidden. */
     await expect(page.locator('#invBreakdown')).toBeVisible();
+    await expect(page.locator('#rsvpGateCodeStep')).toBeHidden();
+    await expect(page.locator('#rsvpGateCodeModal')).toBeHidden();
+
     const calls = await stub.calls();
     expect(calls.filter(c => c.name === 'portalSetGateCode').length).toBe(0);
 
+    expect(stub.thrown).toEqual([]);
     stub.assertNoRealCalls();
   });
 
-  /* ⭐ THE ONE THAT MATTERS: a typed code actually reaches the server. */
-  test('a new code is saved, and the customer is told', async ({ page }) => {
-    const stub = await openRsvpYes(page, 'testtokennogate0001', noGateCode());
+  /* ⚠ AND SKIPPING THE QUESTION MUST NOT SKIP WHAT FOLLOWS IT. The gate step hands on
+     to the arrears pop-up (RS-36); an early return that forgot to call thenFn would
+     silently drop the hold for every customer without a gate code, which is a money
+     rule quietly switched off by a cosmetic change. */
+  test('and skipping it still hands on to what comes next', async ({ page }) => {
+    const noGate = noGateCode();
+    const inv = JSON.parse(JSON.stringify(INVOICES[CUSTOMERS.standard.invoiceKey]));
+    inv.changeFees = (Number(inv.changeFees) || 0) + 315;
+    inv.changeFeeNotes = (inv.changeFeeNotes || []).concat([{
+      amount: 315, kind: 'arrears', source: 'office', year: '2025',
+      reason: 'Unpaid balance carried from the 2025 season'
+    }]);
+    inv.deposit = 0;
+    inv.credits = 0;
+    noGate.invoices = { [CUSTOMERS.standard.invoiceKey]: inv };
+    noGate.customers.nogate.invoiceKey = CUSTOMERS.standard.invoiceKey;
 
-    await page.locator('#rsvpGateCodeYesBtn').click();
+    const stub = await openRsvpYes(page, 'testtokennogate0001', noGate);
+
+    await expect(page.locator('#rsvpGateCodeStep')).toBeHidden();
+    await expect(page.locator('#arrearsLockCard')).toBeVisible({ timeout: 8000 });
+
+    stub.assertNoRealCalls();
+  });
+
+  /* ⭐ THE ONE THAT MATTERS: a typed code actually reaches the server.
+     ⚠ REPOINTED AT THE HELD-CODE PATH (2026-09-02), because it is the only path left:
+     the entry box is now reached by "It has changed" on a customer who already has a
+     code, not by "Yes, I have one" on somebody who has none. The claim is unchanged —
+     what is typed is what is saved. */
+  test('a new code is saved, and the customer is told', async ({ page }) => {
+    const stub = await openRsvpYes(page, CUSTOMERS.standard.token);
+
+    await page.locator('#rsvpGateCodeNoBtn').click();          // "It has changed"
     await page.locator('#rsvpGateCodeInput').fill('#0754');
     await page.locator('#rsvpGateCodeSaveBtn').click();
 
@@ -235,10 +269,11 @@ test.describe('Gate code on the RSVP yes', () => {
     const c = JSON.parse(JSON.stringify(CUSTOMERS.standard));
     c.id = 'cust-gatefail';
     c.token = 'forcegatefail';
-    c.record.gateCode = '';
+    /* ⚠ IT KEEPS ITS CODE NOW. Clearing it would mean this customer is never asked at
+       all (RS-44) and the refused save this test is about could never happen. */
     const stub = await openRsvpYes(page, 'forcegatefail', { customers: { gatefail: c } });
 
-    await page.locator('#rsvpGateCodeYesBtn').click();
+    await page.locator('#rsvpGateCodeNoBtn').click();          // "It has changed"
     await page.locator('#rsvpGateCodeInput').fill('1234');
     await page.locator('#rsvpGateCodeSaveBtn').click();
 
