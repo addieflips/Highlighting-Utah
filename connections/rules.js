@@ -24,7 +24,7 @@ const AREAS = {
   RS: 'RSVP and the season', SH: 'The master sheet', PROC: 'How we work',
   CN: 'Customer numbers', DUP: 'Duplicates', MSG: 'Messages',
   PR: 'Printing', HC: 'Health Check', FIX: 'Fixes', OPT: 'Options',
-  MR: 'Measure Roof'
+  MR: 'Measure Roof', REF: 'Referrals'
 };
 
 /* The map's own Status column is the honest starting state. A person confirming a block

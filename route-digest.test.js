@@ -80,10 +80,19 @@ const sectionFrom = (function () {
       'the two cannot drift; if it moved or was renamed, repoint this lift — do NOT paste ' +
       'a fresh copy in here.');
   }
-  const end = suite.indexOf('\n}\n', start);
-  if (end === -1) throw new Error('sectionFrom found but its end was not — repoint this lift.');
+  /* ⚠ \r?\n, NOT \n. run-all.js is stored with LF and checked out with CRLF on a Windows
+     clone, so the bare '\n}\n' this used matched nothing there and the lift threw
+     "repoint this lift" — on a file that had not moved and had not been renamed. Red on
+     every local run, green in CI. The END OFFSET has to come from the match rather than a
+     hardcoded +2, or a CRLF checkout slices one byte short of the closing brace and eval
+     dies with "Unexpected end of input" a long way from the cause. */
+  const closer = /\r?\n\}\r?\n/g;
+  closer.lastIndex = start;
+  const hit = closer.exec(suite);
+  if (!hit) throw new Error('sectionFrom found but its end was not — repoint this lift.');
+  const end = hit.index + hit[0].length - 1;
   // eslint-disable-next-line no-eval
-  return eval('(' + suite.slice(start, end + 2).replace('function sectionFrom', 'function') + ')');
+  return eval('(' + suite.slice(start, end).replace('function sectionFrom', 'function') + ')');
 })();
 
 const admin = read('admin.html');

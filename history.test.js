@@ -105,7 +105,12 @@ check('every piece of the history rule was found in admin.html',
 
 let STEPS = [], history = null, rsvpWords = null;
 if (Object.values(PARTS).every(Boolean)) {
-  const r = new Function('fmtMoney', 'toJsDate', 'PAYMENT_METHOD_LABEL',
+  /* ⚠ THE SET-UP FEE, LIFTED FROM js/money.js (2026-09-03). The history line names the
+     amount now — "New member fee charged ($25.00)" — so this sandbox needs the number,
+     and a copy typed here would agree with itself while the page said something else. */
+  const setupFee = Number((require('fs').readFileSync(require('path').join(__dirname, 'js/money.js'), 'utf8')
+    .match(/export const NEW_MEMBER_FEE = ([0-9.]+);/) || [])[1]);
+  const r = new Function('fmtMoney', 'toJsDate', 'PAYMENT_METHOD_LABEL', 'NEW_MEMBER_FEE',
     Object.values(PARTS).join('\n') +
     '\nreturn {STEPS: HISTORY_STEPS, history: customerHistory, rsvpWords: historyRsvpWords};')(
       n => '$' + (Number(n) || 0).toFixed(2),
@@ -116,7 +121,7 @@ if (Object.values(PARTS).every(Boolean)) {
         const d = new Date(v);
         return isNaN(d.getTime()) ? null : d;
       },
-      { manual: 'Entered by hand', paypal: 'Card (PayPal)' });
+      { manual: 'Entered by hand', paypal: 'Card (PayPal)' }, setupFee);
   STEPS = r.STEPS; history = r.history; rsvpWords = r.rsvpWords;
 }
 

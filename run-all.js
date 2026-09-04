@@ -582,6 +582,12 @@ if (!THX_CONST) throw new Error('PRE_THANKSGIVING_DAYS has gone from admin.html'
 const money = read('js/money.js');
 const computeInvoiceStatusSrc = extractFn(money, 'computeInvoiceStatus');
 const cnBinsForFeetSrc = extractFn(money, 'cnBinsForFeet');
+/* ⚠ THE SET-UP FEE, LIFTED (2026-09-03). Seven checks pinned the literal 30 — in
+   fixtures, in expected sentences and in regexes over the source — so moving the
+   price from $30 to $25 failed all seven on code that was right. They read this
+   now, which means they follow the price instead of fixing it. */
+const NEW_MEMBER_FEE_NUM = Number((money.match(/export const NEW_MEMBER_FEE = ([0-9.]+);/) || [])[1]);
+const feeMoney = '$' + NEW_MEMBER_FEE_NUM.toFixed(2);
 /* ⚠ THE CONSTANT TRAVELS WITH THE FUNCTION. cnBinsForFeet reads
    CN_DOUBLE_BIN_FEET, so a sandbox given the function alone dies with a bare
    ReferenceError the first time a sheet counts a bin — which kills the whole
@@ -1736,6 +1742,11 @@ if (JSDOM) {
   global.esc = real('esc');
   global.fmtDate = real('fmtDate');
   global.fmtMoney = n => '$' + Number(n).toFixed(2);
+  /* ⚠ LIFTED FROM js/money.js, NEVER TYPED (2026-09-03). The quote card's set-up fee
+     checkbox prints the amount now, so this sandbox needs the number — and a copy
+     written here would agree with itself while the page said something else, which is
+     exactly what moving the fee from $30 to $25 was cleaning up. */
+  global.NEW_MEMBER_FEE = NEW_MEMBER_FEE_NUM;
   global.daysSince = real('daysSince');
   /* The real staleness rule, with its own chain handed in: it asks whether the quote
      is still waiting on the CUSTOMER, which reaches quoteStage, the already-a-customer
@@ -2129,8 +2140,8 @@ if (JSDOM) {
       check('render', 'convert popup — a complete quote raises no warning',
         !popup().textContent.includes('The quote has no'),
         'crying wolf on a quote that has everything trains the warning to be ignored');
-      check('render', 'convert popup — says the $30 fee carries',
-        popup().textContent.includes('$30 set-up fee'),
+      check('render', 'convert popup — says the set-up fee carries',
+        popup().textContent.includes(feeMoney + ' set-up fee'),
         'the fee is money the customer sees on their bill — say it before converting');
 
       const thin = { name: 'Sam Reyes', street: '', city: '', phone: '', email: '' };
@@ -2774,7 +2785,7 @@ check('flow', 'quote is closed when converted to a customer',
   /* ⚠ AND THE INVOICE DOCUMENT TOO, which is a third builder with its own row and was
      renamed in the same pass. A customer who opens the printable invoice and the
      emailed one should not see two different names for one charge. */
-  const docRow = (/row\('([^']*)', '\$30'\)/.exec(admin) || [])[1] || '';
+  const docRow = (/row\('([^']*)', fmtMoney\(NEW_MEMBER_FEE\)\)/.exec(admin) || [])[1] || '';
   check('flow', 'and the printable invoice document matches them',
     !!docRow && docRow.split('=')[0].trim() === office,
     'the document says "' + docRow + '", the email says "' + office + '"');
@@ -3266,9 +3277,21 @@ check('flow', 'the dashboard outstanding figure uses the one balance formula',
   /return s \+ balanceDueAmount\(i\.data\)/.test(admin),
   'the last hand-rolled balance — it left light-change fees out of the total owed');
 
-check('flow', 'the nightly re-sum keeps the $30 join fee',
-  /inv\.install = groupSum \+ \(inv\.newMemberFeeApplied \? 30 : 0\)/.test(read('functions/index.js')),
+check('flow', 'the nightly re-sum keeps the join fee',
+  /inv\.install = groupSum \+ \(inv\.newMemberFeeApplied \? NEW_MEMBER_FEE : 0\)/.test(read('functions/index.js')),
   'a multi-house payer silently lost the join fee on any re-run; the browser copy gets this right');
+/* ⚠ AND THE CHARGE ITSELF, WHICH NOTHING WATCHED (added 2026-09-03). A red-check put
+   a bare 30 back on the line that actually adds the fee and every check stayed green —
+   the re-sum above was guarded and the charge was not. That is the line that decides
+   what a card is charged. */
+check('flow', 'and the nightly run charges the shared fee, not a number of its own',
+  /inv\.install = \(Number\(inv\.install\) \|\| 0\) \+ NEW_MEMBER_FEE;/.test(read('functions/index.js')),
+  'a literal here is the office quoting one figure and the card being charged another');
+/* ⚠ AND THE SENTENCE THE CUSTOMER READS. The invoice document was guarded; the emailed
+   line beside it was not, and it is the one that arrives in their inbox. */
+check('flow', 'and the emailed installation-fee line reads the same number',
+  /Installation fee = ' \+ fmtMoney\(NEW_MEMBER_FEE\)/.test(admin),
+  'a price written into an email is a price that goes stale the next time it moves');
 
 // syncPayerInvoice used to look houses up by phone ONLY. An invoice is keyed by
 // custInvoiceKey — the phone when there is one, the lowercased email when there
@@ -3425,7 +3448,24 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     arrearsSrcs.every(Boolean),
     'renamed or removed — a missing one leaves the yes path throwing a bare ' +
     'ReferenceError, which reads as "an async suite crashed"');
+  /* ⚠ AND THE REFERRAL CLAWBACK (2026-09-03), the fifth time this trap has been hit and
+     the second time sandboxDeps has named it instead of letting the lift die. A customer
+     answering "no" in their own portal now takes back the $25 their referrer was given,
+     so portalRsvp's decline path calls clawBackReferralServer — left out, every decline
+     in this harness throws a bare ReferenceError.
+     ⚠ LIFTED, NOT STUBBED (§3). A stub would let this suite stay green through a change
+     to WHO KEEPS $25, which is the one thing it is here to protect.
+     ⚠ AND computeInvoiceStatusServer COMES WITH IT: the clawback asks it whether the
+     referrer's bill is already paid in full, and that refusal is the rule standing
+     between a settled customer and a bill arriving after they have paid. */
+  const referralSrcs = [extractFn(fnSrc, 'computeInvoiceStatusServer'),
+    (function(){ const f = extractFn(fnSrc, 'clawBackReferralServer'); return f ? 'async ' + f : ''; })()];
+  check('flow', 'the referral clawback portalRsvp calls was found',
+    referralSrcs.every(Boolean),
+    'renamed or removed — a missing one leaves every decline throwing a bare ' +
+    'ReferenceError, which reads as "an async suite crashed"');
   const fullSrc = [todayStrSrc, stampSrcs, arrearsSrcs.filter(Boolean).join('\n'),
+                   referralSrcs.filter(Boolean).join('\n'),
                    seasonYesSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
     .filter(Boolean).join('\n');
   /* ⭐ AND THE SANDBOX IS CHECKED AGAINST WHAT IT CALLS (2026-08-22). This exact
@@ -3693,8 +3733,8 @@ check('flow', 'Site Settings offers the Both payment option',
   'the portal supports it but there would be no way to turn it on');
 
 // the two fixes above have subtleties that must not regress
-check('flow', 'price sync preserves the $30 new member fee',
-  /newMemberFeeApplied \? 30 : 0/.test(editSave),
+check('flow', 'price sync preserves the new member fee',
+  /newMemberFeeApplied \? NEW_MEMBER_FEE : 0/.test(editSave),
   'a plain install overwrite would silently wipe the fee off anyone who has it');
 check('flow', 'price only syncs when it actually changed',
   /newHousePrice !== oldHousePrice/.test(editSave),
@@ -3877,9 +3917,11 @@ console.log('\n=== 7. Health check engine ===');
 
   hc.set({
     j: [{ id: 'a', data: { name: 'Smith', phone: '8011112222', housePrice: 400, customerNumber: '101', measuredFeet: 100 } }],
-    i: [{ id: '8011112222', data: { install: 430, removal: 0, deposit: 0, status: 'Unpaid', newMemberFeeApplied: true } }]
+    /* ⚠ THE HOUSES PLUS THE FEE, not a number that happens to be 430. Written out,
+       this fixture stops proving anything the moment the fee moves. */
+    i: [{ id: '8011112222', data: { install: 400 + NEW_MEMBER_FEE_NUM, removal: 0, deposit: 0, status: 'Unpaid', newMemberFeeApplied: true } }]
   });
-  check('health', '$30 new member fee is not mistaken for drift',
+  check('health', 'the new member fee is not mistaken for drift',
     get(hc.run(), 'totalDrift').rows.length === 0,
     'install carries the fee on top of house prices');
 
@@ -6435,10 +6477,10 @@ suite('13. Season prep — crew portal (§4)');
 
     // The $30 join fee is not part of any house price, so a rebuild that
     // forgets it silently un-charges the fee.
-    const h3 = makeHarness(houses, { install: 730, newMemberFeeApplied: true });
+    const h3 = makeHarness(houses, { install: 700 + NEW_MEMBER_FEE_NUM, newMemberFeeApplied: true });
     await h3.fn('8011112222');
-    check('sync', 'the $30 join fee survives a rebuild',
-      (h3.written[0] || {}).install === 730,
+    check('sync', 'the join fee survives a rebuild',
+      (h3.written[0] || {}).install === 700 + NEW_MEMBER_FEE_NUM,
       'the fee would be quietly refunded on the next price edit');
 
     /* ---- money already paid against a house follows that house ----
@@ -28783,7 +28825,7 @@ pendingAsync.push((async () => {
   }
   {
     const r = await run79([cust('ada', '8015550001', 400)],
-      [inv('8015550001', {install: 430, removal: 0, deposit: 0, newMemberFeeApplied: true})]);
+      [inv('8015550001', {install: 400 + NEW_MEMBER_FEE_NUM, removal: 0, deposit: 0, newMemberFeeApplied: true})]);
     check('S79', 'but the new member fee is NOT read as drift',
       r.res.resynced === 0,
       'the $30 is a real charge on top of the houses — counting it as drift would ' +
@@ -48533,6 +48575,528 @@ suite('Suite 295. Nothing is hung before the season starts');
       td.takes[0] === '2027-01-05',
       'got ' + td.takes[0] + ' — the install floor must not reach them');
   }
+}
+
+suite('299. A referral link, and the $25 that follows it');
+/* ---------------------------------------------------------------------------
+ * Addie, 2026-09-03: a member gets a link, and when somebody joins through it
+ * $25 comes off the member's bill — with nobody in the office typing anything.
+ *
+ * ⭐ THIS SUITE RUNS THE RULES, IT DOES NOT READ THEM. Every claim here is about
+ * WHERE $25 ENDS UP, and a regex cannot see arithmetic land on the wrong invoice.
+ * The credit path, the refusals and the clawback are lifted out of admin.html and
+ * executed against a fake Firestore whose writes are inspected afterwards.
+ *
+ * ⚠ AND THE ONE THING THAT MAKES IT WORTH HAVING is the pair of refusals. A
+ * feature that hands out money is only as good as what it declines to hand out,
+ * and both refusals are invisible from the outside: a self-referral looks exactly
+ * like a real one, and a clawback that fires on a settled bill looks exactly like
+ * a clawback that was right.
+ * ------------------------------------------------------------------------- */
+{
+  const lift = (name, isAsync) => {
+    const f = extractFn(admin, name);
+    return f ? (isAsync ? 'async ' + f : f) : null;
+  };
+  /* ⚠ extractFn MATCHES FROM THE `function` KEYWORD AND DROPS THE `async` BEFORE IT,
+     so an async body arrives full of bare `await` — a parse error that kills the whole
+     run as one unattributable crash. CLAUDE.md §5 records that costing three suites a
+     run; the flag says which of these need it back. */
+  const PARTS = [
+    ['referralCreditNote', false], ['referralLiveCount', false],
+    ['referralIsSelfReferral', false], ['referralClawbackAllowed', false],
+    ['applyReferralCreditLine', true], ['referralNote', true],
+    ['creditReferralIfAny', true], ['referralBlocked', true],
+    ['referralMarkQuote', true], ['clawBackReferralIfAny', true]
+  ];
+  const lifted = PARTS.map(p => lift(p[0], p[1]));
+  const missingParts = PARTS.filter((p, i) => !lifted[i]).map(p => p[0]);
+  check('S299', 'every referral rule is findable in admin.html',
+    !missingParts.length,
+    'missing: ' + missingParts.join(', ') + ' — repoint this lift rather than stubbing ' +
+    'them; a stub here would keep the suite green through a change to who keeps $25');
+
+  if (!missingParts.length) {
+    /* ⚠ THE REAL MONEY HELPERS, LIFTED FROM js/money.js — never a second opinion written
+       here. computeInvoiceStatus is what decides whether a bill reads Paid in Full, and
+       that decision is the clawback's own refusal; a copy in this file would agree with
+       itself while the shipped rule moved. */
+    const money = read('js/money.js');
+    /* ⚠ centsOf IS NOT OPTIONAL, and assertSandbox could not see that it was missing:
+       it scans the sandbox against admin.html, and this dependency is one js/money.js
+       function calling another. Without it every check below failed with credits=0 and
+       a swallowed ReferenceError inside creditReferralIfAny's own catch — which reads
+       exactly like the credit not being applied, the bug these checks exist to find. */
+    const moneySrcs = ['centsOf', 'computeInvoiceStatus', 'custInvoiceKey', 'fmtMoney']
+      .map(n => extractFn(money, n));
+    check('S299', 'the money rules this leans on are findable in js/money.js',
+      moneySrcs.every(Boolean),
+      'computeInvoiceStatus / custInvoiceKey / fmtMoney — one of these was renamed');
+
+    if (moneySrcs.every(Boolean)) {
+      const BODY = [
+        moneySrcs.join('\n'),
+        'const REFERRAL_CREDIT = 25;',
+        lifted.join('\n'),
+        'return {creditReferralIfAny, clawBackReferralIfAny, applyReferralCreditLine,',
+        '        referralIsSelfReferral, referralClawbackAllowed, referralCreditNote,',
+        '        referralLiveCount};'
+      ].join('\n');
+
+      assertSandbox('S299', 'referral money', BODY, admin,
+        ['db', 'doc', 'getDoc', 'updateDoc', 'addDoc', 'collection', 'serverTimestamp',
+         'jobAddresses', 'allInvoicesCache', 'getLiveInvoiceStatus', 'console',
+         'String', 'Number', 'Boolean', 'Object', 'Array', 'Date', 'Math', 'JSON']);
+
+      /* ---- the fake world ------------------------------------------------
+       * ⚠ THE INVOICE IS A REAL DOCUMENT IN IT, not a value handed to the code. The
+       * whole question is whether the credit reaches the referrer's OWN bill, and a
+       * harness that passes the invoice in has already answered it. */
+      function world(opts) {
+        opts = opts || {};
+        const invoices = opts.invoices || {};
+        const notes = [];
+        const writes = [];
+        const jobAddresses = opts.customers || [];
+        const env = {
+          db: {}, console: {error: function () {}},
+          jobAddresses: jobAddresses,
+          allInvoicesCache: Object.keys(invoices)
+            .map(k => ({id: k, data: invoices[k]})),
+          serverTimestamp: () => 'SERVER_TS',
+          collection: (_db, name) => ({__c: name}),
+          doc: (_db, name, id) => ({__c: name, __id: id}),
+          getDoc: async (ref) => {
+            const store = ref.__c === 'invoices' ? invoices : null;
+            const has = store && Object.prototype.hasOwnProperty.call(store, ref.__id);
+            return {exists: () => !!has, data: () => (has ? store[ref.__id] : undefined)};
+          },
+          updateDoc: async (ref, updates) => {
+            writes.push({collection: ref.__c, id: ref.__id, updates: updates});
+            if (ref.__c === 'invoices' && invoices[ref.__id]) {
+              Object.assign(invoices[ref.__id], updates);
+            }
+            if (ref.__c === 'jobAddresses') {
+              const hit = jobAddresses.find(a => a.id === ref.__id);
+              if (hit) Object.assign(hit.data, updates);
+            }
+            if (ref.__c === 'quotes') {
+              (opts.quotes || {})[ref.__id] = Object.assign(
+                (opts.quotes || {})[ref.__id] || {}, updates);
+            }
+          },
+          addDoc: async (ref, data) => { notes.push(Object.assign({__c: ref.__c}, data)); },
+          getLiveInvoiceStatus: opts.status || function () { return ''; }
+        };
+        const names = Object.keys(env);
+        // eslint-disable-next-line no-new-func
+        const api = new Function(names.join(','), BODY).apply(null, names.map(n => env[n]));
+        return {api: api, notes: notes, writes: writes, invoices: invoices,
+                customers: jobAddresses};
+      }
+
+      /* The line builder on its own, with no fake Firestore around it — the manual
+         box's whole behaviour is this one pure function. */
+      const w299note = world({}).api.referralCreditNote;
+      const referrer = (over) => ({
+        id: 'REF1',
+        data: Object.assign({
+          name: 'Dana Referrer', phone: '8015550111', email: 'dana@x.com',
+          referralToken: 'tok-dana'
+        }, over || {})
+      });
+      const bill = (over) => Object.assign(
+        {install: 400, removal: 0, changeFees: 0, credits: 0, deposit: 0, creditNotes: []},
+        over || {});
+
+      pendingAsync.push((async () => {
+        /* ---- 1. the credit actually lands on the referrer's bill ---------- */
+        {
+          const w = world({
+            customers: [referrer(), {id: 'NEW1', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill()},
+            quotes: {q1: {}}
+          });
+          const res = await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com'});
+          const inv = w.invoices['8015550111'];
+          check('S299', 'a referral link puts $25 on the referrer\'s own bill',
+            res.ok === true && inv.credits === 25 &&
+            (inv.creditNotes || []).filter(c => c.kind === 'referral').length === 1,
+            'got credits=' + inv.credits + ', ' +
+            (inv.creditNotes || []).length + ' note(s) — the office never opens this ' +
+            'customer, so a credit that waits for a Save is a credit nobody gets');
+          check('S299', 'and the referred customer records who sent them',
+            w.writes.some(x => x.collection === 'jobAddresses' && x.id === 'NEW1' &&
+              x.updates.referredByCustomerId === 'REF1'),
+            'without it there is no way back to the referrer and nothing can ever be ' +
+            'taken back');
+          check('S299', 'and the office is told, on the referrer',
+            w.notes.some(n => n.topic === 'Referral Credit Given' && n.phone === '8015550111'),
+            'a credit that appears on a bill with nothing saying why is the shape of a ' +
+            'billing query nobody can answer');
+          check('S299', 'and the quote is stamped so it cannot pay twice',
+            w.writes.some(x => x.collection === 'quotes' && x.updates.referralCredited === true),
+            'without the stamp, re-saving the same conversion credits the referrer again');
+        }
+
+        /* ---- 2. it is idempotent -------------------------------------- */
+        {
+          const w = world({
+            customers: [referrer(), {id: 'NEW1', data: {}}],
+            invoices: {'8015550111': bill()}
+          });
+          const res = await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', referralCredited: true, __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New'});
+          check('S299', 'a quote already credited is never credited a second time',
+            res.ok !== true && w.invoices['8015550111'].credits === 0,
+            'got ' + w.invoices['8015550111'].credits + ' — a conversion can be re-saved, ' +
+            'and $25 a save is a bill walking to zero on its own');
+        }
+
+        /* ---- 3. an unknown token is not an error ----------------------- */
+        {
+          const w = world({customers: [referrer(), {id: 'NEW1', data: {}}],
+                           invoices: {'8015550111': bill()}});
+          const res = await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-nobody', __quoteId: 'q1'}, 'NEW1', {name: 'Kyle'});
+          check('S299', 'a link whose owner is gone credits nobody and does not throw',
+            res.ok !== true && w.notes.length === 0 && w.invoices['8015550111'].credits === 0,
+            'a link outlives the customer who made it, and a conversion must never fail ' +
+            'because of one');
+        }
+
+        /* ---- 4. the refusals ------------------------------------------- */
+        {
+          const same = w => w.invoices['8015550111'].credits;
+          const byPhone = world({
+            customers: [referrer(), {id: 'NEW1', data: {}}],
+            invoices: {'8015550111': bill()}, quotes: {q1: {}}
+          });
+          await byPhone.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Dana Again', phone: '(801) 555-0111', email: 'other@x.com'});
+          check('S299', 'the same phone number, punctuated differently, is still themselves',
+            same(byPhone) === 0,
+            'got ' + same(byPhone) + ' — a stored phone is not always digits, and comparing ' +
+            'the raw strings is how this refusal quietly stops refusing');
+
+          const byMail = world({
+            customers: [referrer(), {id: 'NEW1', data: {}}],
+            invoices: {'8015550111': bill()}, quotes: {q1: {}}
+          });
+          await byMail.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Dana Again', phone: '8015557777', email: 'DANA@X.COM'});
+          check('S299', 'and the same email in different case is too',
+            same(byMail) === 0,
+            'got ' + same(byMail) + ' — an equality query cannot match a case difference, ' +
+            'which this repo has already been caught by twice');
+
+          const bySelf = world({
+            customers: [referrer()], invoices: {'8015550111': bill()}, quotes: {q1: {}}
+          });
+          await bySelf.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'REF1', {name: 'Dana Referrer'});
+          check('S299', 'and their own record is refused before any field is compared',
+            same(bySelf) === 0,
+            'got ' + same(bySelf) + ' — an existing customer re-quoting through their own ' +
+            'link is the easy $25 this whole feature would otherwise hand out');
+
+          check('S299', 'a blocked attempt is still marked, so it is not retried for ever',
+            bySelf.writes.some(x => x.collection === 'quotes' &&
+              x.updates.referralCredited === true),
+            'left unmarked, every save of that quote runs the refusal again');
+          check('S299', 'and it is said out loud rather than silently dropped',
+            bySelf.notes.some(n => n.topic === 'Referral Blocked'),
+            'a refusal nobody can see is indistinguishable from the link not working');
+        }
+
+        /* ---- 5. two referrals are one line, not two -------------------- */
+        {
+          const w = world({
+            customers: [referrer({
+              referralCredits: [{referredCustomerId: 'OLD1', amount: 25, revoked: false}]
+            }), {id: 'NEW1', data: {}}],
+            invoices: {'8015550111': bill({
+              creditNotes: [{amount: 25, kind: 'referral', reason: 'Referral — 1 person'},
+                            {amount: 40, kind: 'manual', reason: 'Goodwill'}],
+              credits: 65
+            })},
+            quotes: {q1: {}}
+          });
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New', phone: '8015559999'});
+          const inv = w.invoices['8015550111'];
+          const refLines = (inv.creditNotes || []).filter(c => c.kind === 'referral');
+          check('S299', 'a second referral rebuilds one $50 line rather than adding another',
+            refLines.length === 1 && refLines[0].amount === 50,
+            'got ' + refLines.length + ' referral line(s) worth ' +
+            (refLines[0] && refLines[0].amount) + ' — two lines saying "Referral" is a bill ' +
+            'that reads as though we discounted them twice for the same friend');
+          check('S299', 'and every other kind of credit on that bill survives it',
+            (inv.creditNotes || []).some(c => c.kind === 'manual' && c.amount === 40) &&
+            inv.credits === 90,
+            'got credits=' + inv.credits + ' — this rebuild owns `referral` and nothing ' +
+            'else; wiping a goodwill discount to add a referral is money taken back from ' +
+            'a customer who was promised it');
+        }
+
+        /* ---- 6. cancelling before the install takes it back ------------ */
+        {
+          const w = world({
+            customers: [referrer({
+              referralCredits: [{referredCustomerId: 'NEW1', amount: 25, revoked: false}],
+              referralCount: 1
+            })],
+            invoices: {'8015550111': bill({
+              creditNotes: [{amount: 25, kind: 'referral', reason: 'Referral — 1 person'}],
+              credits: 25
+            })},
+            status: () => 'Unpaid'
+          });
+          const res = await w.api.clawBackReferralIfAny('NEW1',
+            {name: 'Kyle New', referredByCustomerId: 'REF1', completed: false});
+          const inv = w.invoices['8015550111'];
+          check('S299', 'a friend who cancels before their lights go up takes the $25 with them',
+            res.ok === true && inv.credits === 0 &&
+            (inv.creditNotes || []).filter(c => c.kind === 'referral').length === 0,
+            'got credits=' + inv.credits);
+          check('S299', 'and the entry is kept, marked revoked, rather than deleted',
+            (w.customers[0].data.referralCredits || []).length === 1 &&
+            w.customers[0].data.referralCredits[0].revoked === true &&
+            w.customers[0].data.referralCount === 0,
+            'a list that quietly shortens is one nobody can audit — the Inbox note says ' +
+            'it happened and the entry is what it points at');
+          check('S299', 'and the office is told that too',
+            w.notes.some(n => n.topic === 'Referral Taken Back'),
+            'a credit vanishing off a bill with nothing saying why is worse than leaving it');
+        }
+
+        /* ---- 7. a referral that reached an install is earned ----------- */
+        {
+          const w = world({
+            customers: [referrer({
+              referralCredits: [{referredCustomerId: 'NEW1', amount: 25, revoked: false}],
+              referralCount: 1
+            })],
+            invoices: {'8015550111': bill({
+              creditNotes: [{amount: 25, kind: 'referral'}], credits: 25})},
+            status: () => 'Unpaid'
+          });
+          const res = await w.api.clawBackReferralIfAny('NEW1',
+            {name: 'Kyle New', referredByCustomerId: 'REF1', completed: true});
+          check('S299', 'a friend who cancels AFTER their install keeps the referral earned',
+            res.ok !== true && w.invoices['8015550111'].credits === 25 &&
+            w.notes.length === 0,
+            'got credits=' + w.invoices['8015550111'].credits + ' — Addie: the referral ' +
+            'already did its job');
+        }
+
+        /* ---- 8. a settled bill is never charged back ------------------- */
+        {
+          const w = world({
+            customers: [referrer({
+              referralCredits: [{referredCustomerId: 'NEW1', amount: 25, revoked: false}],
+              referralCount: 1
+            })],
+            invoices: {'8015550111': bill({
+              install: 25, creditNotes: [{amount: 25, kind: 'referral'}], credits: 25})},
+            status: () => 'Paid in Full'
+          });
+          const res = await w.api.clawBackReferralIfAny('NEW1',
+            {name: 'Kyle New', referredByCustomerId: 'REF1', completed: false});
+          check('S299', 'a referrer who has already paid in full is never charged back',
+            res.ok !== true && w.invoices['8015550111'].credits === 25 &&
+            (w.customers[0].data.referralCredits || [])[0].revoked !== true,
+            'got credits=' + w.invoices['8015550111'].credits + ' — taking $25 of credit ' +
+            'off a settled invoice turns it into money owed, which is a bill arriving ' +
+            'after somebody has paid');
+        }
+
+        /* ---- 9. a discount the office crossed off stays crossed off ----
+         * ⚠ THE × ON THE REFERRAL LINE ZEROES referralCount, WHICH USED TO BE THE WHOLE
+         * RECORD AND IS NOT ANY MORE. Every referral path now recomputes that count from
+         * referralCredits[], so without the `waived` mark the next referral through a
+         * link brings back every one the office had taken off — the discount reappearing
+         * on its own, from a path nobody was looking at. */
+        {
+          const w = world({
+            customers: [referrer({
+              referralCredits: [
+                {referredCustomerId: 'OLD1', amount: 25, revoked: false, waived: true},
+                {referredCustomerId: 'OLD2', amount: 25, revoked: false, waived: true}],
+              referralCount: 0
+            }), {id: 'NEW1', data: {}}],
+            invoices: {'8015550111': bill()},
+            quotes: {q1: {}}
+          });
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New', phone: '8015559999'});
+          const inv = w.invoices['8015550111'];
+          check('S299', 'a referral discount the office crossed off does not come back',
+            inv.credits === 25 && w.customers[0].data.referralCount === 1,
+            'got credits=' + inv.credits + ', count=' + w.customers[0].data.referralCount +
+            ' — the new referral is worth $25 and the two waived ones stay waived; ' +
+            'anything higher is the × undoing itself');
+        }
+
+        /* ---- 10. the manual box is unchanged --------------------------
+         * Her §7.8: the People They Referred box, on its own with no referralCredits
+         * entries, must behave exactly as it does on main. The line builder was pulled
+         * out of the Edit Customer save so the automatic path could share it, and this
+         * is what proves the extraction changed nothing — the shape, the wording and
+         * the plural are all exactly what that save used to spell out for itself.
+         * ⚠ AND NOUGHT MUST STAY null, NOT A ZERO LINE. The old save wrote the note
+         * only inside `if(referralCount > 0)`; a $0.00 credit on an invoice reads as a
+         * discount somebody gave and then took back. */
+        {
+          const n0 = w299note(0), n1 = w299note(1), n2 = w299note(3);
+          check('S299', 'the manual People They Referred box still builds the line it always did',
+            n0 === null &&
+            n1 && n1.amount === 25 && n1.reason === 'Referral — 1 person' && n1.kind === 'referral' &&
+            n2 && n2.amount === 75 && n2.reason === 'Referral — 3 people',
+            'got ' + JSON.stringify([n0, n1, n2]) + ' — the office types a count into that ' +
+            'box and this is the line it becomes; the extraction must not have moved it');
+        }
+
+        /* ---- 11. nobody is credited twice for the same friend ---------- */
+        {
+          const w = world({
+            customers: [referrer({
+              referralCredits: [{referredCustomerId: 'NEW1', amount: 25, revoked: true}],
+              referralCount: 0
+            })],
+            invoices: {'8015550111': bill()},
+            status: () => 'Unpaid'
+          });
+          const res = await w.api.clawBackReferralIfAny('NEW1',
+            {name: 'Kyle New', referredByCustomerId: 'REF1', completed: false});
+          check('S299', 'a referral already taken back cannot be taken back again',
+            res.ok !== true && w.notes.length === 0,
+            'a second clawback would raise the Inbox note again on every save of a ' +
+            'customer who has already cancelled');
+        }
+      })());
+    }
+  }
+
+  /* ---- the wiring, asserted separately from the mechanism ---------------
+   * ⚠ THIS HALF IS NOT DECORATION. Every check above runs the rules from its own
+   * harness, so deleting BOTH call sites from admin.html leaves all of them green
+   * while no referral in the real page is ever worth anything — the same shape that
+   * left the Edit Customer tab strip rendering only inside its own suite. */
+  /* ⚠ THE CALL MUST START ITS OWN LINE AND ITS DOOR MUST HOLD NO `if(false)`. Both
+     halves are here because the first version of these two checks was VACUOUS and the
+     red-check proved it: `/await creditReferralIfAny\(/` passes happily on
+     `if(false) await creditReferralIfAny(...)`, so both call sites could be disabled with
+     every check still green — a call that is in the source and can never run, which is
+     the exact failure CLAUDE.md records four separate times. */
+  const reachable = (section, call) =>
+    new RegExp('^\\s*await ' + call + '\\(', 'm').test(section) && !/if\s*\(\s*false/.test(section);
+  const addCustSection = sectionFrom(admin,
+    admin.indexOf("const newAddrRef = await addDoc(collection(db,'jobAddresses')"));
+  check('S299', 'the Add Customer conversion actually calls the shared rule',
+    reachable(addCustSection, 'creditReferralIfAny'),
+    'the rule exists and nothing reachable calls it — a new customer arriving through a ' +
+    'link would be worth nothing to the person who sent them');
+  const requoteSection = sectionFrom(admin, admin.indexOf('const answeredQuoteId = requoteBeingConverted;'));
+  check('S299', 'and so does the applied re-quote',
+    reachable(requoteSection, 'creditReferralIfAny'),
+    'the second door into a customer — left out, a re-quote through a friend\'s link ' +
+    'silently pays nobody');
+  /* ⚠ AND THE TOKEN IS READ BEFORE addCustFromQuoteId IS CLEARED. Moved one line the
+     other way the lookup finds nothing, every referral through that door is worth
+     nothing, and NOTHING GOES RED — the quote id is simply null by then. */
+  check('S299', 'and it reads the quote id before that id is cleared',
+    addCustSection.indexOf('creditReferralIfAny(') !== -1 &&
+    addCustSection.indexOf('creditReferralIfAny(') <
+      addCustSection.indexOf('addCustFromQuoteId = null;'),
+    'the referral is credited AFTER the quote id is cleared, so the token can never ' +
+    'be found');
+
+  /* ---- the portal's own token: minted once, stable for ever ---------------
+   * Her §7.9. ⚠ RUN, NOT READ, because the claim is that a SECOND call returns the
+   * SAME value: a lazy generator that mints a fresh token every visit looks identical
+   * in the source and hands the customer a different link each time they open the tab —
+   * so every link they have already shared silently stops working. */
+  {
+    const fnsSrc = read('functions/index.js');
+    const ensureSrc = extractFn(fnsSrc, 'ensureReferralToken');
+    check('S299', 'ensureReferralToken is findable in functions/index.js',
+      !!ensureSrc, 'renamed or removed — repoint this lift');
+    if (ensureSrc) {
+      const writes = [];
+      let minted = 0;
+      const env = {
+        db: {collection: () => ({doc: () => ({update: async (u) => { writes.push(u); }})})},
+        generatePortalToken: () => 'tok-' + (++minted)
+      };
+      const names = Object.keys(env);
+      // eslint-disable-next-line no-new-func
+      const ensure = new Function(names.join(','),
+        'async ' + ensureSrc + '\nreturn ensureReferralToken;').apply(null, names.map(n => env[n]));
+      pendingAsync.push((async () => {
+        const rec = {};
+        const first = await ensure('REF1', rec);
+        /* The write is what the next visit reads back, so the harness plays Firestore
+           and puts it on the record — exactly as portalLookup's next call would find it. */
+        rec.referralToken = (writes[0] || {}).referralToken;
+        const second = await ensure('REF1', rec);
+        check('S299', 'a referral token is minted once and never changes',
+          first === 'tok-1' && second === 'tok-1' && writes.length === 1,
+          'got ' + first + ' then ' + second + ' after ' + writes.length + ' write(s) — a ' +
+          'fresh token every visit breaks every link the customer has already shared');
+      })());
+    }
+  }
+
+  /* ⚠ AND THE × ON A REFERRAL LINE HAS TO MARK THE ENTRIES, NOT JUST THE COUNT.
+     ⚠ THIS ONE IS STRUCTURAL AND SAYS SO. The check above it RUNS the credit path over
+     entries already marked waived, which proves the count honours the mark — and proves
+     nothing about whether anything ever sets it, because the fixture supplies it. That is
+     the vacuous-fixture trap this repo keeps re-learning, and the red-check caught it
+     here: deleting `referralCredits: marked` from the × left every other check green.
+     Running the real × needs the whole Firestore-writing waive path, which lives in
+     fee-waive.test.js's territory; until it is lifted there, this asserts the two fields
+     travel in ONE write — separate writes can half-succeed, and the half that survives is
+     a zeroed count with live entries, which the next referral silently undoes. */
+  const waiveSection = sectionFrom(admin,
+    admin.indexOf("if(ledger === 'credit' && plan.removed && plan.removed.kind === 'referral')"));
+  check('S299', 'crossing off a referral marks the entries in the same write as the count',
+    /referralCount: 0,\s*referralCredits: marked/.test(waiveSection),
+    'the × zeroes the count alone, and every referral path rebuilds that count from the ' +
+    'entries — so the next referral through a link puts the whole discount back on the ' +
+    'bill, from a screen nobody was looking at');
+
+  /* ⚠ THE OFFICE MARKING SOMEBODY NO IS THE THIRD DOOR, and it is the one the customer
+     never touches — portalRsvp covers the other. */
+  check('S299', 'the office marking somebody No takes the referral back',
+    /clawBackReferralIfAny\(editCustomerId/.test(admin),
+    'a customer cancelled over the phone would leave the referrer $25 up for somebody ' +
+    'who never had lights');
+  const fns = read('functions/index.js');
+  check('S299', 'and so does a customer declining in their own portal',
+    /await clawBackReferralServer\(match\.id/.test(fns),
+    'a decline through the RSVP link never reaches the office screen, so without this ' +
+    'the credit simply stays');
+
+  /* ⚠ THE LINK IS THE REFERRAL TOKEN, NEVER THE LOGIN TOKEN. Reusing portalToken here
+     would hand the customer's own account — their address, their balance, their ability
+     to cancel — to everybody they shared their link with. */
+  const idxSrc = read('index.html');
+  check('S299', 'the shared link carries the referral token, not the portal login token',
+    /\?ref=' \+ encodeURIComponent\(String\(token/.test(idxSrc) &&
+    !/\?ref='\s*\+\s*[^;]*portalToken/.test(idxSrc),
+    'a portal token in a link people paste into group chats is an account handed over');
+  check('S299', 'and the public quote form carries the token it was given',
+    /referredByToken: t/.test(idxSrc) && /referralQuoteFields\(\)/.test(idxSrc),
+    'without it the link is decoration — nothing on the quote says who sent them');
 }
 
 /*
