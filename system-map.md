@@ -1557,6 +1557,121 @@ applied to a plan that already exists.
 *Proved in* run-all.js **Suite 295**, red-checked by deleting the floor line: the two
 checks that reproduce her exact season bar go red and nothing else does.
 
+### The free quote asks less, and a property list that outlives it
+
+Addie, 2026-09-03, across three messages: *"a lot of info in the free quote shouldnt be
+there including upload picture and side of house… side of house should be in detail form,
+1 side should be default"*; *"there should keep the option to add another property but
+make sure there is a way to delete the extra property in case they accidentally push on
+it"*; *"in edit customer we need to have add a building set up there as well in case they
+come around later and want another building."*
+
+**Off the free quote form**
+
+- **The photo uploader, entirely.** A downscaler, a signed Cloudinary upload, and a
+  four-named-walls grid per building. The form promises a quote *"in about two minutes"*,
+  and photographing four walls of a house — and of every outbuilding — was the most
+  expensive thing on it, asked of somebody who had not yet been given a price. Removed
+  rather than hidden: a hidden row is how a feature comes back by accident.
+- **The side count** — moved, not dropped. It drives the footage and so the price, so it
+  is now asked on the **Install Details** form, after they have approved.
+
+**Kept, with a way out.** The *add another property* repeater stays — she asked for it by
+name in the same breath — but each extra row now carries **Remove**. The main house has
+none, because a quote with no house is not a quote. Removing takes the row out of
+`quoteBuildings` as well as out of the page: the element alone would leave the object in
+the array, so the submit would still send a building the customer can no longer see, read
+as a blank one. A nameless extra is not sent at all.
+
+**One side is pre-picked on the details form, and deliberately nowhere else.**
+run-all.js asserts the *opposite* for Edit and Add Customer, and it is right to: those sit
+over ~956 records nobody has ever asked, so a default there stamps a made-up answer on all
+of them — *"a count nobody gave is not a count"*. One customer looking at the question for
+their own house is a different case. A **fresh quote stores no count at all** — absent,
+not 1 — because every reader turns absent into 1 through `portalSideCount`, so the
+default holds without claiming anybody answered.
+
+⚠ **The server had to be told.** `quoteSaveDetails` keeps a whitelist and the
+emailed-link path — the common one — goes through it, so a field the browser sends and the
+function drops is lost with nothing going wrong on screen. It is clamped there too, never
+trusted from the browser: a side count of zero would price a house with no roofline.
+
+### Other buildings on a customer, and the loss that uncovered
+
+`buildings` has been collected by the public quote form for months and **the word did not
+appear anywhere in admin.html**. So a customer who told us about their shop at quote time
+had it recorded on the quote and then dropped the moment they became a customer — silently,
+with nothing to look at.
+
+Edit Customer now has **Other buildings on the property**: name, Add, Remove.
+`addCustBuildingsFromQuote` carries across whatever the quote collected instead of
+throwing it away, filtering out the main house — on a quote that is one of the buildings,
+because the quote has no record of its own; on a customer the record IS the main house.
+
+⚠ **The Add button is wired inside `openEditCustomerModal`, which runs on every open**,
+so `dataset.wired` on the element is the whole mechanism. Unguarded, one press would
+append a row for every customer looked at this session — the Inbox folder sidebar shipped
+exactly that and it cost 2815 Firestore writes from one drop.
+
+⚠ **The field is labelled in `CUSTOMER_FIELD_LABELS`, and that is what gives it a
+reader.** CLAUDE.md §1 wants every field written, read *and* declared, and the change-log
+gate refused it until it had words. It uses its own `buildings` kind rather than
+`list`: these are objects, and `join()` would print `[object Object]` into somebody's
+history — worse than no entry, because it still looks like one. An emptied list reads
+*(none)* and a never-set one *(blank)*, which are different facts and the first is the one
+worth reading.
+
+⚠ **Nothing else reads them yet** — they do not print on a crew sheet. Said here rather
+than left to be discovered.
+
+*Proved in* run-all.js **Suite 299**; **S62** and **S80** were repointed rather than
+weakened, and **S86**'s sandbox lifted the real reader.
+
+### "No" is gone from the office dropdown, but not from the system
+
+Addie, 2026-09-03: *"we can just get rid of the no under rsvp because it means the same
+thing as back next year."*
+
+**They did not mean the same thing, and the difference was destructive.** Picking **No**
+in Edit Customer set `needsLightRecycle` — the warehouse queued to pull that customer's
+bundle apart and hand their number back to the pool — while Back Next Year deliberately
+never does (RS-05, and the "hole G" note: Back Next Year neither creates a recycle nor
+destroys one). So one entry in a list of answers also started physical, irreversible work.
+
+Removing it is therefore the right change rather than merely the requested one: **a
+recycle should be a button that says so, and it already is.** *Recycle Their Old Set* in
+Edit Customer writes the same flag under a label describing what it does. Nothing can no
+longer be done.
+
+**What actually changed**
+
+- The `#editCustRsvp` dropdown offers **Pending / Unanswered / Yes / Back Next Year**.
+- The branch that set `needsLightRecycle` when the answer became `no` is gone — with No
+  unpickable it could never fire again, and dead code that still looks like the rule is
+  worse than no code.
+- The **undo** half stays: a record that already says `no` and is being brought back into
+  the season still has its queued recycle cancelled.
+
+⚠ **The VALUE `no` is not gone and must not be.** `portalRsvp` still writes it when a
+customer taps No in an RSVP email, so `seasonBadgeKey`, `isOutForSeason`, the Members
+filter, the exports and the Yes sheet all still have to understand it — and they do. The
+Members-tab **filter** keeps its No option on purpose: those records exist and have to be
+findable.
+
+⚠ **A stored `no` displays as Back Next Year, and normalises on save.** Setting a
+`<select>` to a value it has no option for leaves it blank — which reads as *Pending
+(never asked)* — and the next save writes that blank over the customer's actual answer.
+So the form maps it, and whoever opens and saves that record converts it. One state, one
+spelling.
+
+⚠ **The Excel destination is unaffected**, which was the thing worth checking before
+agreeing to this. `HLX_STATE_TABS` keys the **Recycle** sheet on `needsLightRecycle` and
+never on the RSVP answer, and **Contact 2027** on `maybeNextYear || 'backnextyear'`. The
+recycle button still sends somebody to the Recycle sheet; Back Next Year still goes to
+Contact 2027.
+
+*Proved in* run-all.js **Suite 298**.
+
 ### One route note a day, not one a sweep
 
 Addie, 2026-08-30: *"system inbox always has a bunch of schedule messages and it's to many to

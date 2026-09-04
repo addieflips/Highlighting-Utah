@@ -3260,6 +3260,13 @@ exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
     notes: str(details.notes, 1500),
     gateCode: str(details.gateCode, 60),
     installPreference: str(details.installPreference, 60) || 'Normal Schedule',
+    /* ⭐ THE SIDE COUNT MOVED ONTO THIS FORM (2026-09-03), so it has to be on the
+       whitelist or the emailed-link path — which is the common one — silently drops it
+       and the answer is lost with nothing going wrong on screen.
+       ⚠ CLAMPED HERE TOO, never trusted from the browser. Same 1-4 as portalSideCount,
+       and anything unreadable becomes 1 rather than 0 or NaN: a side count of zero
+       would price a house with no roofline. */
+    houseSides: Math.min(4, Math.max(1, parseInt(details.houseSides, 10) || 1)),
     wantsMailedInvoice: details.wantsMailedInvoice === true,
     formCompleted: true,
     formCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
