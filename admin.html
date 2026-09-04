@@ -2120,6 +2120,26 @@
               <option value="After Thanksgiving">After Thanksgiving (employees only)</option>
             </select>
           </div>
+          <!-- ⭐ MOVED UP BY HAND (2026-09-03). Owner: "we should be able to manually add
+               priority to specific customers if they directly ask if they can be hung
+               sooner than later."
+               ⚠ IT IS A TICK, NOT A DATE, and that is the whole design. A date would be a
+               promise the season cannot keep — the crew has to be in their town, and the
+               town has to be warm enough to work. A tick says "when we are next in a
+               position to do this house, do it first", which is a promise the schedule can
+               actually keep, every time.
+               ⚠ AND IT NEVER MOVES THEIR MONTH. Owner, in the same breath: "dont do
+               someone in a month they dont want to be hung though." The dropdown above and
+               Don't Install Before This Date both still hold; this only decides the order
+               once they are allowed out at all. Said on screen so nobody ticks it expecting
+               a November customer to be hung in October. -->
+          <div class="form-row" style="margin-top:14px;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" id="editCustRushInstall" style="width:auto; margin:0;">
+              <span>Move this customer up the schedule &mdash; they asked to be hung sooner</span>
+            </label>
+          </div>
+          <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Takes effect the next time you press <b>Recalculate everything</b> on the Schedule tab. It puts them first in their own town &mdash; ahead of new hangs &mdash; and nudges that town up the list for its next crew&nbsp;day. It does <b>not</b> move them into a month they did not ask for, and it does not override <b>Don&rsquo;t Install Before This Date</b>.</p>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Notes for the Crew</label>
             <p style="font-size:12px; color:var(--slate); margin:0 0 10px;">Both show to your crew only &mdash; never on the customer&rsquo;s invoice or portal.</p>
@@ -7607,6 +7627,10 @@ const CUSTOMER_FIELD_LABELS = {
   specificOutletNotes: 'Which outlet', gateCode: 'Gate code',
   layoutMapUrl: {label: 'Layout drawing', kind: 'present'},
   installPreference: 'When they want it hung',
+  /* ⭐ Moved up by hand — see houseInstallPriority. It changes where this customer
+     lands in the season, so it belongs in their history for the same reason the timing
+     preference above it does: somebody will ask why they moved. */
+  rushInstall: {label: 'Moved up the schedule', kind: 'yesno'},
   earliestInstallDate: {label: 'Earliest install date', kind: 'date'},
   rsvpStatus: 'RSVP answer',
   maybeNextYear: {label: 'Back next year', kind: 'yesno'},
@@ -44680,6 +44704,11 @@ function openEditCustomerModal(id){
     });
   }
   document.getElementById('editCustInstallPref').value = d.installPreference || 'Normal Schedule';
+  /* ⭐ Moved up by hand — see the note beside the box. Read through isRushInstall so
+     the tick, the schedule's ordering and the nightly sweep all agree on what the
+     flag means; a bare truthiness test here would light the box for the string
+     'false' that an old import could leave behind. */
+  document.getElementById('editCustRushInstall').checked = (typeof isRushInstall === 'function') ? isRushInstall(d) : (d.rushInstall === true);
   document.getElementById('editCustNotes').value = d.notes || '';
   document.getElementById('editCustPhotoFile').value = '';
   document.getElementById('editCustPhotoStatus').textContent = '';
@@ -45519,6 +45548,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     : (keptStoredWording ? editCustLightsRaw
        : compileLightsDescription(newColors.join(', '), ''));
   const newInstallPref = document.getElementById('editCustInstallPref').value;
+  const newRushInstall = document.getElementById('editCustRushInstall').checked;
   const newHouseNotes = document.getElementById('editCustNotes').value.trim();
   if(!newName || (!newPhone && !newEmail)){ statusEl.textContent = 'Name plus a phone number or email are required.'; return; }
   /* ⚠ HAS ANYBODY ELSE TOUCHED THIS RECORD WHILE THE MODAL WAS OPEN?
@@ -45619,6 +45649,11 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       addrUpdates.lightColors = newColors;
     }
     addrUpdates.installPreference = newInstallPref;
+    /* ⚠ WRITTEN AS A REAL BOOLEAN, EVERY SAVE, INCLUDING WHEN IT IS FALSE. The
+       schedule tests it with === true, so an untick has to land as false rather than
+       be left off the update — a field that is only ever written when it is on can
+       never be turned off again. */
+    addrUpdates.rushInstall = newRushInstall === true;
     addrUpdates.notes = newHouseNotes;
     // Same field the route/dispatch note editor and the crew portal already
     // read and clear on completion — this used to write a differently-named
@@ -47221,6 +47256,43 @@ let CREWS_PER_DAY = 2;
 /* Only ever used for talking to the office about a whole working day. Every
    CAP in the code is per route — see the correction above. */
 function maxStopsPerWorkingDay(){ return MAX_STOPS_PER_ROUTE * CREWS_PER_DAY; }
+/* ---- how cold is too cold to send a crew to a town ----
+   ⭐ Owner, 2026-09-03: "we need it to see the weather in the area and prioritize
+   warmer temperatures and a rule is dont schedule for an area 35 degrees or lower
+   unless there is no area that wants to be hung in that time that is warmer than
+   that."
+
+   TWO RULES LIVE IN THAT SENTENCE AND ONLY ONE OF THEM IS HARD:
+
+   • THE CUTOFF IS A VETO. A town whose forecast high for a date is at or below
+     COLD_DAY_MAX_F is not offered that date at all — unless nothing warmer has
+     anybody waiting on it, and then it is offered after all, because the
+     alternative is a crew standing still and a season that never catches up.
+     That is exactly the "unless" she said out loud.
+
+   • WARMTH IS A TIEBREAK, AND IT IS BANDED. Above the cutoff the warmer town
+     goes first, but only when it is warmer by a WHOLE BAND. Two towns on the
+     Wasatch Front on the same day sit within a degree or two of each other, and
+     letting that decide would quietly overrule "the town with the most houses
+     waiting" — which is the rule the whole season is built on — on the strength
+     of noise. Ten degrees apart is a different kind of day; one degree is not.
+     In practice this only ever separates Levan from Sandy, which is when it is
+     worth separating them.
+
+   ⚠ NO FORECAST IS NOT A COLD FORECAST, and this is the guard that keeps the rest
+   of the season working. The forecast reaches about sixteen days and the season
+   runs into December, so most dates have no number at all; a town whose houses
+   carry no map pin has nowhere to ask about either. Every one of those is "no
+   opinion", and the plan then comes out exactly as it did before any of this
+   existed. Failing the other way round would veto the whole back half of the
+   calendar on the strength of data nobody has.
+
+   ⚠ THE BUILDER KEEPS ITS OWN COPY OF BOTH NUMBERS as opts defaults, the same way
+   it does for a one man day — planNewCrewDays is pure and the suites lift it on
+   its own. rebuildSeasonDays passes these in, so the live plan uses THESE; Suite
+   127 fails if the two ever stop agreeing. */
+const COLD_DAY_MAX_F = 35;
+const WARMTH_BAND_F = 10;
 /* ---- when the season is allowed to start ----
    earliestAllowedInstallDate returns TODAY for anybody whose timing is "Any",
    which is correct for "are they allowed yet" and useless as a season floor:
@@ -47322,6 +47394,17 @@ function nextWorkingDay(dt){
    Anys at the end of that city's November run exactly as described. No special
    case for the date, and nothing to keep in step with the calendar. */
 function installPriority(d){
+  /* ⭐ SOMEBODY WHO RANG UP AND ASKED TO GO SOONER (added 2026-09-03).
+     Owner: "we should be able to manually add priority to specific customers if
+     they directly ask if they can be hung sooner than later."
+     Same flag the Schedule's own ordering reads (houseInstallPriority) so the
+     nightly sweep and Recalculate everything cannot disagree about who is in a
+     hurry — Suite 127 fails if one of them stops reading it.
+     ⚠ IT MOVES THEM UP THE QUEUE, IT DOES NOT MOVE THEIR MONTH. Owner, in the
+     same breath: "dont do someone in a month they dont want to be hung though."
+     earliestAllowedInstallDate is untouched by this, so a November customer who
+     asks to go sooner goes first on the first November day and not before it. */
+  if(d && d.rushInstall === true) return -1;
   const p = normInstallPref(d && d.installPreference);
   if(p === 'October') return 0;
   if(p === 'November - Before Thanksgiving') return 1;
@@ -47329,6 +47412,44 @@ function installPriority(d){
   if(p === 'After Thanksgiving') return 3;
   return 4;   // "Any" / Normal Schedule — deliberately last
 }
+/* ⚠ THESE FOUR LIVE IN THE MAIN APP, NOT IN THE SCHEDULE WIDGET, and that is
+   deliberate. The Schedule tab is a self-contained IIFE — the reliability suite
+   asserts it — so a helper declared in there is invisible to Edit Customer, which
+   is where the rush box is ticked, and the call would throw "is not defined" and
+   take the whole save handler with it. Declared out here, both sides read one
+   definition, which is the point of having them at all. */
+/* ---------- days a house was promised and did not get ----------
+   ⚠ DATES, NOT A COUNTER. Recalculate everything gets pressed twice in a row, and
+   Undo puts the plan back so it can be pressed again — a counter would climb every
+   time and quietly turn one missed morning into a customer who outranks the book.
+   A list of the dates it happened on is idempotent: recording the same day twice is
+   still one miss, whatever presses the button.
+
+   ⚠ AND IT RIDES WITH THE HOUSE. serialize copies every field off a house, so this
+   survives a save and a reload without a line of its own — but that also means it
+   must stay a plain array of plain strings, which is what the filter below is for:
+   this comes back out of Firestore, and out of an imported CSV, and neither is
+   guaranteed to hold what we last put there. */
+function houseMissedDays(h){
+  const v = h && h.missedDays;
+  if(!Array.isArray(v)) return [];
+  return v.filter(function(x){ return typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x); });
+}
+function houseMissedCount(h){ return houseMissedDays(h).length; }
+/* Returns true only when this is news, so a caller can count what it actually
+   recorded rather than what it looked at. */
+function markHouseMissed(h, dateStr){
+  if(!h || typeof dateStr !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
+  const have = houseMissedDays(h);
+  if(have.indexOf(dateStr) !== -1) return false;
+  have.push(dateStr);
+  have.sort();
+  h.missedDays = have;
+  return true;
+}
+/* Whether the office has moved this customer up by hand. One reader for the badge,
+   the schedule and the sweep, so "who is being rushed" has a single answer. */
+function isRushInstall(custData){ return !!(custData && custData.rushInstall === true); }
 /* How much re-arranging one sweep is allowed to do. Not a rule about routes —
    a guard about writes. The first sweep after this shipped could otherwise
    schedule several hundred houses in one go, which is several hundred
@@ -47914,6 +48035,148 @@ function nearbyTowns(city, centres){
     .sort(function(a, b){ return a.miles - b.miles; })
     .map(function(x){ return x.city; });
 }
+/* ================= THE FORECAST, TOWN BY TOWN =================
+   ⭐ Added 2026-09-03 for the owner's cold rule — see COLD_DAY_MAX_F for the rule
+   itself. This half is only the data: what the high is going to be in each town on
+   each date, fetched once and handed to the builder as a plain lookup.
+
+   ⚠ THE BUILDER STAYS PURE. planNewCrewDays takes a `tempFor(town, date)` function
+   through its opts and never fetches anything, which is the only reason run-all can
+   lay out a whole season, cold snap included, with no network and no clock. Nothing
+   below is called from inside it.
+
+   ⚠ ONE REQUEST FOR THE WHOLE BOOK. Open-Meteo takes a comma-separated list of
+   coordinates and answers with an array in the same order, so thirty towns cost one
+   call rather than thirty. It is the same free service the Routes tab's weather card
+   already uses — no key, no account, nothing to expire.
+
+   ⚠ AND IT NEVER STOPS A REBUILD. Every failure path here ends in an empty table,
+   which every reader treats as "no opinion", so a dead network or a changed response
+   shape costs the forecast and nothing else. The office is told on screen rather than
+   in the console: a plan laid out blind looks identical to one laid out warm, and
+   that is exactly the difference somebody needs to know about. */
+const FORECAST_DAYS = 16;              // as far ahead as the free service answers
+const FORECAST_FRESH_MS = 30 * 60 * 1000;
+let SEASON_FORECAST = {at: 0, byTown: {}, towns: 0, days: 0, error: '', pending: null};
+/* The middle of each town, off the customer records rather than the plan — this runs
+   BEFORE the rebuild, so the plan's own grouping does not exist yet. A town with no
+   located house gets no centre and simply never has an opinion about the weather. */
+function forecastTownCentres(){
+  const acc = {};
+  if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)) return acc;
+  jobAddresses.forEach(function(item){
+    const d = (item && item.data) || {};
+    const town = extractCleanCity(d.city);
+    if(!town) return;
+    const la = typeof d.lat === 'number' ? d.lat : null;
+    const ln = typeof d.lng === 'number' ? d.lng : null;
+    if(la === null || ln === null || !isFinite(la) || !isFinite(ln)) return;
+    const a = acc[town] = acc[town] || {lat: 0, lng: 0, n: 0};
+    a.lat += la; a.lng += ln; a.n++;
+  });
+  const out = {};
+  Object.keys(acc).forEach(function(t){
+    out[t] = {lat: acc[t].lat / acc[t].n, lng: acc[t].lng / acc[t].n};
+  });
+  return out;
+}
+/* The daily high in `town` on `dateStr`, or null when nobody knows — which is most
+   dates, and is the answer every caller is built to cope with. */
+function forecastHighFor(town, dateStr){
+  const t = extractCleanCity(town);
+  const row = t && SEASON_FORECAST.byTown[t];
+  const v = row && row[dateStr];
+  return typeof v === 'number' && isFinite(v) ? v : null;
+}
+/* Is this town at or below the cutoff on this date? FALSE when there is no forecast:
+   see the note on COLD_DAY_MAX_F — an unknown day is never a cold day. */
+function forecastIsCold(town, dateStr){
+  const t = forecastHighFor(town, dateStr);
+  return t !== null && t <= COLD_DAY_MAX_F;
+}
+/* Two towns' warmth compared in bands. 0 means "no meaningful difference", which
+   covers both a genuine tie and either side being unknown. */
+function forecastWarmthBand(temp){
+  return temp === null || temp === undefined ? null : Math.floor(temp / WARMTH_BAND_F);
+}
+/* Fetch the whole book's forecast, at most once every half hour. Returns a promise
+   that ALWAYS resolves — never rejects — so a caller can await it without wrapping
+   it, and a caller that forgets to is still safe. */
+function loadSeasonForecast(force){
+  const fresh = !force && SEASON_FORECAST.at &&
+    (Date.now() - SEASON_FORECAST.at) < FORECAST_FRESH_MS && SEASON_FORECAST.towns > 0;
+  if(fresh) return Promise.resolve(SEASON_FORECAST);
+  /* ⚠ ONE FLIGHT AT A TIME. Recalculate everything can be pressed twice while the
+     first request is still out, and two overlapping fetches would race to write the
+     same table. The second press waits on the first one's answer. */
+  if(SEASON_FORECAST.pending) return SEASON_FORECAST.pending;
+  const centres = forecastTownCentres();
+  const towns = Object.keys(centres).sort();
+  if(!towns.length){
+    SEASON_FORECAST = {at: Date.now(), byTown: {}, towns: 0, days: 0,
+      error: 'No customer has a map position yet, so there is nothing to get a forecast for.',
+      pending: null};
+    return Promise.resolve(SEASON_FORECAST);
+  }
+  const url = 'https://api.open-meteo.com/v1/forecast' +
+    '?latitude=' + towns.map(function(t){ return centres[t].lat.toFixed(4); }).join(',') +
+    '&longitude=' + towns.map(function(t){ return centres[t].lng.toFixed(4); }).join(',') +
+    '&daily=temperature_2m_max&temperature_unit=fahrenheit' +
+    '&timezone=America%2FDenver&forecast_days=' + FORECAST_DAYS;
+  const flight = fetch(url).then(function(res){
+    if(!res.ok) throw new Error('forecast HTTP ' + res.status);
+    return res.json();
+  }).then(function(data){
+    /* One coordinate comes back as an object, several as an array. Both shapes are
+       handled because the book having exactly one located town is a real state on a
+       fresh season, not a hypothetical. */
+    const rows = Array.isArray(data) ? data : [data];
+    const byTown = {};
+    let days = 0;
+    towns.forEach(function(t, i){
+      const daily = rows[i] && rows[i].daily;
+      if(!daily || !Array.isArray(daily.time) || !Array.isArray(daily.temperature_2m_max)) return;
+      const row = {};
+      daily.time.forEach(function(ds, k){
+        const v = daily.temperature_2m_max[k];
+        if(typeof v === 'number' && isFinite(v)) row[ds] = v;
+      });
+      const n = Object.keys(row).length;
+      if(!n) return;
+      byTown[t] = row;
+      if(n > days) days = n;
+    });
+    const got = Object.keys(byTown).length;
+    SEASON_FORECAST = {at: Date.now(), byTown: byTown, towns: got, days: days,
+      error: got ? '' : 'The forecast came back with nothing usable in it.', pending: null};
+    return SEASON_FORECAST;
+  })['catch'](function(err){
+    /* ⚠ REPORTED, NOT SWALLOWED, AND THE TABLE IS EMPTIED. Keeping yesterday's
+       forecast after a failure is worse than having none: the office would be shown a
+       cold-weather note for dates the numbers no longer cover. */
+    console.error('[HU] could not load the forecast', err);
+    SEASON_FORECAST = {at: Date.now(), byTown: {}, towns: 0, days: 0,
+      error: 'The weather service could not be reached, so the plan was laid out without it.',
+      pending: null};
+    return SEASON_FORECAST;
+  });
+  SEASON_FORECAST.pending = flight;
+  return flight;
+}
+/* One sentence for the office about what the forecast did to this plan. '' when it
+   has nothing to say, which is the common case in the middle of a warm October. */
+function forecastNote(coldDays){
+  if(SEASON_FORECAST.error) return '⚠ ' + SEASON_FORECAST.error;
+  if(!SEASON_FORECAST.towns) return '';
+  const head = 'Forecast in for ' + SEASON_FORECAST.towns + ' town' +
+    (SEASON_FORECAST.towns === 1 ? '' : 's') + ', ' + SEASON_FORECAST.days + ' days ahead';
+  if(!coldDays) return head + ' — nothing inside it is below ' + COLD_DAY_MAX_F + '°.';
+  /* The other half of the owner's rule, said out loud. A crew-day left on a freezing
+     town is not the rule failing — it is the "unless" firing, and the office should
+     read it as a decision rather than go hunting for the bug. */
+  return head + ' — ' + coldDays + ' crew-day' + (coldDays === 1 ? '' : 's') +
+    ' still fall on a town at ' + COLD_DAY_MAX_F + '° or below, because nothing warmer had anybody waiting.';
+}
 /* ⭐ ONE DAY AT A TIME, BIGGEST TOWNS FIRST — RECOUNTED EVERY DAY.
    Owner, 2026-08-17: "we want to start with the two cities that have the most
    clients and work our way down to the cities with the least clients, so if
@@ -48042,6 +48305,51 @@ function planNewCrewDays(waiting, taken, opts){
     const sh = dayShape(ds);
     return (sh && sh.cap > 0) ? Math.min(cap, sh.cap) : cap;
   };
+  /* ⭐ THE WEATHER, HANDED IN RATHER THAN FETCHED (added 2026-09-03).
+     Owner: "we need it to see the weather in the area and prioritize warmer
+     temperatures and a rule is dont schedule for an area 35 degrees or lower unless
+     there is no area that wants to be hung in that time that is warmer than that."
+
+     A lookup, not a service: tempFor(town, dateStr) answers a number or null, and
+     null — "nobody knows" — is the answer for most dates and every caller that does
+     not pass one. That default is what keeps this function PURE and keeps every
+     suite that builds a whole season offline building exactly the plan it built
+     before. See COLD_DAY_MAX_F for the two rules and why only one of them is hard,
+     and forecastHighFor for where the numbers come from on the live page.
+
+     ⚠ THE NUMBERS ARE PASSED IN TOO, same as a one man day's crew count. The builder
+     is told what counts as cold rather than knowing it, so there is one place to
+     change it and the tests can put a cold snap wherever they need one. */
+  const tempFor = typeof o.tempFor === 'function' ? o.tempFor : function(){ return null; };
+  const coldBelow = typeof o.coldBelow === 'number' ? o.coldBelow : 35;
+  const warmBandF = typeof o.warmBand === 'number' && o.warmBand > 0 ? o.warmBand : 10;
+  const bandOf = function(t){ return t === null || t === undefined ? null : Math.floor(t / warmBandF); };
+  const tooCold = function(city, ds){
+    const t = tempFor(city, ds);
+    return typeof t === 'number' && isFinite(t) && t <= coldBelow;
+  };
+  /* Which of two candidate towns should get this crew-slot. Written out rather than
+     nested into the `if` it replaced, because the ordering IS the rule and every
+     line of it was decided separately:
+       1. urgency — absolute, and the whole timing spec (see installPriority);
+       2. how full a day the town can actually make — added 2026-08-20 to stop short
+          days appearing in the middle of October;
+       3. warmth, in bands — added 2026-09-03, deliberately BELOW the two above so it
+          can never send a crew to a smaller or less urgent town for a couple of
+          degrees. A band apart is a different kind of day; see COLD_DAY_MAX_F;
+       4. most houses still waiting — the owner's own Lehi/Herriman/AF rule;
+       5. alphabetical, so the same book always lays out the same plan.
+     Unknown weather on either side skips step 3 entirely, which is what puts most of
+     the season back on step 4 exactly as before. */
+  const betterTown = function(c, p){
+    if(!p) return true;
+    if(c.urg !== p.urg) return c.urg < p.urg;
+    if(c.fits !== p.fits) return c.fits > p.fits;
+    const cb = bandOf(c.temp), pb = bandOf(p.temp);
+    if(cb !== null && pb !== null && cb !== pb) return cb > pb;
+    if(c.n !== p.n) return c.n > p.n;
+    return c.city < p.city;
+  };
   const maxDays = o.maxDays == null ? 40 : o.maxDays;
   const floor = o.floorDate || toDateStr(nextWorkingDay(seasonFirstDate()));
   const horizon = o.horizonDays == null ? 400 : o.horizonDays;
@@ -48090,7 +48398,14 @@ function planNewCrewDays(waiting, taken, opts){
 
          Among named days it is still earliest-first, so somebody already past their day
          is not overtaken by somebody whose day has only just arrived. */
+      /* ⭐ AND AMONG THE MISSED, THE MOST MISSED (added 2026-09-03). The tier bump in
+         houseInstallPriority is what puts a missed house ahead of its equals; it
+         cannot tell one miss from three, because it is a single step. This does —
+         somebody the crew has driven past twice goes before somebody they missed
+         once. Another TIEBREAK inside the tier, above `named` for the same reason
+         `named` sits above `from`: a promise already broken outranks a preference. */
       return (a.priority - b.priority) ||
+             ((b.missed || 0) - (a.missed || 0)) ||
              ((b.named ? 1 : 0) - (a.named ? 1 : 0)) ||
              (a.from < b.from ? -1 : (a.from > b.from ? 1 : 0));
     });
@@ -48216,22 +48531,39 @@ function planNewCrewDays(waiting, taken, opts){
            The small town then tops up from a neighbour in the usual way, which
            is the owner's "if you need stuff some anys in to fill the day up in
            those areas" — the day goes out full rather than holding five. */
+        /* ⭐ AND A FREEZING TOWN IS SKIPPED WHILE THERE IS A WARMER ONE TO GO TO
+           (added 2026-09-03). Owner: "dont schedule for an area 35 degrees or lower
+           unless there is no area that wants to be hung in that time that is warmer
+           than that."
+
+           That "unless" is why this is TWO PASSES rather than one more clause in
+           betterTown. The first pass simply does not see a town at or below the
+           cutoff. If it comes back with nobody — every town that has anyone waiting
+           is freezing — the second pass runs with the veto lifted and the crew goes
+           out anyway, which is what she asked for: the rule holds the crew back from
+           the cold, it never holds them back from working.
+
+           ⚠ AND THE VETO IS ON THE TOWN THE CREW IS SENT TO, not separately on the
+           one it borrows from below. A borrowed town is inside NEARBY_TOWN_MILES —
+           eight miles — of this one, so it is the same weather; vetoing it on its own
+           would buy nothing but a short day, and a short day is another morning of
+           loading the truck, which is the thing the whole builder is trying to avoid.
+           If the day is warm enough to work, it is warm enough to finish. */
         let pick = null;
-        Object.keys(byCity).forEach(function(c){
-          if(!byCity[c].length) return;
-          if(townsUsedOn(ds).indexOf(c) !== -1) return;   // the other crew is already there
-          const st = allowedStats(c, ds);
-          if(!st.n) return;
-          const fits = fillableCount(c, ds);
-          /* Urgency first, always. Then the town that fills the day best, and only
-             then the one with most houses waiting. */
-          if(!pick || st.urg < pick.urg ||
-             (st.urg === pick.urg && (fits > pick.fits ||
-               (fits === pick.fits && (st.n > pick.n ||
-                 (st.n === pick.n && c < pick.city)))))){
-            pick = {city: c, n: st.n, urg: st.urg, fits: fits};
-          }
-        });
+        for(let pass = 0; pass < 2 && !pick; pass++){
+          const allowCold = pass === 1;
+          Object.keys(byCity).forEach(function(c){
+            if(!byCity[c].length) return;
+            if(townsUsedOn(ds).indexOf(c) !== -1) return;   // the other crew is already there
+            const st = allowedStats(c, ds);
+            if(!st.n) return;
+            const cold = tooCold(c, ds);
+            if(cold && !allowCold) return;
+            const fits = fillableCount(c, ds);
+            const cand = {city: c, n: st.n, urg: st.urg, fits: fits, temp: tempFor(c, ds), cold: cold};
+            if(betterTown(cand, pick)) pick = cand;
+          });
+        }
         if(!pick) break;
         const city = pick.city;
         const queue = byCity[city];
@@ -55955,8 +56287,8 @@ function attachDeleteHandlers(container){
 (function(){ try{
   const host=document.getElementById("scheduleHost"); if(!host||host.shadowRoot) return;
   const RT=host.attachShadow({mode:"open"});
-  const STYLE="\n:host{--green:#0f5132;--green-l:#1a7a4c;--red:#b02a37;--gold:#c99a2e;--bg:#eef1ef;--card:#fff;\n--ink:#1c2621;--muted:#6b776f;--line:#e2e8e4;--done:#dff3e6;--sel:#0f5132;\n--shadow:0 1px 3px rgba(20,40,30,.06),0 6px 20px rgba(20,40,30,.07);}\n*{box-sizing:border-box}\n.rdwrap{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Inter,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.4;-webkit-font-smoothing:antialiased}\n.wrap{max-width:1400px;margin:0 auto;padding:0 18px 60px}\nheader.top{background:linear-gradient(120deg,#0f5132,#1a7a4c 60%,#14663f);color:#fff;padding:26px 0 24px;border-bottom:4px solid var(--gold)}\n.top .wrap{padding-bottom:0}\n.lights{display:flex;gap:6px;margin-bottom:8px}\n.lights i{width:10px;height:10px;border-radius:50%;box-shadow:0 0 8px currentColor}\n.lights i:nth-child(1){background:#ff5a5a;color:#ff5a5a}.lights i:nth-child(2){background:#ffd35a;color:#ffd35a}.lights i:nth-child(3){background:#5affa0;color:#5affa0}.lights i:nth-child(4){background:#5ab8ff;color:#5ab8ff}.lights i:nth-child(5){background:#e07bff;color:#e07bff}\nh1{font-size:24px;margin:0;font-weight:750;letter-spacing:-.01em}\n.sub{color:#d5e8dd;font-size:13.5px;margin-top:3px}\n.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:-42px 0 16px;position:relative}\n.stat{background:var(--card);border-radius:13px;padding:14px 16px;box-shadow:var(--shadow);border:1px solid var(--line)}\n.stat .n{font-size:23px;font-weight:780;color:var(--green);letter-spacing:-.02em}\n.stat .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px;font-weight:650}\n.obar{height:9px;border-radius:6px;background:#e0e6e2;overflow:hidden;margin-top:9px}\n.obar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold));transition:width .4s}\n.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 16px}\n.search{flex:1;min-width:200px;position:relative}\n.search input{width:100%;padding:11px 13px 11px 38px;border:1px solid var(--line);border-radius:11px;font-size:15px;background:var(--card);box-shadow:var(--shadow);outline:none}\n.search input:focus{border-color:var(--green-l)}\n.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.45}\n.btn{padding:11px 15px;border-radius:11px;font-size:14px;font-weight:650;border:1px solid var(--green-l);background:var(--green-l);color:#fff;cursor:pointer;box-shadow:var(--shadow)}\n.btn:hover{background:var(--green)}.btn.ghost{background:var(--card);color:var(--green-l)}\n.layout{display:grid;grid-template-columns:270px 1fr;gap:18px;align-items:start}\n.daylist{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden;max-height:78vh;overflow-y:auto;position:sticky;top:14px}\n.daylist h3{margin:0;padding:13px 15px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}\n.day{padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;flex-direction:column;gap:5px;transition:background .12s}\n.day:hover{background:#f4f8f5}\n.day.sel{background:var(--green);color:#fff}\n.day.sel .dmeta,.day.sel .dbar{color:#d5e8dd}\n.day.sel .dbar{background:rgba(255,255,255,.25)}\n.drow{display:flex;justify-content:space-between;align-items:baseline;gap:8px}\n.dname{font-weight:700;font-size:14.5px}\n.dcount{font-size:12px;font-weight:650;opacity:.85}\n.dmeta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between}\n.dbar{height:5px;border-radius:4px;background:#e0e6e2;overflow:hidden}\n.dbar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold))}\n.day.sel .dbar>i{background:#ffd98a}\n.check-badge{display:inline-block;width:15px;height:15px;border-radius:50%;background:var(--gold);color:#fff;font-size:10px;text-align:center;line-height:15px;margin-left:5px}\n.panel{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden}\n.phead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:12px}\n.phead .t{font-size:19px;font-weight:750}\n.phead .meta{font-size:13px;color:var(--muted);font-weight:600}\n.phead .prog{flex:1;min-width:120px}\n.phead .obar{margin-top:5px}\n.crewtag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:#eef2f0;color:#48564e;padding:3px 9px;border-radius:999px}\n.stop{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);align-items:flex-start}\n.stop:hover{background:#f7faf8}\n.stop.done{background:var(--done)}\n.stop.done .snm{text-decoration:line-through;color:var(--muted)}\n.seq{flex:none;width:30px;height:30px;border-radius:9px;background:var(--green);color:#fff;font-weight:750;font-size:13px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}\n.stop.done .seq{background:var(--gold)}\n.chk{flex:none;margin-top:4px}\ninput[type=checkbox]{width:20px;height:20px;accent-color:var(--green-l);cursor:pointer;margin:0}\n.sbody{flex:1;min-width:0}\n.snm{font-weight:700;font-size:15px}\n.saddr{font-size:13.5px;margin-top:2px}\n.saddr a{color:var(--green-l);text-decoration:none}.saddr a:hover{text-decoration:underline}\n.sline{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 12px}\n.sline a{color:var(--green-l);text-decoration:none}\n.sdetail{font-size:12.5px;color:#5a6b60;margin-top:4px;background:#f2f6f3;border-radius:7px;padding:5px 9px;display:inline-block}\n.stop.done .sdetail{background:rgba(255,255,255,.5)}\n.sprice{flex:none;text-align:right;font-weight:750;color:var(--green);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:15px}\n.tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:650;background:#eef2f0;color:#48564e}\n.tag.oct{background:#fdeede;color:#9a5b16}.tag.nov{background:#e4eefc;color:#25548f}.tag.any{background:#e8f4ec;color:#2b6b45}.tag.thx{background:#f6e6f2;color:#8a3070}.tag.dec{background:#e7f0ff;color:#2a4d8f}\n.searchres .daygrp{border-top:1px solid var(--line)}\n.daygrp-h{padding:8px 16px;background:#f4f8f5;font-size:12px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\nfooter{margin-top:16px;font-size:12px;color:var(--muted);text-align:center;line-height:1.6}\n@media(max-width:820px){.layout{grid-template-columns:1fr}.daylist{position:static;max-height:none;display:flex;overflow-x:auto;flex-wrap:nowrap}.daylist h3{display:none}.day{min-width:150px;border-bottom:none;border-right:1px solid var(--line)}}\n\n\n/* ---- app additions ---- */\n.mockbadge{display:inline-block;background:var(--gold);color:#fff;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:middle;letter-spacing:.03em}\n.stat.remain .n{color:var(--gold)}\n.tabs{display:flex;gap:7px;margin:0 0 16px;flex-wrap:wrap}\n.tab{padding:11px 18px;border-radius:11px;font-size:14.5px;font-weight:700;border:1px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer;box-shadow:var(--shadow)}\n.tab.active{background:var(--green);color:#fff;border-color:var(--green)}\n.tabpane[hidden]{display:none}\n.seasonbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:12px 15px;margin:0 0 14px;display:flex;flex-wrap:wrap;align-items:center;gap:14px}\n.seasonbar .fld{display:flex;flex-direction:column;gap:3px}\n.seasonbar label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}\n.seasonbar input[type=date]{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff}\n.seasonbar .read{font-size:13px;color:var(--muted);font-weight:600}\n.seasonbar .read b{color:var(--green)}\n.wknote{width:100%;font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:7px 11px}\n.mini{padding:7px 11px;border-radius:9px;font-size:12.5px;font-weight:650;border:1px solid var(--line);background:#fff;color:var(--green);cursor:pointer}\n.mini:hover{background:#f4f8f5}\n.mini.warn{border-color:#e7c9cd;color:var(--red)}.mini.warn:hover{background:#fbeef0}\n.daycontrols{display:flex;gap:8px;flex-wrap:wrap;width:100%;align-items:center}\n.moveday{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:#fff;color:#48564e;max-width:250px}\ninput.pin{padding:5px 7px;border:1px solid var(--line);border-radius:7px;font-size:12px;background:#fff}\n.qbtn{font-size:11px;font-weight:700;border-radius:7px;padding:3px 8px;cursor:pointer;border:1px solid}\n.qbtn.oct{border-color:#f0d5b6;background:#fdeede;color:#9a5b16}\n.qbtn.nov{border-color:#c5d8f4;background:#e4eefc;color:#25548f}\n.qbtn:hover{filter:brightness(.96)}\n.sctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}\n.sctl .lbl{font-size:11px;color:var(--muted);font-weight:650}\n.darea{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.day.sel .darea{color:#cfe6d8}\n.pinbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px}\n.weekguide{border-top:1px solid var(--line);background:#fbfdfc}\n.wgh{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;padding:9px 16px 2px}\n.wgrow{display:flex;gap:8px;overflow-x:auto;padding:4px 16px 12px}\n.wchip{flex:none;min-width:118px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff}\n.wchip.here{border-color:var(--green-l);background:#eaf4ee}\n.wchip .wd{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase}\n.wchip .wc{font-size:13.5px;font-weight:750;color:var(--green);margin-top:1px}\n.wchip .wa{font-size:11.5px;color:#48564e;margin-top:3px;line-height:1.3}\n.wchip .wn{font-size:11px;color:var(--muted);margin-top:4px}\n.tray{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);margin:0 0 14px;overflow:hidden}\n.tray h3{margin:0;padding:12px 15px;font-size:13px;font-weight:750;color:var(--green);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;cursor:pointer}\n.tray h3.fix{color:var(--red)}\n.tray h3 .cnt{background:var(--green-l);color:#fff;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px}\n.tray h3.fix .cnt{background:var(--red)}\n.tray h3 .chev{margin-left:auto;color:var(--muted);font-size:12px}\n.traynote{font-size:12px;color:var(--muted);padding:8px 15px 2px}\n.grouph{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:10px 15px 2px}\n.newrow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:11px 15px;border-top:1px solid var(--line)}\n.newrow .who{font-weight:700;font-size:14px;min-width:140px}\n.newrow .meta{font-size:12.5px;color:var(--muted)}\n.newrow .auto{font-size:12px;color:#2b6b45;font-weight:650}\n.newrow .acts{margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap}\n.newbadge{display:inline-block;background:#fbeecd;color:#8a5a12;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.fixbadge{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stop.isnew{box-shadow:inset 3px 0 0 var(--gold)}\n.stop.isfix{box-shadow:inset 3px 0 0 var(--red)}\n.stop.istake{box-shadow:inset 3px 0 0 #6b776f}\n.day.fixroute{background:#fdf3f4}\n.day.fixroute.sel{background:#8f2530;color:#fff}\n.day.fixroute.sel .darea,.day.fixroute.sel .dmeta{color:#f3d6d9}\n.day.fixroute.sel .dbar{background:rgba(255,255,255,.25)}\n.frb{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:6px;vertical-align:middle}\n.day.fixroute.sel .frb{background:#fff;color:#8f2530}\n.buildfix{margin:8px 15px}\n.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:11px;font-size:13.5px;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.25s;z-index:50;max-width:90vw;text-align:center}\n.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.emptyday{padding:20px 16px;color:var(--muted);font-size:13.5px;text-align:center}\n#gate{position:fixed;inset:0;background:linear-gradient(120deg,#0f5132,#14663f);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}\n#gate .card{background:#fff;border-radius:16px;padding:26px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}\n#gate h2{margin:0 0 4px;color:var(--green);font-size:20px}\n#gate p{margin:0 0 16px;color:var(--muted);font-size:13.5px}\n#gate input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin-bottom:10px}\n#gate .err{color:var(--red);font-size:13px;min-height:18px}\n#importBox{max-width:560px;margin:34px auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;box-shadow:var(--shadow);text-align:center}\n#importBox h2{color:var(--green);margin:0 0 6px}\n#importBox p{color:var(--muted);font-size:13.5px;margin:0 0 16px}\n#importBox .err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px}\n.topbar{display:flex;align-items:center;gap:12px;margin-top:6px}\n.savenote{font-size:12.5px;color:#d5e8dd;font-weight:600}\n.linkbtn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;padding:6px 12px;border-radius:9px;font-size:12.5px;font-weight:650;cursor:pointer}\n.hide{display:none!important}\n.lmodal{position:fixed;inset:0;background:rgba(18,30,24,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:60}\n.lmodal .card{background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:86vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);padding:22px}\n.lmodal h2{margin:0 0 4px;color:var(--green);font-size:19px}\n.lmodal .lead{margin:0 0 14px;color:var(--muted);font-size:13.5px}\n.lmodal .lrow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}\n.lmodal .lrow .who{font-weight:700;min-width:130px}\n.lmodal .lrow .meta{color:var(--muted);font-size:12.5px}\n.lmodal .lrow .acts{margin-left:auto}\n.lmodal .pickrow{cursor:pointer;gap:8px 10px}\n.lmodal .pickrow:hover{background:#f7faf8}\n.lmodal .pickrow input[type=checkbox]{flex:none}\n.lmodal .choices{display:flex;flex-direction:column;gap:10px;margin:16px 0 6px}\n.lmodal .choice{text-align:left;padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;font-size:14px;font-weight:650;color:var(--ink)}\n.lmodal .choice:hover{background:#f4f8f5;border-color:var(--green-l)}\n.lmodal .choice small{display:block;font-weight:500;color:var(--muted);font-size:12.5px;margin-top:3px}\n.lmodal .warn{font-size:12.5px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:8px 11px;margin-top:12px}\n.lmodal .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}\n.crewbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:11px 15px;margin:0 0 14px}\n.crewbar .ch{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;margin-bottom:7px}\n.crewrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}\n.crewrow input.cn{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13.5px;background:#fff;min-width:150px;font-weight:700;color:var(--ink)}\n.crewrow select.cc{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;background:#fff;max-width:230px}\n.crewrow .note{font-size:12px;color:var(--muted)}\n.crewbar .warn{font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:6px 10px;margin-top:9px}\n.routehead{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;padding:10px 16px;background:#eaf4ee;border-top:2px solid var(--green-l);font-size:12.5px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\n.routehead span{font-weight:600;color:#48564e;text-transform:none;letter-spacing:0;font-size:12px}\n.routehead.spare{background:#fdf5e7;border-top-color:var(--gold);color:#9a5b16}\n";
-  const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"oneman\">\ud83e\uddcd One Man Installs</button>\n      <button class=\"tab\" data-tab=\"waiting\">\ud83d\udcde Waiting on RSVP</button><button class=\"tab\" data-tab=\"owes\">\ud83d\udcb5 Owes from last year</button>\n      <button class=\"tab\" data-tab=\"printing\">\ud83d\udda8 Printing</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <button class=\"mini\" id=\"recalcBtn\" style=\"margin-left:auto\">⚙ Recalculate everything</button><button class=\"mini\" id=\"undoRebuildBtn\" style=\"display:none\">↶ Undo</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n        <div class=\"wknote\" id=\"staleNote\" style=\"display:none\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-oneman\" hidden><div class=\"tray\" id=\"oneManPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-waiting\" hidden><div class=\"tray\" id=\"waitingRsvpPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-owes\" hidden><div class=\"tray\" id=\"owesLastYearPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-printing\" hidden><div class=\"tray\" id=\"printPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. Ticking a house here marks that customer complete, and anyone whose whole job is finished is invoiced automatically that night.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
+  const STYLE="\n:host{--green:#0f5132;--green-l:#1a7a4c;--red:#b02a37;--gold:#c99a2e;--bg:#eef1ef;--card:#fff;\n--ink:#1c2621;--muted:#6b776f;--line:#e2e8e4;--done:#dff3e6;--sel:#0f5132;\n--shadow:0 1px 3px rgba(20,40,30,.06),0 6px 20px rgba(20,40,30,.07);}\n*{box-sizing:border-box}\n.rdwrap{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Inter,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.4;-webkit-font-smoothing:antialiased}\n.wrap{max-width:1400px;margin:0 auto;padding:0 18px 60px}\nheader.top{background:linear-gradient(120deg,#0f5132,#1a7a4c 60%,#14663f);color:#fff;padding:26px 0 24px;border-bottom:4px solid var(--gold)}\n.top .wrap{padding-bottom:0}\n.lights{display:flex;gap:6px;margin-bottom:8px}\n.lights i{width:10px;height:10px;border-radius:50%;box-shadow:0 0 8px currentColor}\n.lights i:nth-child(1){background:#ff5a5a;color:#ff5a5a}.lights i:nth-child(2){background:#ffd35a;color:#ffd35a}.lights i:nth-child(3){background:#5affa0;color:#5affa0}.lights i:nth-child(4){background:#5ab8ff;color:#5ab8ff}.lights i:nth-child(5){background:#e07bff;color:#e07bff}\nh1{font-size:24px;margin:0;font-weight:750;letter-spacing:-.01em}\n.sub{color:#d5e8dd;font-size:13.5px;margin-top:3px}\n.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:-42px 0 16px;position:relative}\n.stat{background:var(--card);border-radius:13px;padding:14px 16px;box-shadow:var(--shadow);border:1px solid var(--line)}\n.stat .n{font-size:23px;font-weight:780;color:var(--green);letter-spacing:-.02em}\n.stat .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px;font-weight:650}\n.obar{height:9px;border-radius:6px;background:#e0e6e2;overflow:hidden;margin-top:9px}\n.obar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold));transition:width .4s}\n.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 16px}\n.search{flex:1;min-width:200px;position:relative}\n.search input{width:100%;padding:11px 13px 11px 38px;border:1px solid var(--line);border-radius:11px;font-size:15px;background:var(--card);box-shadow:var(--shadow);outline:none}\n.search input:focus{border-color:var(--green-l)}\n.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.45}\n.btn{padding:11px 15px;border-radius:11px;font-size:14px;font-weight:650;border:1px solid var(--green-l);background:var(--green-l);color:#fff;cursor:pointer;box-shadow:var(--shadow)}\n.btn:hover{background:var(--green)}.btn.ghost{background:var(--card);color:var(--green-l)}\n.layout{display:grid;grid-template-columns:270px 1fr;gap:18px;align-items:start}\n.daylist{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden;max-height:78vh;overflow-y:auto;position:sticky;top:14px}\n.daylist h3{margin:0;padding:13px 15px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}\n.day{padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;flex-direction:column;gap:5px;transition:background .12s}\n.day:hover{background:#f4f8f5}\n.day.sel{background:var(--green);color:#fff}\n.day.sel .dmeta,.day.sel .dbar{color:#d5e8dd}\n.day.sel .dbar{background:rgba(255,255,255,.25)}\n.drow{display:flex;justify-content:space-between;align-items:baseline;gap:8px}\n.dname{font-weight:700;font-size:14.5px}\n.dcount{font-size:12px;font-weight:650;opacity:.85}\n.dmeta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between}\n.dbar{height:5px;border-radius:4px;background:#e0e6e2;overflow:hidden}\n.dbar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold))}\n.day.sel .dbar>i{background:#ffd98a}\n.check-badge{display:inline-block;width:15px;height:15px;border-radius:50%;background:var(--gold);color:#fff;font-size:10px;text-align:center;line-height:15px;margin-left:5px}\n.panel{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden}\n.phead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:12px}\n.phead .t{font-size:19px;font-weight:750}\n.phead .meta{font-size:13px;color:var(--muted);font-weight:600}\n.phead .prog{flex:1;min-width:120px}\n.phead .obar{margin-top:5px}\n.crewtag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:#eef2f0;color:#48564e;padding:3px 9px;border-radius:999px}\n.stop{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);align-items:flex-start}\n.stop:hover{background:#f7faf8}\n.stop.done{background:var(--done)}\n.stop.done .snm{text-decoration:line-through;color:var(--muted)}\n.seq{flex:none;width:30px;height:30px;border-radius:9px;background:var(--green);color:#fff;font-weight:750;font-size:13px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}\n.stop.done .seq{background:var(--gold)}\n.chk{flex:none;margin-top:4px}\ninput[type=checkbox]{width:20px;height:20px;accent-color:var(--green-l);cursor:pointer;margin:0}\n.sbody{flex:1;min-width:0}\n.snm{font-weight:700;font-size:15px}\n.saddr{font-size:13.5px;margin-top:2px}\n.saddr a{color:var(--green-l);text-decoration:none}.saddr a:hover{text-decoration:underline}\n.sline{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 12px}\n.sline a{color:var(--green-l);text-decoration:none}\n.sdetail{font-size:12.5px;color:#5a6b60;margin-top:4px;background:#f2f6f3;border-radius:7px;padding:5px 9px;display:inline-block}\n.stop.done .sdetail{background:rgba(255,255,255,.5)}\n.sprice{flex:none;text-align:right;font-weight:750;color:var(--green);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:15px}\n.tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:650;background:#eef2f0;color:#48564e}\n.tag.oct{background:#fdeede;color:#9a5b16}.tag.nov{background:#e4eefc;color:#25548f}.tag.any{background:#e8f4ec;color:#2b6b45}.tag.thx{background:#f6e6f2;color:#8a3070}.tag.dec{background:#e7f0ff;color:#2a4d8f}\n.searchres .daygrp{border-top:1px solid var(--line)}\n.daygrp-h{padding:8px 16px;background:#f4f8f5;font-size:12px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\nfooter{margin-top:16px;font-size:12px;color:var(--muted);text-align:center;line-height:1.6}\n@media(max-width:820px){.layout{grid-template-columns:1fr}.daylist{position:static;max-height:none;display:flex;overflow-x:auto;flex-wrap:nowrap}.daylist h3{display:none}.day{min-width:150px;border-bottom:none;border-right:1px solid var(--line)}}\n\n\n/* ---- app additions ---- */\n.mockbadge{display:inline-block;background:var(--gold);color:#fff;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:middle;letter-spacing:.03em}\n.stat.remain .n{color:var(--gold)}\n.tabs{display:flex;gap:7px;margin:0 0 16px;flex-wrap:wrap}\n.tab{padding:11px 18px;border-radius:11px;font-size:14.5px;font-weight:700;border:1px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer;box-shadow:var(--shadow)}\n.tab.active{background:var(--green);color:#fff;border-color:var(--green)}\n.tabpane[hidden]{display:none}\n.seasonbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:12px 15px;margin:0 0 14px;display:flex;flex-wrap:wrap;align-items:center;gap:14px}\n.seasonbar .fld{display:flex;flex-direction:column;gap:3px}\n.seasonbar label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}\n.seasonbar input[type=date]{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff}\n.seasonbar .read{font-size:13px;color:var(--muted);font-weight:600}\n.seasonbar .read b{color:var(--green)}\n.wknote{width:100%;font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:7px 11px}\n.mini{padding:7px 11px;border-radius:9px;font-size:12.5px;font-weight:650;border:1px solid var(--line);background:#fff;color:var(--green);cursor:pointer}\n.mini:hover{background:#f4f8f5}\n.mini.warn{border-color:#e7c9cd;color:var(--red)}.mini.warn:hover{background:#fbeef0}\n.daycontrols{display:flex;gap:8px;flex-wrap:wrap;width:100%;align-items:center}\n.moveday{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:#fff;color:#48564e;max-width:250px}\ninput.pin{padding:5px 7px;border:1px solid var(--line);border-radius:7px;font-size:12px;background:#fff}\n.qbtn{font-size:11px;font-weight:700;border-radius:7px;padding:3px 8px;cursor:pointer;border:1px solid}\n.qbtn.oct{border-color:#f0d5b6;background:#fdeede;color:#9a5b16}\n.qbtn.nov{border-color:#c5d8f4;background:#e4eefc;color:#25548f}\n.qbtn:hover{filter:brightness(.96)}\n.sctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}\n.sctl .lbl{font-size:11px;color:var(--muted);font-weight:650}\n.darea{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.day.sel .darea{color:#cfe6d8}\n.pinbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px}\n.weekguide{border-top:1px solid var(--line);background:#fbfdfc}\n.wgh{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;padding:9px 16px 2px}\n.wgrow{display:flex;gap:8px;overflow-x:auto;padding:4px 16px 12px}\n.wchip{flex:none;min-width:118px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff}\n.wchip.here{border-color:var(--green-l);background:#eaf4ee}\n.wchip .wd{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase}\n.wchip .wc{font-size:13.5px;font-weight:750;color:var(--green);margin-top:1px}\n.wchip .wa{font-size:11.5px;color:#48564e;margin-top:3px;line-height:1.3}\n.wchip .wn{font-size:11px;color:var(--muted);margin-top:4px}\n.tray{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);margin:0 0 14px;overflow:hidden}\n.tray h3{margin:0;padding:12px 15px;font-size:13px;font-weight:750;color:var(--green);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;cursor:pointer}\n.tray h3.fix{color:var(--red)}\n.tray h3 .cnt{background:var(--green-l);color:#fff;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px}\n.tray h3.fix .cnt{background:var(--red)}\n.tray h3 .chev{margin-left:auto;color:var(--muted);font-size:12px}\n.traynote{font-size:12px;color:var(--muted);padding:8px 15px 2px}\n.grouph{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:10px 15px 2px}\n.newrow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:11px 15px;border-top:1px solid var(--line)}\n.newrow .who{font-weight:700;font-size:14px;min-width:140px}\n.newrow .meta{font-size:12.5px;color:var(--muted)}\n.newrow .auto{font-size:12px;color:#2b6b45;font-weight:650}\n.newrow .acts{margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap}\n.newbadge{display:inline-block;background:#fbeecd;color:#8a5a12;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.fixbadge{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stop.isnew{box-shadow:inset 3px 0 0 var(--gold)}\n.stop.isfix{box-shadow:inset 3px 0 0 var(--red)}\n.stop.istake{box-shadow:inset 3px 0 0 #6b776f}\n.day.fixroute{background:#fdf3f4}\n.day.fixroute.sel{background:#8f2530;color:#fff}\n.day.fixroute.sel .darea,.day.fixroute.sel .dmeta{color:#f3d6d9}\n.day.fixroute.sel .dbar{background:rgba(255,255,255,.25)}\n.frb{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:6px;vertical-align:middle}\n.day.fixroute.sel .frb{background:#fff;color:#8f2530}\n.buildfix{margin:8px 15px}\n.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:11px;font-size:13.5px;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.25s;z-index:50;max-width:90vw;text-align:center}\n.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.emptyday{padding:20px 16px;color:var(--muted);font-size:13.5px;text-align:center}\n#gate{position:fixed;inset:0;background:linear-gradient(120deg,#0f5132,#14663f);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}\n#gate .card{background:#fff;border-radius:16px;padding:26px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}\n#gate h2{margin:0 0 4px;color:var(--green);font-size:20px}\n#gate p{margin:0 0 16px;color:var(--muted);font-size:13.5px}\n#gate input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin-bottom:10px}\n#gate .err{color:var(--red);font-size:13px;min-height:18px}\n#importBox{max-width:560px;margin:34px auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;box-shadow:var(--shadow);text-align:center}\n#importBox h2{color:var(--green);margin:0 0 6px}\n#importBox p{color:var(--muted);font-size:13.5px;margin:0 0 16px}\n#importBox .err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px}\n.topbar{display:flex;align-items:center;gap:12px;margin-top:6px}\n.savenote{font-size:12.5px;color:#d5e8dd;font-weight:600}\n.linkbtn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;padding:6px 12px;border-radius:9px;font-size:12.5px;font-weight:650;cursor:pointer}\n.hide{display:none!important}\n.lmodal{position:fixed;inset:0;background:rgba(18,30,24,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:60}\n.lmodal .card{background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:86vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);padding:22px}\n.lmodal h2{margin:0 0 4px;color:var(--green);font-size:19px}\n.lmodal .lead{margin:0 0 14px;color:var(--muted);font-size:13.5px}\n.lmodal .lrow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}\n.lmodal .lrow .who{font-weight:700;min-width:130px}\n.lmodal .lrow .meta{color:var(--muted);font-size:12.5px}\n.lmodal .lrow .acts{margin-left:auto}\n.lmodal .pickrow{cursor:pointer;gap:8px 10px}\n.lmodal .pickrow:hover{background:#f7faf8}\n.lmodal .pickrow input[type=checkbox]{flex:none}\n.lmodal .choices{display:flex;flex-direction:column;gap:10px;margin:16px 0 6px}\n.lmodal .choice{text-align:left;padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;font-size:14px;font-weight:650;color:var(--ink)}\n.lmodal .choice:hover{background:#f4f8f5;border-color:var(--green-l)}\n.lmodal .choice small{display:block;font-weight:500;color:var(--muted);font-size:12.5px;margin-top:3px}\n.lmodal .warn{font-size:12.5px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:8px 11px;margin-top:12px}\n.lmodal .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}\n.crewbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:11px 15px;margin:0 0 14px}\n.crewbar .ch{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;margin-bottom:7px}\n.crewrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}\n.crewrow input.cn{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13.5px;background:#fff;min-width:150px;font-weight:700;color:var(--ink)}\n.crewrow select.cc{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;background:#fff;max-width:230px}\n.crewrow .note{font-size:12px;color:var(--muted)}\n.crewbar .warn{font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:6px 10px;margin-top:9px}\n.routehead{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;padding:10px 16px;background:#eaf4ee;border-top:2px solid var(--green-l);font-size:12.5px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\n.routehead span{font-weight:600;color:#48564e;text-transform:none;letter-spacing:0;font-size:12px}\n.routehead.spare{background:#fdf5e7;border-top-color:var(--gold);color:#9a5b16}\n.rushbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.missbadge{display:inline-block;background:#efe6fb;color:#5b3a86;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n";
+  const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"oneman\">\ud83e\uddcd One Man Installs</button>\n      <button class=\"tab\" data-tab=\"waiting\">\ud83d\udcde Waiting on RSVP</button><button class=\"tab\" data-tab=\"owes\">\ud83d\udcb5 Owes from last year</button>\n      <button class=\"tab\" data-tab=\"printing\">\ud83d\udda8 Printing</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <button class=\"mini\" id=\"recalcBtn\" style=\"margin-left:auto\">⚙ Recalculate everything</button><button class=\"mini\" id=\"undoRebuildBtn\" style=\"display:none\">↶ Undo</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n        <div class=\"wknote\" id=\"staleNote\" style=\"display:none\"></div>\n        <div class=\"wknote\" id=\"fcNote\" style=\"display:none\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-oneman\" hidden><div class=\"tray\" id=\"oneManPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-waiting\" hidden><div class=\"tray\" id=\"waitingRsvpPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-owes\" hidden><div class=\"tray\" id=\"owesLastYearPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-printing\" hidden><div class=\"tray\" id=\"printPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. Ticking a house here marks that customer complete, and anyone whose whole job is finished is invoiced automatically that night.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
   RT.innerHTML="<style>"+STYLE+"</style>"+MARKUP;
 const PLAN_REF=()=>doc(db,'routeSchedule','plan');
 /* ISO date of the CSV import this plan was built from — see serialize(). */
@@ -56025,6 +56357,26 @@ let SEASON=[], ORDER=[], BASE_START, globalDelta=0, takeDelta=0;
 let selSchedule=null, selFix=null, selTake=null, activeTab='schedule';
 let fixOpen=true, FIXLIST=[], fixRouteSeq=0, loaded=false, saveTimer=null;
 let preRebuild=null;   // the plan before the last Rebuild days, for one-press undo
+/* ⭐ Recalculate everything now waits on the forecast before it lays anything out,
+   which means there is a moment — usually a few hundred milliseconds — when the
+   button has been pressed and nothing has happened yet. Two presses inside that
+   moment would rebuild the season twice and leave preRebuild pointing at the plan
+   AFTER the first one, so Undo would only get halfway back. */
+let recalcRunning=false;
+/* The sentence under the season bar about the forecast this plan was laid out with.
+   Kept so a redraw does not wipe it — renderAll runs for every tick of every box on
+   the page, and the news is about the last rebuild, not the last click. */
+let forecastNoteText='';
+function showForecastNote(coldDays){
+  forecastNoteText=(typeof forecastNote==='function')?forecastNote(coldDays):'';
+  paintForecastNote();
+}
+function paintForecastNote(){
+  const el=RT.getElementById('fcNote');
+  if(!el) return;
+  el.textContent=forecastNoteText;
+  el.style.display=forecastNoteText?'':'none';
+}
 /* ⭐ THE DATES SOMEBODY IS AWAY. Keyed by date — '2026-11-10' -> 'crew' | 'man'.
    Empty on almost every plan, which is the point: an empty list means the season is
    laid out by the ordinary maths. See dayLimitOn, and the note in planNewCrewDays
@@ -56881,6 +57233,25 @@ function renderFixTray(){
 function weekGuideHTML(fromDay){const od=phaseDays(fromDay);const start=od.indexOf(fromDay);const week=od.slice(start,start+7);
   return '<div class="weekguide"><div class="wgh">Where the crew will be — next '+week.length+' '+(fromDay.isTakedown?'takedown':'route')+' days</div><div class="wgrow">'+
     week.map(d=>{const l=dlabel(dayDate(d));return'<div class="wchip'+(d.id===fromDay.id?' here':'')+'"><div class="wd">'+l.wd+'</div><div class="wc">'+l.full+'</div><div class="wa">'+esc(dayMainArea(d))+'</div><div class="wn">'+d.houses.length+' houses</div></div>';}).join('')+'</div></div>';}
+/* ⭐ WHY THIS HOUSE IS WHERE IT IS (added 2026-09-03). Two of the three new
+   orderings MOVE somebody up a route without anything on screen saying so, and a
+   customer who has quietly changed place is what the office gets rung about. The
+   third — the weather — is about the DAY, so it is said once on the season bar
+   rather than forty times down a list.
+   ⚠ GUARDED, because this renderer is lifted into suites that supply neither
+   helper, and a badge is not worth a thrown render. */
+function stopFlagBadges(h){
+  let out='';
+  const cust=(typeof customerForHouse==='function')?customerForHouse(h):null;
+  if(typeof isRushInstall==='function' && isRushInstall(cust&&cust.data)){
+    out+='<span class="rushbadge" title="Moved up by hand — they asked to be hung sooner">ASKED SOONER</span>';
+  }
+  const missed=(typeof houseMissedCount==='function')?houseMissedCount(h):0;
+  if(missed){
+    out+='<span class="missbadge" title="The crew did not reach this house on '+missed+' day'+(missed===1?'':'s')+' already">MISSED ×'+missed+'</span>';
+  }
+  return out;
+}
 function stopHTML(h,n,dayId){
   const maps='https://maps.google.com/?q='+encodeURIComponent((h.address||'')+' '+(h.city||'')+' UT '+(h.zip||''));
   const ph=h.phone?'<a href="tel:'+h.phone+'">'+fmtPhone(h.phone)+'</a>':'';
@@ -56892,7 +57263,7 @@ function stopHTML(h,n,dayId){
   else if(!h.isTakedown)extra+='<button class="qbtn oct" data-reassign="'+h.id+'" data-month="10">→ Oct</button><button class="qbtn nov" data-reassign="'+h.id+'" data-month="11">→ Nov</button>';
   extra+='</div>';
   return '<div class="'+cls+'"><div class="chk"><input type="checkbox" data-id="'+h.id+'"'+(h.done?' checked':'')+'></div><div class="seq">'+n+'</div>'+
-    '<div class="sbody"><div class="snm">'+esc(personName(h.name,h))+(isNewMemberHouse(h)?'<span class="newbadge">NEW</span>':'')+(h.isFix?'<span class="fixbadge">FIX</span>':'')+(h.cu?' <span style="font-weight:600;color:var(--muted);font-size:12.5px">#'+esc(h.cu)+'</span>':'')+'</div>'+
+    '<div class="sbody"><div class="snm">'+esc(personName(h.name,h))+(isNewMemberHouse(h)?'<span class="newbadge">NEW</span>':'')+(h.isFix?'<span class="fixbadge">FIX</span>':'')+stopFlagBadges(h)+(h.cu?' <span style="font-weight:600;color:var(--muted);font-size:12.5px">#'+esc(h.cu)+'</span>':'')+'</div>'+
     '<div class="saddr"><a href="'+maps+'" target="_blank" rel="noopener">'+esc(h.address)+'</a></div>'+(line?'<div class="sline">'+line+'</div>':'')+(h.details?'<div class="sdetail">'+esc(h.details)+'</div>':'')+extra+'</div>'+
     '<div class="sprice">'+(typeof h.price==='number'&&h.price?'$'+h.price:'')+'</div></div>';
 }
@@ -57373,7 +57744,18 @@ function applyLeftoverPicks(dayId){
      ones they did not are marked back to not-done. A one-way version silently leaves
      a house ticked that the crew never reached — and it would then be invoiced. */
   let leftoverUnlinked=0;
+  /* ⭐ THE DAY THIS WAS, so a house nobody got to carries the record of it (added
+     2026-09-03). This screen is the office saying, in as many words, "the crew did
+     not reach these" — which is exactly what the owner asked to feed the ordering,
+     and it is a better signal than the rebuild's own guess because somebody typed it.
+     ⚠ ONLY FOR A DAY THAT HAS ARRIVED. The same screen is used to strip a future day
+     back before the crew ever sets out, and nobody has been missed on a day that has
+     not happened. See markHouseMissed for why recording it twice is harmless. */
+  const leftDate=dayDate(day);
+  const leftToday=new Date(); leftToday.setHours(23,59,59,999);
+  const leftStr=(leftDate&&leftDate<=leftToday&&!day.isFixRoute&&!day.isTakedown)?isoOf(leftDate):'';
   day.houses.forEach(function(h){ h.done=!leftoverPicked.has(String(h.id));
+    if(!h.done&&leftStr&&typeof markHouseMissed==='function') markHouseMissed(h,leftStr);
     /* ⚠ UNCONDITIONAL, not "only when the plan flag moved". The office is stating the
        final truth for this day, and the customer record may have been changed from
        Routes or the customer row since the plan was last touched — so a house whose
@@ -57747,7 +58129,7 @@ function renderCrewBar(){
    asks h.done, and Job 3 makes that the CUSTOMER's answer rather than the plan's —
    so it has to be brought up to date before renderStats counts what is left,
    renderActive draws the ticks, and scheduleSave writes the plan back. */
-function renderAll(){refreshDerivedDone();computeDates();renderStats();renderActive();renderImportedAt();if(loaded)scheduleSave();}
+function renderAll(){refreshDerivedDone();computeDates();renderStats();renderActive();renderImportedAt();paintForecastNote();if(loaded)scheduleSave();}
 /* Say out loud that this plan is a SNAPSHOT of a CSV, and how old it is.
    Nothing on this tab distinguished a plan built this morning from one built
    from a months-old export — it just looked like the schedule. */
@@ -57904,28 +58286,87 @@ function houseDeadline(h){
    first on the first November one — which is exactly what was asked for.
    chargeNewMemberFee is the same flag the New Hang badge on Routes reads,
    so the two cannot drift apart. */
+/* ⚠ THE TIERS ARE SPACED TEN APART, and the gaps are load-bearing (2026-09-03).
+   They used to be 0,1,2,3,4 with nothing between them, so there was nowhere to put
+   "this house is a little more urgent than the rest of its tier" — the only way to
+   move somebody up was to move them into the NEXT tier, which is how a missed
+   October house would have started outranking new hangs and a missed Any house
+   would have jumped the whole October queue. Ten apart leaves room for a bump that
+   moves somebody to the front of their own tier and no further.
+
+     0  somebody the office moved up by hand
+    10  a new hang — never had lights before
+    20  asked for October; Before Thanksgiving once its week opens
+    30  no preference, or a named day that has arrived
+    40  asked for November
+    50  after Thanksgiving
+
+   ⚠ NOTHING READS THESE NUMBERS FOR THEIR VALUE — every comparison in the builder
+   is < or >. Change the spacing here and the season lays out the same; change the
+   ORDER and it does not.
+
+   ⚠ SELF-CONTAINED ON PURPOSE. Suites 43, 44 and 50 lift this function on its own
+   into a bare sandbox, so it names no constant that lives outside it. */
 function houseInstallPriority(h, custData){
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
-  if(custData && custData.chargeNewMemberFee === true) return 0;   // never been hung
+  /* ⭐ SOMEBODY WHO ASKED TO GO SOONER GOES FIRST (added 2026-09-03). Owner: "we
+     should be able to manually add priority to specific customers if they directly
+     ask if they can be hung sooner than later."
+
+     ⚠ AHEAD OF NEW HANGS, DELIBERATELY. "New hangs are the very top priority"
+     (2026-08-17) is a rule the system applies to everybody automatically; this is a
+     person in the office deciding, after a phone call, that this one customer comes
+     first. An override that cannot override the automatic rule is not an override,
+     and there are only ever a handful of these — a checkbox somebody has to tick —
+     so it cannot bend the season out of shape.
+
+     ⚠ IT DOES NOT MOVE THEIR MONTH, and this is the half that matters. Owner, in
+     the same breath: "dont do someone in a month they dont want to be hung though."
+     houseAllowedFrom is untouched by any of this, so a November customer who asks
+     to go sooner is taken first on the first November day and not one day earlier.
+     Same flag installPriority reads, so the nightly sweep agrees. */
+  if(custData && custData.rushInstall === true) return 0;
+  let tier;
+  if(custData && custData.chargeNewMemberFee === true) tier = 10;   // never been hung
   /* ⭐ A NAMED DAY IS NOT AN URGENT ONE. Owner, 2026-08-19: "if they ask for a
      specific day though that is not top priority we just do it the next time we
      have a chance for when they ask."
 
-     It used to return 1, the same tier as October, so somebody who wrote 11/9 was
+     It used to be the same tier as October, so somebody who wrote 11/9 was
      treated as being in a hurry. They are not — they are waiting for a date, which
      is a different thing. houseAllowedFrom already holds them until that day; from
      there they take their turn like anybody with no preference, which is exactly
      "the next time we have a chance". */
-  if(prefSpecificDate(p, BASE_START.getFullYear())) return 2;
-  if(p.indexOf('OCT')===0) return 1;   // asked for October
-  if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX') return 4;   // last of all
+  else if(prefSpecificDate(p, BASE_START.getFullYear())) tier = 30;
+  else if(p.indexOf('OCT')===0) tier = 20;   // asked for October
+  else if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX') tier = 50;   // last of all
   /* ⚠ FIRST ONCE THE RUN-UP OPENS. houseAllowedFrom holds these back until the
      week of the holiday, so this decides only what happens inside that week —
      and there they must outrank everybody, because for them a day late is a
      missed Thanksgiving rather than a slightly later hang. */
-  if(p.indexOf('BEFORE THANKS') !== -1 || p === 'THANKSGIVING') return 1;
-  if(p.indexOf('NOV')===0) return 3;   // asked for November — waits
-  return 2;                            // no preference — fills in behind October
+  else if(p.indexOf('BEFORE THANKS') !== -1 || p === 'THANKSGIVING') tier = 20;
+  else if(p.indexOf('NOV')===0) tier = 40;   // asked for November — waits
+  else tier = 30;                            // no preference — fills in behind October
+  /* ⭐ A DAY THEY WERE PROMISED THAT DID NOT HAPPEN (added 2026-09-03). Owner:
+     "anyone that was scheduled for a day but didnt get done should take higher
+     priority for where needs to be routed."
+
+     ⚠ TO THE FRONT OF THEIR OWN TIER, NEVER OUT OF IT. Five is less than the ten
+     between tiers, so a missed October house still sits behind a new hang and a
+     missed Any house still sits behind everybody who asked for October — which is
+     the point. Being missed is a reason to go first among your equals; it is not a
+     reason to be given a month somebody else asked for.
+
+     It moves the TOWN too, which is the half she actually asked for: a town's
+     urgency is the best number in it (see allowedStats), so a town holding houses
+     the crew did not reach yesterday wins its next crew-day ahead of an equal town
+     that is fully on schedule.
+
+     ⚠ ASKED THROUGH THE HELPER, GUARDED, because the suites above lift this
+     function alone. No list of missed days on the house means no bump, which is the
+     right answer there and the ordinary one everywhere. */
+  const missed = (typeof houseMissedCount === 'function') ? houseMissedCount(h) : 0;
+  return missed ? tier - 5 : tier;
 }
 function rebuildSeasonDays(){
   /* Before anything is grouped: the clustering below measures distances, and a
@@ -57983,7 +58424,26 @@ function rebuildSeasonDays(){
       return;
     }
     const done=houses.filter(function(h){return h.done;});
-    houses.forEach(function(h){ if(!h.done) (h.isFix?riders:movable).push(h); });
+    /* ⭐ AND A DAY THAT CAME AND WENT WITHOUT THEM IS WRITTEN DOWN (added
+       2026-09-03). Owner: "anyone that was scheduled for a day but didnt get done
+       should take higher priority for where needs to be routed." This is where the
+       plan finds that out — a house going back in the pool off a date that has
+       already passed IS a house the crew did not reach.
+
+       ⚠ ONLY FOR A DATE THAT HAS ACTUALLY BEEN AND GONE. A day part-way through is
+       also "worked" as far as the branch above is concerned — somebody ticked a
+       house off this morning — and the rest of that day has not been missed, it has
+       not happened yet. Marking those would hand a bump to half the book every time
+       a crew ticked their first house.
+
+       ⚠ GUARDED, like everything else in here that reaches outside this function:
+       several suites lift rebuildSeasonDays on its own. See markHouseMissed. */
+    const dayGone=!!(dt&&dt<today);
+    houses.forEach(function(h){
+      if(h.done) return;
+      if(dayGone&&typeof markHouseMissed==='function') markHouseMissed(h,isoOf(dt));
+      (h.isFix?riders:movable).push(h);
+    });
     /* A day that came and went with nothing done is not a record of anything —
        drop it rather than leaving an empty day in the calendar. */
     if(done.length){ d.houses=done; keep.push(d); }
@@ -58116,6 +58576,18 @@ function rebuildSeasonDays(){
     const town=extractCleanCity((cust&&cust.data&&cust.data.city)||h.city);
     const d=(cust&&cust.data)||{};
     return {id:key, city:town, priority:houseInstallPriority(h,d),
+            /* ⭐ HOW MANY TIMES A DAY WAS PROMISED AND MISSED. The tier bump inside
+               houseInstallPriority already puts them ahead of their equals; this
+               decides the order among the missed themselves, so somebody the crew
+               has driven past three times goes before somebody they missed once.
+               Read here rather than in the builder because the plan row is what
+               carries the record — see markHouseMissed. */
+            missed:(typeof houseMissedCount==='function'?houseMissedCount(h):0),
+            /* ⭐ AND WHETHER THE OFFICE MOVED THEM UP BY HAND. Carried alongside the
+               priority it already produced so the day panel can say WHY somebody is
+               at the front of a route, which is the difference between a button the
+               office trusts and one they argue with. */
+            rush:(typeof isRushInstall==='function'?isRushInstall(d):false),
             /* ⭐ DID THEY NAME A DAY? The builder sorts on this so somebody who asked
                for the 9th goes ahead of the people who did not mind, once the 9th has
                arrived. Worked out here because the plan row is what carries the
@@ -58158,8 +58630,33 @@ function rebuildSeasonDays(){
      everything, and the 10th comes back holding one crew's worth while everything
      that did not fit rolls on to the days after it. Every other date is untouched —
      dayShapeOn returns null for them and the builder does what it always did. */
+  /* ⭐ AND THE FORECAST GOES IN WITH IT (added 2026-09-03). Owner: "we need it to see
+     the weather in the area and prioritize warmer temperatures and a rule is dont
+     schedule for an area 35 degrees or lower unless there is no area that wants to be
+     hung in that time that is warmer than that."
+
+     ⚠ READ, NEVER FETCHED, FROM IN HERE. Recalculate everything loads the forecast
+     before it calls this, so by now it is either a table or it is empty — and empty
+     means every town answers null, which the builder treats as "no opinion" and lays
+     the season out exactly as it did before any of this existed. A rebuild is never
+     held up by the weather and never fails because of it.
+
+     ⚠ GUARDED, like dayShapeOn's neighbours above: several suites lift this function
+     on its own, and there it must behave like the day the forecast did not exist. */
+  const tempFor=(typeof forecastHighFor==='function')?forecastHighFor:function(){ return null; };
   const built=planNewCrewDays(placeable, {}, {floorDate:floorStr, maxDays:400, horizonDays:400,
-                                              dayShape:dayShapeOn});
+                                              dayShape:dayShapeOn, tempFor:tempFor,
+                                              coldBelow:(typeof COLD_DAY_MAX_F==='number'?COLD_DAY_MAX_F:35),
+                                              warmBand:(typeof WARMTH_BAND_F==='number'?WARMTH_BAND_F:10)});
+  /* ⭐ WHAT THE COLD RULE COULD NOT AVOID, counted off the plan that came back rather
+     than reported from inside the builder. Every one of these is the owner's "unless"
+     firing: the crew-day was left on a freezing town because nothing warmer had a
+     single house waiting on that date. Said out loud on the button, because a crew
+     sent out at 30° looks exactly like the rule not working. */
+  let coldDays=0;
+  if(typeof forecastIsCold==='function'){
+    built.forEach(function(cd){ if(forecastIsCold(cd.city, cd.date)) coldDays++; });
+  }
   const byDate={};
   built.forEach(function(cd){ (byDate[cd.date]=byDate[cd.date]||[]).push(cd); });
   const dates=Object.keys(byDate).sort();
@@ -58210,6 +58707,12 @@ function rebuildSeasonDays(){
   selSchedule=installDays()[0]?installDays()[0].id:null;
   return {days:newDays.length, houses:movable.length, unplaced:unplaced.length, locked:locked.length, joined:joined.length, waitingOnBuild:waitingOnBuild,
           left:left.length, orphans:orphans.length, stillSet:stillSet,
+          /* What the three new orderings actually did, so the button can say it.
+             `missed` and `rushed` are counted off the pool this rebuild laid out —
+             they are the houses that were MOVED UP, not the whole season's history. */
+          coldDays:coldDays,
+          missed:placeable.filter(function(w){return w.missed;}).length,
+          rushed:placeable.filter(function(w){return w.rush;}).length,
           kept:keep.filter(function(d){return !d.isFixRoute&&!d.isTakedown;}).length,
           first:dates[0], last:dates[dates.length-1]};
 }
@@ -59417,6 +59920,13 @@ RT.addEventListener('click',e=>{const t=e.target;
      ⚠ STILL ONE PRESS TO UNDO. preRebuild holds the whole plan as it was
      before any of the three ran, so Undo puts back everything this touched
      rather than just the days. */
+  /* ⭐ AND THE FORECAST IS PART OF THE PRESS (added 2026-09-03). Owner, listing the
+     new orderings: "all of these should fall under the recalculate everything button."
+     The weather is the only one of the three that has to be FETCHED, so it is the only
+     one that can make this button wait — a few hundred milliseconds, once every half
+     hour, and never at all if it fails. Everything after the load is the press exactly
+     as it was, which is why the whole body moved into runRecalculateEverything rather
+     than being restructured around a promise. */
   if(t.id==='recalcBtn'){
     if(typeof jobAddresses==='undefined'||!jobAddresses.length){
       /* The rebuild reads the customer records for towns, timings and new-hang
@@ -59425,6 +59935,33 @@ RT.addEventListener('click',e=>{const t=e.target;
       toast('Customer list still loading — try again in a moment');
       return;
     }
+    if(recalcRunning){ toast('Already recalculating — one moment'); return; }
+    recalcRunning=true;
+    toast('Checking the forecast…');
+    /* ⚠ NEVER REJECTS AND IS NEVER AWAITED FOR ITS ANSWER. loadSeasonForecast
+       resolves whatever happens and writes its result where forecastHighFor reads it,
+       so all this does is make sure the fetch has FINISHED before the season is laid
+       out. A missing loadSeasonForecast — an older page, a lifted copy — falls through
+       to a resolved promise and the press runs blind, which is the behaviour it had
+       before the forecast existed. */
+    const wait=(typeof loadSeasonForecast==='function')?loadSeasonForecast():Promise.resolve(null);
+    wait['catch'](function(err){ console.error('[HU] forecast load failed',err); })
+      ['then'](function(){
+        recalcRunning=false;
+        try{ runRecalculateEverything(); }
+        catch(err){ console.error('[HU] recalculate failed',err); toast('Recalculate could not finish — nothing was changed. See the console.'); }
+      });
+    return;
+  }
+  /* ⭐ THE PRESS ITSELF, GIVEN A NAME (2026-09-03). Not one line of it changed —
+     it was lifted out of the `if` above so the button can wait for the forecast to
+     land and then run exactly what it always ran. The three new orderings need no
+     code here at all: a rush is read off the customer record, a missed day off the
+     house, and the weather out of the table loadSeasonForecast has just filled in.
+     All this adds is the sentence at the end that says what they did.
+     ⚠ DECLARED INSIDE THE LISTENER, so it keeps reaching the same helpers it always
+     did (serialize, rebuildSeasonDays, toast) without any of them being moved. */
+  function runRecalculateEverything(){
     const before=JSON.stringify(serialize());
     let pulled=[];
     try{ pulled=syncHousesFromCustomers(); }catch(err){ console.error('Customer sync failed:',err); }
@@ -59497,8 +60034,19 @@ RT.addEventListener('click',e=>{const t=e.target;
     const held=Math.max(routes.locked||0,r.locked||0);
     if(held) parts.push(held+' day'+(held===1?'':'s')+' inside 48 hours left alone');
     if(r.unplaced) parts.push(r.unplaced+' with no town on the last day');
+    /* ⭐ AND THE THREE NEW ORDERINGS SAY WHAT THEY DID (added 2026-09-03). Every one
+       of them MOVES SOMEBODY, and a customer who quietly changes place in a season is
+       the thing this office rings up about — the same reasoning as the new-arrivals
+       and left-the-season lines above. A rebuild where none of them fired says
+       nothing, which is most of them. */
+    if(r.rushed) parts.push(r.rushed+' moved up by hand — first in their own town, still inside the month they asked for');
+    if(r.missed) parts.push(r.missed+' the crew did not reach before — moved to the front of their tier');
+    /* ⭐ AND THE WEATHER GETS A LINE OF ITS OWN, on the season bar rather than in the
+       toast. The toast is gone in three seconds and this is the one thing somebody
+       comes back to check an hour later: whether the plan they are looking at was laid
+       out with a forecast or without one. */
+    showForecastNote(r.coldDays||0);
     toast(parts.join(' · '));
-    return;
   }
   if(t.id==='undoRebuildBtn'){
     if(!preRebuild){toast('Nothing to undo');return;}

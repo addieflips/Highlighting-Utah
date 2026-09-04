@@ -1216,6 +1216,78 @@ touched in the four source files against this table, and every name in
 
 **Duplicate System notices**: `reconcileNoteIsRepeat` suppresses a word-for-word identical "Routes Kept Up To Date" note inside an hour (`RECONCILE_NOTE_REPEAT_MS`). It is guarded twice — an in-memory record, and a scan of `allMessages` so a reload, a second tab or the other office machine doesn't reopen the hole. It suppresses the *notice*, not the sweep: a backstop, not the fix, and it logs a console warning naming the loop rather than going quiet.
 
+### Three things that move somebody up a season
+
+Added 2026-09-03. Dax asked for three new priorities and put two limits on all of them:
+*"dont do someone in a month they dont want to be hung though and dont make a route that
+is 100 miles longer because you were to worried about priority... a higher goal is to
+shrink total miles."* All three land on **Recalculate everything** and nowhere else.
+
+**1. The weather.** Before it lays anything out, that button fetches one Open-Meteo
+request covering every town in the book (`loadSeasonForecast` — the same free, keyless
+service the Routes tab's weather card already uses, about sixteen days ahead) and fills a
+town→date→high table. `rebuildSeasonDays` hands the builder a plain lookup, so
+`planNewCrewDays` stays pure and every test suite still builds a whole season offline.
+Inside the builder there are **two rules and only one of them is hard**:
+
+* **The cutoff is a veto.** A town whose forecast high for that date is at or below
+  `COLD_DAY_MAX_F` (35°) is not offered the day at all. That is done as two passes rather
+  than one more clause in the comparison, because of the *"unless"*: if nothing warmer has
+  anybody waiting, the second pass runs with the veto lifted and the crew goes out anyway.
+  The rule holds a crew back from the cold; it never holds them back from working.
+* **Warmth above the cutoff is only a tiebreak, and it is banded.** It sits *below*
+  urgency and *below* how full a day the town can make, and it only fires when one town is
+  a whole `WARMTH_BAND_F` (10°) warmer. Two Wasatch Front towns on one day are a degree or
+  two apart; letting that decide would overrule *"the town with the most houses waiting"*
+  — the rule the season is built on — on the strength of forecast noise.
+
+⚠ **No forecast is not a cold forecast.** Most dates are past the sixteen days, and a town
+with no located house has no place to ask about. Every one of those is "no opinion" and
+the plan comes out exactly as it did before any of this existed. The season bar carries a
+line saying which forecast the plan was laid out with, including *"laid out without it"*
+when the service could not be reached — a plan laid out blind otherwise looks identical to
+one laid out warm. The crew-days the *"unless"* could not avoid are counted and said out
+loud, because a crew sent out at 30° reads as the rule not working.
+
+**2. A day that was promised and did not happen.** A house going back in the pool off a
+date that has already passed is a house the crew did not reach, and `rebuildSeasonDays`
+writes that date onto it (`markHouseMissed`); the *"not all of them got done"* screen does
+the same, which is a better signal because somebody typed it. `houseInstallPriority` then
+moves them to the front of **their own tier** — and the town with them in it rises too,
+since a town's urgency is the best number in it, which is the *"higher priority for where
+needs to be routed"* half of the ask.
+
+⚠ **The tiers were respaced from 0,1,2,3,4 to 0,10,20,30,40,50 for exactly this.** With
+nothing between them the only way up was into the next tier, which would have let a missed
+October house outrank a new hang and a missed Any house jump the whole October queue. Ten
+apart leaves room for a bump of five that reaches the front of a tier and no further.
+Nothing reads these numbers for their value — every comparison is `<` or `>`.
+
+⚠ **It is recorded as a list of dates, not a counter.** Recalculate gets pressed twice in a
+row and Undo puts the plan back so it can be pressed again; a counter would climb each time
+and turn one missed morning into a customer who outranks the book. A list is idempotent,
+and it lets somebody missed three times go before somebody missed once (`missed` is carried
+into the builder's queue sort for that).
+
+**3. A customer the office moves up by hand.** `rushInstall`, a checkbox in Edit Customer
+beside the timing preference. It is the **top tier — ahead of new hangs** — because it is a
+person deciding after a phone call, and an override that cannot override the automatic rule
+is not an override. Both orderings read the same flag (`houseInstallPriority` for the
+schedule, `installPriority` for the nightly sweep) so the two cannot disagree about who is
+in a hurry.
+
+⚠ **None of the three touches the month.** `houseAllowedFrom` and *Don't Install Before
+This Date* are untouched, so a November customer who is rushed, or who was missed, is taken
+first on the first **November** day and not one day earlier. The box says so on screen.
+
+The Schedule's day panel badges a rushed house **ASKED SOONER** and a missed one
+**MISSED ×n**, and the button's summary names how many of each it moved — a customer who
+quietly changes place in a season is what this office rings up about.
+
+*Where it's proved*: run-all.js **Suite 299** runs the real builder against a cold snap and
+the real ordering against fixtures; 24 sabotages were red-checked against it.
+*Rulings*: [[SCH-44]], [[SCH-45]], [[SCH-46]] in `claude/questions-map.md`.
+
 ### A day the office has short-handed on purpose
 
 Addie, 2026-09-03: *"there are some days we will need to have 1 crew or 1 man if a

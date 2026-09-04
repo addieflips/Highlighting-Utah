@@ -16312,9 +16312,24 @@ suite('Suite 50. A Pref Date that names an actual day');
       check('S50', 'but the day they named still holds them back',
         sb2.from({ pref: '11/9+' }, '2026-10-01') === '2026-11-09',
         'the whole point of naming a day is not being done before it');
+      /* ⚠ REPOINTED 2026-09-03, NOT WEAKENED. This asserted the literal `=== 0`, so it
+         was pinned to the NUMBER a new hang happens to carry rather than to the guarantee
+         — and the tiers were respaced ten apart that day to make room for a within-tier
+         bump (see houseInstallPriority). The rule it was written for is unchanged and is
+         now stated as the rule. Same slow-fuse shape as S82 and S129. */
       check('S50', 'and a new hang who named a day is still taken first',
-        sb2.pri({ pref: '11/9+' }, { chargeNewMemberFee: true }) === 0,
+        sb2.pri({ pref: '11/9+' }, { chargeNewMemberFee: true }) < sb2.pri({ pref: 'OCT' }, {}) &&
+        sb2.pri({ pref: '11/9+' }, { chargeNewMemberFee: true }) < sb2.pri({ pref: '11/9+' }, {}) &&
+        sb2.pri({ pref: '11/9+' }, { chargeNewMemberFee: true }) < sb2.pri({ pref: '' }, {}),
         'new hangs outrank every preference, which is the one thing above this');
+      /* ⭐ AND THE ONE THING ABOVE A NEW HANG IS A PERSON DECIDING (added 2026-09-03).
+         Owner: "we should be able to manually add priority to specific customers if they
+         directly ask if they can be hung sooner than later." An override that cannot
+         override the automatic rule is not an override — see houseInstallPriority. */
+      check('S50', 'and the office moving somebody up by hand outranks even a new hang',
+        sb2.pri({ pref: '' }, { rushInstall: true }) <
+          sb2.pri({ pref: '' }, { chargeNewMemberFee: true }),
+        'the checkbox is the only thing a person sets by hand, so it has to win');
 
       /* ⭐ AND THE SCHEDULE FILES THEM UNDER THE RIGHT MONTH. Owner, 2026-08-19:
          "there are two people who entered their preferred date in a wrong format
@@ -48528,6 +48543,528 @@ suite('Suite 295. Nothing is hung before the season starts');
     check('S295', 'takedowns keep their own season',
       td.takes[0] === '2027-01-05',
       'got ' + td.takes[0] + ' — the install floor must not reach them');
+  }
+}
+
+/* ============================================================================
+ * ⭐ THE THREE THINGS THAT MOVE SOMEBODY UP A SEASON (added 2026-09-03).
+ *
+ * Owner, in one message: "we need it to see the weather in the area and prioritize
+ * warmer temperatures and a rule is dont schedule for an area 35 degrees or lower
+ * unless there is no area that wants to be hung in that time that is warmer than
+ * that, anyone that was scheduled for a day but didnt get done should take higher
+ * priority for where needs to be routed and also we should be able to manually add
+ * priority to specific customers if they directly ask if they can be hung sooner
+ * than later, all of these should fall under the recalculate everything button."
+ *
+ * And, in the same breath, the two limits that matter more than any of them:
+ * "dont do someone in a month they dont want to be hung though and dont make a
+ * route that is 100 miles longer because you were to worried about priority."
+ *
+ * ⚠ EVERY CLAIM HERE IS ABOUT WHICH TOWN A CREW IS SENT TO OR WHO IS AT THE FRONT
+ * OF A QUEUE, so this suite RUNS the real planNewCrewDays and the real
+ * houseInstallPriority rather than matching their source. A regex cannot see an
+ * ordering. What is matched as text is only the WIRING — the handful of places a
+ * merge could silently drop the argument that carries the forecast in, which is
+ * exactly the failure this file records against admin.html three times over.
+ * ==========================================================================*/
+suite('299. The forecast, a missed day, and a customer moved up by hand');
+{
+  const fn = (name) => {
+    const i = admin.indexOf('function ' + name + '(');
+    if (i === -1) return null;
+    let d = 0;
+    for (let j = admin.indexOf('{', i); j < admin.length; j++) {
+      if (admin[j] === '{') d++;
+      else if (admin[j] === '}') { d--; if (!d) return admin.slice(i, j + 1); }
+    }
+    return null;
+  };
+  /* ⚠ COMMENTS COME OFF BEFORE ANY TEXT CHECK BELOW IS ASKED, which is a rule this
+     file has already learned three times (Suites 58, 274, 275). Every rule here is
+     EXPLAINED in a comment a line or two above the code carrying it, so a plain search
+     finds the explanation, reads it as the implementation, and passes over code that
+     has been deleted. Measured on 2026-09-03: five of these checks were green against
+     a page with the thing they test taken out. */
+  const bare = (t) => String(t || '')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/.*/g, '$1 ');
+
+  // ---------------------------------------------------------------- the rule
+  {
+    const cold = (admin.match(/const COLD_DAY_MAX_F = (\d+);/) || [])[1];
+    const band = (admin.match(/const WARMTH_BAND_F = (\d+);/) || [])[1];
+    check('S299', 'the cutoff the owner named is written down once, as 35',
+      cold === '35', 'got ' + cold + " — owner: '35 degrees or lower'");
+    check('S299', 'and warmth is compared in ten-degree bands',
+      band === '10',
+      'a smaller band lets a degree of noise overrule "the town with the most houses waiting"');
+
+    /* ⚠ THE BUILDER KEEPS ITS OWN COPY OF BOTH NUMBERS as opts defaults, because it is
+       PURE and the suites lift it on its own. rebuildSeasonDays passes the real ones in.
+       Two numbers in two places is exactly the shape that drifts, so this is the check
+       that says they still agree — the same job money-parity does for the invoice. */
+    const plan = admin.slice(admin.indexOf('function planNewCrewDays(waiting, taken, opts)'),
+                             admin.indexOf('/* Top every day up to the cap.'));
+    const fbCold = (plan.match(/o\.coldBelow === 'number' \? o\.coldBelow : (\d+)/) || [])[1];
+    const fbBand = (plan.match(/o\.warmBand > 0 \? o\.warmBand : (\d+)/) || [])[1];
+    check('S299', "the builder's own fallback numbers agree with the constants",
+      fbCold === cold && fbBand === band,
+      'builder falls back to ' + fbCold + '/' + fbBand + ', the page says ' + cold + '/' + band +
+      ' — a lifted copy would then test a rule the live plan does not use');
+  }
+
+  // ------------------------------------------------- the builder, run for real
+  const planStart = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const planEnd = admin.indexOf('/* Top every day up to the cap.', planStart);
+  check('S299', 'the day builder is findable', planStart !== -1 && planEnd > planStart,
+    'renamed or removed — update this test rather than deleting it');
+
+  if (planStart !== -1 && planEnd > planStart) {
+    const api = eval(
+      'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");}\n' +
+      'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+      'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}\n' +
+      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
+      /* ⚠ LEFT EMPTY ON PURPOSE, like Suite 22's. These fixtures test the MEASURED
+         neighbour rule, and a typed-in list overrides it wholesale. */
+      'let NEARBY_TOWN_LIST={};' + phantomTownSrc() + fn('sameTownName') +
+      fn('townCentres') + '\n' + fn('nearbyTowns') + '\n' + fn('installPriority') + '\n' +
+      admin.slice(planStart, planEnd) +
+      '\n;({plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE})');
+
+    /* Two towns twenty-two miles apart, so neither can ever borrow from the other and
+       every difference below is the town PICK rather than the top-up. */
+    const at = { Draper: [40.524, -111.863], Lehi: [40.391, -111.851] };
+    const town = (city, n, priority) => Array.from({ length: n }, (_, i) => ({
+      id: city + '-' + i, city: city, priority: priority == null ? 2 : priority,
+      from: '2026-10-01', stop: { lat: at[city][0], lng: at[city][1] }
+    }));
+    /* ONE crew, deliberately. With two, both towns are worked on day one and the veto
+       has nothing to choose between — the fixture would pass whatever the code did. */
+    const build = (waiting, temps) => api.plan(waiting, {}, {
+      floorDate: '2026-10-01', maxDays: 6, crews: 1, pack: false,
+      tempFor: temps ? function (city, ds) {
+        const r = temps[city];
+        return r == null ? null : (typeof r === 'object' ? (r[ds] == null ? null : r[ds]) : r);
+      } : undefined
+    });
+
+    /* ⭐ THE BASELINE THAT MAKES EVERY CHECK BELOW MEAN SOMETHING. Equal urgency, equal
+       size, no forecast — so the pick falls to the alphabetical tiebreak and Draper
+       wins. Every flip after this is the weather doing it and nothing else. */
+    const plain = build(town('Draper', 20).concat(town('Lehi', 20)));
+    check('S299', 'with no forecast the plan is unchanged — the alphabetical tiebreak still decides',
+      plain.length && plain[0].date === '2026-10-01' && plain[0].city === 'Draper',
+      'got ' + (plain[0] && plain[0].city) + ' on ' + (plain[0] && plain[0].date) +
+      ' — most of the season has no forecast at all and must lay out exactly as before');
+
+    /* ⭐ THE VETO. Owner: "dont schedule for an area 35 degrees or lower unless there is
+       no area that wants to be hung in that time that is warmer than that."
+
+       ⚠ BOTH TOWNS SIT IN THE SAME TEN-DEGREE BAND, and that is what makes this check
+       mean anything. With 30 against 45 the WARMTH tiebreak picks Lehi on its own, so
+       deleting the veto entirely leaves the fixture green — measured, in the red-check,
+       on the day it was written. 34 against 39 is one band, so the tiebreak has nothing
+       to say and only the veto can move the crew. */
+    const veto = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 34, Lehi: 39 });
+    check('S299', 'a town at 34° is skipped while a warmer town has anybody waiting',
+      veto.length && veto[0].city === 'Lehi',
+      'got ' + (veto[0] && veto[0].city) + ' — this is the whole rule, and Draper wins the ' +
+      'same fixture without a forecast, so nothing but the temperature moved it');
+    check('S299', 'and the freezing town still gets its day, later',
+      veto.some(d => d.city === 'Draper'),
+      'the cold rule reorders the season; it must never drop a town out of it');
+
+    /* ⚠ EXACTLY AT THE CUTOFF IS COLD. "35 degrees or lower" — a rule written as < would
+       send a crew out on the one day she named. Same band on both sides, same reason. */
+    const edge = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 35, Lehi: 39 });
+    check('S299', '35° itself counts as too cold, not just below it',
+      edge.length && edge[0].city === 'Lehi',
+      "owner said '35 degrees or lower', so the cutoff is inclusive");
+    /* ⚠ AND THE SAME FIXTURE ONE DEGREE THE OTHER SIDE. */
+    const warm = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 36, Lehi: 39 });
+    check('S299', 'and 36° is an ordinary day, so the alphabetical tiebreak returns',
+      warm.length && warm[0].city === 'Draper',
+      'got ' + (warm[0] && warm[0].city) + ' — one degree above the cutoff is not a veto, ' +
+      'and a rule that crept upwards would quietly re-order the whole autumn');
+
+    /* ⭐ THE "UNLESS". This is the half that keeps the season moving: when everybody left
+       is freezing, the crew goes out anyway. A version that simply refused would stall
+       the calendar for a week and look exactly like the builder being broken. */
+    const unless = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 20, Lehi: 34 });
+    check('S299', 'when every town is freezing a day is still built, and on the first date',
+      unless.length && unless[0].date === '2026-10-01' && unless[0].ids.length === 20,
+      'got ' + JSON.stringify(unless[0] && { d: unless[0].date, n: unless[0].ids.length }) +
+      " — owner's 'unless there is no area that wants to be hung in that time that is warmer'");
+    check('S299', 'and among freezing towns the least freezing goes first',
+      unless.length && unless[0].city === 'Lehi',
+      '34° and 20° are two bands apart, which is a genuinely different morning');
+
+    /* ⭐ AND THE LIMIT SHE PUT ON ALL OF IT: "dont make a route that is 100 miles longer
+       because you were to worried about priority." Warmth sits BELOW how full a day the
+       town can make, so it can never trade a full crew-day for a warmer short one. */
+    const fill = build(town('Draper', 20).concat(town('Lehi', 5)), { Draper: 45, Lehi: 75 });
+    check('S299', 'warmth never buys a short day — the town that fills the day still wins',
+      fill.length && fill[0].city === 'Draper' && fill[0].ids.length === 20,
+      'got ' + (fill[0] && fill[0].city) + ' with ' + (fill[0] && fill[0].ids.length) +
+      ' — Lehi is three bands warmer and holds five houses; taking it is an extra morning');
+
+    /* And below urgency, which is the whole timing spec and is absolute. */
+    const urg = build(town('Draper', 20, 1).concat(town('Lehi', 20, 4)), { Draper: 40, Lehi: 75 });
+    check('S299', 'and warmth never overrules urgency — October is emptied first, cold or not',
+      urg.length && urg[0].city === 'Draper',
+      'got ' + (urg[0] && urg[0].city) + " — owner, 2026-08-18: 'we need to get everyone " +
+      "who requested Oct done in Oct none in November'");
+
+    /* ⚠ A DEGREE MUST NOT DECIDE ANYTHING. Two towns on the Wasatch Front on one day sit
+       within a degree or two of each other; if that flipped the pick, the head-count rule
+       the whole season is built on would be overruled by forecast noise. */
+    const noise = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 44, Lehi: 45 });
+    check('S299', 'one degree warmer does not move a crew — the bands are what stop noise deciding',
+      noise.length && noise[0].city === 'Draper',
+      'got ' + (noise[0] && noise[0].city) + ' — 44 and 45 are the same kind of day');
+
+    /* ⚠ AND A FORECAST THAT KNOWS NOTHING IS NOT A COLD FORECAST. Open-Meteo answers about
+       sixteen days and the season runs into December, so this is the common case, not an
+       edge one — failing the other way would veto the whole back half of the calendar. */
+    const blind = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: null, Lehi: null });
+    check('S299', 'a town nobody has a forecast for is treated as "no opinion", never as cold',
+      JSON.stringify(blind.map(d => d.city + '@' + d.date)) ===
+      JSON.stringify(plain.map(d => d.city + '@' + d.date)),
+      'an all-null forecast must give byte-for-byte the plan a forecast-free build gives');
+    /* ⚠ AND ONE UNKNOWN TOWN BESIDE A KNOWN ONE, which is the case an all-null fixture
+       cannot reach: the comparison has to SKIP warmth when either side is unknown rather
+       than scoring the unknown one as freezing. A town whose houses carry no map pin has
+       no centre to ask about, and it must not be sent to the back of the season for it. */
+    const half = build(town('Draper', 20).concat(town('Lehi', 20)), { Lehi: 75 });
+    check('S299', 'and it is not quietly ranked below a town that does have one',
+      half.length && half[0].city === 'Draper',
+      'got ' + (half[0] && half[0].city) + ' — Lehi is the only town with a number, and ' +
+      'letting that alone win means every unmapped town waits for the mapped ones');
+
+    /* ⚠ AND IT IS PER DATE, not per town. A cold snap on the Thursday must not push a town
+       out of the Friday as well. */
+    const snap = build(town('Draper', 40).concat(town('Lehi', 20)),
+      { Draper: { '2026-10-01': 25 }, Lehi: { '2026-10-01': 50 } });
+    check('S299', 'a cold Thursday does not make a town cold all season',
+      snap.length > 1 && snap[0].city === 'Lehi' && snap[1].city === 'Draper',
+      'got ' + JSON.stringify(snap.slice(0, 2).map(d => d.city + '@' + d.date)) +
+      ' — the forecast is looked up date by date, so the veto lifts with the weather');
+  }
+
+  // ------------------------------------------- who is at the front of the queue
+  {
+    const pri = fn('houseInstallPriority');
+    const missSrc = fn('houseMissedDays') + fn('houseMissedCount') + fn('markHouseMissed') +
+      fn('isRushInstall');
+    check('S299', 'the ordering and the missed-day helpers are findable',
+      !!pri && !!fn('houseMissedDays') && !!fn('houseMissedCount') && !!fn('markHouseMissed') &&
+      !!fn('isRushInstall'));
+
+    if (pri && missSrc) {
+      const sb = {};
+      new Function('BASE_START',
+        fn('prefSpecificDate') + missSrc + pri +
+        'this.p = houseInstallPriority; this.mark = markHouseMissed; ' +
+        'this.days = houseMissedDays; this.count = houseMissedCount; this.rush = isRushInstall;'
+      ).call(sb, new Date(2026, 9, 1));
+      const p = sb.p;
+      const OLD = { chargeNewMemberFee: false };
+      const NEW = { chargeNewMemberFee: true };
+      const RUSH = { rushInstall: true };
+      const missed = (pref) => ({ pref: pref || '', missedDays: ['2026-10-06'] });
+
+      /* ⭐ MOVED UP BY HAND. Owner: "we should be able to manually add priority to specific
+         customers if they directly ask if they can be hung sooner than later." */
+      check('S299', 'the office moving somebody up puts them ahead of everybody',
+        p({ pref: '' }, RUSH) < p({ pref: 'OCT' }, NEW) &&
+        p({ pref: '' }, RUSH) < p({ pref: 'OCT' }, OLD) &&
+        p({ pref: 'NOV' }, RUSH) < p({ pref: '' }, OLD),
+        'an override that cannot override the automatic rule is not an override');
+      check('S299', 'and the flag is the same one the nightly sweep reads',
+        /rushInstall === true/.test(bare(pri)) && /rushInstall === true/.test(bare(fn('installPriority'))),
+        'two definitions of "asked to go sooner" would let Recalculate everything and the ' +
+        'sweep disagree about who is in a hurry');
+      /* ⚠ THE HALF THAT MATTERS MORE. Owner, in the same breath: "dont do someone in a month
+         they dont want to be hung though." The month is houseAllowedFrom's job and this must
+         not touch it — a rush that moved somebody's month would be the one outcome she ruled
+         out while asking for the feature. */
+      check('S299', 'but it never touches the month they asked for',
+        !/rushInstall/.test(bare(fn('houseAllowedFrom'))),
+        'houseAllowedFrom is what holds a November customer to November; the rush flag ' +
+        'decides the ORDER once they are allowed out, and nothing else');
+
+      /* ⭐ A DAY THEY WERE PROMISED THAT DID NOT HAPPEN. Owner: "anyone that was scheduled
+         for a day but didnt get done should take higher priority for where needs to be
+         routed." To the front of their own tier — never out of it. */
+      check('S299', 'a house the crew missed goes ahead of its equals',
+        p(missed(''), OLD) < p({ pref: '' }, OLD) &&
+        p(missed('OCT'), OLD) < p({ pref: 'OCT' }, OLD) &&
+        p(missed('NOV'), OLD) < p({ pref: 'NOV' }, OLD),
+        'being driven past is a reason to go first among your equals');
+      check('S299', 'and never out of its tier — a missed Any still waits behind October',
+        p(missed(''), OLD) > p({ pref: 'OCT' }, OLD),
+        'a missed morning is not a reason to be given a month somebody else asked for');
+      check('S299', 'a missed October house still sits behind a new hang',
+        p(missed('OCT'), OLD) > p({ pref: '' }, NEW),
+        "owner, 2026-08-17: 'the very top priority is new hangs'");
+      check('S299', 'and behind somebody the office moved up by hand',
+        p(missed('OCT'), OLD) > p({ pref: '' }, RUSH));
+      /* ⚠ THE SPACING IS WHAT MAKES ALL OF THAT TRUE. Tiers one apart leave nowhere to put
+         a bump, so the only way up is into the next tier — which is precisely the two
+         failures checked above. */
+      check('S299', 'the tiers are spaced far enough apart to hold a bump',
+        (p({ pref: '' }, OLD) - p({ pref: 'OCT' }, OLD)) > (p({ pref: '' }, OLD) - p(missed(''), OLD)),
+        'the gap between two tiers must be bigger than the bump, or the bump jumps a tier');
+
+      /* ⚠ DATES, NOT A COUNTER. Recalculate everything gets pressed twice in a row and Undo
+         puts the plan back so it can be pressed again; a counter would climb every time and
+         turn one missed morning into a customer who outranks the book. */
+      const h = { pref: '' };
+      sb.mark(h, '2026-10-06');
+      sb.mark(h, '2026-10-06');
+      sb.mark(h, '2026-10-06');
+      check('S299', 'recording the same missed day three times is still one miss',
+        sb.count(h) === 1, 'got ' + sb.count(h) + ' — pressing Recalculate twice must cost nothing');
+      sb.mark(h, '2026-10-13');
+      check('S299', 'but a second missed day counts, and they sort earliest first',
+        sb.count(h) === 2 && sb.days(h)[0] === '2026-10-06',
+        'somebody the crew has driven past twice goes before somebody they missed once');
+      check('S299', 'and rubbish coming back off a saved plan is ignored rather than trusted',
+        sb.mark({}, 'yesterday') === false && sb.mark({}, '') === false &&
+        sb.count({ missedDays: 'nope' }) === 0 && sb.count({ missedDays: ['x', '2026-10-06'] }) === 1,
+        'this rides in the plan document and comes back out of Firestore and out of imported CSVs');
+      check('S299', 'the rush flag is read strictly, so an imported "false" does not light it',
+        sb.rush({ rushInstall: true }) === true && sb.rush({ rushInstall: 'false' }) === false &&
+        sb.rush({}) === false && sb.rush(null) === false);
+    }
+  }
+
+  // ------------------------------------------------ the rebuild, run for real
+  {
+    const need = ['seasonStartDate', 'houseAllowedFrom', 'houseInstallPriority', 'rebuildSeasonDays'];
+    const planStart2 = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+    const planEnd2 = admin.indexOf('/* Top every day up to the cap.', planStart2);
+    if (need.every(n => !!fn(n)) && planStart2 !== -1) {
+      const at = { Lehi: [40.391, -111.851], Draper: [40.524, -111.863] };
+      const ctx = {};
+      /* ⚠ THE SAME SANDBOX SUITE 28 USES, plus the four helpers this work added and a
+         stubbed forecast. Stubbed ONLY for the two forecast READERS, which are the network
+         side; every rule under test is the real lifted code. */
+      const src =
+        'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");}' +
+        'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+        'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}' +
+        'function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}' +
+        'function isWeekend(d){const k=d.getDay();return k===0||k===6;}' +
+        'function isDayOff(d){return isWeekend(d);}' +
+        'function isoOf(d){return toDateStr(d);}' +
+        'function daysBetween(a,b){return Math.round((a-b)/86400000);}' +
+        'function mdToDate(md){const p=(""+md).split("-").map(Number);return new Date(2026,p[0]-1,p[1]);}' +
+        'function extractCleanCity(c){return (""+(c==null?"":c)).trim();}' +
+        'function customerForHouse(h){return h.__cust||null;}' +
+        'function nextWorkingDay(d){let x=new Date(d);while(isWeekend(x))x=addDays(x,1);return x;}' +
+        'function isWorkingDay(d){return !isWeekend(d);}' +
+        'function dayDate(d){return d._date;}' +
+        'function installDays(){return SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown);}' +
+        'function computeDates(){SEASON.forEach(d=>{if(d.base!=null)d._date=addDays(BASE_START,d.base);});}' +
+        'function planCities(){return [];}' +
+        'var FORECAST={};' +
+        'function forecastHighFor(town,ds){var r=FORECAST[town];return r==null?null:(typeof r==="object"?(r[ds]==null?null:r[ds]):r);}' +
+        'function forecastIsCold(town,ds){var t=forecastHighFor(town,ds);return t!==null&&t<=COLD_DAY_MAX_F;}' +
+        'var CREWS=[{name:"Crew 1",city:""},{name:"Crew 2",city:""}];' +
+        'var BASE_START=new Date(2026,9,1),globalDelta=0,SEASON=[],selSchedule=null;\n' +
+        admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
+        admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
+        'let NEARBY_TOWN_LIST={};' + phantomTownSrc() + fn('sameTownName') +
+        fn('townCentres') + fn('nearbyTowns') + fn('installPriority') +
+        fn('houseMissedDays') + fn('houseMissedCount') + fn('markHouseMissed') + fn('isRushInstall') +
+        admin.slice(planStart2, planEnd2) +
+        'const PIN_HONOURED_BUSINESS_DAYS=2;' + fn('pinHorizon') +
+        fn('seasonStartDate') + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseDeadline') +
+        fn('houseInstallPriority') +
+        'function cityOf(h){return (h.city||"").trim();}' +
+        'function sameCity(a,b){return (""+a).trim().toLowerCase()===(""+b).trim().toLowerCase();}' +
+        'const MAX_TOWNS_PER_CREW=' + ((admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/) || [])[1] || 2) + ';' +
+        fn('townsAreNeighbours') + dayLimitSrc() +
+        fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
+        '\nthis.run=function(seed,forecast){FORECAST=forecast||{};SEASON=seed;' +
+        'SEASON.forEach(function(d){d._date=new Date(2026,9,1+d.base);});' +
+        'var r=rebuildSeasonDays();return {r:r,seed:seed,' +
+        'days:SEASON.filter(function(d){return !d.isFixRoute&&!d.isTakedown;}).sort(function(a,b){return a.base-b.base;})};};';
+      let built = true;
+      try { new Function(src).call(ctx); } catch (err) { built = false;
+        check('S299', 'the rebuild sandbox assembles', false, String(err && err.message)); }
+
+      if (built) {
+        let n = 0;
+        const house = (city, extra) => Object.assign({
+          id: 'h' + (++n), name: 'H' + n, city: city, pref: '', done: false,
+          __cust: { data: { city: city, lat: at[city][0], lng: at[city][1] } }
+        }, extra || {});
+
+        /* A day thirty days in the PAST, half of it ticked off. The five nobody reached are
+           the whole point: they went back in the pool, and the crew never got to them. */
+        const gone = [];
+        for (let i = 0; i < 5; i++) gone.push(house('Lehi', { done: true }));
+        const skipped = [];
+        for (let i = 0; i < 5; i++) { const h = house('Lehi'); skipped.push(h); gone.push(h); }
+        const rest = [];
+        for (let i = 0; i < 20; i++) rest.push(house('Draper'));
+
+        const out = ctx.run([
+          { id: 'past', base: -30, cascade: 0, pin: null, houses: gone },
+          { id: 'soon', base: 40, cascade: 0, pin: null, houses: rest }
+        ]);
+
+        check('S299', 'a day that came and went writes the miss onto the houses nobody reached',
+          skipped.every(h => Array.isArray(h.missedDays) && h.missedDays.length === 1),
+          'got ' + JSON.stringify(skipped.map(h => h.missedDays)) +
+          ' — this is where the plan finds out the crew did not get there');
+        check('S299', 'and the houses that WERE done are left alone',
+          gone.filter(h => h.done).every(h => h.missedDays === undefined),
+          'a finished house was not missed, and stamping it would bump them for ever');
+        check('S299', 'the rebuild reports how many it moved up for being missed',
+          out.r.missed === 5, 'got ' + out.r.missed +
+          ' — a customer who quietly changes place is what the office rings about');
+
+        /* ⚠ RUNNING IT AGAIN MUST COST NOTHING. Recalculate everything is pressed twice in a
+           row all the time, and the second press finds those houses on FUTURE days, so there
+           is nothing left to mark. A counter would climb here; a list of dates cannot. */
+        ctx.run(out.days.map(d => ({
+          id: d.id, base: d.base, cascade: d.cascade, pin: d.pin, houses: d.houses
+        })));
+        check('S299', 'pressing Recalculate again does not stack a second miss on anybody',
+          skipped.every(h => Array.isArray(h.missedDays) && h.missedDays.length === 1),
+          'got ' + JSON.stringify(skipped.map(h => (h.missedDays || []).length)) +
+          ' — the plan is rebuilt over and over and the bump must not grow each time');
+
+        /* ⭐ AND THE FORECAST REACHES THE BUILDER THROUGH THE REBUILD. Nothing above would
+           notice a merge dropping the tempFor argument — the cold tests call the builder
+           directly — so this is the check standing between that and a dead rule. */
+        const wide = [];
+        for (let i = 0; i < 20; i++) wide.push(house('Draper'));
+        for (let i = 0; i < 20; i++) wide.push(house('Lehi'));
+        const seedOf = () => [{ id: 'a', base: 40, cascade: 0, pin: null, houses: wide.slice() }];
+        const chilly = ctx.run(seedOf(), { Draper: 25, Lehi: 55 });
+        const mild = ctx.run(seedOf(), { Draper: 55, Lehi: 55 });
+        check('S299', 'the rebuild counts the freezing crew-days it could not avoid',
+          typeof chilly.r.coldDays === 'number' && chilly.r.coldDays > 0 && mild.r.coldDays === 0,
+          'got ' + chilly.r.coldDays + ' cold and ' + mild.r.coldDays + " mild — the owner's " +
+          '"unless" firing is a decision, not a bug, and it has to be said out loud');
+        check('S299', 'and that count comes from the forecast, not from the calendar',
+          ctx.run(seedOf(), {}).r.coldDays === 0,
+          'no forecast must report no cold days rather than none-known-so-assume-freezing');
+      }
+    }
+  }
+
+  // --------------------------------------------------------------- the wiring
+  {
+    const rb = bare(fn('rebuildSeasonDays'));
+    check('S299', 'the rebuild hands the forecast to the builder, and the numbers with it',
+      /tempFor\s*:\s*tempFor/.test(rb) && /coldBelow\s*:/.test(rb) && /warmBand\s*:/.test(rb),
+      'without these the builder falls back to "nobody knows" and the cold rule is dead ' +
+      'on the live page while every check above still passes');
+    check('S299', 'and it reads the forecast rather than fetching one',
+      /forecastHighFor/.test(rb) && !/loadSeasonForecast/.test(rb),
+      'a rebuild that awaited the network could not be run by any of these suites, and ' +
+      'would fail whenever the weather service did');
+    check('S299', 'the rebuild carries the rush flag and the missed count out to the queue',
+      /rush\s*:\s*\(typeof isRushInstall/.test(rb) &&
+      /missed\s*:\s*\(typeof houseMissedCount/.test(rb),
+      'the sort inside the builder orders on `missed`, so a rebuild that stopped setting ' +
+      'it would silently flatten the ordering with nothing going red');
+    const q = admin.slice(admin.indexOf('function planNewCrewDays(waiting, taken, opts)'),
+                          admin.indexOf('/* Top every day up to the cap.'));
+    check('S299', 'and the builder really sorts on it',
+      /\(b\.missed \|\| 0\) - \(a\.missed \|\| 0\)/.test(q),
+      'the tier bump cannot tell one miss from three; this is what does');
+
+    const leftover = bare(fn('applyLeftoverPicks'));
+    check('S299', 'saying "these did not get done" records the miss too',
+      /markHouseMissed/.test(leftover),
+      'this screen is the office stating it in as many words, which is a better signal ' +
+      'than the rebuild working it out afterwards');
+    check('S299', 'but only for a day that has actually arrived',
+      /leftToday/.test(leftover) && /isFixRoute/.test(leftover),
+      'the same screen strips a FUTURE day back before the crew sets out, and nobody has ' +
+      'been missed on a day that has not happened');
+
+    /* ⭐ ALL THREE FALL UNDER ONE BUTTON. Owner: "all of these should fall under the
+       recalculate everything button." Two of them need no code there at all — they are read
+       off records — but the weather has to be FETCHED, so this is the one that can be lost.
+
+       ⚠ THE SLICE STOPS AT THE FUNCTION, not at the next branch. runRecalculateEverything is
+       declared between the two, so a slice running on to undoRebuildBtn swallows the whole
+       press and every mention inside it — which is half of why these first passed against a
+       page with the wait deleted. */
+    const clickAt = admin.indexOf("if(t.id==='recalcBtn'){");
+    const clickEnd = admin.indexOf("if(t.id==='undoRebuildBtn'){", clickAt);
+    const fnAt = admin.indexOf('function runRecalculateEverything()', clickAt);
+    const stop = fnAt > clickAt && fnAt < clickEnd ? fnAt : clickEnd;
+    const branch = clickAt > 0 && stop > clickAt ? bare(admin.slice(clickAt, stop)) : '';
+    check('S299', 'Recalculate everything waits for the forecast before it lays the season out',
+      /loadSeasonForecast/.test(branch) && /runRecalculateEverything/.test(branch),
+      'a rebuild that starts before the forecast lands uses the last one, or none at all');
+    check('S299', 'and a failed forecast still rebuilds rather than blocking the button',
+      /catch/.test(branch),
+      'the weather must never be able to stop the office laying out a season');
+    /* ⚠ THE GUARD, not the flag. `recalcRunning=false` sits in the .then() and stays
+       behind when the guard above it is deleted, so a loose /recalcRunning/ passes on a
+       button that can be pressed twice — measured in the red-check. */
+    check('S299', 'two presses in the waiting moment cannot rebuild twice',
+      /if\(recalcRunning\)/.test(branch) && /recalcRunning\s*=\s*true/.test(branch),
+      'the second rebuild would leave Undo pointing at the plan after the first one');
+
+    const body = admin.indexOf('function runRecalculateEverything()');
+    const bodyEnd = admin.indexOf("toast(parts.join(' · '));", body);
+    const report = body > 0 && bodyEnd > body ? bare(admin.slice(body, bodyEnd)) : '';
+    check('S299', 'and the press says what the three new orderings actually did',
+      /r\.rushed/.test(report) && /r\.missed/.test(report) && /showForecastNote/.test(report),
+      'every one of them MOVES somebody, and a customer who quietly changes place is the ' +
+      'thing this office rings up about');
+
+    // The box itself — read, written, and written as a real boolean.
+    check('S299', 'Edit Customer has the box that moves somebody up',
+      /id="editCustRushInstall"/.test(admin),
+      'the flag is read in three places and nothing would set it');
+    check('S299', 'it is filled in when the record opens',
+      /editCustRushInstall'\)\.checked/.test(admin));
+    check('S299', 'and saved every time, including when it is unticked',
+      /addrUpdates\.rushInstall = newRushInstall === true;/.test(admin),
+      'a field only written when it is on can never be turned off again');
+    check('S299', 'the box explains that it does not move their month',
+      /does <b>not<\/b> move them into a month they did not ask for/.test(admin),
+      "owner: 'dont do someone in a month they dont want to be hung though' — somebody " +
+      'ticking this must not expect a November customer to be hung in October');
+
+    // The forecast loader.
+    const load = bare(fn('loadSeasonForecast'));
+    check('S299', 'the forecast is one request for the whole book',
+      /latitude=/.test(load) && /join\(','\)/.test(load),
+      'thirty towns must not be thirty round trips');
+    check('S299', 'it asks the same free service the Routes weather card already uses',
+      /api\.open-meteo\.com/.test(load) && !/key=/.test(load),
+      'no account, no key, nothing to expire');
+    /* ⚠ SCOPED TO THE CATCH. `byTown: {}` also appears in the no-located-towns branch a few
+       lines above, so an unscoped search is satisfied by the wrong one and a failure that
+       kept yesterday's numbers standing would go unnoticed. */
+    const failAt = load.indexOf("catch']");
+    const failBranch = failAt === -1 ? '' : load.slice(failAt);
+    check('S299', 'a failed forecast empties the table rather than leaving yesterday standing',
+      /byTown: \{\}/.test(failBranch),
+      'showing a cold-weather note for dates the numbers no longer cover is worse than ' +
+      'having no forecast at all');
+    /* ⚠ THE GUARD, not merely the field: `SEASON_FORECAST.pending = flight` is the WRITE and
+       stays behind when the read is deleted, so a loose spelling passes with the guard gone. */
+    check('S299', 'and two presses cannot put two requests in the air',
+      /if\(SEASON_FORECAST\.pending\) return/.test(load));
+    check('S299', 'a town with no located house simply has no opinion about the weather',
+      /if\(!towns\.length\)/.test(load),
+      'a fresh season has nobody geocoded, and that must cost the forecast and nothing else');
   }
 }
 
