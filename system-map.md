@@ -995,6 +995,42 @@ member's bill — with nobody in the office typing anything.
   Credit Given**, **Referral Taken Back**, **Referral Blocked**. Proved by run-all.js suite
   299, which runs the rules against a fake Firestore; 19 sabotages red-checked.
 
+⭐ **AND THE OFFICE CAN SEE IT AND SEND IT** (added 2026-09-04, REF-07/REF-08). Addie:
+put the link at the top of Edit Customer, in Customers, and let it go out through the
+RSVP. Both were impossible for the same reason: `ensureReferralToken` lives inside
+`portalLookup`, so a customer got a token on their **first portal sign-in** and never
+before it — and most of the book has never signed in.
+
+- **In Customers.** A **Refer a friend** row at the top of Edit Customer, beside the bill
+  line: the link, a Copy button, and how many people have joined. It shows
+  `referralLiveCount`, not `referralCount` and not the raw array — a referral the friend
+  cancelled is revoked and one the office crossed off with the × is waived, and neither is
+  money off anybody's bill.
+  - ⚠ **Opening the form mints nothing.** The button mints it, once, when somebody
+    actually asks for the link. Minting on render would write to Firestore every time
+    anybody opened the most-opened form in the app, for a link most of those opens will
+    never use. When there is no link yet the row says so and offers **Make their link** —
+    an empty field beside a Copy button reads as the feature being broken.
+- **In an email.** `{{referral_link}}` and `{{referral_button}}`, in the token picker
+  beside the portal and Venmo ones. ⚠ **Her own RSVP template is not rewritten** — the
+  top-up only ever fills a blank body, never replaces words somebody has written — so the
+  tokens exist and putting one in the email is her edit to make.
+- ⚠ **The customer is resolved by `hlxEmailCustomerItem`**, which refuses a phone matching
+  two customers rather than picking the first. Seventeen numbers in the real book are
+  shared and fourteen are two households, so through a `.find()` a parent is emailed the
+  **child's** link and every $25 that friend earns lands on the child's bill for the whole
+  season. That resolver is now two functions on one rule — the item form is the rule,
+  `hlxEmailCustomer` is one line on top of it — because a caller that WRITES to the
+  customer needs the id, and a second resolver written beside it is how one of them
+  quietly stops refusing a shared phone.
+- ⚠ **An unresolved customer emits nothing at all**, not an empty `<a href="">`. A dead
+  button in a bulk send is a customer tapping something we sent them and landing nowhere,
+  which they cannot tell from the scheme being broken.
+- ⚠ **One place builds the address**, and it must stay byte-identical to
+  `portalReferralLink` in `index.html` — the customer copies one out of their portal and
+  the office sends the other, and two links differing by a slash are one referral that
+  credits nobody. Suite 301 runs both and requires the same string out.
+
 ⭐ **THE PORTAL SAYS WHEN A BALANCE IS ACTUALLY DUE** (added 2026-09-02, MON-57). Addie:
 *"I want to make it clear to the member that this is there payment however they do not need
 to pay until after they get an invoice from us."* The payment card said **Current Balance**
@@ -1277,6 +1313,52 @@ touched in the four source files against this table, and every name in
 *Naming*: `routeDayTowns` is deliberately **not** `dayTownList`. A separate `dayTownList` exists further down for the timing sweep, answering a different question about a different shape of object (a day of `.houses`, not a saved route). Two top-level declarations of one name do not coexist in a browser — the later one wins for the whole page.
 
 **Duplicate System notices**: `reconcileNoteIsRepeat` suppresses a word-for-word identical "Routes Kept Up To Date" note inside an hour (`RECONCILE_NOTE_REPEAT_MS`). It is guarded twice — an in-memory record, and a scan of `allMessages` so a reload, a second tab or the other office machine doesn't reopen the hole. It suppresses the *notice*, not the sweep: a backstop, not the fix, and it logs a console warning naming the loop rather than going quiet.
+
+### How many crews there are, and what they are called
+
+Addie, 2026-09-04: *"on schedule can you make it so we can add on crews and name them?"*
+
+Schedule → the **Crews** bar at the top: one row per crew with its name and its town,
+and beneath them **+ Add a crew** / **Remove &lt;name&gt;**. Naming has always worked;
+adding is what did not. The same number is settable from Routes → **Crews out on a
+normal day**, which is now a dropdown rather than a pair of radios — two radios could
+only ever say one or two, so picking *Two* would have quietly dropped a third crew
+somebody had already named.
+
+**One number, in one place.** `settings/scheduling.crewsPerDay` is the whole answer to
+"how many crews". It was already what the season builder, the tail sweep and
+`surplusCrewDays` read, so both controls write it and the crew *list* pads itself from
+it — the names ride with the plan as they always have, the length does not. Making the
+list a second answer would put two numbers in two collections in charge of one fact, and
+the day they disagree somebody is handed a sheet the season was never built for.
+
+⚠ **A crew you add gets nothing until Recalculate everything is pressed.** The days
+already built do not know about it. Both controls say so rather than leaving it to be
+discovered from an empty sheet.
+
+⚠ **Removing a crew that is holding houses on the day you are looking at is refused.**
+Nothing would be lost — the towns are re-shared on the next render — but those houses
+would move onto another crew's sheet with nothing said, and a sheet that changes under
+somebody already holding paper is what the 48-hour lock exists to prevent.
+
+⚠ **The ceiling was in two places and the second one was the quiet one.**
+`normalizeCrews` mapped over a two-entry list, so a third crew could not exist; and
+`loadSchedulingSettings` clamped the saved count to `(n === 1) ? 1 : 2`, so a third crew
+that *was* written was read back as two **on the next login** — the season silently
+rebuilt for two, one named crew got no day, and nothing anywhere went red.
+
+**What follows the count now, rather than being written out as a pair:** which towns each
+crew holds (`dayCrewTowns`), which houses land on which sheet and the 20/20 hand-back
+(`dayCrewHouses`), how many crews a day actually wants (`dayCrewCount`, still capped at
+the crews that exist), and which crew works a one-crew day (`daySoloCrew`, which now
+falls back to the first crew when the stored one has since been removed — wrong about
+*who* beats a printed sheet with nothing on it). The rules themselves are unchanged: a
+crew is still its own town plus at most one neighbouring one, still twenty houses, and
+the hand-back is still a hand-back rather than a leveller.
+
+*Proved by run-all.js suite 300, which runs all of it — the two-crew answers are
+re-asserted beside the three-crew ones, because the expensive failure is not "three does
+not work", it is "three works and two quietly changed".*
 
 ### A day the office has short-handed on purpose
 
