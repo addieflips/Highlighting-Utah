@@ -1683,12 +1683,19 @@ function seasonResetWrite() {
       badge(Object.assign({}, base, {chargeNewMemberFee: true})) === 'confirmed',
       'requiring an answer to a question we never send is a test nobody can pass');
 
-    check('Maybe Next Year stays its own answer rather than collapsing into Pending',
+    check('Back Next Year stays its own answer rather than collapsing into Pending',
       badge(Object.assign({}, base, {maybeNextYear: true})) === 'maybe' &&
-      badge(Object.assign({}, base, {rsvpStatus: 'backnextyear'})) === 'maybe' &&
-      badge(Object.assign({}, base, {rsvpStatus: 'no'})) === 'maybe',
-      'Pending is somebody we want who is blocked; Maybe Next Year is somebody who ' +
+      badge(Object.assign({}, base, {rsvpStatus: 'backnextyear'})) === 'maybe',
+      'Pending is somebody we want who is blocked; Back Next Year is somebody who ' +
       'told us no for now, and the office toggles that one by hand');
+    /* ⚠ AND A FLAT NO IS ITS OWN ANSWER AGAIN (2026-09-04). This line used to
+       assert 'maybe' alongside the two above; the claim it was making — an answered
+       no is not Pending — is unchanged, and the key it lands on is. Addie asked for
+       the two to be told apart on the badge so the two follow-up emails have
+       something to aim at. */
+    check('and a flat no is its own answer, neither Pending nor Back Next Year',
+      badge(Object.assign({}, base, {rsvpStatus: 'no'})) === 'no',
+      'got "' + badge(Object.assign({}, base, {rsvpStatus: 'no'})) + '"');
 
     /* ⚠ THE INVARIANT SHE ASKED FOR, IN BOTH DIRECTIONS AND IN BOTH RULE STATES:
        "anyone who is confirmed is scheduled but if one person is confirmed there
