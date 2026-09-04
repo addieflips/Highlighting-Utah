@@ -1410,32 +1410,32 @@
                through to the customer record when the quote is converted.
                ⚠ The four names are the same four the photo buttons already use
                below, so "Right side" means one thing on this page. -->
-          <div class="form-row" id="quoteSidesRow">
-            <label>Which sides would you like lit?</label>
-            <p class="form-note" style="margin:0 0 8px;">Tick any that apply &mdash; most people have just the front. You can change this later.</p>
-            <div style="display:flex; flex-wrap:wrap; gap:10px;">
-              <!-- ⭐ A COUNT, NOT FOUR NAMES. Owner, 2026-08-19: "we need it to say 1,
-                   2, 3, or 4 sides of the house so then it can just be connected and we
-                   dont have to guess if its the left or right side." Her sheet has said
-                   "2 sides" for years; asking which two invented a fact nobody recorded. -->
-              <label class="quote-side-pick"><input type="radio" name="house_sides" value="1"> 1 side</label>
-              <label class="quote-side-pick"><input type="radio" name="house_sides" value="2"> 2 sides</label>
-              <label class="quote-side-pick"><input type="radio" name="house_sides" value="3"> 3 sides</label>
-              <label class="quote-side-pick"><input type="radio" name="house_sides" value="4"> 4 sides</label>
-            </div>
-          </div>
-          <!-- Phase 2: buildings + per-side photos, built from the approved
-               multi-address mockup (claude/multi-address-combined-mockup.html).
-               Main house always exists; more buildings (shop, shed, guest
-               house...) can be added, each with the same four named sides.
-               Rendered entirely by JS below — quoteBuildingsWrap starts empty
-               and gets its first "Main house" block on page load. -->
+          <!-- ⭐ SIDES MOVED TO THE INSTALL DETAILS FORM (2026-09-03). Addie: "side of
+               house should be in detail form, 1 side should be default." It is a real
+               question with a real effect on the price, but it belongs after somebody
+               has approved rather than in front of a stranger deciding whether to ask
+               for a price at all. See qdSidesRow. -->
+          <!-- ⭐ THE PROPERTY LIST SURVIVES; THE PHOTOS DO NOT (2026-09-03). Addie:
+               "upload picture should not be there", then "there should keep the option
+               to add another property but make sure there is a way to delete the extra
+               property in case they accidentally push on it."
+
+               ⚠ SO THIS ROW IS NOT DELETED, IT IS EMPTIED OF ITS EXPENSIVE HALF.
+               Naming a shop or a guest house is one box and takes a moment; being asked
+               to photograph four walls of each of them was the longest thing on a form
+               whose own promise is "about two minutes", and it was being asked of
+               somebody who has not been given a price yet.
+
+               ⚠ AND EVERY EXTRA ONE CAN BE TAKEN BACK OFF. "+ Add another property" is
+               one press away from being pressed by accident, and until now there was no
+               way to undo it — the block simply stayed, and a stray empty building went
+               to the office as a real one. The main house has no Remove, because a quote
+               with no house is not a quote. -->
           <div class="form-row" id="quoteBuildingsRow">
-            <label>Photos</label>
-            <p class="form-note" style="margin:0 0 10px;">A few photos of your home &mdash; and any other buildings you'd like lit &mdash; help us quote accurately.</p>
+            <label>Other buildings on the property (optional)</label>
+            <p class="form-note" style="margin:0 0 10px;">Just the main house for most people. Add a shop, shed or guest house if you would like those lit too.</p>
             <div id="quoteBuildingsWrap"></div>
-            <button type="button" class="btn btn-outline-dark btn-sm" id="quoteAddBuildingBtn" style="margin-top:4px;">+ Add another building on this property</button>
-            <div id="quotePhotoStatus" class="form-note" style="margin-top:8px;"></div>
+            <button type="button" class="btn btn-outline-dark btn-sm" id="quoteAddBuildingBtn" style="margin-top:4px;">+ Add another property</button>
           </div>
           <button type="submit" class="btn btn-gold btn-block">Submit Quote Request</button>
           <p class="form-note">No obligation. We'll follow up by your preferred contact method with your custom estimate.</p>
@@ -1507,6 +1507,28 @@
                   <button type="button" class="btn btn-outline-dark btn-sm" id="qdClearPattern" style="margin-left:auto;">Clear</button>
                 </div>
                 <div id="qdPatternReadout" style="font-size:12.5px; color:var(--slate);"></div>
+              </div>
+            </div>
+            <!-- ⭐ MOVED HERE FROM THE FREE QUOTE FORM (2026-09-03), and ONE SIDE IS
+                 PRE-PICKED. Addie: "side of house should be in detail form, 1 side
+                 should be default."
+
+                 ⚠ A DEFAULT IS SAFE HERE AND IS DELIBERATELY NOT ON THE ADMIN FORMS,
+                 which is worth saying because run-all.js asserts the opposite for those.
+                 Edit Customer and Add Customer sit over ~956 records nobody has ever
+                 asked, so a pre-picked 1 there would stamp a made-up answer on all of
+                 them — "a count nobody gave is not a count". THIS form is one customer
+                 answering for their own house, looking at the question, and the
+                 commonest answer by far is the front only. Pre-picking it saves a click
+                 and is still their answer, because they can see it and change it. -->
+            <div class="form-row" id="qdSidesRow">
+              <label>How many sides of your house would you like lit?</label>
+              <p class="form-note" style="margin:0 0 8px;">Most people have just the front.</p>
+              <div style="display:flex; flex-wrap:wrap; gap:10px;">
+                <label class="radio-pill"><input type="radio" name="house_sides" value="1" checked> 1 side</label>
+                <label class="radio-pill"><input type="radio" name="house_sides" value="2"> 2 sides</label>
+                <label class="radio-pill"><input type="radio" name="house_sides" value="3"> 3 sides</label>
+                <label class="radio-pill"><input type="radio" name="house_sides" value="4"> 4 sides</label>
               </div>
             </div>
             <div class="form-row">
@@ -2994,167 +3016,26 @@ function qdPrefillFromMember(memberDetails){
   if(mailed) mailed.checked = md.wantsMailedInvoice === true;
 }
 
-/* =========================================================
-   QUOTE FORM PHOTOS — Phase 2 (buildings + per-side photos)
-   Built from the approved mockup (claude/multi-address-combined-mockup.html):
-   Main house always exists with four named side buttons (Front of house /
-   Right side / Left side / Back) plus a dashed "Add another photo" that
-   never retires; "+ Add another building" adds more of the same block with
-   a free-text name. Tapping a side opens the real camera/library picker —
-   backing out adds nothing and the button stays; a real file uploads
-   through Phase 1's signed pipeline (downscale -> cloudinarySignature ->
-   Cloudinary) and retires that side's button until the photo is removed.
-========================================================= */
-var QUOTE_PHOTO_MAX = 12;
-var quotePhotoUploadsInFlight = 0;
-var QUOTE_SIDE_LABELS = {front: 'Front of house', right: 'Right side', left: 'Left side', back: 'Back'};
-var QUOTE_SIDE_ORDER = ['front', 'right', 'left', 'back'];
-var quoteBuildings = []; // [{id, isMain, nameInput, shotsEl, el, photos:[{sideKey,sideLabel,url,original}]}]
+/* ⭐ THE QUOTE PHOTO UPLOADER IS GONE (2026-09-03). Addie: "upload picture should not
+   be there." What stood here was a downscaler, a signed Cloudinary uploader, a photo
+   status line and a four-named-walls picker per building — all of it reachable only
+   from the free quote form, and all of it asking somebody to photograph their house
+   before they had been given a price.
+
+   ⚠ REMOVED RATHER THAN HIDDEN. Leaving it behind a hidden row is how a feature comes
+   back by accident. Checked name by name that nothing else in this file called any of
+   it: downscaleImageFile, uploadPhotoToCloudinary, pickQuotePhoto, quotePhotoStatusText,
+   totalQuotePhotoCount, QUOTE_PHOTO_MAX, QUOTE_SIDE_LABELS, QUOTE_SIDE_ORDER.
+
+   ⚠ THE BUILDING REPEATER BELOW SURVIVES ON PURPOSE — Addie asked for it by name in
+   the same breath. What it collects now is a NAME, which is one box and a moment.
+
+   ⚠ AND THE READERS ARE UNTOUCHED. A quote simply arrives with no photos: admin's quote
+   card, applyQuotePhotoBlock and Convert-to-Customer all already handle one with none.
+   The office-side photo on the CUSTOMER record (frontPhotoUrl on jobAddresses) is a
+   different feature and is not affected. */
+var quoteBuildings = []; // [{id, isMain, nameInput, el}]
 var quoteBuildingNextId = 0;
-
-// Phone photos run 3–12MB and a submission can carry a dozen of them — on a
-// driveway connection that's an abandoned form, not a slow one. Shrinking to
-// ~1600px on the long edge before upload is not optional; nothing this site
-// displays a photo at is bigger than that anyway.
-function downscaleImageFile(file, maxDim, quality){
-  return new Promise(function(resolve){
-    if(!file.type || file.type.indexOf('image/') !== 0){ resolve(file); return; }
-    var url = URL.createObjectURL(file);
-    var img = new Image();
-    img.onload = function(){
-      URL.revokeObjectURL(url);
-      var scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
-      var w = Math.max(1, Math.round(img.naturalWidth * scale));
-      var h = Math.max(1, Math.round(img.naturalHeight * scale));
-      var canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      canvas.toBlob(function(blob){
-        if(!blob){ resolve(file); return; }
-        resolve(new File([blob], file.name || 'photo.jpg', {type: blob.type || 'image/jpeg'}));
-      }, 'image/jpeg', quality || 0.85);
-    };
-    img.onerror = function(){ URL.revokeObjectURL(url); resolve(file); };
-    img.src = url;
-  });
-}
-function uploadPhotoToCloudinary(file, onProgress){
-  return downscaleImageFile(file, 1600, 0.85).then(function(resizedFile){
-    return callPortalFn('cloudinarySignature', {}).then(function(sig){
-      return new Promise(function(resolve, reject){
-        var body = new FormData();
-        body.append('file', resizedFile);
-        body.append('api_key', sig.apiKey);
-        body.append('timestamp', sig.timestamp);
-        body.append('signature', sig.signature);
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', 'https://api.cloudinary.com/v1_1/' + sig.cloudName + '/image/upload');
-        xhr.upload.onprogress = function(e){
-          if(onProgress && e.lengthComputable) onProgress(Math.round(e.loaded / e.total * 100));
-        };
-        xhr.onload = function(){
-          var data = null;
-          try{ data = JSON.parse(xhr.responseText); }
-          catch(err){
-            /* ⚠ NOT QUIET ON PURPOSE. The customer does hear about this — a failed
-               parse leaves `data` null and the promise rejects with "Upload failed"
-               below — but throwing the parse error away loses the only thing that
-               says WHICH failure it was. Cloudinary down, a bad signature and a
-               proxy serving an HTML error page all arrive here as the same five
-               words, and the first two are ours to fix. The status code and the
-               first of the reply are what separate them. */
-            console.error('[HU] Cloudinary replied with something that is not JSON (HTTP ' +
-              xhr.status + '):', String(xhr.responseText || '').slice(0, 200), err);
-          }
-          if(data && data.secure_url) resolve(data.secure_url);
-          else reject(new Error((data && data.error && data.error.message) || 'Upload failed'));
-        };
-        xhr.onerror = function(){ reject(new Error('Network error during upload')); };
-        xhr.send(body);
-      });
-    });
-  });
-}
-function quotePhotoStatusText(msg){
-  var el = document.getElementById('quotePhotoStatus');
-  if(el) el.textContent = msg || '';
-}
-function totalQuotePhotoCount(){
-  return quoteBuildings.reduce(function(n, b){ return n + b.photos.length; }, 0);
-}
-
-// Opens the phone's camera/library picker for real. Nothing is added unless
-// a file actually comes back — backing out leaves triggerBtn exactly as-is.
-function pickQuotePhoto(building, sideKey, sideLabel, triggerBtn){
-  if(totalQuotePhotoCount() + quotePhotoUploadsInFlight >= QUOTE_PHOTO_MAX){
-    quotePhotoStatusText("You've reached the maximum of " + QUOTE_PHOTO_MAX + ' photos.');
-    return;
-  }
-  var fileInput = document.createElement('input');
-  fileInput.type = 'file';
-  fileInput.accept = 'image/*';
-  fileInput.style.display = 'none';
-  document.body.appendChild(fileInput);
-  fileInput.addEventListener('change', function(){
-    var file = fileInput.files && fileInput.files[0];
-    document.body.removeChild(fileInput);
-    if(!file) return; // cancelled — button stays put, nothing added
-    quotePhotoStatusText('');
-    addQuotePhotoShot(building, sideKey, sideLabel, triggerBtn, file);
-  });
-  fileInput.click();
-}
-
-function addQuotePhotoShot(building, sideKey, sideLabel, triggerBtn, file){
-  var retiring = sideKey !== 'extra'; // the four named sides retire; "Add another photo" never does
-  if(retiring && triggerBtn) triggerBtn.style.display = 'none';
-  quotePhotoUploadsInFlight++;
-
-  var row = document.createElement('div');
-  row.style.cssText = 'display:flex; align-items:center; gap:11px; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:8px; margin-top:7px;';
-  var thumb = document.createElement('div');
-  thumb.style.cssText = 'width:52px; height:52px; border-radius:8px; flex:none; overflow:hidden; background:var(--line); display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--slate);';
-  thumb.textContent = '0%';
-  var nameWrap = document.createElement('div');
-  nameWrap.style.cssText = 'flex:1; font-size:14px; font-weight:600; color:var(--ink);';
-  nameWrap.textContent = sideLabel || 'Photo';
-  var removeBtn = document.createElement('button');
-  removeBtn.type = 'button';
-  removeBtn.textContent = '×';
-  removeBtn.setAttribute('aria-label', 'Remove photo');
-  removeBtn.style.cssText = 'border:none; background:none; color:var(--slate); font-size:20px; cursor:pointer; padding:4px 8px; flex-shrink:0;';
-  row.appendChild(thumb); row.appendChild(nameWrap); row.appendChild(removeBtn);
-  building.shotsEl.appendChild(row);
-
-  var entry = {sideKey: sideKey, sideLabel: sideLabel, url: null, original: null};
-
-  removeBtn.addEventListener('click', function(){
-    var idx = building.photos.indexOf(entry);
-    if(idx !== -1) building.photos.splice(idx, 1);
-    row.remove();
-    if(retiring && triggerBtn) triggerBtn.style.display = ''; // deleting brings the side button back
-    quotePhotoStatusText('');
-  });
-
-  uploadPhotoToCloudinary(file, function(pct){ thumb.textContent = pct + '%'; }).then(function(url){
-    entry.url = url; entry.original = url;
-    building.photos.push(entry);
-    thumb.textContent = '';
-    var img = document.createElement('img');
-    img.src = url;
-    img.style.cssText = 'width:100%; height:100%; object-fit:cover; display:block;';
-    thumb.appendChild(img);
-  }).catch(function(err){
-    console.error('[HU] quote photo upload failed:', err);
-    nameWrap.innerHTML = (sideLabel || 'Photo') + '<br><span style="font-weight:400; color:var(--ember); font-size:12px;">Upload failed — tap the side again to retry</span>';
-    setTimeout(function(){
-      row.remove();
-      if(retiring && triggerBtn) triggerBtn.style.display = '';
-    }, 3000);
-  }).finally(function(){
-    quotePhotoUploadsInFlight--;
-  });
-}
 
 function renderQuoteBuilding(building){
   var wrap = document.createElement('div');
@@ -3171,36 +3052,42 @@ function renderQuoteBuilding(building){
   nameRow.appendChild(nameInput);
   wrap.appendChild(nameRow);
 
-  var sidesRow = document.createElement('div');
-  sidesRow.style.cssText = 'display:flex; flex-wrap:wrap; gap:7px;';
-  QUOTE_SIDE_ORDER.forEach(function(sideKey){
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'btn btn-outline-dark btn-sm';
-    btn.textContent = '+ ' + QUOTE_SIDE_LABELS[sideKey];
-    btn.addEventListener('click', function(){ pickQuotePhoto(building, sideKey, QUOTE_SIDE_LABELS[sideKey], btn); });
-    sidesRow.appendChild(btn);
-  });
-  var extraBtn = document.createElement('button');
-  extraBtn.type = 'button';
-  extraBtn.className = 'btn btn-outline-dark btn-sm';
-  extraBtn.style.borderStyle = 'dashed';
-  extraBtn.textContent = '+ Add another photo';
-  extraBtn.addEventListener('click', function(){ pickQuotePhoto(building, 'extra', '', extraBtn); });
-  sidesRow.appendChild(extraBtn);
-  wrap.appendChild(sidesRow);
+  /* ⭐ AN EXTRA PROPERTY CAN BE TAKEN BACK OFF (2026-09-03). Addie: "make sure there is
+     a way to delete the extra property in case they accidentally push on it."
 
-  var shotsEl = document.createElement('div');
-  shotsEl.style.marginTop = '10px';
-  building.shotsEl = shotsEl;
-  wrap.appendChild(shotsEl);
+     ⚠ NEVER ON THE MAIN HOUSE. A quote with no house is not a quote, and the main
+     block is the one that is there from the start rather than one somebody added.
+
+     ⚠ IT REMOVES THE ROW FROM quoteBuildings AS WELL AS FROM THE PAGE. Taking the
+     element out alone would leave the object in the array, so the submit would still
+     send a building the customer can no longer see — and reading its detached
+     nameInput would send it as a blank one, which reaches the office as a real
+     building nobody can ask about. */
+  if(!building.isMain){
+    var removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn btn-outline-dark btn-sm';
+    removeBtn.style.marginLeft = '8px';
+    removeBtn.textContent = 'Remove';
+    removeBtn.addEventListener('click', function(){ removeQuoteBuilding(building); });
+    nameRow.appendChild(removeBtn);
+  }
 
   building.el = wrap;
   return wrap;
 }
 
+function removeQuoteBuilding(building){
+  /* The main house is not removable — see renderQuoteBuilding. Guarded here as well,
+     because this is callable and the button is only half the rule. */
+  if(!building || building.isMain) return;
+  var at = quoteBuildings.indexOf(building);
+  if(at !== -1) quoteBuildings.splice(at, 1);
+  if(building.el && building.el.parentNode) building.el.parentNode.removeChild(building.el);
+}
+
 function addQuoteBuilding(isMain){
-  var building = {id: 'qb' + (quoteBuildingNextId++), isMain: !!isMain, photos: [], nameInput: null, shotsEl: null, el: null};
+  var building = {id: 'qb' + (quoteBuildingNextId++), isMain: !!isMain, nameInput: null, el: null};
   quoteBuildings.push(building);
   document.getElementById('quoteBuildingsWrap').appendChild(renderQuoteBuilding(building));
   if(!isMain && building.nameInput) building.nameInput.focus();
@@ -3215,10 +3102,6 @@ addQuoteBuilding(true); // Main house is always there from the start
 
 quoteFormEl.addEventListener('submit', async function(e){
   e.preventDefault();
-  if(quotePhotoUploadsInFlight > 0){
-    alert('Please wait for your photo(s) to finish uploading before submitting.');
-    return;
-  }
   var fd = new FormData(quoteFormEl);
   var street = fd.get('street'), city = fd.get('city'), zip = fd.get('zip');
   var fullAddress = street + ', ' + city + ' ' + zip;
@@ -3227,42 +3110,38 @@ quoteFormEl.addEventListener('submit', async function(e){
   submitBtn.disabled = true;
   submitBtn.textContent = 'Submitting…';
 
-  /* buildings is the new structured field; quotePhotos stays the flat array
-     everything else already reads (admin.html's quote card, copy-as-text,
-     buildQuoteEmailHtml, Convert-to-Customer) — every building's photos
-     flatten into it in order, with the building folded into the label when
-     it isn't the main house ("Shop — Front of house"), so nothing downstream
-     needs to know buildings exist at all. Photo #1 still mirrors onto the
-     legacy flat frontPhotoUrl/frontPhotoOriginal/frontPhotoMarkup fields. */
-  var buildingsPayload = quoteBuildings.map(function(b, idx){
+  /* ⭐ A BUILDING IS A NAME NOW (2026-09-03). `photos` is kept on the shape rather
+     than dropped from it, always empty, because admin's quote card and
+     buildQuoteEmailHtml both walk it — sending an object with no photos array at all
+     would make them reach into undefined on a quote that is otherwise fine.
+
+     ⚠ AN EMPTY EXTRA BUILDING IS NOT SENT. Somebody who presses Add another property
+     and then thinks better of it now has a Remove button, but they may equally just
+     leave the box blank — and a nameless building reaches the office as a row nobody
+     can ask about. The main house always travels, named or not. */
+  var buildingsPayload = quoteBuildings.map(function(b){
     return {
       name: (b.nameInput && b.nameInput.value.trim()) || (b.isMain ? 'Main house' : ''),
-      photos: b.photos.map(function(p){ return {url: p.url, original: p.original, markup: [], label: p.sideLabel || ''}; }),
-      _isMain: idx === 0
+      isMain: !!b.isMain
     };
-  });
-  var quotePhotosPayload = [];
-  buildingsPayload.forEach(function(b){
-    b.photos.forEach(function(p){
-      var label = b._isMain ? (p.label || '') : (p.label ? (b.name + ' — ' + p.label) : b.name);
-      quotePhotosPayload.push({url: p.url, original: p.original, markup: p.markup, label: label});
-    });
-  });
-  var mainPhoto = quotePhotosPayload[0] || null;
+  }).filter(function(b){ return b.isMain || b.name; });
 
   addDoc(collection(db,'quotes'), {
     name: fd.get('name'), phone: fd.get('phone'), email: fd.get('email'),
     street: street, city: city, zip: zip,
     address: street + ', ' + city + ' ' + zip,
     contactMethod: fd.get('contact_method'),
-    /* Which sides they want lit. getAll, not get — a checkbox group is a list,
-       and get() would quietly keep only the first one ticked. */
-    houseSides: portalSideCount(fd.get('house_sides')),
-    buildings: buildingsPayload.map(function(b){ return {name: b.name, photos: b.photos}; }),
-    quotePhotos: quotePhotosPayload,
-    frontPhotoUrl: mainPhoto ? mainPhoto.url : null,
-    frontPhotoOriginal: mainPhoto ? mainPhoto.original : null,
-    frontPhotoMarkup: [],
+    /* ⭐ NO houseSides ON A FRESH QUOTE (2026-09-03). The question moved to the Install
+       Details form.
+
+       ⚠ THE FIELD IS OMITTED, NOT WRITTEN AS 1. "1 side should be default" is about
+       what the customer SEES pre-picked on the form that now asks; writing a 1 here
+       would stamp an answer on a quote nobody has been asked, which is the same fault
+       run-all.js already guards on the two admin forms — "a count nobody gave is not a
+       count". Absent is honest, and every reader turns absent into 1 through
+       portalSideCount, so the default holds either way. */
+    buildings: buildingsPayload.map(function(b){ return {name: b.name, photos: []}; }),
+    quotePhotos: [],
     quoteToken: generatePortalToken(),
     formCompleted: false,
     status: 'new', createdAt: serverTimestamp()
@@ -3321,6 +3200,10 @@ quoteDetailFormEl.addEventListener('submit', async function(e){
     specificOutletNotes: fd.get('specific_outlet') === 'Yes' ? (fd.get('specific_outlet_notes') || '').trim() : '',
     notes: fd.get('notes') || '', gateCode: fd.get('gate_code') || '',
     installPreference: fd.get('install_month') || 'Normal Schedule',
+    /* ⭐ THE SIDE COUNT IS ASKED HERE NOW (2026-09-03) — see qdSidesRow. portalSideCount
+       clamps to 1-4 and answers 1 for anything it cannot read, which is also what a
+       quote raised before this change comes back as. */
+    houseSides: portalSideCount(fd.get('house_sides')),
     wantsMailedInvoice: fd.get('wants_mailed') === 'on'
   };
   try{
