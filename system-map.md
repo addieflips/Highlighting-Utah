@@ -1545,6 +1545,51 @@ than left to be discovered.
 *Proved in* run-all.js **Suite 299**; **S62** and **S80** were repointed rather than
 weakened, and **S86**'s sandbox lifted the real reader.
 
+### "No" is gone from the office dropdown, but not from the system
+
+Addie, 2026-09-03: *"we can just get rid of the no under rsvp because it means the same
+thing as back next year."*
+
+**They did not mean the same thing, and the difference was destructive.** Picking **No**
+in Edit Customer set `needsLightRecycle` — the warehouse queued to pull that customer's
+bundle apart and hand their number back to the pool — while Back Next Year deliberately
+never does (RS-05, and the "hole G" note: Back Next Year neither creates a recycle nor
+destroys one). So one entry in a list of answers also started physical, irreversible work.
+
+Removing it is therefore the right change rather than merely the requested one: **a
+recycle should be a button that says so, and it already is.** *Recycle Their Old Set* in
+Edit Customer writes the same flag under a label describing what it does. Nothing can no
+longer be done.
+
+**What actually changed**
+
+- The `#editCustRsvp` dropdown offers **Pending / Unanswered / Yes / Back Next Year**.
+- The branch that set `needsLightRecycle` when the answer became `no` is gone — with No
+  unpickable it could never fire again, and dead code that still looks like the rule is
+  worse than no code.
+- The **undo** half stays: a record that already says `no` and is being brought back into
+  the season still has its queued recycle cancelled.
+
+⚠ **The VALUE `no` is not gone and must not be.** `portalRsvp` still writes it when a
+customer taps No in an RSVP email, so `seasonBadgeKey`, `isOutForSeason`, the Members
+filter, the exports and the Yes sheet all still have to understand it — and they do. The
+Members-tab **filter** keeps its No option on purpose: those records exist and have to be
+findable.
+
+⚠ **A stored `no` displays as Back Next Year, and normalises on save.** Setting a
+`<select>` to a value it has no option for leaves it blank — which reads as *Pending
+(never asked)* — and the next save writes that blank over the customer's actual answer.
+So the form maps it, and whoever opens and saves that record converts it. One state, one
+spelling.
+
+⚠ **The Excel destination is unaffected**, which was the thing worth checking before
+agreeing to this. `HLX_STATE_TABS` keys the **Recycle** sheet on `needsLightRecycle` and
+never on the RSVP answer, and **Contact 2027** on `maybeNextYear || 'backnextyear'`. The
+recycle button still sends somebody to the Recycle sheet; Back Next Year still goes to
+Contact 2027.
+
+*Proved in* run-all.js **Suite 298**.
+
 ### One route note a day, not one a sweep
 
 Addie, 2026-08-30: *"system inbox always has a bunch of schedule messages and it's to many to

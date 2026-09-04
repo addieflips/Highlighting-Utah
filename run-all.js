@@ -3674,11 +3674,20 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     'fixing a phone number months later put them back in the recycle queue with no number ' +
     'and no lights left to pull');
 
-  // The normal path must not regress.
+  /* ⚠ THIS ASSERTED THE OPPOSITE UNTIL 2026-09-03, and the old wording is worth keeping
+     in view: "this is the behaviour that is correct — the fix must not stop declines from
+     recycling". It WAS correct while the office could pick No. Addie then removed that
+     option (RS-49) precisely because picking an answer should not queue the warehouse to
+     take a bundle apart, so the branch is gone and the assertion is inverted rather than
+     deleted — the half that still binds is that the save does not start warehouse work
+     off an RSVP answer by itself.
+     ⚠ THE VALUE IS STILL REACHABLE: portalRsvp writes 'no', and until #308 lands THAT
+     path still recycles. This check is about the OFFICE save only. */
   const declined = runSave({ rsvpStatus: '', needsLightRecycle: false }, 'no');
-  check('flow', 'changing an RSVP to "no" in admin still raises the recycle flag',
-    declined.needsLightRecycle === true,
-    'this is the behaviour that is correct — the fix must not stop declines from recycling');
+  check('flow', 'the office save no longer recycles off an RSVP answer alone',
+    declined.needsLightRecycle !== true,
+    'a recycle is physical and irreversible; it belongs to the button that says so ' +
+    '(Recycle Their Old Set), not to an option in a list of answers');
 
   // Bug 1, admin side.
   const rejoined = runSave({ rsvpStatus: 'no', needsLightRecycle: false, lightsRecycledAt: 'THEN' }, 'yes');
@@ -4836,9 +4845,15 @@ suite('8. Quote decline / maybe next year');
   check('quoteresp', 'one control decides Back Next Year, not two',
     !/name="editCustSeason"/.test(admin) && !/editCustSeasonMaybe/.test(admin.replace(/<!--[\s\S]*?-->/g, '')),
     'a second control for this state is what silently overwrote the office\'s own answer');
+  /* ⚠ THE EXPRESSION MOVED ON 2026-09-03 (RS-49) and the claim did not. With No off the
+     dropdown, a stored 'no' has no option to land on — so the loader maps it to Back Next
+     Year, and pinning the old literal failed on correct code. The GUARANTEE is unchanged
+     and is what is asserted: the dropdown is filled from the record rather than defaulting
+     to Pending, and a stored 'no' reaches a real option instead of blank. */
   check('quoteresp', 'the state is loaded when the modal opens',
-    /getElementById\('editCustRsvp'\)\.value = d\.rsvpStatus/.test(admin),
-    'it would always show Pending regardless of the real value');
+    /getElementById\('editCustRsvp'\)\.value = storedRsvp === 'no' \? 'backnextyear' : \(d\.rsvpStatus/.test(admin),
+    'it would always show Pending regardless of the real value — and a blank select ' +
+    'reads as Pending, which the next save then writes over their answer');
   /* ⚠ THE ASSIGNMENT IS `seasonMaybeChosen` SINCE 2026-09-02, not the raw checkbox:
      a dropdown CHANGED to Back Next Year now counts as choosing it, because reading an
      unticked box as "bringing them back in" was silently wiping the office's own
@@ -35419,7 +35434,13 @@ suite('Suite 132. Back Next Year neither creates a recycle nor destroys one');
      somebody coming back IN. Both are ways of saying not this season, so moving
      between them changes nothing about whether the lights need collecting. */
   {
-    const a = admin.indexOf("    if(newRsvp === 'no' && oldRsvpForRecycle !== 'no'){");
+    /* ⚠ THE ANCHOR MOVED ON 2026-09-03 (RS-49). This sliced from the branch that set
+       needsLightRecycle when the answer became 'no' — the branch Addie's change removes,
+       because picking an answer should not queue warehouse work. The check below is about
+       the OTHER half, which still stands and still matters: moving between two ways of
+       saying "not this season" must not cancel a collection that is genuinely owed. It
+       now slices from the branch that survives. */
+    const a = admin.indexOf("    if(newRsvp !== 'no' && newRsvp !== 'backnextyear' &&");
     const b = admin.indexOf('/* Rejoining AFTER the recycle', a);
     check('S132', 'the RSVP recycle branch is findable', a !== -1 && b > a);
     if (a !== -1 && b > a) {
@@ -35446,10 +35467,18 @@ suite('Suite 132. Back Next Year neither creates a recycle nor destroys one');
         runRsvp('yes', 'no', true).needsLightRecycle === false,
         'they are in for the season again, so the recycle their no created goes ' +
         'with it — that is what this branch is FOR');
-      check('S132', 'and answering No still raises one',
-        runRsvp('no', 'yes', false).needsLightRecycle === true,
-        'the RSVP is the one place that decides somebody is out, and this is ' +
-        'where the recycle actually belongs');
+      /* ⚠ INVERTED 2026-09-03 (RS-49), and the old claim is kept in view because it was
+         the argument FOR the behaviour Addie has now removed: "the RSVP is the one place
+         that decides somebody is out, and this is where the recycle actually belongs".
+         Her answer is that it does not belong there — picking an option from a list should
+         not queue the warehouse to pull a bundle apart and return a customer number. The
+         recycle keeps its own button, which says what it does.
+         ⚠ THE OFFICE SAVE ONLY. portalRsvp still writes 'no' from an RSVP email, and
+         until PR #308 lands that path still recycles; nothing here touches it. */
+      check('S132', 'and answering No no longer raises one from the office',
+        !('needsLightRecycle' in runRsvp('no', 'yes', false)),
+        'a recycle is physical and irreversible, so it belongs to a button that says ' +
+        'so rather than to an answer in a dropdown');
     }
   }
 
@@ -49297,6 +49326,117 @@ suite('Suite 299. The free quote asks less, and the property list outlives it');
       ' — "nobody ever listed one" and "somebody removed the last one" are different ' +
       'entries, and the second is the one worth reading');
   }
+}
+
+/*
+ * ⭐ SUITE 298. "NO" IS OFF THE OFFICE DROPDOWN, AND STILL UNDERSTOOD EVERYWHERE.
+ *
+ * Addie, 2026-09-03: "we can just get rid of the no under rsvp because it means the same
+ * thing as back next year."
+ *
+ * ⚠ THEY DID NOT MEAN THE SAME THING. Picking No set needsLightRecycle — the warehouse
+ * queued to pull that customer's bundle apart and hand their number back — while Back
+ * Next Year deliberately never does (RS-05). One entry in a list of answers also started
+ * physical, irreversible work, which is why removing it is the right change and not
+ * merely the requested one: the recycle is already a button that says what it does.
+ *
+ * THREE THINGS TO HOLD, and the second is the one that would lose data:
+ *   - the office cannot CHOOSE no, and choosing an answer no longer queues a recycle;
+ *   - the VALUE 'no' is still written by portalRsvp and still read by everything;
+ *   - a record that already says 'no' lands on a real option in the form, because a
+ *     <select> set to a value it has no option for shows BLANK — which reads as
+ *     "Pending (never asked)" — and the next save writes that blank over their answer.
+ */
+suite('Suite 298. No is off the office dropdown, and still understood everywhere');
+{
+  /* The dropdown itself — sliced to the select, so the Members-tab FILTER (which keeps
+     its own No option, deliberately) cannot satisfy or break these. */
+  const selAt = admin.indexOf('<select id="editCustRsvp">');
+  const sel = selAt === -1 ? '' : admin.slice(selAt, admin.indexOf('</select>', selAt));
+  check('S298', 'the RSVP dropdown is findable', !!sel);
+
+  check('S298', 'No is not offered to the office', !/value="no"/.test(sel),
+    'choosing it is what queued the warehouse to take a bundle apart');
+  check('S298', 'and the answers that remain are still there',
+    /value="yes"/.test(sel) && /value="backnextyear"/.test(sel) &&
+    /value="unanswered"/.test(sel) && /value=""/.test(sel),
+    'removing one option must not take the others with it');
+
+  /* ⚠ THE FILTER IS A DIFFERENT CONTROL AND MUST KEEP ITS No. Those records exist —
+     portalRsvp writes them — and a filter that cannot name them cannot find them. */
+  const fltAt = admin.indexOf('id="etFilterRsvp"');
+  const flt = fltAt === -1 ? '' : admin.slice(fltAt, admin.indexOf('</select>', fltAt));
+  check('S298', 'the Members filter still offers No', /value="no"/.test(flt),
+    'a customer who answered No in an email still has to be findable');
+
+  /* Choosing an answer no longer starts warehouse work. */
+  const save = (admin.split('const oldRsvpForRecycle')[1] || '').split('const rejoinedAfterRecycle')[0];
+  check('S298', 'the customer save is findable', !!save.trim());
+  check('S298', 'picking an answer never queues a recycle',
+    !/newRsvp === 'no'[\s\S]{0,120}needsLightRecycle = true/.test(save),
+    'that branch is what made the two answers different, and with No unpickable it ' +
+    'could never fire again — dead code that still looks like the rule');
+  /* ⚠ AND THE UNDO HALF STAYS. A record that already says no, being brought back into
+     the season, must still have its queued recycle cancelled. */
+  /* ⚠ COMMENTS STRIPPED FIRST. A 460-character note explaining the branch sits between
+     the two lines, and a fixed-length window across it is the slow fuse CLAUDE.md §7 bans
+     by name — it fails on correct code the moment the prose grows. Suites 58, 274 and 275
+     each learned this separately; this check learned it on its first run. */
+  const saveCode = save.replace(/\/\*[\s\S]*?\*\//g, '');
+  check('S298', 'but coming back in still cancels a queued recycle',
+    /oldRsvpForRecycle === 'no' && item\.data\.needsLightRecycle\)\{\s*addrUpdates\.needsLightRecycle = false/.test(saveCode),
+    'portalRsvp still writes no, so records in that state still arrive here');
+
+  /* ⚠ THE ONE THAT WOULD LOSE DATA. */
+  const open = extractFn(admin, 'openEditCustomerModal') || '';
+  check('S298', 'a stored no lands on a real option instead of blank',
+    /storedRsvp === 'no' \? 'backnextyear'/.test(open),
+    'a <select> set to a value it has no option for shows BLANK, which reads as ' +
+    '"Pending (never asked)" — and the next save writes that over their answer');
+
+  /* ---- and the readers, RUN rather than read ---- */
+  const badge = extractFn(admin, 'seasonBadgeKey');
+  const out = extractFn(admin, 'isOutForSeason');
+  if (badge && out) {
+    const key = (d) => new Function('d',
+      seasonRuleLiveSrc() +
+      'function audienceNeverAsked(x){ return x && x.chargeNewMemberFee === true; }' +
+      'function houseOwesFromLastSeason(){ return false; }' +
+      out + badge + 'return seasonBadgeKey(d);')(d);
+    const isOut = (d) => new Function('d',
+      seasonRuleLiveSrc() +
+      'function audienceNeverAsked(x){ return x && x.chargeNewMemberFee === true; }' +
+      'function houseOwesFromLastSeason(){ return false; }' +
+      out + 'return isOutForSeason(d);')(d);
+
+    /* ⚠ THE VALUE STILL ARRIVES FROM THE RSVP EMAIL, so every reader must still know it. */
+    check('S298', 'a stored no still reads as Maybe Next Year on the badge',
+      key({ rsvpStatus: 'no' }) === 'maybe', 'got ' + key({ rsvpStatus: 'no' }));
+    check('S298', 'and is still out of the season',
+      isOut({ rsvpStatus: 'no' }) === true,
+      'dropping the option must not drop the rule — portalRsvp still writes this');
+    check('S298', 'and back next year answers identically, which is the point',
+      key({ rsvpStatus: 'backnextyear' }) === key({ rsvpStatus: 'no' }) &&
+      isOut({ rsvpStatus: 'backnextyear' }) === isOut({ rsvpStatus: 'no' }),
+      'she said they mean the same thing; where they are READ, they already did');
+  }
+
+  /* ⚠ THE CAPABILITY IS NOT LOST — this is the check that makes the removal safe. */
+  check('S298', 'the recycle is still a button of its own',
+    /editCustRecycleStayBtn/.test(admin) &&
+    /needsLightRecycle: true[\s\S]{0,80}recycleKeepingCustomer: true/.test(admin),
+    'if this ever goes, removing No really would take away the office\'s only way to ' +
+    'send a set back, and that is the whole reason this change is safe');
+
+  /* ⚠ AND THE EXCEL DESTINATION NEVER READ THE RSVP ANSWER ANYWAY. Checked because it
+     is what would have made this change wrong: the Recycle sheet keys on the flag. */
+  const tabsAt = admin.indexOf('const HLX_STATE_TABS');
+  const tabs = tabsAt === -1 ? '' : sectionFrom(admin, tabsAt);
+  check('S298', 'the Recycle sheet keys on the flag, not on the answer',
+    /tab: "Recycle"[\s\S]{0,400}return !!d\.needsLightRecycle;/.test(tabs),
+    'if it keyed on the RSVP answer, removing the option would silently empty that sheet');
+  check('S298', 'and Contact 2027 still takes back-next-year',
+    /tab: "Contact 2027"[\s\S]{0,600}backnextyear/.test(tabs));
 }
 
 Promise.all(pendingAsync).then(function () {
