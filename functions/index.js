@@ -2859,6 +2859,264 @@ async function declineAddOnOnly(quoteData, quoteId) {
            followUpFlagged: !!problems.length };
 }
 
+/* ⭐ "MAYBE NEXT YEAR" FROM A QUOTE EMAIL NOW MAKES THE RECORD IT NEEDS
+ * (added 2026-09-04). Owner: "when they click maybe next year nothing happens
+ * because we dont have their customer data … we want them to be in the exact
+ * same situation as a maybe next year off of the rsvp."
+ *
+ * ⚠ WHAT WAS ACTUALLY BROKEN. Maybe Next Year is recorded on the CUSTOMER
+ * (maybeNextYear + rsvpStatus 'backnextyear'), and every screen that shows the
+ * group reads jobAddresses — the All Customers badge and its filter, the
+ * Contact 2027 sheet, the RSVP audience picker. A lead answering from a quote
+ * email has no jobAddresses record at all, so quoteRespond set approvalStatus on
+ * the QUOTE and stopped. The quote slid into Closed, and the person who took the
+ * trouble to answer appeared on none of those lists. Next August nobody knows
+ * they asked to be asked again, which is the one thing they told us.
+ *
+ * So the answer builds the record, in exactly the state an RSVP "back next year"
+ * leaves a customer in. From then on they ARE any other maybe next year: same
+ * badge, same filter, same sheet, same audience, and the office's Confirmed
+ * toggle brings them back in one click when the season comes round.
+ *
+ * ⚠ IT IS A LEAD SITTING OUT, NOT A CONVERSION, and every field below turns on
+ * that distinction. Convert to Customer takes a number out of the pool, opens an
+ * invoice, queues the warehouse, starts the 48-hour lights window and puts them
+ * on a day. NONE of that may happen for somebody whose answer was "not this
+ * year": it would bill a person who bought nothing and build a set nobody is
+ * hanging. What is created is a record with their details on it and the season
+ * flag set — no customerNumber, no invoice, no needsLightBuild, no
+ * lightsLockedUntil, no needsDayAssignedAt, no chargeNewMemberFee.
+ *
+ * ⚠ AND ONLY ON A QUOTE THE OFFICE HAS PRICED. firestore.rules stops a public
+ * create from setting quotedPrice, so a price is proof staff touched this quote
+ * and sent it. Without that gate anyone who can submit the public quote form
+ * could type a stranger's address, press Maybe Next Year and put a record into
+ * the customer book. A real quote EMAIL only ever goes out after pricing, so the
+ * gate costs the owner's case nothing — it is the same proof-of-staff test
+ * quoteCustomerRef already uses.
+ */
+
+/* ⭐ MAY THIS QUOTE HAVE A RECORD MADE FOR IT? Four ways the answer is no, and
+   each of them is a way the naive version creates a duplicate or a stranger.
+
+   ⚠ 1. NOT WITHOUT A PRICE. firestore.rules stops a public create from setting
+   quotedPrice, so a price is proof staff touched this quote and sent it. Without
+   this gate anyone who can submit the public quote form could type a stranger's
+   address, press Maybe Next Year and put a row into the customer book — and
+   quoteCustomerRef would not even have looked for an existing customer first,
+   because it carries the same gate, so a real member could be duplicated too.
+   A quote EMAIL is only ever sent after pricing, so this costs nothing real.
+
+   ⚠ 2. NOT ON A QUOTE THAT ALREADY POINTS AT A CUSTOMER. existingCustomerId is a
+   re-quote raised against a live customer and convertedToCustomerId/At is a quote
+   already made into one. When quoteCustomerRef returns null on one of those the
+   answer is "that customer has since been deleted", which it says in as many
+   words — an ANSWER, not a gap to fill. Filling it would resurrect somebody the
+   office removed on purpose.
+
+   ⚠ 3. NOT WITHOUT AN ADDRESS. It is the only thing that distinguishes one house
+   from another here — quoteMatchesExistingCustomer refuses to match without one —
+   so a record made without one can never afterwards be recognised as the same
+   house, and the next quote from them makes a second.
+
+   ⚠ 4. NOT WITHOUT A PHONE OR AN EMAIL. Same reason from the other side: with no
+   contact of any kind there is nothing to find them by, nothing to reach them on
+   next August, and the record is a row nobody can ever act on. */
+function quoteLeadNeedsRecord(quoteData) {
+  const q = quoteData || {};
+  if (typeof q.quotedPrice !== 'number') return false;
+  if (q.existingCustomerId || q.convertedToCustomerId || q.convertedToCustomerAt) return false;
+  if (!quoteMatchAddressServer(q.address) && !String(q.street || '').trim()) return false;
+  if (!digitsOnly(q.phone) && !String(q.email || '').trim()) return false;
+  return true;
+}
+
+/* The count of lit sides, from either shape a quote can hold it in. ⚠ THE FLOOR
+   OF 1 MUST MATCH houseSideCount in admin.html, portalSideCount in index.html and
+   portalSave's own asCount above: this value is compared against the customer's
+   stored sides to decide whether a re-quote is owed, and a default on one side of
+   that comparison with a zero on the other raises a re-quote for every house
+   whose sides were never written down, for a change nobody made. */
+function houseSideCountServer(v) {
+  if (Array.isArray(v)) {
+    const listed = Math.min(4, v.filter(Boolean).length);
+    return listed || 1;
+  }
+  const n = Number(String(v == null ? '' : v).replace(/[^0-9]/g, ''));
+  return (n >= 1 && n <= 4) ? n : 1;
+}
+
+/* The quote's photos as a customer's photo list. Mirrors quotePhotoList +
+   customerPhotoUpdates in admin.html — including the older single-photo shape,
+   because a quote raised before quotePhotos existed still has a picture and the
+   route card next season has nothing else to show. */
+function quotePhotosAsCustomerServer(q) {
+  const str = (v, max) => String(v == null ? '' : v).slice(0, max || 500);
+  let list = [];
+  if (Array.isArray(q.quotePhotos) && q.quotePhotos.length) {
+    list = q.quotePhotos;
+  } else if (q.frontPhotoUrl) {
+    list = [{ url: q.frontPhotoUrl, original: q.frontPhotoOriginal || q.frontPhotoUrl,
+              markup: Array.isArray(q.frontPhotoMarkup) ? q.frontPhotoMarkup : [], label: '' }];
+  }
+  const clean = list.filter(p => p && p.url).slice(0, 20).map(p => ({
+    url: str(p.url, 700),
+    original: str(p.original || p.url, 700),
+    markup: Array.isArray(p.markup) ? p.markup : [],
+    label: str(p.label, 60)
+  }));
+  const main = clean[0];
+  return {
+    housePhotos: clean,
+    housePhotoUrl: main ? main.url : '',
+    housePhotoOriginal: main ? main.original : '',
+    housePhotoMarkup: main ? main.markup : []
+  };
+}
+
+/* Everything a quote knows, in the shape jobAddresses stores it. Deliberately
+   PURE — no db, no admin.firestore, the timestamp is passed in — so run-all can
+   lift it and EXECUTE it rather than grep it. That matters more here than
+   anywhere else in this file: the field list is the whole behaviour, and a text
+   check on a field list is exactly the check that stays green while the value
+   beside the name is wrong. */
+function quoteLeadCustomerFields(quoteData, ts) {
+  const q = quoteData || {};
+  const str = (v, max) => String(v == null ? '' : v).slice(0, max || 500);
+  const num = v => (typeof v === 'number' && isFinite(v) ? v : 0);
+  /* A quote raised from the portal or by hand carries only the one-line address;
+     the public form carries the parts as well. Take the parts when they are
+     there and fall back to the line, rather than trying to split it — a wrong
+     split writes a wrong city onto a customer for ever. */
+  const street = str(q.street, 200);
+  const city = str(q.city, 100);
+  const zip = str(q.zip, 20);
+  const address = str(q.address, 300) ||
+    [street, [city, zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+
+  const fields = {
+    name: str(q.name, 200),
+    phone: str(q.phone, 40),
+    email: str(q.email, 200),
+    street: street, city: city, state: 'UT', zip: zip,
+    address: address,
+    /* ⚠ NO PIN, AND IT SAYS SO. There is no geocoder on the server — the Maps
+       key lives in admin.html and index.html only — so writing a lat/lng here is
+       not possible and guessing one is worse than none. needsGeocode is the flag
+       Add a Customer and the bulk import already set for exactly this, and All
+       Customers has a "Needs Pin" filter that finds them. It costs nothing this
+       season: somebody sitting out is not routed, so the pin is only wanted the
+       day the office brings them back, and saving them then re-runs the lookup. */
+    lat: null, lng: null, needsGeocode: true,
+    houseSides: houseSideCountServer(q.houseSides),
+    lightColors: Array.isArray(q.lightColors) ? q.lightColors.slice(0, 20).map(c => str(c, 40)) : [],
+    lightsDescription: str(q.lightsDescription, 400),
+    wireColor: str(q.wireColor, 40),
+    outletTimer: str(q.outletTimer, 10),
+    specificOutlet: str(q.specificOutlet, 10),
+    specificOutletNotes: str(q.specificOutletNotes, 500),
+    installPreference: str(q.installPreference, 60),
+    wantsMailedInvoice: q.wantsMailedInvoice === true,
+    notes: str(q.notes, 1500),
+    gateCode: str(q.gateCode, 60),
+    contactMethod: str(q.contactMethod, 40),
+    /* The price and the footage they were quoted travel with them so next
+       season starts from a number rather than a re-measure. ⚠ A PRICE ON THE
+       RECORD IS NOT A BILL: the nightly run invoices houses marked completed,
+       and syncPayerInvoice runs when the office saves a customer. Neither
+       happens to somebody sitting out, and no invoice is created here. */
+    housePrice: num(q.quotedPrice),
+    measuredFeet: num(q.estimatedFeet) || num(q.measuredFeet),
+    /* ⭐ THE SEASON ANSWER ITSELF — the same pair portalRsvp writes for
+       'backnextyear' and setCustomerSeason writes for the office toggle. The two
+       fields are one fact and are always written together; isOutForSeason reads
+       the flag, the Contact 2027 sheet reads either, and the All Customers badge
+       reads the flag. */
+    maybeNextYear: true,
+    maybeNextYearAt: ts,
+    rsvpStatus: 'backnextyear',
+    rsvpRespondedAt: ts,
+    /* ⚠ THEY HAVE ANSWERED, so the "ask them what they want" list must not also
+       claim them. portalRsvp closes it on every answer for the same reason. */
+    askSameAsLastYear: false,
+    /* ⚠ NOT A BUILD AND NOT A NUMBER. Both are what Convert to Customer does,
+       and doing either here would put a set of lights in the warehouse queue and
+       a number out of the pool for a house nobody is hanging this year. */
+    needsLightBuild: false,
+    customerNumber: '',
+    scheduled: false,
+    scheduledDate: null,
+    assignedCrew: null,
+    /* Their own way back in. Every customer has one; without it they cannot
+       sign into the portal next season to change their mind. */
+    portalToken: generatePortalToken(),
+    createdAt: ts
+  };
+  /* The normalised sign-in copies, so this record is findable by phone or email
+     without the full-collection scan — and so quoteCustomerRef matches THEM,
+     not a second new record, if they answer twice or are re-quoted later. */
+  Object.assign(fields, contactIndexFields(fields));
+  Object.assign(fields, quotePhotosAsCustomerServer(q));
+  return fields;
+}
+
+/* Writes the record above and links the quote to it. Returns the new id, or
+   null when nothing was created — never throws: the customer's answer is
+   already recorded by the time this runs and must not fail because a write did.
+
+   ⚠ THE LINK IS ITS OWN FIELD, NOT existingCustomerId. Putting the new id in
+   existingCustomerId or convertedToCustomerId would make quoteCustomerRef and
+   the approve path call this a MEMBER — so if they changed their mind and
+   approved, they would be shown "anything changing this year?" prefilled from a
+   record that holds no colours, and would never be asked for their install
+   details at all. nextYearCustomerId says the one thing that is true (this quote
+   produced a sitting-out record) and is read by nothing that decides membership.
+   It is also the idempotency key: a second press of the same emailed button
+   finds it and updates that record instead of creating a second one. */
+async function createNextYearCustomerFromQuote(quoteId, quoteData) {
+  const ts = admin.firestore.FieldValue.serverTimestamp();
+  const fields = quoteLeadCustomerFields(quoteData, ts);
+  const made = await tryFirestore('maybe-next-year lead create', () =>
+    db.collection('jobAddresses').add(fields));
+  if (!made.ok) return null;
+  const newId = made.value.id;
+
+  /* Best-effort from here down: the record exists and holds the answer, which is
+     the whole point. A failed link is a quote the office has to close by hand. */
+  await tryFirestore('maybe-next-year quote link', () =>
+    db.collection('quotes').doc(quoteId).update({
+      nextYearCustomerId: newId,
+      nextYearCustomerAt: ts
+    }));
+
+  /* ⚠ AND SOMEBODY IS TOLD A RECORD APPEARED. This is the only path in the app
+     that creates a customer without a person pressing a button, so without a note
+     a row with no customer number simply materialises in All Customers and looks
+     like a bug. It also carries the one thing the office has to decide — the
+     number — in the same words the rejoin-after-recycle note uses, because it is
+     the same decision and taking one from the pool programmatically could collide
+     with one already written on a bin by hand. */
+  await tryFirestore('maybe-next-year lead note', () =>
+    db.collection('messages').add({
+      topic: 'Maybe Next Year — New Record', folder: 'System',
+      name: fields.name, phone: fields.phone, email: fields.email,
+      contactMethod: fields.contactMethod || '',
+      message: (fields.name || 'Someone') + ' answered Maybe Next Year on their quote' +
+               (fields.housePrice ? ' of $' + fields.housePrice : '') +
+               ', so they have been added to All Customers as sitting this season out — ' +
+               'that is what puts them on the Contact 2027 list to be asked again next year. ' +
+               'They are NOT booked for anything: no customer number, no invoice, nothing in ' +
+               'the warehouse, and they are on no route. Their address has no map pin yet ' +
+               '(there is no lookup on this path) — opening them and pressing Save finds it. ' +
+               'If they change their mind, switch their badge to Confirmed.',
+      autoQueuedToWarehouse: false,
+      needsReassign: false,
+      createdAt: ts
+    }));
+
+  return newId;
+}
+
 /* --- quoteRespond ---------------------------------------------------------
  * Input: { quoteToken, action }  where action = 'approve' | 'decline' | 'maybe_next_year'
  *
@@ -2938,6 +3196,11 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
     }
   }
 
+  /* ⭐ AND WHEN THERE IS NO RECORD TO PULL, ONE IS MADE — see
+     createNextYearCustomerFromQuote. This is the half the owner was looking at:
+     a lead answering from a quote email left no trace anywhere a maybe next year
+     is looked for. */
+  let createdCustomerId = null;
   if (action === 'maybe_next_year' || action === 'maybe') {
     try {
       /* ⚠ NOT findByPhone. This used to resolve the customer by phone alone —
@@ -2950,6 +3213,36 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
       if (cust) {
         await pullCustomerFromSeason(cust.id);
         pulledFromSeason = true;
+      } else if (quoteLeadNeedsRecord(quoteData)) {
+        /* ⚠ THE SAME PRESS TWICE MUST NOT MAKE TWO PEOPLE. The emailed button is
+           one tap on a phone and it is tapped twice; the link also stays live in
+           the inbox for months. nextYearCustomerId is the mark this path leaves,
+           so a repeat finds the record it made last time and answers into it. */
+        const already = String(quoteData.nextYearCustomerId || '');
+        const existing = already
+          ? await db.collection('jobAddresses').doc(already).get()
+          : null;
+        if (existing && existing.exists) {
+          /* Still theirs, still sitting out — but re-answer it rather than doing
+             nothing, so a record the office had toggled back to Confirmed
+             honours the answer the customer has just given again. */
+          await pullCustomerFromSeason(existing.id);
+          pulledFromSeason = true;
+          createdCustomerId = existing.id;
+        } else {
+          createdCustomerId = await createNextYearCustomerFromQuote(quoteId, quoteData);
+          /* ⚠ CREATED IS NOT PULLED. It is written into the sitting-out state at
+             birth and is on no route to be swept off, so claiming the pull would be
+             claiming something that did not happen. But a create that FAILED must
+             not pass silently either — tryFirestore has already logged it, and this
+             is what puts it in front of the office. */
+          if (!createdCustomerId) {
+            await flagQuoteFollowUp(quoteId, ['they chose Maybe Next Year and are ' +
+              'not one of our customers yet, so a record was going to be made for ' +
+              'them \u2014 it could NOT be written. Nobody will be asked again next ' +
+              'year unless you add them by hand']);
+          }
+        }
       }
     } catch (err) {
       /* Never let this sink the customer's answer - the quote is already
