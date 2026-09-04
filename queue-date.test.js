@@ -1194,6 +1194,23 @@ check('the path still has every step in it',
     quoteSmsSentAt: 'the same quote going out as a text as well; still one quote sent',
     quoteArchivedAt: 'a quote being filed away is housekeeping on the quote, not a stage — ' +
       'and the customer-facing halves (declined, back next year) are stages of their own',
+    /* ⚠ THE SAME SHAPE AS quoteArchivedAt ABOVE, and it earns its own entry because it
+       is the only date in this file that records a RECORD BEING MADE. When a lead answers
+       Maybe Next Year in a quote email we now build them a customer (QT-23), and the quote
+       keeps `nextYearCustomerId` + this date pointing at it.
+       ⚠ BOTH ENDS OF THAT MOMENT ARE ALREADY STAGES: `approvalRespondedAt` is them
+       answering the quote, and `maybeNextYearAt` on the new record is them sitting the
+       season out. This is the same instant as both, so a third step would draw one answer
+       as three milestones — quoteManuallySentAt's "two rows for one email would read as
+       two emails", exactly.
+       ⚠ AND IT COULD NOT BE READ ANYWAY: it lives on the QUOTE, and the history reads only
+       the quote that CONVERTED somebody — which this one, by design, never did. Same trap as
+       requotedAt in history.test.js: a step keyed on it would look right and find nothing. */
+    nextYearCustomerAt: 'the quote noting WHICH customer record its Maybe Next Year answer ' +
+      'created — our own link between two documents, and the idempotency key that stops a ' +
+      'second tap of the emailed button making a second person. The customer-side events ' +
+      'are already steps: approvalRespondedAt is the answer, maybeNextYearAt is them ' +
+      'sitting the season out',
     /* ⚠ THE SAME SHAPE AS lightsLockedUntil BELOW, and for the same reason: it is a
        DEADLINE, not an event. Nothing happened at that moment — it is when the house
        stops being held off the routes. What DID happen is the build being queued, and
