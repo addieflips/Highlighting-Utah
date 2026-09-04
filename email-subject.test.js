@@ -117,7 +117,13 @@ check('emailSubjectFor strips HTML the token resolver may add',
 const LIVE_SENDERS = [
   ['Preview & Send bulk (the RSVP path)', "to_email: member.data.email"],
   ['Preview & Send test',                 "to_email: testEmail"],
-  ['Automation Emails modal bulk',        "customer_name: name,"],
+  /* ⚠ "Automation Emails modal bulk" WAS HERE AND ITS SENDER IS GONE (2026-09-04),
+     not renamed. That was the older Send Template modal — a second sender over the
+     same customers with no audience filters and no Select All — and the green Send on
+     each template card now opens Preview & Send with that template chosen instead.
+     The row is deleted rather than repointed because there is nothing left to point
+     at; Suite 128 of run-all.js asserts it cannot come back, which is what keeps this
+     deletion from being a quiet loss of coverage. */
   ['payment receipt',                     "await emailjs.send(serviceId, templateId, { to_email: email, to_name: d.name"],
   ['test invoice',                        "to_email: sendTo"]
 ];
