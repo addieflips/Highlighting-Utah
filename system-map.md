@@ -951,9 +951,12 @@ member's bill — with nobody in the office typing anything.
     either — it is printed on invoices and bins, so it is guessable. `referralToken` is minted
     lazily on the first `portalLookup`, exactly as `portalToken` already is, and is stable
     afterwards: a fresh token each visit would break every link they had already shared.
-  - ⚠ **The tab is locked while last season is unpaid**, like every tab except Payment,
-    Contact and Cancel. That needed no code — anything absent from `PORTAL_UNLOCKED_TABS`
-    is locked.
+  - ⭐ **The tab is OPEN to somebody who owes for last season** (reversed 2026-09-04,
+    REF-07). It was locked for one day and Addie reported the result — *"its not showing
+    up anywhere"* — because most of the book carries an unpaid 2025 balance, so the tab
+    she had just asked for was greyed out on nearly every record she opened. The held
+    tabs are the ones that make work for us; referring a friend puts **nothing** into the
+    system and can only take $25 **off** this customer's bill.
 - **What the visitor's quote carries.** The public page reads `?ref=` and stores
   `referredByToken` on the new quote. It is remembered for the SESSION, not read at submit
   time: somebody who lands on the home page and reaches the quote form ten minutes later
@@ -991,6 +994,21 @@ member's bill — with nobody in the office typing anything.
   truth) and `referralCount` (derived from it, and what the existing box shows). On the
   referred customer: `referredByCustomerId`, set once — it is what the clawback finds its
   way back by. On the quote: `referredByToken` and `referralCredited`.
+- **And it is in the RSVP email too** (added 2026-09-04, REF-07). `{{referral_link}}`
+  and `{{referral_button}}` are ordinary email tokens, and both RSVP templates carry the
+  offer under the three answer buttons.
+  - ⚠ **Two renderers, one template — the `{{photo}}` shape again.** `resolveLinkTokens`
+    in admin.html renders a hand-send; `runArrearsRsvpBatch` in functions/index.js
+    renders the automatic chase to people who owe. A token resolved in only one of them
+    puts a literal `{{referral_button}}` in a real customer's inbox. Change one, change
+    the other, in the same push.
+  - ⚠ **Resolved by document id, never by phone.** `referralLinkForCustomer` takes
+    `opts.customerId`, which already travels with the RSVP send. Seventeen numbers in the
+    real book are shared by two households, so a phone lookup mails one household the
+    other's link — and every friend they then send it to credits the wrong customer.
+  - ⚠ **It mints a token if they have none**, because most customers have never opened
+    the portal and the token is created lazily when they do. No link means **no button**
+    rather than a button pointing nowhere.
 - **Where to look when it is wrong.** The Inbox, System folder, money section: **Referral
   Credit Given**, **Referral Taken Back**, **Referral Blocked**. Proved by run-all.js suite
   299, which runs the rules against a fake Firestore; 19 sabotages red-checked.

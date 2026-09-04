@@ -4847,6 +4847,22 @@ async function runArrearsRsvpBatch(source) {
       body = body.split('{{rsvp_yes_button}}').join('<a href="' + yesUrl + '" style="' + btn + ' background:#2E6B3E; color:#ffffff;">Yes</a>');
       body = body.split('{{rsvp_no_button}}').join('<a href="' + noUrl + '" style="' + btn + ' background:#8A8F9C; color:#ffffff;">No</a>');
       body = body.split('{{rsvp_back_button}}').join('<a href="' + backUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>');
+      /* ⭐ AND THEIR REFERRAL LINK, RENDERED HERE TOO (2026-09-04, REF-07). The Not Paid
+         RSVP template carries {{referral_button}}, and THIS is the renderer that sends
+         it — so a token resolved only in admin.html would put a literal
+         "{{referral_button}}" in a real customer's inbox. That is the {{photo}} failure
+         this repo already records by name: two renderers, one template, change both in
+         the same push. resolveLinkTokens in admin.html is the other copy.
+         ⚠ THE SAME ADDRESS, CHARACTER FOR CHARACTER, as referralLinkForCustomer and the
+         portal's own portalReferralLink. Two spellings is two ways for a referral to
+         arrive uncounted, and the only symptom would be somebody's $25 never appearing.
+         ⚠ AND $25 OFF IS WORTH MOST TO EXACTLY THE PEOPLE THIS BATCH WRITES TO — they
+         are the ones carrying a balance. */
+      const referToken = await ensureReferralToken(docSnap.id, d);
+      const referUrl = 'https://highlightingutah.com/?ref=' + encodeURIComponent(referToken) + '#/quote';
+      body = body.split('{{referral_link}}').join(referUrl);
+      body = body.split('{{referral_button}}').join(
+        '<a href="' + referUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Refer a Friend — $25 off your bill</a>');
       body = body.replace(/\n/g, '<br>');
 
       const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {

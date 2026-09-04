@@ -136,14 +136,19 @@ test.describe('A customer who owes for last season', () => {
     const stub = await open(page, `/index.html#/payment?token=${CUST.token}`, withArrears(315, 2025));
     await expect(page.locator('#arrearsLockCard')).toBeVisible();
 
-    /* ⚠ Refer a Friend IS LOCKED TOO (2026-09-03), and it needed no code — anything
-       absent from PORTAL_UNLOCKED_TABS is held. Earning credit towards a bill they are
-       already behind on is not one of the three that stay open. It is named here rather
-       than left out, because this spec enumerates EVERY tab: a new one that nobody adds
-       to both lists is how the hold quietly starts leaking. */
+    /* ⚠ Refer a Friend IS OPEN, REVERSING THE DAY AFTER IT SHIPPED (2026-09-04, REF-07).
+       It was locked here for one day and Addie reported the result — "its not showing up
+       anywhere" — because most of the book carries an unpaid 2025 balance, so the tab she
+       had just asked for was greyed out on nearly every record she opened.
+       ⚠ AND THE RULE, NOT JUST THE COMPLAINT: the held tabs are the ones that make work
+       for us, because Dax's rule is that they settle last season before anything goes
+       INTO the system. Referring a friend puts nothing in — it writes to somebody else's
+       record months later — and the only thing it can do to this bill is take $25 off it.
+       ⚠ IT IS STILL NAMED HERE rather than dropped, because this spec enumerates EVERY
+       tab: a tab missing from both lists is how the hold quietly starts leaking. */
     expect(await tabState(page)).toEqual({
       payment: 'open', info: 'locked', sides: 'locked', lights: 'locked',
-      changes: 'locked', refer: 'locked', contact: 'open', cancel: 'open'
+      changes: 'locked', refer: 'open', contact: 'open', cancel: 'open'
     });
 
     stub.assertNoRealCalls();

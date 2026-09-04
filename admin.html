@@ -8605,6 +8605,34 @@ function quoteLinkLabelPlain(text){
       return (words == null ? '' : String(words)).trim() || QUOTE_LINK_BUTTON_DEFAULT;
     });
 }
+/* ⭐ ONE PLACE TURNS A CUSTOMER INTO THEIR REFERRAL LINK (2026-09-04).
+
+   ⚠ BY DOCUMENT ID. Every other way of finding a customer here has been wrong at least
+   once — getOrCreatePortalToken looks up by phone with a .find(), and on the seventeen
+   shared numbers in the real book that hands one household the other's link.
+
+   ⚠ THE ADDRESS IS THE ONE THE PORTAL BUILDS, character for character. Two spellings of
+   this link is two ways for a referral to arrive not counted, and the difference would
+   only ever show up as somebody's $25 never appearing. */
+async function referralLinkForCustomer(customerId){
+  if(!customerId) return '';
+  const item = jobAddresses.find(function(a){ return a.id === customerId; });
+  if(!item || !item.data) return '';
+  let token = String(item.data.referralToken || '');
+  if(!token){
+    token = generatePortalToken();
+    try{
+      await updateDoc(doc(db,'jobAddresses', customerId), { referralToken: token });
+      item.data.referralToken = token;
+    }catch(err){
+      /* The link still goes out and still works the moment the write lands — the portal
+         mints the same field on their next visit. Sending a literal {{referral_link}} is
+         the outcome worth avoiding, and returning early here would cause exactly that. */
+      console.error('Could not save a referral token for', customerId, err);
+    }
+  }
+  return 'https://highlightingutah.com/?ref=' + encodeURIComponent(token) + '#/quote';
+}
 async function resolveLinkTokens(text, phone, amount, opts){
   opts = opts || {};
   let out = text;
@@ -8739,6 +8767,34 @@ async function resolveLinkTokens(text, phone, amount, opts){
     const venmoUrl = 'https://venmo.com/HighLightingUtah?txn=pay&amount='+venmoAmount+'&note='+encodeURIComponent('Christmas Lights');
     out = out.split('{{venmo_link}}').join(venmoUrl);
     out = out.split('{{venmo_button}}').join('<a href="'+venmoUrl+'" style="'+btnStyleGold+'">Pay with Venmo</a>');
+  }
+  /* ⭐ THEIR REFERRAL LINK, IN AN EMAIL (2026-09-04, REF-07). Addie asked for this in
+     the RSVP as well as the portal, and the RSVP is the one email of the season that
+     reaches everybody — so it is where a referral link is worth the most.
+
+     ⚠ RESOLVED FROM THE RECORD BY ID, NEVER BY PHONE. Seventeen numbers in the real
+     book are shared by two households, so a phone lookup would print one household's
+     referral link in the other's email — and every friend they then sent it to would
+     credit the wrong customer. opts.customerId already travels with the RSVP send for
+     exactly this reason; without it the token resolves to nothing rather than guessing.
+
+     ⚠ AND IT MINTS ONE IF THEY HAVE NONE, because most customers have never opened the
+     portal and the token is created lazily when they do. Minting only in the portal
+     would mean the RSVP — the email that goes to the whole book — carried a working
+     link for the handful who had signed in and a dead one for everybody else.
+     ⚠ A FAILED WRITE STILL SENDS THE LINK: it is the same token either way, and the
+     next portal visit writes it. What must never happen is the email going out with a
+     literal {{referral_link}} in it. */
+  if(out.indexOf('{{referral_link}}') !== -1 || out.indexOf('{{referral_button}}') !== -1){
+    const refUrl = await referralLinkForCustomer(opts.customerId);
+    out = out.split('{{referral_link}}').join(refUrl);
+    const refBtnStyle = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:15px;';
+    /* ⚠ NO LINK MEANS NO BUTTON, not a button pointing nowhere. A gold button that
+       goes to the home page is worse than no button at all — the customer presses it,
+       nothing happens that looks like a referral, and they do not press it again. */
+    out = out.split('{{referral_button}}').join(refUrl
+      ? ('<a href="' + refUrl + '" style="' + refBtnStyle + ' background:#D89F3D; color:#1E3B2C;">Refer a Friend \u2014 $25 off your bill</a>')
+      : '');
   }
   if(out.indexOf('{{rsvp_yes_link}}') !== -1 || out.indexOf('{{rsvp_no_link}}') !== -1 || out.indexOf('{{rsvp_back_link}}') !== -1 || out.indexOf('{{rsvp_yes_button}}') !== -1 || out.indexOf('{{rsvp_no_button}}') !== -1 || out.indexOf('{{rsvp_back_button}}') !== -1){
     const rsvpToken = await getOrCreatePortalToken(phone);
@@ -15177,7 +15233,7 @@ const DEFAULT_QUOTE_MAYBE_TEMPLATE_BODY = 'Hi {{name}},\n\n' +
   '{{quote_yes_button}}{{quote_maybe_button}}{{quote_decline_button}}\n\n' +
   'Thanks,\nHighlighting Utah';
 const ET_PREBUILT_TEMPLATES = [
-  {name:'RSVP Email', folderName:'RSVP', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\nBefore our crew comes out, please check these two are right \u2014 just reply if either is wrong:\n\n{{gate_code_line}}\n{{outlet_line}}\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
+  {name:'RSVP Email', folderName:'RSVP', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\nBefore our crew comes out, please check these two are right \u2014 just reply if either is wrong:\n\n{{gate_code_line}}\n{{outlet_line}}\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}\n\n\u2014\n\nKnow somebody who wants lights? Send them your own link and we take $25 off your bill when they sign up \u2014 as many times as you like.\n\n{{referral_button}}', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
   /* ⭐ THE SAME QUESTION, ASKED OF SOMEBODY WHO OWES FOR LAST SEASON (Dax, 2026-09-02).
      The plain RSVP Email above cannot do this job: it asks whether they want lights
      without mentioning that they will not be scheduled whatever they answer, so a yes
@@ -15191,7 +15247,7 @@ const ET_PREBUILT_TEMPLATES = [
      prevent. The portal holds the one figure we computed, and a yes now lands them on
      it (RS-31, RS-35).
      ⚠ THE YEAR IS TYPED, not merged, for the same reason. Re-word it next season. */
-  {name:'Not Paid RSVP', folderName:'RSVP', subject:'{{name}}, your lights this year \u2014 and last season\'s balance', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\nOne thing first \u2014 our records show a balance still outstanding from the 2025 season. We aren\'t able to put you on the install schedule until that\'s settled, so it\'s worth sorting now while there\'s still plenty of room in the calendar.\n\nTap Yes below and it will take you straight into your account, where last season\'s amount is on its own line with a button to pay just that. It\'s last season\'s bill, not a second charge for this year.\n\nIf that balance doesn\'t look right to you, reply to this email or text us at (801) 901-0011 and we\'ll go through it with you.\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}\n\nThanks,\nHighlighting Utah', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
+  {name:'Not Paid RSVP', folderName:'RSVP', subject:'{{name}}, your lights this year \u2014 and last season\'s balance', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\nOne thing first \u2014 our records show a balance still outstanding from the 2025 season. We aren\'t able to put you on the install schedule until that\'s settled, so it\'s worth sorting now while there\'s still plenty of room in the calendar.\n\nTap Yes below and it will take you straight into your account, where last season\'s amount is on its own line with a button to pay just that. It\'s last season\'s bill, not a second charge for this year.\n\nIf that balance doesn\'t look right to you, reply to this email or text us at (801) 901-0011 and we\'ll go through it with you.\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}\n\n\u2014\n\nKnow somebody who wants lights? Send them your own link and we take $25 off your bill when they sign up \u2014 as many times as you like.\n\n{{referral_button}}\n\nThanks,\nHighlighting Utah', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
   {name:'Post-Install Invoice', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out \u2014 your lights are up! Your balance for this season is {{amount}}. You can pay through your portal or Venmo using the links below.\n\n{{portal_link}}{{venmo_button}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'venmo_button', style:'button'}]},
   {name:'Already Paid - Say Thanks', folderName:'Billing', body:'Hi {{name}},\n\nYour lights are up! Just confirming we received your payment of {{amount}} for this season \u2014 you\'re all set.\n\n{{message_link}}', linkedTokens:[{code:'message_link', style:'link'}]},
   {name:'Nightly Auto-Invoice \u2014 Unpaid', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out today \u2014 your lights are up!\n\n{{feet_line}}\n{{new_member_fee_line}}\n{{credit_lines}}\n\nAmount due: {{amount_due}}\nPlease pay by {{due_date}}.\n\nPay your invoice here:\n\n{{pay_button}}{{venmo_button}}', linkedTokens:[{code:'pay_button', style:'button'},{code:'venmo_button', style:'button'}]},
@@ -17545,6 +17601,8 @@ const IC_CODES = {
     {token:'{{venmo_button}}', label:'Venmo pay link (button)'}
   ],
   rsvp: [
+    {token:'{{referral_link}}', label:'Refer a Friend (plain URL)'},
+    {token:'{{referral_button}}', label:'Refer a Friend (button)'},
     {token:'{{rsvp_yes_link}}', label:'RSVP Yes (plain URL)'},
     {token:'{{rsvp_yes_button}}', label:'RSVP Yes (button)'},
     {token:'{{rsvp_no_link}}', label:'RSVP No (plain URL)'},

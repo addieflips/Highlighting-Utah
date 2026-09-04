@@ -6392,11 +6392,21 @@ document.getElementById('referCopyBtn')?.addEventListener('click', async functio
     ? 'Copied \u2014 paste it into a text or an email.'
     : 'Could not copy it for you \u2014 select the link above and copy it.';
 });
-var PORTAL_UNLOCKED_TABS = ['payment','contact','cancel'];
-/* ⚠ 'refer' IS DELIBERATELY NOT UNLOCKED. Somebody who has not paid for last season
-   is held to paying, and earning credit towards a bill they are already behind on is
-   not one of the three things that stay open. It needs no code: anything absent from
-   the list above is locked. */
+/* ⭐ 'refer' IS UNLOCKED, REVERSING THE DAY IT SHIPPED (2026-09-04, REF-07). Addie:
+   *"its not showing up anywhere"* — and it was not showing up because of this list.
+
+   ⚠ THE LOCK WAS MINE, NOT HERS, AND IT WAS WRONG. Dax's rule is that a customer
+   settles last season *"before anything goes into the system"*, so the held tabs are
+   the ones that make work for us — colours, sides, details, changes. Referring a
+   friend puts NOTHING into the system: it writes to somebody else's record, at a
+   moment months away, and the only thing it can do to this customer's bill is take
+   $25 OFF it. Holding it back is the business refusing money from a customer who
+   owes it money.
+   ⚠ AND IT LANDED ON EXACTLY THE PEOPLE SHE WAS TESTING WITH. Most of the book
+   carries an unpaid 2025 balance this season, so the tab she had just asked for was
+   greyed out on nearly every record she opened — which reads as a feature that was
+   never built rather than one that was deliberately held. */
+var PORTAL_UNLOCKED_TABS = ['payment','refer','contact','cancel'];
 var portalArrearsHold = null;
 function applyArrearsLock(owed, season){
   portalArrearsHold = owed > 0 ? {owed: owed, season: String(season || '')} : null;
