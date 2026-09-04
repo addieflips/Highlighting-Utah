@@ -925,13 +925,75 @@ written into that customer's history.
     `changeFeeNotes: []`, and by then that array held manual fees and the carried debt as
     well — so a control labelled as removing a colour-change fee also wrote off a real
     debt and released the hold, silently, in one press.
-  - ⚠ **A referral discount also clears the referral count.** That credit is *derived* from
-    `referralCount` and rebuilt on every Edit Customer save, so taking the line off without
-    zeroing the count is an × that visibly works and is undone by the next save.
+  - ⚠ **A referral discount also clears the referral count, AND marks the entries behind
+    it** (widened 2026-09-03). That credit is *derived*, so taking the line off without
+    zeroing the count is an × that visibly works and is undone by the next save. Since the
+    referral link shipped the count is derived from `referralCredits[]` rather than being
+    the record itself, so zeroing the count alone was no longer enough either: the next
+    referral through a link recomputed it from the entries and put the whole discount back.
+    Each live entry is marked `waived` in the **same write** as the count — `waived` kept
+    apart from `revoked`, because one means the office crossed it off and the other means
+    the friend cancelled, and a season later that difference is what explains the bill.
   - ⚠ **No late fee is charged today.** The rule is decided and unbuilt ($25 if they have
     paid something, $40 if they have not — PROC-32). The × is built against the ledger
     rather than against a named fee, so a late fee written later is waivable the day
     something writes one, with nothing here to change.
+
+⭐ **A REFERRAL LINK, AND THE $25 THAT FOLLOWS IT** (added 2026-09-03, REF-01 to REF-06).
+Addie: a member gets their own link, and when somebody joins through it $25 comes off the
+member's bill — with nobody in the office typing anything.
+
+- **Where the customer gets it.** A **Refer a Friend** tab in their own portal: the link, a
+  copy button, and how many people have joined through it. The address is
+  `.../?ref=<referralToken>#/quote`.
+  - ⚠ **The link carries a referral token, never the portal login token.** A portal token
+    signs somebody in; this one is pasted into a group chat. The customer number is not used
+    either — it is printed on invoices and bins, so it is guessable. `referralToken` is minted
+    lazily on the first `portalLookup`, exactly as `portalToken` already is, and is stable
+    afterwards: a fresh token each visit would break every link they had already shared.
+  - ⚠ **The tab is locked while last season is unpaid**, like every tab except Payment,
+    Contact and Cancel. That needed no code — anything absent from `PORTAL_UNLOCKED_TABS`
+    is locked.
+- **What the visitor's quote carries.** The public page reads `?ref=` and stores
+  `referredByToken` on the new quote. It is remembered for the SESSION, not read at submit
+  time: somebody who lands on the home page and reaches the quote form ten minutes later
+  still counts. Nothing is validated in the browser — a public page must not be able to look
+  up customers, so an unknown token is refused later, and silently, because a link can
+  outlive the customer who made it.
+- **When the $25 lands.** `creditReferralIfAny` is called at BOTH doors into a customer —
+  the Add Customer conversion and an applied re-quote — and written once rather than inlined
+  twice.
+  - ⚠ **It writes the credit line itself and does not wait for a Save.** The existing
+    People They Referred box rebuilds that line only when somebody opens the record and
+    presses Save, so bumping a count from a background write changes the record and nothing
+    on the bill. `applyReferralCreditLine` owns the `referral` kind and keeps every other —
+    the same discipline that stops `carried` and `manual` colliding.
+  - ⚠ **The total is rebuilt from the lines, never incremented**, and two referrals are ONE
+    $50 line rather than two saying "Referral".
+- **Who is refused.** Either the phone or the email matching the referrer's is a hard
+  refusal, and their own record is refused first by document id. **Nothing verifies either
+  field** — no OTP exists here and building one was turned down — so a determined person can
+  still use a real friend's details. That is an accepted, documented gap; this rule and the
+  Inbox note are the only defences. A refusal is marked on the quote so it is not retried
+  for ever, and it raises its own note, because a refusal nobody can see is indistinguishable
+  from the link not working.
+- **When it is taken back.** The referred customer cancelling BEFORE their install revokes
+  the entry and takes the $25 off. After the install it stands — the referral did its job.
+  And never off a bill already Paid in Full: that turns credit into money owed, which is a
+  bill arriving after somebody has paid.
+  - ⚠ **Both doors out of the season do it**: the office dropdown (`clawBackReferralIfAny`)
+    and the customer's own portal (`clawBackReferralServer` in `portalRsvp`). A decline
+    through the RSVP link never reaches the office screen, so one alone leaves the credit
+    sitting there.
+  - ⚠ **The entry is kept, marked revoked, never deleted.** A list that quietly shortens is
+    one nobody can audit.
+- **What it writes.** On the referrer: `referralToken`, `referralCredits[]` (the source of
+  truth) and `referralCount` (derived from it, and what the existing box shows). On the
+  referred customer: `referredByCustomerId`, set once — it is what the clawback finds its
+  way back by. On the quote: `referredByToken` and `referralCredited`.
+- **Where to look when it is wrong.** The Inbox, System folder, money section: **Referral
+  Credit Given**, **Referral Taken Back**, **Referral Blocked**. Proved by run-all.js suite
+  299, which runs the rules against a fake Firestore; 19 sabotages red-checked.
 
 ⭐ **THE PORTAL SAYS WHEN A BALANCE IS ACTUALLY DUE** (added 2026-09-02, MON-57). Addie:
 *"I want to make it clear to the member that this is there payment however they do not need
@@ -1568,7 +1630,7 @@ fake Firestore that reads back what it wrote.
 
 ### Public site + Member Portal (`index.html`)
 - **Anonymous**: quote form, public content (reviews/gallery/hero images/FAQ/site content), general contact message.
-- **Signed in** (phone-or-email + last name, or a personalized token link): Payment (balance + tip + PayPal/Venmo), Information (name/phone/email/address/gate code), Light Colors (subject to the 48-hour fee window), Changes (RSVP + preferences), Contact, Cancel (requests cancellation).
+- **Signed in** (phone-or-email + last name, or a personalized token link): Payment (balance + tip + PayPal/Venmo), Information (name/phone/email/address/gate code), Light Colors (subject to the 48-hour fee window), Changes (RSVP + preferences), **Refer a Friend**, Contact, Cancel (requests cancellation).
   - ⭐ **The payment panel puts Venmo last** (2026-09-01). Card and PayPal are the visible options; Venmo sits inside a closed **Other payment options** dropdown, and the Venmo **QR code has been deleted** — it was a ~30KB image on every load that asked the customer to type the amount in themselves. The dropdown is a plain `<details>`, shut by default with no JavaScript, and re-shut on every render so a tip or an instalment cannot leave it hanging open.
   - ⭐ **A customer carrying last season's debt pays that first, and the bill shows the two apart.** Last year's balance gets **its own card above this season's**, each with its own subtotal — Addie: *"I need the unpaid last year to look more obvious but still nice and organized."* `paypalCreateOrder` charges the carried balance and nothing else while it is outstanding; once it is paid, the same button comes back offering this year's. `renderArrearsNotice` says so in words, because a button charging less than the balance above it reads as a mistake or a double charge. Proved on the real page by `test/arrears-portal.spec.js`.
     - ⚠ **The total above the button reads `portalPayableNow()`, not the whole balance.** It was `currentServiceDue = totalDue` and had never been repointed when the button started charging only the arrears — so the panel printed **Total Payment $1,146.00** directly above a button that would take **$200**. Addie saw it and reported it; the specs at the time proved the notice and the button and never looked at the total between them.
