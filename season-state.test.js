@@ -1589,7 +1589,18 @@ check('badging Back Next Year clears the build but not the recycle',
      the RSVP has three answers (Yes / Back Next Year / No) and Maybe Next Year is the
      QUOTE's word. The office side was using the quote's vocabulary for an RSVP state,
      one row speaking two languages, exactly as "Pending" was. */
-  const shared = chipWords.filter(w => w !== 'back next year' && rsvpWords.indexOf(w) !== -1);
+  /* ⚠ "No" IS THE SECOND DELIBERATE OVERLAP (2026-09-04), and it is the same
+     argument as Back Next Year rather than a hole in this guard. Addie: "when they
+     click no they go to maybe next year but actually we want them to just go to no
+     for the badge in case we want to send two different emails for each."
+     The collision this check exists to catch is ONE WORD ANSWERING TWO QUESTIONS —
+     "Pending" meaning "nobody has answered" in one column and "blocked by a rule" in
+     the other. A season chip reading No says exactly what the RSVP pill's No says:
+     they told us no, and they are out. Same state, same word, on purpose. What is
+     still forbidden, and still caught, is the season cell reaching for "Yes",
+     "Unanswered" or "Pending". */
+  const deliberate = ['back next year', 'no'];
+  const shared = chipWords.filter(w => deliberate.indexOf(w) === -1 && rsvpWords.indexOf(w) !== -1);
   check('no season chip uses an RSVP word for a different question',
     shared.length === 0,
     'the season cell says ' + JSON.stringify(shared) + ', which the RSVP pill uses to ' +

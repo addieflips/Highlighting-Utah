@@ -309,7 +309,7 @@ picture. Street View is for the customer's photograph and for reading a roof's
 grade — it does not place a dot and never draws the sky view's.
 
 ⭐ **AND YOU CAN FILTER BY IT** (2026-09-01). All Customers → Filters has a
-**Season Badge** row — Any / Confirmed / Pending / Maybe Next Year — next to
+**Season Badge** row — Any / Confirmed / Pending / Back Next Year / **No** — next to
 Route Status, because Confirmed *is* the route answer now. The badge is worked
 out once per row and the filter and the pill read that same answer, so a filtered
 list can never disagree with the badges in it.
@@ -366,13 +366,26 @@ confirmed tag if they are breaking a rule so if you break one of the rules they
 automatically change the badge to pending mainly just the havent paid for last
 year"*, and *"you shouldnt have to manually add them to pending"*.
 
-The badge in All Customers has **three** states now — Confirmed, **Pending**,
-Maybe Next Year — and `seasonBadgeKey` works it out by asking `isOutForSeason`
+The badge in All Customers has **four** states now — Confirmed, **Pending**,
+Back Next Year and **No** — and `seasonBadgeKey` works it out by asking `isOutForSeason`
 rather than deciding for itself. So **Confirmed and in-the-season are one fact**:
 no row can read Confirmed while every scheduler in the app has already dropped
 that customer. Pending is derived and never stored, so paying the bill moves the
-badge on its own the next time the row is drawn. ⚠ Maybe Next Year stays its own
+badge on its own the next time the row is drawn. ⚠ Back Next Year stays its own
 answer rather than folding into Pending — that one the office sets by hand.
+
+⭐ **AND "NO" IS ITS OWN BADGE TOO** (2026-09-04, RS-49). Addie: *"when they click no
+they go to maybe next year but actually we want them to just go to no for the badge in
+case we want to send two different emails for each."* The two answers were always stored
+apart — `portalRsvp` writes `no` or `backnextyear`, and the Email Tool's RSVP filter has
+always offered them as separate audiences — but `seasonBadgeKey` folded them together, so
+one yellow chip covered two different decisions and the badge could not be used to pick
+between them. ⚠ **Nothing about the season moved**: `isOutForSeason` is untouched, so
+somebody who said no is out exactly as before, off the routes, the schedule and the build
+queue. Only the word on the chip and the value the Season Badge filter matches changed.
+⚠ **The customer's own latest word wins over the office flag** — `maybeNextYear` is only
+ever written alongside `backnextyear`, so holding the flag while reading `no` means they
+answered no afterwards, and that is the rule `isOutForSeason` already states.
 
 ⚠ **And an unanswered RSVP decides again — Pending is what carries it.** For a few
 hours it did not: the rule was turned off, which made the badge honest by scheduling

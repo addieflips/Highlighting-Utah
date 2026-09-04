@@ -1871,7 +1871,7 @@
               <!-- ⭐ Owner, 2026-09-01: "there is now way to filter who is confirmed fix that."
                    Beside Route Status on purpose — Confirmed IS the route answer now
                    (seasonBadgeKey delegates to isOutForSeason), so the two belong together. -->
-              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="pending">On hold &mdash; blocked by a rule</option><option value="maybe">Back Next Year</option></select></div>
+              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="pending">On hold &mdash; blocked by a rule</option><option value="maybe">Back Next Year</option><option value="no">No</option></select></div>
               <div class="form-row"><label>Route Status</label><select id="allCustFilterRoute"><option value="all">Any</option><option value="scheduled">Scheduled</option><option value="unscheduled">Unscheduled</option><option value="completed">Install Complete</option><option value="needsfix">Needs Fix</option></select></div>
               <div class="form-row"><label>House Map</label><select id="allCustFilterMap"><option value="all">Any</option><option value="has">Has a Map</option><option value="none">No Map Yet</option></select></div>
               <!-- ⭐ FINDING THE OLD STOCK. Owner, 2026-08-19, on why soft is kept under
@@ -30195,10 +30195,30 @@ function seasonRuleIsLive(){
    somebody who told us no for now — and the office toggles that one by hand. Addie:
    "if they end up in recycle that means they didnt confirm and same with back next
    year so you dont need to worry about that." */
+/* ⭐ "NO" IS ITS OWN BADGE, NOT A QUIETER BACK NEXT YEAR (2026-09-04). Addie:
+   "when they click no they go to maybe next year but actually we want them to just
+   go to no for the badge in case we want to send two different emails for each."
+
+   ⚠ THE TWO ANSWERS WERE ALREADY STORED APART — portalRsvp writes rsvpStatus
+   "no" or "backnextyear" and the email tool's RSVP filter has offered both since it
+   shipped. Only this line collapsed them, so the list and the mail-out disagreed
+   about how many kinds of no there are, and the badge could not be used to pick
+   between them.
+
+   ⚠ BOTH ARE STILL OUT FOR THE SEASON. isOutForSeason is untouched: nothing about
+   routing, billing or the warehouse changes here, only the word on the chip and the
+   value the season filter matches. Somebody who said no is out exactly as before.
+
+   ⚠ AND THE CUSTOMER'S OWN LATEST WORD WINS OVER THE OFFICE FLAG. maybeNextYear is
+   written together with rsvpStatus "backnextyear" (pullCustomerFromSeason), so the
+   only way to hold the flag AND read "no" is to have been marked back-next-year and
+   then answered no through the portal afterwards. That is the same rule isOutForSeason
+   already states — the answer is what decides now — and either way they are out. */
 function seasonBadgeKey(d){
   if(!d) return 'pending';
   const said = String(d.rsvpStatus || '').toLowerCase();
-  if(d.maybeNextYear || said === 'backnextyear' || said === 'no') return 'maybe';
+  if(said === 'no') return 'no';
+  if(d.maybeNextYear || said === 'backnextyear') return 'maybe';
   return isOutForSeason(d) ? 'pending' : 'confirmed';
 }
 function isOutForSeason(d){
@@ -44156,7 +44176,7 @@ function renderAllCustomersTable(){
        they had not. Both were correct and together they read as a contradiction.
        ⚠ THE KEY IS STILL 'pending'. Only the word a person reads changed: r.badge
        is what the season filter matches on (r.badge === seasonFilter) and the dropdown
-       option values are confirmed/pending/maybe, so renaming the key would silently
+       option values are confirmed/pending/maybe/no, so renaming the key would silently
        break that filter. The filter label already said "blocked by a rule" — this
        makes the chip agree with it. */
     const badgeKey = r.badge;
@@ -44184,7 +44204,12 @@ function renderAllCustomersTable(){
        same switch pointing the other way, and leaving one direction on the row would
        mean somebody can put a customer out for the season from the list but has to open
        the form to bring them back — the asymmetry is worse than either choice alone. */
-    const maybeCell = badgeKey === 'maybe'
+    /* ⚠ FOUR STATES NOW. "No" reads in the red the rest of the app already uses for a
+       flat no (rsvpStatusLabel's colour on the RSVP panel), so the two ways of being out
+       of the season are told apart at a glance rather than by opening the record. */
+    const maybeCell = badgeKey === 'no'
+      ? '<span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-weight:700;" title="They answered No, so they are out for this season until they say otherwise">No</span>'+unpaidPill
+      : badgeKey === 'maybe'
       ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Back Next Year</span>'+unpaidPill
       : badgeKey === 'pending'
       ? '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;" title="In for the season but blocked by the reason beside it — this clears itself the moment that does">On hold</span>'+unpaidPill

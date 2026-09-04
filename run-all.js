@@ -3833,6 +3833,10 @@ console.log('\n=== 7. Health check engine ===');
     function toDateStr(dt){return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');}
     function esc(s){return (s||'').toString();}
     var jobAddresses=[],allInvoicesCache=[],quotesCache=[],availableCustomerNumbers=[],scheduledRoutesCache={};
+    /* Lifted 2026-09-04, alongside fmtMoney: admin.html imports this from
+       js/money.js and a health row now prints it. Read out of money.js rather
+       than typed here, so the sandbox cannot disagree with the app about the fee. */
+    const NEW_MEMBER_FEE = ${NEW_MEMBER_FEE_NUM};
     /* The nightly-billing health check reads this. Default to loaded:false so
        the checks stay SILENT here — a fixture-driven suite has no nightly run
        to report on, and a check that cried wolf in every unrelated test would
@@ -3878,6 +3882,11 @@ console.log('\n=== 7. Health check engine ===');
       extractFn(admin, 'quoteMatchAddress'),
       extractFn(admin, 'isRequote'),
       extractFn(read('js/money.js'), 'enrollmentYearOf'),
+      /* Lifted 2026-09-04: a health row prints a dollar figure now and the sandbox
+         had no fmtMoney, so hcRunChecks threw partway through and every suite after
+         this one went unscored. The real one from js/money.js, never a stub — the
+         cents rule is asserted elsewhere and a stub here would quietly disagree. */
+      extractFn(read('js/money.js'), 'fmtMoney'),
       extractFn(admin, 'audienceQuoteJoinYear'),
       extractFn(admin, 'audienceNeverAsked'),
       extractFn(admin, 'seasonEligibilityWouldDrop'),
@@ -6280,6 +6289,10 @@ suite('13. Season prep — crew portal (§4)');
       jobAddresses: houses,
       custInvoiceKey,
       computeInvoiceStatus,
+      /* Read out of js/money.js, not typed here — syncPayerInvoice charges the
+         join fee and the sandbox had no NEW_MEMBER_FEE, so the lifted copy threw
+         the moment it walked down that branch. */
+      NEW_MEMBER_FEE: NEW_MEMBER_FEE_NUM,
       console
     };
     const names = Object.keys(ctx);
@@ -48419,14 +48432,94 @@ suite('Suite 297. Confirming an undated RSVP actually confirms it');
       key({ rsvpStatus: 'backnextyear' }) === 'maybe', 'got ' + key({ rsvpStatus: 'backnextyear' }));
     check('S297', 'and so does the hand-toggled flag',
       key({ maybeNextYear: true }) === 'maybe', 'got ' + key({ maybeNextYear: true }));
-    check('S297', 'a no reads Maybe Next Year too, not Pending',
-      key({ rsvpStatus: 'no' }) === 'maybe',
+    /* ⚠ THIS ASSERTION USED TO READ 'maybe', AND IT WAS RIGHT AT THE TIME — the
+       point it was making is that a no is NOT Pending, and it still is not. What
+       changed on 2026-09-04 is that a no stopped borrowing Back Next Year's chip to
+       say so. See Suite 298. */
+    check('S297', 'a no is still not Pending',
+      key({ rsvpStatus: 'no' }) !== 'pending',
       'Pending is somebody we want who is blocked; a no is somebody who told us no');
     check('S297', 'nothing on file reads Pending', key({}) === 'pending', 'got ' + key({}));
     check('S297', 'and a brand new hang nobody was ever asked reads Confirmed',
       key({ chargeNewMemberFee: true }) === 'confirmed',
       'we never send them the RSVP, so requiring an answer is a test nobody can pass');
   }
+}
+
+/*
+ * ⭐ SUITE 298. "NO" AND "BACK NEXT YEAR" ARE TWO ANSWERS, NOT ONE BADGE.
+ *
+ * Addie, 2026-09-04: "when they click no they go to maybe next year but actually we
+ * want them to just go to no for the badge in case we want to send two different
+ * emails for each."
+ *
+ * ⚠ THE DATA WAS NEVER THE PROBLEM. portalRsvp has always written 'no' and
+ * 'backnextyear' as separate statuses, and the Email Tool's RSVP filter has always
+ * offered them as separate audiences — which is exactly the two mail-outs she is
+ * asking for. seasonBadgeKey was the single line that folded them together, so All
+ * Customers showed one yellow chip for two different decisions and the badge could
+ * not be used to tell them apart.
+ *
+ * ⚠ NEITHER OF THEM IS IN THE SEASON, AND THAT MUST NOT MOVE. isOutForSeason is
+ * untouched by this: routing, billing and the warehouse queue see exactly what they
+ * saw before. The last two checks below are the ones that would catch somebody
+ * "simplifying" this into a scheduling change.
+ */
+suite('Suite 298. A flat no gets its own badge');
+{
+  const badge = extractFn(admin, 'seasonBadgeKey');
+  const out = extractFn(admin, 'isOutForSeason');
+  check('S298', 'the badge rule is there to run', !!badge && !!out);
+
+  if (badge && out) {
+    const key = (d) => new Function('d',
+      seasonRuleLiveSrc() +
+      'function audienceNeverAsked(x){ return x && x.chargeNewMemberFee === true; }' +
+      'function houseOwesFromLastSeason(){ return false; }' +
+      out + badge + 'return seasonBadgeKey(d);')(d);
+    const isOut = (d) => new Function('d',
+      seasonRuleLiveSrc() +
+      'function audienceNeverAsked(x){ return x && x.chargeNewMemberFee === true; }' +
+      'function houseOwesFromLastSeason(){ return false; }' +
+      out + 'return isOutForSeason(d);')(d);
+
+    check('S298', 'a no reads No',
+      key({ rsvpStatus: 'no' }) === 'no',
+      'got ' + key({ rsvpStatus: 'no' }) + ' — this is the whole request');
+    check('S298', 'back next year still reads Back Next Year',
+      key({ rsvpStatus: 'backnextyear' }) === 'maybe',
+      'got ' + key({ rsvpStatus: 'backnextyear' }));
+    check('S298', 'and the hand-toggled office flag still reads Back Next Year',
+      key({ maybeNextYear: true }) === 'maybe', 'got ' + key({ maybeNextYear: true }));
+    check('S298', 'the two are different badges, which is what makes two mail-outs possible',
+      key({ rsvpStatus: 'no' }) !== key({ rsvpStatus: 'backnextyear' }),
+      'if these ever collapse again the Season Badge filter can no longer separate them');
+
+    /* ⚠ THE ONE OVERLAP. maybeNextYear is only ever written alongside
+       rsvpStatus 'backnextyear' (pullCustomerFromSeason), so holding the flag while
+       reading 'no' means the office marked them back-next-year and the customer
+       answered no afterwards. The later answer is the one to show. */
+    check('S298', 'a no answered after the office flag still reads No',
+      key({ maybeNextYear: true, rsvpStatus: 'no' }) === 'no',
+      'got ' + key({ maybeNextYear: true, rsvpStatus: 'no' }) +
+      ' — isOutForSeason already rules that the answer decides now');
+
+    check('S298', 'a no is still out for the season', isOut({ rsvpStatus: 'no' }) === true,
+      'this change is a label, not a scheduling change');
+    check('S298', 'and so is back next year',
+      isOut({ rsvpStatus: 'backnextyear' }) === true,
+      'this change is a label, not a scheduling change');
+  }
+
+  /* The chip and the filter have to know the new key, or the badge is a state
+     nothing can draw and nothing can search for. */
+  check('S298', 'All Customers draws a No chip',
+    /badgeKey === 'no'[\s\S]{0,240}>No<\/span>/.test(admin),
+    'seasonBadgeKey can return a key the row has no branch for, and the row would ' +
+    'fall through to Confirmed — the worst possible default for somebody who said no');
+  check('S298', 'and the Season Badge filter can pick them out',
+    /id="allCustFilterSeason"[\s\S]{0,400}<option value="no">/.test(admin),
+    'the filter matches on r.badge, so a key with no option is unreachable from the screen');
 }
 
 /*
