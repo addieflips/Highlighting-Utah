@@ -12234,6 +12234,13 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
       'function mdToDate(md){const p=(""+md).split("-").map(Number);return new Date(2026,p[0]-1,p[1]);}' +
       'function extractCleanCity(c){return (""+(c==null?"":c)).trim();}' +
       'function customerForHouse(h){return h.__cust||null;}' +
+      /* ⚠ LIFTED, NOT STUBBED (2026-09-04). The rebuild resolves a plan house through
+         planCustomerFor now — the document id first, customerForHouse only as the
+         fallback — and houseHoldFrom is what turns a warehouse or colour-change hold into
+         the earliest day the builder may use. Both carry typeof guards, so in here they
+         fall back to the stub above and to "no hold", which is exactly the behaviour these
+         suites have always measured. */
+      fn('planCustomerFor') + fn('houseHoldFrom') +
       'function nextWorkingDay(d){let x=new Date(d);while(isWeekend(x))x=addDays(x,1);return x;}' +
       'function isWorkingDay(d){return !isWeekend(d);}' +
       'function dayDate(d){return d._date;}' +
@@ -16064,6 +16071,13 @@ suite('Suite 48. Days within two working days are set');
       'function mdToDate(md){const p=(""+md).split("-").map(Number);return new Date(2026,p[0]-1,p[1]);}' +
       'function extractCleanCity(c){return (""+(c==null?"":c)).trim();}' +
       'function customerForHouse(h){return h.__cust||null;}' +
+      /* ⚠ LIFTED, NOT STUBBED (2026-09-04). The rebuild resolves a plan house through
+         planCustomerFor now — the document id first, customerForHouse only as the
+         fallback — and houseHoldFrom is what turns a warehouse or colour-change hold into
+         the earliest day the builder may use. Both carry typeof guards, so in here they
+         fall back to the stub above and to "no hold", which is exactly the behaviour these
+         suites have always measured. */
+      fn('planCustomerFor') + fn('houseHoldFrom') +
       /* ⚠ ITS OWN BOOK, DECLARED HERE (2026-09-01). The orphan rule below is gated on
          the customer book having loaded, and this sandbox had no jobAddresses of its
          own — so it read whichever one an earlier suite had left in the global scope and
@@ -22259,9 +22273,16 @@ suite('Suite 96. A customer the plan has never heard of joins it');
   check('S96', 'the finder is there to run', !!src);
 
   if (src) {
+    /* ⚠ planCustomerFor IS LIFTED, NOT STUBBED (2026-09-04). seasonCustomerIds asks
+       it rather than customerForHouse now, because a plan house built from a customer
+       carries that customer's document id and a customer NUMBER is not a stable key.
+       Its typeof guard means it falls through to the stub below in here, which is the
+       behaviour this suite has always measured — lifting it is what proves the fall-back
+       is still there. */
     const run = new Function('SEASON', 'jobAddresses', 'custById',
       'const customerForHouse = function(h){ return h.who ? (custById[h.who] || null) : null; };' +
       'const isOutForSeason = function(d){ return !!(d.maybeNextYear || d.needsLightRecycle); };' +
+      extractFn(admin, 'planCustomerFor') +
       extractFn(admin, 'seasonCustomerIds') + src +
       'return customersMissingFromSeason().map(function(x){ return x.id; });');
 
@@ -31513,48 +31534,134 @@ suite('Suite 117. The colour-change fee, actually charged');
        customer onto a day, and it checked only isOutForSeason — which stopped being
        harmless the moment Add Customer began opening a window for every new customer.
        Run, not read: the guard is what matters, not the words. */
+    /* ⭐ REWRITTEN 2026-09-04 — THE RULE IS THE SAME AND THE MECHANISM IS NOT.
+       Addie: "some people are confirmed but still arent in schedule and I dont know why
+       … if anyone has a confirmed tag they should be scheduled somehow no exceptions."
+
+       ⛔ WHAT THESE TWO CHECKS USED TO ASSERT, kept verbatim because the rule behind
+       them has NOT been relaxed and nobody should read this diff as permission to:
+           'a customer inside their 48 hours is NOT put on a schedule day'
+           'nor is one still waiting on the warehouse'
+       Both asserted that customersMissingFromSeason LEFT THOSE CUSTOMERS OFF THE PLAN.
+       That is how the schedule says somebody is out for the season, so a customer waiting
+       three days for a bundle looked exactly like one who had said no — and the bare
+       `needsLightBuild === true` gate beside them had no clock in it at all, so a bundle
+       the warehouse never ticked kept a confirmed customer off the schedule for the whole
+       season with nothing anywhere saying why. That is the bug she reported.
+
+       ⭐ SO THE ASSERTION MOVED WITH THE RULE. Everybody confirmed is on the plan; the
+       holds now say how EARLY a day they may have, through houseHoldFrom, which is the
+       same `from` every install preference already uses. Her two sentences — "we won't
+       schedule them within that 48 hours" and "isnt scheduled until 48 [then 72] hours
+       after sent to warehouse" — are still true, and are checked below on the day rather
+       than on the customer's absence. */
     const missSrc = extractFn(admin2, 'customersMissingFromSeason');
     check('S117', 'the schedule adder is findable', !!missSrc);
     if (missSrc) {
       const soon = { toMillis: () => Date.now() + 3600000 };
       const past = { toMillis: () => Date.now() - 3600000 };
-      /* ⚠ THE SANDBOX SUPPLIES isHeldFromRoutes, not isLightsLocked. Since 2026-08-31
-         there are TWO holds — the colour-change window, and the 72-working-hour wait
-         after a build is queued — and this adder asks the one question that covers
-         both. Handing it only the old one leaves the typeof guard false, nobody is
-         held, and the check fails against correct code. */
       const book = [
         { id: 'free', data: {} },
         { id: 'locked', data: { lightsLockedUntil: soon } },
         { id: 'expired', data: { lightsLockedUntil: past } },
         { id: 'atWarehouse', data: { scheduleHoldUntil: soon } },
-        { id: 'builtLongAgo', data: { scheduleHoldUntil: past } }
+        { id: 'builtLongAgo', data: { scheduleHoldUntil: past } },
+        { id: 'queuedNoStamp', data: { needsLightBuild: true } }
       ];
-      const held = (d) => {
-        const t = d.lightsLockedUntil || d.scheduleHoldUntil;
-        return !!(t && t.toMillis() > Date.now());
-      };
       const out = new Function('jobAddresses', 'seasonCustomerIds', 'isOutForSeason',
-        'isHeldFromRoutes', missSrc + ';return customersMissingFromSeason();')(
-        book, () => new Set(), () => false, held);
-      check('S117', 'a customer inside their 48 hours is NOT put on a schedule day',
-        !out.some(x => x.id === 'locked'),
-        'the crew would hang a pattern that is still free to change — the exact thing ' +
-        'the window exists to prevent');
-      /* ⭐ AND HER RULE (QT-21): a house whose bundle has just been queued is not put on
-         a day either. "isnt scheduled until 48 hours after sent to warehouse", which she
-         then made 72 working hours. */
-      check('S117', 'nor is one still waiting on the warehouse',
-        !out.some(x => x.id === 'atWarehouse'),
-        'a crew would be sent to a house whose bundle is not built yet');
-      check('S117', 'but one whose warehouse hold has expired is added',
-        out.some(x => x.id === 'builtLongAgo'),
-        'a house held for ever is worse than one scheduled early');
-      /* ⚠ HELD BACK, NOT DROPPED. This runs on every Recalculate everything, so they
-         must arrive by themselves once the window closes. */
-      check('S117', 'but is added once that window has closed',
-        out.some(x => x.id === 'expired') && out.some(x => x.id === 'free'),
-        'a customer held back for ever is worse than one scheduled early');
+        missSrc + ';return customersMissingFromSeason();')(
+        book, () => new Set(), () => false);
+
+      /* ⭐ THE WHOLE OF WHAT SHE ASKED FOR, IN ONE CHECK. */
+      check('S117', 'every confirmed customer reaches the plan, held or not',
+        book.every(c => out.some(x => x.id === c.id)),
+        'missing: ' + book.filter(c => !out.some(x => x.id === c.id)).map(c => c.id).join(', ') +
+        ' — owner: "if anyone has a confirmed tag they should be scheduled somehow no ' +
+        'exceptions". Absent from the plan is how this screen says somebody is OUT for the ' +
+        'season, so a hold must never be spelled that way');
+
+      /* ⚠ AND THE ADDER HAS NO SECOND OPINION LEFT IN IT. isOutForSeason decides who is
+         coming and nothing else here may. A new gate added below that line is the next
+         version of this same bug.
+
+         ⚠ READ WITH THE COMMENTS TAKEN OUT, deliberately. The removed gates are quoted
+         verbatim in that function's own comment so nobody restores them by accident —
+         which is the right thing for the comment to do and would make a plain text search
+         fail against correct code. The claim is about what RUNS. */
+      const missCode = missSrc.replace(/\/\*[\s\S]*?\*\//g, '');
+      check('S117', 'and the adder asks nothing but isOutForSeason and who is already on',
+        !/isHeldFromRoutes\s*\(/.test(missCode) && !/needsLightBuild/.test(missCode),
+        'a rule that can keep somebody off the plan for ever belongs on the DAY they may ' +
+        'have, not on whether they exist');
+      check('S117', 'and the gates it replaced are still written down where it happened',
+        /needsLightBuild === true/.test(missSrc) && /isHeldFromRoutes/.test(missSrc),
+        'both were owner instructions and both are still enforced elsewhere — a silent ' +
+        'deletion reads as permission to relax the rule itself');
+    }
+
+    /* ---- and this is where the two holds actually bite ---- */
+    {
+      const parts = ['anyStampMillis', 'lightsLockMillis', 'scheduleHoldMillis',
+                     'scheduleHoldUntil', 'scheduleHoldEndsMillis', 'houseHoldFrom']
+        .map(f => extractFn(admin2, f));
+      check('S117', 'the hold-to-a-first-day helpers are all findable',
+        parts.every(p => !!p), 'missing one of them breaks the rule silently');
+
+      if (parts.every(p => !!p)) {
+        const holdFrom = new Function('d',
+          'function isWorkingDay(x){const k=x.getDay();return k!==0&&k!==6;}' +
+          'function isoOf(x){return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+' +
+          '"-"+String(x.getDate()).padStart(2,"0");}' +
+          'function nextWorkingDay(x){const y=new Date(x.getFullYear(),x.getMonth(),x.getDate());' +
+          'let g=0;while(!isWorkingDay(y)&&g++<14)y.setDate(y.getDate()+1);return y;}' +
+          'const SCHEDULE_HOLD_HOURS=72;' + parts.join('') + 'return houseHoldFrom(d);');
+
+        const soon = { toMillis: () => Date.now() + 3600000 };
+        const past = { toMillis: () => Date.now() - 3600000 };
+        const todayIso = (function(){ const t = new Date();
+          return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); })();
+
+        check('S117', 'nobody with no hold on them is held back at all',
+          holdFrom({}) === '',
+          'this is most of the book, and a first day it did not ask for would move ' +
+          'everybody');
+
+        /* ⚠ HER 48 HOURS, ON THE DAY INSTEAD OF ON THE PERSON. */
+        check('S117', 'a customer inside their 48 hours cannot be given a day yet',
+          holdFrom({ lightsLockedUntil: soon }) > todayIso,
+          'got ' + holdFrom({ lightsLockedUntil: soon }) + ' — owner: "we won\'t schedule ' +
+          'them within that 48 hours so they can change there lights again if they choose"');
+        check('S117', 'nor can one whose bundle is still inside its 72 working hours',
+          holdFrom({ scheduleHoldUntil: soon }) > todayIso,
+          'a crew would be sent to a house whose bundle is not built yet');
+
+        /* ⚠ AND IT LETS GO BY ITSELF, which is the half the old gate never had. */
+        check('S117', 'and both let go the moment the window has closed',
+          holdFrom({ lightsLockedUntil: past }) === '' &&
+          holdFrom({ scheduleHoldUntil: past }) === '',
+          'a customer held back for ever is worse than one scheduled early');
+
+        /* ⭐ THE PATHS THAT QUEUE A BUILD AND STAMP NOTHING. Only the Edit Customer save
+           writes scheduleHoldUntil; Add Customer, a converted quote, the portal colour
+           change, the server re-quote, Send to warehouse and a rejoin after recycle all
+           set needsLightBuild alone. Her warehouse rule has to reach those too, and the
+           queue date is the only honest way to work out when the 72 hours started. */
+        check('S117', 'a build queued with no hold stamped still gets her 72 hours',
+          holdFrom({ needsLightBuild: true, lightsQueuedAt: { toMillis: () => Date.now() } }) > todayIso,
+          'six of the seven paths that queue a build never write scheduleHoldUntil');
+        check('S117', 'and one already 72 working hours old is free to go',
+          holdFrom({ needsLightBuild: true,
+                     lightsQueuedAt: { toMillis: () => Date.now() - 14 * 86400000 } }) === '',
+          'the clock is the whole point — without it this is the for-ever gate again');
+
+        /* ⚠ AN UNDATED FLAG HOLDS NOBODY. A queued build with no queue date cannot say
+           when the 72 hours began, and treating "unknown" as "now" restarts the clock on
+           every rebuild — which is the for-ever hold wearing a timestamp. */
+        check('S117', 'a queued build with no queue date on it holds nobody',
+          holdFrom({ needsLightBuild: true }) === '',
+          'this is exactly the record that used to be excluded from the plan for the ' +
+          'whole season, silently');
+      }
     }
   }
 
@@ -50096,6 +50203,13 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
         'function mdToDate(md){const p=(""+md).split("-").map(Number);return new Date(2026,p[0]-1,p[1]);}' +
         'function extractCleanCity(c){return (""+(c==null?"":c)).trim();}' +
         'function customerForHouse(h){return h.__cust||null;}' +
+      /* ⚠ LIFTED, NOT STUBBED (2026-09-04). The rebuild resolves a plan house through
+         planCustomerFor now — the document id first, customerForHouse only as the
+         fallback — and houseHoldFrom is what turns a warehouse or colour-change hold into
+         the earliest day the builder may use. Both carry typeof guards, so in here they
+         fall back to the stub above and to "no hold", which is exactly the behaviour these
+         suites have always measured. */
+      fn('planCustomerFor') + fn('houseHoldFrom') +
         'function nextWorkingDay(d){let x=new Date(d);while(isWeekend(x))x=addDays(x,1);return x;}' +
         'function isWorkingDay(d){return !isWeekend(d);}' +
         'function dayDate(d){return d._date;}' +
@@ -50697,6 +50811,287 @@ suite('305. The referral link, from the office side');
       'an inline listener can only be checked by matching its source, and this repo ' +
       'has shipped one whose patch silently did not apply');
   }
+}
+
+suite('306. A Confirmed tag means a day on the plan, no exceptions');
+/* ---------------------------------------------------------------------------
+ * Addie, 2026-09-04: "in schedule some people are confirmed but still arent in
+ * schedule and I dont know why but most confirmed are in schedule but not all of
+ * them … if anyone has a confirmed tag they should be scheduled somehow no
+ * exceptions."
+ *
+ * ⭐ THE BADGE ALREADY PROMISED THIS AND THE PLAN DID NOT KEEP IT. seasonBadgeKey
+ * has said Confirmed for exactly !isOutForSeason since 2026-08-31, and its own comment
+ * says the point is that "Confirmed" means "will be scheduled" BY CONSTRUCTION. Three
+ * separate things in the schedule broke that promise, all of them silently:
+ *     ① a bare `needsLightBuild === true` gate with no clock in it — a bundle the
+ *       warehouse never ticked kept a confirmed customer off the plan all season;
+ *     ② `isHeldFromRoutes` spelled as absence rather than as a later first day;
+ *     ③ seasonCustomerIds resolving a plan house by CUSTOMER NUMBER, which is
+ *       recycled and reissued — so one customer could read as "already on a day"
+ *       because somebody else's row carried their old number.
+ * Each one produced the same symptom and none of them produced a word on screen.
+ *
+ * ⚠ THIS SUITE RUNS THE REBUILD, IT DOES NOT READ IT. The claim is about who ends
+ * up standing on a day, and every one of the three bugs above was invisible to a regex:
+ * the code said exactly what it meant to say.
+ * ------------------------------------------------------------------------- */
+{
+  const need = ['planCustomerFor', 'seasonCustomerIds', 'customersMissingFromSeason',
+                'houseFromCustomer', 'confirmedNotOnAnyDay', 'seasonBadgeKey',
+                'houseHoldFrom', 'scheduleHoldEndsMillis'];
+  const missing = need.filter(f => !extractFn(admin, f));
+  check('S306', 'every piece of the promise is findable',
+    missing.length === 0, 'missing: ' + missing.join(', '));
+
+  if (!missing.length) {
+    /* The adder, the index it consults and the resolver underneath it, lifted whole and
+       run against a book. isOutForSeason is lifted too — the claim is that the adder
+       asks the ONE shared definition, and a stub of it would prove only the plumbing. */
+    const run = new Function('jobAddresses', 'SEASON', 'custById',
+      'function customerForHouse(h){' +
+      '  const num=String(h.cu==null?"":h.cu).trim();' +
+      '  if(num){const hit=jobAddresses.filter(function(a){' +
+      '    return String((a.data||{}).customerNumber||"")===num;})[0]; if(hit) return hit;}' +
+      '  return null;}' +
+      'function hlxResolvePlanHouse(h){' +
+      '  const raw=String(h&&h.id==null?"":h.id);' +
+      '  if(raw.indexOf("cust-")===0){const id=raw.slice(5);' +
+      '    return custById[id]||null;}' +
+      '  return customerForHouse(h);}' +
+      'const SEASON_ELIGIBILITY_ON=false;' +
+      'function seasonRuleIsLive(){return false;}' +
+      'function houseOwesFromLastSeason(){return false;}' +
+      extractFn(admin, 'isOutForSeason') +
+      extractFn(admin, 'seasonBadgeKey') +
+      extractFn(admin, 'planCustomerFor') +
+      extractFn(admin, 'seasonCustomerIds') +
+      extractFn(admin, 'customersMissingFromSeason') +
+      extractFn(admin, 'confirmedNotOnAnyDay') +
+      'return {missing:customersMissingFromSeason().map(function(x){return x.id;}),' +
+      '        off:confirmedNotOnAnyDay().map(function(x){return x.id;})};');
+
+    const cust = (id, data) => ({id: id, data: Object.assign({name: id}, data || {})});
+    const soon = { toMillis: () => Date.now() + 3600000 };
+
+    /* ① The one she reported. A confirmed customer whose bundle is still queued. */
+    /* ② A confirmed customer inside their colour-change window. */
+    /* ③ A STALE NUMBER ON A PLAN ROW. houseFromCustomer stamps `cu` from the customer
+           number the day the house is built, and numbers go back to
+           availableCustomerNumbers on a recycle and are handed out again. So `renumbered`
+           has a house on the plan whose `cu` now belongs to `reissued479`. Resolved by
+           NUMBER that house is reissued479's, which marked reissued479 "already on a day"
+           — they are never added, and nothing says why. Resolved by the document id
+           inside its own — 'cust-renumbered' — it is whose house it actually is. */
+    const book = [
+      cust('queued', {needsLightBuild: true}),
+      cust('changing', {lightsLockedUntil: soon}),
+      cust('renumbered', {customerNumber: '900'}),
+      cust('reissued479', {customerNumber: '479'}),
+      cust('saidNo', {rsvpStatus: 'no'}),
+      cust('plain', {})
+    ];
+    const byId = {}; book.forEach(c => { byId[c.id] = c; });
+
+    const season = [{houses: [{id: 'cust-renumbered', cu: '479', name: 'renumbered'}]}];
+    const got = run(book, season, byId);
+
+    check('S306', 'a confirmed customer waiting on the warehouse is put on the plan',
+      got.missing.indexOf('queued') !== -1,
+      'this is her report: needsLightBuild had no clock in it, so a bundle nobody ' +
+      'ticked kept a paid-up confirmed customer off the schedule for the whole season');
+    check('S306', 'and so is one inside their 48-hour colour-change window',
+      got.missing.indexOf('changing') !== -1,
+      'her 48 hours are still enforced — on the DAY they may have, through ' +
+      'houseHoldFrom, not by deleting them from the plan');
+    check('S306', 'a plan house is read as its own customer\'s, not as whoever holds ' +
+      'that number today',
+      got.missing.indexOf('reissued479') !== -1 && got.missing.indexOf('renumbered') === -1,
+      'got missing=[' + got.missing.join(', ') + '] — by number that house is ' +
+      'reissued479\'s, which marks them already-scheduled and adds renumbered a second ' +
+      'time; by id it is renumbered\'s, which is true');
+
+    /* ⚠ AND ONLY WHERE THERE IS AN ID TO READ. An imported CSV row carries no
+       'cust-' id and never will, so it still resolves by number and phone exactly as it
+       always has — this fix is a superset, not a replacement, and claiming it closes the
+       imported-row case as well would be claiming more than it does. */
+    const imported = run(book, [{houses: [{id: '17', cu: '479', name: 'Somebody Else'}]}], byId);
+    check('S306', 'and an imported row with no id of its own still matches by number',
+      imported.missing.indexOf('reissued479') === -1,
+      'the CSV importer hands out plain 0, 1, 2 — breaking that fall-back would ' +
+      'orphan most of an imported plan');
+
+    /* ⚠ AND THE RULE STILL EXCLUDES WHO IT ALWAYS DID. "No exceptions" is about the
+       Confirmed tag; somebody who said no does not have one. A version of this fix that
+       swept everybody in would empty the meaning of the badge instead of honouring it. */
+    check('S306', 'somebody who said no is still not dragged in',
+      got.missing.indexOf('saidNo') === -1,
+      'isOutForSeason is still the one gate, and it must stay the only one');
+
+    /* ⚠ THE PROMISE ITSELF, asked the way the office asks it. */
+    check('S306', 'and the checker names exactly the confirmed customers off the plan',
+      got.off.join(',') === 'queued,changing,reissued479,plain',
+      'got ' + got.off.join(', ') + ' — it must read seasonBadgeKey, so it cannot ' +
+      'drift away from the badge she is actually looking at');
+  }
+
+  /* ---- and the rebuild both feeds it in and reports what it found ---- */
+  const rb = extractFn(admin, 'rebuildSeasonDays');
+  check('S306', 'the rebuild turns a hold into the earliest day rather than a removal',
+    /houseHoldFrom\(d\)/.test(rb) && /from:\(function\(\)/.test(rb),
+    'the builder already understands "not before this" — a second way to keep ' +
+    'somebody off a day is how the two start disagreeing');
+  check('S306', 'and the later of the preference and the hold is the one that wins',
+    /hold > pref/.test(rb),
+    'a November customer inside a warehouse hold is held by whichever runs out last');
+  check('S306', 'the rebuild checks the promise on the season it just built',
+    /confirmedNotOnAnyDay\(\)/.test(rb) &&
+    rb.indexOf('SEASON=newDays.concat(keep)') < rb.indexOf('confirmedNotOnAnyDay()'),
+    'asked before SEASON is replaced it would measure the plan that was, not the one ' +
+    'this press just made');
+  check('S306', 'and the button says so, by name, when it ever fires',
+    /r\.confirmedOff/.test(admin) && /CONFIRMED customer/.test(admin),
+    'owner: "I dont know why" — a count she has to trust is the same silence in a ' +
+    'smaller font, so it names them');
+
+  /* ---- and the whole thing, end to end: a held customer STANDS ON A DAY ----
+     ⚠ EVERY CHECK ABOVE IS ABOUT ONE STEP. This one presses the button. The claim she
+     made is about where somebody ends up, and each of the three bugs was invisible one
+     step at a time — the code said exactly what it meant to at every stage. */
+  {
+    const planStart = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+    const planEnd = admin.indexOf('/* Top every day up to the cap.', planStart);
+    const lifts = ['sameTownName', 'townCentres', 'nearbyTowns', 'installPriority', 'pinHorizon',
+                   'seasonStartDate', 'prefSpecificDate', 'houseAllowedFrom', 'houseDeadline',
+                   'houseInstallPriority', 'anyStampMillis', 'lightsLockMillis',
+                   'scheduleHoldMillis', 'scheduleHoldEndsMillis',
+                   'houseHoldFrom', 'isOutForSeason', 'planCustomerFor', 'seasonCustomerIds',
+                   'customersMissingFromSeason', 'houseFromCustomer', 'rebuildSeasonDays',
+                   'dayAreas', 'dayCrewTowns', 'crewTownsFor'];
+    const gone = lifts.filter(f => !extractFn(admin, f));
+    check('S306', 'the whole rebuild lifts cleanly', gone.length === 0 && planStart !== -1,
+      'missing: ' + gone.join(', '));
+
+    if (!gone.length && planStart !== -1) {
+      const ctx = {};
+      const TODAY = new Date(2026, 9, 5);            // Monday 5 October 2026
+      new Function('__TODAY',
+        'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+' +
+        '"-"+String(dt.getDate()).padStart(2,"0");}' +
+        'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+        'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;' +
+        'return 2*R*Math.asin(Math.sqrt(q));}' +
+        'function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}' +
+        'function isWeekend(d){const k=d.getDay();return k===0||k===6;}' +
+        'function isWorkingDay(d){return !isWeekend(d);}' +
+        'function isoOf(d){return toDateStr(d);}' +
+        'function daysBetween(a,b){return Math.round((a-b)/86400000);}' +
+        'function mdToDate(md){const p=(""+md).split("-").map(Number);return new Date(2026,p[0]-1,p[1]);}' +
+        'function extractCleanCity(c){return (""+(c==null?"":c)).trim();}' +
+        'function nextWorkingDay(d){const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());' +
+        'let g=0;while(!isWorkingDay(x)&&g++<14)x.setDate(x.getDate()+1);return x;}' +
+        'function dayDate(d){return d._date;}' +
+        'function installDays(){return SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown);}' +
+        'function computeDates(){SEASON.forEach(d=>{if(d.base!=null)d._date=addDays(BASE_START,d.base);});}' +
+        'function planCities(){return [];}' +
+        'function seasonFirstDate(){return new Date(2026,9,1);}' +
+        'function seasonRuleIsLive(){return false;}' +
+        'function houseOwesFromLastSeason(){return false;}' +
+        /* ⚠ THE PLAN HAS NO 'cust-' IDS OF ITS OWN IN HERE beyond the ones
+           houseFromCustomer builds, so the resolver is the real one and custById is what
+           it reads — exactly the path a synced house takes on the live page. */
+        'var custById=new Map();' +
+        'function hlxResolvePlanHouse(h){const raw=String((h&&h.id)==null?"":h.id);' +
+        'if(raw.indexOf("cust-")===0)return custById.get(raw.slice(5))||null;' +
+        'return customerForHouse(h);}' +
+        'function customerForHouse(h){const num=String((h&&h.cu)==null?"":h.cu).trim();' +
+        'return num?(jobAddresses.filter(function(a){' +
+        'return String((a.data||{}).customerNumber||"")===num;})[0]||null):null;}' +
+        'var CREWS=[{name:"Crew 1",city:""},{name:"Crew 2",city:""}];' +
+        /* SCHEDULE_HOLD_HOURS and scheduleHoldUntil already arrive in the MAX_STOPS_PER_ROUTE
+           slice below — declaring either again is a redeclaration that kills the suite. */
+        'var jobAddresses=[],BASE_START=new Date(2026,9,1),globalDelta=0,SEASON=[],selSchedule=null;\n' +
+        admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
+        admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
+        'let NEARBY_TOWN_LIST={};' + phantomTownSrc() +
+        'const PIN_HONOURED_BUSINESS_DAYS=2;' +
+        'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/) || [])[1] + ';' +
+        admin.slice(planStart, planEnd) + dayLimitSrc() +
+        extractFn(admin, 'townsAreNeighbours') +
+        'function cityOf(h){return (h.city||"").trim();}' +
+        'function sameCity(a,b){return (""+a).trim().toLowerCase()===(""+b).trim().toLowerCase();}' +
+        'const SCHEDULE_SYNC_FIELDS=[{key:"city",label:"town",read:function(d){return d.city;}},' +
+        '{key:"name",label:"name",read:function(d){return d.name;}},' +
+        '{key:"pref",label:"timing",read:function(d){return d.installPreference;}}];' +
+        lifts.map(f => extractFn(admin, f)).join('\n')
+          .replace('const today=new Date();', 'const today=new Date(__TODAY);') +
+        '\nthis.run=function(book){jobAddresses=book;custById=new Map();' +
+        'book.forEach(function(c){custById.set(c.id,c);});SEASON=[];' +
+        'const r=rebuildSeasonDays();' +
+        'return {r:r,days:SEASON.filter(function(d){return !d.isFixRoute&&!d.isTakedown;})' +
+        '.map(function(d){return {date:isoOf(dayDate(d)),' +
+        'who:(d.houses||[]).map(function(h){return h.id;})};})};};'
+      ).call(ctx, TODAY);
+
+      /* A town with a real day's work in it, plus one customer inside a warehouse hold
+         running to the afternoon of Friday 9 October.
+
+         ⚠ IT HAS TO BE A FULL DAY'S WORTH. The builder will not open a day for two
+         houses — Suite 28 checks exactly that — so a three-house fixture makes ONE day
+         and every claim below collapses into "they all went together", which would pass
+         whatever the hold did. Found by this check failing on correct code. */
+      const soon = { toMillis: () => new Date(2026, 9, 9, 14, 0, 0).getTime() };
+      const base = { city: 'Lehi', installPreference: 'Normal Schedule', lat: 40.391, lng: -111.851 };
+      const book = [];
+      for (let i = 1; i <= 44; i++) {
+        book.push({ id: 'free' + i,
+                    data: Object.assign({ name: 'Free ' + i, customerNumber: String(i) }, base) });
+      }
+      book.push({ id: 'held', data: Object.assign({ name: 'Held', customerNumber: '900',
+                                                    scheduleHoldUntil: soon }, base) });
+      const out = ctx.run(book);
+      const dayOf = id => (out.days.filter(d => d.who.indexOf('cust-' + id) !== -1)[0] || {}).date;
+
+      /* ⭐ THE WHOLE REPORT, IN ONE ASSERTION. */
+      check('S306', 'a confirmed customer under a live hold still ends up standing on a day',
+        !!dayOf('held'),
+        'plan came back as ' + JSON.stringify(out.days) + ' — owner: "if anyone has a ' +
+        'confirmed tag they should be scheduled somehow no exceptions"');
+
+      /* ⚠ AND HER HOLD IS STILL A HOLD. Being on the plan must not mean being on an
+         early day: the whole reason the rule exists is that the bundle is not built. */
+      check('S306', 'and that day is after their hold runs out, not before it',
+        !!dayOf('held') && dayOf('held') > '2026-10-09',
+        'got ' + dayOf('held') + ' — the hold runs to the afternoon of Friday 9 Oct, and ' +
+        'a crew leaves in the morning, so the first day they may have is Monday 12th');
+
+      /* ⚠ AND NOBODY ELSE WAS MOVED BY IT. A hold read as a property of the TOWN rather
+         than of the house would push forty other people back with it, which is a worse bug
+         than the one being fixed. */
+      const firstDay = out.days.filter(d => d.date === '2026-10-05')[0];
+      check('S306', 'while the town still opens on the first working day of the season',
+        !!firstDay && firstDay.who.length > 2,
+        'got ' + JSON.stringify(out.days.map(d => d.date + ' x' + d.who.length)) +
+        ' — one held house must not drag its town along with it');
+      check('S306', 'and the held house is not standing on that day',
+        !!firstDay && firstDay.who.indexOf('cust-held') === -1,
+        'her rule is that the bundle is not built yet — being on the plan must not mean ' +
+        'being on an early day');
+
+      check('S306', 'and the press reports nobody confirmed left off',
+        out.r && out.r.confirmedOff === 0,
+        'it reported ' + (out.r && out.r.confirmedOff) + ': ' +
+        JSON.stringify(out.r && out.r.confirmedOffNames));
+    }
+  }
+
+  /* ⚠ IT REPORTS, IT NEVER REPAIRS. A checker that could quietly add whoever it found
+     would hide the rule that dropped them, which is how this went unnoticed for a
+     fortnight in the first place. */
+  const promise = extractFn(admin, 'confirmedNotOnAnyDay');
+  check('S306', 'the checker writes nothing and moves nobody',
+    !/push\(|splice\(|updateDoc|setDoc/.test(promise.replace(/out\.push\(item\);/, '')),
+    'a self-healing checker is a bug that never gets reported');
 }
 
 Promise.all(pendingAsync).then(function () {
