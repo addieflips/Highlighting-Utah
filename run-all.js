@@ -3878,6 +3878,14 @@ console.log('\n=== 7. Health check engine ===');
       extractFn(admin, 'quoteMatchAddress'),
       extractFn(admin, 'isRequote'),
       extractFn(read('js/money.js'), 'enrollmentYearOf'),
+      /* ⚠ LIFTED 2026-09-04, and the crash it fixes is the shape this prelude keeps
+         hitting: a health row started printing a figure, fmtMoney was never in scope,
+         and hcRunChecks threw a ReferenceError that stopped the WHOLE run at suite 7 —
+         so every suite after it scored nothing and looked like it had passed. Real,
+         never a stub: a stub would let the panel and the invoice disagree about a
+         number while this stayed green. */
+      extractFn(read('js/money.js'), 'fmtMoney'),
+      (read('js/money.js').match(/export const NEW_MEMBER_FEE = \d+;/) || [''])[0].replace('export ', ''),
       extractFn(admin, 'audienceQuoteJoinYear'),
       extractFn(admin, 'audienceNeverAsked'),
       extractFn(admin, 'seasonEligibilityWouldDrop'),
@@ -6250,7 +6258,12 @@ suite('13. Season prep — crew portal (§4)');
      bill this season. LIFTED OUT OF js/money.js, never stubbed: a stub would keep
      this suite green through a change to who gets charged, which is the one thing
      it exists to protect. money-parity sweeps it against the nightly run's copy. */
-  const src = extractFn(admin, 'payerHouseOf') + '\n' +
+  /* ⚠ AND NEW_MEMBER_FEE, named by the code inside that slice. Lifted from
+     js/money.js, never retyped as a number here: a copy of the figure in the harness
+     is a second place the fee lives, and it is the copy that quietly stops matching
+     what customers are actually billed. */
+  const src = (read('js/money.js').match(/export const NEW_MEMBER_FEE = \d+;/) || [''])[0].replace('export ', '') + '\n' +
+    extractFn(admin, 'payerHouseOf') + '\n' +
     extractFn(admin, 'houseIsOnTheBill') + '\n' +
     admin.slice(start, admin.indexOf('\n}', start) + 2);
 
