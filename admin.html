@@ -7420,10 +7420,25 @@ async function waiveLedgerLine(invoiceId, ledger, key){
       const bill = String(ad.billToPhone || '').replace(/\D/g, '');
       return (bill ? bill === invoiceId : custInvoiceKey(ad) === invoiceId) && (Number(ad.referralCount) || 0) > 0;
     });
+    /* ⚠ THE ENTRIES ARE MARKED TOO, NOT JUST THE COUNT (2026-09-03). Since the referral
+       link shipped, `referralCount` is DERIVED from `referralCredits` — so zeroing the
+       count alone is undone by the next referral through a link, which recomputes it from
+       the entries and puts the whole discount back on the bill. Marked `waived` rather
+       than deleted, and deliberately not `revoked`: the friend did join, and a season
+       later the difference between "they cancelled" and "we crossed it off" is the only
+       thing that explains the bill. */
     for(const a of onBill){
       try{
-        await updateDoc(doc(db,'jobAddresses', a.id), { referralCount: 0 });
+        const marked = (Array.isArray(a.data.referralCredits) ? a.data.referralCredits : [])
+          .map(function(e){
+            return (e && !e.revoked && !e.waived)
+              ? Object.assign({}, e, { waived: true, waivedAt: new Date().toISOString() })
+              : e;
+          });
+        await updateDoc(doc(db,'jobAddresses', a.id),
+          { referralCount: 0, referralCredits: marked });
         a.data.referralCount = 0;
+        a.data.referralCredits = marked;
       }catch(e){
         console.error('[HU] could not clear referralCount for', a.id, e);
         alsoNote = ' — but their referral count could not be cleared, so check Edit Customer or it will come back';
@@ -10290,6 +10305,236 @@ let perFootRate = 0;
 /* What one referral is worth as a credit. Kept here rather than typed into the
    discount maths in two places, so changing the rate is a one-line change. */
 const REFERRAL_CREDIT = 25;
+/* ⭐ THE REFERRAL CREDIT LINE, BUILT IN ONE PLACE (2026-09-03). Three screens used
+   to spell this object out for themselves — Add Customer, Edit Customer and the
+   Invoices tab — and the automatic referral path below needs the SAME line, applied
+   without anybody opening a record. Four copies of one money line is three chances
+   for a customer's bill to disagree with itself.
+
+   ⚠ IT RETURNS null FOR NOUGHT, never a zero-amount line. A credit of $0.00 sitting
+   on an invoice reads as a discount somebody gave and then took back. */
+function referralCreditNote(count){
+  const n = Math.max(0, Number(count) || 0);
+  if(!n) return null;
+  return { amount: n * REFERRAL_CREDIT,
+           reason: 'Referral \u2014 ' + n + ' ' + (n === 1 ? 'person' : 'people'),
+           kind: 'referral', date: new Date().toISOString() };
+}
+/* ⭐ WHO HAS BEEN REFERRED, AND IS IT STILL COUNTED. `referralCredits` is the source
+   of truth for the link-based referrals; `referralCount` is the DISPLAY figure the
+   existing People They Referred box shows, and is derived from it so the two cannot
+   drift. A clawed-back referral stays in the list marked revoked rather than being
+   deleted — the Inbox note says it happened, and a list that quietly shortens is one
+   nobody can audit.
+
+   ⚠ AND `waived` IS A SECOND, DIFFERENT REASON A REFERRAL STOPS COUNTING, kept apart
+   from `revoked` on purpose: revoked means the friend cancelled before their install,
+   waived means the OFFICE crossed the discount off with the × (MON-56). Both stop the
+   count; only one of them is anybody's fault, and collapsing them would make the record
+   unreadable a season later.
+   ⚠ WITHOUT THE waived HALF THE × SILENTLY UNDOES ITSELF. That × zeroes `referralCount`
+   and nothing else, which was complete while the count was the only record — it is not
+   any more. The next referral through a link recomputes the count from these entries, so
+   every waived one comes back and the whole discount lands on the bill again, from a
+   path nobody in the office was looking at. */
+function referralLiveCount(entries){
+  return (Array.isArray(entries) ? entries : [])
+    .filter(function(e){ return e && !e.revoked && !e.waived; }).length;
+}
+/* ⚠ A REFERRAL IS REFUSED IF EITHER FIELD MATCHES THE REFERRER'S OWN, and this is a
+   HARD reject rather than a flag. Addie, 2026-09-03: the referred person's phone AND
+   email must both differ. Either one matching is enough to refuse — a person cannot
+   refer themselves with the same phone and a new address.
+
+   ⚠ AND NOTHING VERIFIES EITHER FIELD, deliberately and on the record: there is no
+   OTP anywhere in this codebase and building one was turned down. So a determined
+   person can still use a real friend's details. That is an accepted, documented gap
+   — this rule and the Inbox note are the only defences, on purpose. */
+function referralIsSelfReferral(referrer, referred){
+  const a = referrer || {}, b = referred || {};
+  const aPhone = String(a.phone || '').replace(/\D/g,'');
+  const bPhone = String(b.phone || '').replace(/\D/g,'');
+  if(aPhone && bPhone && aPhone === bPhone) return true;
+  const aMail = String(a.email || '').trim().toLowerCase();
+  const bMail = String(b.email || '').trim().toLowerCase();
+  return !!(aMail && bMail && aMail === bMail);
+}
+/* ⭐ WHETHER A CANCELLATION CLAWS THE CREDIT BACK. Two rulings, both hers:
+   ⚠ A referral that reached an INSTALL is earned — "if they cancel after completed
+     the referral already did its job" — so `completed === true` stops it outright.
+   ⚠ AND A BILL ALREADY PAID IN FULL IS NEVER CHARGED BACK. Taking $25 of credit off a
+     settled invoice turns it into money owed, which is a bill arriving after somebody
+     has paid — the one outcome nobody would forgive. The entry stays counted. */
+/* ⭐ PUT THE REFERRAL CREDIT ON THE REFERRER'S OWN INVOICE, NOW (2026-09-03).
+
+   ⚠ THE EXISTING MECHANISM COULD NOT DO THIS AND THAT IS WHY THIS EXISTS. The
+   People They Referred box rebuilds its credit line only when somebody opens that
+   customer and presses Save — so bumping a count from a background write changes the
+   number on the record and NOTHING on the bill. A referral earned through a link has
+   nobody opening anything, so the line has to be written here.
+
+   ⚠ IT REBUILDS THE referral LINE AND KEEPS EVERY OTHER KIND, which is the same
+   discipline Edit Customer's save follows and the reason the two cannot collide: this
+   owns `referral`, syncPayerInvoice owns `carried`, and the manual box owns `manual`.
+   ⚠ AND THE TOTAL IS REBUILT FROM THE LINES, never incremented — a running total that
+   drifts from the notes under it is a bill that does not add up. */
+async function applyReferralCreditLine(referrerItem){
+  if(!referrerItem || !referrerItem.data) return false;
+  const key = custInvoiceKey(referrerItem.data);
+  if(!key) return false;
+  const ref = doc(db,'invoices', key);
+  const snap = await getDoc(ref);
+  if(!snap.exists()) return false;   /* no bill yet — the count is on the record and the next save writes it */
+  const inv = snap.data() || {};
+  const kept = (Array.isArray(inv.creditNotes) ? inv.creditNotes : [])
+    .filter(function(c){ return !c || c.kind !== 'referral'; });
+  const line = referralCreditNote(referralLiveCount(referrerItem.data.referralCredits));
+  const notes = line ? kept.concat([line]) : kept;
+  const credits = notes.reduce(function(sum, c){ return sum + (Number(c && c.amount) || 0); }, 0);
+  const updates = {
+    creditNotes: notes, credits: credits,
+    status: computeInvoiceStatus(inv.install, inv.removal, inv.deposit, credits, inv.changeFees),
+    updatedAt: serverTimestamp()
+  };
+  await updateDoc(ref, updates);
+  const cached = allInvoicesCache.find(function(i){ return i.id === key; });
+  if(cached && cached.data) Object.assign(cached.data, updates);
+  return true;
+}
+/* ⭐ ONE PLACE SAYS WHAT HAPPENED, for a credit and for a clawback alike. Addie asked
+   for the audit trail by name: without it the only way to see any of this is opening
+   two customers' records side by side. */
+async function referralNote(topic, referrer, message){
+  try{
+    const d = (referrer && referrer.data) || {};
+    await addDoc(collection(db,'messages'), {
+      topic: topic, folder: 'System',
+      name: d.name || '', phone: d.phone || '', email: d.email || '',
+      contactMethod: '', message: message,
+      autoQueuedToWarehouse: false, needsReassign: false,
+      createdAt: serverTimestamp()
+    });
+  }catch(err){ console.error('Could not raise the referral note:', err); }
+}
+/* ⭐ THE WHOLE OF A REFERRAL, FROM THE LINK TO THE MONEY (2026-09-03).
+
+   ⚠ CALLED FROM BOTH DOORS INTO A CUSTOMER — a new conversion and a re-quote applied
+   to somebody who already exists — and written once rather than inlined twice, because
+   two copies of who-gets-$25 is the shape this repo keeps finding in its own history.
+
+   ⚠ IT NEVER THROWS INTO ITS CALLER. The customer record is the thing that must
+   survive a conversion; a referral that could not be credited is a note, not a reason
+   to lose somebody's record. */
+async function creditReferralIfAny(quoteData, customerId, customerData){
+  try{
+    const q = quoteData || {};
+    const token = String(q.referredByToken || '').trim();
+    if(!token) return { ok:false, why:'no token' };
+    if(q.referralCredited === true) return { ok:false, why:'already credited' };
+    const referrer = jobAddresses.find(function(a){
+      return String((a.data || {}).referralToken || '') === token;
+    });
+    /* ⚠ AN UNKNOWN TOKEN IS NOT AN ERROR. A link can outlive the customer who made
+       it, and a conversion must not fail because of one. */
+    if(!referrer) return { ok:false, why:'no referrer' };
+    if(referrer.id === customerId) return await referralBlocked(q, referrer, customerData, 'they used their own link');
+    if(referralIsSelfReferral(referrer.data, customerData)){
+      return await referralBlocked(q, referrer, customerData, 'the phone number or email is the same as theirs');
+    }
+    const entries = Array.isArray(referrer.data.referralCredits) ? referrer.data.referralCredits.slice() : [];
+    entries.push({
+      referredCustomerId: customerId,
+      referredName: (customerData && customerData.name) || '',
+      amount: REFERRAL_CREDIT,
+      creditedAt: new Date().toISOString(),
+      revoked: false, revokedAt: null
+    });
+    const count = referralLiveCount(entries);
+    await updateDoc(doc(db,'jobAddresses', referrer.id),
+      { referralCredits: entries, referralCount: count, updatedAt: serverTimestamp() });
+    referrer.data.referralCredits = entries; referrer.data.referralCount = count;
+    /* Who referred them, set once and never overwritten — it is what the clawback
+       finds its way back by. */
+    await updateDoc(doc(db,'jobAddresses', customerId), { referredByCustomerId: referrer.id });
+    const cust = jobAddresses.find(function(a){ return a.id === customerId; });
+    if(cust && cust.data) cust.data.referredByCustomerId = referrer.id;
+    await applyReferralCreditLine(referrer);
+    await referralMarkQuote(q);
+    await referralNote('Referral Credit Given', referrer,
+      ((referrer.data.name || 'A customer') + ' referred ' + ((customerData && customerData.name) || 'a new customer') +
+       ', who has just become a customer. ' + fmtMoney(REFERRAL_CREDIT) + ' has been taken off ' +
+       (referrer.data.name || 'their') + ' bill — ' + count + ' referral' + (count === 1 ? '' : 's') +
+       ' now counted. Nobody had to type anything in for this.'));
+    return { ok:true, referrerId: referrer.id, count: count };
+  }catch(err){
+    console.error('Could not credit a referral:', err);
+    return { ok:false, why:'error' };
+  }
+}
+/* ⚠ A BLOCKED ATTEMPT IS MARKED CREDITED SO IT IS NOT RETRIED FOR EVER, and it is
+   NOTED. Addie left that second half open and leaned towards noting it; a refusal
+   nobody can see is indistinguishable from the link not working, and a pattern of
+   them is the only thing this feature has instead of verification. */
+async function referralBlocked(quoteData, referrer, customerData, why){
+  await referralMarkQuote(quoteData);
+  await referralNote('Referral Blocked', referrer,
+    ((referrer.data.name || 'A customer') + '\u2019s referral link was used by ' +
+     ((customerData && customerData.name) || 'a new customer') + ', but no credit was given because ' +
+     why + '. Nothing has been added to anybody\u2019s bill. Nothing is wrong with the link — ' +
+     'it still works for somebody else.'));
+  return { ok:false, why:'blocked' };
+}
+/* The idempotency stamp. Written for a credit AND for a refusal, so neither is
+   retried on the next save of the same quote. */
+async function referralMarkQuote(quoteData){
+  const id = quoteData && quoteData.__quoteId;
+  if(!id) return;
+  try{ await updateDoc(doc(db,'quotes', id), { referralCredited: true }); }
+  catch(err){ console.error('Could not mark the quote as credited:', err); }
+}
+/* ⭐ TAKING IT BACK WHEN THE REFERRED CUSTOMER CANCELS BEFORE THEIR INSTALL
+   (2026-09-03). Her rule: a referral that reached an install is earned; one that
+   cancelled first is not.
+
+   ⚠ AND NEVER OFF A BILL THAT IS PAID IN FULL — see referralClawbackAllowed. Taking
+   $25 of credit off a settled invoice turns it into money owed, which is a bill
+   arriving after somebody has paid.
+
+   ⚠ IT ASKS THE EXISTING STATUS RULE rather than deciding what paid means for itself. */
+async function clawBackReferralIfAny(customerId, customerData){
+  try{
+    const d = customerData || {};
+    const referrerId = String(d.referredByCustomerId || '');
+    if(!referrerId) return { ok:false, why:'not referred' };
+    const referrer = jobAddresses.find(function(a){ return a.id === referrerId; });
+    if(!referrer) return { ok:false, why:'referrer gone' };
+    const entries = Array.isArray(referrer.data.referralCredits) ? referrer.data.referralCredits.slice() : [];
+    const idx = entries.findIndex(function(e){ return e && !e.revoked && e.referredCustomerId === customerId; });
+    if(idx === -1) return { ok:false, why:'nothing counted' };
+    const status = (typeof getLiveInvoiceStatus === 'function') ? getLiveInvoiceStatus(referrer.data) : '';
+    if(!referralClawbackAllowed(d, status)) return { ok:false, why: d.completed === true ? 'already installed' : 'paid in full' };
+    entries[idx] = Object.assign({}, entries[idx], { revoked: true, revokedAt: new Date().toISOString() });
+    const count = referralLiveCount(entries);
+    await updateDoc(doc(db,'jobAddresses', referrer.id),
+      { referralCredits: entries, referralCount: count, updatedAt: serverTimestamp() });
+    referrer.data.referralCredits = entries; referrer.data.referralCount = count;
+    await applyReferralCreditLine(referrer);
+    await referralNote('Referral Taken Back', referrer,
+      ((d.name || 'A customer') + ' cancelled before their lights went up, so the ' +
+       fmtMoney(REFERRAL_CREDIT) + ' referral credit given to ' + (referrer.data.name || 'the person who referred them') +
+       ' has been taken back off their bill. They are down to ' + count + ' referral' +
+       (count === 1 ? '' : 's') + '.'));
+    return { ok:true, referrerId: referrer.id, count: count };
+  }catch(err){
+    console.error('Could not take a referral credit back:', err);
+    return { ok:false, why:'error' };
+  }
+}
+function referralClawbackAllowed(referredData, referrerInvoiceStatus){
+  const d = referredData || {};
+  if(d.completed === true) return false;
+  return String(referrerInvoiceStatus || '') !== 'Paid in Full';
+}
 function loadPerFootRate(){
   onSnapshot(doc(db,'pricing','config'), function(snap){
     perFootRate = snap.exists() ? (snap.data().perFootRate || 0) : 0;
@@ -31913,6 +32158,19 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
           console.error('The customer was created but their quote could not be closed:', err);
           toast('Customer added \u2014 but their quote could not be closed. Set it to Closed by hand.');
         });
+      /* ⭐ AND IF THEY CAME IN THROUGH SOMEBODY'S REFERRAL LINK, THAT SOMEBODY IS PAID.
+         This is one of the TWO doors into a customer and both call the same function —
+         see creditReferralIfAny. It is awaited so the credit and the Inbox note land
+         before the toast claims the customer was added, and it can never throw.
+         ⚠ THE QUOTE ID IS READ BEFORE THE LINE BELOW CLEARS IT. Moved after it, the
+         token is gone and every referral through this door is silently worth nothing. */
+      const referralQuote = quotesCache.find(function(q){ return q && q.id === addCustFromQuoteId; });
+      if(referralQuote){
+        await creditReferralIfAny(
+          Object.assign({}, referralQuote.data, {__quoteId: addCustFromQuoteId}),
+          newAddrRef.id,
+          {name: name, phone: phone, email: email});
+      }
       addCustFromQuoteId = null;
       addCustQuoteLightsPattern = '';
       renderAddCustQuoteBanner('');
@@ -31930,12 +32188,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
          would have meant every screen that shows credits missing these. */
       const newCreditNotes = [];
       if(referralCount > 0){
-        newCreditNotes.push({
-          amount: referralCount * REFERRAL_CREDIT,
-          reason: 'Referral \u2014 ' + referralCount + ' ' + (referralCount === 1 ? 'person' : 'people'),
-          kind: 'referral',
-          date: new Date().toISOString()
-        });
+        newCreditNotes.push(referralCreditNote(referralCount));
       }
       if(manualDiscount > 0){
         newCreditNotes.push({
@@ -46482,6 +46735,21 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         console.error('Saved the customer but could not close the re-quote:', err);
         toast((newName || 'They') + ' were updated, but their re-quote card is still open \u2014 close it by hand.');
       }
+      /* ⭐ THE SECOND DOOR. A re-quote can carry a referral token too — somebody who
+         asked for a fresh price through a friend's link — and it reaches a customer
+         record by a completely different path, which is exactly why the rule is written
+         once and called twice rather than inlined here.
+         ⚠ THE SELF-REFERRAL CHECK EARNS ITS KEEP ON THIS DOOR IN PARTICULAR: an
+         existing customer re-quoting through their OWN link is the easy $25 this whole
+         feature would otherwise hand out, and creditReferralIfAny refuses it by document
+         id before it ever compares a phone number. */
+      const rqReferral = quotesCache.find(function(q){ return q && q.id === answeredQuoteId; });
+      if(rqReferral){
+        await creditReferralIfAny(
+          Object.assign({}, rqReferral.data, {__quoteId: answeredQuoteId}),
+          editCustomerId,
+          {name: newName, phone: newPhone, email: newEmail});
+      }
     }
     /* Saved routes carry a copy of the customer taken when the route was built,
        and the crew portal reads that copy rather than looking the customer up.
@@ -46504,6 +46772,24 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        (newRsvp === 'no' && item.data.rsvpStatus !== 'no')){
       await removeCustomerFromUpcomingRoutes(editCustomerId);
     }
+    /* ⭐ AND CANCELLING BEFORE THE LIGHTS GO UP TAKES BACK THE REFERRAL THAT BROUGHT
+       THEM IN (2026-09-03). Addie's rule: a referral that reached an install is earned,
+       one that cancelled first is not. clawBackReferralIfAny holds both halves of that
+       — see it for why a bill already paid in full is never charged back.
+
+       ⚠ ON THE TRANSITION ONLY, sharing the exact condition above rather than testing
+       `newRsvp === 'no'` on its own: re-saving somebody who already said no would
+       otherwise try again on every save, and while the entry is already revoked and
+       cannot be taken twice, it would raise the Inbox note every time.
+       ⚠ AND NOT ON BACK NEXT YEAR. That is a customer saying next season, not a
+       cancellation, and the referral did its job — which is why this reads newRsvp
+       rather than the whole condition it sits under.
+       ⚠ IT IS PASSED THE RECORD AS IT WILL BE, not as it was: `completed` decides
+       whether the credit is earned, and the stale cached copy is what the rule reads
+       without this. */
+    if(newRsvp === 'no' && item.data.rsvpStatus !== 'no'){
+      await clawBackReferralIfAny(editCustomerId, Object.assign({}, item.data, addrUpdates));
+    }
     const inv = allCustInvoiceFor(item);
     let resyncPayerAfter = null;
     let migratingFeeNotes = null;
@@ -46521,14 +46807,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
           return true;
         });
         const rebuiltNotes = keptNotes.slice();
-        if(newReferralCount > 0){
-          rebuiltNotes.push({
-            amount: newReferralCount * REFERRAL_CREDIT,
-            reason: 'Referral \u2014 ' + newReferralCount + ' ' + (newReferralCount === 1 ? 'person' : 'people'),
-            kind: 'referral',
-            date: new Date().toISOString()
-          });
-        }
+        /* ⚠ THE SHARED BUILDER, so the line this save writes and the line the
+           automatic referral path writes are the same object. Both rebuild the same
+           `kind: 'referral'` note from the same count, and a credit that came from a
+           link must not read differently from one typed in by hand. */
+        const rebuiltReferral = referralCreditNote(newReferralCount);
+        if(rebuiltReferral) rebuiltNotes.push(rebuiltReferral);
         if(newManualDiscount > 0){
           rebuiltNotes.push({
             amount: newManualDiscount,
@@ -52522,6 +52806,12 @@ const SYSTEM_NOTICE_SECTIONS = [
 ];
 const SYSTEM_NOTICE_SECTION_OF = {
   'Payment With No Bill': 'money',
+  /* A referral is $25 off somebody's bill, so these belong beside the other money
+     notices rather than in Other, where nobody looks. All three topics are listed:
+     an unlisted topic falls through to 'other' silently. */
+  'Referral Credit Given': 'money',
+  'Referral Taken Back': 'money',
+  'Referral Blocked': 'money',
   'Cannot Be Billed': 'money',
   'Paid \u2014 Still Needs to RSVP': 'money',
   'Routes Kept Up To Date': 'schedule',

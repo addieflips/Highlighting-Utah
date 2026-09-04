@@ -1751,12 +1751,14 @@
             <button type="button" class="portal-tab-btn" data-tab="lights">Light Colors</button>
             <button type="button" class="portal-tab-btn" data-tab="sides">Sides</button>
             <button type="button" class="portal-tab-btn" data-tab="changes">Changes</button>
+            <button type="button" class="portal-tab-btn" data-tab="refer">Refer a Friend</button>
             <button type="button" class="portal-tab-btn" data-tab="contact">Contact</button>
             <button type="button" class="portal-tab-btn" data-tab="cancel">Cancel</button>
           </div>
 
           <div class="portal-more-menu" id="portalMoreMenu">
             <button type="button" data-tab="sides">Which sides</button>
+            <button type="button" data-tab="refer">Refer a friend</button>
             <button type="button" data-tab="contact">Contact us</button>
             <button type="button" data-tab="cancel">Cancel service</button>
           </div>
@@ -2044,6 +2046,26 @@
 
               <button type="button" class="btn btn-gold btn-sm" id="changesSaveBtn" style="margin-top:18px;">Save Changes</button>
               <div id="changesSaveStatus" role="status" aria-live="polite" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
+            </div>
+
+            <!-- ⭐ REFER A FRIEND (2026-09-03). Their own link, the number of people
+                 who have used it, and nothing to fill in. The whole point is that the
+                 customer does no admin and neither does the office: the credit is
+                 applied by creditReferralIfAny in admin.html when the friend actually
+                 becomes a customer, not when the link is clicked.
+                 ⚠ THERE IS NO SHARE BOX AND NO "enter your friend's email". Sending
+                 mail on a customer's behalf to an address they typed is a different
+                 feature with a different set of problems; a link they can paste into
+                 their own messages needs none of them. -->
+            <div id="tabPanel-refer" style="display:none;">
+              <p class="form-note" style="margin-top:0;">Send this link to a neighbour or a friend. When they become a customer, we take <strong>$25</strong> off your bill &mdash; there is no limit, and you do not have to tell us.</p>
+              <div class="form-row">
+                <label>Your link</label>
+                <input type="text" id="referLinkInput" readonly value="" style="font-size:13px;">
+              </div>
+              <button type="button" class="btn btn-gold btn-block" id="referCopyBtn">Copy My Link</button>
+              <div id="referCopyStatus" role="status" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
+              <p id="referCount" style="font-size:14px; margin-top:16px; padding-top:14px; border-top:1px solid rgba(30,59,44,.12); text-align:center;"></p>
             </div>
 
             <div id="tabPanel-contact" style="display:none;">
@@ -2791,6 +2813,37 @@ async function geocodeForStreetView(addressText){
   }
 }
 
+/* ⭐ SOMEBODY ARRIVED THROUGH A FRIEND'S LINK (2026-09-03). The address is
+   https://highlightingutah.com/?ref=<token>#/quote — the token in the QUERY, not
+   the hash, so it survives every hash route the single-page site takes them through.
+
+   ⚠ IT IS REMEMBERED FOR THE SESSION. Somebody who lands on the home page, reads
+   about the packages and reaches the quote form ten minutes later must still count as
+   referred; a read of location.search at submit time is right only if they never left
+   the page they landed on. sessionStorage rather than localStorage on purpose — a
+   token that outlived the visit would attach itself to an unrelated quote months later.
+
+   ⚠ AND IT IS NEVER VALIDATED HERE. Nothing in the browser can tell a real token
+   from a made-up one, and pretending otherwise would mean shipping the customer list to
+   the public page. An unknown token is refused by creditReferralIfAny, where the real
+   records are, and refused SILENTLY — a link can outlive the customer who made it. */
+var REFERRAL_LINK_KEY = 'hu.referredByToken';
+(function rememberReferralToken(){
+  try{
+    var t = new URLSearchParams(window.location.search || '').get('ref');
+    if(t) sessionStorage.setItem(REFERRAL_LINK_KEY, String(t).slice(0, 64));
+  }catch(err){ /* Private browsing refuses sessionStorage. The quote still goes through;
+                  the referral is simply not counted, which is the safe direction. */ }
+})();
+function referralQuoteFields(){
+  var t = '';
+  try{ t = sessionStorage.getItem(REFERRAL_LINK_KEY) || ''; }
+  catch(err){ /* Same refusal as above; no token means no referral and no error. */ }
+  /* ⚠ THE FIELD IS OMITTED ENTIRELY WHEN THERE IS NONE. An empty string stored on
+     every quote in the book would read as a token that failed rather than a customer
+     who simply came to us directly. */
+  return t ? {referredByToken: t} : {};
+}
 var quoteFormEl = document.getElementById('quoteForm');
 var quoteDetailFormEl = document.getElementById('quoteDetailForm');
 quoteDetailFormEl.querySelectorAll('input[name="outlet_timer"]').forEach(function(radio){
@@ -3126,7 +3179,7 @@ quoteFormEl.addEventListener('submit', async function(e){
     };
   }).filter(function(b){ return b.isMain || b.name; });
 
-  addDoc(collection(db,'quotes'), {
+  addDoc(collection(db,'quotes'), Object.assign(referralQuoteFields(), {
     name: fd.get('name'), phone: fd.get('phone'), email: fd.get('email'),
     street: street, city: city, zip: zip,
     address: street + ', ' + city + ' ' + zip,
@@ -3145,7 +3198,7 @@ quoteFormEl.addEventListener('submit', async function(e){
     quoteToken: generatePortalToken(),
     formCompleted: false,
     status: 'new', createdAt: serverTimestamp()
-  }).then(function(){
+  })).then(function(){
     quoteFormEl.style.display = 'none';
     document.getElementById('quoteSuccess').classList.add('show');
   }).catch(function(){
@@ -3453,6 +3506,12 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
       savePortalLogin(lookupRes.token);
     }
 
+    /* Their referral link and how many people have used it. */
+    try{ portalRenderReferral(addrDoc); }
+    catch(err){ /* One panel must not take down the account page. The customer sees an
+                   empty Refer a Friend tab, which is visible to them, while the balance
+                   and the invoice below still render. */
+      console.error('[HU] portalRenderReferral failed', err); }
     /* Which sides they are down for, ticked from the record. */
     try{ portalRenderSides(); }
     catch(err){ /* One panel must not take down the account page — the address, the
@@ -6231,7 +6290,11 @@ renderRcSequence();
    ⚠ THE LIST AND THE BUTTONS MUST AGREE — run-all.js checks that every
    data-tab on the page appears here, because this is exactly the kind of thing
    that goes unnoticed until a customer mentions it. */
-var PORTAL_TAB_NAMES = ['payment','info','sides','lights','changes','contact','cancel'];
+/* ⚠ 'refer' BELONGS HERE THE MOMENT THE BUTTON EXISTS. A data-tab with no entry in
+   this list is the 2026-09-02 Sides bug exactly: activatePortalTab hides every panel
+   it names and shows the one asked for, so the customer gets an empty card. run-all.js
+   checks the two agree, which is what makes that a failing build rather than a report. */
+var PORTAL_TAB_NAMES = ['payment','info','sides','lights','changes','refer','contact','cancel'];
 /* --- Nothing but paying, until last season is settled -----------------------
  *
  * Dax, 2026-09-02: "make sure it forces them to pay for their last year lights
@@ -6256,7 +6319,84 @@ var PORTAL_TAB_NAMES = ['payment','info','sides','lights','changes','contact','c
  * computed by portalInvoice; a fourth copy of the carried-balance rule sitting in
  * this file would be outside money-parity and would be the copy deciding whether a
  * customer is locked out. */
+/* ⭐ REFER A FRIEND, RENDERED FROM THE RECORD (2026-09-03).
+
+   ⚠ THE TOKEN IS THE SERVER'S, NEVER MINTED HERE. portalLookup creates one on the
+   customer's record the first time they open the portal and returns it; a token made
+   in the browser would be a link pointing at a value no customer record holds, so
+   every referral through it would find no referrer and be worth nothing — silently,
+   because an unknown token is deliberately not an error.
+
+   ⚠ AND IT IS NOT THE PORTAL TOKEN. A portal token signs somebody in; this one is
+   pasted into a group chat. Reusing the login token as the referral link would hand
+   the customer's own account to whoever they sent it to.
+
+   ⚠ THE COUNT IS THE LIVE ONE (referralCount, which excludes anything taken back),
+   so somebody whose friend cancelled does not go on reading a number that no longer
+   matches their bill. Nought says nothing at all rather than "0 referrals" — an
+   empty scoreboard reads as a broken feature on a link nobody has used yet. */
+function portalReferralLink(token){
+  return window.location.origin + '/?ref=' + encodeURIComponent(String(token || '')) + '#/quote';
+}
+/* ⚠ THE TWO FIELDS ARE READ OFF `addrDoc` BY NAME, not through a shorthand alias. That
+   is not style: portal-fields.test.js proves every whitelisted field is actually LOOKED
+   AT by scanning for `addrDoc.<field>` and the handful of other real holder names, so
+   `var d = addrDoc` hides the read from the one gate that can tell a field that arrives
+   and is used from a field that arrives and is ignored. It failed on exactly that. */
+function portalRenderReferral(addrDoc){
+  if(!addrDoc) addrDoc = {};
+  var input = document.getElementById('referLinkInput');
+  var countEl = document.getElementById('referCount');
+  var token = String(addrDoc.referralToken || '');
+  if(input) input.value = token ? portalReferralLink(token) : '';
+  /* ⚠ NO TOKEN IS A REAL STATE, not a bug to hide: a record the office created by
+     hand has one the moment they next sign in, and until then a blank box with no
+     explanation is the worst of both. */
+  var copyBtn = document.getElementById('referCopyBtn');
+  if(copyBtn) copyBtn.disabled = !token;
+  var status = document.getElementById('referCopyStatus');
+  if(status && !token) status.textContent = 'Your link is being set up \u2014 check back in a moment.';
+  var n = Math.max(0, Number(addrDoc.referralCount) || 0);
+  if(countEl){
+    countEl.textContent = n
+      ? (n === 1
+          ? 'One person has joined through your link. That is $25 off your bill.'
+          : (n + ' people have joined through your link. That is $' + (n * 25) + ' off your bill.'))
+      : '';
+  }
+}
+document.getElementById('referCopyBtn')?.addEventListener('click', async function(){
+  var input = document.getElementById('referLinkInput');
+  var status = document.getElementById('referCopyStatus');
+  if(!input || !input.value) return;
+  /* ⚠ TWO WAYS, BECAUSE THE FIRST ONE IS NOT ALWAYS THERE. navigator.clipboard is
+     absent on a page served over plain http and blocked in some in-app browsers —
+     which is exactly where a link gets shared from. The select-and-execCommand
+     fallback is deprecated and still works everywhere that matters. */
+  var ok = false;
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(input.value);
+      ok = true;
+    }
+  }catch(err){ /* Refused (no permission, or an in-app browser). The fallback below is
+                  the answer, so this is not worth reporting to the customer. */ }
+  if(!ok){
+    try{
+      input.focus(); input.select();
+      ok = document.execCommand('copy');
+    }catch(err){ /* Deprecated and can throw. Both routes have now failed, and the
+                    message below tells them to copy it by hand, which always works. */ }
+  }
+  if(status) status.textContent = ok
+    ? 'Copied \u2014 paste it into a text or an email.'
+    : 'Could not copy it for you \u2014 select the link above and copy it.';
+});
 var PORTAL_UNLOCKED_TABS = ['payment','contact','cancel'];
+/* ⚠ 'refer' IS DELIBERATELY NOT UNLOCKED. Somebody who has not paid for last season
+   is held to paying, and earning credit towards a bill they are already behind on is
+   not one of the three things that stay open. It needs no code: anything absent from
+   the list above is locked. */
 var portalArrearsHold = null;
 function applyArrearsLock(owed, season){
   portalArrearsHold = owed > 0 ? {owed: owed, season: String(season || '')} : null;

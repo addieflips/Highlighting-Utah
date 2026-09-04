@@ -149,7 +149,14 @@ check('every anchor still exists in the file it names',
      directly, and a gate that went red every time she recorded a ruling is a gate that
      gets disabled inside a week. */
   const structure = html => {
-    const t = /const TABS=(\{[\s\S]*?\});\nconst FAULTS=(\{[\s\S]*?\});/.exec(html);
+    /* ⚠ \r?\n, NOT \n. connections.html is stored with LF and checked out with CRLF on
+       a Windows clone (core.autocrlf is on and there is no .gitattributes), so a bare
+       \n matched nothing there, structure() returned null, and this gate said
+       "regenerate it" about a page that was perfectly current — red on every local run
+       and green in CI, which is the shape of red that teaches somebody to stop running
+       the suite at all. CLAUDE.md §7 already states this rule; the line is here because
+       it was not followed. */
+    const t = /const TABS=(\{[\s\S]*?\});\r?\nconst FAULTS=(\{[\s\S]*?\});/.exec(html);
     if (!t) return null;
     return JSON.stringify([JSON.parse(t[1]), JSON.parse(t[2])]);
   };
