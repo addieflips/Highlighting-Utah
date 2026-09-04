@@ -11104,10 +11104,34 @@ check('build', 'the setting is saved, not hard-coded',
   /setDoc\(doc\(db,'settings','scheduling'\), \{crewsPerDay: want\}/.test(admin) &&
   /getDoc\(doc\(db,'settings','scheduling'\)\)/.test(admin),
   'the office has to be able to change it without anybody editing the page');
-check('build', 'two crews is the default when the setting has never been saved',
-  /CREWS_PER_DAY = \(n === 1\) \? 1 : 2;/.test(admin) &&
-  /catch\(err\)\{ CREWS_PER_DAY = 2;/.test(admin),
-  'a missing or unreadable setting must not silently halve the season');
+/* ⚠ REPOINTED 2026-09-04, NOT WEAKENED. This matched the literal
+   `CREWS_PER_DAY = (n === 1) ? 1 : 2;` — that is, it was pinned to the exact CLAMP
+   rather than to what the clamp had to guarantee. The clamp was the whole two-crew
+   ceiling: any third crew the office added was read back as two on the next login, so
+   the season silently rebuilt for two and a named crew got no day. Widening it to
+   MAX_CREWS therefore FAILED this check on code that is right, which is the slow-fuse
+   shape §7 warns about (see S82, S129 and the folder-names suite).
+   The guarantee is unchanged and is now RUN rather than matched: a missing setting, an
+   unreadable one, a zero and a nonsense one all still come back as two — never zero,
+   which would schedule nobody, and never something enormous. */
+(function(){
+  const src = extractFn(admin, 'loadSchedulingSettings');
+  const clamp = (src.match(/CREWS_PER_DAY = [^;]+;/) || [''])[0];
+  const at = function(n){
+    return new Function('n', 'MAX_CREWS', 'let CREWS_PER_DAY;' + clamp + 'return CREWS_PER_DAY;')(n, 6);
+  };
+  check('build', 'two crews is the default when the setting has never been saved',
+    !!clamp && at(2) === 2 && at(NaN) === 2 && at(0) === 2 && at(-1) === 2 && at(999) === 2 &&
+    /catch\(err\)\{ CREWS_PER_DAY = 2;/.test(admin),
+    'a missing or unreadable setting must not silently halve the season, and must ' +
+    'never come back as nought — a season built for no crews schedules nobody');
+  /* ⭐ AND THE CEILING IS REAL, which is the half that is new. A clamp that let any
+     number through would take a typo in Firestore and build sixty crew sheets a day. */
+  check('build', 'more than two crews is allowed, up to the ceiling',
+    at(1) === 1 && at(3) === 3 && at(6) === 6 && at(7) === 2,
+    'the office can only add crews on the Schedule tab if this reads more than two ' +
+    'back — the clamp to 1-or-2 WAS the whole two-crew ceiling');
+})();
 /* ⭐ A FAILED READ FALLS BACK TO THE BUILT-IN LIST, NOT TO NOTHING (changed
    2026-08-20). The original rule still holds — a previous read must not be left
    standing, or towns get paired off a list nobody can see. But resetting to {} is not
@@ -12239,6 +12263,11 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
          suite reads is the season it always read; the lift is what proves the rebuild
          is still passing them on rather than having quietly dropped the argument. */
       dayLimitSrc() +
+      /* ⚠ dayCrewTowns SIZES ITS ARRAYS FROM THE CREW LIST NOW (2026-09-04) rather
+         than being a hard-coded pair, so it needs crewIndexes. A lift missing it throws
+         a bare ReferenceError inside the rebuild and takes the whole suite down — which
+         is the exact failure sandboxDeps exists to name. */
+      fn('crewIndexes') +
       fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
       '\nthis.run=function(seed){SEASON=seed;SEASON.forEach(function(d){d._date=new Date(2026,9,1+d.base);});' +
       'var r=rebuildSeasonDays();return {r:r,days:SEASON.filter(function(d){return !d.isFixRoute&&!d.isTakedown;})' +
@@ -22035,6 +22064,16 @@ suite('Suite 93. Two crews, two towns, twenty each');
       'const sameCity = function(a, b){ return String(a).trim().toLowerCase() === ' +
       '  String(b).trim().toLowerCase(); };' +
       'const crewTownsFor = function(i){ return townsByCrew[i] || []; };' +
+      /* ⚠ dayCrewHouses SIZES ITS OUTPUT FROM THE CREW LIST NOW (2026-09-04) rather
+         than being a hard-coded pair, so the sandbox has to say how many crews there
+         are. Derived from the fixture's own town map, so a two-crew fixture still
+         exercises exactly the two-crew hand-back this suite was written for. */
+      /* ⚠ townsByCrew IS AN OBJECT KEYED BY CREW INDEX, not an array — and at least
+         two, so every fixture here exercises exactly the two-crew hand-back this suite
+         was written for however few towns it happens to name. */
+      'const CREWS = Array.from({length: Math.max(2, Object.keys(townsByCrew).length)},' +
+      '  function(_, i){ return {name: "Crew " + (i+1), city: ""}; });' +
+      extractFn(admin, 'crewIndexes') +
       extractFn(admin, 'crewCap') + src + 'return dayCrewHouses(day);');
 
     const house = (n, city) => ({id: 'h' + n, city: city});
@@ -22782,6 +22821,17 @@ suite('Suite 100. One crew days, and who works them');
     (admin.match(/const ONE_MAN_MAX_HOUSES = (\d+);/) || [])[1] + ';';
   const countSrc = extractFn(admin, 'dayCrewCount');
   check('S100', 'the crew-count rule is there to run', !!countSrc);
+  /* ⚠ THE CREW LIST IS NO LONGER A HARD-CODED PAIR (2026-09-04), so a sandbox has to
+     say how many crews there are or dayAssignedHouses and dayCrewCount throw. Derived
+     from the fixture's own town map and floored at TWO, so every check below still
+     exercises exactly the two-crew day it was written for.
+     ⚠ crewCount is LIFTED, not stubbed: it is what caps a day at the crews that
+     actually exist, and with CREWS_PER_DAY unset in here it falls back to two — which
+     is the same answer the old hard-coded rule gave, and is what makes this fair. */
+  const CREWSRC = 'const MAX_CREWS = 6;' +
+    'const CREWS = Array.from({length: Math.max(2, Object.keys(townsByCrew || {}).length)},' +
+    '  function(_, i){ return {name: "Crew " + (i+1), city: ""}; });' +
+    extractFn(admin, 'crewIndexes') + extractFn(admin, 'crewCount');
 
   if (countSrc) {
     const crews = (day, townsByCrew) => new Function('day', 'MAX_STOPS_PER_ROUTE', 'townsByCrew',
@@ -22790,7 +22840,7 @@ suite('Suite 100. One crew days, and who works them');
       'const sameCity = function(a, b){ return String(a).trim().toLowerCase() === ' +
       '  String(b).trim().toLowerCase(); };' +
       'const crewTownsFor = function(i){ return (townsByCrew || {})[i] || []; };' +
-      extractFn(admin, 'dayAssignedHouses') +
+      CREWSRC + extractFn(admin, 'dayAssignedHouses') +
       CONST + extractFn(admin, 'dayTownList') + extractFn(admin, 'dayTownCount') + extractFn(admin, 'oneManMaxHouses') +
       /* ⚠ dayCrewCount NOW ASKS WHETHER THE TWO TOWNS ARE NEIGHBOURS, not just how
          many there are, so the neighbour test and its constant come with it. */
@@ -22861,7 +22911,7 @@ suite('Suite 100. One crew days, and who works them');
       'const crewTownsFor = function(i){ return townsByCrew[i] || []; };' +
       'const extractCleanCity = function(c){ return String(c == null ? "" : c).trim(); };' +
       CONST + extractFn(admin, 'dayTownList') + extractFn(admin, 'dayTownCount') + extractFn(admin, 'oneManMaxHouses') +
-      extractFn(admin, 'oneCrewMaxHouses') + extractFn(admin, 'dayAssignedHouses') +
+      extractFn(admin, 'oneCrewMaxHouses') + CREWSRC + extractFn(admin, 'dayAssignedHouses') +
       dayLimitSrc({haveOneMan: true}) +
       countSrc + extractFn(admin, 'daySoloCrew') +
       extractFn(admin, 'crewCap') + splitSrc + 'return dayCrewHouses(day);')(day, towns, 20);
@@ -22905,13 +22955,34 @@ suite('Suite 100. One crew days, and who works them');
   /* ---- the choice survives a reload ---- */
   const ser = extractFn(admin, 'serialize');
   const hyd = extractFn(admin, 'hydrate');
+  /* ⚠ REPOINTED 2026-09-04, NOT WEAKENED. These matched `soloCrew:d.soloCrew`, which
+     is where the value happened to come from rather than what had to be true. Both
+     lists now go through crewSlotOf, because the old form was written out twice as
+     `d.soloCrew===1?1:0` — a two-crew rule in two places, which on a list of three
+     silently rewrote "crew 3" as "crew 1" on the next save. The guarantee is unchanged:
+     the field is in BOTH explicit lists, and it still round-trips. */
   check('S100', 'the chosen crew is saved with the day',
-    /soloCrew:d\.soloCrew/.test(ser),
+    /soloCrew:/.test(ser),
     'that list of day fields is explicit, so anything missing from it silently does ' +
     'not survive a reload');
   check('S100', 'and read back when the plan loads',
-    /soloCrew:d\.soloCrew/.test(hyd),
+    /soloCrew:/.test(hyd),
     'saved and never read is the same as not saved');
+  /* ⭐ AND A THIRD CREW SURVIVES THE ROUND TRIP, which is the half that is new. The
+     old pair of writes could only ever store 0 or 1, so the office's choice on a day
+     worked by crew 3 was thrown away on the next save with nothing said. */
+  (function(){
+    const slot = extractFn(admin, 'crewSlotOf');
+    check('S100', 'the stored crew number is not clamped back to two',
+      !!slot && /crewSlotOf/.test(ser) && /crewSlotOf/.test(hyd) &&
+      (function(){
+        const f = new Function('v', 'MAX_CREWS', slot + 'return crewSlotOf(v);');
+        return f(0, 6) === 0 && f(1, 6) === 1 && f(2, 6) === 2 && f(5, 6) === 5 &&
+               f(6, 6) === 0 && f(-1, 6) === 0 && f('2', 6) === 2 && f(undefined, 6) === 0;
+      })(),
+      'both writes used to be `soloCrew===1?1:0`, so a day worked by crew 3 came ' +
+      'back as crew 1 — a choice lost with no error and nothing on screen');
+  })();
 
   /* ---- the rescue only saves one-man days now ---- */
   const plan = admin.slice(admin.indexOf('function planNewCrewDays(waiting, taken, opts)'),
@@ -22975,6 +23046,9 @@ suite('Suite 101. One dominant city a crew, and a neighbour if it must');
       'const sameCity = function(a, b){ return String(a).trim().toLowerCase() === ' +
       '  String(b).trim().toLowerCase(); };' +
       'const customerForHouse = function(h){ return h._cust ? {data: h._cust} : null; };' +
+      /* ⚠ dayCrewTowns WALKS crewIndexes() NOW rather than `[0,1]`, which is what
+         lets a third crew have a slot at all. The fixture already supplies CREWS. */
+      extractFn(admin, 'crewIndexes') +
       extractFn(admin, 'haversine') + nearSrc + townsSrc +
       'return dayCrewTowns({houses: houses});')(houses, near || {}, crews ||
         [{name: 'A', city: ''}, {name: 'B', city: ''}]);
@@ -41401,8 +41475,21 @@ suite('253. The RSVP asks the crew’s two questions, of the right house');
   check('S253', 'the gate-code / outlet token block was found', !!gateBlock,
     'renamed or removed — fix this test rather than deleting it');
 
-  const whoSrc = extractFn(admin, 'hlxEmailCustomer');
-  check('S253', 'hlxEmailCustomer was found', !!whoSrc);
+  /* ⚠ TWO FUNCTIONS, ONE RULE (2026-09-04). hlxEmailCustomer is now one line on top of
+     hlxEmailCustomerItem, which answers the same question and hands back the RECORD so a
+     caller that needs to WRITE to that customer has its id — referralTokenFor mints a
+     token on the document. Lifting only the wrapper throws a bare ReferenceError and
+     takes the whole suite down, which is the sandboxDeps failure. LIFTED, NOT STUBBED:
+     the strictness is IN the item form — it refuses a phone matching two customers
+     rather than picking the first — so a stub here would leave every check below passing
+     while the shared-phone rule this suite exists for had been deleted. */
+  const whoSrc = extractFn(admin, 'hlxEmailCustomerItem') + '\n' + extractFn(admin, 'hlxEmailCustomer');
+  check('S253', 'hlxEmailCustomer was found', !!extractFn(admin, 'hlxEmailCustomer'));
+  check('S253', 'and it is one line on top of the record form, not a second copy of the rule',
+    /function hlxEmailCustomer\(phone, opts\)\{[\s\S]{0,200}hlxEmailCustomerItem\(phone, opts\)/
+      .test(admin.replace(/\r/g, '')),
+    'two resolvers written out separately is how one of them quietly stops refusing ' +
+    'a shared phone — and on the referral link the money follows the token');
 
   if (gateBlock && whoSrc) {
     const PHONE = '(801) 555-0100';
@@ -44575,7 +44662,12 @@ if (!JSDOM) {
     'billedHousesFor', 'billingGroupsByPayer', 'payerHouseOf', 'balanceDueAmount', 'esc',
     /* The household list and the crossed-through rule, added 2026-08-26. Lifted, not
        stubbed: which houses appear is the whole subject of this suite. */
-    'editCustHouseholdHouses', 'editCustTabNotBilled'];
+    'editCustHouseholdHouses', 'editCustTabNotBilled',
+    /* ⭐ THE REFERRAL ROW AT THE TOP (2026-09-04, REF-07). editCustRenderHouseTabs
+       calls it, so a lift without it throws a bare ReferenceError and takes this whole
+       suite down. Lifted, not stubbed: which count it shows is a claim about a
+       DISCOUNT ON A BILL, and a stub would leave that untested while reporting green. */
+    'editCustRenderReferLine', 'referralLiveCount', 'referralLinkFromToken'];
   const bodies = NAMES.map(function (n) { return extractFn(admin, n); });
   const missing = NAMES.filter(function (n, i) { return !bodies[i]; });
   check('S276', 'the house-tab functions are all in admin.html', missing.length === 0,
@@ -44586,6 +44678,7 @@ if (!JSDOM) {
       '<div class="editcust-popup">' +
       '<div id="editCustHouseTabs" style="display:none;"></div>' +
       '<div id="editCustBillLine" style="display:none;"></div>' +
+      '<div id="editCustReferLine" style="display:none;"></div>' +
       '<input id="editCustName" value="Heather Anderson">' +
       '<input id="editCustFeet" value="200">' +
       '<input type="checkbox" id="editCustNewMemberFee">' +
@@ -44623,6 +44716,7 @@ if (!JSDOM) {
       extractFn(admin, 'houseIsOnTheBill'),
       'let jobAddresses = [];', 'let editCustomerId = null;', 'let requoteBeingConverted = null;',
       'let invoiceById = new Map();', 'let editCustDirtySnapshot = "";',
+      'const REFERRAL_CREDIT = ' + (admin.match(/const REFERRAL_CREDIT = (\d+);/) || [])[1] + ';',
       'function fmtMoney(n){ return "$" + Number(n||0).toFixed(2); }',
       bodies.join('\n'),
       'return {' +
@@ -44635,6 +44729,7 @@ if (!JSDOM) {
       '   editCustRefreshDirtyDot();' +
       '   return {tabs:document.getElementById("editCustHouseTabs"),' +
       '           line:document.getElementById("editCustBillLine"),' +
+      '           refer:document.getElementById("editCustReferLine"),' +
       '           save:document.getElementById("editCustSaveBtn"),' +
       '           top:document.getElementById("editCustTopSave")};' +
       ' },' +
@@ -50201,6 +50296,406 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
     check('S300', 'a town with no located house simply has no opinion about the weather',
       /if\(!towns\.length\)/.test(load),
       'a fresh season has nobody geocoded, and that must cost the forecast and nothing else');
+  }
+}
+
+suite('304. As many crews as she has, named');
+/* ---------------------------------------------------------------------------
+ * Addie, 2026-09-04: "on schedule can you make it so we can add on crews and
+ * name them?"
+ *
+ * ⭐ NAMING ALREADY WORKED. ADDING DID NOT, and the ceiling was in two places at
+ * once: normalizeCrews mapped over a two-entry CREW_FALLBACK_NAMES, and
+ * loadSchedulingSettings clamped crewsPerDay to `(n === 1) ? 1 : 2`. Either one
+ * alone makes a third crew impossible, and the second is the quieter of the two —
+ * it reads the third crew back as two on the NEXT LOGIN, so the season silently
+ * rebuilds for two and a named crew simply gets no day.
+ *
+ * ⭐ THIS SUITE RUNS THE RULES. Every claim here is about how many crews come back
+ * and which houses land on which sheet, and a regex cannot see a crew getting an
+ * empty array. The two-crew behaviour is asserted alongside the three-crew one,
+ * because the expensive failure is not "three does not work" — it is "three works
+ * and two quietly changed".
+ * ------------------------------------------------------------------------- */
+{
+  const fn = (n) => extractFn(admin, n);
+  const MAXC = 'const MAX_CREWS = ' + ((admin.match(/const MAX_CREWS = (\d+);/) || [])[1]) + ';';
+  const need = ['normalizeCrews', 'crewFallbackName', 'crewCount', 'crewIndexes',
+                'dayCrewTowns', 'dayCrewHouses', 'dayCrewCount', 'daySoloCrew', 'setCrewCount'];
+  const missing = need.filter((n) => !fn(n));
+  check('S304', 'the crew rules are all in admin.html', !missing.length,
+    'missing: ' + missing.join(', ') + ' — renamed? update this suite rather than deleting it');
+
+  if (!missing.length) {
+    /* ---- how many crews there are ---- */
+    const norm = (list, want, perDay) => new Function('list', 'want', 'CREWS_PER_DAY',
+      MAXC + "const CREW_FALLBACK_NAMES=['Crew 1','Crew 2'];" +
+      fn('crewFallbackName') + fn('crewCount') + fn('normalizeCrews') +
+      'return normalizeCrews(list, want);')(list, want, perDay);
+
+    /* ⚠ THE OLD BEHAVIOUR FIRST. With nothing asked for and no setting, a saved pair
+       still comes back as a pair — that is every install in the world today, and a
+       change here would rewrite their crew bar on the next login. */
+    check('S304', 'two saved crews still come back as two',
+      norm([{name: 'Red', city: ''}, {name: 'Blue', city: ''}]).length === 2,
+      'this is what every office has today; it must not move');
+    check('S304', 'and their names are kept',
+      norm([{name: 'Red', city: 'Lehi'}, {name: 'Blue', city: ''}])
+        .map((c) => c.name + '/' + c.city).join(',') === 'Red/Lehi,Blue/');
+
+    /* ⭐ THE THING SHE ASKED FOR. */
+    check('S304', 'asking for three gives three, and the third is named for her',
+      norm([{name: 'Red'}, {name: 'Blue'}], 3).map((c) => c.name).join(',') === 'Red,Blue,Crew 3',
+      'a crew with no name at all is a sheet nobody can be handed');
+    check('S304', 'a third crew already named keeps its name',
+      norm([{name: 'Red'}, {name: 'Blue'}, {name: 'Dad and Sam'}], 3)[2].name === 'Dad and Sam');
+    check('S304', 'and the count follows the saved setting when nothing is asked for',
+      norm([{name: 'Red'}, {name: 'Blue'}], undefined, 3).length === 3,
+      'settings/scheduling.crewsPerDay is the one number; the list pads itself from it');
+
+    /* ⚠ THE FALLBACK IS max(2, what was stored), NOT a bare 2. A settings read that
+       failed leaves CREWS_PER_DAY unset, and rebuilding a saved three-crew list as two
+       would DELETE the third crew's name — from a path nobody is looking at, on a plan
+       that is then written straight back over the good one. */
+    check('S304', 'with no setting at all a saved third crew is not thrown away',
+      norm([{name: 'Red'}, {name: 'Blue'}, {name: 'Dad and Sam'}]).length === 3,
+      'a failed settings read must not be able to delete a crew');
+    check('S304', 'and the ceiling holds',
+      norm([], 99).length === Number((admin.match(/const MAX_CREWS = (\d+);/) || [])[1]) &&
+      norm([], 0).length >= 1 && norm([], -3).length >= 1,
+      'a nonsense value out of Firestore must not build sixty crew sheets, and never nought');
+
+    /* ---- the towns, shared out over however many crews there are ---- */
+    const townsOf = (houses, crews, near) => new Function('houses', 'CREWS', 'NEARBY_TOWN_LIST',
+      'const MAX_TOWNS_PER_CREW = 2; const NEARBY_TOWN_MILES = 8;' +
+      'const cityOf = function(h){ return (h.city || "").trim(); };' +
+      'const sameCity = function(a,b){ return String(a).trim().toLowerCase() === String(b).trim().toLowerCase(); };' +
+      'const customerForHouse = function(){ return null; };' +
+      fn('crewIndexes') + fn('haversine') + fn('townsAreNeighbours') + fn('dayCrewTowns') +
+      'return dayCrewTowns({houses: houses});')(houses, crews, near || {});
+    const many = (n, city) => Array.from({length: n}, (_, i) => ({id: city + i, city: city}));
+    const auto = (n) => Array.from({length: n}, (_, i) => ({name: 'Crew ' + (i + 1), city: ''}));
+
+    /* ⚠ THREE TOWNS THAT ARE NOT NEIGHBOURS, so nothing may be merged and each crew
+       has to be given one of its own. On two crews the third town is UNASSIGNED and
+       visible — which is the existing rule and is asserted here so this change cannot
+       be read as having softened it. */
+    const three = many(6, 'Lehi').concat(many(5, 'Payson'), many(4, 'Logan'));
+    const on2 = townsOf(three, auto(2));
+    check('S304', 'on two crews a third town is still left unassigned, not absorbed',
+      on2.length === 2 && on2[0].length === 1 && on2[1].length === 1,
+      'a house in a town neither crew is working must stay visible — softening that ' +
+      'is how somebody drives fifty miles for four houses with nothing on screen');
+    const on3 = townsOf(three, auto(3));
+    check('S304', 'on three crews the third town gets a crew of its own',
+      on3.length === 3 && on3.every((t) => t.length === 1) &&
+      on3[0][0] === 'Lehi' && on3[1][0] === 'Payson' && on3[2][0] === 'Logan',
+      'this is the whole point: dayCrewTowns built a PAIR, so a third crew had no ' +
+      'slot at all and its town fell through to unassigned — which looks exactly ' +
+      'like the town rule refusing it');
+    /* ⚠ AND A CREW WITH NOTHING TO DO IS AN EMPTY LIST, never absent. Four crews and
+       three towns is a real day: the fourth is idle, and out[3] being `undefined`
+       rather than [] is a crew sheet that throws instead of printing nothing. */
+    const on4 = townsOf(three, auto(4));
+    check('S304', 'a crew with no town comes back empty rather than missing',
+      on4.length === 4 && Array.isArray(on4[3]) && on4[3].length === 0);
+
+    /* ---- the houses, and the hand-back over N crews ---- */
+    const split = (day, townsByCrew) => new Function('day', 'townsByCrew', 'MAX_STOPS_PER_ROUTE',
+      MAXC + 'const CREWS = Array.from({length: Object.keys(townsByCrew).length},' +
+      '  function(_, i){ return {name: "Crew " + (i+1), city: ""}; });' +
+      'const cityOf = function(h){ return (h.city || "").trim(); };' +
+      'const sameCity = function(a,b){ return String(a).trim().toLowerCase() === String(b).trim().toLowerCase(); };' +
+      'const crewTownsFor = function(i){ return townsByCrew[i] || []; };' +
+      'const dayCrewCount = function(){ return Object.keys(townsByCrew).length; };' +
+      fn('crewIndexes') + fn('daySoloCrew') + fn('crewCap') + fn('dayCrewHouses') +
+      'return dayCrewHouses(day);')(day, townsByCrew, 20);
+
+    /* ⚠ HER OWN 19/21 CASE, ON THREE CREWS. The hand-back is the same rule over more
+       crews, not a new one — the fullest crew over the cap gives its last stop to the
+       emptiest crew under it. Written as a pair it could only ever look at out[0] and
+       out[1], so on three crews a crew of twenty-five would have kept all of them. */
+    const t3 = {0: ['Lehi'], 1: ['Payson'], 2: ['Logan']};
+    const over = {houses: many(25, 'Lehi').concat(many(10, 'Payson'), many(5, 'Logan'))};
+    const got = split(over, t3);
+    check('S304', 'a crew over the cap hands back across three crews',
+      got.map((x) => x.length).join('/') === '20/10/10',
+      'got ' + got.map((x) => x.length).join('/') + ' — the five over the cap go to ' +
+      'the emptiest crew that is under it');
+    check('S304', 'and nobody is lost or invented on the way',
+      got.reduce((n, x) => n + x.length, 0) === 40);
+    /* ⚠ AND THE FULLEST CREW IS FOUND WHEREVER IT SITS. The first version of this
+       suite put the overloaded crew at index 0, where a walk that only ever looked at
+       out[0] and out[1] gives the IDENTICAL answer — so a red-check restricting the
+       search to the first two crews sailed straight through it. With the big pile on
+       the LAST crew the restricted walk finds a crew that is already under the cap,
+       breaks immediately, and twenty-five houses stay on one sheet. */
+    const back = split({houses: many(5, 'Lehi').concat(many(10, 'Payson'), many(25, 'Logan'))}, t3);
+    check('S304', 'the fullest crew is found wherever it sits in the list',
+      back.map((x) => x.length).join('/') === '10/10/20',
+      'got ' + back.map((x) => x.length).join('/') + ' — a walk pinned to the first ' +
+      'two crews leaves the last one holding twenty-five');
+    /* ⚠ ONE ENTRY PER CREW EVEN ON A DAY WITH NO HOUSES. That is the early return, and
+       it is the only place the array's LENGTH is observable — everywhere else JS grows
+       it on assignment, so `[[],[]]` and CREWS.map() are indistinguishable. out[2] being
+       `undefined` rather than [] is a crew sheet that throws instead of printing nothing. */
+    const none = split({}, t3);
+    check('S304', 'a day with nothing on it still comes back with one list per crew',
+      none.length === 3 && none.every((x) => Array.isArray(x) && x.length === 0),
+      'got ' + JSON.stringify(none) + ' — a missing slot is a sheet that throws');
+    /* ⚠ STILL A HAND-BACK, NOT A LEVELLER. Thirty and four and one stays thirty-capped
+       rather than being flattened to twelve each, because levelling drags houses over
+       town lines — the opposite of one crew one town. */
+    const uneven = split({houses: many(30, 'Lehi').concat(many(4, 'Payson'), many(1, 'Logan'))}, t3);
+    check('S304', 'it stops at the cap rather than levelling the day out',
+      uneven.map((x) => x.length).join('/') === '20/9/6' ||
+      uneven[0].length === 20,
+      'got ' + uneven.map((x) => x.length).join('/') + ' — a leveller would drag ' +
+      'thirteen houses over a town line');
+
+    /* ---- how many crews a day wants, capped at how many exist ---- */
+    const crews = (day, townsByCrew, perDay) => new Function('day', 'townsByCrew', 'CREWS_PER_DAY', 'MAX_STOPS_PER_ROUTE',
+      MAXC + 'const ONE_MAN_MAX_HOUSES = ' + ((admin.match(/const ONE_MAN_MAX_HOUSES = (\d+);/) || [])[1]) + ';' +
+      'const MAX_TOWNS_PER_CREW = 2; const NEARBY_TOWN_MILES = 8; const NEARBY_TOWN_LIST = {};' +
+      'const CREWS = Array.from({length: CREWS_PER_DAY}, function(_, i){ return {name: "Crew " + (i+1), city: ""}; });' +
+      'const extractCleanCity = function(c){ return String(c == null ? "" : c).trim(); };' +
+      'const cityOf = function(h){ return (h.city || "").trim(); };' +
+      'const sameCity = function(a,b){ return String(a).trim().toLowerCase() === String(b).trim().toLowerCase(); };' +
+      'const crewTownsFor = function(i){ return townsByCrew[i] || []; };' +
+      'const customerForHouse = function(){ return null; };' +
+      'const DAY_LIMITS = {}; const isoOf = function(){ return ""; };' +
+      fn('crewIndexes') + fn('crewCount') + fn('haversine') + fn('townsAreNeighbours') +
+      fn('dayTownList') + fn('dayTownCount') + fn('oneManMaxHouses') + fn('oneCrewMaxHouses') +
+      fn('dayAssignedHouses') + fn('dayLimitOn') + fn('dayLimitFor') + fn('dayCrewCount') +
+      'return dayCrewCount(day);')(day, townsByCrew, perDay, 20);
+
+    /* ⚠ THE OLD ANSWERS, UNCHANGED. dayCrewCount was rewritten from a pile of
+       `return 2` into arithmetic, so every two-crew answer is re-proved here rather
+       than taken on trust. */
+    check('S304', 'a forty-house day on two crews is still two',
+      crews({houses: many(20, 'Lehi').concat(many(20, 'Payson'))}, {0: ['Lehi'], 1: ['Payson']}, 2) === 2);
+    check('S304', 'a twelve-house day in one town is still one',
+      crews({houses: many(12, 'Lehi')}, {0: ['Lehi'], 1: []}, 2) === 1);
+    check('S304', 'a light day over two towns that are not neighbours is still two',
+      crews({houses: many(6, 'Lehi').concat(many(6, 'Payson'))}, {0: ['Lehi'], 1: ['Payson']}, 2) === 2);
+    check('S304', 'an empty day is still one',
+      crews({houses: []}, {0: ['Lehi'], 1: ['Payson']}, 2) === 1);
+
+    /* ⭐ AND THE NEW ANSWERS. */
+    check('S304', 'sixty houses over three towns wants three crews',
+      crews({houses: many(20, 'Lehi').concat(many(20, 'Payson'), many(20, 'Logan'))},
+            {0: ['Lehi'], 1: ['Payson'], 2: ['Logan']}, 3) === 3);
+    /* ⚠ NEVER MORE CREWS THAN THERE ARE, and this is the guard worth having: without
+       it a three-town day in a two-crew business badges itself three, and the panel,
+       the printed sheets and the route generator all agree to build a sheet for a
+       crew that does not exist. */
+    check('S304', 'a day never asks for more crews than the office has',
+      crews({houses: many(20, 'Lehi').concat(many(20, 'Payson'), many(20, 'Logan'))},
+            {0: ['Lehi'], 1: ['Payson'], 2: ['Logan']}, 2) === 2);
+
+    /* ---- who works a one-crew day, when the crew list has changed ---- */
+    const solo = (v, n) => new Function('day', 'CREWS',
+      fn('daySoloCrew') + '\nreturn daySoloCrew(day);')({soloCrew: v}, auto(n));
+    check('S304', 'the chosen crew is honoured when that crew still exists',
+      solo(2, 3) === 2 && solo(1, 2) === 1 && solo(0, 2) === 0);
+    /* ⚠ A CREW THAT HAS BEEN REMOVED FALLS BACK TO THE FIRST, never to `undefined`.
+       out[3] on a list of three is undefined, which is a crew sheet that draws nothing
+       on the morning somebody is holding it — wrong about WHO beats blank about WHAT. */
+    check('S304', 'a day pointing at a crew that has been removed falls back, not blank',
+      solo(2, 2) === 0 && solo(5, 3) === 0,
+      'undefined here is a printed sheet with no houses on it');
+
+    /* ⚠ AND THE DROPDOWN THE OFFICE ACTUALLY PRESSES. The two-crew rule was written
+       out THREE times, not two: serialize, hydrate, and the one-crew-day picker's own
+       change handler, which read `(t.value==='1') ? 1 : 0`. Picking crew 3 there stored
+       crew 1, so the day was drawn and PRINTED for the wrong crew with nothing on
+       screen saying the choice had not taken — the quietest of the three. */
+    check('S304', 'picking a crew for a one-crew day stores the crew that was picked',
+      /d\.soloCrew = crewSlotOf\(t\.value\);/.test(admin.replace(/\r/g, '')),
+      'a hand-rolled 0-or-1 here silently discards every crew past the second');
+
+    /* ---- the count is written to the one place the builder reads ---- */
+    const setSrc = fn('setCrewCount');
+    check('S304', 'adding a crew writes the number the season builder reads',
+      /setDoc\(doc\(db,'settings','scheduling'\), \{crewsPerDay: want\}/.test(setSrc),
+      'the builder, the tail sweep and surplusCrewDays all read crewsPerDay — writing ' +
+      'the crew list and not this gives three named crews and a season built for two');
+    check('S304', 'and it is clamped before it is written',
+      /Math\.min\(MAX_CREWS/.test(setSrc) && /Math\.max\(1/.test(setSrc));
+    check('S304', 'a failed write is said out loud, not swallowed',
+      /catch\(err\)/.test(setSrc) && /console\.error/.test(setSrc) &&
+      /Could not save/.test(setSrc),
+      'Addie, 2026-08-25: nothing should fail quietly — and a crew on screen that the ' +
+      'builder has never heard of is the worst version of it');
+
+    /* ---- the buttons exist and are wired ---- */
+    const bar = fn('renderCrewBar') || admin.slice(admin.indexOf('const day=currentDay();\r\n  const cities=planCities();'),
+      admin.indexOf('function renderAll()'));
+    check('S304', 'the crew bar offers Add and Remove',
+      /data-crewadd/.test(admin) && /data-crewdrop/.test(admin) && /data-crewname/.test(admin),
+      'naming already worked; adding is what did not');
+    check('S304', 'and both buttons are actually listened to',
+      /data-crewadd\]/.test(admin) && /data-crewdrop\]/.test(admin) &&
+      /setCrewCount\(CREWS\.length\s*\+\s*1\)/.test(admin) &&
+      /setCrewCount\(CREWS\.length\s*-\s*1\)/.test(admin),
+      'this repo has shipped a control whose handler patch silently did not apply — ' +
+      'it rendered an input that saved nothing and npm test stayed green');
+    /* ⚠ REMOVING A CREW THAT IS HOLDING HOUSES IS REFUSED. Nothing would be lost, but
+       the houses would move onto somebody else's sheet with nothing said — and a sheet
+       that changes under a crew already holding paper is what the 48-hour lock exists
+       to prevent. */
+    check('S304', 'removing a crew that is holding houses is refused',
+      /crewHousesFor\(i,currentDay\(\)\)\.length/.test(admin.replace(/\r/g, '')) &&
+      /has \'\+holding\+\' house/.test(admin.replace(/\r/g, '')),
+      'a crew sheet that empties itself overnight is the failure nobody reports ' +
+      'because it looks like the day being quiet');
+  }
+
+  /* ---- the settings dropdown can express more than two ---- */
+  check('S304', 'the setting is a dropdown, not two radios',
+    /id="crewsPerDaySelect"/.test(admin) &&
+    !/name="crewsPerDay"/.test(admin),
+    'two radios could only ever say one or two, so picking "Two" would have quietly ' +
+    'dropped a third crew the office had already named');
+}
+
+suite('305. The referral link, from the office side');
+/* ---------------------------------------------------------------------------
+ * Addie, 2026-09-04: put the referral link at the top of Edit Customer, and let
+ * it go out through the RSVP.
+ *
+ * ⭐ THE TOKEN WAS ONLY EVER MINTED ON A PORTAL SIGN-IN, and most of the book has
+ * never signed in — so both of those needed a way to mint one from the office.
+ * That is the whole change, and it is where the danger is: the money follows the
+ * token, so handing back the wrong customer's link puts every $25 that friend
+ * earns on the wrong person's bill, silently, for a season.
+ * ------------------------------------------------------------------------- */
+{
+  const fn = (n) => extractFn(admin, n);
+  const idx = read('index.html');
+  const need = ['referralTokenFor', 'referralLinkFromToken', 'editCustRenderReferLine',
+                'editCustReferClick', 'hlxEmailCustomerItem'];
+  const missing = need.filter((n) => !fn(n));
+  check('S305', 'the office-side referral rules are all there', !missing.length,
+    'missing: ' + missing.join(', '));
+
+  if (!missing.length) {
+    /* ⭐ ONE ADDRESS, TWO PAGES, AND THEY HAVE TO MATCH BYTE FOR BYTE. The customer
+       copies one out of their own portal and the office sends the other; a link that
+       differs by a slash is a referral that credits nobody, and nothing anywhere would
+       go red. Both are RUN over the same token and compared. */
+    const admLink = new Function('token', fn('referralLinkFromToken') +
+      'return referralLinkFromToken(token);');
+    const idxLink = new Function('token', 'window',
+      extractFn(idx, 'portalReferralLink') + 'return portalReferralLink(token);');
+    const W = {location: {origin: 'https://highlightingutah.com'}};
+    check('S305', 'the office builds the same link the portal does',
+      admLink('abc123') === idxLink('abc123', W) &&
+      admLink('a b/c') === idxLink('a b/c', W),
+      'office: ' + admLink('abc123') + '  portal: ' + idxLink('abc123', W));
+    /* ⚠ NO TOKEN IS AN EMPTY STRING, never a link with nothing after ?ref=. A link
+       that resolves to the quote page crediting nobody is worse than no link: it
+       looks like it worked. */
+    check('S305', 'no token makes no link at all',
+      admLink('') === '' && admLink(null) === '' && admLink(undefined) === '');
+
+    /* ---- minting: keyed to the record, never to the phone ---- */
+    const mint = fn('referralTokenFor');
+    check('S305', 'the token is minted against the document id it was handed',
+      /updateDoc\(doc\(db,'jobAddresses', item\.id\)/.test(mint) &&
+      !/jobAddresses\.find/.test(mint) && !/replace\(\/\\D\/g/.test(mint),
+      'seventeen numbers in the real book are shared and fourteen are two households ' +
+      '— a phone .find() here puts one household’s $25 on the other’s bill');
+    check('S305', 'an existing token is reused rather than replaced',
+      /if\(item\.data\.referralToken\) return item\.data\.referralToken;/.test(mint),
+      'a fresh token each time breaks every link they have already shared');
+    check('S305', 'and it is the referral token, never the portal one',
+      !/portalToken/.test(mint),
+      'a portal token in a link pasted into a group chat is an account handed over');
+    check('S305', 'a failed save still hands the link back, and says so',
+      /console\.error/.test(mint) && /return token;/.test(mint),
+      'returning null costs them the link now; a failed save costs them one later');
+
+    /* ---- the email token ---- */
+    const block = admin.slice(admin.indexOf("if(out.indexOf('{{referral_link}}')"),
+      admin.indexOf("if(out.indexOf('{{messages_link}}')"));
+    check('S305', 'the email resolves the customer through the strict resolver',
+      /hlxEmailCustomerItem\(phone, opts\)/.test(block) && !/jobAddresses\.find/.test(block),
+      'hlxEmailCustomer refuses a phone matching two customers rather than picking the ' +
+      'first — through a .find() a parent is emailed the child’s link');
+    /* ⚠ AN UNRESOLVED CUSTOMER EMITS NOTHING AT ALL. An <a href=""> in a bulk send is
+       a customer tapping something we sent them and landing nowhere, and there is no
+       way for them to tell that from the scheme being broken. */
+    check('S305', 'and emits nothing at all when nobody resolves',
+      /: ''\)/.test(block) && /refUrl\s*$/m.test(block.replace(/\r/g, '')) ||
+      /out\.split\('\{\{referral_button\}\}'\)\.join\(refUrl[\s\S]{0,200}: ''\)/.test(block.replace(/\r/g, '')),
+      'a dead button in a bulk send is worse than a missing paragraph');
+    check('S305', 'both tokens are offered in the picker',
+      /\{token:'\{\{referral_link\}\}'/.test(admin) && /\{token:'\{\{referral_button\}\}'/.test(admin),
+      'a token nobody can find is a token nobody uses');
+
+    /* ---- the row at the top of Edit Customer ---- */
+    check('S305', 'the referral row is drawn before the early return',
+      (function () {
+        const tabs = fn('editCustRenderHouseTabs');
+        const call = tabs.indexOf('editCustRenderReferLine()');
+        const bail = tabs.indexOf('if(!item) return;');
+        return call !== -1 && bail !== -1 && call < bail;
+      })(),
+      'drawn after it, a form repointed at somebody with no record keeps showing the ' +
+      'LAST customer’s link');
+    const row = fn('editCustRenderReferLine');
+    check('S305', 'it shows the LIVE referral count, not the raw list',
+      /referralLiveCount\(d\.referralCredits\)/.test(row) &&
+      !/referralCredits\.length/.test(row),
+      'a revoked or waived referral is not money off anybody’s bill — showing the ' +
+      'raw length tells the office a customer has a discount they do not have');
+    /* ⚠ NOTHING IS MINTED BY OPENING THE FORM. A write per open, on the most-opened
+       form in the app, for a link most of those opens will never use. */
+    check('S305', 'opening the form mints nothing',
+      !/updateDoc/.test(row) && !/referralTokenFor/.test(row),
+      'this is the form the office opens dozens of times a day');
+    check('S305', 'and the button is what mints it',
+      /referralTokenFor\(item\)/.test(fn('editCustReferClick')));
+    check('S305', 'no link yet is said plainly rather than left blank',
+      /no link made yet/.test(row) && /data-ectrefer="make"/.test(row),
+      'an empty field beside a Copy button reads as the feature being broken');
+    /* ⭐ AND THE PORTAL'S OWN LINK ACTUALLY REACHES THE CUSTOMER (2026-09-04). Addie:
+       "the refer a friend link is not showing in member portal." Nothing was wrong with
+       the tab, the panel, the whitelist or the token — `hmLoadHouseMapForInvoice`, which
+       is what calls portalRenderReferral, was handed `{skipLastNameCheck: true}` and
+       nothing else. With no token in localStorage it asked portalLookup for
+       `{phone, lastName: ''}`, an empty name can never match, and the function RETURNED
+       on `found:false` before rendering anything — taking the house map, the Sides panel
+       and the Information fields with it, on a first sign-in on a device.
+       ⚠ CHECKED AT THE CALL SITE, because that is where the arguments were dropped —
+       every other part of this chain was correct the whole time. */
+    check('S305', 'the portal passes the last name and the token into the lookup',
+    /* ⚠ indexOf, NOT a regex spanning two lines. A backslash does not survive every
+       route into this file, and an escape that quietly degrades gives an unattributable
+       crash — written down in CLAUDE.md and earned by Suites 74-76. */
+      (function () {
+        const call = idx.slice(idx.indexOf('hmLoadHouseMapForInvoice(raw,'));
+        const args = call.slice(0, call.indexOf(');') + 2);
+        return args.indexOf('lastNameInput: opts.lastNameInput') !== -1 &&
+               args.indexOf('portalToken: opts.portalToken') !== -1;
+      })(),
+      'without them portalLookup answers found:false and the referral link, the house ' +
+      'map, the Sides panel and the Information fields are all silently blank');
+    check('S305', 'and an empty last name really cannot match, which is why that matters',
+      (function () {
+        const fns = read('functions/index.js');
+        const m = new Function('storedName', 'typedName',
+          extractFn(fns, 'nameMatches') + 'return nameMatches(storedName, typedName);');
+        return m('Heather Anderson', '') === false && m('Heather Anderson', 'anderson') === true;
+      })(),
+      'if a blank ever started matching, the bug above would have been invisible ' +
+      'rather than total — and this check is what says which of the two it is');
+
+    check('S305', 'the row is wired to a named, delegated handler',
+      /document\.addEventListener\('click', editCustReferClick, true\);/.test(admin.replace(/\r/g, '')),
+      'an inline listener can only be checked by matching its source, and this repo ' +
+      'has shipped one whose patch silently did not apply');
   }
 }
 
