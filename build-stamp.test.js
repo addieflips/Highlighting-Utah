@@ -203,7 +203,21 @@ const CLEAR_SITES = [
   { file: 'functions/index.js', fn: 'portalSave', stamps: false,
     why: 'the customer cleared their own colours. Nothing to build, so nothing was built.' },
   { file: 'functions/index.js', fn: 'pullCustomerFromSeason', stamps: false,
-    why: 'Maybe Next Year through the portal. Not a build.' }
+    why: 'Maybe Next Year through the portal. Not a build.' },
+  /* ⭐ ADDED 2026-09-04 — the tenth site, and the first that is not a CLEAR at all.
+     A lead who answers Maybe Next Year in a quote email now gets a customer record built
+     for them (QT-23), and it is born with the flag OFF rather than having it turned off
+     later: they are sitting the season out, so no bundle is owed and none ever was.
+     ⚠ IT MUST NOT STAMP, for a stronger reason than any of the nine above. The others
+     at least describe a house whose bundle might once have existed; this record has no
+     history whatever, so a `lightsMarkedBuiltAt` here would date a build for a house
+     nobody has ever hung lights on — on the one field that answers when a bundle was made.
+     ⚠ AND IF THIS EVER STARTS STAMPING, the creation has been confused with a build:
+     check whether somebody has widened it into the Convert to Customer path, which is
+     the thing QT-23 says in as many words it must never become. */
+  { file: 'functions/index.js', fn: 'quoteLeadCustomerFields', stamps: false,
+    why: 'a lead who answered Maybe Next Year, created already sitting out. Never built, ' +
+         'so never dated — and no bundle is owed for a season they have declined.' }
 ];
 
 function census(sources) {

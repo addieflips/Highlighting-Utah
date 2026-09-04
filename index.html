@@ -1415,28 +1415,22 @@
                question with a real effect on the price, but it belongs after somebody
                has approved rather than in front of a stranger deciding whether to ask
                for a price at all. See qdSidesRow. -->
-          <!-- ⭐ THE PROPERTY LIST SURVIVES; THE PHOTOS DO NOT (2026-09-03). Addie:
-               "upload picture should not be there", then "there should keep the option
-               to add another property but make sure there is a way to delete the extra
-               property in case they accidentally push on it."
+          <!-- ⭐ THE PROPERTY LIST LEFT THE QUOTE FORM (2026-09-04). Dax: "get rid of
+               the add a building on the property button on free quote but keep it in all
+               customers." The photos went first (2026-09-03, "upload picture should not
+               be there"); the name boxes follow them, and the ROW goes with the button
+               rather than staying behind as a label with nothing under it.
 
-               ⚠ SO THIS ROW IS NOT DELETED, IT IS EMPTIED OF ITS EXPENSIVE HALF.
-               Naming a shop or a guest house is one box and takes a moment; being asked
-               to photograph four walls of each of them was the longest thing on a form
-               whose own promise is "about two minutes", and it was being asked of
-               somebody who has not been given a price yet.
+               ⚠ THE QUESTION IS NOT GONE, IT IS ONLY NOT ASKED HERE. Edit Customer
+               keeps editCustAddBuildingBtn — "in case they come around later and want
+               another building" — which is the same question put to somebody who has a
+               price instead of to a stranger deciding whether to ask for one.
 
-               ⚠ AND EVERY EXTRA ONE CAN BE TAKEN BACK OFF. "+ Add another property" is
-               one press away from being pressed by accident, and until now there was no
-               way to undo it — the block simply stayed, and a stray empty building went
-               to the office as a real one. The main house has no Remove, because a quote
-               with no house is not a quote. -->
-          <div class="form-row" id="quoteBuildingsRow">
-            <label>Other buildings on the property (optional)</label>
-            <p class="form-note" style="margin:0 0 10px;">Just the main house for most people. Add a shop, shed or guest house if you would like those lit too.</p>
-            <div id="quoteBuildingsWrap"></div>
-            <button type="button" class="btn btn-outline-dark btn-sm" id="quoteAddBuildingBtn" style="margin-top:4px;">+ Add another property</button>
-          </div>
+               ⚠ THE FIELD IS STILL SENT. A quote still writes buildings as a
+               one-entry array for the main house, because admin's quote card,
+               buildQuoteEmailHtml and Convert-to-Customer all WALK that array — a quote
+               written with no buildings key at all would make them reach into undefined
+               on a quote that is otherwise fine. -->
           <button type="submit" class="btn btn-gold btn-block">Submit Quote Request</button>
           <p class="form-note">No obligation. We'll follow up by your preferred contact method with your custom estimate.</p>
         </form>
@@ -3075,83 +3069,27 @@ function qdPrefillFromMember(memberDetails){
    from the free quote form, and all of it asking somebody to photograph their house
    before they had been given a price.
 
-   ⚠ REMOVED RATHER THAN HIDDEN. Leaving it behind a hidden row is how a feature comes
-   back by accident. Checked name by name that nothing else in this file called any of
-   it: downscaleImageFile, uploadPhotoToCloudinary, pickQuotePhoto, quotePhotoStatusText,
-   totalQuotePhotoCount, QUOTE_PHOTO_MAX, QUOTE_SIDE_LABELS, QUOTE_SIDE_ORDER.
+   ⭐ AND THE BUILDING REPEATER FOLLOWED IT (2026-09-04). Dax: "get rid of the add a
+   building on the property button on free quote but keep it in all customers." So
+   renderQuoteBuilding, removeQuoteBuilding, addQuoteBuilding and the quoteBuildings
+   array are gone from this file with the row they drew.
 
-   ⚠ THE BUILDING REPEATER BELOW SURVIVES ON PURPOSE — Addie asked for it by name in
-   the same breath. What it collects now is a NAME, which is one box and a moment.
+   ⚠ REMOVED RATHER THAN HIDDEN, both times. Leaving it behind a hidden row is how a
+   feature comes back by accident. Checked name by name that nothing else in this file
+   calls any of it: downscaleImageFile, uploadPhotoToCloudinary, pickQuotePhoto,
+   quotePhotoStatusText, totalQuotePhotoCount, QUOTE_PHOTO_MAX, QUOTE_SIDE_LABELS,
+   QUOTE_SIDE_ORDER, quoteBuildings, addQuoteBuilding, removeQuoteBuilding.
 
-   ⚠ AND THE READERS ARE UNTOUCHED. A quote simply arrives with no photos: admin's quote
-   card, applyQuotePhotoBlock and Convert-to-Customer all already handle one with none.
-   The office-side photo on the CUSTOMER record (frontPhotoUrl on jobAddresses) is a
-   different feature and is not affected. */
-var quoteBuildings = []; // [{id, isMain, nameInput, el}]
-var quoteBuildingNextId = 0;
+   ⚠ THE SHAPE ON THE QUOTE DOES NOT CHANGE. buildings is still written, still an
+   array, still holding the main house — admin's quote card, buildQuoteEmailHtml and
+   Convert-to-Customer all walk it, and addCustBuildingsFromQuote drops the main house
+   by name on the way across, so a quote now simply carries nothing extra rather than
+   arriving malformed. The office-side photo on the CUSTOMER record (frontPhotoUrl on
+   jobAddresses) is a different feature and is not affected.
 
-function renderQuoteBuilding(building){
-  var wrap = document.createElement('div');
-  wrap.style.cssText = 'border-left:3px solid var(--line); padding-left:12px; margin:16px 0;';
-
-  var nameRow = document.createElement('div');
-  nameRow.style.marginBottom = '8px';
-  var nameInput = document.createElement('input');
-  nameInput.type = 'text';
-  nameInput.value = building.isMain ? 'Main house' : '';
-  nameInput.placeholder = building.isMain ? '' : 'Shop, guest house, shed…';
-  nameInput.style.cssText = 'font-weight:700; font-size:14px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; width:auto; max-width:240px; background:#fff;';
-  building.nameInput = nameInput;
-  nameRow.appendChild(nameInput);
-  wrap.appendChild(nameRow);
-
-  /* ⭐ AN EXTRA PROPERTY CAN BE TAKEN BACK OFF (2026-09-03). Addie: "make sure there is
-     a way to delete the extra property in case they accidentally push on it."
-
-     ⚠ NEVER ON THE MAIN HOUSE. A quote with no house is not a quote, and the main
-     block is the one that is there from the start rather than one somebody added.
-
-     ⚠ IT REMOVES THE ROW FROM quoteBuildings AS WELL AS FROM THE PAGE. Taking the
-     element out alone would leave the object in the array, so the submit would still
-     send a building the customer can no longer see — and reading its detached
-     nameInput would send it as a blank one, which reaches the office as a real
-     building nobody can ask about. */
-  if(!building.isMain){
-    var removeBtn = document.createElement('button');
-    removeBtn.type = 'button';
-    removeBtn.className = 'btn btn-outline-dark btn-sm';
-    removeBtn.style.marginLeft = '8px';
-    removeBtn.textContent = 'Remove';
-    removeBtn.addEventListener('click', function(){ removeQuoteBuilding(building); });
-    nameRow.appendChild(removeBtn);
-  }
-
-  building.el = wrap;
-  return wrap;
-}
-
-function removeQuoteBuilding(building){
-  /* The main house is not removable — see renderQuoteBuilding. Guarded here as well,
-     because this is callable and the button is only half the rule. */
-  if(!building || building.isMain) return;
-  var at = quoteBuildings.indexOf(building);
-  if(at !== -1) quoteBuildings.splice(at, 1);
-  if(building.el && building.el.parentNode) building.el.parentNode.removeChild(building.el);
-}
-
-function addQuoteBuilding(isMain){
-  var building = {id: 'qb' + (quoteBuildingNextId++), isMain: !!isMain, nameInput: null, el: null};
-  quoteBuildings.push(building);
-  document.getElementById('quoteBuildingsWrap').appendChild(renderQuoteBuilding(building));
-  if(!isMain && building.nameInput) building.nameInput.focus();
-  return building;
-}
-
-var quoteAddBuildingBtnEl = document.getElementById('quoteAddBuildingBtn');
-if(quoteAddBuildingBtnEl){
-  quoteAddBuildingBtnEl.addEventListener('click', function(){ addQuoteBuilding(false); });
-}
-addQuoteBuilding(true); // Main house is always there from the start
+   ⚠ AND THE OFFICE STILL HAS THE CONTROL. admin.html keeps editCustAddBuildingBtn on
+   Edit Customer, which is where a shop or a guest house gets recorded now. */
+var QUOTE_MAIN_BUILDING_NAME = 'Main house';
 
 quoteFormEl.addEventListener('submit', async function(e){
   e.preventDefault();
@@ -3163,21 +3101,15 @@ quoteFormEl.addEventListener('submit', async function(e){
   submitBtn.disabled = true;
   submitBtn.textContent = 'Submitting…';
 
-  /* ⭐ A BUILDING IS A NAME NOW (2026-09-03). `photos` is kept on the shape rather
-     than dropped from it, always empty, because admin's quote card and
-     buildQuoteEmailHtml both walk it — sending an object with no photos array at all
-     would make them reach into undefined on a quote that is otherwise fine.
+  /* ⭐ THE MAIN HOUSE IS THE WHOLE LIST NOW (2026-09-04). The form no longer asks
+     about other buildings — Edit Customer does — so there is nothing to collect and
+     one entry to send.
 
-     ⚠ AN EMPTY EXTRA BUILDING IS NOT SENT. Somebody who presses Add another property
-     and then thinks better of it now has a Remove button, but they may equally just
-     leave the box blank — and a nameless building reaches the office as a row nobody
-     can ask about. The main house always travels, named or not. */
-  var buildingsPayload = quoteBuildings.map(function(b){
-    return {
-      name: (b.nameInput && b.nameInput.value.trim()) || (b.isMain ? 'Main house' : ''),
-      isMain: !!b.isMain
-    };
-  }).filter(function(b){ return b.isMain || b.name; });
+     ⚠ STILL AN ARRAY, AND `photos` IS STILL ON THE SHAPE, always empty, because
+     admin's quote card and buildQuoteEmailHtml both walk it — sending an object with
+     no photos array at all would make them reach into undefined on a quote that is
+     otherwise fine. */
+  var buildingsPayload = [{name: QUOTE_MAIN_BUILDING_NAME, isMain: true}];
 
   addDoc(collection(db,'quotes'), Object.assign(referralQuoteFields(), {
     name: fd.get('name'), phone: fd.get('phone'), email: fd.get('email'),
