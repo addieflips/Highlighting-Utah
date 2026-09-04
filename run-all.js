@@ -212,6 +212,98 @@ suite('1. Structure');
   check('structure', 'sectionFrom is CRLF-safe',
     /\\r\?\\n/.test(String(sectionFrom)),
     'these files are CRLF, so a literal \\n terminator never matches and the slice silently runs to EOF');
+
+  /* ⭐ NO TWO SUITES SHARE A NUMBER, AND NO TWO SHARE A check() PREFIX (added 2026-09-04).
+     On 2026-09-03 FOUR sessions appended a new suite to the end of this file in one day
+     and three of them picked the same number: two 298s and two 299s reached main, and
+     the two 299s used the same check('S299', ...) prefix as well — so a red line reading
+     "- S299: ..." could not say which suite it came from. Nothing anywhere noticed.
+
+     ⚠ THAT IS THE WHOLE REASON THIS EXISTS: the collision is invisible in a green run
+     and only shows itself when something fails, which is the worst possible moment to
+     find out the failure list is ambiguous.
+
+     ⚠ THE PREFIX IS THE HALF THAT MATTERS. The number in suite() is decoration for a
+     human reading the log; the first argument to check() is what NAMES a failure. Both
+     are checked, because a duplicate number is how a duplicate prefix arrives.
+
+     ⚠ THE NINE OLD PAIRS ARE GRANDFATHERED BY NAME, NOT BY A COUNT. A ceiling ("no
+     more than nine") is the gate this repo has already rejected twice: it goes up for
+     good reasons as often as bad, and within a week somebody raises it to get past a red
+     build. Naming them fails a NEW collision while leaving the historical ones visible as
+     a list somebody can work through — and taking one off this list is how you record
+     having fixed it. They are deliberately NOT fixed here: renumbering a suite rewrites
+     every check inside it, and doing that to nine suites nobody asked about, inside a
+     change about the schedule, is how a merge quietly eats somebody else's work. */
+  const LEGACY_DUPLICATE_SUITE_NUMBERS = ['21', '22', '23', '24', '69', '126', '128', '131', '132'];
+  const suiteStarts = [];
+  {
+    const startRe = /^suite\('/gm;
+    let st;
+    while ((st = startRe.exec(self))) suiteStarts.push(st.index);
+  }
+  const suiteOf = (i) => self.slice(suiteStarts[i],
+    i + 1 < suiteStarts.length ? suiteStarts[i + 1] : self.length);
+  const suiteNums = {}, suitePrefixes = {};
+  suiteStarts.forEach((start, i) => {
+    const body = suiteOf(i);
+    const head = body.match(/^suite\('(?:Suite\s*)?(\d+[a-z]?)\.?\s*([^']{0,80})/);
+    const title = head ? head[2].trim() : (body.match(/^suite\('([^']{0,80})/) || [])[1] || '?';
+    if (head) (suiteNums[head[1]] = suiteNums[head[1]] || []).push(title);
+    const pres = [...new Set((body.match(/check\('([A-Za-z0-9_]+)'/g) || []).map(x => x.slice(7, -1)))];
+    pres.forEach(pre => { (suitePrefixes[pre] = suitePrefixes[pre] || []).push(title); });
+  });
+  const dupeNums = Object.keys(suiteNums)
+    .filter(n => suiteNums[n].length > 1 && LEGACY_DUPLICATE_SUITE_NUMBERS.indexOf(n) === -1);
+  check('structure', 'no two suites share a number',
+    dupeNums.length === 0,
+    dupeNums.map(n => n + ' is used by: ' + suiteNums[n].join('  AND  ')).join('; ') +
+    ' — give the newcomer the next free number and rename its check() prefix with it. ' +
+    'The suite that reached main first keeps the number.');
+
+  /* ⚠ AND THE PREFIX HALF READS THE CODE, NOT THE COMMENTS. The first version of this
+     check reported ITSELF: the paragraph above contains the words check('S299', ...) as
+     an example, and a plain search found it and called the Structure suite an owner of
+     S299. That is the same trap Suites 58, 274, 275 and 300 each had to learn, hit here
+     within a minute of the gate being written — which is the argument for stripping
+     comments by default rather than when somebody remembers.
+
+     ⚠ SCOPED TO THE S<number> CONVENTION. Plenty of suites deliberately share a plain
+     word — flow, render, season, warehouse, cap, fill — as a grouping across several
+     related suites, and failing those would be reporting a convention as a fault. An
+     S-number names ONE suite by construction, so two suites answering to one is always
+     wrong. ⚠ Eight historical pairs are named rather than counted, for the same reason
+     as the numbers above; they are not fixed here. */
+  const bareSelf = self
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/.*/g, '$1 ');
+  /* Twelve historical pairs. Four of them — S126, S128, S131, S132 — are the prefix side
+     of the grandfathered duplicate NUMBERS above, so the same old fault would otherwise be
+     reported twice under two names; the other eight share a prefix while carrying distinct
+     numbers. Named rather than counted, and taking one off this list is how somebody
+     records having fixed it. */
+  const LEGACY_SHARED_PREFIXES = ['S60', 'S77', 'S82', 'S117', 'S120', 'S126', 'S128',
+                                  'S131', 'S132', 'S144', 'S287', 'S292'];
+  const prefixOwners = {};
+  {
+    const starts = [];
+    const re = /^suite\('/gm;
+    let m;
+    while ((m = re.exec(bareSelf))) starts.push(m.index);
+    starts.forEach((start, i) => {
+      const body = bareSelf.slice(start, i + 1 < starts.length ? starts[i + 1] : bareSelf.length);
+      const title = (body.match(/^suite\('([^']{0,80})/) || [])[1] || '?';
+      const pres = [...new Set((body.match(/check\('(S\d+[a-z]?)'/g) || []).map(x => x.slice(7, -1)))];
+      pres.forEach(pre => { (prefixOwners[pre] = prefixOwners[pre] || []).push(title); });
+    });
+  }
+  const dupePre = Object.keys(prefixOwners).filter(pre =>
+    [...new Set(prefixOwners[pre])].length > 1 && LEGACY_SHARED_PREFIXES.indexOf(pre) === -1);
+  check('structure', 'no two suites share a check() prefix',
+    dupePre.length === 0,
+    dupePre.map(pre => pre + ' is used by: ' + [...new Set(prefixOwners[pre])].join('  AND  ')).join('; ') +
+    ' — this is the half that matters: a failure line names the prefix, so two suites ' +
+    'sharing one produce a red line that cannot say where it came from');
 })();
 
 const inlineScripts = html =>
@@ -49200,25 +49292,25 @@ suite('299. A referral link, and the $25 that follows it');
  * the Edit Customer control is what made that visible, and the carry-across is the half
  * that pays.
  */
-suite('Suite 299. The free quote asks less, and the property list outlives it');
+suite('Suite 302. The free quote asks less, and the property list outlives it');
 {
   const idx = read('index.html');
 
   /* ---- the quote form ---- */
-  check('S299', 'the photo uploader is gone from the quote form',
+  check('S302', 'the photo uploader is gone from the quote form',
     idx.indexOf('id="quoteAddBuildingBtn"') > 0 &&
     !/<label>Photos<\/label>/.test(idx) &&
     !/uploadPhotoToCloudinary/.test(idx.replace(/\/\*[\s\S]*?\*\//g, '')),
     'Addie: "upload picture should not be there" — and a hidden row is how a removed ' +
     'feature comes back by accident');
-  check('S299', 'and the sides question left it',
+  check('S302', 'and the sides question left it',
     idx.indexOf('id="quoteSidesRow"') === -1,
     'asked in front of a stranger deciding whether to ask for a price at all');
 
   /* ---- the property repeater, which she asked to KEEP ---- */
-  check('S299', 'the extra-property list survives on the quote form',
+  check('S302', 'the extra-property list survives on the quote form',
     /function addQuoteBuilding\(/.test(idx) && idx.indexOf('id="quoteAddBuildingBtn"') > 0);
-  check('S299', 'and an accidental one can be taken back off',
+  check('S302', 'and an accidental one can be taken back off',
     /function removeQuoteBuilding\(building\)/.test(idx) &&
     /removeBtn\.addEventListener\('click', function\(\)\{ removeQuoteBuilding\(building\); \}\)/.test(idx),
     '"make sure there is a way to delete the extra property in case they accidentally ' +
@@ -49227,55 +49319,55 @@ suite('Suite 299. The free quote asks less, and the property list outlives it');
      leaves the object in quoteBuildings, so the submit still sends a building the
      customer can no longer see — and reads its detached input as a BLANK one. */
   const rm = extractFn(idx, 'removeQuoteBuilding') || '';
-  check('S299', 'removing one drops it from the payload too',
+  check('S302', 'removing one drops it from the payload too',
     /quoteBuildings\.splice\(at, 1\)/.test(rm) && /removeChild/.test(rm),
     'the page and the array are two places, and only one of them is submitted');
-  check('S299', 'and the main house can never be removed',
+  check('S302', 'and the main house can never be removed',
     /if\(!building \|\| building\.isMain\) return;/.test(rm) &&
     /if\(!building\.isMain\)\{/.test(idx),
     'a quote with no house is not a quote — guarded on the button AND in the function, ' +
     'because the button is only half a rule');
-  check('S299', 'a nameless extra building is not submitted at all',
+  check('S302', 'a nameless extra building is not submitted at all',
     /\.filter\(function\(b\)\{ return b\.isMain \|\| b\.name; \}\)/.test(idx),
     'somebody who presses Add and leaves the box blank would otherwise send the office ' +
     'a building nobody can ask about');
 
   /* ---- the sides question, on its new form ---- */
-  check('S299', 'the details form asks it instead', idx.indexOf('id="qdSidesRow"') > 0);
-  check('S299', 'with one side pre-picked',
+  check('S302', 'the details form asks it instead', idx.indexOf('id="qdSidesRow"') > 0);
+  check('S302', 'with one side pre-picked',
     /name="house_sides" value="1" checked/.test(idx),
     'Addie: "1 side should be default"');
-  check('S299', 'and the answer is actually sent',
+  check('S302', 'and the answer is actually sent',
     /houseSides: portalSideCount\(fd\.get\('house_sides'\)\)/.test(idx));
   /* ⚠ THE SERVER IS THE HALF THAT WOULD FAIL SILENTLY. quoteSaveDetails keeps a
      whitelist and the emailed-link path — the common one — goes through it, so a field
      the browser sends and the function drops is lost with nothing wrong on screen. */
   const fns = read('functions/index.js');
-  check('S299', 'and the server accepts it, clamped',
+  check('S302', 'and the server accepts it, clamped',
     /houseSides: Math\.min\(4, Math\.max\(1, parseInt\(details\.houseSides, 10\) \|\| 1\)\)/.test(fns),
     'not on the whitelist, the answer is dropped by the Cloud Function and nobody is ' +
     'told; unclamped, a zero would price a house with no roofline');
 
   /* ⚠ AND NOTHING IS STAMPED ON A QUOTE NOBODY HAS ASKED YET. */
   const quoteSubmit = (idx.split("quoteFormEl.addEventListener('submit'")[1] || '').split('quoteDetailFormEl')[0];
-  check('S299', 'a fresh quote carries no side count at all',
+  check('S302', 'a fresh quote carries no side count at all',
     !/houseSides:/.test(quoteSubmit),
     'writing 1 here would stamp an answer on a quote nobody has been asked — the same ' +
     'fault S62 already guards on the two admin forms');
 
   /* ---- Edit Customer ---- */
-  check('S299', 'Edit Customer can add a building',
+  check('S302', 'Edit Customer can add a building',
     admin.indexOf('id="editCustAddBuildingBtn"') > 0 &&
     admin.indexOf('id="editCustBuildings"') > 0,
     '"in case they come around later and want another building"');
-  check('S299', 'and remove one',
+  check('S302', 'and remove one',
     /function editCustBuildingRow\(name\)/.test(admin) && /removeChild\(row\)/.test(admin));
-  check('S299', 'the list is refilled from the record on every open',
+  check('S302', 'the list is refilled from the record on every open',
     /editCustFillBuildings\(d\.buildings\)/.test(admin) &&
     /wrap\.innerHTML = '';/.test(extractFn(admin, 'editCustFillBuildings') || ''),
     'the house-tab strip repoints this form at a sibling without closing it, so a list ' +
     'that appended would show the previous house underneath this one');
-  check('S299', 'and it is saved with the record',
+  check('S302', 'and it is saved with the record',
     /buildings: newBuildings/.test(admin) &&
     /const newBuildings = editCustReadBuildings\(\);/.test(admin));
   /* ⚠ THE ADD BUTTON IS BOUND ONCE. openEditCustomerModal runs on every open, so
@@ -49287,26 +49379,26 @@ suite('Suite 299. The free quote asks less, and the property list outlives it');
      check asserted the opposite (that the wiring was outside that function) and failed
      on correct code, which is how the comment above it came to be corrected too. */
   const openSrc = extractFn(admin, 'openEditCustomerModal') || '';
-  check('S299', 'the Add button cannot be wired twice',
+  check('S302', 'the Add button cannot be wired twice',
     /if\(editCustAddBuildingBtnEl && !editCustAddBuildingBtnEl\.dataset\.wired\)\{/.test(openSrc) &&
     /editCustAddBuildingBtnEl\.dataset\.wired = '1';/.test(openSrc),
     'this runs on every open — unguarded, one press of Add appends a row per customer ' +
     'looked at this session, which is the 2815-write Inbox bug in a new place');
 
   /* ---- the silent loss this uncovered ---- */
-  check('S299', "a quote's buildings now follow the customer",
+  check('S302', "a quote's buildings now follow the customer",
     /buildings: addCustBuildingsFromQuote\(\)/.test(admin) &&
     !!extractFn(admin, 'addCustBuildingsFromQuote'),
     'before this they were written onto the quote and dropped on conversion, with ' +
     'nothing anywhere reading them');
   const carry = extractFn(admin, 'addCustBuildingsFromQuote') || '';
-  check('S299', 'and the main house is not carried across as one of them',
+  check('S302', 'and the main house is not carried across as one of them',
     /isMain === true/.test(carry) && /main house/i.test(carry),
     'on a quote the main house IS one of the buildings; on a customer the record is ' +
     'the main house, so carrying it lists the same address twice');
 
   /* ---- the field is declared, which is what gives it a reader ---- */
-  check('S299', 'buildings is labelled, so an edit to it shows in the history',
+  check('S302', 'buildings is labelled, so an edit to it shows in the history',
     /buildings: \{label: 'Other buildings', kind: 'buildings'\}/.test(admin),
     'CLAUDE.md §1 — written, read AND declared. The change-log gate is what asked.');
   /* ⚠ NOT kind 'list'. These are objects, so join() prints [object Object] into
@@ -49321,11 +49413,11 @@ suite('Suite 299. The free quote asks less, and the property list outlives it');
     'const fmtMoney = function(x){ return String(x); };' +
     (extractFn(admin, 'changeValueText') || 'function changeValueText(){}') +
     'return changeValueText(v, kind);');
-  check('S299', 'the history renderer was found to run',
+  check('S302', 'the history renderer was found to run',
     /function changeValueText/.test(admin),
     'without it the two checks below skip silently and prove nothing');
   if (/function changeValueText/.test(admin)) {
-    check('S299', 'and it renders as the names, not as [object Object]',
+    check('S302', 'and it renders as the names, not as [object Object]',
       words('buildings', [{name: 'Shop'}, {name: 'Guest house'}]) === 'Shop, Guest house',
       'got ' + JSON.stringify(words('buildings', [{name: 'Shop'}, {name: 'Guest house'}])));
     /* ⚠ TWO DIFFERENT FACTS, AND THE FILE ALREADY TOLD THEM APART — my first draft of
@@ -49335,7 +49427,7 @@ suite('Suite 299. The free quote asks less, and the property list outlives it');
        reads "(none)". In a history those say different things: nobody ever recorded one,
        versus somebody took the last one off. Flattening them would hide the removal,
        which is the entry most worth reading. */
-    check('S299', 'an emptied list says none, and a never-set one says blank',
+    check('S302', 'an emptied list says none, and a never-set one says blank',
       words('buildings', []) === '(none)' && words('buildings', undefined) === '(blank)',
       'got ' + JSON.stringify([words('buildings', []), words('buildings', undefined)]) +
       ' — "nobody ever listed one" and "somebody removed the last one" are different ' +
@@ -49362,17 +49454,17 @@ suite('Suite 299. The free quote asks less, and the property list outlives it');
  *     <select> set to a value it has no option for shows BLANK — which reads as
  *     "Pending (never asked)" — and the next save writes that blank over their answer.
  */
-suite('Suite 298. No is off the office dropdown, and still understood everywhere');
+suite('Suite 301. No is off the office dropdown, and still understood everywhere');
 {
   /* The dropdown itself — sliced to the select, so the Members-tab FILTER (which keeps
      its own No option, deliberately) cannot satisfy or break these. */
   const selAt = admin.indexOf('<select id="editCustRsvp">');
   const sel = selAt === -1 ? '' : admin.slice(selAt, admin.indexOf('</select>', selAt));
-  check('S298', 'the RSVP dropdown is findable', !!sel);
+  check('S301', 'the RSVP dropdown is findable', !!sel);
 
-  check('S298', 'No is not offered to the office', !/value="no"/.test(sel),
+  check('S301', 'No is not offered to the office', !/value="no"/.test(sel),
     'choosing it is what queued the warehouse to take a bundle apart');
-  check('S298', 'and the answers that remain are still there',
+  check('S301', 'and the answers that remain are still there',
     /value="yes"/.test(sel) && /value="backnextyear"/.test(sel) &&
     /value="unanswered"/.test(sel) && /value=""/.test(sel),
     'removing one option must not take the others with it');
@@ -49381,13 +49473,13 @@ suite('Suite 298. No is off the office dropdown, and still understood everywhere
      portalRsvp writes them — and a filter that cannot name them cannot find them. */
   const fltAt = admin.indexOf('id="etFilterRsvp"');
   const flt = fltAt === -1 ? '' : admin.slice(fltAt, admin.indexOf('</select>', fltAt));
-  check('S298', 'the Members filter still offers No', /value="no"/.test(flt),
+  check('S301', 'the Members filter still offers No', /value="no"/.test(flt),
     'a customer who answered No in an email still has to be findable');
 
   /* Choosing an answer no longer starts warehouse work. */
   const save = (admin.split('const oldRsvpForRecycle')[1] || '').split('const rejoinedAfterRecycle')[0];
-  check('S298', 'the customer save is findable', !!save.trim());
-  check('S298', 'picking an answer never queues a recycle',
+  check('S301', 'the customer save is findable', !!save.trim());
+  check('S301', 'picking an answer never queues a recycle',
     !/newRsvp === 'no'[\s\S]{0,120}needsLightRecycle = true/.test(save),
     'that branch is what made the two answers different, and with No unpickable it ' +
     'could never fire again — dead code that still looks like the rule');
@@ -49398,13 +49490,13 @@ suite('Suite 298. No is off the office dropdown, and still understood everywhere
      by name — it fails on correct code the moment the prose grows. Suites 58, 274 and 275
      each learned this separately; this check learned it on its first run. */
   const saveCode = save.replace(/\/\*[\s\S]*?\*\//g, '');
-  check('S298', 'but coming back in still cancels a queued recycle',
+  check('S301', 'but coming back in still cancels a queued recycle',
     /oldRsvpForRecycle === 'no' && item\.data\.needsLightRecycle\)\{\s*addrUpdates\.needsLightRecycle = false/.test(saveCode),
     'portalRsvp still writes no, so records in that state still arrive here');
 
   /* ⚠ THE ONE THAT WOULD LOSE DATA. */
   const open = extractFn(admin, 'openEditCustomerModal') || '';
-  check('S298', 'a stored no lands on a real option instead of blank',
+  check('S301', 'a stored no lands on a real option instead of blank',
     /storedRsvp === 'no' \? 'backnextyear'/.test(open),
     'a <select> set to a value it has no option for shows BLANK, which reads as ' +
     '"Pending (never asked)" — and the next save writes that over their answer');
@@ -49425,19 +49517,19 @@ suite('Suite 298. No is off the office dropdown, and still understood everywhere
       out + 'return isOutForSeason(d);')(d);
 
     /* ⚠ THE VALUE STILL ARRIVES FROM THE RSVP EMAIL, so every reader must still know it. */
-    check('S298', 'a stored no still reads as Maybe Next Year on the badge',
+    check('S301', 'a stored no still reads as Maybe Next Year on the badge',
       key({ rsvpStatus: 'no' }) === 'maybe', 'got ' + key({ rsvpStatus: 'no' }));
-    check('S298', 'and is still out of the season',
+    check('S301', 'and is still out of the season',
       isOut({ rsvpStatus: 'no' }) === true,
       'dropping the option must not drop the rule — portalRsvp still writes this');
-    check('S298', 'and back next year answers identically, which is the point',
+    check('S301', 'and back next year answers identically, which is the point',
       key({ rsvpStatus: 'backnextyear' }) === key({ rsvpStatus: 'no' }) &&
       isOut({ rsvpStatus: 'backnextyear' }) === isOut({ rsvpStatus: 'no' }),
       'she said they mean the same thing; where they are READ, they already did');
   }
 
   /* ⚠ THE CAPABILITY IS NOT LOST — this is the check that makes the removal safe. */
-  check('S298', 'the recycle is still a button of its own',
+  check('S301', 'the recycle is still a button of its own',
     /editCustRecycleStayBtn/.test(admin) &&
     /needsLightRecycle: true[\s\S]{0,80}recycleKeepingCustomer: true/.test(admin),
     'if this ever goes, removing No really would take away the office\'s only way to ' +
@@ -49447,10 +49539,10 @@ suite('Suite 298. No is off the office dropdown, and still understood everywhere
      is what would have made this change wrong: the Recycle sheet keys on the flag. */
   const tabsAt = admin.indexOf('const HLX_STATE_TABS');
   const tabs = tabsAt === -1 ? '' : sectionFrom(admin, tabsAt);
-  check('S298', 'the Recycle sheet keys on the flag, not on the answer',
+  check('S301', 'the Recycle sheet keys on the flag, not on the answer',
     /tab: "Recycle"[\s\S]{0,400}return !!d\.needsLightRecycle;/.test(tabs),
     'if it keyed on the RSVP answer, removing the option would silently empty that sheet');
-  check('S298', 'and Contact 2027 still takes back-next-year',
+  check('S301', 'and Contact 2027 still takes back-next-year',
     /tab: "Contact 2027"[\s\S]{0,600}backnextyear/.test(tabs));
 }
 

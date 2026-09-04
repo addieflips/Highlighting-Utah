@@ -1346,7 +1346,7 @@ The Schedule's day panel badges a rushed house **ASKED SOONER** and a missed one
 **MISSED ×n**, and the button's summary names how many of each it moved — a customer who
 quietly changes place in a season is what this office rings up about.
 
-*Where it's proved*: run-all.js **Suite 299** runs the real builder against a cold snap and
+*Where it's proved*: run-all.js **Suite 300** runs the real builder against a cold snap and
 the real ordering against fixtures; 24 sabotages were red-checked against it.
 *Rulings*: [[SCH-44]], [[SCH-45]], [[SCH-46]] in `claude/questions-map.md`.
 
@@ -1614,7 +1614,7 @@ worth reading.
 ⚠ **Nothing else reads them yet** — they do not print on a crew sheet. Said here rather
 than left to be discovered.
 
-*Proved in* run-all.js **Suite 299**; **S62** and **S80** were repointed rather than
+*Proved in* run-all.js **Suite 302**; **S62** and **S80** were repointed rather than
 weakened, and **S86**'s sandbox lifted the real reader.
 
 ### "No" is gone from the office dropdown, but not from the system
@@ -1660,7 +1660,7 @@ never on the RSVP answer, and **Contact 2027** on `maybeNextYear || 'backnextyea
 recycle button still sends somebody to the Recycle sheet; Back Next Year still goes to
 Contact 2027.
 
-*Proved in* run-all.js **Suite 298**.
+*Proved in* run-all.js **Suite 301**.
 
 ### One route note a day, not one a sweep
 
