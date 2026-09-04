@@ -1660,12 +1660,35 @@ come around later and want another building."*
 - **The side count** — moved, not dropped. It drives the footage and so the price, so it
   is now asked on the **Install Details** form, after they have approved.
 
-**Kept, with a way out.** The *add another property* repeater stays — she asked for it by
-name in the same breath — but each extra row now carries **Remove**. The main house has
-none, because a quote with no house is not a quote. Removing takes the row out of
-`quoteBuildings` as well as out of the page: the element alone would leave the object in
-the array, so the submit would still send a building the customer can no longer see, read
-as a blank one. A nameless extra is not sent at all.
+**Then the property list went too, one day later.** Dax, 2026-09-04: *"get rid of the add
+a building on the property button on free quote but keep it in all customers."* So the
+free quote no longer asks about outbuildings at all — not the photos of them, and now not
+even their names.
+
+- **The row goes with the button, not just the button.** Without a way to add one,
+  *"Other buildings on the property (optional)"* is a heading over a single un-removable
+  **Main house** box — a section that can no longer do the one thing it exists for.
+- **The code went with the row.** `renderQuoteBuilding`, `addQuoteBuilding`,
+  `removeQuoteBuilding` and the `quoteBuildings` array are all gone from index.html. A
+  repeater whose only entry point was deleted sits in the file unreachable, and the next
+  person to read it wires it back — the same rule that removed the uploader rather than
+  hiding it.
+- ⚠ **The field is still written.** A quote still saves `buildings` as a one-entry array
+  holding the main house. admin's quote card, `buildQuoteEmailHtml` and
+  Convert-to-Customer all **walk** that array, so a quote saved without the key would make
+  three readers reach into `undefined` on a quote that is otherwise fine.
+  `addCustBuildingsFromQuote` already drops the main house by name on the way across, so a
+  converted customer simply carries nothing extra now instead of arriving malformed.
+- **"But keep it in all customers"** is the half below — Edit Customer is untouched, and
+  is now the only place anybody is asked about a shop or a guest house.
+
+*The 2026-09-03 reasoning is kept because it was right for the day it was written:* the
+repeater stayed then, with **Remove** on every extra row and none on the main house,
+because a quote with no house is not a quote; removing took the row out of
+`quoteBuildings` as well as out of the page, since the element alone would leave the
+object in the array and submit a building the customer could no longer see, read as a
+blank one. All of that is moot now that nothing can add a second row — but it is why the
+array, not just the markup, had to be deleted rather than left behind.
 
 **One side is pre-picked on the details form, and deliberately nowhere else.**
 run-all.js asserts the *opposite* for Edit and Add Customer, and it is right to: those sit

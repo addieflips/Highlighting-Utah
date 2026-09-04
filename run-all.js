@@ -19967,12 +19967,18 @@ suite('Suite 62. Which sides of the house');
       !/QUOTE_SIDE_ORDER/.test(index.replace(/\/\*[\s\S]*?\*\//g, '')) &&
       !/id="quoteBuildingsRow"[\s\S]{0,400}<label>Photos<\/label>/.test(index),
       'a hidden row is how a removed feature comes back by accident');
-    check('S62', 'but the extra-property list survives, with a way out',
-      index.indexOf('id="quoteAddBuildingBtn"') > 0 &&
-      /function removeQuoteBuilding\(building\)/.test(index),
-      'Addie asked for both in one breath: "there should keep the option to add another ' +
-      'property but make sure there is a way to delete the extra property in case they ' +
-      'accidentally push on it"');
+    /* ⚠ AND THE REPEATER LEFT TOO, ONE DAY LATER (2026-09-04). Dax: "get rid of the
+       add a building on the property button on free quote but keep it in all customers."
+       The 2026-09-03 check asserted the opposite — that the extra-property list
+       survived — and it was right for the day it was written; what it guarded is now
+       guarded on the other side. The half that MUST NOT move is the Edit Customer
+       control, which S302 holds. */
+    check('S62', 'and the extra-property list left the quote form with it',
+      index.indexOf('id="quoteAddBuildingBtn"') === -1 &&
+      index.indexOf('id="quoteBuildingsRow"') === -1 &&
+      !/function addQuoteBuilding\(/.test(index),
+      'a hidden row is how a removed feature comes back by accident — the same rule ' +
+      'that retired the uploader');
   }
 
   /* ---- it survives the round trip ---- */
@@ -49684,7 +49690,6 @@ suite('Suite 302. The free quote asks less, and the property list outlives it');
 
   /* ---- the quote form ---- */
   check('S302', 'the photo uploader is gone from the quote form',
-    idx.indexOf('id="quoteAddBuildingBtn"') > 0 &&
     !/<label>Photos<\/label>/.test(idx) &&
     !/uploadPhotoToCloudinary/.test(idx.replace(/\/\*[\s\S]*?\*\//g, '')),
     'Addie: "upload picture should not be there" — and a hidden row is how a removed ' +
@@ -49693,30 +49698,30 @@ suite('Suite 302. The free quote asks less, and the property list outlives it');
     idx.indexOf('id="quoteSidesRow"') === -1,
     'asked in front of a stranger deciding whether to ask for a price at all');
 
-  /* ---- the property repeater, which she asked to KEEP ---- */
-  check('S302', 'the extra-property list survives on the quote form',
-    /function addQuoteBuilding\(/.test(idx) && idx.indexOf('id="quoteAddBuildingBtn"') > 0);
-  check('S302', 'and an accidental one can be taken back off',
-    /function removeQuoteBuilding\(building\)/.test(idx) &&
-    /removeBtn\.addEventListener\('click', function\(\)\{ removeQuoteBuilding\(building\); \}\)/.test(idx),
-    '"make sure there is a way to delete the extra property in case they accidentally ' +
-    'push on it"');
-  /* ⚠ THE ROW MUST LEAVE THE ARRAY, NOT JUST THE PAGE. Taking the element out alone
-     leaves the object in quoteBuildings, so the submit still sends a building the
-     customer can no longer see — and reads its detached input as a BLANK one. */
-  const rm = extractFn(idx, 'removeQuoteBuilding') || '';
-  check('S302', 'removing one drops it from the payload too',
-    /quoteBuildings\.splice\(at, 1\)/.test(rm) && /removeChild/.test(rm),
-    'the page and the array are two places, and only one of them is submitted');
-  check('S302', 'and the main house can never be removed',
-    /if\(!building \|\| building\.isMain\) return;/.test(rm) &&
-    /if\(!building\.isMain\)\{/.test(idx),
-    'a quote with no house is not a quote — guarded on the button AND in the function, ' +
-    'because the button is only half a rule');
-  check('S302', 'a nameless extra building is not submitted at all',
-    /\.filter\(function\(b\)\{ return b\.isMain \|\| b\.name; \}\)/.test(idx),
-    'somebody who presses Add and leaves the box blank would otherwise send the office ' +
-    'a building nobody can ask about');
+  /* ---- the property repeater, which left the quote form on 2026-09-04 ----
+     ⭐ Dax: "get rid of the add a building on the property button on free quote but
+     keep it in all customers." The checks that stood here asserted the repeater and its
+     Remove button, and they were right until the day the button went; the Edit Customer
+     half below is what she asked to keep, and it is untouched. */
+  check('S302', 'the extra-property control is gone from the quote form',
+    idx.indexOf('id="quoteAddBuildingBtn"') === -1 &&
+    idx.indexOf('id="quoteBuildingsRow"') === -1 &&
+    idx.indexOf('id="quoteBuildingsWrap"') === -1,
+    'Dax: "get rid of the add a building on the property button on free quote"');
+  /* ⚠ GONE, NOT ORPHANED. A repeater whose only entry point was deleted would sit in
+     the file unreachable, and the next person to read it would wire it back. */
+  const idxCode = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '');
+  check('S302', 'and the code behind it went with it, not just the button',
+    !/addQuoteBuilding/.test(idxCode) && !/removeQuoteBuilding/.test(idxCode) &&
+    !/renderQuoteBuilding/.test(idxCode) && !/quoteBuildings/.test(idxCode),
+    'a repeater with no entry point is how a removed feature comes back by accident');
+  /* ⚠ THE FIELD IS STILL WRITTEN. admin's quote card, buildQuoteEmailHtml and
+     Convert-to-Customer all WALK quote.buildings — a quote saved without the key would
+     make every one of them reach into undefined on a quote that is otherwise fine. */
+  check('S302', 'but a quote still carries the main house as a buildings array',
+    /var buildingsPayload = \[\{name: QUOTE_MAIN_BUILDING_NAME, isMain: true\}\];/.test(idx) &&
+    /buildings: buildingsPayload\.map/.test(idx),
+    'three readers walk this array; dropping the key makes them read undefined');
 
   /* ---- the sides question, on its new form ---- */
   check('S302', 'the details form asks it instead', idx.indexOf('id="qdSidesRow"') > 0);
