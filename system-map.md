@@ -1691,12 +1691,35 @@ come around later and want another building."*
 - **The side count** — moved, not dropped. It drives the footage and so the price, so it
   is now asked on the **Install Details** form, after they have approved.
 
-**Kept, with a way out.** The *add another property* repeater stays — she asked for it by
-name in the same breath — but each extra row now carries **Remove**. The main house has
-none, because a quote with no house is not a quote. Removing takes the row out of
-`quoteBuildings` as well as out of the page: the element alone would leave the object in
-the array, so the submit would still send a building the customer can no longer see, read
-as a blank one. A nameless extra is not sent at all.
+**Then the property list went too, one day later.** Dax, 2026-09-04: *"get rid of the add
+a building on the property button on free quote but keep it in all customers."* So the
+free quote no longer asks about outbuildings at all — not the photos of them, and now not
+even their names.
+
+- **The row goes with the button, not just the button.** Without a way to add one,
+  *"Other buildings on the property (optional)"* is a heading over a single un-removable
+  **Main house** box — a section that can no longer do the one thing it exists for.
+- **The code went with the row.** `renderQuoteBuilding`, `addQuoteBuilding`,
+  `removeQuoteBuilding` and the `quoteBuildings` array are all gone from index.html. A
+  repeater whose only entry point was deleted sits in the file unreachable, and the next
+  person to read it wires it back — the same rule that removed the uploader rather than
+  hiding it.
+- ⚠ **The field is still written.** A quote still saves `buildings` as a one-entry array
+  holding the main house. admin's quote card, `buildQuoteEmailHtml` and
+  Convert-to-Customer all **walk** that array, so a quote saved without the key would make
+  three readers reach into `undefined` on a quote that is otherwise fine.
+  `addCustBuildingsFromQuote` already drops the main house by name on the way across, so a
+  converted customer simply carries nothing extra now instead of arriving malformed.
+- **"But keep it in all customers"** is the half below — Edit Customer is untouched, and
+  is now the only place anybody is asked about a shop or a guest house.
+
+*The 2026-09-03 reasoning is kept because it was right for the day it was written:* the
+repeater stayed then, with **Remove** on every extra row and none on the main house,
+because a quote with no house is not a quote; removing took the row out of
+`quoteBuildings` as well as out of the page, since the element alone would leave the
+object in the array and submit a building the customer could no longer see, read as a
+blank one. All of that is moot now that nothing can add a second row — but it is why the
+array, not just the markup, had to be deleted rather than left behind.
 
 **One side is pre-picked on the details form, and deliberately nowhere else.**
 run-all.js asserts the *opposite* for Edit and Add Customer, and it is right to: those sit
@@ -2256,6 +2279,67 @@ grid: *"this can only show connection one level in"* — and she is right about 
 It shows what happened to Jane Smith. The SHAPE of the journey — quote, email, they approve,
 they fill the form, we convert, warehouse, schedule, crew, invoice, paid — exists in the
 code and in her own description of it, and is drawn nowhere. See §10d.
+
+### Maybe Next Year from a quote email builds the record that answer lives on
+
+Added 2026-09-04 ([[QT-23]]). Addie: *"when they click maybe next year nothing happens
+because we dont have their customer data but we want them to be in the exact same
+situation as a maybe next year off of the rsvp."*
+
+**Where Maybe Next Year is actually recorded is the customer.** Two fields on
+`jobAddresses` — `maybeNextYear` and `rsvpStatus: 'backnextyear'` — and every screen that
+shows the group reads them: the All Customers season badge and its filter, the Contact
+2027 sheet, the RSVP audience picker, `isOutForSeason`. So the answer only exists if a
+customer record does.
+
+**A lead answering from a quote email has none.** `quoteRespond` set `approvalStatus` on
+the QUOTE and stopped. The card slid into Closed, and the person who took the trouble to
+answer appeared on none of those lists — so next August nobody knows they asked to be
+asked again, which is the one thing they told us. Nothing anywhere was red about it.
+
+Now the answer creates the record, through `quoteLeadCustomerFields` and
+`createNextYearCustomerFromQuote`. From then on they ARE any other Maybe Next Year: same
+badge, same filter, same sheet, same audience, and the office's Confirmed toggle brings
+them back in one click when the season comes round.
+
+⚠ **IT IS A LEAD SITTING OUT, NOT A CONVERSION, and every field turns on that.** Convert
+to Customer takes a number out of the pool, opens an invoice, queues the warehouse, starts
+the 48-hour lights window and puts them on a day. None of that may happen to somebody
+whose answer was "not this year" — it would bill a person who bought nothing and build a
+set nobody is hanging. What is written is their details plus the season pair: no
+`customerNumber`, no invoice, no `needsLightBuild`, no `lightsLockedUntil`, no
+`needsDayAssignedAt`, no `chargeNewMemberFee`. The price and the footage they were quoted
+DO travel, so next August starts from a number rather than a re-measure.
+
+⚠ **AND ONLY ON A QUOTE THE OFFICE HAS PRICED.** `firestore.rules` stops a public create
+from setting `quotedPrice`, so a price is proof staff touched this quote and sent it.
+Without that gate anyone who can submit the public quote form could type a stranger's
+address, press Maybe Next Year and put a row into the customer book — and
+`quoteCustomerRef` carries the same gate, so it would not even have looked for an existing
+customer first, which means a real member could be duplicated too. A quote EMAIL only goes
+out after pricing, so the gate costs the real case nothing. `quoteLeadNeedsRecord` also
+refuses a quote that already points at a customer (there, `quoteCustomerRef` returning
+null means that customer was DELETED — an answer, not a gap), and one with no address or
+no contact of any kind, because neither can ever be matched again.
+
+⚠ **THE QUOTE LINK IS `nextYearCustomerId`, DELIBERATELY NOT `existingCustomerId`.**
+Either of the membership fields would make the approve path call this lead a MEMBER, so if
+they changed their mind and approved they would be shown "anything changing this year?"
+prefilled from a record holding no colours, and would never be asked for their install
+details at all. It doubles as the idempotency key: the emailed link stays live in an inbox
+for months and the button gets tapped twice.
+
+⚠ **THIS IS THE OPPOSITE ANSWER TO A DECLINE, and that is not an inconsistency.**
+`declineAsksAboutLastYear` deliberately touches no new lead (*"we won't have an info for
+them yet"*) — somebody who said no is not asking to be contacted. Maybe Next Year is a
+request to be asked again, and the record is what carries it.
+
+⚠ **The record has no map pin and says so** (`needsGeocode`, `lat: null`). There is no
+geocoder on the server; an invented lat/lng is worse than none, and it costs nothing this
+season because somebody sitting out is never routed. Opening them and pressing Save runs
+the lookup. A System note goes to the Inbox as well — this is the only path that creates a
+customer with nobody pressing a button, and a numberless row simply materialising in All
+Customers reads as a bug.
 
 ### Archiving a quote is one fact in three fields
 

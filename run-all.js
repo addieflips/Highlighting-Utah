@@ -5055,6 +5055,191 @@ suite('8. Quote decline / maybe next year');
     /confirmWrap\.style\.display = 'block'/.test(quoteAnswer) ||
     /confirmWrap\) confirmWrap\.style\.display/.test(idx.slice(idx.indexOf('quote-minimal'))),
     'the message would be written into a hidden element and nobody would see it');
+
+  /* ================================================================
+     A LEAD WHO ANSWERS MAYBE NEXT YEAR GETS THE RECORD THAT ANSWER LIVES ON
+     (added 2026-09-04)
+
+     Owner: "when they click maybe next year nothing happens because we dont
+     have their customer data … we want them to be in the exact same situation
+     as a maybe next year off of the rsvp."
+
+     ⚠ WHY THE FIELD LIST IS RUN AND NOT GREPPED. Everything this change is
+     about is a VALUE beside a name — maybeNextYear true, needsLightBuild
+     absent, customerNumber empty. A regex for /maybeNextYear/ over the source
+     passes on `maybeNextYear: false`, and a regex for the ABSENCE of
+     needsLightBuild passes on a file where the whole function was deleted.
+     Both of those are the failure this suite has been caught by before (S70's
+     truncated window, the three text-only checks CLAUDE.md §7 records). So the
+     real function is lifted and executed, and the object it returns is what is
+     asserted.
+     ================================================================ */
+  {
+    const fieldsSrc = extractFn(fns, 'quoteLeadCustomerFields');
+    const sidesSrc = extractFn(fns, 'houseSideCountServer');
+    const photosSrc = extractFn(fns, 'quotePhotosAsCustomerServer');
+    const idxSrc = extractFn(fns, 'contactIndexFields');
+    const needsSrc = extractFn(fns, 'quoteLeadNeedsRecord');
+    const normSrc = extractFn(fns, 'quoteMatchAddressServer');
+    check('quoteresp', 'the lead-record builder and its gate both exist',
+      !!fieldsSrc && !!sidesSrc && !!photosSrc && !!needsSrc,
+      'renamed or removed — update these checks rather than deleting them');
+
+    if (fieldsSrc && sidesSrc && photosSrc && idxSrc && needsSrc && normSrc) {
+      const sb = {};
+      new Function('digitsOnly', 'generatePortalToken',
+        sidesSrc + '\n' + photosSrc + '\n' + idxSrc + '\n' + normSrc + '\n' +
+        fieldsSrc + '\n' + needsSrc + '\n' +
+        'this.build = quoteLeadCustomerFields; this.needs = quoteLeadNeedsRecord;'
+      ).call(sb, v => String(v == null ? '' : v).replace(/\D/g, ''), () => 'tok_test');
+
+      const QUOTE = {
+        name: 'Jamie Rivera', phone: '(801) 555-0142', email: 'Jamie@Example.com',
+        street: '77 Birch Ln', city: 'Lehi', zip: '84043',
+        address: '77 Birch Ln, Lehi 84043',
+        quotedPrice: 425, estimatedFeet: 140, houseSides: 2,
+        contactMethod: 'text', frontPhotoUrl: 'https://x/p.jpg'
+      };
+      const rec = sb.build(QUOTE, '__ts__');
+
+      /* --- the answer itself, the same pair portalRsvp writes ------------- */
+      check('quoteresp', 'the new record IS a maybe next year',
+        rec.maybeNextYear === true && rec.rsvpStatus === 'backnextyear',
+        'the badge, the All Customers season filter and the Contact 2027 sheet all ' +
+        'read these two — without both they answered and appear on none of the lists');
+      check('quoteresp', 'and both halves of it are dated',
+        !!rec.maybeNextYearAt && !!rec.rsvpRespondedAt,
+        'effectiveRsvpStatus reads a status with no date as "nobody heard from them", ' +
+        'so an undated answer is a field every reader then ignores');
+      check('quoteresp', 'answering closes the "ask them what they want" list',
+        rec.askSameAsLastYear === false,
+        'they would stay on it for ever and be mailed again after they had replied');
+
+      /* --- and everything a lead sitting out must NOT get ----------------- */
+      check('quoteresp', 'no set is built for a house nobody is hanging',
+        rec.needsLightBuild !== true,
+        'the warehouse would be queued to build lights for somebody who said not this year');
+      check('quoteresp', 'no customer number is taken from the pool',
+        !rec.customerNumber,
+        'a number assigned programmatically can collide with one already written on a ' +
+        'bin by hand — the office decides, which is what the Inbox note is for');
+      check('quoteresp', 'they are on no day and no crew',
+        rec.scheduled === false && !rec.scheduledDate && !rec.assignedCrew &&
+        rec.needsDayAssignedAt === undefined,
+        'needsDayAssignedAt is an INSTRUCTION to the day placer — set here it would ' +
+        'put a house nobody is installing onto a route');
+      check('quoteresp', 'the 48-hour lights window is not opened',
+        rec.lightsLockedUntil === undefined,
+        'that window belongs to somebody JOINING, and Add a Customer says in as many ' +
+        'words that it is set there and nowhere else');
+      check('quoteresp', 'no set-up fee is agreed on their behalf',
+        rec.chargeNewMemberFee === undefined,
+        'they bought nothing — and chargeNewMemberFee is also what puts a customer on ' +
+        'the Excel Yes sheet as a new hang, which is the opposite of what they said');
+      /* ⚠ THE MONEY RULE, in the same words as pullCustomerFromSeason's. A price
+         may be REMEMBERED — it is what they were quoted — but nothing here may
+         open a bill. */
+      check('quoteresp', 'the record carries no invoice of any kind',
+        rec.install === undefined && rec.removal === undefined &&
+        rec.deposit === undefined && rec.credits === undefined &&
+        rec.completed === undefined,
+        'not coming this year is not owing for it — the nightly run bills houses ' +
+        'marked completed, and none of these may be written here');
+      check('quoteresp', 'but the price and the footage they were quoted are kept',
+        rec.housePrice === 425 && rec.measuredFeet === 140,
+        'next August would start from a re-measure of a house we have already measured');
+
+      /* --- their details actually make the jump -------------------------- */
+      check('quoteresp', 'their name, contact and address come across',
+        rec.name === 'Jamie Rivera' && rec.phone === '(801) 555-0142' &&
+        rec.email === 'Jamie@Example.com' && rec.address === '77 Birch Ln, Lehi 84043' &&
+        rec.street === '77 Birch Ln' && rec.city === 'Lehi' && rec.zip === '84043',
+        'a row with a flag and no details is not a customer anybody can ring next year');
+      check('quoteresp', 'and the sides they picked on the quote form',
+        rec.houseSides === 2,
+        'asking on the quote form is worth nothing if the answer stops at the quote');
+      check('quoteresp', 'their photo comes across too',
+        rec.housePhotoUrl === 'https://x/p.jpg' && rec.housePhotos.length === 1,
+        'the older single-photo shape still has to be read — a quote raised before ' +
+        'quotePhotos existed still has a picture, and next season has nothing else to show');
+      /* ⚠ THE NORMALISED COPIES ARE THE ANTI-DUPLICATE MECHANISM, not a nicety.
+         quoteMatchesExistingCustomer finds candidates by phoneDigits/emailLower and
+         THEN compares the address. Without them written here, this record is
+         invisible to that query, and the next quote from the same house creates a
+         second one — which is the exact bug this whole change is supposed to avoid. */
+      check('quoteresp', 'the sign-in shortcuts are written, so they are findable',
+        rec.phoneDigits === '8015550142' && rec.emailLower === 'jamie@example.com',
+        'without these the record cannot be matched by the resolver, and the next ' +
+        'quote from this house makes a SECOND record for it');
+      check('quoteresp', 'and they get a portal token of their own',
+        !!rec.portalToken,
+        'they could not sign in next season to change their mind');
+      check('quoteresp', 'the missing map pin is flagged rather than guessed',
+        rec.needsGeocode === true && rec.lat === null,
+        'there is no geocoder on the server; an invented lat/lng is worse than none, ' +
+        'and the flag is what the All Customers "Needs Pin" filter finds');
+
+      /* --- the gate: four ways the answer is no -------------------------- */
+      check('quoteresp', 'an unpriced quote never creates a record',
+        sb.needs(Object.assign({}, QUOTE, { quotedPrice: undefined })) === false,
+        'firestore.rules stops a public create from setting quotedPrice, so without ' +
+        'this gate anyone who can submit the quote form could type a stranger\'s ' +
+        'address, press Maybe Next Year and put a row into the customer book');
+      check('quoteresp', 'a re-quote against a live customer never creates a second record',
+        sb.needs(Object.assign({}, QUOTE, { existingCustomerId: 'cust1' })) === false &&
+        sb.needs(Object.assign({}, QUOTE, { convertedToCustomerId: 'cust1' })) === false &&
+        sb.needs(Object.assign({}, QUOTE, { convertedToCustomerAt: '__ts__' })) === false,
+        'quoteCustomerRef returning null on one of those means the customer was ' +
+        'DELETED — an answer, not a gap. Filling it resurrects somebody removed on purpose');
+      check('quoteresp', 'a quote with no address never creates a record',
+        sb.needs(Object.assign({}, QUOTE, { address: '', street: '' })) === false,
+        'the address is the only thing that tells two houses apart here, so a record ' +
+        'without one can never be recognised as the same house again');
+      check('quoteresp', 'a quote with no phone and no email never creates a record',
+        sb.needs(Object.assign({}, QUOTE, { phone: '', email: '' })) === false,
+        'nothing to find them by and nothing to reach them on — a row nobody can act on');
+      check('quoteresp', 'and a real priced lead does create one',
+        sb.needs(QUOTE) === true,
+        'the gate would refuse the only case it was written to allow');
+    }
+  }
+
+  /* --- and the branch actually calls it ---------------------------------- */
+  {
+    const respondSrc = stripComments(fns.slice(fns.indexOf('exports.quoteRespond')));
+    const maybeBlock = respondSrc.slice(0, respondSrc.indexOf("if (action === 'approve' && quoteData.jobAddressId)"));
+    check('quoteresp', 'maybe next year builds the record when there is none to pull',
+      /else if \(quoteLeadNeedsRecord\(quoteData\)\)/.test(maybeBlock) &&
+      /createNextYearCustomerFromQuote\(quoteId, quoteData\)/.test(maybeBlock),
+      'the field list would live in a function nothing calls — green suite, and the ' +
+      'lead still appears on none of the maybe-next-year lists');
+    check('quoteresp', 'an existing customer is still pulled, not duplicated',
+      /await pullCustomerFromSeason\(cust\.id\)/.test(maybeBlock),
+      'a member who chose maybe next year would get a SECOND record instead of ' +
+      'being taken off their routes');
+    check('quoteresp', 'pressing the emailed button twice makes one person, not two',
+      /quoteData\.nextYearCustomerId/.test(maybeBlock),
+      'the link stays live in their inbox for months and the button is tapped twice');
+    /* ⚠ THE LINK MUST NOT BE THE MEMBERSHIP ONE. Written into existingCustomerId
+       or convertedToCustomerId, this record would make quoteCustomerRef and the
+       approve path call the lead a MEMBER — so if they changed their mind and
+       approved, they would be shown "anything changing this year?" prefilled from
+       a record holding no colours, and would never be asked for their install
+       details at all. */
+    const createSrc = stripComments(extractFn(fns, 'createNextYearCustomerFromQuote') || '');
+    check('quoteresp', 'the quote link never claims the lead is a member',
+      !!createSrc && /nextYearCustomerId/.test(createSrc) &&
+      !/existingCustomerId|convertedToCustomerId|convertedToCustomerAt/.test(createSrc),
+      'they would be treated as an existing member on approve and never asked for ' +
+      'their install details');
+    check('quoteresp', 'a record that could not be written is put in front of the office',
+      /flagQuoteFollowUp/.test(maybeBlock),
+      'a silent failure here means nobody is asked again next year and nothing says so');
+    check('quoteresp', 'and the office is told a record appeared',
+      /collection\('messages'\)\.add/.test(createSrc),
+      'this is the only path that creates a customer with nobody pressing a button — ' +
+      'a numberless row simply materialising in All Customers reads as a bug');
+  }
 })();
 
 // =====================================================================
@@ -19782,12 +19967,18 @@ suite('Suite 62. Which sides of the house');
       !/QUOTE_SIDE_ORDER/.test(index.replace(/\/\*[\s\S]*?\*\//g, '')) &&
       !/id="quoteBuildingsRow"[\s\S]{0,400}<label>Photos<\/label>/.test(index),
       'a hidden row is how a removed feature comes back by accident');
-    check('S62', 'but the extra-property list survives, with a way out',
-      index.indexOf('id="quoteAddBuildingBtn"') > 0 &&
-      /function removeQuoteBuilding\(building\)/.test(index),
-      'Addie asked for both in one breath: "there should keep the option to add another ' +
-      'property but make sure there is a way to delete the extra property in case they ' +
-      'accidentally push on it"');
+    /* ⚠ AND THE REPEATER LEFT TOO, ONE DAY LATER (2026-09-04). Dax: "get rid of the
+       add a building on the property button on free quote but keep it in all customers."
+       The 2026-09-03 check asserted the opposite — that the extra-property list
+       survived — and it was right for the day it was written; what it guarded is now
+       guarded on the other side. The half that MUST NOT move is the Edit Customer
+       control, which S302 holds. */
+    check('S62', 'and the extra-property list left the quote form with it',
+      index.indexOf('id="quoteAddBuildingBtn"') === -1 &&
+      index.indexOf('id="quoteBuildingsRow"') === -1 &&
+      !/function addQuoteBuilding\(/.test(index),
+      'a hidden row is how a removed feature comes back by accident — the same rule ' +
+      'that retired the uploader');
   }
 
   /* ---- it survives the round trip ---- */
@@ -49713,7 +49904,6 @@ suite('Suite 302. The free quote asks less, and the property list outlives it');
 
   /* ---- the quote form ---- */
   check('S302', 'the photo uploader is gone from the quote form',
-    idx.indexOf('id="quoteAddBuildingBtn"') > 0 &&
     !/<label>Photos<\/label>/.test(idx) &&
     !/uploadPhotoToCloudinary/.test(idx.replace(/\/\*[\s\S]*?\*\//g, '')),
     'Addie: "upload picture should not be there" — and a hidden row is how a removed ' +
@@ -49722,30 +49912,30 @@ suite('Suite 302. The free quote asks less, and the property list outlives it');
     idx.indexOf('id="quoteSidesRow"') === -1,
     'asked in front of a stranger deciding whether to ask for a price at all');
 
-  /* ---- the property repeater, which she asked to KEEP ---- */
-  check('S302', 'the extra-property list survives on the quote form',
-    /function addQuoteBuilding\(/.test(idx) && idx.indexOf('id="quoteAddBuildingBtn"') > 0);
-  check('S302', 'and an accidental one can be taken back off',
-    /function removeQuoteBuilding\(building\)/.test(idx) &&
-    /removeBtn\.addEventListener\('click', function\(\)\{ removeQuoteBuilding\(building\); \}\)/.test(idx),
-    '"make sure there is a way to delete the extra property in case they accidentally ' +
-    'push on it"');
-  /* ⚠ THE ROW MUST LEAVE THE ARRAY, NOT JUST THE PAGE. Taking the element out alone
-     leaves the object in quoteBuildings, so the submit still sends a building the
-     customer can no longer see — and reads its detached input as a BLANK one. */
-  const rm = extractFn(idx, 'removeQuoteBuilding') || '';
-  check('S302', 'removing one drops it from the payload too',
-    /quoteBuildings\.splice\(at, 1\)/.test(rm) && /removeChild/.test(rm),
-    'the page and the array are two places, and only one of them is submitted');
-  check('S302', 'and the main house can never be removed',
-    /if\(!building \|\| building\.isMain\) return;/.test(rm) &&
-    /if\(!building\.isMain\)\{/.test(idx),
-    'a quote with no house is not a quote — guarded on the button AND in the function, ' +
-    'because the button is only half a rule');
-  check('S302', 'a nameless extra building is not submitted at all',
-    /\.filter\(function\(b\)\{ return b\.isMain \|\| b\.name; \}\)/.test(idx),
-    'somebody who presses Add and leaves the box blank would otherwise send the office ' +
-    'a building nobody can ask about');
+  /* ---- the property repeater, which left the quote form on 2026-09-04 ----
+     ⭐ Dax: "get rid of the add a building on the property button on free quote but
+     keep it in all customers." The checks that stood here asserted the repeater and its
+     Remove button, and they were right until the day the button went; the Edit Customer
+     half below is what she asked to keep, and it is untouched. */
+  check('S302', 'the extra-property control is gone from the quote form',
+    idx.indexOf('id="quoteAddBuildingBtn"') === -1 &&
+    idx.indexOf('id="quoteBuildingsRow"') === -1 &&
+    idx.indexOf('id="quoteBuildingsWrap"') === -1,
+    'Dax: "get rid of the add a building on the property button on free quote"');
+  /* ⚠ GONE, NOT ORPHANED. A repeater whose only entry point was deleted would sit in
+     the file unreachable, and the next person to read it would wire it back. */
+  const idxCode = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '');
+  check('S302', 'and the code behind it went with it, not just the button',
+    !/addQuoteBuilding/.test(idxCode) && !/removeQuoteBuilding/.test(idxCode) &&
+    !/renderQuoteBuilding/.test(idxCode) && !/quoteBuildings/.test(idxCode),
+    'a repeater with no entry point is how a removed feature comes back by accident');
+  /* ⚠ THE FIELD IS STILL WRITTEN. admin's quote card, buildQuoteEmailHtml and
+     Convert-to-Customer all WALK quote.buildings — a quote saved without the key would
+     make every one of them reach into undefined on a quote that is otherwise fine. */
+  check('S302', 'but a quote still carries the main house as a buildings array',
+    /var buildingsPayload = \[\{name: QUOTE_MAIN_BUILDING_NAME, isMain: true\}\];/.test(idx) &&
+    /buildings: buildingsPayload\.map/.test(idx),
+    'three readers walk this array; dropping the key makes them read undefined');
 
   /* ---- the sides question, on its new form ---- */
   check('S302', 'the details form asks it instead', idx.indexOf('id="qdSidesRow"') > 0);
