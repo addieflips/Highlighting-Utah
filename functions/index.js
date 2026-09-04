@@ -1190,9 +1190,22 @@ async function clawBackReferralServer(customerId, customerData) {
     return false;
   }
 }
+/* ⚠ SHORT, AND NOT THE LOGIN TOKEN'S GENERATOR (2026-09-04, REF-11). generatePortalToken
+ * stays 20 characters because it signs somebody into their account. This one only says
+ * which customer sent a friend, so eight characters is plenty — and it is what makes the
+ * link short enough to sit in a text message. The alphabet drops l/1/0/o, which are the
+ * pairs people get wrong reading a link aloud. Must match admin.html's copy. */
+const REFERRAL_TOKEN_ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789';
+function generateReferralToken() {
+  let out = '';
+  for (let i = 0; i < 8; i++) {
+    out += REFERRAL_TOKEN_ALPHABET.charAt(Math.floor(Math.random() * REFERRAL_TOKEN_ALPHABET.length));
+  }
+  return out;
+}
 async function ensureReferralToken(id, data) {
   if (data.referralToken) return data.referralToken;
-  const token = generatePortalToken();
+  const token = generateReferralToken();
   try {
     await db.collection('jobAddresses').doc(id).update({ referralToken: token });
   } catch (err) {
@@ -4859,7 +4872,7 @@ async function runArrearsRsvpBatch(source) {
          ⚠ AND $25 OFF IS WORTH MOST TO EXACTLY THE PEOPLE THIS BATCH WRITES TO — they
          are the ones carrying a balance. */
       const referToken = await ensureReferralToken(docSnap.id, d);
-      const referUrl = 'https://highlightingutah.com/?ref=' + encodeURIComponent(referToken) + '#/quote';
+      const referUrl = 'https://highlightingutah.com/r/' + encodeURIComponent(referToken);
       body = body.split('{{referral_link}}').join(referUrl);
       body = body.split('{{referral_button}}').join(
         '<a href="' + referUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Refer a Friend — $25 off your bill</a>');

@@ -961,9 +961,18 @@ member's bill — with nobody in the office typing anything.
   `.../?ref=<referralToken>#/quote`.
   - ⚠ **The link carries a referral token, never the portal login token.** A portal token
     signs somebody in; this one is pasted into a group chat. The customer number is not used
-    either — it is printed on invoices and bins, so it is guessable. `referralToken` is minted
-    lazily on the first `portalLookup`, exactly as `portalToken` already is, and is stable
-    afterwards: a fresh token each visit would break every link they had already shared.
+    either — it is printed on invoices and bins, so it is guessable.
+  - ⭐ **Every customer has one, without anybody pressing anything** (REF-10). All four
+    places a customer record is created mint a `referralToken` in the same write as the
+    portal token; opening a customer in Edit Customer makes one if they have none (once
+    per customer, ever — `referralTokenFor` returns early when one exists); and
+    **Bulk Updates → Make referral links for everyone** covers the book as it stood. That
+    backfill only ever ADDS, so it is safe to press twice and needs no typed confirmation.
+  - ⭐ **The address is `/r/<token>`, 39 characters** (REF-11) — a Netlify 200-rewrite,
+    exactly like the `/q/` quote link and for the same reason: a text is billed in
+    160-character segments. The token is **8 characters from its own generator**;
+    `generatePortalToken` stays 20 because it signs somebody into their account. The old
+    `?ref=…#/quote` spelling still works for ever, so links already shared keep counting.
   - ⭐ **The tab is OPEN to somebody who owes for last season** (reversed 2026-09-04,
     REF-07). It was locked for one day and Addie reported the result — *"its not showing
     up anywhere"* — because most of the book carries an unpaid 2025 balance, so the tab

@@ -2640,6 +2640,43 @@ function navigate(){
  * existing-member "let me straight in" path is unchanged. Absent for a new lead,
  * who has no portal to be let into.
  */
+/* ⚠ DECLARED HERE, ABOVE THE FIRST READER THAT USES IT, and moved up from the quote
+   form below on 2026-09-04. It was a `var` several hundred lines further down: hoisted,
+   so the /r/ reader saw `undefined` rather than throwing, and the token was written
+   under the key "undefined" — the app booted, the page was right, and the referral was
+   silently worth nothing. A browser spec caught it; no source check could have. */
+var REFERRAL_LINK_KEY = 'hu.referredByToken';
+/* ⭐ THE SHORT REFERRAL LINK — /r/<token> (2026-09-04, REF-11).
+ *
+ * Addie: "make sure the link isnt crazy long try to shorten it so in the rsvp
+ * refferal button it looks nice in the email/text."
+ *
+ *   https://highlightingutah.com/?ref=<20 chars>#/quote   61 characters
+ *   https://highlightingutah.com/r/<8 chars>              38 characters
+ *
+ * ⚠ EXACTLY THE /q/ MECHANISM ABOVE, deliberately: a Netlify 200-rewrite and the
+ * segment after /r/ IS the token. No short-code table, no extra Firestore read,
+ * nothing to keep in step.
+ *
+ * ⚠ AND ?ref= STILL WORKS, FOR EVER. Every link already pasted into somebody's
+ * messages carries the old spelling, and a referral that silently stops counting is
+ * the one failure nobody would ever report — the customer just never gets their $25.
+ * Both spellings feed the same session store below.
+ */
+(function(){
+  var m = null;
+  try{
+    m = /^\/r\/([A-Za-z0-9_-]+)\/?$/.exec(window.location.pathname || '');
+  } catch(e){ /* quiet on purpose: no readable location means this is not a /r/ link, and the ?ref= reader below still runs. */ }
+  if(!m) return;
+  try{ sessionStorage.setItem(REFERRAL_LINK_KEY, String(m[1]).slice(0, 64)); }
+  catch(e){ /* Private browsing refuses sessionStorage. The quote still goes through; the referral is simply not counted, which is the safe direction. */ }
+  /* Straight to the quote form — that is what the link is FOR — and the token is
+     already stored, so nothing rides in the address bar. */
+  window.location.hash = '/quote';
+  try{ window.history.replaceState(null, '', '/' + window.location.hash); }
+  catch(e){ /* quiet on purpose: cosmetic. A blocked replaceState leaves /r/<token> showing and changes nothing about the referral. */ }
+})();
 (function(){
   var m = null;
   try{
@@ -2827,7 +2864,6 @@ async function geocodeForStreetView(addressText){
    from a made-up one, and pretending otherwise would mean shipping the customer list to
    the public page. An unknown token is refused by creditReferralIfAny, where the real
    records are, and refused SILENTLY — a link can outlive the customer who made it. */
-var REFERRAL_LINK_KEY = 'hu.referredByToken';
 (function rememberReferralToken(){
   try{
     var t = new URLSearchParams(window.location.search || '').get('ref');
@@ -6357,7 +6393,7 @@ var PORTAL_TAB_NAMES = ['payment','info','sides','lights','changes','refer','con
    matches their bill. Nought says nothing at all rather than "0 referrals" — an
    empty scoreboard reads as a broken feature on a link nobody has used yet. */
 function portalReferralLink(token){
-  return window.location.origin + '/?ref=' + encodeURIComponent(String(token || '')) + '#/quote';
+  return window.location.origin + '/r/' + encodeURIComponent(String(token || ''));
 }
 /* ⚠ THE TWO FIELDS ARE READ OFF `addrDoc` BY NAME, not through a shorthand alias. That
    is not style: portal-fields.test.js proves every whitelisted field is actually LOOKED
