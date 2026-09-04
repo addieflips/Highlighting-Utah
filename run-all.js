@@ -212,6 +212,98 @@ suite('1. Structure');
   check('structure', 'sectionFrom is CRLF-safe',
     /\\r\?\\n/.test(String(sectionFrom)),
     'these files are CRLF, so a literal \\n terminator never matches and the slice silently runs to EOF');
+
+  /* ⭐ NO TWO SUITES SHARE A NUMBER, AND NO TWO SHARE A check() PREFIX (added 2026-09-04).
+     On 2026-09-03 FOUR sessions appended a new suite to the end of this file in one day
+     and three of them picked the same number: two 298s and two 299s reached main, and
+     the two 299s used the same check('S299', ...) prefix as well — so a red line reading
+     "- S299: ..." could not say which suite it came from. Nothing anywhere noticed.
+
+     ⚠ THAT IS THE WHOLE REASON THIS EXISTS: the collision is invisible in a green run
+     and only shows itself when something fails, which is the worst possible moment to
+     find out the failure list is ambiguous.
+
+     ⚠ THE PREFIX IS THE HALF THAT MATTERS. The number in suite() is decoration for a
+     human reading the log; the first argument to check() is what NAMES a failure. Both
+     are checked, because a duplicate number is how a duplicate prefix arrives.
+
+     ⚠ THE NINE OLD PAIRS ARE GRANDFATHERED BY NAME, NOT BY A COUNT. A ceiling ("no
+     more than nine") is the gate this repo has already rejected twice: it goes up for
+     good reasons as often as bad, and within a week somebody raises it to get past a red
+     build. Naming them fails a NEW collision while leaving the historical ones visible as
+     a list somebody can work through — and taking one off this list is how you record
+     having fixed it. They are deliberately NOT fixed here: renumbering a suite rewrites
+     every check inside it, and doing that to nine suites nobody asked about, inside a
+     change about the schedule, is how a merge quietly eats somebody else's work. */
+  const LEGACY_DUPLICATE_SUITE_NUMBERS = ['21', '22', '23', '24', '69', '126', '128', '131', '132'];
+  const suiteStarts = [];
+  {
+    const startRe = /^suite\('/gm;
+    let st;
+    while ((st = startRe.exec(self))) suiteStarts.push(st.index);
+  }
+  const suiteOf = (i) => self.slice(suiteStarts[i],
+    i + 1 < suiteStarts.length ? suiteStarts[i + 1] : self.length);
+  const suiteNums = {}, suitePrefixes = {};
+  suiteStarts.forEach((start, i) => {
+    const body = suiteOf(i);
+    const head = body.match(/^suite\('(?:Suite\s*)?(\d+[a-z]?)\.?\s*([^']{0,80})/);
+    const title = head ? head[2].trim() : (body.match(/^suite\('([^']{0,80})/) || [])[1] || '?';
+    if (head) (suiteNums[head[1]] = suiteNums[head[1]] || []).push(title);
+    const pres = [...new Set((body.match(/check\('([A-Za-z0-9_]+)'/g) || []).map(x => x.slice(7, -1)))];
+    pres.forEach(pre => { (suitePrefixes[pre] = suitePrefixes[pre] || []).push(title); });
+  });
+  const dupeNums = Object.keys(suiteNums)
+    .filter(n => suiteNums[n].length > 1 && LEGACY_DUPLICATE_SUITE_NUMBERS.indexOf(n) === -1);
+  check('structure', 'no two suites share a number',
+    dupeNums.length === 0,
+    dupeNums.map(n => n + ' is used by: ' + suiteNums[n].join('  AND  ')).join('; ') +
+    ' — give the newcomer the next free number and rename its check() prefix with it. ' +
+    'The suite that reached main first keeps the number.');
+
+  /* ⚠ AND THE PREFIX HALF READS THE CODE, NOT THE COMMENTS. The first version of this
+     check reported ITSELF: the paragraph above contains the words check('S299', ...) as
+     an example, and a plain search found it and called the Structure suite an owner of
+     S299. That is the same trap Suites 58, 274, 275 and 300 each had to learn, hit here
+     within a minute of the gate being written — which is the argument for stripping
+     comments by default rather than when somebody remembers.
+
+     ⚠ SCOPED TO THE S<number> CONVENTION. Plenty of suites deliberately share a plain
+     word — flow, render, season, warehouse, cap, fill — as a grouping across several
+     related suites, and failing those would be reporting a convention as a fault. An
+     S-number names ONE suite by construction, so two suites answering to one is always
+     wrong. ⚠ Eight historical pairs are named rather than counted, for the same reason
+     as the numbers above; they are not fixed here. */
+  const bareSelf = self
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/.*/g, '$1 ');
+  /* Twelve historical pairs. Four of them — S126, S128, S131, S132 — are the prefix side
+     of the grandfathered duplicate NUMBERS above, so the same old fault would otherwise be
+     reported twice under two names; the other eight share a prefix while carrying distinct
+     numbers. Named rather than counted, and taking one off this list is how somebody
+     records having fixed it. */
+  const LEGACY_SHARED_PREFIXES = ['S60', 'S77', 'S82', 'S117', 'S120', 'S126', 'S128',
+                                  'S131', 'S132', 'S144', 'S287', 'S292'];
+  const prefixOwners = {};
+  {
+    const starts = [];
+    const re = /^suite\('/gm;
+    let m;
+    while ((m = re.exec(bareSelf))) starts.push(m.index);
+    starts.forEach((start, i) => {
+      const body = bareSelf.slice(start, i + 1 < starts.length ? starts[i + 1] : bareSelf.length);
+      const title = (body.match(/^suite\('([^']{0,80})/) || [])[1] || '?';
+      const pres = [...new Set((body.match(/check\('(S\d+[a-z]?)'/g) || []).map(x => x.slice(7, -1)))];
+      pres.forEach(pre => { (prefixOwners[pre] = prefixOwners[pre] || []).push(title); });
+    });
+  }
+  const dupePre = Object.keys(prefixOwners).filter(pre =>
+    [...new Set(prefixOwners[pre])].length > 1 && LEGACY_SHARED_PREFIXES.indexOf(pre) === -1);
+  check('structure', 'no two suites share a check() prefix',
+    dupePre.length === 0,
+    dupePre.map(pre => pre + ' is used by: ' + [...new Set(prefixOwners[pre])].join('  AND  ')).join('; ') +
+    ' — this is the half that matters: a failure line names the prefix, so two suites ' +
+    'sharing one produce a red line that cannot say where it came from');
 })();
 
 const inlineScripts = html =>
@@ -3674,11 +3766,20 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     'fixing a phone number months later put them back in the recycle queue with no number ' +
     'and no lights left to pull');
 
-  // The normal path must not regress.
+  /* ⚠ THIS ASSERTED THE OPPOSITE UNTIL 2026-09-03, and the old wording is worth keeping
+     in view: "this is the behaviour that is correct — the fix must not stop declines from
+     recycling". It WAS correct while the office could pick No. Addie then removed that
+     option (RS-49) precisely because picking an answer should not queue the warehouse to
+     take a bundle apart, so the branch is gone and the assertion is inverted rather than
+     deleted — the half that still binds is that the save does not start warehouse work
+     off an RSVP answer by itself.
+     ⚠ THE VALUE IS STILL REACHABLE: portalRsvp writes 'no', and until #308 lands THAT
+     path still recycles. This check is about the OFFICE save only. */
   const declined = runSave({ rsvpStatus: '', needsLightRecycle: false }, 'no');
-  check('flow', 'changing an RSVP to "no" in admin still raises the recycle flag',
-    declined.needsLightRecycle === true,
-    'this is the behaviour that is correct — the fix must not stop declines from recycling');
+  check('flow', 'the office save no longer recycles off an RSVP answer alone',
+    declined.needsLightRecycle !== true,
+    'a recycle is physical and irreversible; it belongs to the button that says so ' +
+    '(Recycle Their Old Set), not to an option in a list of answers');
 
   // Bug 1, admin side.
   const rejoined = runSave({ rsvpStatus: 'no', needsLightRecycle: false, lightsRecycledAt: 'THEN' }, 'yes');
@@ -3833,6 +3934,10 @@ console.log('\n=== 7. Health check engine ===');
     function toDateStr(dt){return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');}
     function esc(s){return (s||'').toString();}
     var jobAddresses=[],allInvoicesCache=[],quotesCache=[],availableCustomerNumbers=[],scheduledRoutesCache={};
+    /* Lifted 2026-09-04, alongside fmtMoney: admin.html imports this from
+       js/money.js and a health row now prints it. Read out of money.js rather
+       than typed here, so the sandbox cannot disagree with the app about the fee. */
+    const NEW_MEMBER_FEE = ${NEW_MEMBER_FEE_NUM};
     /* The nightly-billing health check reads this. Default to loaded:false so
        the checks stay SILENT here — a fixture-driven suite has no nightly run
        to report on, and a check that cried wolf in every unrelated test would
@@ -3878,14 +3983,11 @@ console.log('\n=== 7. Health check engine ===');
       extractFn(admin, 'quoteMatchAddress'),
       extractFn(admin, 'isRequote'),
       extractFn(read('js/money.js'), 'enrollmentYearOf'),
-      /* ⚠ LIFTED 2026-09-04, and the crash it fixes is the shape this prelude keeps
-         hitting: a health row started printing a figure, fmtMoney was never in scope,
-         and hcRunChecks threw a ReferenceError that stopped the WHOLE run at suite 7 —
-         so every suite after it scored nothing and looked like it had passed. Real,
-         never a stub: a stub would let the panel and the invoice disagree about a
-         number while this stayed green. */
+      /* Lifted 2026-09-04: a health row prints a dollar figure now and the sandbox
+         had no fmtMoney, so hcRunChecks threw partway through and every suite after
+         this one went unscored. The real one from js/money.js, never a stub — the
+         cents rule is asserted elsewhere and a stub here would quietly disagree. */
       extractFn(read('js/money.js'), 'fmtMoney'),
-      (read('js/money.js').match(/export const NEW_MEMBER_FEE = \d+;/) || [''])[0].replace('export ', ''),
       extractFn(admin, 'audienceQuoteJoinYear'),
       extractFn(admin, 'audienceNeverAsked'),
       extractFn(admin, 'seasonEligibilityWouldDrop'),
@@ -4844,9 +4946,21 @@ suite('8. Quote decline / maybe next year');
   check('quoteresp', 'one control decides Back Next Year, not two',
     !/name="editCustSeason"/.test(admin) && !/editCustSeasonMaybe/.test(admin.replace(/<!--[\s\S]*?-->/g, '')),
     'a second control for this state is what silently overwrote the office\'s own answer');
+  /* ⚠ THE EXPRESSION HAS NOW MOVED TWICE — 2026-09-03 (RS-49, No came off the dropdown
+     so a stored 'no' was mapped to Back Next Year) and 2026-09-04 (RS-50, the two are two
+     answers again so it is SHOWN rather than mapped). Both times a check pinned to the
+     literal failed on correct code, which is the slow fuse CLAUDE.md §7 bans by name and
+     which S82, S129 and the folder-names suite each hit separately. It asserts the
+     GUARANTEE now, which has never changed through any of it: the dropdown is filled from
+     the record rather than defaulting to Pending, and a stored 'no' reaches a real option
+     instead of blank — a blank select reads as Pending, and the next save writes that over
+     their answer. Whatever the mechanism, those two must hold. */
+  const rsvpFill = (extractFn(admin, 'openEditCustomerModal') || '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
   check('quoteresp', 'the state is loaded when the modal opens',
-    /getElementById\('editCustRsvp'\)\.value = d\.rsvpStatus/.test(admin),
-    'it would always show Pending regardless of the real value');
+    /\.value = d\.rsvpStatus \|\| ''/.test(rsvpFill) && /storedRsvp === 'no'/.test(rsvpFill),
+    'it would always show Pending regardless of the real value — and a blank select ' +
+    'reads as Pending, which the next save then writes over their answer');
   /* ⚠ THE ASSIGNMENT IS `seasonMaybeChosen` SINCE 2026-09-02, not the raw checkbox:
      a dropdown CHANGED to Back Next Year now counts as choosing it, because reading an
      unticked box as "bringing them back in" was silently wiping the office's own
@@ -6443,12 +6557,7 @@ suite('13. Season prep — crew portal (§4)');
      bill this season. LIFTED OUT OF js/money.js, never stubbed: a stub would keep
      this suite green through a change to who gets charged, which is the one thing
      it exists to protect. money-parity sweeps it against the nightly run's copy. */
-  /* ⚠ AND NEW_MEMBER_FEE, named by the code inside that slice. Lifted from
-     js/money.js, never retyped as a number here: a copy of the figure in the harness
-     is a second place the fee lives, and it is the copy that quietly stops matching
-     what customers are actually billed. */
-  const src = (read('js/money.js').match(/export const NEW_MEMBER_FEE = \d+;/) || [''])[0].replace('export ', '') + '\n' +
-    extractFn(admin, 'payerHouseOf') + '\n' +
+  const src = extractFn(admin, 'payerHouseOf') + '\n' +
     extractFn(admin, 'houseIsOnTheBill') + '\n' +
     admin.slice(start, admin.indexOf('\n}', start) + 2);
 
@@ -6478,6 +6587,10 @@ suite('13. Season prep — crew portal (§4)');
       jobAddresses: houses,
       custInvoiceKey,
       computeInvoiceStatus,
+      /* Read out of js/money.js, not typed here — syncPayerInvoice charges the
+         join fee and the sandbox had no NEW_MEMBER_FEE, so the lifted copy threw
+         the moment it walked down that branch. */
+      NEW_MEMBER_FEE: NEW_MEMBER_FEE_NUM,
       console
     };
     const names = Object.keys(ctx);
@@ -16527,9 +16640,24 @@ suite('Suite 50. A Pref Date that names an actual day');
       check('S50', 'but the day they named still holds them back',
         sb2.from({ pref: '11/9+' }, '2026-10-01') === '2026-11-09',
         'the whole point of naming a day is not being done before it');
+      /* ⚠ REPOINTED 2026-09-03, NOT WEAKENED. This asserted the literal `=== 0`, so it
+         was pinned to the NUMBER a new hang happens to carry rather than to the guarantee
+         — and the tiers were respaced ten apart that day to make room for a within-tier
+         bump (see houseInstallPriority). The rule it was written for is unchanged and is
+         now stated as the rule. Same slow-fuse shape as S82 and S129. */
       check('S50', 'and a new hang who named a day is still taken first',
-        sb2.pri({ pref: '11/9+' }, { chargeNewMemberFee: true }) === 0,
+        sb2.pri({ pref: '11/9+' }, { chargeNewMemberFee: true }) < sb2.pri({ pref: 'OCT' }, {}) &&
+        sb2.pri({ pref: '11/9+' }, { chargeNewMemberFee: true }) < sb2.pri({ pref: '11/9+' }, {}) &&
+        sb2.pri({ pref: '11/9+' }, { chargeNewMemberFee: true }) < sb2.pri({ pref: '' }, {}),
         'new hangs outrank every preference, which is the one thing above this');
+      /* ⭐ AND THE ONE THING ABOVE A NEW HANG IS A PERSON DECIDING (added 2026-09-03).
+         Owner: "we should be able to manually add priority to specific customers if they
+         directly ask if they can be hung sooner than later." An override that cannot
+         override the automatic rule is not an override — see houseInstallPriority. */
+      check('S50', 'and the office moving somebody up by hand outranks even a new hang',
+        sb2.pri({ pref: '' }, { rushInstall: true }) <
+          sb2.pri({ pref: '' }, { chargeNewMemberFee: true }),
+        'the checkbox is the only thing a person sets by hand, so it has to win');
 
       /* ⭐ AND THE SCHEDULE FILES THEM UNDER THE RIGHT MONTH. Owner, 2026-08-19:
          "there are two people who entered their preferred date in a wrong format
@@ -19768,8 +19896,23 @@ suite('Suite 62. Which sides of the house');
     check('S62', 'Add Customer has them too', admin.indexOf('id="addCustHouseSides"') > 0,
       'a customer added by hand, or converted from a quote, has to carry the same field');
     const index = read('index.html');
-    check('S62', 'and the quote form asks the customer directly',
-      index.indexOf('id="quoteSidesRow"') > 0 && /name="house_sides"/.test(index));
+    /* ⚠ THE QUESTION MOVED ON 2026-09-03 (Addie: "side of house should be in detail
+       form, 1 side should be default"). It is asked AFTER they approve rather than in
+       front of a stranger deciding whether to ask for a price. The claim is unchanged —
+       the customer is still asked directly, and their answer still reaches the record —
+       so this follows the row rather than being dropped. */
+    check('S62', 'and the customer is still asked directly, on the details form',
+      index.indexOf('id="qdSidesRow"') > 0 && /name="house_sides"/.test(index),
+      'the count drives the price, so it has to be asked somewhere the customer sees it');
+    check('S62', 'and it is no longer on the free quote form',
+      index.indexOf('id="quoteSidesRow"') === -1,
+      'left in both places the two would drift, and the quote form is the one that has ' +
+      'to stay short enough to finish');
+    /* ⚠ ONE SIDE IS PRE-PICKED THERE, AND ONLY THERE. See the admin-form check at the
+       bottom of this suite, which asserts the opposite for Edit/Add Customer. */
+    check('S62', 'one side is pre-picked on the details form',
+      /name="house_sides" value="1" checked/.test(index),
+      'Addie: "1 side should be default" — the commonest answer by far is the front only');
 
     /* ⭐ ONE COUNT, THE SAME ON ALL THREE FORMS. Owner, 2026-08-19: "in the website
        its called front left right and back side, we need it to say 1, 2, 3, or 4 sides
@@ -19784,10 +19927,23 @@ suite('Suite 62. Which sides of the house');
     /* ⚠ AND THE PHOTO LABELS ARE UNTOUCHED, deliberately. You photograph the front of
        a house; you do not photograph "side 2". Sides-of-lights is a count and
        sides-for-photos is four named walls, and they are different questions. */
-    check('S62', 'the photo labels still name the four walls',
-      /QUOTE_SIDE_ORDER = \['front', 'right', 'left', 'back'\]/.test(index) &&
-      /Front of house/.test(index),
-      'a photo of the front is a photo of the front whatever the light count is');
+    /* ⚠ RETIRED WITH THE FEATURE IT GUARDED (2026-09-03), and the old reasoning is kept
+       because it was right for as long as there were photos: "a photo of the front is a
+       photo of the front whatever the light count is" — the four named walls were
+       deliberately NOT collapsed into the side COUNT. Addie removed the uploader from
+       the quote form ("upload picture should not be there"), so there are no photo
+       labels left to protect. What replaces it is the assertion that the uploader is
+       really gone rather than hidden, and that the thing she asked to KEEP survives. */
+    check('S62', 'the quote photo uploader is gone, not hidden',
+      !/QUOTE_SIDE_ORDER/.test(index.replace(/\/\*[\s\S]*?\*\//g, '')) &&
+      !/id="quoteBuildingsRow"[\s\S]{0,400}<label>Photos<\/label>/.test(index),
+      'a hidden row is how a removed feature comes back by accident');
+    check('S62', 'but the extra-property list survives, with a way out',
+      index.indexOf('id="quoteAddBuildingBtn"') > 0 &&
+      /function removeQuoteBuilding\(building\)/.test(index),
+      'Addie asked for both in one breath: "there should keep the option to add another ' +
+      'property but make sure there is a way to delete the extra property in case they ' +
+      'accidentally push on it"');
   }
 
   /* ---- it survives the round trip ---- */
@@ -27315,6 +27471,22 @@ suite('Suite 108. The Edit Customer save, actually run');
         'let cnStuckToastAt = 0; return ' + noticeSrc + ';noticeCustomerNumberStuck'
       )(ctx.addDoc, ctx.collection, ctx.db, ctx.serverTimestamp, ctx.toast, ctx.jobAddresses, ctx.console);
     }
+    /* ⭐ THE PROPERTY LIST READER, LIFTED (2026-09-03). The Edit Customer save now calls
+       editCustReadBuildings() to collect the "Other buildings on the property" rows, and
+       this sandbox runs that whole handler — so without it the suite dies on a bare
+       ReferenceError, which surfaces as an unattributable crash and stops every suite
+       after it from scoring (CLAUDE.md §3).
+
+       ⚠ LIFTED, NOT STUBBED. A stub returning [] would keep this suite green through a
+       change that stopped the save writing buildings at all. The real one walks the DOM,
+       and this sandbox has no document — so it is handed a wrap element that is not
+       there, returns [], and the handler proceeds exactly as it does for a customer with
+       no extra buildings. That is the honest default for fixtures that do not have any;
+       a fixture that wants some supplies its own document. */
+    ctx.editCustReadBuildings = new Function(
+      'document',
+      'return ' + extractFn(admin, 'editCustReadBuildings') + ';editCustReadBuildings'
+    )({ getElementById: function(){ return null; } });
     const names = Object.keys(ctx);
     const fn = new AsyncFn(...names, handlerSrc);
     return fn(...names.map(n => ctx[n])).then(function(){
@@ -28738,13 +28910,36 @@ suite('Suite 80. A blank is a blank, and a default is a default');
 {
   const idx = read("index.html");
 
-  /* ---- nothing answers a yes/no on the customer’s behalf ---- */
-  const PREANSWERED = (idx.match(/<input type="radio"[^>]*checked[^>]*>/g) || []);
-  check('S80', 'no yes/no question comes pre-answered on the quote form',
-    !PREANSWERED.length,
-    "found: " + PREANSWERED.join(" ") + " — all four of these were ticked on No, so a " +
-    "customer who never read the question was recorded as having said no to it. Once " +
+  /* ---- nothing answers a yes/no on the customer’s behalf ----
+     ⚠ NARROWED 2026-09-03, AND STRENGTHENED WHERE IT MATTERS. This banned EVERY checked
+     radio anywhere in index.html, which was the right net while every radio on the page
+     was a Yes/No. It is not any more: Addie asked for the side COUNT to be pre-picked on
+     the details form ("1 side should be default"), and a count is a different kind of
+     question — there is no answer it can invent, only the commonest one offered in front
+     of somebody who can see it and change it.
+
+     The rule this actually protects is unchanged and is now asserted BY NAME rather than
+     by counting tags, which is stricter: a new Yes/No radio added pre-ticked would have
+     to be added to the exclusion list deliberately, instead of quietly passing a count
+     that happened to be phrased as one. */
+  const YESNO_NAMES = ['outlet_timer', 'specific_outlet', 'wants_mailed'];
+  const PREANSWERED = (idx.match(/<input type="radio"[^>]*checked[^>]*>/g) || [])
+    .filter(function(tag){
+      return YESNO_NAMES.some(function(nm){ return tag.indexOf('name="' + nm + '"') !== -1; });
+    });
+  check('S80', 'no yes/no question comes pre-answered', !PREANSWERED.length,
+    "found: " + PREANSWERED.join(" ") + " — all four of these were once ticked on No, so " +
+    "a customer who never read the question was recorded as having said no to it. Once " +
     "that is on the record it cannot be told apart from a real answer");
+  /* ⚠ AND THE EXCLUSION IS ITSELF BOUNDED. The only pre-picked radio allowed on this
+     page is the side count; anything else checked is a question somebody has to have
+     thought about, so it fails here and has to be argued for. */
+  const OTHER_CHECKED = (idx.match(/<input type="radio"[^>]*checked[^>]*>/g) || [])
+    .filter(function(tag){ return tag.indexOf('name="house_sides"') === -1; });
+  check('S80', 'and the side count is the only thing pre-picked at all',
+    !OTHER_CHECKED.length,
+    'found: ' + OTHER_CHECKED.join(' ') + ' — a pre-picked answer is a claim that ' +
+    'somebody was asked, and only the side count has earned one');
 
   check('S80', 'and an unanswered one is stored blank, not as a No',
     /outletTimer: fd.get\(.outlet_timer.\) \|\| ..,/.test(idx) &&
@@ -35550,7 +35745,13 @@ suite('Suite 132. Back Next Year neither creates a recycle nor destroys one');
      somebody coming back IN. Both are ways of saying not this season, so moving
      between them changes nothing about whether the lights need collecting. */
   {
-    const a = admin.indexOf("    if(newRsvp === 'no' && oldRsvpForRecycle !== 'no'){");
+    /* ⚠ THE ANCHOR MOVED ON 2026-09-03 (RS-49). This sliced from the branch that set
+       needsLightRecycle when the answer became 'no' — the branch Addie's change removes,
+       because picking an answer should not queue warehouse work. The check below is about
+       the OTHER half, which still stands and still matters: moving between two ways of
+       saying "not this season" must not cancel a collection that is genuinely owed. It
+       now slices from the branch that survives. */
+    const a = admin.indexOf("    if(newRsvp !== 'no' && newRsvp !== 'backnextyear' &&");
     const b = admin.indexOf('/* Rejoining AFTER the recycle', a);
     check('S132', 'the RSVP recycle branch is findable', a !== -1 && b > a);
     if (a !== -1 && b > a) {
@@ -35577,10 +35778,18 @@ suite('Suite 132. Back Next Year neither creates a recycle nor destroys one');
         runRsvp('yes', 'no', true).needsLightRecycle === false,
         'they are in for the season again, so the recycle their no created goes ' +
         'with it — that is what this branch is FOR');
-      check('S132', 'and answering No still raises one',
-        runRsvp('no', 'yes', false).needsLightRecycle === true,
-        'the RSVP is the one place that decides somebody is out, and this is ' +
-        'where the recycle actually belongs');
+      /* ⚠ INVERTED 2026-09-03 (RS-49), and the old claim is kept in view because it was
+         the argument FOR the behaviour Addie has now removed: "the RSVP is the one place
+         that decides somebody is out, and this is where the recycle actually belongs".
+         Her answer is that it does not belong there — picking an option from a list should
+         not queue the warehouse to pull a bundle apart and return a customer number. The
+         recycle keeps its own button, which says what it does.
+         ⚠ THE OFFICE SAVE ONLY. portalRsvp still writes 'no' from an RSVP email, and
+         until PR #308 lands that path still recycles; nothing here touches it. */
+      check('S132', 'and answering No no longer raises one from the office',
+        !('needsLightRecycle' in runRsvp('no', 'yes', false)),
+        'a recycle is physical and irreversible, so it belongs to a button that says ' +
+        'so rather than to an answer in a dropdown');
     }
   }
 
@@ -48617,14 +48826,101 @@ suite('Suite 297. Confirming an undated RSVP actually confirms it');
       key({ rsvpStatus: 'backnextyear' }) === 'maybe', 'got ' + key({ rsvpStatus: 'backnextyear' }));
     check('S297', 'and so does the hand-toggled flag',
       key({ maybeNextYear: true }) === 'maybe', 'got ' + key({ maybeNextYear: true }));
-    check('S297', 'a no reads Maybe Next Year too, not Pending',
-      key({ rsvpStatus: 'no' }) === 'maybe',
+    /* ⚠ THIS ASSERTION USED TO READ 'maybe', AND IT WAS RIGHT AT THE TIME — the
+       point it was making is that a no is NOT Pending, and it still is not. What
+       changed on 2026-09-04 is that a no stopped borrowing Back Next Year's chip to
+       say so. See Suite 303. */
+    check('S297', 'a no is still not Pending',
+      key({ rsvpStatus: 'no' }) !== 'pending',
       'Pending is somebody we want who is blocked; a no is somebody who told us no');
     check('S297', 'nothing on file reads Pending', key({}) === 'pending', 'got ' + key({}));
     check('S297', 'and a brand new hang nobody was ever asked reads Confirmed',
       key({ chargeNewMemberFee: true }) === 'confirmed',
       'we never send them the RSVP, so requiring an answer is a test nobody can pass');
   }
+}
+
+/*
+ * ⭐ SUITE 303. "NO" AND "BACK NEXT YEAR" ARE TWO ANSWERS, NOT ONE BADGE.
+ *
+ * ⚠ NUMBERED 300 BECAUSE A PARALLEL SESSION SHIPPED ITS OWN 298 ON THE SAME DAY —
+ * the fourth time that has happened here (see suites 268 and 269). Both are kept;
+ * theirs was on main first, so this one moved — twice, because a second parallel
+ * session took 300 in the same window. The numbering gate added on 2026-09-04 is what
+ * caught the second collision; it is the reason this is a build failure now and not a
+ * red line nobody can trace back to a suite.
+ *
+ * Addie, 2026-09-04: "when they click no they go to maybe next year but actually we
+ * want them to just go to no for the badge in case we want to send two different
+ * emails for each."
+ *
+ * ⚠ THE DATA WAS NEVER THE PROBLEM. portalRsvp has always written 'no' and
+ * 'backnextyear' as separate statuses, and the Email Tool's RSVP filter has always
+ * offered them as separate audiences — which is exactly the two mail-outs she is
+ * asking for. seasonBadgeKey was the single line that folded them together, so All
+ * Customers showed one yellow chip for two different decisions and the badge could
+ * not be used to tell them apart.
+ *
+ * ⚠ NEITHER OF THEM IS IN THE SEASON, AND THAT MUST NOT MOVE. isOutForSeason is
+ * untouched by this: routing, billing and the warehouse queue see exactly what they
+ * saw before. The last two checks below are the ones that would catch somebody
+ * "simplifying" this into a scheduling change.
+ */
+suite('Suite 303. A flat no gets its own badge');
+{
+  const badge = extractFn(admin, 'seasonBadgeKey');
+  const out = extractFn(admin, 'isOutForSeason');
+  check('S303', 'the badge rule is there to run', !!badge && !!out);
+
+  if (badge && out) {
+    const key = (d) => new Function('d',
+      seasonRuleLiveSrc() +
+      'function audienceNeverAsked(x){ return x && x.chargeNewMemberFee === true; }' +
+      'function houseOwesFromLastSeason(){ return false; }' +
+      out + badge + 'return seasonBadgeKey(d);')(d);
+    const isOut = (d) => new Function('d',
+      seasonRuleLiveSrc() +
+      'function audienceNeverAsked(x){ return x && x.chargeNewMemberFee === true; }' +
+      'function houseOwesFromLastSeason(){ return false; }' +
+      out + 'return isOutForSeason(d);')(d);
+
+    check('S303', 'a no reads No',
+      key({ rsvpStatus: 'no' }) === 'no',
+      'got ' + key({ rsvpStatus: 'no' }) + ' — this is the whole request');
+    check('S303', 'back next year still reads Back Next Year',
+      key({ rsvpStatus: 'backnextyear' }) === 'maybe',
+      'got ' + key({ rsvpStatus: 'backnextyear' }));
+    check('S303', 'and the hand-toggled office flag still reads Back Next Year',
+      key({ maybeNextYear: true }) === 'maybe', 'got ' + key({ maybeNextYear: true }));
+    check('S303', 'the two are different badges, which is what makes two mail-outs possible',
+      key({ rsvpStatus: 'no' }) !== key({ rsvpStatus: 'backnextyear' }),
+      'if these ever collapse again the Season Badge filter can no longer separate them');
+
+    /* ⚠ THE ONE OVERLAP. maybeNextYear is only ever written alongside
+       rsvpStatus 'backnextyear' (pullCustomerFromSeason), so holding the flag while
+       reading 'no' means the office marked them back-next-year and the customer
+       answered no afterwards. The later answer is the one to show. */
+    check('S303', 'a no answered after the office flag still reads No',
+      key({ maybeNextYear: true, rsvpStatus: 'no' }) === 'no',
+      'got ' + key({ maybeNextYear: true, rsvpStatus: 'no' }) +
+      ' — isOutForSeason already rules that the answer decides now');
+
+    check('S303', 'a no is still out for the season', isOut({ rsvpStatus: 'no' }) === true,
+      'this change is a label, not a scheduling change');
+    check('S303', 'and so is back next year',
+      isOut({ rsvpStatus: 'backnextyear' }) === true,
+      'this change is a label, not a scheduling change');
+  }
+
+  /* The chip and the filter have to know the new key, or the badge is a state
+     nothing can draw and nothing can search for. */
+  check('S303', 'All Customers draws a No chip',
+    /badgeKey === 'no'[\s\S]{0,240}>No<\/span>/.test(admin),
+    'seasonBadgeKey can return a key the row has no branch for, and the row would ' +
+    'fall through to Confirmed — the worst possible default for somebody who said no');
+  check('S303', 'and the Season Badge filter can pick them out',
+    /id="allCustFilterSeason"[\s\S]{0,400}<option value="no">/.test(admin),
+    'the filter matches on r.badge, so a key with no option is unreachable from the screen');
 }
 
 /*
@@ -49266,6 +49562,831 @@ suite('299. A referral link, and the $25 that follows it');
   check('S299', 'and the public quote form carries the token it was given',
     /referredByToken: t/.test(idxSrc) && /referralQuoteFields\(\)/.test(idxSrc),
     'without it the link is decoration — nothing on the quote says who sent them');
+}
+
+/*
+ * ⭐ SUITE 299. THE FREE QUOTE ASKS LESS, AND THE PROPERTY LIST OUTLIVES IT.
+ *
+ * Addie, 2026-09-03, in three messages:
+ *   "a lot of info in the free quote shouldnt be there including upload picture and
+ *    side of house, upload picture should not be there and side of house should be in
+ *    detail form, 1 side should be default"
+ *   "also there should keep the option to add another property but make sure there is a
+ *    way to delete the extra property in case they accidentally push on it"
+ *   "also in edit customer we need to have add a building set up there as well in case
+ *    they come around later and want another building"
+ *
+ * ⚠ THE THIRD ONE UNCOVERED A SILENT LOSS THAT PREDATES ALL OF THIS. The quote form has
+ * collected `buildings` for a while and the word did not appear ANYWHERE in admin.html
+ * — so a customer who told us about their shop at quote time had it recorded on the
+ * quote and then dropped the moment they became a customer, with nothing said. Writing
+ * the Edit Customer control is what made that visible, and the carry-across is the half
+ * that pays.
+ */
+suite('Suite 302. The free quote asks less, and the property list outlives it');
+{
+  const idx = read('index.html');
+
+  /* ---- the quote form ---- */
+  check('S302', 'the photo uploader is gone from the quote form',
+    idx.indexOf('id="quoteAddBuildingBtn"') > 0 &&
+    !/<label>Photos<\/label>/.test(idx) &&
+    !/uploadPhotoToCloudinary/.test(idx.replace(/\/\*[\s\S]*?\*\//g, '')),
+    'Addie: "upload picture should not be there" — and a hidden row is how a removed ' +
+    'feature comes back by accident');
+  check('S302', 'and the sides question left it',
+    idx.indexOf('id="quoteSidesRow"') === -1,
+    'asked in front of a stranger deciding whether to ask for a price at all');
+
+  /* ---- the property repeater, which she asked to KEEP ---- */
+  check('S302', 'the extra-property list survives on the quote form',
+    /function addQuoteBuilding\(/.test(idx) && idx.indexOf('id="quoteAddBuildingBtn"') > 0);
+  check('S302', 'and an accidental one can be taken back off',
+    /function removeQuoteBuilding\(building\)/.test(idx) &&
+    /removeBtn\.addEventListener\('click', function\(\)\{ removeQuoteBuilding\(building\); \}\)/.test(idx),
+    '"make sure there is a way to delete the extra property in case they accidentally ' +
+    'push on it"');
+  /* ⚠ THE ROW MUST LEAVE THE ARRAY, NOT JUST THE PAGE. Taking the element out alone
+     leaves the object in quoteBuildings, so the submit still sends a building the
+     customer can no longer see — and reads its detached input as a BLANK one. */
+  const rm = extractFn(idx, 'removeQuoteBuilding') || '';
+  check('S302', 'removing one drops it from the payload too',
+    /quoteBuildings\.splice\(at, 1\)/.test(rm) && /removeChild/.test(rm),
+    'the page and the array are two places, and only one of them is submitted');
+  check('S302', 'and the main house can never be removed',
+    /if\(!building \|\| building\.isMain\) return;/.test(rm) &&
+    /if\(!building\.isMain\)\{/.test(idx),
+    'a quote with no house is not a quote — guarded on the button AND in the function, ' +
+    'because the button is only half a rule');
+  check('S302', 'a nameless extra building is not submitted at all',
+    /\.filter\(function\(b\)\{ return b\.isMain \|\| b\.name; \}\)/.test(idx),
+    'somebody who presses Add and leaves the box blank would otherwise send the office ' +
+    'a building nobody can ask about');
+
+  /* ---- the sides question, on its new form ---- */
+  check('S302', 'the details form asks it instead', idx.indexOf('id="qdSidesRow"') > 0);
+  check('S302', 'with one side pre-picked',
+    /name="house_sides" value="1" checked/.test(idx),
+    'Addie: "1 side should be default"');
+  check('S302', 'and the answer is actually sent',
+    /houseSides: portalSideCount\(fd\.get\('house_sides'\)\)/.test(idx));
+  /* ⚠ THE SERVER IS THE HALF THAT WOULD FAIL SILENTLY. quoteSaveDetails keeps a
+     whitelist and the emailed-link path — the common one — goes through it, so a field
+     the browser sends and the function drops is lost with nothing wrong on screen. */
+  const fns = read('functions/index.js');
+  check('S302', 'and the server accepts it, clamped',
+    /houseSides: Math\.min\(4, Math\.max\(1, parseInt\(details\.houseSides, 10\) \|\| 1\)\)/.test(fns),
+    'not on the whitelist, the answer is dropped by the Cloud Function and nobody is ' +
+    'told; unclamped, a zero would price a house with no roofline');
+
+  /* ⚠ AND NOTHING IS STAMPED ON A QUOTE NOBODY HAS ASKED YET. */
+  const quoteSubmit = (idx.split("quoteFormEl.addEventListener('submit'")[1] || '').split('quoteDetailFormEl')[0];
+  check('S302', 'a fresh quote carries no side count at all',
+    !/houseSides:/.test(quoteSubmit),
+    'writing 1 here would stamp an answer on a quote nobody has been asked — the same ' +
+    'fault S62 already guards on the two admin forms');
+
+  /* ---- Edit Customer ---- */
+  check('S302', 'Edit Customer can add a building',
+    admin.indexOf('id="editCustAddBuildingBtn"') > 0 &&
+    admin.indexOf('id="editCustBuildings"') > 0,
+    '"in case they come around later and want another building"');
+  check('S302', 'and remove one',
+    /function editCustBuildingRow\(name\)/.test(admin) && /removeChild\(row\)/.test(admin));
+  check('S302', 'the list is refilled from the record on every open',
+    /editCustFillBuildings\(d\.buildings\)/.test(admin) &&
+    /wrap\.innerHTML = '';/.test(extractFn(admin, 'editCustFillBuildings') || ''),
+    'the house-tab strip repoints this form at a sibling without closing it, so a list ' +
+    'that appended would show the previous house underneath this one');
+  check('S302', 'and it is saved with the record',
+    /buildings: newBuildings/.test(admin) &&
+    /const newBuildings = editCustReadBuildings\(\);/.test(admin));
+  /* ⚠ THE ADD BUTTON IS BOUND ONCE. openEditCustomerModal runs on every open, so
+     binding there would add a listener per open and one press would append a row per
+     customer opened this session — the Inbox sidebar shipped exactly that (2815 writes
+     from one drop). */
+  /* ⚠ THE WIRING SITS INSIDE openEditCustomerModal, which runs on every open, so the
+     GUARD is the whole mechanism — not where the code lives. The first version of this
+     check asserted the opposite (that the wiring was outside that function) and failed
+     on correct code, which is how the comment above it came to be corrected too. */
+  const openSrc = extractFn(admin, 'openEditCustomerModal') || '';
+  check('S302', 'the Add button cannot be wired twice',
+    /if\(editCustAddBuildingBtnEl && !editCustAddBuildingBtnEl\.dataset\.wired\)\{/.test(openSrc) &&
+    /editCustAddBuildingBtnEl\.dataset\.wired = '1';/.test(openSrc),
+    'this runs on every open — unguarded, one press of Add appends a row per customer ' +
+    'looked at this session, which is the 2815-write Inbox bug in a new place');
+
+  /* ---- the silent loss this uncovered ---- */
+  check('S302', "a quote's buildings now follow the customer",
+    /buildings: addCustBuildingsFromQuote\(\)/.test(admin) &&
+    !!extractFn(admin, 'addCustBuildingsFromQuote'),
+    'before this they were written onto the quote and dropped on conversion, with ' +
+    'nothing anywhere reading them');
+  const carry = extractFn(admin, 'addCustBuildingsFromQuote') || '';
+  check('S302', 'and the main house is not carried across as one of them',
+    /isMain === true/.test(carry) && /main house/i.test(carry),
+    'on a quote the main house IS one of the buildings; on a customer the record is ' +
+    'the main house, so carrying it lists the same address twice');
+
+  /* ---- the field is declared, which is what gives it a reader ---- */
+  check('S302', 'buildings is labelled, so an edit to it shows in the history',
+    /buildings: \{label: 'Other buildings', kind: 'buildings'\}/.test(admin),
+    'CLAUDE.md §1 — written, read AND declared. The change-log gate is what asked.');
+  /* ⚠ NOT kind 'list'. These are objects, so join() prints [object Object] into
+     somebody's history — worse than no entry, because it still looks like one. */
+  /* ⚠ changeValueText, NOT a name I assumed. The first draft guessed at
+     customerFieldWords, found nothing, and the two checks below SKIPPED — green, and
+     proving nothing at all about the rendering they exist for. */
+  /* ⚠ changeValueText(v, kind) — VALUE FIRST. Called the other way round it answers for
+     the string "buildings" rather than for the list, which is a pass or a fail decided
+     by nothing to do with the code under test. */
+  const words = new Function('kind', 'v',
+    'const fmtMoney = function(x){ return String(x); };' +
+    (extractFn(admin, 'changeValueText') || 'function changeValueText(){}') +
+    'return changeValueText(v, kind);');
+  check('S302', 'the history renderer was found to run',
+    /function changeValueText/.test(admin),
+    'without it the two checks below skip silently and prove nothing');
+  if (/function changeValueText/.test(admin)) {
+    check('S302', 'and it renders as the names, not as [object Object]',
+      words('buildings', [{name: 'Shop'}, {name: 'Guest house'}]) === 'Shop, Guest house',
+      'got ' + JSON.stringify(words('buildings', [{name: 'Shop'}, {name: 'Guest house'}])));
+    /* ⚠ TWO DIFFERENT FACTS, AND THE FILE ALREADY TOLD THEM APART — my first draft of
+       this check asserted they were the same and failed on correct code. A field that
+       was NEVER SET reads "(blank)" through changeValueText's general blank test, which
+       runs before the per-kind branches; a list that HAD buildings and now has none
+       reads "(none)". In a history those say different things: nobody ever recorded one,
+       versus somebody took the last one off. Flattening them would hide the removal,
+       which is the entry most worth reading. */
+    check('S302', 'an emptied list says none, and a never-set one says blank',
+      words('buildings', []) === '(none)' && words('buildings', undefined) === '(blank)',
+      'got ' + JSON.stringify([words('buildings', []), words('buildings', undefined)]) +
+      ' — "nobody ever listed one" and "somebody removed the last one" are different ' +
+      'entries, and the second is the one worth reading');
+  }
+}
+
+/*
+ * ⭐ SUITE 298. "NO" IS OFF THE OFFICE DROPDOWN, AND STILL UNDERSTOOD EVERYWHERE.
+ *
+ * Addie, 2026-09-03: "we can just get rid of the no under rsvp because it means the same
+ * thing as back next year."
+ *
+ * ⚠ THEY DID NOT MEAN THE SAME THING. Picking No set needsLightRecycle — the warehouse
+ * queued to pull that customer's bundle apart and hand their number back — while Back
+ * Next Year deliberately never does (RS-05). One entry in a list of answers also started
+ * physical, irreversible work, which is why removing it is the right change and not
+ * merely the requested one: the recycle is already a button that says what it does.
+ *
+ * THREE THINGS TO HOLD, and the second is the one that would lose data:
+ *   - the office cannot CHOOSE no, and choosing an answer no longer queues a recycle;
+ *   - the VALUE 'no' is still written by portalRsvp and still read by everything;
+ *   - a record that already says 'no' lands on a real option in the form, because a
+ *     <select> set to a value it has no option for shows BLANK — which reads as
+ *     "Pending (never asked)" — and the next save writes that blank over their answer.
+ */
+suite('Suite 301. No is off the office dropdown, and still understood everywhere');
+{
+  /* The dropdown itself — sliced to the select, so the Members-tab FILTER (which keeps
+     its own No option, deliberately) cannot satisfy or break these. */
+  const selAt = admin.indexOf('<select id="editCustRsvp">');
+  const sel = selAt === -1 ? '' : admin.slice(selAt, admin.indexOf('</select>', selAt));
+  check('S301', 'the RSVP dropdown is findable', !!sel);
+
+  check('S301', 'No is not offered to the office', !/value="no"/.test(sel),
+    'choosing it is what queued the warehouse to take a bundle apart');
+  check('S301', 'and the answers that remain are still there',
+    /value="yes"/.test(sel) && /value="backnextyear"/.test(sel) &&
+    /value="unanswered"/.test(sel) && /value=""/.test(sel),
+    'removing one option must not take the others with it');
+
+  /* ⚠ THE FILTER IS A DIFFERENT CONTROL AND MUST KEEP ITS No. Those records exist —
+     portalRsvp writes them — and a filter that cannot name them cannot find them. */
+  const fltAt = admin.indexOf('id="etFilterRsvp"');
+  const flt = fltAt === -1 ? '' : admin.slice(fltAt, admin.indexOf('</select>', fltAt));
+  check('S301', 'the Members filter still offers No', /value="no"/.test(flt),
+    'a customer who answered No in an email still has to be findable');
+
+  /* Choosing an answer no longer starts warehouse work. */
+  const save = (admin.split('const oldRsvpForRecycle')[1] || '').split('const rejoinedAfterRecycle')[0];
+  check('S301', 'the customer save is findable', !!save.trim());
+  check('S301', 'picking an answer never queues a recycle',
+    !/newRsvp === 'no'[\s\S]{0,120}needsLightRecycle = true/.test(save),
+    'that branch is what made the two answers different, and with No unpickable it ' +
+    'could never fire again — dead code that still looks like the rule');
+  /* ⚠ AND THE UNDO HALF STAYS. A record that already says no, being brought back into
+     the season, must still have its queued recycle cancelled. */
+  /* ⚠ COMMENTS STRIPPED FIRST. A 460-character note explaining the branch sits between
+     the two lines, and a fixed-length window across it is the slow fuse CLAUDE.md §7 bans
+     by name — it fails on correct code the moment the prose grows. Suites 58, 274 and 275
+     each learned this separately; this check learned it on its first run. */
+  const saveCode = save.replace(/\/\*[\s\S]*?\*\//g, '');
+  check('S301', 'but coming back in still cancels a queued recycle',
+    /oldRsvpForRecycle === 'no' && item\.data\.needsLightRecycle\)\{\s*addrUpdates\.needsLightRecycle = false/.test(saveCode),
+    'portalRsvp still writes no, so records in that state still arrive here');
+
+  /* ⚠ THE ONE THAT WOULD LOSE DATA, AND IT LOSES DIFFERENT DATA NOW (2026-09-04).
+     This used to assert `storedRsvp === 'no' ? 'backnextyear'` — showing a stored No as
+     Back Next Year, on the reasoning that "the two are already one answer everywhere
+     that reads them". RS-50 ends that premise: they are two answers on the badge, and
+     they are two audiences in the Email Tool. So the normalisation stopped being free
+     and became the bug — opening a No customer to correct a phone number and pressing
+     Save moved them onto the wrong mail-out, silently.
+     ⚠ THE ORIGINAL FAULT IS STILL REAL AND STILL GUARDED: a <select> set to a value it
+     has no option for shows BLANK, which reads as "Pending (never asked)". The answer is
+     to SHOW the value without OFFERING it — an option added at open time and disabled,
+     so the record reads true and RS-49 still holds: the office cannot choose No. */
+  /* ⚠ COMMENTS STRIPPED, because the note above that code QUOTES the expression this
+     asserts is gone — so the check read its own explanation as the violation and failed
+     on correct code the first time it ran. Suites 58, 274 and 275 each learned this. */
+  const open = (extractFn(admin, 'openEditCustomerModal') || '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  check('S301', 'a stored no is no longer rewritten as back next year',
+    !/storedRsvp === 'no' \? 'backnextyear'/.test(open),
+    'an ordinary save would move them onto the other mail-out without anybody deciding');
+  check('S301', 'a stored no is shown rather than left blank',
+    /storedRsvp === 'no'/.test(open) && /appendChild\(rsvpNoOpt\)/.test(open),
+    'blank reads as "Pending (never asked)", which is the state it exists to be told from');
+  check('S301', 'and it is shown DISABLED, so the office still cannot choose it',
+    /rsvpNoOpt[\s\S]{0,200}disabled = true/.test(open),
+    'RS-49 stands — choosing No is what queued the warehouse to take a bundle apart');
+
+  /* ---- and the readers, RUN rather than read ---- */
+  const badge = extractFn(admin, 'seasonBadgeKey');
+  const out = extractFn(admin, 'isOutForSeason');
+  if (badge && out) {
+    const key = (d) => new Function('d',
+      seasonRuleLiveSrc() +
+      'function audienceNeverAsked(x){ return x && x.chargeNewMemberFee === true; }' +
+      'function houseOwesFromLastSeason(){ return false; }' +
+      out + badge + 'return seasonBadgeKey(d);')(d);
+    const isOut = (d) => new Function('d',
+      seasonRuleLiveSrc() +
+      'function audienceNeverAsked(x){ return x && x.chargeNewMemberFee === true; }' +
+      'function houseOwesFromLastSeason(){ return false; }' +
+      out + 'return isOutForSeason(d);')(d);
+
+    /* ⚠ THE VALUE STILL ARRIVES FROM THE RSVP EMAIL, so every reader must still know it.
+       THAT is what these two checks are for, and it has not changed. What changed on
+       2026-09-04 is the KEY the badge lands on — Addie asked for No and Back Next Year to
+       be told apart there so the two follow-up emails have something to aim at (RS-50,
+       superseding RS-49's "it means the same thing as back next year"). This suite's own
+       subject, the office dropdown, is untouched by that: she still cannot CHOOSE No. */
+    check('S301', 'a stored no is still understood by the badge',
+      key({ rsvpStatus: 'no' }) === 'no', 'got ' + key({ rsvpStatus: 'no' }));
+    check('S301', 'and is still out of the season',
+      isOut({ rsvpStatus: 'no' }) === true,
+      'dropping the option must not drop the rule — portalRsvp still writes this');
+    /* ⚠ THIS ONE USED TO ASSERT THE BADGES MATCHED TOO, and that half is now RS-50's
+       to answer. The half that made REMOVING THE OPTION SAFE is the season, not the
+       chip: both answers are out, so nothing the office can no longer choose changes
+       who gets a crew. That is the claim, and it is the one kept. */
+    check('S301', 'and back next year is out of the season identically, which is what made the removal safe',
+      isOut({ rsvpStatus: 'backnextyear' }) === isOut({ rsvpStatus: 'no' }),
+      'she said they mean the same thing; where the SEASON reads them, they still do');
+    check('S301', 'but the two no longer share a badge',
+      key({ rsvpStatus: 'backnextyear' }) !== key({ rsvpStatus: 'no' }),
+      'RS-50 — if these ever collapse again the two mail-outs have nothing to aim at');
+  }
+
+  /* ⚠ THE CAPABILITY IS NOT LOST — this is the check that makes the removal safe. */
+  check('S301', 'the recycle is still a button of its own',
+    /editCustRecycleStayBtn/.test(admin) &&
+    /needsLightRecycle: true[\s\S]{0,80}recycleKeepingCustomer: true/.test(admin),
+    'if this ever goes, removing No really would take away the office\'s only way to ' +
+    'send a set back, and that is the whole reason this change is safe');
+
+  /* ⚠ AND THE EXCEL DESTINATION NEVER READ THE RSVP ANSWER ANYWAY. Checked because it
+     is what would have made this change wrong: the Recycle sheet keys on the flag. */
+  const tabsAt = admin.indexOf('const HLX_STATE_TABS');
+  const tabs = tabsAt === -1 ? '' : sectionFrom(admin, tabsAt);
+  check('S301', 'the Recycle sheet keys on the flag, not on the answer',
+    /tab: "Recycle"[\s\S]{0,400}return !!d\.needsLightRecycle;/.test(tabs),
+    'if it keyed on the RSVP answer, removing the option would silently empty that sheet');
+  check('S301', 'and Contact 2027 still takes back-next-year',
+    /tab: "Contact 2027"[\s\S]{0,600}backnextyear/.test(tabs));
+}
+
+/* ============================================================================
+ * ⭐ THE THREE THINGS THAT MOVE SOMEBODY UP A SEASON (added 2026-09-03).
+ *
+ * Owner, in one message: "we need it to see the weather in the area and prioritize
+ * warmer temperatures and a rule is dont schedule for an area 35 degrees or lower
+ * unless there is no area that wants to be hung in that time that is warmer than
+ * that, anyone that was scheduled for a day but didnt get done should take higher
+ * priority for where needs to be routed and also we should be able to manually add
+ * priority to specific customers if they directly ask if they can be hung sooner
+ * than later, all of these should fall under the recalculate everything button."
+ *
+ * And, in the same breath, the two limits that matter more than any of them:
+ * "dont do someone in a month they dont want to be hung though and dont make a
+ * route that is 100 miles longer because you were to worried about priority."
+ *
+ * ⚠ EVERY CLAIM HERE IS ABOUT WHICH TOWN A CREW IS SENT TO OR WHO IS AT THE FRONT
+ * OF A QUEUE, so this suite RUNS the real planNewCrewDays and the real
+ * houseInstallPriority rather than matching their source. A regex cannot see an
+ * ordering. What is matched as text is only the WIRING — the handful of places a
+ * merge could silently drop the argument that carries the forecast in, which is
+ * exactly the failure this file records against admin.html three times over.
+ * ==========================================================================*/
+suite('300. The forecast, a missed day, and a customer moved up by hand');
+{
+  const fn = (name) => {
+    const i = admin.indexOf('function ' + name + '(');
+    if (i === -1) return null;
+    let d = 0;
+    for (let j = admin.indexOf('{', i); j < admin.length; j++) {
+      if (admin[j] === '{') d++;
+      else if (admin[j] === '}') { d--; if (!d) return admin.slice(i, j + 1); }
+    }
+    return null;
+  };
+  /* ⚠ COMMENTS COME OFF BEFORE ANY TEXT CHECK BELOW IS ASKED, which is a rule this
+     file has already learned three times (Suites 58, 274, 275). Every rule here is
+     EXPLAINED in a comment a line or two above the code carrying it, so a plain search
+     finds the explanation, reads it as the implementation, and passes over code that
+     has been deleted. Measured on 2026-09-03: five of these checks were green against
+     a page with the thing they test taken out. */
+  const bare = (t) => String(t || '')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/.*/g, '$1 ');
+
+  // ---------------------------------------------------------------- the rule
+  {
+    const cold = (admin.match(/const COLD_DAY_MAX_F = (\d+);/) || [])[1];
+    const band = (admin.match(/const WARMTH_BAND_F = (\d+);/) || [])[1];
+    check('S300', 'the cutoff the owner named is written down once, as 35',
+      cold === '35', 'got ' + cold + " — owner: '35 degrees or lower'");
+    check('S300', 'and warmth is compared in ten-degree bands',
+      band === '10',
+      'a smaller band lets a degree of noise overrule "the town with the most houses waiting"');
+
+    /* ⚠ THE BUILDER KEEPS ITS OWN COPY OF BOTH NUMBERS as opts defaults, because it is
+       PURE and the suites lift it on its own. rebuildSeasonDays passes the real ones in.
+       Two numbers in two places is exactly the shape that drifts, so this is the check
+       that says they still agree — the same job money-parity does for the invoice. */
+    const plan = admin.slice(admin.indexOf('function planNewCrewDays(waiting, taken, opts)'),
+                             admin.indexOf('/* Top every day up to the cap.'));
+    const fbCold = (plan.match(/o\.coldBelow === 'number' \? o\.coldBelow : (\d+)/) || [])[1];
+    const fbBand = (plan.match(/o\.warmBand > 0 \? o\.warmBand : (\d+)/) || [])[1];
+    check('S300', "the builder's own fallback numbers agree with the constants",
+      fbCold === cold && fbBand === band,
+      'builder falls back to ' + fbCold + '/' + fbBand + ', the page says ' + cold + '/' + band +
+      ' — a lifted copy would then test a rule the live plan does not use');
+  }
+
+  // ------------------------------------------------- the builder, run for real
+  const planStart = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const planEnd = admin.indexOf('/* Top every day up to the cap.', planStart);
+  check('S300', 'the day builder is findable', planStart !== -1 && planEnd > planStart,
+    'renamed or removed — update this test rather than deleting it');
+
+  if (planStart !== -1 && planEnd > planStart) {
+    const api = eval(
+      'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");}\n' +
+      'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+      'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}\n' +
+      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
+      /* ⚠ LEFT EMPTY ON PURPOSE, like Suite 22's. These fixtures test the MEASURED
+         neighbour rule, and a typed-in list overrides it wholesale. */
+      'let NEARBY_TOWN_LIST={};' + phantomTownSrc() + fn('sameTownName') +
+      fn('townCentres') + '\n' + fn('nearbyTowns') + '\n' + fn('installPriority') + '\n' +
+      admin.slice(planStart, planEnd) +
+      '\n;({plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE})');
+
+    /* Two towns twenty-two miles apart, so neither can ever borrow from the other and
+       every difference below is the town PICK rather than the top-up. */
+    const at = { Draper: [40.524, -111.863], Lehi: [40.391, -111.851] };
+    const town = (city, n, priority) => Array.from({ length: n }, (_, i) => ({
+      id: city + '-' + i, city: city, priority: priority == null ? 2 : priority,
+      from: '2026-10-01', stop: { lat: at[city][0], lng: at[city][1] }
+    }));
+    /* ONE crew, deliberately. With two, both towns are worked on day one and the veto
+       has nothing to choose between — the fixture would pass whatever the code did. */
+    const build = (waiting, temps) => api.plan(waiting, {}, {
+      floorDate: '2026-10-01', maxDays: 6, crews: 1, pack: false,
+      tempFor: temps ? function (city, ds) {
+        const r = temps[city];
+        return r == null ? null : (typeof r === 'object' ? (r[ds] == null ? null : r[ds]) : r);
+      } : undefined
+    });
+
+    /* ⭐ THE BASELINE THAT MAKES EVERY CHECK BELOW MEAN SOMETHING. Equal urgency, equal
+       size, no forecast — so the pick falls to the alphabetical tiebreak and Draper
+       wins. Every flip after this is the weather doing it and nothing else. */
+    const plain = build(town('Draper', 20).concat(town('Lehi', 20)));
+    check('S300', 'with no forecast the plan is unchanged — the alphabetical tiebreak still decides',
+      plain.length && plain[0].date === '2026-10-01' && plain[0].city === 'Draper',
+      'got ' + (plain[0] && plain[0].city) + ' on ' + (plain[0] && plain[0].date) +
+      ' — most of the season has no forecast at all and must lay out exactly as before');
+
+    /* ⭐ THE VETO. Owner: "dont schedule for an area 35 degrees or lower unless there is
+       no area that wants to be hung in that time that is warmer than that."
+
+       ⚠ BOTH TOWNS SIT IN THE SAME TEN-DEGREE BAND, and that is what makes this check
+       mean anything. With 30 against 45 the WARMTH tiebreak picks Lehi on its own, so
+       deleting the veto entirely leaves the fixture green — measured, in the red-check,
+       on the day it was written. 34 against 39 is one band, so the tiebreak has nothing
+       to say and only the veto can move the crew. */
+    const veto = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 34, Lehi: 39 });
+    check('S300', 'a town at 34° is skipped while a warmer town has anybody waiting',
+      veto.length && veto[0].city === 'Lehi',
+      'got ' + (veto[0] && veto[0].city) + ' — this is the whole rule, and Draper wins the ' +
+      'same fixture without a forecast, so nothing but the temperature moved it');
+    check('S300', 'and the freezing town still gets its day, later',
+      veto.some(d => d.city === 'Draper'),
+      'the cold rule reorders the season; it must never drop a town out of it');
+
+    /* ⚠ EXACTLY AT THE CUTOFF IS COLD. "35 degrees or lower" — a rule written as < would
+       send a crew out on the one day she named. Same band on both sides, same reason. */
+    const edge = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 35, Lehi: 39 });
+    check('S300', '35° itself counts as too cold, not just below it',
+      edge.length && edge[0].city === 'Lehi',
+      "owner said '35 degrees or lower', so the cutoff is inclusive");
+    /* ⚠ AND THE SAME FIXTURE ONE DEGREE THE OTHER SIDE. */
+    const warm = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 36, Lehi: 39 });
+    check('S300', 'and 36° is an ordinary day, so the alphabetical tiebreak returns',
+      warm.length && warm[0].city === 'Draper',
+      'got ' + (warm[0] && warm[0].city) + ' — one degree above the cutoff is not a veto, ' +
+      'and a rule that crept upwards would quietly re-order the whole autumn');
+
+    /* ⭐ THE "UNLESS". This is the half that keeps the season moving: when everybody left
+       is freezing, the crew goes out anyway. A version that simply refused would stall
+       the calendar for a week and look exactly like the builder being broken. */
+    const unless = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 20, Lehi: 34 });
+    check('S300', 'when every town is freezing a day is still built, and on the first date',
+      unless.length && unless[0].date === '2026-10-01' && unless[0].ids.length === 20,
+      'got ' + JSON.stringify(unless[0] && { d: unless[0].date, n: unless[0].ids.length }) +
+      " — owner's 'unless there is no area that wants to be hung in that time that is warmer'");
+    check('S300', 'and among freezing towns the least freezing goes first',
+      unless.length && unless[0].city === 'Lehi',
+      '34° and 20° are two bands apart, which is a genuinely different morning');
+
+    /* ⭐ AND THE LIMIT SHE PUT ON ALL OF IT: "dont make a route that is 100 miles longer
+       because you were to worried about priority." Warmth sits BELOW how full a day the
+       town can make, so it can never trade a full crew-day for a warmer short one. */
+    const fill = build(town('Draper', 20).concat(town('Lehi', 5)), { Draper: 45, Lehi: 75 });
+    check('S300', 'warmth never buys a short day — the town that fills the day still wins',
+      fill.length && fill[0].city === 'Draper' && fill[0].ids.length === 20,
+      'got ' + (fill[0] && fill[0].city) + ' with ' + (fill[0] && fill[0].ids.length) +
+      ' — Lehi is three bands warmer and holds five houses; taking it is an extra morning');
+
+    /* And below urgency, which is the whole timing spec and is absolute. */
+    const urg = build(town('Draper', 20, 1).concat(town('Lehi', 20, 4)), { Draper: 40, Lehi: 75 });
+    check('S300', 'and warmth never overrules urgency — October is emptied first, cold or not',
+      urg.length && urg[0].city === 'Draper',
+      'got ' + (urg[0] && urg[0].city) + " — owner, 2026-08-18: 'we need to get everyone " +
+      "who requested Oct done in Oct none in November'");
+
+    /* ⚠ A DEGREE MUST NOT DECIDE ANYTHING. Two towns on the Wasatch Front on one day sit
+       within a degree or two of each other; if that flipped the pick, the head-count rule
+       the whole season is built on would be overruled by forecast noise. */
+    const noise = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 44, Lehi: 45 });
+    check('S300', 'one degree warmer does not move a crew — the bands are what stop noise deciding',
+      noise.length && noise[0].city === 'Draper',
+      'got ' + (noise[0] && noise[0].city) + ' — 44 and 45 are the same kind of day');
+
+    /* ⚠ AND A FORECAST THAT KNOWS NOTHING IS NOT A COLD FORECAST. Open-Meteo answers about
+       sixteen days and the season runs into December, so this is the common case, not an
+       edge one — failing the other way would veto the whole back half of the calendar. */
+    const blind = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: null, Lehi: null });
+    check('S300', 'a town nobody has a forecast for is treated as "no opinion", never as cold',
+      JSON.stringify(blind.map(d => d.city + '@' + d.date)) ===
+      JSON.stringify(plain.map(d => d.city + '@' + d.date)),
+      'an all-null forecast must give byte-for-byte the plan a forecast-free build gives');
+    /* ⚠ AND ONE UNKNOWN TOWN BESIDE A KNOWN ONE, which is the case an all-null fixture
+       cannot reach: the comparison has to SKIP warmth when either side is unknown rather
+       than scoring the unknown one as freezing. A town whose houses carry no map pin has
+       no centre to ask about, and it must not be sent to the back of the season for it. */
+    const half = build(town('Draper', 20).concat(town('Lehi', 20)), { Lehi: 75 });
+    check('S300', 'and it is not quietly ranked below a town that does have one',
+      half.length && half[0].city === 'Draper',
+      'got ' + (half[0] && half[0].city) + ' — Lehi is the only town with a number, and ' +
+      'letting that alone win means every unmapped town waits for the mapped ones');
+
+    /* ⚠ AND IT IS PER DATE, not per town. A cold snap on the Thursday must not push a town
+       out of the Friday as well. */
+    const snap = build(town('Draper', 40).concat(town('Lehi', 20)),
+      { Draper: { '2026-10-01': 25 }, Lehi: { '2026-10-01': 50 } });
+    check('S300', 'a cold Thursday does not make a town cold all season',
+      snap.length > 1 && snap[0].city === 'Lehi' && snap[1].city === 'Draper',
+      'got ' + JSON.stringify(snap.slice(0, 2).map(d => d.city + '@' + d.date)) +
+      ' — the forecast is looked up date by date, so the veto lifts with the weather');
+  }
+
+  // ------------------------------------------- who is at the front of the queue
+  {
+    const pri = fn('houseInstallPriority');
+    const missSrc = fn('houseMissedDays') + fn('houseMissedCount') + fn('markHouseMissed') +
+      fn('isRushInstall');
+    check('S300', 'the ordering and the missed-day helpers are findable',
+      !!pri && !!fn('houseMissedDays') && !!fn('houseMissedCount') && !!fn('markHouseMissed') &&
+      !!fn('isRushInstall'));
+
+    if (pri && missSrc) {
+      const sb = {};
+      new Function('BASE_START',
+        fn('prefSpecificDate') + missSrc + pri +
+        'this.p = houseInstallPriority; this.mark = markHouseMissed; ' +
+        'this.days = houseMissedDays; this.count = houseMissedCount; this.rush = isRushInstall;'
+      ).call(sb, new Date(2026, 9, 1));
+      const p = sb.p;
+      const OLD = { chargeNewMemberFee: false };
+      const NEW = { chargeNewMemberFee: true };
+      const RUSH = { rushInstall: true };
+      const missed = (pref) => ({ pref: pref || '', missedDays: ['2026-10-06'] });
+
+      /* ⭐ MOVED UP BY HAND. Owner: "we should be able to manually add priority to specific
+         customers if they directly ask if they can be hung sooner than later." */
+      check('S300', 'the office moving somebody up puts them ahead of everybody',
+        p({ pref: '' }, RUSH) < p({ pref: 'OCT' }, NEW) &&
+        p({ pref: '' }, RUSH) < p({ pref: 'OCT' }, OLD) &&
+        p({ pref: 'NOV' }, RUSH) < p({ pref: '' }, OLD),
+        'an override that cannot override the automatic rule is not an override');
+      check('S300', 'and the flag is the same one the nightly sweep reads',
+        /rushInstall === true/.test(bare(pri)) && /rushInstall === true/.test(bare(fn('installPriority'))),
+        'two definitions of "asked to go sooner" would let Recalculate everything and the ' +
+        'sweep disagree about who is in a hurry');
+      /* ⚠ THE HALF THAT MATTERS MORE. Owner, in the same breath: "dont do someone in a month
+         they dont want to be hung though." The month is houseAllowedFrom's job and this must
+         not touch it — a rush that moved somebody's month would be the one outcome she ruled
+         out while asking for the feature. */
+      check('S300', 'but it never touches the month they asked for',
+        !/rushInstall/.test(bare(fn('houseAllowedFrom'))),
+        'houseAllowedFrom is what holds a November customer to November; the rush flag ' +
+        'decides the ORDER once they are allowed out, and nothing else');
+
+      /* ⭐ A DAY THEY WERE PROMISED THAT DID NOT HAPPEN. Owner: "anyone that was scheduled
+         for a day but didnt get done should take higher priority for where needs to be
+         routed." To the front of their own tier — never out of it. */
+      check('S300', 'a house the crew missed goes ahead of its equals',
+        p(missed(''), OLD) < p({ pref: '' }, OLD) &&
+        p(missed('OCT'), OLD) < p({ pref: 'OCT' }, OLD) &&
+        p(missed('NOV'), OLD) < p({ pref: 'NOV' }, OLD),
+        'being driven past is a reason to go first among your equals');
+      check('S300', 'and never out of its tier — a missed Any still waits behind October',
+        p(missed(''), OLD) > p({ pref: 'OCT' }, OLD),
+        'a missed morning is not a reason to be given a month somebody else asked for');
+      check('S300', 'a missed October house still sits behind a new hang',
+        p(missed('OCT'), OLD) > p({ pref: '' }, NEW),
+        "owner, 2026-08-17: 'the very top priority is new hangs'");
+      check('S300', 'and behind somebody the office moved up by hand',
+        p(missed('OCT'), OLD) > p({ pref: '' }, RUSH));
+      /* ⚠ THE SPACING IS WHAT MAKES ALL OF THAT TRUE. Tiers one apart leave nowhere to put
+         a bump, so the only way up is into the next tier — which is precisely the two
+         failures checked above. */
+      check('S300', 'the tiers are spaced far enough apart to hold a bump',
+        (p({ pref: '' }, OLD) - p({ pref: 'OCT' }, OLD)) > (p({ pref: '' }, OLD) - p(missed(''), OLD)),
+        'the gap between two tiers must be bigger than the bump, or the bump jumps a tier');
+
+      /* ⚠ DATES, NOT A COUNTER. Recalculate everything gets pressed twice in a row and Undo
+         puts the plan back so it can be pressed again; a counter would climb every time and
+         turn one missed morning into a customer who outranks the book. */
+      const h = { pref: '' };
+      sb.mark(h, '2026-10-06');
+      sb.mark(h, '2026-10-06');
+      sb.mark(h, '2026-10-06');
+      check('S300', 'recording the same missed day three times is still one miss',
+        sb.count(h) === 1, 'got ' + sb.count(h) + ' — pressing Recalculate twice must cost nothing');
+      sb.mark(h, '2026-10-13');
+      check('S300', 'but a second missed day counts, and they sort earliest first',
+        sb.count(h) === 2 && sb.days(h)[0] === '2026-10-06',
+        'somebody the crew has driven past twice goes before somebody they missed once');
+      check('S300', 'and rubbish coming back off a saved plan is ignored rather than trusted',
+        sb.mark({}, 'yesterday') === false && sb.mark({}, '') === false &&
+        sb.count({ missedDays: 'nope' }) === 0 && sb.count({ missedDays: ['x', '2026-10-06'] }) === 1,
+        'this rides in the plan document and comes back out of Firestore and out of imported CSVs');
+      check('S300', 'the rush flag is read strictly, so an imported "false" does not light it',
+        sb.rush({ rushInstall: true }) === true && sb.rush({ rushInstall: 'false' }) === false &&
+        sb.rush({}) === false && sb.rush(null) === false);
+    }
+  }
+
+  // ------------------------------------------------ the rebuild, run for real
+  {
+    const need = ['seasonStartDate', 'houseAllowedFrom', 'houseInstallPriority', 'rebuildSeasonDays'];
+    const planStart2 = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+    const planEnd2 = admin.indexOf('/* Top every day up to the cap.', planStart2);
+    if (need.every(n => !!fn(n)) && planStart2 !== -1) {
+      const at = { Lehi: [40.391, -111.851], Draper: [40.524, -111.863] };
+      const ctx = {};
+      /* ⚠ THE SAME SANDBOX SUITE 28 USES, plus the four helpers this work added and a
+         stubbed forecast. Stubbed ONLY for the two forecast READERS, which are the network
+         side; every rule under test is the real lifted code. */
+      const src =
+        'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");}' +
+        'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+        'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}' +
+        'function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}' +
+        'function isWeekend(d){const k=d.getDay();return k===0||k===6;}' +
+        'function isDayOff(d){return isWeekend(d);}' +
+        'function isoOf(d){return toDateStr(d);}' +
+        'function daysBetween(a,b){return Math.round((a-b)/86400000);}' +
+        'function mdToDate(md){const p=(""+md).split("-").map(Number);return new Date(2026,p[0]-1,p[1]);}' +
+        'function extractCleanCity(c){return (""+(c==null?"":c)).trim();}' +
+        'function customerForHouse(h){return h.__cust||null;}' +
+        'function nextWorkingDay(d){let x=new Date(d);while(isWeekend(x))x=addDays(x,1);return x;}' +
+        'function isWorkingDay(d){return !isWeekend(d);}' +
+        'function dayDate(d){return d._date;}' +
+        'function installDays(){return SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown);}' +
+        'function computeDates(){SEASON.forEach(d=>{if(d.base!=null)d._date=addDays(BASE_START,d.base);});}' +
+        'function planCities(){return [];}' +
+        'var FORECAST={};' +
+        'function forecastHighFor(town,ds){var r=FORECAST[town];return r==null?null:(typeof r==="object"?(r[ds]==null?null:r[ds]):r);}' +
+        'function forecastIsCold(town,ds){var t=forecastHighFor(town,ds);return t!==null&&t<=COLD_DAY_MAX_F;}' +
+        'var CREWS=[{name:"Crew 1",city:""},{name:"Crew 2",city:""}];' +
+        'var BASE_START=new Date(2026,9,1),globalDelta=0,SEASON=[],selSchedule=null;\n' +
+        admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
+        admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
+        'let NEARBY_TOWN_LIST={};' + phantomTownSrc() + fn('sameTownName') +
+        fn('townCentres') + fn('nearbyTowns') + fn('installPriority') +
+        fn('houseMissedDays') + fn('houseMissedCount') + fn('markHouseMissed') + fn('isRushInstall') +
+        admin.slice(planStart2, planEnd2) +
+        'const PIN_HONOURED_BUSINESS_DAYS=2;' + fn('pinHorizon') +
+        fn('seasonStartDate') + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseDeadline') +
+        fn('houseInstallPriority') +
+        'function cityOf(h){return (h.city||"").trim();}' +
+        'function sameCity(a,b){return (""+a).trim().toLowerCase()===(""+b).trim().toLowerCase();}' +
+        'const MAX_TOWNS_PER_CREW=' + ((admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/) || [])[1] || 2) + ';' +
+        fn('townsAreNeighbours') + dayLimitSrc() +
+        fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
+        '\nthis.run=function(seed,forecast){FORECAST=forecast||{};SEASON=seed;' +
+        'SEASON.forEach(function(d){d._date=new Date(2026,9,1+d.base);});' +
+        'var r=rebuildSeasonDays();return {r:r,seed:seed,' +
+        'days:SEASON.filter(function(d){return !d.isFixRoute&&!d.isTakedown;}).sort(function(a,b){return a.base-b.base;})};};';
+      let built = true;
+      try { new Function(src).call(ctx); } catch (err) { built = false;
+        check('S300', 'the rebuild sandbox assembles', false, String(err && err.message)); }
+
+      if (built) {
+        let n = 0;
+        const house = (city, extra) => Object.assign({
+          id: 'h' + (++n), name: 'H' + n, city: city, pref: '', done: false,
+          __cust: { data: { city: city, lat: at[city][0], lng: at[city][1] } }
+        }, extra || {});
+
+        /* A day thirty days in the PAST, half of it ticked off. The five nobody reached are
+           the whole point: they went back in the pool, and the crew never got to them. */
+        const gone = [];
+        for (let i = 0; i < 5; i++) gone.push(house('Lehi', { done: true }));
+        const skipped = [];
+        for (let i = 0; i < 5; i++) { const h = house('Lehi'); skipped.push(h); gone.push(h); }
+        const rest = [];
+        for (let i = 0; i < 20; i++) rest.push(house('Draper'));
+
+        const out = ctx.run([
+          { id: 'past', base: -30, cascade: 0, pin: null, houses: gone },
+          { id: 'soon', base: 40, cascade: 0, pin: null, houses: rest }
+        ]);
+
+        check('S300', 'a day that came and went writes the miss onto the houses nobody reached',
+          skipped.every(h => Array.isArray(h.missedDays) && h.missedDays.length === 1),
+          'got ' + JSON.stringify(skipped.map(h => h.missedDays)) +
+          ' — this is where the plan finds out the crew did not get there');
+        check('S300', 'and the houses that WERE done are left alone',
+          gone.filter(h => h.done).every(h => h.missedDays === undefined),
+          'a finished house was not missed, and stamping it would bump them for ever');
+        check('S300', 'the rebuild reports how many it moved up for being missed',
+          out.r.missed === 5, 'got ' + out.r.missed +
+          ' — a customer who quietly changes place is what the office rings about');
+
+        /* ⚠ RUNNING IT AGAIN MUST COST NOTHING. Recalculate everything is pressed twice in a
+           row all the time, and the second press finds those houses on FUTURE days, so there
+           is nothing left to mark. A counter would climb here; a list of dates cannot. */
+        ctx.run(out.days.map(d => ({
+          id: d.id, base: d.base, cascade: d.cascade, pin: d.pin, houses: d.houses
+        })));
+        check('S300', 'pressing Recalculate again does not stack a second miss on anybody',
+          skipped.every(h => Array.isArray(h.missedDays) && h.missedDays.length === 1),
+          'got ' + JSON.stringify(skipped.map(h => (h.missedDays || []).length)) +
+          ' — the plan is rebuilt over and over and the bump must not grow each time');
+
+        /* ⭐ AND THE FORECAST REACHES THE BUILDER THROUGH THE REBUILD. Nothing above would
+           notice a merge dropping the tempFor argument — the cold tests call the builder
+           directly — so this is the check standing between that and a dead rule. */
+        const wide = [];
+        for (let i = 0; i < 20; i++) wide.push(house('Draper'));
+        for (let i = 0; i < 20; i++) wide.push(house('Lehi'));
+        const seedOf = () => [{ id: 'a', base: 40, cascade: 0, pin: null, houses: wide.slice() }];
+        const chilly = ctx.run(seedOf(), { Draper: 25, Lehi: 55 });
+        const mild = ctx.run(seedOf(), { Draper: 55, Lehi: 55 });
+        check('S300', 'the rebuild counts the freezing crew-days it could not avoid',
+          typeof chilly.r.coldDays === 'number' && chilly.r.coldDays > 0 && mild.r.coldDays === 0,
+          'got ' + chilly.r.coldDays + ' cold and ' + mild.r.coldDays + " mild — the owner's " +
+          '"unless" firing is a decision, not a bug, and it has to be said out loud');
+        check('S300', 'and that count comes from the forecast, not from the calendar',
+          ctx.run(seedOf(), {}).r.coldDays === 0,
+          'no forecast must report no cold days rather than none-known-so-assume-freezing');
+      }
+    }
+  }
+
+  // --------------------------------------------------------------- the wiring
+  {
+    const rb = bare(fn('rebuildSeasonDays'));
+    check('S300', 'the rebuild hands the forecast to the builder, and the numbers with it',
+      /tempFor\s*:\s*tempFor/.test(rb) && /coldBelow\s*:/.test(rb) && /warmBand\s*:/.test(rb),
+      'without these the builder falls back to "nobody knows" and the cold rule is dead ' +
+      'on the live page while every check above still passes');
+    check('S300', 'and it reads the forecast rather than fetching one',
+      /forecastHighFor/.test(rb) && !/loadSeasonForecast/.test(rb),
+      'a rebuild that awaited the network could not be run by any of these suites, and ' +
+      'would fail whenever the weather service did');
+    check('S300', 'the rebuild carries the rush flag and the missed count out to the queue',
+      /rush\s*:\s*\(typeof isRushInstall/.test(rb) &&
+      /missed\s*:\s*\(typeof houseMissedCount/.test(rb),
+      'the sort inside the builder orders on `missed`, so a rebuild that stopped setting ' +
+      'it would silently flatten the ordering with nothing going red');
+    const q = admin.slice(admin.indexOf('function planNewCrewDays(waiting, taken, opts)'),
+                          admin.indexOf('/* Top every day up to the cap.'));
+    check('S300', 'and the builder really sorts on it',
+      /\(b\.missed \|\| 0\) - \(a\.missed \|\| 0\)/.test(q),
+      'the tier bump cannot tell one miss from three; this is what does');
+
+    const leftover = bare(fn('applyLeftoverPicks'));
+    check('S300', 'saying "these did not get done" records the miss too',
+      /markHouseMissed/.test(leftover),
+      'this screen is the office stating it in as many words, which is a better signal ' +
+      'than the rebuild working it out afterwards');
+    check('S300', 'but only for a day that has actually arrived',
+      /leftToday/.test(leftover) && /isFixRoute/.test(leftover),
+      'the same screen strips a FUTURE day back before the crew sets out, and nobody has ' +
+      'been missed on a day that has not happened');
+
+    /* ⭐ ALL THREE FALL UNDER ONE BUTTON. Owner: "all of these should fall under the
+       recalculate everything button." Two of them need no code there at all — they are read
+       off records — but the weather has to be FETCHED, so this is the one that can be lost.
+
+       ⚠ THE SLICE STOPS AT THE FUNCTION, not at the next branch. runRecalculateEverything is
+       declared between the two, so a slice running on to undoRebuildBtn swallows the whole
+       press and every mention inside it — which is half of why these first passed against a
+       page with the wait deleted. */
+    const clickAt = admin.indexOf("if(t.id==='recalcBtn'){");
+    const clickEnd = admin.indexOf("if(t.id==='undoRebuildBtn'){", clickAt);
+    const fnAt = admin.indexOf('function runRecalculateEverything()', clickAt);
+    const stop = fnAt > clickAt && fnAt < clickEnd ? fnAt : clickEnd;
+    const branch = clickAt > 0 && stop > clickAt ? bare(admin.slice(clickAt, stop)) : '';
+    check('S300', 'Recalculate everything waits for the forecast before it lays the season out',
+      /loadSeasonForecast/.test(branch) && /runRecalculateEverything/.test(branch),
+      'a rebuild that starts before the forecast lands uses the last one, or none at all');
+    check('S300', 'and a failed forecast still rebuilds rather than blocking the button',
+      /catch/.test(branch),
+      'the weather must never be able to stop the office laying out a season');
+    /* ⚠ THE GUARD, not the flag. `recalcRunning=false` sits in the .then() and stays
+       behind when the guard above it is deleted, so a loose /recalcRunning/ passes on a
+       button that can be pressed twice — measured in the red-check. */
+    check('S300', 'two presses in the waiting moment cannot rebuild twice',
+      /if\(recalcRunning\)/.test(branch) && /recalcRunning\s*=\s*true/.test(branch),
+      'the second rebuild would leave Undo pointing at the plan after the first one');
+
+    const body = admin.indexOf('function runRecalculateEverything()');
+    const bodyEnd = admin.indexOf("toast(parts.join(' · '));", body);
+    const report = body > 0 && bodyEnd > body ? bare(admin.slice(body, bodyEnd)) : '';
+    check('S300', 'and the press says what the three new orderings actually did',
+      /r\.rushed/.test(report) && /r\.missed/.test(report) && /showForecastNote/.test(report),
+      'every one of them MOVES somebody, and a customer who quietly changes place is the ' +
+      'thing this office rings up about');
+
+    // The box itself — read, written, and written as a real boolean.
+    check('S300', 'Edit Customer has the box that moves somebody up',
+      /id="editCustRushInstall"/.test(admin),
+      'the flag is read in three places and nothing would set it');
+    check('S300', 'it is filled in when the record opens',
+      /editCustRushInstall'\)\.checked/.test(admin));
+    check('S300', 'and saved every time, including when it is unticked',
+      /addrUpdates\.rushInstall = newRushInstall === true;/.test(admin),
+      'a field only written when it is on can never be turned off again');
+    check('S300', 'the box explains that it does not move their month',
+      /does <b>not<\/b> move them into a month they did not ask for/.test(admin),
+      "owner: 'dont do someone in a month they dont want to be hung though' — somebody " +
+      'ticking this must not expect a November customer to be hung in October');
+
+    // The forecast loader.
+    const load = bare(fn('loadSeasonForecast'));
+    check('S300', 'the forecast is one request for the whole book',
+      /latitude=/.test(load) && /join\(','\)/.test(load),
+      'thirty towns must not be thirty round trips');
+    check('S300', 'it asks the same free service the Routes weather card already uses',
+      /api\.open-meteo\.com/.test(load) && !/key=/.test(load),
+      'no account, no key, nothing to expire');
+    /* ⚠ SCOPED TO THE CATCH. `byTown: {}` also appears in the no-located-towns branch a few
+       lines above, so an unscoped search is satisfied by the wrong one and a failure that
+       kept yesterday's numbers standing would go unnoticed. */
+    const failAt = load.indexOf("catch']");
+    const failBranch = failAt === -1 ? '' : load.slice(failAt);
+    check('S300', 'a failed forecast empties the table rather than leaving yesterday standing',
+      /byTown: \{\}/.test(failBranch),
+      'showing a cold-weather note for dates the numbers no longer cover is worse than ' +
+      'having no forecast at all');
+    /* ⚠ THE GUARD, not merely the field: `SEASON_FORECAST.pending = flight` is the WRITE and
+       stays behind when the read is deleted, so a loose spelling passes with the guard gone. */
+    check('S300', 'and two presses cannot put two requests in the air',
+      /if\(SEASON_FORECAST\.pending\) return/.test(load));
+    check('S300', 'a town with no located house simply has no opinion about the weather',
+      /if\(!towns\.length\)/.test(load),
+      'a fresh season has nobody geocoded, and that must cost the forecast and nothing else');
+  }
 }
 
 Promise.all(pendingAsync).then(function () {

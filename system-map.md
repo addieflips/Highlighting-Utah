@@ -309,7 +309,7 @@ picture. Street View is for the customer's photograph and for reading a roof's
 grade — it does not place a dot and never draws the sky view's.
 
 ⭐ **AND YOU CAN FILTER BY IT** (2026-09-01). All Customers → Filters has a
-**Season Badge** row — Any / Confirmed / Pending / Maybe Next Year — next to
+**Season Badge** row — Any / Confirmed / Pending / Back Next Year / **No** — next to
 Route Status, because Confirmed *is* the route answer now. The badge is worked
 out once per row and the filter and the pill read that same answer, so a filtered
 list can never disagree with the badges in it.
@@ -366,13 +366,26 @@ confirmed tag if they are breaking a rule so if you break one of the rules they
 automatically change the badge to pending mainly just the havent paid for last
 year"*, and *"you shouldnt have to manually add them to pending"*.
 
-The badge in All Customers has **three** states now — Confirmed, **Pending**,
-Maybe Next Year — and `seasonBadgeKey` works it out by asking `isOutForSeason`
+The badge in All Customers has **four** states now — Confirmed, **Pending**,
+Back Next Year and **No** — and `seasonBadgeKey` works it out by asking `isOutForSeason`
 rather than deciding for itself. So **Confirmed and in-the-season are one fact**:
 no row can read Confirmed while every scheduler in the app has already dropped
 that customer. Pending is derived and never stored, so paying the bill moves the
-badge on its own the next time the row is drawn. ⚠ Maybe Next Year stays its own
+badge on its own the next time the row is drawn. ⚠ Back Next Year stays its own
 answer rather than folding into Pending — that one the office sets by hand.
+
+⭐ **AND "NO" IS ITS OWN BADGE TOO** (2026-09-04, RS-49). Addie: *"when they click no
+they go to maybe next year but actually we want them to just go to no for the badge in
+case we want to send two different emails for each."* The two answers were always stored
+apart — `portalRsvp` writes `no` or `backnextyear`, and the Email Tool's RSVP filter has
+always offered them as separate audiences — but `seasonBadgeKey` folded them together, so
+one yellow chip covered two different decisions and the badge could not be used to pick
+between them. ⚠ **Nothing about the season moved**: `isOutForSeason` is untouched, so
+somebody who said no is out exactly as before, off the routes, the schedule and the build
+queue. Only the word on the chip and the value the Season Badge filter matches changed.
+⚠ **The customer's own latest word wins over the office flag** — `maybeNextYear` is only
+ever written alongside `backnextyear`, so holding the flag while reading `no` means they
+answered no afterwards, and that is the rule `isOutForSeason` already states.
 
 ⚠ **And an unanswered RSVP decides again — Pending is what carries it.** For a few
 hours it did not: the rule was turned off, which made the badge honest by scheduling
@@ -1278,6 +1291,78 @@ touched in the four source files against this table, and every name in
 
 **Duplicate System notices**: `reconcileNoteIsRepeat` suppresses a word-for-word identical "Routes Kept Up To Date" note inside an hour (`RECONCILE_NOTE_REPEAT_MS`). It is guarded twice — an in-memory record, and a scan of `allMessages` so a reload, a second tab or the other office machine doesn't reopen the hole. It suppresses the *notice*, not the sweep: a backstop, not the fix, and it logs a console warning naming the loop rather than going quiet.
 
+### Three things that move somebody up a season
+
+Added 2026-09-03. Dax asked for three new priorities and put two limits on all of them:
+*"dont do someone in a month they dont want to be hung though and dont make a route that
+is 100 miles longer because you were to worried about priority... a higher goal is to
+shrink total miles."* All three land on **Recalculate everything** and nowhere else.
+
+**1. The weather.** Before it lays anything out, that button fetches one Open-Meteo
+request covering every town in the book (`loadSeasonForecast` — the same free, keyless
+service the Routes tab's weather card already uses, about sixteen days ahead) and fills a
+town→date→high table. `rebuildSeasonDays` hands the builder a plain lookup, so
+`planNewCrewDays` stays pure and every test suite still builds a whole season offline.
+Inside the builder there are **two rules and only one of them is hard**:
+
+* **The cutoff is a veto.** A town whose forecast high for that date is at or below
+  `COLD_DAY_MAX_F` (35°) is not offered the day at all. That is done as two passes rather
+  than one more clause in the comparison, because of the *"unless"*: if nothing warmer has
+  anybody waiting, the second pass runs with the veto lifted and the crew goes out anyway.
+  The rule holds a crew back from the cold; it never holds them back from working.
+* **Warmth above the cutoff is only a tiebreak, and it is banded.** It sits *below*
+  urgency and *below* how full a day the town can make, and it only fires when one town is
+  a whole `WARMTH_BAND_F` (10°) warmer. Two Wasatch Front towns on one day are a degree or
+  two apart; letting that decide would overrule *"the town with the most houses waiting"*
+  — the rule the season is built on — on the strength of forecast noise.
+
+⚠ **No forecast is not a cold forecast.** Most dates are past the sixteen days, and a town
+with no located house has no place to ask about. Every one of those is "no opinion" and
+the plan comes out exactly as it did before any of this existed. The season bar carries a
+line saying which forecast the plan was laid out with, including *"laid out without it"*
+when the service could not be reached — a plan laid out blind otherwise looks identical to
+one laid out warm. The crew-days the *"unless"* could not avoid are counted and said out
+loud, because a crew sent out at 30° reads as the rule not working.
+
+**2. A day that was promised and did not happen.** A house going back in the pool off a
+date that has already passed is a house the crew did not reach, and `rebuildSeasonDays`
+writes that date onto it (`markHouseMissed`); the *"not all of them got done"* screen does
+the same, which is a better signal because somebody typed it. `houseInstallPriority` then
+moves them to the front of **their own tier** — and the town with them in it rises too,
+since a town's urgency is the best number in it, which is the *"higher priority for where
+needs to be routed"* half of the ask.
+
+⚠ **The tiers were respaced from 0,1,2,3,4 to 0,10,20,30,40,50 for exactly this.** With
+nothing between them the only way up was into the next tier, which would have let a missed
+October house outrank a new hang and a missed Any house jump the whole October queue. Ten
+apart leaves room for a bump of five that reaches the front of a tier and no further.
+Nothing reads these numbers for their value — every comparison is `<` or `>`.
+
+⚠ **It is recorded as a list of dates, not a counter.** Recalculate gets pressed twice in a
+row and Undo puts the plan back so it can be pressed again; a counter would climb each time
+and turn one missed morning into a customer who outranks the book. A list is idempotent,
+and it lets somebody missed three times go before somebody missed once (`missed` is carried
+into the builder's queue sort for that).
+
+**3. A customer the office moves up by hand.** `rushInstall`, a checkbox in Edit Customer
+beside the timing preference. It is the **top tier — ahead of new hangs** — because it is a
+person deciding after a phone call, and an override that cannot override the automatic rule
+is not an override. Both orderings read the same flag (`houseInstallPriority` for the
+schedule, `installPriority` for the nightly sweep) so the two cannot disagree about who is
+in a hurry.
+
+⚠ **None of the three touches the month.** `houseAllowedFrom` and *Don't Install Before
+This Date* are untouched, so a November customer who is rushed, or who was missed, is taken
+first on the first **November** day and not one day earlier. The box says so on screen.
+
+The Schedule's day panel badges a rushed house **ASKED SOONER** and a missed one
+**MISSED ×n**, and the button's summary names how many of each it moved — a customer who
+quietly changes place in a season is what this office rings up about.
+
+*Where it's proved*: run-all.js **Suite 300** runs the real builder against a cold snap and
+the real ordering against fixtures; 24 sabotages were red-checked against it.
+*Rulings*: [[SCH-44]], [[SCH-45]], [[SCH-46]] in `claude/questions-map.md`.
+
 ### A day the office has short-handed on purpose
 
 Addie, 2026-09-03: *"there are some days we will need to have 1 crew or 1 man if a
@@ -1474,6 +1559,134 @@ applied to a plan that already exists.
 
 *Proved in* run-all.js **Suite 295**, red-checked by deleting the floor line: the two
 checks that reproduce her exact season bar go red and nothing else does.
+
+### The free quote asks less, and a property list that outlives it
+
+Addie, 2026-09-03, across three messages: *"a lot of info in the free quote shouldnt be
+there including upload picture and side of house… side of house should be in detail form,
+1 side should be default"*; *"there should keep the option to add another property but
+make sure there is a way to delete the extra property in case they accidentally push on
+it"*; *"in edit customer we need to have add a building set up there as well in case they
+come around later and want another building."*
+
+**Off the free quote form**
+
+- **The photo uploader, entirely.** A downscaler, a signed Cloudinary upload, and a
+  four-named-walls grid per building. The form promises a quote *"in about two minutes"*,
+  and photographing four walls of a house — and of every outbuilding — was the most
+  expensive thing on it, asked of somebody who had not yet been given a price. Removed
+  rather than hidden: a hidden row is how a feature comes back by accident.
+- **The side count** — moved, not dropped. It drives the footage and so the price, so it
+  is now asked on the **Install Details** form, after they have approved.
+
+**Kept, with a way out.** The *add another property* repeater stays — she asked for it by
+name in the same breath — but each extra row now carries **Remove**. The main house has
+none, because a quote with no house is not a quote. Removing takes the row out of
+`quoteBuildings` as well as out of the page: the element alone would leave the object in
+the array, so the submit would still send a building the customer can no longer see, read
+as a blank one. A nameless extra is not sent at all.
+
+**One side is pre-picked on the details form, and deliberately nowhere else.**
+run-all.js asserts the *opposite* for Edit and Add Customer, and it is right to: those sit
+over ~956 records nobody has ever asked, so a default there stamps a made-up answer on all
+of them — *"a count nobody gave is not a count"*. One customer looking at the question for
+their own house is a different case. A **fresh quote stores no count at all** — absent,
+not 1 — because every reader turns absent into 1 through `portalSideCount`, so the
+default holds without claiming anybody answered.
+
+⚠ **The server had to be told.** `quoteSaveDetails` keeps a whitelist and the
+emailed-link path — the common one — goes through it, so a field the browser sends and the
+function drops is lost with nothing going wrong on screen. It is clamped there too, never
+trusted from the browser: a side count of zero would price a house with no roofline.
+
+### Other buildings on a customer, and the loss that uncovered
+
+`buildings` has been collected by the public quote form for months and **the word did not
+appear anywhere in admin.html**. So a customer who told us about their shop at quote time
+had it recorded on the quote and then dropped the moment they became a customer — silently,
+with nothing to look at.
+
+Edit Customer now has **Other buildings on the property**: name, Add, Remove.
+`addCustBuildingsFromQuote` carries across whatever the quote collected instead of
+throwing it away, filtering out the main house — on a quote that is one of the buildings,
+because the quote has no record of its own; on a customer the record IS the main house.
+
+⚠ **The Add button is wired inside `openEditCustomerModal`, which runs on every open**,
+so `dataset.wired` on the element is the whole mechanism. Unguarded, one press would
+append a row for every customer looked at this session — the Inbox folder sidebar shipped
+exactly that and it cost 2815 Firestore writes from one drop.
+
+⚠ **The field is labelled in `CUSTOMER_FIELD_LABELS`, and that is what gives it a
+reader.** CLAUDE.md §1 wants every field written, read *and* declared, and the change-log
+gate refused it until it had words. It uses its own `buildings` kind rather than
+`list`: these are objects, and `join()` would print `[object Object]` into somebody's
+history — worse than no entry, because it still looks like one. An emptied list reads
+*(none)* and a never-set one *(blank)*, which are different facts and the first is the one
+worth reading.
+
+⚠ **Nothing else reads them yet** — they do not print on a crew sheet. Said here rather
+than left to be discovered.
+
+*Proved in* run-all.js **Suite 302**; **S62** and **S80** were repointed rather than
+weakened, and **S86**'s sandbox lifted the real reader.
+
+### "No" is gone from the office dropdown, but not from the system
+
+Addie, 2026-09-03: *"we can just get rid of the no under rsvp because it means the same
+thing as back next year."*
+
+**They did not mean the same thing, and the difference was destructive.** Picking **No**
+in Edit Customer set `needsLightRecycle` — the warehouse queued to pull that customer's
+bundle apart and hand their number back to the pool — while Back Next Year deliberately
+never does (RS-05, and the "hole G" note: Back Next Year neither creates a recycle nor
+destroys one). So one entry in a list of answers also started physical, irreversible work.
+
+Removing it is therefore the right change rather than merely the requested one: **a
+recycle should be a button that says so, and it already is.** *Recycle Their Old Set* in
+Edit Customer writes the same flag under a label describing what it does. Nothing can no
+longer be done.
+
+**What actually changed**
+
+- The `#editCustRsvp` dropdown offers **Pending / Unanswered / Yes / Back Next Year**.
+- The branch that set `needsLightRecycle` when the answer became `no` is gone — with No
+  unpickable it could never fire again, and dead code that still looks like the rule is
+  worse than no code.
+- The **undo** half stays: a record that already says `no` and is being brought back into
+  the season still has its queued recycle cancelled.
+
+⚠ **The VALUE `no` is not gone and must not be.** `portalRsvp` still writes it when a
+customer taps No in an RSVP email, so `seasonBadgeKey`, `isOutForSeason`, the Members
+filter, the exports and the Yes sheet all still have to understand it — and they do. The
+Members-tab **filter** keeps its No option on purpose: those records exist and have to be
+findable.
+
+⭐ **A stored `no` is SHOWN, not translated** (changed 2026-09-04, RS-50). Until then the
+form mapped it to Back Next Year and whoever opened and saved that record converted it —
+*one state, one spelling*, which was free while the two meant the same thing. They no
+longer do: they are two badges and two Email Tool audiences, so that normalisation had
+become a silent move onto the wrong mail-out, triggered by nothing more than correcting a
+phone number.
+
+⚠ **The fault it was fixing is still real.** Setting a `<select>` to a value it has no
+option for leaves it blank — which reads as *Pending (never asked)*, the one state this
+dropdown exists to tell an answer apart from — and the next save writes that blank over
+the customer's actual answer. So `openEditCustomerModal` adds a **disabled** `No — they
+answered this themselves` option, and only for a record that already holds it.
+
+⚠ **Shown is not offered, which is what keeps RS-49 intact.** The office still cannot
+CHOOSE No — choosing it is what queued the warehouse to take a bundle apart. Moving the
+customer OFF it still works, which is the half that has to. The option is removed again
+when the form is repointed at a record that does not hold No, because the house-tab strip
+reuses this same form without closing it.
+
+⚠ **The Excel destination is unaffected**, which was the thing worth checking before
+agreeing to this. `HLX_STATE_TABS` keys the **Recycle** sheet on `needsLightRecycle` and
+never on the RSVP answer, and **Contact 2027** on `maybeNextYear || 'backnextyear'`. The
+recycle button still sends somebody to the Recycle sheet; Back Next Year still goes to
+Contact 2027.
+
+*Proved in* run-all.js **Suite 301**.
 
 ### One route note a day, not one a sweep
 
