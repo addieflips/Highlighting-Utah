@@ -19570,8 +19570,23 @@ suite('Suite 62. Which sides of the house');
     check('S62', 'Add Customer has them too', admin.indexOf('id="addCustHouseSides"') > 0,
       'a customer added by hand, or converted from a quote, has to carry the same field');
     const index = read('index.html');
-    check('S62', 'and the quote form asks the customer directly',
-      index.indexOf('id="quoteSidesRow"') > 0 && /name="house_sides"/.test(index));
+    /* ⚠ THE QUESTION MOVED ON 2026-09-03 (Addie: "side of house should be in detail
+       form, 1 side should be default"). It is asked AFTER they approve rather than in
+       front of a stranger deciding whether to ask for a price. The claim is unchanged —
+       the customer is still asked directly, and their answer still reaches the record —
+       so this follows the row rather than being dropped. */
+    check('S62', 'and the customer is still asked directly, on the details form',
+      index.indexOf('id="qdSidesRow"') > 0 && /name="house_sides"/.test(index),
+      'the count drives the price, so it has to be asked somewhere the customer sees it');
+    check('S62', 'and it is no longer on the free quote form',
+      index.indexOf('id="quoteSidesRow"') === -1,
+      'left in both places the two would drift, and the quote form is the one that has ' +
+      'to stay short enough to finish');
+    /* ⚠ ONE SIDE IS PRE-PICKED THERE, AND ONLY THERE. See the admin-form check at the
+       bottom of this suite, which asserts the opposite for Edit/Add Customer. */
+    check('S62', 'one side is pre-picked on the details form',
+      /name="house_sides" value="1" checked/.test(index),
+      'Addie: "1 side should be default" — the commonest answer by far is the front only');
 
     /* ⭐ ONE COUNT, THE SAME ON ALL THREE FORMS. Owner, 2026-08-19: "in the website
        its called front left right and back side, we need it to say 1, 2, 3, or 4 sides
@@ -19586,10 +19601,23 @@ suite('Suite 62. Which sides of the house');
     /* ⚠ AND THE PHOTO LABELS ARE UNTOUCHED, deliberately. You photograph the front of
        a house; you do not photograph "side 2". Sides-of-lights is a count and
        sides-for-photos is four named walls, and they are different questions. */
-    check('S62', 'the photo labels still name the four walls',
-      /QUOTE_SIDE_ORDER = \['front', 'right', 'left', 'back'\]/.test(index) &&
-      /Front of house/.test(index),
-      'a photo of the front is a photo of the front whatever the light count is');
+    /* ⚠ RETIRED WITH THE FEATURE IT GUARDED (2026-09-03), and the old reasoning is kept
+       because it was right for as long as there were photos: "a photo of the front is a
+       photo of the front whatever the light count is" — the four named walls were
+       deliberately NOT collapsed into the side COUNT. Addie removed the uploader from
+       the quote form ("upload picture should not be there"), so there are no photo
+       labels left to protect. What replaces it is the assertion that the uploader is
+       really gone rather than hidden, and that the thing she asked to KEEP survives. */
+    check('S62', 'the quote photo uploader is gone, not hidden',
+      !/QUOTE_SIDE_ORDER/.test(index.replace(/\/\*[\s\S]*?\*\//g, '')) &&
+      !/id="quoteBuildingsRow"[\s\S]{0,400}<label>Photos<\/label>/.test(index),
+      'a hidden row is how a removed feature comes back by accident');
+    check('S62', 'but the extra-property list survives, with a way out',
+      index.indexOf('id="quoteAddBuildingBtn"') > 0 &&
+      /function removeQuoteBuilding\(building\)/.test(index),
+      'Addie asked for both in one breath: "there should keep the option to add another ' +
+      'property but make sure there is a way to delete the extra property in case they ' +
+      'accidentally push on it"');
   }
 
   /* ---- it survives the round trip ---- */
@@ -27117,6 +27145,22 @@ suite('Suite 108. The Edit Customer save, actually run');
         'let cnStuckToastAt = 0; return ' + noticeSrc + ';noticeCustomerNumberStuck'
       )(ctx.addDoc, ctx.collection, ctx.db, ctx.serverTimestamp, ctx.toast, ctx.jobAddresses, ctx.console);
     }
+    /* ⭐ THE PROPERTY LIST READER, LIFTED (2026-09-03). The Edit Customer save now calls
+       editCustReadBuildings() to collect the "Other buildings on the property" rows, and
+       this sandbox runs that whole handler — so without it the suite dies on a bare
+       ReferenceError, which surfaces as an unattributable crash and stops every suite
+       after it from scoring (CLAUDE.md §3).
+
+       ⚠ LIFTED, NOT STUBBED. A stub returning [] would keep this suite green through a
+       change that stopped the save writing buildings at all. The real one walks the DOM,
+       and this sandbox has no document — so it is handed a wrap element that is not
+       there, returns [], and the handler proceeds exactly as it does for a customer with
+       no extra buildings. That is the honest default for fixtures that do not have any;
+       a fixture that wants some supplies its own document. */
+    ctx.editCustReadBuildings = new Function(
+      'document',
+      'return ' + extractFn(admin, 'editCustReadBuildings') + ';editCustReadBuildings'
+    )({ getElementById: function(){ return null; } });
     const names = Object.keys(ctx);
     const fn = new AsyncFn(...names, handlerSrc);
     return fn(...names.map(n => ctx[n])).then(function(){
@@ -28540,13 +28584,36 @@ suite('Suite 80. A blank is a blank, and a default is a default');
 {
   const idx = read("index.html");
 
-  /* ---- nothing answers a yes/no on the customer’s behalf ---- */
-  const PREANSWERED = (idx.match(/<input type="radio"[^>]*checked[^>]*>/g) || []);
-  check('S80', 'no yes/no question comes pre-answered on the quote form',
-    !PREANSWERED.length,
-    "found: " + PREANSWERED.join(" ") + " — all four of these were ticked on No, so a " +
-    "customer who never read the question was recorded as having said no to it. Once " +
+  /* ---- nothing answers a yes/no on the customer’s behalf ----
+     ⚠ NARROWED 2026-09-03, AND STRENGTHENED WHERE IT MATTERS. This banned EVERY checked
+     radio anywhere in index.html, which was the right net while every radio on the page
+     was a Yes/No. It is not any more: Addie asked for the side COUNT to be pre-picked on
+     the details form ("1 side should be default"), and a count is a different kind of
+     question — there is no answer it can invent, only the commonest one offered in front
+     of somebody who can see it and change it.
+
+     The rule this actually protects is unchanged and is now asserted BY NAME rather than
+     by counting tags, which is stricter: a new Yes/No radio added pre-ticked would have
+     to be added to the exclusion list deliberately, instead of quietly passing a count
+     that happened to be phrased as one. */
+  const YESNO_NAMES = ['outlet_timer', 'specific_outlet', 'wants_mailed'];
+  const PREANSWERED = (idx.match(/<input type="radio"[^>]*checked[^>]*>/g) || [])
+    .filter(function(tag){
+      return YESNO_NAMES.some(function(nm){ return tag.indexOf('name="' + nm + '"') !== -1; });
+    });
+  check('S80', 'no yes/no question comes pre-answered', !PREANSWERED.length,
+    "found: " + PREANSWERED.join(" ") + " — all four of these were once ticked on No, so " +
+    "a customer who never read the question was recorded as having said no to it. Once " +
     "that is on the record it cannot be told apart from a real answer");
+  /* ⚠ AND THE EXCLUSION IS ITSELF BOUNDED. The only pre-picked radio allowed on this
+     page is the side count; anything else checked is a question somebody has to have
+     thought about, so it fails here and has to be argued for. */
+  const OTHER_CHECKED = (idx.match(/<input type="radio"[^>]*checked[^>]*>/g) || [])
+    .filter(function(tag){ return tag.indexOf('name="house_sides"') === -1; });
+  check('S80', 'and the side count is the only thing pre-picked at all',
+    !OTHER_CHECKED.length,
+    'found: ' + OTHER_CHECKED.join(' ') + ' — a pre-picked answer is a claim that ' +
+    'somebody was asked, and only the side count has earned one');
 
   check('S80', 'and an unanswered one is stored blank, not as a No',
     /outletTimer: fd.get\(.outlet_timer.\) \|\| ..,/.test(idx) &&
@@ -49068,6 +49135,168 @@ suite('299. A referral link, and the $25 that follows it');
   check('S299', 'and the public quote form carries the token it was given',
     /referredByToken: t/.test(idxSrc) && /referralQuoteFields\(\)/.test(idxSrc),
     'without it the link is decoration — nothing on the quote says who sent them');
+}
+
+/*
+ * ⭐ SUITE 299. THE FREE QUOTE ASKS LESS, AND THE PROPERTY LIST OUTLIVES IT.
+ *
+ * Addie, 2026-09-03, in three messages:
+ *   "a lot of info in the free quote shouldnt be there including upload picture and
+ *    side of house, upload picture should not be there and side of house should be in
+ *    detail form, 1 side should be default"
+ *   "also there should keep the option to add another property but make sure there is a
+ *    way to delete the extra property in case they accidentally push on it"
+ *   "also in edit customer we need to have add a building set up there as well in case
+ *    they come around later and want another building"
+ *
+ * ⚠ THE THIRD ONE UNCOVERED A SILENT LOSS THAT PREDATES ALL OF THIS. The quote form has
+ * collected `buildings` for a while and the word did not appear ANYWHERE in admin.html
+ * — so a customer who told us about their shop at quote time had it recorded on the
+ * quote and then dropped the moment they became a customer, with nothing said. Writing
+ * the Edit Customer control is what made that visible, and the carry-across is the half
+ * that pays.
+ */
+suite('Suite 299. The free quote asks less, and the property list outlives it');
+{
+  const idx = read('index.html');
+
+  /* ---- the quote form ---- */
+  check('S299', 'the photo uploader is gone from the quote form',
+    idx.indexOf('id="quoteAddBuildingBtn"') > 0 &&
+    !/<label>Photos<\/label>/.test(idx) &&
+    !/uploadPhotoToCloudinary/.test(idx.replace(/\/\*[\s\S]*?\*\//g, '')),
+    'Addie: "upload picture should not be there" — and a hidden row is how a removed ' +
+    'feature comes back by accident');
+  check('S299', 'and the sides question left it',
+    idx.indexOf('id="quoteSidesRow"') === -1,
+    'asked in front of a stranger deciding whether to ask for a price at all');
+
+  /* ---- the property repeater, which she asked to KEEP ---- */
+  check('S299', 'the extra-property list survives on the quote form',
+    /function addQuoteBuilding\(/.test(idx) && idx.indexOf('id="quoteAddBuildingBtn"') > 0);
+  check('S299', 'and an accidental one can be taken back off',
+    /function removeQuoteBuilding\(building\)/.test(idx) &&
+    /removeBtn\.addEventListener\('click', function\(\)\{ removeQuoteBuilding\(building\); \}\)/.test(idx),
+    '"make sure there is a way to delete the extra property in case they accidentally ' +
+    'push on it"');
+  /* ⚠ THE ROW MUST LEAVE THE ARRAY, NOT JUST THE PAGE. Taking the element out alone
+     leaves the object in quoteBuildings, so the submit still sends a building the
+     customer can no longer see — and reads its detached input as a BLANK one. */
+  const rm = extractFn(idx, 'removeQuoteBuilding') || '';
+  check('S299', 'removing one drops it from the payload too',
+    /quoteBuildings\.splice\(at, 1\)/.test(rm) && /removeChild/.test(rm),
+    'the page and the array are two places, and only one of them is submitted');
+  check('S299', 'and the main house can never be removed',
+    /if\(!building \|\| building\.isMain\) return;/.test(rm) &&
+    /if\(!building\.isMain\)\{/.test(idx),
+    'a quote with no house is not a quote — guarded on the button AND in the function, ' +
+    'because the button is only half a rule');
+  check('S299', 'a nameless extra building is not submitted at all',
+    /\.filter\(function\(b\)\{ return b\.isMain \|\| b\.name; \}\)/.test(idx),
+    'somebody who presses Add and leaves the box blank would otherwise send the office ' +
+    'a building nobody can ask about');
+
+  /* ---- the sides question, on its new form ---- */
+  check('S299', 'the details form asks it instead', idx.indexOf('id="qdSidesRow"') > 0);
+  check('S299', 'with one side pre-picked',
+    /name="house_sides" value="1" checked/.test(idx),
+    'Addie: "1 side should be default"');
+  check('S299', 'and the answer is actually sent',
+    /houseSides: portalSideCount\(fd\.get\('house_sides'\)\)/.test(idx));
+  /* ⚠ THE SERVER IS THE HALF THAT WOULD FAIL SILENTLY. quoteSaveDetails keeps a
+     whitelist and the emailed-link path — the common one — goes through it, so a field
+     the browser sends and the function drops is lost with nothing wrong on screen. */
+  const fns = read('functions/index.js');
+  check('S299', 'and the server accepts it, clamped',
+    /houseSides: Math\.min\(4, Math\.max\(1, parseInt\(details\.houseSides, 10\) \|\| 1\)\)/.test(fns),
+    'not on the whitelist, the answer is dropped by the Cloud Function and nobody is ' +
+    'told; unclamped, a zero would price a house with no roofline');
+
+  /* ⚠ AND NOTHING IS STAMPED ON A QUOTE NOBODY HAS ASKED YET. */
+  const quoteSubmit = (idx.split("quoteFormEl.addEventListener('submit'")[1] || '').split('quoteDetailFormEl')[0];
+  check('S299', 'a fresh quote carries no side count at all',
+    !/houseSides:/.test(quoteSubmit),
+    'writing 1 here would stamp an answer on a quote nobody has been asked — the same ' +
+    'fault S62 already guards on the two admin forms');
+
+  /* ---- Edit Customer ---- */
+  check('S299', 'Edit Customer can add a building',
+    admin.indexOf('id="editCustAddBuildingBtn"') > 0 &&
+    admin.indexOf('id="editCustBuildings"') > 0,
+    '"in case they come around later and want another building"');
+  check('S299', 'and remove one',
+    /function editCustBuildingRow\(name\)/.test(admin) && /removeChild\(row\)/.test(admin));
+  check('S299', 'the list is refilled from the record on every open',
+    /editCustFillBuildings\(d\.buildings\)/.test(admin) &&
+    /wrap\.innerHTML = '';/.test(extractFn(admin, 'editCustFillBuildings') || ''),
+    'the house-tab strip repoints this form at a sibling without closing it, so a list ' +
+    'that appended would show the previous house underneath this one');
+  check('S299', 'and it is saved with the record',
+    /buildings: newBuildings/.test(admin) &&
+    /const newBuildings = editCustReadBuildings\(\);/.test(admin));
+  /* ⚠ THE ADD BUTTON IS BOUND ONCE. openEditCustomerModal runs on every open, so
+     binding there would add a listener per open and one press would append a row per
+     customer opened this session — the Inbox sidebar shipped exactly that (2815 writes
+     from one drop). */
+  /* ⚠ THE WIRING SITS INSIDE openEditCustomerModal, which runs on every open, so the
+     GUARD is the whole mechanism — not where the code lives. The first version of this
+     check asserted the opposite (that the wiring was outside that function) and failed
+     on correct code, which is how the comment above it came to be corrected too. */
+  const openSrc = extractFn(admin, 'openEditCustomerModal') || '';
+  check('S299', 'the Add button cannot be wired twice',
+    /if\(editCustAddBuildingBtnEl && !editCustAddBuildingBtnEl\.dataset\.wired\)\{/.test(openSrc) &&
+    /editCustAddBuildingBtnEl\.dataset\.wired = '1';/.test(openSrc),
+    'this runs on every open — unguarded, one press of Add appends a row per customer ' +
+    'looked at this session, which is the 2815-write Inbox bug in a new place');
+
+  /* ---- the silent loss this uncovered ---- */
+  check('S299', "a quote's buildings now follow the customer",
+    /buildings: addCustBuildingsFromQuote\(\)/.test(admin) &&
+    !!extractFn(admin, 'addCustBuildingsFromQuote'),
+    'before this they were written onto the quote and dropped on conversion, with ' +
+    'nothing anywhere reading them');
+  const carry = extractFn(admin, 'addCustBuildingsFromQuote') || '';
+  check('S299', 'and the main house is not carried across as one of them',
+    /isMain === true/.test(carry) && /main house/i.test(carry),
+    'on a quote the main house IS one of the buildings; on a customer the record is ' +
+    'the main house, so carrying it lists the same address twice');
+
+  /* ---- the field is declared, which is what gives it a reader ---- */
+  check('S299', 'buildings is labelled, so an edit to it shows in the history',
+    /buildings: \{label: 'Other buildings', kind: 'buildings'\}/.test(admin),
+    'CLAUDE.md §1 — written, read AND declared. The change-log gate is what asked.');
+  /* ⚠ NOT kind 'list'. These are objects, so join() prints [object Object] into
+     somebody's history — worse than no entry, because it still looks like one. */
+  /* ⚠ changeValueText, NOT a name I assumed. The first draft guessed at
+     customerFieldWords, found nothing, and the two checks below SKIPPED — green, and
+     proving nothing at all about the rendering they exist for. */
+  /* ⚠ changeValueText(v, kind) — VALUE FIRST. Called the other way round it answers for
+     the string "buildings" rather than for the list, which is a pass or a fail decided
+     by nothing to do with the code under test. */
+  const words = new Function('kind', 'v',
+    'const fmtMoney = function(x){ return String(x); };' +
+    (extractFn(admin, 'changeValueText') || 'function changeValueText(){}') +
+    'return changeValueText(v, kind);');
+  check('S299', 'the history renderer was found to run',
+    /function changeValueText/.test(admin),
+    'without it the two checks below skip silently and prove nothing');
+  if (/function changeValueText/.test(admin)) {
+    check('S299', 'and it renders as the names, not as [object Object]',
+      words('buildings', [{name: 'Shop'}, {name: 'Guest house'}]) === 'Shop, Guest house',
+      'got ' + JSON.stringify(words('buildings', [{name: 'Shop'}, {name: 'Guest house'}])));
+    /* ⚠ TWO DIFFERENT FACTS, AND THE FILE ALREADY TOLD THEM APART — my first draft of
+       this check asserted they were the same and failed on correct code. A field that
+       was NEVER SET reads "(blank)" through changeValueText's general blank test, which
+       runs before the per-kind branches; a list that HAD buildings and now has none
+       reads "(none)". In a history those say different things: nobody ever recorded one,
+       versus somebody took the last one off. Flattening them would hide the removal,
+       which is the entry most worth reading. */
+    check('S299', 'an emptied list says none, and a never-set one says blank',
+      words('buildings', []) === '(none)' && words('buildings', undefined) === '(blank)',
+      'got ' + JSON.stringify([words('buildings', []), words('buildings', undefined)]) +
+      ' — "nobody ever listed one" and "somebody removed the last one" are different ' +
+      'entries, and the second is the one worth reading');
+  }
 }
 
 Promise.all(pendingAsync).then(function () {
