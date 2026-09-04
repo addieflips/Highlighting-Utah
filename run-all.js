@@ -3674,11 +3674,20 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     'fixing a phone number months later put them back in the recycle queue with no number ' +
     'and no lights left to pull');
 
-  // The normal path must not regress.
+  /* ⚠ THIS ASSERTED THE OPPOSITE UNTIL 2026-09-03, and the old wording is worth keeping
+     in view: "this is the behaviour that is correct — the fix must not stop declines from
+     recycling". It WAS correct while the office could pick No. Addie then removed that
+     option (RS-49) precisely because picking an answer should not queue the warehouse to
+     take a bundle apart, so the branch is gone and the assertion is inverted rather than
+     deleted — the half that still binds is that the save does not start warehouse work
+     off an RSVP answer by itself.
+     ⚠ THE VALUE IS STILL REACHABLE: portalRsvp writes 'no', and until #308 lands THAT
+     path still recycles. This check is about the OFFICE save only. */
   const declined = runSave({ rsvpStatus: '', needsLightRecycle: false }, 'no');
-  check('flow', 'changing an RSVP to "no" in admin still raises the recycle flag',
-    declined.needsLightRecycle === true,
-    'this is the behaviour that is correct — the fix must not stop declines from recycling');
+  check('flow', 'the office save no longer recycles off an RSVP answer alone',
+    declined.needsLightRecycle !== true,
+    'a recycle is physical and irreversible; it belongs to the button that says so ' +
+    '(Recycle Their Old Set), not to an option in a list of answers');
 
   // Bug 1, admin side.
   const rejoined = runSave({ rsvpStatus: 'no', needsLightRecycle: false, lightsRecycledAt: 'THEN' }, 'yes');
@@ -4845,9 +4854,15 @@ suite('8. Quote decline / maybe next year');
   check('quoteresp', 'one control decides Back Next Year, not two',
     !/name="editCustSeason"/.test(admin) && !/editCustSeasonMaybe/.test(admin.replace(/<!--[\s\S]*?-->/g, '')),
     'a second control for this state is what silently overwrote the office\'s own answer');
+  /* ⚠ THE EXPRESSION MOVED ON 2026-09-03 (RS-49) and the claim did not. With No off the
+     dropdown, a stored 'no' has no option to land on — so the loader maps it to Back Next
+     Year, and pinning the old literal failed on correct code. The GUARANTEE is unchanged
+     and is what is asserted: the dropdown is filled from the record rather than defaulting
+     to Pending, and a stored 'no' reaches a real option instead of blank. */
   check('quoteresp', 'the state is loaded when the modal opens',
-    /getElementById\('editCustRsvp'\)\.value = d\.rsvpStatus/.test(admin),
-    'it would always show Pending regardless of the real value');
+    /getElementById\('editCustRsvp'\)\.value = storedRsvp === 'no' \? 'backnextyear' : \(d\.rsvpStatus/.test(admin),
+    'it would always show Pending regardless of the real value — and a blank select ' +
+    'reads as Pending, which the next save then writes over their answer');
   /* ⚠ THE ASSIGNMENT IS `seasonMaybeChosen` SINCE 2026-09-02, not the raw checkbox:
      a dropdown CHANGED to Back Next Year now counts as choosing it, because reading an
      unticked box as "bringing them back in" was silently wiping the office's own
@@ -19583,8 +19598,23 @@ suite('Suite 62. Which sides of the house');
     check('S62', 'Add Customer has them too', admin.indexOf('id="addCustHouseSides"') > 0,
       'a customer added by hand, or converted from a quote, has to carry the same field');
     const index = read('index.html');
-    check('S62', 'and the quote form asks the customer directly',
-      index.indexOf('id="quoteSidesRow"') > 0 && /name="house_sides"/.test(index));
+    /* ⚠ THE QUESTION MOVED ON 2026-09-03 (Addie: "side of house should be in detail
+       form, 1 side should be default"). It is asked AFTER they approve rather than in
+       front of a stranger deciding whether to ask for a price. The claim is unchanged —
+       the customer is still asked directly, and their answer still reaches the record —
+       so this follows the row rather than being dropped. */
+    check('S62', 'and the customer is still asked directly, on the details form',
+      index.indexOf('id="qdSidesRow"') > 0 && /name="house_sides"/.test(index),
+      'the count drives the price, so it has to be asked somewhere the customer sees it');
+    check('S62', 'and it is no longer on the free quote form',
+      index.indexOf('id="quoteSidesRow"') === -1,
+      'left in both places the two would drift, and the quote form is the one that has ' +
+      'to stay short enough to finish');
+    /* ⚠ ONE SIDE IS PRE-PICKED THERE, AND ONLY THERE. See the admin-form check at the
+       bottom of this suite, which asserts the opposite for Edit/Add Customer. */
+    check('S62', 'one side is pre-picked on the details form',
+      /name="house_sides" value="1" checked/.test(index),
+      'Addie: "1 side should be default" — the commonest answer by far is the front only');
 
     /* ⭐ ONE COUNT, THE SAME ON ALL THREE FORMS. Owner, 2026-08-19: "in the website
        its called front left right and back side, we need it to say 1, 2, 3, or 4 sides
@@ -19599,10 +19629,23 @@ suite('Suite 62. Which sides of the house');
     /* ⚠ AND THE PHOTO LABELS ARE UNTOUCHED, deliberately. You photograph the front of
        a house; you do not photograph "side 2". Sides-of-lights is a count and
        sides-for-photos is four named walls, and they are different questions. */
-    check('S62', 'the photo labels still name the four walls',
-      /QUOTE_SIDE_ORDER = \['front', 'right', 'left', 'back'\]/.test(index) &&
-      /Front of house/.test(index),
-      'a photo of the front is a photo of the front whatever the light count is');
+    /* ⚠ RETIRED WITH THE FEATURE IT GUARDED (2026-09-03), and the old reasoning is kept
+       because it was right for as long as there were photos: "a photo of the front is a
+       photo of the front whatever the light count is" — the four named walls were
+       deliberately NOT collapsed into the side COUNT. Addie removed the uploader from
+       the quote form ("upload picture should not be there"), so there are no photo
+       labels left to protect. What replaces it is the assertion that the uploader is
+       really gone rather than hidden, and that the thing she asked to KEEP survives. */
+    check('S62', 'the quote photo uploader is gone, not hidden',
+      !/QUOTE_SIDE_ORDER/.test(index.replace(/\/\*[\s\S]*?\*\//g, '')) &&
+      !/id="quoteBuildingsRow"[\s\S]{0,400}<label>Photos<\/label>/.test(index),
+      'a hidden row is how a removed feature comes back by accident');
+    check('S62', 'but the extra-property list survives, with a way out',
+      index.indexOf('id="quoteAddBuildingBtn"') > 0 &&
+      /function removeQuoteBuilding\(building\)/.test(index),
+      'Addie asked for both in one breath: "there should keep the option to add another ' +
+      'property but make sure there is a way to delete the extra property in case they ' +
+      'accidentally push on it"');
   }
 
   /* ---- it survives the round trip ---- */
@@ -27130,6 +27173,22 @@ suite('Suite 108. The Edit Customer save, actually run');
         'let cnStuckToastAt = 0; return ' + noticeSrc + ';noticeCustomerNumberStuck'
       )(ctx.addDoc, ctx.collection, ctx.db, ctx.serverTimestamp, ctx.toast, ctx.jobAddresses, ctx.console);
     }
+    /* ⭐ THE PROPERTY LIST READER, LIFTED (2026-09-03). The Edit Customer save now calls
+       editCustReadBuildings() to collect the "Other buildings on the property" rows, and
+       this sandbox runs that whole handler — so without it the suite dies on a bare
+       ReferenceError, which surfaces as an unattributable crash and stops every suite
+       after it from scoring (CLAUDE.md §3).
+
+       ⚠ LIFTED, NOT STUBBED. A stub returning [] would keep this suite green through a
+       change that stopped the save writing buildings at all. The real one walks the DOM,
+       and this sandbox has no document — so it is handed a wrap element that is not
+       there, returns [], and the handler proceeds exactly as it does for a customer with
+       no extra buildings. That is the honest default for fixtures that do not have any;
+       a fixture that wants some supplies its own document. */
+    ctx.editCustReadBuildings = new Function(
+      'document',
+      'return ' + extractFn(admin, 'editCustReadBuildings') + ';editCustReadBuildings'
+    )({ getElementById: function(){ return null; } });
     const names = Object.keys(ctx);
     const fn = new AsyncFn(...names, handlerSrc);
     return fn(...names.map(n => ctx[n])).then(function(){
@@ -28553,13 +28612,36 @@ suite('Suite 80. A blank is a blank, and a default is a default');
 {
   const idx = read("index.html");
 
-  /* ---- nothing answers a yes/no on the customer’s behalf ---- */
-  const PREANSWERED = (idx.match(/<input type="radio"[^>]*checked[^>]*>/g) || []);
-  check('S80', 'no yes/no question comes pre-answered on the quote form',
-    !PREANSWERED.length,
-    "found: " + PREANSWERED.join(" ") + " — all four of these were ticked on No, so a " +
-    "customer who never read the question was recorded as having said no to it. Once " +
+  /* ---- nothing answers a yes/no on the customer’s behalf ----
+     ⚠ NARROWED 2026-09-03, AND STRENGTHENED WHERE IT MATTERS. This banned EVERY checked
+     radio anywhere in index.html, which was the right net while every radio on the page
+     was a Yes/No. It is not any more: Addie asked for the side COUNT to be pre-picked on
+     the details form ("1 side should be default"), and a count is a different kind of
+     question — there is no answer it can invent, only the commonest one offered in front
+     of somebody who can see it and change it.
+
+     The rule this actually protects is unchanged and is now asserted BY NAME rather than
+     by counting tags, which is stricter: a new Yes/No radio added pre-ticked would have
+     to be added to the exclusion list deliberately, instead of quietly passing a count
+     that happened to be phrased as one. */
+  const YESNO_NAMES = ['outlet_timer', 'specific_outlet', 'wants_mailed'];
+  const PREANSWERED = (idx.match(/<input type="radio"[^>]*checked[^>]*>/g) || [])
+    .filter(function(tag){
+      return YESNO_NAMES.some(function(nm){ return tag.indexOf('name="' + nm + '"') !== -1; });
+    });
+  check('S80', 'no yes/no question comes pre-answered', !PREANSWERED.length,
+    "found: " + PREANSWERED.join(" ") + " — all four of these were once ticked on No, so " +
+    "a customer who never read the question was recorded as having said no to it. Once " +
     "that is on the record it cannot be told apart from a real answer");
+  /* ⚠ AND THE EXCLUSION IS ITSELF BOUNDED. The only pre-picked radio allowed on this
+     page is the side count; anything else checked is a question somebody has to have
+     thought about, so it fails here and has to be argued for. */
+  const OTHER_CHECKED = (idx.match(/<input type="radio"[^>]*checked[^>]*>/g) || [])
+    .filter(function(tag){ return tag.indexOf('name="house_sides"') === -1; });
+  check('S80', 'and the side count is the only thing pre-picked at all',
+    !OTHER_CHECKED.length,
+    'found: ' + OTHER_CHECKED.join(' ') + ' — a pre-picked answer is a claim that ' +
+    'somebody was asked, and only the side count has earned one');
 
   check('S80', 'and an unanswered one is stored blank, not as a No',
     /outletTimer: fd.get\(.outlet_timer.\) \|\| ..,/.test(idx) &&
@@ -35365,7 +35447,13 @@ suite('Suite 132. Back Next Year neither creates a recycle nor destroys one');
      somebody coming back IN. Both are ways of saying not this season, so moving
      between them changes nothing about whether the lights need collecting. */
   {
-    const a = admin.indexOf("    if(newRsvp === 'no' && oldRsvpForRecycle !== 'no'){");
+    /* ⚠ THE ANCHOR MOVED ON 2026-09-03 (RS-49). This sliced from the branch that set
+       needsLightRecycle when the answer became 'no' — the branch Addie's change removes,
+       because picking an answer should not queue warehouse work. The check below is about
+       the OTHER half, which still stands and still matters: moving between two ways of
+       saying "not this season" must not cancel a collection that is genuinely owed. It
+       now slices from the branch that survives. */
+    const a = admin.indexOf("    if(newRsvp !== 'no' && newRsvp !== 'backnextyear' &&");
     const b = admin.indexOf('/* Rejoining AFTER the recycle', a);
     check('S132', 'the RSVP recycle branch is findable', a !== -1 && b > a);
     if (a !== -1 && b > a) {
@@ -35392,10 +35480,18 @@ suite('Suite 132. Back Next Year neither creates a recycle nor destroys one');
         runRsvp('yes', 'no', true).needsLightRecycle === false,
         'they are in for the season again, so the recycle their no created goes ' +
         'with it — that is what this branch is FOR');
-      check('S132', 'and answering No still raises one',
-        runRsvp('no', 'yes', false).needsLightRecycle === true,
-        'the RSVP is the one place that decides somebody is out, and this is ' +
-        'where the recycle actually belongs');
+      /* ⚠ INVERTED 2026-09-03 (RS-49), and the old claim is kept in view because it was
+         the argument FOR the behaviour Addie has now removed: "the RSVP is the one place
+         that decides somebody is out, and this is where the recycle actually belongs".
+         Her answer is that it does not belong there — picking an option from a list should
+         not queue the warehouse to pull a bundle apart and return a customer number. The
+         recycle keeps its own button, which says what it does.
+         ⚠ THE OFFICE SAVE ONLY. portalRsvp still writes 'no' from an RSVP email, and
+         until PR #308 lands that path still recycles; nothing here touches it. */
+      check('S132', 'and answering No no longer raises one from the office',
+        !('needsLightRecycle' in runRsvp('no', 'yes', false)),
+        'a recycle is physical and irreversible, so it belongs to a button that says ' +
+        'so rather than to an answer in a dropdown');
     }
   }
 
@@ -49161,6 +49257,279 @@ suite('299. A referral link, and the $25 that follows it');
   check('S299', 'and the public quote form carries the token it was given',
     /referredByToken: t/.test(idxSrc) && /referralQuoteFields\(\)/.test(idxSrc),
     'without it the link is decoration — nothing on the quote says who sent them');
+}
+
+/*
+ * ⭐ SUITE 299. THE FREE QUOTE ASKS LESS, AND THE PROPERTY LIST OUTLIVES IT.
+ *
+ * Addie, 2026-09-03, in three messages:
+ *   "a lot of info in the free quote shouldnt be there including upload picture and
+ *    side of house, upload picture should not be there and side of house should be in
+ *    detail form, 1 side should be default"
+ *   "also there should keep the option to add another property but make sure there is a
+ *    way to delete the extra property in case they accidentally push on it"
+ *   "also in edit customer we need to have add a building set up there as well in case
+ *    they come around later and want another building"
+ *
+ * ⚠ THE THIRD ONE UNCOVERED A SILENT LOSS THAT PREDATES ALL OF THIS. The quote form has
+ * collected `buildings` for a while and the word did not appear ANYWHERE in admin.html
+ * — so a customer who told us about their shop at quote time had it recorded on the
+ * quote and then dropped the moment they became a customer, with nothing said. Writing
+ * the Edit Customer control is what made that visible, and the carry-across is the half
+ * that pays.
+ */
+suite('Suite 299. The free quote asks less, and the property list outlives it');
+{
+  const idx = read('index.html');
+
+  /* ---- the quote form ---- */
+  check('S299', 'the photo uploader is gone from the quote form',
+    idx.indexOf('id="quoteAddBuildingBtn"') > 0 &&
+    !/<label>Photos<\/label>/.test(idx) &&
+    !/uploadPhotoToCloudinary/.test(idx.replace(/\/\*[\s\S]*?\*\//g, '')),
+    'Addie: "upload picture should not be there" — and a hidden row is how a removed ' +
+    'feature comes back by accident');
+  check('S299', 'and the sides question left it',
+    idx.indexOf('id="quoteSidesRow"') === -1,
+    'asked in front of a stranger deciding whether to ask for a price at all');
+
+  /* ---- the property repeater, which she asked to KEEP ---- */
+  check('S299', 'the extra-property list survives on the quote form',
+    /function addQuoteBuilding\(/.test(idx) && idx.indexOf('id="quoteAddBuildingBtn"') > 0);
+  check('S299', 'and an accidental one can be taken back off',
+    /function removeQuoteBuilding\(building\)/.test(idx) &&
+    /removeBtn\.addEventListener\('click', function\(\)\{ removeQuoteBuilding\(building\); \}\)/.test(idx),
+    '"make sure there is a way to delete the extra property in case they accidentally ' +
+    'push on it"');
+  /* ⚠ THE ROW MUST LEAVE THE ARRAY, NOT JUST THE PAGE. Taking the element out alone
+     leaves the object in quoteBuildings, so the submit still sends a building the
+     customer can no longer see — and reads its detached input as a BLANK one. */
+  const rm = extractFn(idx, 'removeQuoteBuilding') || '';
+  check('S299', 'removing one drops it from the payload too',
+    /quoteBuildings\.splice\(at, 1\)/.test(rm) && /removeChild/.test(rm),
+    'the page and the array are two places, and only one of them is submitted');
+  check('S299', 'and the main house can never be removed',
+    /if\(!building \|\| building\.isMain\) return;/.test(rm) &&
+    /if\(!building\.isMain\)\{/.test(idx),
+    'a quote with no house is not a quote — guarded on the button AND in the function, ' +
+    'because the button is only half a rule');
+  check('S299', 'a nameless extra building is not submitted at all',
+    /\.filter\(function\(b\)\{ return b\.isMain \|\| b\.name; \}\)/.test(idx),
+    'somebody who presses Add and leaves the box blank would otherwise send the office ' +
+    'a building nobody can ask about');
+
+  /* ---- the sides question, on its new form ---- */
+  check('S299', 'the details form asks it instead', idx.indexOf('id="qdSidesRow"') > 0);
+  check('S299', 'with one side pre-picked',
+    /name="house_sides" value="1" checked/.test(idx),
+    'Addie: "1 side should be default"');
+  check('S299', 'and the answer is actually sent',
+    /houseSides: portalSideCount\(fd\.get\('house_sides'\)\)/.test(idx));
+  /* ⚠ THE SERVER IS THE HALF THAT WOULD FAIL SILENTLY. quoteSaveDetails keeps a
+     whitelist and the emailed-link path — the common one — goes through it, so a field
+     the browser sends and the function drops is lost with nothing wrong on screen. */
+  const fns = read('functions/index.js');
+  check('S299', 'and the server accepts it, clamped',
+    /houseSides: Math\.min\(4, Math\.max\(1, parseInt\(details\.houseSides, 10\) \|\| 1\)\)/.test(fns),
+    'not on the whitelist, the answer is dropped by the Cloud Function and nobody is ' +
+    'told; unclamped, a zero would price a house with no roofline');
+
+  /* ⚠ AND NOTHING IS STAMPED ON A QUOTE NOBODY HAS ASKED YET. */
+  const quoteSubmit = (idx.split("quoteFormEl.addEventListener('submit'")[1] || '').split('quoteDetailFormEl')[0];
+  check('S299', 'a fresh quote carries no side count at all',
+    !/houseSides:/.test(quoteSubmit),
+    'writing 1 here would stamp an answer on a quote nobody has been asked — the same ' +
+    'fault S62 already guards on the two admin forms');
+
+  /* ---- Edit Customer ---- */
+  check('S299', 'Edit Customer can add a building',
+    admin.indexOf('id="editCustAddBuildingBtn"') > 0 &&
+    admin.indexOf('id="editCustBuildings"') > 0,
+    '"in case they come around later and want another building"');
+  check('S299', 'and remove one',
+    /function editCustBuildingRow\(name\)/.test(admin) && /removeChild\(row\)/.test(admin));
+  check('S299', 'the list is refilled from the record on every open',
+    /editCustFillBuildings\(d\.buildings\)/.test(admin) &&
+    /wrap\.innerHTML = '';/.test(extractFn(admin, 'editCustFillBuildings') || ''),
+    'the house-tab strip repoints this form at a sibling without closing it, so a list ' +
+    'that appended would show the previous house underneath this one');
+  check('S299', 'and it is saved with the record',
+    /buildings: newBuildings/.test(admin) &&
+    /const newBuildings = editCustReadBuildings\(\);/.test(admin));
+  /* ⚠ THE ADD BUTTON IS BOUND ONCE. openEditCustomerModal runs on every open, so
+     binding there would add a listener per open and one press would append a row per
+     customer opened this session — the Inbox sidebar shipped exactly that (2815 writes
+     from one drop). */
+  /* ⚠ THE WIRING SITS INSIDE openEditCustomerModal, which runs on every open, so the
+     GUARD is the whole mechanism — not where the code lives. The first version of this
+     check asserted the opposite (that the wiring was outside that function) and failed
+     on correct code, which is how the comment above it came to be corrected too. */
+  const openSrc = extractFn(admin, 'openEditCustomerModal') || '';
+  check('S299', 'the Add button cannot be wired twice',
+    /if\(editCustAddBuildingBtnEl && !editCustAddBuildingBtnEl\.dataset\.wired\)\{/.test(openSrc) &&
+    /editCustAddBuildingBtnEl\.dataset\.wired = '1';/.test(openSrc),
+    'this runs on every open — unguarded, one press of Add appends a row per customer ' +
+    'looked at this session, which is the 2815-write Inbox bug in a new place');
+
+  /* ---- the silent loss this uncovered ---- */
+  check('S299', "a quote's buildings now follow the customer",
+    /buildings: addCustBuildingsFromQuote\(\)/.test(admin) &&
+    !!extractFn(admin, 'addCustBuildingsFromQuote'),
+    'before this they were written onto the quote and dropped on conversion, with ' +
+    'nothing anywhere reading them');
+  const carry = extractFn(admin, 'addCustBuildingsFromQuote') || '';
+  check('S299', 'and the main house is not carried across as one of them',
+    /isMain === true/.test(carry) && /main house/i.test(carry),
+    'on a quote the main house IS one of the buildings; on a customer the record is ' +
+    'the main house, so carrying it lists the same address twice');
+
+  /* ---- the field is declared, which is what gives it a reader ---- */
+  check('S299', 'buildings is labelled, so an edit to it shows in the history',
+    /buildings: \{label: 'Other buildings', kind: 'buildings'\}/.test(admin),
+    'CLAUDE.md §1 — written, read AND declared. The change-log gate is what asked.');
+  /* ⚠ NOT kind 'list'. These are objects, so join() prints [object Object] into
+     somebody's history — worse than no entry, because it still looks like one. */
+  /* ⚠ changeValueText, NOT a name I assumed. The first draft guessed at
+     customerFieldWords, found nothing, and the two checks below SKIPPED — green, and
+     proving nothing at all about the rendering they exist for. */
+  /* ⚠ changeValueText(v, kind) — VALUE FIRST. Called the other way round it answers for
+     the string "buildings" rather than for the list, which is a pass or a fail decided
+     by nothing to do with the code under test. */
+  const words = new Function('kind', 'v',
+    'const fmtMoney = function(x){ return String(x); };' +
+    (extractFn(admin, 'changeValueText') || 'function changeValueText(){}') +
+    'return changeValueText(v, kind);');
+  check('S299', 'the history renderer was found to run',
+    /function changeValueText/.test(admin),
+    'without it the two checks below skip silently and prove nothing');
+  if (/function changeValueText/.test(admin)) {
+    check('S299', 'and it renders as the names, not as [object Object]',
+      words('buildings', [{name: 'Shop'}, {name: 'Guest house'}]) === 'Shop, Guest house',
+      'got ' + JSON.stringify(words('buildings', [{name: 'Shop'}, {name: 'Guest house'}])));
+    /* ⚠ TWO DIFFERENT FACTS, AND THE FILE ALREADY TOLD THEM APART — my first draft of
+       this check asserted they were the same and failed on correct code. A field that
+       was NEVER SET reads "(blank)" through changeValueText's general blank test, which
+       runs before the per-kind branches; a list that HAD buildings and now has none
+       reads "(none)". In a history those say different things: nobody ever recorded one,
+       versus somebody took the last one off. Flattening them would hide the removal,
+       which is the entry most worth reading. */
+    check('S299', 'an emptied list says none, and a never-set one says blank',
+      words('buildings', []) === '(none)' && words('buildings', undefined) === '(blank)',
+      'got ' + JSON.stringify([words('buildings', []), words('buildings', undefined)]) +
+      ' — "nobody ever listed one" and "somebody removed the last one" are different ' +
+      'entries, and the second is the one worth reading');
+  }
+}
+
+/*
+ * ⭐ SUITE 298. "NO" IS OFF THE OFFICE DROPDOWN, AND STILL UNDERSTOOD EVERYWHERE.
+ *
+ * Addie, 2026-09-03: "we can just get rid of the no under rsvp because it means the same
+ * thing as back next year."
+ *
+ * ⚠ THEY DID NOT MEAN THE SAME THING. Picking No set needsLightRecycle — the warehouse
+ * queued to pull that customer's bundle apart and hand their number back — while Back
+ * Next Year deliberately never does (RS-05). One entry in a list of answers also started
+ * physical, irreversible work, which is why removing it is the right change and not
+ * merely the requested one: the recycle is already a button that says what it does.
+ *
+ * THREE THINGS TO HOLD, and the second is the one that would lose data:
+ *   - the office cannot CHOOSE no, and choosing an answer no longer queues a recycle;
+ *   - the VALUE 'no' is still written by portalRsvp and still read by everything;
+ *   - a record that already says 'no' lands on a real option in the form, because a
+ *     <select> set to a value it has no option for shows BLANK — which reads as
+ *     "Pending (never asked)" — and the next save writes that blank over their answer.
+ */
+suite('Suite 298. No is off the office dropdown, and still understood everywhere');
+{
+  /* The dropdown itself — sliced to the select, so the Members-tab FILTER (which keeps
+     its own No option, deliberately) cannot satisfy or break these. */
+  const selAt = admin.indexOf('<select id="editCustRsvp">');
+  const sel = selAt === -1 ? '' : admin.slice(selAt, admin.indexOf('</select>', selAt));
+  check('S298', 'the RSVP dropdown is findable', !!sel);
+
+  check('S298', 'No is not offered to the office', !/value="no"/.test(sel),
+    'choosing it is what queued the warehouse to take a bundle apart');
+  check('S298', 'and the answers that remain are still there',
+    /value="yes"/.test(sel) && /value="backnextyear"/.test(sel) &&
+    /value="unanswered"/.test(sel) && /value=""/.test(sel),
+    'removing one option must not take the others with it');
+
+  /* ⚠ THE FILTER IS A DIFFERENT CONTROL AND MUST KEEP ITS No. Those records exist —
+     portalRsvp writes them — and a filter that cannot name them cannot find them. */
+  const fltAt = admin.indexOf('id="etFilterRsvp"');
+  const flt = fltAt === -1 ? '' : admin.slice(fltAt, admin.indexOf('</select>', fltAt));
+  check('S298', 'the Members filter still offers No', /value="no"/.test(flt),
+    'a customer who answered No in an email still has to be findable');
+
+  /* Choosing an answer no longer starts warehouse work. */
+  const save = (admin.split('const oldRsvpForRecycle')[1] || '').split('const rejoinedAfterRecycle')[0];
+  check('S298', 'the customer save is findable', !!save.trim());
+  check('S298', 'picking an answer never queues a recycle',
+    !/newRsvp === 'no'[\s\S]{0,120}needsLightRecycle = true/.test(save),
+    'that branch is what made the two answers different, and with No unpickable it ' +
+    'could never fire again — dead code that still looks like the rule');
+  /* ⚠ AND THE UNDO HALF STAYS. A record that already says no, being brought back into
+     the season, must still have its queued recycle cancelled. */
+  /* ⚠ COMMENTS STRIPPED FIRST. A 460-character note explaining the branch sits between
+     the two lines, and a fixed-length window across it is the slow fuse CLAUDE.md §7 bans
+     by name — it fails on correct code the moment the prose grows. Suites 58, 274 and 275
+     each learned this separately; this check learned it on its first run. */
+  const saveCode = save.replace(/\/\*[\s\S]*?\*\//g, '');
+  check('S298', 'but coming back in still cancels a queued recycle',
+    /oldRsvpForRecycle === 'no' && item\.data\.needsLightRecycle\)\{\s*addrUpdates\.needsLightRecycle = false/.test(saveCode),
+    'portalRsvp still writes no, so records in that state still arrive here');
+
+  /* ⚠ THE ONE THAT WOULD LOSE DATA. */
+  const open = extractFn(admin, 'openEditCustomerModal') || '';
+  check('S298', 'a stored no lands on a real option instead of blank',
+    /storedRsvp === 'no' \? 'backnextyear'/.test(open),
+    'a <select> set to a value it has no option for shows BLANK, which reads as ' +
+    '"Pending (never asked)" — and the next save writes that over their answer');
+
+  /* ---- and the readers, RUN rather than read ---- */
+  const badge = extractFn(admin, 'seasonBadgeKey');
+  const out = extractFn(admin, 'isOutForSeason');
+  if (badge && out) {
+    const key = (d) => new Function('d',
+      seasonRuleLiveSrc() +
+      'function audienceNeverAsked(x){ return x && x.chargeNewMemberFee === true; }' +
+      'function houseOwesFromLastSeason(){ return false; }' +
+      out + badge + 'return seasonBadgeKey(d);')(d);
+    const isOut = (d) => new Function('d',
+      seasonRuleLiveSrc() +
+      'function audienceNeverAsked(x){ return x && x.chargeNewMemberFee === true; }' +
+      'function houseOwesFromLastSeason(){ return false; }' +
+      out + 'return isOutForSeason(d);')(d);
+
+    /* ⚠ THE VALUE STILL ARRIVES FROM THE RSVP EMAIL, so every reader must still know it. */
+    check('S298', 'a stored no still reads as Maybe Next Year on the badge',
+      key({ rsvpStatus: 'no' }) === 'maybe', 'got ' + key({ rsvpStatus: 'no' }));
+    check('S298', 'and is still out of the season',
+      isOut({ rsvpStatus: 'no' }) === true,
+      'dropping the option must not drop the rule — portalRsvp still writes this');
+    check('S298', 'and back next year answers identically, which is the point',
+      key({ rsvpStatus: 'backnextyear' }) === key({ rsvpStatus: 'no' }) &&
+      isOut({ rsvpStatus: 'backnextyear' }) === isOut({ rsvpStatus: 'no' }),
+      'she said they mean the same thing; where they are READ, they already did');
+  }
+
+  /* ⚠ THE CAPABILITY IS NOT LOST — this is the check that makes the removal safe. */
+  check('S298', 'the recycle is still a button of its own',
+    /editCustRecycleStayBtn/.test(admin) &&
+    /needsLightRecycle: true[\s\S]{0,80}recycleKeepingCustomer: true/.test(admin),
+    'if this ever goes, removing No really would take away the office\'s only way to ' +
+    'send a set back, and that is the whole reason this change is safe');
+
+  /* ⚠ AND THE EXCEL DESTINATION NEVER READ THE RSVP ANSWER ANYWAY. Checked because it
+     is what would have made this change wrong: the Recycle sheet keys on the flag. */
+  const tabsAt = admin.indexOf('const HLX_STATE_TABS');
+  const tabs = tabsAt === -1 ? '' : sectionFrom(admin, tabsAt);
+  check('S298', 'the Recycle sheet keys on the flag, not on the answer',
+    /tab: "Recycle"[\s\S]{0,400}return !!d\.needsLightRecycle;/.test(tabs),
+    'if it keyed on the RSVP answer, removing the option would silently empty that sheet');
+  check('S298', 'and Contact 2027 still takes back-next-year',
+    /tab: "Contact 2027"[\s\S]{0,600}backnextyear/.test(tabs));
 }
 
 Promise.all(pendingAsync).then(function () {
