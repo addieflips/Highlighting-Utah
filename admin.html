@@ -1871,7 +1871,7 @@
               <!-- ⭐ Owner, 2026-09-01: "there is now way to filter who is confirmed fix that."
                    Beside Route Status on purpose — Confirmed IS the route answer now
                    (seasonBadgeKey delegates to isOutForSeason), so the two belong together. -->
-              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="pending">On hold &mdash; blocked by a rule</option><option value="maybe">Back Next Year</option></select></div>
+              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="pending">On hold &mdash; blocked by a rule</option><option value="maybe">Back Next Year</option><option value="no">No</option></select></div>
               <div class="form-row"><label>Route Status</label><select id="allCustFilterRoute"><option value="all">Any</option><option value="scheduled">Scheduled</option><option value="unscheduled">Unscheduled</option><option value="completed">Install Complete</option><option value="needsfix">Needs Fix</option></select></div>
               <div class="form-row"><label>House Map</label><select id="allCustFilterMap"><option value="all">Any</option><option value="has">Has a Map</option><option value="none">No Map Yet</option></select></div>
               <!-- ⭐ FINDING THE OLD STOCK. Owner, 2026-08-19, on why soft is kept under
@@ -1953,6 +1953,12 @@
                for everybody, group or not, because "what do they owe" is asked of a
                single-house customer just as often. -->
           <div id="editCustBillLine" style="display:none; margin:0 0 12px; font-size:12.5px; line-height:1.5;"></div>
+          <!-- ⭐ THEIR OWN REFERRAL LINK, AT THE TOP (2026-09-04, REF-07). Addie asked
+               for it here, beside the bill, because this is the screen somebody is on
+               when a customer rings up and asks how to send it to a neighbour. The
+               customer has always had it in their portal; the office had no way to see
+               it at all. Rendered by editCustRenderReferLine. -->
+          <div id="editCustReferLine" style="display:none; margin:0 0 12px; font-size:12.5px; line-height:1.5;"></div>
           <p style="margin:0 0 16px; font-size:13px; color:var(--slate);">Everything about this house is edited here. Only the amount is set on Invoices, and only the house rating is set on Routes.</p>
           <!-- ===================== CUSTOMER INFO ===================== -->
           <div class="ec-grid">
@@ -3865,13 +3871,15 @@
                among the filters. -->
           <div style="margin:14px 0 12px; padding:11px 13px; border:1px solid var(--line); border-radius:10px; background:#FAFBFC;">
             <div style="font-size:12.5px; font-weight:700; color:var(--slate); margin-bottom:6px;">Crews out on a normal day</div>
-            <label style="display:inline-flex; align-items:center; gap:6px; font-size:13px; margin-right:16px;">
-              <input type="radio" name="crewsPerDay" value="2" id="crewsPerDay2" style="width:auto;">
-              Two crews — two towns a day, 20 houses each
-            </label>
-            <label style="display:inline-flex; align-items:center; gap:6px; font-size:13px;">
-              <input type="radio" name="crewsPerDay" value="1" id="crewsPerDay1" style="width:auto;">
-              One crew — one town a day, 20 houses
+            <!-- ⚠ A SELECT, NOT TWO RADIOS (2026-09-04, CREW-01). Two radios could only
+                 ever say one or two, so a third crew added on the Schedule tab could not
+                 be shown here at all — and picking "Two" would have quietly dropped it,
+                 leaving a named crew with no day to work. Same field either way: this and
+                 the Schedule crew bar both write settings/scheduling.crewsPerDay, which
+                 is the one number the season builder reads. -->
+            <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px;">
+              How many crews
+              <select id="crewsPerDaySelect" style="width:auto; font-size:13px;"></select>
             </label>
             <div id="crewsPerDayStatus" style="font-size:12px; color:var(--slate); margin-top:7px;"></div>
             <div style="margin-top:14px;">
@@ -8505,20 +8513,29 @@ function billedHousesPlainText(phone){
    send does — and the ambiguity never arises.
 
    ⚠ RETURNS THE DATA, not the wrapper, so a caller cannot forget the .data. */
-function hlxEmailCustomer(phone, opts){
+/* ⚠ THE SAME RULE, HANDING BACK THE RECORD RATHER THAN ITS FIELDS (2026-09-04).
+   hlxEmailCustomer answers "whose data is this email about"; a caller that needs to
+   WRITE to that customer — referralTokenFor mints a token on the document — needs its
+   id as well. Two questions, one rule: this is the rule, and hlxEmailCustomer is one
+   line on top of it. A second resolver written beside it is how one of them quietly
+   stops refusing a shared phone, which is the whole reason this function is strict. */
+function hlxEmailCustomerItem(phone, opts){
   const o = opts || {};
   if(o.customerId){
-    const byId = (typeof custById !== 'undefined' && custById.has(o.customerId))
+    return (typeof custById !== 'undefined' && custById.has(o.customerId))
       ? custById.get(o.customerId)
-      : (jobAddresses || []).find(function(a){ return a.id === o.customerId; });
-    return (byId && byId.data) || null;
+      : ((jobAddresses || []).find(function(a){ return a.id === o.customerId; }) || null);
   }
   const digits = ('' + (phone || '')).replace(/\D/g, '');
   if(!digits) return null;
   const hits = (jobAddresses || []).filter(function(a){
     return ('' + ((a.data && a.data.phone) || '')).replace(/\D/g, '') === digits;
   });
-  return hits.length === 1 ? hits[0].data : null;
+  return hits.length === 1 ? hits[0] : null;
+}
+function hlxEmailCustomer(phone, opts){
+  const it = hlxEmailCustomerItem(phone, opts);
+  return (it && it.data) || null;
 }
 /* ⭐ A LINK BEHIND HER OWN WORDS (added 2026-08-26). Owner, on the quote
    message: "I don't want a long li[n]k... I want it to say 'See your home and
@@ -8757,6 +8774,39 @@ async function resolveLinkTokens(text, phone, amount, opts){
     out = out.split('{{houses_block}}').join(billedHousesEmailBlock(phone));
     out = out.split('{{houses_list}}').join(billedHousesPlainText(phone).trim());
   }
+  /* ⭐ THE REFERRAL LINK, IN AN EMAIL (2026-09-04, REF-08). Addie asked for it to be
+     sendable through the RSVP. The RSVP is the one email a customer definitely opens
+     and definitely acts on, so it is the cheapest chance all season to put their own
+     link in front of them — and until now the only way to see it was to sign into the
+     portal and find the Refer a Friend tab, which is the tab locked behind an unpaid
+     balance.
+
+     ⚠ THE CUSTOMER IS RESOLVED BY hlxEmailCustomer, NEVER BY A PHONE .find(). That
+     resolver refuses a phone matching two customers rather than picking the first —
+     seventeen numbers in the real book are shared and fourteen of those are two
+     households. Through a `.find()` a parent would be emailed the CHILD's referral
+     link, and every $25 earned through it would land on the child's bill for the whole
+     season with nothing on screen to say so. The money follows the token, so this is
+     the strictest of the resolvers, not the most convenient.
+
+     ⚠ AND AN UNRESOLVED CUSTOMER RESOLVES TO NOTHING AT ALL — no link, no button, no
+     empty <a href="">. A dead button in a bulk send is worse than a missing paragraph:
+     it is a customer tapping something we sent them and landing nowhere, and there is
+     no way for them to tell that from the referral scheme being broken.
+
+     ⚠ IT MINTS A TOKEN, so a send to the whole book writes a token for everybody it
+     could resolve. That is one write each, once, and the alternative is an RSVP whose
+     referral link only works for the customers who happen to have signed in already —
+     which is a link that works for some people and silently not for others. */
+  if(out.indexOf('{{referral_link}}') !== -1 || out.indexOf('{{referral_button}}') !== -1){
+    const who = hlxEmailCustomerItem(phone, opts);
+    const refToken = who ? await referralTokenFor(who) : null;
+    const refUrl = referralLinkFromToken(refToken);
+    out = out.split('{{referral_link}}').join(refUrl);
+    out = out.split('{{referral_button}}').join(refUrl
+      ? ('<a href="' + refUrl + '" style="' + btnStyleGold + '">Refer a Friend \u2014 $25 Off</a>')
+      : '');
+  }
   if(out.indexOf('{{messages_link}}') !== -1 || out.indexOf('{{messages_button}}') !== -1){
     const messagesUrl = 'https://highlightingutah.com/#/contact';
     out = out.split('{{messages_link}}').join(messagesUrl);
@@ -8994,7 +9044,14 @@ async function loadSchedulingSettings(){
   try{
     const snap = await getDoc(doc(db,'settings','scheduling'));
     const n = snap.exists() ? Number(snap.data().crewsPerDay) : 2;
-    CREWS_PER_DAY = (n === 1) ? 1 : 2;
+    /* ⚠ THIS CLAMPED TO 1 OR 2 AND THAT WAS THE WHOLE CEILING. Any third crew written
+       by the Schedule crew bar was read back as two on the next login, so the season
+       silently rebuilt for two and one named crew got nothing — the failure being
+       invisible on screen is what makes it worth a comment. Still clamped, just to a
+       real range: a nonsense value out of Firestore must not build sixty crew sheets,
+       and anything unreadable falls back to two rather than to zero, because a season
+       built for no crews schedules nobody at all. */
+    CREWS_PER_DAY = (n >= 1 && n <= MAX_CREWS) ? Math.floor(n) : 2;
     /* An empty list is not a decision, it is a blank — and a blank meant every pair
        fell through to the tape measure. The built-in list stands in until the office
        types its own. */
@@ -9005,13 +9062,23 @@ async function loadSchedulingSettings(){
   /* Only when it is not being typed in — reloading under the cursor would take
      somebody's half-finished line away mid-word. */
   if(nt && document.activeElement !== nt) nt.value = nearbyTownsToText(NEARBY_TOWN_LIST);
-  const r1 = document.getElementById('crewsPerDay1'), r2 = document.getElementById('crewsPerDay2');
-  if(r1) r1.checked = CREWS_PER_DAY === 1;
-  if(r2) r2.checked = CREWS_PER_DAY === 2;
+  const sel = document.getElementById('crewsPerDaySelect');
+  if(sel){
+    /* Rebuilt rather than written into the markup, so the ceiling lives in one constant.
+       ⚠ Only when it is not being used — replacing the options under an open dropdown
+       takes somebody's choice away mid-press. */
+    if(document.activeElement !== sel){
+      let opts = '';
+      for(let i = 1; i <= MAX_CREWS; i++){
+        opts += '<option value="' + i + '"' + (i === CREWS_PER_DAY ? ' selected' : '') + '>' +
+          i + (i === 1 ? ' crew' : ' crews') + '</option>';
+      }
+      sel.innerHTML = opts;
+    }
+    sel.value = String(CREWS_PER_DAY);
+  }
   const st = document.getElementById('crewsPerDayStatus');
-  if(st) st.textContent = CREWS_PER_DAY === 1
-    ? 'One town a day, up to 20 houses. The season runs about twice as long.'
-    : 'Two towns a day, up to 20 houses each — 40 a day in total.';
+  if(st) st.textContent = crewsPerDayStatusText(CREWS_PER_DAY);
 }
 /* Saved on blur rather than per keystroke: this is a list somebody types out,
    and a write per character would both cost writes and fight the cursor. */
@@ -9037,19 +9104,27 @@ async function loadSchedulingSettings(){
     }
   });
 })();
-document.querySelectorAll('input[name="crewsPerDay"]').forEach(function(radio){
-  radio.addEventListener('change', async function(){
-    if(!radio.checked) return;
-    const want = Number(radio.value) === 1 ? 1 : 2;
+/* One sentence per count, in one place, because the Schedule crew bar and this
+   dropdown both have to say the same thing about the same number. */
+function crewsPerDayStatusText(n){
+  const cap = (typeof MAX_STOPS_PER_ROUTE === 'number' && MAX_STOPS_PER_ROUTE > 0) ? MAX_STOPS_PER_ROUTE : 20;
+  if(n === 1) return 'One town a day, up to ' + cap + ' houses. The season runs about twice as long.';
+  return n + ' towns a day, up to ' + cap + ' houses each — ' + (n * cap) + ' a day in total.';
+}
+document.querySelectorAll('#crewsPerDaySelect').forEach(function(sel){
+  sel.addEventListener('change', async function(){
+    const raw = Number(sel.value);
+    const want = (raw >= 1 && raw <= MAX_CREWS) ? Math.floor(raw) : 2;
     const st = document.getElementById('crewsPerDayStatus');
     if(st){ st.textContent = 'Saving…'; st.style.color = 'var(--slate)'; }
     try{
       await setDoc(doc(db,'settings','scheduling'), {crewsPerDay: want}, {merge:true});
+      const was = CREWS_PER_DAY;
       CREWS_PER_DAY = want;
       if(st){
-        st.textContent = want === 1
-          ? '✓ One crew. Days that had a second town are being taken apart and those houses re-spread — watch System notices.'
-          : '✓ Two crews. Days will be filled two towns at a time from here on.';
+        st.textContent = (want < was
+          ? '✓ ' + crewsPerDayStatusText(want) + ' Days that had more towns are being taken apart and those houses re-spread — watch System notices.'
+          : '✓ ' + crewsPerDayStatusText(want) + ' Name the new crew on the Schedule tab, then press ⚙ Recalculate everything.');
         st.style.color = 'var(--emerald)';
       }
       logActivity('Crews per day set to ' + want, 'routes', '');
@@ -10435,6 +10510,52 @@ function referralCreditNote(count){
 function referralLiveCount(entries){
   return (Array.isArray(entries) ? entries : [])
     .filter(function(e){ return e && !e.revoked && !e.waived; }).length;
+}
+/* ⭐ THE MEMBER'S OWN REFERRAL LINK, FROM THE OFFICE SIDE (2026-09-04, REF-07).
+   Addie: the link belongs at the top of Edit Customer, and it has to be able to go out
+   in the RSVP email. Both of those are the OFFICE holding the link, and until now only
+   the customer could ever see it.
+
+   ⚠ THE TOKEN WAS MINTED IN EXACTLY ONE PLACE AND IT WAS NOT REACHABLE FROM HERE.
+   `ensureReferralToken` lives inside portalLookup, so a customer got a referral token on
+   their FIRST PORTAL SIGN-IN and never before it. Most of the book has never signed in,
+   so reading `referralToken` off a record and showing whatever is there would leave the
+   office looking at a blank box on nearly every customer — which reads as the feature
+   being broken rather than as a token that does not exist yet. This mints one the same
+   way `rsvpTextTokenFor` mints a portal token.
+
+   ⚠ KEYED TO THE RECORD, NEVER TO THE PHONE. Seventeen numbers in the real book are
+   shared and fourteen of those are two households, so a phone `.find()` would hand one
+   household the OTHER one's referral link — and every $25 earned through it would land
+   on the wrong person's bill, silently, for the whole season. That is the argument
+   already written down above `rsvpTextTokenFor`, and it bites harder here because the
+   money follows the token.
+
+   ⚠ AND IT IS THE REFERRAL TOKEN, NEVER THE PORTAL TOKEN. A portal token signs
+   somebody in; this one is pasted into a group chat. Two different secrets with two
+   different blast radii, and they must never be interchanged. */
+async function referralTokenFor(item){
+  if(!item || !item.id || !item.data) return null;
+  if(item.data.referralToken) return item.data.referralToken;
+  const token = generatePortalToken();
+  try{
+    await updateDoc(doc(db,'jobAddresses', item.id), {referralToken: token});
+    item.data.referralToken = token;
+  }catch(err){
+    /* Hand the token back anyway. A failed save costs them a link that stops working
+       later; returning null costs them the link entirely, right now. Same trade as
+       rsvpTextTokenFor. */
+    console.error('Could not save a referral token for', item.id, err);
+  }
+  return token;
+}
+/* ⚠ ONE PLACE BUILDS THE ADDRESS, and it has to stay byte-identical to
+   `portalReferralLink` in index.html — the customer copies one out of their own portal
+   and the office sends the other, and two links that differ by a slash are one referral
+   that credits nobody. Suite 305 runs both and requires the same string out. */
+function referralLinkFromToken(token){
+  const t = String(token || '');
+  return t ? ('https://highlightingutah.com/?ref=' + encodeURIComponent(t) + '#/quote') : '';
 }
 /* ⚠ A REFERRAL IS REFUSED IF EITHER FIELD MATCHES THE REFERRER'S OWN, and this is a
    HARD reject rather than a flag. Addie, 2026-09-03: the referred person's phone AND
@@ -17598,7 +17719,9 @@ const IC_CODES = {
     {token:'{{messages_link}}', label:'Send-us-a-message link (plain URL)'},
     {token:'{{messages_button}}', label:'Send-us-a-message link (button)'},
     {token:'{{venmo_link}}', label:'Venmo pay link (plain URL)'},
-    {token:'{{venmo_button}}', label:'Venmo pay link (button)'}
+    {token:'{{venmo_button}}', label:'Venmo pay link (button)'},
+    {token:'{{referral_link}}', label:'Their referral link (plain URL) \u2014 $25 off when a friend joins'},
+    {token:'{{referral_button}}', label:'Their referral link (button)'}
   ],
   rsvp: [
     {token:'{{referral_link}}', label:'Refer a Friend (plain URL)'},
@@ -30332,10 +30455,30 @@ function seasonRuleIsLive(){
    somebody who told us no for now — and the office toggles that one by hand. Addie:
    "if they end up in recycle that means they didnt confirm and same with back next
    year so you dont need to worry about that." */
+/* ⭐ "NO" IS ITS OWN BADGE, NOT A QUIETER BACK NEXT YEAR (2026-09-04). Addie:
+   "when they click no they go to maybe next year but actually we want them to just
+   go to no for the badge in case we want to send two different emails for each."
+
+   ⚠ THE TWO ANSWERS WERE ALREADY STORED APART — portalRsvp writes rsvpStatus
+   "no" or "backnextyear" and the email tool's RSVP filter has offered both since it
+   shipped. Only this line collapsed them, so the list and the mail-out disagreed
+   about how many kinds of no there are, and the badge could not be used to pick
+   between them.
+
+   ⚠ BOTH ARE STILL OUT FOR THE SEASON. isOutForSeason is untouched: nothing about
+   routing, billing or the warehouse changes here, only the word on the chip and the
+   value the season filter matches. Somebody who said no is out exactly as before.
+
+   ⚠ AND THE CUSTOMER'S OWN LATEST WORD WINS OVER THE OFFICE FLAG. maybeNextYear is
+   written together with rsvpStatus "backnextyear" (pullCustomerFromSeason), so the
+   only way to hold the flag AND read "no" is to have been marked back-next-year and
+   then answered no through the portal afterwards. That is the same rule isOutForSeason
+   already states — the answer is what decides now — and either way they are out. */
 function seasonBadgeKey(d){
   if(!d) return 'pending';
   const said = String(d.rsvpStatus || '').toLowerCase();
-  if(d.maybeNextYear || said === 'backnextyear' || said === 'no') return 'maybe';
+  if(said === 'no') return 'no';
+  if(d.maybeNextYear || said === 'backnextyear') return 'maybe';
   return isOutForSeason(d) ? 'pending' : 'confirmed';
 }
 function isOutForSeason(d){
@@ -44381,7 +44524,7 @@ function renderAllCustomersTable(){
        they had not. Both were correct and together they read as a contradiction.
        ⚠ THE KEY IS STILL 'pending'. Only the word a person reads changed: r.badge
        is what the season filter matches on (r.badge === seasonFilter) and the dropdown
-       option values are confirmed/pending/maybe, so renaming the key would silently
+       option values are confirmed/pending/maybe/no, so renaming the key would silently
        break that filter. The filter label already said "blocked by a rule" — this
        makes the chip agree with it. */
     const badgeKey = r.badge;
@@ -44409,7 +44552,12 @@ function renderAllCustomersTable(){
        same switch pointing the other way, and leaving one direction on the row would
        mean somebody can put a customer out for the season from the list but has to open
        the form to bring them back — the asymmetry is worse than either choice alone. */
-    const maybeCell = badgeKey === 'maybe'
+    /* ⚠ FOUR STATES NOW. "No" reads in the red the rest of the app already uses for a
+       flat no (rsvpStatusLabel's colour on the RSVP panel), so the two ways of being out
+       of the season are told apart at a glance rather than by opening the record. */
+    const maybeCell = badgeKey === 'no'
+      ? '<span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-weight:700;" title="They answered No, so they are out for this season until they say otherwise">No</span>'+unpaidPill
+      : badgeKey === 'maybe'
       ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Back Next Year</span>'+unpaidPill
       : badgeKey === 'pending'
       ? '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;" title="In for the season but blocked by the reason beside it — this clears itself the moment that does">On hold</span>'+unpaidPill
@@ -44817,6 +44965,11 @@ function editCustRenderHouseTabs(){
   wrap.style.display = 'none';
   line.style.display = 'none';
   line.innerHTML = '';
+  /* ⚠ BEFORE THE EARLY RETURN BELOW, and it has to be. This function gives up when
+     there is no record on screen, and the referral row would then be left showing the
+     LAST customer's link — on a form that has just been repointed at somebody else.
+     It hides itself when there is nobody, which is the honest answer. */
+  editCustRenderReferLine();
   const item = (jobAddresses || []).find(function(a){ return a.id === editCustomerId; });
   if(!item) return;
   const d = item.data || {};
@@ -44917,6 +45070,109 @@ function editCustRenderHouseTabs(){
   line.innerHTML = bits.join('');
   editCustRefreshDirtyDot();
 }
+/* ⭐ THE CUSTOMER'S OWN REFERRAL LINK, ON THE OFFICE SCREEN (2026-09-04, REF-07).
+   Addie: put the referral link at the top, in Customers. This is the screen somebody
+   is on when a member rings and asks how to pass their link to a neighbour, and until
+   now the office had no way of seeing it — only the customer's own portal ever drew it.
+
+   ⚠ THE LINK IS NOT MINTED JUST BY OPENING THIS FORM. `referralToken` is created on a
+   customer's first portal sign-in, and most of the book has never signed in, so drawing
+   whatever is stored would show an empty box on nearly every customer. Minting on OPEN
+   would fix the box and write to Firestore every single time anybody opened Edit
+   Customer for any reason — a write per open, on the most-opened form in the app, for a
+   link most of those opens will never use. So the button mints it, once, when somebody
+   actually asks for the link. That is the same lazy shape `ensureReferralToken` and
+   `rsvpTextTokenFor` already use, moved to the press rather than to the render.
+
+   ⚠ IT IS THE HOUSE ON SCREEN, taken by document id, never resolved from the phone —
+   see referralTokenFor. On a shared-phone household the wrong link here would put every
+   $25 that friend earns on the wrong person's bill.
+
+   ⚠ AND THE COUNT IS THE LIVE ONE (`referralLiveCount`), not `referralCount` and not
+   the raw array length. A referral the friend cancelled before their install is revoked,
+   and one the office crossed off with the × is waived; both stay in the list so it can
+   be audited, and neither is money off anybody's bill. Showing the raw length here would
+   tell the office a customer has a discount they do not have. */
+function editCustRenderReferLine(){
+  const line = document.getElementById('editCustReferLine');
+  if(!line) return;
+  line.style.display = 'none';
+  line.innerHTML = '';
+  const item = (jobAddresses || []).find(function(a){ return a.id === editCustomerId; });
+  if(!item) return;
+  const d = item.data || {};
+  const url = referralLinkFromToken(d.referralToken);
+  const n = referralLiveCount(d.referralCredits);
+  const bits = ['<span style="color:var(--slate);">Refer a friend</span>'];
+  if(url){
+    bits.push('<input type="text" readonly value="' + esc(url) + '" ' +
+      'id="editCustReferInput" aria-label="Their referral link" ' +
+      'style="flex:1 1 260px; min-width:180px; font-size:11.5px; padding:3px 7px;">');
+    bits.push('<button type="button" class="btn btn-outline btn-sm" data-ectrefer="copy" ' +
+      'style="padding:2px 10px; font-size:11.5px;">Copy link</button>');
+  } else {
+    /* ⚠ A REAL STATE, SAID PLAINLY, not a blank box. "No link yet" with a button that
+       makes one is answerable; an empty field with a Copy button beside it reads as the
+       feature being broken, which is what sends somebody looking for a bug. */
+    bits.push('<span style="color:var(--slate);">no link made yet</span>');
+    bits.push('<button type="button" class="btn btn-outline btn-sm" data-ectrefer="make" ' +
+      'style="padding:2px 10px; font-size:11.5px;">Make their link</button>');
+  }
+  bits.push('<span style="color:var(--slate);">' + (n
+    ? (n === 1 ? '1 person has joined \u2014 ' : n + ' people have joined \u2014 ') +
+      fmtMoney(n * REFERRAL_CREDIT) + ' off their bill'
+    : 'nobody has joined through it yet') + '</span>');
+  bits.push('<span id="editCustReferStatus" style="color:var(--slate);"></span>');
+  line.style.display = 'flex';
+  line.style.flexWrap = 'wrap';
+  line.style.alignItems = 'center';
+  line.style.gap = '8px';
+  line.innerHTML = bits.join('');
+}
+/* ⚠ NAMED AND DELEGATED, for the reason written above editCustTabsClick: an inline
+   listener can only be checked by matching its source, and this repo has already
+   shipped a control whose handler patch silently did not apply — the recycle "bin says"
+   box drew an input that saved nothing, looked identical to a working one on screen,
+   and npm test stayed green. */
+async function editCustReferClick(e){
+  const btn = e.target.closest && e.target.closest('[data-ectrefer]');
+  if(!btn) return;
+  const item = (jobAddresses || []).find(function(a){ return a.id === editCustomerId; });
+  if(!item) return;
+  const say = function(msg){
+    const st = document.getElementById('editCustReferStatus');
+    if(st) st.textContent = msg;
+  };
+  say('Working\u2026');
+  const token = await referralTokenFor(item);
+  if(!token){ say('Could not make a link \u2014 try again.'); return; }
+  editCustRenderReferLine();
+  const url = referralLinkFromToken(token);
+  /* ⚠ TWO WAYS, BECAUSE THE FIRST ONE IS NOT ALWAYS THERE — the same argument as the
+     customer's own copy button in index.html: navigator.clipboard is absent over plain
+     http and blocked in some in-app browsers. The select-and-execCommand fallback is
+     deprecated and still works everywhere that matters. */
+  let ok = false;
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(url);
+      ok = true;
+    }
+  }catch(err){ /* Refused (no permission, or an in-app browser). The fallback below is
+                  the answer, so this is not worth reporting to the office. */ }
+  if(!ok){
+    const input = document.getElementById('editCustReferInput');
+    if(input){
+      input.focus(); input.select();
+      try{ ok = document.execCommand('copy'); }
+      catch(err){ /* Nothing left to try. The link is on screen and selected, so it can
+                     still be copied by hand — which is why this is not an error. */ }
+    }
+  }
+  const st = document.getElementById('editCustReferStatus');
+  if(st) st.textContent = ok ? 'Copied.' : 'Select the link above and copy it.';
+}
+document.addEventListener('click', editCustReferClick, true);
 /* The dot on the tab being edited. Repainted on input rather than on a timer, so
    it appears on the first keystroke and goes again if the field is put back. */
 function editCustRefreshDirtyDot(){
@@ -45030,12 +45286,43 @@ function openEditCustomerModal(id){
      who told us no would come out of an unrelated edit looking like nobody had ever
      asked them, and their badge would move from Maybe Next Year to Pending.
 
-     ⚠ IT NORMALISES ON SAVE, and that is deliberate rather than accidental: whoever
-     opens the record and saves it converts that 'no' to 'backnextyear'. One state, one
-     spelling. Nothing is lost by it — the two are already one answer everywhere that
-     reads them — and the alternative is a value the office can see but never set. */
+     ⭐ IT NO LONGER NORMALISES ON SAVE (2026-09-04, RS-50). The line above used to read
+     `storedRsvp === 'no' ? 'backnextyear'`, and the reasoning kept here because it was
+     sound at the time was: "Nothing is lost by it — the two are already one answer
+     everywhere that reads them." Addie ended that premise the next day: "when they click
+     no they go to maybe next year but actually we want them to just go to no for the
+     badge in case we want to send two different emails for each." They are two answers
+     on the badge now and two audiences in the Email Tool, so opening a No customer to
+     correct a phone number and pressing Save moved them onto the wrong mail-out, with
+     nobody deciding and nothing saying so.
+
+     ⚠ THE FAULT THAT NORMALISATION WAS FIXING IS STILL REAL. A <select> set to a value
+     it has no option for shows BLANK, which reads as "Pending (never asked)" — the one
+     state this dropdown exists to tell an answer apart from — and the next save writes
+     that over their answer. So the value is SHOWN rather than translated.
+
+     ⚠ AND SHOWN IS NOT OFFERED, which is what keeps RS-49 intact: the option is added
+     only for a record that already holds it, and it is DISABLED, so the office still
+     cannot choose No — choosing it is what queued the warehouse to take a bundle apart.
+     They can still move the customer off it, which is the half that must keep working.
+     ⚠ IT IS REMOVED AGAIN when the form is repointed at a record that does not hold No —
+     the house-tab strip reuses this same form without closing it, so an option left
+     behind would offer one house's answer on another's record. */
   const storedRsvp = String(d.rsvpStatus || '').toLowerCase();
-  document.getElementById('editCustRsvp').value = storedRsvp === 'no' ? 'backnextyear' : (d.rsvpStatus || '');
+  const rsvpSel = document.getElementById('editCustRsvp');
+  let rsvpNoOpt = rsvpSel.querySelector('option[value="no"]');
+  if(storedRsvp === 'no'){
+    if(!rsvpNoOpt){
+      rsvpNoOpt = document.createElement('option');
+      rsvpNoOpt.value = 'no';
+      rsvpNoOpt.textContent = 'No \u2014 they answered this themselves';
+      rsvpSel.appendChild(rsvpNoOpt);
+    }
+    rsvpNoOpt.disabled = true;
+  } else if(rsvpNoOpt){
+    rsvpNoOpt.remove();
+  }
+  rsvpSel.value = d.rsvpStatus || '';
   /* ⚠ REFILLED ON EVERY OPEN, and the function empties the wrap first — the house-tab
      strip repoints this same form at a sibling without closing it, so a list that
      appended would show the previous house's buildings underneath this one's. */
@@ -57079,15 +57366,51 @@ function dayMainArea(day){const a=dayAreas(day);return a.length?a.slice(0,2).joi
    pair would quietly file half a day's houses under the wrong crew.
    Nothing is ever dropped: whatever falls outside both crews' cities is
    counted on screen and still appears on the whole-day sheet. */
+/* ⭐ AS MANY CREWS AS SHE HAS, NAMED (2026-09-04, CREW-01). Addie: "on schedule can
+   you make it so we can add on crews and name them?"
+
+   ⚠ NAMING ALREADY WORKED. What did not was ADDING: this was a list of exactly two,
+   because `normalizeCrews` mapped over CREW_FALLBACK_NAMES and that array had two
+   entries — so a third crew could not exist however it was typed in, and every reader
+   below walked `[0,1]` by hand.
+
+   ⚠ THE COUNT IS `settings/scheduling.crewsPerDay` AND NOTHING ELSE. That number was
+   already the answer to "how many crews go out" — the builder, the tail sweep and
+   surplusCrewDays all read it — so making the crew LIST a second answer would put two
+   numbers in two collections in charge of one fact, and the day they disagree a crew
+   holds a sheet the season was never built for. The names ride with the plan, as they
+   always have; the length is padded from the setting. One number, one place.
+
+   ⚠ AND THE FALLBACK IS max(2, what was stored), NEVER a bare 2. A sandbox or a
+   settings read that failed leaves CREWS_PER_DAY unset, and rebuilding a saved
+   three-crew list as two would silently delete the third crew's name — from a path
+   nobody was looking at, on a plan that is then saved back over the good one. */
+const MAX_CREWS = 6;
 const CREW_FALLBACK_NAMES=['Crew 1','Crew 2'];
-let CREWS=CREW_FALLBACK_NAMES.map(n=>({name:n,city:''}));
-function normalizeCrews(list){
-  return CREW_FALLBACK_NAMES.map((def,i)=>{
-    const c=(list&&list[i])||{};
-    return {name:((''+(c.name==null?'':c.name)).trim())||def, city:(''+(c.city==null?'':c.city)).trim()};
-  });
+function crewFallbackName(i){ return CREW_FALLBACK_NAMES[i] || ('Crew ' + (i+1)); }
+/* How many crews there are. Clamped, because this sizes every array below and a
+   nonsense value out of Firestore must not be able to build a thousand crew sheets. */
+function crewCount(){
+  const n = (typeof CREWS_PER_DAY === 'number' && CREWS_PER_DAY > 0) ? Math.floor(CREWS_PER_DAY) : 0;
+  return n ? Math.min(MAX_CREWS, n) : 0;
 }
-function crewName(i){return (CREWS[i]&&CREWS[i].name)||CREW_FALLBACK_NAMES[i];}
+let CREWS=CREW_FALLBACK_NAMES.map(n=>({name:n,city:''}));
+function normalizeCrews(list, want){
+  const stored = (list && list.length) || 0;
+  const asked = (typeof want === 'number' && want > 0) ? Math.floor(want) : crewCount();
+  const n = Math.max(1, Math.min(MAX_CREWS, asked || Math.max(2, stored)));
+  const out = [];
+  for(let i = 0; i < n; i++){
+    const c = (list && list[i]) || {};
+    out.push({name:((''+(c.name==null?'':c.name)).trim())||crewFallbackName(i),
+              city:(''+(c.city==null?'':c.city)).trim()});
+  }
+  return out;
+}
+function crewName(i){return (CREWS[i]&&CREWS[i].name)||crewFallbackName(i);}
+/* Every index there is a crew for. Written once so no reader below has to spell
+   `[0,1]` out again — which is exactly what made this a two-crew app. */
+function crewIndexes(){ return CREWS.map(function(c,i){ return i; }); }
 function planCities(){
   const c={};allHouses().forEach(h=>{const k=cityOf(h);if(k)c[k]=(c[k]||0)+1;});
   return Object.entries(c).sort((a,b)=>b[1]-a[1]).map(x=>x[0]);
@@ -57165,12 +57488,16 @@ function dayCrewTowns(day){
   const counts={};
   ((day&&day.houses)||[]).forEach(function(h){ const c=cityOf(h); if(c) counts[c]=(counts[c]||0)+1; });
   const towns=Object.keys(counts).sort(function(a,b){ return counts[b]-counts[a]||(a<b?-1:1); });
-  const out=[[],[]], load=[0,0], taken={}, auto=[];
+  /* ⚠ SIZED FROM THE CREW LIST, never `[[],[]]`. This used to be a pair, so a third
+     crew got no slot at all and every town it should have held fell through to
+     unassigned — which looks exactly like the town rule refusing them. */
+  const out=CREWS.map(function(){ return []; }), load=CREWS.map(function(){ return 0; }),
+        taken={}, auto=[];
   /* A crew city typed into the crew bar means EXACTLY that town — a business
      that always works the same two towns said so once and should be believed.
      It is honoured only while that town is actually on the day, though;
      unconditional is what let a day claim towns it was not holding. */
-  [0,1].forEach(function(i){
+  crewIndexes().forEach(function(i){
     const pinned=CREWS[i]&&CREWS[i].city;
     if(!pinned){ auto.push(i); return; }
     const hit=towns.filter(function(t){ return !taken[t]&&sameCity(t,pinned); })[0];
@@ -57256,9 +57583,9 @@ function crewCap(){
     ? MAX_STOPS_PER_ROUTE : 20;
 }
 function dayCrewHouses(day){
-  const out=[[],[]];
+  const out=CREWS.map(function(){ return []; });
   if(!day||!day.houses) return out;
-  [0,1].forEach(function(i){
+  crewIndexes().forEach(function(i){
     const towns=crewTownsFor(i,day);
     out[i]=towns.length
       ? day.houses.filter(h=>towns.some(function(t){return sameCity(cityOf(h),t);}))
@@ -57272,19 +57599,30 @@ function dayCrewHouses(day){
      there is one run that day. A house in neither crew's town is still in neither. */
   if(typeof dayCrewCount === 'function' && dayCrewCount(day) === 1){
     const solo = (typeof daySoloCrew === 'function') ? daySoloCrew(day) : 0;
-    const all = out[0].concat(out[1]);
-    out[0] = []; out[1] = [];
-    out[solo] = all;
+    const all = out.reduce(function(a, b){ return a.concat(b); }, []);
+    for(let i = 0; i < out.length; i++) out[i] = [];
+    out[Math.min(solo, out.length - 1)] = all;
     return out;
   }
+  /* ⚠ THE HAND-BACK IS THE SAME RULE OVER N CREWS, not a new one: the fullest crew
+     that is over the cap gives its last stop to the emptiest crew that is under it and
+     has a town to put it in. With two crews that is exactly the nineteen-and-twenty-one
+     move it has always been. It is still a HAND-BACK and not a leveller — it stops the
+     moment the big pile is down to the cap, so thirty-and-four stays twenty-and-fourteen
+     rather than dragging houses over a town line. */
   const cap=crewCap();
   let guard=0;
-  while(guard++ < 100){
-    const big=out[0].length>=out[1].length?0:1;
-    const small=big===0?1:0;
+  while(guard++ < 100 * out.length){
+    let big=0, small=-1;
+    for(let i=1;i<out.length;i++) if(out[i].length>out[big].length) big=i;
+    for(let i=0;i<out.length;i++){
+      if(i===big) continue;
+      if(out[i].length>=cap) continue;
+      if(!crewTownsFor(i,day).length) continue;   /* nobody to hand it to */
+      if(small===-1||out[i].length<out[small].length) small=i;
+    }
     if(out[big].length<=cap) break;
-    if(out[small].length>=cap) break;
-    if(!crewTownsFor(small,day).length) break;   /* nobody to hand it to */
+    if(small===-1) break;
     out[small].push(out[big].pop());
   }
   return out;
@@ -58661,6 +58999,31 @@ function renderCrewBar(){
         : 'no city yet &mdash; import a plan, or pick one')+'</span>'+
     '</div>';
   });
+  /* ⭐ ADD A CREW, NAME IT, TAKE ONE AWAY (2026-09-04, CREW-01). Addie: "on schedule
+     can you make it so we can add on crews and name them?"
+
+     ⚠ ADDING A CREW CHANGES THE SHAPE OF THE SEASON, so it says so rather than doing
+     it quietly: a third crew is a third town and twenty more houses a day, and the days
+     already built do not know about it until Recalculate everything is pressed. A
+     control that silently rewrites how many houses a day holds is the one thing the
+     office would not think to look for.
+
+     ⚠ AND REMOVING ONE IS REFUSED WHILE THAT CREW IS HOLDING HOUSES ON THE DAY ON
+     SCREEN. The houses would not be lost — dayCrewTowns simply re-shares them on the
+     next render — but they would move onto somebody else's sheet with nothing said, and
+     a sheet that changes under a crew who has already been handed paper is the failure
+     the 48-hour lock exists for. Refusing names the count instead. */
+  h+='<div class="crewrow" style="align-items:center;">'+
+    '<span class="note"><b>'+CREWS.length+'</b> crew'+(CREWS.length===1?'':'s')+
+      ' &mdash; up to '+crewCap()+' houses each, so '+(CREWS.length*crewCap())+' on a full day.</span>'+
+    (CREWS.length < MAX_CREWS
+      ? '<button class="mini" data-crewadd="1">+ Add a crew</button>'
+      : '<span class="note">'+MAX_CREWS+' is the most.</span>')+
+    (CREWS.length > 1
+      ? '<button class="mini" data-crewdrop="'+(CREWS.length-1)+'">Remove '+esc(crewName(CREWS.length-1))+'</button>'
+      : '')+
+    '<span class="note" id="crewCountNote"></span>'+
+  '</div>';
   const left=unassignedHousesFor(day);
   if(left.length){
     const other=[...new Set(left.map(cityOf).filter(Boolean))];
@@ -58669,6 +59032,31 @@ function renderCrewBar(){
       ' &mdash; they are on the whole-day sheet, but on neither crew sheet.</div>';
   }
   bar.innerHTML=h;
+}
+/* ⚠ ONE NUMBER, WRITTEN TO ONE PLACE. `settings/scheduling.crewsPerDay` is what the
+   season builder, the tail sweep and surplusCrewDays already read, so the crew list
+   pads itself from it rather than being a second answer to the same question. Writing
+   the list and NOT the setting would give the office three named crews and a season
+   still built for two — three sheets, one of them empty, every day.
+   ⚠ The local list is padded straight away rather than waiting for the write, because
+   the panel repaints from CREWS and a slow write would look like the button doing
+   nothing. A failed write is said out loud (Addie: "nothing should fail quietly"). */
+async function setCrewCount(n){
+  const want = Math.max(1, Math.min(MAX_CREWS, Math.floor(n) || 1));
+  CREWS = normalizeCrews(CREWS, want);
+  if(typeof CREWS_PER_DAY === 'number') CREWS_PER_DAY = want;
+  renderAll(); scheduleSave();
+  const note = RT.getElementById('crewCountNote');
+  try{
+    await setDoc(doc(db,'settings','scheduling'), {crewsPerDay: want}, {merge:true});
+    if(note) note.textContent = 'Saved. Press ⚙ Recalculate everything to build the season for '
+      + want + ' crew' + (want===1?'':'s') + '.';
+  }catch(err){
+    console.error('Could not save the crew count', err);
+    if(note) note.textContent = 'Could not save that — the crew is on screen but the season'
+      + ' builder still thinks there are ' + (typeof CREWS_PER_DAY === 'number' ? CREWS_PER_DAY : 2)
+      + '. Try again.';
+  }
 }
 /* ⚠ refreshDerivedDone FIRST, before anything counts or draws. Every reader below
    asks h.done, and Job 3 makes that the CUSTOMER's answer rather than the plan's —
@@ -58707,7 +59095,7 @@ function serialize(){
     dayLimits:Object.assign({},DAY_LIMITS),
     /* ⚠ soloCrew RIDES WITH THE DAY. This list is explicit, so a field left out of
        it is a field that silently does not survive a reload. */
-    days:SEASON.map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?isoOf(d.pin):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:d.soloCrew===1?1:0,
+    days:SEASON.map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?isoOf(d.pin):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:crewSlotOf(d.soloCrew),
       houses:d.houses.map(h=>{const o=Object.assign({},h);delete o._date;if(o.addedDate instanceof Date)o.addedDate=isoOf(o.addedDate);return o;})}))};
 }
 /* ---------- rebuilding the season's days ----------
@@ -59854,7 +60242,7 @@ function oneManDays(){
    twelve into two thin ones of seven and five, which is the waste this exists to stop.
    dayCrewTowns reads day.houses directly, so asking it from here cannot loop back. */
 function dayAssignedHouses(day){
-  const mine = crewTownsFor(0, day).concat(crewTownsFor(1, day));
+  const mine = crewIndexes().reduce(function(a, i){ return a.concat(crewTownsFor(i, day)); }, []);
   return ((day && day.houses) || []).filter(function(h){
     const c = cityOf(h);
     return mine.some(function(t){ return t && sameCity(c, t); });
@@ -59867,14 +60255,21 @@ function dayCrewCount(day){
   if(dayLimitFor(day)) return 1;
   const held = dayAssignedHouses(day);
   if(!held.length) return 1;
-  if(held.length > oneCrewMaxHouses()) return 2;
+  /* ⚠ NEVER MORE CREWS THAN THERE ARE. Everything below asks how many the day WANTS;
+     this is the ceiling, and without it a day of three towns would badge itself two
+     crews in a business that only has one. */
+  const most = Math.max(1, crewCount() || 2);
+  /* By size: how many crew-loads of houses this is. At two crews and twenty a crew this
+     is the old `> oneCrewMaxHouses() ? 2 : 1` exactly. */
+  const bySize = Math.max(1, Math.ceil(held.length / Math.max(1, oneCrewMaxHouses())));
   /* A crew is its own town plus at most one other, so a light day spread over three
      towns still needs two crews however few houses are on it. Size alone is not the
      question, and merging it would hand one crew the very sheet the town rule exists
      to prevent. */
   const towns = dayTownList({houses: held});
-  if(towns.length <= 1) return 1;
-  if(towns.length > 2) return 2;
+  let byTowns;
+  if(towns.length <= 1) byTowns = 1;
+  else if(towns.length > MAX_TOWNS_PER_CREW) byTowns = Math.ceil(towns.length / MAX_TOWNS_PER_CREW);
   /* ⭐ AND THE TWO HAVE TO BE NEIGHBOURS (fixed 2026-08-20). Counting them was not
      enough, and the owner caught it: 18 November came out badged ONE CREW holding
      Draper and Springville — two towns forty miles apart, on one sheet, for thirteen
@@ -59882,7 +60277,8 @@ function dayCrewCount(day){
      some flakes in another" has always meant a town you are already driving past.
      Two crews, one town each, is the correct answer for a pair like that — even though
      thirteen houses would fit on one sheet. */
-  return townsAreNeighbours(towns[0], towns[1], day) ? 1 : 2;
+  else byTowns = townsAreNeighbours(towns[0], towns[1], day) ? 1 : 2;
+  return Math.min(most, Math.max(1, bySize, byTowns));
 }
 function isOneCrewDay(day){
   return dayCrewCount(day) === 1 && !isOneManDay(day) && ((day && day.houses) || []).length > 0;
@@ -59899,9 +60295,29 @@ function oneCrewDays(){
    time it is asked (see dayCrewTowns) — that rule has not changed. A day that stops
    being a one-crew day simply ignores what is stored here rather than losing it, so
    filling a day up and emptying it again does not forget the choice. */
+/* ⚠ THE STORED FORM OF A CREW CHOICE, ROUND-TRIPPED WHOLE. serialize and hydrate
+   both wrote `soloCrew===1?1:0`, which is a two-crew rule written out twice: on a
+   list of three it silently rewrote "crew 3" as "crew 1" on the next save, and the
+   office's choice was gone with no error and nothing on screen to say so. Clamped to
+   MAX_CREWS rather than to CREWS.length, because a plan can be loaded before the crew
+   list it belongs to has settled and a temporary short list must not eat the value.
+   daySoloCrew is what makes it safe to READ. */
+function crewSlotOf(v){
+  const i = Math.floor(Number(v));
+  return (i > 0 && i < MAX_CREWS) ? i : 0;
+}
 function daySoloCrew(day){
-  const i = day && day.soloCrew;
-  return (i === 1 || i === '1') ? 1 : 0;
+  /* ⚠ CLAMPED TO A CREW THAT EXISTS. This read 0 or 1 and nothing else; with a
+     variable list a day can carry a stored index for a crew that has since been
+     removed, and out[3] on a list of three is `undefined` — a crew sheet that draws
+     nothing, on the day somebody is holding it. Out of range falls back to the first
+     crew, which is wrong about WHO and right about the work being on somebody's sheet.
+     ⚠ The stored value is left alone, never rewritten: putting the crew back should
+     put the choice back with it, the same way soloCrew already survives a day filling
+     up and emptying again. */
+  const i = Math.floor(Number(day && day.soloCrew));
+  if(!(i > 0)) return 0;
+  return i < Math.max(1, CREWS.length) ? i : 0;
 }
 /* ---------- days the office has short-handed on purpose ----------
    ⭐ Owner, 2026-09-03: "there are some days we will need to have 1 crew or 1 man
@@ -60268,7 +60684,7 @@ function hydrate(o){
   // A plan saved before this existed comes back with nothing marked, which is the
   // ordinary maths — exactly what it had.
   DAY_LIMITS=normalizeDayLimits(o.dayLimits); pruneDayLimits();
-  SEASON=(o.days||[]).map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?new Date(d.pin+'T00:00:00'):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:d.soloCrew===1?1:0,
+  SEASON=(o.days||[]).map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?new Date(d.pin+'T00:00:00'):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:crewSlotOf(d.soloCrew),
     houses:(d.houses||[]).map(h=>{const x=Object.assign({},h);if(x.addedDate)x.addedDate=new Date(x.addedDate);return x;})}));
   computeDates();
   selSchedule=installDays()[0]?installDays()[0].id:null;selFix=fixerRoutes()[0]?fixerRoutes()[0].id:null;selTake=takedownDays()[0]?takedownDays()[0].id:null;
@@ -60358,7 +60774,7 @@ RT.addEventListener('change',e=>{const t=e.target;
     return;
   }
   if(t.dataset.crewname!=null){const i=+t.dataset.crewname,v=(t.value||'').trim();
-    CREWS[i].name=v||CREW_FALLBACK_NAMES[i];renderAll();toast('Renamed to '+crewName(i));return;}
+    CREWS[i].name=v||crewFallbackName(i);renderAll();toast('Renamed to '+crewName(i));return;}
   if(t.dataset.crewcity!=null){const i=+t.dataset.crewcity;CREWS[i].city=t.value||'';
     renderAll();toast(crewName(i)+' → '+(t.value||'Auto by day'));return;}
   if(t.id==='startDate'){if(t.value){globalDelta=daysBetween(new Date(t.value+'T00:00:00'),BASE_START);renderAll();toast(globalDelta===0?'Back to original dates':'Season shifted '+(globalDelta>0?'+':'')+globalDelta+' days');}return;}
@@ -60430,7 +60846,11 @@ RT.addEventListener('change',e=>{const t=e.target;
   }
   if(t.dataset.solocrew){
     const d=getDay(t.dataset.solocrew);
-    if(d){ d.soloCrew = (t.value==='1') ? 1 : 0; computeDates(); renderAll(); scheduleSave();
+    /* ⚠ crewSlotOf, NOT `(t.value==='1') ? 1 : 0` — that was the two-crew rule written
+       out a THIRD time, and the one the office actually presses: picking crew 3 from the
+       dropdown stored crew 1, so the day was drawn and printed for the wrong crew with
+       nothing on screen to say the choice had not taken. */
+    if(d){ d.soloCrew = crewSlotOf(t.value); computeDates(); renderAll(); scheduleSave();
            toast('That day is ' + (crewName(d.soloCrew)||('Crew '+(d.soloCrew+1))) + '\u2019s'); }
     return;
   }
@@ -60622,6 +61042,25 @@ RT.addEventListener('click',e=>{const t=e.target;
   if(eachEl){leftoverMode='each';renderLeftovers();return;}
   if(t.dataset.lback||t.closest('[data-lback]')){leftoverMode='ask';renderLeftovers();return;}
   if(t.dataset.lclose||t.closest('[data-lclose]')){closeLeftovers();return;}
+  const crewAddEl=t.dataset.crewadd?t:t.closest('[data-crewadd]');
+  if(crewAddEl){setCrewCount(CREWS.length+1);return;}
+  const crewDropEl=t.dataset.crewdrop?t:t.closest('[data-crewdrop]');
+  if(crewDropEl){
+    const i=+crewDropEl.dataset.crewdrop;
+    /* ⚠ REFUSED WHILE THAT CREW IS HOLDING HOUSES ON THE DAY ON SCREEN. Nothing would
+       be lost — dayCrewTowns re-shares them on the next render — but they would land on
+       another crew's sheet with nothing said, and a sheet that changes under somebody
+       already holding paper is exactly what the 48-hour lock exists to prevent. */
+    const holding=currentDay()?crewHousesFor(i,currentDay()).length:0;
+    if(holding){
+      alert(crewName(i)+' has '+holding+' house'+(holding===1?'':'s')+' on the day showing.\n\n'+
+            'Move them to another crew first, or pick a different day, then remove the crew.');
+      return;
+    }
+    if(!confirm('Remove '+crewName(i)+'?\n\nThe season will be built for '+(CREWS.length-1)+
+                ' crew'+(CREWS.length-1===1?'':'s')+' the next time you press Recalculate everything.')) return;
+    setCrewCount(CREWS.length-1);return;
+  }
   const printCrewEl=t.dataset.printcrew?t:t.closest('[data-printcrew]');
   if(printCrewEl){printCrewSheet(printCrewEl.dataset.printcrew,printCrewEl.dataset.crew);return;}
   const printDayEl=t.dataset.printday?t:t.closest('[data-printday]');

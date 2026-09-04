@@ -3824,7 +3824,28 @@ function renderCustomerInvoicePage(raw, opts){
     }
     currentLookupRecord = record;
     empty.style.display='none';
-    hmLoadHouseMapForInvoice(raw, {skipLastNameCheck: true});
+    /* ⚠ THE LAST NAME AND THE TOKEN HAVE TO TRAVEL (fixed 2026-09-04). Addie: "the
+       refer a friend link is not showing in member portal."
+
+       This handed hmLoadHouseMapForInvoice `{skipLastNameCheck: true}` and NOTHING
+       ELSE, so that function fell back to `getActivePortalToken()` — localStorage —
+       and, finding none, called portalLookup as `{phone, lastName: ''}`. An empty last
+       name can never match (`nameMatches` returns false for a blank), so the lookup
+       came back `found:false` and the function RETURNED before rendering anything.
+
+       ⚠ AND IT IS NOT ONLY THE REFERRAL LINK. Everything below that early return goes
+       with it: the house map the function is named for, the Sides panel, and the
+       address, gate code and outlet fields on the Information tab. All of it silently
+       blank, on a customer's FIRST sign-in on a device — which is why it looked
+       intermittent, since a returning visitor has a token in localStorage and a
+       customer arriving from an email link does not yet.
+
+       ⚠ THE TOKEN IS PASSED TOO, and it matters twice: it is the credential this call
+       actually wants, and it is the only branch portalLookup does NOT rate limit.
+       Without it every render of this page spent one of the customer's five sign-in
+       attempts per fifteen minutes — on a call that could not succeed. */
+    hmLoadHouseMapForInvoice(raw, {skipLastNameCheck: true,
+      lastNameInput: opts.lastNameInput, portalToken: opts.portalToken});
     /* Every field is coerced. An invoice document can genuinely exist with no
        amounts on it — portalSave creates one when it moves a customer's record
        to a new phone or email before they have ever been priced — and
