@@ -2019,8 +2019,23 @@
                      "Pending" and "Maybe Next Year" — one row, several languages.
                      ⚠ The two states ABOVE keep their tails because they are NOT RSVP
                      answers and have no button: they say who has been asked. -->
+                <!-- ⭐ NO IS NOT OFFERED HERE ANY MORE (2026-09-03). Addie: "we can
+                     just get rid of the no under rsvp because it means the same thing
+                     as back next year."
+
+                     ⚠ THE VALUE IS NOT GONE, ONLY THE OPTION. portalRsvp still writes
+                     'no' when somebody taps No in an email, so every read path — the
+                     badge, isOutForSeason, the Members filters, the exports, the Yes
+                     sheet — still has to understand it, and all of them do. What has
+                     gone is the office's ability to CHOOSE it, because choosing it here
+                     was the one thing that made the two answers differ: it queued the
+                     warehouse to take their bundle apart.
+
+                     ⚠ AND THE RECYCLE HAS NOT GONE WITH IT. Sending a set back is still
+                     a button of its own two rows down — "their old set is on the recycle
+                     list, they are still a customer" — which says what it does, rather
+                     than being a side effect of picking an answer from a list. -->
                 <option value="yes">Yes</option>
-                <option value="no">No</option>
                 <option value="backnextyear">Back Next Year</option>
               </select>
             </div>
@@ -44947,7 +44962,22 @@ function openEditCustomerModal(id){
     }).join('');
   }
   document.getElementById('editCustEnrolled').value = (d.createdAt && d.createdAt.toDate) ? toDateStr(d.createdAt.toDate()) : '';
-  document.getElementById('editCustRsvp').value = d.rsvpStatus || '';
+  /* ⭐ A STORED 'no' SHOWS AS BACK NEXT YEAR (2026-09-03). They mean the same thing
+     now, and 'no' still arrives from the RSVP email, so the form has to have somewhere
+     to put it.
+
+     ⚠ WITHOUT THIS IT IS SILENT DATA LOSS, not a cosmetic gap. Setting a <select> to a
+     value it has no option for leaves it showing BLANK — which reads as "Pending (never
+     asked)" — and the very next save writes that blank back over their answer. Somebody
+     who told us no would come out of an unrelated edit looking like nobody had ever
+     asked them, and their badge would move from Maybe Next Year to Pending.
+
+     ⚠ IT NORMALISES ON SAVE, and that is deliberate rather than accidental: whoever
+     opens the record and saves it converts that 'no' to 'backnextyear'. One state, one
+     spelling. Nothing is lost by it — the two are already one answer everywhere that
+     reads them — and the alternative is a value the office can see but never set. */
+  const storedRsvp = String(d.rsvpStatus || '').toLowerCase();
+  document.getElementById('editCustRsvp').value = storedRsvp === 'no' ? 'backnextyear' : (d.rsvpStatus || '');
   /* ⚠ REFILLED ON EVERY OPEN, and the function empties the wrap first — the house-tab
      strip repoints this same form at a sibling without closing it, so a list that
      appended would show the previous house's buildings underneath this one's. */
@@ -46210,9 +46240,21 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     } else if(realAnswer && !item.data.rsvpRespondedAt){
       addrUpdates.rsvpRespondedAt = serverTimestamp();
     }
-    if(newRsvp === 'no' && oldRsvpForRecycle !== 'no'){
-      addrUpdates.needsLightRecycle = true;
-    } else if(newRsvp !== 'no' && newRsvp !== 'backnextyear' &&
+    /* ⭐ CHOOSING AN ANSWER NO LONGER TAKES ANYBODY'S LIGHTS APART (2026-09-03).
+       The branch that used to sit here read `newRsvp === 'no'` and set
+       needsLightRecycle — and with No gone from the dropdown it could never fire again,
+       so leaving it would be dead code that still LOOKED like the rule.
+
+       ⚠ THIS IS THE WHOLE POINT OF THE CHANGE, not a side effect of it. "No" and "Back
+       Next Year" were one answer said two ways, except that one of them also queued the
+       warehouse to pull their bundle apart and hand their customer number back. That is
+       a physical, destructive act and it should be a button that says so — which it is,
+       and which is untouched.
+
+       ⚠ THE UNDO STAYS. A record that already says 'no' — from the RSVP email, which
+       still writes it — and is now being brought back into the season must still have
+       its recycle cancelled. That half is below and is the only half left. */
+    if(newRsvp !== 'no' && newRsvp !== 'backnextyear' &&
               oldRsvpForRecycle === 'no' && item.data.needsLightRecycle){
       /* Undoing their own no: they are coming back IN this season, so the
          recycle that the no created is cancelled with it.
