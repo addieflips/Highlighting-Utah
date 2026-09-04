@@ -39,7 +39,14 @@ function check(name, ok, detail) {
 
 console.log('\n=== The parked grid still works ===\n');
 
-import(path.join(__dirname, 'js', 'grid.js')).then(function (G) {
+/* ⚠ A file:// URL, NOT A BARE PATH. Node's ESM loader reads a Windows absolute path
+   ("C:\\...") as a URL with the scheme "c:" and refuses it outright, so this gate — whose
+   whole job is to prove the parked module still loads — failed to load it itself, on
+   every Windows run, while CI stayed green. A red that only one machine sees is the kind
+   that gets ignored, and this one said "js/grid.js could not be loaded at all", which
+   reads exactly like the thing the gate exists to catch. pathToFileURL is the fix and
+   costs nothing on Linux. */
+import(require('url').pathToFileURL(path.join(__dirname, 'js', 'grid.js')).href).then(function (G) {
   /* ⚠ THE IMPORT ITSELF IS THE FIRST CHECK, and it is not a formality: this file is an ES
      module sitting in a repo whose test suites are CommonJS, and a stray edit that breaks
      its syntax would otherwise be invisible until somebody tried to wire it. */
