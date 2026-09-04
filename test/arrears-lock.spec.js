@@ -136,9 +136,14 @@ test.describe('A customer who owes for last season', () => {
     const stub = await open(page, `/index.html#/payment?token=${CUST.token}`, withArrears(315, 2025));
     await expect(page.locator('#arrearsLockCard')).toBeVisible();
 
+    /* ⚠ Refer a Friend IS LOCKED TOO (2026-09-03), and it needed no code — anything
+       absent from PORTAL_UNLOCKED_TABS is held. Earning credit towards a bill they are
+       already behind on is not one of the three that stay open. It is named here rather
+       than left out, because this spec enumerates EVERY tab: a new one that nobody adds
+       to both lists is how the hold quietly starts leaking. */
     expect(await tabState(page)).toEqual({
       payment: 'open', info: 'locked', sides: 'locked', lights: 'locked',
-      changes: 'locked', contact: 'open', cancel: 'open'
+      changes: 'locked', refer: 'locked', contact: 'open', cancel: 'open'
     });
 
     stub.assertNoRealCalls();
@@ -170,7 +175,7 @@ test.describe('A customer who owes nothing', () => {
     await expect(page.locator('#arrearsLockCard')).toBeHidden();
     expect(await tabState(page)).toEqual({
       payment: 'open', info: 'open', sides: 'open', lights: 'open',
-      changes: 'open', contact: 'open', cancel: 'open'
+      changes: 'open', refer: 'open', contact: 'open', cancel: 'open'
     });
 
     expect(stub.thrown).toEqual([]);

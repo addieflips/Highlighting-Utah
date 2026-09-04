@@ -3448,7 +3448,24 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     arrearsSrcs.every(Boolean),
     'renamed or removed — a missing one leaves the yes path throwing a bare ' +
     'ReferenceError, which reads as "an async suite crashed"');
+  /* ⚠ AND THE REFERRAL CLAWBACK (2026-09-03), the fifth time this trap has been hit and
+     the second time sandboxDeps has named it instead of letting the lift die. A customer
+     answering "no" in their own portal now takes back the $25 their referrer was given,
+     so portalRsvp's decline path calls clawBackReferralServer — left out, every decline
+     in this harness throws a bare ReferenceError.
+     ⚠ LIFTED, NOT STUBBED (§3). A stub would let this suite stay green through a change
+     to WHO KEEPS $25, which is the one thing it is here to protect.
+     ⚠ AND computeInvoiceStatusServer COMES WITH IT: the clawback asks it whether the
+     referrer's bill is already paid in full, and that refusal is the rule standing
+     between a settled customer and a bill arriving after they have paid. */
+  const referralSrcs = [extractFn(fnSrc, 'computeInvoiceStatusServer'),
+    (function(){ const f = extractFn(fnSrc, 'clawBackReferralServer'); return f ? 'async ' + f : ''; })()];
+  check('flow', 'the referral clawback portalRsvp calls was found',
+    referralSrcs.every(Boolean),
+    'renamed or removed — a missing one leaves every decline throwing a bare ' +
+    'ReferenceError, which reads as "an async suite crashed"');
   const fullSrc = [todayStrSrc, stampSrcs, arrearsSrcs.filter(Boolean).join('\n'),
+                   referralSrcs.filter(Boolean).join('\n'),
                    seasonYesSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
     .filter(Boolean).join('\n');
   /* ⭐ AND THE SANDBOX IS CHECKED AGAINST WHAT IT CALLS (2026-08-22). This exact
@@ -48546,6 +48563,528 @@ suite('Suite 295. Nothing is hung before the season starts');
   }
 }
 
+suite('299. A referral link, and the $25 that follows it');
+/* ---------------------------------------------------------------------------
+ * Addie, 2026-09-03: a member gets a link, and when somebody joins through it
+ * $25 comes off the member's bill — with nobody in the office typing anything.
+ *
+ * ⭐ THIS SUITE RUNS THE RULES, IT DOES NOT READ THEM. Every claim here is about
+ * WHERE $25 ENDS UP, and a regex cannot see arithmetic land on the wrong invoice.
+ * The credit path, the refusals and the clawback are lifted out of admin.html and
+ * executed against a fake Firestore whose writes are inspected afterwards.
+ *
+ * ⚠ AND THE ONE THING THAT MAKES IT WORTH HAVING is the pair of refusals. A
+ * feature that hands out money is only as good as what it declines to hand out,
+ * and both refusals are invisible from the outside: a self-referral looks exactly
+ * like a real one, and a clawback that fires on a settled bill looks exactly like
+ * a clawback that was right.
+ * ------------------------------------------------------------------------- */
+{
+  const lift = (name, isAsync) => {
+    const f = extractFn(admin, name);
+    return f ? (isAsync ? 'async ' + f : f) : null;
+  };
+  /* ⚠ extractFn MATCHES FROM THE `function` KEYWORD AND DROPS THE `async` BEFORE IT,
+     so an async body arrives full of bare `await` — a parse error that kills the whole
+     run as one unattributable crash. CLAUDE.md §5 records that costing three suites a
+     run; the flag says which of these need it back. */
+  const PARTS = [
+    ['referralCreditNote', false], ['referralLiveCount', false],
+    ['referralIsSelfReferral', false], ['referralClawbackAllowed', false],
+    ['applyReferralCreditLine', true], ['referralNote', true],
+    ['creditReferralIfAny', true], ['referralBlocked', true],
+    ['referralMarkQuote', true], ['clawBackReferralIfAny', true]
+  ];
+  const lifted = PARTS.map(p => lift(p[0], p[1]));
+  const missingParts = PARTS.filter((p, i) => !lifted[i]).map(p => p[0]);
+  check('S299', 'every referral rule is findable in admin.html',
+    !missingParts.length,
+    'missing: ' + missingParts.join(', ') + ' — repoint this lift rather than stubbing ' +
+    'them; a stub here would keep the suite green through a change to who keeps $25');
+
+  if (!missingParts.length) {
+    /* ⚠ THE REAL MONEY HELPERS, LIFTED FROM js/money.js — never a second opinion written
+       here. computeInvoiceStatus is what decides whether a bill reads Paid in Full, and
+       that decision is the clawback's own refusal; a copy in this file would agree with
+       itself while the shipped rule moved. */
+    const money = read('js/money.js');
+    /* ⚠ centsOf IS NOT OPTIONAL, and assertSandbox could not see that it was missing:
+       it scans the sandbox against admin.html, and this dependency is one js/money.js
+       function calling another. Without it every check below failed with credits=0 and
+       a swallowed ReferenceError inside creditReferralIfAny's own catch — which reads
+       exactly like the credit not being applied, the bug these checks exist to find. */
+    const moneySrcs = ['centsOf', 'computeInvoiceStatus', 'custInvoiceKey', 'fmtMoney']
+      .map(n => extractFn(money, n));
+    check('S299', 'the money rules this leans on are findable in js/money.js',
+      moneySrcs.every(Boolean),
+      'computeInvoiceStatus / custInvoiceKey / fmtMoney — one of these was renamed');
+
+    if (moneySrcs.every(Boolean)) {
+      const BODY = [
+        moneySrcs.join('\n'),
+        'const REFERRAL_CREDIT = 25;',
+        lifted.join('\n'),
+        'return {creditReferralIfAny, clawBackReferralIfAny, applyReferralCreditLine,',
+        '        referralIsSelfReferral, referralClawbackAllowed, referralCreditNote,',
+        '        referralLiveCount};'
+      ].join('\n');
+
+      assertSandbox('S299', 'referral money', BODY, admin,
+        ['db', 'doc', 'getDoc', 'updateDoc', 'addDoc', 'collection', 'serverTimestamp',
+         'jobAddresses', 'allInvoicesCache', 'getLiveInvoiceStatus', 'console',
+         'String', 'Number', 'Boolean', 'Object', 'Array', 'Date', 'Math', 'JSON']);
+
+      /* ---- the fake world ------------------------------------------------
+       * ⚠ THE INVOICE IS A REAL DOCUMENT IN IT, not a value handed to the code. The
+       * whole question is whether the credit reaches the referrer's OWN bill, and a
+       * harness that passes the invoice in has already answered it. */
+      function world(opts) {
+        opts = opts || {};
+        const invoices = opts.invoices || {};
+        const notes = [];
+        const writes = [];
+        const jobAddresses = opts.customers || [];
+        const env = {
+          db: {}, console: {error: function () {}},
+          jobAddresses: jobAddresses,
+          allInvoicesCache: Object.keys(invoices)
+            .map(k => ({id: k, data: invoices[k]})),
+          serverTimestamp: () => 'SERVER_TS',
+          collection: (_db, name) => ({__c: name}),
+          doc: (_db, name, id) => ({__c: name, __id: id}),
+          getDoc: async (ref) => {
+            const store = ref.__c === 'invoices' ? invoices : null;
+            const has = store && Object.prototype.hasOwnProperty.call(store, ref.__id);
+            return {exists: () => !!has, data: () => (has ? store[ref.__id] : undefined)};
+          },
+          updateDoc: async (ref, updates) => {
+            writes.push({collection: ref.__c, id: ref.__id, updates: updates});
+            if (ref.__c === 'invoices' && invoices[ref.__id]) {
+              Object.assign(invoices[ref.__id], updates);
+            }
+            if (ref.__c === 'jobAddresses') {
+              const hit = jobAddresses.find(a => a.id === ref.__id);
+              if (hit) Object.assign(hit.data, updates);
+            }
+            if (ref.__c === 'quotes') {
+              (opts.quotes || {})[ref.__id] = Object.assign(
+                (opts.quotes || {})[ref.__id] || {}, updates);
+            }
+          },
+          addDoc: async (ref, data) => { notes.push(Object.assign({__c: ref.__c}, data)); },
+          getLiveInvoiceStatus: opts.status || function () { return ''; }
+        };
+        const names = Object.keys(env);
+        // eslint-disable-next-line no-new-func
+        const api = new Function(names.join(','), BODY).apply(null, names.map(n => env[n]));
+        return {api: api, notes: notes, writes: writes, invoices: invoices,
+                customers: jobAddresses};
+      }
+
+      /* The line builder on its own, with no fake Firestore around it — the manual
+         box's whole behaviour is this one pure function. */
+      const w299note = world({}).api.referralCreditNote;
+      const referrer = (over) => ({
+        id: 'REF1',
+        data: Object.assign({
+          name: 'Dana Referrer', phone: '8015550111', email: 'dana@x.com',
+          referralToken: 'tok-dana'
+        }, over || {})
+      });
+      const bill = (over) => Object.assign(
+        {install: 400, removal: 0, changeFees: 0, credits: 0, deposit: 0, creditNotes: []},
+        over || {});
+
+      pendingAsync.push((async () => {
+        /* ---- 1. the credit actually lands on the referrer's bill ---------- */
+        {
+          const w = world({
+            customers: [referrer(), {id: 'NEW1', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill()},
+            quotes: {q1: {}}
+          });
+          const res = await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com'});
+          const inv = w.invoices['8015550111'];
+          check('S299', 'a referral link puts $25 on the referrer\'s own bill',
+            res.ok === true && inv.credits === 25 &&
+            (inv.creditNotes || []).filter(c => c.kind === 'referral').length === 1,
+            'got credits=' + inv.credits + ', ' +
+            (inv.creditNotes || []).length + ' note(s) — the office never opens this ' +
+            'customer, so a credit that waits for a Save is a credit nobody gets');
+          check('S299', 'and the referred customer records who sent them',
+            w.writes.some(x => x.collection === 'jobAddresses' && x.id === 'NEW1' &&
+              x.updates.referredByCustomerId === 'REF1'),
+            'without it there is no way back to the referrer and nothing can ever be ' +
+            'taken back');
+          check('S299', 'and the office is told, on the referrer',
+            w.notes.some(n => n.topic === 'Referral Credit Given' && n.phone === '8015550111'),
+            'a credit that appears on a bill with nothing saying why is the shape of a ' +
+            'billing query nobody can answer');
+          check('S299', 'and the quote is stamped so it cannot pay twice',
+            w.writes.some(x => x.collection === 'quotes' && x.updates.referralCredited === true),
+            'without the stamp, re-saving the same conversion credits the referrer again');
+        }
+
+        /* ---- 2. it is idempotent -------------------------------------- */
+        {
+          const w = world({
+            customers: [referrer(), {id: 'NEW1', data: {}}],
+            invoices: {'8015550111': bill()}
+          });
+          const res = await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', referralCredited: true, __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New'});
+          check('S299', 'a quote already credited is never credited a second time',
+            res.ok !== true && w.invoices['8015550111'].credits === 0,
+            'got ' + w.invoices['8015550111'].credits + ' — a conversion can be re-saved, ' +
+            'and $25 a save is a bill walking to zero on its own');
+        }
+
+        /* ---- 3. an unknown token is not an error ----------------------- */
+        {
+          const w = world({customers: [referrer(), {id: 'NEW1', data: {}}],
+                           invoices: {'8015550111': bill()}});
+          const res = await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-nobody', __quoteId: 'q1'}, 'NEW1', {name: 'Kyle'});
+          check('S299', 'a link whose owner is gone credits nobody and does not throw',
+            res.ok !== true && w.notes.length === 0 && w.invoices['8015550111'].credits === 0,
+            'a link outlives the customer who made it, and a conversion must never fail ' +
+            'because of one');
+        }
+
+        /* ---- 4. the refusals ------------------------------------------- */
+        {
+          const same = w => w.invoices['8015550111'].credits;
+          const byPhone = world({
+            customers: [referrer(), {id: 'NEW1', data: {}}],
+            invoices: {'8015550111': bill()}, quotes: {q1: {}}
+          });
+          await byPhone.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Dana Again', phone: '(801) 555-0111', email: 'other@x.com'});
+          check('S299', 'the same phone number, punctuated differently, is still themselves',
+            same(byPhone) === 0,
+            'got ' + same(byPhone) + ' — a stored phone is not always digits, and comparing ' +
+            'the raw strings is how this refusal quietly stops refusing');
+
+          const byMail = world({
+            customers: [referrer(), {id: 'NEW1', data: {}}],
+            invoices: {'8015550111': bill()}, quotes: {q1: {}}
+          });
+          await byMail.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Dana Again', phone: '8015557777', email: 'DANA@X.COM'});
+          check('S299', 'and the same email in different case is too',
+            same(byMail) === 0,
+            'got ' + same(byMail) + ' — an equality query cannot match a case difference, ' +
+            'which this repo has already been caught by twice');
+
+          const bySelf = world({
+            customers: [referrer()], invoices: {'8015550111': bill()}, quotes: {q1: {}}
+          });
+          await bySelf.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'REF1', {name: 'Dana Referrer'});
+          check('S299', 'and their own record is refused before any field is compared',
+            same(bySelf) === 0,
+            'got ' + same(bySelf) + ' — an existing customer re-quoting through their own ' +
+            'link is the easy $25 this whole feature would otherwise hand out');
+
+          check('S299', 'a blocked attempt is still marked, so it is not retried for ever',
+            bySelf.writes.some(x => x.collection === 'quotes' &&
+              x.updates.referralCredited === true),
+            'left unmarked, every save of that quote runs the refusal again');
+          check('S299', 'and it is said out loud rather than silently dropped',
+            bySelf.notes.some(n => n.topic === 'Referral Blocked'),
+            'a refusal nobody can see is indistinguishable from the link not working');
+        }
+
+        /* ---- 5. two referrals are one line, not two -------------------- */
+        {
+          const w = world({
+            customers: [referrer({
+              referralCredits: [{referredCustomerId: 'OLD1', amount: 25, revoked: false}]
+            }), {id: 'NEW1', data: {}}],
+            invoices: {'8015550111': bill({
+              creditNotes: [{amount: 25, kind: 'referral', reason: 'Referral — 1 person'},
+                            {amount: 40, kind: 'manual', reason: 'Goodwill'}],
+              credits: 65
+            })},
+            quotes: {q1: {}}
+          });
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New', phone: '8015559999'});
+          const inv = w.invoices['8015550111'];
+          const refLines = (inv.creditNotes || []).filter(c => c.kind === 'referral');
+          check('S299', 'a second referral rebuilds one $50 line rather than adding another',
+            refLines.length === 1 && refLines[0].amount === 50,
+            'got ' + refLines.length + ' referral line(s) worth ' +
+            (refLines[0] && refLines[0].amount) + ' — two lines saying "Referral" is a bill ' +
+            'that reads as though we discounted them twice for the same friend');
+          check('S299', 'and every other kind of credit on that bill survives it',
+            (inv.creditNotes || []).some(c => c.kind === 'manual' && c.amount === 40) &&
+            inv.credits === 90,
+            'got credits=' + inv.credits + ' — this rebuild owns `referral` and nothing ' +
+            'else; wiping a goodwill discount to add a referral is money taken back from ' +
+            'a customer who was promised it');
+        }
+
+        /* ---- 6. cancelling before the install takes it back ------------ */
+        {
+          const w = world({
+            customers: [referrer({
+              referralCredits: [{referredCustomerId: 'NEW1', amount: 25, revoked: false}],
+              referralCount: 1
+            })],
+            invoices: {'8015550111': bill({
+              creditNotes: [{amount: 25, kind: 'referral', reason: 'Referral — 1 person'}],
+              credits: 25
+            })},
+            status: () => 'Unpaid'
+          });
+          const res = await w.api.clawBackReferralIfAny('NEW1',
+            {name: 'Kyle New', referredByCustomerId: 'REF1', completed: false});
+          const inv = w.invoices['8015550111'];
+          check('S299', 'a friend who cancels before their lights go up takes the $25 with them',
+            res.ok === true && inv.credits === 0 &&
+            (inv.creditNotes || []).filter(c => c.kind === 'referral').length === 0,
+            'got credits=' + inv.credits);
+          check('S299', 'and the entry is kept, marked revoked, rather than deleted',
+            (w.customers[0].data.referralCredits || []).length === 1 &&
+            w.customers[0].data.referralCredits[0].revoked === true &&
+            w.customers[0].data.referralCount === 0,
+            'a list that quietly shortens is one nobody can audit — the Inbox note says ' +
+            'it happened and the entry is what it points at');
+          check('S299', 'and the office is told that too',
+            w.notes.some(n => n.topic === 'Referral Taken Back'),
+            'a credit vanishing off a bill with nothing saying why is worse than leaving it');
+        }
+
+        /* ---- 7. a referral that reached an install is earned ----------- */
+        {
+          const w = world({
+            customers: [referrer({
+              referralCredits: [{referredCustomerId: 'NEW1', amount: 25, revoked: false}],
+              referralCount: 1
+            })],
+            invoices: {'8015550111': bill({
+              creditNotes: [{amount: 25, kind: 'referral'}], credits: 25})},
+            status: () => 'Unpaid'
+          });
+          const res = await w.api.clawBackReferralIfAny('NEW1',
+            {name: 'Kyle New', referredByCustomerId: 'REF1', completed: true});
+          check('S299', 'a friend who cancels AFTER their install keeps the referral earned',
+            res.ok !== true && w.invoices['8015550111'].credits === 25 &&
+            w.notes.length === 0,
+            'got credits=' + w.invoices['8015550111'].credits + ' — Addie: the referral ' +
+            'already did its job');
+        }
+
+        /* ---- 8. a settled bill is never charged back ------------------- */
+        {
+          const w = world({
+            customers: [referrer({
+              referralCredits: [{referredCustomerId: 'NEW1', amount: 25, revoked: false}],
+              referralCount: 1
+            })],
+            invoices: {'8015550111': bill({
+              install: 25, creditNotes: [{amount: 25, kind: 'referral'}], credits: 25})},
+            status: () => 'Paid in Full'
+          });
+          const res = await w.api.clawBackReferralIfAny('NEW1',
+            {name: 'Kyle New', referredByCustomerId: 'REF1', completed: false});
+          check('S299', 'a referrer who has already paid in full is never charged back',
+            res.ok !== true && w.invoices['8015550111'].credits === 25 &&
+            (w.customers[0].data.referralCredits || [])[0].revoked !== true,
+            'got credits=' + w.invoices['8015550111'].credits + ' — taking $25 of credit ' +
+            'off a settled invoice turns it into money owed, which is a bill arriving ' +
+            'after somebody has paid');
+        }
+
+        /* ---- 9. a discount the office crossed off stays crossed off ----
+         * ⚠ THE × ON THE REFERRAL LINE ZEROES referralCount, WHICH USED TO BE THE WHOLE
+         * RECORD AND IS NOT ANY MORE. Every referral path now recomputes that count from
+         * referralCredits[], so without the `waived` mark the next referral through a
+         * link brings back every one the office had taken off — the discount reappearing
+         * on its own, from a path nobody was looking at. */
+        {
+          const w = world({
+            customers: [referrer({
+              referralCredits: [
+                {referredCustomerId: 'OLD1', amount: 25, revoked: false, waived: true},
+                {referredCustomerId: 'OLD2', amount: 25, revoked: false, waived: true}],
+              referralCount: 0
+            }), {id: 'NEW1', data: {}}],
+            invoices: {'8015550111': bill()},
+            quotes: {q1: {}}
+          });
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New', phone: '8015559999'});
+          const inv = w.invoices['8015550111'];
+          check('S299', 'a referral discount the office crossed off does not come back',
+            inv.credits === 25 && w.customers[0].data.referralCount === 1,
+            'got credits=' + inv.credits + ', count=' + w.customers[0].data.referralCount +
+            ' — the new referral is worth $25 and the two waived ones stay waived; ' +
+            'anything higher is the × undoing itself');
+        }
+
+        /* ---- 10. the manual box is unchanged --------------------------
+         * Her §7.8: the People They Referred box, on its own with no referralCredits
+         * entries, must behave exactly as it does on main. The line builder was pulled
+         * out of the Edit Customer save so the automatic path could share it, and this
+         * is what proves the extraction changed nothing — the shape, the wording and
+         * the plural are all exactly what that save used to spell out for itself.
+         * ⚠ AND NOUGHT MUST STAY null, NOT A ZERO LINE. The old save wrote the note
+         * only inside `if(referralCount > 0)`; a $0.00 credit on an invoice reads as a
+         * discount somebody gave and then took back. */
+        {
+          const n0 = w299note(0), n1 = w299note(1), n2 = w299note(3);
+          check('S299', 'the manual People They Referred box still builds the line it always did',
+            n0 === null &&
+            n1 && n1.amount === 25 && n1.reason === 'Referral — 1 person' && n1.kind === 'referral' &&
+            n2 && n2.amount === 75 && n2.reason === 'Referral — 3 people',
+            'got ' + JSON.stringify([n0, n1, n2]) + ' — the office types a count into that ' +
+            'box and this is the line it becomes; the extraction must not have moved it');
+        }
+
+        /* ---- 11. nobody is credited twice for the same friend ---------- */
+        {
+          const w = world({
+            customers: [referrer({
+              referralCredits: [{referredCustomerId: 'NEW1', amount: 25, revoked: true}],
+              referralCount: 0
+            })],
+            invoices: {'8015550111': bill()},
+            status: () => 'Unpaid'
+          });
+          const res = await w.api.clawBackReferralIfAny('NEW1',
+            {name: 'Kyle New', referredByCustomerId: 'REF1', completed: false});
+          check('S299', 'a referral already taken back cannot be taken back again',
+            res.ok !== true && w.notes.length === 0,
+            'a second clawback would raise the Inbox note again on every save of a ' +
+            'customer who has already cancelled');
+        }
+      })());
+    }
+  }
+
+  /* ---- the wiring, asserted separately from the mechanism ---------------
+   * ⚠ THIS HALF IS NOT DECORATION. Every check above runs the rules from its own
+   * harness, so deleting BOTH call sites from admin.html leaves all of them green
+   * while no referral in the real page is ever worth anything — the same shape that
+   * left the Edit Customer tab strip rendering only inside its own suite. */
+  /* ⚠ THE CALL MUST START ITS OWN LINE AND ITS DOOR MUST HOLD NO `if(false)`. Both
+     halves are here because the first version of these two checks was VACUOUS and the
+     red-check proved it: `/await creditReferralIfAny\(/` passes happily on
+     `if(false) await creditReferralIfAny(...)`, so both call sites could be disabled with
+     every check still green — a call that is in the source and can never run, which is
+     the exact failure CLAUDE.md records four separate times. */
+  const reachable = (section, call) =>
+    new RegExp('^\\s*await ' + call + '\\(', 'm').test(section) && !/if\s*\(\s*false/.test(section);
+  const addCustSection = sectionFrom(admin,
+    admin.indexOf("const newAddrRef = await addDoc(collection(db,'jobAddresses')"));
+  check('S299', 'the Add Customer conversion actually calls the shared rule',
+    reachable(addCustSection, 'creditReferralIfAny'),
+    'the rule exists and nothing reachable calls it — a new customer arriving through a ' +
+    'link would be worth nothing to the person who sent them');
+  const requoteSection = sectionFrom(admin, admin.indexOf('const answeredQuoteId = requoteBeingConverted;'));
+  check('S299', 'and so does the applied re-quote',
+    reachable(requoteSection, 'creditReferralIfAny'),
+    'the second door into a customer — left out, a re-quote through a friend\'s link ' +
+    'silently pays nobody');
+  /* ⚠ AND THE TOKEN IS READ BEFORE addCustFromQuoteId IS CLEARED. Moved one line the
+     other way the lookup finds nothing, every referral through that door is worth
+     nothing, and NOTHING GOES RED — the quote id is simply null by then. */
+  check('S299', 'and it reads the quote id before that id is cleared',
+    addCustSection.indexOf('creditReferralIfAny(') !== -1 &&
+    addCustSection.indexOf('creditReferralIfAny(') <
+      addCustSection.indexOf('addCustFromQuoteId = null;'),
+    'the referral is credited AFTER the quote id is cleared, so the token can never ' +
+    'be found');
+
+  /* ---- the portal's own token: minted once, stable for ever ---------------
+   * Her §7.9. ⚠ RUN, NOT READ, because the claim is that a SECOND call returns the
+   * SAME value: a lazy generator that mints a fresh token every visit looks identical
+   * in the source and hands the customer a different link each time they open the tab —
+   * so every link they have already shared silently stops working. */
+  {
+    const fnsSrc = read('functions/index.js');
+    const ensureSrc = extractFn(fnsSrc, 'ensureReferralToken');
+    check('S299', 'ensureReferralToken is findable in functions/index.js',
+      !!ensureSrc, 'renamed or removed — repoint this lift');
+    if (ensureSrc) {
+      const writes = [];
+      let minted = 0;
+      const env = {
+        db: {collection: () => ({doc: () => ({update: async (u) => { writes.push(u); }})})},
+        generatePortalToken: () => 'tok-' + (++minted)
+      };
+      const names = Object.keys(env);
+      // eslint-disable-next-line no-new-func
+      const ensure = new Function(names.join(','),
+        'async ' + ensureSrc + '\nreturn ensureReferralToken;').apply(null, names.map(n => env[n]));
+      pendingAsync.push((async () => {
+        const rec = {};
+        const first = await ensure('REF1', rec);
+        /* The write is what the next visit reads back, so the harness plays Firestore
+           and puts it on the record — exactly as portalLookup's next call would find it. */
+        rec.referralToken = (writes[0] || {}).referralToken;
+        const second = await ensure('REF1', rec);
+        check('S299', 'a referral token is minted once and never changes',
+          first === 'tok-1' && second === 'tok-1' && writes.length === 1,
+          'got ' + first + ' then ' + second + ' after ' + writes.length + ' write(s) — a ' +
+          'fresh token every visit breaks every link the customer has already shared');
+      })());
+    }
+  }
+
+  /* ⚠ AND THE × ON A REFERRAL LINE HAS TO MARK THE ENTRIES, NOT JUST THE COUNT.
+     ⚠ THIS ONE IS STRUCTURAL AND SAYS SO. The check above it RUNS the credit path over
+     entries already marked waived, which proves the count honours the mark — and proves
+     nothing about whether anything ever sets it, because the fixture supplies it. That is
+     the vacuous-fixture trap this repo keeps re-learning, and the red-check caught it
+     here: deleting `referralCredits: marked` from the × left every other check green.
+     Running the real × needs the whole Firestore-writing waive path, which lives in
+     fee-waive.test.js's territory; until it is lifted there, this asserts the two fields
+     travel in ONE write — separate writes can half-succeed, and the half that survives is
+     a zeroed count with live entries, which the next referral silently undoes. */
+  const waiveSection = sectionFrom(admin,
+    admin.indexOf("if(ledger === 'credit' && plan.removed && plan.removed.kind === 'referral')"));
+  check('S299', 'crossing off a referral marks the entries in the same write as the count',
+    /referralCount: 0,\s*referralCredits: marked/.test(waiveSection),
+    'the × zeroes the count alone, and every referral path rebuilds that count from the ' +
+    'entries — so the next referral through a link puts the whole discount back on the ' +
+    'bill, from a screen nobody was looking at');
+
+  /* ⚠ THE OFFICE MARKING SOMEBODY NO IS THE THIRD DOOR, and it is the one the customer
+     never touches — portalRsvp covers the other. */
+  check('S299', 'the office marking somebody No takes the referral back',
+    /clawBackReferralIfAny\(editCustomerId/.test(admin),
+    'a customer cancelled over the phone would leave the referrer $25 up for somebody ' +
+    'who never had lights');
+  const fns = read('functions/index.js');
+  check('S299', 'and so does a customer declining in their own portal',
+    /await clawBackReferralServer\(match\.id/.test(fns),
+    'a decline through the RSVP link never reaches the office screen, so without this ' +
+    'the credit simply stays');
+
+  /* ⚠ THE LINK IS THE REFERRAL TOKEN, NEVER THE LOGIN TOKEN. Reusing portalToken here
+     would hand the customer's own account — their address, their balance, their ability
+     to cancel — to everybody they shared their link with. */
+  const idxSrc = read('index.html');
+  check('S299', 'the shared link carries the referral token, not the portal login token',
+    /\?ref=' \+ encodeURIComponent\(String\(token/.test(idxSrc) &&
+    !/\?ref='\s*\+\s*[^;]*portalToken/.test(idxSrc),
+    'a portal token in a link people paste into group chats is an account handed over');
+  check('S299', 'and the public quote form carries the token it was given',
+    /referredByToken: t/.test(idxSrc) && /referralQuoteFields\(\)/.test(idxSrc),
+    'without it the link is decoration — nothing on the quote says who sent them');
+}
+
 /* ============================================================================
  * ⭐ THE THREE THINGS THAT MOVE SOMEBODY UP A SEASON (added 2026-09-03).
  *
@@ -48568,7 +49107,7 @@ suite('Suite 295. Nothing is hung before the season starts');
  * merge could silently drop the argument that carries the forecast in, which is
  * exactly the failure this file records against admin.html three times over.
  * ==========================================================================*/
-suite('299. The forecast, a missed day, and a customer moved up by hand');
+suite('300. The forecast, a missed day, and a customer moved up by hand');
 {
   const fn = (name) => {
     const i = admin.indexOf('function ' + name + '(');
@@ -48594,9 +49133,9 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
   {
     const cold = (admin.match(/const COLD_DAY_MAX_F = (\d+);/) || [])[1];
     const band = (admin.match(/const WARMTH_BAND_F = (\d+);/) || [])[1];
-    check('S299', 'the cutoff the owner named is written down once, as 35',
+    check('S300', 'the cutoff the owner named is written down once, as 35',
       cold === '35', 'got ' + cold + " — owner: '35 degrees or lower'");
-    check('S299', 'and warmth is compared in ten-degree bands',
+    check('S300', 'and warmth is compared in ten-degree bands',
       band === '10',
       'a smaller band lets a degree of noise overrule "the town with the most houses waiting"');
 
@@ -48608,7 +49147,7 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
                              admin.indexOf('/* Top every day up to the cap.'));
     const fbCold = (plan.match(/o\.coldBelow === 'number' \? o\.coldBelow : (\d+)/) || [])[1];
     const fbBand = (plan.match(/o\.warmBand > 0 \? o\.warmBand : (\d+)/) || [])[1];
-    check('S299', "the builder's own fallback numbers agree with the constants",
+    check('S300', "the builder's own fallback numbers agree with the constants",
       fbCold === cold && fbBand === band,
       'builder falls back to ' + fbCold + '/' + fbBand + ', the page says ' + cold + '/' + band +
       ' — a lifted copy would then test a rule the live plan does not use');
@@ -48617,7 +49156,7 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
   // ------------------------------------------------- the builder, run for real
   const planStart = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
   const planEnd = admin.indexOf('/* Top every day up to the cap.', planStart);
-  check('S299', 'the day builder is findable', planStart !== -1 && planEnd > planStart,
+  check('S300', 'the day builder is findable', planStart !== -1 && planEnd > planStart,
     'renamed or removed — update this test rather than deleting it');
 
   if (planStart !== -1 && planEnd > planStart) {
@@ -48655,7 +49194,7 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
        size, no forecast — so the pick falls to the alphabetical tiebreak and Draper
        wins. Every flip after this is the weather doing it and nothing else. */
     const plain = build(town('Draper', 20).concat(town('Lehi', 20)));
-    check('S299', 'with no forecast the plan is unchanged — the alphabetical tiebreak still decides',
+    check('S300', 'with no forecast the plan is unchanged — the alphabetical tiebreak still decides',
       plain.length && plain[0].date === '2026-10-01' && plain[0].city === 'Draper',
       'got ' + (plain[0] && plain[0].city) + ' on ' + (plain[0] && plain[0].date) +
       ' — most of the season has no forecast at all and must lay out exactly as before');
@@ -48669,23 +49208,23 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
        on the day it was written. 34 against 39 is one band, so the tiebreak has nothing
        to say and only the veto can move the crew. */
     const veto = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 34, Lehi: 39 });
-    check('S299', 'a town at 34° is skipped while a warmer town has anybody waiting',
+    check('S300', 'a town at 34° is skipped while a warmer town has anybody waiting',
       veto.length && veto[0].city === 'Lehi',
       'got ' + (veto[0] && veto[0].city) + ' — this is the whole rule, and Draper wins the ' +
       'same fixture without a forecast, so nothing but the temperature moved it');
-    check('S299', 'and the freezing town still gets its day, later',
+    check('S300', 'and the freezing town still gets its day, later',
       veto.some(d => d.city === 'Draper'),
       'the cold rule reorders the season; it must never drop a town out of it');
 
     /* ⚠ EXACTLY AT THE CUTOFF IS COLD. "35 degrees or lower" — a rule written as < would
        send a crew out on the one day she named. Same band on both sides, same reason. */
     const edge = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 35, Lehi: 39 });
-    check('S299', '35° itself counts as too cold, not just below it',
+    check('S300', '35° itself counts as too cold, not just below it',
       edge.length && edge[0].city === 'Lehi',
       "owner said '35 degrees or lower', so the cutoff is inclusive");
     /* ⚠ AND THE SAME FIXTURE ONE DEGREE THE OTHER SIDE. */
     const warm = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 36, Lehi: 39 });
-    check('S299', 'and 36° is an ordinary day, so the alphabetical tiebreak returns',
+    check('S300', 'and 36° is an ordinary day, so the alphabetical tiebreak returns',
       warm.length && warm[0].city === 'Draper',
       'got ' + (warm[0] && warm[0].city) + ' — one degree above the cutoff is not a veto, ' +
       'and a rule that crept upwards would quietly re-order the whole autumn');
@@ -48694,11 +49233,11 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
        is freezing, the crew goes out anyway. A version that simply refused would stall
        the calendar for a week and look exactly like the builder being broken. */
     const unless = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 20, Lehi: 34 });
-    check('S299', 'when every town is freezing a day is still built, and on the first date',
+    check('S300', 'when every town is freezing a day is still built, and on the first date',
       unless.length && unless[0].date === '2026-10-01' && unless[0].ids.length === 20,
       'got ' + JSON.stringify(unless[0] && { d: unless[0].date, n: unless[0].ids.length }) +
       " — owner's 'unless there is no area that wants to be hung in that time that is warmer'");
-    check('S299', 'and among freezing towns the least freezing goes first',
+    check('S300', 'and among freezing towns the least freezing goes first',
       unless.length && unless[0].city === 'Lehi',
       '34° and 20° are two bands apart, which is a genuinely different morning');
 
@@ -48706,14 +49245,14 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
        because you were to worried about priority." Warmth sits BELOW how full a day the
        town can make, so it can never trade a full crew-day for a warmer short one. */
     const fill = build(town('Draper', 20).concat(town('Lehi', 5)), { Draper: 45, Lehi: 75 });
-    check('S299', 'warmth never buys a short day — the town that fills the day still wins',
+    check('S300', 'warmth never buys a short day — the town that fills the day still wins',
       fill.length && fill[0].city === 'Draper' && fill[0].ids.length === 20,
       'got ' + (fill[0] && fill[0].city) + ' with ' + (fill[0] && fill[0].ids.length) +
       ' — Lehi is three bands warmer and holds five houses; taking it is an extra morning');
 
     /* And below urgency, which is the whole timing spec and is absolute. */
     const urg = build(town('Draper', 20, 1).concat(town('Lehi', 20, 4)), { Draper: 40, Lehi: 75 });
-    check('S299', 'and warmth never overrules urgency — October is emptied first, cold or not',
+    check('S300', 'and warmth never overrules urgency — October is emptied first, cold or not',
       urg.length && urg[0].city === 'Draper',
       'got ' + (urg[0] && urg[0].city) + " — owner, 2026-08-18: 'we need to get everyone " +
       "who requested Oct done in Oct none in November'");
@@ -48722,7 +49261,7 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
        within a degree or two of each other; if that flipped the pick, the head-count rule
        the whole season is built on would be overruled by forecast noise. */
     const noise = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 44, Lehi: 45 });
-    check('S299', 'one degree warmer does not move a crew — the bands are what stop noise deciding',
+    check('S300', 'one degree warmer does not move a crew — the bands are what stop noise deciding',
       noise.length && noise[0].city === 'Draper',
       'got ' + (noise[0] && noise[0].city) + ' — 44 and 45 are the same kind of day');
 
@@ -48730,7 +49269,7 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
        sixteen days and the season runs into December, so this is the common case, not an
        edge one — failing the other way would veto the whole back half of the calendar. */
     const blind = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: null, Lehi: null });
-    check('S299', 'a town nobody has a forecast for is treated as "no opinion", never as cold',
+    check('S300', 'a town nobody has a forecast for is treated as "no opinion", never as cold',
       JSON.stringify(blind.map(d => d.city + '@' + d.date)) ===
       JSON.stringify(plain.map(d => d.city + '@' + d.date)),
       'an all-null forecast must give byte-for-byte the plan a forecast-free build gives');
@@ -48739,7 +49278,7 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
        than scoring the unknown one as freezing. A town whose houses carry no map pin has
        no centre to ask about, and it must not be sent to the back of the season for it. */
     const half = build(town('Draper', 20).concat(town('Lehi', 20)), { Lehi: 75 });
-    check('S299', 'and it is not quietly ranked below a town that does have one',
+    check('S300', 'and it is not quietly ranked below a town that does have one',
       half.length && half[0].city === 'Draper',
       'got ' + (half[0] && half[0].city) + ' — Lehi is the only town with a number, and ' +
       'letting that alone win means every unmapped town waits for the mapped ones');
@@ -48748,7 +49287,7 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
        out of the Friday as well. */
     const snap = build(town('Draper', 40).concat(town('Lehi', 20)),
       { Draper: { '2026-10-01': 25 }, Lehi: { '2026-10-01': 50 } });
-    check('S299', 'a cold Thursday does not make a town cold all season',
+    check('S300', 'a cold Thursday does not make a town cold all season',
       snap.length > 1 && snap[0].city === 'Lehi' && snap[1].city === 'Draper',
       'got ' + JSON.stringify(snap.slice(0, 2).map(d => d.city + '@' + d.date)) +
       ' — the forecast is looked up date by date, so the veto lifts with the weather');
@@ -48759,7 +49298,7 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
     const pri = fn('houseInstallPriority');
     const missSrc = fn('houseMissedDays') + fn('houseMissedCount') + fn('markHouseMissed') +
       fn('isRushInstall');
-    check('S299', 'the ordering and the missed-day helpers are findable',
+    check('S300', 'the ordering and the missed-day helpers are findable',
       !!pri && !!fn('houseMissedDays') && !!fn('houseMissedCount') && !!fn('markHouseMissed') &&
       !!fn('isRushInstall'));
 
@@ -48778,12 +49317,12 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
 
       /* ⭐ MOVED UP BY HAND. Owner: "we should be able to manually add priority to specific
          customers if they directly ask if they can be hung sooner than later." */
-      check('S299', 'the office moving somebody up puts them ahead of everybody',
+      check('S300', 'the office moving somebody up puts them ahead of everybody',
         p({ pref: '' }, RUSH) < p({ pref: 'OCT' }, NEW) &&
         p({ pref: '' }, RUSH) < p({ pref: 'OCT' }, OLD) &&
         p({ pref: 'NOV' }, RUSH) < p({ pref: '' }, OLD),
         'an override that cannot override the automatic rule is not an override');
-      check('S299', 'and the flag is the same one the nightly sweep reads',
+      check('S300', 'and the flag is the same one the nightly sweep reads',
         /rushInstall === true/.test(bare(pri)) && /rushInstall === true/.test(bare(fn('installPriority'))),
         'two definitions of "asked to go sooner" would let Recalculate everything and the ' +
         'sweep disagree about who is in a hurry');
@@ -48791,7 +49330,7 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
          they dont want to be hung though." The month is houseAllowedFrom's job and this must
          not touch it — a rush that moved somebody's month would be the one outcome she ruled
          out while asking for the feature. */
-      check('S299', 'but it never touches the month they asked for',
+      check('S300', 'but it never touches the month they asked for',
         !/rushInstall/.test(bare(fn('houseAllowedFrom'))),
         'houseAllowedFrom is what holds a November customer to November; the rush flag ' +
         'decides the ORDER once they are allowed out, and nothing else');
@@ -48799,23 +49338,23 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
       /* ⭐ A DAY THEY WERE PROMISED THAT DID NOT HAPPEN. Owner: "anyone that was scheduled
          for a day but didnt get done should take higher priority for where needs to be
          routed." To the front of their own tier — never out of it. */
-      check('S299', 'a house the crew missed goes ahead of its equals',
+      check('S300', 'a house the crew missed goes ahead of its equals',
         p(missed(''), OLD) < p({ pref: '' }, OLD) &&
         p(missed('OCT'), OLD) < p({ pref: 'OCT' }, OLD) &&
         p(missed('NOV'), OLD) < p({ pref: 'NOV' }, OLD),
         'being driven past is a reason to go first among your equals');
-      check('S299', 'and never out of its tier — a missed Any still waits behind October',
+      check('S300', 'and never out of its tier — a missed Any still waits behind October',
         p(missed(''), OLD) > p({ pref: 'OCT' }, OLD),
         'a missed morning is not a reason to be given a month somebody else asked for');
-      check('S299', 'a missed October house still sits behind a new hang',
+      check('S300', 'a missed October house still sits behind a new hang',
         p(missed('OCT'), OLD) > p({ pref: '' }, NEW),
         "owner, 2026-08-17: 'the very top priority is new hangs'");
-      check('S299', 'and behind somebody the office moved up by hand',
+      check('S300', 'and behind somebody the office moved up by hand',
         p(missed('OCT'), OLD) > p({ pref: '' }, RUSH));
       /* ⚠ THE SPACING IS WHAT MAKES ALL OF THAT TRUE. Tiers one apart leave nowhere to put
          a bump, so the only way up is into the next tier — which is precisely the two
          failures checked above. */
-      check('S299', 'the tiers are spaced far enough apart to hold a bump',
+      check('S300', 'the tiers are spaced far enough apart to hold a bump',
         (p({ pref: '' }, OLD) - p({ pref: 'OCT' }, OLD)) > (p({ pref: '' }, OLD) - p(missed(''), OLD)),
         'the gap between two tiers must be bigger than the bump, or the bump jumps a tier');
 
@@ -48826,17 +49365,17 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
       sb.mark(h, '2026-10-06');
       sb.mark(h, '2026-10-06');
       sb.mark(h, '2026-10-06');
-      check('S299', 'recording the same missed day three times is still one miss',
+      check('S300', 'recording the same missed day three times is still one miss',
         sb.count(h) === 1, 'got ' + sb.count(h) + ' — pressing Recalculate twice must cost nothing');
       sb.mark(h, '2026-10-13');
-      check('S299', 'but a second missed day counts, and they sort earliest first',
+      check('S300', 'but a second missed day counts, and they sort earliest first',
         sb.count(h) === 2 && sb.days(h)[0] === '2026-10-06',
         'somebody the crew has driven past twice goes before somebody they missed once');
-      check('S299', 'and rubbish coming back off a saved plan is ignored rather than trusted',
+      check('S300', 'and rubbish coming back off a saved plan is ignored rather than trusted',
         sb.mark({}, 'yesterday') === false && sb.mark({}, '') === false &&
         sb.count({ missedDays: 'nope' }) === 0 && sb.count({ missedDays: ['x', '2026-10-06'] }) === 1,
         'this rides in the plan document and comes back out of Firestore and out of imported CSVs');
-      check('S299', 'the rush flag is read strictly, so an imported "false" does not light it',
+      check('S300', 'the rush flag is read strictly, so an imported "false" does not light it',
         sb.rush({ rushInstall: true }) === true && sb.rush({ rushInstall: 'false' }) === false &&
         sb.rush({}) === false && sb.rush(null) === false);
     }
@@ -48896,7 +49435,7 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
         'days:SEASON.filter(function(d){return !d.isFixRoute&&!d.isTakedown;}).sort(function(a,b){return a.base-b.base;})};};';
       let built = true;
       try { new Function(src).call(ctx); } catch (err) { built = false;
-        check('S299', 'the rebuild sandbox assembles', false, String(err && err.message)); }
+        check('S300', 'the rebuild sandbox assembles', false, String(err && err.message)); }
 
       if (built) {
         let n = 0;
@@ -48919,14 +49458,14 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
           { id: 'soon', base: 40, cascade: 0, pin: null, houses: rest }
         ]);
 
-        check('S299', 'a day that came and went writes the miss onto the houses nobody reached',
+        check('S300', 'a day that came and went writes the miss onto the houses nobody reached',
           skipped.every(h => Array.isArray(h.missedDays) && h.missedDays.length === 1),
           'got ' + JSON.stringify(skipped.map(h => h.missedDays)) +
           ' — this is where the plan finds out the crew did not get there');
-        check('S299', 'and the houses that WERE done are left alone',
+        check('S300', 'and the houses that WERE done are left alone',
           gone.filter(h => h.done).every(h => h.missedDays === undefined),
           'a finished house was not missed, and stamping it would bump them for ever');
-        check('S299', 'the rebuild reports how many it moved up for being missed',
+        check('S300', 'the rebuild reports how many it moved up for being missed',
           out.r.missed === 5, 'got ' + out.r.missed +
           ' — a customer who quietly changes place is what the office rings about');
 
@@ -48936,7 +49475,7 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
         ctx.run(out.days.map(d => ({
           id: d.id, base: d.base, cascade: d.cascade, pin: d.pin, houses: d.houses
         })));
-        check('S299', 'pressing Recalculate again does not stack a second miss on anybody',
+        check('S300', 'pressing Recalculate again does not stack a second miss on anybody',
           skipped.every(h => Array.isArray(h.missedDays) && h.missedDays.length === 1),
           'got ' + JSON.stringify(skipped.map(h => (h.missedDays || []).length)) +
           ' — the plan is rebuilt over and over and the bump must not grow each time');
@@ -48950,11 +49489,11 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
         const seedOf = () => [{ id: 'a', base: 40, cascade: 0, pin: null, houses: wide.slice() }];
         const chilly = ctx.run(seedOf(), { Draper: 25, Lehi: 55 });
         const mild = ctx.run(seedOf(), { Draper: 55, Lehi: 55 });
-        check('S299', 'the rebuild counts the freezing crew-days it could not avoid',
+        check('S300', 'the rebuild counts the freezing crew-days it could not avoid',
           typeof chilly.r.coldDays === 'number' && chilly.r.coldDays > 0 && mild.r.coldDays === 0,
           'got ' + chilly.r.coldDays + ' cold and ' + mild.r.coldDays + " mild — the owner's " +
           '"unless" firing is a decision, not a bug, and it has to be said out loud');
-        check('S299', 'and that count comes from the forecast, not from the calendar',
+        check('S300', 'and that count comes from the forecast, not from the calendar',
           ctx.run(seedOf(), {}).r.coldDays === 0,
           'no forecast must report no cold days rather than none-known-so-assume-freezing');
       }
@@ -48964,31 +49503,31 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
   // --------------------------------------------------------------- the wiring
   {
     const rb = bare(fn('rebuildSeasonDays'));
-    check('S299', 'the rebuild hands the forecast to the builder, and the numbers with it',
+    check('S300', 'the rebuild hands the forecast to the builder, and the numbers with it',
       /tempFor\s*:\s*tempFor/.test(rb) && /coldBelow\s*:/.test(rb) && /warmBand\s*:/.test(rb),
       'without these the builder falls back to "nobody knows" and the cold rule is dead ' +
       'on the live page while every check above still passes');
-    check('S299', 'and it reads the forecast rather than fetching one',
+    check('S300', 'and it reads the forecast rather than fetching one',
       /forecastHighFor/.test(rb) && !/loadSeasonForecast/.test(rb),
       'a rebuild that awaited the network could not be run by any of these suites, and ' +
       'would fail whenever the weather service did');
-    check('S299', 'the rebuild carries the rush flag and the missed count out to the queue',
+    check('S300', 'the rebuild carries the rush flag and the missed count out to the queue',
       /rush\s*:\s*\(typeof isRushInstall/.test(rb) &&
       /missed\s*:\s*\(typeof houseMissedCount/.test(rb),
       'the sort inside the builder orders on `missed`, so a rebuild that stopped setting ' +
       'it would silently flatten the ordering with nothing going red');
     const q = admin.slice(admin.indexOf('function planNewCrewDays(waiting, taken, opts)'),
                           admin.indexOf('/* Top every day up to the cap.'));
-    check('S299', 'and the builder really sorts on it',
+    check('S300', 'and the builder really sorts on it',
       /\(b\.missed \|\| 0\) - \(a\.missed \|\| 0\)/.test(q),
       'the tier bump cannot tell one miss from three; this is what does');
 
     const leftover = bare(fn('applyLeftoverPicks'));
-    check('S299', 'saying "these did not get done" records the miss too',
+    check('S300', 'saying "these did not get done" records the miss too',
       /markHouseMissed/.test(leftover),
       'this screen is the office stating it in as many words, which is a better signal ' +
       'than the rebuild working it out afterwards');
-    check('S299', 'but only for a day that has actually arrived',
+    check('S300', 'but only for a day that has actually arrived',
       /leftToday/.test(leftover) && /isFixRoute/.test(leftover),
       'the same screen strips a FUTURE day back before the crew sets out, and nobody has ' +
       'been missed on a day that has not happened');
@@ -49006,47 +49545,47 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
     const fnAt = admin.indexOf('function runRecalculateEverything()', clickAt);
     const stop = fnAt > clickAt && fnAt < clickEnd ? fnAt : clickEnd;
     const branch = clickAt > 0 && stop > clickAt ? bare(admin.slice(clickAt, stop)) : '';
-    check('S299', 'Recalculate everything waits for the forecast before it lays the season out',
+    check('S300', 'Recalculate everything waits for the forecast before it lays the season out',
       /loadSeasonForecast/.test(branch) && /runRecalculateEverything/.test(branch),
       'a rebuild that starts before the forecast lands uses the last one, or none at all');
-    check('S299', 'and a failed forecast still rebuilds rather than blocking the button',
+    check('S300', 'and a failed forecast still rebuilds rather than blocking the button',
       /catch/.test(branch),
       'the weather must never be able to stop the office laying out a season');
     /* ⚠ THE GUARD, not the flag. `recalcRunning=false` sits in the .then() and stays
        behind when the guard above it is deleted, so a loose /recalcRunning/ passes on a
        button that can be pressed twice — measured in the red-check. */
-    check('S299', 'two presses in the waiting moment cannot rebuild twice',
+    check('S300', 'two presses in the waiting moment cannot rebuild twice',
       /if\(recalcRunning\)/.test(branch) && /recalcRunning\s*=\s*true/.test(branch),
       'the second rebuild would leave Undo pointing at the plan after the first one');
 
     const body = admin.indexOf('function runRecalculateEverything()');
     const bodyEnd = admin.indexOf("toast(parts.join(' · '));", body);
     const report = body > 0 && bodyEnd > body ? bare(admin.slice(body, bodyEnd)) : '';
-    check('S299', 'and the press says what the three new orderings actually did',
+    check('S300', 'and the press says what the three new orderings actually did',
       /r\.rushed/.test(report) && /r\.missed/.test(report) && /showForecastNote/.test(report),
       'every one of them MOVES somebody, and a customer who quietly changes place is the ' +
       'thing this office rings up about');
 
     // The box itself — read, written, and written as a real boolean.
-    check('S299', 'Edit Customer has the box that moves somebody up',
+    check('S300', 'Edit Customer has the box that moves somebody up',
       /id="editCustRushInstall"/.test(admin),
       'the flag is read in three places and nothing would set it');
-    check('S299', 'it is filled in when the record opens',
+    check('S300', 'it is filled in when the record opens',
       /editCustRushInstall'\)\.checked/.test(admin));
-    check('S299', 'and saved every time, including when it is unticked',
+    check('S300', 'and saved every time, including when it is unticked',
       /addrUpdates\.rushInstall = newRushInstall === true;/.test(admin),
       'a field only written when it is on can never be turned off again');
-    check('S299', 'the box explains that it does not move their month',
+    check('S300', 'the box explains that it does not move their month',
       /does <b>not<\/b> move them into a month they did not ask for/.test(admin),
       "owner: 'dont do someone in a month they dont want to be hung though' — somebody " +
       'ticking this must not expect a November customer to be hung in October');
 
     // The forecast loader.
     const load = bare(fn('loadSeasonForecast'));
-    check('S299', 'the forecast is one request for the whole book',
+    check('S300', 'the forecast is one request for the whole book',
       /latitude=/.test(load) && /join\(','\)/.test(load),
       'thirty towns must not be thirty round trips');
-    check('S299', 'it asks the same free service the Routes weather card already uses',
+    check('S300', 'it asks the same free service the Routes weather card already uses',
       /api\.open-meteo\.com/.test(load) && !/key=/.test(load),
       'no account, no key, nothing to expire');
     /* ⚠ SCOPED TO THE CATCH. `byTown: {}` also appears in the no-located-towns branch a few
@@ -49054,15 +49593,15 @@ suite('299. The forecast, a missed day, and a customer moved up by hand');
        kept yesterday's numbers standing would go unnoticed. */
     const failAt = load.indexOf("catch']");
     const failBranch = failAt === -1 ? '' : load.slice(failAt);
-    check('S299', 'a failed forecast empties the table rather than leaving yesterday standing',
+    check('S300', 'a failed forecast empties the table rather than leaving yesterday standing',
       /byTown: \{\}/.test(failBranch),
       'showing a cold-weather note for dates the numbers no longer cover is worse than ' +
       'having no forecast at all');
     /* ⚠ THE GUARD, not merely the field: `SEASON_FORECAST.pending = flight` is the WRITE and
        stays behind when the read is deleted, so a loose spelling passes with the guard gone. */
-    check('S299', 'and two presses cannot put two requests in the air',
+    check('S300', 'and two presses cannot put two requests in the air',
       /if\(SEASON_FORECAST\.pending\) return/.test(load));
-    check('S299', 'a town with no located house simply has no opinion about the weather',
+    check('S300', 'a town with no located house simply has no opinion about the weather',
       /if\(!towns\.length\)/.test(load),
       'a fresh season has nobody geocoded, and that must cost the forecast and nothing else');
   }

@@ -1229,6 +1229,23 @@ check('the path still has every step in it',
     recycledAt: 'the same: closing off an ARCHIVED entry once the lights are back in stock',
     gateCodeUpdatedAt: 'a DETAIL being corrected, not a stage anybody passes through. A customer confirming or fixing their gate code during the RSVP has not moved along the path — they are wherever they already were, and drawing it as a step would put a milestone on the picture for a four-digit correction. It exists so the office can tell a code confirmed this season from one sitting on the record since an import',
 
+    /* ⚠ BOTH LIVE INSIDE referralCredits[], AND THEY ARE ABOUT SOMEBODY ELSE. A step on
+       this customer's path has to be something that happened TO THIS CUSTOMER; a referral
+       entry dates what a DIFFERENT person did — a friend of theirs becoming a customer,
+       or cancelling before their install. Drawn here they would put "26 Oct" on the
+       referrer's history for a day nothing at all happened to the referrer.
+       ⚠ AND THE REFERRED CUSTOMER'S OWN SIDE IS ALREADY ON THE PATH IN FULL:
+       convertedToCustomerAt is them joining, and the cancellation is their RSVP answer.
+       Nothing about a referral is unrecorded — it is recorded on the right person. */
+    creditedAt: 'inside a referralCredits[] entry, dating when SOMEBODY ELSE became a ' +
+      'customer through this customer\'s link — the joining is a step on the friend\'s ' +
+      'path (convertedToCustomerAt), not on the referrer\'s',
+    revokedAt: 'the same entry, dating the friend cancelling before their install — ' +
+      'their RSVP answer is that step, on their own record',
+    waivedAt: 'the same entry again, dating the OFFICE crossing the discount off with ' +
+      'the × — our own bookkeeping about a line on a bill, and nothing that happened to ' +
+      'either customer',
+
     /* --- the crew portal, dormant this season --- */
     fixFlaggedAt: 'the crew portal raising a fault; fixRaisedAt is the step, and the portal ' +
       'is not in use this season',
