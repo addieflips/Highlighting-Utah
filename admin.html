@@ -2095,6 +2095,27 @@
             </div>
             <p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">A house nobody has been asked about counts as one side.</p>
           </div>
+          <!-- ⭐ OTHER BUILDINGS, ADDABLE AFTER THE FACT (2026-09-03). Addie: "in edit
+               customer we need to have add a building set up there as well in case they
+               come around later and want another building."
+
+               ⚠ THE QUOTE FORM COULD ALREADY COLLECT THESE AND NOTHING EVER READ THEM.
+               The buildings field was written onto the quote document and the word did not
+               appear anywhere in admin.html — so a customer who listed a shop at quote
+               time had it recorded and then silently dropped on Convert to Customer.
+               This is the other half of that: the field now lives on the CUSTOMER, the
+               office can add one at any point, and the conversion carries across
+               whatever the quote collected instead of throwing it away.
+
+               ⚠ A NAME, NOT A PHOTO. The quote form's four-walls photo grid went on the
+               same day (Addie: "upload picture should not be there"); what a building
+               needs to be useful is something to call it. -->
+          <div class="form-row">
+            <label>Other buildings on the property</label>
+            <div id="editCustBuildings"></div>
+            <button type="button" class="btn btn-outline btn-sm" id="editCustAddBuildingBtn" style="margin-top:6px;">+ Add another property</button>
+            <p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">A shop, shed or guest house they also want lit. The main house is not listed here &mdash; it is this record.</p>
+          </div>
           <div class="form-row" style="max-width:180px;"><label>Wire Color</label>
             <select id="editCustWireColor">
               <option value="White">White</option>
@@ -7636,6 +7657,13 @@ const CUSTOMER_FIELD_LABELS = {
   housePrice: {label: 'House price', kind: 'money'},
   measuredFeet: {label: 'Measured feet', kind: 'number'},
   houseSides: {label: 'Sides of the house', kind: 'number'},
+  /* ⭐ ADDED 2026-09-03 with the Edit Customer property list. The change-log gate asked
+     for this and it is right to: without a label, adding or removing a building is
+     invisible in that customer's history, which reads exactly like the field never being
+     edited. It is also what gives the field a READER — CLAUDE.md §1 wants every new
+     field written, read AND declared, and until this change nothing in admin.html read
+     the buildings field at all. */
+  buildings: {label: 'Other buildings', kind: 'buildings'},
   lightsDescription: 'Light colours', lightColors: {label: 'Light colours picked', kind: 'list'},
   wireColor: 'Wire colour', outletTimer: 'Timer', useEaves: 'Outlet in the eaves',
   specificOutlet: {label: 'Specific outlet', kind: 'yesno'},
@@ -7716,6 +7744,18 @@ function changeValueText(v, kind){
   if(v === null || v === undefined || v === '') return '(blank)';
   if(kind === 'money') return fmtMoney(Number(v) || 0);
   if(kind === 'list') return Array.isArray(v) ? (v.join(', ') || '(blank)') : String(v);
+  /* ⚠ NOT 'list'. These are objects, so join() would print [object Object] into
+     somebody's history — worse than no entry, because it still looks like a real one.
+     Named rather than counted: "Shop, Guest house" is what the office would say, and
+     "2 buildings" hides WHICH one was taken off, which is the whole question when
+     somebody asks why the crew skipped the shed. */
+  if(kind === 'buildings'){
+    if(!Array.isArray(v)) return '(none)';
+    const names = v.map(function(b){
+      return String((b && typeof b === 'object' ? b.name : b) || '').trim();
+    }).filter(Boolean);
+    return names.length ? names.join(', ') : '(none)';
+  }
   if(kind === 'date'){
     const dt = toJsDate(v);
     return dt ? dt.toLocaleDateString() : String(v);
@@ -31725,6 +31765,33 @@ document.addEventListener('click', function(e){
 /* Paints (or clears) the red "Still missing" box above the Add Customer button.
    Kept out of the submit handler so clearing it on a good save is one call
    rather than a second copy of the same DOM code drifting away from this one. */
+/* ⭐ THE BUILDINGS A CUSTOMER LISTED ON THEIR QUOTE FOLLOW THEM (2026-09-03).
+   Addie asked for an "add a building" control on Edit Customer "in case they come around
+   later and want another building" — and building that turned up the other half of it:
+   the public quote form has collected `buildings` for a while and the word did not
+   appear ANYWHERE in admin.html. So a customer who told us about their shop at quote
+   time had it recorded on the quote and then silently dropped the moment they became a
+   customer. Nobody was ever told; the field simply stopped existing.
+
+   ⚠ NORMALISED THROUGH THE SAME RULE the Edit Customer list uses, so the two shapes
+   cannot drift: a name, trimmed, blanks dropped.
+
+   ⚠ AND THE MAIN HOUSE IS FILTERED OUT. On a quote it is one of the buildings, because
+   the quote has no record of its own; on a customer the record IS the main house, so
+   carrying it across would list the same address twice. It is matched on the flag the
+   quote form writes, and on the words it defaults to when nobody renamed it. */
+function addCustBuildingsFromQuote(){
+  const q = (typeof addCustFromQuoteId !== 'undefined' && addCustFromQuoteId &&
+             typeof quotesCache !== 'undefined')
+    ? (quotesCache.find(function(x){ return x.id === addCustFromQuoteId; }) || null)
+    : null;
+  const raw = (q && q.data && q.data.buildings) || [];
+  return normalizeBuildings(raw.filter(function(b){
+    if(!b || typeof b !== 'object') return true;
+    if(b.isMain === true) return false;
+    return String(b.name || '').trim().toLowerCase() !== 'main house';
+  }));
+}
 function showAddCustMissing(fields){
   const box = document.getElementById('addCustMissingBox');
   const list = document.getElementById('addCustMissingList');
@@ -32096,7 +32163,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
          it. The warehouse clears the flag when the bundle is made. */
       lat: coords.lat, lng: coords.lng, needsGeocode: pinFailed, needsLightBuild: true,
       lightsQueuedAt: serverTimestamp(),
-      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, useEaves: useEaves, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, houseSides: selectedSides, customerNumber: customerNumber
+      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, useEaves: useEaves, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, houseSides: selectedSides, buildings: addCustBuildingsFromQuote(), customerNumber: customerNumber
     }, billingElsewhere ? {billToPhone: billToPhone} : {}));
     // If this number was sitting in the available pool, it isn't available anymore.
     if(customerNumber){
@@ -33466,6 +33533,67 @@ const RB_SIDE_ORDER = ['front', 'right', 'left', 'back'];
    `updates.houseSides !== before` raises a RE-QUOTE " + M + " so every customer whose sides
    were never written down would have been sent one for a change nobody made. */
 const HOUSE_SIDES_DEFAULT = 1;
+/* ---------- other buildings on a customer's property ----------
+   ⭐ Addie, 2026-09-03: "in edit customer we need to have add a building set up there as
+   well in case they come around later and want another building."
+
+   ⚠ THE MAIN HOUSE IS NEVER IN THIS LIST. On a quote the main house is one of the
+   buildings because the quote has no record of its own yet; on a CUSTOMER the record IS
+   the main house, so listing it again would put the same address on the screen twice and
+   invite somebody to edit the wrong one.
+
+   ⚠ AND A BLANK ROW IS NOT A BUILDING. Pressing Add and then thinking better of it is
+   the ordinary case — there is a Remove button for it — but somebody will also just
+   leave the box empty, and a nameless building reaches the crew as a job nobody can ask
+   about. Blank rows are dropped on save rather than stored.
+
+   ⚠ STORED AS OBJECTS, NOT BARE STRINGS. The quote already writes [{name, photos}], and
+   a customer field of a different shape would mean two readers for one idea the first
+   time anything wants to show both. */
+function normalizeBuildings(raw){
+  if(!Array.isArray(raw)) return [];
+  return raw.map(function(b){
+    const name = String((b && typeof b === 'object' ? b.name : b) || '').trim();
+    return name ? {name: name} : null;
+  }).filter(Boolean);
+}
+function editCustBuildingRow(name){
+  const row = document.createElement('div');
+  row.className = 'editcust-building-row';
+  row.style.cssText = 'display:flex; gap:8px; align-items:center; margin-bottom:6px;';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'editcust-building-name';
+  input.placeholder = 'Shop, guest house, shed…';
+  input.value = name || '';
+  input.style.cssText = 'flex:1; max-width:260px;';
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'btn btn-outline btn-sm';
+  remove.textContent = 'Remove';
+  /* ⚠ THE ROW GOES, NOT JUST ITS TEXT. editCustReadBuildings walks the rows that are
+     actually in the DOM, so removing the element is what removes the building — there is
+     no second array to keep in step, which is the way this cannot drift. */
+  remove.addEventListener('click', function(){
+    if(row.parentNode) row.parentNode.removeChild(row);
+  });
+  row.appendChild(input);
+  row.appendChild(remove);
+  return row;
+}
+function editCustFillBuildings(list){
+  const wrap = document.getElementById('editCustBuildings');
+  if(!wrap) return;
+  wrap.innerHTML = '';
+  normalizeBuildings(list).forEach(function(b){ wrap.appendChild(editCustBuildingRow(b.name)); });
+}
+function editCustReadBuildings(){
+  const wrap = document.getElementById('editCustBuildings');
+  if(!wrap) return [];
+  return Array.prototype.map.call(wrap.querySelectorAll('.editcust-building-name'), function(el){
+    return {name: String(el.value || '').trim()};
+  }).filter(function(b){ return b.name; });
+}
 function houseSideCount(v){
   if(Array.isArray(v)){
     const listed = Math.min(4, v.filter(Boolean).length);
@@ -44820,6 +44948,10 @@ function openEditCustomerModal(id){
   }
   document.getElementById('editCustEnrolled').value = (d.createdAt && d.createdAt.toDate) ? toDateStr(d.createdAt.toDate()) : '';
   document.getElementById('editCustRsvp').value = d.rsvpStatus || '';
+  /* ⚠ REFILLED ON EVERY OPEN, and the function empties the wrap first — the house-tab
+     strip repoints this same form at a sibling without closing it, so a list that
+     appended would show the previous house's buildings underneath this one's. */
+  editCustFillBuildings(d.buildings);
   /* ⚠ CLEARED WHEN THEY ARE NOT HELD, not merely left alone. The house tabs repoint this
      same form at a sibling without closing it, so a note left standing from the previous
      customer would be a confident lie about this one — the exact leak the re-quote fields
@@ -44951,7 +45083,29 @@ function openEditCustomerModal(id){
      saved before 2026-08-19 holds one, and they must not come back as "not recorded". */
   {
     const n = houseSideCount(d.houseSides);
-    document.querySelectorAll('.editcust-side-pick').forEach(function(rb){
+    /* ⚠ THIS RUNS ON EVERY OPEN, AND THE FLAG IS WHAT MAKES THAT SAFE. openEditCustomerModal
+     is called each time a record is opened — including by the house-tab strip, which
+     repoints this same form at a sibling without closing it — so an unguarded
+     addEventListener here would stack one listener per open, and a single press of Add
+     would append a row for every customer looked at this session. The Inbox folder
+     sidebar shipped precisely that bug and it cost 2815 Firestore writes from one drop.
+
+     dataset.wired is checked against the ELEMENT rather than a module-level boolean on
+     purpose: the button is in static markup and outlives every open, so the element is
+     the thing that knows whether it has been wired. */
+  const editCustAddBuildingBtnEl = document.getElementById('editCustAddBuildingBtn');
+  if(editCustAddBuildingBtnEl && !editCustAddBuildingBtnEl.dataset.wired){
+    editCustAddBuildingBtnEl.dataset.wired = '1';
+    editCustAddBuildingBtnEl.addEventListener('click', function(){
+      const wrap = document.getElementById('editCustBuildings');
+      if(!wrap) return;
+      const row = editCustBuildingRow('');
+      wrap.appendChild(row);
+      const box = row.querySelector('.editcust-building-name');
+      if(box) box.focus();
+    });
+  }
+  document.querySelectorAll('.editcust-side-pick').forEach(function(rb){
       rb.checked = (String(rb.value || '') === (n ? String(n) : ''));
       const w = rb.closest('.pill-check'); if(w) w.classList.toggle('checked', rb.checked);
     });
@@ -45772,6 +45926,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newWantsTexted = document.getElementById('editCustWantsTexted').checked;
   const newColors = Array.from(document.querySelectorAll('.editcust-color-check:checked')).map(el => el.value);
   const newHouseSides = houseSideCount((document.querySelector('.editcust-side-pick:checked') || {}).value);
+  const newBuildings = editCustReadBuildings();
   /* See requoteLightsPattern: if this save is finishing a re-quote whose form the
      customer filled in, and nobody has changed which colours are ticked since it was
      filled in, their exact wording wins over the checkbox order. */
@@ -45842,7 +45997,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   try{
     const newNoTexts = document.getElementById('editCustNoTexts').checked;
     const newNoAutoEmails = document.getElementById('editCustNoAutoEmails').checked;
-    const addrUpdates = {smsOptedOut: newNoTexts, noAutomationEmails: newNoAutoEmails, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, city: newCity, customerNumber: newCustNumber, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, wantsTextedInvoice: newWantsTexted, houseSides: newHouseSides, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
+    const addrUpdates = {smsOptedOut: newNoTexts, noAutomationEmails: newNoAutoEmails, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, city: newCity, customerNumber: newCustNumber, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, wantsTextedInvoice: newWantsTexted, houseSides: newHouseSides, buildings: newBuildings, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
     /* ⭐ WHAT THEY HAD ALREADY PAID WHEN THEIR HOUSE MOVED ONTO SOMEBODY ELSE'S
        BILL (added 2026-08-26). Owner, asked directly: "if person already paid
        bill but moved to bill to than person on bill to will not have to pay

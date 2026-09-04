@@ -572,7 +572,13 @@ function check(label, ok, detail) {
           name: 'the public quote form',
           src: idxBlock("quoteFormEl.addEventListener('submit'"),
           by: {
-            houseSides: /houseSides: portalSideCount\(fd\.get\('house_sides'\)\)/,
+            /* ⚠ houseSides MOVED TO THE OTHER STAGE ON 2026-09-03 and is deliberately
+               NOT listed here. Addie: "side of house should be in detail form, 1 side
+               should be default." Two STAGES, not two copies — an option belongs to one
+               of them, which is exactly what mode 'any' exists for, so this is the
+               registry being satisfied rather than an exception to it.
+               ⚠ AND NOT A GAP EITHER: a gap means nobody delivers it, and somebody
+               does — one screen later. */
             /* ⚠ THE OFFICE MEASURES THE HOUSE, and a customer's guess would set the
                price, the bins, the bundles and the number series off a number nobody
                checked. Recorded as a gap rather than an exception because the registry
@@ -593,6 +599,12 @@ function check(label, ok, detail) {
             installPreference:  /installPreference: fd\.get\('install_month'\)/,
             notes:              /notes: fd\.get\('notes'\)/,
             wantsMailedInvoice: /wantsMailedInvoice: fd\.get\('wants_mailed'\)/,
+            /* ⭐ ASKED HERE SINCE 2026-09-03, after approval rather than in front of a
+               stranger. ⚠ THE SERVER HAS TO ACCEPT IT TOO — quoteSaveDetails keeps a
+               whitelist, and the emailed-link path (the common one) goes through it, so
+               a field the browser sends and the function drops is lost with nothing
+               going wrong on screen. Asserted separately below. */
+            houseSides:         /houseSides: portalSideCount\(fd\.get\('house_sides'\)\)/,
           },
         },
       ],
