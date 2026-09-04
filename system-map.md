@@ -1589,11 +1589,24 @@ filter, the exports and the Yes sheet all still have to understand it — and th
 Members-tab **filter** keeps its No option on purpose: those records exist and have to be
 findable.
 
-⚠ **A stored `no` displays as Back Next Year, and normalises on save.** Setting a
-`<select>` to a value it has no option for leaves it blank — which reads as *Pending
-(never asked)* — and the next save writes that blank over the customer's actual answer.
-So the form maps it, and whoever opens and saves that record converts it. One state, one
-spelling.
+⭐ **A stored `no` is SHOWN, not translated** (changed 2026-09-04, RS-50). Until then the
+form mapped it to Back Next Year and whoever opened and saved that record converted it —
+*one state, one spelling*, which was free while the two meant the same thing. They no
+longer do: they are two badges and two Email Tool audiences, so that normalisation had
+become a silent move onto the wrong mail-out, triggered by nothing more than correcting a
+phone number.
+
+⚠ **The fault it was fixing is still real.** Setting a `<select>` to a value it has no
+option for leaves it blank — which reads as *Pending (never asked)*, the one state this
+dropdown exists to tell an answer apart from — and the next save writes that blank over
+the customer's actual answer. So `openEditCustomerModal` adds a **disabled** `No — they
+answered this themselves` option, and only for a record that already holds it.
+
+⚠ **Shown is not offered, which is what keeps RS-49 intact.** The office still cannot
+CHOOSE No — choosing it is what queued the warehouse to take a bundle apart. Moving the
+customer OFF it still works, which is the half that has to. The option is removed again
+when the form is repointed at a record that does not hold No, because the house-tab strip
+reuses this same form without closing it.
 
 ⚠ **The Excel destination is unaffected**, which was the thing worth checking before
 agreeing to this. `HLX_STATE_TABS` keys the **Recycle** sheet on `needsLightRecycle` and

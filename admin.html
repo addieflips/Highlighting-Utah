@@ -44973,12 +44973,43 @@ function openEditCustomerModal(id){
      who told us no would come out of an unrelated edit looking like nobody had ever
      asked them, and their badge would move from Maybe Next Year to Pending.
 
-     ⚠ IT NORMALISES ON SAVE, and that is deliberate rather than accidental: whoever
-     opens the record and saves it converts that 'no' to 'backnextyear'. One state, one
-     spelling. Nothing is lost by it — the two are already one answer everywhere that
-     reads them — and the alternative is a value the office can see but never set. */
+     ⭐ IT NO LONGER NORMALISES ON SAVE (2026-09-04, RS-50). The line above used to read
+     `storedRsvp === 'no' ? 'backnextyear'`, and the reasoning kept here because it was
+     sound at the time was: "Nothing is lost by it — the two are already one answer
+     everywhere that reads them." Addie ended that premise the next day: "when they click
+     no they go to maybe next year but actually we want them to just go to no for the
+     badge in case we want to send two different emails for each." They are two answers
+     on the badge now and two audiences in the Email Tool, so opening a No customer to
+     correct a phone number and pressing Save moved them onto the wrong mail-out, with
+     nobody deciding and nothing saying so.
+
+     ⚠ THE FAULT THAT NORMALISATION WAS FIXING IS STILL REAL. A <select> set to a value
+     it has no option for shows BLANK, which reads as "Pending (never asked)" — the one
+     state this dropdown exists to tell an answer apart from — and the next save writes
+     that over their answer. So the value is SHOWN rather than translated.
+
+     ⚠ AND SHOWN IS NOT OFFERED, which is what keeps RS-49 intact: the option is added
+     only for a record that already holds it, and it is DISABLED, so the office still
+     cannot choose No — choosing it is what queued the warehouse to take a bundle apart.
+     They can still move the customer off it, which is the half that must keep working.
+     ⚠ IT IS REMOVED AGAIN when the form is repointed at a record that does not hold No —
+     the house-tab strip reuses this same form without closing it, so an option left
+     behind would offer one house's answer on another's record. */
   const storedRsvp = String(d.rsvpStatus || '').toLowerCase();
-  document.getElementById('editCustRsvp').value = storedRsvp === 'no' ? 'backnextyear' : (d.rsvpStatus || '');
+  const rsvpSel = document.getElementById('editCustRsvp');
+  let rsvpNoOpt = rsvpSel.querySelector('option[value="no"]');
+  if(storedRsvp === 'no'){
+    if(!rsvpNoOpt){
+      rsvpNoOpt = document.createElement('option');
+      rsvpNoOpt.value = 'no';
+      rsvpNoOpt.textContent = 'No \u2014 they answered this themselves';
+      rsvpSel.appendChild(rsvpNoOpt);
+    }
+    rsvpNoOpt.disabled = true;
+  } else if(rsvpNoOpt){
+    rsvpNoOpt.remove();
+  }
+  rsvpSel.value = d.rsvpStatus || '';
   /* ⚠ REFILLED ON EVERY OPEN, and the function empties the wrap first — the house-tab
      strip repoints this same form at a sibling without closing it, so a list that
      appended would show the previous house's buildings underneath this one's. */
