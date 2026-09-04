@@ -8260,7 +8260,18 @@ function isScheduleHeld(d){ return scheduleHoldMillis(d) > Date.now(); }
    Add Customer, a converted quote, the portal colour change, the server re-quote, Send to
    warehouse, a rejoin after recycle — were exempt from her rule by accident. They are not
    now. It can never hold anybody for ever: the derived hold expires 72 working hours
-   after lightsQueuedAt, and a queued build with no queue date holds nobody at all. */
+   after lightsQueuedAt, and a queued build with no queue date holds nobody at all.
+
+   ⭐ AND A BRAND-NEW CUSTOMER IS IN IT, ASKED AND ANSWERED (2026-09-04, SCH-48). The
+   widening's loudest consequence is that somebody added today cannot be given a crew for
+   about three working days, so it was put to her as its own question rather than shipped
+   as a side effect. Addie: "keep the 72 hour hold for new customers too."
+
+   ⛔ SO DO NOT ADD AN EXEMPTION FOR NEW CUSTOMERS HERE. It is the obvious-looking
+   kindness — they are the newest sale, somebody will want them out this week — and it is
+   the exact thing she was asked about and declined. A crew sent to a house whose bundle
+   is not built yet is the whole reason the hold exists, and a new customer is the case
+   where the bundle is least likely to exist. */
 function isHeldFromRoutes(d){ return scheduleHoldEndsMillis(d) > 0; }
 /* ⭐ A HOLD IS A LATER FIRST DAY, NOT A DISAPPEARANCE (added 2026-09-04). Addie:
    "some people are confirmed but still arent in schedule and I dont know why … if

@@ -50935,6 +50935,58 @@ suite('306. A Confirmed tag means a day on the plan, no exceptions');
       'drift away from the badge she is actually looking at');
   }
 
+  /* ---- a brand-new customer is held too, and that is a decided no ----
+     ⭐ THE WIDENING'S LOUDEST CONSEQUENCE, PUT TO HER ON ITS OWN. Making the 72-hour
+     warehouse hold reach all seven paths that queue a build means somebody added TODAY
+     cannot be given a crew for about three working days. Addie, 2026-09-04, asked exactly
+     that: "keep the 72 hour hold for new customers too."
+
+     ⛔ SO THE EXEMPTION IS REFUSED, NOT MISSING, and this is what says so. Adding
+     `if(d.chargeNewMemberFee) return 0;` to scheduleHoldEndsMillis is the obvious-looking
+     kindness — they are the newest sale and somebody always wants them out this week —
+     and a new customer is the case where the bundle is LEAST likely to already exist.
+     Without a check, that exemption reads as a fix rather than as overturning a ruling.
+
+     ⚠ AND PRIORITY MUST NOT BEAT IT. houseInstallPriority returns 0 for a new hang —
+     the top tier, ahead of everybody — so a new customer is simultaneously first in the
+     queue and held. The hold is a floor on the DATE and priority is an order within it;
+     if those two ever swap places a new customer goes out on day one with no lights. */
+  {
+    const parts = ['anyStampMillis', 'lightsLockMillis', 'scheduleHoldMillis',
+                   'scheduleHoldUntil', 'scheduleHoldEndsMillis', 'houseHoldFrom']
+      .map(f => extractFn(admin, f));
+    check('S306', 'the hold helpers are findable for the new-customer rule',
+      parts.every(p => !!p));
+
+    if (parts.every(p => !!p)) {
+      const holdFrom = new Function('d',
+        'function isWorkingDay(x){const k=x.getDay();return k!==0&&k!==6;}' +
+        'function isoOf(x){return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+' +
+        '"-"+String(x.getDate()).padStart(2,"0");}' +
+        'function nextWorkingDay(x){const y=new Date(x.getFullYear(),x.getMonth(),x.getDate());' +
+        'let g=0;while(!isWorkingDay(y)&&g++<14)y.setDate(y.getDate()+1);return y;}' +
+        'const SCHEDULE_HOLD_HOURS=72;' + parts.join('') + 'return houseHoldFrom(d);');
+
+      /* A customer created a moment ago, exactly as Add Customer and quote conversion
+         leave them: the new-member fee on, the build queued, the queue date stamped. */
+      const brandNew = { chargeNewMemberFee: true, needsLightBuild: true,
+                         lightsQueuedAt: { toMillis: () => Date.now() } };
+      check('S306', 'a brand-new customer is held for the warehouse like everybody else',
+        holdFrom(brandNew) !== '',
+        'owner: "keep the 72 hour hold for new customers too" — an exemption here is ' +
+        'overturning a ruling, not fixing a bug');
+
+      /* ⚠ AND IT IS THE FLAG THAT HOLDS THEM, NOT BEING NEW. Somebody new whose bundle
+         was built long ago is free to go — otherwise this stops being a warehouse rule and
+         becomes a penalty for having just joined. */
+      check('S306', 'but a new customer whose bundle was built long ago is free to go',
+        holdFrom({ chargeNewMemberFee: true }) === '' &&
+        holdFrom({ chargeNewMemberFee: true, needsLightBuild: true,
+                   lightsQueuedAt: { toMillis: () => Date.now() - 14 * 86400000 } }) === '',
+        'the hold is about the bundle existing, never about how recently they joined');
+    }
+  }
+
   /* ---- and the rebuild both feeds it in and reports what it found ---- */
   const rb = extractFn(admin, 'rebuildSeasonDays');
   check('S306', 'the rebuild turns a hold into the earliest day rather than a removal',
