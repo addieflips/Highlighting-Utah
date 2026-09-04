@@ -49474,7 +49474,7 @@ suite('299. A referral link, and the $25 that follows it');
     const TAIL = ") + '#/quote'";
     check('S299', 'the office renderer resolves the referral tokens',
       /\{\{referral_link\}\}/.test(admin) && /\{\{referral_button\}\}/.test(admin) &&
-      /referralLinkForCustomer\(opts\.customerId\)/.test(admin),
+      /await referralTokenFor\(who\)/.test(admin),
       'a template token nothing resolves is a raw {{referral_button}} in somebody\'s email');
     check('S299', 'and so does the server one that actually sends the chase',
       /body = body\.split\('\{\{referral_button\}\}'\)/.test(fnsRef) &&
@@ -49485,15 +49485,23 @@ suite('299. A referral link, and the $25 that follows it');
       [admin, fnsRef, idxRef].every(function(f){
         return f.indexOf(LINK) !== -1 && f.indexOf(TAIL) !== -1; }),
       'the portal tab, the office email and the automatic chase must hand out one link');
-    /* ⚠ BY DOCUMENT ID, NEVER BY PHONE. getOrCreatePortalToken finds a customer with a
-       .find() on the phone, and seventeen numbers in the real book are shared by two
-       households — through that door one household's referral link goes out in the
-       other's email, and every friend they send it to credits the wrong customer. */
-    const linkFn = extractFn(admin, 'referralLinkForCustomer') || '';
-    check('S299', 'the office one finds the customer by id, not by phone',
-      /jobAddresses\.find\(function\(a\)\{ return a\.id === customerId; \}\)/.test(linkFn) &&
-      linkFn.indexOf('phone') === -1,
-      'a phone lookup here puts one household of a shared number in the other\'s email');
+    /* ⚠ BY DOCUMENT ID, NEVER BY A GUESSED PHONE. getOrCreatePortalToken finds a
+       customer with a .find() on the phone, and seventeen numbers in the real book are
+       shared by two households — through that door one household's referral link goes
+       out in the other's email, and every friend they send it to credits the wrong
+       customer.
+       ⚠ REPOINTED 2026-09-04 AT hlxEmailCustomerItem, AND NOT WEAKENED — it is the
+       stricter rule. Two sessions built this token on the same day; theirs reached main
+       first and stands. Mine refused a phone lookup outright; theirs takes
+       opts.customerId when it has one and, falling back to a phone, returns null unless
+       EXACTLY ONE customer holds that number — so a shared number resolves to nobody
+       rather than to the wrong household. What must never come back is a bare .find()
+       that takes the first hit. */
+    const linkFn = extractFn(admin, 'hlxEmailCustomerItem') || '';
+    check('S299', 'the office one finds the customer by id, and never guesses a shared phone',
+      /o\.customerId/.test(linkFn) && /hits\.length === 1/.test(linkFn),
+      'a phone lookup that takes the first hit puts one household of a shared number in ' +
+      'the other\'s email, and every friend they send it to credits the wrong customer');
     /* ⚠ EACH TEMPLATE ON ITS OWN, not a tally over the whole file. A count passes with
        one of the two bodies emptied, because the renderer and the token picker mention
        {{referral_button}} as well — and the Not Paid one is the body the SERVER sends,

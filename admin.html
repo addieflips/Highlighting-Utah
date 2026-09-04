@@ -8622,34 +8622,6 @@ function quoteLinkLabelPlain(text){
       return (words == null ? '' : String(words)).trim() || QUOTE_LINK_BUTTON_DEFAULT;
     });
 }
-/* ⭐ ONE PLACE TURNS A CUSTOMER INTO THEIR REFERRAL LINK (2026-09-04).
-
-   ⚠ BY DOCUMENT ID. Every other way of finding a customer here has been wrong at least
-   once — getOrCreatePortalToken looks up by phone with a .find(), and on the seventeen
-   shared numbers in the real book that hands one household the other's link.
-
-   ⚠ THE ADDRESS IS THE ONE THE PORTAL BUILDS, character for character. Two spellings of
-   this link is two ways for a referral to arrive not counted, and the difference would
-   only ever show up as somebody's $25 never appearing. */
-async function referralLinkForCustomer(customerId){
-  if(!customerId) return '';
-  const item = jobAddresses.find(function(a){ return a.id === customerId; });
-  if(!item || !item.data) return '';
-  let token = String(item.data.referralToken || '');
-  if(!token){
-    token = generatePortalToken();
-    try{
-      await updateDoc(doc(db,'jobAddresses', customerId), { referralToken: token });
-      item.data.referralToken = token;
-    }catch(err){
-      /* The link still goes out and still works the moment the write lands — the portal
-         mints the same field on their next visit. Sending a literal {{referral_link}} is
-         the outcome worth avoiding, and returning early here would cause exactly that. */
-      console.error('Could not save a referral token for', customerId, err);
-    }
-  }
-  return 'https://highlightingutah.com/?ref=' + encodeURIComponent(token) + '#/quote';
-}
 async function resolveLinkTokens(text, phone, amount, opts){
   opts = opts || {};
   let out = text;
@@ -8817,34 +8789,6 @@ async function resolveLinkTokens(text, phone, amount, opts){
     const venmoUrl = 'https://venmo.com/HighLightingUtah?txn=pay&amount='+venmoAmount+'&note='+encodeURIComponent('Christmas Lights');
     out = out.split('{{venmo_link}}').join(venmoUrl);
     out = out.split('{{venmo_button}}').join('<a href="'+venmoUrl+'" style="'+btnStyleGold+'">Pay with Venmo</a>');
-  }
-  /* ⭐ THEIR REFERRAL LINK, IN AN EMAIL (2026-09-04, REF-07). Addie asked for this in
-     the RSVP as well as the portal, and the RSVP is the one email of the season that
-     reaches everybody — so it is where a referral link is worth the most.
-
-     ⚠ RESOLVED FROM THE RECORD BY ID, NEVER BY PHONE. Seventeen numbers in the real
-     book are shared by two households, so a phone lookup would print one household's
-     referral link in the other's email — and every friend they then sent it to would
-     credit the wrong customer. opts.customerId already travels with the RSVP send for
-     exactly this reason; without it the token resolves to nothing rather than guessing.
-
-     ⚠ AND IT MINTS ONE IF THEY HAVE NONE, because most customers have never opened the
-     portal and the token is created lazily when they do. Minting only in the portal
-     would mean the RSVP — the email that goes to the whole book — carried a working
-     link for the handful who had signed in and a dead one for everybody else.
-     ⚠ A FAILED WRITE STILL SENDS THE LINK: it is the same token either way, and the
-     next portal visit writes it. What must never happen is the email going out with a
-     literal {{referral_link}} in it. */
-  if(out.indexOf('{{referral_link}}') !== -1 || out.indexOf('{{referral_button}}') !== -1){
-    const refUrl = await referralLinkForCustomer(opts.customerId);
-    out = out.split('{{referral_link}}').join(refUrl);
-    const refBtnStyle = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:15px;';
-    /* ⚠ NO LINK MEANS NO BUTTON, not a button pointing nowhere. A gold button that
-       goes to the home page is worse than no button at all — the customer presses it,
-       nothing happens that looks like a referral, and they do not press it again. */
-    out = out.split('{{referral_button}}').join(refUrl
-      ? ('<a href="' + refUrl + '" style="' + refBtnStyle + ' background:#D89F3D; color:#1E3B2C;">Refer a Friend \u2014 $25 off your bill</a>')
-      : '');
   }
   if(out.indexOf('{{rsvp_yes_link}}') !== -1 || out.indexOf('{{rsvp_no_link}}') !== -1 || out.indexOf('{{rsvp_back_link}}') !== -1 || out.indexOf('{{rsvp_yes_button}}') !== -1 || out.indexOf('{{rsvp_no_button}}') !== -1 || out.indexOf('{{rsvp_back_button}}') !== -1){
     const rsvpToken = await getOrCreatePortalToken(phone);
@@ -17724,8 +17668,8 @@ const IC_CODES = {
     {token:'{{referral_button}}', label:'Their referral link (button)'}
   ],
   rsvp: [
-    {token:'{{referral_link}}', label:'Refer a Friend (plain URL)'},
-    {token:'{{referral_button}}', label:'Refer a Friend (button)'},
+    {token:'{{referral_link}}', label:'Their referral link (plain URL) \u2014 $25 off when a friend joins'},
+    {token:'{{referral_button}}', label:'Their referral link (button)'},
     {token:'{{rsvp_yes_link}}', label:'RSVP Yes (plain URL)'},
     {token:'{{rsvp_yes_button}}', label:'RSVP Yes (button)'},
     {token:'{{rsvp_no_link}}', label:'RSVP No (plain URL)'},

@@ -1007,21 +1007,25 @@ member's bill — with nobody in the office typing anything.
   truth) and `referralCount` (derived from it, and what the existing box shows). On the
   referred customer: `referredByCustomerId`, set once — it is what the clawback finds its
   way back by. On the quote: `referredByToken` and `referralCredited`.
-- **And it is in the RSVP email too** (added 2026-09-04, REF-07). `{{referral_link}}`
-  and `{{referral_button}}` are ordinary email tokens, and both RSVP templates carry the
-  offer under the three answer buttons.
+- **And it goes in the RSVP email** (REF-08, REF-09). `{{referral_link}}` and
+  `{{referral_button}}` are ordinary email tokens, offered in the token picker, and both
+  BUILT-IN RSVP bodies carry the offer under the three answer buttons.
+  - ⚠ **A template she has already written is never rewritten** (MON-24): the built-in
+    bodies only fill a blank one. So an RSVP template already saved in Firestore needs
+    `{{referral_button}}` added to it by hand, once — that is her edit, not ours.
   - ⚠ **Two renderers, one template — the `{{photo}}` shape again.** `resolveLinkTokens`
     in admin.html renders a hand-send; `runArrearsRsvpBatch` in functions/index.js
-    renders the automatic chase to people who owe. A token resolved in only one of them
-    puts a literal `{{referral_button}}` in a real customer's inbox. Change one, change
-    the other, in the same push.
-  - ⚠ **Resolved by document id, never by phone.** `referralLinkForCustomer` takes
-    `opts.customerId`, which already travels with the RSVP send. Seventeen numbers in the
-    real book are shared by two households, so a phone lookup mails one household the
-    other's link — and every friend they then send it to credits the wrong customer.
-  - ⚠ **It mints a token if they have none**, because most customers have never opened
-    the portal and the token is created lazily when they do. No link means **no button**
-    rather than a button pointing nowhere.
+    renders the automatic Not Paid RSVP chase with no browser involved. A token resolved
+    in only one of them puts a literal `{{referral_button}}` in a real customer's inbox.
+    Change one, change the other, in the same push.
+  - ⚠ **Resolved by document id, never by a guessed phone.** `hlxEmailCustomerItem` takes
+    `opts.customerId` when the send has one and, falling back to a phone, returns nobody
+    unless exactly one customer holds that number. Seventeen numbers in the real book are
+    shared by two households, so picking the first hit mails one household the other's
+    link — and every friend they then send it to credits the wrong customer.
+  - ⚠ **No link means no button**, never a button pointing nowhere: a customer tapping
+    something we sent them and landing nowhere cannot tell that from the scheme being
+    broken.
 - **Where to look when it is wrong.** The Inbox, System folder, money section: **Referral
   Credit Given**, **Referral Taken Back**, **Referral Blocked**. Proved by run-all.js suite
   299, which runs the rules against a fake Firestore; 19 sabotages red-checked.
