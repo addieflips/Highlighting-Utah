@@ -644,9 +644,27 @@ function seasonResetWrite() {
   check('and no snapshot at all answers null, never an empty guess',
     pApi.lastSeasonSnapshotFrom([]) === null && pApi.lastSeasonSnapshotFrom(null) === null,
     'this decides whether the office is told there is nothing to repair');
-  check('the audience filter asks the same picker rather than a copy',
-    /function audienceLastSeasonSnapshot\(\)\{ return lastSeasonSnapshotFrom\(yearlySnapshotsCache\); \}/.test(admin),
-    'two copies of "which snapshot is last season" is the second way for them to disagree');
+  /* ⭐ REPOINTED 2026-09-05, AND THE GUARANTEE GOT STRONGER RATHER THAN WEAKER.
+     This used to assert that Automation Emails' "last year" filters shared this
+     snapshot picker instead of copying it — a real concern while they read a snapshot
+     at all. They no longer do: the ONLY writer of a snapshot's `invoices` array is
+     Start New Season, so before a reset both filters answered null for the whole book
+     and the audience was empty. Dax: "everyone paid last year other than the like 20
+     people we marked as not paid last year." They ask `houseOwesFromLastSeason` now —
+     the same LIVE arrears this file's own hold reads.
+     ⚠ SO THE THING TO PIN IS NO LONGER A SHARED PICKER, IT IS A SHARED ANSWER: the
+     filter and the hold must decide "did they pay last season" the same way, or the
+     office can chase somebody the portal is already holding, or hold somebody the
+     chase list calls settled. */
+  check('the audience filter asks the same LIVE arrears rule as the hold',
+    /houseOwesFromLastSeason\(d\)/.test(lift('audiencePaidLastYear') || ''),
+    'two answers to "did they pay last season" is how a chase list and a season hold ' +
+    'start naming different people');
+  check('and it no longer reads a snapshot, which only exists after a season reset',
+    !/yearlySnapshots|LastSeasonMap|lastSeasonSnapshotFrom/
+      .test((lift('audiencePaidLastYear') || '') + (lift('audienceOrderedLastYear') || '')),
+    'a snapshot is frozen at reset and only written by Start New Season — a filter on ' +
+    'it is empty all season and then stale');
 
   /* ⚠ IT MUST READ THE COLLECTION FRESH. yearlySnapshotsCache is filled by the `money`
      panel group, which the Invoices panel does not load — so reading the cache on this

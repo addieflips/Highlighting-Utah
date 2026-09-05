@@ -52004,68 +52004,101 @@ suite('Suite 307. Filter, then select everyone under the filter');
         r.html.indexOf('et-recipient-cb') === -1 && r.allDead === true,
         'a tickable row here is one press away from mailing the do-not-send list');
     }
-    /* ---- 8. THE LAST-YEAR FILTERS CAN SEE LAST YEAR (2026-09-05) ----
-       Dax: "when i push paid last year or didnt pay last year is shows no members
-       match these filters which is not true." He was right, and the cause was not
-       in the filter at all: `yearlySnapshotsCache` is filled by `loadYearlySnapshots`,
-       which before today lived inside `loadFinancialTrackers` in the `money` group —
-       pulled by the DASHBOARD alone. Open admin, go straight to Automation Emails,
-       pick "Paid last year", and audiencePaidLastYear answered null for everybody
-       against an unread snapshot sitting in Firestore.
-       ⚠ THE HALF THAT MADE IT UNDIAGNOSABLE is the one checked here: the list said
-       "No members match these filters", which is the one sentence guaranteed to send
-       somebody looking for a broken filter. */
+    /* ---- 8. THE LAST-YEAR FILTERS ASK THE ARREARS, NOT A SNAPSHOT (2026-09-05) ----
+       Dax: "when i push paid last year or didnt pay last year is shows no members match
+       these filters which is not true... everyone paid last year other than the like 20
+       people we marked as not paid last year."
+       ⚠ HE WAS RIGHT AND THE FILTER WAS ASKING THE WRONG SOURCE. Both read a
+       yearlySnapshots `invoices` array, and the ONLY writer of that array is Start New
+       Season — every other document in that collection is the finance snapshot
+       (computeYearTotals: revenue/expenses/ccSpending/debt/netWorth, no invoices), which
+       lastSeasonSnapshotFrom correctly refuses. Before a season reset the answer was null
+       for everybody and the audience was empty.
+       ⭐ The answer already existed in `houseOwesFromLastSeason` — the live carried
+       arrears behind Schedule's "Owes from last year", the portal hold and
+       arrearsOutstanding, and the thing the office actually marks. */
     {
-      const r = draw307(book307(), { paidLast: 'paid', hasLastSeason: false });
-      check('S307', 'with no last-season snapshot the list says SO, not "no members match"',
-        r.html.indexOf('No members match these filters') === -1 &&
-        /Nothing to compare against yet/.test(r.html),
-        'the count line carried the reason and the list contradicted it — the list ' +
-        'is what gets read, and it sent Dax hunting for a filter bug that was a ' +
-        'panel-loading bug one screen away');
-      check('S307', 'and it names WHICH filter emptied the screen',
-        r.html.indexOf('Paid last year') !== -1,
-        '"no snapshot" beside ten dropdowns does not say which two just went blank');
-      check('S307', 'and how to get the list back',
-        /Start New Season/.test(r.html) && /All/.test(r.html),
-        'a dead end with a reason is still a dead end');
-      /* ⚠ AND IT MUST NOT FIRE WHEN THE SNAPSHOT IS THERE. A message that appears
-         whenever the filter matches nobody would be wrong every time the office
-         legitimately narrowed to an empty audience. */
-      const ok = draw307(book307(), { paidLast: 'paid', hasLastSeason: true });
-      check('S307', 'and with a snapshot present the filter matches normally',
-        ok.picked.length === 0 && ok.html.indexOf('Nothing to compare against yet') === -1 &&
-        ok.html.indexOf('Ann Ableton') !== -1,
-        'the snapshot notice must be about the SNAPSHOT, not about an empty result');
+      const lastYearSrc =
+        (extractFn(admin, 'audienceHasLastSeason') || '') +
+        (extractFn(admin, 'audiencePaidLastYear') || '') +
+        (extractFn(admin, 'audienceOrderedLastYear') || '');
+      check('S307', 'the three last-year helpers are findable',
+        /audienceHasLastSeason/.test(lastYearSrc) && /audiencePaidLastYear/.test(lastYearSrc) &&
+        /audienceOrderedLastYear/.test(lastYearSrc),
+        'renamed — repoint this rather than dropping it');
+
+      /* RUN them. Every claim here is about what a lookup RESOLVES TO for one customer,
+         which a regex cannot see — and the old version of these filters was green under
+         source checks the whole time it was answering null for the entire book. */
+      const askLastYear = function (o) {
+        const opt = o || {};
+        return new Function('OWES', 'NEW', 'LOADED',
+          'var invoiceById = LOADED ? new Map([["k",{}]]) : new Map();' +
+          'function houseOwesFromLastSeason(){ return OWES; }' +
+          'function audienceNeverAsked(){ return NEW; }' +
+          lastYearSrc +
+          ';return { paid: audiencePaidLastYear({name:"x"}), ordered: audienceOrderedLastYear({name:"x"}) };')(
+          !!opt.owes, !!opt.firstYear, opt.loaded === undefined ? true : opt.loaded);
+      };
+
+      check('S307', 'a returning customer who owes nothing reads PAID',
+        askLastYear({}).paid === 'paid',
+        'this is Dax\'s "everyone paid last year" — the common case, and the one that ' +
+        'answered null for the whole book while the filter read a snapshot nobody writes');
+      check('S307', 'and one carrying last season\'s debt reads UNPAID',
+        askLastYear({ owes: true }).paid === 'unpaid',
+        'these are the ~20 the office marked; the arrears is where that mark lives');
+      /* ⚠ A FIRST-YEAR CUSTOMER IS null, NEVER 'paid'. They were not billed last season,
+         so "they paid" is a claim nobody can make — and null keeps them out of BOTH
+         filters rather than padding the paid audience with people who were not there. */
+      check('S307', 'a first-year customer is unknown, not paid',
+        askLastYear({ firstYear: true }).paid === null,
+        'saying a brand-new customer paid last year is a confident wrong answer, and it ' +
+        'is the one that would quietly widen a chase-the-unpaid send');
+      /* ⚠ AND A FIRST-YEAR CUSTOMER STILL ANSWERS THE ORDERED QUESTION. It is knowable
+         without any invoice at all, so it must not be dragged to null with the other. */
+      check('S307', 'and did not order last year, which IS knowable',
+        askLastYear({ firstYear: true }).ordered === 'no' && askLastYear({}).ordered === 'yes',
+        'ordered-last-year needs no invoice; answering null would empty that filter too');
+      /* ⚠ "NOT LOADED" IS NOT "PAID". houseOwesFromLastSeason answers false on an empty
+         invoiceById, which alone reads as everybody having paid — for the second after
+         login, on the filter that decides who gets chased for money. */
+      check('S307', 'and before the invoices load it refuses to answer at all',
+        askLastYear({ loaded: false }).paid === null,
+        'an empty invoice cache must not read as "everybody paid"');
+      /* ⚠ AND IT MUST NOT GO BACK TO THE SNAPSHOT. That source only exists after Start
+         New Season, and it freezes: a chase built off it goes on naming people who have
+         since settled. */
+      check('S307', 'and it no longer reads the yearly snapshot',
+        !/yearlySnapshots|LastSeasonMap|lastSeasonSnapshotFrom/.test(stripComments(lastYearSrc)),
+        'the snapshot was a SECOND answer to a question the arrears already settles, and ' +
+        'it was the one that could only speak after a season reset');
     }
 
-    /* ---- 9. the wiring that actually fixes it ---- */
-    /* ⚠ Suite 21 already proves every PANEL_DATA key is a real panel and every group
-       it names has a handler — which is why it stayed green through this bug. What it
-       cannot see is that Automation Emails ASKS for the snapshot at all, so that is
-       asserted here, next to the filters that depend on it. */
+    /* ---- 9. and the empty list names the only reason left ---- */
     {
-      const adm307b = stripComments(admin.replace(/\r/g, ''));
-      const pd = (adm307b.match(/const PANEL_DATA = \{[\s\S]*?\n\};/) || [''])[0];
-      check('S307', 'Automation Emails asks for last season\'s snapshot',
-        /automation:\s*\[[^\]]*'snapshots'/.test(pd),
-        'without this the two "last year" filters read an empty cache on this panel ' +
-        'and silently match nobody — the reported bug');
-      check('S307', 'and the snapshot group has a loader',
-        /case 'snapshots':\s*return \[loadYearlySnapshots\]/.test(adm307b),
-        'a group with no handler loads nothing and says nothing');
-      /* ⚠ ONE GROUP, NOT TWO. ensurePanelData de-dupes by GROUP NAME, not by loader,
-         so a loader named in both `money` and `snapshots` runs TWICE and opens a second
-         onSnapshot on one collection — the listener-accumulation shape that once cost
-         2815 writes on a single drag. */
-      check('S307', 'loadYearlySnapshots is in exactly one group',
-        (adm307b.match(/loadYearlySnapshots/g) || []).length === 2,
-        'expected its declaration and ONE mention in panelDataGroup; a second group ' +
-        'naming it opens a duplicate listener on yearlySnapshots');
-      check('S307', 'and the Dashboard still gets it',
-        /dashboard:\s*\[[^\]]*'snapshots'/.test(pd),
-        'it used to arrive through the money group; taking it out of there without ' +
-        'adding it here would break the finance panel and the auto-save with it');
+      const r = draw307(book307(), { paidLast: 'paid', hasLastSeason: false });
+      check('S307', 'a filter that cannot answer yet says so, not "no members match"',
+        r.html.indexOf('No members match these filters') === -1 &&
+        /have not finished loading/.test(r.html),
+        'the count line carried the reason and the list contradicted it — the list is ' +
+        'what gets read, and it sent Dax hunting for a filter bug');
+      check('S307', 'and names WHICH filter emptied the screen',
+        r.html.indexOf('Paid last year') !== -1,
+        '"cannot answer" beside ten dropdowns does not say which one went blank');
+      /* ⚠ AND IT MUST NOT FIRE ON AN HONESTLY EMPTY AUDIENCE, or it would be wrong every
+         time the office legitimately narrowed to nobody. */
+      const ok = draw307(book307(), { paidLast: 'paid', hasLastSeason: true });
+      check('S307', 'and stays silent when the filter simply matched nobody',
+        ok.html.indexOf('have not finished loading') === -1 && ok.html.indexOf('Ann Ableton') !== -1,
+        'the notice is about being unable to answer, not about an empty result');
+      /* ⚠ AND THE OLD WORDING MUST NOT COME BACK. It told the office to run START NEW
+         SEASON to fix a filter — a destructive, irreversible button, named as the remedy
+         for a bug that had nothing to do with it. That is the worst kind of wrong cause. */
+      check('S307', 'and never tells the office to run Start New Season to fix a filter',
+        !/Start New Season/.test(stripComments(extractFn(admin, 'etRenderRecipientList') || '')),
+        'pointing at an irreversible whole-book reset as the fix for an empty filter is ' +
+        'the wrong cause attached to the most expensive button in the app');
     }
   }
 

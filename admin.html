@@ -6198,15 +6198,7 @@ function switchToAdminPanel(panelName){
    the people and money loaders too, or it would draw a confident zero where a
    real number belongs. */
 const PANEL_DATA = {
-  /* ⚠ `snapshots` IS LISTED BESIDE `money`, NOT INSIDE IT. The de-dupe in
-     ensurePanelData is by group name, so a loader named in two groups opens two
-     listeners on one collection. See loadYearlySnapshots. */
-  dashboard:        ['money','people','timelogs','snapshots'],
-  /* ⭐ Automation Emails reads last season's books — the "Paid last year" and
-     "Ordered last year" audience filters go through audienceLastSeasonMap. Without
-     this entry that cache is empty on this panel and both filters silently match
-     nobody while a real snapshot sits in Firestore (2026-09-05). */
-  automation:       ['snapshots'],
+  dashboard:        ['money','people','timelogs'],
   timelogs:         ['timelogs','people'],
   responsibilities: ['people','timelogs'],
   reviews:          ['reviews'],
@@ -6227,7 +6219,6 @@ const PANEL_DATA = {
 function panelDataGroup(groupName){
   switch(groupName){
     case 'money':         return [loadExpenses, loadFinancialTrackers, loadCreditCards, loadCcTransactions, loadCcRecurringOverrides];
-    case 'snapshots':     return [loadYearlySnapshots];
     case 'people':        return [loadEmployeeNames, loadEmployeeCategories, loadRoleTemplates, loadTimeOffRequests, loadCrewConfig, loadCrewOverrides, loadTimecardApprovalsAdmin, loadEmployeeRequestsAdmin];
     case 'timelogs':      return [loadTimeLogs];
     case 'reviews':       return [loadReviews];
@@ -16292,36 +16283,55 @@ function lastSeasonSnapshotFrom(list){
   withRows.sort((a,b) => (Number(b.data.year)||0) - (Number(a.data.year)||0));
   return withRows[0];
 }
-function audienceLastSeasonSnapshot(){ return lastSeasonSnapshotFrom(yearlySnapshotsCache); }
-// payerKey -> { paid:boolean, ordered:true } for everyone billed last season.
-function audienceLastSeasonMap(){
-  const snap = audienceLastSeasonSnapshot();
-  if(!snap) return null;
-  const map = {};
-  (snap.data.invoices||[]).forEach(function(row){
-    const raw = String(row.id||'');
-    const key = raw.replace(/\D/g,'') || raw.toLowerCase().trim();
-    if(!key) return;
-    const owed = balanceDueAmount(row);
-    const paid = String(row.status||'') === 'Paid in Full' || owed <= 0;
-    map[key] = { paid: paid, ordered: true };
-  });
-  return map;
+/* ⭐ "PAID LAST YEAR" IS THE ARREARS THE OFFICE MAINTAINS, NOT A SNAPSHOT
+   (rewritten 2026-09-05). Dax: "when i push paid last year or didnt pay last year is
+   shows no members match these filters which is not true... everyone paid last year
+   other than the like 20 people we marked as not paid last year so fix this."
+
+   ⚠ HE WAS RIGHT AND THE FILTER WAS ASKING THE WRONG SOURCE. These two read a
+   `yearlySnapshots` document's `invoices` array — and the ONLY thing that ever writes
+   that array is **Start New Season**. Every other snapshot in that collection is the
+   finance one (`computeYearTotals`: revenue, expenses, ccSpending, debt, netWorth, and
+   no invoices at all), which `lastSeasonSnapshotFrom` correctly refuses. So until a
+   season reset has been run there is no snapshot with rows in it, both filters answer
+   null for EVERYBODY, and the audience is empty — which is what he was looking at.
+
+   ⭐ MEANWHILE THE ANSWER ALREADY EXISTED, and the rest of the app was already using
+   it: `houseOwesFromLastSeason` reads the carried arrears off the LIVE invoice. That is
+   the same rule behind Schedule -> "Owes from last year", the portal's season hold and
+   `arrearsOutstanding`, and it is what the office actually marks — the ~20 he means.
+   Reading a snapshot here was a SECOND answer to a question this app had already
+   settled, and it was the quieter one. Same shape as `payerHouseOf` and
+   `houseIsOnTheBill`: one rule, every caller asks it.
+
+   ⚠ AND IT IS THE LIVE ONE ON PURPOSE. A snapshot is frozen at reset; the arrears moves
+   when somebody pays. A chase-the-unpaid send built off a snapshot would go on naming
+   people who have since settled, which is worse than not sending it.
+
+   ⚠ A FIRST-YEAR CUSTOMER IS `null`, NEVER 'paid'. They were not billed last season, so
+   "they paid" is a claim about them that nobody can make — and null keeps them out of
+   BOTH filters rather than quietly padding the paid audience with people who were not
+   there. `audienceNeverAsked` is the same union the RSVP send uses, deliberately: the
+   $30 fee box alone is narrower than it looks (see printIsNewHang).
+
+   ⚠ AND "NOT LOADED YET" IS NOT "PAID". `houseOwesFromLastSeason` answers false when
+   `invoiceById` is empty, which on its own would read as everybody having paid — a
+   confident wrong answer during the second after login. The load is checked FIRST so
+   both filters say they cannot answer instead. */
+function audienceHasLastSeason(){
+  return typeof invoiceById !== 'undefined' && !!invoiceById && invoiceById.size > 0;
 }
-function audienceHasLastSeason(){ return audienceLastSeasonMap() !== null; }
-// 'paid' | 'unpaid' | null (unknown — they weren't billed last year)
+// 'paid' | 'unpaid' | null (unknown - first year, or the invoices have not loaded)
 function audiencePaidLastYear(d){
-  const map = audienceLastSeasonMap();
-  if(!map) return null;
-  const row = map[audiencePayerKey(d)];
-  if(!row) return null;
-  return row.paid ? 'paid' : 'unpaid';
+  if(!d || !audienceHasLastSeason()) return null;
+  if(typeof houseOwesFromLastSeason === 'function' && houseOwesFromLastSeason(d)) return 'unpaid';
+  if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)) return null;
+  return 'paid';
 }
-// 'yes' | 'no' | null (unknown — no snapshot to compare against)
+// 'yes' | 'no' — did they have lights last season. A first-year customer did not.
 function audienceOrderedLastYear(d){
-  const map = audienceLastSeasonMap();
-  if(!map) return null;
-  return map[audiencePayerKey(d)] ? 'yes' : 'no';
+  if(!d) return null;
+  return (typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)) ? 'no' : 'yes';
 }
 // First-year customer, read off the same flag the invoice/new-member logic uses.
 function audienceIsNew(d){ return !!(d && d.chargeNewMemberFee === true); }
@@ -16803,7 +16813,12 @@ function etRenderRecipientList(){
          wrong and not what to do about it; the filter that lists these people by name
          already exists, so the sentence points at it. */
       if(noEmailHidden) msg += ' — ' + noEmailHidden + ' left out: no email address on file. Find them under Customers → Filters → Email.';
-      if(lastYearMissing) msg += ' — Note: no saved snapshot from last season yet, so the "last year" filters can\'t match anyone until Start New Season saves one.';
+      /* ⚠ THIS NOTE USED TO NAME THE WRONG CAUSE, and naming the wrong cause is worse
+         than saying nothing: it read "no saved snapshot from last season yet … until
+         Start New Season saves one", which told the office to run a season reset to fix
+         a filter. The filters read the live arrears now, so the only thing that can stop
+         them answering is the invoices not having loaded — which fixes itself. */
+      if(lastYearMissing) msg += ' — Note: the invoices have not finished loading, so the "last year" filters cannot answer yet. Give it a moment and pick it again.';
       if(etRsvpAudienceAutoSet && etFilterNew === 'returning'){
         msg += ' — New customers are left out automatically, because an RSVP asks whether they want lights AGAIN. Change "New vs returning" above to include them.';
       }
@@ -16831,7 +16846,7 @@ function etRenderRecipientList(){
          it is about, because "no snapshot" beside nine other dropdowns does not say
          which two of them just went blank. */
       : (lastYearMissing
-          ? '<div class="empty-note">Nothing to compare against yet. The <strong>' + esc(lastYearFilterName) + '</strong> filter reads a saved snapshot of last season&rsquo;s invoices, and none has been saved — so it can never match anybody, however many customers really did pay. Set that filter back to <strong>All</strong> to see the list again. The snapshot is written by <strong>Start New Season</strong>, and one is saved automatically once the Dashboard has been opened.</div>'
+          ? '<div class="empty-note">The invoices have not finished loading, so the <strong>' + esc(lastYearFilterName) + '</strong> filter cannot answer yet — it reads what each customer still owes from last season. Give it a moment and pick the filter again, or set it back to <strong>All</strong> to see the list meanwhile.</div>'
           : noEmailHidden
           ? '<div class="empty-note">No one left to send to. '+noEmailHidden+' matched these filters but '+(noEmailHidden===1?'has':'have')+' no email address on file — find '+(noEmailHidden===1?'them':'them')+' under Customers &rarr; Filters &rarr; Email.</div>'
           : '<div class="empty-note">No members match these filters.</div>');
@@ -29334,35 +29349,6 @@ function loadFinancialTrackers(){
     financeArchiveRevenue = snap.exists() ? (Number(snap.data().archivedRevenue)||0) : 0;
     fovRenderAll();
   });
-}
-/* ⭐ LAST SEASON'S BOOKS ARE THEIR OWN LOADER (2026-09-05, REF/EM fix).
-   Lifted out of loadFinancialTrackers because it is NOT only a finance cache:
-   Automation Emails' two "last year" audience filters read `yearlySnapshotsCache`
-   through audienceLastSeasonMap, and the money group is pulled by the Dashboard
-   alone. So the office could open admin, go straight to Automation Emails, pick
-   "Paid last year", and be told **no members match these filters** — with a full
-   snapshot sitting in Firestore, unread, because nothing on that path had ever
-   loaded it. Reported by Dax, 2026-09-05: "when i push paid last year or didnt pay
-   last year is shows no members match these filters which is not true."
-
-   ⚠ THE COMMENT ABOVE lastSeasonSnapshotFrom PREDICTED THIS EXACT FAULT and named
-   the Invoices panel — "yearlySnapshotsCache is only filled by the money group,
-   which the Invoices panel does not load. Reading the cache there would report 'no
-   snapshot' when one exists, which is a confident wrong answer." The same trap was
-   live one panel over, on a filter shipped after that warning was written. CLAUDE.md
-   §2 says it too: check the cache's READ SITES, not just its panel.
-
-   ⚠ IT IS ITS OWN GROUP, NOT ADDED TO `money`. `ensurePanelData` de-dupes by GROUP
-   NAME, not by loader, so a function named in two groups runs TWICE and opens a
-   second onSnapshot on the same collection — the listener-accumulation shape that
-   once cost 2815 writes on one drag. Dashboard therefore asks for `snapshots`
-   alongside `money`; it does not get it through `money`.
-
-   ⚠ AND THE AUTO-SAVE RIDES WITH IT, deliberately. autoSaveYearlySnapshotIfNeeded
-   only ever ran 4s after this listener, so on a machine where nobody opened the
-   Dashboard, last season was never snapshotted either — the filters had nothing to
-   read AND nothing was writing it. */
-function loadYearlySnapshots(){
   onSnapshot(query(collection(db,'yearlySnapshots'), orderBy('year','desc')), function(snap){
     yearlySnapshotsCache = [];
     snap.forEach(d => yearlySnapshotsCache.push({id:d.id, data:d.data()}));
