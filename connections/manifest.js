@@ -195,8 +195,18 @@ module.exports = [
         rules: ['Marking one recycled clears only that house, and keeps their number.'] },
       { file: 'admin', fn: 'seasonYesUpdates', where: 'Customers › All Customers', when: 'the office marks somebody back in',
         rules: ['A yes cancels a queued recycle — the same rule the server applies, written twice.'] },
-      { file: 'server', fn: 'portalRsvp', where: 'Member Portal › RSVP', when: 'a customer answers no',
-        rules: ['Answering through the link and the office button must agree.'] },
+      /* ⛔ portalRsvp NO LONGER WRITES THIS (removed 2026-09-03, RS-51). Dax: a "no"
+         "moves them to maybe next year" and they "only go to archive if they actually
+         go through the process of canceling their lights in member portal". Tapping No
+         in an email used to put the bundle on the collection list off one tap with no
+         confirmation in front of it.
+         ⚠ THE OLD RULE HERE READ "Answering through the link and the office button must
+         agree", and they no longer do — deliberately. The office dropdown above still
+         queues the recycle, because that is staff deciding with knowledge and it has an
+         undo beside it; a customer tapping an email is neither. If that ever changes,
+         these two entries come back together. */
+      { file: 'server', fn: 'portalSave', where: 'Member Portal › Cancel', when: 'a customer cancels their lights',
+        rules: ['The only door a CUSTOMER has to a recycle — answering no is not one.'] },
       { file: 'server', fn: 'seasonYesUpdates', where: 'Member Portal › RSVP', when: 'somebody says yes',
         rules: ['Saying yes again cancels a queued recycle.'] }
     ],

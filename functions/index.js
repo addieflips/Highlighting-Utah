@@ -2246,13 +2246,38 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
       updates.maybeNextYear = false;
       updates.maybeNextYearAt = null;
     }
-    /* ⚠ AND THE RECYCLE IS HOLE G'S FIFTH PATH. This used to be
-       `needsLightRecycle: response === 'no'`, which reads as harmless and quietly
-       writes FALSE for backnextyear — wiping a collection that was already owed, so
-       the bin stays on the shelf and nobody is ever told to fetch it. Written only for
-       the answer that genuinely creates one. A yes CANCELS one, and that lives in
-       seasonYesUpdates with the rest of what a yes means. */
-    if (response === 'no') updates.needsLightRecycle = true;
+    /* ⛔ NEITHER ANSWER QUEUES A RECYCLE ANY MORE (Dax, 2026-09-03: "in all the rsvp
+       templates no matter which one when they click no they move to maybe next year and
+       only go to archive if they actually go through the process of canceling their
+       lights in member portal, which it already takes them to when they click the
+       button").
+
+       ⚠ WHAT THE LINE HERE USED TO DO, because it is the whole reason it is gone:
+       `if (response === 'no') updates.needsLightRecycle = true` put the house in the
+       Warehouse Recycle queue the instant somebody tapped No in an email. That is the
+       step that takes their bundle apart and hands their customer number back to the
+       pool — a destructive, physical act, set off by one tap with no confirmation in
+       front of it. A misread email or a wrong thumb cost a rebuild.
+
+       ⭐ NOTHING DESTRUCTIVE HAPPENS INSTEAD, and nothing else had to be added: the
+       answer is still recorded, they are still taken off upcoming routes below, and
+       seasonBadgeKey already reads a bare `no` as **Maybe Next Year**. That is the
+       state Dax described, and it was already what the office saw.
+
+       ⭐ THE RECYCLE STILL HAPPENS, from the one place that means it: portalSave's
+       `cancel` section, which is exactly where the No button lands them (RS-33).
+       Somebody who genuinely wants out goes through that screen and presses Cancel My
+       Lights, and that sets needsLightRecycle. A deliberate act on a page that says
+       what it does, rather than a side effect of answering a question.
+
+       ⚠ THE OLD REASONING IS KEPT BECAUSE HALF OF IT STILL BINDS. This used to be
+       `needsLightRecycle: response === 'no'`, which reads as harmless and quietly wrote
+       FALSE for backnextyear — wiping a collection that was already owed, so the bin
+       stayed on the shelf and nobody was ever told to fetch it. Whatever is written
+       here in future must still never write false for an answer that did not ask for
+       one. Today nothing is written at all, which is the safest version of that rule.
+       A yes CANCELS a recycle, and that lives in seasonYesUpdates with the rest of what
+       a yes means. */
   }
   if (rejoinedAfterRecycle) updates.needsLightBuild = true;
   /* ⚠ `oldData` HERE, NOT `d` — this is portalRsvp, not seasonYesUpdates, and the two

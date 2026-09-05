@@ -47,7 +47,13 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
 8. **Crew installs** — the crew works Today's Route in the Crew Portal and marks each stop Done (or Flag Issue / Didn't Get To).
 9. **Nightly invoice** — every night at 7 PM Mountain, any completed-but-not-yet-invoiced house gets billed automatically (§8).
 10. **Payment** — the customer pays via PayPal (in-portal) or Venmo (deep link) from the Member Portal.
-11. **RSVP "no"** — a flat "no" (not "back next year") sets `needsLightRecycle: true`, sending the house to the Warehouse Recycle queue.
+11. **RSVP "no"** — records the answer and takes them off any upcoming route. **It does NOT touch their lights** (changed 2026-09-03, RS-51). Dax: *"when they click no they move to maybe next year and only go to archive if they actually go through the process of canceling their lights in member portal."* `seasonBadgeKey` already reads a bare `no` as **Maybe Next Year**, so that is what the office sees.
+
+    ⛔ **`needsLightRecycle` now has exactly one door: `portalSave`'s `cancel` section** — the Cancel tab a No lands them on (RS-33), where they press *Cancel My Lights*. That is the step which takes the bundle apart and returns the customer number to the pool, and it used to fire off a single tap in an email with no confirmation anywhere in front of it. A misread email cost a rebuild.
+
+    ⚠ **THE COST, TAKEN KNOWINGLY:** a customer who says no and never cancels keeps their bin and their customer number for the season. Under the old rule that number came back to `availableCustomerNumbers` on the answer alone. Fewer numbers recycle; nothing is destroyed by mistake.
+
+    ⚠ **AND HALF AN OWNER RULING IS REVERSED HERE, out loud.** Addie asked for the back-next-year-then-no sequence and was answered *"they belong on the recycle list, and NOT on Contact 2027 as well"*. The Contact 2027 half stands — a no still clears `maybeNextYear`. The recycle half is Dax's later call (R-024).
 
    ⭐ **WHERE THE THREE RSVP EMAIL BUTTONS LAND** (corrected 2026-08-31). The buttons are built by `applyEmailTokens` in `admin.html` — `{{rsvp_yes_button}}`, `{{rsvp_no_button}}`, `{{rsvp_back_button}}` — and each one carries the customer's own portal token:
 
