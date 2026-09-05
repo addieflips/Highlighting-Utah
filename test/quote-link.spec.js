@@ -276,3 +276,70 @@ test.describe('The quote link', () => {
     await stub.assertNoRealCalls();
   });
 });
+
+/* ---------------------------------------------------------------------------
+ * THE SHORT REFERRAL LINK — /r/<token>  (REF-11)
+ *
+ * Addie, 2026-09-04: "make sure the link isnt crazy long try to shorten it so in the
+ * rsvp refferal button it looks nice in the email/text."
+ *
+ *   https://highlightingutah.com/?ref=<20 chars>#/quote   61 characters
+ *   https://highlightingutah.com/r/<8 chars>              39 characters
+ *
+ * ⚠ THIS SPEC EXISTS BECAUSE THE /q/ ONE ABOVE HAD TO BE WRITTEN THE HARD WAY. The
+ * short quote link passed a source check for its _redirects rule and its path pattern
+ * and had NEVER ONCE WORKED — index.html is served at more than one path, a relative
+ * import died under /q/, and every script on the page went with it. The referral link
+ * is the same mechanism at a new path, so it gets the same proof: the app boots, and it
+ * ends up somewhere useful with the token remembered.
+ * ------------------------------------------------------------------------- */
+test.describe('The short referral link', () => {
+  const REF = 'k3n8x2qa';
+
+  test('/r/<token> boots the app, opens the quote form and remembers the referral', async ({ page }) => {
+    const stub = await installFirebaseStub(page);
+    const errs = [];
+    page.on('pageerror', e => errs.push('pageerror: ' + e));
+    const INDEX = require('fs').readFileSync(
+      require('path').join(__dirname, '..', 'index.html'), 'utf8');
+    /* The rewrite is simulated for the same reason the /q/ one is: the test server is a
+       plain static file server and would 404 on /r/, exactly as it would in CI. */
+    await page.route(u => u.pathname === '/r/' + REF, r =>
+      r.fulfill({ status: 200, contentType: 'text/html', body: INDEX }));
+
+    await page.goto('/r/' + REF);
+
+    /* The module actually ran — every element below is static HTML that renders on a
+       dead page, so without this the rest can pass on a page whose scripts all died. */
+    await expect.poll(async () =>
+      page.evaluate(() => typeof window.__HU_CALLS__ !== 'undefined'),
+      { timeout: 5000 }).toBe(true);
+
+    /* It lands on the quote form, which is what the link is FOR. */
+    await expect.poll(async () => page.evaluate(() => location.hash),
+      { timeout: 5000 }).toBe('#/quote');
+    await expect(page.locator('#page-quote')).toHaveClass(/active/);
+
+    /* ⚠ AND THE TOKEN IS REMEMBERED, which is the half that pays somebody $25. A link
+       that opens the right page and forgets who sent them is a referral that silently
+       never counts — and nothing anywhere would go red. */
+    await expect.poll(async () => page.evaluate(() => {
+      try { return sessionStorage.getItem('hu.referredByToken'); } catch (e) { return 'THREW'; }
+    }), { timeout: 5000 }).toBe(REF);
+
+    expect(errs).toEqual([]);
+    await stub.assertNoRealCalls();
+  });
+
+  /* ⚠ THE OLD SPELLING KEEPS WORKING, FOR EVER. Links already pasted into somebody's
+     messages carry ?ref=, and a referral that quietly stops counting is the one failure
+     nobody reports — the customer just never gets their $25. */
+  test('the old ?ref= spelling still counts', async ({ page }) => {
+    const stub = await installFirebaseStub(page);
+    await page.goto('/index.html?ref=' + REF + '#/quote');
+    await expect.poll(async () => page.evaluate(() => {
+      try { return sessionStorage.getItem('hu.referredByToken'); } catch (e) { return 'THREW'; }
+    }), { timeout: 5000 }).toBe(REF);
+    await stub.assertNoRealCalls();
+  });
+});

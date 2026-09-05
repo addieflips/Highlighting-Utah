@@ -1794,6 +1794,15 @@
             <div id="rbFixNamesReport" style="margin-top:10px;"></div>
             <div id="rbFixNumbersReport" style="margin-top:10px;"></div>
             <div id="rbCheckReport" style="margin-top:10px;"></div>
+            <!-- ⭐ EVERY CUSTOMER HAS A REFERRAL LINK, IN ONE PRESS (2026-09-04, REF-10).
+                 Addie: "we want the link to automatically be made for every customer."
+                 New customers are born with one and opening a record makes one, so this
+                 is only ever needed once, for the book as it stands today — after which
+                 the button reports that there is nothing left to do. -->
+            <div style="border-top:1px solid var(--line); margin-top:14px; padding-top:12px;">
+              <button type="button" class="btn btn-outline" id="rbReferLinksBtn">Make referral links for everyone</button>
+              <span id="rbReferLinksStatus" style="font-size:13px; color:var(--slate); margin-left:10px;"></span>
+            </div>
             </details>
           </div>
           <div style="border-top:1px solid var(--line); margin:20px 0 0; padding-top:16px;">
@@ -10498,7 +10507,7 @@ function referralLiveCount(entries){
 async function referralTokenFor(item){
   if(!item || !item.id || !item.data) return null;
   if(item.data.referralToken) return item.data.referralToken;
-  const token = generatePortalToken();
+  const token = generateReferralToken();
   try{
     await updateDoc(doc(db,'jobAddresses', item.id), {referralToken: token});
     item.data.referralToken = token;
@@ -10514,9 +10523,31 @@ async function referralTokenFor(item){
    `portalReferralLink` in index.html — the customer copies one out of their own portal
    and the office sends the other, and two links that differ by a slash are one referral
    that credits nobody. Suite 305 runs both and requires the same string out. */
+/* ⭐ SHORT ENOUGH FOR A TEXT (2026-09-04, REF-11). Addie: "make sure the link isnt
+   crazy long try to shorten it so in the rsvp refferal button it looks nice."
+   /r/<token> is a Netlify 200-rewrite, exactly like the /q/ quote link that already
+   exists for the same reason — a text is billed in 160-character segments.
+   ⚠ IT WRAPS WHATEVER IS STORED, so the 20-character tokens minted before today keep
+   working at the new address and every link already shared keeps counting. */
 function referralLinkFromToken(token){
   const t = String(token || '');
-  return t ? ('https://highlightingutah.com/?ref=' + encodeURIComponent(t) + '#/quote') : '';
+  return t ? ('https://highlightingutah.com/r/' + encodeURIComponent(t)) : '';
+}
+/* ⚠ A REFERRAL TOKEN IS NOT A LOGIN TOKEN AND IS DELIBERATELY SHORTER. generatePortalToken
+   is 20 characters because it signs somebody INTO their account — shortening that would
+   be an account-security change and must never happen. This one only says which customer
+   sent a friend: the worst a guess can do is credit somebody else's $25, there is nothing
+   to sign into, and 36^8 is 2.8 trillion. Eight characters is what makes the whole link
+   38 characters instead of 61.
+   ⚠ NO l/1/0/o. A referral link gets read aloud and typed in by hand far more often than
+   a portal link ever does, and those four are the pairs people get wrong. */
+const REFERRAL_TOKEN_ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789';
+function generateReferralToken(){
+  let out = '';
+  for(let i = 0; i < 8; i++){
+    out += REFERRAL_TOKEN_ALPHABET.charAt(Math.floor(Math.random() * REFERRAL_TOKEN_ALPHABET.length));
+  }
+  return out;
 }
 /* ⚠ A REFERRAL IS REFUSED IF EITHER FIELD MATCHES THE REFERRER'S OWN, and this is a
    HARD reject rather than a flag. Addie, 2026-09-03: the referred person's phone AND
@@ -15315,7 +15346,7 @@ const DEFAULT_QUOTE_MAYBE_TEMPLATE_BODY = 'Hi {{name}},\n\n' +
   '{{quote_yes_button}}{{quote_maybe_button}}{{quote_decline_button}}\n\n' +
   'Thanks,\nHighlighting Utah';
 const ET_PREBUILT_TEMPLATES = [
-  {name:'RSVP Email', folderName:'RSVP', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\nBefore our crew comes out, please check these two are right \u2014 just reply if either is wrong:\n\n{{gate_code_line}}\n{{outlet_line}}\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
+  {name:'RSVP Email', folderName:'RSVP', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\nBefore our crew comes out, please check these two are right \u2014 just reply if either is wrong:\n\n{{gate_code_line}}\n{{outlet_line}}\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}\n\n\u2014\n\nKnow somebody who wants lights? Send them your own link and we take $25 off your bill when they sign up \u2014 as many times as you like.\n\n{{referral_button}}', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
   /* ⭐ THE SAME QUESTION, ASKED OF SOMEBODY WHO OWES FOR LAST SEASON (Dax, 2026-09-02).
      The plain RSVP Email above cannot do this job: it asks whether they want lights
      without mentioning that they will not be scheduled whatever they answer, so a yes
@@ -15329,7 +15360,7 @@ const ET_PREBUILT_TEMPLATES = [
      prevent. The portal holds the one figure we computed, and a yes now lands them on
      it (RS-31, RS-35).
      ⚠ THE YEAR IS TYPED, not merged, for the same reason. Re-word it next season. */
-  {name:'Not Paid RSVP', folderName:'RSVP', subject:'{{name}}, your lights this year \u2014 and last season\'s balance', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\nOne thing first \u2014 our records show a balance still outstanding from the 2025 season. We aren\'t able to put you on the install schedule until that\'s settled, so it\'s worth sorting now while there\'s still plenty of room in the calendar.\n\nTap Yes below and it will take you straight into your account, where last season\'s amount is on its own line with a button to pay just that. It\'s last season\'s bill, not a second charge for this year.\n\nIf that balance doesn\'t look right to you, reply to this email or text us at (801) 901-0011 and we\'ll go through it with you.\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}\n\nThanks,\nHighlighting Utah', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
+  {name:'Not Paid RSVP', folderName:'RSVP', subject:'{{name}}, your lights this year \u2014 and last season\'s balance', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\nOne thing first \u2014 our records show a balance still outstanding from the 2025 season. We aren\'t able to put you on the install schedule until that\'s settled, so it\'s worth sorting now while there\'s still plenty of room in the calendar.\n\nTap Yes below and it will take you straight into your account, where last season\'s amount is on its own line with a button to pay just that. It\'s last season\'s bill, not a second charge for this year.\n\nIf that balance doesn\'t look right to you, reply to this email or text us at (801) 901-0011 and we\'ll go through it with you.\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}\n\n\u2014\n\nKnow somebody who wants lights? Send them your own link and we take $25 off your bill when they sign up \u2014 as many times as you like.\n\n{{referral_button}}\n\nThanks,\nHighlighting Utah', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
   {name:'Post-Install Invoice', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out \u2014 your lights are up! Your balance for this season is {{amount}}. You can pay through your portal or Venmo using the links below.\n\n{{portal_link}}{{venmo_button}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'venmo_button', style:'button'}]},
   {name:'Already Paid - Say Thanks', folderName:'Billing', body:'Hi {{name}},\n\nYour lights are up! Just confirming we received your payment of {{amount}} for this season \u2014 you\'re all set.\n\n{{message_link}}', linkedTokens:[{code:'message_link', style:'link'}]},
   {name:'Nightly Auto-Invoice \u2014 Unpaid', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out today \u2014 your lights are up!\n\n{{feet_line}}\n{{new_member_fee_line}}\n{{credit_lines}}\n\nAmount due: {{amount_due}}\nPlease pay by {{due_date}}.\n\nPay your invoice here:\n\n{{pay_button}}{{venmo_button}}', linkedTokens:[{code:'pay_button', style:'button'},{code:'venmo_button', style:'button'}]},
@@ -17702,6 +17733,8 @@ const IC_CODES = {
     {token:'{{referral_button}}', label:'Their referral link (button)'}
   ],
   rsvp: [
+    {token:'{{referral_link}}', label:'Their referral link (plain URL) \u2014 $25 off when a friend joins'},
+    {token:'{{referral_button}}', label:'Their referral link (button)'},
     {token:'{{rsvp_yes_link}}', label:'RSVP Yes (plain URL)'},
     {token:'{{rsvp_yes_button}}', label:'RSVP Yes (button)'},
     {token:'{{rsvp_no_link}}', label:'RSVP No (plain URL)'},
@@ -32249,7 +32282,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       phone2: phone2, email2: email2, lightsDescription: lightsDescription,
       housePhotos: customerPhotoUpdates([{url: addCustPhotoUrl, original: addCustPhotoOriginal || addCustPhotoUrl, markup: addCustPhotoMarkup}].concat(addCustExtraPhotos)).housePhotos,
       housePhotoUrl: addCustPhotoUrl, housePhotoOriginal: addCustPhotoOriginal, housePhotoMarkup: addCustPhotoMarkup,
-      houseHighlights: addCustHighlights, portalToken: generatePortalToken(), installPreference: installPreference,
+      houseHighlights: addCustHighlights, portalToken: generatePortalToken(), referralToken: generateReferralToken(), installPreference: installPreference,
       chargeNewMemberFee: chargeNewMemberFee,
       /* ⭐ JOINING OPENS THEIR 48-HOUR WINDOW (added 2026-08-21). Owner: "48 hours
          will be from when they become a costumer and we won't schedule them within
@@ -36438,7 +36471,7 @@ async function rbApplyTickedAdds(statusEl){
         /* WHICH outlet is a different question, and it only ever appears in Notes. */
         specificOutlet: rbOutletFromNote(notesRaw[i]) ? 'Yes' : '',
         specificOutletNotes: rbOutletFromNote(notesRaw[i]),
-        portalToken: generatePortalToken(),
+        portalToken: generatePortalToken(), referralToken: generateReferralToken(),
         lat: coords.lat, lng: coords.lng, needsGeocode: coords.lat === null,
         scheduled: false,
         /* ⭐ AND THE WAREHOUSE IS TOLD (hole B). Owner: "we want to build
@@ -38337,7 +38370,7 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
              exist. The blank-street guard above is what stands between a missed match and
              that, and it is asserted in run-all.js. Do not weaken it. */
           needsLightBuild: true, lightsQueuedAt: serverTimestamp(),
-          portalToken: generatePortalToken(),
+          portalToken: generatePortalToken(), referralToken: generateReferralToken(),
           lat: coords.lat, lng: coords.lng,
           needsGeocode: coords.lat === null,
           scheduled: false, createdAt: enrolledDate || serverTimestamp()
@@ -38612,7 +38645,7 @@ document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(asy
         if(Object.keys(custUpdates).length) await updateDoc(doc(db,'jobAddresses',existingCust.id), custUpdates);
       } else {
         await addDoc(collection(db,'jobAddresses'), {
-          name: name, phone: phone, email: email, difficulty: 'Unrated', portalToken: generatePortalToken(),
+          name: name, phone: phone, email: email, difficulty: 'Unrated', portalToken: generatePortalToken(), referralToken: generateReferralToken(),
           /* ⭐ AND THE WAREHOUSE IS TOLD HERE TOO — same hole, same answer, questions map
              WH-20. Ungated for the same reason as the Bulk Updates copy above: a house
              nobody flagged is in no list at all, and the tab then reports there is
@@ -45087,12 +45120,32 @@ function editCustRenderReferLine(){
     bits.push('<button type="button" class="btn btn-outline btn-sm" data-ectrefer="copy" ' +
       'style="padding:2px 10px; font-size:11.5px;">Copy link</button>');
   } else {
-    /* ⚠ A REAL STATE, SAID PLAINLY, not a blank box. "No link yet" with a button that
-       makes one is answerable; an empty field with a Copy button beside it reads as the
-       feature being broken, which is what sends somebody looking for a bug. */
-    bits.push('<span style="color:var(--slate);">no link made yet</span>');
-    bits.push('<button type="button" class="btn btn-outline btn-sm" data-ectrefer="make" ' +
-      'style="padding:2px 10px; font-size:11.5px;">Make their link</button>');
+    /* ⭐ NO BUTTON. IT MAKES ITSELF (2026-09-04, REF-10). Addie: "we want the link to
+       automatically be made for every customer." A link somebody has to ask for is one
+       the office has to know to ask for, and she was reading "no link made yet" as the
+       feature not working.
+
+       ⚠ THE ARGUMENT THE BUTTON WAS BUILT ON WAS WRONG, and it is worth correcting
+       rather than just overruling: it said minting here would "write to Firestore every
+       single time anybody opened Edit Customer". It would not. referralTokenFor returns
+       early the moment a token exists, so this is ONE write per customer for the life of
+       the record, and none at all for a customer created after this shipped — they are
+       born with one. The most-opened form in the app pays nothing on the second open.
+
+       ⚠ IT IS NOT AWAITED BY THE FORM. openEditCustomerModal fills forty controls and
+       takes its dirty-snapshot last; an await in the middle of that would put a network
+       round trip between the fields and the baseline. This fires and repaints itself.
+       ⚠ AND IT CANNOT FIRE TWICE. The line is re-rendered on a tab switch and on every
+       save, so without the in-flight marker two mints race, two tokens are written and
+       the link the office just copied is the one that loses. */
+    bits.push('<span style="color:var(--slate);">making their link\u2026</span>');
+    if(!item.__referralMinting){
+      item.__referralMinting = true;
+      referralTokenFor(item).then(function(){
+        item.__referralMinting = false;
+        if(editCustomerId === item.id) editCustRenderReferLine();
+      });
+    }
   }
   bits.push('<span style="color:var(--slate);">' + (n
     ? (n === 1 ? '1 person has joined \u2014 ' : n + ' people have joined \u2014 ') +
@@ -45149,6 +45202,80 @@ async function editCustReferClick(e){
   if(st) st.textContent = ok ? 'Copied.' : 'Select the link above and copy it.';
 }
 document.addEventListener('click', editCustReferClick, true);
+/* ⭐ THE WHOLE BOOK, IN ONE PRESS (2026-09-04, REF-10). Addie: "we want the link to
+   automatically be made for every customer." Everything from here on makes its own
+   — a customer created after today is born with one, and opening a record mints one
+   — so this exists for the ~960 who were already on file when the feature shipped.
+
+   ⚠ IT ONLY EVER ADDS. A customer who already has a token is skipped, so the button is
+   safe to press twice and cannot change a link somebody has already shared. That is the
+   whole of why this needs no typed confirmation the way the Danger Zone sweeps do:
+   nothing here can be undone because nothing here is destroyed.
+
+   ⚠ BATCHED, NOT A LOOP OF 960 AWAITS. Firestore caps a batch at 500; the bulk importer
+   already learned what an unbatched pass over the whole book does to this page, which is
+   why it now goes 50 rows at a time and reloads. 400 is inside the cap with room for the
+   count to be wrong.
+
+   ⚠ AND IT SAYS WHAT IT DID, INCLUDING NOTHING. "Every customer already has one" and a
+   button that appears to do nothing are the same thing on screen, and only one of them
+   is an answer. */
+const REFERRAL_BACKFILL_BATCH = 400;
+async function backfillReferralLinks(statusEl){
+  const say = function(m){ if(statusEl) statusEl.textContent = m; };
+  const list = (jobAddresses || []).filter(function(a){
+    return a && a.id && a.data && !String(a.data.referralToken || '').trim();
+  });
+  /* ⚠ AN EMPTY BOOK IS NOT AN EMPTY JOB. jobAddresses is loaded asynchronously, so a
+     press before it lands would report "everyone already has one" about a list of
+     nobody — the same fail-safe the bulk importer makes into a hard stop. */
+  if(!(jobAddresses || []).length){
+    say('The customer list has not loaded yet \u2014 give it a moment and press again.');
+    return {made: 0, already: 0, failed: 0};
+  }
+  const already = (jobAddresses || []).length - list.length;
+  if(!list.length){
+    say('Every customer already has a referral link \u2014 nothing to do (' + already + ' checked).');
+    return {made: 0, already: already, failed: 0};
+  }
+  let made = 0, failed = 0;
+  for(let i = 0; i < list.length; i += REFERRAL_BACKFILL_BATCH){
+    const slice = list.slice(i, i + REFERRAL_BACKFILL_BATCH);
+    say('Making links\u2026 ' + made + ' of ' + list.length);
+    const batch = writeBatch(db);
+    const minted = slice.map(function(a){
+      const token = generateReferralToken();
+      batch.update(doc(db,'jobAddresses', a.id), {referralToken: token});
+      return token;
+    });
+    try{
+      await batch.commit();
+      /* ⚠ THE LOCAL CACHE IS UPDATED ONLY AFTER THE COMMIT LANDS. Mirroring first would
+         leave the screen showing links that were never saved, and the next press would
+         skip those customers as already done. */
+      slice.forEach(function(a, n){ a.data.referralToken = minted[n]; });
+      made += slice.length;
+    }catch(err){
+      console.error('A batch of referral links could not be saved:', err);
+      failed += slice.length;
+    }
+  }
+  say(made + ' referral link' + (made === 1 ? '' : 's') + ' made' +
+      (already ? ' \u2014 ' + already + ' already had one' : '') +
+      (failed ? ' \u2014 ' + failed + ' could not be saved, press again' : '') + '.');
+  return {made: made, already: already, failed: failed};
+}
+document.getElementById('rbReferLinksBtn')?.addEventListener('click', async function(){
+  const btn = this;
+  btn.disabled = true;
+  try{
+    await backfillReferralLinks(document.getElementById('rbReferLinksStatus'));
+  } finally {
+    /* ⚠ THE BUTTON COMES BACK WHATEVER HAPPENED. Left disabled after a failure the only
+       way to retry is a page reload, and the failure message tells them to press again. */
+    btn.disabled = false;
+  }
+});
 /* The dot on the tab being edited. Repainted on input rather than on a timer, so
    it appears on the first keystroke and goes again if the field is put back. */
 function editCustRefreshDirtyDot(){

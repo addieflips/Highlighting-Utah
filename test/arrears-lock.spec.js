@@ -136,14 +136,19 @@ test.describe('A customer who owes for last season', () => {
     const stub = await open(page, `/index.html#/payment?token=${CUST.token}`, withArrears(315, 2025));
     await expect(page.locator('#arrearsLockCard')).toBeVisible();
 
-    /* ⚠ Refer a Friend IS LOCKED TOO (2026-09-03), and it needed no code — anything
-       absent from PORTAL_UNLOCKED_TABS is held. Earning credit towards a bill they are
-       already behind on is not one of the three that stay open. It is named here rather
-       than left out, because this spec enumerates EVERY tab: a new one that nobody adds
-       to both lists is how the hold quietly starts leaking. */
+    /* ⚠ Refer a Friend IS OPEN, REVERSING THE DAY AFTER IT SHIPPED (2026-09-04, REF-07).
+       It was locked here for one day and Addie reported the result — "its not showing up
+       anywhere" — because most of the book carries an unpaid 2025 balance, so the tab she
+       had just asked for was greyed out on nearly every record she opened.
+       ⚠ AND THE RULE, NOT JUST THE COMPLAINT: the held tabs are the ones that make work
+       for us, because Dax's rule is that they settle last season before anything goes
+       INTO the system. Referring a friend puts nothing in — it writes to somebody else's
+       record months later — and the only thing it can do to this bill is take $25 off it.
+       ⚠ IT IS STILL NAMED HERE rather than dropped, because this spec enumerates EVERY
+       tab: a tab missing from both lists is how the hold quietly starts leaking. */
     expect(await tabState(page)).toEqual({
       payment: 'open', info: 'locked', sides: 'locked', lights: 'locked',
-      changes: 'locked', refer: 'locked', contact: 'open', cancel: 'open'
+      changes: 'locked', refer: 'open', contact: 'open', cancel: 'open'
     });
 
     stub.assertNoRealCalls();
@@ -160,6 +165,71 @@ test.describe('A customer who owes for last season', () => {
     await expect(page.locator('.portal-tab-btn[data-tab="cancel"]')).not.toBeDisabled();
     await expect(page.locator('.portal-tab-btn[data-tab="contact"]')).not.toBeDisabled();
 
+    stub.assertNoRealCalls();
+  });
+});
+
+/* ============================================================================
+ * The hold is nobody else's job
+ *
+ * Until 2026-09-03 the arrears pop-up was raised as the gate-code dialog's
+ * `thenFn`, and the render only raised it itself when no caller had supplied an
+ * onPortalReady. That put a PAYMENT rule behind a dialog about a gate: any edit
+ * to that step which returned early, threw, or forgot to hand on would switch
+ * the hold off silently — and narrowing the gate question on 2026-09-02 came
+ * within one line of doing exactly that.
+ *
+ * ⚠ THE OLD TESTS COULD NOT TELL THE TWO DESIGNS APART, which is why they are
+ * not enough on their own: under the callback design the hold appeared because
+ * the gate step handed on, and under this one it appears because the render
+ * raised it. Same result, different reason. The test below separates them by
+ * pinning the gate dialog OPEN and never closing it from the code under test —
+ * so nothing can hand anything on, and the hold has to arrive on its own.
+ * ========================================================================== */
+test.describe('The arrears hold does not depend on the gate-code dialog', () => {
+
+  test('it waits while that question is open, then arrives with nobody calling it back', async ({ page }) => {
+    const stub = await open(page, `/index.html#/payment?token=${CUST.token}&rsvp=yes`, withArrears(315, 2025));
+
+    /* The gate question is up first, and the hold is correctly holding off — this
+       is the ordering Dax asked for and it must survive the change. */
+    await expect(page.locator('#rsvpGateCodeStep')).toBeVisible();
+    await expect(page.locator('#arrearsLockCard')).toBeHidden();
+
+    /* ⚠ CLOSED FROM OUTSIDE THE APP, deliberately. Clicking an answer would run the
+       step's own finish(), which is the very hand-off this test exists to prove is
+       no longer needed. Stripping the class is the closest thing to "the dialog went
+       away and told nobody". */
+    await page.evaluate(() => {
+      const m = document.getElementById('rsvpGateCodeModal');
+      m.classList.remove('show');
+      document.getElementById('rsvpGateCodeStep').style.display = 'none';
+    });
+
+    await expect(page.locator('#arrearsLockCard')).toBeVisible({ timeout: 6000 });
+    await expect(page.locator('#arrearsLockAmount')).toHaveText('$315.00');
+
+    expect(stub.thrown).toEqual([]);
+    stub.assertNoRealCalls();
+  });
+
+  /* ⚠ AND IT STOPS WAITING IF THERE IS NOTHING TO WAIT FOR. A timer left running
+     behind a settled customer is a leak, and one that could pop the dialog up on
+     somebody who no longer owes anything. */
+  test('a customer who owes nothing leaves no waiter running', async ({ page }) => {
+    const stub = await open(page, `/index.html#/payment?token=${CUST.token}&rsvp=yes`);
+    await expect(page.locator('#rsvpGateCodeStep')).toBeVisible();
+
+    await page.evaluate(() => {
+      const m = document.getElementById('rsvpGateCodeModal');
+      m.classList.remove('show');
+      document.getElementById('rsvpGateCodeStep').style.display = 'none';
+    });
+
+    await page.waitForTimeout(1500);
+    await expect(page.locator('#arrearsLockCard')).toBeHidden();
+
+    expect(stub.thrown).toEqual([]);
     stub.assertNoRealCalls();
   });
 });
