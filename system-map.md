@@ -55,7 +55,13 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
 8. **Crew installs** — the crew works Today's Route in the Crew Portal and marks each stop Done (or Flag Issue / Didn't Get To).
 9. **Nightly invoice** — every night at 7 PM Mountain, any completed-but-not-yet-invoiced house gets billed automatically (§8).
 10. **Payment** — the customer pays via PayPal (in-portal) or Venmo (deep link) from the Member Portal.
-11. **RSVP "no"** — a flat "no" (not "back next year") sets `needsLightRecycle: true`, sending the house to the Warehouse Recycle queue.
+11. **RSVP "no"** — records the answer and takes them off any upcoming route. **It does NOT touch their lights** (changed 2026-09-03, RS-51). Dax: *"when they click no they move to maybe next year and only go to archive if they actually go through the process of canceling their lights in member portal."* `seasonBadgeKey` already reads a bare `no` as **Maybe Next Year**, so that is what the office sees.
+
+    ⛔ **`needsLightRecycle` now has exactly one door: `portalSave`'s `cancel` section** — the Cancel tab a No lands them on (RS-33), where they press *Cancel My Lights*. That is the step which takes the bundle apart and returns the customer number to the pool, and it used to fire off a single tap in an email with no confirmation anywhere in front of it. A misread email cost a rebuild.
+
+    ⚠ **THE COST, TAKEN KNOWINGLY:** a customer who says no and never cancels keeps their bin and their customer number for the season. Under the old rule that number came back to `availableCustomerNumbers` on the answer alone. Fewer numbers recycle; nothing is destroyed by mistake.
+
+    ⚠ **AND HALF AN OWNER RULING IS REVERSED HERE, out loud.** Addie asked for the back-next-year-then-no sequence and was answered *"they belong on the recycle list, and NOT on Contact 2027 as well"*. The Contact 2027 half stands — a no still clears `maybeNextYear`. The recycle half is Dax's later call (R-024).
 
    ⭐ **WHERE THE THREE RSVP EMAIL BUTTONS LAND** (corrected 2026-08-31). The buttons are built by `applyEmailTokens` in `admin.html` — `{{rsvp_yes_button}}`, `{{rsvp_no_button}}`, `{{rsvp_back_button}}` — and each one carries the customer's own portal token:
 
@@ -73,6 +79,14 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    `showChangesQuestion` ("You're confirmed! Do you want to make any changes?", with the portal behind a
    button) is replaced by `openPortalAfterYes`, which tears the card down and calls `loadPortalByToken`.
 
+   - ⛔ **THE ARREARS HOLD IS RAISED BY THE RENDER AND IS NOBODY ELSE'S JOB** (2026-09-03). It used to be the
+     gate-code dialog's `thenFn`, and the render only raised it when no caller had supplied an `onPortalReady`
+     — a **payment rule behind a cosmetic dialog**. Narrowing the gate question (RS-44) came within one line of
+     switching it off, and the `else` had already left the post-payment re-render with no hold at all, so a
+     customer who paid part of what they owed landed in a locked portal with nothing saying why.
+     `renderCustomerInvoicePage` now calls `showArrearsLockIfHeld()` unconditionally, and that function **waits
+     for the gate question to close** rather than being called back by it — same ordering, no chain. Do not pass
+     it in as anybody's callback again; run-all Suite 291 fails if you do.
    - ⚠ **Only a customer who ALREADY has a gate code is asked** (2026-09-02, RS-44). Dax: *"only applys to
      people that already have a gate code in the system so not everyone is seeing it."* The value is catching a
      code that went stale over the summer before a crew is stood at a locked gate; asking the majority, who have
@@ -987,12 +1001,24 @@ member's bill — with nobody in the office typing anything.
   `.../?ref=<referralToken>#/quote`.
   - ⚠ **The link carries a referral token, never the portal login token.** A portal token
     signs somebody in; this one is pasted into a group chat. The customer number is not used
-    either — it is printed on invoices and bins, so it is guessable. `referralToken` is minted
-    lazily on the first `portalLookup`, exactly as `portalToken` already is, and is stable
-    afterwards: a fresh token each visit would break every link they had already shared.
-  - ⚠ **The tab is locked while last season is unpaid**, like every tab except Payment,
-    Contact and Cancel. That needed no code — anything absent from `PORTAL_UNLOCKED_TABS`
-    is locked.
+    either — it is printed on invoices and bins, so it is guessable.
+  - ⭐ **Every customer has one, without anybody pressing anything** (REF-10). All four
+    places a customer record is created mint a `referralToken` in the same write as the
+    portal token; opening a customer in Edit Customer makes one if they have none (once
+    per customer, ever — `referralTokenFor` returns early when one exists); and
+    **Bulk Updates → Make referral links for everyone** covers the book as it stood. That
+    backfill only ever ADDS, so it is safe to press twice and needs no typed confirmation.
+  - ⭐ **The address is `/r/<token>`, 39 characters** (REF-11) — a Netlify 200-rewrite,
+    exactly like the `/q/` quote link and for the same reason: a text is billed in
+    160-character segments. The token is **8 characters from its own generator**;
+    `generatePortalToken` stays 20 because it signs somebody into their account. The old
+    `?ref=…#/quote` spelling still works for ever, so links already shared keep counting.
+  - ⭐ **The tab is OPEN to somebody who owes for last season** (reversed 2026-09-04,
+    REF-07). It was locked for one day and Addie reported the result — *"its not showing
+    up anywhere"* — because most of the book carries an unpaid 2025 balance, so the tab
+    she had just asked for was greyed out on nearly every record she opened. The held
+    tabs are the ones that make work for us; referring a friend puts **nothing** into the
+    system and can only take $25 **off** this customer's bill.
 - **What the visitor's quote carries.** The public page reads `?ref=` and stores
   `referredByToken` on the new quote. It is remembered for the SESSION, not read at submit
   time: somebody who lands on the home page and reaches the quote form ten minutes later
@@ -1030,6 +1056,25 @@ member's bill — with nobody in the office typing anything.
   truth) and `referralCount` (derived from it, and what the existing box shows). On the
   referred customer: `referredByCustomerId`, set once — it is what the clawback finds its
   way back by. On the quote: `referredByToken` and `referralCredited`.
+- **And it goes in the RSVP email** (REF-08, REF-09). `{{referral_link}}` and
+  `{{referral_button}}` are ordinary email tokens, offered in the token picker, and both
+  BUILT-IN RSVP bodies carry the offer under the three answer buttons.
+  - ⚠ **A template she has already written is never rewritten** (MON-24): the built-in
+    bodies only fill a blank one. So an RSVP template already saved in Firestore needs
+    `{{referral_button}}` added to it by hand, once — that is her edit, not ours.
+  - ⚠ **Two renderers, one template — the `{{photo}}` shape again.** `resolveLinkTokens`
+    in admin.html renders a hand-send; `runArrearsRsvpBatch` in functions/index.js
+    renders the automatic Not Paid RSVP chase with no browser involved. A token resolved
+    in only one of them puts a literal `{{referral_button}}` in a real customer's inbox.
+    Change one, change the other, in the same push.
+  - ⚠ **Resolved by document id, never by a guessed phone.** `hlxEmailCustomerItem` takes
+    `opts.customerId` when the send has one and, falling back to a phone, returns nobody
+    unless exactly one customer holds that number. Seventeen numbers in the real book are
+    shared by two households, so picking the first hit mails one household the other's
+    link — and every friend they then send it to credits the wrong customer.
+  - ⚠ **No link means no button**, never a button pointing nowhere: a customer tapping
+    something we sent them and landing nowhere cannot tell that from the scheme being
+    broken.
 - **Where to look when it is wrong.** The Inbox, System folder, money section: **Referral
   Credit Given**, **Referral Taken Back**, **Referral Blocked**. Proved by run-all.js suite
   299, which runs the rules against a fake Firestore; 19 sabotages red-checked.

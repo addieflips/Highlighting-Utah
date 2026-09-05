@@ -2634,6 +2634,43 @@ function navigate(){
  * existing-member "let me straight in" path is unchanged. Absent for a new lead,
  * who has no portal to be let into.
  */
+/* ⚠ DECLARED HERE, ABOVE THE FIRST READER THAT USES IT, and moved up from the quote
+   form below on 2026-09-04. It was a `var` several hundred lines further down: hoisted,
+   so the /r/ reader saw `undefined` rather than throwing, and the token was written
+   under the key "undefined" — the app booted, the page was right, and the referral was
+   silently worth nothing. A browser spec caught it; no source check could have. */
+var REFERRAL_LINK_KEY = 'hu.referredByToken';
+/* ⭐ THE SHORT REFERRAL LINK — /r/<token> (2026-09-04, REF-11).
+ *
+ * Addie: "make sure the link isnt crazy long try to shorten it so in the rsvp
+ * refferal button it looks nice in the email/text."
+ *
+ *   https://highlightingutah.com/?ref=<20 chars>#/quote   61 characters
+ *   https://highlightingutah.com/r/<8 chars>              38 characters
+ *
+ * ⚠ EXACTLY THE /q/ MECHANISM ABOVE, deliberately: a Netlify 200-rewrite and the
+ * segment after /r/ IS the token. No short-code table, no extra Firestore read,
+ * nothing to keep in step.
+ *
+ * ⚠ AND ?ref= STILL WORKS, FOR EVER. Every link already pasted into somebody's
+ * messages carries the old spelling, and a referral that silently stops counting is
+ * the one failure nobody would ever report — the customer just never gets their $25.
+ * Both spellings feed the same session store below.
+ */
+(function(){
+  var m = null;
+  try{
+    m = /^\/r\/([A-Za-z0-9_-]+)\/?$/.exec(window.location.pathname || '');
+  } catch(e){ /* quiet on purpose: no readable location means this is not a /r/ link, and the ?ref= reader below still runs. */ }
+  if(!m) return;
+  try{ sessionStorage.setItem(REFERRAL_LINK_KEY, String(m[1]).slice(0, 64)); }
+  catch(e){ /* Private browsing refuses sessionStorage. The quote still goes through; the referral is simply not counted, which is the safe direction. */ }
+  /* Straight to the quote form — that is what the link is FOR — and the token is
+     already stored, so nothing rides in the address bar. */
+  window.location.hash = '/quote';
+  try{ window.history.replaceState(null, '', '/' + window.location.hash); }
+  catch(e){ /* quiet on purpose: cosmetic. A blocked replaceState leaves /r/<token> showing and changes nothing about the referral. */ }
+})();
 (function(){
   var m = null;
   try{
@@ -2821,7 +2858,6 @@ async function geocodeForStreetView(addressText){
    from a made-up one, and pretending otherwise would mean shipping the customer list to
    the public page. An unknown token is refused by creditReferralIfAny, where the real
    records are, and refused SILENTLY — a link can outlive the customer who made it. */
-var REFERRAL_LINK_KEY = 'hu.referredByToken';
 (function rememberReferralToken(){
   try{
     var t = new URLSearchParams(window.location.search || '').get('ref');
@@ -3887,13 +3923,28 @@ function renderCustomerInvoicePage(raw, opts){
        return in this function is somebody who did NOT get in (deactivated, wrong
        last name, no invoice) and none of them reach it: a dialog floating over an
        error message would be the worst version of this. */
-    /* ⚠ AND THE ARREARS DIALOG COMES AFTER THE GATE CODE, WHICH IS WHY THIS BRANCHES
-       (Dax, 2026-09-02: the pop-up "comes after the gate code"). On an RSVP yes the
-       gate step owns the hand-off and raises it as its own thenFn; on every other way
-       into the portal there is no gate step, so it is raised here. Exactly one of the
-       two runs, which is what stops it being shown twice. */
     if(typeof opts.onPortalReady === 'function') opts.onPortalReady();
-    else showArrearsLockIfHeld();
+    /* ⭐ THE MONEY HOLD IS RAISED HERE, ALWAYS, AND IS NOBODY ELSE'S JOB (2026-09-03).
+       It used to be an `else`: whenever a caller supplied onPortalReady, raising the
+       hold became that caller's responsibility, and the RSVP-yes path passed it on
+       again as the gate-code dialog's thenFn.
+
+       ⚠ THAT SHAPE PUT A PAYMENT RULE BEHIND A COSMETIC DIALOG. Any edit to the
+       gate-code step that returned early, threw, or simply forgot to hand on would
+       switch the hold off silently — and narrowing that question on 2026-09-02 came
+       within one line of doing exactly that. A test caught the one sabotage I thought
+       of, which is not the same as the fault being impossible.
+
+       ⚠ AND THE `else` HAD ALREADY OPENED A REAL HOLE, not just a future one: the
+       re-render after a PayPal capture supplies its own onPortalReady, so a customer
+       who paid PART of what they owed landed back in a portal with its tabs locked and
+       nothing on screen saying why.
+
+       ⭐ ORDERING IS KEPT WITHOUT THE CHAIN. Dax asked for this pop-up to come after
+       the gate-code question; showArrearsLockIfHeld now WAITS for that dialog to close
+       rather than being called back by it, so the order survives and the hold does not
+       depend on anybody remembering anything. */
+    showArrearsLockIfHeld();
   }).catch(function(){
     card.classList.remove('show');
     if(tabsLayout) tabsLayout.style.display = 'none';
@@ -5022,8 +5073,12 @@ function handleRsvpLink(token, rsvpValue){
       /* ⚠ THE GATE CODE IS STILL ASKED OF SOMEBODY WHO OWES, and it is asked FIRST —
          Dax put the arrears pop-up after it. It is also why portalSetGateCode is not
          one of the calls the server holds: a question we insist on asking has to be
-         answerable. */
-      showRsvpGateCodeStep(token, gateCodeOnFile || '', showArrearsLockIfHeld);
+         answerable.
+         ⚠ AND IT NO LONGER CARRIES THE ARREARS HOLD. It used to be handed on as this
+         step's thenFn, which put a payment rule behind a dialog about a gate; the hold
+         is raised by the render and waits for this question to close. Do not pass it
+         back in. */
+      showRsvpGateCodeStep(token, gateCodeOnFile || '');
     }});
   }
 
@@ -6289,7 +6344,7 @@ var PORTAL_TAB_NAMES = ['payment','info','sides','lights','changes','refer','con
    matches their bill. Nought says nothing at all rather than "0 referrals" — an
    empty scoreboard reads as a broken feature on a link nobody has used yet. */
 function portalReferralLink(token){
-  return window.location.origin + '/?ref=' + encodeURIComponent(String(token || '')) + '#/quote';
+  return window.location.origin + '/r/' + encodeURIComponent(String(token || ''));
 }
 /* ⚠ THE TWO FIELDS ARE READ OFF `addrDoc` BY NAME, not through a shorthand alias. That
    is not style: portal-fields.test.js proves every whitelisted field is actually LOOKED
@@ -6345,11 +6400,21 @@ document.getElementById('referCopyBtn')?.addEventListener('click', async functio
     ? 'Copied \u2014 paste it into a text or an email.'
     : 'Could not copy it for you \u2014 select the link above and copy it.';
 });
-var PORTAL_UNLOCKED_TABS = ['payment','contact','cancel'];
-/* ⚠ 'refer' IS DELIBERATELY NOT UNLOCKED. Somebody who has not paid for last season
-   is held to paying, and earning credit towards a bill they are already behind on is
-   not one of the three things that stay open. It needs no code: anything absent from
-   the list above is locked. */
+/* ⭐ 'refer' IS UNLOCKED, REVERSING THE DAY IT SHIPPED (2026-09-04, REF-07). Addie:
+   *"its not showing up anywhere"* — and it was not showing up because of this list.
+
+   ⚠ THE LOCK WAS MINE, NOT HERS, AND IT WAS WRONG. Dax's rule is that a customer
+   settles last season *"before anything goes into the system"*, so the held tabs are
+   the ones that make work for us — colours, sides, details, changes. Referring a
+   friend puts NOTHING into the system: it writes to somebody else's record, at a
+   moment months away, and the only thing it can do to this customer's bill is take
+   $25 OFF it. Holding it back is the business refusing money from a customer who
+   owes it money.
+   ⚠ AND IT LANDED ON EXACTLY THE PEOPLE SHE WAS TESTING WITH. Most of the book
+   carries an unpaid 2025 balance this season, so the tab she had just asked for was
+   greyed out on nearly every record she opened — which reads as a feature that was
+   never built rather than one that was deliberately held. */
+var PORTAL_UNLOCKED_TABS = ['payment','refer','contact','cancel'];
 var portalArrearsHold = null;
 function applyArrearsLock(owed, season){
   portalArrearsHold = owed > 0 ? {owed: owed, season: String(season || '')} : null;
@@ -6401,8 +6466,46 @@ document.addEventListener('DOMContentLoaded', function(){
   var bd = document.getElementById('rsvpAskBackdrop');
   if(bd) bd.addEventListener('click', closeRsvpAsk);
 });
+/* ⚠ ONE WAITER, NOT ONE PER CALL. The render can run more than once in a visit, and a
+   second would open the same dialog twice and leave a timer behind it.
+
+   ⚠ AND IT IS A RESCHEDULING setTimeout, NOT A setInterval, which is a real
+   distinction rather than a style choice: connections.test.js treats a named
+   setInterval as a standing automatic run that must be declared on the automation
+   list, and it is right to. This is a one-shot that stops as soon as the gate-code
+   dialog is gone — it is waiting for a turn, not running on a schedule — so it says
+   so. CI caught the first version; the gate was correct and the code was not. */
+var arrearsLockWaiter = null;
+function stopWaitingForGate(){
+  if(arrearsLockWaiter){ clearTimeout(arrearsLockWaiter); arrearsLockWaiter = null; }
+}
 function showArrearsLockIfHeld(){
-  if(!portalArrearsHold) return;
+  if(!portalArrearsHold){
+    /* Nothing owed any more — stop waiting for a turn that no longer matters. */
+    stopWaitingForGate();
+    return;
+  }
+  /* ⭐ IT WAITS FOR THE GATE-CODE QUESTION RATHER THAN BEING CALLED BACK BY IT. Dax
+     asked for this to come after that question; doing it by callback made a payment
+     rule depend on a cosmetic dialog handing on. Watching for the dialog to CLOSE
+     gives the same order with none of that: the gate step can be edited, skipped,
+     return early or throw, and this still lands. */
+  var gate = document.getElementById('rsvpGateCodeModal');
+  if(gate && gate.classList.contains('show')){
+    if(arrearsLockWaiter) return;
+    arrearsLockWaiter = setTimeout(function again(){
+      arrearsLockWaiter = null;
+      var g = document.getElementById('rsvpGateCodeModal');
+      /* Still up: ask again later. Cleared FIRST, so the re-entry below is the only
+         thing holding a handle and a stale one can never be left behind. */
+      if(g && g.classList.contains('show')){
+        arrearsLockWaiter = setTimeout(again, 200);
+        return;
+      }
+      showArrearsLockIfHeld();
+    }, 200);
+    return;
+  }
   var modal = document.getElementById('arrearsLockModal');
   var amt   = document.getElementById('arrearsLockAmount');
   var body  = document.getElementById('arrearsLockBody');
