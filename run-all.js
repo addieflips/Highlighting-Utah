@@ -49049,6 +49049,26 @@ suite('298. A charge carried to next season is still on their account');
       api.label('carried', a) === 'Charge carried to next season',
       'got ' + api.label('carried', a) + ' — the reason alone does not say WHEN it will ' +
       'be collected, which is the thing that makes it look missing');
+  /* ⭐ THE CARRIED WAIVE TOUCHES ONLY THE CARRIED FIELDS (added 2026-09-03, after Addie
+       reported the × not working and this turned up beside it). The branch was two
+       separate `if`s, so the `else` bound to the SECOND one and the carried ledger fell
+       into it as well — writing `creditNotes` and `credits` from the CARRIED notes. And
+       waiveCarriedCharge writes this object to the CUSTOMER record, so waiving last
+       season's debt stamped two invoice fields onto jobAddresses.
+       ⚠ `status` WENT THE SAME WAY: on this ledger `inv` IS the customer, which has no
+       install, removal or deposit, so it computed a status out of three undefineds and
+       wrote that onto the customer too.
+       ⚠ ASSERTED AS THE EXACT KEY SET, not "carryoverCharge is present" — the bug was an
+       EXTRA field, which every positive check passed straight over. */
+    {
+      const arr = { kind: 'arrears', amount: 200, note: '2025' };
+      const plan = api.plan({ carryoverCharge: 200, carryoverChargeNotes: [arr] },
+                            'carried', api.key(arr));
+      const keys = plan ? Object.keys(plan.updates).sort() : [];
+      check('S292', 'waiving a carried line writes the carried fields and nothing else',
+        JSON.stringify(keys) === JSON.stringify(['carryoverCharge', 'carryoverChargeNotes']),
+        'this object goes onto the CUSTOMER record; got ' + JSON.stringify(keys));
+    }
   }
 
   /* ---- and the screen ---- */

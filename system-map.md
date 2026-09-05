@@ -273,6 +273,17 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    touched. Testing the RSVP means testing it three times and watching the badge each
    time, and a reset done by hand between answers is one that gets skipped.
 
+   ⚠ **WAIVING A CARRIED CHARGE WROTE INVOICE FIELDS ONTO THE CUSTOMER** (fixed
+   2026-09-03, MON-58). `ledgerWaiveUpdates` had two separate `if`s, so the `else` bound
+   to the second and the **carried** ledger fell into it too — writing `creditNotes` and
+   `credits` from the carried notes, plus a `status` computed from three undefineds. That
+   object goes to `jobAddresses`, so it landed on the customer record. It is an else-if
+   chain now and `status` is written only when an invoice is what changed.
+
+   ⚠ **A referral credit is derived, not stored**, which is why it survives: it is a
+   `kind:'referral'` line rebuilt on the referrer's invoice, and when there is no invoice
+   yet the count stays on the customer and the next save writes it.
+
    ⭐ **"ON HOLD AFTER I APPROVED" IS THE CONFIRMED-ONLY RULE WANTING A DATE** (2026-09-03,
    RS-47). Addie approved a Test customer through the emailed link and the badge stayed
    **On hold**, with *"Not scheduled — no RSVP yet"* under it.
