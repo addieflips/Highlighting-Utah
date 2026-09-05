@@ -1008,8 +1008,22 @@ Addie: a member gets their own link, and when somebody joins through it $25 come
 member's bill — with nobody in the office typing anything.
 
 - **Where the customer gets it.** A **Refer a Friend** tab in their own portal: the link, a
-  copy button, and how many people have joined through it. The address is
+  **Share My Link** button, and how many people have joined through it. The address is
   `.../?ref=<referralToken>#/quote`.
+  - ⭐ **The button opens the phone's own share sheet** (2026-09-05). Dax: *"we would
+    rather have it as a share link so it opens share options where they can copy it or
+    send it to contact"*. `navigator.share`, so the customer picks a contact, Messages,
+    Mail — or Copy — from the list their phone already gives them, instead of landing
+    the link on a clipboard and having to go and find somebody to paste it to. Nothing
+    is sent by us and this page never learns who they sent it to, so it is still not
+    the "enter your friend's email" feature and carries none of its problems.
+  - ⚠ **Copying is the fallback, and the label says which one you are getting.**
+    `navigator.share` is absent in desktop Firefox, on a plain http origin and in
+    several in-app browsers, so where it is missing the button reads **Copy My Link**
+    and copies exactly as it did before. A button reading Share that silently copies
+    leaves a customer waiting for a sheet that is never coming. Backing out of the
+    sheet (`AbortError`) says nothing at all — changing your mind is not a failure —
+    while any other rejection falls through to the copy rather than dead-ending.
   - ⚠ **The link carries a referral token, never the portal login token.** A portal token
     signs somebody in; this one is pasted into a group chat. The customer number is not used
     either — it is printed on invoices and bins, so it is guessable.

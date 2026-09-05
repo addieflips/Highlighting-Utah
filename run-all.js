@@ -52133,6 +52133,166 @@ suite('Suite 307. Filter, then select everyone under the filter');
   }
 }
 
+// =====================================================================
+// 308. SHARING THE REFERRAL LINK, NOT COPYING IT
+// =====================================================================
+suite('308. Sharing the referral link, not copying it');
+/* ---------------------------------------------------------------------------
+ * Dax, 2026-09-05: *"we would rather have it as a share link so it opens share
+ * options where they can copy it or send it to contact"*.
+ *
+ * ⭐ IT RUNS THE HANDLER, IT DOES NOT READ IT. Every claim here is about what
+ * HAPPENS when the customer taps the button, and this repo has already shipped a
+ * box whose listener patch silently did not apply: identical on screen to a
+ * working one, npm test green, and it saved nothing. The listener is lifted out
+ * of index.html and called with a fake share sheet whose calls are inspected.
+ *
+ * ⚠ THE THREE PATHS ARE THE WHOLE POINT, and two of them are invisible from
+ * the outside. A sheet that opens looks like success; a dismissed sheet looks
+ * exactly like a broken one; and a browser with no sheet at all looks exactly
+ * like a button that does nothing. Each is asserted separately, because the
+ * cheap version of this test — "does it mention navigator.share" — passes on a
+ * handler that opens a sheet and then dead-ends on every desktop in the office.
+ * ------------------------------------------------------------------------- */
+{
+  const idx308 = read('index.html');
+  const canShareSrc = extractFn(idx308, 'portalCanShare');
+  const renderSrc = extractFn(idx308, 'portalRenderReferral');
+  const linkSrc = extractFn(idx308, 'portalReferralLink');
+  const at308 = idx308.indexOf("document.getElementById('referShareBtn')?.addEventListener('click'");
+  const listener = sectionFrom(idx308, at308);
+  const parts308 = {portalCanShare: canShareSrc, portalRenderReferral: renderSrc,
+                    portalReferralLink: linkSrc, 'the click handler': listener || null};
+  const missing308 = Object.keys(parts308).filter(k => !parts308[k]);
+  check('S308', 'the share button, its capability test and its handler are all findable',
+    !missing308.length,
+    'missing: ' + missing308.join(', ') + ' — repoint this lift rather than stubbing it; ' +
+    'a stub here keeps the suite green through a button that shares nothing');
+
+  /* ⚠ A RENAME THAT MISSES ONE SIDE LEAVES A DEAD BUTTON. The id moved from
+     referCopyBtn to referShareBtn on both sides at once; a leftover of the old name
+     anywhere in the file is a listener bound to markup that no longer exists, which
+     is silent — the button simply does nothing when tapped. */
+  check('S308', 'no half of the old copy-button id is left behind',
+    idx308.indexOf('referCopyBtn') === -1 && idx308.indexOf('referCopyStatus') === -1,
+    'referCopyBtn / referCopyStatus still appears in index.html');
+  check('S308', 'the markup ships the FALLBACK wording, never the promise',
+    /id="referShareBtn">Copy My Link</.test(idx308),
+    'the label is upgraded in JS where a share sheet exists; shipping "Share My Link" ' +
+    'in the HTML promises a sheet to every desktop that will never get one');
+
+  if (!missing308.length) {
+    const bodyStart = listener.indexOf('{', listener.indexOf('async function'));
+    const body308 = listener.slice(bodyStart + 1, listener.lastIndexOf('}'));
+
+    /* One tap, with a share sheet that behaves however the caller says. Everything
+       the handler can reach is watched: what it shared, what it copied, and what it
+       left on the status line. */
+    function tap(opts) {
+      const calls = {shared: [], copied: [], exec: 0};
+      const input = {value: opts.link === undefined ? 'https://highlightingutah.com/r/abc123' : opts.link,
+                     focus: function () {}, select: function () {}};
+      const status = {textContent: 'left over from last time'};
+      const els = {referLinkInput: input, referShareStatus: status};
+      const doc = {getElementById: function (id) { return els[id] || null; },
+                   execCommand: function () { calls.exec++; return true; }};
+      const nav = {};
+      if (opts.share !== false) {
+        nav.share = function (data) {
+          calls.shared.push(data);
+          if (opts.reject) return Promise.reject(opts.reject);
+          return Promise.resolve();
+        };
+      }
+      if (opts.clipboard !== false) {
+        nav.clipboard = {writeText: function (v) { calls.copied.push(v); return Promise.resolve(); }};
+      }
+      const run = new Function('document', 'navigator',
+        canShareSrc + '\nreturn (async function(){' + body308 + '})();');
+      return run(doc, nav).then(function () { return {calls: calls, status: status}; });
+    }
+    const abort = Object.assign(new Error('cancelled'), {name: 'AbortError'});
+
+    pendingAsync.push((async function () {
+      /* ---- the phone: the sheet opens, with their own link in it ---- */
+      const sheet = await tap({});
+      check('S308', 'a phone with a share sheet gets the sheet',
+        sheet.calls.shared.length === 1,
+        'the whole change is this one call; without it the button is the old copy button');
+      check('S308', 'and it hands over the customer’s OWN link, not the page address',
+        (sheet.calls.shared[0] || {}).url === 'https://highlightingutah.com/r/abc123',
+        'a share carrying the wrong url credits nobody and nothing anywhere goes red');
+      check('S308', 'and nothing is copied behind it',
+        sheet.calls.copied.length === 0 && sheet.calls.exec === 0,
+        'clobbering the clipboard under a sheet the customer is still reading takes ' +
+        'whatever they had copied away from them');
+
+      /* ---- the dismissed sheet: not a failure, and not a copy either ---- */
+      const cancelled = await tap({reject: abort});
+      check('S308', 'backing out of the sheet says nothing at all',
+        cancelled.status.textContent === '',
+        'telling somebody who changed their mind that it "could not share" reads as ' +
+        'a broken feature');
+      check('S308', 'and backing out does not fall through to a copy',
+        cancelled.calls.copied.length === 0 && cancelled.calls.exec === 0,
+        'a cancel is a decision, not an error to recover from');
+
+      /* ---- any OTHER rejection: the copy is still there underneath ---- */
+      const broke = await tap({reject: new Error('blocked by permissions policy')});
+      check('S308', 'a share that fails for any other reason still copies',
+        broke.calls.copied.length === 1 &&
+        /Copied/.test(broke.status.textContent),
+        'in-app browsers and iframes reject for reasons that are not a cancel; ' +
+        'dead-ending there loses the link entirely');
+
+      /* ---- the desktop: no sheet, and the old behaviour intact ---- */
+      const desktop = await tap({share: false});
+      check('S308', 'a browser with no share sheet copies, exactly as before',
+        desktop.calls.copied.length === 1 &&
+        desktop.calls.copied[0] === 'https://highlightingutah.com/r/abc123' &&
+        /Copied/.test(desktop.status.textContent));
+      const noApi = await tap({share: false, clipboard: false});
+      check('S308', 'and with no clipboard either it falls to execCommand and then to words',
+        noApi.calls.exec === 1,
+        'plain http and some in-app browsers have neither; the select-and-copy ' +
+        'fallback is the only route left');
+
+      /* ---- no link yet: nothing happens, loudly nowhere ---- */
+      const blank = await tap({link: ''});
+      check('S308', 'a link that has not minted yet shares nothing and copies nothing',
+        blank.calls.shared.length === 0 && blank.calls.copied.length === 0,
+        'sharing an empty string sends a friend to the quote page crediting nobody, ' +
+        'which looks exactly like it worked');
+    })());
+
+    /* ---- the label follows the capability, on the same run of the real renderer ---- */
+    const renderFn = new Function('document', 'navigator', 'window', 'addrDoc',
+      linkSrc + '\n' + canShareSrc + '\n' + renderSrc + '\nreturn portalRenderReferral(addrDoc);');
+    function draw(hasShare, token) {
+      const btn = {textContent: '', disabled: false};
+      const els = {referLinkInput: {value: ''}, referShareStatus: {textContent: ''},
+                   referShareBtn: btn, referCount: {textContent: ''}};
+      const doc = {getElementById: function (id) { return els[id] || null; }};
+      const nav = hasShare ? {share: function () {}} : {};
+      renderFn(doc, nav, {location: {origin: 'https://highlightingutah.com'}},
+        {referralToken: token, referralCount: 0});
+      return {btn: btn, els: els};
+    }
+    const phone = draw(true, 'abc123');
+    const desk = draw(false, 'abc123');
+    check('S308', 'the button says Share where there is a sheet to open',
+      phone.btn.textContent === 'Share My Link',
+      'got: ' + phone.btn.textContent);
+    check('S308', 'and says Copy where there is not',
+      desk.btn.textContent === 'Copy My Link',
+      'a button reading Share that silently copies leaves a customer waiting for a ' +
+      'sheet that is never coming — got: ' + desk.btn.textContent);
+    check('S308', 'and no token still disables it, sheet or no sheet',
+      draw(true, '').btn.disabled === true && draw(false, '').btn.disabled === true,
+      'an enabled button over an empty link shares nothing and says nothing');
+  }
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));

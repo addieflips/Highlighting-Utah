@@ -2047,18 +2047,23 @@
                  customer does no admin and neither does the office: the credit is
                  applied by creditReferralIfAny in admin.html when the friend actually
                  becomes a customer, not when the link is clicked.
-                 ⚠ THERE IS NO SHARE BOX AND NO "enter your friend's email". Sending
-                 mail on a customer's behalf to an address they typed is a different
-                 feature with a different set of problems; a link they can paste into
-                 their own messages needs none of them. -->
+                 ⚠ THERE IS STILL NO "enter your friend's email". Sending mail on a
+                 customer's behalf to an address they typed is a different feature with a
+                 different set of problems. The share sheet is the opposite of that: the
+                 phone's own contacts, the customer's own message, sent from their own
+                 number, and this page never learns who they sent it to. -->
             <div id="tabPanel-refer" style="display:none;">
               <p class="form-note" style="margin-top:0;">Send this link to a neighbour or a friend. When they become a customer, we take <strong>$25</strong> off your bill &mdash; there is no limit, and you do not have to tell us.</p>
               <div class="form-row">
                 <label>Your link</label>
                 <input type="text" id="referLinkInput" readonly value="" style="font-size:13px;">
               </div>
-              <button type="button" class="btn btn-gold btn-block" id="referCopyBtn">Copy My Link</button>
-              <div id="referCopyStatus" role="status" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
+              <!-- ⚠ THE LABEL IS SET IN JS, and this one is the FALLBACK wording on
+                   purpose: a browser with no share sheet still copies, and the button
+                   must never promise a sheet it cannot open. portalRenderReferral
+                   upgrades it to "Share My Link" where navigator.share exists. -->
+              <button type="button" class="btn btn-gold btn-block" id="referShareBtn">Copy My Link</button>
+              <div id="referShareStatus" role="status" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
               <p id="referCount" style="font-size:14px; margin-top:16px; padding-top:14px; border-top:1px solid rgba(30,59,44,.12); text-align:center;"></p>
             </div>
 
@@ -6360,9 +6365,15 @@ function portalRenderReferral(addrDoc){
   /* ⚠ NO TOKEN IS A REAL STATE, not a bug to hide: a record the office created by
      hand has one the moment they next sign in, and until then a blank box with no
      explanation is the worst of both. */
-  var copyBtn = document.getElementById('referCopyBtn');
-  if(copyBtn) copyBtn.disabled = !token;
-  var status = document.getElementById('referCopyStatus');
+  /* ⚠ THE BUTTON SAYS WHICH OF THE TWO THINGS IT IS ABOUT TO DO. A button reading
+     "Share" that silently copies leaves a customer waiting for a sheet that is never
+     coming, and one reading "Copy" that opens a sheet is a surprise on a phone. */
+  var shareBtn = document.getElementById('referShareBtn');
+  if(shareBtn){
+    shareBtn.disabled = !token;
+    shareBtn.textContent = portalCanShare() ? 'Share My Link' : 'Copy My Link';
+  }
+  var status = document.getElementById('referShareStatus');
   if(status && !token) status.textContent = 'Your link is being set up \u2014 check back in a moment.';
   var n = Math.max(0, Number(addrDoc.referralCount) || 0);
   if(countEl){
@@ -6373,10 +6384,49 @@ function portalRenderReferral(addrDoc){
       : '';
   }
 }
-document.getElementById('referCopyBtn')?.addEventListener('click', async function(){
+/* ⭐ THE SHARE SHEET, NOT A CLIPBOARD (2026-09-05). Dax: *"we would rather have it as
+   a share link so it opens share options where they can copy it or send it to contact"*.
+   A copy button ends with the link on a clipboard and the customer still has to go and
+   find somebody to paste it to; the sheet hands them their own contacts, Messages, Mail
+   and a Copy row in one tap — on the phone, which is where this tab is opened.
+
+   ⚠ COPY IS STILL HERE AS THE FALLBACK, NOT AS A SECOND BUTTON. navigator.share is a
+   phone-and-Safari API: it is absent in desktop Firefox, on a plain http origin, and in
+   several in-app browsers — which is exactly where a link gets shared from. Where it is
+   missing this does what it always did, and the label above says so. */
+function portalCanShare(){
+  /* ⚠ PRESENCE ONLY, NOT canShare({url}). The label is drawn before the token has
+     necessarily arrived, and canShare on an empty url answers false — which would
+     label a phone "Copy My Link" for the one customer whose link is still minting. */
+  try{ return typeof navigator !== 'undefined' && typeof navigator.share === 'function'; }
+  catch(err){ return false; }
+}
+document.getElementById('referShareBtn')?.addEventListener('click', async function(){
   var input = document.getElementById('referLinkInput');
-  var status = document.getElementById('referCopyStatus');
+  var status = document.getElementById('referShareStatus');
   if(!input || !input.value) return;
+  if(status) status.textContent = '';
+  if(portalCanShare()){
+    try{
+      await navigator.share({
+        title: 'Highlighting Utah',
+        text: 'Highlighting Utah does our Christmas lights — here is my link for a free quote:',
+        url: input.value
+      });
+      /* ⚠ NOTHING IS CLAIMED ON THE WAY BACK OUT. A resolved share says a target
+         accepted the link, not that a message was sent or that anyone will sign up;
+         the sheet is its own confirmation, and "Sent!" over a share the customer may
+         have finished by saving a note is a small lie the portal does not need. */
+      return;
+    }catch(err){
+      /* ⚠ A DISMISSED SHEET IS NOT A FAILURE. Backing out rejects with AbortError —
+         reporting that as "could not share" tells somebody who simply changed their
+         mind that the feature is broken. Silent, and the button still works.
+         Any OTHER rejection (blocked by policy, no transient activation, a target
+         that threw) falls through to the copy below rather than dead-ending. */
+      if(err && err.name === 'AbortError') return;
+    }
+  }
   /* ⚠ TWO WAYS, BECAUSE THE FIRST ONE IS NOT ALWAYS THERE. navigator.clipboard is
      absent on a page served over plain http and blocked in some in-app browsers —
      which is exactly where a link gets shared from. The select-and-execCommand
