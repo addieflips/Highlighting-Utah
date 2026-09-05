@@ -38,6 +38,10 @@ const WHERE_TO_DEST = {
   'Member Portal › RSVP':         'Portal',
   'Member Portal › My Lights':    'Portal',
   'Member Portal › Pay':          'Portal',
+  /* ⛔ ADDED 2026-09-03 (RS-51). The Cancel tab became a destination in its own
+     right the day it stopped sharing a rule with RSVP: it is now the ONLY door a
+     customer has to a recycle, where answering no used to be a second one. */
+  'Member Portal › Cancel':       'Portal',
   'Quote Requests':               'Customers',
   /* ⚠ AUTOMATION EMAILS HAS NO COLUMN IN THE MOCKUP, and it is folded here rather than
      dropped. Say so if it ever carries a connection the office needs to see on its own —

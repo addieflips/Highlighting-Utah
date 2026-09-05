@@ -495,9 +495,13 @@ if (portalRsvp) {
      collection that was already owed: the bin stays on the shelf and nobody is ever
      told to fetch it. A yes cancels one — that lives in seasonYesUpdates. Back next
      year says nothing either way. */
-  check('and a no through the link queues the recycle',
-    /if \(response === 'no'\) updates\.needsLightRecycle = true;/.test(portalRsvp),
-    'that is the half of the answer the warehouse acts on');
+  /* ⛔ INVERTED 2026-09-03 (RS-51). Dax: a no "moves them to maybe next year" and they
+     "only go to archive if they actually go through the process of canceling their
+     lights in member portal". So the warehouse acts on the CANCELLATION now, not on the
+     answer — which is the difference between a deliberate request and a mis-tap. */
+  check('and a no through the link queues nothing for the warehouse',
+    !/updates\.needsLightRecycle = true;/.test(portalRsvp),
+    'a tap in an email must not put somebody\'s bundle on the collection list');
   /* ⚠ WITH COMMENTS STRIPPED. The rule is WRITTEN DOWN in the code — the note above
      that line quotes the bad expression to explain why it is gone — so a plain search
      finds the explanation and calls it a violation. This file already carries that

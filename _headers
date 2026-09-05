@@ -29,6 +29,11 @@
 /q/*
   Cache-Control: no-cache
 
+# And /r/<token>, the referral link, for exactly the same reason — it is the same
+# index.html answering a live link somebody was sent.
+/r/*
+  Cache-Control: no-cache
+
 /js/*
   Cache-Control: no-cache
 
