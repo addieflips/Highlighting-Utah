@@ -33726,8 +33726,17 @@ suite('Suite 128. The do-not-send list — automation emails only');
          end and counts them, and this is the rule that decides who those are — a stub
          would make the count untestable while reporting green (CLAUDE.md §3). */
       const canEmailSrc = extractFn(admin, 'custCanBeEmailed') || '';
+      /* ⚠ THE SELECTION UI PAINTER IS LIFTED REAL TOO, not stubbed. It reads
+         `etSelectedRecipientIds`, and the fake document below answers null for every id
+         it asks for — which is exactly the guarded path the shipped function takes when
+         the modal has never been opened. A stub here would hide a painter that throws. */
+      const selUiSrc = extractFn(admin, 'etUpdateSelectionUi') || '';
       const env = new Function('document', 'MEMBERS', 'MODE',
-        canEmailSrc + flagSrc +
+        canEmailSrc + flagSrc + selUiSrc +
+        /* ⚠ THE TICKS LIVE IN A SET, NOT IN THE CHECKBOXES (2026-09-04), so the renderer
+           prunes it to the audience on every pass and the sandbox has to declare it or
+           every check here dies as one unattributable crash. */
+        'let etSelectedRecipientIds = new Set();' +
         'let etRecipientSearchTerm = "";' +
         'let etFilterGateCode = "all", etFilterPayment = "all", etFilterRsvp = "all";' +
         'let etFilterPaidLast = "all", etFilterOrderedLast = "all", etFilterNew = "all";' +
@@ -33881,27 +33890,40 @@ suite('Suite 128. The do-not-send list — automation emails only');
     }
   }
 
-  /* ---- 4. both LIVE senders honour it ---- */
-  /* ⚠ TWO DOORS, ONE LIST. Preview & Send and the older Send Template modal are
-     separate senders over the same customers, so a guard in only one means the
-     list works or not depending which button was pressed — and nobody would find
-     out which. */
+  /* ---- 4. the ONE live sender honours it ---- */
+  /* ⚠ THERE USED TO BE TWO DOORS AND NOW THERE IS ONE (2026-09-04). Preview & Send and
+     the older Send Template modal were separate senders over the same customers, so a
+     guard in only one meant the list worked or not depending which button was pressed
+     — and nobody would find out which. The second modal is deleted and the green Send
+     on each template card opens this one with that template chosen; the checks that
+     used to hold the weaker door are replaced by the two below, which assert it cannot
+     come back and that the card really does route here. */
   {
-    const previewSend = sectionFrom(admin, admin.indexOf("document.getElementById('etSendToSelectedBtn')"));
-    const templateSend = sectionFrom(admin, admin.indexOf("document.getElementById('etSendConfirmBtn')"));
+    /* ⚠ ANCHORED ON THE LISTENER, NOT ON THE BARE getElementById. The selection-UI
+       painter added on 2026-09-04 reads that same button to write the count onto it
+       and sits EARLIER in the file, so the plain id captured its slice and these two
+       checks failed on code that is right — the slow-fuse shape S82 and S129 each hit. */
+    const previewSend = sectionFrom(admin, admin.indexOf("document.getElementById('etSendToSelectedBtn').addEventListener"));
     check('S128', 'Preview & Send refuses to mail somebody on the list',
       /etNoAutomationEmails\(member\.data\)/.test(previewSend),
-      'the checkboxes are read out of the DOM at send time, so a row ticked just ' +
-      'before somebody was added to the list is still a ticked id');
+      'the ticks are read at send time, so a row ticked just before somebody was ' +
+      'added to the list is still a selected id');
     check('S128', 'and counts them apart from real failures',
       /optedOut\+\+/.test(previewSend) && /do-not-send list/.test(previewSend),
       'a deliberate exclusion is not a failure, and reading it as one hides both');
-    check('S128', 'the Send Template modal refuses too',
-      /etNoAutomationEmails\(customer\.data\)/.test(templateSend),
-      'a guard on one of two doors is a list that works by accident');
-    check('S128', 'and its member list leaves them out to begin with',
-      /etNoAutomationEmails\(addr\.data\)/.test(sectionFrom(admin, admin.indexOf('function openEmailSendModal'))),
-      'being told after pressing send that they were skipped reads as a broken button');
+    /* ⚠ THE SECOND SENDER MUST STAY GONE. Re-adding a modal that lists customers
+       without the ten filters and without this list is the whole failure above,
+       rebuilt. Both names, because either half alone is half a sender. */
+    check('S128', 'the second, filter-less sender has not come back',
+      admin.indexOf('openEmailSendModal') === -1 && admin.indexOf('etSendConfirmBtn') === -1,
+      'two senders over one book is a do-not-send list that holds by accident');
+    /* ⚠ AND THE BUTTON THE OFFICE ACTUALLY PRESSES HAS TO REACH THIS ONE. A green Send
+       on every template card wired to nothing, or to something else, is how the
+       filtered screen goes unused while looking present. */
+    check('S128', 'the Send button on a template card opens the filtered sender',
+      /dataset\.sendtemplate[\s\S]{0,200}openSendModal\(t\.id\)/.test(
+        stripComments(sectionFrom(admin, admin.indexOf("list.querySelectorAll('[data-sendtemplate]')")))),
+      'the filters and Select All are worth nothing behind a button nobody presses');
   }
 
   /* ---- 5. THE MONEY GUARD: billing has never heard of the field ---- */
@@ -33926,15 +33948,35 @@ suite('Suite 128. The do-not-send list — automation emails only');
   }
 
   /* ---- 6. it opens honoured, every time ---- */
+  /* ⚠ REPOINTED 2026-09-04, NOT WEAKENED. The reset moved into `etResetAudienceFilters`
+     so that opening the panel and the new "Clear filters" button cannot drift apart —
+     two copies of "put every filter back" is two places for the do-not-send line to be
+     forgotten, and the copy that forgets it clears straight past somebody on the list.
+     These checks follow the rule to where it lives, and a third asserts the opener
+     still calls it. */
   {
+    const resetSrc = extractFn(admin, 'etResetAudienceFilters');
     const openSrc = extractFn(admin, 'openSendModal');
-    check('S128', 'opening the modal resets the list filter to "hide", not "all"',
-      /etFilterDoNotSend = 'hide'/.test(openSrc || ''),
+    check('S128', 'the shared audience reset is findable',
+      !!resetSrc,
+      'renamed or inlined — repoint this rather than dropping it, it is what keeps ' +
+      'the do-not-send list applied on every route into the panel');
+    check('S128', 'resetting the filters sets the list filter to "hide", not "all"',
+      /etFilterDoNotSend = 'hide'/.test(resetSrc || ''),
       '"I forgot to re-apply it" must never be a way somebody on the list gets mailed');
     check('S128', 'and it is kept out of the reset-everything-to-all loop',
-      !/'etFilterDoNotSend'[^\]]*\]\.forEach/.test(openSrc || '') &&
-      (openSrc || '').indexOf("'etFilterInstalled'].forEach") !== -1,
+      !/'etFilterDoNotSend'[^\]]*\]\.forEach/.test(resetSrc || '') &&
+      (resetSrc || '').indexOf("'etFilterInstalled'].forEach") !== -1,
       'that loop sets every id it names to "all"; there is no "all" here on purpose');
+    check('S128', 'and opening the panel really runs it',
+      /etResetAudienceFilters\(\)/.test(stripComments(openSrc || '')),
+      'a reset nothing calls is a panel that opens holding the last send’s filters');
+    /* ⚠ AND THE TICKS ARE DROPPED ON OPEN. They now outlive an innerHTML rebuild by
+       design, so nothing else would clear them, and a panel opening with yesterday's
+       audience already selected is a send to people nobody chose today. */
+    check('S128', 'and the previous selection is cleared with them',
+      /etSelectedRecipientIds\.clear\(\)/.test(stripComments(openSrc || '')),
+      'a selection that survives the panel closing is an audience nobody chose');
   }
 
   /* ---- 7. the control survives a re-render ---- */
@@ -51725,6 +51767,252 @@ suite('306. A Confirmed tag means a day on the plan, no exceptions');
   check('S306', 'the checker writes nothing and moves nobody',
     !/push\(|splice\(|updateDoc|setDoc/.test(promise.replace(/out\.push\(item\);/, '')),
     'a self-healing checker is a bug that never gets reported');
+}
+
+/* =====================================================================
+ * Suite 307 — filter, then select everyone under the filter
+ *
+ * Dax, 2026-09-04: "in automated emails make it so you can filter who you see
+ * then you can select all so it selects everyone under the filter you chose."
+ *
+ * ⚠ THE FILTERS AND SELECT ALL BOTH EXISTED. What did not work is the sentence
+ * read as a whole: the ticks lived only in the checkboxes, and this list is
+ * rebuilt by innerHTML on every keystroke, so selecting 312 unpaid customers
+ * and then typing one name into the search box to check it left exactly ONE
+ * tick standing. The send then went to one person while the count line still
+ * said 312. A send to almost nobody looks exactly like a send that worked.
+ *
+ * ⚠ SO EVERY CHECK BELOW RUNS THE RENDERER. Whether a tick SURVIVES is a fact
+ * about state after a redraw; a regex over the source cannot see it, and this
+ * repo has been caught four times by a check that matched the source of
+ * something that could never reach the screen.
+ *
+ * ⚠ AND THE OPPOSITE FAILURE IS THE EXPENSIVE ONE. A selection that outlived a
+ * FILTER change would carry a first-year customer straight past the guard
+ * Suite 72 exists for — choosing an RSVP template quietly sets New vs returning
+ * to Returning precisely so Select All cannot reach them. So the rule is not
+ * "ticks are permanent": a filter drops whoever it excludes, and the search box
+ * drops nobody. Both halves are checked, and the filter half matters more.
+ * ===================================================================== */
+suite('Suite 307. Filter, then select everyone under the filter');
+
+{
+  const renderSrc307 = extractFn(admin, 'etRenderRecipientList');
+  const selUiSrc307 = extractFn(admin, 'etUpdateSelectionUi');
+  check('S307', 'the renderer and the selection painter are both findable',
+    !!renderSrc307 && !!selUiSrc307,
+    'renamed or removed — update this suite rather than deleting it');
+
+  if (renderSrc307 && selUiSrc307) {
+    /* One builder, so every check runs the REAL renderer and the REAL painter.
+       The helpers stubbed here decide who MATCHES, which is not what this suite
+       is about; `custCanBeEmailed` is lifted real because who is reachable is
+       one of the three things that legitimately prunes a tick. */
+    const draw307 = function (book, o) {
+      const opt = o || {};
+      const list = { innerHTML: '' };
+      const countEl = { textContent: '' };
+      const pill = { textContent: '', style: {} };
+      const allBtn = { textContent: '', disabled: false, style: {} };
+      const noneBtn = { disabled: false, style: {} };
+      const sendBtn = { textContent: '', disabled: false, style: {} };
+      const doc = {
+        getElementById: function (id) {
+          if (id === 'etRecipientList') return list;
+          if (id === 'etRecipientCount') return countEl;
+          if (id === 'etSelectedPill') return pill;
+          if (id === 'etSelectAllBtn') return allBtn;
+          if (id === 'etSelectNoneBtn') return noneBtn;
+          if (id === 'etSendToSelectedBtn') return sendBtn;
+          return null;
+        }
+      };
+      const env = new Function('document', 'MEMBERS', 'TERM', 'PAYMENT', 'MODE', 'PICKED',
+        (extractFn(admin, 'custCanBeEmailed') || '') +
+        (extractFn(admin, 'etNoAutomationEmails') || '') +
+        selUiSrc307 +
+        'let etSelectedRecipientIds = new Set(PICKED);' +
+        'let etRecipientSearchTerm = TERM;' +
+        'let etFilterGateCode = "all", etFilterPayment = PAYMENT, etFilterRsvp = "all";' +
+        'let etFilterPaidLast = "all", etFilterOrderedLast = "all", etFilterNew = "all";' +
+        'let etFilterGroup = "all", etFilterOutlet = "all", etFilterInstalled = "all";' +
+        'let etRsvpAudienceAutoSet = false;' +
+        'let etFilterDoNotSend = MODE;' +
+        'function etGetMembers(){ return MEMBERS; }' +
+        'function etRsvpAnswered(){ return true; }' +
+        /* Reads the record, so the Payment filter can really prune somebody —
+           a stub returning one constant makes the filter half untestable. */
+        'function getLiveInvoiceStatus(d){ return (d && d.pay) || "Paid in Full"; }' +
+        'function audienceBillingGroup(){ return "own"; }' +
+        'function audienceNeverAsked(){ return false; }' +
+        'function audiencePaidLastYear(){ return "paid"; }' +
+        'function audienceOrderedLastYear(){ return "yes"; }' +
+        'function audienceHasLastSeason(){ return true; }' +
+        'function esc(s){ return String(s == null ? "" : s); }' +
+        renderSrc307 +
+        ';return { go: etRenderRecipientList, sel: etSelectedRecipientIds };');
+      const r = env(doc, book, (opt.term || '').toLowerCase(), opt.payment || 'all',
+        opt.mode || 'hide', opt.picked || []);
+      r.go();
+      return {
+        html: list.innerHTML,
+        count: countEl.textContent,
+        picked: Array.from(r.sel).sort(),
+        pill: pill.textContent,
+        allLabel: allBtn.textContent,
+        allDead: allBtn.disabled,
+        sendLabel: sendBtn.textContent,
+        sendDead: sendBtn.disabled
+      };
+    };
+
+    /* Three sendable people. Ann is the one a search will find; Bob is the one
+       the Payment filter will keep; Cal is here so a pruned selection is
+       visibly smaller rather than merely empty. */
+    const book307 = () => ([
+      { id: 'a1', data: { name: 'Ann Ableton', email: 'ann@x.com', phone: '8015550001', pay: 'Unpaid' } },
+      { id: 'b2', data: { name: 'Bob Baker',   email: 'bob@x.com', phone: '8015550002', pay: 'Paid in Full' } },
+      { id: 'c3', data: { name: 'Cal Carter',  email: 'cal@x.com', phone: '8015550003', pay: 'Paid in Full' } }
+    ]);
+    const ALL3 = ['a1', 'b2', 'c3'];
+
+    /* ---- 1. everyone under the filter, and the buttons say the number ---- */
+    {
+      const r = draw307(book307(), { picked: ALL3 });
+      check('S307', 'a tick on every matching member survives the redraw',
+        r.picked.join(',') === 'a1,b2,c3',
+        'the ticks are the record now; losing them on a repaint is the whole bug');
+      check('S307', 'and each of those rows is drawn already ticked',
+        (r.html.match(/checked/g) || []).length === 3,
+        'a checkbox that does not reflect the stored tick is the screen and the ' +
+        'send disagreeing about who is about to be written to');
+      check('S307', 'the running total is on screen',
+        r.pill === '3 selected',
+        'the office presses Select All and needs to see what it did, not count rows');
+      /* ⚠ NAMING THE NUMBER IS THE POINT. "Select everyone matching" beside a count
+         line reading 3 is still a guess about which 3 it means. */
+      check('S307', 'and Select All names how many it is about to tick',
+        r.allLabel === 'Select all 3 shown',
+        'an unnamed scope is what made the old Select All impossible to trust');
+      check('S307', 'the Send button quotes the same number it will send to',
+        r.sendLabel === 'Send to 3 selected' && r.sendDead === false,
+        'the button and the send both read the stored ticks, so they cannot drift');
+    }
+
+    /* ---- 2. THE BUG: searching for one name must not throw the ticks away ---- */
+    {
+      const r = draw307(book307(), { picked: ALL3, term: 'ann' });
+      check('S307', 'typing a name into the search box keeps every tick',
+        r.picked.join(',') === 'a1,b2,c3',
+        'this is the reported failure: 312 ticked, one name typed, one email sent');
+      check('S307', 'while drawing only the person searched for',
+        r.html.indexOf('Ann Ableton') !== -1 &&
+        r.html.indexOf('Bob Baker') === -1 && r.html.indexOf('Cal Carter') === -1,
+        'the search box has to narrow what is on screen or it is not a search box');
+      /* ⚠ SAID OUT LOUD, because a shorter list with the same tick count is exactly
+         where somebody assumes the ticks went with it. */
+      check('S307', 'and the count line says the audience is untouched',
+        /3 members match these filters\./.test(r.count) &&
+        /Showing 1 of them while you search\. Everyone you have ticked stays ticked\./.test(r.count),
+        'a silent discrepancy between the list and the count is what this replaced');
+      check('S307', 'the pill still reports the real selection, not the visible rows',
+        r.pill === '3 selected',
+        'reporting the drawn rows would make the screen agree with the old bug');
+    }
+
+    /* ---- 3. a FILTER, unlike a search, drops whoever it excludes ---- */
+    /* ⚠ THIS IS THE HALF THAT PROTECTS PEOPLE. Suite 72's RSVP default sets New vs
+       returning to Returning so Select All cannot reach a first-year customer; a
+       selection that outlived a filter change would walk them straight past it. */
+    {
+      const r = draw307(book307(), { picked: ALL3, payment: 'unpaid' });
+      check('S307', 'narrowing a filter drops the ticks it excludes',
+        r.picked.join(',') === 'a1',
+        'a tick that outlives the filter that allowed it is how the RSVP default ' +
+        'gets walked past and a first-year customer is asked about lights again');
+      check('S307', 'and the buttons follow it down',
+        r.pill === '1 selected' && r.allLabel === 'Select all 1 shown',
+        'a stale count over a shortened list is the same lie in the other direction');
+    }
+
+    /* ---- 4. the do-not-send list and a missing address prune too ---- */
+    {
+      const b = book307();
+      b[1].data.noAutomationEmails = true;
+      const r = draw307(b, { picked: ALL3 });
+      check('S307', 'somebody added to the do-not-send list loses their tick',
+        r.picked.join(',') === 'a1,c3' && r.html.indexOf('Bob Baker') === -1,
+        'pruning after the list rather than before it is what stops the send loop ' +
+        'being the only thing between them and an email they asked never to get');
+    }
+    {
+      const b = book307();
+      b[2].data.email = '';
+      const r = draw307(b, { picked: ALL3 });
+      check('S307', 'and so does somebody with no address to send to',
+        r.picked.join(',') === 'a1,b2',
+        'a ticked id with nowhere to send counts towards a total nothing can deliver');
+      check('S307', 'while the count line still says how many were left out',
+        /no email address on file/.test(r.count),
+        'left out, but never left unsaid — the rule this panel already had');
+    }
+
+    /* ---- 5. a search that matches nobody is not an empty audience ---- */
+    /* ⚠ THE OLD WORDING — "no members match this search and these filters" — read as
+       though the filters had come up empty and the ticks had gone with them. */
+    {
+      const r = draw307(book307(), { picked: ALL3, term: 'zzz' });
+      check('S307', 'a search matching nobody says the ticks are still there',
+        /3 members? still match/.test(r.html) && /3 ticked people are untouched/.test(r.html),
+        'telling the office nothing matches, over three live ticks, is the panel ' +
+        'contradicting the send it is about to run');
+      check('S307', 'and Select All goes dead rather than offering to tick nothing',
+        r.allDead === true && r.allLabel === 'Select everyone matching',
+        'a live button over an empty list is one press that silently does nothing');
+    }
+
+    /* ---- 6. the manage view still offers no way to tick anybody ---- */
+    /* ⚠ Suite 128 owns this rule; it is re-checked HERE against the new painter,
+       because a Select All button that stayed live over the do-not-send list would
+       be exactly one press from mailing the people it records as never to be mailed. */
+    {
+      const b = book307();
+      b[0].data.noAutomationEmails = true;
+      const r = draw307(b, { mode: 'only' });
+      check('S307', 'the manage view renders no checkbox and no live Select All',
+        r.html.indexOf('et-recipient-cb') === -1 && r.allDead === true,
+        'a tickable row here is one press away from mailing the do-not-send list');
+    }
+  }
+
+  /* ---- 7. the wiring: the ticks are recorded, and the send reads them ---- */
+  /* ⚠ THE RENDERER ABOVE PROVES THE STATE SURVIVES; these prove something puts a
+     press INTO that state and something reads it back out. A repo that has shipped
+     a control whose listener silently did not apply checks both halves. */
+  {
+    const adm307 = stripComments(admin.replace(/\r/g, ''));
+    check('S307', 'a tick is recorded through a listener delegated to the list',
+      /getElementById\('etRecipientList'\)\?\.addEventListener\('change'[\s\S]{0,400}etSelectedRecipientIds\.add/.test(adm307),
+      'these rows are rebuilt by innerHTML on every keystroke, so a listener bound ' +
+      'to a checkbox dies with the row and the tick is never recorded anywhere');
+    check('S307', 'Select All writes into the stored selection, not just the boxes',
+      /etSelectAllBtn'\)\.addEventListener[\s\S]{0,300}etSelectedRecipientIds\.add\(cb\.value\)/.test(adm307),
+      'ticking the boxes alone puts the selection back where the repaint eats it');
+    /* ⚠ CLEARS THE WHOLE SET, not the visible rows. Unticking only what is on screen
+       while a search is active leaves ticks behind that nothing on screen shows. */
+    check('S307', 'Clear selection empties the whole selection',
+      /etSelectNoneBtn'\)\.addEventListener[\s\S]{0,200}etSelectedRecipientIds\.clear\(\)/.test(adm307),
+      'clearing only the drawn rows leaves invisible ticks in a live send');
+    check('S307', 'the send reads the stored selection rather than the checkboxes',
+      /const selectedIds = Array\.from\(etSelectedRecipientIds\)/.test(adm307) &&
+      adm307.indexOf(".et-recipient-cb:checked") === -1,
+      'reading the DOM at send time is what sent to one person while the button, ' +
+      'the pill and the count line all said three hundred');
+    check('S307', 'and Clear filters goes through the one shared reset',
+      /etClearFiltersBtn'\)\?\.addEventListener[\s\S]{0,200}etResetAudienceFilters\(\)/.test(adm307),
+      'a second copy of "put every filter back" is a second place to forget the ' +
+      'do-not-send line, and the copy that forgets it clears past somebody on it');
+  }
 }
 
 Promise.all(pendingAsync).then(function () {

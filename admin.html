@@ -3164,21 +3164,11 @@
           </div>
         </div>
       </div>
-      <!-- ===== SEND MODAL ===== -->
-      <div class="et-popup-overlay" id="etSendOverlay" style="display:none;">
-        <div class="et-popup" style="max-width:660px;">
-          <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;" id="etSendTitle">Send Template</h3>
-          <p style="margin:0 0 16px; font-size:13px; color:var(--slate);">Select customers to send this template to.</p>
-          <div id="etSendPreview" style="background:var(--paper); padding:12px; border-radius:8px; margin-bottom:16px; border:1px solid var(--line); max-height:150px; overflow-y:auto; font-size:12px; white-space:pre-wrap; color:var(--slate);"></div>
-          <input type="text" id="etSendSearch" placeholder="Search customers by name or phone..." style="width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--line); font-size:13px; margin-bottom:12px;">
-          <div id="etSendMemberList" style="max-height:280px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:8px; background:var(--snow); margin-bottom:16px;"></div>
-          <div style="display:flex; gap:10px;">
-            <button type="button" class="btn btn-outline" id="etSendCancelBtn" style="flex:1;">Cancel</button>
-            <button type="button" class="btn btn-gold" id="etSendConfirmBtn" style="flex:1;">Send to Selected</button>
-          </div>
-          <div id="etSendStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
-        </div>
-      </div>
+      <!-- The old "Send Template" modal stood here: a second sender with no filters,
+           no Select All and no preview of what was about to go out. Deleted 2026-09-04
+           when the green Send on each template card was pointed at Preview & Send
+           instead. Two doors over the same customers is a rule that holds or does not
+           depending on which button was pressed, and nobody finds out which. -->
       <!-- ===== TEMPLATE EDITOR MODAL ===== -->
       <div class="et-popup-overlay" id="etEditorOverlay">
         <div class="et-popup" style="max-width:640px;">
@@ -3283,8 +3273,23 @@
             <button type="button" class="btn btn-outline" id="etSendTestBtn" style="margin-bottom:14px;">Send Test</button>
           </div>
           <button type="button" class="btn btn-outline btn-sm" id="etCopyForPreviewBtn" style="width:auto; margin:-8px 0 16px;">Copy Preview Text</button>
-          <div class="form-row"><label>Send To</label><input type="text" id="etRecipientSearch" placeholder="Search members by name..."></div>
-          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:8px; margin:-6px 0 4px;">
+          <!-- ⭐ ONE BOX THAT ANSWERS "WHO IS THIS GOING TO?" (2026-09-04). Owner:
+               "make it so you can filter who you see then you can select all so it
+               selects everyone under the filter you chose."
+               The filters, the search box and the two select buttons used to be three
+               loose rows in no particular relationship, so nothing on screen said that
+               Select All was scoped to the filters at all — you had to press it and
+               count. Boxed together, under a heading that says what the box decides,
+               with the button naming its own scope, the scope is the first thing read. -->
+          <div style="border:1px solid var(--line); border-radius:12px; padding:14px; background:var(--snow); margin-bottom:14px;">
+            <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:12px; flex-wrap:wrap;">
+              <div style="min-width:0;">
+                <h4 style="margin:0; font-family:'Fraunces',serif; font-size:15px;">Who gets this</h4>
+                <p style="margin:3px 0 0; font-size:12px; color:var(--slate);">Narrow the list with these, then press <strong>Select everyone matching</strong> to tick all of them at once.</p>
+              </div>
+              <button type="button" class="btn btn-outline btn-sm" id="etClearFiltersBtn" style="width:auto; flex:none;">Clear filters</button>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:8px; margin:0 0 4px;">
             <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Payment (this season)</label>
               <select id="etFilterPayment" style="padding:8px 10px; font-size:13px;">
                 <option value="all">All</option>
@@ -3368,10 +3373,22 @@
                 <option value="only">Show who I&rsquo;ve excluded</option>
               </select>
             </div>
+            </div>
+            <!-- ⚠ THE SEARCH BOX IS BELOW THE FILTERS AND IS DELIBERATELY NOT ONE OF
+                 THEM. Every control above decides the AUDIENCE; this one only decides
+                 what is on screen, so you can check one name without losing the three
+                 hundred ticks you just made. It used to run before the filters and take
+                 the ticks with it — see etRenderRecipientList. -->
+            <div class="form-row" style="margin:10px 0 0;"><label style="font-size:11.5px;">Find someone in the list</label>
+              <input type="text" id="etRecipientSearch" placeholder="Type a name &mdash; this only changes what you see, never who is ticked" style="padding:8px 10px; font-size:13px;">
+            </div>
           </div>
-          <div style="display:flex; gap:8px; margin:-8px 0 10px;">
-            <button type="button" class="btn btn-outline btn-sm" id="etSelectAllBtn" style="width:auto;">Select All</button>
-            <button type="button" class="btn btn-outline btn-sm" id="etSelectNoneBtn" style="width:auto;">Select None</button>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:0 0 10px;">
+            <button type="button" class="btn btn-outline btn-sm" id="etSelectAllBtn" style="width:auto;">Select everyone matching</button>
+            <button type="button" class="btn btn-outline btn-sm" id="etSelectNoneBtn" style="width:auto;">Clear selection</button>
+            <!-- The running total, where the eye already is when the buttons are pressed.
+                 It is the same number the Send button and the confirm dialog quote. -->
+            <span id="etSelectedPill" style="margin-left:auto; font-size:12px; font-weight:600; padding:5px 11px; border-radius:999px; background:var(--paper); color:var(--slate); border:1px solid var(--line);">Nobody selected yet</span>
           </div>
           <div id="etRecipientCount" style="font-size:12px; color:var(--slate); margin:-4px 0 8px;"></div>
           <div id="etRecipientList" style="max-height:220px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:16px;"></div>
@@ -15787,12 +15804,22 @@ function renderEmailTemplateList(){
   
   if(typeof etPopulateTemplateSelect === 'function') etPopulateTemplateSelect();
   
-  // Send button handler
+  /* ⭐ SEND OPENS THE ONE SEND SCREEN, WITH THIS TEMPLATE ALREADY CHOSEN (2026-09-04).
+     Owner: "make it so you can filter who you see then you can select all so it selects
+     everyone under the filter you chose."
+
+     ⚠ IT ALREADY EXISTED — behind the small "Preview & Send" button at the top, which
+     nobody presses when there is a green Send on the card itself. This button used to
+     open a SECOND, older sender with no filters, no Select All, no preview, and no
+     quote tokens or photos; that modal has been deleted rather than left as a door
+     somebody could still walk through. Two senders over the same customers is a panel
+     whose rules depend on which button was pressed, and nobody would ever find out
+     which — the same reasoning the do-not-send list is guarded by. */
   list.querySelectorAll('[data-sendtemplate]').forEach(function(btn){
     btn.addEventListener('click', function(){
       const t = emailTemplates.find(t => t.id === btn.dataset.sendtemplate);
       if(!t) return;
-      openEmailSendModal(t);
+      openSendModal(t.id);
     });
   });
   
@@ -15822,131 +15849,6 @@ function renderEmailTemplateList(){
     });
   });
 }
-// Send Modal Handler
-function openEmailSendModal(template){
-  const overlay = document.getElementById('etSendOverlay');
-  const preview = document.getElementById('etSendPreview');
-  const memberList = document.getElementById('etSendMemberList');
-  const title = document.getElementById('etSendTitle');
-  
-  title.textContent = 'Send: ' + template.data.name;
-  preview.textContent = template.data.body || '';
-  
-  // Build member list
-  let html = '';
-  jobAddresses.forEach(addr => {
-    if(!addr.data.phone) return;
-    /* ⚠ OFF THIS LIST TOO, not just guarded at send time. The guard in the send loop
-       is the safety net; leaving somebody tickable here means the office selects them,
-       presses send, and is told afterwards that they were skipped — which reads as the
-       button being broken rather than the list being honoured. */
-    if(etNoAutomationEmails(addr.data)) return;
-    html += '<label style="display:flex; align-items:center; padding:8px; border-bottom:1px solid var(--line); cursor:pointer;">'+
-      '<input type="checkbox" data-sendto="'+addr.data.phone+'" style="margin-right:8px;">'+
-      '<div style="flex:1;">'+
-        '<div style="font-weight:500;">'+esc(addr.data.name || 'Unknown')+'</div>'+
-        '<div style="font-size:11px; color:var(--slate);">'+esc(addr.data.phone)+'</div>'+
-      '</div>'+
-    '</label>';
-  });
-  memberList.innerHTML = html;
-  
-  // Search handler
-  document.getElementById('etSendSearch').value = '';
-  document.getElementById('etSendSearch').addEventListener('input', function(){
-    const term = this.value.toLowerCase();
-    memberList.querySelectorAll('label').forEach(lbl => {
-      const text = lbl.textContent.toLowerCase();
-      lbl.style.display = text.indexOf(term) !== -1 ? 'flex' : 'none';
-    });
-  });
-  
-  overlay.style.display = 'flex';
-  window.etSendingTemplate = template;
-}
-document.getElementById('etSendCancelBtn').addEventListener('click', function(){
-  document.getElementById('etSendOverlay').style.display = 'none';
-  document.getElementById('etSendMemberList').innerHTML = '';
-  window.etSendingTemplate = null;
-});
-document.getElementById('etSendConfirmBtn').addEventListener('click', async function(){
-  if(!window.etSendingTemplate) return;
-  const checked = document.querySelectorAll('#etSendMemberList input[type="checkbox"]:checked');
-  if(!checked.length){ alert('Select at least one customer'); return; }
-  
-  const phones = Array.from(checked).map(cb => cb.dataset.sendto);
-  const template = window.etSendingTemplate;
-  const statusEl = document.getElementById('etSendStatus');
-  /* This used to reference bare `emailjsServiceId` / `emailjsTemplateId`, which
-     were never declared anywhere. The browser turns any element id into a
-     global, so those names silently resolved to the INPUT BOXES rather than the
-     text in them, and emailjs.init() was never called at all - hence "The
-     public key is required" on every send. Now it reads the real settings and
-     initialises properly, the same way every other send in this file does. */
-  const cfg = await getEmailjsConfig();
-  const missingParts = emailjsMissingParts(cfg);
-  if(missingParts.length){
-    statusEl.style.color = 'var(--ember)';
-    statusEl.textContent = 'Missing ' + missingParts.join(', ') + '. Fill them in under EmailJS Setup and press Save.';
-    return;
-  }
-  if(!window.emailjs){
-    statusEl.style.color = 'var(--ember)';
-    statusEl.textContent = 'Email service failed to load — reload the page.';
-    return;
-  }
-  emailjs.init(cfg.publicKey);
-  const btn = this;
-  btn.disabled = true;
-  statusEl.style.color = 'var(--slate)';
-  statusEl.textContent = 'Sending…';
-  let sent = 0;
-  let noEmail = 0;
-  let optedOut = 0;
-  const failures = [];
-  for(const phone of phones){
-    const customer = jobAddresses.find(a => a.data.phone === phone);
-    if(!customer) continue;
-    const name = properName(customer.data.name) || 'there';
-    const to = (customer.data.email || '').trim();
-    if(!to){ noEmail++; continue; }
-    /* ⚠ THE SAME LIST, HONOURED ON BOTH DOORS. This modal and Preview & Send are two
-       separate senders over the same customers, so a guard in only one of them means
-       the do-not-send list works or not depending on which button the office happened
-       to press — and nobody would ever find out which. */
-    if(etNoAutomationEmails(customer.data)){ optedOut++; continue; }
-    statusEl.textContent = 'Sending ' + (sent + failures.length + 1) + ' of ' + phones.length + '… (' + name + ')';
-    try {
-      /* Tokens are resolved the same way as everywhere else, so buttons and
-         links in a template actually work here too. */
-      const body = await resolveLinkTokens(template.data.body, phone, 0, {name: name});
-      await emailjs.send(cfg.serviceId, cfg.templateId, {
-        from_name: 'Highlighting Utah',
-        to_email: to,
-        to_name: name,
-        customer_name: name,
-        subject: await emailSubjectFor(template, phone, {name: name}),
-        message: body
-      });
-      sent++;
-    } catch(err){
-      failures.push(name + ': ' + (err && (err.text || err.message) ? (err.text || err.message) : 'failed'));
-      console.error('Email send failed:', err);
-    }
-    await new Promise(r => setTimeout(r, 600));
-  }
-  btn.disabled = false;
-  statusEl.style.color = failures.length ? 'var(--ember)' : '#2E6B3E';
-  statusEl.innerHTML = 'Sent to ' + sent + ' customer' + (sent===1?'':'s') + '.' +
-    (noEmail ? '<br><span style="color:var(--slate);">' + noEmail + ' skipped — no email address on file.</span>' : '') +
-    (optedOut ? '<br><span style="color:var(--slate);">' + optedOut + ' skipped — on the do-not-send list.</span>' : '') +
-    (failures.length ? '<br>Failed: ' + esc(failures.join(' · ')) : '');
-  setTimeout(() => {
-    document.getElementById('etSendOverlay').style.display = 'none';
-    document.getElementById('etSendMemberList').innerHTML = '';
-    window.etSendingTemplate = null;
-  }, 1500);
-});
 document.getElementById('etNewTemplateBtn').addEventListener('click', function(){
   document.getElementById('etEditingId').value = '';
   document.getElementById('etTemplateName').value = '';
@@ -16737,6 +16639,22 @@ let etFilterInstalled = 'all';
    this is the one that STICKS, so Select All cannot quietly pick them back up next
    time. That is the whole reason it exists. */
 let etFilterDoNotSend = 'hide';
+/* ⭐ WHO IS TICKED, HELD HERE RATHER THAN IN THE CHECKBOXES (2026-09-04).
+   Owner: "make it so you can filter who you see then you can select all so it selects
+   everyone under the filter you chose."
+
+   ⚠ THE TICKS USED TO LIVE ONLY IN THE DOM, and this list is rebuilt by innerHTML on
+   every keystroke. Selecting 312 unpaid customers and then typing one name into the
+   search box to check it left exactly ONE tick standing — the other 311 were thrown
+   away with the rows, in silence, and the send went to one person. That is the same
+   shape of failure as a send to nobody: it looks like it worked.
+
+   ⚠ IT IS PRUNED TO THE AUDIENCE ON EVERY RENDER, and that is not optional. Choosing
+   an RSVP template quietly sets "New vs returning" to Returning precisely so Select
+   All cannot reach a first-year customer (Suite 72); a set that outlived a filter
+   change would carry them straight past that. So: changing a FILTER drops anyone it
+   excludes, and typing in the SEARCH box drops nobody. */
+let etSelectedRecipientIds = new Set();
 function etNoAutomationEmails(d){ return (d || {}).noAutomationEmails === true; }
 function etRenderRecipientList(){
   const list = document.getElementById('etRecipientList');
@@ -16749,7 +16667,12 @@ function etRenderRecipientList(){
      "312 members match" whether it had quietly dropped nobody or forty. They now flow
      through every filter and are taken out at the END, where the number that is
      removed is a number worth printing. See the split below. */
-  let members = etGetMembers().filter(m => (!term || (m.data.name||'').toLowerCase().indexOf(term) !== -1));
+  /* ⚠ THE SEARCH TERM IS NOT APPLIED HERE ANY MORE EITHER, and for a bigger reason
+     than tidiness. `members` below IS the audience — it is what the count line counts
+     and what the ticks are pruned to. With the search folded in at the top, typing a
+     name made the audience one person and threw every other tick away. The term is
+     applied once, at the very end, to decide what is DRAWN. */
+  let members = etGetMembers();
   // Gate code
   if(etFilterGateCode === 'missing') members = members.filter(m => !m.data.gateCode);
   else if(etFilterGateCode === 'has') members = members.filter(m => !!m.data.gateCode);
@@ -16832,6 +16755,17 @@ function etRenderRecipientList(){
     members = members.filter(m => custCanBeEmailed(m.data));
     noEmailHidden = beforeNoEmail - members.length;
   }
+  /* ⚠ THE TICKS ARE PRUNED TO THE AUDIENCE HERE — after the do-not-send list and the
+     no-email split, not before either of them. Somebody ticked a minute ago and put on
+     the do-not-send list since has to lose the tick the moment the list is redrawn; do
+     it earlier and the last gate in the send loop is the only thing between them and
+     an email they asked never to receive. */
+  {
+    const audience = new Set(members.map(m => m.id));
+    etSelectedRecipientIds.forEach(function(id){ if(!audience.has(id)) etSelectedRecipientIds.delete(id); });
+  }
+  /* AND ONLY NOW does the search box get a say — over what is drawn, and nothing else. */
+  const shown = term ? members.filter(m => (m.data.name||'').toLowerCase().indexOf(term) !== -1) : members;
   const usingLastYear = (etFilterPaidLast !== 'all' || etFilterOrderedLast !== 'all');
   const lastYearMissing = usingLastYear && !audienceHasLastSeason();
   if(countEl){
@@ -16849,6 +16783,11 @@ function etRenderRecipientList(){
       if(etRsvpAudienceAutoSet && etFilterNew === 'returning'){
         msg += ' — New customers are left out automatically, because an RSVP asks whether they want lights AGAIN. Change "New vs returning" above to include them.';
       }
+      /* ⚠ SAID OUT LOUD, because a shorter list with the same tick count is exactly
+         the moment somebody assumes the ticks went with it. */
+      if(term && shown.length !== members.length){
+        msg += ' — Showing ' + shown.length + ' of them while you search. Everyone you have ticked stays ticked.';
+      }
     }
     countEl.textContent = msg;
   }
@@ -16860,12 +16799,24 @@ function etRenderRecipientList(){
          they DID match, we just cannot write to them. */
       : (noEmailHidden
           ? '<div class="empty-note">No one left to send to. '+noEmailHidden+' matched these filters but '+(noEmailHidden===1?'has':'have')+' no email address on file — find '+(noEmailHidden===1?'them':'them')+' under Customers &rarr; Filters &rarr; Email.</div>'
-          : '<div class="empty-note">No members match this search and these filters.</div>');
+          : '<div class="empty-note">No members match these filters.</div>');
+    etUpdateSelectionUi(0);
     return;
   }
-  const previouslyChecked = new Set(Array.from(list.querySelectorAll('input:checked')).map(el => el.value));
-  list.innerHTML = members.map(function(m){
-    const checked = previouslyChecked.has(m.id) ? 'checked' : '';
+  /* ⚠ A SEARCH THAT MATCHES NOBODY IS NOT AN EMPTY AUDIENCE, and saying so is the
+     whole reason the two are separated. The old wording — "no members match this
+     search and these filters" — read as though the filters had come up empty and the
+     ticks were gone with them. They are not: they are counted right here. */
+  if(!shown.length){
+    list.innerHTML = '<div class="empty-note">Nobody in this audience is called &ldquo;' + esc(etRecipientSearchTerm) + '&rdquo;. ' +
+      members.length + ' member' + (members.length===1?'':'s') + ' still match' + (members.length===1?'es':'') + ' your filters' +
+      (etSelectedRecipientIds.size ? ', and your ' + etSelectedRecipientIds.size + ' ticked ' + (etSelectedRecipientIds.size===1?'person is':'people are') + ' untouched' : '') +
+      ' — clear the search box to see them.</div>';
+    etUpdateSelectionUi(0);
+    return;
+  }
+  list.innerHTML = shown.map(function(m){
+    const checked = etSelectedRecipientIds.has(m.id) ? 'checked' : '';
     const payStatus = getLiveInvoiceStatus(m.data);
     const grp = audienceBillingGroup(m.data);
     let badges = '';
@@ -16894,6 +16845,45 @@ function etRenderRecipientList(){
       '<button type="button" class="btn btn-outline btn-sm" data-dns="'+m.id+'" data-dnsval="1" style="width:auto; flex:none;">Don&rsquo;t send</button>'+
     '</div>';
   }).join('');
+  /* ⚠ NO TICKABLE ROWS IN THE MANAGE VIEW, so nothing there is "matching" and the
+     button must not offer to select it. Passing 0 is what makes Select All go dead
+     rather than merely do nothing visible. */
+  etUpdateSelectionUi(manageMode ? 0 : shown.length);
+}
+/* ⭐ THE RUNNING TOTAL AND THE BUTTON THAT NAMES ITS OWN SCOPE (2026-09-04).
+   ⚠ THE COUNT ON THE SEND BUTTON IS THE COUNT THE SEND USES — both read
+   `etSelectedRecipientIds`, not the checkboxes, so the number on screen and the number
+   of emails that leave cannot drift apart. A button reading "Send to Selected" over a
+   list that had silently dropped 311 ticks was the whole bug. */
+function etUpdateSelectionUi(shownCount){
+  const n = etSelectedRecipientIds.size;
+  const pill = document.getElementById('etSelectedPill');
+  if(pill){
+    pill.textContent = n ? (n + ' selected') : 'Nobody selected yet';
+    pill.style.background = n ? '#E6F2EA' : 'var(--paper)';
+    pill.style.color = n ? '#2E6B3E' : 'var(--slate)';
+    pill.style.borderColor = n ? '#B8D9C2' : 'var(--line)';
+  }
+  const allBtn = document.getElementById('etSelectAllBtn');
+  if(allBtn){
+    const c = Number(shownCount) || 0;
+    /* Naming the number is the point: "Select everyone matching" beside a count line
+       reading 312 is still a guess about which 312 it means. */
+    allBtn.textContent = c ? ('Select all ' + c + ' shown') : 'Select everyone matching';
+    allBtn.disabled = !c;
+    allBtn.style.opacity = c ? '' : '0.5';
+  }
+  const noneBtn = document.getElementById('etSelectNoneBtn');
+  if(noneBtn){
+    noneBtn.disabled = !n;
+    noneBtn.style.opacity = n ? '' : '0.5';
+  }
+  const sendBtn = document.getElementById('etSendToSelectedBtn');
+  if(sendBtn){
+    sendBtn.textContent = n ? ('Send to ' + n + ' selected') : 'Send to Selected';
+    sendBtn.disabled = !n;
+    sendBtn.style.opacity = n ? '' : '0.5';
+  }
 }
 /* Choosing the template is the deliberate act, so it is the moment to set the
    audience. Runs BEFORE the preview so the recipient list and the preview agree
@@ -17575,11 +17565,38 @@ document.getElementById('etRecipientList')?.addEventListener('click', async func
     toast('Could not save that — ' + (err && err.message ? err.message : 'try again') + '.');
   }
 });
-document.getElementById('etSelectAllBtn').addEventListener('click', function(){
-  document.querySelectorAll('.et-recipient-cb').forEach(cb => { cb.checked = true; });
+/* ⭐ ONE TICK, RECORDED WHERE THE SEND WILL LOOK FOR IT.
+   ⚠ DELEGATED, for the same reason the "Don't send" button above it is: these rows are
+   rebuilt by innerHTML on every keystroke, so a listener bound to a checkbox dies with
+   the row it was attached to and the tick is never recorded anywhere. */
+document.getElementById('etRecipientList')?.addEventListener('change', function(e){
+  const cb = e.target && e.target.classList && e.target.classList.contains('et-recipient-cb') ? e.target : null;
+  if(!cb) return;
+  if(cb.checked) etSelectedRecipientIds.add(cb.value);
+  else etSelectedRecipientIds.delete(cb.value);
+  etUpdateSelectionUi(document.querySelectorAll('.et-recipient-cb').length);
 });
+/* ⚠ EVERYONE SHOWN, WHICH IS EVERYONE THE FILTERS KEPT — the search box narrows what
+   is drawn and the button says "Select all N shown" with N counted off the rows that
+   really exist, so the two can never disagree about what is about to be ticked. */
+document.getElementById('etSelectAllBtn').addEventListener('click', function(){
+  const boxes = document.querySelectorAll('.et-recipient-cb');
+  boxes.forEach(cb => { cb.checked = true; etSelectedRecipientIds.add(cb.value); });
+  etUpdateSelectionUi(boxes.length);
+});
+/* ⚠ CLEARS THE WHOLE SELECTION, not just the rows on screen. Unticking only what is
+   visible while a search is active would leave ticks behind that nothing on screen
+   shows — the exact confusion this panel was rebuilt to remove. */
 document.getElementById('etSelectNoneBtn').addEventListener('click', function(){
+  etSelectedRecipientIds.clear();
   document.querySelectorAll('.et-recipient-cb').forEach(cb => { cb.checked = false; });
+  etUpdateSelectionUi(document.querySelectorAll('.et-recipient-cb').length);
+});
+/* Back to everybody, in one press, including the search box — it lives in the same
+   panel, and a "cleared" filter set that still shows eleven people reads as broken. */
+document.getElementById('etClearFiltersBtn')?.addEventListener('click', function(){
+  etResetAudienceFilters();
+  etRenderRecipientList();
 });
 document.getElementById('etCopyForPreviewBtn').addEventListener('click', function(){
   const statusEl = document.getElementById('etPreviewSendStatus');
@@ -17596,7 +17613,11 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
   const templateId = document.getElementById('etSendTemplateSelect').value;
   const template = emailTemplates.find(t => t.id === templateId);
   if(!template){ statusEl.textContent = 'Pick a template first.'; return; }
-  const selectedIds = Array.from(document.querySelectorAll('.et-recipient-cb:checked')).map(cb => cb.value);
+  /* ⚠ READ FROM THE RECORDED SELECTION, NOT FROM THE CHECKBOXES ON SCREEN. With a name
+     typed in the search box the DOM holds one row, and this used to send to one person
+     while the pill, the count line and the button all said 312. The tick is the record;
+     the checkbox is only a picture of it. */
+  const selectedIds = Array.from(etSelectedRecipientIds);
   if(!selectedIds.length){ statusEl.textContent = 'Select at least one recipient.'; return; }
   const serviceId = document.getElementById('emailjsServiceId').value.trim();
   const templateJsId = document.getElementById('emailjsTemplateId').value.trim();
@@ -17673,12 +17694,15 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
     }
   }
 });
-function openSendModal(templateId){
-  etPopulateTemplateSelect();
-  etPopulateMemberSelect();
+/* ⭐ THE ONE RESET, SHARED BY OPENING THE PANEL AND BY "CLEAR FILTERS" (2026-09-04).
+   ⚠ IT IS ONE FUNCTION ON PURPOSE. Two copies of "put every filter back" is two places
+   for the do-not-send line below to be forgotten, and the copy that forgets it is a
+   panel that opens — or clears — with people on it who asked never to be mailed.
+   Suite 128 §6 anchors on this function for exactly that reason. */
+function etResetAudienceFilters(){
   etRecipientSearchTerm = '';
-  document.getElementById('etRecipientSearch').value = '';
-  document.getElementById('etTestEmailInput').value = '';
+  const searchEl = document.getElementById('etRecipientSearch');
+  if(searchEl) searchEl.value = '';
   etFilterGateCode = 'all';
   etFilterPayment = 'all';
   etFilterRsvp = 'all';
@@ -17700,6 +17724,16 @@ function openSendModal(templateId){
   etFilterDoNotSend = 'hide';
   const dnsSel = document.getElementById('etFilterDoNotSend');
   if(dnsSel) dnsSel.value = 'hide';
+}
+function openSendModal(templateId){
+  etPopulateTemplateSelect();
+  etPopulateMemberSelect();
+  etResetAudienceFilters();
+  document.getElementById('etTestEmailInput').value = '';
+  /* ⚠ AND THE TICKS GO WITH THEM. The selection outlives an innerHTML rebuild by
+     design now, so nothing else would clear it — and a panel that opens holding
+     yesterday's audience is a send to people nobody chose today. */
+  etSelectedRecipientIds.clear();
   etRenderRecipientList();
   if(templateId) document.getElementById('etSendTemplateSelect').value = templateId;
   etUpdatePreview();
