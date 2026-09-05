@@ -213,6 +213,51 @@ suite('1. Structure');
     /\\r\?\\n/.test(String(sectionFrom)),
     'these files are CRLF, so a literal \\n terminator never matches and the slice silently runs to EOF');
 
+  /* ⭐ A JSDOM-LESS RUN CANNOT SAY "SAFE TO PUSH" (added 2026-09-04). Four sessions
+     in one day pushed after a run that had silently skipped every render test: a
+     worktree with no node_modules scores 5819 with 21 notes where a healthy one
+     scores 6126 with 5, and the old summary called both of them "All good."
+
+     ⚠ THESE THREE ARE SOURCE-LEVEL AND THAT IS A REAL LIMIT, said out loud rather
+     than papered over. This file cannot run its own summary block twice, so what is
+     proved here is that the guard is present, that the exit code carries the same
+     condition, and that the opt-out is spelled the same way in both places — not
+     that the branch behaves. The behaviour was proved by hand, three ways, on this
+     commit: jsdom present → "All good. Safe to push." and exit 0; jsdom hidden →
+     "NOT SAFE TO PUSH" and exit 1 (5819/21 notes); jsdom hidden with the override
+     → exit 0. If you change that block, re-run those three by hiding
+     node_modules/jsdom — these checks will not catch you.
+
+     ⚠ THE EXIT CODE IS CHECKED SEPARATELY FROM THE MESSAGE because they are what
+     different readers use: a person reads the line, CI and npm test read the code,
+     and a guard that printed the warning while still exiting 0 would be worse than
+     no guard — it would look fixed. */
+  const jsdomGuard = self.slice(self.indexOf('Promise.all(pendingAsync)'));
+  /* ⚠ ANCHORED TO THE else-if, NOT TO THE CONDITION. Both the summary branch and
+     the exit expression below it spell the same condition, so a looser match stayed
+     green while the branch itself was sabotaged to `else if (false)` — caught by
+     red-checking these four, which is the only reason it is written this way. */
+  check('structure', 'a run with no jsdom refuses to say it is safe to push',
+    /else if \(jsdomMissing && !process\.env\.RUN_ALL_ALLOW_NO_JSDOM\)/.test(jsdomGuard),
+    'without this the summary reports what RAN, not what should have run, and 16 ' +
+    'jsdom-gated blocks worth ~300 checks vanish into "0 failed"');
+  check('structure', 'and exits non-zero, so CI cannot read it as a pass either',
+    /process\.exit\(\(fail \|\| \(jsdomMissing/.test(jsdomGuard),
+    'a warning printed alongside exit 0 is worse than none: it looks fixed');
+  check('structure', 'the flag is set where jsdom is discovered missing',
+    /catch \(e\) \{\s*jsdomMissing = true;/.test(self),
+    'set at the require or the guard below can never fire');
+  /* ⚠ MATCHES THE WHOLE WORD AND THEN INSISTS EVERY ONE IS IDENTICAL. Counting
+     occurrences of the name could not fall: the correct name is a PREFIX of its own
+     typo, so `..._JSDOMM` still contained a match and the count stayed at three.
+     Red-checking is what found that; the check had never been capable of failing. */
+  const optOutNames = self.match(/RUN_ALL_ALLOW_NO_JSDOM\w*/g) || [];
+  check('structure', 'the opt-out is spelled the same way everywhere it appears',
+    optOutNames.length >= 3 &&
+    optOutNames.every(function (n) { return n === optOutNames[0]; }),
+    'a typo in one of them is a guard that cannot be turned off, or one that is ' +
+    'always off: ' + optOutNames.join(', '));
+
   /* ⭐ NO TWO SUITES SHARE A NUMBER, AND NO TWO SHARE A check() PREFIX (added 2026-09-04).
      On 2026-09-03 FOUR sessions appended a new suite to the end of this file in one day
      and three of them picked the same number: two 298s and two 299s reached main, and
@@ -1822,8 +1867,27 @@ check('logic', 'csv round trip is stable',
 suite('5. Quote card rendering');
 
 let JSDOM;
+/* ⭐ A MISSING jsdom IS NOW A FAILURE, NOT A NOTE (2026-09-04). Every one of the 16
+   jsdom-gated blocks below degrades to a note() and lets the run continue, so a
+   worktree without node_modules scored ~300 fewer checks and still printed
+   "0 failed" and "All good. Safe to push." Four sessions were caught by that in a
+   single day — the summary reports on what RAN, not on what should have run, and
+   the pass count is no tell, because nobody remembers what it should be for their
+   own tree. The notes count was the only signal, and it is a number you had to
+   already know to read.
+
+   ⚠ THE FLAG IS SET HERE AND READ AT THE SUMMARY, not thrown here. Every suite
+   after this point still runs and still reports: a jsdom-less run is genuinely
+   useful for the ~5,800 checks that need no DOM. What it must never do is end
+   with "Safe to push."
+
+   ⚠ AND IT IS OPT-OUT-ABLE, deliberately. RUN_ALL_ALLOW_NO_JSDOM=1 says "I know,
+   and I meant it" for a machine that cannot install it. An escape hatch somebody
+   has to type is not the same thing as a default that says nothing. */
+let jsdomMissing = false;
 try { ({ JSDOM } = require('jsdom')); }
 catch (e) {
+  jsdomMissing = true;
   note('jsdom not installed — skipping render tests. Run: npm install jsdom');
 }
 
@@ -50896,6 +50960,15 @@ Promise.all(pendingAsync).then(function () {
     console.log('\nFailures:');
     results.forEach(r => console.log('  - ' + r));
     console.log('\nFix these before pushing.');
+  } else if (jsdomMissing && !process.env.RUN_ALL_ALLOW_NO_JSDOM) {
+    /* ⚠ NOT "0 failed, safe to push". Nothing failed because the render tests were
+       never asked. Exits non-zero so CI, npm test and a git hook cannot read this
+       as a pass either. */
+    console.log('\nNOT SAFE TO PUSH — jsdom is missing, so every render test was skipped.');
+    console.log('The count above is what RAN, not what should have run: 16 blocks in');
+    console.log('this file are jsdom-gated, worth roughly 300 checks.');
+    console.log('\n  Fix:       npm install     (in THIS worktree — each one needs its own)');
+    console.log('  Override:  RUN_ALL_ALLOW_NO_JSDOM=1 node run-all.js');
   } else {
     console.log('\nAll good. Safe to push.');
   }
@@ -50905,7 +50978,7 @@ Promise.all(pendingAsync).then(function () {
     console.log('  See the GAP lines above for detail.');
   }
   console.log('='.repeat(55) + '\n');
-  process.exit(fail ? 1 : 0);
+  process.exit((fail || (jsdomMissing && !process.env.RUN_ALL_ALLOW_NO_JSDOM)) ? 1 : 0);
 }).catch(function (e) {
   // An async suite that blew up must never be mistaken for a clean run.
   console.log('\n  FAIL  ' + ((e && e.__suite) || 'an async suite') + ' — crashed partway through');
