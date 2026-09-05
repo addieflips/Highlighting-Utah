@@ -50927,7 +50927,7 @@ suite('305. The referral link, from the office side');
 }
 
 /* =====================================================================
- * Suite 306 — filter, then select everyone under the filter
+ * Suite 307 — filter, then select everyone under the filter
  *
  * Dax, 2026-09-04: "in automated emails make it so you can filter who you see
  * then you can select all so it selects everyone under the filter you chose."
@@ -50951,21 +50951,21 @@ suite('305. The referral link, from the office side');
  * "ticks are permanent": a filter drops whoever it excludes, and the search box
  * drops nobody. Both halves are checked, and the filter half matters more.
  * ===================================================================== */
-suite('Suite 306. Filter, then select everyone under the filter');
+suite('Suite 307. Filter, then select everyone under the filter');
 
 {
-  const renderSrc306 = extractFn(admin, 'etRenderRecipientList');
-  const selUiSrc306 = extractFn(admin, 'etUpdateSelectionUi');
-  check('S306', 'the renderer and the selection painter are both findable',
-    !!renderSrc306 && !!selUiSrc306,
+  const renderSrc307 = extractFn(admin, 'etRenderRecipientList');
+  const selUiSrc307 = extractFn(admin, 'etUpdateSelectionUi');
+  check('S307', 'the renderer and the selection painter are both findable',
+    !!renderSrc307 && !!selUiSrc307,
     'renamed or removed — update this suite rather than deleting it');
 
-  if (renderSrc306 && selUiSrc306) {
+  if (renderSrc307 && selUiSrc307) {
     /* One builder, so every check runs the REAL renderer and the REAL painter.
        The helpers stubbed here decide who MATCHES, which is not what this suite
        is about; `custCanBeEmailed` is lifted real because who is reachable is
        one of the three things that legitimately prunes a tick. */
-    const draw306 = function (book, o) {
+    const draw307 = function (book, o) {
       const opt = o || {};
       const list = { innerHTML: '' };
       const countEl = { textContent: '' };
@@ -50987,7 +50987,7 @@ suite('Suite 306. Filter, then select everyone under the filter');
       const env = new Function('document', 'MEMBERS', 'TERM', 'PAYMENT', 'MODE', 'PICKED',
         (extractFn(admin, 'custCanBeEmailed') || '') +
         (extractFn(admin, 'etNoAutomationEmails') || '') +
-        selUiSrc306 +
+        selUiSrc307 +
         'let etSelectedRecipientIds = new Set(PICKED);' +
         'let etRecipientSearchTerm = TERM;' +
         'let etFilterGateCode = "all", etFilterPayment = PAYMENT, etFilterRsvp = "all";' +
@@ -51006,7 +51006,7 @@ suite('Suite 306. Filter, then select everyone under the filter');
         'function audienceOrderedLastYear(){ return "yes"; }' +
         'function audienceHasLastSeason(){ return true; }' +
         'function esc(s){ return String(s == null ? "" : s); }' +
-        renderSrc306 +
+        renderSrc307 +
         ';return { go: etRenderRecipientList, sel: etSelectedRecipientIds };');
       const r = env(doc, book, (opt.term || '').toLowerCase(), opt.payment || 'all',
         opt.mode || 'hide', opt.picked || []);
@@ -51026,7 +51026,7 @@ suite('Suite 306. Filter, then select everyone under the filter');
     /* Three sendable people. Ann is the one a search will find; Bob is the one
        the Payment filter will keep; Cal is here so a pruned selection is
        visibly smaller rather than merely empty. */
-    const book306 = () => ([
+    const book307 = () => ([
       { id: 'a1', data: { name: 'Ann Ableton', email: 'ann@x.com', phone: '8015550001', pay: 'Unpaid' } },
       { id: 'b2', data: { name: 'Bob Baker',   email: 'bob@x.com', phone: '8015550002', pay: 'Paid in Full' } },
       { id: 'c3', data: { name: 'Cal Carter',  email: 'cal@x.com', phone: '8015550003', pay: 'Paid in Full' } }
@@ -51035,44 +51035,44 @@ suite('Suite 306. Filter, then select everyone under the filter');
 
     /* ---- 1. everyone under the filter, and the buttons say the number ---- */
     {
-      const r = draw306(book306(), { picked: ALL3 });
-      check('S306', 'a tick on every matching member survives the redraw',
+      const r = draw307(book307(), { picked: ALL3 });
+      check('S307', 'a tick on every matching member survives the redraw',
         r.picked.join(',') === 'a1,b2,c3',
         'the ticks are the record now; losing them on a repaint is the whole bug');
-      check('S306', 'and each of those rows is drawn already ticked',
+      check('S307', 'and each of those rows is drawn already ticked',
         (r.html.match(/checked/g) || []).length === 3,
         'a checkbox that does not reflect the stored tick is the screen and the ' +
         'send disagreeing about who is about to be written to');
-      check('S306', 'the running total is on screen',
+      check('S307', 'the running total is on screen',
         r.pill === '3 selected',
         'the office presses Select All and needs to see what it did, not count rows');
       /* ⚠ NAMING THE NUMBER IS THE POINT. "Select everyone matching" beside a count
          line reading 3 is still a guess about which 3 it means. */
-      check('S306', 'and Select All names how many it is about to tick',
+      check('S307', 'and Select All names how many it is about to tick',
         r.allLabel === 'Select all 3 shown',
         'an unnamed scope is what made the old Select All impossible to trust');
-      check('S306', 'the Send button quotes the same number it will send to',
+      check('S307', 'the Send button quotes the same number it will send to',
         r.sendLabel === 'Send to 3 selected' && r.sendDead === false,
         'the button and the send both read the stored ticks, so they cannot drift');
     }
 
     /* ---- 2. THE BUG: searching for one name must not throw the ticks away ---- */
     {
-      const r = draw306(book306(), { picked: ALL3, term: 'ann' });
-      check('S306', 'typing a name into the search box keeps every tick',
+      const r = draw307(book307(), { picked: ALL3, term: 'ann' });
+      check('S307', 'typing a name into the search box keeps every tick',
         r.picked.join(',') === 'a1,b2,c3',
         'this is the reported failure: 312 ticked, one name typed, one email sent');
-      check('S306', 'while drawing only the person searched for',
+      check('S307', 'while drawing only the person searched for',
         r.html.indexOf('Ann Ableton') !== -1 &&
         r.html.indexOf('Bob Baker') === -1 && r.html.indexOf('Cal Carter') === -1,
         'the search box has to narrow what is on screen or it is not a search box');
       /* ⚠ SAID OUT LOUD, because a shorter list with the same tick count is exactly
          where somebody assumes the ticks went with it. */
-      check('S306', 'and the count line says the audience is untouched',
+      check('S307', 'and the count line says the audience is untouched',
         /3 members match these filters\./.test(r.count) &&
         /Showing 1 of them while you search\. Everyone you have ticked stays ticked\./.test(r.count),
         'a silent discrepancy between the list and the count is what this replaced');
-      check('S306', 'the pill still reports the real selection, not the visible rows',
+      check('S307', 'the pill still reports the real selection, not the visible rows',
         r.pill === '3 selected',
         'reporting the drawn rows would make the screen agree with the old bug');
     }
@@ -51082,34 +51082,34 @@ suite('Suite 306. Filter, then select everyone under the filter');
        returning to Returning so Select All cannot reach a first-year customer; a
        selection that outlived a filter change would walk them straight past it. */
     {
-      const r = draw306(book306(), { picked: ALL3, payment: 'unpaid' });
-      check('S306', 'narrowing a filter drops the ticks it excludes',
+      const r = draw307(book307(), { picked: ALL3, payment: 'unpaid' });
+      check('S307', 'narrowing a filter drops the ticks it excludes',
         r.picked.join(',') === 'a1',
         'a tick that outlives the filter that allowed it is how the RSVP default ' +
         'gets walked past and a first-year customer is asked about lights again');
-      check('S306', 'and the buttons follow it down',
+      check('S307', 'and the buttons follow it down',
         r.pill === '1 selected' && r.allLabel === 'Select all 1 shown',
         'a stale count over a shortened list is the same lie in the other direction');
     }
 
     /* ---- 4. the do-not-send list and a missing address prune too ---- */
     {
-      const b = book306();
+      const b = book307();
       b[1].data.noAutomationEmails = true;
-      const r = draw306(b, { picked: ALL3 });
-      check('S306', 'somebody added to the do-not-send list loses their tick',
+      const r = draw307(b, { picked: ALL3 });
+      check('S307', 'somebody added to the do-not-send list loses their tick',
         r.picked.join(',') === 'a1,c3' && r.html.indexOf('Bob Baker') === -1,
         'pruning after the list rather than before it is what stops the send loop ' +
         'being the only thing between them and an email they asked never to get');
     }
     {
-      const b = book306();
+      const b = book307();
       b[2].data.email = '';
-      const r = draw306(b, { picked: ALL3 });
-      check('S306', 'and so does somebody with no address to send to',
+      const r = draw307(b, { picked: ALL3 });
+      check('S307', 'and so does somebody with no address to send to',
         r.picked.join(',') === 'a1,b2',
         'a ticked id with nowhere to send counts towards a total nothing can deliver');
-      check('S306', 'while the count line still says how many were left out',
+      check('S307', 'while the count line still says how many were left out',
         /no email address on file/.test(r.count),
         'left out, but never left unsaid — the rule this panel already had');
     }
@@ -51118,12 +51118,12 @@ suite('Suite 306. Filter, then select everyone under the filter');
     /* ⚠ THE OLD WORDING — "no members match this search and these filters" — read as
        though the filters had come up empty and the ticks had gone with them. */
     {
-      const r = draw306(book306(), { picked: ALL3, term: 'zzz' });
-      check('S306', 'a search matching nobody says the ticks are still there',
+      const r = draw307(book307(), { picked: ALL3, term: 'zzz' });
+      check('S307', 'a search matching nobody says the ticks are still there',
         /3 members? still match/.test(r.html) && /3 ticked people are untouched/.test(r.html),
         'telling the office nothing matches, over three live ticks, is the panel ' +
         'contradicting the send it is about to run');
-      check('S306', 'and Select All goes dead rather than offering to tick nothing',
+      check('S307', 'and Select All goes dead rather than offering to tick nothing',
         r.allDead === true && r.allLabel === 'Select everyone matching',
         'a live button over an empty list is one press that silently does nothing');
     }
@@ -51133,10 +51133,10 @@ suite('Suite 306. Filter, then select everyone under the filter');
        because a Select All button that stayed live over the do-not-send list would
        be exactly one press from mailing the people it records as never to be mailed. */
     {
-      const b = book306();
+      const b = book307();
       b[0].data.noAutomationEmails = true;
-      const r = draw306(b, { mode: 'only' });
-      check('S306', 'the manage view renders no checkbox and no live Select All',
+      const r = draw307(b, { mode: 'only' });
+      check('S307', 'the manage view renders no checkbox and no live Select All',
         r.html.indexOf('et-recipient-cb') === -1 && r.allDead === true,
         'a tickable row here is one press away from mailing the do-not-send list');
     }
@@ -51147,26 +51147,26 @@ suite('Suite 306. Filter, then select everyone under the filter');
      press INTO that state and something reads it back out. A repo that has shipped
      a control whose listener silently did not apply checks both halves. */
   {
-    const adm306 = stripComments(admin.replace(/\r/g, ''));
-    check('S306', 'a tick is recorded through a listener delegated to the list',
-      /getElementById\('etRecipientList'\)\?\.addEventListener\('change'[\s\S]{0,400}etSelectedRecipientIds\.add/.test(adm306),
+    const adm307 = stripComments(admin.replace(/\r/g, ''));
+    check('S307', 'a tick is recorded through a listener delegated to the list',
+      /getElementById\('etRecipientList'\)\?\.addEventListener\('change'[\s\S]{0,400}etSelectedRecipientIds\.add/.test(adm307),
       'these rows are rebuilt by innerHTML on every keystroke, so a listener bound ' +
       'to a checkbox dies with the row and the tick is never recorded anywhere');
-    check('S306', 'Select All writes into the stored selection, not just the boxes',
-      /etSelectAllBtn'\)\.addEventListener[\s\S]{0,300}etSelectedRecipientIds\.add\(cb\.value\)/.test(adm306),
+    check('S307', 'Select All writes into the stored selection, not just the boxes',
+      /etSelectAllBtn'\)\.addEventListener[\s\S]{0,300}etSelectedRecipientIds\.add\(cb\.value\)/.test(adm307),
       'ticking the boxes alone puts the selection back where the repaint eats it');
     /* ⚠ CLEARS THE WHOLE SET, not the visible rows. Unticking only what is on screen
        while a search is active leaves ticks behind that nothing on screen shows. */
-    check('S306', 'Clear selection empties the whole selection',
-      /etSelectNoneBtn'\)\.addEventListener[\s\S]{0,200}etSelectedRecipientIds\.clear\(\)/.test(adm306),
+    check('S307', 'Clear selection empties the whole selection',
+      /etSelectNoneBtn'\)\.addEventListener[\s\S]{0,200}etSelectedRecipientIds\.clear\(\)/.test(adm307),
       'clearing only the drawn rows leaves invisible ticks in a live send');
-    check('S306', 'the send reads the stored selection rather than the checkboxes',
-      /const selectedIds = Array\.from\(etSelectedRecipientIds\)/.test(adm306) &&
-      adm306.indexOf(".et-recipient-cb:checked") === -1,
+    check('S307', 'the send reads the stored selection rather than the checkboxes',
+      /const selectedIds = Array\.from\(etSelectedRecipientIds\)/.test(adm307) &&
+      adm307.indexOf(".et-recipient-cb:checked") === -1,
       'reading the DOM at send time is what sent to one person while the button, ' +
       'the pill and the count line all said three hundred');
-    check('S306', 'and Clear filters goes through the one shared reset',
-      /etClearFiltersBtn'\)\?\.addEventListener[\s\S]{0,200}etResetAudienceFilters\(\)/.test(adm306),
+    check('S307', 'and Clear filters goes through the one shared reset',
+      /etClearFiltersBtn'\)\?\.addEventListener[\s\S]{0,200}etResetAudienceFilters\(\)/.test(adm307),
       'a second copy of "put every filter back" is a second place to forget the ' +
       'do-not-send line, and the copy that forgets it clears past somebody on it');
   }
