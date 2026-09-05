@@ -1473,6 +1473,41 @@ in a hurry.
 This Date* are untouched, so a November customer who is rushed, or who was missed, is taken
 first on the first **November** day and not one day earlier. The box says so on screen.
 
+### Who counts as a new hang, on the tab and in the builder (changed 2026-09-05, SCH-49)
+
+Two things on the Schedule tab used to answer this differently, and Dax was looking at the
+disagreement: *"one of the top priorites is new hang but I have people with the $30 set up
+fee aka a new member who arent being treated as a new member in schedule."*
+
+- **The builder** (`houseInstallPriority`) has always read the **Charge new member
+  installation fee** box on the customer record — `chargeNewMemberFee` — and put a ticked
+  one in tier 10, ahead of everybody. That half was working.
+- **The tab** (`isNewMemberHouse`) read something else entirely: whether a **closed quote**
+  existed against that house, which is what Convert-to-Customer leaves behind. It is what
+  draws the **NEW** badge on a stop, fills the **New members** figure on the stats bar, and
+  decides whether the crew sheet prints the row as NEW or INSTALL.
+
+So a customer added through **Add Customer** with the fee box ticked, who never came
+through a quote, was routed first by the builder and shown as an ordinary install
+everywhere the office could see. `isNewMemberHouse` is now the **union**: the fee box, *or*
+a closed quote. Either one means the same thing on the ground — nobody has hung this house
+before.
+
+⚠ **Both halves are needed.** Ashley Wray's fee box is not ticked and her closed quote is
+the only record that she is a new hang, so the quote branch stays. And the fee branch is
+what fixes the case above. The same union is already what `printIsNewHang` uses to decide a
+crew photo and what `audienceNeverAsked` uses to decide who the RSVP skips.
+
+⚠ **This is safe only because the fee box is season-scoped.** Until 2026-08-21 nothing ever
+cleared `chargeNewMemberFee`, so reading it here would have called every past customer new;
+**Start New Season** now clears it on every customer as part of the season reset. A check in
+`run-all.js` asserts that write still exists, and says to revert this to the quote alone if
+it ever goes.
+
+**If somebody is not showing as a new hang in Schedule:** open their record and look at the
+**Charge new member installation fee** box. Ticked means NEW, from the moment the Schedule
+tab next draws — there is nothing else to press.
+
 The Schedule's day panel badges a rushed house **ASKED SOONER** and a missed one
 **MISSED ×n**, and the button's summary names how many of each it moved — a customer who
 quietly changes place in a season is what this office rings up about.

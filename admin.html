@@ -57569,8 +57569,55 @@ function closedQuoteFor(h){
   if(exact) return exact;
   return sameNumber.every(q => !!norm(q.data.address)) ? null : sameNumber[0];
 }
+/* ⭐ THE SET-UP FEE BOX COUNTS HERE TOO (2026-09-05, SCH-49). Dax: "in schedule one of
+   the top priorites is new hang but I have people with the $30 set up fee aka a new
+   member who arent being treated as a new member in schedule."
+
+   ⚠ HE IS DESCRIBING TWO HALVES OF ONE SCREEN DISAGREEING. `houseInstallPriority` gives
+   tier 10 — ahead of everybody — to `chargeNewMemberFee === true`, so the BUILDER has
+   always treated a ticked box as a new hang. This function did not: it asked only
+   whether a CLOSED QUOTE existed against the house, so somebody added through Add
+   Customer with the box ticked, and never through a quote, carried no NEW badge on their
+   stop, was missing from the New members count, and printed as INSTALL rather than NEW
+   on the crew sheet — while the season quietly routed them first. Same person, two
+   answers, on one tab.
+
+   ⚠ THIS REVERSES A NOTE IN CLAUDE.md DATED 2026-08-25 which said "do not fix one to
+   read the other", and the old reasoning is kept because it was sound when it was made.
+   That note rested on "nothing depends on them agreeing" — no longer true, he is looking
+   at the disagreement — and behind it sat the REAL objection, recorded in run-all.js on
+   2026-08-14: the fee box "stays ticked on a record forever (Start New Season never
+   clears it)", so reading it here re-flagged every past customer who still happened to
+   have it checked. ⭐ THAT PREMISE DIED ON 2026-08-21, when Start New Season began
+   clearing `chargeNewMemberFee` on every customer in the same write as the rest of the
+   reset (see ssnBuildPlan). The flag is season-scoped now, which is exactly what
+   `audienceNeverAsked` and `effectiveRsvpStatus` already lean on.
+
+   ⚠ THE UNION, NOT A SWAP. Ashley Wray is the reason the quote half exists — her box is
+   NOT ticked and the closed quote is the only thing that knows she is a new hang — so
+   dropping that branch would lose her badge and her crew photo. Both branches answer the
+   same question ("nobody has hung this house before") and either one being true is
+   enough. Same argument `printIsNewHang` made for the photo and `audienceNeverAsked` made
+   for the RSVP: the union is the honest rule.
+
+   ⚠ NO `lightsChangedAt` GUARD HERE, DELIBERATELY, and it is not an oversight.
+   `printIsNewHang` carries one because a colour change set the fee between 2026-08-19 and
+   2026-08-21 and those customers must not get a crew photo — and it tests that BEFORE it
+   ever reaches this function, so widening this one cannot put a photo on a re-hung house.
+   Adding the guard here would make the badge disagree with `houseInstallPriority`, which
+   has no such guard, and re-create in a subtler form the very split this change closes.
+
+   ⚠ AND IT IS THE FEE BOX, NOT THE AMOUNT. The join fee moved to $25 on 2026-09-03
+   (NEW_MEMBER_FEE, MON-63); the flag the office ticks is unchanged, so nothing here
+   reads a number. */
 function isNewMemberHouse(h){
   if(!h || h.isFix || h.isTakedown) return false;
+  /* Resolved id-first, the same way closedQuoteFor already resolves it — a customer
+     number is not a stable key (see hlxResolvePlanHouse). Guarded because three suites
+     lift this function into a bare sandbox, and a house that resolves to nobody simply
+     falls through to the quote branch rather than throwing. */
+  const cust = (typeof hlxResolvePlanHouse === 'function') ? hlxResolvePlanHouse(h) : null;
+  if(cust && cust.data && cust.data.chargeNewMemberFee === true) return true;
   return !!closedQuoteFor(h);
 }
 function newHouses(){return allHouses().filter(h=>isNewMemberHouse(h));}
