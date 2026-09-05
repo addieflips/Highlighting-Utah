@@ -8255,7 +8255,76 @@ function isScheduleHeld(d){ return scheduleHoldMillis(d) > Date.now(); }
 /* ⚠ ONE QUESTION, ONE ANSWER: "may this house go on a crew day yet". Both holds are
    asked here so a caller cannot honour one and forget the other — which is how the
    route sweep and the builder came to disagree about who was in the season. */
-function isHeldFromRoutes(d){ return isLightsLocked(d) || isScheduleHeld(d); }
+/* ⭐ ONE HOLD, READ TWO WAYS (rewritten 2026-09-04). This asked the two lock
+   predicates directly and the schedule now needs the same fact as a DATE — "when does
+   this end" cannot be got out of a yes/no. Rather than a second function reading the
+   same two fields, both come off scheduleHoldEndsMillis: the route side asks whether it
+   is non-zero, the schedule asks what day it lands on. A caller cannot honour one hold
+   and forget the other because there is only one place that knows about them.
+
+   ⚠ AND IT NOW COVERS THE BUILDS NOBODY STAMPED, which is a real widening and is
+   deliberate. Addie: "if they did get changes on houses than that gets sent to warehouse
+   and isnt scheduled until 48 [then 72] hours after sent to warehouse." Only the Edit
+   Customer save ever wrote scheduleHoldUntil, so six other paths that queue a build —
+   Add Customer, a converted quote, the portal colour change, the server re-quote, Send to
+   warehouse, a rejoin after recycle — were exempt from her rule by accident. They are not
+   now. It can never hold anybody for ever: the derived hold expires 72 working hours
+   after lightsQueuedAt, and a queued build with no queue date holds nobody at all.
+
+   ⭐ AND A BRAND-NEW CUSTOMER IS IN IT, ASKED AND ANSWERED (2026-09-04, SCH-48). The
+   widening's loudest consequence is that somebody added today cannot be given a crew for
+   about three working days, so it was put to her as its own question rather than shipped
+   as a side effect. Addie: "keep the 72 hour hold for new customers too."
+
+   ⛔ SO DO NOT ADD AN EXEMPTION FOR NEW CUSTOMERS HERE. It is the obvious-looking
+   kindness — they are the newest sale, somebody will want them out this week — and it is
+   the exact thing she was asked about and declined. A crew sent to a house whose bundle
+   is not built yet is the whole reason the hold exists, and a new customer is the case
+   where the bundle is least likely to exist. */
+function isHeldFromRoutes(d){ return scheduleHoldEndsMillis(d) > 0; }
+/* ⭐ A HOLD IS A LATER FIRST DAY, NOT A DISAPPEARANCE (added 2026-09-04). Addie:
+   "some people are confirmed but still arent in schedule and I dont know why … if
+   anyone has a confirmed tag they should be scheduled somehow no exceptions."
+
+   ⚠ THE RULE WAS RIGHT AND THE MECHANISM WAS WRONG. Both holds above answer "may
+   this house go on a crew day YET", and the schedule honoured that by LEAVING THE
+   CUSTOMER OFF THE PLAN ENTIRELY — so somebody carrying the Confirmed badge was
+   simply absent, with nothing on their row saying why, and the office was left hunting
+   a broken button. Held-to-a-later-day says the same thing without the silence: they
+   are on the plan, they are counted, and the builder still cannot give them a day
+   inside the window. Her rule is kept; the disappearing act is not.
+
+   ⚠ IT COVERS THE BUILDS NOBODY STAMPED, which is the half that made this permanent.
+   Only the Edit Customer save writes scheduleHoldUntil — Add Customer, a converted
+   quote, the portal colour change, the server re-quote, Send to warehouse and a rejoin
+   after recycle all set needsLightBuild on its own with no hold beside it. The schedule
+   made up the difference with a bare `needsLightBuild === true` gate, and that gate has
+   no clock in it at all: a bundle the warehouse never got to kept a confirmed customer
+   off the plan for the whole season. Deriving the same 72 working hours from
+   lightsQueuedAt makes her warehouse rule true for every one of those paths AND makes it
+   expire, which is the difference between a hold and a hole.
+
+   ⚠ AN UNDATED QUEUED BUILD HOLDS NOBODY, deliberately. A flag with no queue date
+   behind it cannot say when the 72 hours started, and guessing "now" would restart the
+   clock on every rebuild — the for-ever hold again, wearing a timestamp. */
+function anyStampMillis(t){
+  if(!t) return 0;
+  if(typeof t.toMillis === 'function') return t.toMillis();
+  if(typeof t.seconds === 'number') return t.seconds * 1000;
+  const n = new Date(t).getTime();
+  return isNaN(n) ? 0 : n;
+}
+function scheduleHoldEndsMillis(d){
+  if(!d) return 0;
+  let ms = 0;
+  if(typeof lightsLockMillis === 'function') ms = Math.max(ms, lightsLockMillis(d) || 0);
+  if(typeof scheduleHoldMillis === 'function') ms = Math.max(ms, scheduleHoldMillis(d) || 0);
+  if(!ms && d.needsLightBuild === true && typeof scheduleHoldUntil === 'function'){
+    const queued = anyStampMillis(d.lightsQueuedAt);
+    if(queued) ms = scheduleHoldUntil(queued) || 0;
+  }
+  return ms > Date.now() ? ms : 0;
+}
 /* ⭐ AN RSVP LINK TO TEXT, FOR EVERYONE WITH NO EMAIL ON FILE (2026-09-02).
    Addie: "make an rsvp text link for everyone that doesnt have an email on file."
 
@@ -59260,6 +59329,26 @@ function houseAllowedFrom(h, startStr){
    Returns '' where there is no deadline. Only the tail sweep reads it, and
    only to decide whether somebody may be moved to a LATER day than the one
    they already have. */
+/* ⭐ THE SAME HOLD, AS A DATE THE BUILDER UNDERSTANDS (added 2026-09-04). The day
+   builder already has one word for "not before this" — `from` — and every install
+   preference is expressed through it. A warehouse hold is the same kind of fact, so it
+   goes in the same place rather than becoming a second way to keep somebody off a day.
+
+   ⚠ THE FIRST WORKING DAY AFTER THE HOLD ENDS, not the day it ends on. A hold that
+   expires at two in the afternoon still covers that morning, and the crew leaves in the
+   morning — releasing them onto that day would hang a pattern that was still free to
+   change for the first half of it. Same direction scheduleHoldUntil already fails in.
+
+   ⚠ AND IT IS ASKED LIVE, NEVER STORED ON THE HOUSE. A hold is a moment in time, and
+   a copy of one sitting on a plan row is right on the day it was written and wrong every
+   day after — the mistake seasonHold's own comment already records. */
+function houseHoldFrom(custData){
+  if(typeof scheduleHoldEndsMillis !== 'function') return '';
+  const ms = scheduleHoldEndsMillis(custData);
+  if(!ms) return '';
+  const end = new Date(ms);
+  return isoOf(nextWorkingDay(new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1)));
+}
 function houseDeadline(h){
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
   if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX') return '';
@@ -59511,7 +59600,7 @@ function rebuildSeasonDays(){
   for(let i=movable.length-1;i>=0;i--){
     const h=movable[i];
     if(h.isTakedown||h.isFix) continue;
-    const cust=(typeof customerForHouse==='function')?customerForHouse(h):null;
+    const cust=(typeof planCustomerFor==='function')?planCustomerFor(h):null;
     const cd=(cust&&cust.data)||null;
     if(!cd){
       if(bookLoaded){ orphans.push(h); movable.splice(i,1); }
@@ -59528,7 +59617,7 @@ function rebuildSeasonDays(){
   locked.forEach(function(d){
     (d.houses||[]).forEach(function(h){
       if(h.done||h.isTakedown||h.isFix) return;
-      const cust=(typeof customerForHouse==='function')?customerForHouse(h):null;
+      const cust=(typeof planCustomerFor==='function')?planCustomerFor(h):null;
       const cd=(cust&&cust.data)||null;
       if(cd && typeof isOutForSeason==='function' && isOutForSeason(cd)) stillSet++;
     });
@@ -59550,21 +59639,20 @@ function rebuildSeasonDays(){
   /* ⚠ AND IF THEY WERE THE ONLY THING LEFT, SAY SO. "Every house is done" is a lie
      when the truth is that the last few sat the season out, and it is the kind of lie
      that gets somebody hunting a broken button. */
-  /* ⭐ HOW MANY ARE WAITING ON THE WAREHOUSE (added 2026-08-29). The build gate holds
-     houses back, and a house held back looks exactly like a house nobody entered — so
-     the number is carried out of here and said on screen. Taken AFTER the join above,
-     so it counts who is still waiting once everybody ready has been added. */
-  let waitingOnBuild = 0;
-  try{ if(typeof customersWaitingOnBuild === 'function') waitingOnBuild = customersWaitingOnBuild().length; }
-  catch(err){ console.error('Could not count who is waiting on the warehouse:', err); }
-  /* ⚠ AND IT IS THE FIRST THING SAID WHEN THERE IS NOTHING ELSE TO DO. "Every house is
-     done" with twelve houses sitting in the warehouse queue is the same lie the line
-     below was written to stop, one step further along. */
-  if(!movable.length && waitingOnBuild) return {left: left.length, stillSet: stillSet,
-    waitingOnBuild: waitingOnBuild,
-    error: 'Nothing to rebuild yet — ' + waitingOnBuild + ' house(s) are waiting for the ' +
-      'warehouse to build their lights. They join the schedule on the next rebuild after ' +
-      'their bundle is marked made.'};
+  /* ⭐ HOW MANY ARE HELD TO A LATER DAY (rewritten 2026-09-04). This counted who the
+     build gate had kept OFF the plan, and the whole point of this change is that nobody
+     is kept off it any more — so it now counts who is ON the plan and cannot be given an
+     early day. Taken AFTER the join above, so it describes the season that was just laid
+     out rather than the one before it.
+
+     ⛔ AND THE EARLY RETURN THAT USED TO SIT HERE IS GONE WITH IT: "Nothing to rebuild
+     yet — N house(s) are waiting for the warehouse to build their lights." That sentence
+     could only ever be true while a held customer was absent from movable. They are in it
+     now, so the rebuild has something to do and the season gets built — which is the
+     whole report. */
+  let heldToLater = 0;
+  try{ if(typeof customersHeldToALaterDay === 'function') heldToLater = customersHeldToALaterDay().length; }
+  catch(err){ console.error('Could not count who is held to a later day:', err); }
   if(!movable.length) return {left: left.length, stillSet: stillSet, error: left.length
     ? ('Nothing left to rebuild \u2014 the ' + left.length + ' house(s) still waiting have all left the season.')
     : locked.length
@@ -59574,7 +59662,7 @@ function rebuildSeasonDays(){
   const waiting=movable.map(function(h,i){
     const key='rb'+i;
     byId[key]=h;
-    const cust=customerForHouse(h);
+    const cust=planCustomerFor(h);
     const town=extractCleanCity((cust&&cust.data&&cust.data.city)||h.city);
     const d=(cust&&cust.data)||{};
     return {id:key, city:town, priority:houseInstallPriority(h,d),
@@ -59595,7 +59683,19 @@ function rebuildSeasonDays(){
                arrived. Worked out here because the plan row is what carries the
                spelling — 1-Nov, 11/1, 11/9+ all come through as pref. */
             named:!!prefSpecificDate((h&&h.pref)||'', BASE_START.getFullYear()),
-            from:houseAllowedFrom(h,startStr),
+            /* ⭐ AND A HOLD IS JUST A LATER ONE OF THESE (added 2026-09-04). Addie:
+               "if anyone has a confirmed tag they should be scheduled somehow no
+               exceptions." The 48-hour colour-change window and the 72-working-hour
+               warehouse wait used to keep somebody off the plan altogether; they now say
+               the same thing here, where the builder already knows how to hear it.
+               ⚠ THE LATER OF THE TWO WINS. A November customer inside a warehouse hold
+               is held by whichever runs out last — taking either one alone would put them
+               on a day the other rule forbids. */
+            from:(function(){
+              const pref=houseAllowedFrom(h,startStr);
+              const hold=(typeof houseHoldFrom==='function')?houseHoldFrom(d):'';
+              return (hold && hold > pref) ? hold : pref;
+            })(),
             /* '' for almost everybody. Only "October" and "Before Thanksgiving"
                name a last day, and only the tail sweep reads it. */
             until:houseDeadline(h),
@@ -59707,7 +59807,19 @@ function rebuildSeasonDays(){
   SEASON=newDays.concat(keep);
   computeDates();
   selSchedule=installDays()[0]?installDays()[0].id:null;
-  return {days:newDays.length, houses:movable.length, unplaced:unplaced.length, locked:locked.length, joined:joined.length, waitingOnBuild:waitingOnBuild,
+  /* ⭐ THE PROMISE, MEASURED ON THE SEASON THIS PRESS JUST BUILT (added 2026-09-04).
+     Addie: "if anyone has a confirmed tag they should be scheduled somehow no
+     exceptions." Asked here rather than only on the button, because this is the moment
+     the plan and the book are guaranteed to be the same age — and asked AFTER SEASON has
+     been replaced, so it reads the days that now exist rather than the ones that did.
+     ⚠ IT REPORTS, IT DOES NOT REPAIR. Silently adding whoever it found would hide the
+     rule that dropped them, which is exactly how this went unnoticed for a fortnight. */
+  let confirmedOff = [];
+  try{ if(typeof confirmedNotOnAnyDay === 'function') confirmedOff = confirmedNotOnAnyDay(); }
+  catch(err){ console.error('Could not check that every confirmed customer is on a day:', err); }
+  return {days:newDays.length, houses:movable.length, unplaced:unplaced.length, locked:locked.length, joined:joined.length, heldToLater:heldToLater,
+          confirmedOff:confirmedOff.length,
+          confirmedOffNames:confirmedOff.slice(0,5).map(function(x){ return ((x&&x.data&&x.data.name)||'(no name)'); }),
           left:left.length, orphans:orphans.length, stillSet:stillSet,
           /* What the three new orderings actually did, so the button can say it.
              `missed` and `rushed` are counted off the pool this rebuild laid out —
@@ -60597,13 +60709,35 @@ function rehomeMovedHouses(ids){
    ⚠ TAKEDOWNS AND FIXES DO NOT COUNT AS BEING SCHEDULED. Both are copies made
    from an install house, and somebody who only has a takedown on the plan still
    needs hanging. */
+/* ⭐ THE PLAN ASKS ONE RESOLVER, AND IT READS THE ID FIRST (added 2026-09-04).
+   Every house the customer sync puts on the plan carries the real document id inside its
+   own — houseFromCustomer builds 'cust-' + item.id — and hlxResolvePlanHouse has read
+   that since Job 2. The schedule's own bookkeeping did not: it called customerForHouse,
+   which matches CUSTOMER NUMBER first and phone second.
+
+   ⚠ AND A CUSTOMER NUMBER IS NOT A STABLE KEY, which is the whole reason Job 2 wrote
+   the id resolver. Numbers go back to availableCustomerNumbers on a recycle and are handed
+   out again, and custByNumber is first-match-wins by design — so an old imported row
+   holding #479 resolves to whoever holds #479 today. seasonCustomerIds then recorded THAT
+   customer as "already on a day" and customersMissingFromSeason skipped them: a confirmed
+   customer on nobody's day, never added, with nothing anywhere saying why. That is the
+   third way the Confirmed badge and the plan came apart.
+
+   ⚠ IT IS A SUPERSET, NOT A REPLACEMENT. hlxResolvePlanHouse falls straight through to
+   customerForHouse for an imported row with no 'cust-' id, so every CSV row resolves
+   exactly as it did. The only rows that change answer are the ones that were being
+   resolved to the wrong person. */
+function planCustomerFor(h){
+  if(typeof hlxResolvePlanHouse === 'function') return hlxResolvePlanHouse(h);
+  return (typeof customerForHouse === 'function') ? customerForHouse(h) : null;
+}
 function seasonCustomerIds(){
   const have = new Set();
   if(typeof SEASON === 'undefined') return have;
   SEASON.forEach(function(day){
     (day.houses || []).forEach(function(h){
       if(h.isTakedown || h.isFix) return;
-      const cust = customerForHouse(h);
+      const cust = planCustomerFor(h);
       if(cust && cust.id) have.add(cust.id);
     });
   });
@@ -60616,61 +60750,84 @@ function customersMissingFromSeason(){
   jobAddresses.forEach(function(item){
     const d = (item && item.data) || {};
     if(typeof isOutForSeason === 'function' && isOutForSeason(d)) return;
-    /* ⭐ NOT WHILE THEIR 48 HOURS ARE STILL RUNNING (added 2026-08-21). Owner:
-       "48 hours will be from when they become a costumer and we won't schedule them
-       within that 48 hours so they can change there lights again if they choose."
+    /* ⭐ AND NOTHING ELSE KEEPS THEM OFF THE PLAN (changed 2026-09-04). Addie: "if
+       anyone has a confirmed tag they should be scheduled somehow no exceptions."
 
-       ⚠ ROUTES ALREADY HONOURED THIS AND THE SCHEDULE DID NOT, which stopped
-       mattering the moment Add Customer began opening a window for EVERY new
-       customer: this is the one path that puts a brand-new customer onto a day, and
-       without this it could put them on tomorrow's — the crew then hangs a pattern
-       that is still free to change, which is the whole thing the window exists to
-       prevent. Before that change a lock was rare and only ever landed on somebody
-       already in the season, so this path never met one.
+       ⛔ THE TWO GATES THAT USED TO STAND HERE, kept in full because the rules behind
+       them are both still enforced — one step further on, in the builder:
+         `if(isHeldFromRoutes(d)) return;`  the 48-hour colour-change window and the
+             72-working-hour warehouse wait. Owner: "we won't schedule them within that 48
+             hours so they can change there lights again if they choose."
+         `if(d.needsLightBuild === true) return;`  Addie: "I do want it to wait for the
+             build before sending it to schedule."
 
-       ⚠ HELD BACK, NOT DROPPED. This runs on every Recalculate everything, and the
-       window expires on its own, so they are added by the next run after it closes. */
-    if(typeof isHeldFromRoutes === 'function' && isHeldFromRoutes(d)) return;
-    /* ⭐ AND NOT UNTIL THE WAREHOUSE HAS BUILT THEIR BUNDLE (added 2026-08-29). Addie,
-       shown that the code did not do this: "I do want it to wait for the build before
-       sending it to schedule." Until now a customer joined the season the moment they
-       were in it, and the warehouse worked in parallel — so a crew could be sent to a
-       house whose lights had not been made.
+       ⚠ BOTH SAID "NOT YET" AND THIS CODE HEARD "NOT AT ALL". Absent from the plan is
+       how this screen says somebody is out for the season, so a customer waiting three
+       days for a bundle looked exactly like one who had said no — and the second gate
+       had no clock in it whatsoever: a build the warehouse never ticked kept a paid-up,
+       confirmed customer off the schedule for the entire season, silently. That is the
+       report, and it is why removing them is the fix rather than the risk.
 
-       ⚠ THE TEST IS "STILL WAITING", NOT "HAS A BUILT DATE", and the difference is the
-       whole season. `lightsMarkedBuiltAt` only exists from 2026-08-27, so gating on it
-       would hold back EVERY customer on file before that — the entire book, silently,
-       which is the shape of the SEASON_ELIGIBILITY mistake this file already records.
-       Reading the flag holds back only houses actually queued and leaves everybody else
-       exactly as they were.
+       ⚠ SO THE RULES MOVED, THEY DID NOT GO. houseHoldFrom turns both holds into the
+       earliest day the builder may give them and rebuildSeasonDays feeds it into the same
+       `from` every install preference already uses. They are on the plan, they are
+       counted, they are visible — and they still cannot land on a day inside their
+       window. That is her rule kept and the silence dropped.
 
-       ⚠ HELD BACK, NOT DROPPED — the same as the 48-hour window above. This runs on
-       every Recalculate everything and on the five-minute sync, so they join on the next
-       run after the warehouse marks the bundle made. Nothing is written to the customer.
-
-       ⚠ AND THEY ARE COUNTED, because a house that is silently absent from the schedule
-       is indistinguishable from one nobody noticed. `customersWaitingOnBuild` is what the
-       rebuild reports; a house blocked with no colours sits in this count until somebody
-       gives it colours, which is the Waiting on light colours block's own job. */
-    if(d.needsLightBuild === true) return;
+       ⚠ AND THE BADGE IS NOW TRUE BY CONSTRUCTION. seasonBadgeKey says Confirmed for
+       exactly !isOutForSeason, which is the only question left here, so "Confirmed" and
+       "on the plan" cannot disagree about anybody. confirmedNotOnAnyDay is what will say
+       so out loud if some future rule quietly makes them disagree again. */
     if(have.has(item.id)) return;
     out.push(item);
   });
   return out;
 }
-/* ⚠ THE SAME RULE, ASKED THE OTHER WAY ROUND, so the office can be told how many are
-   held and why rather than wondering where they went. It deliberately re-uses the two
-   tests above rather than restating them: a second opinion about who is waiting is how
-   the count and the list start disagreeing. */
-function customersWaitingOnBuild(){
+/* ⭐ WHO IS ON THE PLAN BUT CANNOT BE GIVEN AN EARLY DAY (rewritten 2026-09-04).
+
+   ⚠ THIS USED TO COUNT PEOPLE WHO WERE NOT THERE. customersWaitingOnBuild answered
+   "how many confirmed customers has the build gate kept OFF the plan" — a number that
+   only existed because the gate above made them vanish. Nobody vanishes now, so the
+   question changed with the rule: these are customers who ARE on the plan and whose first
+   allowed day is being pushed back by a hold. The office still gets a number and it still
+   names the warehouse; what it no longer means is "missing".
+
+   ⚠ IT RE-USES THE HOLD RATHER THAN RESTATING IT. A second opinion about who is held
+   is how the count and the days start disagreeing — the same reason
+   customersMissingFromSeason defers to isOutForSeason. */
+function customersHeldToALaterDay(){
   const out = [];
   if(typeof jobAddresses === 'undefined' || !jobAddresses.length) return out;
-  const have = seasonCustomerIds();
   jobAddresses.forEach(function(item){
     const d = (item && item.data) || {};
     if(typeof isOutForSeason === 'function' && isOutForSeason(d)) return;
+    if(typeof scheduleHoldEndsMillis !== 'function' || !scheduleHoldEndsMillis(d)) return;
+    out.push(item);
+  });
+  return out;
+}
+/* ⭐ THE PROMISE, CHECKED OUT LOUD (added 2026-09-04). Addie: "if anyone has a
+   confirmed tag they should be scheduled somehow no exceptions." Every rule above is
+   written to make that true. This is the one thing that would NOTICE if a future one
+   quietly stopped making it true.
+
+   ⚠ IT ASKS THE BADGE, NOT THE RULE BEHIND IT. seasonBadgeKey is what the office
+   actually reads on the row, so asking it is the only way this can be checking the same
+   fact she is looking at. Restating !isOutForSeason here would keep agreeing with itself
+   right up until somebody changed what Confirmed means.
+
+   ⚠ AND IT DECIDES NOTHING. It adds nobody, removes nobody and writes nothing — it
+   only produces the sentence. A checker that could also "fix" what it found would hide
+   the very drift it exists to report. */
+function confirmedNotOnAnyDay(){
+  const out = [];
+  if(typeof jobAddresses === 'undefined' || !jobAddresses.length) return out;
+  if(typeof seasonBadgeKey !== 'function') return out;
+  const have = seasonCustomerIds();
+  jobAddresses.forEach(function(item){
+    const d = (item && item.data) || {};
+    if(seasonBadgeKey(d) !== 'confirmed') return;
     if(have.has(item.id)) return;
-    if(d.needsLightBuild !== true) return;
     out.push(item);
   });
   return out;
@@ -61029,12 +61186,21 @@ RT.addEventListener('click',e=>{const t=e.target;
        people who were not on the plan" are different pieces of news, and the second
        one is the answer to "why is Rachel not in the schedule". */
     if(r.joined) parts.push(r.joined+' new customer'+(r.joined===1?'':'s')+' added to the plan');
-    /* ⭐ AND THE ONES THE WAREHOUSE IS STILL HOLDING (added 2026-08-29). Addie: "I do
-       want it to wait for the build before sending it to schedule." A house held back
-       by that rule is absent from the plan for a good reason, and absent for a good
-       reason still looks exactly like absent for a bad one — this is the sentence that
-       tells the two apart, and it names the warehouse so somebody knows where to go. */
-    if(r.waitingOnBuild) parts.push(r.waitingOnBuild+' waiting on the warehouse — not scheduled until their bundle is built');
+    /* ⭐ AND THE ONES THE WAREHOUSE IS STILL HOLDING (added 2026-08-29, reworded
+       2026-09-04). Addie: "I do want it to wait for the build before sending it to
+       schedule." She still gets the number and it still names the warehouse — what
+       changed is what it means. These houses are ON the plan now, holding a day after
+       their hold runs out, rather than missing from it until somebody ticks a bundle. */
+    if(r.heldToLater) parts.push(r.heldToLater+' held for the warehouse — on the plan, first day after their 72 hours');
+    /* ⭐ AND IF ANY CONFIRMED CUSTOMER IS STILL NOT ON A DAY, THAT IS THE HEADLINE
+       (added 2026-09-04). Addie: "some people are confirmed but still arent in schedule
+       and I dont know why". This is the sentence that means she never has to ask again —
+       it names them, so the answer is on screen instead of in a count she has to trust.
+       ⚠ IT SHOULD NEVER FIRE. Every rule that could drop somebody now holds them to a
+       later day instead. If it does fire, something new is dropping people and the names
+       are where to start. */
+    if(r.confirmedOff) parts.push('⚠ '+r.confirmedOff+' CONFIRMED customer'+(r.confirmedOff===1?'':'s')+
+      ' still not on any day: '+(r.confirmedOffNames||[]).join(', ')+(r.confirmedOff>5?' and others':''));
     /* ⭐ AND THE ONES WHO LEFT ARE NAMED TOO. Owner: "back next year should be on
        2027 and not split for this year on schedule." A house quietly disappearing off
        the plan reads as a bug; the same house with a sentence beside it reads as the
