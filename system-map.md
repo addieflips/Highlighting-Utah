@@ -17,6 +17,14 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
 2b. **Held off the schedule while the warehouse builds (72 working hours).** Anything that newly queues a build — a re-quote topping up, a re-quote recycling and rebuilding, or a colour/wire/timer change — stamps `scheduleHoldUntil` 72 hours ahead, counting **only working days**: weekends and Thanksgiving do not tick. A Friday afternoon re-quote is schedulable Wednesday afternoon. Nothing puts that house on a crew day until the hold expires (`isHeldFromRoutes`, asked by the route builder, the leftover check and the schedule adder alike).
    - ⚠ **This is NOT the free-colour-change window.** `lightsLockedUntil` decides whether a colour change is free, and it is still 48 hours — widening it would charge the $30 less often, which is a money change nobody asked for. Two fields, two reasons: the old one is "so they can change their lights again", this one is "so the bundle exists before a crew is sent".
    - ⚠ It is set only when the build is **newly** queued. Re-saving an already-queued house must not push the hold out again, or a built house stays off the routes for ever.
+   - ⭐ **A hold is a later first day now, not a disappearance** (2026-09-04, SCH-48). The schedule used to honour this by leaving the customer **off the plan altogether** — and absent-from-the-plan is how that screen says *out for the season*, so a customer waiting three days for a bundle looked exactly like one who had said no. `houseHoldFrom` turns the hold into the first **working** day after it expires and feeds that into the same `from` the install preferences already use, later-of-the-two wins. They are on the plan, counted and visible, and still cannot land on a day inside the window. The day after, not the day itself: a hold ending at two in the afternoon still covers that morning, and the crew leaves in the morning.
+   - ⭐ **And the rule now reaches the six paths that never stamped it.** Only the Edit Customer save ever wrote `scheduleHoldUntil` — Add Customer, a converted quote, the portal colour change, the server re-quote, Send to warehouse and a rejoin after recycle all set `needsLightBuild` on its own, so *"isnt scheduled until 72 hours after sent to warehouse"* was true for one route in of seven. `scheduleHoldEndsMillis` derives the same 72 working hours from `lightsQueuedAt` where nothing was stamped, and **`isHeldFromRoutes` is now derived from it** rather than reading the two fields itself — one place knows about the holds, the route side asks whether it is non-zero and the schedule asks what day it lands on. ⚠ This is a real **widening** of who is held off crew routes and it is deliberate, and
+**a brand-new customer is in it** — asked as its own question because it is the widening's
+loudest consequence (somebody added today waits about three working days for a crew), and
+answered *"keep the 72 hour hold for new customers too"* (SCH-48). ⛔ Do not add a
+new-customer exemption: it is the obvious-looking kindness, and it is the case where the
+bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobody: treating "unknown" as "now" restarts the clock on every rebuild, which is a for-ever hold wearing a timestamp.
+   - ⛔ **The gate that had no clock in it at all, removed 2026-09-04.** `customersMissingFromSeason` also carried a bare `needsLightBuild === true`. That flag is cleared by the warehouse marking a bundle made and by nothing else, so a bundle nobody got round to kept a paid-up, **confirmed** customer off the schedule for the whole season, silently. It was superseded two days after it shipped by the timed hold above and nobody removed it — two rules for one fact, and the one without a clock won. This is the bug behind SCH-48.
 
 3. **Customer approves** — the customer opens that link (no login needed) and approves or declines. This calls the `quoteRespond` Cloud Function, which is how an unauthenticated visitor is allowed to touch the `quotes` collection at all.
    - **A link that no longer matches a quote says so.** `quoteRespond` and `portalRsvp` report a miss by *throwing*, which makes the call **reject** on the customer's end — so until 2026-08-31 every such link showed "Something went wrong", the wording meant for a server fault, and the accurate "we couldn't find your quote" line could never appear. An out-of-date link is ordinary (the quote was deleted, or re-sent), so it now says the link may be out of date and to ask for a fresh one. `portalCallFailedText` is the one place that wording lives, and all six branches ask it.
@@ -384,7 +392,25 @@ The badge in All Customers has **four** states now — Confirmed, **Pending**,
 Back Next Year and **No** — and `seasonBadgeKey` works it out by asking `isOutForSeason`
 rather than deciding for itself. So **Confirmed and in-the-season are one fact**:
 no row can read Confirmed while every scheduler in the app has already dropped
-that customer. Pending is derived and never stored, so paying the bill moves the
+that customer.
+
+⭐ **AND FROM 2026-09-04 THE PLAN ACTUALLY KEEPS THAT PROMISE** (SCH-48). Addie:
+*"in schedule some people are confirmed but still arent in schedule and I dont know why
+… if anyone has a confirmed tag they should be scheduled somehow no exceptions."* The
+sentence above was written as a design intent and the schedule broke it three ways, every
+one of them silent: a `needsLightBuild` gate with no clock in it (§2b), a hold spelled as
+absence rather than as a later first day (§2b), and `seasonCustomerIds` resolving a plan
+house by **customer number** — which is recycled and reissued, and first-match-wins — so a
+house carrying a stale number resolved to its new holder, who then read as *already on a
+day* and was never added. The schedule resolves through `planCustomerFor` now: the
+`cust-<docId>` id first, `customerForHouse` only as the fall-back for imported CSV rows.
+⚠ **That fall-back still resolves an imported row by its stale number**, and always will
+— those rows carry no id to read. Said out loud rather than left as a silent gap.
+⚠ **And the promise is checked out loud.** `confirmedNotOnAnyDay` asks `seasonBadgeKey`
+— the badge the office actually reads, not the rule behind it — and *Recalculate
+everything* **names** anybody it finds. It should never fire, and it reports rather than
+repairs: a checker that quietly added whoever it found would hide the rule that dropped
+them, which is how this went unnoticed for a fortnight. Pending is derived and never stored, so paying the bill moves the
 badge on its own the next time the row is drawn. ⚠ Back Next Year stays its own
 answer rather than folding into Pending — that one the office sets by hand.
 

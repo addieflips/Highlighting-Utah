@@ -148,16 +148,39 @@ suite('Sent to the warehouse means held — at one hook, and only when newly que
   check('the route builder asks isHeldFromRoutes',
     /\(isTest \|\| !isHeldFromRoutes\(a\.data\)\)/.test(admin));
   check('so does the leftover check', /return a && isHeldFromRoutes\(a\.data\);/.test(admin));
-  check('so does the third consumer',
-    /isHeldFromRoutes === 'function' && isHeldFromRoutes\(d\)/.test(admin));
+  /* ⚠ REWRITTEN 2026-09-04. The third consumer was customersMissingFromSeason, which
+     used a live hold to keep a customer OFF the plan altogether — the bug Addie reported
+     as "some people are confirmed but still arent in schedule and I dont know why". The
+     schedule now asks the same hold for a DATE instead (houseHoldFrom) and gives them the
+     first day after it, so the rule is kept and nobody disappears. What matters here is
+     unchanged and is what this checks: there is still exactly ONE place that knows about
+     the two hold fields, and every consumer comes through it. */
+  check('the schedule reads the same hold, as the earliest day it allows',
+    /function houseHoldFrom\(/.test(admin) && /scheduleHoldEndsMillis\(custData\)/.test(admin),
+    'a second reader of lightsLockedUntil and scheduleHoldUntil is how the plan and the ' +
+    'routes start disagreeing about who may go out');
+  check('and the yes/no answer is derived from that one reader, not a second copy',
+    /function isHeldFromRoutes\(d\)\{ return scheduleHoldEndsMillis\(d\) > 0; \}/.test(admin),
+    'two functions reading the same two fields is the drift this file already has a ' +
+    'scar from');
   check('and no route filter still asks the old lock alone',
     !/!isLightsLocked\(a\.data\)/.test(admin),
     'a filter left on the colour-change lock would route a house whose bundle is unbuilt');
 
-  const heldSrc = lift(admin, 'isHeldFromRoutes');
+  const heldSrc = lift(admin, 'scheduleHoldEndsMillis');
   check('the shared question asks BOTH holds',
-    /isLightsLocked\(d\)/.test(heldSrc) && /isScheduleHeld\(d\)/.test(heldSrc),
+    /lightsLockMillis\(d\)/.test(heldSrc) && /scheduleHoldMillis\(d\)/.test(heldSrc),
     'dropping either one silently releases a house early');
+  /* ⭐ AND THE PATHS THAT QUEUE A BUILD WITHOUT STAMPING A HOLD (2026-09-04). Her rule
+     was only ever true for the one save that wrote the field. */
+  check('and it derives her 72 hours where no hold was stamped',
+    /needsLightBuild === true/.test(heldSrc) && /lightsQueuedAt/.test(heldSrc),
+    'six of the seven paths that queue a build never write scheduleHoldUntil, so the ' +
+    'rule reached none of them');
+  check('but a queued build with no queue date on it holds nobody',
+    /if\(queued\)/.test(heldSrc),
+    'treating "unknown" as "now" restarts the clock every rebuild — a for-ever hold ' +
+    'wearing a timestamp, which is the bug this whole change exists to remove');
 }
 
 suite('An approved re-quote reaches Ready to Convert');
