@@ -51847,14 +51847,14 @@ suite('Suite 307. Filter, then select everyone under the filter');
           return null;
         }
       };
-      const env = new Function('document', 'MEMBERS', 'TERM', 'PAYMENT', 'MODE', 'PICKED',
+      const env = new Function('document', 'MEMBERS', 'TERM', 'PAYMENT', 'MODE', 'PICKED', 'PAIDLAST', 'HASLAST',
         (extractFn(admin, 'custCanBeEmailed') || '') +
         (extractFn(admin, 'etNoAutomationEmails') || '') +
         selUiSrc307 +
         'let etSelectedRecipientIds = new Set(PICKED);' +
         'let etRecipientSearchTerm = TERM;' +
         'let etFilterGateCode = "all", etFilterPayment = PAYMENT, etFilterRsvp = "all";' +
-        'let etFilterPaidLast = "all", etFilterOrderedLast = "all", etFilterNew = "all";' +
+        'let etFilterPaidLast = PAIDLAST, etFilterOrderedLast = "all", etFilterNew = "all";' +
         'let etFilterGroup = "all", etFilterOutlet = "all", etFilterInstalled = "all";' +
         'let etRsvpAudienceAutoSet = false;' +
         'let etFilterDoNotSend = MODE;' +
@@ -51865,14 +51865,15 @@ suite('Suite 307. Filter, then select everyone under the filter');
         'function getLiveInvoiceStatus(d){ return (d && d.pay) || "Paid in Full"; }' +
         'function audienceBillingGroup(){ return "own"; }' +
         'function audienceNeverAsked(){ return false; }' +
-        'function audiencePaidLastYear(){ return "paid"; }' +
+        'function audiencePaidLastYear(){ return HASLAST ? "paid" : null; }' +
         'function audienceOrderedLastYear(){ return "yes"; }' +
-        'function audienceHasLastSeason(){ return true; }' +
+        'function audienceHasLastSeason(){ return HASLAST; }' +
         'function esc(s){ return String(s == null ? "" : s); }' +
         renderSrc307 +
         ';return { go: etRenderRecipientList, sel: etSelectedRecipientIds };');
       const r = env(doc, book, (opt.term || '').toLowerCase(), opt.payment || 'all',
-        opt.mode || 'hide', opt.picked || []);
+        opt.mode || 'hide', opt.picked || [], opt.paidLast || 'all',
+        opt.hasLastSeason === undefined ? true : opt.hasLastSeason);
       r.go();
       return {
         html: list.innerHTML,
@@ -52003,7 +52004,71 @@ suite('Suite 307. Filter, then select everyone under the filter');
         r.html.indexOf('et-recipient-cb') === -1 && r.allDead === true,
         'a tickable row here is one press away from mailing the do-not-send list');
     }
+    /* ---- 8. THE LAST-YEAR FILTERS CAN SEE LAST YEAR (2026-09-05) ----
+       Dax: "when i push paid last year or didnt pay last year is shows no members
+       match these filters which is not true." He was right, and the cause was not
+       in the filter at all: `yearlySnapshotsCache` is filled by `loadYearlySnapshots`,
+       which before today lived inside `loadFinancialTrackers` in the `money` group —
+       pulled by the DASHBOARD alone. Open admin, go straight to Automation Emails,
+       pick "Paid last year", and audiencePaidLastYear answered null for everybody
+       against an unread snapshot sitting in Firestore.
+       ⚠ THE HALF THAT MADE IT UNDIAGNOSABLE is the one checked here: the list said
+       "No members match these filters", which is the one sentence guaranteed to send
+       somebody looking for a broken filter. */
+    {
+      const r = draw307(book307(), { paidLast: 'paid', hasLastSeason: false });
+      check('S307', 'with no last-season snapshot the list says SO, not "no members match"',
+        r.html.indexOf('No members match these filters') === -1 &&
+        /Nothing to compare against yet/.test(r.html),
+        'the count line carried the reason and the list contradicted it — the list ' +
+        'is what gets read, and it sent Dax hunting for a filter bug that was a ' +
+        'panel-loading bug one screen away');
+      check('S307', 'and it names WHICH filter emptied the screen',
+        r.html.indexOf('Paid last year') !== -1,
+        '"no snapshot" beside ten dropdowns does not say which two just went blank');
+      check('S307', 'and how to get the list back',
+        /Start New Season/.test(r.html) && /All/.test(r.html),
+        'a dead end with a reason is still a dead end');
+      /* ⚠ AND IT MUST NOT FIRE WHEN THE SNAPSHOT IS THERE. A message that appears
+         whenever the filter matches nobody would be wrong every time the office
+         legitimately narrowed to an empty audience. */
+      const ok = draw307(book307(), { paidLast: 'paid', hasLastSeason: true });
+      check('S307', 'and with a snapshot present the filter matches normally',
+        ok.picked.length === 0 && ok.html.indexOf('Nothing to compare against yet') === -1 &&
+        ok.html.indexOf('Ann Ableton') !== -1,
+        'the snapshot notice must be about the SNAPSHOT, not about an empty result');
+    }
+
+    /* ---- 9. the wiring that actually fixes it ---- */
+    /* ⚠ Suite 21 already proves every PANEL_DATA key is a real panel and every group
+       it names has a handler — which is why it stayed green through this bug. What it
+       cannot see is that Automation Emails ASKS for the snapshot at all, so that is
+       asserted here, next to the filters that depend on it. */
+    {
+      const adm307b = stripComments(admin.replace(/\r/g, ''));
+      const pd = (adm307b.match(/const PANEL_DATA = \{[\s\S]*?\n\};/) || [''])[0];
+      check('S307', 'Automation Emails asks for last season\'s snapshot',
+        /automation:\s*\[[^\]]*'snapshots'/.test(pd),
+        'without this the two "last year" filters read an empty cache on this panel ' +
+        'and silently match nobody — the reported bug');
+      check('S307', 'and the snapshot group has a loader',
+        /case 'snapshots':\s*return \[loadYearlySnapshots\]/.test(adm307b),
+        'a group with no handler loads nothing and says nothing');
+      /* ⚠ ONE GROUP, NOT TWO. ensurePanelData de-dupes by GROUP NAME, not by loader,
+         so a loader named in both `money` and `snapshots` runs TWICE and opens a second
+         onSnapshot on one collection — the listener-accumulation shape that once cost
+         2815 writes on a single drag. */
+      check('S307', 'loadYearlySnapshots is in exactly one group',
+        (adm307b.match(/loadYearlySnapshots/g) || []).length === 2,
+        'expected its declaration and ONE mention in panelDataGroup; a second group ' +
+        'naming it opens a duplicate listener on yearlySnapshots');
+      check('S307', 'and the Dashboard still gets it',
+        /dashboard:\s*\[[^\]]*'snapshots'/.test(pd),
+        'it used to arrive through the money group; taking it out of there without ' +
+        'adding it here would break the finance panel and the auto-save with it');
+    }
   }
+
 
   /* ---- 7. the wiring: the ticks are recorded, and the send reads them ---- */
   /* ⚠ THE RENDERER ABOVE PROVES THE STATE SURVIVES; these prove something puts a

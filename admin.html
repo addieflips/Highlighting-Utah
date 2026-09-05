@@ -6198,7 +6198,15 @@ function switchToAdminPanel(panelName){
    the people and money loaders too, or it would draw a confident zero where a
    real number belongs. */
 const PANEL_DATA = {
-  dashboard:        ['money','people','timelogs'],
+  /* ⚠ `snapshots` IS LISTED BESIDE `money`, NOT INSIDE IT. The de-dupe in
+     ensurePanelData is by group name, so a loader named in two groups opens two
+     listeners on one collection. See loadYearlySnapshots. */
+  dashboard:        ['money','people','timelogs','snapshots'],
+  /* ⭐ Automation Emails reads last season's books — the "Paid last year" and
+     "Ordered last year" audience filters go through audienceLastSeasonMap. Without
+     this entry that cache is empty on this panel and both filters silently match
+     nobody while a real snapshot sits in Firestore (2026-09-05). */
+  automation:       ['snapshots'],
   timelogs:         ['timelogs','people'],
   responsibilities: ['people','timelogs'],
   reviews:          ['reviews'],
@@ -6219,6 +6227,7 @@ const PANEL_DATA = {
 function panelDataGroup(groupName){
   switch(groupName){
     case 'money':         return [loadExpenses, loadFinancialTrackers, loadCreditCards, loadCcTransactions, loadCcRecurringOverrides];
+    case 'snapshots':     return [loadYearlySnapshots];
     case 'people':        return [loadEmployeeNames, loadEmployeeCategories, loadRoleTemplates, loadTimeOffRequests, loadCrewConfig, loadCrewOverrides, loadTimecardApprovalsAdmin, loadEmployeeRequestsAdmin];
     case 'timelogs':      return [loadTimeLogs];
     case 'reviews':       return [loadReviews];
@@ -16780,6 +16789,9 @@ function etRenderRecipientList(){
   const shown = term ? members.filter(m => (m.data.name||'').toLowerCase().indexOf(term) !== -1) : members;
   const usingLastYear = (etFilterPaidLast !== 'all' || etFilterOrderedLast !== 'all');
   const lastYearMissing = usingLastYear && !audienceHasLastSeason();
+  /* Which of the two it is, so the empty list can name the dropdown to put back
+     rather than leaving the office to guess which of ten just emptied the screen. */
+  const lastYearFilterName = etFilterPaidLast !== 'all' ? 'Paid last year' : 'Ordered last year';
   if(countEl){
     let msg;
     if(manageMode){
@@ -16809,7 +16821,18 @@ function etRenderRecipientList(){
       /* ⚠ AN EMPTY LIST WITH A REASON. If everybody who matched was taken out for
          having no address, "no members match these filters" is actively misleading —
          they DID match, we just cannot write to them. */
-      : (noEmailHidden
+      /* ⚠ AND "NO SNAPSHOT" IS A THIRD REASON, NOT THE SAME AS NO MATCH (2026-09-05).
+         Dax: "when i push paid last year or didnt pay last year is shows no members
+         match these filters which is not true." He was right — with no last-season
+         snapshot loaded, audiencePaidLastYear answers null for EVERYBODY, so both
+         those filters match nobody and the list said the one thing guaranteed to send
+         somebody hunting for a broken filter. The count line carried the explanation
+         and the list contradicted it; the list is what gets read. It names the filter
+         it is about, because "no snapshot" beside nine other dropdowns does not say
+         which two of them just went blank. */
+      : (lastYearMissing
+          ? '<div class="empty-note">Nothing to compare against yet. The <strong>' + esc(lastYearFilterName) + '</strong> filter reads a saved snapshot of last season&rsquo;s invoices, and none has been saved — so it can never match anybody, however many customers really did pay. Set that filter back to <strong>All</strong> to see the list again. The snapshot is written by <strong>Start New Season</strong>, and one is saved automatically once the Dashboard has been opened.</div>'
+          : noEmailHidden
           ? '<div class="empty-note">No one left to send to. '+noEmailHidden+' matched these filters but '+(noEmailHidden===1?'has':'have')+' no email address on file — find '+(noEmailHidden===1?'them':'them')+' under Customers &rarr; Filters &rarr; Email.</div>'
           : '<div class="empty-note">No members match these filters.</div>');
     etUpdateSelectionUi(0);
@@ -29311,6 +29334,35 @@ function loadFinancialTrackers(){
     financeArchiveRevenue = snap.exists() ? (Number(snap.data().archivedRevenue)||0) : 0;
     fovRenderAll();
   });
+}
+/* ⭐ LAST SEASON'S BOOKS ARE THEIR OWN LOADER (2026-09-05, REF/EM fix).
+   Lifted out of loadFinancialTrackers because it is NOT only a finance cache:
+   Automation Emails' two "last year" audience filters read `yearlySnapshotsCache`
+   through audienceLastSeasonMap, and the money group is pulled by the Dashboard
+   alone. So the office could open admin, go straight to Automation Emails, pick
+   "Paid last year", and be told **no members match these filters** — with a full
+   snapshot sitting in Firestore, unread, because nothing on that path had ever
+   loaded it. Reported by Dax, 2026-09-05: "when i push paid last year or didnt pay
+   last year is shows no members match these filters which is not true."
+
+   ⚠ THE COMMENT ABOVE lastSeasonSnapshotFrom PREDICTED THIS EXACT FAULT and named
+   the Invoices panel — "yearlySnapshotsCache is only filled by the money group,
+   which the Invoices panel does not load. Reading the cache there would report 'no
+   snapshot' when one exists, which is a confident wrong answer." The same trap was
+   live one panel over, on a filter shipped after that warning was written. CLAUDE.md
+   §2 says it too: check the cache's READ SITES, not just its panel.
+
+   ⚠ IT IS ITS OWN GROUP, NOT ADDED TO `money`. `ensurePanelData` de-dupes by GROUP
+   NAME, not by loader, so a function named in two groups runs TWICE and opens a
+   second onSnapshot on the same collection — the listener-accumulation shape that
+   once cost 2815 writes on one drag. Dashboard therefore asks for `snapshots`
+   alongside `money`; it does not get it through `money`.
+
+   ⚠ AND THE AUTO-SAVE RIDES WITH IT, deliberately. autoSaveYearlySnapshotIfNeeded
+   only ever ran 4s after this listener, so on a machine where nobody opened the
+   Dashboard, last season was never snapshotted either — the filters had nothing to
+   read AND nothing was writing it. */
+function loadYearlySnapshots(){
   onSnapshot(query(collection(db,'yearlySnapshots'), orderBy('year','desc')), function(snap){
     yearlySnapshotsCache = [];
     snap.forEach(d => yearlySnapshotsCache.push({id:d.id, data:d.data()}));
