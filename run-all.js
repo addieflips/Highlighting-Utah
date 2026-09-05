@@ -44946,6 +44946,17 @@ if (!JSDOM) {
       /* billedHousesFor asks billingGroupsByPayer asks this. Lifted, not
          stubbed: who is on a bill is the whole subject of this suite. */
       extractFn(admin, 'houseIsOnTheBill'),
+      /* ⚠ AND referralTokenFor, because the refer line MINTS now (REF-10) rather than
+         offering a button — so drawing it is a WRITE, and a sandbox without this dies
+         with a bare ReferenceError attributed to this whole suite. LIFTED, NOT STUBBED
+         (§3): whether the mint is guarded against firing twice is a claim this suite can
+         only make by running the real one. */
+      'async ' + extractFn(admin, 'referralTokenFor'),
+      'function generateReferralToken(){ return "tok" + (generateReferralToken.n = (generateReferralToken.n||0) + 1); }',
+      'const MINTED = [];',
+      'function doc(_db, c, id){ return {c:c, id:id}; }',
+      'async function updateDoc(ref, u){ MINTED.push({id: ref.id, updates: u}); }',
+      'const db = {};',
       'let jobAddresses = [];', 'let editCustomerId = null;', 'let requoteBeingConverted = null;',
       'let invoiceById = new Map();', 'let editCustDirtySnapshot = "";',
       'const REFERRAL_CREDIT = ' + (admin.match(/const REFERRAL_CREDIT = (\d+);/) || [])[1] + ';',
@@ -44967,7 +44978,8 @@ if (!JSDOM) {
       ' },' +
       ' dirty:function(){ return editCustIsDirty(); },' +
       ' refresh:editCustRefreshDirtyDot,' +
-      ' billKey:editCustBillKey' +
+      ' billKey:editCustBillKey,' +
+      ' minted:function(){ return MINTED; }' +
       '};'].join('\n');
 
     const F = new Function('document', 'window', 'confirm', 'openEditCustomerModal', code)(
@@ -45104,6 +45116,40 @@ if (!JSDOM) {
     check('S276', 'but the bill line still shows, because it changes nothing',
       out.line.style.display !== 'none',
       'hiding it too would take the balance away for no reason');
+
+    /* ---- the referral link makes itself (REF-10) -------------------------
+     * ⚠ RUN, NOT READ, and this is the pair a source check cannot make: that opening a
+     * customer with no link WRITES one, and that opening them again writes NOTHING. The
+     * second half is the whole risk — this row is redrawn on a tab switch and after
+     * every save, so an unguarded mint writes a fresh token each time and every link
+     * already copied out of this box quietly stops counting. */
+    /* ⚠ ASYNC, BECAUSE THE MINT IS. The renderer deliberately does not await the write —
+       an await inside openEditCustomerModal would put a network round trip between the
+       forty fields and the dirty snapshot taken after them — so it settles a tick later
+       and a synchronous check reads zero writes on correct code. */
+    pendingAsync.push((async function(){
+      const bookRef = [{id: 'r1', data: {name: 'Nell New', phone: '8015551212', customerNumber: '77', housePrice: 100}}];
+      F.open(bookRef, 'r1', []);
+      await new Promise(function(r){ setTimeout(r, 0); });
+      /* ⚠ FILTERED TO THIS CUSTOMER. MINTED accumulates for the whole suite, and every
+         earlier F.open in it mints for the house it opened — counting them all reported
+         four writes for one customer and looked like the guard failing. */
+      const forR1 = function(){ return F.minted().filter(function(m){
+        return m.id === 'r1' && m.updates.referralToken; }); };
+      const first = forR1();
+      check('S276', 'opening a customer with no referral link makes one',
+        first.length === 1 && first[0].id === 'r1' && !!bookRef[0].data.referralToken,
+        'Addie: "we want the link to automatically be made for every customer" — got ' +
+        first.length + ' write(s)');
+      F.open(bookRef, 'r1', []);
+      F.open(bookRef, 'r1', []);
+      await new Promise(function(r){ setTimeout(r, 0); });
+      const after = forR1();
+      check('S276', 'and opening them again writes nothing at all',
+        after.length === 1,
+        'got ' + after.length + ' writes for one customer — a second token silently ' +
+        'retires every link already shared, and the office has no way to see it happen');
+    })().catch(function(e){ e.__suite = 'S276'; throw e; }));
 
     /* ---- the save button ---- */
     out = F.open(BOOK, 'a27', INVOICES);
@@ -45930,7 +45976,19 @@ suite('281. The short quote link');
     /^\/q\/\*\s*\r?\n\s+Cache-Control: no-cache\s*$/m.test(read('_headers')),
     'a cached index.html served at /q/ is a stale half of the app answering a live link');
 
-  const shortBlock = idx.slice(idx.indexOf('var m = null;'), idx.indexOf('var forceHomepage = false;'));
+  /* ⚠ ANCHORED ON THE /q/ PATTERN ITSELF, NOT ON `var m = null;` (repointed 2026-09-04).
+     The referral short link (REF-11) is the same mechanism written the same way and it
+     sits ABOVE this block, so it now owns the first `var m = null;` in the file — this
+     slice silently became a slice of the REFERRAL reader, and four checks about the
+     quote link started asserting things about a different link. Nothing was wrong with
+     either feature. Same slow-fuse shape as S82, S129 and the folder-names suite: pinned
+     to where a string happened to sit rather than to what must be true. */
+  /* Built with fromCharCode so the backslashes cannot be mangled by whatever writes
+     this file — the trap CLAUDE.md §7 and Suites 74-76 each record. */
+  const Q_NEEDLE = 'm = /^' + String.fromCharCode(92) + '/q' + String.fromCharCode(92) + '/([A-Za-z0-9_-]+)';
+  const qStart = idx.indexOf(Q_NEEDLE);
+  const shortBlock = idx.slice(idx.lastIndexOf('var m = null;', qStart),
+    idx.indexOf('var forceHomepage = false;'));
   check('S281', 'the app reads the token out of the path',
     /\/\^\\\/q\\\/\(\[A-Za-z0-9_-\]\+\)/.test(shortBlock) ||
     /\^\\\/q\\\//.test(shortBlock),
@@ -47554,6 +47612,23 @@ suite('287. The routine route sweep does not bury the notice that matters');
         digitsOnly: (v) => String(v || '').replace(/\D/g, ''),
         arrearsForCustomer: async (d) => ({ outstanding: d.owes || 0, season: '2025' }),
         ensureToken: async (id) => 'tok-' + id,
+        /* ⚠ LIFTED, NOT STUBBED (§3). The referral link in this email is built from
+           what this returns, and a stub would let the suite stay green while the real
+           minting changed shape — the link is the whole point of the button.
+           generatePortalToken comes with it, because a lift is only whole once its own
+           dependencies are in. */
+        ensureReferralToken: (function(){
+          const src = extractFn(fnsSrcChase, 'ensureReferralToken');
+          const gen = extractFn(fnsSrcChase, 'generateReferralToken');
+          /* ⚠ AND THE ALPHABET IT READS, which is a module-level const OUTSIDE the
+             function — extractFn brings the body and nothing else, so without this the
+             lift throws on its first call, the batch swallows it per customer, and the
+             suite reports "0 customers written to" as though the filter were wrong. */
+          const alpha = (fnsSrcChase.match(/const REFERRAL_TOKEN_ALPHABET = '[^']+';/) || [])[0];
+          if(!src || !gen || !alpha) return null;
+          const NL = String.fromCharCode(10);
+          return new Function('db', alpha + NL + gen + NL + 'async ' + src + NL + 'return ensureReferralToken;')(db);
+        })(),
         fetch: async (url, init) => {
           if (opts.mailFails) return { ok: false, text: async () => 'nope' };
           sent.push(JSON.parse(init.body).template_params);
@@ -48083,9 +48158,18 @@ suite('291. An RSVP link to text, for everyone with no email');
         /\{\{rsvp_no_button\}\}/.test(patch.body || '') &&
         /\{\{rsvp_back_button\}\}/.test(patch.body || ''));
       /* ⚠ RS-37: no figure. {{amount_due}} here would print THIS year's install
-         price into an email about an old debt. */
+         price into an email about an old debt.
+         ⚠ NARROWED 2026-09-04, AND ONLY BY THE ONE SENTENCE. The referral offer added to
+         this template names $25 — a FIXED constant, the same for everybody, and about a
+         discount rather than about the debt, so it cannot disagree with the figure the
+         portal computed. The referral sentence is cut out and the original rule then
+         applied to everything else UNCHANGED, so a real balance appearing anywhere in
+         this body still fails exactly as it did. Widening the rule to "no $ except $25"
+         would have let a computed "$25.00" through; cutting the known sentence does not. */
+      const bodyNoRefer = String(patch.body || '')
+        .replace(/Know somebody who wants lights\?[\s\S]*?\{\{referral_button\}\}/, '');
       check('S289', 'and names no money figure',
-        !/\{\{amount_due\}\}/.test(patch.body || '') && (patch.body || '').indexOf('$') === -1,
+        !/\{\{amount_due\}\}/.test(bodyNoRefer) && bodyNoRefer.indexOf('$') === -1,
         'the portal holds the one figure we computed; a second one here would disagree with it');
       check('S289', 'nothing is created when the template is already there',
         r.created.length === 0, 'a second template of the same name is worse than an empty one');
@@ -49642,7 +49726,11 @@ suite('299. A referral link, and the $25 that follows it');
       let minted = 0;
       const env = {
         db: {collection: () => ({doc: () => ({update: async (u) => { writes.push(u); }})})},
-        generatePortalToken: () => 'tok-' + (++minted)
+        /* ⚠ generateReferralToken, NOT generatePortalToken (REF-11). A referral token is
+           eight characters and is NOT the login token — shortening that one would be an
+           account-security change. Naming the wrong one here leaves the sandbox missing
+           the helper the real function calls. */
+        generateReferralToken: () => 'tok-' + (++minted)
       };
       const names = Object.keys(env);
       // eslint-disable-next-line no-new-func
@@ -49662,6 +49750,122 @@ suite('299. A referral link, and the $25 that follows it');
       })());
     }
   }
+
+  /* ---- the referral link in an email: TWO renderers, one address ----------
+   * ⚠ THIS IS THE {{photo}} FAILURE'S SHAPE and the reason it is checked at all: the
+   * Not Paid RSVP template carries {{referral_button}}, admin.html renders it for a
+   * hand-send and functions/index.js renders it for the automatic chase. A token
+   * resolved in only one of them puts a literal "{{referral_button}}" in a real
+   * customer's inbox, and nothing anywhere goes red.
+   * ⚠ AND THE ADDRESS MUST MATCH THE PORTAL'S, character for character. Three spellings
+   * of one link is three ways for a referral to arrive uncounted, and the only symptom
+   * is somebody's $25 never appearing. */
+  {
+    const fnsRef = read('functions/index.js');
+    const idxRef = read('index.html');
+    /* ⚠ THE SHAPE, NOT THE WHOLE STRING. index.html builds the host from
+       window.location.origin on purpose, so a Netlify deploy preview hands out a link
+       to itself rather than to production; the two email renderers cannot do that,
+       because there is no page under them. What must match is the QUERY and the HASH —
+       ?ref=<encoded token>#/quote — since that is the whole of what the quote page
+       reads back. */
+    /* ⚠ THE SHORT ADDRESS (REF-11). It was ?ref=<token>#/quote at 61 characters; a text
+       message is billed in 160-character segments, so it is now /r/<token> at 39 — the
+       same Netlify 200-rewrite the /q/ quote link has used since 2026-08-26. What must
+       match across all three is the PATH, since that is the whole of what the page reads
+       back. index.html builds the host from window.location.origin on purpose, so a
+       deploy preview hands out a link to itself rather than to production. */
+    const LINK = "/r/' + encodeURIComponent(";
+    check('S299', 'the office renderer resolves the referral tokens',
+      /\{\{referral_link\}\}/.test(admin) && /\{\{referral_button\}\}/.test(admin) &&
+      /await referralTokenFor\(who\)/.test(admin),
+      'a template token nothing resolves is a raw {{referral_button}} in somebody\'s email');
+    check('S299', 'and so does the server one that actually sends the chase',
+      /body = body\.split\('\{\{referral_button\}\}'\)/.test(fnsRef) &&
+      /body = body\.split\('\{\{referral_link\}\}'\)/.test(fnsRef),
+      'runArrearsRsvpBatch sends the Not Paid RSVP without the browser ever running — ' +
+      'change one renderer, change the other, in the same push');
+    check('S299', 'all three build the same address',
+      [admin, fnsRef, idxRef].every(function(f){ return f.indexOf(LINK) !== -1; }),
+      'the portal tab, the office email and the automatic chase must hand out one link');
+    /* ⚠ BY DOCUMENT ID, NEVER BY A GUESSED PHONE. getOrCreatePortalToken finds a
+       customer with a .find() on the phone, and seventeen numbers in the real book are
+       shared by two households — through that door one household's referral link goes
+       out in the other's email, and every friend they send it to credits the wrong
+       customer.
+       ⚠ REPOINTED 2026-09-04 AT hlxEmailCustomerItem, AND NOT WEAKENED — it is the
+       stricter rule. Two sessions built this token on the same day; theirs reached main
+       first and stands. Mine refused a phone lookup outright; theirs takes
+       opts.customerId when it has one and, falling back to a phone, returns null unless
+       EXACTLY ONE customer holds that number — so a shared number resolves to nobody
+       rather than to the wrong household. What must never come back is a bare .find()
+       that takes the first hit. */
+    const linkFn = extractFn(admin, 'hlxEmailCustomerItem') || '';
+    check('S299', 'the office one finds the customer by id, and never guesses a shared phone',
+      /o\.customerId/.test(linkFn) && /hits\.length === 1/.test(linkFn),
+      'a phone lookup that takes the first hit puts one household of a shared number in ' +
+      'the other\'s email, and every friend they send it to credits the wrong customer');
+    /* ⚠ EACH TEMPLATE ON ITS OWN, not a tally over the whole file. A count passes with
+       one of the two bodies emptied, because the renderer and the token picker mention
+       {{referral_button}} as well — and the Not Paid one is the body the SERVER sends,
+       so losing it there is the half nobody would notice until a customer did. */
+    const rsvpTplBody = function(name){
+      const at = admin.indexOf("{name:'" + name + "'");
+      return at === -1 ? '' : admin.slice(at, admin.indexOf('linkedTokens:', at));
+    };
+    ['RSVP Email', 'Not Paid RSVP'].forEach(function(name){
+      check('S299', 'the ' + name + ' template carries the referral offer',
+        rsvpTplBody(name).indexOf('{{referral_button}}') !== -1,
+        'Addie asked for this in the RSVP, which is the one email of the season that ' +
+        'reaches everybody — a token nothing uses is a feature nobody is offered');
+    });
+  }
+
+  /* ---- every customer ends up with a link, without anybody asking ---------
+   * Addie, 2026-09-04: "we want the link to automatically be made for every customer."
+   * ⚠ RUN, NOT READ. Every claim here is about a WRITE that happens (or does not) while
+   * a form is drawn, and a source check cannot see a second mint racing the first. */
+  {
+    const creators = (admin.match(/referralToken: generateReferralToken\(\)/g) || []).length;
+    check('S299', 'every place that creates a customer gives them a link at birth',
+      creators === 4,
+      'found ' + creators + ' of the 4 creators — Add Customer, the sheet sync, Bulk ' +
+      'Updates and the invoice importer. Miss one and a whole class of customer has no ' +
+      'link and nothing on screen saying why; it rides in the same write as portalToken, ' +
+      'so it costs nothing');
+    /* ⚠ AND THE BACKFILL ONLY EVER ADDS. It is the one thing here that touches the whole
+       book, so it must be safe to press twice: a customer who already has a token is
+       skipped, and no token is ever replaced. That is why it needs no typed confirmation
+       the way the Danger Zone sweeps do — nothing it does can be undone because nothing
+       it does is destroyed. */
+    const back = extractFn(admin, 'backfillReferralLinks') || '';
+    check('S299', 'the one-press backfill skips anybody who already has a link',
+      /!String\(a\.data\.referralToken \|\| ''\)\.trim\(\)/.test(back),
+      'pressed twice it would mint a second token for everybody, and every link already ' +
+      'shared would quietly stop counting');
+    check('S299', 'and it writes in batches rather than 960 awaits',
+      /writeBatch\(db\)/.test(back) && /REFERRAL_BACKFILL_BATCH/.test(back),
+      'the bulk importer already learned what an unbatched pass over the whole book does ' +
+      'to this page');
+    check('S299', 'and it refuses to run before the customer list has loaded',
+      back.indexOf('if(!(jobAddresses || []).length)') !== -1,
+      'pressed early it would report "everyone already has one" about a list of nobody — ' +
+      'the same fail-safe the bulk importer makes into a hard stop');
+    check('S299', 'and the local cache is only updated after the write lands',
+      back.indexOf('await batch.commit()') < back.indexOf('a.data.referralToken = minted[n]'),
+      'mirrored first, the screen shows links that were never saved and the next press ' +
+      'skips those customers as already done');
+  }
+
+  /* ---- and the tab is not held back from the people who owe ---------------
+   * ⚠ REVERSED THE DAY AFTER IT SHIPPED, and this check is what pins the reversal.
+   * Locking Refer a Friend behind unpaid arrears greyed it out on nearly every record
+   * in the book — Addie: "its not showing up anywhere". Referring a friend puts nothing
+   * into the system and can only take money OFF this customer's bill. */
+  check('S299', 'a customer who owes for last season can still refer a friend',
+    /PORTAL_UNLOCKED_TABS = \['payment','refer','contact','cancel'\]/.test(read('index.html')),
+    'held behind the arrears lock it is invisible to most of the book, which is exactly ' +
+    'how it was reported');
 
   /* ⚠ AND THE × ON A REFERRAL LINE HAS TO MARK THE ENTRIES, NOT JUST THE COUNT.
      ⚠ THIS ONE IS STRUCTURAL AND SAYS SO. The check above it RUNS the credit path over
@@ -49698,9 +49902,19 @@ suite('299. A referral link, and the $25 that follows it');
      to cancel — to everybody they shared their link with. */
   const idxSrc = read('index.html');
   check('S299', 'the shared link carries the referral token, not the portal login token',
-    /\?ref=' \+ encodeURIComponent\(String\(token/.test(idxSrc) &&
-    !/\?ref='\s*\+\s*[^;]*portalToken/.test(idxSrc),
+    /'\/r\/' \+ encodeURIComponent\(String\(token/.test(idxSrc) &&
+    !/'\/r\/'\s*\+\s*[^;]*portalToken/.test(idxSrc),
     'a portal token in a link people paste into group chats is an account handed over');
+  /* ⚠ AND THE TWO GENERATORS ARE NOT ONE. The referral token was shortened to eight
+     characters so the link fits a text message (REF-11); the portal LOGIN token is 20 and
+     must stay 20, because it signs somebody into their account. A single generator would
+     make shortening the link an account-security change, silently. */
+  const genRef = extractFn(admin, 'generateReferralToken') || '';
+  const genPortal = extractFn(admin, 'generatePortalToken') || '';
+  check('S299', 'the referral token has its own generator, apart from the login token',
+    /i < 8;/.test(genRef) && /i\s*<\s*20\s*;/.test(genPortal),
+    'shortening the login token to fit a link in a text is an account-security change ' +
+    'nobody would have meant to make');
   check('S299', 'and the public quote form carries the token it was given',
     /referredByToken: t/.test(idxSrc) && /referralQuoteFields\(\)/.test(idxSrc),
     'without it the link is decoration — nothing on the quote says who sent them');
@@ -50881,16 +51095,38 @@ suite('305. The referral link, from the office side');
       !/referralCredits\.length/.test(row),
       'a revoked or waived referral is not money off anybody’s bill — showing the ' +
       'raw length tells the office a customer has a discount they do not have');
-    /* ⚠ NOTHING IS MINTED BY OPENING THE FORM. A write per open, on the most-opened
-       form in the app, for a link most of those opens will never use. */
-    check('S305', 'opening the form mints nothing',
-      !/updateDoc/.test(row) && !/referralTokenFor/.test(row),
-      'this is the form the office opens dozens of times a day');
-    check('S305', 'and the button is what mints it',
-      /referralTokenFor\(item\)/.test(fn('editCustReferClick')));
-    check('S305', 'no link yet is said plainly rather than left blank',
-      /no link made yet/.test(row) && /data-ectrefer="make"/.test(row),
-      'an empty field beside a Copy button reads as the feature being broken');
+    /* ⭐ REVERSED 2026-09-04 BY ADDIE, AND THE TWO CHECKS ARE REPOINTED RATHER THAN
+       DELETED (REF-10). She asked for the opposite of what they pinned: *"we want the
+       link to automatically be made for every customer."* The old pair read:
+         · "opening the form mints nothing" — no updateDoc and no referralTokenFor in the
+           renderer, because it is "a write per open, on the most-opened form in the app";
+         · "no link yet is said plainly" — the row shows "no link made yet" and a
+           Make-their-link button.
+       Kept here in full because the first half of that reasoning was WRONG and somebody
+       will make it again: referralTokenFor returns early the moment a token exists, so
+       minting in the renderer is ONE write per customer for the life of the record, not
+       one per open — and none at all for a customer created after REF-10, since all four
+       creators now mint at creation.
+       ⚠ WHAT SURVIVES IS THE HALF THAT WAS ALWAYS RIGHT: it must not mint twice. The
+       renderer runs again on a tab switch and after every save, so without the in-flight
+       marker two mints race, two tokens are written, and the link the office has just
+       copied is the one that loses. */
+    check('S305', 'opening the form makes their link without being asked',
+      /referralTokenFor\(item\)/.test(row),
+      'Addie: "we want the link to automatically be made for every customer" — a link ' +
+      'somebody has to press for is one the office has to know to ask for');
+    check('S305', 'and it cannot fire twice for the same customer',
+      /__referralMinting/.test(row) && row.indexOf('item.__referralMinting = true;') !== -1,
+      'the row is redrawn on a tab switch and on every save; two mints in flight write ' +
+      'two tokens, and the link already copied is the one that loses');
+    /* ⚠ COMMENTS STRIPPED. The renderer's own note quotes the old "no link made yet"
+       wording to explain what replaced it, and a plain match reads that explanation as
+       the code — the trap Suites 58, 274 and 275 each learned separately. */
+    check('S305', 'the Make-their-link button is gone, not merely hidden',
+      !/data-ectrefer="make"/.test(stripComments(row)) &&
+      !/no link made yet/.test(stripComments(row)),
+      'a button that mints beside a renderer that already has is two ways to do one ' +
+      'thing, and the button is the one that can mint a second token');
     /* ⭐ AND THE PORTAL'S OWN LINK ACTUALLY REACHES THE CUSTOMER (2026-09-04). Addie:
        "the refer a friend link is not showing in member portal." Nothing was wrong with
        the tab, the panel, the whitelist or the token — `hmLoadHouseMapForInvoice`, which
