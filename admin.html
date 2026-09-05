@@ -8877,13 +8877,31 @@ async function resolveLinkTokens(text, phone, amount, opts){
      could resolve. That is one write each, once, and the alternative is an RSVP whose
      referral link only works for the customers who happen to have signed in already —
      which is a link that works for some people and silently not for others. */
+  /* ⭐ THE BUTTON AND THE BARE LINK ARE TWO DIFFERENT ADDRESSES, and that is the
+     2026-09-05 fix (REF-13). Dax, having tapped the button in an RSVP: *"it takes you
+     straight to the free quote form which is not what we want we want it to be sharable
+     so you can send someone else that link"*.
+     ⚠ THEY ARE FOR TWO DIFFERENT PEOPLE. {{referral_link}} is pasted into an email as
+     text for the customer to forward, so it stays /r/<token> — the address the FRIEND
+     opens, which credits the referral. The BUTTON is tapped by the customer we sent the
+     email to, so it goes to /s/<token>, their own share page, where the share sheet
+     hands the /r/ link to whoever they choose. Sending the customer to the friend's
+     screen is exactly what he hit. */
   if(out.indexOf('{{referral_link}}') !== -1 || out.indexOf('{{referral_button}}') !== -1){
     const who = hlxEmailCustomerItem(phone, opts);
     const refToken = who ? await referralTokenFor(who) : null;
     const refUrl = referralLinkFromToken(refToken);
+    const refShareUrl = referralShareLinkFromToken(refToken);
     out = out.split('{{referral_link}}').join(refUrl);
-    out = out.split('{{referral_button}}').join(refUrl
-      ? ('<a href="' + refUrl + '" style="' + btnStyleGold + '">Refer a Friend \u2014 $25 Off</a>')
+    /* ⭐ THE SAME BUTTON, THE SAME WORDS (2026-09-05). Dax: *"that button that says
+       share my link should be the same button we send in their email"*. It lands on the
+       page whose one gold button says Share My Link, so an email button reading anything
+       else is two names for one thing — and the customer reads the email first.
+       ⚠ CHARACTER FOR CHARACTER THE SERVER'S OWN LABEL in runArrearsRsvpBatch. They
+       said different things before this ("$25 Off" here, "$25 off your bill" there), so
+       which words a customer got depended on which renderer happened to send. */
+    out = out.split('{{referral_button}}').join(refShareUrl
+      ? ('<a href="' + refShareUrl + '" style="' + btnStyleGold + '">Share My Link \u2014 $25 Off</a>')
       : '');
   }
   if(out.indexOf('{{messages_link}}') !== -1 || out.indexOf('{{messages_button}}') !== -1){
@@ -10613,6 +10631,19 @@ async function referralTokenFor(item){
 function referralLinkFromToken(token){
   const t = String(token || '');
   return t ? ('https://highlightingutah.com/r/' + encodeURIComponent(t)) : '';
+}
+/* ⭐ AND THE OTHER END OF THE SAME TOKEN — /s/<token>, the customer's own share page
+   (2026-09-05, REF-13). One token, two addresses, for two different people: /r/ is what
+   the FRIEND opens and credits the referral, /s/ is what the CUSTOMER opens to send the
+   /r/ link on. The Refer a Friend button in an email used to carry /r/, so the customer
+   who tapped it landed on the friend's screen — the free quote form — which is what Dax
+   reported.
+   ⚠ THE SAME ADDRESS, CHARACTER FOR CHARACTER, as the server's copy in
+   functions/index.js. Two spellings of a share page is one of them 404ing on a static
+   host, and only for whichever half of the book that renderer happens to send. */
+function referralShareLinkFromToken(token){
+  const t = String(token || '');
+  return t ? ('https://highlightingutah.com/s/' + encodeURIComponent(t)) : '';
 }
 /* ⚠ A REFERRAL TOKEN IS NOT A LOGIN TOKEN AND IS DELIBERATELY SHORTER. generatePortalToken
    is 20 characters because it signs somebody INTO their account — shortening that would

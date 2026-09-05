@@ -5189,11 +5189,23 @@ async function runArrearsRsvpBatch(source) {
          arrive uncounted, and the only symptom would be somebody's $25 never appearing.
          ⚠ AND $25 OFF IS WORTH MOST TO EXACTLY THE PEOPLE THIS BATCH WRITES TO — they
          are the ones carrying a balance. */
+      /* ⭐ THE BUTTON GOES TO THE SHARE PAGE, THE BARE LINK STAYS THE FRIEND'S
+         (2026-09-05, REF-13). Dax tapped this button in an RSVP and landed on the free
+         quote form: /r/<token> is the address the FRIEND opens, and sending the customer
+         there puts them on the one screen their own link is not for. /s/<token> is their
+         share page, where the phone's share sheet hands the /r/ link to whoever they pick.
+         ⚠ BOTH SPELLINGS MATCH admin.html's referralLinkFromToken and
+         referralShareLinkFromToken character for character. This is the {{photo}} pairing
+         again: two renderers, one template, changed in the same push. */
       const referToken = await ensureReferralToken(docSnap.id, d);
       const referUrl = 'https://highlightingutah.com/r/' + encodeURIComponent(referToken);
+      const referShareUrl = 'https://highlightingutah.com/s/' + encodeURIComponent(referToken);
       body = body.split('{{referral_link}}').join(referUrl);
+      /* ⚠ THE SAME WORDS admin.html's resolveLinkTokens sends, character for
+         character — they read "$25 Off" and "$25 off your bill" until 2026-09-05, so one
+         template said one thing and the nightly chase said another about one button. */
       body = body.split('{{referral_button}}').join(
-        '<a href="' + referUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Refer a Friend — $25 off your bill</a>');
+        '<a href="' + referShareUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Share My Link — $25 Off</a>');
       body = body.replace(/\n/g, '<br>');
 
       const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {

@@ -1010,6 +1010,31 @@ member's bill — with nobody in the office typing anything.
 - **Where the customer gets it.** A **Refer a Friend** tab in their own portal: the link, a
   **Share My Link** button, and how many people have joined through it. The address is
   `.../?ref=<referralToken>#/quote`.
+  - ⭐ **ONE TOKEN, TWO ADDRESSES, FOR TWO DIFFERENT PEOPLE** (2026-09-05, REF-13).
+    `/r/<token>` is what the **friend** opens — it stores the token and goes to the free
+    quote form, which is what credits the referral. `/s/<token>` is what the **customer**
+    opens: their own share page, `#/share`, with the link and the share sheet on it.
+    Dax tapped the Refer a Friend button in an RSVP and landed on the quote form, because
+    that button carried `/r/`. It carries `/s/` now, in `referralShareLinkFromToken`
+    (admin.html) and character-for-character the same in `runArrearsRsvpBatch`
+    (functions/index.js). **`{{referral_link}}`, the bare token, still resolves to `/r/`**
+    — that one is pasted into an email as text for the customer to forward, so it is the
+    friend's address by design.
+  - ⭐ **THE EMAIL BUTTON AND THE PAGE'S BUTTON SAY THE SAME THING** — **Share My Link
+    — $25 Off**. Dax: *"that button that says share my link should be the same button we
+    send in their email"*. It reads "Refer a Friend" no longer, because the customer reads
+    the email and then the page minutes apart and two names for one button is two buttons
+    to them. ⚠ Both renderers send it character for character; they said "$25 Off" and
+    "$25 off your bill" until 2026-09-05, so which words a customer got depended on which
+    renderer happened to send.
+  - ⚠ **The share page stores NOTHING as a referral.** The `/r/` reader writes the token
+    into `sessionStorage` so the quote that follows is credited; doing the same on `/s/`
+    would mark the customer as referred by themselves and their next quote would be
+    refused as a self-referral — over a link we sent them. It is public, signs nobody in
+    and shows nothing but the link: an email button that signed somebody in would hand
+    the account to whoever the email was forwarded to. A forwarded email still works —
+    the page carries a quiet "Somebody send you this? Get a free quote" whose href **is**
+    the `/r/` link being shared.
   - ⭐ **The button opens the phone's own share sheet** (2026-09-05). Dax: *"we would
     rather have it as a share link so it opens share options where they can copy it or
     send it to contact"*. `navigator.share`, so the customer picks a contact, Messages,
