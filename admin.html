@@ -7393,10 +7393,22 @@ function ledgerWaiveUpdates(inv, ledger, key){
   const updates = {};
   /* ⚠ NAMED OUTPUTS HERE TOO, for the reason spelled out above: a computed key is
      invisible to everything that traces who writes `carryoverCharge`. */
+  /* ⚠ AN else-if CHAIN, NOT TWO SEPARATE ifs (fixed 2026-09-03). The `else` bound to
+     the SECOND `if`, so the carried branch fell into it as well and wrote
+     `creditNotes` and `credits` from the CARRIED notes — and waiveCarriedCharge writes
+     this object to the CUSTOMER record, so waiving last season's debt put two invoice
+     fields onto jobAddresses that nothing there should carry. Run, not read: waiving a
+     carried line returned {carryoverChargeNotes, carryoverCharge, creditNotes, credits}. */
   if(ledger === 'carried'){ updates.carryoverChargeNotes = kept; updates.carryoverCharge = total; }
-  if(ledger === 'fee'){ updates.changeFeeNotes = kept; updates.changeFees = total; }
+  else if(ledger === 'fee'){ updates.changeFeeNotes = kept; updates.changeFees = total; }
   else { updates.creditNotes = kept; updates.credits = total; }
-  updates.status = computeInvoiceStatus(inv && inv.install, inv && inv.removal, inv && inv.deposit, credits, fees);
+  /* ⚠ AND status IS AN INVOICE FIELD, so it is only written when an invoice is what is
+     being changed. On the carried ledger `inv` IS the customer record — it has no
+     install, removal or deposit — so this computed a status out of three undefineds and
+     stamped it on the customer. The two carried fields above are the whole change. */
+  if(ledger !== 'carried'){
+    updates.status = computeInvoiceStatus(inv && inv.install, inv && inv.removal, inv && inv.deposit, credits, fees);
+  }
   if(ledger === 'fee' && feeNoteIsLightChange(removed) && !kept.some(feeNoteIsLightChange)){
     updates.lastLightChangeFeeAt = null;
   }
