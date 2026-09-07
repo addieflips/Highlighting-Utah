@@ -153,6 +153,16 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    sentence is printed on the card beside the switch. **Admin › Invoices › Unpaid Last Season** holds the
    switch and a *Send Once, Now* button that runs the same batch without turning anything on.
 
+   ⚠ **AND ON 2026-09-07 IT WAS SWITCHED ON** (RS-55). Dax: *"turn the first one on."* The shipped state is
+   still off — this is a value in Firestore, not a code change — but `settings/arrearsRsvpAutomation.enabled`
+   now reads `true` in production, so the 10:00 America/Denver run sends for real, daily. **It reverses
+   MON-34, which is Addie's and is deliberately left Standing**; the card beside the switch says as much
+   ("worth a word with her first"). At the moment it was turned on the batch resolved to **19 customers,
+   $7,487.04, all 2025 arrears** — the rest skipping as owing nothing (929), already answered (5), no email
+   (2), or the test record (1). ⚠ Anyone reading this because a customer was chased twice wants
+   `arrearsRsvpEmailAt`, not the schedule: the switch decides whether it runs, that stamp decides who it
+   reaches. And a one-time send never needed the switch at all — *Send Once, Now* was always there.
+
    - **Who it writes to:** owes for a previous season **and has never answered the RSVP**. Not a no, not a
      back-next-year (RS-30 — they have answered), and not a yes (the template asks whether they want lights,
      which to somebody who already said so reads as us losing their answer).
@@ -178,6 +188,16 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
      She can set it back to All; what she cannot do is arrive at the overlap without choosing it.
    - ⚠ It leans on `etFilterPaidLast`, repointed on 2026-09-05 to read the **live** arrears rather than a
      snapshot nobody writes. That fix is the only reason this filter can be trusted to carry the split.
+   - **And it drops anyone who has already answered** (2026-09-07, RS-54). Dax: *"exclude people who are
+     confrmed."* Choosing either RSVP template also sets the *RSVP* filter to **Not answered yet**.
+     ⚠ **This was the last of the three send paths to do it**, which is why it survived so long: the nightly
+     chase skips on `if (answered) continue;` in `runArrearsRsvpBatch`, and *Send the whole RSVP* skips on
+     `effectiveRsvpStatus(d)` in `rsvpWholePlan`, so only Preview & Send — the one path driven by hand —
+     re-asked the people who had already replied. Three paths asking one question of different books is the
+     same failure shape as two senders over one book, and it reads to a customer as the office losing their
+     answer. ⚠ **`pending` is not `blank`**: `etRsvpAnswered` counts the literal status `unanswered` as
+     still unanswered, so that customer stays in the audience — they have not answered, they have only been
+     asked. A default, not a lock, like the two filters beside it, and the count line names itself.
 
    ⭐ **AND WHEN THEY PAY, EVERYTHING MOVES — INCLUDING THE OFFICE SCREEN** (2026-09-02, RS-40). Every
    figure on an All Customers row is derived live from the invoice, so a portal payment already cleared the
