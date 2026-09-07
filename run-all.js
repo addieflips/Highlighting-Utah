@@ -45132,7 +45132,14 @@ if (!JSDOM) {
        calls it, so a lift without it throws a bare ReferenceError and takes this whole
        suite down. Lifted, not stubbed: which count it shows is a claim about a
        DISCOUNT ON A BILL, and a stub would leave that untested while reporting green. */
-    'editCustRenderReferLine', 'referralLiveCount', 'referralLinkFromToken'];
+    /* ⚠ AND referralShareLinkFromToken JOINED THEM (2026-09-07, REF-18). The refer
+       row now offers "See their share page" beside Copy link, so this lift throws a
+       bare ReferenceError the moment a fixture customer HAS a token — the branch is
+       inside `if(url)`, so a tokenless fixture hides it and the suite goes green while
+       being one fixture away from taking the whole run down. Found exactly that way,
+       by a red-check. Lifted, not stubbed: it is the address the office opens. */
+    'editCustRenderReferLine', 'referralLiveCount', 'referralLinkFromToken',
+    'referralShareLinkFromToken'];
   const bodies = NAMES.map(function (n) { return extractFn(admin, n); });
   const missing = NAMES.filter(function (n, i) { return !bodies[i]; });
   check('S276', 'the house-tab functions are all in admin.html', missing.length === 0,
@@ -52475,6 +52482,94 @@ suite('308. Sharing the referral link, not opening it');
     /\{\{referral_link\}\}'\)\.join\(referUrl\)/.test(svrBlock),
     'the nightly arrears RSVP is sent with no browser involved; a fix in admin.html ' +
     'alone leaves every automatic send pointing at the old screen');
+
+  /* ⭐ THE SHARE ICON, RIGHT NEXT TO THE LINK (added 2026-09-07). Addie: "a share
+     icon right next to link on automation email." A second anchor beside the
+     existing button — same href, never a replacement for it — in all four spots
+     that build this HTML (referralEmailBlock and resolveLinkTokens in admin.html,
+     and the two mirrored spots in functions/index.js's arrears batch).
+     ⚠ PLAIN EMOJI, NOT <svg>/<img> — flagged to Addie as the safer choice across
+     email clients, Outlook especially. */
+  /* ⚠ THE ESCAPE IS UNWOUND BEFORE COMPARING, same reasoning as emailLabel above:
+     admin.html's resolveLinkTokens writes the emoji as a 📤 escape inside a
+     JS string while the other three spots write the character itself — identical in
+     an inbox, different in source. A comparison of the raw text fails on code that
+     is right. */
+  const iconLabel = (s) => ((s.match(/title="Share">([^<]*)<\/a>/) || [])[1] || '')
+    .replace(/\\u([0-9A-Fa-f]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+  /* ⚠ AN ICON BESIDE EVERY BUTTON, COUNTED PER REGION — never "at least one icon
+     somewhere". `refBlock` above is resolveLinkTokens ALONE and `svrBlock` holds BOTH
+     server spots, so a bare existence check passes with three of the four icons
+     deleted. Red-checked, and it did: deleting the referralEmailBlock icon and
+     deleting one of the server pair both sailed straight through. Same miss as the
+     bins column, where the only check written was about one of the two build sheets.
+     A comparison rather than a number, so a fifth button added later has to bring its
+     own icon with it rather than quietly lowering the count. */
+  const refEmailStart = admin.indexOf('async function referralEmailBlock');
+  const refEmailBlock = refEmailStart === -1 ? '' : admin.slice(refEmailStart,
+    admin.indexOf("'[HU] referral block failed'", refEmailStart));
+  const shareBtnCount = (s) => (s.match(/>Share My Link[^<]*<\/a>/g) || []).length;
+  const shareIconCount = (s) => (s.match(/title="Share">/g) || []).length;
+  check('S308', 'the office email carries a share icon beside the button',
+    !!iconLabel(refBlock) && shareBtnCount(refBlock) >= 1 &&
+    shareIconCount(refBlock) === shareBtnCount(refBlock),
+    'a boxed icon with nothing in it is a blank square in somebody’s inbox — and an ' +
+    'icon count short of the button count is a button somewhere with nothing beside it');
+  check('S308', 'and so does the block that appends itself when the template places no token',
+    !!refEmailBlock && shareBtnCount(refEmailBlock) >= 1 &&
+    shareIconCount(refEmailBlock) === shareBtnCount(refEmailBlock) &&
+    iconLabel(refEmailBlock) === iconLabel(refBlock),
+    'referralEmailBlock only runs when her saved template carries neither token ' +
+    '(REF-15), which makes it the copy least likely to be noticed missing one');
+  check('S308', 'and the server’s copies carry the same one, character for character',
+    !!iconLabel(svrBlock) && iconLabel(refBlock) === iconLabel(svrBlock) &&
+    shareBtnCount(svrBlock) >= 1 && shareIconCount(svrBlock) === shareBtnCount(svrBlock),
+    'office: "' + iconLabel(refBlock) + '"  server: "' + iconLabel(svrBlock) + '"  ' +
+    'server buttons: ' + shareBtnCount(svrBlock) + ', icons: ' + shareIconCount(svrBlock));
+  /* The address check: every icon anchor's href must be built from the same
+     variable as the button's — refShareUrl / url in admin.html, referShareUrl on the
+     server — never a second, independently-built URL that could drift from it. */
+  check('S308', 'the icon shares the button’s own address, not a second copy of it',
+    (refBlock.match(/<a href="' \+ refShareUrl \+ '" style="' \+ SHARE_ICON_BUTTON_STYLE/g) || []).length === shareIconCount(refBlock) &&
+    (refEmailBlock.match(/<a href="' \+ url \+ '" style="' \+ SHARE_ICON_BUTTON_STYLE/g) || []).length === shareIconCount(refEmailBlock) &&
+    (svrBlock.match(/<a href="' \+ referShareUrl \+ '" style="' \+ shareIconBtn/g) || []).length === shareIconCount(svrBlock),
+    'two URLs for one button is the {{photo}} failure this repo keeps finding — ' +
+    'one drifts from the other and nobody notices until a customer taps the wrong one');
+  check('S308', 'and the office defines the icon’s style once, not once per call site',
+    (admin.match(/^const SHARE_ICON_BUTTON_STYLE = /m) || []).length === 1,
+    'two definitions of one style is two chances for the icon to look different in the two emails it appears in');
+
+  /* ⭐ THE OFFICE CAN OPEN THE PAGE THE ICON LEADS TO (added 2026-09-07, REF-18).
+     Addie, of the share page: *"where do I find the page that comes up after pushing
+     the share link icon"* — and the honest answer was nowhere. Both surfaces that show
+     a referral link show /r/, the FRIEND's address; the customer's own /s/ page was
+     reachable only from an email, so looking at it meant copying a link and editing the
+     URL by hand. A "See their share page" anchor now sits beside the Copy link button.
+     ⚠ THE CHECKS RUN ON THE FUNCTION'S OWN SLICE, not the whole file — admin.html
+     mentions both addresses in a dozen comments, and a file-wide search would pass on
+     the prose while the line itself was gone. */
+  const referLineStart = admin.indexOf('function editCustRenderReferLine(){');
+  const referLine = referLineStart === -1 ? '' : admin.slice(referLineStart,
+    admin.indexOf('async function editCustReferClick', referLineStart));
+  check('S308', 'the office can open the customer’s own share page',
+    !!referLine && /referralShareLinkFromToken\(d\.referralToken\)/.test(referLine) &&
+    /id="editCustReferShare"/.test(referLine),
+    'the page an email button leads to, with no way in from the office, is a page ' +
+    'nobody can check — which is how Addie came to be looking for it by hand');
+  /* ⚠ AND THE BOX THE OFFICE COPIES STILL HOLDS THE FRIEND'S ADDRESS. This is the half
+     that costs money if somebody "tidies" the two into one: /s/ handed to a friend is a
+     page about sharing that credits nobody, so the $25 is simply never earned and the
+     only symptom is a referral that quietly did not count. */
+  check('S308', 'and the link it copies is still the FRIEND’s address, not the share page',
+    /const url = referralLinkFromToken\(d\.referralToken\)/.test(referLine) &&
+    !/value="' \+ esc\(shareUrl\)/.test(referLine),
+    'the box beside it is the address the office hands out; pointed at /s/ the friend ' +
+    'lands on a page about sharing and nobody is credited');
+  check('S308', 'and both addresses are built from the one token on the record',
+    (referLine.match(/referral(?:Share)?LinkFromToken\(([^)]*)\)/g) || [])
+      .every(m => m.indexOf('d.referralToken') !== -1),
+    'one token, two addresses (REF-13) — a second source for it is how the two start ' +
+    'naming different customers, and on a shared-phone household that is the wrong bill');
 
   if (!missing308.length) {
     /* One tap, with a share sheet that behaves however the caller says. Everything the

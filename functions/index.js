@@ -5194,6 +5194,14 @@ async function runArrearsRsvpBatch(source) {
          same order. A chase that looked different from the RSVP email it follows
          would read as a different question. */
       const btn = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
+      /* ⚠ THE SHARE ICON, RIGHT NEXT TO THE LINK (added 2026-09-07). Addie: "a share
+         icon right next to link on automation email." Same href as the button beside
+         it, never a replacement — and the mirror of admin.html's SHARE_ICON_BUTTON_STYLE,
+         character for character, same reason as every other pairing in this block.
+         ⚠ A PLAIN EMOJI, NOT AN <svg> OR AN <img> — inline SVG is unreliable across
+         email clients, Outlook especially, and this repo has no hosted icon image for
+         an email to reference. The templates already carry emoji (the RSVP's 🎄). */
+      const shareIconBtn = 'display:inline-block; padding:11px 13px; border-radius:8px; text-decoration:none; font-size:16px; line-height:1; margin:6px 0 6px 4px; background:#D89F3D; color:#1E3B2C; vertical-align:middle;';
       let body = templateBody;
       body = body.split('{{name}}').join(properNameServer(d.name) || 'there');
       body = body.split('{{rsvp_yes_link}}').join(yesUrl);
@@ -5231,7 +5239,8 @@ async function runArrearsRsvpBatch(source) {
          character — they read "$25 Off" and "$25 off your bill" until 2026-09-05, so one
          template said one thing and the nightly chase said another about one button. */
       body = body.split('{{referral_button}}').join(
-        '<a href="' + referShareUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Share My Link — $25 Off</a>');
+        '<a href="' + referShareUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Share My Link — $25 Off</a>' +
+        '<a href="' + referShareUrl + '" style="' + shareIconBtn + '" title="Share">📤</a>');
       body = body.replace(/\n/g, '<br>');
       /* ⚠ AND IF THE SAVED TEMPLATE PLACES NEITHER TOKEN, THE OFFER IS APPENDED
          (2026-09-07, REF-15). MON-24 means a template already written in Firestore is
@@ -5254,7 +5263,8 @@ async function runArrearsRsvpBatch(source) {
         body += '<br><br>—<br><br>Know somebody who wants lights? Send them your own link '
           + 'and we take $25 off this season’s bill when they sign up — as many times as '
           + 'you like.<br><br>'
-          + '<a href="' + referShareUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Share My Link — $25 Off</a>';
+          + '<a href="' + referShareUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Share My Link — $25 Off</a>'
+          + '<a href="' + referShareUrl + '" style="' + shareIconBtn + '" title="Share">📤</a>';
       }
 
       const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
