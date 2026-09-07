@@ -16971,6 +16971,11 @@ function etRenderRecipientList(){
       if(etRsvpAudienceAutoSet && etFilterNew === 'returning'){
         msg += ' — New customers are left out automatically, because an RSVP asks whether they want lights AGAIN. Change "New vs returning" above to include them.';
       }
+      /* ⚠ SAID FOR THE SAME REASON AS THE LINE ABOVE. A filter the office did not set
+         itself has to name itself, or a shorter list reads as a lost audience. */
+      if(etRsvpAudienceAutoSet && etFilterRsvp === 'pending'){
+        msg += ' — Anyone who has already answered is left out automatically. Change "RSVP" above to ask them again.';
+      }
       /* ⚠ SAID OUT LOUD, because a shorter list with the same tick count is exactly
          the moment somebody assumes the ticks went with it. */
       if(term && shown.length !== members.length){
@@ -17146,6 +17151,24 @@ document.getElementById('etSendTemplateSelect').addEventListener('change', funct
       etRsvpAudienceAutoSet = true;
       redraw = true;
     }
+  }
+  /* ⭐ AND NOBODY WHO HAS ALREADY ANSWERED (2026-09-07). Dax, of the five who had
+     replied before the season send: "exclude people who are confrmed."
+     ⚠ THE SERVER BATCH ALREADY DID THIS AND THE SCREEN DID NOT, which is the whole
+     reason this is here. runArrearsRsvpBatch skips on `if (answered) continue;`, so
+     the nightly chase has never re-asked somebody who replied — but the office
+     sending the same template by hand got the whole book, answered or not, because
+     this handler set the New-vs-returning and paid-last-year filters and left the
+     RSVP filter on All. Two paths, one question, different audiences.
+     ⚠ 'pending' IS NOT 'blank' — etRsvpAnswered counts the literal status
+     "unanswered" as still unanswered, so the one customer carrying it stays IN the
+     audience. They have not answered; they have only been asked. */
+  if(etTemplateIsRsvp(t) && etFilterRsvp !== 'pending'){
+    etFilterRsvp = 'pending';
+    const rsvpSel = document.getElementById('etFilterRsvp');
+    if(rsvpSel) rsvpSel.value = 'pending';
+    etRsvpAudienceAutoSet = true;
+    redraw = true;
   }
   if(redraw && typeof etRenderRecipientList === 'function') etRenderRecipientList();
   etUpdatePreview();
