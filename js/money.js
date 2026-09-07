@@ -146,10 +146,16 @@ export function computeInvoiceStatus(install, removal, deposit, credits, changeF
  * one must never move the other, which is most of what this constant is for.
  *
  * ⚠ AND IT IS NOT HISTORY. An invoice that already carries the old fee is
- * recomputed against this number the next time it syncs, so a customer charged $30
- * before today comes out at $25 — one price for the season, which is the answer
- * that does not need explaining to whoever rings up. */
-export const NEW_MEMBER_FEE = 25;
+ * recomputed against this number the next time it syncs — one price for the
+ * season, which is the answer that does not need explaining to whoever rings up.
+ *
+ * ⭐ RAISED BACK TO $30 (2026-09-06). It was dropped to $25 at some point before
+ * this file's history begins, then Addie asked to raise it back. Same mechanism
+ * as the earlier drop: every invoice recomputes against this number the next
+ * time it syncs, so a customer already charged $25 this season comes out at $30
+ * on their next sync — one price for the season, not two customers on two
+ * different fees for the same thing. */
+export const NEW_MEMBER_FEE = 30;
 export const LIGHT_CHANGE_FEE = 30;
 export const LIGHT_WINDOW_MS = 48 * 60 * 60 * 1000;
 

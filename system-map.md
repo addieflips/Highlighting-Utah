@@ -951,9 +951,13 @@ as the other two, because a second copy of "drop this line and re-total" is how
 one ledger starts disagreeing about what a ✕ does. ⚠ And it is never refused for
 want of an invoice: it exists precisely because the bill had already gone out.
 
-**Two separate fees, easy to conflate — the set-up fee is $25, the light-change fee
-is $30** (she moved the set-up one on 2026-09-03: *"make the set up fee $25"*). They
-are separate charges: a new member who changes their colours late pays both.
+**Two separate fees, easy to conflate — the set-up fee is $30, the light-change fee
+is also $30, and that is a coincidence, not one shared number.** She moved the set-up
+one to $25 on 2026-09-03 (*"make the set up fee $25"*), then reversed that on
+2026-09-06 (*"That should be 30 dollars not 25 for insalation"*) — back to where it
+started. They remain separate charges with separate names: a new member who changes
+their colours late pays both, and a future change to one must not touch the other
+just because they currently print the same number.
 
 ⚠ **The set-up fee is one number in one place now** — `NEW_MEMBER_FEE`, in
 `js/money.js` and mirrored in `functions/index.js` because the server cannot import
@@ -1125,6 +1129,140 @@ before it — and most of the book has never signed in.
   `portalReferralLink` in `index.html` — the customer copies one out of their portal and
   the office sends the other, and two links differing by a slash are one referral that
   credits nobody. Suite 305 runs both and requires the same string out.
+
+⭐ **THE RSVP BUTTON SHARES, IT DOES NOT JUST LINK** (added 2026-09-06, REF-12). Addie: the
+`{{referral_button}}` in the RSVP email used to point straight at the customer's own
+`/r/<token>` — which is the **friend's** quote form, so a customer who tapped their own
+"Refer a Friend" button landed on a page with nothing for them to do. She asked for one
+button that brings up the phone's real share menu — contacts and every app — rather than
+a link, and rather than two separate hardcoded Text/Email buttons (which is what this
+briefly became first).
+
+- **Email cannot pop a share sheet itself.** The button now points at
+  `/r/<token>?share=1` — the same token, a second door. The `/r/` reader in `index.html`
+  (right where it stores the token for the quote form) checks for `?share=1` first: if
+  present, it routes to the new `#/share?token=<token>` page instead and returns before
+  touching `REFERRAL_LINK_KEY` at all. **Every `/r/<token>` link already out in the
+  wild, without the flag, still lands on the quote form exactly as before** — same
+  discipline as the old `?ref=` spelling still working forever.
+- **The share page (`#page-share`) has one job.** One `navigator.share()` button, prefilled
+  with the customer's own link and a company-voice line — *"You've been recommended for
+  Christmas lights. Light your house with Highlighting Utah!"* — deliberately not
+  mentioning the $25, which stays in the RSVP copy that explains the program to the
+  referrer, not in the message that goes out to a friend. Choosing Messages sends it as a
+  text, choosing Mail sends it as an email — the OS decides, not this code.
+- ⚠ **Two taps from the email, not one, and that is a platform limit, not a choice.**
+  `navigator.share()` requires an actual user gesture; a page cannot pop it on load. Tap
+  the email button to open the page, tap Share on the page for the real picker.
+- **No share sheet, no dead end.** A browser without `navigator.share` (most desktop) gets
+  Copy Link plus the same Text-a-Friend / Email-a-Friend links as a fallback, built from
+  `referralSmsHref` / `referralMailtoHref` — the sms: link doubles the body under both
+  `?body=` and `&body=` since Android and iOS read different separators and no
+  user-agent sniff is worth betting a referral on.
+- **The Member Portal got the same Share button**, right in the Refer a Friend tab beside
+  the existing Copy My Link, feature-detected the same way — never removed, never hidden
+  behind it.
+- Proved by Suite 308: the share flag is read and never leaks into the friend-facing
+  session store, the router knows the route, the three message-building functions are
+  *run*, not regexed, and both email renderers carry `?share=1` on the button while
+  `{{referral_link}}` stays the untouched plain URL.
+
+⭐ **A FRIEND WHO COMES IN THROUGH A REFERRAL LINK PAYS NO SETUP FEE** (added
+2026-09-07, REF-13). Addie: *"Anyone that is enrolled by refer a friend will NOT be
+getting charged for the 30 dollar installation fee. Can we also add that in the
+text/email."*
+
+- **The money.** `quoteChargesSetupFee` in admin.html — already the single shared
+  function behind the quote-card checkbox, Add Customer from Quote, and the automatic
+  conversion path (see "THIS WAS FOUR COPIES OF ONE MONEY RULE" a few sections up) —
+  gained one more default: a quote carrying `referredByToken` is not charged the
+  $30 setup fee, right beside the existing "a re-quote is never a join" rule and
+  checked the same way. `referredByToken` is written on the quote itself the moment
+  a friend submits the public form through a `/r/<token>` link (index.html), which
+  is well before a referral is "earned" at install — this waiver does not wait on
+  that.
+- ⚠ **The office's own explicit answer still wins, in both directions**, exactly
+  like the re-quote rule beside it: `chargeSetupFee !== undefined` is checked
+  first and returns before the referral default ever runs. This is a default for
+  when nobody has answered, not a hard block — if the office deliberately ticks the
+  fee on for a specific referred quote, that tick wins. (Addie confirmed this is
+  the behaviour she wants, rather than a rule with no override.)
+- **The copy.** The friend-facing share message (`referralShareLine`, index.html)
+  now says so directly — *"...If you register through this referral link, you will
+  not have to pay the $30 installation fee."* This is new: the message was
+  deliberately built with no dollar amounts (see REF-12 above), on the reasoning
+  that naming the referrer's own $25 credit there would read as self-serving. The
+  $30 waiver is different — it benefits the FRIEND, not the referrer — so it stays
+  out of self-serving territory and Addie asked for it by name, with the exact
+  wording used above. The RSVP email's own explainer to the referrer (the "$25 off
+  your bill" line, and the share page's matching note) is unchanged.
+- Proved by Suite 310: `quoteChargesSetupFee` is *run*, not regexed, with the
+  office's-answer-wins ordering, the referred-quote default, both override
+  directions, and the re-quote rule's independence from the referral one all
+  checked as separate cases; the friend-facing message is checked for the new
+  sentence and for continuing to say nothing about the referrer's $25.
+
+⭐ **THE PORTAL ASKS WHICH SIDES, NOT JUST HOW MANY** (added 2026-09-06, OPT-02). This
+reverses part of a decision made the day before the count-only design shipped —
+worth reading both halves in order, because the second is not "the first one was
+wrong," it is a second, narrower question the first one never claimed to answer.
+
+- **2026-08-19, count only.** Addie: *"we need it to say 1, 2, 3, or 4 sides of the
+  house ... so we dont have to guess if its the left or right side."* Her sheet had
+  said "2 sides" for years; asking a member WHICH two would have invented a fact
+  nobody had ever recorded, so `houseSides` became a plain count (1–4), read
+  identically by `portalSideCount` (index.html), `houseSideCount` (admin.html), and
+  `asCount` (functions/index.js) — all three tested against each other in Suite 63.
+- **2026-09-06, named sides too.** Addie, asked directly how the crew is supposed to
+  find the right side of the house from a bare count: *"how are we supposed to know
+  which sides they want if it just says how many sides they want ... that's why we
+  need them to say which side of the house they want done from were there front
+  door stands."* This did not reopen the first decision — a count nobody ever
+  recorded is still not manufactured for the ~956 existing records, so Edit and Add
+  Customer still ask for nothing more than the count, unchanged. It answers the
+  narrower question the count was never meant to: for a customer standing in their
+  own portal, right now, which sides.
+- ⚠ **Additive, not a replacement.** `houseSidesList` (an array of `Front`/`Left`/
+  `Right`/`Back`, oriented "as you stand at the street looking at your house") is a
+  second field beside `houseSides`. The count alone still drives price and the
+  re-quote flag exactly as it did before this shipped — nothing about that mechanism
+  or its Suite 63 tests changed. A customer with a count on file but no list yet
+  simply has "which ones is not on file" instead of a blank, never a claim that
+  nothing is set.
+- **The portal's Sides tab is checkboxes, not radios.** `tabPanel-sides` now shows
+  four ticks (`class="portal-side-pick"`, `value="Front"` etc.) instead of the old
+  four-radio count picker. `portalSidesPickedList()` reads the ticks and
+  `portalSidesListFromValue()` sanitizes to `PORTAL_SIDE_NAMES`'s fixed order —
+  dedup'd, capped at four, and stable regardless of tick order — so a record always
+  compares and displays the same way it was saved, whichever order that was.
+- ⚠ **The confirm dialog fires on a COUNT change, never on naming alone.** The common
+  first save, for every one of the ~956 existing customers, is filling in WHICH
+  sides for a count that was already accurate — that must not trip the same
+  "you will be re-quoted, price may change" warning as an actual count change nobody
+  asked for. The save handler compares both `pickedList`/`beforeList` (did the names
+  change) and `pickedCount`/`beforeCount` (did the count change) for the "nothing to
+  change" case, but only opens the confirm — and only creates a new `quotes`
+  re-quote doc — when `pickedCount !== beforeCount`. This mirrors, on purpose, the
+  server's own re-quote condition (`asCount(updates.houseSides) !== before`) rather
+  than inventing a friendlier rule that could disagree with it.
+- ⚠ **Validated server-side, same discipline as the count.** `portalSave`'s `sides`
+  section reduces whatever array a browser sends to the four known names, in
+  canonical order, dropping duplicates and anything unrecognized — a stray value or
+  a doubled tick must not reach a crew card. **The list wins the count when both
+  arrive**: `updates.houseSides = sanitized.length` after the list is cleaned, so a
+  stale page or a tampered request sending a mismatched count and list is resolved
+  in favor of the list, which is the one a person actually ticked box by box. An
+  empty list after sanitizing deletes `houseSidesList` rather than storing an empty
+  array, and falls back to the count the request carried.
+- **Scoped to the Member Portal only, on purpose.** Add Customer, Edit Customer, and
+  the quote-conversion side-picker are untouched — Addie's request was framed as "in
+  member portal," and those three sit over records nobody has been asked, where a
+  default or an invented list is exactly the mistake 2026-08-19 was written to
+  avoid.
+- Proved by Suite 63 (repointed for the checkbox UI and the count-vs-list save
+  logic) and the new Suite 309 (the server-side sanitize step, *run*, not regexed:
+  canonical ordering, dedup, the list overriding a mismatched count, and the
+  empty-list fallback).
 
 ⭐ **THE PORTAL SAYS WHEN A BALANCE IS ACTUALLY DUE** (added 2026-09-02, MON-57). Addie:
 *"I want to make it clear to the member that this is there payment however they do not need

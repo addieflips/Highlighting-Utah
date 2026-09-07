@@ -722,8 +722,12 @@ const PORTAL_WRITE_FIELDS = {
   lights:      ['lightsDescription'],
   /* ⭐ Which sides they want lit. Its own section, not folded into
      'preferences', because changing it changes the PRICE — see the requote
-     flag below — and a section is what decides whether that runs. */
-  sides:       ['houseSides'],
+     flag below — and a section is what decides whether that runs.
+     ⚠ houseSidesList ADDED 2026-09-06. It never drives the re-quote flag or
+     price — houseSides (the count) still does, unchanged — it is the specific
+     names (Front/Left/Right/Back), sanitized server-side below the same way
+     houseSides itself is. */
+  sides:       ['houseSides', 'houseSidesList'],
   cancel:      ['cancellationReason']
 };
 
@@ -733,7 +737,7 @@ const PORTAL_WRITE_FIELDS = {
 const PORTAL_READ_FIELDS = [
   'name', 'phone', 'email', 'address', 'phone2', 'email2', 'gateCode',
   'lightsDescription', 'installPreference', 'wireColor', 'outletTimer',
-  'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus', 'houseSides',
+  'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus', 'houseSides', 'houseSidesList',
   /* ⚠ THE WORD ON ITS OWN IS NOT AN ANSWER, so the portal needs the stamp too
      (added 2026-09-02). A stored yes with nothing behind it is an import or the
      assumed yes written at conversion (RS-19) — the office already refuses that
@@ -1605,6 +1609,12 @@ const PORTAL_CHANGE_LABELS = {
   specificOutletNotes: 'Which outlet', notes: { label: 'Notes', kind: 'text' },
   lightsDescription: 'Light colours',
   houseSides: { label: 'Sides of the house', kind: 'number' },
+  /* ⭐ ADDED 2026-09-06 with houseSidesList itself. A portal-writable field with no
+     label here is SILENCE: the customer ticks Front and Back, the record changes, and
+     their history says nothing — which reads exactly like the save never happening.
+     change-log.test.js is what caught it missing, and it requires the office copy in
+     admin.html (CUSTOMER_FIELD_LABELS) to say the same words with the same kind. */
+  houseSidesList: { label: 'Which sides', kind: 'list' },
   cancellationReason: { label: 'Why they are cancelling', kind: 'text' }
 };
 /* ⚠ THE ORDER OF THESE FIRST TWO LINES IS THE RULE, and it is written out in the browser
@@ -1767,6 +1777,34 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
       return (n >= 1 && n <= 4) ? n : 1;
     };
     updates.houseSides = asCount(updates.houseSides);
+    /* ⭐ WHICH SIDES, BY NAME (2026-09-06). Addie: "how are we supposed to know
+       which sides they want if it just says how many ... that's why we need
+       them to say which side of the house they want done from where their
+       front door stands." Additive, never a replacement — houseSides above is
+       still what raises the re-quote flag below, unchanged.
+
+       ⚠ VALIDATED SERVER-SIDE, same as the count: reduced to the four names the
+       app knows, in one fixed order, deduped and capped at four — anything else
+       (a stray value, a duplicate, more than four) is dropped rather than
+       stored, the same discipline as the four-key reduction just above it.
+
+       ⚠ THE LIST WINS THE COUNT WHEN BOTH ARRIVE. A client that sends three
+       names and a count of two disagreeing with each other is either a stale
+       page or a tampered request; the list is the one a person actually ticked
+       box by box, so it is the one trusted to say how many. */
+    const SIDE_NAMES = ['Front', 'Left', 'Right', 'Back'];
+    if (updates.houseSidesList !== undefined) {
+      const picked = {};
+      (Array.isArray(updates.houseSidesList) ? updates.houseSidesList : [])
+        .forEach((s) => { if (SIDE_NAMES.indexOf(s) !== -1) picked[s] = true; });
+      const sanitized = SIDE_NAMES.filter((s) => picked[s]);
+      if (sanitized.length) {
+        updates.houseSidesList = sanitized;
+        updates.houseSides = sanitized.length;
+      } else {
+        delete updates.houseSidesList;
+      }
+    }
     /* ⚠ NO "needs re-quote" FLAG. Owner, 2026-08-18: "we shouldnt need a flag
        that says needs requote the customer should just appear in the requote
        section." The quote the portal opens IS the record of it — a second flag
@@ -4164,7 +4202,7 @@ function computeInvoiceStatusServer(install, removal, deposit, credits, changeFe
    money-parity.test.js runs them side by side — this file cannot import a browser
    module, which is the whole reason there are two. Change one, change the other, in
    the same push. */
-const NEW_MEMBER_FEE = 25;
+const NEW_MEMBER_FEE = 30;
 const LIGHT_CHANGE_FEE = 30;
 const LIGHT_WINDOW_MS = 48 * 60 * 60 * 1000;
 
@@ -5188,12 +5226,19 @@ async function runArrearsRsvpBatch(source) {
          portal's own portalReferralLink. Two spellings is two ways for a referral to
          arrive uncounted, and the only symptom would be somebody's $25 never appearing.
          ⚠ AND $25 OFF IS WORTH MOST TO EXACTLY THE PEOPLE THIS BATCH WRITES TO — they
-         are the ones carrying a balance. */
+         are the ones carrying a balance.
+         ⭐ ONE BUTTON, NOT TWO (2026-09-06). Same change as resolveLinkTokens in
+         admin.html, same reason: referUrl on its own is the FRIEND'S quote form, so
+         the plain link this used to send put the customer themselves on a page with
+         nothing for them to do. ?share=1 sends them instead to the new share page
+         (index.html's /r/ reader), which puts one real "Share" button — the phone's
+         own contacts/apps picker — in front of them. Drop the flag and it is the
+         ordinary friend-facing link again; change one renderer, change the other. */
       const referToken = await ensureReferralToken(docSnap.id, d);
       const referUrl = 'https://highlightingutah.com/r/' + encodeURIComponent(referToken);
       body = body.split('{{referral_link}}').join(referUrl);
       body = body.split('{{referral_button}}').join(
-        '<a href="' + referUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Refer a Friend — $25 off your bill</a>');
+        '<a href="' + referUrl + '?share=1" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Share My Link</a>');
       body = body.replace(/\n/g, '<br>');
 
       const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {

@@ -20175,14 +20175,19 @@ suite('Suite 63. Changing your sides in the Member Portal');
   check('S63', 'the portal has a Sides tab and panel',
     index.indexOf('id="tabPanel-sides"') > 0 &&
     /data-tab="sides"/.test(index));
-  /* ⭐ A COUNT, the same question the office and the quote form now ask. Owner,
-     2026-08-19: "we need it to say 1, 2, 3, or 4 sides of the house so then it can
-     just be connected and we dont have to guess if its the left or right side." */
-  check('S63', 'the portal asks for a count, one to four',
-    [1, 2, 3, 4].every(function(n){
+  /* ⭐ REVERSED 2026-09-06. Owner, 2026-08-19, wanted a count only: "we need it to
+     say 1, 2, 3, or 4 sides of the house ... so we dont have to guess if its the
+     left or right side." Owner, 2026-09-06, asked again and gave the reason a bare
+     count can't answer: "how are we supposed to know which sides they want if it
+     just says how many sides they want ... that's why we need them to say which
+     side of the house they want done from were there front door stands." The
+     count (houseSides) still drives price and the re-quote flag, unchanged below —
+     this is a second, additive question, not a replacement. */
+  check('S63', 'the portal asks which sides, named and oriented from the front door',
+    ['Front', 'Left', 'Right', 'Back'].every(function(n){
       return index.indexOf('class="portal-side-pick" value="' + n + '"') > 0;
     }),
-    'the member and the office have to be answering the same question');
+    'a count alone cannot tell the crew which side of the house to light');
   /* ⚠ REPOINTED 2026-08-31, NOT WEAKENED — and it was pinning the wrong thing.
      It matched the literal `try{ portalRenderSides(); }catch(err){}`, which meant
      it ASSERTED THE BARE EMPTY CATCH, putting it in direct conflict with the
@@ -20216,12 +20221,18 @@ suite('Suite 63. Changing your sides in the Member Portal');
        portalSidesWords is called again in the office notice below, so testing
        for it passed with the whole "Now:" line deleted. */
     check('S63', 'the pop-up names what it is changing FROM and TO',
-      /"    Now: " \+ portalSidesWords\(before\)/.test(body) &&
-      /"    New: " \+ portalSidesWords\(picked\)/.test(body),
+      /"    Now: " \+ portalSidesWords\(beforeList, beforeCount\)/.test(body) &&
+      /"    New: " \+ portalSidesWords\(pickedList, pickedCount\)/.test(body),
       '"you will be requoted" without saying what changed is a warning people agree to and then ring about');
-    /* ⚠ A warning on a no-op teaches people to click through the real one. */
+    /* ⚠ A warning on a no-op teaches people to click through the real one.
+       ⚠ REPOINTED 2026-09-06 alongside the sides-by-name change: the no-op check now
+       compares BOTH the list (which sides) and the count (how many), because naming
+       sides for a count that was already on file must not trip the same warning as an
+       actual count change — see countChanged below, which mirrors the server's own
+       re-quote condition exactly. */
     check('S63', 'and it does NOT ask when nothing actually changed',
-      /if\(same\)\{ statusEl\.textContent = "That is already what we have/.test(body),
+      /portalSidesListsEqual\(pickedList, beforeList\) && pickedCount === beforeCount/.test(body) &&
+      /statusEl\.textContent = "That is already what we have/.test(body),
       'warning on a save that changes nothing trains people to dismiss the one that matters');
     check('S63', 'the office is told, not just the customer',
       /Existing Customer - Sides Changed/.test(body) && /notifyBusinessOfMessage/.test(body),
@@ -20232,8 +20243,12 @@ suite('Suite 63. Changing your sides in the Member Portal');
   check('S63', 'the portal may read the sides',
     /'notes', 'rsvpStatus', 'houseSides',/.test(fns),
     'a field the portal cannot read is a field the customer never sees');
+  /* ⚠ REPOINTED 2026-09-06: houseSidesList joined houseSides in this whitelist so the
+     portal could write WHICH sides, not just how many. It travels beside the count,
+     never in place of it — the checks below prove it never touches price or the
+     re-quote flag, which still watch houseSides (the count) alone. */
   check('S63', 'and may write them, in their own section',
-    /sides:\s+\['houseSides'\],/.test(fns),
+    /sides:\s+\['houseSides', 'houseSidesList'\],/.test(fns),
     'its own section is what lets the requote flag run only for this change');
 
   {
@@ -20312,6 +20327,141 @@ suite('Suite 63. Changing your sides in the Member Portal');
   check('S63', 'and still says nothing is owed inside the free 48 hours',
     /You are still inside your free 48-hour window, so this change costs nothing/.test(index),
     'threatening a charge that is not coming is how a portal stops being believed');
+}
+
+
+/* ============================================================
+ * Suite 309. Which sides, by name — sanitized server-side, and the list wins.
+ *
+ * Owner, 2026-09-06: "how are we supposed to know which sides they want if it
+ * just says how many sides they want ... that's why we need them to say which
+ * side of the house they want done from were there front door stands."
+ *
+ * houseSidesList is additive — it never replaces houseSides (the count), which
+ * still alone drives price and the re-quote flag (proved in Suite 63 above).
+ * This suite proves the part that is new: the server does not trust whatever
+ * array a browser sends, reduces it to the four known names in one fixed
+ * order, drops anything else, and — because a stale or tampered request could
+ * send a list and a count that disagree — lets the list decide the count
+ * whenever both arrive, per the function's own comment: "THE LIST WINS THE
+ * COUNT WHEN BOTH ARRIVE."
+ *
+ * RUN, NOT MATCHED: the actual 'sides' branch is sliced out of functions/index.js
+ * and executed with a fabricated updates/oldData, the same technique as the
+ * asCount proof in Suite 63.
+ * ============================================================ */
+suite('Suite 309. Which sides, by name — sanitized server-side, and the list wins');
+{
+  const fns = read('functions/index.js');
+  const at = fns.indexOf("if (section === 'sides')");
+  const end = fns.indexOf("if (section === 'cancel')", at);
+  const body = at > 0 && end > at ? fns.slice(at, end) : '';
+  check('S309', 'the sides branch was found', !!body);
+
+  check('S309', 'the list is reduced to the four known names, in canonical order',
+    /const SIDE_NAMES = \['Front', 'Left', 'Right', 'Back'\];/.test(body));
+  check('S309', 'and the list decides the count when both arrive',
+    /updates\.houseSides = sanitized\.length;/.test(body),
+    'a stale page or a tampered request could send a mismatched count and list; ' +
+    'the list is what a person actually ticked box by box');
+  check('S309', 'an empty result after sanitizing deletes the list rather than storing junk',
+    /delete updates\.houseSidesList;/.test(body));
+
+  function run(updates, oldData) {
+    var fn = new Function('updates', 'oldData', 'section',
+      body + '\nreturn updates;');
+    return fn(updates, oldData, 'sides');
+  }
+
+  if (body) {
+    check('S309', 'a clean list of two names sets both the list and the matching count',
+      (function(){
+        var r = run({ houseSides: 9, houseSidesList: ['Back', 'Front'] }, {});
+        return r.houseSidesList.join(',') === 'Front,Back' && r.houseSides === 2;
+      })(),
+      'canonical order and the list-derived count both come out of the same sanitize step');
+
+    check('S309', 'duplicates and unknown names are dropped, not stored',
+      (function(){
+        var r = run({ houseSides: 1, houseSidesList: ['Front', 'Front', 'Roof', 'Left'] }, {});
+        return r.houseSidesList.join(',') === 'Front,Left' && r.houseSides === 2;
+      })(),
+      'a value nobody offers any more, or a doubled tick, must not reach a crew card');
+
+    check('S309', 'all four, in any order sent, come back in one fixed order',
+      (function(){
+        var r = run({ houseSides: 1, houseSidesList: ['Back', 'Right', 'Front', 'Left'] }, {});
+        return r.houseSidesList.join(',') === 'Front,Left,Right,Back' && r.houseSides === 4;
+      })());
+
+    check('S309', 'an empty list falls back to the count alone, and stores no list',
+      (function(){
+        var r = run({ houseSides: 3, houseSidesList: [] }, {});
+        return r.houseSidesList === undefined && r.houseSides === 3;
+      })(),
+      'nothing ticked is not the same as nothing sent — the count this request carried still counts');
+
+    check('S309', 'no list at all leaves the count-only path exactly as it was',
+      (function(){
+        var r = run({ houseSides: 2 }, {});
+        return r.houseSidesList === undefined && r.houseSides === 2;
+      })(),
+      'a save from before this shipped, or one that never touches the list field, must not change shape');
+  }
+
+  /* ⭐ THE OTHER HALF, IN admin.html (2026-09-07). The office cannot edit the named
+     list — it is shown read-only beside the count — but it CAN move the count, and a
+     stored list of two names under a count of three is a claim that cannot be true.
+     Left alone it is not merely untidy: the portal ticks from the LIST and compares
+     against the COUNT, so the customer opens the Sides tab, changes nothing, saves,
+     and is shown the "we will need to RE-QUOTE you" confirm with a Now and a New line
+     reading identically — and accepting it files a re-quote and silently moves the
+     count back.
+
+     ⚠ THE COUNT WINS HERE AND THE LIST WINS ON THE SERVER, AND BOTH ARE RIGHT: each
+     defers to whichever answer was given most recently. A check that made the two
+     agree in direction would be asserting the bug.
+
+     RUN, NOT MATCHED, for the same reason as the branch above: every claim here is
+     about what ends up in the write. */
+  {
+    const admin = read('admin.html').replace(/\r/g, '');
+    const at = admin.indexOf('const storedSidesList =');
+    const end = admin.indexOf('addrUpdates.houseSidesList = null;', at);
+    const guard = at > 0 && end > at
+      ? admin.slice(at, end + 'addrUpdates.houseSidesList = null;'.length)
+      : '';
+    check('S309', 'the office-side stale-list guard was found in the Edit Customer save',
+      !!guard,
+      'without it a count the office moves leaves a named list it no longer fits');
+
+    function office(storedList, newCount) {
+      const addrUpdates = {};
+      new Function('item', 'newHouseSides', 'addrUpdates', guard)(
+        { data: storedList === null ? {} : { houseSidesList: storedList } },
+        newCount, addrUpdates);
+      return addrUpdates;
+    }
+
+    if (guard) {
+      check('S309', 'moving the count away from the stored list clears the list',
+        office(['Front', 'Left'], 3).houseSidesList === null,
+        'two names under a count of three is the state that shows the customer an ' +
+        'identical Now/New line and then files a re-quote nobody asked for');
+      check('S309', 'a count that still matches the stored list leaves it alone',
+        !Object.prototype.hasOwnProperty.call(office(['Front', 'Left'], 2), 'houseSidesList'),
+        'writing it on every save posts a change-log row for every customer whose ' +
+        'sides nobody touched');
+      check('S309', 'a customer who has no list on file is not given one, or a null',
+        !Object.prototype.hasOwnProperty.call(office(null, 3), 'houseSidesList'),
+        'most of the book has never opened that tab; a null written over nothing is ' +
+        'a change-log row about a change that did not happen');
+      check('S309', 'and it clears rather than trimming the list to fit',
+        guard.indexOf('slice(') === -1 && guard.indexOf('.length !== newHouseSides') > 0,
+        '"which sides is not on file" is a question somebody can ask them; a list ' +
+        'trimmed to fit is an answer nobody gave');
+    }
+  }
 }
 
 
@@ -51404,6 +51554,271 @@ suite('305. The referral link, from the office side');
       'an inline listener can only be checked by matching its source, and this repo ' +
       'has shipped one whose patch silently did not apply');
   }
+}
+
+/* =====================================================================
+ * Suite 308 — the referral button shares, it does not just link
+ *
+ * Addie, 2026-09-06: the RSVP email's referral button used to be a plain link to
+ * the customer's OWN /r/<token> — the FRIEND'S quote form, so a customer who
+ * tapped it landed on a page with nothing for them to do. She asked for one
+ * button that brings up the phone's real share menu (contacts, every app), not
+ * two hardcoded Text/Email buttons.
+ *
+ * ⚠ EMAIL CANNOT POP A SHARE SHEET. The button instead points at
+ * /r/<token>?share=1 — the SAME token, a second door — which the /r/ reader in
+ * index.html turns into the new #/share page, and THAT page is where the one
+ * real navigator.share button lives, falling back to Copy/Text/Email on a
+ * browser that has no share sheet.
+ * ===================================================================== */
+{
+  const idx308 = read('index.html');
+  const src308 = stripComments(idx308.replace(/\r/g, ''));
+
+  check('S308', 'the /r/ reader knows about the share flag',
+    /isShareLink[\s\S]{0,200}get\('share'\) === '1'/.test(src308),
+    'without this, /r/<token>?share=1 is indistinguishable from a plain referral ' +
+    'link and every RSVP button sends the customer to their own quote form');
+
+  check('S308', 'a share link never touches the friend-facing session store',
+    /if\(isShareLink\)\{[\s\S]{0,220}?return;\s*\}\s*try\{\s*sessionStorage\.setItem\(REFERRAL_LINK_KEY/.test(src308),
+    'REFERRAL_LINK_KEY is read back by the QUOTE form — writing it for a link the ' +
+    'referrer opened would credit them as their own friend the moment they visit');
+
+  check('S308', 'a share link is routed to the share page, carrying the token',
+    /window\.location\.hash = '\/share\?token=' \+ encodeURIComponent\(token\)/.test(src308),
+    'no token on the hash and the share page has nothing to put in front of them');
+
+  check('S308', 'the router knows the new route',
+    /routes = \[[^\]]*'\/share'\]/.test(src308) &&
+    /'\/share':\s*'page-share'/.test(src308),
+    'a route missing from either list 404s inside the app — the page exists but ' +
+    'nothing ever shows it');
+
+  check('S308', 'the share page exists and starts empty',
+    /<div id="page-share" class="page">/.test(idx308) &&
+    /id="shareLinkInput" readonly/.test(idx308),
+    'the token is filled in by renderSharePage at runtime, never hardcoded here');
+
+  /* ⚠ RUN, NOT READ — same discipline as nameMatches above. These three are pure
+     string builders with no DOM dependency, so there is no excuse for a regex
+     standing in for actually calling them. */
+  const helperSrc = extractFn(idx308, 'referralShareLine') +
+    extractFn(idx308, 'referralShareMessage') +
+    extractFn(idx308, 'referralSmsHref') +
+    extractFn(idx308, 'referralMailtoHref');
+  /* ⚠ NEW_MEMBER_FEE IS SUPPLIED, NOT STUBBED. referralShareLine reads the real
+     constant rather than typing the figure (see its own note in index.html), so a
+     sandbox without it dies with a bare ReferenceError attributed to this suite —
+     the exact failure sandboxDeps exists to name. It is read out of js/money.js at
+     the top of this file, so the value here is the shipped one. */
+  const helpers = new Function('NEW_MEMBER_FEE', helperSrc +
+    'return {referralShareLine, referralShareMessage, referralSmsHref, referralMailtoHref};')(
+    NEW_MEMBER_FEE_NUM);
+  const testUrl = 'https://highlightingutah.com/r/x7k2m9pq';
+
+  check('S308', 'the share line names the company and says nothing about $25',
+    /Highlighting Utah/.test(helpers.referralShareLine()) &&
+    !/\$25/.test(helpers.referralShareLine()),
+    'Addie: this message should not read like it is only for the referrer’s own ' +
+    'discount — the $25 stays in the RSVP copy that explains the program to them');
+
+  check('S308', 'the sms link carries the message under BOTH separators',
+    (function () {
+      const href = helpers.referralSmsHref(testUrl);
+      const decoded = decodeURIComponent(href.split('body=')[1] || '');
+      return /^sms:\?body=.*&body=/.test(href) &&
+             decoded.indexOf(testUrl) !== -1;
+    })(),
+    'Android reads sms:?body=, iOS reads sms:&body= — one separator alone ' +
+    'silently fails to prefill on whichever platform it is not written for');
+
+  check('S308', 'the mailto link carries a subject and the same message',
+    (function () {
+      const href = helpers.referralMailtoHref(testUrl);
+      const m = /^mailto:\?subject=([^&]+)&body=(.+)$/.exec(href);
+      if (!m) return false;
+      const subject = decodeURIComponent(m[1]);
+      const body = decodeURIComponent(m[2]);
+      return subject.length > 0 && subject.length < 40 &&
+             body.indexOf(testUrl) !== -1;
+    })(),
+    'a missing subject or body opens a blank compose window with nothing for the ' +
+    'customer to send');
+
+  ['admin.html', 'functions/index.js'].forEach(function (path) {
+    const src = stripComments(read(path).replace(/\r/g, ''));
+    check('S308', 'the ' + path + ' referral button links to the share page, not the quote form',
+      /(refUrl|referUrl)\s*\+\s*'\?share=1/.test(src),
+      'without ?share=1 this button is the ordinary friend-facing link, and the ' +
+      'customer who tapped it lands on their own quote form again');
+    check('S308', 'and the plain link token is untouched by it',
+      /out\.split\('\{\{referral_link\}\}'\)\.join\(refUrl\)/.test(src) ||
+      /body\.split\('\{\{referral_link\}\}'\)\.join\(referUrl\)/.test(src),
+      '{{referral_link}} is offered as a plain URL for anybody’s own template — ' +
+      'it must never carry the share flag meant only for the built-in button');
+  });
+}
+
+/* ============================================================
+ * Suite 310. A friend who comes in through a referral link pays no setup fee.
+ *
+ * Owner, 2026-09-07: "Anyone that is enrolled by refer a friend will NOT be
+ * getting charged for the 30 dollar installation fee. Can we also add that in
+ * the text/email." On wording: "if you register through this referral link
+ * you will not have to pay the 30 dollar installation fee."
+ *
+ * Two halves, proved separately:
+ *  - the MONEY: quoteChargesSetupFee (admin.html) is the one shared function
+ *    behind the quote-card checkbox, Add Customer from Quote, and the
+ *    automatic conversion path (Suite 63's neighbour, "THIS WAS FOUR COPIES OF
+ *    ONE MONEY RULE" — one change here reaches all four).
+ *  - the COPY: referralShareLine (index.html), the message that goes out to
+ *    the friend.
+ *
+ * ⚠ THE OFFICE'S EXPLICIT ANSWER STILL WINS, same as the re-quote rule right
+ * above this one — `chargeSetupFee !== undefined` is checked FIRST and returns
+ * before either the re-quote or the referral check runs. This suite proves the
+ * referral check sits on the same footing as the re-quote check, not ahead of it.
+ * ============================================================ */
+suite('Suite 310. A friend who comes in through a referral link pays no setup fee');
+{
+  const admin = read('admin.html');
+  const index = read('index.html');
+
+  /* ⭐ NO SENTENCE ABOUT THE SET-UP FEE TYPES THE FIGURE (added 2026-09-07).
+     MON-63 collapsed this fee into one constant precisely because it had been a bare
+     literal in a dozen places, and MON-64 moved it again three days later — $30 → $25
+     → $30 — which is the fastest possible proof that it will move again. FOUR literals
+     survived that sweep and were found by this change: the quote card's own "Charge $30
+     one-time set-up fee" tick box, the {{setup_fee_line}} token label, the All
+     Customers new-customer filter, and the friend-facing referral message in
+     index.html. Every one of them said $30 for the three days the fee was $25.
+
+     ⚠ IT IS SCOPED TO SENTENCES ABOUT THIS FEE, not to the digits 30. `LIGHT_CHANGE_FEE`
+     is also $30 and is a DIFFERENT charge that happens to print the same number today
+     (see MON-64); a check on the number alone would fire on it and on the 48-hour
+     window, and a gate that cries wolf is one somebody deletes.
+
+     ⚠ AND MARKUP IS SWEPT AS WELL AS CODE. Two of the four were static HTML, which is
+     why `paintSetupFeeLabels` exists at all — a static label cannot interpolate, so it
+     is stamped at load. Anything new that says this in markup needs `.setup-fee-amount`
+     or a `data-fee-text` slot, not a typed figure. */
+  {
+    const FEE_SENTENCE = /\$\s?\d+(?:\.\d\d)?[^.<'"\n]{0,24}(?:set-?up fee|installation fee|new member (?:installation )?fee)/gi;
+    ['admin.html', 'index.html', 'functions/index.js'].forEach(function (path) {
+      const src = stripComments(read(path).replace(/\r/g, ''));
+      /* The two stamped placeholders are the mechanism, not a violation: their text is
+         overwritten from the constant at load. They are recognised by the class/slot
+         that does the stamping, never by the number they happen to hold. */
+      /* ⚠ THE EXEMPTIONS ARE KEYED ON THE STAMPING MECHANISM, NEVER ON THE WORDING.
+         The first version of this also whitelisted the literal sentence in the All
+         Customers filter option — so reverting that option to a typed "$30" passed,
+         which the red-check caught. A slot the stamper fills is recognisable by the
+         class or the attribute that fills it; a sentence is not, and exempting one by
+         its text is exempting whatever is written there next. The option's own
+         pre-stamp text was changed to carry no figure at all rather than earning an
+         exemption — which is also what it should say if the script never runs. */
+      const cleaned = src
+        .replace(/<span class="setup-fee-amount">[^<]*<\/span>/g, '{fee}')
+        .replace(/data-fee-text="[^"]*"/g, 'data-fee-text="{fee}"');
+      const found = cleaned.match(FEE_SENTENCE) || [];
+      check('S310', path + ' never types the set-up fee, it reads NEW_MEMBER_FEE',
+        found.length === 0,
+        'typed: ' + found.join(' | ') + ' — a figure written into a sentence is one ' +
+        'that goes stale the next time she moves the fee, silently, on a screen the ' +
+        'office quotes from or a promise a customer was sent');
+    });
+
+    /* ⚠ AND ONE REFERENCE IS OBLIQUE, SO THE SWEEP ABOVE CANNOT SEE IT — said plainly
+       rather than left as an overclaim. That sweep matches a figure sitting next to
+       the words "set-up fee" / "installation fee"; the All Customers new-customer
+       filter says only "pays the $30", naming no fee at all, and a red-check proved
+       the sweep passes over it. Widening the sweep to any "$" near any of those words
+       would start firing on LIGHT_CHANGE_FEE, which is a different charge printing
+       the same number today (MON-64) — so this one is pinned by name instead. Its
+       pre-stamp text now carries no figure, which is also what it should read if the
+       stamper never runs. */
+    const filterOpt = /<option value="new"[^>]*>([^<]*)<\/option>/.exec(
+      read('admin.html').replace(/\r/g, ''));
+    check('S310', 'the All Customers new-customer filter names no figure of its own',
+      !!filterOpt && filterOpt[1].indexOf('$') === -1 &&
+      /data-fee-text="[^"]*\{fee\}[^"]*"/.test(filterOpt[0]),
+      'it read "New this year (pays the $30)" as static markup, so it said $30 for the ' +
+      'three days the fee was $25 — and it is worded so the general sweep cannot see it');
+  }
+
+  {
+    const at = admin.indexOf('function quoteChargesSetupFee');
+    const end = admin.indexOf('\nfunction quoteHouseKey', at);
+    const body = at > 0 && end > at ? admin.slice(at, end) : '';
+    check('S310', 'quoteChargesSetupFee was found', !!body);
+
+    check('S310', 'the office\'s own explicit answer is checked first, and wins either way',
+      body.indexOf('chargeSetupFee !== undefined') <
+        body.indexOf("String(q.referredByToken || '').trim()"),
+      'a box the office deliberately ticked or unticked must never be silently overridden');
+    check('S310', 'a referred quote is not charged the fee by default',
+      /if\(String\(q\.referredByToken \|\| ''\)\.trim\(\)\) return false;/.test(body),
+      'referredByToken is written on the quote the moment a friend submits the public ' +
+      'form through a /r/<token> link — this does not wait for the referral to be earned');
+
+    /* RUN, NOT MATCHED — same discipline as quoteAlreadyACustomer elsewhere in this
+       file. quoteChargesSetupFee calls quoteCustomerKeys() and quoteAlreadyACustomer(),
+       so those are stubbed to isolate the one branch this suite is about. */
+    if (body) {
+      const stubbed = 'function quoteCustomerKeys(){ return new Set(["x"]); }\n' +
+        'function quoteAlreadyACustomer(){ return false; }\n' +
+        'function isRequote(d){ return !!(d && (d.existingCustomerId || Number(d.requoteCount) > 0)); }\n' +
+        body + '\nthis.f = quoteChargesSetupFee;';
+      const sv = {};
+      new Function(stubbed).call(sv);
+      check('S310', 'a fresh referred quote defaults to no fee',
+        sv.f({ referredByToken: 'abc123' }) === false);
+      check('S310', 'a fresh quote with no referral still defaults to charging it',
+        sv.f({}) === true,
+        'the waiver must not become the new default for every quote, only referred ones');
+      check('S310', 'the office can still tick the fee ON for a referred quote',
+        sv.f({ referredByToken: 'abc123', chargeSetupFee: true }) === true,
+        'the office\'s own answer wins in BOTH directions, same as every other case here');
+      check('S310', 'the office can still tick the fee OFF for an ordinary quote',
+        sv.f({ chargeSetupFee: false }) === false);
+      check('S310', 'a re-quote is not charged even if it also carries a stray referral token',
+        sv.f({ existingCustomerId: 'c1', referredByToken: 'abc123' }) === false,
+        'both rules agree here, but the re-quote check must not depend on the referral one running first');
+    }
+  }
+
+  /* ⚠ RUN, NOT MATCHED, AND THE AMOUNT COMES FROM js/money.js. The first version of
+     this check searched index.html for the literal "$30" — which would have gone red
+     on correct code the next time Addie moves the set-up fee, and green on a message
+     that had quietly frozen at the old number. Both directions are wrong. It builds
+     the sentence with the shipped constant and requires the two to agree. */
+  {
+    const line = new Function('NEW_MEMBER_FEE',
+      extractFn(index, 'referralShareLine') + 'return referralShareLine();')(NEW_MEMBER_FEE_NUM);
+    check('S310', 'the friend-facing message says the fee is waived',
+      line.indexOf('you will not have to pay the $' + NEW_MEMBER_FEE_NUM + ' installation fee') !== -1,
+      'Addie asked for this in the text/email a friend receives, not just the referrer\'s incentive line');
+    check('S310', 'and it reads the fee rather than typing it',
+      /NEW_MEMBER_FEE/.test(extractFn(index, 'referralShareLine')),
+      'this sentence is a written promise to somebody who is not a customer yet; the ' +
+      'fee moved twice in four days, and a literal here promises the wrong amount with ' +
+      'nothing going red');
+  }
+  /* ⚠ COMMENTS STRIPPED — the rule Suites 58, 274, 275 and 300 have each already
+     learned, and this check re-learned it the hour it was written: the note beside
+     this function explains that the fee moved $30 → $25 → $30, so a raw search found
+     "$25" in the EXPLANATION and failed a message that was perfectly correct. What is
+     being tested is the sentence a friend receives, which is code, not prose. */
+  check('S310', 'and it still says nothing about the referrer\'s own $25',
+    (function(){
+      const at = index.indexOf('function referralShareLine');
+      const end = index.indexOf('\nfunction referralShareMessage', at);
+      const body = at > 0 && end > at ? stripComments(index.slice(at, end)) : '';
+      return !!body && !/\$25/.test(body);
+    })(),
+    'the $25 is the referrer\'s own incentive, explained elsewhere — this message is the offer to the friend');
 }
 
 /* =====================================================================

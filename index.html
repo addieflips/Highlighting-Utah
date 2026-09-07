@@ -265,6 +265,14 @@
   /* The dim behind the card is what turns a centred line into a pop-up. */
   body.rsvp-minimal.rsvp-back #page-home{ background:rgba(12,35,24,.10); }
 
+  /* ⚠ SHARE MINIMAL — same shape as quote-minimal (2026-09-06). Reached from the
+     RSVP email's own button, never browsed to, so it reads like a single card, not
+     a page of the marketing site. */
+  body.share-minimal header, body.share-minimal footer, body.share-minimal .page-hero{ display:none !important; }
+  body.share-minimal #page-share{ display:flex !important; min-height:100vh; align-items:center; justify-content:center; }
+  body.share-minimal #page-share > *{ width:100%; }
+  body.share-minimal #page-share .wrap{ width:100%; }
+
   /* ---------- Header ---------- */
   header{
     position:sticky; top:0; z-index:100;
@@ -1935,14 +1943,23 @@
                  Its own card rather than part of Lights, because the two cost
                  different things: colours are a $30 change fee, sides are a new
                  price altogether. -->
+            <!-- ⭐ WHICH SIDES, BY NAME (2026-09-06). Addie: "how are we supposed to
+                 know which sides they want if it just says how many ... that's why we
+                 need them to say which side of the house they want done from where
+                 their front door stands." The count (houseSides) still drives pricing
+                 and the re-quote flag exactly as before — untouched. Which sides
+                 (houseSidesList) is a second, additive field: real going forward, but
+                 nobody backfills it for a customer who has never opened this tab, and
+                 nothing critical breaks if it is simply absent. -->
             <div id="tabPanel-sides" style="display:none;">
               <div style="background:#FDF3E3; border:1px solid #E7C98B; border-radius:10px; padding:11px 14px; margin:0 0 12px; font-size:12.5px; color:#7A5B1E; line-height:1.5;">&#9888;&#65039; <strong>Heads up:</strong> changing which sides of your house are lit changes the amount of lights we hang, so <strong>we will need to re-quote you</strong> before your install.</div>
-              <p class="form-note" style="margin:0 0 10px;">Tick the sides you would like lit, then save below.</p>
+              <p class="form-note" style="margin:0 0 4px;">Tick every side you would like lit, then save below.</p>
+              <p class="form-note" style="margin:0 0 10px; font-size:12.5px;">Sides are named as you stand at the street looking at your house: <strong>Front</strong> is the side your front door is on, <strong>Back</strong> is directly opposite it, and <strong>Left</strong>/<strong>Right</strong> follow from there.</p>
               <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
-                <label class="quote-side-pick"><input type="radio" name="portal_sides" class="portal-side-pick" value="1"> 1 side</label>
-                <label class="quote-side-pick"><input type="radio" name="portal_sides" class="portal-side-pick" value="2"> 2 sides</label>
-                <label class="quote-side-pick"><input type="radio" name="portal_sides" class="portal-side-pick" value="3"> 3 sides</label>
-                <label class="quote-side-pick"><input type="radio" name="portal_sides" class="portal-side-pick" value="4"> 4 sides</label>
+                <label class="quote-side-pick"><input type="checkbox" class="portal-side-pick" value="Front"> Front</label>
+                <label class="quote-side-pick"><input type="checkbox" class="portal-side-pick" value="Left"> Left</label>
+                <label class="quote-side-pick"><input type="checkbox" class="portal-side-pick" value="Right"> Right</label>
+                <label class="quote-side-pick"><input type="checkbox" class="portal-side-pick" value="Back"> Back</label>
               </div>
               <button type="button" class="btn btn-gold btn-block" id="sidesSaveBtn">Save Sides</button>
               <div id="sidesSaveStatus" role="status" aria-live="polite" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
@@ -2058,6 +2075,11 @@
                 <input type="text" id="referLinkInput" readonly value="" style="font-size:13px;">
               </div>
               <button type="button" class="btn btn-gold btn-block" id="referCopyBtn">Copy My Link</button>
+              <!-- ⭐ SHARE MY LINK (2026-09-06). Only shown when navigator.share exists
+                   (portalRenderReferral toggles it) — most phones, not most desktop
+                   browsers. Copy My Link above is unchanged and always there, so nobody
+                   loses a way to grab the link. -->
+              <button type="button" class="btn btn-outline-dark btn-block" id="referShareBtn" style="display:none; margin-top:10px;">Share My Link</button>
               <div id="referCopyStatus" role="status" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
               <p id="referCount" style="font-size:14px; margin-top:16px; padding-top:14px; border-top:1px solid rgba(30,59,44,.12); text-align:center;"></p>
             </div>
@@ -2134,6 +2156,39 @@
   </section>
 </div>
 
+<!-- ============ SHARE PAGE ============ -->
+<!-- ⭐ REFER A FRIEND — SHARE PAGE (2026-09-06). Reached only from the RSVP email's
+     "Share My Link" button, via /r/<token>?share=1 (see the /r/ reader near
+     REFERRAL_LINK_KEY). Nobody browses here and no /r/ link without ?share=1 ever
+     lands here — that address is still the friend's quote form, unchanged.
+     One job: hand this customer's own link to the native share sheet (Messages,
+     Mail, WhatsApp, whatever's on their phone) in one tap. Browsers that don't
+     support navigator.share (mostly desktop) get Copy Link plus the same
+     Text/Email links instead — nobody is left with a page that does nothing. -->
+<div id="page-share" class="page">
+  <section class="page-block">
+    <div class="wrap" style="max-width:520px;">
+      <div class="form-shell" style="text-align:center;">
+        <h2 style="margin-top:0;">Share Highlighting Utah</h2>
+        <p class="form-note" style="margin-top:0;">Send this to a neighbour or a friend &mdash; when they become a customer, we take <strong>$25</strong> off your bill.</p>
+        <div class="form-row" style="text-align:left;">
+          <label>Your link</label>
+          <input type="text" id="shareLinkInput" readonly value="" style="font-size:13px;">
+        </div>
+        <button type="button" class="btn btn-gold btn-block" id="shareLinkBtn">Share My Link</button>
+        <div id="shareStatus" role="status" style="font-size:13px; color:var(--slate); margin-top:10px;"></div>
+        <div id="shareFallback" style="display:none; margin-top:6px;">
+          <button type="button" class="btn btn-outline-dark btn-block" id="shareCopyBtn" style="margin-bottom:10px;">Copy My Link</button>
+          <div style="display:flex; gap:10px;">
+            <a href="#" id="shareSmsBtn" class="btn btn-outline-dark" style="flex:1;">Text a Friend</a>
+            <a href="#" id="shareMailBtn" class="btn btn-outline-dark" style="flex:1;">Email a Friend</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
 <!-- ============ FOOTER ============ -->
 <footer>
   <div class="wrap">
@@ -2201,7 +2256,7 @@ import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/
    following a quote text landed on, and it is why the short link had never
    once worked. Nothing threw anywhere a person would see it.
    ⚠ ANY future import here must be root-absolute for the same reason. */
-import { centsOf, ARREARS_KIND, arrearsOnInvoice } from "/js/money.js";
+import { centsOf, ARREARS_KIND, arrearsOnInvoice, NEW_MEMBER_FEE } from "/js/money.js";
 /* ⚠ THE CONSTANT AND THE LEDGER READER ARE IMPORTED, NOT RETYPED (2026-08-31).
    arrears-hold.test.js asserts this page never contains the arrears kind as a
    bare literal, because that is how a third copy of a money rule starts. The
@@ -2502,10 +2557,11 @@ onSnapshot(doc(db,'siteContent','main'), function(snap){
 /* =========================================================
    ROUTING
 ========================================================= */
-var routes = ['/', '/how-it-works', '/gallery', '/reviews', '/areas', '/faq', '/contact', '/quote', '/quote-details', '/payment'];
+var routes = ['/', '/how-it-works', '/gallery', '/reviews', '/areas', '/faq', '/contact', '/quote', '/quote-details', '/payment', '/share'];
 var pageIds = {
   '/': 'page-home', '/how-it-works':'page-how', '/gallery':'page-gallery', '/reviews':'page-reviews',
-  '/areas':'page-areas', '/faq':'page-faq', '/contact':'page-contact', '/quote':'page-quote', '/quote-details':'page-quote-details', '/payment':'page-payment'
+  '/areas':'page-areas', '/faq':'page-faq', '/contact':'page-contact', '/quote':'page-quote', '/quote-details':'page-quote-details', '/payment':'page-payment',
+  '/share':'page-share'
 };
 function navigate(){
   var fullHash = window.location.hash.replace('#','') || '/';
@@ -2524,6 +2580,7 @@ function navigate(){
   document.getElementById('mMoreToggle').classList.remove('open');
   document.getElementById('mMoreSubmenu').classList.remove('open');
   document.body.classList.remove('rsvp-minimal', 'rsvp-back');
+  document.body.classList.remove('share-minimal');
   /* ⚠ AND quote-minimal, which this used to leave on. body.quote-minimal hides
      the header and footer and forces #page-quote-details visible with
      !important, so navigating away from a minimal screen left the site chrome
@@ -2603,6 +2660,16 @@ function navigate(){
       document.body.classList.add('quote-minimal');
       handleQuoteLink(quoteToken, quoteAction);
     }
+  } else if(hash === '/share' && queryString){
+    /* ⭐ THE SHARE PAGE (2026-09-06). Reached only through /r/<token>?share=1 —
+       the RSVP email's own button — never by a friend. See the /r/ reader below,
+       which is the only place that ever sets this hash. */
+    var shareParams = new URLSearchParams(queryString);
+    var shareToken = shareParams.get('token');
+    if(shareToken && typeof renderSharePage === 'function'){
+      document.body.classList.add('share-minimal');
+      renderSharePage(shareToken);
+    }
   }
 }
 /* ⭐ THE SHORT QUOTE LINK — /q/<token> (added 2026-08-26).
@@ -2663,7 +2730,24 @@ var REFERRAL_LINK_KEY = 'hu.referredByToken';
     m = /^\/r\/([A-Za-z0-9_-]+)\/?$/.exec(window.location.pathname || '');
   } catch(e){ /* quiet on purpose: no readable location means this is not a /r/ link, and the ?ref= reader below still runs. */ }
   if(!m) return;
-  try{ sessionStorage.setItem(REFERRAL_LINK_KEY, String(m[1]).slice(0, 64)); }
+  var token = String(m[1]);
+  /* ⭐ THE SHARE FLAG (2026-09-06). /r/<token> alone is still, and only ever, the
+     FRIEND'S quote form — every link already out in the wild (texts, the old RSVP
+     button) keeps working exactly as before. /r/<token>?share=1 is a second,
+     different door onto the SAME token: the address the RSVP email's own button
+     now points to, for the REFERRER to open and hand their link to somebody else.
+     Mixing the two up would put a customer on their own quote form, or a friend on
+     a page asking them to share a link that was never theirs. */
+  var isShareLink = false;
+  try{ isShareLink = new URLSearchParams(window.location.search || '').get('share') === '1'; }
+  catch(e){ /* quiet on purpose: an unreadable query is treated as a plain /r/ link, the safer of the two guesses */ }
+  if(isShareLink){
+    window.location.hash = '/share?token=' + encodeURIComponent(token);
+    try{ window.history.replaceState(null, '', '/' + window.location.hash); }
+    catch(e){ /* quiet on purpose: cosmetic. A blocked replaceState leaves /r/<token>?share=1 showing and changes nothing about which page opens */ }
+    return;
+  }
+  try{ sessionStorage.setItem(REFERRAL_LINK_KEY, token.slice(0, 64)); }
   catch(e){ /* Private browsing refuses sessionStorage. The quote still goes through; the referral is simply not counted, which is the safe direction. */ }
   /* Straight to the quote form — that is what the link is FOR — and the token is
      already stored, so nothing rides in the address bar. */
@@ -6346,6 +6430,53 @@ var PORTAL_TAB_NAMES = ['payment','info','sides','lights','changes','refer','con
 function portalReferralLink(token){
   return window.location.origin + '/r/' + encodeURIComponent(String(token || ''));
 }
+/* ⭐ THE SHARED SHARE MESSAGE (2026-09-06). One line, used everywhere a referral
+   link goes out on the customer's own behalf — the portal's Share button, the
+   RSVP email's share page's Share button, and that page's Text/Email fallback.
+   Company voice, not personal voice, and no $25 mentioned here: that credit is
+   explained separately, in the RSVP email copy and the portal's own note, to the
+   REFERRER — it is their incentive, not the friend's, and naming it here would
+   make the recommendation read as self-serving, which Addie explicitly rejected.
+   ⚠ THERE IS ONLY ONE COPY. admin.html's and functions/index.js's referral buttons
+   both link to /r/<token>?share=1, which routes into THIS page's #/share, so
+   there is nothing for either of those files to keep in sync with this line —
+   they never carried their own copy of it.
+   ⭐ THE $30 SETUP-FEE WAIVER, ADDED 2026-09-07. Addie: "Anyone that is enrolled
+   by refer a friend will NOT be getting charged for the 30 dollar installation
+   fee. Can we also add that in the text/email" — and, on wording, "if you
+   register through this referral link you will not have to pay the 30 dollar
+   installation fee." Unlike the $25, this benefits the FRIEND directly, so it
+   belongs in their message rather than only in the referrer's. The waiver
+   itself is real, not just a line of copy — see quoteChargesSetupFee in
+   admin.html, which is what actually decides whether the fee is charged. */
+function referralShareLine(){
+  /* ⚠ THE FEE IS READ, NEVER TYPED. This sentence is a written promise to somebody
+     who is not a customer yet, and it goes out over Addie's name — so it is the LAST
+     place that should hold its own copy of the number. That figure moved $30 → $25 on
+     2026-09-03 and back to $30 on 2026-09-06; a literal here would have spent three
+     days promising a waiver of the wrong amount, with nothing going red. MON-63 is
+     the ruling that collapsed this fee into one constant for exactly that reason, and
+     index.html already imports from js/money.js, so there is no cost to obeying it. */
+  return 'You’ve been recommended for Christmas lights. Light your house with Highlighting Utah! ' +
+    'If you register through this referral link, you will not have to pay the $' +
+    NEW_MEMBER_FEE + ' installation fee.';
+}
+function referralShareMessage(url){
+  return referralShareLine() + ' See link below: ' + url;
+}
+function referralSmsHref(url){
+  var body = encodeURIComponent(referralShareMessage(url));
+  /* ⚠ THE BODY PARAM IS DOUBLED ON PURPOSE. Android reads sms:?body=, iOS reads
+     sms:&body= — there is no one separator both read, and no user-agent sniff is
+     reliable enough to bet a customer's referral on. Giving both means whichever
+     one a phone's Messages app looks for is there. */
+  return 'sms:?body=' + body + '&body=' + body;
+}
+function referralMailtoHref(url){
+  var subject = encodeURIComponent('You’ve Been Recommended!');
+  var body = encodeURIComponent(referralShareMessage(url));
+  return 'mailto:?subject=' + subject + '&body=' + body;
+}
 /* ⚠ THE TWO FIELDS ARE READ OFF `addrDoc` BY NAME, not through a shorthand alias. That
    is not style: portal-fields.test.js proves every whitelisted field is actually LOOKED
    AT by scanning for `addrDoc.<field>` and the handful of other real holder names, so
@@ -6362,6 +6493,12 @@ function portalRenderReferral(addrDoc){
      explanation is the worst of both. */
   var copyBtn = document.getElementById('referCopyBtn');
   if(copyBtn) copyBtn.disabled = !token;
+  /* ⚠ FEATURE-DETECTED, NEVER BROWSER-SNIFFED. navigator.share is absent on most
+     desktop browsers and present on most phones — exactly the split between
+     "needs Copy My Link" and "can use the real share sheet" that matters here,
+     and it stays correct as browsers change without this file changing. */
+  var shareBtn = document.getElementById('referShareBtn');
+  if(shareBtn) shareBtn.style.display = (token && typeof navigator.share === 'function') ? '' : 'none';
   var status = document.getElementById('referCopyStatus');
   if(status && !token) status.textContent = 'Your link is being set up \u2014 check back in a moment.';
   var n = Math.max(0, Number(addrDoc.referralCount) || 0);
@@ -6395,6 +6532,77 @@ document.getElementById('referCopyBtn')?.addEventListener('click', async functio
       ok = document.execCommand('copy');
     }catch(err){ /* Deprecated and can throw. Both routes have now failed, and the
                     message below tells them to copy it by hand, which always works. */ }
+  }
+  if(status) status.textContent = ok
+    ? 'Copied \u2014 paste it into a text or an email.'
+    : 'Could not copy it for you \u2014 select the link above and copy it.';
+});
+document.getElementById('referShareBtn')?.addEventListener('click', async function(){
+  var input = document.getElementById('referLinkInput');
+  if(!input || !input.value) return;
+  try{
+    /* url separate from text \u2014 most share targets (Messages, Mail, WhatsApp)
+       append it themselves, so putting it in both would send it twice. */
+    await navigator.share({ title:'Highlighting Utah', text: referralShareLine(), url: input.value });
+  }catch(err){ /* AbortError on cancel, or unsupported mid-call \u2014 Copy My Link is
+                  right above and needs no extra state from a failed share. */ }
+});
+/* \u2b50 THE SHARE PAGE'S OWN LOGIC (2026-09-06). See #page-share and the /r/ reader's
+   ?share=1 branch. Same navigator.share call as the portal's Share button above \u2014
+   kept as a second copy rather than shared, because this page has no addrDoc and
+   no sign-in to hang a shared function off of. */
+function renderSharePage(token){
+  var url = window.location.origin + '/r/' + encodeURIComponent(String(token || ''));
+  var input = document.getElementById('shareLinkInput');
+  if(input) input.value = url;
+  var shareBtn = document.getElementById('shareLinkBtn');
+  var fallback = document.getElementById('shareFallback');
+  var smsBtn = document.getElementById('shareSmsBtn');
+  var mailBtn = document.getElementById('shareMailBtn');
+  if(smsBtn) smsBtn.setAttribute('href', referralSmsHref(url));
+  if(mailBtn) mailBtn.setAttribute('href', referralMailtoHref(url));
+  /* \u26a0 FEATURE-DETECTED, SAME AS THE PORTAL BUTTON. A phone gets one button that
+     opens the real share sheet; a desktop browser that cannot gets Copy Link plus
+     the same Text/Email links instead \u2014 never a button that does nothing. */
+  if(typeof navigator.share === 'function'){
+    if(shareBtn) shareBtn.style.display = '';
+    if(fallback) fallback.style.display = 'none';
+  } else {
+    if(shareBtn) shareBtn.style.display = 'none';
+    if(fallback) fallback.style.display = '';
+  }
+}
+document.getElementById('shareLinkBtn')?.addEventListener('click', async function(){
+  var input = document.getElementById('shareLinkInput');
+  var status = document.getElementById('shareStatus');
+  if(!input || !input.value) return;
+  try{
+    await navigator.share({ title:'Highlighting Utah', text: referralShareLine(), url: input.value });
+  }catch(err){
+    /* AbortError on cancel is not a failure worth reporting. Anything else on a
+       page whose one job is sharing does need a way forward, so fall back to the
+       same Copy/Text/Email row a non-supporting browser gets by default. */
+    if(err && err.name !== 'AbortError'){
+      var fallback = document.getElementById('shareFallback');
+      if(fallback) fallback.style.display = '';
+      if(status) status.textContent = 'Could not open the share menu \u2014 use one of these instead.';
+    }
+  }
+});
+document.getElementById('shareCopyBtn')?.addEventListener('click', async function(){
+  var input = document.getElementById('shareLinkInput');
+  var status = document.getElementById('shareStatus');
+  if(!input || !input.value) return;
+  var ok = false;
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(input.value);
+      ok = true;
+    }
+  }catch(err){ /* Refused \u2014 the select-and-execCommand fallback below is the answer. */ }
+  if(!ok){
+    try{ input.focus(); input.select(); ok = document.execCommand('copy'); }
+    catch(err){ /* Both routes failed; the message below tells them to copy it by hand. */ }
   }
   if(status) status.textContent = ok
     ? 'Copied \u2014 paste it into a text or an email.'
@@ -6624,53 +6832,115 @@ function portalSidesFromRecord(){
   var r = currentLookupRecord || {};
   return portalSideCount(d.houseSides !== undefined ? d.houseSides : r.houseSides);
 }
+/* ⭐ WHICH SIDES, BY NAME (2026-09-06). Addie: "how are we supposed to know which
+   sides they want if it just says how many ... that's why we need them to say
+   which side of the house they want done from where their front door stands."
+
+   ⚠ A SECOND, ADDITIVE FIELD — houseSidesList — NEVER A REPLACEMENT for houseSides.
+   The count above still drives pricing and the re-quote flag exactly as it did
+   before this shipped (see functions/index.js, section 'sides'); nothing here
+   changes that mechanism or its tests. This is real, trusted data going forward —
+   not decoration — but a customer who has never opened this tab simply has none
+   on file, and nothing that matters breaks because of it.
+
+   ⚠ CANONICAL ORDER, ALWAYS. Sanitizing every read through PORTAL_SIDE_NAMES means
+   a value however it was stored (any order, a duplicate, a value nobody offers any
+   more) always compares and displays the same way — the same discipline as
+   referralSidesList would need if it existed, and the reason houseSideCount reads
+   both shapes of the OLD field rather than trusting either blindly. */
+var PORTAL_SIDE_NAMES = ['Front', 'Left', 'Right', 'Back'];
+function portalSidesListFromValue(v){
+  if(!Array.isArray(v)) return [];
+  var picked = {};
+  v.forEach(function(s){ if(PORTAL_SIDE_NAMES.indexOf(s) !== -1) picked[s] = true; });
+  return PORTAL_SIDE_NAMES.filter(function(s){ return picked[s]; });
+}
+function portalSidesListFromRecord(){
+  var d = currentJobAddressData || {};
+  var r = currentLookupRecord || {};
+  var v = d.houseSidesList !== undefined ? d.houseSidesList : r.houseSidesList;
+  return portalSidesListFromValue(v);
+}
 function portalRenderSides(){
-  var have = portalSidesFromRecord();
-  document.querySelectorAll(".portal-side-pick").forEach(function(rb){
-    rb.checked = (Number(rb.value) === have);
+  var haveList = portalSidesListFromRecord();
+  document.querySelectorAll(".portal-side-pick").forEach(function(cb){
+    cb.checked = haveList.indexOf(cb.value) !== -1;
   });
 }
-function portalSidesPicked(){
-  var el = document.querySelector(".portal-side-pick:checked");
-  return portalSideCount(el ? el.value : 0);
+function portalSidesPickedList(){
+  var out = [];
+  document.querySelectorAll(".portal-side-pick:checked").forEach(function(cb){ out.push(cb.value); });
+  return portalSidesListFromValue(out);
 }
-function portalSidesWords(n){
-  var c = portalSideCount(n);
-  return c + " side" + (c === 1 ? "" : "s");
+function portalSidesListsEqual(a, b){
+  if(a.length !== b.length) return false;
+  for(var i = 0; i < a.length; i++){ if(a[i] !== b[i]) return false; }
+  return true;
+}
+/* One line naming which sides — or, for a customer who only ever had a count on
+   file, the count itself, saying plainly that the specific sides are not on
+   file yet rather than a blank that reads as "nothing set at all". */
+function portalSidesWords(list, count){
+  if(list && list.length){
+    return list.join(", ") + " (" + list.length + " side" + (list.length === 1 ? "" : "s") + ")";
+  }
+  var c = Number(count) || 0;
+  return c ? (c + " side" + (c === 1 ? "" : "s") + " (which ones is not on file)") : "not on file";
 }
 document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn").addEventListener("click", async function(){
   var statusEl = document.getElementById("sidesSaveStatus");
   if(!currentLookupRecord && !currentJobAddressId){ statusEl.textContent = "Please look up your invoice first."; return; }
-  var picked = portalSidesPicked();
-  var before = portalSidesFromRecord();
-  var same = picked === before;
-  if(same){ statusEl.textContent = "That is already what we have — nothing to change."; return; }
-  /* ⚠ The confirm names BOTH lists. "You will be requoted" without saying what
-     changed is the kind of warning people agree to and then ring about. */
-  var ok = window.confirm(
-    "You are changing which sides of your house we light.\n\n" +
-    "    Now: " + portalSidesWords(before) + "\n" +
-    "    New: " + portalSidesWords(picked) + "\n\n" +
-    "This changes how many lights we hang, so we will need to RE-QUOTE you before your install. " +
-    "Your price may go up or down.\n\nDo you want us to re-quote you?"
-  );
-  if(!ok){ statusEl.textContent = ""; portalRenderSides(); return; }
+  var pickedList = portalSidesPickedList();
+  if(!pickedList.length){ statusEl.textContent = "Please tick at least one side."; return; }
+  var beforeList = portalSidesListFromRecord();
+  var beforeCount = portalSidesFromRecord();
+  var pickedCount = pickedList.length;
+  if(portalSidesListsEqual(pickedList, beforeList) && pickedCount === beforeCount){
+    statusEl.textContent = "That is already what we have — nothing to change.";
+    return;
+  }
+  /* ⚠ ONLY AN ACTUAL COUNT CHANGE IS A RE-QUOTE. The server's re-quote flag is
+     driven by the COUNT alone (functions/index.js, section 'sides'), never by
+     which sides are named — so naming sides for a count that was already on
+     file (the common first save, for every existing customer) must not carry
+     the same "your price may change" warning as an actual change nobody asked
+     for. This mirrors exactly what the server is about to decide, rather than
+     guessing at a friendlier rule that could disagree with it. */
+  var countChanged = pickedCount !== beforeCount;
+  if(countChanged){
+    /* ⚠ The confirm names BOTH lists. "You will be requoted" without saying what
+       changed is the kind of warning people agree to and then ring about. */
+    var ok = window.confirm(
+      "You are changing which sides of your house we light.\n\n" +
+      "    Now: " + portalSidesWords(beforeList, beforeCount) + "\n" +
+      "    New: " + portalSidesWords(pickedList, pickedCount) + "\n\n" +
+      "This changes how many lights we hang, so we will need to RE-QUOTE you before your install. " +
+      "Your price may go up or down.\n\nDo you want us to re-quote you?"
+    );
+    if(!ok){ statusEl.textContent = ""; portalRenderSides(); return; }
+  }
   statusEl.textContent = "Saving…";
   try{
     await callPortalFn("portalSave", {
       token: getActivePortalToken(),
       section: "sides",
-      data: {houseSides: picked}
+      data: {houseSides: pickedCount, houseSidesList: pickedList}
     });
-    if(currentJobAddressData) currentJobAddressData.houseSides = picked;
-    if(currentLookupRecord) currentLookupRecord.houseSides = picked;
+    if(currentJobAddressData){ currentJobAddressData.houseSides = pickedCount; currentJobAddressData.houseSidesList = pickedList; }
+    if(currentLookupRecord){ currentLookupRecord.houseSides = pickedCount; currentLookupRecord.houseSidesList = pickedList; }
+    if(!countChanged){
+      /* Just naming sides for a count that already matched — no footage change,
+         no re-quote, nothing for the office to act on. */
+      statusEl.textContent = "Saved.";
+      return;
+    }
     /* ⭐ PUT THEM BACK IN QUOTES TO BE RE-PRICED.
        Owner, 2026-08-18: "we need to set it up so they are requoted, so they
        are removed as a customer and added in quotes instead."
 
        This is the second half. The quote carries existingCustomerId, which is
        what the Quotes list already reads to show "Old house · re-quote", to
-       skip the $30 set-up fee, and to pick the re-quote email template rather
+       skip the set-up fee, and to pick the re-quote email template rather
        than the new-lead one. `changed` is what fills the blue explainer on the
        card, so whoever prices it can see what moved without opening anything.
 
@@ -6688,7 +6958,8 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
         phone: (currentLookupRecord && currentLookupRecord.phone) || '',
         email: (currentLookupRecord && currentLookupRecord.email) || '',
         address: (currentJobAddressData && currentJobAddressData.address) || '',
-        houseSides: picked,
+        houseSides: pickedCount,
+        houseSidesList: pickedList,
         existingCustomerId: currentJobAddressId || null,
         /* ⭐ EVERYTHING THE OLD RECORD KNEW, CARRIED ON THE QUOTE.
            Owner, 2026-08-18: "we should be able to find what their old # was no
@@ -6708,8 +6979,8 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
         existingLightColors: (currentJobAddressData && currentJobAddressData.lightColors) || [],
         changed: {
           what: 'sides',
-          oldSides: portalSidesWords(before),
-          newSides: portalSidesWords(picked),
+          oldSides: portalSidesWords(beforeList, beforeCount),
+          newSides: portalSidesWords(pickedList, pickedCount),
           oldPrice: (currentJobAddressData && Number(currentJobAddressData.housePrice)) || 0
         },
         notes: 'Existing Customer - Sides Changed',
@@ -6730,8 +7001,8 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
       customer_phone: (currentLookupRecord && currentLookupRecord.phone) || "",
       customer_email: (currentLookupRecord && currentLookupRecord.email) || "",
       topic: "Existing Customer - Sides Changed",
-      message: "Customer changed which sides they want lit, from " + portalSidesWords(before) +
-               " to " + portalSidesWords(picked) + ". They need re-quoting before install."
+      message: "Customer changed which sides they want lit, from " + portalSidesWords(beforeList, beforeCount) +
+               " to " + portalSidesWords(pickedList, pickedCount) + ". They need re-quoting before install."
     });
     statusEl.textContent = "Saved. We will be in touch with your new quote.";
   } catch(err){
