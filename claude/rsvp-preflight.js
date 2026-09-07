@@ -150,24 +150,57 @@ const line = () => console.log('-'.repeat(64));
       'rows=list(ws.iter_rows(values_only=True))\n' +
       'h=[str(c).strip() if c is not None else "" for c in rows[0]]\n' +
       'gi=lambda n: h.index(n) if n in h else -1\n' +
-      'iN,iP,iW,iL=gi("Name"),gi("Phone"),gi("Wire"),gi("Lights")\n' +
+      'iN,iP,iW,iL,iA=gi("Name"),gi("Phone"),gi("Wire"),gi("Lights"),gi("Address")\n' +
       'o=[]\n' +
       'for r in rows[1:]:\n' +
       '    g=lambda i:("" if i<0 or i>=len(r) or r[i] is None else str(r[i]).strip())\n' +
-      '    if g(iN): o.append({"name":g(iN),"phone":g(iP),"wire":g(iW),"lights":g(iL)})\n' +
+      '    if g(iN): o.append({"name":g(iN),"phone":g(iP),"wire":g(iW),"lights":g(iL),"addr":g(iA)})\n' +
       'json.dump(o,sys.stdout)\n';
     sheet = JSON.parse(execFileSync('python', ['-c', py], { maxBuffer: 1 << 28 }).toString());
   } catch (e) {
     console.log('   (could not read the master sheet: ' + String(e.message).slice(0, 90) + ')');
   }
 
+  /* ⚠ ADDRESS FIRST, AND A REPEATED NAME IS NO MATCH AT ALL.
+     The first version of this keyed the sheet by name alone, last row winning. Jana
+     McJunkin has THREE rows on the sheet at three different addresses (red/green/soft,
+     blank, red/pure); Erin Wade and Meghann Turner have two each. So "the sheet says
+     red/pure" was whichever duplicate happened to land last in the map, compared against
+     an app record that may be an entirely different house — and acting on it would have
+     written one property's colours onto another. That is CLAUDE.md's own rule: two
+     candidates is not a weaker match, it is NO match.
+     A house is its street, so that is what matches. A name is used only where it appears
+     exactly once on the whole sheet, and a phone only where it is not shared — seventeen
+     numbers in the real book are shared by two households. Everything else is reported
+     as ambiguous rather than guessed at. */
+  const street = s => norm(s).replace(/[.,]/g, ' ')
+    .replace(/\b(north|south|east|west)\b/g, m => m[0])
+    .replace(/\b(street|st|avenue|ave|road|rd|drive|dr|lane|ln|circle|cir|court|ct|way|place|pl|boulevard|blvd|parkway|pkwy|terrace|ter)\b/g, '')
+    .replace(/\s+/g, ' ').trim();
   const sortName = n => norm(n).split(/\s+/).sort().join(' ');
-  const byName = {}, byPhone = {};
+
+  const byAddr = {}, nameCount = {}, phoneCount = {}, byName = {}, byPhone = {};
   if (sheet) sheet.forEach(r => {
-    byName[sortName(r.name)] = r;
-    if (digits(r.phone)) byPhone[digits(r.phone)] = r;
+    const a = street(r.addr);
+    if (a) (byAddr[a] = byAddr[a] || []).push(r);
+    const n = sortName(r.name);
+    nameCount[n] = (nameCount[n] || 0) + 1; byName[n] = r;
+    const p = digits(r.phone);
+    if (p) { phoneCount[p] = (phoneCount[p] || 0) + 1; byPhone[p] = r; }
   });
-  const sheetFor = c => byName[sortName(c.d.name)] || byPhone[digits(c.d.phone)] || null;
+
+  const ambiguous = [];
+  const sheetFor = c => {
+    const a = street(c.d.street || c.d.address);
+    if (a && byAddr[a] && byAddr[a].length === 1) return byAddr[a][0];
+    if (a && byAddr[a] && byAddr[a].length > 1) { ambiguous.push([c.d.name, 'address on the sheet twice']); return null; }
+    const n = sortName(c.d.name);
+    if (nameCount[n] === 1) return byName[n];
+    if (nameCount[n] > 1) { ambiguous.push([c.d.name, nameCount[n] + ' rows share this name — matched on nothing']); return null; }
+    const p = digits(c.d.phone);
+    if (phoneCount[p] === 1) return byPhone[p];
+    return null;
+  };
 
   const colours = c => {
     const desc = norm(c.d.lightsDescription);
@@ -200,6 +233,8 @@ const line = () => console.log('-'.repeat(64));
   });
 
   console.log('   matched to the master sheet ........... ' + live.filter(sheetFor).length + ' of ' + live.length);
+  console.log('   could NOT be matched safely ........... ' + ambiguous.length + '   (repeated name or address — deliberately not guessed)');
+  ambiguous.slice(0, 10).forEach(r => console.log('       ' + String(r[0]).padEnd(26) + ' ' + r[1]));
   console.log();
   console.log('   WIRE disagrees with the sheet ......... ' + wireMismatch.length + '   (Compare + Sync fixes these)');
   wireMismatch.slice(0, 20).forEach(r => console.log('       ' + String(r[0]).padEnd(26) + ' app=' + String(r[1]).padEnd(12) + ' sheet=' + r[2]));

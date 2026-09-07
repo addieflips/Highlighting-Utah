@@ -968,9 +968,27 @@ as the other two, because a second copy of "drop this line and re-total" is how
 one ledger starts disagreeing about what a ✕ does. ⚠ And it is never refused for
 want of an invoice: it exists precisely because the bill had already gone out.
 
-**Two separate fees, easy to conflate — the set-up fee is $25, the light-change fee
-is $30** (she moved the set-up one on 2026-09-03: *"make the set up fee $25"*). They
-are separate charges: a new member who changes their colours late pays both.
+**Two separate fees, easy to conflate — the set-up fee is $30, the light-change fee
+is $30.** The set-up one moved to $25 on 2026-09-03 (*"make the set up fee $25"*) and
+back to **$30 on 2026-09-07** — Dax: *"we need to change the instalation fee to $30."*
+They are separate charges: a new member who changes their colours late pays both.
+
+⭐ **AND THE CUSTOMER-FACING NAME IS THE INSTALLATION FEE.** That is what the invoice
+document, the invoice email and the quote all call it; "new member fee" is only the
+field name (`newMemberFeeApplied`, `NEW_MEMBER_FEE`). Worth knowing before searching
+for it — asking the code for "installation fee" finds the wording, not the constant.
+
+⛔ **THE NIGHTLY INVOICE HAD THE FIGURE TYPED INTO IT, AND IT DISAGREED WITH THE
+CHARGE** (found and fixed 2026-09-07, while making the change above). `functions/index.js`
+built the line as the literal string `'Installation fee = $30.00'` while the fee itself
+was `NEW_MEMBER_FEE = 25` and admin.html's copy of the same email rendered
+`fmtMoney(NEW_MEMBER_FEE)`. So for every new member the **automatic** invoice email said
+$30.00 and the bill charged $25 — its own line items did not add up to its own total —
+while a **hand-sent** invoice for the same customer said $25.00. Two renderers, one
+email, one of them holding a number by hand: the `{{photo}}` shape, in the one place
+where it is money on a customer's bill. It reads the constant now. ⚠ Nothing went red
+for this, because no check compared the two renderers' wording — only the two copies of
+the *constant*, which agreed with each other the whole time.
 
 ⚠ **The set-up fee is one number in one place now** — `NEW_MEMBER_FEE`, in
 `js/money.js` and mirrored in `functions/index.js` because the server cannot import
@@ -981,9 +999,11 @@ emailed one included. It used to be a bare `30` in twelve places.
 
 ⚠ **An invoice already carrying the old fee is recomputed to the new one** the next
 time it syncs — one price for the season. The exception is Start New Season, which
-*strips* the fee rather than recomputing, so an old $30 invoice carries $5 too much;
-that is written down at the line rather than fixed, because the fix is storing the
-amount on the invoice when it is charged.
+*strips* the fee rather than recomputing, so an invoice written under the previous
+figure is out by the difference in whichever direction the fee last moved — it has now
+moved twice ($30 → $25 → $30), so this is not a one-off. That is written down at the
+line rather than fixed, because the fix is storing the amount on the invoice when it is
+charged, and until that exists every change to this number leaves a tail behind it.
 
 **The two, in detail:**
 - **New-member fee** — added once by the nightly Cloud Function for a customer's first season, flagged `newMemberFeeApplied` so it's never double-charged. It's folded directly into `install`, not tracked as a separate line.
@@ -2164,6 +2184,29 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
   - ⚠ **The invoice prints preferences and can never act on them.** `contactPrefsNote(d)` returns a finished string, and `buildInvoiceDocHtml` is handed that string rather than the flags — so nothing in the invoice builder can branch on a contact preference, because it never receives one. Suite 128 asserts the builder names neither field directly. The Edit Customer tickbox says outright that they still get their invoice and account notices, since the one dangerous misreading of that box is that it stops their bill.
   - ⚠ **`noAutomationEmails` never stops a bill.** It is named for its scope on purpose — the obvious name (`emailOptedOut`) invites someone to wire it into the nightly invoice run, and a customer who asked to stop getting marketing would then silently stop being **billed**. Nobody chases an invoice that was never sent. Neither `functions/index.js` nor `buildInvoiceDocHtml` has ever heard of the field, and Suite 128 of `run-all.js` fails if either learns it.
   - ⚠ The four other email-send handlers in `admin.html` (`sendRsvpEmailBtn`, `sendBulkUpdateEmailBtn`, `pibSendUnpaidBtn`, `pibSendPaidBtn`) have **no markup** — every id is in `KNOWN_MISSING_IDS`, so they return at their first line. That is the only reason they carry no guard. Suite 128 fails if any of them ever gets markup, so whoever builds one has to decide about the list first.
+- ⭐ **ONE SENDER, HOWEVER MANY TEMPLATES A RUN NEEDS** (2026-09-07). The send loop used to
+  live inside the *Send to N selected* click handler, so any second button could only have
+  reached it by growing a second copy — which is the failure this repo already fixed once by
+  DELETING a second sender (RS-52). It is now `etSendTemplateRun`, **moved rather than
+  retyped**, and every rule in it is the shipped one: the do-not-send gate at send time, the
+  quote token, the add-on block, the referral block, the per-kind subject. The button
+  delegates and keeps only its own validation, confirm and marking.
+  - ⚠ **It deliberately does not mark the RSVP sent.** A run may be several passes over
+    several templates, and `rsvpSentAt` is one fact about the *season*, not one per pass.
+    Marking inside would stamp it twice and report the season live before the second half of
+    the book had been written to. The caller marks, once, at the end.
+  - ⚠ **The `{{quote_` prefix inside it is built with `String.fromCharCode(123,123)`.** Suites
+    lift a function by counting braces from its signature, so two unbalanced opening braces in
+    a string run the count off the end and the whole function reads as **missing** — the suite
+    then skips or passes vacuously rather than failing. Inside the old click handler nothing
+    lifted it by name, so it never mattered; as a named function it does. Same reasoning as the
+    `$$` column being built with `String.fromCharCode`.
+  - ⚠ **Suite 128's do-not-send checks were repointed, not weakened.** They asserted the gate
+    sat inside the *listener*, which is where it happened to live rather than what must be
+    true. They now assert it is in the thing that actually mails, that the slice was found at
+    all (so they cannot pass vacuously against an empty string), and that the handler reaches
+    the sender instead of calling `emailjs.send` itself — a second loop growing back inside
+    the handler is the two-senders failure rebuilt one level down.
 - **Filter, then select everyone under the filter** (Automation Emails → Preview & Send, rebuilt 2026-09-04). Dax: *"in automated emails make it so you can filter who you see then you can select all so it selects everyone under the filter you chose."* Both halves of that sentence already existed and the send still reached the wrong people, for two separate reasons.
   - **There were two send screens, and the obvious button opened the worse one.** Every template card carries a green **Send**; it used to open a *Send Template* modal with a search box and nothing else — no audience filters, no Select All, no preview, no quote tokens or photos, and no record that an RSVP had gone out. The good screen was behind a small outline **Preview & Send** button at the top of the tab, which nobody presses when there is a Send on the card itself. The card now opens Preview & Send with that template already chosen, and the second modal is **deleted** rather than left as a door somebody could still walk through: two senders over one book is a set of rules that holds or does not depending on which button was pressed, and nobody would ever find out which.
   - **Select All was losing ticks in silence.** The recipient list is rebuilt by `innerHTML` on every keystroke, and the ticks lived only in the checkboxes — so filtering to 312 unpaid customers, pressing Select All, then typing one name into the search box to check it left exactly **one** tick standing. The send went to one person while the count line still said 312, which looks exactly like a send that worked. The selection is held in `etSelectedRecipientIds` now and survives every repaint.
