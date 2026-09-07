@@ -17816,24 +17816,23 @@ document.getElementById('etCopyForPreviewBtn').addEventListener('click', functio
     setTimeout(() => { statusEl.textContent = ''; }, 2000);
   });
 });
-document.getElementById('etSendToSelectedBtn').addEventListener('click', async function(){
-  const statusEl = document.getElementById('etPreviewSendStatus');
-  const templateId = document.getElementById('etSendTemplateSelect').value;
-  const template = emailTemplates.find(t => t.id === templateId);
-  if(!template){ statusEl.textContent = 'Pick a template first.'; return; }
-  /* ⚠ READ FROM THE RECORDED SELECTION, NOT FROM THE CHECKBOXES ON SCREEN. With a name
-     typed in the search box the DOM holds one row, and this used to send to one person
-     while the pill, the count line and the button all said 312. The tick is the record;
-     the checkbox is only a picture of it. */
-  const selectedIds = Array.from(etSelectedRecipientIds);
-  if(!selectedIds.length){ statusEl.textContent = 'Select at least one recipient.'; return; }
-  const serviceId = document.getElementById('emailjsServiceId').value.trim();
-  const templateJsId = document.getElementById('emailjsTemplateId').value.trim();
-  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
-  if(!serviceId || !templateJsId || !publicKey){ statusEl.textContent = 'Set up EmailJS (Email Setup card above) first.'; return; }
-  if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your connection.'; return; }
-  if(!confirm('Send "'+template.data.name+'" to '+selectedIds.length+' member(s) now?')) return;
-  emailjs.init(publicKey);
+/* ⭐ ONE SENDER, HOWEVER MANY TEMPLATES A RUN NEEDS (2026-09-07).
+ *
+ * ⚠ THIS IS THE PREVIEW & SEND LOOP, MOVED RATHER THAN COPIED. Every rule in it —
+ *   the do-not-send gate at send time, the quote token, the add-on block, the
+ *   referral block, the per-kind subject — is the shipped one, unchanged. Two
+ *   senders over one book is a set of rules that holds or does not depending on
+ *   which button was pressed, and this repo has already deleted one second sender
+ *   for exactly that reason (RS-52). The whole-RSVP button calls THIS.
+ *
+ * ⚠ IT DOES NOT MARK THE RSVP SENT. A run may be several passes over several
+ *   templates, and rsvpSentAt is one fact about the season, not one per pass —
+ *   marking in here would stamp it twice and report the season live before the
+ *   second half of the book had been written to. The caller marks, once, at the end.
+ *
+ * ⚠ AND IT NEVER THROWS OUT OF THE LOOP. One address EmailJS rejects must not stop
+ *   the other nine hundred; a failure is counted and the run carries on. */
+async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId, statusEl, progressLabel){
   let sent = 0, failed = 0, optedOut = 0;
   for(const id of selectedIds){
     const member = jobAddresses.find(m => m.id === id);
@@ -17846,7 +17845,15 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
        exclusion is not a failure and reading it as one hides both. */
     if(etNoAutomationEmails(member.data)) { optedOut++; continue; }
     // Generate quote token if template uses quote buttons
-    if(template.data.body.indexOf('{{quote_') !== -1){
+    /* ⚠ THE TOKEN PREFIX IS BUILT, NOT WRITTEN OUT, and it is not fussiness. Suites lift
+       a function by counting braces from its signature, so two unbalanced opening braces
+       inside a string run the count off the end and the whole function reads as MISSING —
+       the suite then skips or passes vacuously rather than failing. That cost a run the
+       moment this loop became a named function; inside the old click handler it never
+       mattered because nothing lifted it by name. Same reasoning as the $$ column being
+       built with String.fromCharCode. */
+    const QUOTE_TOKEN_PREFIX = String.fromCharCode(123, 123) + 'quote_';
+    if(template.data.body.indexOf(QUOTE_TOKEN_PREFIX) !== -1){
       const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
       const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
       if(quote && !quote.data.quoteToken){
@@ -17870,13 +17877,35 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
     const message = applyQuotePhotoBlock(
       await resolveLinkTokens(template.data.body, vars.phone, 0, vars),
       quotePhotosForPhone(vars.phone), false) + addOnBlock + referralBlock;
-    statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + selectedIds.length + '…';
+    statusEl.textContent = (progressLabel || '') + 'Sending ' + (sent+failed+1) + ' of ' + selectedIds.length + '…';
     try{
       const subject = await emailSubjectFor(template, vars.phone, vars);
       await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', subject: subject, message: message });
       sent++;
     } catch(err){ failed++; }
   }
+  return { sent: sent, failed: failed, optedOut: optedOut };
+}
+document.getElementById('etSendToSelectedBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('etPreviewSendStatus');
+  const templateId = document.getElementById('etSendTemplateSelect').value;
+  const template = emailTemplates.find(t => t.id === templateId);
+  if(!template){ statusEl.textContent = 'Pick a template first.'; return; }
+  /* ⚠ READ FROM THE RECORDED SELECTION, NOT FROM THE CHECKBOXES ON SCREEN. With a name
+     typed in the search box the DOM holds one row, and this used to send to one person
+     while the pill, the count line and the button all said 312. The tick is the record;
+     the checkbox is only a picture of it. */
+  const selectedIds = Array.from(etSelectedRecipientIds);
+  if(!selectedIds.length){ statusEl.textContent = 'Select at least one recipient.'; return; }
+  const serviceId = document.getElementById('emailjsServiceId').value.trim();
+  const templateJsId = document.getElementById('emailjsTemplateId').value.trim();
+  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
+  if(!serviceId || !templateJsId || !publicKey){ statusEl.textContent = 'Set up EmailJS (Email Setup card above) first.'; return; }
+  if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your connection.'; return; }
+  if(!confirm('Send "'+template.data.name+'" to '+selectedIds.length+' member(s) now?')) return;
+  emailjs.init(publicKey);
+  const run = await etSendTemplateRun(template, selectedIds, serviceId, templateJsId, statusEl);
+  const sent = run.sent, failed = run.failed, optedOut = run.optedOut;
   statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + (optedOut ? ', ' + optedOut + ' skipped (on the do-not-send list)' : '') + '.';
   /* ⭐ AND RECORD THAT THE SEASON'S RSVP HAS GONE OUT. Only for an RSVP template, only
      when at least one email actually left, and only the FIRST time — see

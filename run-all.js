@@ -33904,13 +33904,33 @@ suite('Suite 128. The do-not-send list — automation emails only');
        and sits EARLIER in the file, so the plain id captured its slice and these two
        checks failed on code that is right — the slow-fuse shape S82 and S129 each hit. */
     const previewSend = sectionFrom(admin, admin.indexOf("document.getElementById('etSendToSelectedBtn').addEventListener"));
+    /* ⚠ REPOINTED 2026-09-07, AND THE GUARANTEE IS STRONGER RATHER THAN WEAKER. The
+       loop moved out of this listener into `etSendTemplateRun` so the whole-RSVP button
+       could reuse it instead of growing a second copy — so asserting the gate sits
+       INSIDE the listener now fails on code that is right, which is the slow-fuse shape
+       this suite's own comment above already names twice. What must be true is that the
+       thing which actually mails carries the gate, and that the listener reaches it
+       rather than sending on its own. Both are checked. */
+    const sender = extractFn(admin, 'etSendTemplateRun') || '';
+    check('S128', 'the one sender is findable',
+      !!sender,
+      'renamed or removed — repoint these checks rather than deleting them; without ' +
+      'this slice the two below pass vacuously against an empty string');
     check('S128', 'Preview & Send refuses to mail somebody on the list',
-      /etNoAutomationEmails\(member\.data\)/.test(previewSend),
+      /etNoAutomationEmails\(member\.data\)/.test(sender),
       'the ticks are read at send time, so a row ticked just before somebody was ' +
       'added to the list is still a selected id');
     check('S128', 'and counts them apart from real failures',
-      /optedOut\+\+/.test(previewSend) && /do-not-send list/.test(previewSend),
+      /optedOut\+\+/.test(sender) && /do-not-send list/.test(previewSend),
       'a deliberate exclusion is not a failure, and reading it as one hides both');
+    /* ⚠ AND THE LISTENER MUST DELEGATE, NEVER MAIL ON ITS OWN. A second loop growing
+       back inside this handler is the two-senders failure rebuilt one level down: the
+       gate above would still pass, on a function the button no longer uses. */
+    check('S128', 'the send button goes through that one sender',
+      /etSendTemplateRun\(/.test(previewSend) &&
+      !/emailjs\.send\(/.test(previewSend),
+      'the handler mails directly again — one book, two senders, and the do-not-send ' +
+      'list then holds depending on which button was pressed');
     /* ⚠ THE SECOND SENDER MUST STAY GONE. Re-adding a modal that lists customers
        without the ten filters and without this list is the whole failure above,
        rebuilt. Both names, because either half alone is half a sender. */
