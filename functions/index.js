@@ -1217,10 +1217,12 @@ function generateReferralToken() {
    would change every time anybody looked at it. Change one, change the other, in the
    same push; run-all.js compares the two.
 
-   ⚠ AN UNSTAMPED TOKEN IS THIS SEASON'S, NOT AN EXPIRED ONE. Every link minted before
-   the stamp existed is unstamped, and reading those as last year's would rotate the
-   whole book at once — breaking every link already sent out this season and charging
-   the $30 (REF-13) to friends who were told in writing they would not pay it. */
+   ⭐ AN UNSTAMPED TOKEN IS THIS SEASON'S — AS A FACT. Addie, 2026-09-07: "The link is
+   new this year so there should be no last year link." The feature is three days old,
+   so every token on file really was minted this season. The safety argument that came
+   first still holds and is worth keeping: reading them as last year's would rotate the
+   whole book at once, breaking every link already sent out and charging the $30
+   (REF-13) to friends who were told in writing they would not pay it. */
 const REFERRAL_PAST_KEEP = 5;
 function referralSeasonNow() { return new Date().getFullYear(); }
 function referralTokenSeasonOf(data) {

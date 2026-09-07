@@ -51558,6 +51558,31 @@ suite('305. The referral link, from the office side');
         new Function('return ' + fn('referralTokenSeasonOf') + ';referralTokenSeasonOf')(),
         Number((admin.match(/const REFERRAL_PAST_KEEP = (\d+);/) || [])[1]),
         {error: () => {}});
+      /* ⭐ AND THE BACKFILL IS WHAT MAKES NEXT YEAR CORRECT (2026-09-07). Addie: "The
+         link is new this year so there should be no last year link" — so nothing rotates
+         this season and the whole rule is invisible until January, which makes this
+         button very easy to read as optional. It is not: a record still unstamped when
+         somebody opens it in 2027 is stamped 2027, recording a 2026 link as next
+         season's, so it never rotates and goes on waiving the set-up fee for ever.
+         ⚠ IT ONLY EVER ADDS THE STAMP. The token is untouched, so no link anybody is
+         holding stops working — which is why it needs no typed confirmation, unlike the
+         Danger Zone sweeps, and why it is safe to press twice. */
+      {
+        const fill = extractFn(admin, 'backfillReferralLinks');
+        check('S305', 'the backfill dates links that have none',
+          /referralTokenSeasonOf\(a\.data\) === null/.test(fill) &&
+          /referralTokenSeason: season/.test(fill),
+          'a link left undated is stamped with whatever year it is next opened in, ' +
+          'which records a 2026 link as next season\'s and it then never rotates');
+        check('S305', 'and it never touches the token itself while doing so',
+          !/referralToken:\s*generateReferralToken\(\)[\s\S]{0,200}referralTokenSeasonOf/.test(fill) &&
+          /batch\.update\(doc\(db,'jobAddresses', a\.id\), \{referralTokenSeason: season\}\)/.test(fill),
+          'dating a link must not replace it — that would break every link already ' +
+          'shared this season, which is the one thing this pass exists to avoid');
+        check('S305', 'and a book where everyone is already dated reports nothing to do',
+          /!list\.length && !toStamp\.length/.test(fill),
+          'returning early on the mint list alone would silently skip the dating pass');
+      }
       pendingAsync.push((async () => {
         const year = new Date().getFullYear();
         const rec = {id: 'C1', data: {referralToken: 'keepme', referralTokenSeason: year}};

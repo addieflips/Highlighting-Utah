@@ -10626,12 +10626,23 @@ function referralLiveCount(entries){
    through the server's ensureReferralToken, so a link is refreshed at the moment it
    is given, and a record nobody touches costs nothing.
 
-   ⚠ AN UNSTAMPED TOKEN IS TREATED AS THIS SEASON'S, never as expired. Every link
-   already on file predates the stamp, and reading those as last year's would rotate
-   the whole book at once — breaking every link already texted out this season and,
-   by REF-13's own rule, charging the $30 to friends who were told in writing they
-   would not pay it. So it is stamped rather than replaced, which also means it
-   rotates properly next year. `backfillReferralLinks` stamps the lot in one press. */
+   ⭐ AN UNSTAMPED TOKEN IS THIS SEASON'S — AS A FACT, NOT AS A FAIL-SAFE. Addie,
+   2026-09-07: "The link is new this year so there should be no last year link." The
+   whole feature is three days old (the first referral token in the repo's history is
+   2026-09-04), so every token on file was minted this season and stamping it with this
+   season is simply true. It was written as a safety argument first — that reading them
+   as last year's would rotate the whole book at once, breaking every link already
+   texted out and, by REF-13's rule, charging the $30 to friends told in writing they
+   would not pay it. That argument still holds; it is just no longer the reason.
+
+   ⚠ SO NOTHING ROTATES THIS SEASON, AND THAT IS THE EXPECTED BEHAVIOUR. There is no
+   last-year link for the rule to bite on. It first does anything in January.
+
+   ⚠ WHICH MAKES `backfillReferralLinks` THE LOAD-BEARING PART, and it is easy to read
+   as optional because it changes nothing you can see today. A record that is still
+   unstamped when somebody opens it in 2027 gets stamped 2027 — recording a 2026 link
+   as next season's, so it never rotates and goes on waiving the set-up fee for ever.
+   One press this season is what stops that; the button dates the lot. */
 const REFERRAL_PAST_KEEP = 5;
 function referralSeasonNow(){ return new Date().getFullYear(); }
 function referralTokenSeasonOf(data){

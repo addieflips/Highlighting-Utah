@@ -1223,18 +1223,29 @@ referal links every year."* This narrows the rule directly above it.
   link has to be right for whoever opens a record first. Every route that HANDS OUT a
   link goes through one of those two functions, so a link is refreshed at the moment it
   is given, and a record nobody touches costs nothing.
-- ⚠ **An unstamped token is treated as this season's, never as expired.** Every link
-  minted before the stamp existed carries no season, and reading those as last year's
-  would rotate the whole book at once — breaking every link already texted out this
-  season and, by the rule above, charging the $30 to friends who were told in writing
-  they would not pay it. They are **dated** instead of replaced, and the Bulk Updates
-  referral-links button now dates the lot in one press.
+- ⭐ **An unstamped token is this season's — as a FACT, not a fail-safe** (REF-17).
+  Addie: *"The link is new this year so there should be no last year link."* Checked
+  against the history rather than taken on trust, and exactly right: the first referral
+  token in the repo is 2026-09-04, so every token on file really was minted this season.
+  The safety argument that came first is kept in the code because it is what makes the
+  rule right for anybody reading it later — reading them as last year's would rotate the
+  whole book at once, breaking every link already texted out and charging the $30 to
+  friends told in writing they would not pay it. They are **dated** instead of replaced.
+- ⚠ **So nothing rotates this season, and that is the expected behaviour.** There is no
+  last-year link for the rule to bite on; it first does anything in January.
+- ⭐ **Which makes the Bulk Updates referral button the load-bearing part, and it reads
+  as optional because it changes nothing you can see today.** A record still undated when
+  somebody opens it in 2027 is stamped 2027 — recording a 2026 link as next season's, so
+  it never rotates and goes on waiving the set-up fee for ever. **One press this season
+  closes that.** It only ever ADDS the date, so no link anybody holds stops working, which
+  is why it needs no typed confirmation and is safe to press twice.
 - ⚠ **Old tokens are kept, not discarded** (`referralTokensPast`, last five). The $25
   credit resolves a link back to whoever made it; throwing the old token away would have
   quietly ended that credit for every link already out in the world. Addie ruled on the
   **fee**, not the credit, so `creditReferralIfAny` searches the past tokens too and last
-  season's link still earns the $25. **That half is still open** — if it should not, it
-  is one line (`holder.current` is already the answer).
+  season's link still earns the $25. **That half is not a live question yet** (REF-17):
+  no such link exists, so there is nothing to decide until next season. If it should
+  ever change, it is one line — `holder.current` is already the answer.
 - ⭐ **AND IT CLOSED A HOLE NOBODY HAD ASKED ABOUT.** The first version waived the fee for
   any non-empty token, so `/r/anything` typed into the address bar bought $30 off — the
   browser cannot tell a real token from an invented one by looking at it. The waiver now
