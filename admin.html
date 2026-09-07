@@ -8510,7 +8510,7 @@ function pendingAddOnFor(customerId){
 function rsvpTemplateHasAddOn(template){
   return String(template||'').indexOf('{{addon_block}}') !== -1;
 }
-/* ⭐ AND THE REFERRAL OFFER APPENDS ITSELF THE SAME WAY (2026-09-07, REF-13).
+/* ⭐ AND THE REFERRAL OFFER APPENDS ITSELF THE SAME WAY (2026-09-07, REF-15).
    Dax, of the standing instruction to paste the token in by hand: "i'm not sure if
    I understand the second one can you fix that."
 
@@ -8540,12 +8540,19 @@ async function referralEmailBlock(item){
   try{
     if(!item || !item.data) return '';
     const token = await referralTokenFor(item);
-    const url = referralLinkFromToken(token);
+    /* ⚠ THE SHARE PAGE, NOT THE /r/ LINK. `/r/` is the address the FRIEND opens, so a
+       button carrying it lands the REFERRER on the free quote form — the bug Dax
+       reported and the whole point of referralShareLinkFromToken. This block is the one
+       path that appears only when the saved template places no token, which makes it the
+       path least likely to be caught pointing at the wrong page. Same address and same
+       words as the {{referral_button}} branch in resolveLinkTokens and as the server's
+       copy in runArrearsRsvpBatch — three spellings of one button is two of them wrong. */
+    const url = referralShareLinkFromToken(token);
     if(!url) return '';   /* no link means no button — never a button pointing nowhere */
     return '<br><br>—<br><br>Know somebody who wants lights? Send them your own link '
       + 'and we take $25 off this season’s bill when they sign up — as many '
       + 'times as you like.<br><br>'
-      + '<a href="' + url + '" style="' + QUOTE_LINK_BUTTON_STYLE + '">Refer a Friend — $25 Off</a>';
+      + '<a href="' + url + '" style="' + QUOTE_LINK_BUTTON_STYLE + '">Share My Link — $25 Off</a>';
   }catch(err){
     /* The RSVP itself is the thing that must go out. A referral offer that could not
        be built is a missing paragraph; a thrown error here would cost the send. */
@@ -8920,13 +8927,31 @@ async function resolveLinkTokens(text, phone, amount, opts){
      could resolve. That is one write each, once, and the alternative is an RSVP whose
      referral link only works for the customers who happen to have signed in already —
      which is a link that works for some people and silently not for others. */
+  /* ⭐ THE BUTTON AND THE BARE LINK ARE TWO DIFFERENT ADDRESSES, and that is the
+     2026-09-05 fix (REF-13). Dax, having tapped the button in an RSVP: *"it takes you
+     straight to the free quote form which is not what we want we want it to be sharable
+     so you can send someone else that link"*.
+     ⚠ THEY ARE FOR TWO DIFFERENT PEOPLE. {{referral_link}} is pasted into an email as
+     text for the customer to forward, so it stays /r/<token> — the address the FRIEND
+     opens, which credits the referral. The BUTTON is tapped by the customer we sent the
+     email to, so it goes to /s/<token>, their own share page, where the share sheet
+     hands the /r/ link to whoever they choose. Sending the customer to the friend's
+     screen is exactly what he hit. */
   if(out.indexOf('{{referral_link}}') !== -1 || out.indexOf('{{referral_button}}') !== -1){
     const who = hlxEmailCustomerItem(phone, opts);
     const refToken = who ? await referralTokenFor(who) : null;
     const refUrl = referralLinkFromToken(refToken);
+    const refShareUrl = referralShareLinkFromToken(refToken);
     out = out.split('{{referral_link}}').join(refUrl);
-    out = out.split('{{referral_button}}').join(refUrl
-      ? ('<a href="' + refUrl + '" style="' + btnStyleGold + '">Refer a Friend \u2014 $25 Off</a>')
+    /* ⭐ THE SAME BUTTON, THE SAME WORDS (2026-09-05). Dax: *"that button that says
+       share my link should be the same button we send in their email"*. It lands on the
+       page whose one gold button says Share My Link, so an email button reading anything
+       else is two names for one thing — and the customer reads the email first.
+       ⚠ CHARACTER FOR CHARACTER THE SERVER'S OWN LABEL in runArrearsRsvpBatch. They
+       said different things before this ("$25 Off" here, "$25 off your bill" there), so
+       which words a customer got depended on which renderer happened to send. */
+    out = out.split('{{referral_button}}').join(refShareUrl
+      ? ('<a href="' + refShareUrl + '" style="' + btnStyleGold + '">Share My Link \u2014 $25 Off</a>')
       : '');
   }
   if(out.indexOf('{{messages_link}}') !== -1 || out.indexOf('{{messages_button}}') !== -1){
@@ -10602,7 +10627,7 @@ function referralCreditNote(count){
    every waived one comes back and the whole discount lands on the bill again, from a
    path nobody in the office was looking at. */
 /* ⭐ AND A REFERRAL IS $25 OFF THE SEASON IT WAS EARNED IN, NOT EVERY SEASON AFTER
-   (2026-09-07, REF-12). Dax: "a referral is $25 off for the current season per
+   (2026-09-07, REF-14). Dax: "a referral is $25 off for the current season per
    refferral." Until now every entry counted for ever — the entries are never deleted,
    so a friend referred in 2026 took $25 off the 2027 bill, the 2028 bill, and every
    bill after that, from a list nobody re-reads. Three referrals in one good season
@@ -10691,6 +10716,19 @@ async function referralTokenFor(item){
 function referralLinkFromToken(token){
   const t = String(token || '');
   return t ? ('https://highlightingutah.com/r/' + encodeURIComponent(t)) : '';
+}
+/* ⭐ AND THE OTHER END OF THE SAME TOKEN — /s/<token>, the customer's own share page
+   (2026-09-05, REF-13). One token, two addresses, for two different people: /r/ is what
+   the FRIEND opens and credits the referral, /s/ is what the CUSTOMER opens to send the
+   /r/ link on. The Refer a Friend button in an email used to carry /r/, so the customer
+   who tapped it landed on the friend's screen — the free quote form — which is what Dax
+   reported.
+   ⚠ THE SAME ADDRESS, CHARACTER FOR CHARACTER, as the server's copy in
+   functions/index.js. Two spellings of a share page is one of them 404ing on a static
+   host, and only for whichever half of the book that renderer happens to send. */
+function referralShareLinkFromToken(token){
+  const t = String(token || '');
+  return t ? ('https://highlightingutah.com/s/' + encodeURIComponent(t)) : '';
 }
 /* ⚠ A REFERRAL TOKEN IS NOT A LOGIN TOKEN AND IS DELIBERATELY SHORTER. generatePortalToken
    is 20 characters because it signs somebody INTO their account — shortening that would
@@ -10815,7 +10853,7 @@ async function creditReferralIfAny(quoteData, customerId, customerData){
       amount: REFERRAL_CREDIT,
       creditedAt: new Date().toISOString(),
       /* The season this $25 comes off, stamped at the moment it is earned rather
-         than re-derived from the date later — see referralLiveCount (REF-12). */
+         than re-derived from the date later — see referralLiveCount (REF-14). */
       season: new Date().getFullYear(),
       revoked: false, revokedAt: null
     });
@@ -17034,7 +17072,7 @@ function etUpdateSelectionUi(shownCount){
     finally{ allBtn.disabled = false; }
   });
 })();
-/* ⭐ AND THE TWO RSVP EMAILS SPLIT THE BOOK BETWEEN THEM (2026-09-07, REF-14).
+/* ⭐ AND THE TWO RSVP EMAILS SPLIT THE BOOK BETWEEN THEM (2026-09-07, REF-16).
    Dax: "both emails will be sent seperately but at the same time."
 
    ⚠ THE OVERLAP IS REAL AND IT IS SILENT. `runArrearsRsvpBatch` writes to somebody
