@@ -1162,10 +1162,21 @@ briefly became first).
 - **The Member Portal got the same Share button**, right in the Refer a Friend tab beside
   the existing Copy My Link, feature-detected the same way — never removed, never hidden
   behind it.
+- ⭐ **AND THE TEXT/EMAIL PAIR IS GONE, NOT HIDDEN** (2026-09-07, REF-16). Addie: *"I
+  don't want a text and email button I want to do a share link kind of thing than
+  depending on if they choose to send it through email or text or whatsapp it will
+  change how its sent. Whatsapp and text should be the same."* `navigator.share` is
+  handed ONE line and ONE link, and whichever app is picked does its own formatting —
+  which is what makes Messages and WhatsApp identical **by construction**, rather than
+  by two builders in this file happening to agree. `referralSmsHref` and
+  `referralMailtoHref` (the hand-rolled `sms:` / `mailto:` bodies, and the only place
+  those two could ever have diverged) are deleted; a browser with no share sheet gets
+  **Copy My Link** and a line saying to paste it wherever they like.
 - Proved by Suite 308: the share flag is read and never leaks into the friend-facing
-  session store, the router knows the route, the three message-building functions are
-  *run*, not regexed, and both email renderers carry `?share=1` on the button while
-  `{{referral_link}}` stays the untouched plain URL.
+  session store, the router knows the route, `referralShareLine` is *run*, not regexed,
+  both share buttons hand over the same line and link separately, no hand-rolled sms:
+  or mailto: builder is left in the page, and both email renderers carry `?share=1` on
+  the button while `{{referral_link}}` stays the untouched plain URL.
 
 ⭐ **A FRIEND WHO COMES IN THROUGH A REFERRAL LINK PAYS NO SETUP FEE** (added
 2026-09-07, REF-13). Addie: *"Anyone that is enrolled by refer a friend will NOT be
@@ -1196,11 +1207,56 @@ text/email."*
   out of self-serving territory and Addie asked for it by name, with the exact
   wording used above. The RSVP email's own explainer to the referrer (the "$25 off
   your bill" line, and the share page's matching note) is unchanged.
-- Proved by Suite 310: `quoteChargesSetupFee` is *run*, not regexed, with the
-  office's-answer-wins ordering, the referred-quote default, both override
-  directions, and the re-quote rule's independence from the referral one all
-  checked as separate cases; the friend-facing message is checked for the new
-  sentence and for continuing to say nothing about the referrer's $25.
+⭐ **AND THE LINK EXPIRES AT THE END OF THE SEASON** (added 2026-09-07, REF-14). Addie:
+*"If referal link is from last year and they are using it than it should still charge 30
+dollar fee. They should use there new referal link every year which should give new
+referal links every year."* This narrows the rule directly above it.
+
+- **The token carries the season it was minted for** — `referralTokenSeason`, the
+  calendar year, the same answer Start New Season already uses for its snapshot key.
+  `referralTokenFor` (admin.html) and `ensureReferralToken` (functions/index.js) both
+  replace a token whose stamp is from a past season. **The two must rotate on the same
+  rule**: if one rotated where the other did not, they would take turns replacing each
+  other's token and a customer's link would change every time anybody looked at it.
+- ⚠ **Rotation is lazy, and deliberately not part of Start New Season.** That button is
+  irreversible and hits every record, and it is not the only way a season begins — the
+  link has to be right for whoever opens a record first. Every route that HANDS OUT a
+  link goes through one of those two functions, so a link is refreshed at the moment it
+  is given, and a record nobody touches costs nothing.
+- ⚠ **An unstamped token is treated as this season's, never as expired.** Every link
+  minted before the stamp existed carries no season, and reading those as last year's
+  would rotate the whole book at once — breaking every link already texted out this
+  season and, by the rule above, charging the $30 to friends who were told in writing
+  they would not pay it. They are **dated** instead of replaced, and the Bulk Updates
+  referral-links button now dates the lot in one press.
+- ⚠ **Old tokens are kept, not discarded** (`referralTokensPast`, last five). The $25
+  credit resolves a link back to whoever made it; throwing the old token away would have
+  quietly ended that credit for every link already out in the world. Addie ruled on the
+  **fee**, not the credit, so `creditReferralIfAny` searches the past tokens too and last
+  season's link still earns the $25. **That half is still open** — if it should not, it
+  is one line (`holder.current` is already the answer).
+- ⭐ **AND IT CLOSED A HOLE NOBODY HAD ASKED ABOUT.** The first version waived the fee for
+  any non-empty token, so `/r/anything` typed into the address bar bought $30 off — the
+  browser cannot tell a real token from an invented one by looking at it. The waiver now
+  asks whether this is the link that customer holds *right now*, so an invented token and
+  a stale one are both charged.
+
+⭐ **AND THE CARD SAYS WHY THE BOX IS UNTICKED** (added 2026-09-07, REF-15). Addie: *"For
+referals for not tickig the box the reason is refferal."* `quoteChargesSetupFee` answers
+false for three quite different reasons — a re-quote, a referral, or the office having
+unticked it themselves — and only the first had ever said so on the card.
+`quoteSetupFeeReason` names the referrer where we know them, says *last season's referral
+link — fee still applies* for a stale one, and *not recognised* for a token that matches
+nobody rather than calling it a referral. It **describes, it never decides**: every branch
+reads what `quoteChargesSetupFee` already worked out.
+
+- Proved by Suite 310: `quoteChargesSetupFee` is *run*, not regexed, against a fixture
+  book holding a live link, a stale one and an undated one — the office's-answer-wins
+  ordering, the referred-quote default, the stale and unknown tokens both being charged,
+  both override directions, and the re-quote rule's independence from the referral one
+  all checked as separate cases; `quoteSetupFeeReason` is run for each of those; and the
+  friend-facing message is built with the real `NEW_MEMBER_FEE` rather than matched for
+  a literal, so it cannot freeze at an old figure.
 
 ⭐ **THE PORTAL ASKS WHICH SIDES, NOT JUST HOW MANY** (added 2026-09-06, OPT-02). This
 reverses part of a decision made the day before the count-only design shipped —
@@ -1229,6 +1285,23 @@ wrong," it is a second, narrower question the first one never claimed to answer.
   or its Suite 63 tests changed. A customer with a count on file but no list yet
   simply has "which ones is not on file" instead of a blank, never a claim that
   nothing is set.
+- ⭐ **AND LEFT/RIGHT ARE READ FROM THE STREET** (2026-09-07, OPT-03). Addie: *"we should
+  be calculating left or right from the street not the front door."* **The two viewpoints
+  are mirror images**, so this decides which half of a roof is lit — standing at the door
+  looking out, your left is the other side of the house. Street-facing is also the only
+  reading the crew can act on, since they arrive at the kerb. The first version of the
+  copy named no viewpoint at all for the two words that need one ("as you stand at the
+  street" and then "Left/Right follow from there"). Nothing needed migrating: no house
+  had been asked before the day it shipped. The Edit Customer note repeats the convention
+  whenever a side that has a hand is named, or Left there and Left in the portal are
+  opposite sides of one house.
+- ⭐ **AND SWAPPING LEFT FOR RIGHT IS NOT A RE-QUOTE** (2026-09-07, OPT-04). Addie: *"For
+  left and right side of the house on quoting those should usually be the same."* Once
+  sides could be NAMED, a same-count swap became a change to which roofline is hung, and
+  the open question was whether the price follows it. It does not. So a names-only change
+  raises no quote and sends nothing to the inbox — but it is not silent: it is one row on
+  that customer's change log. A genuinely lopsided house is a re-quote the office raises,
+  not a rule change here.
 - **The portal's Sides tab is checkboxes, not radios.** `tabPanel-sides` now shows
   four ticks (`class="portal-side-pick"`, `value="Front"` etc.) instead of the old
   four-radio count picker. `portalSidesPickedList()` reads the ticks and

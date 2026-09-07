@@ -1941,6 +1941,19 @@ if (JSDOM) {
      and the invoice disagree. Lifting it also means a rename fails loudly here
      instead of this suite quietly testing a copy of a function that no longer
      exists. */
+  /* ⚠ AND THE REFERRAL HELPERS IT NOW CALLS, LIFTED FOR THE SAME REASON (2026-09-07).
+     quoteChargesSetupFee stopped being self-contained the day the waiver had to ask
+     whether a token is THIS season's link (REF-14): it calls referralHolderFor and
+     referralTokenIsCurrentSeason, and the card calls quoteSetupFeeReasonHtml beside
+     the tick box. Stubbing any of them would let this suite agree with a fiction about
+     who is charged $30 — and leaving them out crashed the whole suite with a bare
+     ReferenceError, which is what actually happened and is exactly what sandboxDeps
+     exists to name. They are declared as globals so they can see each other. */
+  ['referralSeasonNow', 'referralTokenSeasonOf', 'referralTokenIsCurrentSeason',
+   'referralHolderFor', 'quoteSetupFeeReason', 'quoteSetupFeeReasonHtml'
+  ].forEach(function (fn) {
+    eval(extractFn(admin, fn) + '\nglobal.' + fn + ' = ' + fn + ';');
+  });
   global.quoteChargesSetupFee = new Function(
     'return ' + extractFn(admin, 'quoteChargesSetupFee') + ';quoteChargesSetupFee')();
   // quoteAwaitsUs(d) — priced, open, unanswered and never SENT, which is the
@@ -20183,11 +20196,38 @@ suite('Suite 63. Changing your sides in the Member Portal');
      side of the house they want done from were there front door stands." The
      count (houseSides) still drives price and the re-quote flag, unchanged below —
      this is a second, additive question, not a replacement. */
-  check('S63', 'the portal asks which sides, named and oriented from the front door',
+  check('S63', 'the portal asks which sides, by name',
     ['Front', 'Left', 'Right', 'Back'].every(function(n){
       return index.indexOf('class="portal-side-pick" value="' + n + '"') > 0;
     }),
     'a count alone cannot tell the crew which side of the house to light');
+  /* ⭐ AND FROM THE STREET, NOT THE DOOR (2026-09-07, OPT-03). Addie: "we should be
+     calculating left or right from the street not the front door." The two viewpoints
+     are MIRROR IMAGES, so a page that names neither — which is what the first version
+     did, saying "Left/Right follow from there" — lets half the customers answer the
+     opposite of the other half, and nothing anywhere would ever look wrong. */
+  {
+    const at = index.indexOf('id="tabPanel-sides"');
+    const end = index.indexOf('id="sidesSaveBtn"', at);
+    /* ⚠ HTML COMMENTS STRIPPED TOO, not just JS ones. stripComments knows about /* and
+       // and nothing about <!-- -->, and the note explaining this very rule sits in an
+       HTML comment three lines above the copy — so the check found "front door" in its
+       own explanation and failed a page that was right. Same trap as the $25 check in
+       Suite 310 and every other one this repo has re-learned; what is being tested is
+       what the customer READS. */
+    const panel = at > 0 && end > at
+      ? stripComments(index.slice(at, end).replace(/<!--[\s\S]*?-->/g, ''))
+      : '';
+    check('S63', 'the sides panel was found', !!panel);
+    check('S63', 'and it says left and right are read from the street',
+      /stand on the street/i.test(panel) &&
+      /<strong>Left<\/strong> is on your left/i.test(panel),
+      'standing at the door, your left is the OTHER side of the house — get this the ' +
+      'wrong way round and the crew lights the wrong half of the roof');
+    check('S63', 'and it does not send them to the front door to work it out',
+      !/front door/i.test(panel),
+      'two viewpoints on one page is worse than either one alone');
+  }
   /* ⚠ REPOINTED 2026-08-31, NOT WEAKENED — and it was pinning the wrong thing.
      It matched the literal `try{ portalRenderSides(); }catch(err){}`, which meant
      it ASSERTED THE BARE EMPTY CATCH, putting it in direct conflict with the
@@ -49681,7 +49721,14 @@ suite('299. A referral link, and the $25 that follows it');
     ['referralIsSelfReferral', false], ['referralClawbackAllowed', false],
     ['applyReferralCreditLine', true], ['referralNote', true],
     ['creditReferralIfAny', true], ['referralBlocked', true],
-    ['referralMarkQuote', true], ['clawBackReferralIfAny', true]
+    ['referralMarkQuote', true], ['clawBackReferralIfAny', true],
+    /* ⚠ ADDED 2026-09-07 WITH REF-14. creditReferralIfAny stopped resolving a token
+       with a bare `.find()` on referralToken the day links began rotating every season:
+       it asks referralHolderFor, which searches the CURRENT token and then the past
+       ones, so last season's link still credits the referrer even though it no longer
+       waives the set-up fee. Lifted rather than stubbed — a stub here decides who keeps
+       $25, and would keep this suite green through a change to exactly that. */
+    ['referralHolderFor', false]
   ];
   const lifted = PARTS.map(p => lift(p[0], p[1]));
   const missingParts = PARTS.filter((p, i) => !lifted[i]).map(p => p[0]);
@@ -50113,7 +50160,16 @@ suite('299. A referral link, and the $25 that follows it');
            eight characters and is NOT the login token — shortening that one would be an
            account-security change. Naming the wrong one here leaves the sandbox missing
            the helper the real function calls. */
-        generateReferralToken: () => 'tok-' + (++minted)
+        generateReferralToken: () => 'tok-' + (++minted),
+        /* ⚠ THE REAL ONES, LIFTED (2026-09-07, REF-14). ensureReferralToken stopped
+           being self-contained when it learned about seasons, and sandboxDeps named
+           every one of these in turn. A stub for referralTokenSeasonOf in particular
+           would let this suite agree with a fiction about WHICH links rotate. */
+        REFERRAL_PAST_KEEP: Number((fnsSrc.match(/const REFERRAL_PAST_KEEP = (\d+);/) || [])[1]),
+        referralSeasonNow: new Function(
+          'return ' + extractFn(fnsSrc, 'referralSeasonNow') + ';referralSeasonNow')(),
+        referralTokenSeasonOf: new Function(
+          'return ' + extractFn(fnsSrc, 'referralTokenSeasonOf') + ';referralTokenSeasonOf')()
       };
       const names = Object.keys(env);
       // eslint-disable-next-line no-new-func
@@ -50123,13 +50179,54 @@ suite('299. A referral link, and the $25 that follows it');
         const rec = {};
         const first = await ensure('REF1', rec);
         /* The write is what the next visit reads back, so the harness plays Firestore
-           and puts it on the record — exactly as portalLookup's next call would find it. */
-        rec.referralToken = (writes[0] || {}).referralToken;
+           and puts it on the record — exactly as portalLookup's next call would find it.
+           ⚠ THE WHOLE WRITE, not just the token: since REF-14 the mint also stamps the
+           season, and replaying one field of a two-field write left the record looking
+           unstamped for ever, which made a correct grandfathering write look like a
+           second mint. */
+        Object.assign(rec, writes[0] || {});
         const second = await ensure('REF1', rec);
-        check('S299', 'a referral token is minted once and never changes',
+        check('S299', 'a referral token is minted once and never changes WITHIN a season',
           first === 'tok-1' && second === 'tok-1' && writes.length === 1,
           'got ' + first + ' then ' + second + ' after ' + writes.length + ' write(s) — a ' +
           'fresh token every visit breaks every link the customer has already shared');
+
+        /* ⭐ AND IT DOES CHANGE BETWEEN SEASONS (2026-09-07, REF-14). Addie: "They should
+           use there new referal link every year which should give new referal links
+           every year." The season is the calendar year, so last season's record is one
+           carrying an older stamp. */
+        const old = {referralToken: 'tok-old', referralTokenSeason: new Date().getFullYear() - 1};
+        const before = writes.length;
+        const rotated = await ensure('REF2', old);
+        const write = writes[writes.length - 1] || {};
+        check('S299', 'and it IS replaced when the stamp is from a past season',
+          rotated !== 'tok-old' && write.referralToken === rotated &&
+          write.referralTokenSeason === new Date().getFullYear() &&
+          writes.length === before + 1,
+          'got ' + rotated + ' — a link that never rotates is last year\'s link for ever, ' +
+          'and by REF-13 it would go on waiving the set-up fee');
+        check('S299', 'and the replaced token is KEPT, not thrown away',
+          Array.isArray(write.referralTokensPast) &&
+          write.referralTokensPast.some(function (x) { return x && x.token === 'tok-old'; }),
+          'the $25 credit resolves a link back to whoever made it — discarding last ' +
+          'year\'s token would silently end that credit for every link already shared, ' +
+          'which is not what Addie ruled on');
+
+        /* ⚠ AND AN UNSTAMPED TOKEN IS GRANDFATHERED, NEVER ROTATED. Every link minted
+           before the stamp existed carries no season; reading those as expired would
+           replace the whole book's links at once, breaking every one already texted out
+           this season and charging the $30 to friends told in writing they would not
+           pay it. It is dated instead — one write, same token. */
+        const legacy = {referralToken: 'tok-legacy'};
+        const beforeLegacy = writes.length;
+        const kept = await ensure('REF3', legacy);
+        const legacyWrite = writes[writes.length - 1] || {};
+        check('S299', 'an undated link is dated to this season, not replaced',
+          kept === 'tok-legacy' && writes.length === beforeLegacy + 1 &&
+          legacyWrite.referralTokenSeason === new Date().getFullYear() &&
+          legacyWrite.referralToken === undefined,
+          'got ' + kept + ' — replacing these would break every link already shared ' +
+          'this season');
       })());
     }
   }
@@ -51441,9 +51538,59 @@ suite('305. The referral link, from the office side');
       !/jobAddresses\.find/.test(mint) && !/replace\(\/\\D\/g/.test(mint),
       'seventeen numbers in the real book are shared and fourteen are two households ' +
       '— a phone .find() here puts one household’s $25 on the other’s bill');
-    check('S305', 'an existing token is reused rather than replaced',
-      /if\(item\.data\.referralToken\) return item\.data\.referralToken;/.test(mint),
-      'a fresh token each time breaks every link they have already shared');
+    /* ⚠ REPOINTED 2026-09-07, NOT WEAKENED. This matched the literal early return
+       `if(item.data.referralToken) return item.data.referralToken;` — that is, it was
+       pinned to WHERE the rule happened to sit rather than to what has to be true. The
+       moment links began rotating every season (REF-14) that line legitimately became a
+       season comparison, and the check failed on correct code. Same slow-fuse shape as
+       S82, S129 and the folder-names suite. It now RUNS the function, which is the only
+       way to state the guarantee that actually matters: within one season the token a
+       customer has already shared never changes underneath them. */
+    {
+      const writes = [];
+      let n = 0;
+      const run = new Function('item', 'db', 'doc', 'updateDoc', 'generateReferralToken',
+        'referralSeasonNow', 'referralTokenSeasonOf', 'REFERRAL_PAST_KEEP', 'console',
+        'async ' + mint + '\nreturn referralTokenFor(item);');
+      const call = (item) => run(item, {}, () => ({}), async (_r, u) => { writes.push(u); },
+        () => 'tok-' + (++n),
+        new Function('return ' + fn('referralSeasonNow') + ';referralSeasonNow')(),
+        new Function('return ' + fn('referralTokenSeasonOf') + ';referralTokenSeasonOf')(),
+        Number((admin.match(/const REFERRAL_PAST_KEEP = (\d+);/) || [])[1]),
+        {error: () => {}});
+      pendingAsync.push((async () => {
+        const year = new Date().getFullYear();
+        const rec = {id: 'C1', data: {referralToken: 'keepme', referralTokenSeason: year}};
+        const before = writes.length;
+        const got = await call(rec);
+        check('S305', 'an existing token is reused rather than replaced',
+          got === 'keepme' && writes.length === before,
+          'got ' + got + ' after ' + (writes.length - before) + ' write(s) — a fresh ' +
+          'token each time breaks every link they have already shared');
+
+        /* ⭐ AND IT DOES ROTATE ACROSS SEASONS (REF-14), which is the other half of the
+           same guarantee: stable within a season, new for the next one. */
+        const stale = {id: 'C2', data: {referralToken: 'lastyear', referralTokenSeason: year - 1}};
+        const rotated = await call(stale);
+        const w = writes[writes.length - 1] || {};
+        check('S305', 'and a past season\'s token IS replaced, keeping the old one',
+          rotated !== 'lastyear' && w.referralTokenSeason === year &&
+          Array.isArray(w.referralTokensPast) &&
+          w.referralTokensPast.some((x) => x && x.token === 'lastyear'),
+          'got ' + rotated + ' — a link that never rotates goes on waiving the set-up ' +
+          'fee for ever (REF-13), and discarding the old one silently ends the $25');
+
+        /* ⚠ AND AN UNDATED TOKEN IS DATED, NEVER REPLACED — every link on file predates
+           the stamp, so reading those as expired would break the whole book at once. */
+        const legacy = {id: 'C3', data: {referralToken: 'undated'}};
+        const kept = await call(legacy);
+        const lw = writes[writes.length - 1] || {};
+        check('S305', 'an undated token is dated to this season, not replaced',
+          kept === 'undated' && lw.referralTokenSeason === year &&
+          lw.referralToken === undefined,
+          'got ' + kept + ' — replacing these breaks every link already shared this season');
+      })());
+    }
     check('S305', 'and it is the referral token, never the portal one',
       !/portalToken/.test(mint),
       'a portal token in a link pasted into a group chat is an account handed over');
@@ -51600,21 +51747,36 @@ suite('305. The referral link, from the office side');
     /id="shareLinkInput" readonly/.test(idx308),
     'the token is filled in by renderSharePage at runtime, never hardcoded here');
 
+  /* ⭐ ONE SHARE BUTTON, AND NO TEXT/EMAIL PAIR (2026-09-07, REF-16). Addie: "I don't
+     want a text and email button I want to do a share link kind of thing than depending
+     on if they choose to send it through email or text or whatsapp it will change how
+     its sent. Whatsapp and text should be the same."
+     ⚠ THE SECOND SENTENCE IS WHY THE HAND-ROLLED LINKS HAD TO GO RATHER THAN JUST BEING
+     HIDDEN. navigator.share hands ONE line and ONE url to whichever app is picked, so
+     Messages and WhatsApp are identical because they are formatting the same thing —
+     not because two builders in this file happen to agree. An sms: builder is a second
+     way of saying it, and the one that has to guess at a separator. */
+  check('S308', 'the page offers no hand-rolled sms: or mailto: link',
+    !/id="shareSmsBtn"/.test(idx308) && !/id="shareMailBtn"/.test(idx308) &&
+    !/function referralSmsHref/.test(idx308) && !/function referralMailtoHref/.test(idx308),
+    'a Text button and an Email button are the two she asked not to have, and they are ' +
+    'also the only place text and WhatsApp could start being sent differently');
+  check('S308', 'and a browser with no share sheet still has a way out',
+    /id="shareCopyBtn"/.test(idx308),
+    'removing the pair must not leave a desktop visitor on a page whose one button ' +
+    'does nothing');
+
   /* ⚠ RUN, NOT READ — same discipline as nameMatches above. These three are pure
      string builders with no DOM dependency, so there is no excuse for a regex
      standing in for actually calling them. */
-  const helperSrc = extractFn(idx308, 'referralShareLine') +
-    extractFn(idx308, 'referralShareMessage') +
-    extractFn(idx308, 'referralSmsHref') +
-    extractFn(idx308, 'referralMailtoHref');
+  const helperSrc = extractFn(idx308, 'referralShareLine');
   /* ⚠ NEW_MEMBER_FEE IS SUPPLIED, NOT STUBBED. referralShareLine reads the real
      constant rather than typing the figure (see its own note in index.html), so a
      sandbox without it dies with a bare ReferenceError attributed to this suite —
      the exact failure sandboxDeps exists to name. It is read out of js/money.js at
      the top of this file, so the value here is the shipped one. */
   const helpers = new Function('NEW_MEMBER_FEE', helperSrc +
-    'return {referralShareLine, referralShareMessage, referralSmsHref, referralMailtoHref};')(
-    NEW_MEMBER_FEE_NUM);
+    'return {referralShareLine};')(NEW_MEMBER_FEE_NUM);
   const testUrl = 'https://highlightingutah.com/r/x7k2m9pq';
 
   check('S308', 'the share line names the company and says nothing about $25',
@@ -51623,28 +51785,20 @@ suite('305. The referral link, from the office side');
     'Addie: this message should not read like it is only for the referrer’s own ' +
     'discount — the $25 stays in the RSVP copy that explains the program to them');
 
-  check('S308', 'the sms link carries the message under BOTH separators',
-    (function () {
-      const href = helpers.referralSmsHref(testUrl);
-      const decoded = decodeURIComponent(href.split('body=')[1] || '');
-      return /^sms:\?body=.*&body=/.test(href) &&
-             decoded.indexOf(testUrl) !== -1;
-    })(),
-    'Android reads sms:?body=, iOS reads sms:&body= — one separator alone ' +
-    'silently fails to prefill on whichever platform it is not written for');
-
-  check('S308', 'the mailto link carries a subject and the same message',
-    (function () {
-      const href = helpers.referralMailtoHref(testUrl);
-      const m = /^mailto:\?subject=([^&]+)&body=(.+)$/.exec(href);
-      if (!m) return false;
-      const subject = decodeURIComponent(m[1]);
-      const body = decodeURIComponent(m[2]);
-      return subject.length > 0 && subject.length < 40 &&
-             body.indexOf(testUrl) !== -1;
-    })(),
-    'a missing subject or body opens a blank compose window with nothing for the ' +
-    'customer to send');
+  /* ⚠ THE SHARE CALL PASSES text AND url SEPARATELY, and that is what makes every app
+     agree. Most targets append the url themselves, so putting it inside the text too
+     sends it twice; and because all of them read the same two values, WhatsApp and
+     Messages cannot diverge. Checked on both share buttons, since they are two copies
+     of the same call (the page has no addrDoc to hang a shared one off). */
+  const shareCalls = idx308.match(/navigator\.share\(\{[^}]*\}\)/g) || [];
+  check('S308', 'both share buttons hand over the same line and the link, separately',
+    shareCalls.length === 2 &&
+    shareCalls.every(function (c) {
+      return /text:\s*referralShareLine\(\)/.test(c) && /url:/.test(c) &&
+             !/text:[^,]*\+/.test(c);
+    }),
+    'found ' + shareCalls.length + ' — one line and one url for every app is the whole ' +
+    'of "whatsapp and text should be the same"');
 
   ['admin.html', 'functions/index.js'].forEach(function (path) {
     const src = stripComments(read(path).replace(/\r/g, ''));
@@ -51758,34 +51912,105 @@ suite('Suite 310. A friend who comes in through a referral link pays no setup fe
       body.indexOf('chargeSetupFee !== undefined') <
         body.indexOf("String(q.referredByToken || '').trim()"),
       'a box the office deliberately ticked or unticked must never be silently overridden');
+    /* ⚠ TIGHTENED 2026-09-07 (REF-14) AND THE CHECK MOVED WITH IT. It used to be enough
+       that a token was PRESENT; Addie: "If referal link is from last year and they are
+       using it than it should still charge 30 dollar fee." So the waiver now asks
+       whether this is the link that customer holds right now — which also closes the
+       hole the first version had, where any invented string after /r/ bought $30 off. */
     check('S310', 'a referred quote is not charged the fee by default',
-      /if\(String\(q\.referredByToken \|\| ''\)\.trim\(\)\) return false;/.test(body),
+      /referralHolderFor\(referredBy\)/.test(body) &&
+      /holder\.current/.test(body) && /referralTokenIsCurrentSeason/.test(body),
       'referredByToken is written on the quote the moment a friend submits the public ' +
-      'form through a /r/<token> link — this does not wait for the referral to be earned');
+      'form through a /r/<token> link — this does not wait for the referral to be earned, ' +
+      'but it does have to be THIS season\'s link');
 
     /* RUN, NOT MATCHED — same discipline as quoteAlreadyACustomer elsewhere in this
        file. quoteChargesSetupFee calls quoteCustomerKeys() and quoteAlreadyACustomer(),
        so those are stubbed to isolate the one branch this suite is about. */
     if (body) {
+      /* ⚠ THE REFERRAL HELPERS ARE THE REAL ONES, LIFTED — the whole point of this suite
+         is who is charged $30, and a stub for referralHolderFor would let it agree with
+         a fiction about which links are still live. Only the two the fee rule does not
+         turn on (quoteCustomerKeys / quoteAlreadyACustomer) are stubbed, to isolate the
+         branch. `book` is the jobAddresses those helpers read. */
+      const year = new Date().getFullYear();
+      const book = [
+        {id: 'DANA', data: {name: 'Dana', referralToken: 'live1', referralTokenSeason: year}},
+        {id: 'OLD', data: {name: 'Pat', referralToken: 'live2', referralTokenSeason: year,
+          referralTokensPast: [{token: 'stale1', season: year - 1}]}},
+        {id: 'UNDATED', data: {name: 'Sam', referralToken: 'undated1'}}
+      ];
       const stubbed = 'function quoteCustomerKeys(){ return new Set(["x"]); }\n' +
         'function quoteAlreadyACustomer(){ return false; }\n' +
         'function isRequote(d){ return !!(d && (d.existingCustomerId || Number(d.requoteCount) > 0)); }\n' +
+        ['referralSeasonNow', 'referralTokenSeasonOf', 'referralTokenIsCurrentSeason',
+         'referralHolderFor'].map((f) => extractFn(admin, f)).join('\n') + '\n' +
         body + '\nthis.f = quoteChargesSetupFee;';
       const sv = {};
-      new Function(stubbed).call(sv);
+      new Function('jobAddresses', stubbed).call(sv, book);
       check('S310', 'a fresh referred quote defaults to no fee',
-        sv.f({ referredByToken: 'abc123' }) === false);
+        sv.f({ referredByToken: 'live1' }) === false);
       check('S310', 'a fresh quote with no referral still defaults to charging it',
         sv.f({}) === true,
         'the waiver must not become the new default for every quote, only referred ones');
+      /* ⭐ REF-14, and the two cases it is really about. */
+      check('S310', 'LAST season\'s referral link is charged the fee',
+        sv.f({ referredByToken: 'stale1' }) === true,
+        'Addie: "If referal link is from last year and they are using it than it should ' +
+        'still charge 30 dollar fee" — and the token still resolves to Pat, so this is ' +
+        'not the unknown-token case below');
+      check('S310', 'and a token nobody holds is charged the fee too',
+        sv.f({ referredByToken: 'never-existed' }) === true,
+        'nothing in the browser can tell a real token from one somebody typed into the ' +
+        'address bar, so a present-and-unchecked token was $30 off for anyone who knew ' +
+        'the shape of the link');
+      check('S310', 'an undated link still waives it, because undated means this season',
+        sv.f({ referredByToken: 'undated1' }) === false,
+        'every link minted before the stamp existed is unstamped; reading those as ' +
+        'expired would charge the $30 to friends told in writing they would not pay it');
       check('S310', 'the office can still tick the fee ON for a referred quote',
-        sv.f({ referredByToken: 'abc123', chargeSetupFee: true }) === true,
+        sv.f({ referredByToken: 'live1', chargeSetupFee: true }) === true,
         'the office\'s own answer wins in BOTH directions, same as every other case here');
+      check('S310', 'and OFF for one the rule would have charged',
+        sv.f({ referredByToken: 'stale1', chargeSetupFee: false }) === false);
       check('S310', 'the office can still tick the fee OFF for an ordinary quote',
         sv.f({ chargeSetupFee: false }) === false);
       check('S310', 'a re-quote is not charged even if it also carries a stray referral token',
-        sv.f({ existingCustomerId: 'c1', referredByToken: 'abc123' }) === false,
+        sv.f({ existingCustomerId: 'c1', referredByToken: 'live1' }) === false,
         'both rules agree here, but the re-quote check must not depend on the referral one running first');
+
+      /* ⭐ AND THE CARD SAYS WHY (REF-15). Addie: "For referals for not tickig the box
+         the reason is refferal." An unticked box with no reason is indistinguishable
+         from somebody's stray click, and the office cannot tell which. */
+      const why = new Function('jobAddresses',
+        ['referralSeasonNow', 'referralTokenSeasonOf', 'referralTokenIsCurrentSeason',
+         'referralHolderFor', 'quoteSetupFeeReason'].map((f) => extractFn(admin, f)).join('\n') +
+        '\nthis.r = quoteSetupFeeReason;');
+      const rv = {};
+      why.call(rv, book);
+      check('S310', 'a waived referral says so, and names whose link it was',
+        (rv.r({referredByToken: 'live1'}) || {}).waived === true &&
+        /referral/.test((rv.r({referredByToken: 'live1'}) || {}).text) &&
+        /Dana/.test((rv.r({referredByToken: 'live1'}) || {}).text),
+        '"referral" alone still leaves the one question worth asking — whose');
+      check('S310', 'a stale link says the fee still applies, rather than staying quiet',
+        (rv.r({referredByToken: 'stale1'}) || {}).waived === false &&
+        /last season/i.test((rv.r({referredByToken: 'stale1'}) || {}).text),
+        'that is the case where the box IS ticked, and somebody will want to know why a ' +
+        'referred friend is being charged');
+      /* ⚠ THE CHECK IS THAT IT DOES NOT READ AS A WAIVED REFERRAL, not that the word
+         "referral" is absent — the honest text for this case does contain it ("referral
+         link not recognised"). The first version asserted the word was missing, which
+         failed on correct wording: what matters is that the office is not told a
+         referrer exists when none does. */
+      check('S310', 'a token nobody holds is not presented as a referral that waived the fee',
+        (rv.r({referredByToken: 'never-existed'}) || {}).waived === false &&
+        /not recognised/i.test((rv.r({referredByToken: 'never-existed'}) || {}).text || ''),
+        'a card reading "referral" over an invented token has the office looking for a ' +
+        'referrer who was never there');
+      check('S310', 'and an ordinary quote says nothing at all',
+        rv.r({}) === null,
+        'a reason on every card is noise, and noise is what stops the real one being read');
     }
   }
 
@@ -51813,9 +52038,13 @@ suite('Suite 310. A friend who comes in through a referral link pays no setup fe
      being tested is the sentence a friend receives, which is code, not prose. */
   check('S310', 'and it still says nothing about the referrer\'s own $25',
     (function(){
-      const at = index.indexOf('function referralShareLine');
-      const end = index.indexOf('\nfunction referralShareMessage', at);
-      const body = at > 0 && end > at ? stripComments(index.slice(at, end)) : '';
+      /* ⚠ extractFn, NOT A SLICE TO THE NEXT NAMED FUNCTION. This used to cut from
+         `function referralShareLine` to `\nfunction referralShareMessage`, so it was
+         pinned to a NEIGHBOUR — and when that neighbour was deleted with the Text/Email
+         buttons (REF-16) the slice came back empty and the check failed on code that
+         was right. Same slow-fuse shape as S82, S129 and S305: anchor on the thing
+         being tested, never on what happens to sit after it. */
+      const body = stripComments(extractFn(index, 'referralShareLine') || '');
       return !!body && !/\$25/.test(body);
     })(),
     'the $25 is the referrer\'s own incentive, explained elsewhere — this message is the offer to the friend');

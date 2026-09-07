@@ -1946,7 +1946,9 @@
             <!-- ⭐ WHICH SIDES, BY NAME (2026-09-06). Addie: "how are we supposed to
                  know which sides they want if it just says how many ... that's why we
                  need them to say which side of the house they want done from where
-                 their front door stands." The count (houseSides) still drives pricing
+                 their front door stands" — though see OPT-03 beside the copy below,
+                 which settles that LEFT and RIGHT are read from the STREET, not from the
+                 door. The count (houseSides) still drives pricing
                  and the re-quote flag exactly as before — untouched. Which sides
                  (houseSidesList) is a second, additive field: real going forward, but
                  nobody backfills it for a customer who has never opened this tab, and
@@ -1954,7 +1956,16 @@
             <div id="tabPanel-sides" style="display:none;">
               <div style="background:#FDF3E3; border:1px solid #E7C98B; border-radius:10px; padding:11px 14px; margin:0 0 12px; font-size:12.5px; color:#7A5B1E; line-height:1.5;">&#9888;&#65039; <strong>Heads up:</strong> changing which sides of your house are lit changes the amount of lights we hang, so <strong>we will need to re-quote you</strong> before your install.</div>
               <p class="form-note" style="margin:0 0 4px;">Tick every side you would like lit, then save below.</p>
-              <p class="form-note" style="margin:0 0 10px; font-size:12.5px;">Sides are named as you stand at the street looking at your house: <strong>Front</strong> is the side your front door is on, <strong>Back</strong> is directly opposite it, and <strong>Left</strong>/<strong>Right</strong> follow from there.</p>
+              <!-- ⭐ FROM THE STREET, NOT FROM THE FRONT DOOR (2026-09-07, OPT-03). Addie: "we
+                   should be calculating left or right from the street not the front door."
+                   ⚠ THE TWO VIEWPOINTS ARE MIRROR IMAGES, so this is not a wording nicety:
+                   standing at the door looking out, your left is the OTHER side of the house
+                   from your left standing at the kerb. Get it the wrong way round and the crew
+                   lights the wrong half of the roof. Street-facing is also the only reading the
+                   crew can act on, because they arrive at the kerb. The first version said "as
+                   you stand at the street" and then "Left/Right follow from there", which named
+                   no viewpoint at all for the two words that actually need one. -->
+              <p class="form-note" style="margin:0 0 10px; font-size:12.5px;">Stand on the street facing your house. <strong>Front</strong> is the side facing you, <strong>Back</strong> is the far side, <strong>Left</strong> is on your left and <strong>Right</strong> is on your right.</p>
               <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
                 <label class="quote-side-pick"><input type="checkbox" class="portal-side-pick" value="Front"> Front</label>
                 <label class="quote-side-pick"><input type="checkbox" class="portal-side-pick" value="Left"> Left</label>
@@ -2177,12 +2188,21 @@
         </div>
         <button type="button" class="btn btn-gold btn-block" id="shareLinkBtn">Share My Link</button>
         <div id="shareStatus" role="status" style="font-size:13px; color:var(--slate); margin-top:10px;"></div>
+        <!-- ⭐ ONE SHARE, AND THE APP THEY PICK DECIDES HOW IT IS SENT (2026-09-07,
+             REF-16). Addie: "I don't want a text and email button I want to do a share
+             link kind of thing than depending on if they choose to send it through email
+             or text or whatsapp it will change how its sent. Whatsapp and text should be
+             the same." That is what navigator.share already does: one button, the phone's
+             own picker, and Messages / WhatsApp / Mail each format it their own way from
+             the SAME line and link — so text and WhatsApp are identical by construction
+             rather than by two code paths happening to agree.
+             ⚠ THIS BLOCK IS ONLY REACHED WHERE THERE IS NO SHARE SHEET AT ALL, mostly
+             desktop. It used to offer Text a Friend and Email a Friend, which is the pair
+             of buttons she asked not to have; copying the link is the one honest answer
+             on a machine that cannot open a picker, and it is never a dead end. -->
         <div id="shareFallback" style="display:none; margin-top:6px;">
-          <button type="button" class="btn btn-outline-dark btn-block" id="shareCopyBtn" style="margin-bottom:10px;">Copy My Link</button>
-          <div style="display:flex; gap:10px;">
-            <a href="#" id="shareSmsBtn" class="btn btn-outline-dark" style="flex:1;">Text a Friend</a>
-            <a href="#" id="shareMailBtn" class="btn btn-outline-dark" style="flex:1;">Email a Friend</a>
-          </div>
+          <button type="button" class="btn btn-outline-dark btn-block" id="shareCopyBtn">Copy My Link</button>
+          <p class="form-note" style="margin:10px 0 0; font-size:12.5px;">Paste it into a message, a WhatsApp chat or an email &mdash; whichever you like.</p>
         </div>
       </div>
     </div>
@@ -6461,22 +6481,22 @@ function referralShareLine(){
     'If you register through this referral link, you will not have to pay the $' +
     NEW_MEMBER_FEE + ' installation fee.';
 }
-function referralShareMessage(url){
-  return referralShareLine() + ' See link below: ' + url;
-}
-function referralSmsHref(url){
-  var body = encodeURIComponent(referralShareMessage(url));
-  /* ⚠ THE BODY PARAM IS DOUBLED ON PURPOSE. Android reads sms:?body=, iOS reads
-     sms:&body= — there is no one separator both read, and no user-agent sniff is
-     reliable enough to bet a customer's referral on. Giving both means whichever
-     one a phone's Messages app looks for is there. */
-  return 'sms:?body=' + body + '&body=' + body;
-}
-function referralMailtoHref(url){
-  var subject = encodeURIComponent('You’ve Been Recommended!');
-  var body = encodeURIComponent(referralShareMessage(url));
-  return 'mailto:?subject=' + subject + '&body=' + body;
-}
+/* ⭐ REMOVED WITH THE TWO BUTTONS (2026-09-07, REF-16): referralShareMessage,
+   referralSmsHref and referralMailtoHref built the bodies for hand-rolled sms: and
+   mailto: links. Addie: "I don't want a text and email button I want to do a share
+   link kind of thing than depending on if they choose to send it through email or
+   text or whatsapp it will change how its sent."
+
+   ⚠ THE MESSAGE IS NOT LOST WITH THEM — referralShareLine above is what navigator.share
+   is handed as its `text`, so Messages, WhatsApp and Mail each prefill from the same
+   sentence and the same link, which is what makes text and WhatsApp identical BY
+   CONSTRUCTION rather than by two builders agreeing. The sms: builder was the thing
+   that had to guess (Android reads ?body=, iOS reads &body=, and it sent both); the
+   share sheet does not guess, because the app itself does the formatting.
+
+   ⚠ KEPT AS A NOTE RATHER THAN DELETED SILENTLY, because "why is there no email
+   option" is a reasonable question to ask of this file later, and the answer is that
+   it was asked for and then asked away again. */
 /* ⚠ THE TWO FIELDS ARE READ OFF `addrDoc` BY NAME, not through a shorthand alias. That
    is not style: portal-fields.test.js proves every whitelisted field is actually LOOKED
    AT by scanning for `addrDoc.<field>` and the handful of other real holder names, so
@@ -6557,13 +6577,10 @@ function renderSharePage(token){
   if(input) input.value = url;
   var shareBtn = document.getElementById('shareLinkBtn');
   var fallback = document.getElementById('shareFallback');
-  var smsBtn = document.getElementById('shareSmsBtn');
-  var mailBtn = document.getElementById('shareMailBtn');
-  if(smsBtn) smsBtn.setAttribute('href', referralSmsHref(url));
-  if(mailBtn) mailBtn.setAttribute('href', referralMailtoHref(url));
   /* \u26a0 FEATURE-DETECTED, SAME AS THE PORTAL BUTTON. A phone gets one button that
-     opens the real share sheet; a desktop browser that cannot gets Copy Link plus
-     the same Text/Email links instead \u2014 never a button that does nothing. */
+     opens the real share sheet; a browser that cannot gets Copy My Link instead
+     \u2014 never a button that does nothing, and never the pair of Text/Email buttons
+     Addie asked not to have (REF-16). */
   if(typeof navigator.share === 'function'){
     if(shareBtn) shareBtn.style.display = '';
     if(fallback) fallback.style.display = 'none';
@@ -6581,11 +6598,11 @@ document.getElementById('shareLinkBtn')?.addEventListener('click', async functio
   }catch(err){
     /* AbortError on cancel is not a failure worth reporting. Anything else on a
        page whose one job is sharing does need a way forward, so fall back to the
-       same Copy/Text/Email row a non-supporting browser gets by default. */
+       same Copy My Link a browser with no share sheet gets by default. */
     if(err && err.name !== 'AbortError'){
       var fallback = document.getElementById('shareFallback');
       if(fallback) fallback.style.display = '';
-      if(status) status.textContent = 'Could not open the share menu \u2014 use one of these instead.';
+      if(status) status.textContent = 'Could not open the share menu \u2014 copy your link instead.';
     }
   }
 });
@@ -6848,6 +6865,14 @@ function portalSidesFromRecord(){
    more) always compares and displays the same way — the same discipline as
    referralSidesList would need if it existed, and the reason houseSideCount reads
    both shapes of the OLD field rather than trusting either blindly. */
+/* ⭐ AND LEFT/RIGHT ARE READ FROM THE STREET (2026-09-07, OPT-03). Addie: "we should
+   be calculating left or right from the street not the front door."
+   ⚠ THE TWO VIEWPOINTS ARE MIRROR IMAGES, so this decides which half of a roof gets
+   lit — it is not a wording preference. Street-facing is also the only one the crew
+   can act on, since they arrive at the kerb rather than at the door. The words stored
+   here are unchanged; what changed is the sentence in the portal that tells a customer
+   what they mean, and there is nothing to migrate: no house has ever been asked before
+   today, so no stored list was recorded under the other reading. */
 var PORTAL_SIDE_NAMES = ['Front', 'Left', 'Right', 'Back'];
 function portalSidesListFromValue(v){
   if(!Array.isArray(v)) return [];

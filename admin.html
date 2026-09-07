@@ -10609,13 +10609,90 @@ function referralLiveCount(entries){
    ⚠ AND IT IS THE REFERRAL TOKEN, NEVER THE PORTAL TOKEN. A portal token signs
    somebody in; this one is pasted into a group chat. Two different secrets with two
    different blast radii, and they must never be interchanged. */
+/* ⭐ A NEW REFERRAL LINK EVERY SEASON (2026-09-07, REF-14). Addie: "If referal link
+   is from last year and they are using it than it should still charge 30 dollar fee.
+   They should use there new referal link every year which should give new referal
+   links every year."
+
+   ⚠ THE SEASON IS THE CALENDAR YEAR, the same answer Start New Season already uses
+   for its snapshot key and `audienceNeverAsked` uses for enrolment. The season runs
+   October to December, so a year boundary never falls inside one — which is what
+   makes a bare getFullYear() safe here rather than lazy.
+
+   ⚠ ROTATION IS LAZY, AND DELIBERATELY NOT PART OF Start New Season. That button is
+   irreversible and hits every record (CLAUDE.md §5), and it is not the only way a
+   season begins — the link has to be right for whoever opens a record first, not for
+   whoever presses a button. Every route that HANDS OUT a link comes through here or
+   through the server's ensureReferralToken, so a link is refreshed at the moment it
+   is given, and a record nobody touches costs nothing.
+
+   ⚠ AN UNSTAMPED TOKEN IS TREATED AS THIS SEASON'S, never as expired. Every link
+   already on file predates the stamp, and reading those as last year's would rotate
+   the whole book at once — breaking every link already texted out this season and,
+   by REF-13's own rule, charging the $30 to friends who were told in writing they
+   would not pay it. So it is stamped rather than replaced, which also means it
+   rotates properly next year. `backfillReferralLinks` stamps the lot in one press. */
+const REFERRAL_PAST_KEEP = 5;
+function referralSeasonNow(){ return new Date().getFullYear(); }
+function referralTokenSeasonOf(data){
+  const n = Number((data || {}).referralTokenSeason);
+  return (isFinite(n) && n > 0) ? n : null;
+}
+/* Is the token ON THIS RECORD the one for the season we are in? Used by the money
+   rule (quoteChargesSetupFee) — never to decide whether a link still WORKS. */
+function referralTokenIsCurrentSeason(data){
+  const d = data || {};
+  if(!String(d.referralToken || '').trim()) return false;
+  const s = referralTokenSeasonOf(d);
+  return s === null ? true : s === referralSeasonNow();
+}
+/* ⭐ WHOSE LINK IS THIS, AND IS IT STILL THE CURRENT ONE. Two questions with two
+   different answers, which is exactly why the old tokens are KEPT rather than thrown
+   away on rotation: the fee rule needs "current", and the $25 credit needs "whose" —
+   and a rotation that simply destroyed last year's token would have answered the
+   second one "nobody", silently ending a credit Addie has not been asked about. */
+function referralHolderFor(token){
+  const t = String(token || '').trim();
+  if(!t) return null;
+  const list = jobAddresses || [];
+  for(let i = 0; i < list.length; i++){
+    if(String((list[i].data || {}).referralToken || '') === t) return {item: list[i], current: true};
+  }
+  for(let i = 0; i < list.length; i++){
+    const past = Array.isArray((list[i].data || {}).referralTokensPast) ? list[i].data.referralTokensPast : [];
+    for(let n = 0; n < past.length; n++){
+      if(String((past[n] || {}).token || '') === t) return {item: list[i], current: false};
+    }
+  }
+  return null;
+}
 async function referralTokenFor(item){
   if(!item || !item.id || !item.data) return null;
-  if(item.data.referralToken) return item.data.referralToken;
+  const season = referralSeasonNow();
+  const have = String(item.data.referralToken || '').trim();
+  const stamped = referralTokenSeasonOf(item.data);
+  if(have && stamped === season) return have;
+  if(have && stamped === null){
+    /* Grandfathered: this is treated as the current season's link, and stamping it is
+       what makes it rotate next year instead of staying unstamped for ever. */
+    try{
+      await updateDoc(doc(db,'jobAddresses', item.id), {referralTokenSeason: season});
+      item.data.referralTokenSeason = season;
+    }catch(err){
+      console.error('Could not stamp the referral season for', item.id, err);
+    }
+    return have;
+  }
   const token = generateReferralToken();
+  const updates = {referralToken: token, referralTokenSeason: season};
+  if(have){
+    const past = Array.isArray(item.data.referralTokensPast) ? item.data.referralTokensPast.slice() : [];
+    past.push({token: have, season: stamped});
+    updates.referralTokensPast = past.slice(-REFERRAL_PAST_KEEP);
+  }
   try{
-    await updateDoc(doc(db,'jobAddresses', item.id), {referralToken: token});
-    item.data.referralToken = token;
+    await updateDoc(doc(db,'jobAddresses', item.id), updates);
+    Object.keys(updates).forEach(function(k){ item.data[k] = updates[k]; });
   }catch(err){
     /* Hand the token back anyway. A failed save costs them a link that stops working
        later; returning null costs them the link entirely, right now. Same trade as
@@ -10744,9 +10821,13 @@ async function creditReferralIfAny(quoteData, customerId, customerData){
     const token = String(q.referredByToken || '').trim();
     if(!token) return { ok:false, why:'no token' };
     if(q.referralCredited === true) return { ok:false, why:'already credited' };
-    const referrer = jobAddresses.find(function(a){
-      return String((a.data || {}).referralToken || '') === token;
-    });
+    /* ⚠ LAST SEASON'S LINK STILL CREDITS THE $25, AND THAT IS THE UNCHANGED HALF.
+       REF-14 rotates the token every season and makes a stale one pay the set-up fee;
+       it says nothing about the referrer's own credit, so nothing here changes and the
+       past tokens are searched too. If that is not what Addie wants, this is the one
+       line to change — `holder.current` is already the answer. */
+    const holder = referralHolderFor(token);
+    const referrer = holder && holder.item;
     /* ⚠ AN UNKNOWN TOKEN IS NOT AN ERROR. A link can outlive the customer who made
        it, and a conversion must not fail because of one. */
     if(!referrer) return { ok:false, why:'no referrer' };
@@ -11060,7 +11141,18 @@ function quoteChargesSetupFee(d){
      install, so this does not wait on that. Same override as the re-quote line
      above: the office's own explicit tick, in either direction, still wins — this
      only decides what happens when nobody has answered. */
-  if(String(q.referredByToken || '').trim()) return false;
+  const referredBy = String(q.referredByToken || '').trim();
+  if(referredBy){
+    /* ⚠ IT IS NOT ENOUGH THAT A TOKEN IS PRESENT (tightened 2026-09-07, REF-14).
+       Addie: "If referal link is from last year and they are using it than it should
+       still charge 30 dollar fee." So the waiver asks whether this token is the link
+       that customer holds RIGHT NOW — which also closes the hole the first version
+       had, where any made-up string in the address bar bought $30 off, since nothing
+       in the browser can tell a real token from an invented one by looking at it.
+       An unresolvable token and a last-season one both fall through and are charged. */
+    const holder = referralHolderFor(referredBy);
+    if(holder && holder.current && referralTokenIsCurrentSeason(holder.item.data)) return false;
+  }
   /* ⚠ AND WE HAVE TO KNOW THE BOOK BEFORE WE CAN SAY SOMEBODY IS NOT IN IT. The quote
      cards can draw before jobAddresses lands, and with an empty book EVERY quote looks
      like a new customer — which is precisely the wrong answer for the people this rule
@@ -11074,6 +11166,50 @@ function quoteChargesSetupFee(d){
      and a child at two different houses, so a phone match would refuse the fee to a
      genuinely new customer quoted against a relative's number. */
   return !quoteAlreadyACustomer(q);
+}
+/* ⭐ WHY THE BOX IS NOT TICKED (2026-09-07, REF-15). Addie: "For referals for not
+   tickig the box the reason is refferal."
+
+   ⚠ AN UNTICKED BOX WITH NO REASON IS THE PROBLEM THIS SOLVES. quoteChargesSetupFee
+   answers false for three quite different reasons — a re-quote, a referral, or the
+   office having unticked it themselves — and the office sees one identical empty box
+   for all three. The re-quote case has said so on the card for a while; a referral
+   said nothing, so the only way to tell a waiver from somebody's stray click was to
+   go and read the code.
+
+   ⚠ IT NAMES THE REFERRER WHERE WE KNOW THEM, because "referral" alone still leaves
+   the one question worth asking — WHOSE. And it says LAST SEASON'S for a stale link
+   rather than staying quiet: that is the case where the box IS ticked and somebody
+   will want to know why a referred friend is being charged (REF-14).
+
+   ⚠ IT DESCRIBES, IT NEVER DECIDES. Every branch here reads what quoteChargesSetupFee
+   already worked out; a second opinion about the fee would eventually disagree with
+   the box beside it, which is worse than no explanation at all. */
+function quoteSetupFeeReason(d){
+  const q = d || {};
+  const referredBy = String(q.referredByToken || '').trim();
+  if(referredBy){
+    const holder = referralHolderFor(referredBy);
+    const who = holder && holder.item && holder.item.data && String(holder.item.data.name || '').trim();
+    if(holder && holder.current && referralTokenIsCurrentSeason(holder.item.data)){
+      return {text: 'referral' + (who ? ' \u2014 ' + who + '\u2019s link' : ''), waived: true};
+    }
+    /* A link we cannot place at all is not called a referral on screen. Anybody can
+       type anything after /r/, and a card that says "referral" over an invented token
+       would have the office looking for a referrer who was never there. */
+    if(!holder) return {text: 'referral link not recognised \u2014 fee still applies', waived: false};
+    return {text: 'last season\u2019s referral link' + (who ? ' (' + who + ')' : '') +
+      ' \u2014 fee still applies', waived: false};
+  }
+  if(q.existingCustomerId) return {text: 'unusual for a re-quote', waived: true};
+  return null;
+}
+/* ⚠ ESCAPED HERE, not by the caller. Both halves of the text can carry a CUSTOMER'S
+   OWN NAME, which is somebody else's typing on a page this office reads all day. */
+function quoteSetupFeeReasonHtml(d){
+  const why = quoteSetupFeeReason(d);
+  if(!why) return '';
+  return ' <span style="color:var(--slate);">(' + esc(why.text) + ')</span>';
 }
 /* ⭐ ONE ROW PER HOUSE IN CONVERTED & CLOSED (added 2026-08-24). Owner: "every house
    should only come up once in coverted & closed. For example we had to requote Ashley
@@ -13978,7 +14114,7 @@ function renderQuoteRows(filtered){
             /* Defaults on for a brand-new quote and off for a re-quote (an
                existing customer already paid this once) - but only until she
                actually sets it herself, at which point d.chargeSetupFee wins. */
-            '<label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12.5px; cursor:pointer;"><input type="checkbox" class="quoteSetupFeeCheck" data-id="'+item.id+'"'+(quoteChargesSetupFee(d) ? ' checked' : '')+'> Charge ' + fmtMoney(NEW_MEMBER_FEE) + ' one-time set-up fee'+(d.existingCustomerId ? ' <span style="color:var(--slate);">(unusual for a re-quote)</span>' : '')+'</label>'+
+            '<label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12.5px; cursor:pointer;"><input type="checkbox" class="quoteSetupFeeCheck" data-id="'+item.id+'"'+(quoteChargesSetupFee(d) ? ' checked' : '')+'> Charge ' + fmtMoney(NEW_MEMBER_FEE) + ' one-time set-up fee'+quoteSetupFeeReasonHtml(d)+'</label>'+
             '<button type="button" class="btn btn-gold btn-sm" data-getquotelink="'+item.id+'">'+
               (d.quoteManuallySent ? 'Send again' : (isRequote(d) ? 'Send updated quote' : 'Send quote email'))+'</button>'+
             '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-left:6px;">Preview first</button>'+
@@ -32445,7 +32581,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       phone2: phone2, email2: email2, lightsDescription: lightsDescription,
       housePhotos: customerPhotoUpdates([{url: addCustPhotoUrl, original: addCustPhotoOriginal || addCustPhotoUrl, markup: addCustPhotoMarkup}].concat(addCustExtraPhotos)).housePhotos,
       housePhotoUrl: addCustPhotoUrl, housePhotoOriginal: addCustPhotoOriginal, housePhotoMarkup: addCustPhotoMarkup,
-      houseHighlights: addCustHighlights, portalToken: generatePortalToken(), referralToken: generateReferralToken(), installPreference: installPreference,
+      houseHighlights: addCustHighlights, portalToken: generatePortalToken(), referralToken: generateReferralToken(), referralTokenSeason: referralSeasonNow(), installPreference: installPreference,
       chargeNewMemberFee: chargeNewMemberFee,
       /* ⭐ JOINING OPENS THEIR 48-HOUR WINDOW (added 2026-08-21). Owner: "48 hours
          will be from when they become a costumer and we won't schedule them within
@@ -36634,7 +36770,7 @@ async function rbApplyTickedAdds(statusEl){
         /* WHICH outlet is a different question, and it only ever appears in Notes. */
         specificOutlet: rbOutletFromNote(notesRaw[i]) ? 'Yes' : '',
         specificOutletNotes: rbOutletFromNote(notesRaw[i]),
-        portalToken: generatePortalToken(), referralToken: generateReferralToken(),
+        portalToken: generatePortalToken(), referralToken: generateReferralToken(), referralTokenSeason: referralSeasonNow(),
         lat: coords.lat, lng: coords.lng, needsGeocode: coords.lat === null,
         scheduled: false,
         /* ⭐ AND THE WAREHOUSE IS TOLD (hole B). Owner: "we want to build
@@ -38533,7 +38669,7 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
              exist. The blank-street guard above is what stands between a missed match and
              that, and it is asserted in run-all.js. Do not weaken it. */
           needsLightBuild: true, lightsQueuedAt: serverTimestamp(),
-          portalToken: generatePortalToken(), referralToken: generateReferralToken(),
+          portalToken: generatePortalToken(), referralToken: generateReferralToken(), referralTokenSeason: referralSeasonNow(),
           lat: coords.lat, lng: coords.lng,
           needsGeocode: coords.lat === null,
           scheduled: false, createdAt: enrolledDate || serverTimestamp()
@@ -38808,7 +38944,7 @@ document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(asy
         if(Object.keys(custUpdates).length) await updateDoc(doc(db,'jobAddresses',existingCust.id), custUpdates);
       } else {
         await addDoc(collection(db,'jobAddresses'), {
-          name: name, phone: phone, email: email, difficulty: 'Unrated', portalToken: generatePortalToken(), referralToken: generateReferralToken(),
+          name: name, phone: phone, email: email, difficulty: 'Unrated', portalToken: generatePortalToken(), referralToken: generateReferralToken(), referralTokenSeason: referralSeasonNow(),
           /* ⭐ AND THE WAREHOUSE IS TOLD HERE TOO — same hole, same answer, questions map
              WH-20. Ungated for the same reason as the Bulk Updates copy above: a house
              nobody flagged is in no list at all, and the tab then reports there is
@@ -45389,6 +45525,17 @@ async function backfillReferralLinks(statusEl){
   const list = (jobAddresses || []).filter(function(a){
     return a && a.id && a.data && !String(a.data.referralToken || '').trim();
   });
+  /* ⭐ AND THE ONES THAT HAVE A LINK BUT NO SEASON ON IT (2026-09-07, REF-14). Every
+     link minted before that day is unstamped, and an unstamped link is grandfathered
+     as this season's — correct today, and wrong for ever after, because a record
+     nobody opens is never stamped and so never rotates. This closes that window in
+     one press instead of leaving it to whoever happens to open each record. It only
+     ever ADDS the stamp: the token is untouched, so no link anybody is holding stops
+     working, which is why this needs no typed confirmation. */
+  const toStamp = (jobAddresses || []).filter(function(a){
+    return a && a.id && a.data && String(a.data.referralToken || '').trim() &&
+      referralTokenSeasonOf(a.data) === null;
+  });
   /* ⚠ AN EMPTY BOOK IS NOT AN EMPTY JOB. jobAddresses is loaded asynchronously, so a
      press before it lands would report "everyone already has one" about a list of
      nobody — the same fail-safe the bulk importer makes into a hard stop. */
@@ -45397,7 +45544,7 @@ async function backfillReferralLinks(statusEl){
     return {made: 0, already: 0, failed: 0};
   }
   const already = (jobAddresses || []).length - list.length;
-  if(!list.length){
+  if(!list.length && !toStamp.length){
     say('Every customer already has a referral link \u2014 nothing to do (' + already + ' checked).');
     return {made: 0, already: already, failed: 0};
   }
@@ -45423,10 +45570,32 @@ async function backfillReferralLinks(statusEl){
       failed += slice.length;
     }
   }
+  /* ⭐ THE STAMPING PASS, separate from the minting one above and running after it —
+     the two touch different records, so one batch cannot do both, and doing it second
+     means a failed mint never costs a stamp that would have succeeded. */
+  let stamped = 0;
+  for(let i = 0; i < toStamp.length; i += REFERRAL_BACKFILL_BATCH){
+    const slice = toStamp.slice(i, i + REFERRAL_BACKFILL_BATCH);
+    say('Dating existing links\u2026 ' + stamped + ' of ' + toStamp.length);
+    const batch = writeBatch(db);
+    const season = referralSeasonNow();
+    slice.forEach(function(a){
+      batch.update(doc(db,'jobAddresses', a.id), {referralTokenSeason: season});
+    });
+    try{
+      await batch.commit();
+      slice.forEach(function(a){ a.data.referralTokenSeason = season; });
+      stamped += slice.length;
+    }catch(err){
+      console.error('A batch of referral link dates could not be saved:', err);
+      failed += slice.length;
+    }
+  }
   say(made + ' referral link' + (made === 1 ? '' : 's') + ' made' +
+      (stamped ? ' \u2014 ' + stamped + ' existing link' + (stamped === 1 ? '' : 's') + ' dated to this season' : '') +
       (already ? ' \u2014 ' + already + ' already had one' : '') +
       (failed ? ' \u2014 ' + failed + ' could not be saved, press again' : '') + '.');
-  return {made: made, already: already, failed: failed};
+  return {made: made, already: already, failed: failed, stamped: stamped};
 }
 document.getElementById('rbReferLinksBtn')?.addEventListener('click', async function(){
   const btn = this;
@@ -45762,7 +45931,15 @@ function openEditCustomerModal(id){
       raw.forEach(function(s){ if(SIDE_NAMES.indexOf(s) !== -1) picked[s] = true; });
       const named = SIDE_NAMES.filter(function(s){ return picked[s]; });
       if(named.length){
-        sidesListNote.textContent = 'From their Member Portal: ' + named.join(', ') + '.';
+        /* ⚠ THE NOTE SAYS WHICH WAY ROUND, EVERY TIME (2026-09-07, OPT-03). Addie:
+           "we should be calculating left or right from the street not the front door."
+           The customer was told that when they ticked the boxes; the office reading
+           it back has to be told the same thing, or Left here and Left there are the
+           opposite sides of the same house. It is only worth saying when a side that
+           HAS a hand is named — Front and Back read the same from either viewpoint. */
+        const handed = named.indexOf('Left') !== -1 || named.indexOf('Right') !== -1;
+        sidesListNote.textContent = 'From their Member Portal: ' + named.join(', ') + '.' +
+          (handed ? ' Left and right are as you stand on the street facing the house.' : '');
         sidesListNote.style.display = '';
       } else {
         sidesListNote.style.display = 'none';

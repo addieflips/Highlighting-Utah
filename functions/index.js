@@ -1207,14 +1207,61 @@ function generateReferralToken() {
   }
   return out;
 }
+/* ⭐ A NEW REFERRAL LINK EVERY SEASON (2026-09-07, REF-14). Addie: "They should use
+   there new referal link every year which should give new referal links every year."
+
+   ⚠ THIS IS THE SERVER HALF OF referralTokenFor IN admin.html AND THE TWO MUST ROTATE
+   ON THE SAME RULE. They cannot share code — one is a browser module and this is Node,
+   the same split money.js lives with — and if one rotated on a condition the other did
+   not, the two would take turns replacing each other's token and a customer's link
+   would change every time anybody looked at it. Change one, change the other, in the
+   same push; run-all.js compares the two.
+
+   ⚠ AN UNSTAMPED TOKEN IS THIS SEASON'S, NOT AN EXPIRED ONE. Every link minted before
+   the stamp existed is unstamped, and reading those as last year's would rotate the
+   whole book at once — breaking every link already sent out this season and charging
+   the $30 (REF-13) to friends who were told in writing they would not pay it. */
+const REFERRAL_PAST_KEEP = 5;
+function referralSeasonNow() { return new Date().getFullYear(); }
+function referralTokenSeasonOf(data) {
+  const n = Number((data || {}).referralTokenSeason);
+  return (isFinite(n) && n > 0) ? n : null;
+}
 async function ensureReferralToken(id, data) {
-  if (data.referralToken) return data.referralToken;
+  const season = referralSeasonNow();
+  const have = String((data || {}).referralToken || '').trim();
+  const stamped = referralTokenSeasonOf(data);
+  if (have && stamped === season) return have;
+  if (have && stamped === null) {
+    try {
+      await db.collection('jobAddresses').doc(id).update({ referralTokenSeason: season });
+    } catch (err) {
+      // Use it anyway — an unstamped token is still this season's link.
+    }
+    return have;
+  }
   const token = generateReferralToken();
+  const updates = { referralToken: token, referralTokenSeason: season };
+  if (have) {
+    /* ⚠ THE OLD TOKEN IS KEPT, NOT DISCARDED. The $25 credit resolves a link back to
+       whoever made it, and Addie's ruling was about the SET-UP FEE, not the credit —
+       throwing the old token away would have quietly ended that credit for every link
+       already out in the world. admin.html's referralHolderFor reads these. */
+    const past = Array.isArray(data.referralTokensPast) ? data.referralTokensPast.slice() : [];
+    past.push({ token: have, season: stamped });
+    updates.referralTokensPast = past.slice(-REFERRAL_PAST_KEEP);
+  }
   try {
-    await db.collection('jobAddresses').doc(id).update({ referralToken: token });
+    await db.collection('jobAddresses').doc(id).update(updates);
   } catch (err) {
     // Use it anyway — worst case their link is replaced on the next visit.
   }
+  /* ⚠ MIRRORED ONTO THE RECORD WE WERE HANDED, exactly as admin.html's referralTokenFor
+     does. Without the SEASON going back too, a second call in the same request would
+     still see the old stamp and rotate a link that had just been rotated — handing the
+     customer a different token from the one already written. Nothing calls it twice
+     today; that is not a reason to leave a trap in a function that mints links. */
+  if (data && typeof data === 'object') Object.assign(data, updates);
   return token;
 }
 async function ensureToken(id, data) {
