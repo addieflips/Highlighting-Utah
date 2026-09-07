@@ -149,7 +149,12 @@ export function computeInvoiceStatus(install, removal, deposit, credits, changeF
  * recomputed against this number the next time it syncs, so a customer charged $30
  * before today comes out at $25 — one price for the season, which is the answer
  * that does not need explaining to whoever rings up. */
-export const NEW_MEMBER_FEE = 25;
+/* ⚠ $30 FROM 2026-09-07 (was 25). Dax: "we need to change the instalation fee to $30."
+   The customer-facing name for this is the INSTALLATION FEE — that is what the invoice
+   document, the invoice email and the quote all call it; "new member fee" is only the
+   field name. Change it here and in functions/index.js in the SAME push: two copies of
+   a money constant is what money-parity.test.js exists to catch. */
+export const NEW_MEMBER_FEE = 30;
 export const LIGHT_CHANGE_FEE = 30;
 export const LIGHT_WINDOW_MS = 48 * 60 * 60 * 1000;
 

@@ -4178,7 +4178,9 @@ function computeInvoiceStatusServer(install, removal, deposit, credits, changeFe
    money-parity.test.js runs them side by side — this file cannot import a browser
    module, which is the whole reason there are two. Change one, change the other, in
    the same push. */
-const NEW_MEMBER_FEE = 25;
+/* ⚠ $30 FROM 2026-09-07 (was 25) — the browser's copy is in js/money.js and the two
+   move together, in the same push. See the note there. */
+const NEW_MEMBER_FEE = 30;
 const LIGHT_CHANGE_FEE = 30;
 const LIGHT_WINDOW_MS = 48 * 60 * 60 * 1000;
 
@@ -4626,7 +4628,15 @@ async function runInvoiceBatch(triggeredBy) {
               const where = h.data.address || h.data.street || 'This address';
               return '<b>' + where + '</b><br>' + feetLineFor(h.data);
             }).join('<br><br>');
-        const newMemberLine = isNewMember ? 'Installation fee = $30.00' : '';
+        /* ⚠ THE FIGURE COMES FROM THE CONSTANT, NEVER TYPED OUT (fixed 2026-09-07).
+           This line read 'Installation fee = $30.00' as a literal while the fee itself
+           was NEW_MEMBER_FEE = 25 and admin.html's copy of the same email rendered
+           fmtMoney(NEW_MEMBER_FEE) — so the NIGHTLY invoice told every new member $30.00
+           and charged them $25, and its own line items did not add up to its own total,
+           while a hand-sent invoice for the same customer said $25.00. Two renderers,
+           one email, one of them holding a number by hand: the {{photo}} shape, in the
+           one place where it is money on a customer's bill. */
+        const newMemberLine = isNewMember ? ('Installation fee = $' + NEW_MEMBER_FEE.toFixed(2)) : '';
 
         const changeFeesTotal = Number(inv.changeFees) || 0;
         const total = (Number(inv.install) || 0) + (Number(inv.removal) || 0) + changeFeesTotal;

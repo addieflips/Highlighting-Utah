@@ -33904,13 +33904,33 @@ suite('Suite 128. The do-not-send list — automation emails only');
        and sits EARLIER in the file, so the plain id captured its slice and these two
        checks failed on code that is right — the slow-fuse shape S82 and S129 each hit. */
     const previewSend = sectionFrom(admin, admin.indexOf("document.getElementById('etSendToSelectedBtn').addEventListener"));
+    /* ⚠ REPOINTED 2026-09-07, AND THE GUARANTEE IS STRONGER RATHER THAN WEAKER. The
+       loop moved out of this listener into `etSendTemplateRun` so the whole-RSVP button
+       could reuse it instead of growing a second copy — so asserting the gate sits
+       INSIDE the listener now fails on code that is right, which is the slow-fuse shape
+       this suite's own comment above already names twice. What must be true is that the
+       thing which actually mails carries the gate, and that the listener reaches it
+       rather than sending on its own. Both are checked. */
+    const sender = extractFn(admin, 'etSendTemplateRun') || '';
+    check('S128', 'the one sender is findable',
+      !!sender,
+      'renamed or removed — repoint these checks rather than deleting them; without ' +
+      'this slice the two below pass vacuously against an empty string');
     check('S128', 'Preview & Send refuses to mail somebody on the list',
-      /etNoAutomationEmails\(member\.data\)/.test(previewSend),
+      /etNoAutomationEmails\(member\.data\)/.test(sender),
       'the ticks are read at send time, so a row ticked just before somebody was ' +
       'added to the list is still a selected id');
     check('S128', 'and counts them apart from real failures',
-      /optedOut\+\+/.test(previewSend) && /do-not-send list/.test(previewSend),
+      /optedOut\+\+/.test(sender) && /do-not-send list/.test(previewSend),
       'a deliberate exclusion is not a failure, and reading it as one hides both');
+    /* ⚠ AND THE LISTENER MUST DELEGATE, NEVER MAIL ON ITS OWN. A second loop growing
+       back inside this handler is the two-senders failure rebuilt one level down: the
+       gate above would still pass, on a function the button no longer uses. */
+    check('S128', 'the send button goes through that one sender',
+      /etSendTemplateRun\(/.test(previewSend) &&
+      !/emailjs\.send\(/.test(previewSend),
+      'the handler mails directly again — one book, two senders, and the do-not-send ' +
+      'list then holds depending on which button was pressed');
     /* ⚠ THE SECOND SENDER MUST STAY GONE. Re-adding a modal that lists customers
        without the ten filters and without this list is the whole failure above,
        rebuilt. Both names, because either half alone is half a sender. */
@@ -49793,6 +49813,64 @@ suite('299. A referral link, and the $25 that follows it');
             'a customer who was promised it');
         }
 
+        /* ---- 5b. TWO REAL CONVERSIONS, ONE AFTER THE OTHER --------------
+         * Dax, 2026-09-07: "if there is a second referral link they dont get discounted
+         * for the second refeeral they only get the discount for the 1st referral."
+         *
+         * ⚠ SECTION 5 ABOVE DOES NOT COVER THIS AND READS AS THOUGH IT DOES. It seeds
+         * the first referral as a pre-existing entry and then runs ONE conversion, so it
+         * proves the LINE IS REBUILT from a count of two — never that a second
+         * conversion actually produces that count. The difference is the whole of the
+         * report above: if the second credit never lands, section 5 stays green while
+         * the referrer is discounted once.
+         *
+         * ⚠ AND THE SEEDED ENTRY THERE CARRIES NO DATE AT ALL, which under REF-14 is
+         * the undateable branch that counts by default — so that fixture cannot see a
+         * season rule getting the sums wrong either. This one lets the real code write
+         * both entries, with whatever fields it really writes. */
+        {
+          const w = world({
+            customers: [referrer(), {id: 'NEW1', data: {}}, {id: 'NEW2', data: {}}],
+            invoices: {'8015550111': bill()},
+            quotes: {q1: {}, q2: {}}
+          });
+          const one = await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com'});
+          const afterFirst = Number(w.invoices['8015550111'].credits) || 0;
+          const two = await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'},
+            'NEW2', {name: 'Pat Two', phone: '8015558888', email: 'pat@x.com'});
+          const inv = w.invoices['8015550111'];
+          const refLines = (inv.creditNotes || []).filter(c => c.kind === 'referral');
+
+          check('S299', 'the first of two referrals is worth $25 on its own',
+            one.ok === true && afterFirst === 25,
+            'got ok=' + one.ok + ', credits=' + afterFirst + ' — if the FIRST one is ' +
+            'already wrong the second tells you nothing');
+          check('S299', 'and the second referral is credited too',
+            two.ok === true,
+            'got ' + JSON.stringify(two) + ' — a refusal here is the whole report: the ' +
+            'referrer sent two friends and was thanked for one');
+          check('S299', 'so a customer who refers twice is discounted twice',
+            inv.credits === 50 && refLines.length === 1 && refLines[0].amount === 50,
+            'got credits=' + inv.credits + ' across ' + refLines.length + ' referral ' +
+            'line(s) worth ' + (refLines[0] && refLines[0].amount) + ' — $25 for two ' +
+            'friends is the referral scheme quietly paying half of what it promises');
+          check('S299', 'and the stored count keeps up with the entries',
+            w.customers[0].data.referralCount === 2 &&
+            (w.customers[0].data.referralCredits || []).length === 2,
+            'got count=' + w.customers[0].data.referralCount + ' over ' +
+            ((w.customers[0].data.referralCredits || []).length) + ' entries — the box in ' +
+            'Edit Customer is filled from this number, and the save rebuilds the bill ' +
+            'from the box, so a stale count becomes a wrong invoice the next time ' +
+            'anybody opens that record');
+          check('S299', 'and each friend records who sent them',
+            w.writes.some(x => x.id === 'NEW1' && x.updates.referredByCustomerId === 'REF1') &&
+            w.writes.some(x => x.id === 'NEW2' && x.updates.referredByCustomerId === 'REF1'),
+            'without it the clawback cannot find its way back for that friend');
+        }
+
         /* ---- 6. cancelling before the install takes it back ------------ */
         {
           const w = world({
@@ -52619,3 +52697,167 @@ Promise.all(pendingAsync).then(function () {
   console.log(pass + ' passed, ' + (fail + 1) + ' failed\n');
   process.exit(1);
 });
+
+/* ---------------------------------------------------------------------------
+ * Suite 309. Crossing a fee or a discount off a bill somebody else pays
+ *
+ * Dax, 2026-09-07: "when i try to delete a discount or fee it says they dont have a
+ * invoice, and everyone should have a invoice and it should delete."
+ *
+ * ⚠ THE LOOKUP WAS RIGHT AND IT WAS ANSWERING A DIFFERENT QUESTION. `allCustInvoiceFor`
+ * means "the invoice filed under this HOUSE'S OWN key", and that meaning is load-bearing
+ * somewhere else: the Edit Customer save needs exactly it to find and zero a leftover
+ * invoice when a customer starts billing elsewhere. So it must NOT be widened. But a
+ * house billed to somebody else has no invoice of its own, so the × drew its line from
+ * the group's bill and then refused to remove it for want of a bill. Seventeen numbers
+ * in the real book are shared by two households; this is not a rare shape.
+ *
+ * ⚠ BOTH HALVES ARE ASSERTED, and the second is the one that would be lost in a tidy-up:
+ * that the waive path resolves through billToPhone, AND that editCustInvoiceNow still
+ * answers the narrow question the save depends on.
+ * ------------------------------------------------------------------------- */
+suite('Suite 309. Crossing a fee or a discount off a bill somebody else pays');
+
+{
+  /* ⚠ SCOPED TO THE RESOLVER ITSELF, NOT sectionFrom. This lives INSIDE a click handler,
+     so "the end of its top-level construct" is the whole handler and hundreds of lines
+     after it — which swallowed a mention of allCustInvoiceFor from elsewhere and failed
+     the check below on correct code. Braces from the anchor, and no further. */
+  const waiveBlock = (function(){
+    const at = admin.indexOf('const invForWaive = function()');
+    if (at === -1) return '';
+    let i = admin.indexOf('{', at), depth = 0;
+    for (; i < admin.length; i++) {
+      if (admin[i] === '{') depth++;
+      else if (admin[i] === '}') { depth--; if (depth === 0) return admin.slice(at, i + 1); }
+    }
+    return '';
+  })();
+  /* The refusal message sits just after the resolver, so it is checked against a slice
+     that reaches a little past it rather than against the resolver alone. */
+  const waiveRefusal = admin.slice(admin.indexOf('const invForWaive = function()'),
+    admin.indexOf('const invForWaive = function()') + 2200);
+  check('S309', 'the waive path is findable',
+    !!waiveBlock && waiveBlock.length > 40,
+    'renamed or inlined — repoint this rather than deleting it, or the two checks ' +
+    'below pass vacuously against an empty string');
+
+  check('S309', 'the × resolves the bill the customer is actually on',
+    /billToPhone/.test(waiveBlock) && /custInvoiceKey/.test(waiveBlock),
+    'a house billed elsewhere has no invoice under its own key, so crossing a line ' +
+    'off its group bill was refused for want of a bill it never had');
+
+  check('S309', 'and it does not reach for the own-key resolver',
+    waiveBlock.indexOf('allCustInvoiceFor') === -1,
+    'that one deliberately answers the narrower question; using it here is the bug');
+
+  /* ⚠ THE NARROW RESOLVER MUST STAY NARROW. Widening it to billToPhone would "fix" the
+     × and quietly break the save, which uses it to find the leftover invoice to zero —
+     a customer who moves onto somebody else's bill would then keep billing themselves. */
+  const ownKey = extractFn(admin, 'editCustInvoiceNow') || '';
+  check('S309', 'editCustInvoiceNow still answers the house\'s OWN key',
+    /allCustInvoiceFor/.test(ownKey) && ownKey.indexOf('billToPhone') === -1,
+    'widened — the Edit Customer save needs the narrow answer to find and zero a ' +
+    'leftover invoice when somebody starts billing elsewhere');
+
+  /* A refusal the office can act on, rather than a fact it can do nothing with. */
+  check('S309', 'a genuinely missing invoice names the tool that makes one',
+    /Fix Missing Invoices/.test(waiveRefusal),
+    'a dead-end refusal is what sends somebody looking for a bug that is not there');
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite 310. The whole RSVP, in one press
+ *
+ * Dax, 2026-09-07: "We want one button for the entire rsvp", and "we need everyone to
+ * get the right email and hve it sent to the right spot."
+ *
+ * ⚠ IT RUNS THE PLANNER. Every claim here is about WHICH LIST a customer lands in, and
+ * a source check cannot see that. What is asserted is the ROUTING — that the button
+ * sends each person down the right branch — not the arrears rule itself, which is
+ * houseOwesFromLastSeason's own and is covered where it lives. The predicates are
+ * supplied fixture-driven for that reason, and this comment says so rather than letting
+ * a reader assume the split rule is being re-proved here.
+ *
+ * ⚠ THE REFUSAL IS THE MOST IMPORTANT CHECK IN THE SUITE. Before the invoices load,
+ * houseOwesFromLastSeason answers false for EVERYBODY — so an ungated planner posts the
+ * ordinary "will you be getting lights again this year" email to every customer carrying
+ * a balance, saying nothing about the balance and handing them a Yes button that cannot
+ * schedule them. That is ~950 wrong emails from one press, and it is silent.
+ * ------------------------------------------------------------------------- */
+suite('Suite 310. The whole RSVP, in one press');
+
+{
+  const planSrc = extractFn(admin, 'rsvpWholePlan');
+  check('S310', 'the planner is findable',
+    !!planSrc,
+    'renamed or removed — repoint this suite rather than deleting it');
+
+  if (planSrc) {
+    const run = function (book, loaded) {
+      const env = new Function('jobAddresses', 'LOADED',
+        'function audienceHasLastSeason(){ return LOADED; }' +
+        'function isTestRecordData(d){ return d.isTestRecord === true; }' +
+        'function audienceNeverAsked(d){ return d.newThisYear === true; }' +
+        'function effectiveRsvpStatus(d){ return d.answered ? "yes" : ""; }' +
+        'function etNoAutomationEmails(d){ return d.noAutomationEmails === true; }' +
+        'function houseOwesFromLastSeason(d){ return d.owes === true; }' +
+        planSrc +
+        'return rsvpWholePlan();');
+      return env(book, loaded);
+    };
+    const c = (id, d) => ({ id: id, data: d });
+
+    const book = [
+      c('paid1',   { email: 'a@x.com' }),
+      c('paid2',   { email: 'b@x.com' }),
+      c('owes1',   { email: 'c@x.com', owes: true }),
+      c('nomail',  { phone: '8015550000' }),
+      c('stopped', { email: 'd@x.com', noAutomationEmails: true }),
+      c('said',    { email: 'e@x.com', answered: true }),
+      c('brandnew',{ email: 'f@x.com', newThisYear: true }),
+      c('test',    { email: 'g@x.com', isTestRecord: true })
+    ];
+    const p = run(book, true);
+    const ids = l => l.map(x => x.id).sort().join(',');
+
+    check('S310', 'somebody straight gets the ordinary RSVP',
+      ids(p.standard) === 'paid1,paid2',
+      'got [' + ids(p.standard) + ']');
+    check('S310', 'and somebody who owes gets the Not Paid one instead',
+      ids(p.arrears) === 'owes1',
+      'got [' + ids(p.arrears) + '] — the whole reason there are two emails');
+    check('S310', 'somebody with no email is listed to text, never emailed',
+      ids(p.noEmail) === 'nomail' &&
+      p.standard.concat(p.arrears).every(m => m.id !== 'nomail'),
+      'they are the people the RSVP can otherwise never reach');
+    check('S310', 'the do-not-send list is honoured before anything else',
+      ids(p.optedOut) === 'stopped' &&
+      p.standard.concat(p.arrears).every(m => m.id !== 'stopped'),
+      'they asked not to be mailed, and one press must not reach them');
+    check('S310', 'somebody who already answered is not asked again',
+      p.answered === 1 && p.standard.concat(p.arrears).every(m => m.id !== 'said'),
+      'an email asking a question they have answered reads as us losing their reply');
+    check('S310', 'a first-year customer is never asked "again"',
+      p.newThisYear === 1 && p.standard.concat(p.arrears).every(m => m.id !== 'brandnew'),
+      'RS-20 — nonsense to somebody who has never had lights, and it invites a no');
+    check('S310', 'the test record is in no list at all',
+      p.standard.concat(p.arrears, p.noEmail, p.optedOut).every(m => m.id !== 'test'),
+      'the test record carries a real phone and a real inbox');
+
+    /* ⚠ THE PROPERTY THAT MATTERS MOST: exactly once, or not at all. */
+    const everywhere = p.standard.concat(p.arrears, p.noEmail, p.optedOut).map(m => m.id);
+    check('S310', 'nobody appears in two lists',
+      new Set(everywhere).size === everywhere.length,
+      'got [' + everywhere.join(',') + '] — somebody in two lists gets two emails, ' +
+      'which is the exact failure this button was built to remove');
+
+    check('S310', 'and it refuses entirely until the invoices have loaded',
+      run(book, false).ready === false && run(book, false).standard.length === 0,
+      'before that read lands nobody looks like they owe, so every customer carrying a ' +
+      'balance would be sent the ordinary email — ~950 wrong sends from one press');
+    check('S310', 'and says why, rather than looking like nothing happened',
+      /invoices/i.test(run(book, false).why || ''),
+      'a silent empty plan reads as "nobody to ask" and the office presses it again');
+  }
+}
