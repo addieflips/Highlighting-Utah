@@ -1173,6 +1173,28 @@ member's bill — with nobody in the office typing anything.
   - ⚠ **No link means no button**, never a button pointing nowhere: a customer tapping
     something we sent them and landing nowhere cannot tell that from the scheme being
     broken.
+  - ⭐ **A SHARE ICON, RIGHT NEXT TO THE BUTTON** (2026-09-07, REF-17). Addie: *"a share
+    icon right next to link on automation email."* A second, small anchor sits beside
+    the existing **Share My Link — $25 Off** button — same `refShareUrl`/`referShareUrl`
+    as the button next to it, never an independently-built address that could drift from
+    it — showing a plain 📤 emoji, never `<svg>` or `<img>`: inline SVG renders
+    inconsistently across email clients (Outlook especially), and this repo has no
+    hosted icon image for an email to reference, so the emoji is the same trick the RSVP
+    body already uses for 🎄. It is a decoration on the existing button, not a second
+    button — clicking either lands on the same share page.
+    ⚠ **All four spots that build this HTML got it**: `referralEmailBlock` and
+    `resolveLinkTokens` in admin.html (mirroring `QUOTE_LINK_BUTTON_STYLE` with a new
+    `SHARE_ICON_BUTTON_STYLE`), and both copies inside `runArrearsRsvpBatch` in
+    functions/index.js (a matching `shareIconBtn` style). The **$25 Off** button text
+    itself was not touched anywhere, so every existing test pinned to it — including the
+    cross-file "both renderers send it character for character" check — still passes
+    unmodified.
+    ⚠ **The icon is checked the same way the button is**: Suite 308 confirms the icon
+    exists, that admin.html's and the server's copies read identically once the
+    `resolveLinkTokens` copy's `📤` source escape is unwound the same way
+    `emailLabel` already unwinds `—`, that the icon's href is built from the same
+    URL variable as the button beside it rather than a second copy, and that the style
+    is defined once in admin.html rather than once per call site.
 - **Where to look when it is wrong.** The Inbox, System folder, money section: **Referral
   Credit Given**, **Referral Taken Back**, **Referral Blocked**. Proved by run-all.js suite
   299, which runs the rules against a fake Firestore; 19 sabotages red-checked.

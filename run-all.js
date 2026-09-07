@@ -52398,6 +52398,62 @@ suite('308. Sharing the referral link, not opening it');
     'the nightly arrears RSVP is sent with no browser involved; a fix in admin.html ' +
     'alone leaves every automatic send pointing at the old screen');
 
+  /* ⭐ THE SHARE ICON, RIGHT NEXT TO THE LINK (added 2026-09-07). Addie: "a share
+     icon right next to link on automation email." A second anchor beside the
+     existing button — same href, never a replacement for it — in all four spots
+     that build this HTML (referralEmailBlock and resolveLinkTokens in admin.html,
+     and the two mirrored spots in functions/index.js's arrears batch).
+     ⚠ PLAIN EMOJI, NOT <svg>/<img> — flagged to Addie as the safer choice across
+     email clients, Outlook especially. */
+  /* ⚠ THE ESCAPE IS UNWOUND BEFORE COMPARING, same reasoning as emailLabel above:
+     admin.html's resolveLinkTokens writes the emoji as a 📤 escape inside a
+     JS string while the other three spots write the character itself — identical in
+     an inbox, different in source. A comparison of the raw text fails on code that
+     is right. */
+  const iconLabel = (s) => ((s.match(/title="Share">([^<]*)<\/a>/) || [])[1] || '')
+    .replace(/\\u([0-9A-Fa-f]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+  /* ⚠ AN ICON BESIDE EVERY BUTTON, COUNTED PER REGION — never "at least one icon
+     somewhere". `refBlock` above is resolveLinkTokens ALONE and `svrBlock` holds BOTH
+     server spots, so a bare existence check passes with three of the four icons
+     deleted. Red-checked, and it did: deleting the referralEmailBlock icon and
+     deleting one of the server pair both sailed straight through. Same miss as the
+     bins column, where the only check written was about one of the two build sheets.
+     A comparison rather than a number, so a fifth button added later has to bring its
+     own icon with it rather than quietly lowering the count. */
+  const refEmailStart = admin.indexOf('async function referralEmailBlock');
+  const refEmailBlock = refEmailStart === -1 ? '' : admin.slice(refEmailStart,
+    admin.indexOf("'[HU] referral block failed'", refEmailStart));
+  const shareBtnCount = (s) => (s.match(/>Share My Link[^<]*<\/a>/g) || []).length;
+  const shareIconCount = (s) => (s.match(/title="Share">/g) || []).length;
+  check('S308', 'the office email carries a share icon beside the button',
+    !!iconLabel(refBlock) && shareBtnCount(refBlock) >= 1 &&
+    shareIconCount(refBlock) === shareBtnCount(refBlock),
+    'a boxed icon with nothing in it is a blank square in somebody’s inbox — and an ' +
+    'icon count short of the button count is a button somewhere with nothing beside it');
+  check('S308', 'and so does the block that appends itself when the template places no token',
+    !!refEmailBlock && shareBtnCount(refEmailBlock) >= 1 &&
+    shareIconCount(refEmailBlock) === shareBtnCount(refEmailBlock) &&
+    iconLabel(refEmailBlock) === iconLabel(refBlock),
+    'referralEmailBlock only runs when her saved template carries neither token ' +
+    '(REF-15), which makes it the copy least likely to be noticed missing one');
+  check('S308', 'and the server’s copies carry the same one, character for character',
+    !!iconLabel(svrBlock) && iconLabel(refBlock) === iconLabel(svrBlock) &&
+    shareBtnCount(svrBlock) >= 1 && shareIconCount(svrBlock) === shareBtnCount(svrBlock),
+    'office: "' + iconLabel(refBlock) + '"  server: "' + iconLabel(svrBlock) + '"  ' +
+    'server buttons: ' + shareBtnCount(svrBlock) + ', icons: ' + shareIconCount(svrBlock));
+  /* The address check: every icon anchor's href must be built from the same
+     variable as the button's — refShareUrl / url in admin.html, referShareUrl on the
+     server — never a second, independently-built URL that could drift from it. */
+  check('S308', 'the icon shares the button’s own address, not a second copy of it',
+    (refBlock.match(/<a href="' \+ refShareUrl \+ '" style="' \+ SHARE_ICON_BUTTON_STYLE/g) || []).length === shareIconCount(refBlock) &&
+    (refEmailBlock.match(/<a href="' \+ url \+ '" style="' \+ SHARE_ICON_BUTTON_STYLE/g) || []).length === shareIconCount(refEmailBlock) &&
+    (svrBlock.match(/<a href="' \+ referShareUrl \+ '" style="' \+ shareIconBtn/g) || []).length === shareIconCount(svrBlock),
+    'two URLs for one button is the {{photo}} failure this repo keeps finding — ' +
+    'one drifts from the other and nobody notices until a customer taps the wrong one');
+  check('S308', 'and the office defines the icon’s style once, not once per call site',
+    (admin.match(/^const SHARE_ICON_BUTTON_STYLE = /m) || []).length === 1,
+    'two definitions of one style is two chances for the icon to look different in the two emails it appears in');
+
   if (!missing308.length) {
     /* One tap, with a share sheet that behaves however the caller says. Everything the
        routine can reach is watched: what it shared, what it copied, what it left on the

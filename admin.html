@@ -8552,7 +8552,8 @@ async function referralEmailBlock(item){
     return '<br><br>—<br><br>Know somebody who wants lights? Send them your own link '
       + 'and we take $25 off this season’s bill when they sign up — as many '
       + 'times as you like.<br><br>'
-      + '<a href="' + url + '" style="' + QUOTE_LINK_BUTTON_STYLE + '">Share My Link — $25 Off</a>';
+      + '<a href="' + url + '" style="' + QUOTE_LINK_BUTTON_STYLE + '">Share My Link — $25 Off</a>'
+      + '<a href="' + url + '" style="' + SHARE_ICON_BUTTON_STYLE + '" title="Share">📤</a>';
   }catch(err){
     /* The RSVP itself is the thing that must go out. A referral offer that could not
        be built is a missing paragraph; a thrown error here would cost the send. */
@@ -8727,6 +8728,16 @@ const QUOTE_LINK_LABEL_STYLE = 'color:#1E3B2C; font-weight:bold; text-decoration
    held to the same string. Its value is unchanged — portal_button, pay_button
    and view_portal_button still read it through btnStyleGold. */
 const QUOTE_LINK_BUTTON_STYLE = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
+/* ⚠ THE SHARE ICON, RIGHT NEXT TO THE LINK (added 2026-09-07). Addie: "a share
+   icon right next to link on automation email." A second, small anchor beside the
+   existing Share My Link button — same href, same destination — never a replacement
+   for it and never carrying its own "5 Off" text, so emailLabel() below keeps
+   reading the ONE button that phrase belongs to.
+   ⚠ A PLAIN EMOJI, NOT AN <svg> OR AN <img>. Inline SVG is unreliable across email
+   clients — Outlook especially — and this repo has nowhere already hosting an icon
+   image for an email to reference. The templates already carry emoji (the RSVP's 🎄),
+   so this is the same trick, not a new one. */
+const SHARE_ICON_BUTTON_STYLE = 'display:inline-block; padding:11px 13px; border-radius:8px; text-decoration:none; font-size:16px; line-height:1; margin:6px 0 6px 4px; background:#D89F3D; color:#1E3B2C; vertical-align:middle;';
 const QUOTE_LINK_BUTTON_DEFAULT = 'View & Respond';
 /* ⭐ THE BUTTON TAKES HER WORDS TOO (added 2026-08-26). {{link_button}} on its
    own still says "View & Respond", the words it has always said;
@@ -8951,7 +8962,8 @@ async function resolveLinkTokens(text, phone, amount, opts){
        said different things before this ("$25 Off" here, "$25 off your bill" there), so
        which words a customer got depended on which renderer happened to send. */
     out = out.split('{{referral_button}}').join(refShareUrl
-      ? ('<a href="' + refShareUrl + '" style="' + btnStyleGold + '">Share My Link \u2014 $25 Off</a>')
+      ? ('<a href="' + refShareUrl + '" style="' + btnStyleGold + '">Share My Link \u2014 $25 Off</a>' +
+         '<a href="' + refShareUrl + '" style="' + SHARE_ICON_BUTTON_STYLE + '" title="Share">\uD83D\uDCE4</a>')
       : '');
   }
   if(out.indexOf('{{messages_link}}') !== -1 || out.indexOf('{{messages_button}}') !== -1){
