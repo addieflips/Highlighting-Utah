@@ -45112,7 +45112,14 @@ if (!JSDOM) {
        calls it, so a lift without it throws a bare ReferenceError and takes this whole
        suite down. Lifted, not stubbed: which count it shows is a claim about a
        DISCOUNT ON A BILL, and a stub would leave that untested while reporting green. */
-    'editCustRenderReferLine', 'referralLiveCount', 'referralLinkFromToken'];
+    /* ⚠ AND referralShareLinkFromToken JOINED THEM (2026-09-07, REF-18). The refer
+       row now offers "See their share page" beside Copy link, so this lift throws a
+       bare ReferenceError the moment a fixture customer HAS a token — the branch is
+       inside `if(url)`, so a tokenless fixture hides it and the suite goes green while
+       being one fixture away from taking the whole run down. Found exactly that way,
+       by a red-check. Lifted, not stubbed: it is the address the office opens. */
+    'editCustRenderReferLine', 'referralLiveCount', 'referralLinkFromToken',
+    'referralShareLinkFromToken'];
   const bodies = NAMES.map(function (n) { return extractFn(admin, n); });
   const missing = NAMES.filter(function (n, i) { return !bodies[i]; });
   check('S276', 'the house-tab functions are all in admin.html', missing.length === 0,
@@ -52453,6 +52460,38 @@ suite('308. Sharing the referral link, not opening it');
   check('S308', 'and the office defines the icon’s style once, not once per call site',
     (admin.match(/^const SHARE_ICON_BUTTON_STYLE = /m) || []).length === 1,
     'two definitions of one style is two chances for the icon to look different in the two emails it appears in');
+
+  /* ⭐ THE OFFICE CAN OPEN THE PAGE THE ICON LEADS TO (added 2026-09-07, REF-18).
+     Addie, of the share page: *"where do I find the page that comes up after pushing
+     the share link icon"* — and the honest answer was nowhere. Both surfaces that show
+     a referral link show /r/, the FRIEND's address; the customer's own /s/ page was
+     reachable only from an email, so looking at it meant copying a link and editing the
+     URL by hand. A "See their share page" anchor now sits beside the Copy link button.
+     ⚠ THE CHECKS RUN ON THE FUNCTION'S OWN SLICE, not the whole file — admin.html
+     mentions both addresses in a dozen comments, and a file-wide search would pass on
+     the prose while the line itself was gone. */
+  const referLineStart = admin.indexOf('function editCustRenderReferLine(){');
+  const referLine = referLineStart === -1 ? '' : admin.slice(referLineStart,
+    admin.indexOf('async function editCustReferClick', referLineStart));
+  check('S308', 'the office can open the customer’s own share page',
+    !!referLine && /referralShareLinkFromToken\(d\.referralToken\)/.test(referLine) &&
+    /id="editCustReferShare"/.test(referLine),
+    'the page an email button leads to, with no way in from the office, is a page ' +
+    'nobody can check — which is how Addie came to be looking for it by hand');
+  /* ⚠ AND THE BOX THE OFFICE COPIES STILL HOLDS THE FRIEND'S ADDRESS. This is the half
+     that costs money if somebody "tidies" the two into one: /s/ handed to a friend is a
+     page about sharing that credits nobody, so the $25 is simply never earned and the
+     only symptom is a referral that quietly did not count. */
+  check('S308', 'and the link it copies is still the FRIEND’s address, not the share page',
+    /const url = referralLinkFromToken\(d\.referralToken\)/.test(referLine) &&
+    !/value="' \+ esc\(shareUrl\)/.test(referLine),
+    'the box beside it is the address the office hands out; pointed at /s/ the friend ' +
+    'lands on a page about sharing and nobody is credited');
+  check('S308', 'and both addresses are built from the one token on the record',
+    (referLine.match(/referral(?:Share)?LinkFromToken\(([^)]*)\)/g) || [])
+      .every(m => m.indexOf('d.referralToken') !== -1),
+    'one token, two addresses (REF-13) — a second source for it is how the two start ' +
+    'naming different customers, and on a shared-phone household that is the wrong bill');
 
   if (!missing308.length) {
     /* One tap, with a share sheet that behaves however the caller says. Everything the

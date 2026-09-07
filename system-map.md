@@ -1044,6 +1044,27 @@ member's bill — with nobody in the office typing anything.
     to them. ⚠ Both renderers send it character for character; they said "$25 Off" and
     "$25 off your bill" until 2026-09-05, so which words a customer got depended on which
     renderer happened to send.
+  - ⭐ **AND THE OFFICE CAN OPEN THAT PAGE** (2026-09-07, REF-18). Addie, after the share
+    icon shipped: *"where do I find the page that comes up after pushing the share link
+    icon cause I thought it would just go to there member portal refer a friend section."*
+    It is not the portal's Refer a Friend tab and deliberately never was — that tab needs
+    a sign-in, and an email button that signs somebody in hands the account to whoever the
+    email was forwarded to (the rule above). But **both** surfaces that showed a referral
+    link showed `/r/`, the friend's address, so the customer's own `/s/` page was reachable
+    only from an email and looking at it meant copying a link and editing the URL by hand.
+    A **See their share page** anchor now sits beside **Copy link** on the Refer a friend
+    row in Edit Customer, built from the same `d.referralToken` as the box next to it.
+    ⚠ **The box still holds `/r/`** and that is the half that costs money: `/s/` handed to
+    a friend is a page about sharing that credits nobody, so the $25 is never earned and
+    the only symptom is a referral that quietly did not count. Suite 308 asserts both
+    directions, and that the two addresses come from the one token on the record.
+    ⚠ **An anchor, not a button** — it navigates rather than doing anything, so there is
+    no handler to wire, and a control whose listener silently did not apply is a failure
+    this repo has already shipped once.
+    ⚠ **Suite 276 RUNS `editCustRenderReferLine`**, so `referralShareLinkFromToken` had to
+    join its lift list in the same change. The new call sits inside `if(url)`, so a
+    tokenless fixture hides the gap and the suite stays green while one fixture away from
+    a bare ReferenceError that takes the whole run down. A red-check is what found it.
   - ⚠ **The share page stores NOTHING as a referral.** The `/r/` reader writes the token
     into `sessionStorage` so the quote that follows is credited; doing the same on `/s/`
     would mark the customer as referred by themselves and their next quote would be
