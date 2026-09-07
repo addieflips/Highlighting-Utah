@@ -1254,6 +1254,48 @@ async function ensureReferralToken(id, data) {
   if (data && typeof data === 'object') Object.assign(data, updates);
   return token;
 }
+/* ⚠ THE MIRROR OF admin.html's SHARE_ICON_BUTTON_STYLE, character for character.
+   A second spelling is the same square rendered two different sizes depending on
+   which of the two renderers happened to send that customer's email. */
+const SHARE_ICON_BUTTON_STYLE_SERVER = 'display:inline-block; padding:11px 13px; border-radius:8px; text-decoration:none; font-size:16px; line-height:1; margin:6px 0 6px 4px; background:#D89F3D; color:#1E3B2C; vertical-align:middle;';
+/* ⭐ THE LINK ITSELF, IN A BOX, WITH THE SHARE ICON BESIDE IT (2026-09-07, REF-19).
+   Addie, sent the two-button version and shown a picture of what she meant instead:
+   *"Okay i was thinking it would look like the second picture"* — a bordered box
+   holding the link she can read, one small gold share square beside it, and no gold
+   call-to-action button at all.
+
+   ⚠ IT REPLACES THE BUTTON, IT DOES NOT SIT UNDER IT. Three tappable things in one
+   paragraph is exactly the clutter the picture was drawn to remove. And it is
+   [[REF-17]] finished rather than undone: Dax asked for "a share icon right next to
+   link", and with the link only ever rendered AS a button there was no link for the
+   icon to sit next to.
+
+   ⚠ THE TWO ADDRESSES STAY TWO ADDRESSES ([[REF-13]]). The words are the FRIEND's
+   /r/<token>, because that is the thing being copied out and forwarded — and what it
+   says is where it goes, so a box reading /r/ that quietly opened /s/ would hand the
+   wrong address to anybody who long-pressed it. The ICON carries the customer's own
+   share page, the same /s/<token> the button carried, so the tap Dax asked about still
+   lands on the share sheet.
+
+   ⚠ A TABLE, NOT A FLEX ROW, AND INLINE STYLES ONLY. Outlook has no flexbox and no
+   border-radius; a table degrades to a square box with the link and the icon still side
+   by side, which is the whole of the design.
+
+   ⚠ AND THE SCHEME IS STRIPPED FROM THE WORDS ONLY, never from the href. */
+function referralShareBoxHtmlServer(friendUrl, shareUrl){
+  const link = String(friendUrl || '');
+  const share = String(shareUrl || '');
+  /* No link means no box at all — never an empty box, and never an <a href=""> a
+     customer taps and lands nowhere. The same rule the button this replaces stated. */
+  if(!link || !share) return '';
+  const shown = link.replace(/^https?:\/\//, '');
+  return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate; border:1px solid #E3D9C2; border-radius:12px; background:#FFFDF7; margin:10px 0;">'
+    + '<tr><td style="padding:10px 4px 10px 14px; font-family:Arial,sans-serif; font-size:14px;">'
+    + '<a href="' + link + '" style="color:#1E3B2C; text-decoration:underline; word-break:break-all;">' + shown + '</a>'
+    + '</td><td valign="middle" style="padding:6px 8px 6px 4px;">'
+    + '<a href="' + share + '" style="' + SHARE_ICON_BUTTON_STYLE_SERVER + '" title="Share">\uD83D\uDCE4</a>'
+    + '</td></tr></table>';
+}
 async function ensureToken(id, data) {
   if (data.portalToken) return data.portalToken;
   const token = generatePortalToken();
@@ -5255,14 +5297,6 @@ async function runArrearsRsvpBatch(source) {
          same order. A chase that looked different from the RSVP email it follows
          would read as a different question. */
       const btn = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
-      /* ⚠ THE SHARE ICON, RIGHT NEXT TO THE LINK (added 2026-09-07). Addie: "a share
-         icon right next to link on automation email." Same href as the button beside
-         it, never a replacement — and the mirror of admin.html's SHARE_ICON_BUTTON_STYLE,
-         character for character, same reason as every other pairing in this block.
-         ⚠ A PLAIN EMOJI, NOT AN <svg> OR AN <img> — inline SVG is unreliable across
-         email clients, Outlook especially, and this repo has no hosted icon image for
-         an email to reference. The templates already carry emoji (the RSVP's 🎄). */
-      const shareIconBtn = 'display:inline-block; padding:11px 13px; border-radius:8px; text-decoration:none; font-size:16px; line-height:1; margin:6px 0 6px 4px; background:#D89F3D; color:#1E3B2C; vertical-align:middle;';
       let body = templateBody;
       body = body.split('{{name}}').join(properNameServer(d.name) || 'there');
       body = body.split('{{rsvp_yes_link}}').join(yesUrl);
@@ -5296,12 +5330,14 @@ async function runArrearsRsvpBatch(source) {
         body.indexOf('{{referral_button}}') !== -1 || body.indexOf('{{referral_link}}') !== -1;
       const referShareUrl = 'https://highlightingutah.com/s/' + encodeURIComponent(referToken);
       body = body.split('{{referral_link}}').join(referUrl);
-      /* ⚠ THE SAME WORDS admin.html's resolveLinkTokens sends, character for
-         character — they read "$25 Off" and "$25 off your bill" until 2026-09-05, so one
-         template said one thing and the nightly chase said another about one button. */
+      /* ⚠ THE SAME BOX admin.html's resolveLinkTokens sends, byte for byte — the two
+         builders are handed the same pair of addresses and a test RUNS both and compares
+         what comes out. Until 2026-09-05 the two spelled one button's words differently
+         ("$25 Off" here, "$25 off your bill" there), so which words a customer read
+         depended on which renderer happened to send; a shared shape removes the question
+         rather than policing it. REF-19 is why it is a box and no longer a button. */
       body = body.split('{{referral_button}}').join(
-        '<a href="' + referShareUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Share My Link — $25 Off</a>' +
-        '<a href="' + referShareUrl + '" style="' + shareIconBtn + '" title="Share">📤</a>');
+        referralShareBoxHtmlServer(referUrl, referShareUrl));
       body = body.replace(/\n/g, '<br>');
       /* ⚠ AND IF THE SAVED TEMPLATE PLACES NEITHER TOKEN, THE OFFER IS APPENDED
          (2026-09-07, REF-15). MON-24 means a template already written in Firestore is
@@ -5324,8 +5360,7 @@ async function runArrearsRsvpBatch(source) {
         body += '<br><br>—<br><br>Know somebody who wants lights? Send them your own link '
           + 'and we take $25 off this season’s bill when they sign up — as many times as '
           + 'you like.<br><br>'
-          + '<a href="' + referShareUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Share My Link — $25 Off</a>'
-          + '<a href="' + referShareUrl + '" style="' + shareIconBtn + '" title="Share">📤</a>';
+          + referralShareBoxHtmlServer(referUrl, referShareUrl);
       }
 
       const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {

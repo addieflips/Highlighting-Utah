@@ -48058,6 +48058,19 @@ suite('287. The routine route sweep does not bury the notice that matters');
           const NL = String.fromCharCode(10);
           return new Function('db', alpha + NL + gen + NL + 'async ' + src + NL + 'return ensureReferralToken;')(db);
         })(),
+        /* ⚠ LIFTED, NOT STUBBED, for the same reason. This is what draws the referral
+           BOX into the body (REF-19), and its icon style is a module-level const OUTSIDE
+           the function — extractFn brings the body and nothing else, so without it the
+           lift throws on its first call, the batch swallows that per customer, and this
+           suite reports "0 customers written to" as though the AUDIENCE FILTER were
+           wrong. That is exactly what it did the first time the box was added. */
+        referralShareBoxHtmlServer: (function(){
+          const src = extractFn(fnsSrcChase, 'referralShareBoxHtmlServer');
+          const style = (fnsSrcChase.match(/const SHARE_ICON_BUTTON_STYLE_SERVER = '[^']+';/) || [])[0];
+          if(!src || !style) return null;
+          const NL = String.fromCharCode(10);
+          return new Function(style + NL + src + NL + 'return referralShareBoxHtmlServer;')();
+        })(),
         fetch: async (url, init) => {
           if (opts.mailFails) return { ok: false, text: async () => 'nope' };
           sent.push(JSON.parse(init.body).template_params);
@@ -53063,100 +53076,142 @@ suite('308. Sharing the referral link, not opening it');
       'the free quote form, which is the whole complaint');
   }
 
-  /* ---- the email: the button shares, the bare token still credits ---- */
+  /* ---- the email: the link is the words, the icon is the share page ---- */
   const refBlock = admin.slice(admin.indexOf("if(out.indexOf('{{referral_link}}')"),
     admin.indexOf("if(out.indexOf('{{messages_link}}')"));
-  check('S308', 'the office button carries the SHARE address',
-    /\{\{referral_button\}\}'\)\.join\(refShareUrl/.test(refBlock),
-    'this is the line Dax tapped: a button on /r/ puts the customer on the friend\u2019s screen');
-  check('S308', 'and {{referral_link}} still carries the FRIEND\u2019s address',
+  check('S308', 'the office box is built from the SHARE address for its icon',
+    /referralShareBoxHtml\(refUrl, refShareUrl\)/.test(refBlock),
+    'this is the line Dax tapped: an icon on /r/ puts the customer on the friend’s screen');
+  check('S308', 'and {{referral_link}} still carries the FRIEND’s address',
     /\{\{referral_link\}\}'\)\.join\(refUrl\)/.test(refBlock),
     'that token is pasted into an email as text for the customer to forward — pointed ' +
     'at the share page it would send their friend to a page about sharing');
   const svrStart = fnsSrc.indexOf('const referToken = await ensureReferralToken');
   const svrBlock = svrStart === -1 ? '' : fnsSrc.slice(svrStart,
     fnsSrc.indexOf('const res = await fetch', svrStart));
-  /* ⭐ ONE BUTTON, ONE NAME. Dax: *"that button that says share my link should be the
-     same button we send in their email"*. The email button lands on the page whose gold
-     button says Share My Link, so the two are read minutes apart by one person.
-     ⚠ AND THE TWO RENDERERS ARE COMPARED TO EACH OTHER, not each to a literal: they
-     disagreed for a day ("$25 Off" against "$25 off your bill"), so which words a customer
-     saw depended on which renderer happened to send. The {{photo}} pairing again. */
-  /* ⚠ THE ESCAPE IS UNWOUND BEFORE COMPARING. admin.html writes the dash as
-     \u2014 inside a JS string and functions/index.js writes the character itself, so
-     the two labels are identical in a customer's inbox and differ in the source. A
-     comparison of the raw text fails on code that is right. */
-  const emailLabel = (s) => ((s.match(/>([^<]*\$25[^<]*)<\/a>/) || [])[1] || '')
-    .split('\\u2014').join('\u2014');
-  check('S308', 'the email button carries the page\u2019s own words',
-    /^Share My Link/.test(emailLabel(refBlock)) &&
-    /id="shareLinkBtn">Copy My Link</.test(idx308),
-    'got: "' + emailLabel(refBlock) + '" \u2014 two names for one button, and the customer ' +
-    'reads the email first');
-  check('S308', 'and both renderers send it character for character',
-    !!emailLabel(refBlock) && emailLabel(refBlock) === emailLabel(svrBlock),
-    'office: "' + emailLabel(refBlock) + '"  server: "' + emailLabel(svrBlock) + '"');
-  check('S308', 'the server sends the same pair, the same way round',
-    /\{\{referral_button\}\}'\)\.join\([\s\S]{0,80}referShareUrl/.test(svrBlock) &&
+  check('S308', 'the server sends the same box, the same way round',
+    /\{\{referral_button\}\}'\)\.join\(\s*referralShareBoxHtmlServer\(referUrl, referShareUrl\)\)/.test(svrBlock) &&
     /\{\{referral_link\}\}'\)\.join\(referUrl\)/.test(svrBlock),
     'the nightly arrears RSVP is sent with no browser involved; a fix in admin.html ' +
-    'alone leaves every automatic send pointing at the old screen');
+    'alone leaves every automatic send drawing the old block');
 
-  /* ⭐ THE SHARE ICON, RIGHT NEXT TO THE LINK (added 2026-09-07). Addie: "a share
-     icon right next to link on automation email." A second anchor beside the
-     existing button — same href, never a replacement for it — in all four spots
-     that build this HTML (referralEmailBlock and resolveLinkTokens in admin.html,
-     and the two mirrored spots in functions/index.js's arrears batch).
-     ⚠ PLAIN EMOJI, NOT <svg>/<img> — flagged to Addie as the safer choice across
-     email clients, Outlook especially. */
-  /* ⚠ THE ESCAPE IS UNWOUND BEFORE COMPARING, same reasoning as emailLabel above:
-     admin.html's resolveLinkTokens writes the emoji as a 📤 escape inside a
-     JS string while the other three spots write the character itself — identical in
-     an inbox, different in source. A comparison of the raw text fails on code that
-     is right. */
-  const iconLabel = (s) => ((s.match(/title="Share">([^<]*)<\/a>/) || [])[1] || '')
-    .replace(/\\u([0-9A-Fa-f]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
-  /* ⚠ AN ICON BESIDE EVERY BUTTON, COUNTED PER REGION — never "at least one icon
-     somewhere". `refBlock` above is resolveLinkTokens ALONE and `svrBlock` holds BOTH
-     server spots, so a bare existence check passes with three of the four icons
-     deleted. Red-checked, and it did: deleting the referralEmailBlock icon and
-     deleting one of the server pair both sailed straight through. Same miss as the
-     bins column, where the only check written was about one of the two build sheets.
-     A comparison rather than a number, so a fifth button added later has to bring its
-     own icon with it rather than quietly lowering the count. */
+  /* ⭐ THE LINK IN A BOX, NOT A GOLD BUTTON (2026-09-07, REF-19). Addie, sent the
+     button-plus-icon version and shown a picture of what she meant instead: *"Okay i was
+     thinking it would look like the second picture"* — a bordered box holding the link
+     she can read, with the gold share square beside it, and no gold call-to-action.
+     ⚠ IT IS [[REF-17]] FINISHED RATHER THAN UNDONE. Dax asked for "a share icon right
+     next to link"; with the link only ever rendered AS a button there was no link for
+     the icon to sit beside, which is what the picture is correcting.
+     ⚠ AND THE WORDS "Share My Link — $25 Off" LEAVING THE EMAIL DOES REVERSE ONE
+     EARLIER ANSWER — Dax, 2026-09-05, wanted the email button to read what the share
+     page's own button reads. The page is untouched and still says it; the email now
+     shows the address instead, on her newer answer ([[R-024]]). Checked below, so
+     nobody restores the words on one side alone.
+
+     ⭐ ONE BUILDER PER FILE, AND THIS RUNS BOTH. Until now this HTML was written out
+     four times — twice in admin.html, twice on the server — and the checks had to police
+     it region by region and count icons against buttons; a red-check proved two of the
+     four could be dropped and sail through. There is one builder in each file now, they
+     are handed the SAME PAIR OF ADDRESSES here, and they must return the same bytes.
+     A fifth call site added later is right by construction rather than by being counted. */
+  const admBoxSrc = extractFn(admin, 'referralShareBoxHtml');
+  const svrBoxSrc = extractFn(fnsSrc, 'referralShareBoxHtmlServer');
+  const admIconStyle = (admin.match(/const SHARE_ICON_BUTTON_STYLE = '[^']+';/) || [])[0];
+  const svrIconStyle = (fnsSrc.match(/const SHARE_ICON_BUTTON_STYLE_SERVER = '[^']+';/) || [])[0];
+  check('S308', 'both builders and both icon styles are findable',
+    !!admBoxSrc && !!svrBoxSrc && !!admIconStyle && !!svrIconStyle,
+    'repoint this lift rather than stubbing it — a stub here keeps the suite green ' +
+    'through an email that draws nothing at all');
+  if (admBoxSrc && svrBoxSrc && admIconStyle && svrIconStyle) {
+    const NL308 = String.fromCharCode(10);
+    const admBox = new Function(admIconStyle + NL308 + admBoxSrc +
+      NL308 + 'return referralShareBoxHtml;')();
+    const svrBox = new Function(svrIconStyle + NL308 + svrBoxSrc +
+      NL308 + 'return referralShareBoxHtmlServer;')();
+    const FRIEND308 = 'https://highlightingutah.com/r/x7k2m9pq';
+    const SHARE308 = 'https://highlightingutah.com/s/x7k2m9pq';
+    const boxA = admBox(FRIEND308, SHARE308);
+    const boxB = svrBox(FRIEND308, SHARE308);
+    check('S308', 'the office and the server draw the same box, byte for byte',
+      !!boxA && boxA === boxB,
+      'office: ' + boxA.slice(0, 120) + '  server: ' + boxB.slice(0, 120));
+    /* ⚠ THE WORDS AND THE href ARE CHECKED SEPARATELY, because the whole design is that
+       what it says is where it goes. A box reading /r/ that quietly opened /s/ would
+       hand the wrong address to anybody who long-pressed it and copied. */
+    check('S308', 'the words are the FRIEND’s address, with the scheme stripped',
+      boxA.indexOf('>highlightingutah.com/r/x7k2m9pq</a>') !== -1 &&
+      boxA.indexOf('>https://') === -1,
+      'got: ' + (boxA.match(/>([^<]*\/r\/[^<]*)</) || [])[1]);
+    check('S308', 'and its href is that same address, unstripped',
+      boxA.indexOf('href="' + FRIEND308 + '"') !== -1,
+      'a link whose words and address disagree is a wrong link on every long-press');
+    check('S308', 'the icon carries the SHARE page, not the friend’s address',
+      boxA.indexOf('href="' + SHARE308 + '" style="' + admIconStyle
+        .replace(/^const SHARE_ICON_BUTTON_STYLE = '/, '').replace(/';$/, '') +
+        '" title="Share">') !== -1,
+      'REF-13: the icon is tapped by the customer we emailed, so it belongs on their ' +
+      'own share page — /r/ puts them on the free quote form, which is the complaint');
+    check('S308', 'exactly one link and one icon, never two of either',
+      (boxA.match(/<a /g) || []).length === 2,
+      'got ' + (boxA.match(/<a /g) || []).length + ' anchors — the picture is one row');
+    /* ⚠ A TABLE, NOT A FLEX ROW: Outlook has neither flexbox nor border-radius, and a
+       table degrades to a square box with the link and the icon still side by side. */
+    check('S308', 'it is a table with inline styles, so Outlook still shows a row',
+      /^<table role="presentation"/.test(boxA) && boxA.indexOf('<div') === -1,
+      'a flex row collapses to two stacked lines in Outlook, which is not the picture');
+    check('S308', 'no token makes no box at all, from either copy',
+      admBox('', '') === '' && admBox(FRIEND308, '') === '' && admBox('', SHARE308) === '' &&
+      svrBox('', '') === '' && svrBox(FRIEND308, '') === '',
+      'an empty box, or an <a href=""> inside one, is a customer tapping something we ' +
+      'sent them and landing nowhere — worse than a missing paragraph');
+  }
+  /* ⚠ EVERY CALL SITE, NAMED — the appended block is the one that only runs when her
+     saved template places neither token (REF-15), which makes it the copy least likely
+     to be noticed drawing the wrong thing. Red-checked: deleting it went straight
+     through the old existence checks. */
   const refEmailStart = admin.indexOf('async function referralEmailBlock');
   const refEmailBlock = refEmailStart === -1 ? '' : admin.slice(refEmailStart,
     admin.indexOf("'[HU] referral block failed'", refEmailStart));
-  const shareBtnCount = (s) => (s.match(/>Share My Link[^<]*<\/a>/g) || []).length;
-  const shareIconCount = (s) => (s.match(/title="Share">/g) || []).length;
-  check('S308', 'the office email carries a share icon beside the button',
-    !!iconLabel(refBlock) && shareBtnCount(refBlock) >= 1 &&
-    shareIconCount(refBlock) === shareBtnCount(refBlock),
-    'a boxed icon with nothing in it is a blank square in somebody’s inbox — and an ' +
-    'icon count short of the button count is a button somewhere with nothing beside it');
-  check('S308', 'and so does the block that appends itself when the template places no token',
-    !!refEmailBlock && shareBtnCount(refEmailBlock) >= 1 &&
-    shareIconCount(refEmailBlock) === shareBtnCount(refEmailBlock) &&
-    iconLabel(refEmailBlock) === iconLabel(refBlock),
+  check('S308', 'the block that appends itself draws the same box',
+    /referralShareBoxHtml\(referralLinkFromToken\(token\), url\)/.test(refEmailBlock),
     'referralEmailBlock only runs when her saved template carries neither token ' +
     '(REF-15), which makes it the copy least likely to be noticed missing one');
-  check('S308', 'and the server’s copies carry the same one, character for character',
-    !!iconLabel(svrBlock) && iconLabel(refBlock) === iconLabel(svrBlock) &&
-    shareBtnCount(svrBlock) >= 1 && shareIconCount(svrBlock) === shareBtnCount(svrBlock),
-    'office: "' + iconLabel(refBlock) + '"  server: "' + iconLabel(svrBlock) + '"  ' +
-    'server buttons: ' + shareBtnCount(svrBlock) + ', icons: ' + shareIconCount(svrBlock));
-  /* The address check: every icon anchor's href must be built from the same
-     variable as the button's — refShareUrl / url in admin.html, referShareUrl on the
-     server — never a second, independently-built URL that could drift from it. */
-  check('S308', 'the icon shares the button’s own address, not a second copy of it',
-    (refBlock.match(/<a href="' \+ refShareUrl \+ '" style="' \+ SHARE_ICON_BUTTON_STYLE/g) || []).length === shareIconCount(refBlock) &&
-    (refEmailBlock.match(/<a href="' \+ url \+ '" style="' \+ SHARE_ICON_BUTTON_STYLE/g) || []).length === shareIconCount(refEmailBlock) &&
-    (svrBlock.match(/<a href="' \+ referShareUrl \+ '" style="' \+ shareIconBtn/g) || []).length === shareIconCount(svrBlock),
-    'two URLs for one button is the {{photo}} failure this repo keeps finding — ' +
-    'one drifts from the other and nobody notices until a customer taps the wrong one');
-  check('S308', 'and the office defines the icon’s style once, not once per call site',
-    (admin.match(/^const SHARE_ICON_BUTTON_STYLE = /m) || []).length === 1,
-    'two definitions of one style is two chances for the icon to look different in the two emails it appears in');
+  check('S308', 'and so do BOTH of the server’s spots',
+    (svrBlock.match(/referralShareBoxHtmlServer\(referUrl, referShareUrl\)/g) || []).length === 2,
+    'got ' + (svrBlock.match(/referralShareBoxHtmlServer\(referUrl, referShareUrl\)/g) || []).length +
+    ' of 2 — the token branch and the appended block are two sends, and the appended ' +
+    'one is the half nobody is looking at');
+  /* ⚠ AND NOTHING BUILDS THIS HTML BY HAND ANY MORE. Four inline copies is what the
+     builder replaced; one left behind would drift from the other three exactly as the
+     two labels did ("$25 Off" against "$25 off your bill") until 2026-09-05. */
+  /* ⚠ COMMENTS STRIPPED FIRST, and this failed on correct code without it: the comment
+     recording WHY the words left the email quotes them, and a plain scan read the
+     explanation as the thing it forbids. Suites 58, 274, 275 and 300 each learned this
+     separately, which is the argument for stripping by default. */
+  const handBuilt = (s) => {
+    const bare = stripComments(s);
+    return (bare.match(/title="Share">/g) || []).length +
+      (bare.match(/Share My Link/g) || []).length;
+  };
+  check('S308', 'and none of the four spots still writes the anchors itself',
+    handBuilt(refBlock) === 0 && handBuilt(refEmailBlock) === 0 && handBuilt(svrBlock) === 0,
+    'office: ' + handBuilt(refBlock) + ', appended: ' + handBuilt(refEmailBlock) +
+    ', server: ' + handBuilt(svrBlock) + ' — a hand-built copy beside the builder is ' +
+    'the one that goes stale');
+  /* ⚠ THE PAGE KEEPS ITS OWN WORDS. Only the EMAIL dropped them (REF-19); the share
+     page's gold button is what the icon lands on and is untouched. */
+  check('S308', 'the share page still says Share My Link on its own button',
+    /id="shareLinkBtn">Copy My Link</.test(idx308) &&
+    idx308.indexOf("'Share My Link'") !== -1,
+    'the icon leads there — a page that stopped saying it is a tap landing on nothing ' +
+    'recognisable');
+  check('S308', 'each file defines the icon’s style once, and the two agree',
+    (admin.match(/^const SHARE_ICON_BUTTON_STYLE = /m) || []).length === 1 &&
+    (fnsSrc.match(/^const SHARE_ICON_BUTTON_STYLE_SERVER = /m) || []).length === 1 &&
+    admIconStyle.replace('SHARE_ICON_BUTTON_STYLE', 'X').replace('X_SERVER', 'X') ===
+      svrIconStyle.replace('SHARE_ICON_BUTTON_STYLE_SERVER', 'X'),
+    'two definitions of one style is two chances for the icon to look different in the ' +
+    'two emails it appears in');
 
   /* ⭐ THE OFFICE CAN OPEN THE PAGE THE ICON LEADS TO (added 2026-09-07, REF-18).
      Addie, of the share page: *"where do I find the page that comes up after pushing
