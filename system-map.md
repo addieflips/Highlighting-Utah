@@ -1073,13 +1073,34 @@ member's bill — with nobody in the office typing anything.
     (functions/index.js). **`{{referral_link}}`, the bare token, still resolves to `/r/`**
     — that one is pasted into an email as text for the customer to forward, so it is the
     friend's address by design.
-  - ⭐ **THE EMAIL BUTTON AND THE PAGE'S BUTTON SAY THE SAME THING** — **Share My Link
-    — $25 Off**. Dax: *"that button that says share my link should be the same button we
-    send in their email"*. It reads "Refer a Friend" no longer, because the customer reads
-    the email and then the page minutes apart and two names for one button is two buttons
-    to them. ⚠ Both renderers send it character for character; they said "$25 Off" and
-    "$25 off your bill" until 2026-09-05, so which words a customer got depended on which
-    renderer happened to send.
+  - ⭐ **WHAT THE OFFER LOOKS LIKE IN THE EMAIL: THE LINK, IN A BOX, WITH THE SHARE
+    SQUARE BESIDE IT** (2026-09-07, REF-19). Addie, sent the version built the day before
+    and shown a picture of what she meant instead: *"Okay i was thinking it would look
+    like the second picture"*. A bordered box holding `highlightingutah.com/r/<token>`
+    where she can read it, and one small gold share square next to it. **No gold
+    call-to-action button.** That finishes REF-17 rather than undoing it — Dax asked for
+    *"a share icon right next to link"*, and while the link only ever rendered AS a button
+    there was no link for the icon to sit beside.
+    ⚠ **The words and the `href` in the box are both the FRIEND's `/r/` link** — that is
+    the thing being copied out and forwarded, and what it says has to be where it goes or
+    a long-press copies the wrong address. **The ICON carries `/s/`**, the customer's own
+    share page, so the tap Dax complained about still lands on the share sheet.
+    ⚠ **This is the one place an earlier answer was reversed rather than refined.** Dax,
+    2026-09-05: *"that button that says share my link should be the same button we send in
+    their email"* — the words **Share My Link — $25 Off** were to match the share page's
+    own button, and they said "$25 Off" here and "$25 off your bill" there until that was
+    fixed. **The page still says them; the email now shows the address instead**, on her
+    newer answer. The paragraph above the box still says $25.
+    ⚠ **One builder per file, not four inline copies.** `referralShareBoxHtml` in
+    admin.html (used by `referralEmailBlock` and `resolveLinkTokens`) and
+    `referralShareBoxHtmlServer` in functions/index.js (used at both spots in
+    `runArrearsRsvpBatch`). Suite 308 RUNS both on one pair of addresses and compares the
+    bytes, rather than policing four regions and counting icons against buttons — which is
+    what it did before, and a red-check had already shown two of the four could be dropped
+    and sail through.
+    ⚠ **A table, not a flex row**, and inline styles only: Outlook has neither flexbox nor
+    `border-radius`, so it degrades to a square box with the link and the icon still side
+    by side, which is the whole of the design.
   - ⭐ **AND THE OFFICE CAN OPEN THAT PAGE** (2026-09-07, REF-18). Addie, after the share
     icon shipped: *"where do I find the page that comes up after pushing the share link
     icon cause I thought it would just go to there member portal refer a friend section."*

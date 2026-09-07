@@ -8560,16 +8560,16 @@ async function referralEmailBlock(item){
        button carrying it lands the REFERRER on the free quote form — the bug Dax
        reported and the whole point of referralShareLinkFromToken. This block is the one
        path that appears only when the saved template places no token, which makes it the
-       path least likely to be caught pointing at the wrong page. Same address and same
-       words as the {{referral_button}} branch in resolveLinkTokens and as the server's
-       copy in runArrearsRsvpBatch — three spellings of one button is two of them wrong. */
+       path least likely to be caught pointing at the wrong page. The BOX is built by
+       referralShareBoxHtml, the one builder resolveLinkTokens also calls and the mirror
+       of the server's own in runArrearsRsvpBatch — three spellings of one thing is two
+       of them wrong, which is what a shared builder removes rather than polices. */
     const url = referralShareLinkFromToken(token);
-    if(!url) return '';   /* no link means no button — never a button pointing nowhere */
+    if(!url) return '';   /* no link means no box — never a box around a dead address */
     return '<br><br>—<br><br>Know somebody who wants lights? Send them your own link '
       + 'and we take $25 off this season’s bill when they sign up — as many '
       + 'times as you like.<br><br>'
-      + '<a href="' + url + '" style="' + QUOTE_LINK_BUTTON_STYLE + '">Share My Link — $25 Off</a>'
-      + '<a href="' + url + '" style="' + SHARE_ICON_BUTTON_STYLE + '" title="Share">📤</a>';
+      + referralShareBoxHtml(referralLinkFromToken(token), url);
   }catch(err){
     /* The RSVP itself is the thing that must go out. A referral offer that could not
        be built is a missing paragraph; a thrown error here would cost the send. */
@@ -8754,6 +8754,44 @@ const QUOTE_LINK_BUTTON_STYLE = 'display:inline-block; padding:12px 28px; border
    image for an email to reference. The templates already carry emoji (the RSVP's 🎄),
    so this is the same trick, not a new one. */
 const SHARE_ICON_BUTTON_STYLE = 'display:inline-block; padding:11px 13px; border-radius:8px; text-decoration:none; font-size:16px; line-height:1; margin:6px 0 6px 4px; background:#D89F3D; color:#1E3B2C; vertical-align:middle;';
+/* ⭐ THE LINK ITSELF, IN A BOX, WITH THE SHARE ICON BESIDE IT (2026-09-07, REF-19).
+   Addie, sent the two-button version and shown a picture of what she meant instead:
+   *"Okay i was thinking it would look like the second picture"* — a bordered box
+   holding the link she can read, one small gold share square beside it, and no gold
+   call-to-action button at all.
+
+   ⚠ IT REPLACES THE BUTTON, IT DOES NOT SIT UNDER IT. Three tappable things in one
+   paragraph is exactly the clutter the picture was drawn to remove. And it is
+   [[REF-17]] finished rather than undone: Dax asked for "a share icon right next to
+   link", and with the link only ever rendered AS a button there was no link for the
+   icon to sit next to.
+
+   ⚠ THE TWO ADDRESSES STAY TWO ADDRESSES ([[REF-13]]). The words are the FRIEND's
+   /r/<token>, because that is the thing being copied out and forwarded — and what it
+   says is where it goes, so a box reading /r/ that quietly opened /s/ would hand the
+   wrong address to anybody who long-pressed it. The ICON carries the customer's own
+   share page, the same /s/<token> the button carried, so the tap Dax asked about still
+   lands on the share sheet.
+
+   ⚠ A TABLE, NOT A FLEX ROW, AND INLINE STYLES ONLY. Outlook has no flexbox and no
+   border-radius; a table degrades to a square box with the link and the icon still side
+   by side, which is the whole of the design.
+
+   ⚠ AND THE SCHEME IS STRIPPED FROM THE WORDS ONLY, never from the href. */
+function referralShareBoxHtml(friendUrl, shareUrl){
+  const link = String(friendUrl || '');
+  const share = String(shareUrl || '');
+  /* No link means no box at all — never an empty box, and never an <a href=""> a
+     customer taps and lands nowhere. The same rule the button this replaces stated. */
+  if(!link || !share) return '';
+  const shown = link.replace(/^https?:\/\//, '');
+  return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate; border:1px solid #E3D9C2; border-radius:12px; background:#FFFDF7; margin:10px 0;">'
+    + '<tr><td style="padding:10px 4px 10px 14px; font-family:Arial,sans-serif; font-size:14px;">'
+    + '<a href="' + link + '" style="color:#1E3B2C; text-decoration:underline; word-break:break-all;">' + shown + '</a>'
+    + '</td><td valign="middle" style="padding:6px 8px 6px 4px;">'
+    + '<a href="' + share + '" style="' + SHARE_ICON_BUTTON_STYLE + '" title="Share">\uD83D\uDCE4</a>'
+    + '</td></tr></table>';
+}
 const QUOTE_LINK_BUTTON_DEFAULT = 'View & Respond';
 /* ⭐ THE BUTTON TAKES HER WORDS TOO (added 2026-08-26). {{link_button}} on its
    own still says "View & Respond", the words it has always said;
@@ -8970,16 +9008,21 @@ async function resolveLinkTokens(text, phone, amount, opts){
     const refUrl = referralLinkFromToken(refToken);
     const refShareUrl = referralShareLinkFromToken(refToken);
     out = out.split('{{referral_link}}').join(refUrl);
-    /* ⭐ THE SAME BUTTON, THE SAME WORDS (2026-09-05). Dax: *"that button that says
-       share my link should be the same button we send in their email"*. It lands on the
-       page whose one gold button says Share My Link, so an email button reading anything
-       else is two names for one thing — and the customer reads the email first.
-       ⚠ CHARACTER FOR CHARACTER THE SERVER'S OWN LABEL in runArrearsRsvpBatch. They
-       said different things before this ("$25 Off" here, "$25 off your bill" there), so
-       which words a customer got depended on which renderer happened to send. */
+    /* ⭐ THE LINK IN A BOX, NOT A GOLD BUTTON (2026-09-07, REF-19). Addie, shown the
+       button-plus-icon version: *"Okay i was thinking it would look like the second
+       picture"* — the link she can read, in a bordered box, with the share square beside
+       it. referralShareBoxHtml is the whole of it and is shared with referralEmailBlock.
+       ⚠ THE WORDS "Share My Link — $25 Off" ARE GONE FROM THE EMAIL, and that is the
+       one thing here that reverses an earlier answer rather than refining it. Dax,
+       2026-09-05: *"that button that says share my link should be the same button we
+       send in their email"* — the words were to match the share page's own button. The
+       page still says them; the email now shows the address instead. Her picture is the
+       newer answer ([[R-024]]) and the offer above the box still says $25.
+       ⚠ CHARACTER FOR CHARACTER THE SERVER'S OWN BOX in runArrearsRsvpBatch, which is
+       now a comparison a test can RUN rather than read: the two builders are handed the
+       same pair of addresses and must return the same bytes. */
     out = out.split('{{referral_button}}').join(refShareUrl
-      ? ('<a href="' + refShareUrl + '" style="' + btnStyleGold + '">Share My Link \u2014 $25 Off</a>' +
-         '<a href="' + refShareUrl + '" style="' + SHARE_ICON_BUTTON_STYLE + '" title="Share">\uD83D\uDCE4</a>')
+      ? referralShareBoxHtml(refUrl, refShareUrl)
       : '');
   }
   if(out.indexOf('{{messages_link}}') !== -1 || out.indexOf('{{messages_button}}') !== -1){
@@ -18228,11 +18271,11 @@ const IC_CODES = {
     {token:'{{venmo_link}}', label:'Venmo pay link (plain URL)'},
     {token:'{{venmo_button}}', label:'Venmo pay link (button)'},
     {token:'{{referral_link}}', label:'Their referral link (plain URL) \u2014 $25 off when a friend joins'},
-    {token:'{{referral_button}}', label:'Their referral link (button)'}
+    {token:'{{referral_button}}', label:'Their referral link (box)'}
   ],
   rsvp: [
     {token:'{{referral_link}}', label:'Their referral link (plain URL) \u2014 $25 off when a friend joins'},
-    {token:'{{referral_button}}', label:'Their referral link (button)'},
+    {token:'{{referral_button}}', label:'Their referral link (box)'},
     {token:'{{rsvp_yes_link}}', label:'RSVP Yes (plain URL)'},
     {token:'{{rsvp_yes_button}}', label:'RSVP Yes (button)'},
     {token:'{{rsvp_no_link}}', label:'RSVP No (plain URL)'},
