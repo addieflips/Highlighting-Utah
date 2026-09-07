@@ -1949,8 +1949,7 @@ if (JSDOM) {
      who is charged $30 — and leaving them out crashed the whole suite with a bare
      ReferenceError, which is what actually happened and is exactly what sandboxDeps
      exists to name. They are declared as globals so they can see each other. */
-  ['referralSeasonNow', 'referralTokenSeasonOf', 'referralTokenIsCurrentSeason',
-   'referralHolderFor', 'quoteSetupFeeReason', 'quoteSetupFeeReasonHtml'
+  ['referralSeasonNow', 'referralTokenSeasonOf', 'referralHolderFor', 'quoteSetupFeeReason', 'quoteSetupFeeReasonHtml'
   ].forEach(function (fn) {
     eval(extractFn(admin, fn) + '\nglobal.' + fn + ' = ' + fn + ';');
   });
@@ -49725,10 +49724,12 @@ suite('299. A referral link, and the $25 that follows it');
     /* ⚠ ADDED 2026-09-07 WITH REF-14. creditReferralIfAny stopped resolving a token
        with a bare `.find()` on referralToken the day links began rotating every season:
        it asks referralHolderFor, which searches the CURRENT token and then the past
-       ones, so last season's link still credits the referrer even though it no longer
+       ones, so a retired link still credits the referrer even though it no longer
        waives the set-up fee. Lifted rather than stubbed — a stub here decides who keeps
-       $25, and would keep this suite green through a change to exactly that. */
-    ['referralHolderFor', false]
+       $25, and would keep this suite green through a change to exactly that.
+       ⚠ referralTokenSeasonOf COMES WITH IT because referralHolderFor reports which
+       season a retired link was from, and sandboxDeps named it the moment it did. */
+    ['referralHolderFor', false], ['referralTokenSeasonOf', false]
   ];
   const lifted = PARTS.map(p => lift(p[0], p[1]));
   const missingParts = PARTS.filter((p, i) => !lifted[i]).map(p => p[0]);
@@ -50191,42 +50192,38 @@ suite('299. A referral link, and the $25 that follows it');
           'got ' + first + ' then ' + second + ' after ' + writes.length + ' write(s) — a ' +
           'fresh token every visit breaks every link the customer has already shared');
 
-        /* ⭐ AND IT DOES CHANGE BETWEEN SEASONS (2026-09-07, REF-14). Addie: "They should
-           use there new referal link every year which should give new referal links
-           every year." The season is the calendar year, so last season's record is one
-           carrying an older stamp. */
-        const old = {referralToken: 'tok-old', referralTokenSeason: new Date().getFullYear() - 1};
-        const before = writes.length;
-        const rotated = await ensure('REF2', old);
-        const write = writes[writes.length - 1] || {};
-        check('S299', 'and it IS replaced when the stamp is from a past season',
-          rotated !== 'tok-old' && write.referralToken === rotated &&
-          write.referralTokenSeason === new Date().getFullYear() &&
-          writes.length === before + 1,
-          'got ' + rotated + ' — a link that never rotates is last year\'s link for ever, ' +
-          'and by REF-13 it would go on waiving the set-up fee');
-        check('S299', 'and the replaced token is KEPT, not thrown away',
-          Array.isArray(write.referralTokensPast) &&
-          write.referralTokensPast.some(function (x) { return x && x.token === 'tok-old'; }),
-          'the $25 credit resolves a link back to whoever made it — discarding last ' +
-          'year\'s token would silently end that credit for every link already shared, ' +
-          'which is not what Addie ruled on');
+        /* ⭐ AND THE SERVER NEVER ROTATES (2026-09-07, REF-18). Addie: "Can we just have
+           a button we can push that says start new season and it will update
+           everything?" Start New Season owns rotation, so this side only ever mints.
+           ⚠ AN EARLIER VERSION ROTATED HERE TOO, on the calendar year, and it had to go
+           rather than be kept alongside: two triggers for one rule means the button she
+           presses would rarely be the thing that did anything, and the two copies could
+           take turns replacing each other's token so a customer's link changed every
+           time anybody looked at it. */
+        const old = {referralToken: 'lastyear', referralTokenSeason: new Date().getFullYear() - 1};
+        const before2 = writes.length;
+        const kept = await ensure('REF2', old);
+        check('S299', 'an old token is handed back untouched, because the button rotates',
+          kept === 'lastyear' && writes.length === before2,
+          'got ' + kept + ' after ' + (writes.length - before2) + ' write(s) — rotating ' +
+          'here as well as in Start New Season is two triggers for one rule');
 
-        /* ⚠ AND AN UNSTAMPED TOKEN IS GRANDFATHERED, NEVER ROTATED. Every link minted
-           before the stamp existed carries no season; reading those as expired would
-           replace the whole book's links at once, breaking every one already texted out
-           this season and charging the $30 to friends told in writing they would not
-           pay it. It is dated instead — one write, same token. */
-        const legacy = {referralToken: 'tok-legacy'};
-        const beforeLegacy = writes.length;
-        const kept = await ensure('REF3', legacy);
-        const legacyWrite = writes[writes.length - 1] || {};
-        check('S299', 'an undated link is dated to this season, not replaced',
-          kept === 'tok-legacy' && writes.length === beforeLegacy + 1 &&
-          legacyWrite.referralTokenSeason === new Date().getFullYear() &&
-          legacyWrite.referralToken === undefined,
-          'got ' + kept + ' — replacing these would break every link already shared ' +
-          'this season');
+        const legacy = {referralToken: 'undated'};
+        const before3 = writes.length;
+        const same = await ensure('REF3', legacy);
+        check('S299', 'and so is an undated one',
+          same === 'undated' && writes.length === before3,
+          'got ' + same + ' — an undated link is simply this customer\'s current link ' +
+          'until the button replaces it, which is exactly what holder.current says');
+
+        const fresh = {};
+        const before4 = writes.length;
+        const made = await ensure('REF4', fresh);
+        const w = writes[writes.length - 1] || {};
+        check('S299', 'a record with no token gets one, stamped with this season',
+          !!made && writes.length === before4 + 1 && w.referralToken === made &&
+          w.referralTokenSeason === new Date().getFullYear(),
+          'the stamp is what lets the office be told WHICH season a retired link was from');
       })());
     }
   }
@@ -51558,63 +51555,122 @@ suite('305. The referral link, from the office side');
         new Function('return ' + fn('referralTokenSeasonOf') + ';referralTokenSeasonOf')(),
         Number((admin.match(/const REFERRAL_PAST_KEEP = (\d+);/) || [])[1]),
         {error: () => {}});
-      /* ⭐ AND THE BACKFILL IS WHAT MAKES NEXT YEAR CORRECT (2026-09-07). Addie: "The
-         link is new this year so there should be no last year link" — so nothing rotates
-         this season and the whole rule is invisible until January, which makes this
-         button very easy to read as optional. It is not: a record still unstamped when
-         somebody opens it in 2027 is stamped 2027, recording a 2026 link as next
-         season's, so it never rotates and goes on waiving the set-up fee for ever.
-         ⚠ IT ONLY EVER ADDS THE STAMP. The token is untouched, so no link anybody is
-         holding stops working — which is why it needs no typed confirmation, unlike the
-         Danger Zone sweeps, and why it is safe to press twice. */
+      /* ⭐ ROTATION IS ONE PURE FUNCTION, AND START NEW SEASON IS ITS ONLY CALLER
+         (2026-09-07, REF-18). Addie: "Can we just have a button we can push that says
+         start new season and it will update everything?" So the button owns it, and the
+         lazy calendar-year rotation that used to sit in referralTokenFor is gone — two
+         things rotating on two different triggers means the button she presses would
+         rarely be the one that did anything, and the pair could take turns replacing
+         each other's token.
+         ⚠ RUN, NOT MATCHED. referralRotationUpdates is its own function precisely so
+         these can execute it rather than grep a loop buried in a 200-line handler. */
       {
-        const fill = extractFn(admin, 'backfillReferralLinks');
-        check('S305', 'the backfill dates links that have none',
-          /referralTokenSeasonOf\(a\.data\) === null/.test(fill) &&
-          /referralTokenSeason: season/.test(fill),
-          'a link left undated is stamped with whatever year it is next opened in, ' +
-          'which records a 2026 link as next season\'s and it then never rotates');
-        check('S305', 'and it never touches the token itself while doing so',
-          !/referralToken:\s*generateReferralToken\(\)[\s\S]{0,200}referralTokenSeasonOf/.test(fill) &&
-          /batch\.update\(doc\(db,'jobAddresses', a\.id\), \{referralTokenSeason: season\}\)/.test(fill),
-          'dating a link must not replace it — that would break every link already ' +
-          'shared this season, which is the one thing this pass exists to avoid');
-        check('S305', 'and a book where everyone is already dated reports nothing to do',
-          /!list\.length && !toStamp\.length/.test(fill),
-          'returning early on the mint list alone would silently skip the dating pass');
+        const rot = new Function('referralTokenSeasonOf', 'REFERRAL_PAST_KEEP',
+          extractFn(admin, 'referralRotationUpdates') + 'return referralRotationUpdates;')(
+          new Function('return ' + fn('referralTokenSeasonOf') + ';referralTokenSeasonOf')(),
+          Number((admin.match(/const REFERRAL_PAST_KEEP = (\d+);/) || [])[1]));
+
+        const out = rot({referralToken: 'old1', referralTokenSeason: 2026}, 2027, 'new1');
+        check('S305', 'rotating gives a new token and stamps the season',
+          out && out.referralToken === 'new1' && out.referralTokenSeason === 2027,
+          'a link that never changes is last year\'s link for ever, and by REF-13 it ' +
+          'would go on waiving the set-up fee');
+        check('S305', 'and the old token is KEPT, with the season it belonged to',
+          Array.isArray(out.referralTokensPast) &&
+          out.referralTokensPast.some(function (x) {
+            return x && x.token === 'old1' && x.season === 2026 && x.retiredAt === 2027;
+          }),
+          'the $25 credit resolves a link back to whoever made it — discarding the old ' +
+          'token would silently end that credit for every link already shared, which is ' +
+          'not what Addie ruled on');
+        check('S305', 'an undated old token records a null season rather than a guessed one',
+          (function () {
+            const u = rot({referralToken: 'undated'}, 2027, 'new2');
+            const kept = (u.referralTokensPast || [])[0] || {};
+            return kept.token === 'undated' && kept.season === null;
+          })(),
+          'every link minted before stamping existed has no season; printing a guessed ' +
+          'year on a card the office acts on is worse than saying "an earlier season"');
+        check('S305', 'a customer with no link at all is skipped, not given an empty history',
+          rot({}, 2027, 'new3') === null,
+          'returning an update for a record with nothing to rotate makes the button ' +
+          'write to every customer in the book for nothing');
+        check('S305', 'and the kept history is capped',
+          (function () {
+            const many = [];
+            for (let i = 0; i < 9; i++) many.push({token: 't' + i, season: 2018 + i});
+            const r = rot({referralToken: 'live', referralTokensPast: many}, 2027, 'new4');
+            const keep = Number((admin.match(/const REFERRAL_PAST_KEEP = (\d+);/) || [])[1]);
+            return r.referralTokensPast.length === keep &&
+              r.referralTokensPast[r.referralTokensPast.length - 1].token === 'live';
+          })(),
+          'one entry a season for ever is a record that only grows');
+
+        /* ⚠ AND THE BUTTON HAS TO ACTUALLY CALL IT. A rule nobody invokes is the shape
+           this repo has shipped before — a control rendered with no listener, green
+           suite, nothing on screen. Asserted against the Start New Season handler
+           itself, not against the file. */
+        const ssn = admin.slice(admin.indexOf("ssnRunBtn')?.addEventListener"),
+          admin.indexOf('arrearsBackfillPending'));
+        check('S305', 'Start New Season is what hands out the new links',
+          /referralRotationUpdates\(/.test(ssn) && /generateReferralToken\(\)/.test(ssn),
+          'Addie asked for one button that updates everything; without this it updates ' +
+          'everything except the links');
+        check('S305', 'and it rotates EVERY customer, not just the ones in scope',
+          /ssnChunk\(\(jobAddresses \|\| \[\]\)\.filter/.test(ssn),
+          'the rest of the handler is scoped to everyone-except-No; a link belongs to ' +
+          'the person, not to their answer, and leaving the out-of-scope ones would let ' +
+          'somebody who said No keep a link that waives the set-up fee for ever');
+        check('S305', 'and it says so before it runs, in the confirmation',
+          /brand-new referral link/.test(ssn),
+          'this is the last screen before an irreversible write; a link everybody holds ' +
+          'being replaced is not something to discover afterwards');
+        check('S305', 'and the count is named in the finish line',
+          /new referral link/.test(ssn) && /rotateLine/.test(ssn),
+          'nought links has to be visible rather than silent');
       }
-      pendingAsync.push((async () => {
-        const year = new Date().getFullYear();
-        const rec = {id: 'C1', data: {referralToken: 'keepme', referralTokenSeason: year}};
-        const before = writes.length;
-        const got = await call(rec);
-        check('S305', 'an existing token is reused rather than replaced',
-          got === 'keepme' && writes.length === before,
-          'got ' + got + ' after ' + (writes.length - before) + ' write(s) — a fresh ' +
-          'token each time breaks every link they have already shared');
 
-        /* ⭐ AND IT DOES ROTATE ACROSS SEASONS (REF-14), which is the other half of the
-           same guarantee: stable within a season, new for the next one. */
-        const stale = {id: 'C2', data: {referralToken: 'lastyear', referralTokenSeason: year - 1}};
-        const rotated = await call(stale);
-        const w = writes[writes.length - 1] || {};
-        check('S305', 'and a past season\'s token IS replaced, keeping the old one',
-          rotated !== 'lastyear' && w.referralTokenSeason === year &&
-          Array.isArray(w.referralTokensPast) &&
-          w.referralTokensPast.some((x) => x && x.token === 'lastyear'),
-          'got ' + rotated + ' — a link that never rotates goes on waiving the set-up ' +
-          'fee for ever (REF-13), and discarding the old one silently ends the $25');
+      /* ⚠ AND referralTokenFor NEVER ROTATES. It mints for a record with none and hands
+         back whatever is there otherwise — the one-mechanism half of REF-18. */
+      {
+        const writes = [];
+        let n = 0;
+        const run = new Function('item', 'db', 'doc', 'updateDoc', 'generateReferralToken',
+          'referralSeasonNow', 'console',
+          'async ' + mint + '\nreturn referralTokenFor(item);');
+        const call = (item) => run(item, {}, () => ({}), async (_r, u) => { writes.push(u); },
+          () => 'tok-' + (++n),
+          new Function('return ' + fn('referralSeasonNow') + ';referralSeasonNow')(),
+          {error: () => {}});
+        pendingAsync.push((async () => {
+          const year = new Date().getFullYear();
+          const rec = {id: 'C1', data: {referralToken: 'keepme', referralTokenSeason: year}};
+          const before = writes.length;
+          const got = await call(rec);
+          check('S305', 'an existing token is reused rather than replaced',
+            got === 'keepme' && writes.length === before,
+            'got ' + got + ' after ' + (writes.length - before) + ' write(s) — a fresh ' +
+            'token each time breaks every link they have already shared');
 
-        /* ⚠ AND AN UNDATED TOKEN IS DATED, NEVER REPLACED — every link on file predates
-           the stamp, so reading those as expired would break the whole book at once. */
-        const legacy = {id: 'C3', data: {referralToken: 'undated'}};
-        const kept = await call(legacy);
-        const lw = writes[writes.length - 1] || {};
-        check('S305', 'an undated token is dated to this season, not replaced',
-          kept === 'undated' && lw.referralTokenSeason === year &&
-          lw.referralToken === undefined,
-          'got ' + kept + ' — replacing these breaks every link already shared this season');
-      })());
+          const stale = {id: 'C2', data: {referralToken: 'lastyear', referralTokenSeason: year - 1}};
+          const b2 = writes.length;
+          const kept = await call(stale);
+          check('S305', 'and an OLD token is still reused, because the button owns rotation',
+            kept === 'lastyear' && writes.length === b2,
+            'got ' + kept + ' — rotating here as well as in Start New Season is two ' +
+            'triggers for one rule, and the pair can take turns replacing each other');
+
+          const fresh = {id: 'C3', data: {}};
+          const b3 = writes.length;
+          const made = await call(fresh);
+          const w = writes[writes.length - 1] || {};
+          check('S305', 'a customer with no link gets one, stamped with this season',
+            made && made !== 'lastyear' && writes.length === b3 + 1 &&
+            w.referralToken === made && w.referralTokenSeason === year,
+            'the stamp is what lets the office be told WHICH season a retired link ' +
+            'came from');
+        })());
+      }
     }
     check('S305', 'and it is the referral token, never the portal one',
       !/portalToken/.test(mint),
@@ -51941,10 +51997,15 @@ suite('Suite 310. A friend who comes in through a referral link pays no setup fe
        that a token was PRESENT; Addie: "If referal link is from last year and they are
        using it than it should still charge 30 dollar fee." So the waiver now asks
        whether this is the link that customer holds right now — which also closes the
-       hole the first version had, where any invented string after /r/ bought $30 off. */
+       hole the first version had, where any invented string after /r/ bought $30 off.
+       ⚠ AND IT ASKS THAT AS A FACT, NOT AS A DATE (REF-18). `holder.current` means this
+       string IS the token on the record; a season comparison beside it was a second way
+       of asking one question, and the one that could disagree — a stamp is missing on
+       every link minted before stamping existed. The check asserts the season is NOT
+       consulted here, because re-adding it is the tempting change. */
     check('S310', 'a referred quote is not charged the fee by default',
-      /referralHolderFor\(referredBy\)/.test(body) &&
-      /holder\.current/.test(body) && /referralTokenIsCurrentSeason/.test(body),
+      /referralHolderFor\(referredBy\)/.test(body) && /holder\.current/.test(body) &&
+      !/referralTokenSeason/.test(body),
       'referredByToken is written on the quote the moment a friend submits the public ' +
       'form through a /r/<token> link — this does not wait for the referral to be earned, ' +
       'but it does have to be THIS season\'s link');
@@ -51968,8 +52029,7 @@ suite('Suite 310. A friend who comes in through a referral link pays no setup fe
       const stubbed = 'function quoteCustomerKeys(){ return new Set(["x"]); }\n' +
         'function quoteAlreadyACustomer(){ return false; }\n' +
         'function isRequote(d){ return !!(d && (d.existingCustomerId || Number(d.requoteCount) > 0)); }\n' +
-        ['referralSeasonNow', 'referralTokenSeasonOf', 'referralTokenIsCurrentSeason',
-         'referralHolderFor'].map((f) => extractFn(admin, f)).join('\n') + '\n' +
+        ['referralSeasonNow', 'referralTokenSeasonOf',       'referralHolderFor'].map((f) => extractFn(admin, f)).join('\n') + '\n' +
         body + '\nthis.f = quoteChargesSetupFee;';
       const sv = {};
       new Function('jobAddresses', stubbed).call(sv, book);
@@ -52008,8 +52068,7 @@ suite('Suite 310. A friend who comes in through a referral link pays no setup fe
          the reason is refferal." An unticked box with no reason is indistinguishable
          from somebody's stray click, and the office cannot tell which. */
       const why = new Function('jobAddresses',
-        ['referralSeasonNow', 'referralTokenSeasonOf', 'referralTokenIsCurrentSeason',
-         'referralHolderFor', 'quoteSetupFeeReason'].map((f) => extractFn(admin, f)).join('\n') +
+        ['referralSeasonNow', 'referralTokenSeasonOf',       'referralHolderFor', 'quoteSetupFeeReason'].map((f) => extractFn(admin, f)).join('\n') +
         '\nthis.r = quoteSetupFeeReason;');
       const rv = {};
       why.call(rv, book);
@@ -52018,9 +52077,10 @@ suite('Suite 310. A friend who comes in through a referral link pays no setup fe
         /referral/.test((rv.r({referredByToken: 'live1'}) || {}).text) &&
         /Dana/.test((rv.r({referredByToken: 'live1'}) || {}).text),
         '"referral" alone still leaves the one question worth asking — whose');
-      check('S310', 'a stale link says the fee still applies, rather than staying quiet',
+      check('S310', 'a retired link says the fee still applies, rather than staying quiet',
         (rv.r({referredByToken: 'stale1'}) || {}).waived === false &&
-        /last season/i.test((rv.r({referredByToken: 'stale1'}) || {}).text),
+        /referral link/i.test((rv.r({referredByToken: 'stale1'}) || {}).text) &&
+        /fee still applies/i.test((rv.r({referredByToken: 'stale1'}) || {}).text),
         'that is the case where the box IS ticked, and somebody will want to know why a ' +
         'referred friend is being charged');
       /* ⚠ THE CHECK IS THAT IT DOES NOT READ AS A WAIVED REFERRAL, not that the word

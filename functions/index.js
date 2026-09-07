@@ -1207,62 +1207,36 @@ function generateReferralToken() {
   }
   return out;
 }
-/* ⭐ A NEW REFERRAL LINK EVERY SEASON (2026-09-07, REF-14). Addie: "They should use
-   there new referal link every year which should give new referal links every year."
+/* ⭐ THE SEASON'S REFERRAL LINK — MINTED HERE, ROTATED ONLY BY THE BUTTON (REF-18,
+   2026-09-07). Addie: "Can we just have a button we can push that says start new season
+   and it will update everything?"
 
-   ⚠ THIS IS THE SERVER HALF OF referralTokenFor IN admin.html AND THE TWO MUST ROTATE
-   ON THE SAME RULE. They cannot share code — one is a browser module and this is Node,
-   the same split money.js lives with — and if one rotated on a condition the other did
-   not, the two would take turns replacing each other's token and a customer's link
-   would change every time anybody looked at it. Change one, change the other, in the
-   same push; run-all.js compares the two.
+   ⚠ SO THIS FUNCTION NEVER REPLACES A LIVE TOKEN. It mints one for a customer who has
+   none and returns whatever is already there otherwise. Start New Season in admin.html
+   is the only thing that rotates, and it does every customer in one press.
 
-   ⭐ AN UNSTAMPED TOKEN IS THIS SEASON'S — AS A FACT. Addie, 2026-09-07: "The link is
-   new this year so there should be no last year link." The feature is three days old,
-   so every token on file really was minted this season. The safety argument that came
-   first still holds and is worth keeping: reading them as last year's would rotate the
-   whole book at once, breaking every link already sent out and charging the $30
-   (REF-13) to friends who were told in writing they would not pay it. */
-const REFERRAL_PAST_KEEP = 5;
+   ⚠ AN EARLIER VERSION ROTATED HERE TOO, on the calendar year, and that had to go rather
+   than be kept alongside: two things rotating on two different triggers means the button
+   she presses would rarely be the one that actually did it, and the pair could take turns
+   replacing each other's token so a customer's link changed every time anybody looked at
+   it. One rule, one trigger.
+
+   ⚠ THE SEASON STAMP IS WRITTEN AT MINT AND IS DESCRIPTIVE ONLY. Nothing about money
+   reads it — the fee waiver asks whether a token is the one on the record right now,
+   which is a fact rather than a date comparison. It is allowed to be missing: every link
+   minted before 2026-09-07 has none. */
 function referralSeasonNow() { return new Date().getFullYear(); }
-function referralTokenSeasonOf(data) {
-  const n = Number((data || {}).referralTokenSeason);
-  return (isFinite(n) && n > 0) ? n : null;
-}
 async function ensureReferralToken(id, data) {
-  const season = referralSeasonNow();
-  const have = String((data || {}).referralToken || '').trim();
-  const stamped = referralTokenSeasonOf(data);
-  if (have && stamped === season) return have;
-  if (have && stamped === null) {
-    try {
-      await db.collection('jobAddresses').doc(id).update({ referralTokenSeason: season });
-    } catch (err) {
-      // Use it anyway — an unstamped token is still this season's link.
-    }
-    return have;
-  }
+  if (data && data.referralToken) return data.referralToken;
   const token = generateReferralToken();
-  const updates = { referralToken: token, referralTokenSeason: season };
-  if (have) {
-    /* ⚠ THE OLD TOKEN IS KEPT, NOT DISCARDED. The $25 credit resolves a link back to
-       whoever made it, and Addie's ruling was about the SET-UP FEE, not the credit —
-       throwing the old token away would have quietly ended that credit for every link
-       already out in the world. admin.html's referralHolderFor reads these. */
-    const past = Array.isArray(data.referralTokensPast) ? data.referralTokensPast.slice() : [];
-    past.push({ token: have, season: stamped });
-    updates.referralTokensPast = past.slice(-REFERRAL_PAST_KEEP);
-  }
+  const updates = { referralToken: token, referralTokenSeason: referralSeasonNow() };
   try {
     await db.collection('jobAddresses').doc(id).update(updates);
   } catch (err) {
     // Use it anyway — worst case their link is replaced on the next visit.
   }
-  /* ⚠ MIRRORED ONTO THE RECORD WE WERE HANDED, exactly as admin.html's referralTokenFor
-     does. Without the SEASON going back too, a second call in the same request would
-     still see the old stamp and rotate a link that had just been rotated — handing the
-     customer a different token from the one already written. Nothing calls it twice
-     today; that is not a reason to leave a trap in a function that mints links. */
+  /* Mirrored onto the record we were handed, so a later read in the same request sees
+     the token that was actually written rather than minting a second one. */
   if (data && typeof data === 'object') Object.assign(data, updates);
   return token;
 }

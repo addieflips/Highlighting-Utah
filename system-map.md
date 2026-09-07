@@ -1212,45 +1212,49 @@ text/email."*
 dollar fee. They should use there new referal link every year which should give new
 referal links every year."* This narrows the rule directly above it.
 
-- **The token carries the season it was minted for** — `referralTokenSeason`, the
-  calendar year, the same answer Start New Season already uses for its snapshot key.
-  `referralTokenFor` (admin.html) and `ensureReferralToken` (functions/index.js) both
-  replace a token whose stamp is from a past season. **The two must rotate on the same
-  rule**: if one rotated where the other did not, they would take turns replacing each
-  other's token and a customer's link would change every time anybody looked at it.
-- ⚠ **Rotation is lazy, and deliberately not part of Start New Season.** That button is
-  irreversible and hits every record, and it is not the only way a season begins — the
-  link has to be right for whoever opens a record first. Every route that HANDS OUT a
-  link goes through one of those two functions, so a link is refreshed at the moment it
-  is given, and a record nobody touches costs nothing.
-- ⭐ **An unstamped token is this season's — as a FACT, not a fail-safe** (REF-17).
-  Addie: *"The link is new this year so there should be no last year link."* Checked
-  against the history rather than taken on trust, and exactly right: the first referral
-  token in the repo is 2026-09-04, so every token on file really was minted this season.
-  The safety argument that came first is kept in the code because it is what makes the
-  rule right for anybody reading it later — reading them as last year's would rotate the
-  whole book at once, breaking every link already texted out and charging the $30 to
-  friends told in writing they would not pay it. They are **dated** instead of replaced.
-- ⚠ **So nothing rotates this season, and that is the expected behaviour.** There is no
-  last-year link for the rule to bite on; it first does anything in January.
-- ⭐ **Which makes the Bulk Updates referral button the load-bearing part, and it reads
-  as optional because it changes nothing you can see today.** A record still undated when
-  somebody opens it in 2027 is stamped 2027 — recording a 2026 link as next season's, so
-  it never rotates and goes on waiving the set-up fee for ever. **One press this season
-  closes that.** It only ever ADDS the date, so no link anybody holds stops working, which
-  is why it needs no typed confirmation and is safe to press twice.
+- ⭐ **Start New Season is what hands out the new links** (REF-18). Addie: *"Can we just
+  have a button we can push that says start new season and it will update everything?"*
+  One press rotates every customer's referral link, stamps it with the season, and keeps
+  the retired token so the $25 credit can still resolve it. **The season is the button,
+  not the calendar** — the lazy year-turnover rotation this shipped with is REMOVED, not
+  kept alongside: it fired on 1 January, weeks after somebody might have shared a link in
+  December while that friend was still deciding, and it meant the button would rarely be
+  the thing that actually rotated anything. Two triggers for one rule also let the browser
+  and server copies take turns replacing each other's token, so a customer's link would
+  change every time anybody looked at it.
+- ⚠ **Every customer, not the ones in scope.** The rest of that handler is scoped to
+  everyone-except-No because it resets SEASON state. A referral link belongs to the
+  person, not to their answer — leaving the out-of-scope ones alone would let somebody
+  who said No keep a link that waives the set-up fee for ever.
+- ⚠ **It runs last, after the money, and a failure is reported rather than swallowed.**
+  If the links fail the season is already correctly reset and pressing again finishes
+  them; the other order risks the reverse. The count is named in the finish line so nought
+  links is visible.
+- ⚠ **And the confirmation says so.** That is the last screen before an irreversible
+  write, and every customer's link being replaced is not something to find out afterwards.
+- ⚠ **The cost, accepted knowingly: nothing rotates if the button is never pressed.** That
+  same button resets every invoice, so a season nobody starts is broken long before a
+  stale referral link matters.
+- ⚠ **`referralTokenFor` and `ensureReferralToken` only ever MINT.** A record with no
+  token gets one; a record with one keeps it, whatever year it is. `referralRotationUpdates`
+  is the only thing that replaces a live token and Start New Season is its only caller.
+- ⚠ **The season stamp is descriptive, not decisive.** Nothing about money reads it — the
+  waiver asks whether a token is the one on the record right now (`holder.current`), which
+  is a fact rather than a date comparison, and does not go wrong on the links minted before
+  stamping existed which carry no stamp at all. The stamp is there so the office can be
+  told WHICH season a retired link came from, and "an earlier season" is what it says when
+  it does not know.
 - ⚠ **Old tokens are kept, not discarded** (`referralTokensPast`, last five). The $25
-  credit resolves a link back to whoever made it; throwing the old token away would have
-  quietly ended that credit for every link already out in the world. Addie ruled on the
-  **fee**, not the credit, so `creditReferralIfAny` searches the past tokens too and last
-  season's link still earns the $25. **That half is not a live question yet** (REF-17):
-  no such link exists, so there is nothing to decide until next season. If it should
-  ever change, it is one line — `holder.current` is already the answer.
+  credit resolves a link back to whoever made it; throwing the retired token away would
+  have quietly ended that credit for every link already out in the world. Addie ruled on
+  the **fee**, not the credit, so a retired link still earns the $25. **That half is not a
+  live question yet** (REF-17): no such link exists, so there is nothing to decide until
+  next season.
 - ⭐ **AND IT CLOSED A HOLE NOBODY HAD ASKED ABOUT.** The first version waived the fee for
   any non-empty token, so `/r/anything` typed into the address bar bought $30 off — the
   browser cannot tell a real token from an invented one by looking at it. The waiver now
-  asks whether this is the link that customer holds *right now*, so an invented token and
-  a stale one are both charged.
+  asks whether this is the link that customer holds right now, so an invented token and a
+  retired one are both charged.
 
 ⭐ **AND THE CARD SAYS WHY THE BOX IS UNTICKED** (added 2026-09-07, REF-15). Addie: *"For
 referals for not tickig the box the reason is refferal."* `quoteChargesSetupFee` answers
