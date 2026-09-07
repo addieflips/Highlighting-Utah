@@ -722,8 +722,12 @@ const PORTAL_WRITE_FIELDS = {
   lights:      ['lightsDescription'],
   /* ⭐ Which sides they want lit. Its own section, not folded into
      'preferences', because changing it changes the PRICE — see the requote
-     flag below — and a section is what decides whether that runs. */
-  sides:       ['houseSides'],
+     flag below — and a section is what decides whether that runs.
+     ⚠ houseSidesList ADDED 2026-09-06. It never drives the re-quote flag or
+     price — houseSides (the count) still does, unchanged — it is the specific
+     names (Front/Left/Right/Back), sanitized server-side below the same way
+     houseSides itself is. */
+  sides:       ['houseSides', 'houseSidesList'],
   cancel:      ['cancellationReason']
 };
 
@@ -733,7 +737,7 @@ const PORTAL_WRITE_FIELDS = {
 const PORTAL_READ_FIELDS = [
   'name', 'phone', 'email', 'address', 'phone2', 'email2', 'gateCode',
   'lightsDescription', 'installPreference', 'wireColor', 'outletTimer',
-  'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus', 'houseSides',
+  'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus', 'houseSides', 'houseSidesList',
   /* ⚠ THE WORD ON ITS OWN IS NOT AN ANSWER, so the portal needs the stamp too
      (added 2026-09-02). A stored yes with nothing behind it is an import or the
      assumed yes written at conversion (RS-19) — the office already refuses that
@@ -1217,14 +1221,37 @@ function generateReferralToken() {
   }
   return out;
 }
+/* ⭐ THE SEASON'S REFERRAL LINK — MINTED HERE, ROTATED ONLY BY THE BUTTON (REF-18,
+   2026-09-07). Addie: "Can we just have a button we can push that says start new season
+   and it will update everything?"
+
+   ⚠ SO THIS FUNCTION NEVER REPLACES A LIVE TOKEN. It mints one for a customer who has
+   none and returns whatever is already there otherwise. Start New Season in admin.html
+   is the only thing that rotates, and it does every customer in one press.
+
+   ⚠ AN EARLIER VERSION ROTATED HERE TOO, on the calendar year, and that had to go rather
+   than be kept alongside: two things rotating on two different triggers means the button
+   she presses would rarely be the one that actually did it, and the pair could take turns
+   replacing each other's token so a customer's link changed every time anybody looked at
+   it. One rule, one trigger.
+
+   ⚠ THE SEASON STAMP IS WRITTEN AT MINT AND IS DESCRIPTIVE ONLY. Nothing about money
+   reads it — the fee waiver asks whether a token is the one on the record right now,
+   which is a fact rather than a date comparison. It is allowed to be missing: every link
+   minted before 2026-09-07 has none. */
+function referralSeasonNow() { return new Date().getFullYear(); }
 async function ensureReferralToken(id, data) {
-  if (data.referralToken) return data.referralToken;
+  if (data && data.referralToken) return data.referralToken;
   const token = generateReferralToken();
+  const updates = { referralToken: token, referralTokenSeason: referralSeasonNow() };
   try {
-    await db.collection('jobAddresses').doc(id).update({ referralToken: token });
+    await db.collection('jobAddresses').doc(id).update(updates);
   } catch (err) {
     // Use it anyway — worst case their link is replaced on the next visit.
   }
+  /* Mirrored onto the record we were handed, so a later read in the same request sees
+     the token that was actually written rather than minting a second one. */
+  if (data && typeof data === 'object') Object.assign(data, updates);
   return token;
 }
 async function ensureToken(id, data) {
@@ -1619,6 +1646,12 @@ const PORTAL_CHANGE_LABELS = {
   specificOutletNotes: 'Which outlet', notes: { label: 'Notes', kind: 'text' },
   lightsDescription: 'Light colours',
   houseSides: { label: 'Sides of the house', kind: 'number' },
+  /* ⭐ ADDED 2026-09-06 with houseSidesList itself. A portal-writable field with no
+     label here is SILENCE: the customer ticks Front and Back, the record changes, and
+     their history says nothing — which reads exactly like the save never happening.
+     change-log.test.js is what caught it missing, and it requires the office copy in
+     admin.html (CUSTOMER_FIELD_LABELS) to say the same words with the same kind. */
+  houseSidesList: { label: 'Which sides', kind: 'list' },
   cancellationReason: { label: 'Why they are cancelling', kind: 'text' }
 };
 /* ⚠ THE ORDER OF THESE FIRST TWO LINES IS THE RULE, and it is written out in the browser
@@ -1781,6 +1814,34 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
       return (n >= 1 && n <= 4) ? n : 1;
     };
     updates.houseSides = asCount(updates.houseSides);
+    /* ⭐ WHICH SIDES, BY NAME (2026-09-06). Addie: "how are we supposed to know
+       which sides they want if it just says how many ... that's why we need
+       them to say which side of the house they want done from where their
+       front door stands." Additive, never a replacement — houseSides above is
+       still what raises the re-quote flag below, unchanged.
+
+       ⚠ VALIDATED SERVER-SIDE, same as the count: reduced to the four names the
+       app knows, in one fixed order, deduped and capped at four — anything else
+       (a stray value, a duplicate, more than four) is dropped rather than
+       stored, the same discipline as the four-key reduction just above it.
+
+       ⚠ THE LIST WINS THE COUNT WHEN BOTH ARRIVE. A client that sends three
+       names and a count of two disagreeing with each other is either a stale
+       page or a tampered request; the list is the one a person actually ticked
+       box by box, so it is the one trusted to say how many. */
+    const SIDE_NAMES = ['Front', 'Left', 'Right', 'Back'];
+    if (updates.houseSidesList !== undefined) {
+      const picked = {};
+      (Array.isArray(updates.houseSidesList) ? updates.houseSidesList : [])
+        .forEach((s) => { if (SIDE_NAMES.indexOf(s) !== -1) picked[s] = true; });
+      const sanitized = SIDE_NAMES.filter((s) => picked[s]);
+      if (sanitized.length) {
+        updates.houseSidesList = sanitized;
+        updates.houseSides = sanitized.length;
+      } else {
+        delete updates.houseSidesList;
+      }
+    }
     /* ⚠ NO "needs re-quote" FLAG. Owner, 2026-08-18: "we shouldnt need a flag
        that says needs requote the customer should just appear in the requote
        section." The quote the portal opens IS the record of it — a second flag
