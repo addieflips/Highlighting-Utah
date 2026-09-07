@@ -3121,6 +3121,22 @@
       <!-- ⭐ Owner, 2026-09-02: "make an rsvp text link for everyone that doesnt have
            an email on file." The RSVP goes out by email; these are the people it can
            never reach, and without this they are simply never asked. -->
+      <!-- ⭐ Dax, 2026-09-07: "We want one button for the entire rsvp", and "we need
+           everyone to get the right email and hve it sent to the right spot." The season
+           RSVP was three screens — the standard email here, the Not Paid one under
+           Invoices, and the text list below — and a send that has to reach everybody
+           exactly once is the worst possible place to rely on somebody remembering the
+           order. This is those three, in one press, with the breakdown shown first. -->
+      <div class="card" id="rsvpWholeCard" style="margin-bottom:22px; border-color:var(--gold);">
+        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#127876; Send the whole RSVP</h3>
+        <p class="form-note" style="margin:0 0 12px;">One press sends both RSVP emails: the ordinary one to everybody who is straight, and the <b>Not Paid RSVP</b> to everybody who owes from last season &mdash; so each customer gets the one that fits them, and nobody gets both. Anyone with no email on file is listed underneath for texting instead. <b>Check first</b> shows exactly who would get what without sending anything.</p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+          <button type="button" class="btn btn-outline btn-sm" id="rsvpWholeCheckBtn">Check first &mdash; who gets what</button>
+          <button type="button" class="btn btn-gold" id="rsvpWholeSendBtn">Send the whole RSVP</button>
+        </div>
+        <div id="rsvpWholeStatus" style="font-size:13px; color:var(--slate); margin:0 0 8px;"></div>
+        <div id="rsvpWholeBreakdown" style="font-size:13px;"></div>
+      </div>
       <div class="card" id="rsvpTextCard" style="margin-bottom:22px; border-color:var(--gold-dim);">
         <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128241; Text the RSVP &mdash; no email on file</h3>
         <p class="form-note" style="margin:0 0 12px;">The RSVP email cannot reach these customers, so they are never asked. Each link signs that person into their own portal, where the first thing on the page is <strong>&ldquo;Are you having lights this season?&rdquo;</strong> with Yes, Back next year and Not this season &mdash; so one short link is the whole RSVP. Nobody who has already answered is listed, and nobody in their first year, for the same reason the email skips them.</p>
@@ -17828,24 +17844,23 @@ document.getElementById('etCopyForPreviewBtn').addEventListener('click', functio
     setTimeout(() => { statusEl.textContent = ''; }, 2000);
   });
 });
-document.getElementById('etSendToSelectedBtn').addEventListener('click', async function(){
-  const statusEl = document.getElementById('etPreviewSendStatus');
-  const templateId = document.getElementById('etSendTemplateSelect').value;
-  const template = emailTemplates.find(t => t.id === templateId);
-  if(!template){ statusEl.textContent = 'Pick a template first.'; return; }
-  /* ⚠ READ FROM THE RECORDED SELECTION, NOT FROM THE CHECKBOXES ON SCREEN. With a name
-     typed in the search box the DOM holds one row, and this used to send to one person
-     while the pill, the count line and the button all said 312. The tick is the record;
-     the checkbox is only a picture of it. */
-  const selectedIds = Array.from(etSelectedRecipientIds);
-  if(!selectedIds.length){ statusEl.textContent = 'Select at least one recipient.'; return; }
-  const serviceId = document.getElementById('emailjsServiceId').value.trim();
-  const templateJsId = document.getElementById('emailjsTemplateId').value.trim();
-  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
-  if(!serviceId || !templateJsId || !publicKey){ statusEl.textContent = 'Set up EmailJS (Email Setup card above) first.'; return; }
-  if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your connection.'; return; }
-  if(!confirm('Send "'+template.data.name+'" to '+selectedIds.length+' member(s) now?')) return;
-  emailjs.init(publicKey);
+/* ⭐ ONE SENDER, HOWEVER MANY TEMPLATES A RUN NEEDS (2026-09-07).
+ *
+ * ⚠ THIS IS THE PREVIEW & SEND LOOP, MOVED RATHER THAN COPIED. Every rule in it —
+ *   the do-not-send gate at send time, the quote token, the add-on block, the
+ *   referral block, the per-kind subject — is the shipped one, unchanged. Two
+ *   senders over one book is a set of rules that holds or does not depending on
+ *   which button was pressed, and this repo has already deleted one second sender
+ *   for exactly that reason (RS-52). The whole-RSVP button calls THIS.
+ *
+ * ⚠ IT DOES NOT MARK THE RSVP SENT. A run may be several passes over several
+ *   templates, and rsvpSentAt is one fact about the season, not one per pass —
+ *   marking in here would stamp it twice and report the season live before the
+ *   second half of the book had been written to. The caller marks, once, at the end.
+ *
+ * ⚠ AND IT NEVER THROWS OUT OF THE LOOP. One address EmailJS rejects must not stop
+ *   the other nine hundred; a failure is counted and the run carries on. */
+async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId, statusEl, progressLabel){
   let sent = 0, failed = 0, optedOut = 0;
   for(const id of selectedIds){
     const member = jobAddresses.find(m => m.id === id);
@@ -17858,7 +17873,15 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
        exclusion is not a failure and reading it as one hides both. */
     if(etNoAutomationEmails(member.data)) { optedOut++; continue; }
     // Generate quote token if template uses quote buttons
-    if(template.data.body.indexOf('{{quote_') !== -1){
+    /* ⚠ THE TOKEN PREFIX IS BUILT, NOT WRITTEN OUT, and it is not fussiness. Suites lift
+       a function by counting braces from its signature, so two unbalanced opening braces
+       inside a string run the count off the end and the whole function reads as MISSING —
+       the suite then skips or passes vacuously rather than failing. That cost a run the
+       moment this loop became a named function; inside the old click handler it never
+       mattered because nothing lifted it by name. Same reasoning as the $$ column being
+       built with String.fromCharCode. */
+    const QUOTE_TOKEN_PREFIX = String.fromCharCode(123, 123) + 'quote_';
+    if(template.data.body.indexOf(QUOTE_TOKEN_PREFIX) !== -1){
       const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
       const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
       if(quote && !quote.data.quoteToken){
@@ -17882,13 +17905,35 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
     const message = applyQuotePhotoBlock(
       await resolveLinkTokens(template.data.body, vars.phone, 0, vars),
       quotePhotosForPhone(vars.phone), false) + addOnBlock + referralBlock;
-    statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + selectedIds.length + '…';
+    statusEl.textContent = (progressLabel || '') + 'Sending ' + (sent+failed+1) + ' of ' + selectedIds.length + '…';
     try{
       const subject = await emailSubjectFor(template, vars.phone, vars);
       await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', subject: subject, message: message });
       sent++;
     } catch(err){ failed++; }
   }
+  return { sent: sent, failed: failed, optedOut: optedOut };
+}
+document.getElementById('etSendToSelectedBtn').addEventListener('click', async function(){
+  const statusEl = document.getElementById('etPreviewSendStatus');
+  const templateId = document.getElementById('etSendTemplateSelect').value;
+  const template = emailTemplates.find(t => t.id === templateId);
+  if(!template){ statusEl.textContent = 'Pick a template first.'; return; }
+  /* ⚠ READ FROM THE RECORDED SELECTION, NOT FROM THE CHECKBOXES ON SCREEN. With a name
+     typed in the search box the DOM holds one row, and this used to send to one person
+     while the pill, the count line and the button all said 312. The tick is the record;
+     the checkbox is only a picture of it. */
+  const selectedIds = Array.from(etSelectedRecipientIds);
+  if(!selectedIds.length){ statusEl.textContent = 'Select at least one recipient.'; return; }
+  const serviceId = document.getElementById('emailjsServiceId').value.trim();
+  const templateJsId = document.getElementById('emailjsTemplateId').value.trim();
+  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
+  if(!serviceId || !templateJsId || !publicKey){ statusEl.textContent = 'Set up EmailJS (Email Setup card above) first.'; return; }
+  if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your connection.'; return; }
+  if(!confirm('Send "'+template.data.name+'" to '+selectedIds.length+' member(s) now?')) return;
+  emailjs.init(publicKey);
+  const run = await etSendTemplateRun(template, selectedIds, serviceId, templateJsId, statusEl);
+  const sent = run.sent, failed = run.failed, optedOut = run.optedOut;
   statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + (optedOut ? ', ' + optedOut + ' skipped (on the do-not-send list)' : '') + '.';
   /* ⭐ AND RECORD THAT THE SEASON'S RSVP HAS GONE OUT. Only for an RSVP template, only
      when at least one email actually left, and only the FIRST time — see
@@ -17914,6 +17959,166 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
       statusEl.textContent += ' Recorded that the RSVP has gone out \u2014 from now on'
         + ' only people who answer are scheduled. The Dashboard lists who has not.';
     }
+  }
+});
+/* ⭐ THE WHOLE RSVP, IN ONE PRESS (2026-09-07). Dax: "We want one button for the
+   entire rsvp", and "we need everyone to get the right email and hve it sent to the
+   right spot."
+
+   ⚠ IT SENDS THROUGH etSendTemplateRun, THE SAME SENDER THE ORDINARY BUTTON USES.
+   Not a second loop: every rule about who may be mailed — the do-not-send gate at send
+   time, the add-on block, the referral block, the per-kind subject — is the shipped one.
+   This decides WHO and WHICH TEMPLATE, and nothing else.
+
+   ⚠ THE SPLIT IS THE WHOLE POINT AND IT IS THE SAME RULE THE FILTER USES.
+   houseOwesFromLastSeason is what Schedule, the portal hold and the audience filter all
+   ask, so the two emails cannot disagree with the rest of the app about who owes.
+
+   ⚠ AND IT REFUSES RATHER THAN GUESSING WHEN THE INVOICES HAVE NOT LOADED. Before that
+   read lands, houseOwesFromLastSeason answers false for everybody — which would post the
+   ordinary "will you be getting lights again" email to every customer carrying a balance
+   and tell them nothing about it. An empty answer here is a wrong send to ~950 people,
+   so audienceHasLastSeason gates the whole thing. */
+function rsvpWholeTemplates(){
+  const all = Array.isArray(emailTemplates) ? emailTemplates : [];
+  const rsvps = all.filter(function(t){ return etTemplateIsRsvp(t); });
+  const arrears = rsvps.find(function(t){ return etRsvpTemplateIsArrears(t); }) || null;
+  /* The ordinary one is the RSVP template that is not the arrears one. Named first so a
+     book with several RSVP templates picks the built-in rather than whichever sorted
+     first, and falls back to "any RSVP that is not the Not Paid one" if she renamed it. */
+  const standard = rsvps.find(function(t){
+      return String((t.data && t.data.name) || '').trim().toLowerCase() === 'rsvp email';
+    }) || rsvps.find(function(t){ return !etRsvpTemplateIsArrears(t); }) || null;
+  return { standard: standard, arrears: arrears };
+}
+/* ⚠ ONE PLAN, READ BY BOTH BUTTONS. What "Check first" shows has to be what Send does,
+   or the preview is a second opinion — the same reasoning the Preview & Send preview and
+   its send loop already share a renderer for. */
+function rsvpWholePlan(){
+  const out = { standard: [], arrears: [], noEmail: [], optedOut: [],
+                answered: 0, newThisYear: 0, ready: false, why: '' };
+  if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)){
+    out.why = 'The customer list has not loaded yet.'; return out;
+  }
+  if(!audienceHasLastSeason()){
+    out.why = 'The invoices have not loaded yet, so who owes from last season cannot be '
+      + 'worked out — and without that everybody would get the ordinary email, including '
+      + 'the people carrying a balance. Open the Invoices tab once, then try again.';
+    return out;
+  }
+  jobAddresses.forEach(function(item){
+    const d = (item && item.data) || null;
+    if(!d) return;
+    if(typeof isTestRecordData === 'function' && isTestRecordData(d)) return;
+    /* Never asks somebody about lights they have never had — the same predicate the
+       RSVP audience filter uses, so the two cannot drift (RS-20). */
+    if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)){ out.newThisYear++; return; }
+    /* Somebody who has already answered is not asked again. */
+    if(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus(d)){ out.answered++; return; }
+    if(typeof etNoAutomationEmails === 'function' && etNoAutomationEmails(d)){ out.optedOut.push(item); return; }
+    if(!String(d.email || '').trim()){ out.noEmail.push(item); return; }
+    if(typeof houseOwesFromLastSeason === 'function' && houseOwesFromLastSeason(d)) out.arrears.push(item);
+    else out.standard.push(item);
+  });
+  out.ready = true;
+  return out;
+}
+function rsvpWholeRenderBreakdown(plan){
+  const box = document.getElementById('rsvpWholeBreakdown');
+  if(!box) return;
+  if(!plan.ready){ box.innerHTML = '<p class="form-note" style="margin:0;">' + esc(plan.why) + '</p>'; return; }
+  const tpl = rsvpWholeTemplates();
+  const row = function(label, n, note){
+    return '<div style="display:flex; justify-content:space-between; gap:12px; padding:5px 0; border-bottom:1px solid var(--line);">'
+      + '<span>' + esc(label) + '</span><span><b>' + n + '</b>'
+      + (note ? ' <span style="color:var(--slate); font-size:12px;">' + esc(note) + '</span>' : '')
+      + '</span></div>';
+  };
+  box.innerHTML =
+    row('Ordinary RSVP', plan.standard.length, tpl.standard ? ('"' + ((tpl.standard.data && tpl.standard.data.name) || '') + '"') : 'NO TEMPLATE FOUND') +
+    row('Not Paid RSVP', plan.arrears.length, tpl.arrears ? 'owes from last season' : 'NO TEMPLATE FOUND') +
+    row('To text instead', plan.noEmail.length, 'no email on file \u2014 see the card below') +
+    row('Left out, do-not-send', plan.optedOut.length, 'they asked not to be mailed') +
+    row('Already answered', plan.answered, 'not asked again') +
+    row('New this year', plan.newThisYear, 'never had lights \u2014 never asked') +
+    '<p class="form-note" style="margin:10px 0 0;">Nobody appears in more than one line above.</p>';
+}
+document.getElementById('rsvpWholeCheckBtn')?.addEventListener('click', function(){
+  const st = document.getElementById('rsvpWholeStatus');
+  const plan = rsvpWholePlan();
+  rsvpWholeRenderBreakdown(plan);
+  if(st) st.textContent = plan.ready
+    ? ('Nothing has been sent. ' + (plan.standard.length + plan.arrears.length) + ' would be emailed.')
+    : 'Cannot work it out yet.';
+});
+document.getElementById('rsvpWholeSendBtn')?.addEventListener('click', async function(){
+  const st = document.getElementById('rsvpWholeStatus');
+  const btn = this;
+  const plan = rsvpWholePlan();
+  rsvpWholeRenderBreakdown(plan);
+  if(!plan.ready){ if(st) st.textContent = plan.why; return; }
+  const tpl = rsvpWholeTemplates();
+  /* ⚠ BOTH TEMPLATES OR NEITHER. Sending only the half that has a template would leave
+     the other half unasked with nothing on screen saying so, and "send the whole RSVP"
+     having sent some of it is the failure this button exists to remove. */
+  if(!tpl.standard || !tpl.arrears){
+    if(st) st.textContent = 'Missing a template: ' +
+      (!tpl.standard ? '"RSVP Email"' : '') + (!tpl.standard && !tpl.arrears ? ' and ' : '') +
+      (!tpl.arrears ? '"Not Paid RSVP"' : '') +
+      '. Both live under Automation Emails \u2192 Templates \u2192 RSVP, and the whole RSVP needs both.';
+    return;
+  }
+  const serviceId = document.getElementById('emailjsServiceId').value.trim();
+  const templateJsId = document.getElementById('emailjsTemplateId').value.trim();
+  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
+  if(!serviceId || !templateJsId || !publicKey){ if(st) st.textContent = 'Set up EmailJS (EmailJS Setup tab) first.'; return; }
+  if(!window.emailjs){ if(st) st.textContent = 'Email service failed to load \u2014 check your connection.'; return; }
+  const total = plan.standard.length + plan.arrears.length;
+  if(!total){ if(st) st.textContent = 'Nobody is waiting to be asked \u2014 nothing to send.'; return; }
+  /* ⚠ THE COUNTS IN THE QUESTION ARE THE COUNTS THAT SEND, taken from the same plan
+     object the loops below walk. A confirm quoting a number worked out separately is how
+     a dialog ends up promising one thing and doing another. */
+  if(!confirm('Send the whole RSVP now?\n\n'
+      + plan.standard.length + ' get the ordinary RSVP\n'
+      + plan.arrears.length + ' get the Not Paid RSVP\n'
+      + plan.noEmail.length + ' have no email and must be TEXTED (nothing is sent to them)\n\n'
+      + 'That is ' + total + ' email(s). This cannot be taken back.')) return;
+  btn.disabled = true;
+  let sent = 0, failed = 0, optedOut = 0;
+  try{
+    emailjs.init(publicKey);
+    const passes = [
+      { t: tpl.standard, ids: plan.standard.map(function(m){ return m.id; }), label: 'Ordinary RSVP: ' },
+      { t: tpl.arrears,  ids: plan.arrears.map(function(m){ return m.id; }),  label: 'Not Paid RSVP: ' }
+    ];
+    for(const pass of passes){
+      if(!pass.ids.length) continue;
+      const r = await etSendTemplateRun(pass.t, pass.ids, serviceId, templateJsId, st, pass.label);
+      sent += r.sent; failed += r.failed; optedOut += r.optedOut;
+    }
+    if(st) st.textContent = 'Done \u2014 sent ' + sent
+      + (failed ? ', ' + failed + ' failed' : '')
+      + (optedOut ? ', ' + optedOut + ' skipped (do-not-send)' : '')
+      + (plan.noEmail.length ? '. ' + plan.noEmail.length + ' still need texting \u2014 the card below lists them.' : '.');
+    /* ⭐ MARKED ONCE, AFTER BOTH PASSES. rsvpSentAt is one fact about the season, not one
+       per template — marking inside the sender would stamp it twice and report the season
+       live before the second half of the book had been written to.
+       ⚠ AND IT CANNOT COST THE SEND. The emails have gone; a failure to write a note
+       about them must not be reported as the send failing. */
+    try{
+      const noted = await noteRsvpSendHappened(sent);
+      if(noted && st){
+        st.textContent += ' Recorded that the RSVP has gone out \u2014 from now on only'
+          + ' people who answer are scheduled. The Dashboard lists who has not.';
+      }
+    }catch(err){ console.error('[HU] could not record the RSVP send', err); }
+  }catch(err){
+    console.error('[HU] whole RSVP send failed', err);
+    if(st) st.textContent = 'Stopped: ' + (err && err.message ? err.message : 'something went wrong')
+      + '. ' + sent + ' had already been sent.';
+  }finally{
+    btn.disabled = false;
+    if(typeof rsvpTextRender === 'function') rsvpTextRender();
   }
 });
 /* ⭐ THE ONE RESET, SHARED BY OPENING THE PANEL AND BY "CLEAR FILTERS" (2026-09-04).
@@ -45083,8 +45288,38 @@ document.addEventListener('DOMContentLoaded', function(){
       /* ⚠ A CARRIED CHARGE NEEDS NO INVOICE, and must not be refused for want of one.
          It is on the customer precisely BECAUSE this season's bill had already gone
          out — and a customer who has never been invoiced can carry one too. */
-      const inv = ledger === 'carried' ? null : editCustInvoiceNow();
-      if(ledger !== 'carried' && !inv){ if(st) st.textContent = 'No invoice for this customer yet, so there is nothing to take off.'; return; }
+      /* ⭐ AND IT TAKES THE LINE OFF THE BILL THIS CUSTOMER IS ACTUALLY ON (2026-09-07).
+         Dax: "when i try to delete a discount or fee it says they dont have a invoice,
+         and everyone should have a invoice and it should delete."
+         ⚠ `editCustInvoiceNow` asks `allCustInvoiceFor`, which answers "the invoice filed
+         under this HOUSE'S OWN key" — and that is deliberate and must not be widened,
+         because the Edit Customer save needs exactly that to find and zero a leftover
+         when somebody starts billing elsewhere. But a house billed to somebody else has
+         no invoice of its own, so the × dead-ended on every one of them: the line was
+         drawn from the group's bill and then refused for want of a bill. Seventeen
+         numbers in the real book are shared, so this is not a rare shape.
+         ⚠ RESOLVED THE SAME WAY THE MONEY IS: `billToPhone` first, then the house's own
+         key — the expression `billingGroupsByPayer` builds its map from and the one
+         `getLiveInvoiceStatus` was repointed to on 2026-08-26 for this exact reason.
+         ⚠ AND A GENUINELY MISSING INVOICE IS NOT A DEAD END EITHER. It says which tool
+         makes one rather than stopping at a fact the office can do nothing with — a
+         refusal with no next step is what sends somebody looking for a bug. */
+      const invForWaive = function(){
+        if(typeof editCustomerId === 'undefined' || !editCustomerId) return null;
+        const cust = jobAddresses.find(a => a.id === editCustomerId);
+        if(!cust) return null;
+        const billKey = String(cust.data.billToPhone || '').replace(/\D/g, '') ||
+                        custInvoiceKey(cust.data);
+        if(!billKey) return null;
+        return allInvoicesCache.find(i => i.id === billKey) || null;
+      };
+      const inv = ledger === 'carried' ? null : invForWaive();
+      if(ledger !== 'carried' && !inv){
+        if(st) st.textContent = 'No invoice on file for this customer yet, so there is '
+          + 'nothing to take it off. Invoices → Fix Missing Invoices → "Scan & Create '
+          + 'Missing Invoices" makes one for everybody who has a price but no bill.';
+        return;
+      }
       x.disabled = true;
       if(st) st.textContent = 'Taking it off…';
       try{
