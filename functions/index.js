@@ -1161,8 +1161,22 @@ async function clawBackReferralServer(customerId, customerData) {
     /* ⚠ `waived` COUNTS AS NOT COUNTED HERE TOO, and it must match referralLiveCount in
        admin.html exactly: that is the office crossing the discount off with the × (MON-56),
        and a server copy that ignores it would put every waived referral back on the bill
-       the first time a customer declines. Change one, change the other. */
-    const live = entries.filter(function (e) { return e && !e.revoked && !e.waived; }).length;
+       the first time a customer declines. Change one, change the other.
+       ⚠ AND THE SEASON TEST IS THE THIRD RULE, added with REF-12 the same day it went
+       into admin.html: a referral is $25 off the season it was earned in. Without it
+       here, one customer declining in their own portal recomputes the count over ALL
+       seasons and puts every expired credit back on the referrer's bill — the exact
+       shape the `waived` note above is warning about, one rule further on. */
+    const thisSeason = new Date().getFullYear();
+    const live = entries.filter(function (e) {
+      if (!e || e.revoked || e.waived) return false;
+      let y = (e.season != null && Number.isFinite(Number(e.season))) ? Number(e.season) : null;
+      if (y === null) {
+        const t = Date.parse(String(e.creditedAt || ''));
+        y = Number.isNaN(t) ? null : new Date(t).getFullYear();
+      }
+      return y === null || y === thisSeason;
+    }).length;
     await db.collection('jobAddresses').doc(referrerId).update({
       referralCredits: entries, referralCount: live,
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -5191,10 +5205,27 @@ async function runArrearsRsvpBatch(source) {
          are the ones carrying a balance. */
       const referToken = await ensureReferralToken(docSnap.id, d);
       const referUrl = 'https://highlightingutah.com/r/' + encodeURIComponent(referToken);
+      const hadReferralToken =
+        body.indexOf('{{referral_button}}') !== -1 || body.indexOf('{{referral_link}}') !== -1;
       body = body.split('{{referral_link}}').join(referUrl);
       body = body.split('{{referral_button}}').join(
         '<a href="' + referUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Refer a Friend — $25 off your bill</a>');
       body = body.replace(/\n/g, '<br>');
+      /* ⚠ AND IF THE SAVED TEMPLATE PLACES NEITHER TOKEN, THE OFFER IS APPENDED
+         (2026-09-07, REF-13). MON-24 means a template already written in Firestore is
+         never rewritten, so the built-in body's {{referral_button}} does not reach the
+         one that is actually stored — and the send silently carries no offer at all.
+         ⚠ THE MIRROR OF referralEmailBlock IN admin.html, and it appends on the SAME
+         test: token present, nothing added; token absent, the block goes on the end.
+         Two renderers, one template — the rule this whole comment block already states.
+         ⚠ AFTER the newline replacement on purpose: this block is already HTML, and
+         running it through that replace would double the breaks it writes itself. */
+      if (!hadReferralToken) {
+        body += '<br><br>—<br><br>Know somebody who wants lights? Send them your own link '
+          + 'and we take $25 off this season’s bill when they sign up — as many times as '
+          + 'you like.<br><br>'
+          + '<a href="' + referUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Refer a Friend — $25 off your bill</a>';
+      }
 
       const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
         method: 'POST',

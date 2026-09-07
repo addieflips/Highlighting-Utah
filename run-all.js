@@ -47910,9 +47910,27 @@ suite('287. The routine route sweep does not bury the notice that matters');
       /* ⚠ AND NO FIGURE, WHICH IS RS-37. There is no token for the carried balance
          and {{amount_due}} means THIS year's install price, so an amount appearing
          here at all would be the wrong number in an email about an old debt. */
+      /* ⚠ NARROWED 2026-09-07, AND THE GUARANTEE IS UNCHANGED. This asserted
+         `body.indexOf('$') === -1`, which is stricter than RS-37 actually says and
+         was only ever TRUE OF THE FIXTURE: the shipped "Not Paid RSVP" body carries
+         the referral offer in prose AND renders {{referral_button}} as "Refer a
+         Friend — $25 off your bill", so the real email this suite is about has always
+         had a $ in it. The check was passing because the fixture body is minimal —
+         a check that holds for the harness and not for production.
+         ⚠ WHAT MUST NOT APPEAR IS A FIGURE THAT COULD READ AS WHAT THEY OWE. There is
+         no token for the carried balance and {{amount_due}} means THIS year's install
+         price, so any amount other than the fixed referral constant is a second,
+         invented answer to "how much do I owe" — which is the whole of RS-37. The
+         referral offer is a constant, is the same on every email, and cannot be
+         mistaken for a balance. So: every dollar figure in the body must be $25. */
+      const figures = body.match(/\$\s?[\d,]+(?:\.\d+)?/g) || [];
+      const notTheOffer = figures.filter(function (f) {
+        return f.replace(/[\s,]/g, '') !== '$25';
+      });
       check('S288', 'and no money figure is invented anywhere in it',
-        body.indexOf('$') === -1,
-        'the portal holds the one figure we computed; an amount here would be a second one');
+        notTheOffer.length === 0,
+        'found ' + JSON.stringify(notTheOffer) + ' — the portal holds the one figure we ' +
+        'computed; an amount here would be a second one');
     }).catch(function (e) { e.__suite = 'S288'; throw e; }));
 
     /* ---- the two ways it must stop, loudly, without writing to anybody ---- */
@@ -49528,6 +49546,11 @@ suite('299. A referral link, and the $25 that follows it');
      run; the flag says which of these need it back. */
   const PARTS = [
     ['referralCreditNote', false], ['referralLiveCount', false],
+    /* ⚠ referralEntrySeason IS NOT OPTIONAL — referralLiveCount calls it, and it is the
+       whole of REF-12 (a referral is $25 off the season it was earned in). Lifted, never
+       stubbed: a stub here would decide which credits still count, which is the exact
+       question these checks exist to ask. assertSandbox names it if this is forgotten. */
+    ['referralEntrySeason', false],
     ['referralIsSelfReferral', false], ['referralClawbackAllowed', false],
     ['applyReferralCreditLine', true], ['referralNote', true],
     ['creditReferralIfAny', true], ['referralBlocked', true],
@@ -49564,7 +49587,7 @@ suite('299. A referral link, and the $25 that follows it');
         lifted.join('\n'),
         'return {creditReferralIfAny, clawBackReferralIfAny, applyReferralCreditLine,',
         '        referralIsSelfReferral, referralClawbackAllowed, referralCreditNote,',
-        '        referralLiveCount};'
+        '        referralLiveCount, referralEntrySeason};'
       ].join('\n');
 
       assertSandbox('S299', 'referral money', BODY, admin,
@@ -49868,6 +49891,57 @@ suite('299. A referral link, and the $25 that follows it');
             'got credits=' + inv.credits + ', count=' + w.customers[0].data.referralCount +
             ' — the new referral is worth $25 and the two waived ones stay waived; ' +
             'anything higher is the × undoing itself');
+        }
+
+        /* ---- 9b. a referral is $25 off THE SEASON IT WAS EARNED IN ------
+         * REF-12. Dax, 2026-09-07: "a referral is $25 off for the current season per
+         * refferral." Entries are never deleted, so before this every referral ever
+         * earned came off every bill for ever — three in one good season quietly became
+         * a standing $75 discount for life.
+         * ⚠ RUN, NEVER MATCHED: every claim here is about what a count RESOLVES TO for
+         * a given set of entries, and the old rule reads identically in the source. */
+        {
+          const thisYear = new Date().getFullYear();
+          const api = world({}).api;
+          const entry = (over) => Object.assign(
+            {referredCustomerId: 'X', amount: 25, revoked: false}, over || {});
+
+          check('S299', 'a referral earned this season counts',
+            api.referralLiveCount([entry({season: thisYear})]) === 1,
+            'the season it was earned in is the season it comes off');
+          check('S299', 'and one earned in an earlier season does not',
+            api.referralLiveCount([entry({season: thisYear - 1})]) === 0,
+            'a referral that keeps discounting every future bill is a discount for life');
+          check('S299', 'the friend coming back next year is not a second referral',
+            api.referralLiveCount([entry({season: thisYear - 1}), entry({season: thisYear - 1})]) === 0,
+            'per referral, not per friend per season — otherwise one customer re-refers ' +
+            'the same household every autumn and never pays again');
+          check('S299', 'a new referral this season still counts beside expired ones',
+            api.referralLiveCount([entry({season: thisYear - 1}), entry({season: thisYear})]) === 1,
+            'expiring the old one must not take the new one with it');
+          /* ⚠ THE PRE-REF-12 SHAPE. Everything written before today carries no `season`,
+             so the year of creditedAt stands in for one — a pure read-side rule, with no
+             pass over the book and nothing rewritten. */
+          check('S299', 'an entry written before this rule is dated by creditedAt',
+            api.referralLiveCount([entry({creditedAt: (thisYear - 1) + '-11-02T10:00:00Z'})]) === 0 &&
+            api.referralLiveCount([entry({creditedAt: thisYear + '-11-02T10:00:00Z'})]) === 1,
+            'the old entries have no season field and must not all expire at once, nor ' +
+            'all survive for ever');
+          /* ⚠ AND IT FAILS TOWARDS HONOURING A CREDIT. Wrongly dropping $25 somebody
+             earned is the expensive mistake; wrongly keeping one costs $25. */
+          check('S299', 'an undateable entry is counted rather than silently dropped',
+            api.referralLiveCount([entry({})]) === 1 &&
+            api.referralLiveCount([entry({creditedAt: 'not a date'})]) === 1,
+            'a credit nobody can date is still a credit somebody earned');
+          check('S299', 'and revoked or waived still beats the season test',
+            api.referralLiveCount([entry({season: thisYear, revoked: true})]) === 0 &&
+            api.referralLiveCount([entry({season: thisYear, waived: true})]) === 0,
+            'the two older reasons a referral stops counting are unchanged');
+          check('S299', 'a credit earned this season is stamped with it',
+            /season:\s*new Date\(\)\.getFullYear\(\)/.test(
+              extractFn(admin, 'creditReferralIfAny') || ''),
+            'without the stamp every entry falls back to its date, which is the ' +
+            'fallback for OLD rows rather than the rule for new ones');
         }
 
         /* ---- 10. the manual box is unchanged --------------------------

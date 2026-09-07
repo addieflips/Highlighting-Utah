@@ -8510,6 +8510,49 @@ function pendingAddOnFor(customerId){
 function rsvpTemplateHasAddOn(template){
   return String(template||'').indexOf('{{addon_block}}') !== -1;
 }
+/* ⭐ AND THE REFERRAL OFFER APPENDS ITSELF THE SAME WAY (2026-09-07, REF-13).
+   Dax, of the standing instruction to paste the token in by hand: "i'm not sure if
+   I understand the second one can you fix that."
+
+   ⚠ THE RULE IT WORKS AROUND IS REAL AND STAYS. MON-24: a template Addie has
+   already written is never rewritten, and the built-in bodies only fill a BLANK
+   one. Both built-ins carry {{referral_button}}, so the offer looks present in the
+   repo — but every RSVP template saved in Firestore before it shipped has no token
+   in it, and the send resolves tokens that are not there to nothing. The result is
+   a whole-book RSVP that silently carries no referral offer, and the only warning
+   anywhere was a line of documentation telling somebody to remember.
+
+   ⚠ SO NOTHING IS REWRITTEN. Her template on disk is untouched; the block is
+   appended AT RENDER TIME, and only when the body does not place the token itself
+   — otherwise the offer would appear twice. That is exactly the addOnEmailBlock
+   shape above, deliberately, because a second mechanism for "the saved template is
+   missing a thing" is how these two drift apart.
+
+   ⚠ AND IT IS SKIPPED WHEN THE CUSTOMER CANNOT BE RESOLVED, never rendered as a
+   dead link — the same rule resolveLinkTokens states for {{referral_button}}: a
+   customer tapping something we sent them and landing nowhere cannot tell that from
+   the scheme being broken. */
+function rsvpTemplateHasReferral(template){
+  const s = String(template||'');
+  return s.indexOf('{{referral_button}}') !== -1 || s.indexOf('{{referral_link}}') !== -1;
+}
+async function referralEmailBlock(item){
+  try{
+    if(!item || !item.data) return '';
+    const token = await referralTokenFor(item);
+    const url = referralLinkFromToken(token);
+    if(!url) return '';   /* no link means no button — never a button pointing nowhere */
+    return '<br><br>—<br><br>Know somebody who wants lights? Send them your own link '
+      + 'and we take $25 off this season’s bill when they sign up — as many '
+      + 'times as you like.<br><br>'
+      + '<a href="' + url + '" style="' + QUOTE_LINK_BUTTON_STYLE + '">Refer a Friend — $25 Off</a>';
+  }catch(err){
+    /* The RSVP itself is the thing that must go out. A referral offer that could not
+       be built is a missing paragraph; a thrown error here would cost the send. */
+    console.error('[HU] referral block failed', err);
+    return '';
+  }
+}
 /* The block itself. Empty string for the ordinary customer with nothing
    outstanding, exactly like billedHousesEmailBlock — a paragraph saying "you
    have no outstanding add-ons" is noise on nine hundred emails. */
@@ -10558,9 +10601,44 @@ function referralCreditNote(count){
    any more. The next referral through a link recomputes the count from these entries, so
    every waived one comes back and the whole discount lands on the bill again, from a
    path nobody in the office was looking at. */
-function referralLiveCount(entries){
+/* ⭐ AND A REFERRAL IS $25 OFF THE SEASON IT WAS EARNED IN, NOT EVERY SEASON AFTER
+   (2026-09-07, REF-12). Dax: "a referral is $25 off for the current season per
+   refferral." Until now every entry counted for ever — the entries are never deleted,
+   so a friend referred in 2026 took $25 off the 2027 bill, the 2028 bill, and every
+   bill after that, from a list nobody re-reads. Three referrals in one good season
+   quietly became a standing $75 discount for life.
+
+   ⚠ IT IS PER REFERRAL, NOT PER FRIEND-PER-SEASON. The friend coming back next year
+   is not a second referral and never earns again; a NEW person referred next year
+   does. That is what "per referral" says, and it is also the only reading that
+   cannot be gamed by one customer re-referring the same household each autumn.
+
+   ⚠ THE SEASON IS `new Date().getFullYear()`, WHICH IS THE DEFINITION THIS APP
+   ALREADY USES — `audienceNeverAsked` compares the quote-join year against it, and
+   Start New Season files its snapshot under it. A second idea of when a season
+   starts is the shape this repo keeps finding in its own history.
+
+   ⚠ OLD ENTRIES ARE READ, NOT MIGRATED. Everything written before today has no
+   `season`, so the year of `creditedAt` stands in for one. That keeps this a pure
+   read-side rule: no pass over the book, nothing rewritten, and an entry whose date
+   is unreadable is treated as THIS season — failing towards honouring a credit,
+   because wrongly dropping $25 somebody earned is the expensive mistake and wrongly
+   keeping one costs $25. */
+function referralEntrySeason(e){
+  if(!e) return null;
+  if(e.season != null && Number.isFinite(Number(e.season))) return Number(e.season);
+  const t = Date.parse(String(e.creditedAt || ''));
+  return Number.isNaN(t) ? null : new Date(t).getFullYear();
+}
+function referralLiveCount(entries, seasonYear){
+  const season = Number.isFinite(Number(seasonYear))
+    ? Number(seasonYear) : new Date().getFullYear();
   return (Array.isArray(entries) ? entries : [])
-    .filter(function(e){ return e && !e.revoked && !e.waived; }).length;
+    .filter(function(e){
+      if(!e || e.revoked || e.waived) return false;
+      const y = referralEntrySeason(e);
+      return y === null || y === season;   /* undateable counts now — see above */
+    }).length;
 }
 /* ⭐ THE MEMBER'S OWN REFERRAL LINK, FROM THE OFFICE SIDE (2026-09-04, REF-07).
    Addie: the link belongs at the top of Edit Customer, and it has to be able to go out
@@ -10736,6 +10814,9 @@ async function creditReferralIfAny(quoteData, customerId, customerData){
       referredName: (customerData && customerData.name) || '',
       amount: REFERRAL_CREDIT,
       creditedAt: new Date().toISOString(),
+      /* The season this $25 comes off, stamped at the moment it is earned rather
+         than re-derived from the date later — see referralLiveCount (REF-12). */
+      season: new Date().getFullYear(),
       revoked: false, revokedAt: null
     });
     const count = referralLiveCount(entries);
@@ -15427,7 +15508,7 @@ const DEFAULT_QUOTE_MAYBE_TEMPLATE_BODY = 'Hi {{name}},\n\n' +
   '{{quote_yes_button}}{{quote_maybe_button}}{{quote_decline_button}}\n\n' +
   'Thanks,\nHighlighting Utah';
 const ET_PREBUILT_TEMPLATES = [
-  {name:'RSVP Email', folderName:'RSVP', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\nBefore our crew comes out, please check these two are right \u2014 just reply if either is wrong:\n\n{{gate_code_line}}\n{{outlet_line}}\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}\n\n\u2014\n\nKnow somebody who wants lights? Send them your own link and we take $25 off your bill when they sign up \u2014 as many times as you like.\n\n{{referral_button}}', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
+  {name:'RSVP Email', folderName:'RSVP', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\nBefore our crew comes out, please check these two are right \u2014 just reply if either is wrong:\n\n{{gate_code_line}}\n{{outlet_line}}\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}\n\n\u2014\n\nKnow somebody who wants lights? Send them your own link and we take $25 off this season\u2019s bill when they sign up \u2014 as many times as you like.\n\n{{referral_button}}', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
   /* ⭐ THE SAME QUESTION, ASKED OF SOMEBODY WHO OWES FOR LAST SEASON (Dax, 2026-09-02).
      The plain RSVP Email above cannot do this job: it asks whether they want lights
      without mentioning that they will not be scheduled whatever they answer, so a yes
@@ -15441,7 +15522,7 @@ const ET_PREBUILT_TEMPLATES = [
      prevent. The portal holds the one figure we computed, and a yes now lands them on
      it (RS-31, RS-35).
      ⚠ THE YEAR IS TYPED, not merged, for the same reason. Re-word it next season. */
-  {name:'Not Paid RSVP', folderName:'RSVP', subject:'{{name}}, your lights this year \u2014 and last season\'s balance', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\nOne thing first \u2014 our records show a balance still outstanding from the 2025 season. We aren\'t able to put you on the install schedule until that\'s settled, so it\'s worth sorting now while there\'s still plenty of room in the calendar.\n\nTap Yes below and it will take you straight into your account, where last season\'s amount is on its own line with a button to pay just that. It\'s last season\'s bill, not a second charge for this year.\n\nIf that balance doesn\'t look right to you, reply to this email or text us at (801) 901-0011 and we\'ll go through it with you.\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}\n\n\u2014\n\nKnow somebody who wants lights? Send them your own link and we take $25 off your bill when they sign up \u2014 as many times as you like.\n\n{{referral_button}}\n\nThanks,\nHighlighting Utah', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
+  {name:'Not Paid RSVP', folderName:'RSVP', subject:'{{name}}, your lights this year \u2014 and last season\'s balance', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\nOne thing first \u2014 our records show a balance still outstanding from the 2025 season. We aren\'t able to put you on the install schedule until that\'s settled, so it\'s worth sorting now while there\'s still plenty of room in the calendar.\n\nTap Yes below and it will take you straight into your account, where last season\'s amount is on its own line with a button to pay just that. It\'s last season\'s bill, not a second charge for this year.\n\nIf that balance doesn\'t look right to you, reply to this email or text us at (801) 901-0011 and we\'ll go through it with you.\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}\n\n\u2014\n\nKnow somebody who wants lights? Send them your own link and we take $25 off this season\u2019s bill when they sign up \u2014 as many times as you like.\n\n{{referral_button}}\n\nThanks,\nHighlighting Utah', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
   {name:'Post-Install Invoice', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out \u2014 your lights are up! Your balance for this season is {{amount}}. You can pay through your portal or Venmo using the links below.\n\n{{portal_link}}{{venmo_button}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'venmo_button', style:'button'}]},
   {name:'Already Paid - Say Thanks', folderName:'Billing', body:'Hi {{name}},\n\nYour lights are up! Just confirming we received your payment of {{amount}} for this season \u2014 you\'re all set.\n\n{{message_link}}', linkedTokens:[{code:'message_link', style:'link'}]},
   {name:'Nightly Auto-Invoice \u2014 Unpaid', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out today \u2014 your lights are up!\n\n{{feet_line}}\n{{new_member_fee_line}}\n{{credit_lines}}\n\nAmount due: {{amount_due}}\nPlease pay by {{due_date}}.\n\nPay your invoice here:\n\n{{pay_button}}{{venmo_button}}', linkedTokens:[{code:'pay_button', style:'button'},{code:'venmo_button', style:'button'}]},
@@ -16252,9 +16333,11 @@ async function etUpdatePreview(){
      that helper exists rather than the test being written twice. */
   const addOnBlock = (etTemplateIsRsvp(template) && !rsvpTemplateHasAddOn(template.data.body))
     ? await addOnEmailBlock(member.id) : '';
+  const referralBlock = (etTemplateIsRsvp(template) && !rsvpTemplateHasReferral(template.data.body))
+    ? await referralEmailBlock(member) : '';
   box.innerHTML = applyQuotePhotoBlock(
     await resolveLinkTokens(template.data.body, vars.phone, 0, vars),
-    quotePhotosForPhone(vars.phone), false) + addOnBlock;
+    quotePhotosForPhone(vars.phone), false) + addOnBlock + referralBlock;
 }
 /* ---- Audience filters: shared helpers for the Preview & Send picker --------
    Each answers one real-life question about a member from data already on their
@@ -16951,17 +17034,54 @@ function etUpdateSelectionUi(shownCount){
     finally{ allBtn.disabled = false; }
   });
 })();
+/* ⭐ AND THE TWO RSVP EMAILS SPLIT THE BOOK BETWEEN THEM (2026-09-07, REF-14).
+   Dax: "both emails will be sent seperately but at the same time."
+
+   ⚠ THE OVERLAP IS REAL AND IT IS SILENT. `runArrearsRsvpBatch` writes to somebody
+   who owes for a previous season AND has not answered. The standard RSVP's own
+   audience is returning customers who have not answered — which is the SAME people
+   plus everybody else. Sent on different days the stagger hid it; sent at the same
+   time, every customer carrying a balance gets two emails within a minute, one of
+   which says nothing about the balance and hands them a Yes button that cannot put
+   them on the schedule. That is the worst version of this send: the person most
+   likely to ring the office is the one we have just confused.
+
+   ⚠ SO CHOOSING A TEMPLATE PICKS ITS HALF. The Not Paid RSVP asks for the people
+   who owe; any other RSVP asks for the people who do not. Together they are the
+   whole book exactly once.
+
+   ⚠ A DEFAULT, NOT A LOCK — the same standing this filter's neighbour has (RS-07).
+   She can set it back to All and send one email to everybody; what she cannot do is
+   arrive at the overlap without choosing it. `etFilterPaidLast` is the filter that
+   was repointed on 2026-09-05 to read the LIVE arrears rather than a snapshot
+   nobody writes, which is the only reason it can be trusted to carry this. */
+function etRsvpTemplateIsArrears(t){
+  const d = (t && t.data) ? t.data : t;
+  return String((d && d.name) || '').trim().toLowerCase() === 'not paid rsvp';
+}
 document.getElementById('etSendTemplateSelect').addEventListener('change', function(){
   const t = emailTemplates.find(x => x.id === this.value);
+  let redraw = false;
   if(etTemplateIsRsvp(t) && etFilterNew !== 'returning'){
     etFilterNew = 'returning';
     const sel = document.getElementById('etFilterNew');
     if(sel) sel.value = 'returning';
     etRsvpAudienceAutoSet = true;
-    if(typeof etRenderRecipientList === 'function') etRenderRecipientList();
+    redraw = true;
   } else if(!etTemplateIsRsvp(t)){
     etRsvpAudienceAutoSet = false;
   }
+  if(etTemplateIsRsvp(t)){
+    const want = etRsvpTemplateIsArrears(t) ? 'unpaid' : 'paid';
+    if(etFilterPaidLast !== want){
+      etFilterPaidLast = want;
+      const paidSel = document.getElementById('etFilterPaidLast');
+      if(paidSel) paidSel.value = want;
+      etRsvpAudienceAutoSet = true;
+      redraw = true;
+    }
+  }
+  if(redraw && typeof etRenderRecipientList === 'function') etRenderRecipientList();
   etUpdatePreview();
 });
 document.getElementById('etPreviewMemberSelect').addEventListener('change', etUpdatePreview);
@@ -17707,9 +17827,11 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
        what either email is for. */
     const addOnBlock = (etTemplateIsRsvp(template) && !rsvpTemplateHasAddOn(template.data.body))
       ? await addOnEmailBlock(member.id) : '';
+    const referralBlock = (etTemplateIsRsvp(template) && !rsvpTemplateHasReferral(template.data.body))
+      ? await referralEmailBlock(member) : '';
     const message = applyQuotePhotoBlock(
       await resolveLinkTokens(template.data.body, vars.phone, 0, vars),
-      quotePhotosForPhone(vars.phone), false) + addOnBlock;
+      quotePhotosForPhone(vars.phone), false) + addOnBlock + referralBlock;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + selectedIds.length + '…';
     try{
       const subject = await emailSubjectFor(template, vars.phone, vars);
@@ -17820,7 +17942,9 @@ document.getElementById('etSendTestBtn').addEventListener('click', async functio
   }
   const testAddOn = (member && etTemplateIsRsvp(template) && !rsvpTemplateHasAddOn(template.data.body))
     ? await addOnEmailBlock(member.id) : '';
-  const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.data.body, vars.phone||'', 0, vars) + testAddOn;
+  const testReferral = (member && etTemplateIsRsvp(template) && !rsvpTemplateHasReferral(template.data.body))
+    ? await referralEmailBlock(member) : '';
+  const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.data.body, vars.phone||'', 0, vars) + testAddOn + testReferral;
   try{
     emailjs.init(publicKey);
     const testSubject = await emailSubjectFor(template, vars.phone || '', vars);
