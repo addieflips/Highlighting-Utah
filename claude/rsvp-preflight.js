@@ -249,6 +249,60 @@ const line = () => console.log('-'.repeat(64));
   console.log();
   console.log('   needsLightBuild set ................... ' + live.filter(c => c.d.needsLightBuild === true).length);
   console.log('   needsLightRecycle set ................. ' + live.filter(c => c.d.needsLightRecycle === true).length);
+  /* ---- 4. referrals: do the entries, the count and the bill agree? ------
+   * Dax, 2026-09-07: a customer who refers twice is only discounted once. Two
+   * sequential conversions produce $50 when RUN against a fake Firestore (run-all.js
+   * suite 299 §5b), so the rule is right and the question is what the real records
+   * actually hold. Three numbers have to agree for the discount to be right, and each
+   * disagreement means something different:
+   *   entries   — what really happened, the source of truth and the audit trail
+   *   count     — the stored figure Edit Customer's box is filled from
+   *   the bill  — the one the customer is actually charged
+   * entries > count means a credit landed and the stored number did not keep up.
+   * count > bill means the bill was rebuilt from something else, or never rebuilt. */
+  line();
+  console.log('4. REFERRALS — entries vs stored count vs the actual bill');
+  const invoices = await readAll(access, 'invoices');
+  const invById = {};
+  invoices.forEach(i => { invById[i.id] = i.d; });
+  const keyFor = c => digits(c.d.phone) || norm(c.d.email);
+  const thisYear = new Date().getFullYear();
+  const seasonOf = e => {
+    if (e && e.season != null && Number.isFinite(Number(e.season))) return Number(e.season);
+    const t = Date.parse(String((e && e.creditedAt) || ''));
+    return Number.isNaN(t) ? null : new Date(t).getFullYear();
+  };
+  const withRefs = live.filter(c => Array.isArray(c.d.referralCredits) && c.d.referralCredits.length);
+  console.log('   customers holding referral entries ..... ' + withRefs.length);
+  let disagreements = 0;
+  withRefs.forEach(c => {
+    const all = c.d.referralCredits;
+    const liveN = all.filter(e => e && !e.revoked && !e.waived &&
+      (seasonOf(e) === null || seasonOf(e) === thisYear)).length;
+    const stored = Number(c.d.referralCount) || 0;
+    const inv = invById[keyFor(c)];
+    const refLine = inv && Array.isArray(inv.creditNotes)
+      ? inv.creditNotes.filter(n => n && n.kind === 'referral')
+          .reduce((s, n) => s + (Number(n.amount) || 0), 0)
+      : null;
+    const expected = liveN * 25;
+    const ok = stored === liveN && (refLine === null || refLine === expected);
+    if (!ok) disagreements++;
+    console.log('       ' + String(c.d.name || c.id).padEnd(24) +
+      ' entries=' + all.length +
+      '  counted=' + liveN +
+      '  stored=' + stored +
+      '  onBill=' + (refLine === null ? '(no invoice)' : '$' + refLine) +
+      '  expected=$' + expected +
+      (ok ? '' : '   <-- DISAGREES'));
+    all.forEach(e => {
+      const why = e.revoked ? 'revoked' : (e.waived ? 'waived' : 'counts');
+      console.log('           - ' + String(e.referredName || e.referredCustomerId || '?').padEnd(20) +
+        ' season=' + (seasonOf(e) === null ? 'undated' : seasonOf(e)) + '  ' + why);
+    });
+  });
+  console.log('   rows where the three disagree ......... ' + disagreements);
+
   line();
   console.log('Done. Read-only — no customer record was modified.');
 })().catch(e => { console.error(e); process.exit(1); });

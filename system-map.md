@@ -1009,6 +1009,22 @@ charged, and until that exists every change to this number leaves a tail behind 
 - **New-member fee** — added once by the nightly Cloud Function for a customer's first season, flagged `newMemberFeeApplied` so it's never double-charged. It's folded directly into `install`, not tracked as a separate line.
 - **Light-change fee** (`changeFees`, with itemized `changeFeeNotes`) — added by `portalSave` when a member changes their light colors outside a 48-hour grace window. Tracked as its own field, separate from `install`, so it can be waived independently — see the × below.
 
+⭐ **THE × TAKES A LINE OFF THE BILL THE CUSTOMER IS ACTUALLY ON** (fixed 2026-09-07, MON-64).
+Dax: *"when i try to delete a discount or fee it says they dont have a invoice, and everyone
+should have a invoice and it should delete."* The × resolved the invoice through
+`allCustInvoiceFor`, which answers *"the invoice filed under this house's own key"* — so a
+house **billed to somebody else** has none, and the × drew its line from the group's bill and
+then refused to remove it for want of a bill it never had. Seventeen numbers in the real book
+are shared by two households, so this is not a rare shape. It resolves `billToPhone` first and
+the house's own key second — the expression `billingGroupsByPayer` builds its map from.
+- ⚠ **`allCustInvoiceFor` IS NOT WIDENED, DELIBERATELY.** The Edit Customer save needs exactly
+  its narrow answer to find and zero a leftover invoice when somebody starts billing
+  elsewhere, so widening it would fix the × and quietly break the save. Both halves are
+  asserted, because the second is the one a tidy-up would lose.
+- ⚠ **And a genuinely missing invoice names the tool that makes one** (Invoices → *Fix Missing
+  Invoices*) rather than stopping at a fact the office can do nothing with. A refusal with no
+  next step is what sends somebody looking for a bug that is not there.
+
 ⭐ **ANY FEE OR DISCOUNT CAN BE CROSSED OFF WITH AN ×** (added 2026-09-02, MON-53/54/55).
 Addie: *"right now we don't have a way to waive a late invoice fee"*, and then *"to be
 honest we should have an x next to all discounts and fees to get rid of those if
@@ -2184,6 +2200,31 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
   - ⚠ **The invoice prints preferences and can never act on them.** `contactPrefsNote(d)` returns a finished string, and `buildInvoiceDocHtml` is handed that string rather than the flags — so nothing in the invoice builder can branch on a contact preference, because it never receives one. Suite 128 asserts the builder names neither field directly. The Edit Customer tickbox says outright that they still get their invoice and account notices, since the one dangerous misreading of that box is that it stops their bill.
   - ⚠ **`noAutomationEmails` never stops a bill.** It is named for its scope on purpose — the obvious name (`emailOptedOut`) invites someone to wire it into the nightly invoice run, and a customer who asked to stop getting marketing would then silently stop being **billed**. Nobody chases an invoice that was never sent. Neither `functions/index.js` nor `buildInvoiceDocHtml` has ever heard of the field, and Suite 128 of `run-all.js` fails if either learns it.
   - ⚠ The four other email-send handlers in `admin.html` (`sendRsvpEmailBtn`, `sendBulkUpdateEmailBtn`, `pibSendUnpaidBtn`, `pibSendPaidBtn`) have **no markup** — every id is in `KNOWN_MISSING_IDS`, so they return at their first line. That is the only reason they carry no guard. Suite 128 fails if any of them ever gets markup, so whoever builds one has to decide about the list first.
+- ⭐ **THE WHOLE RSVP, IN ONE PRESS** (2026-09-07, RS-53). Dax: *"We want one button for the
+  entire rsvp"*, and *"we need everyone to get the right email and hve it sent to the right
+  spot."* **Automation Emails → Templates → Send the whole RSVP.** The season RSVP used to be
+  three screens — the ordinary email here, the Not Paid one under Invoices, and the text list
+  below — and the one send that must reach everybody exactly once is the worst possible place
+  to rely on somebody remembering the order.
+  - **What one press does.** Plans the whole book, shows the breakdown, then sends the
+    **ordinary RSVP** to everybody who is straight and the **Not Paid RSVP** to everybody who
+    owes from last season. Marks `rsvpSentAt` once, at the end, and redraws the text list.
+  - ⚠ **It is not a second sender.** It calls `etSendTemplateRun`, the same loop the ordinary
+    Send button uses. It decides *who* and *which template* and nothing else.
+  - ⛔ **It refuses entirely until the invoices have loaded, and that is the most important
+    line in it.** Before that read lands `houseOwesFromLastSeason` answers false for
+    everybody — so an ungated press posts the ordinary *"will you be getting lights hung again
+    this year"* email to every customer carrying a balance, saying nothing about the balance
+    and handing them a Yes button that cannot put them on the schedule. ~950 wrong sends from
+    one press, silently. It says which tab to open rather than looking like nothing happened.
+  - ⚠ **Both templates or neither.** Sending only the half that has a template leaves the
+    other half unasked with nothing on screen saying so — "send the whole RSVP" having sent
+    some of it is the failure this button exists to remove.
+  - ⚠ **Nobody is in two lists.** Straight, owing, to-be-texted, do-not-send, already
+    answered and first-year are six disjoint outcomes, and the suite asserts that as a
+    property rather than case by case.
+  - ⚠ **Check first runs the same planner and sends nothing**, so what is on screen is what
+    sends — the same reasoning the Preview & Send preview and its send loop already share.
 - ⭐ **ONE SENDER, HOWEVER MANY TEMPLATES A RUN NEEDS** (2026-09-07). The send loop used to
   live inside the *Send to N selected* click handler, so any second button could only have
   reached it by growing a second copy — which is the failure this repo already fixed once by
