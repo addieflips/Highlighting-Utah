@@ -45262,14 +45262,43 @@ function renderEditCustLedgerLines(ledger, listId, statusId, notes){
   const st = document.getElementById(statusId);
   if(st) st.textContent = '';
 }
-/* ⚠ RE-READ AT CLICK TIME, never captured when the form opened: the house tabs
+/* ⭐ THE ONE ANSWER TO "WHICH BILL DO THIS CUSTOMER'S FEE AND DISCOUNT LINES COME
+   FROM" (2026-09-07). Dax: "disounts and fees should be listed in a customers account
+   but right now the fees and discounts arent being listed and when it is listed we
+   should also have a way to delete it."
+
+   ⚠ RE-READ AT CLICK TIME, never captured when the form opened: the house tabs
    repoint this form at a sibling without closing it, so a captured invoice would
    waive a fee off the wrong household's bill. Same reason the carried-debt line
-   below re-reads on every keystroke. */
+   below re-reads on every keystroke.
+
+   ⛔ IT USED TO ANSWER null FOR EVERY CUSTOMER IN THE BOOK, AND THAT IS WHY THE LINES
+   WERE NOT LISTED. It called `allCustInvoiceFor(cust.data)`, and that function takes the
+   ADDRESS ITEM and asks `custInvoiceKey(addrItem.data)` — so it was handed `cust.data.data`,
+   which is undefined, keyed on the empty string, and returned null every single time.
+   Every one of its callers therefore rendered an EMPTY ledger: cross one fee off and the
+   redraw below blanked the fee list AND the discount list, so a working × looked like it
+   had deleted everything. Nothing threw, and every check on this code read it as text.
+   ⚠ THE OTHER EIGHT CALL SITES PASS THE ITEM (`allCustInvoiceFor(item)`) and are correct.
+   Do not "fix" this by widening `allCustInvoiceFor` — the Edit Customer save needs it to
+   go on answering the HOUSE'S OWN key, to find and zero a leftover when somebody starts
+   billing elsewhere.
+
+   ⭐ AND IT RESOLVES THE BILL, NOT THE HOUSE — `billToPhone` first, then the house's own
+   key, the same expression `billingGroupsByPayer` builds its map from and the one
+   `getLiveInvoiceStatus` was repointed to on 2026-08-26. The × already resolved it that
+   way (2026-09-07, REF's sibling ruling: "everyone should have a invoice and it should
+   delete"); the LIST did not, so on a house billed to somebody else the × was pointed at
+   one bill and the lines it was crossing off were drawn from another. One question, one
+   answer — seventeen numbers in the real book are shared, so this is not a rare shape. */
 function editCustInvoiceNow(){
   if(typeof editCustomerId === 'undefined' || !editCustomerId) return null;
   const cust = jobAddresses.find(x => x.id === editCustomerId);
-  return cust ? (allCustInvoiceFor(cust.data) || null) : null;
+  if(!cust) return null;
+  const billKey = String(cust.data.billToPhone || '').replace(/\D/g, '') ||
+                  custInvoiceKey(cust.data);
+  if(!billKey) return null;
+  return allInvoicesCache.find(i => i.id === billKey) || null;
 }
 function updateEditCustDiscountSummary(){
   const el = document.getElementById('editCustDiscountSummary');
@@ -45334,10 +45363,14 @@ document.addEventListener('DOMContentLoaded', function(){
       /* ⭐ AND IT TAKES THE LINE OFF THE BILL THIS CUSTOMER IS ACTUALLY ON (2026-09-07).
          Dax: "when i try to delete a discount or fee it says they dont have a invoice,
          and everyone should have a invoice and it should delete."
-         ⚠ `editCustInvoiceNow` asks `allCustInvoiceFor`, which answers "the invoice filed
-         under this HOUSE'S OWN key" — and that is deliberate and must not be widened,
-         because the Edit Customer save needs exactly that to find and zero a leftover
-         when somebody starts billing elsewhere. But a house billed to somebody else has
+         ⚠ CORRECTED 2026-09-07: this said `editCustInvoiceNow` asks `allCustInvoiceFor`
+         and therefore must stay narrow. The FUNCTION that must stay narrow is
+         `allCustInvoiceFor` — "the invoice filed under this HOUSE'S OWN key" — because
+         the Edit Customer save calls IT directly (`const inv = allCustInvoiceFor(item)`)
+         to find and zero a leftover when somebody starts billing elsewhere. It is
+         untouched. `editCustInvoiceNow` is used by NOTHING but this ledger UI, so it is
+         now the shared bill-first resolver the × and the lines both read. But a house
+         billed to somebody else has
          no invoice of its own, so the × dead-ended on every one of them: the line was
          drawn from the group's bill and then refused for want of a bill. Seventeen
          numbers in the real book are shared, so this is not a rare shape.
@@ -45347,16 +45380,14 @@ document.addEventListener('DOMContentLoaded', function(){
          ⚠ AND A GENUINELY MISSING INVOICE IS NOT A DEAD END EITHER. It says which tool
          makes one rather than stopping at a fact the office can do nothing with — a
          refusal with no next step is what sends somebody looking for a bug. */
-      const invForWaive = function(){
-        if(typeof editCustomerId === 'undefined' || !editCustomerId) return null;
-        const cust = jobAddresses.find(a => a.id === editCustomerId);
-        if(!cust) return null;
-        const billKey = String(cust.data.billToPhone || '').replace(/\D/g, '') ||
-                        custInvoiceKey(cust.data);
-        if(!billKey) return null;
-        return allInvoicesCache.find(i => i.id === billKey) || null;
-      };
-      const inv = ledger === 'carried' ? null : invForWaive();
+      /* ⭐ THE SAME RESOLVER THE LIST DREW FROM — `editCustInvoiceNow`, lifted out of
+         this closure on 2026-09-07. It was a second copy of the bill-first rule, and the
+         copy was the RIGHT one while the list beside it read the house's own key: the ×
+         and the lines it crosses off must be pointed at one invoice, or a house billed
+         to somebody else has its lines drawn from the group's bill and then waived off
+         its own. Two answers to one question is what this whole block already exists to
+         have fixed once. */
+      const inv = ledger === 'carried' ? null : editCustInvoiceNow();
       if(ledger !== 'carried' && !inv){
         if(st) st.textContent = 'No invoice on file for this customer yet, so there is '
           + 'nothing to take it off. Invoices → Fix Missing Invoices → "Scan & Create '
@@ -45422,8 +45453,11 @@ document.addEventListener('DOMContentLoaded', function(){
   });
   const editArrEl = document.getElementById('editCustArrears');
   if(editArrEl) editArrEl.addEventListener('input', function(){
-    const inv = (typeof allCustInvoiceFor === 'function' && typeof editCustomerId !== 'undefined')
-      ? allCustInvoiceFor((jobAddresses.find(x => x.id === editCustomerId) || {}).data || {}) : null;
+    /* ⚠ THE SECOND `.data` SITE, and it failed the same silent way (2026-09-07): handed
+       the record where `allCustInvoiceFor` wants the ITEM, it keyed on '' and answered
+       null on every keystroke, so the line under the box could never say "$X carried by
+       the app" however much was carried. One resolver now, the same one the lines use. */
+    const inv = (typeof editCustInvoiceNow === 'function') ? editCustInvoiceNow() : null;
     updateEditCustArrearsSummary((inv && inv.data && inv.data.changeFeeNotes) || []);
   });
 });
@@ -46120,8 +46154,18 @@ function openEditCustomerModal(id){
   updateEditCustArrearsSummary(ecFeeNotes);
   updateEditCustDiscountSummary();
   updateEditCustFeeSummary();
-  renderEditCustFeeLines(ecFeeNotes);
-  renderEditCustCreditLines(ecNotes);
+  /* ⭐ THE LINES COME OFF THE BILL THIS HOUSE IS ON, NOT OFF ITS OWN KEY (2026-09-07).
+     `ecInv` above is deliberately the house's OWN invoice and must stay that way — the
+     boxes it fills (the manual fee, the manual discount, the office's carried line) are
+     rebuilt from those boxes by the save, so filling them from a GROUP's bill would copy
+     one household's fee onto another on the next press. The LISTS are read-only and are
+     what the × acts on, so they ask `editCustInvoiceNow` — the same bill-first answer the
+     × uses. A house billed to somebody else has no invoice of its own, so this is the
+     difference between showing their fees and showing nothing at all. */
+  const ecLedgerInv = (typeof editCustInvoiceNow === 'function') ? editCustInvoiceNow() : ecInv;
+  const ecLedgerData = (ecLedgerInv && ecLedgerInv.data) || {};
+  renderEditCustFeeLines(Array.isArray(ecLedgerData.changeFeeNotes) ? ecLedgerData.changeFeeNotes : []);
+  renderEditCustCreditLines(Array.isArray(ecLedgerData.creditNotes) ? ecLedgerData.creditNotes : []);
   /* ⚠ FROM THE CUSTOMER, NOT THE INVOICE. This is the half that was missing: a
      colour change made after the bill went out never reaches changeFeeNotes. */
   renderEditCustCarriedLines(Array.isArray(d.carryoverChargeNotes) ? d.carryoverChargeNotes : []);
@@ -47907,6 +47951,10 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     const inv = allCustInvoiceFor(item);
     let resyncPayerAfter = null;
     let migratingFeeNotes = null;
+    /* Set below when a typed fee or discount had no bill to land on. Reported after the
+       save so the customer's own edits are still kept — the fee is the part that was
+       lost, not the phone number somebody was actually in here to fix. */
+    let ledgerLinesNeedInvoice = false;
     if(!newBillTo){
       if(inv){
         const invoiceUpdates = {name: newName, phone: newPhone, email: newEmail};
@@ -48027,6 +48075,24 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
           status: computeInvoiceStatus(newHousePrice, 0, 0), priceReviewed: true, updatedAt: serverTimestamp()
         }, {merge:true});
       }
+      /* ⛔ AND A FEE OR A DISCOUNT TYPED ONTO A CUSTOMER WITH NO BILL WAS THROWN AWAY,
+         SILENTLY (found 2026-09-07, with Dax's "the fees and discounts arent being
+         listed"). Every ledger line lives on the INVOICE, and both branches above can
+         leave without one: no invoice and no price writes nothing at all, and no invoice
+         WITH a price creates a fresh one carrying `install` and no notes. So the office
+         typed $50 and a reason, pressed Save, watched the form close, and reopened the
+         customer to an empty Fees box — which is exactly the report, and looks like the
+         list being broken rather than the save.
+         ⚠ IT SAYS SO NOW RATHER THAN CREATING THE BILL. Addie's standing rule is that
+         nothing fails quietly, and this was the quietest kind — no throw, no toast, a
+         green "Saved". Minting an invoice here instead is a money write on a save path
+         that already runs ~36,000 characters, and it belongs with the rest of Dax's
+         "everyone should have a invoice": Invoices → Fix Missing Invoices already makes
+         one for everybody who has a price but no bill. Same words the × uses when it
+         dead-ends for the same reason, so the office reads one explanation, not two. */
+      if(!inv && (newManualFee > 0 || newManualDiscount > 0 || newArrearsAmount > 0 || newReferralCount > 0)){
+        ledgerLinesNeedInvoice = true;
+      }
     } else if(inv){
       /* They now bill to someone else, so this house's price rolls into that
          payer's invoice below. Remove their own standalone invoice so the same
@@ -48145,6 +48211,13 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       toast('Saved. Light colours left as they are — "' + editCustLightsRaw +
             '" is not something the tick boxes can show, so they were not overwritten. ' +
             'Tick the real colours and save again to correct it.');
+    }
+    /* ⚠ NAMED, AND WITH THE NEXT STEP ON IT. A bare "it did not save" is what sends
+       somebody looking for a bug; the tool that fixes it already exists. */
+    if(ledgerLinesNeedInvoice){
+      toast('Saved — but the fee/discount was NOT added: this customer has no invoice ' +
+            'for it to go on. Invoices → Fix Missing Invoices → "Scan & Create ' +
+            'Missing Invoices" makes one, then type it again.');
     }
     toast(geocodeFailed ? 'Saved — but the new address could not be located on the map. Check it manually so routes stay accurate.'
       : (lightChange.feeAmount > 0 && !lightFeeWaived

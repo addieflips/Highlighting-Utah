@@ -968,6 +968,39 @@ as the other two, because a second copy of "drop this line and re-total" is how
 one ledger starts disagreeing about what a ✕ does. ⚠ And it is never refused for
 want of an invoice: it exists precisely because the bill had already gone out.
 
+⛔ **AND FOR FOUR DAYS THE LINES WERE NOT LISTED AT ALL** (found and fixed 2026-09-07,
+MON-66). Dax: *"disounts and fees should be listed in a customers account but right now
+the fees and discounts arent being listed and when it is listed we should also have a
+way to delete it."* Three faults, and the first one hit every customer in the book.
+
+- ⛔ **`editCustInvoiceNow` ANSWERED `null` FOR EVERYBODY.** It handed the customer
+  RECORD to `allCustInvoiceFor`, which wants the address ITEM and asks
+  `custInvoiceKey(item.data)` — so it keyed on the empty string, every time. Every
+  caller therefore drew an EMPTY ledger: cross one fee off and the redraw blanked the
+  fee list **and** the discount list, so a ✕ that had genuinely worked looked like it
+  had deleted everything. Nothing threw. Every check on it read the code as text and
+  passed; only calling it can see this, which is why suite 309 now RUNS it.
+- ⚠ **THE LIST AND THE ✕ DISAGREED ABOUT WHICH BILL.** The ✕ was taught on 2026-09-07
+  to resolve `billToPhone` first; the LIST was left on the house's own key. A house
+  billed to somebody else has no invoice of its own, so it listed nothing while the ✕
+  pointed at the group's bill. One resolver now — `editCustInvoiceNow` — read by the
+  lines, the ✕, its redraw and the carried-debt summary.
+- ⛔ **A FEE TYPED ONTO A CUSTOMER WITH NO BILL WAS THROWN AWAY SILENTLY.** Every
+  ledger line lives on the invoice, and both no-invoice branches of the save write it
+  nowhere: no throw, no toast, a green *Saved*, and an empty Fees box on reopening. It
+  now names **Invoices → Fix Missing Invoices**, the same words the ✕ uses. ⚠ Minting
+  the invoice there is deliberately NOT done — a money write inside a ~36,000-character
+  save handler, and it belongs with the rest of *"everyone should have a invoice"*.
+
+⚠ **`allCustInvoiceFor` IS UNTOUCHED AND MUST STAY NARROW** — it answers "the invoice
+filed under this HOUSE'S OWN key", and the Edit Customer save calls it directly to find
+and zero a leftover when somebody starts billing elsewhere. The guard written for that
+on 2026-09-07 named `editCustInvoiceNow` instead, which the save has never called; it is
+repointed to the function that actually carries the rule. ⚠ And the boxes above the
+lines still read `ecInv`, the house's own invoice, because the save rebuilds the manual
+fee and discount FROM those boxes — filling them from a group's bill would copy one
+household's fee onto another on the next press.
+
 **Two separate fees, easy to conflate — the set-up fee is $30, the light-change fee
 is $30.** The set-up one moved to $25 on 2026-09-03 (*"make the set up fee $25"*) and
 back to **$30 on 2026-09-07** — Dax: *"we need to change the instalation fee to $30."*

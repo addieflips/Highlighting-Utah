@@ -52873,8 +52873,20 @@ suite('Suite 309. Crossing a fee or a discount off a bill somebody else pays');
      so "the end of its top-level construct" is the whole handler and hundreds of lines
      after it — which swallowed a mention of allCustInvoiceFor from elsewhere and failed
      the check below on correct code. Braces from the anchor, and no further. */
+  /* ⚠ REPOINTED 2026-09-07, NOT WEAKENED, AND THE OLD ANCHOR WAS PROTECTING THE WRONG
+     FUNCTION. `invForWaive` was a private closure holding a SECOND copy of the bill-first
+     rule while the LIST beside it read the house's own key — so the × and the lines it
+     crosses off were pointed at two different invoices. The copy is gone and
+     `editCustInvoiceNow` is now the one resolver both read.
+     ⛔ AND THE GUARD BELOW ASSERTED THE OPPOSITE OF WHAT IT MEANT. It required
+     `editCustInvoiceNow` to stay narrow "because the Edit Customer save needs it" — the
+     save has never called it. The save calls `allCustInvoiceFor(item)` directly, and THAT
+     is the function that must stay narrow. Measured: the only callers of
+     editCustInvoiceNow are the ×, its redraw, the ledger lists and the arrears summary.
+     So the invariant is unchanged and is now pinned to the function that carries it. */
+  const ledgerResolver = extractFn(admin, 'editCustInvoiceNow') || '';
   const waiveBlock = (function(){
-    const at = admin.indexOf('const invForWaive = function()');
+    const at = admin.indexOf("listEl.addEventListener('click'");
     if (at === -1) return '';
     let i = admin.indexOf('{', at), depth = 0;
     for (; i < admin.length; i++) {
@@ -52883,37 +52895,111 @@ suite('Suite 309. Crossing a fee or a discount off a bill somebody else pays');
     }
     return '';
   })();
-  /* The refusal message sits just after the resolver, so it is checked against a slice
-     that reaches a little past it rather than against the resolver alone. */
-  const waiveRefusal = admin.slice(admin.indexOf('const invForWaive = function()'),
-    admin.indexOf('const invForWaive = function()') + 2200);
   check('S309', 'the waive path is findable',
-    !!waiveBlock && waiveBlock.length > 40,
-    'renamed or inlined — repoint this rather than deleting it, or the two checks ' +
+    !!waiveBlock && waiveBlock.length > 40 && !!ledgerResolver,
+    'renamed or inlined — repoint this rather than deleting it, or the checks ' +
     'below pass vacuously against an empty string');
 
-  check('S309', 'the × resolves the bill the customer is actually on',
-    /billToPhone/.test(waiveBlock) && /custInvoiceKey/.test(waiveBlock),
-    'a house billed elsewhere has no invoice under its own key, so crossing a line ' +
-    'off its group bill was refused for want of a bill it never had');
+  /* ⭐ RUN, NOT MATCHED. The bug this replaced was invisible to a text check: the
+     resolver read correctly and answered null for every customer in the book, because it
+     handed the RECORD to a function that wants the ITEM. Only calling it can see that. */
+  if (ledgerResolver) {
+    const resolve = function (cust, invoices) {
+      return new Function('CUST', 'INVS',
+        'var editCustomerId = CUST ? CUST.id : null;' +
+        'var jobAddresses = CUST ? [CUST] : [];' +
+        'var allInvoicesCache = INVS;' +
+        'var invoiceById = new Map(INVS.map(function(i){ return [i.id, i]; }));' +
+        'function custInvoiceKey(d){ var p = String((d && d.phone) || "").replace(/[^0-9]/g, "");' +
+        '  if (p) return p; return String((d && d.email) || "").toLowerCase().trim(); }' +
+        'function allCustInvoiceFor(item){ var k = custInvoiceKey(item.data); return k ? (invoiceById.get(k) || null) : null; }' +
+        ledgerResolver + 'return editCustInvoiceNow();')(cust, invoices);
+    };
+    const ownBill = { id: '8015550123', data: { creditNotes: [{ amount: 25, reason: 'Loyalty' }] } };
+    const groupBill = { id: '8019990000', data: { creditNotes: [{ amount: 40, reason: 'Referral' }] } };
 
-  check('S309', 'and it does not reach for the own-key resolver',
-    waiveBlock.indexOf('allCustInvoiceFor') === -1,
-    'that one deliberately answers the narrower question; using it here is the bug');
+    check('S309', 'a customer who pays for themselves gets their own bill',
+      resolve({ id: 'c1', data: { phone: '801-555-0123' } }, [ownBill, groupBill]) === ownBill,
+      'it answered null for EVERY customer until 2026-09-07 — the record was passed ' +
+      'where the address ITEM was wanted, so it keyed on the empty string');
 
-  /* ⚠ THE NARROW RESOLVER MUST STAY NARROW. Widening it to billToPhone would "fix" the
-     × and quietly break the save, which uses it to find the leftover invoice to zero —
-     a customer who moves onto somebody else's bill would then keep billing themselves. */
-  const ownKey = extractFn(admin, 'editCustInvoiceNow') || '';
-  check('S309', 'editCustInvoiceNow still answers the house\'s OWN key',
-    /allCustInvoiceFor/.test(ownKey) && ownKey.indexOf('billToPhone') === -1,
+    check('S309', 'and a house billed elsewhere gets the bill it is really on',
+      resolve({ id: 'c2', data: { phone: '801-555-0123', billToPhone: '(801) 999-0000' } },
+        [ownBill, groupBill]) === groupBill,
+      'a house billed to somebody else has no invoice under its own key, so its fees ' +
+      'and discounts listed as nothing at all');
+
+    check('S309', 'a customer with no bill anywhere resolves to nothing, not to a guess',
+      resolve({ id: 'c3', data: { phone: '801-000-0000' } }, [ownBill, groupBill]) === null,
+      'answering some other customer\'s invoice here would cross a line off the ' +
+      'wrong household\'s bill');
+  }
+
+  /* ⚠ COMMENTS STRIPPED. The block's own paragraph explains why it does NOT use
+     `allCustInvoiceFor`, so a plain search finds the explanation and calls it the
+     violation — the trap Suites 58, 274, 275 and 300 each had to learn, hit again here
+     within a minute of this check being written. */
+  const waiveCode = stripComments(waiveBlock);
+  check('S309', 'the × and the lines read ONE resolver',
+    waiveCode.indexOf('editCustInvoiceNow()') !== -1 &&
+    waiveCode.indexOf('allCustInvoiceFor') === -1 &&
+    /billToPhone/.test(stripComments(ledgerResolver)) &&
+    /custInvoiceKey/.test(stripComments(ledgerResolver)),
+    'two answers to "which bill is this line on" is a × pointed at one invoice ' +
+    'crossing off a line drawn from another');
+
+  /* ⛔ AND THE LIST ON OPEN READS IT TOO. Caught by the red-check, not by design: with
+     the × repointed and the resolver fixed, sending the OPEN path back to the house's own
+     key left no check failing at all — so a house billed elsewhere would open showing an
+     empty Fees box and a × that works, which is the original report exactly. The boxes
+     above it (`ecInv`) deliberately stay on the own key; only the read-only lists move. */
+  check('S309', 'the lines drawn when the form opens come off the same bill',
+    /const ecLedgerInv = \(typeof editCustInvoiceNow === 'function'\) \? editCustInvoiceNow\(\)/
+      .test(stripComments(admin)) &&
+    /renderEditCustFeeLines\(Array\.isArray\(ecLedgerData\.changeFeeNotes\)/.test(admin) &&
+    /renderEditCustCreditLines\(Array\.isArray\(ecLedgerData\.creditNotes\)/.test(admin),
+    'the × resolved the group bill while the list read the house\'s own key, so a ' +
+    'house billed elsewhere listed nothing and the × had nothing to act on');
+
+  check('S309', 'and the boxes above them still read the house\'s OWN invoice',
+    /const ecInv = allInvoicesCache\.find\(i => i\.id === custInvoiceKey\(d\)\);/.test(admin),
+    'the manual fee and discount boxes are rebuilt onto this house\'s invoice by the ' +
+    'save, so filling them from a group bill copies one household\'s fee onto another');
+
+  /* ⚠ THE NARROW RESOLVER MUST STAY NARROW — and it is `allCustInvoiceFor`, which the
+     Edit Customer save calls to find the leftover invoice to zero. Widening THAT would
+     leave a customer who moves onto somebody else's bill still billing themselves. */
+  const ownKeyFn = extractFn(admin, 'allCustInvoiceFor') || '';
+  check('S309', 'allCustInvoiceFor still answers the house\'s OWN key',
+    !!ownKeyFn && /custInvoiceKey/.test(ownKeyFn) && ownKeyFn.indexOf('billToPhone') === -1,
     'widened — the Edit Customer save needs the narrow answer to find and zero a ' +
     'leftover invoice when somebody starts billing elsewhere');
 
+  check('S309', 'and the save is still the caller that depends on it',
+    /const inv = allCustInvoiceFor\(item\);/.test(admin),
+    'if the save stops calling it, the guard above is protecting nothing');
+
   /* A refusal the office can act on, rather than a fact it can do nothing with. */
   check('S309', 'a genuinely missing invoice names the tool that makes one',
-    /Fix Missing Invoices/.test(waiveRefusal),
+    /Fix Missing Invoices/.test(waiveBlock),
     'a dead-end refusal is what sends somebody looking for a bug that is not there');
+
+  /* ⛔ AND A TYPED FEE WITH NO BILL TO LAND ON IS SAID OUT LOUD (2026-09-07). Dax: "the
+     fees and discounts arent being listed." Both no-invoice branches of the save write
+     the ledger nowhere — no throw, no toast, a green "Saved" — so the office typed a fee
+     and reopened the customer to an empty box. Addie's standing rule is that nothing
+     fails quietly. */
+  check('S309', 'a fee typed onto a customer with no bill is not thrown away silently',
+    /ledgerLinesNeedInvoice = true;/.test(admin) &&
+    /ledgerLinesNeedInvoice\s*\)\s*\{[\s\S]{0,400}Fix Missing Invoices/.test(admin),
+    'it saved everything else and dropped the fee without a word, which reads as the ' +
+    'list being broken rather than the save');
+
+  check('S309', 'and it only fires when something was actually typed',
+    /if\(!inv && \(newManualFee > 0 \|\| newManualDiscount > 0 \|\| newArrearsAmount > 0 \|\| newReferralCount > 0\)\)/
+      .test(admin),
+    'warning on every save of an un-invoiced customer is how a real warning gets ' +
+    'clicked past');
 }
 
 /* ---------------------------------------------------------------------------
