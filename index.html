@@ -1579,6 +1579,46 @@
 </div>
 
 <!-- ============ PAYMENT PAGE ============ -->
+<!-- ⭐ THE SHARE PAGE (2026-09-05, REF-13). Where the Refer a Friend button in an
+     email lands: the customer's own link, with the share sheet behind one gold button.
+     ⚠ IT IS NOT THE QUOTE FORM, which is what that button used to open. The button is
+     aimed at the CUSTOMER and the quote form is aimed at their FRIEND, so tapping it
+     put the person holding the link on the one screen that link is not for.
+     ⚠ AND IT IS PUBLIC, WITH NO SIGN-IN. It shows one thing they were already sent
+     and holds nothing else: no balance, no address, no name. Putting it behind the
+     portal would mean an email button that signs somebody in, and a forwarded email
+     would then hand the account over. -->
+<div id="page-share" class="page">
+  <div class="page-hero">
+    <div class="wrap">
+      <div class="eyebrow" style="color:var(--gold); justify-content:center;">Refer a Friend</div>
+      <h1>Send Your Link</h1>
+      <p>When somebody becomes a customer through your link, we take <strong>$25</strong> off your bill &mdash; there is no limit, and you do not have to tell us.</p>
+    </div>
+  </div>
+  <section class="page-block">
+    <div class="wrap" style="max-width:520px;">
+      <div class="form-shell" style="padding:32px;">
+        <div class="form-row">
+          <label>Your link</label>
+          <input type="text" id="shareLinkInput" readonly value="" style="font-size:13px;">
+        </div>
+        <!-- ⚠ THE LABEL IS SET IN JS and this is the FALLBACK wording, for the same
+             reason as the portal's own button: a browser with no share sheet still
+             copies, and it must never promise a sheet it cannot open. -->
+        <button type="button" class="btn btn-gold btn-block" id="shareLinkBtn">Copy My Link</button>
+        <div id="shareLinkStatus" role="status" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
+        <!-- ⭐ THE FORWARDED-EMAIL CASE, ANSWERED RATHER THAN BROKEN. Plenty of people
+             will forward the whole email instead of sending the link, and before this
+             page existed the friend who opened it landed on the quote form and was
+             credited correctly. This is that route, kept: its href IS the /r/ link
+             being shared, so the two can never drift apart. -->
+        <p id="shareLinkQuoteLine" style="font-size:13px; margin:16px 0 0; padding-top:14px; border-top:1px solid rgba(30,59,44,.12); text-align:center; display:none;">Somebody send you this? <a id="shareLinkQuoteLink" href="#/quote" style="color:var(--ink); font-weight:600;">Get a free quote</a> &mdash; they get $25 off.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
 <div id="page-payment" class="page">
   <div class="page-hero" id="paymentPageHero">
     <div class="wrap">
@@ -2047,18 +2087,23 @@
                  customer does no admin and neither does the office: the credit is
                  applied by creditReferralIfAny in admin.html when the friend actually
                  becomes a customer, not when the link is clicked.
-                 ⚠ THERE IS NO SHARE BOX AND NO "enter your friend's email". Sending
-                 mail on a customer's behalf to an address they typed is a different
-                 feature with a different set of problems; a link they can paste into
-                 their own messages needs none of them. -->
+                 ⚠ THERE IS STILL NO "enter your friend's email". Sending mail on a
+                 customer's behalf to an address they typed is a different feature with a
+                 different set of problems. The share sheet is the opposite of that: the
+                 phone's own contacts, the customer's own message, sent from their own
+                 number, and this page never learns who they sent it to. -->
             <div id="tabPanel-refer" style="display:none;">
               <p class="form-note" style="margin-top:0;">Send this link to a neighbour or a friend. When they become a customer, we take <strong>$25</strong> off your bill &mdash; there is no limit, and you do not have to tell us.</p>
               <div class="form-row">
                 <label>Your link</label>
                 <input type="text" id="referLinkInput" readonly value="" style="font-size:13px;">
               </div>
-              <button type="button" class="btn btn-gold btn-block" id="referCopyBtn">Copy My Link</button>
-              <div id="referCopyStatus" role="status" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
+              <!-- ⚠ THE LABEL IS SET IN JS, and this one is the FALLBACK wording on
+                   purpose: a browser with no share sheet still copies, and the button
+                   must never promise a sheet it cannot open. portalRenderReferral
+                   upgrades it to "Share My Link" where navigator.share exists. -->
+              <button type="button" class="btn btn-gold btn-block" id="referShareBtn">Copy My Link</button>
+              <div id="referShareStatus" role="status" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
               <p id="referCount" style="font-size:14px; margin-top:16px; padding-top:14px; border-top:1px solid rgba(30,59,44,.12); text-align:center;"></p>
             </div>
 
@@ -2502,10 +2547,13 @@ onSnapshot(doc(db,'siteContent','main'), function(snap){
 /* =========================================================
    ROUTING
 ========================================================= */
-var routes = ['/', '/how-it-works', '/gallery', '/reviews', '/areas', '/faq', '/contact', '/quote', '/quote-details', '/payment'];
+var routes = ['/', '/how-it-works', '/gallery', '/reviews', '/areas', '/faq', '/contact', '/quote', '/quote-details', '/payment', '/share'];
 var pageIds = {
   '/': 'page-home', '/how-it-works':'page-how', '/gallery':'page-gallery', '/reviews':'page-reviews',
-  '/areas':'page-areas', '/faq':'page-faq', '/contact':'page-contact', '/quote':'page-quote', '/quote-details':'page-quote-details', '/payment':'page-payment'
+  '/areas':'page-areas', '/faq':'page-faq', '/contact':'page-contact', '/quote':'page-quote', '/quote-details':'page-quote-details', '/payment':'page-payment',
+  /* ⭐ THE CUSTOMER'S OWN SHARE PAGE (2026-09-05, REF-13). Not in the nav on
+     purpose: it is nobody's destination except through their own link. */
+  '/share':'page-share'
 };
 function navigate(){
   var fullHash = window.location.hash.replace('#','') || '/';
@@ -2560,6 +2608,13 @@ function navigate(){
       if(lookupFormWrapEl) lookupFormWrapEl.style.display = 'none';
       performSignInLookup(contactParam, lastNameParam.toLowerCase());
     }
+  } else if(hash === '/share'){
+    /* ⚠ THE TOKEN RIDES IN THE HASH, NOT IN A VARIABLE. This screen is reached
+       by a full page load from /s/<token>, so anything remembered in a module variable
+       is remembered from a page that no longer exists — and a hashchange back onto
+       this route has to redraw it from the address alone. */
+    var shareParams = new URLSearchParams(queryString || '');
+    if(typeof renderSharePage === 'function') renderSharePage(shareParams.get('t') || '');
   } else if(hash === '/' && queryString){
     var homeParams = new URLSearchParams(queryString);
     var backToken = homeParams.get('token');
@@ -2640,6 +2695,33 @@ function navigate(){
    under the key "undefined" — the app booted, the page was right, and the referral was
    silently worth nothing. A browser spec caught it; no source check could have. */
 var REFERRAL_LINK_KEY = 'hu.referredByToken';
+/* ⭐ THE SHARE LINK — /s/<token> (2026-09-05, REF-13).
+
+   Dax, having tapped the Refer a Friend button in an RSVP: *"it takes you straight to
+   the free quote form which is not what we want we want it to be sharable so you can
+   send someone else that link"*. He is right, and the two links are for two different
+   people: /r/<token> is what the FRIEND opens, and /s/<token> is what the CUSTOMER
+   opens to send it to them.
+
+   ⚠ NOTHING IS STORED AS A REFERRAL HERE, and that is the whole difference. The
+   /r/ reader below writes the token into sessionStorage so the quote that follows is
+   credited; doing that on this page would mark the customer as having been referred by
+   themselves, and their next quote would be refused as a self-referral by a rule that
+   is right — over a link they were sent by us.
+
+   ⚠ AND IT SITS ABOVE THE /r/ AND /q/ READERS so that neither slice moves: both
+   short-link readers open with `var m = null;`, and run-all.js anchors on the nearest
+   one before the pattern it is checking. */
+(function(){
+  var m = null;
+  try{
+    m = /^\/s\/([A-Za-z0-9_-]+)\/?$/.exec(window.location.pathname || '');
+  } catch(e){ /* quiet on purpose: no readable location means this is not a /s/ link, and the readers below still run. */ }
+  if(!m) return;
+  window.location.hash = '/share?t=' + encodeURIComponent(m[1]);
+  try{ window.history.replaceState(null, '', '/' + window.location.hash); }
+  catch(e){ /* quiet on purpose: cosmetic. A blocked replaceState leaves /s/<token> showing and changes nothing about the page. */ }
+})();
 /* ⭐ THE SHORT REFERRAL LINK — /r/<token> (2026-09-04, REF-11).
  *
  * Addie: "make sure the link isnt crazy long try to shorten it so in the rsvp
@@ -6360,9 +6442,15 @@ function portalRenderReferral(addrDoc){
   /* ⚠ NO TOKEN IS A REAL STATE, not a bug to hide: a record the office created by
      hand has one the moment they next sign in, and until then a blank box with no
      explanation is the worst of both. */
-  var copyBtn = document.getElementById('referCopyBtn');
-  if(copyBtn) copyBtn.disabled = !token;
-  var status = document.getElementById('referCopyStatus');
+  /* ⚠ THE BUTTON SAYS WHICH OF THE TWO THINGS IT IS ABOUT TO DO. A button reading
+     "Share" that silently copies leaves a customer waiting for a sheet that is never
+     coming, and one reading "Copy" that opens a sheet is a surprise on a phone. */
+  var shareBtn = document.getElementById('referShareBtn');
+  if(shareBtn){
+    shareBtn.disabled = !token;
+    shareBtn.textContent = portalCanShare() ? 'Share My Link' : 'Copy My Link';
+  }
+  var status = document.getElementById('referShareStatus');
   if(status && !token) status.textContent = 'Your link is being set up \u2014 check back in a moment.';
   var n = Math.max(0, Number(addrDoc.referralCount) || 0);
   if(countEl){
@@ -6373,10 +6461,51 @@ function portalRenderReferral(addrDoc){
       : '';
   }
 }
-document.getElementById('referCopyBtn')?.addEventListener('click', async function(){
-  var input = document.getElementById('referLinkInput');
-  var status = document.getElementById('referCopyStatus');
+/* ⭐ THE SHARE SHEET, NOT A CLIPBOARD (2026-09-05). Dax: *"we would rather have it as
+   a share link so it opens share options where they can copy it or send it to contact"*.
+   A copy button ends with the link on a clipboard and the customer still has to go and
+   find somebody to paste it to; the sheet hands them their own contacts, Messages, Mail
+   and a Copy row in one tap — on the phone, which is where this tab is opened.
+
+   ⚠ COPY IS STILL HERE AS THE FALLBACK, NOT AS A SECOND BUTTON. navigator.share is a
+   phone-and-Safari API: it is absent in desktop Firefox, on a plain http origin, and in
+   several in-app browsers — which is exactly where a link gets shared from. Where it is
+   missing this does what it always did, and the label above says so. */
+function portalCanShare(){
+  /* ⚠ PRESENCE ONLY, NOT canShare({url}). The label is drawn before the token has
+     necessarily arrived, and canShare on an empty url answers false — which would
+     label a phone "Copy My Link" for the one customer whose link is still minting. */
+  try{ return typeof navigator !== 'undefined' && typeof navigator.share === 'function'; }
+  catch(err){ return false; }
+}
+/* ⭐ ONE SHARE ROUTINE, TWO BUTTONS (2026-09-05, REF-13). The portal tab and the
+   share page do exactly the same thing with exactly the same link, and a second copy of
+   this is a second place for the AbortError branch to be forgotten — which fails as a
+   customer being told a feature is broken for having changed their mind. */
+async function portalShareLink(input, status){
   if(!input || !input.value) return;
+  if(status) status.textContent = '';
+  if(portalCanShare()){
+    try{
+      await navigator.share({
+        title: 'Highlighting Utah',
+        text: 'Highlighting Utah does our Christmas lights — here is my link for a free quote:',
+        url: input.value
+      });
+      /* ⚠ NOTHING IS CLAIMED ON THE WAY BACK OUT. A resolved share says a target
+         accepted the link, not that a message was sent or that anyone will sign up;
+         the sheet is its own confirmation, and "Sent!" over a share the customer may
+         have finished by saving a note is a small lie the portal does not need. */
+      return;
+    }catch(err){
+      /* ⚠ A DISMISSED SHEET IS NOT A FAILURE. Backing out rejects with AbortError —
+         reporting that as "could not share" tells somebody who simply changed their
+         mind that the feature is broken. Silent, and the button still works.
+         Any OTHER rejection (blocked by policy, no transient activation, a target
+         that threw) falls through to the copy below rather than dead-ending. */
+      if(err && err.name === 'AbortError') return;
+    }
+  }
   /* ⚠ TWO WAYS, BECAUSE THE FIRST ONE IS NOT ALWAYS THERE. navigator.clipboard is
      absent on a page served over plain http and blocked in some in-app browsers —
      which is exactly where a link gets shared from. The select-and-execCommand
@@ -6399,7 +6528,39 @@ document.getElementById('referCopyBtn')?.addEventListener('click', async functio
   if(status) status.textContent = ok
     ? 'Copied \u2014 paste it into a text or an email.'
     : 'Could not copy it for you \u2014 select the link above and copy it.';
+}
+document.getElementById('referShareBtn')?.addEventListener('click', function(){
+  portalShareLink(document.getElementById('referLinkInput'),
+                  document.getElementById('referShareStatus'));
 });
+document.getElementById('shareLinkBtn')?.addEventListener('click', function(){
+  portalShareLink(document.getElementById('shareLinkInput'),
+                  document.getElementById('shareLinkStatus'));
+});
+/* ⚠ DRAWN FROM THE ADDRESS, NEVER FROM A RECORD. This page is public and signs
+   nobody in, so the token in the link is all it has — and all it needs: the link it
+   shows is built by portalReferralLink, the same builder the portal and the office
+   both use, so one customer cannot end up with two spellings of their own link.
+   ⚠ AN EMPTY TOKEN IS A REAL STATE (a mangled forward, a truncated text) and says
+   so, rather than offering a button that shares nothing. */
+function renderSharePage(token){
+  var link = token ? portalReferralLink(String(token)) : '';
+  var input = document.getElementById('shareLinkInput');
+  var btn = document.getElementById('shareLinkBtn');
+  var status = document.getElementById('shareLinkStatus');
+  var line = document.getElementById('shareLinkQuoteLine');
+  var quoteLink = document.getElementById('shareLinkQuoteLink');
+  if(input) input.value = link;
+  if(btn){
+    btn.disabled = !link;
+    btn.textContent = portalCanShare() ? 'Share My Link' : 'Copy My Link';
+  }
+  if(status) status.textContent = link
+    ? ''
+    : 'That link is missing its code \u2014 open Refer a Friend in your account for a fresh one.';
+  if(line) line.style.display = link ? '' : 'none';
+  if(quoteLink && link) quoteLink.href = link;
+}
 /* ⭐ 'refer' IS UNLOCKED, REVERSING THE DAY IT SHIPPED (2026-09-04, REF-07). Addie:
    *"its not showing up anywhere"* — and it was not showing up because of this list.
 

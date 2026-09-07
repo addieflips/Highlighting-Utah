@@ -160,7 +160,24 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
      only *after* the send succeeds, so a refused send does not silently drop them for the year.
    - **No figure in the email.** There is no token for the carried balance and `{{amount_due}}` means this
      year's install price (RS-37), so the buttons carry their portal token and the portal shows the figure.
+     ⚠ **What that forbids is an INVENTED figure, not the `$` sign.** The shipped body carries the referral
+     offer, which is a fixed $25 on every email and cannot be mistaken for a balance; the check asserts that
+     every dollar figure in the body IS that constant. It used to assert no `$` at all, which was true of the
+     test fixture and never of the real template — a check that held for the harness and not for production.
    - The **test record carries Addie's own phone**, so it is skipped by flag and by name-and-number both.
+
+   ⭐ **THE TWO RSVP EMAILS SPLIT THE BOOK BETWEEN THEM** (2026-09-07, REF-16). Dax: *"both emails will be
+   sent seperately but at the same time."* ⚠ **The overlap was real and silent.** This batch writes to
+   somebody who owes AND has not answered; the standard RSVP's audience is returning customers who have not
+   answered — the same people plus everybody else. Sent on different days the stagger hid it; sent together,
+   every customer carrying a balance gets two emails within a minute, one of which says nothing about the
+   balance and hands them a Yes button that cannot put them on the schedule.
+   - **Choosing the template now picks its half.** The Not Paid RSVP sets the *Paid last year* filter to
+     Unpaid; any other RSVP template sets it to Paid. Together they are the whole book exactly once.
+   - ⚠ **A default, not a lock** — the same standing the *New vs returning* filter beside it has (RS-07).
+     She can set it back to All; what she cannot do is arrive at the overlap without choosing it.
+   - ⚠ It leans on `etFilterPaidLast`, repointed on 2026-09-05 to read the **live** arrears rather than a
+     snapshot nobody writes. That fix is the only reason this filter can be trusted to carry the split.
 
    ⭐ **AND WHEN THEY PAY, EVERYTHING MOVES — INCLUDING THE OFFICE SCREEN** (2026-09-02, RS-40). Every
    figure on an All Customers row is derived live from the invoice, so a portal payment already cleared the
@@ -1008,8 +1025,47 @@ Addie: a member gets their own link, and when somebody joins through it $25 come
 member's bill — with nobody in the office typing anything.
 
 - **Where the customer gets it.** A **Refer a Friend** tab in their own portal: the link, a
-  copy button, and how many people have joined through it. The address is
+  **Share My Link** button, and how many people have joined through it. The address is
   `.../?ref=<referralToken>#/quote`.
+  - ⭐ **ONE TOKEN, TWO ADDRESSES, FOR TWO DIFFERENT PEOPLE** (2026-09-05, REF-13).
+    `/r/<token>` is what the **friend** opens — it stores the token and goes to the free
+    quote form, which is what credits the referral. `/s/<token>` is what the **customer**
+    opens: their own share page, `#/share`, with the link and the share sheet on it.
+    Dax tapped the Refer a Friend button in an RSVP and landed on the quote form, because
+    that button carried `/r/`. It carries `/s/` now, in `referralShareLinkFromToken`
+    (admin.html) and character-for-character the same in `runArrearsRsvpBatch`
+    (functions/index.js). **`{{referral_link}}`, the bare token, still resolves to `/r/`**
+    — that one is pasted into an email as text for the customer to forward, so it is the
+    friend's address by design.
+  - ⭐ **THE EMAIL BUTTON AND THE PAGE'S BUTTON SAY THE SAME THING** — **Share My Link
+    — $25 Off**. Dax: *"that button that says share my link should be the same button we
+    send in their email"*. It reads "Refer a Friend" no longer, because the customer reads
+    the email and then the page minutes apart and two names for one button is two buttons
+    to them. ⚠ Both renderers send it character for character; they said "$25 Off" and
+    "$25 off your bill" until 2026-09-05, so which words a customer got depended on which
+    renderer happened to send.
+  - ⚠ **The share page stores NOTHING as a referral.** The `/r/` reader writes the token
+    into `sessionStorage` so the quote that follows is credited; doing the same on `/s/`
+    would mark the customer as referred by themselves and their next quote would be
+    refused as a self-referral — over a link we sent them. It is public, signs nobody in
+    and shows nothing but the link: an email button that signed somebody in would hand
+    the account to whoever the email was forwarded to. A forwarded email still works —
+    the page carries a quiet "Somebody send you this? Get a free quote" whose href **is**
+    the `/r/` link being shared.
+  - ⭐ **The button opens the phone's own share sheet** (2026-09-05). Dax: *"we would
+    rather have it as a share link so it opens share options where they can copy it or
+    send it to contact"*. `navigator.share`, so the customer picks a contact, Messages,
+    Mail — or Copy — from the list their phone already gives them, instead of landing
+    the link on a clipboard and having to go and find somebody to paste it to. Nothing
+    is sent by us and this page never learns who they sent it to, so it is still not
+    the "enter your friend's email" feature and carries none of its problems.
+  - ⚠ **Copying is the fallback, and the label says which one you are getting.**
+    `navigator.share` is absent in desktop Firefox, on a plain http origin and in
+    several in-app browsers, so where it is missing the button reads **Copy My Link**
+    and copies exactly as it did before. A button reading Share that silently copies
+    leaves a customer waiting for a sheet that is never coming. Backing out of the
+    sheet (`AbortError`) says nothing at all — changing your mind is not a failure —
+    while any other rejection falls through to the copy rather than dead-ending.
   - ⚠ **The link carries a referral token, never the portal login token.** A portal token
     signs somebody in; this one is pasted into a group chat. The customer number is not used
     either — it is printed on invoices and bins, so it is guessable.
@@ -1053,6 +1109,27 @@ member's bill — with nobody in the office typing anything.
   Inbox note are the only defences. A refusal is marked on the quote so it is not retried
   for ever, and it raises its own note, because a refusal nobody can see is indistinguishable
   from the link not working.
+- ⭐ **HOW LONG A REFERRAL IS WORTH $25** (2026-09-07, REF-14). Dax: *"a referral is $25
+  off for the current season per refferral."* It comes off **the season it was earned in**
+  and no season after it. ⚠ **Before this it was a discount for life, and nobody had
+  decided that**: entries are deliberately never deleted (they are the audit trail), and
+  `referralLiveCount` counted every one of them for ever — so a friend referred in 2026
+  took $25 off the 2027 bill, the 2028 bill and every bill after. Three referrals in one
+  good season quietly became a standing $75 discount off a list nobody re-reads.
+  - ⚠ **Per referral, not per friend per season.** The friend coming back next year is not
+    a second referral and earns nothing; a NEW person referred next year does.
+  - ⚠ **The season is `new Date().getFullYear()`** — the definition this app already uses
+    (`audienceNeverAsked` compares the quote-join year against it; Start New Season files
+    its snapshot under it). A second idea of when a season starts is the shape this repo
+    keeps finding in its own history.
+  - ⚠ **Old entries are read, not migrated.** Anything written before this has no `season`,
+    so the year of `creditedAt` stands in for one — a pure read-side rule, no pass over the
+    book, nothing rewritten. An **undateable entry still counts**: wrongly dropping $25
+    somebody earned is the expensive mistake, wrongly keeping one costs $25.
+  - ⚠ **`revoked` and `waived` are unchanged** and still beat the season test.
+  - ⚠ **The server copy moved in the same push.** `clawBackReferralServer` recomputes the
+    live count, so without the same filter one customer declining in their own portal puts
+    every expired credit back on the referrer's bill — the `waived` failure, one rule on.
 - **When it is taken back.** The referred customer cancelling BEFORE their install revokes
   the entry and takes the $25 off. After the install it stands — the referral did its job.
   And never off a bill already Paid in Full: that turns credit into money owed, which is a
@@ -1071,8 +1148,18 @@ member's bill — with nobody in the office typing anything.
   `{{referral_button}}` are ordinary email tokens, offered in the token picker, and both
   BUILT-IN RSVP bodies carry the offer under the three answer buttons.
   - ⚠ **A template she has already written is never rewritten** (MON-24): the built-in
-    bodies only fill a blank one. So an RSVP template already saved in Firestore needs
-    `{{referral_button}}` added to it by hand, once — that is her edit, not ours.
+    bodies only fill a blank one.
+  - ⭐ **AND THAT NO LONGER MEANS A HAND EDIT** (2026-09-07, REF-15). This used to say an
+    RSVP template already saved in Firestore needed `{{referral_button}}` adding by hand,
+    once. It does not: the send **appends the offer** when the body places neither token,
+    and skips it when the body places one, so the offer cannot appear twice and her saved
+    words are untouched on disk. MON-24 is intact — nothing is rewritten; the block is
+    added at render time. Same shape as `addOnEmailBlock`, deliberately, because a second
+    mechanism for "the saved template is missing a thing" would drift from the first.
+    ⚠ **Both renderers, one push** — `referralEmailBlock` (admin.html, all three RSVP
+    render sites: preview, send and test) and the `hadReferralToken` append in
+    `runArrearsRsvpBatch` (functions/index.js). ⚠ And it emits **nothing** when the
+    customer cannot be resolved, never a dead link.
   - ⚠ **Two renderers, one template — the `{{photo}}` shape again.** `resolveLinkTokens`
     in admin.html renders a hand-send; `runArrearsRsvpBatch` in functions/index.js
     renders the automatic Not Paid RSVP chase with no browser involved. A token resolved

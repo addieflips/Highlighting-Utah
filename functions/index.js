@@ -1161,8 +1161,22 @@ async function clawBackReferralServer(customerId, customerData) {
     /* ⚠ `waived` COUNTS AS NOT COUNTED HERE TOO, and it must match referralLiveCount in
        admin.html exactly: that is the office crossing the discount off with the × (MON-56),
        and a server copy that ignores it would put every waived referral back on the bill
-       the first time a customer declines. Change one, change the other. */
-    const live = entries.filter(function (e) { return e && !e.revoked && !e.waived; }).length;
+       the first time a customer declines. Change one, change the other.
+       ⚠ AND THE SEASON TEST IS THE THIRD RULE, added with REF-14 the same day it went
+       into admin.html: a referral is $25 off the season it was earned in. Without it
+       here, one customer declining in their own portal recomputes the count over ALL
+       seasons and puts every expired credit back on the referrer's bill — the exact
+       shape the `waived` note above is warning about, one rule further on. */
+    const thisSeason = new Date().getFullYear();
+    const live = entries.filter(function (e) {
+      if (!e || e.revoked || e.waived) return false;
+      let y = (e.season != null && Number.isFinite(Number(e.season))) ? Number(e.season) : null;
+      if (y === null) {
+        const t = Date.parse(String(e.creditedAt || ''));
+        y = Number.isNaN(t) ? null : new Date(t).getFullYear();
+      }
+      return y === null || y === thisSeason;
+    }).length;
     await db.collection('jobAddresses').doc(referrerId).update({
       referralCredits: entries, referralCount: live,
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -5189,12 +5203,49 @@ async function runArrearsRsvpBatch(source) {
          arrive uncounted, and the only symptom would be somebody's $25 never appearing.
          ⚠ AND $25 OFF IS WORTH MOST TO EXACTLY THE PEOPLE THIS BATCH WRITES TO — they
          are the ones carrying a balance. */
+      /* ⭐ THE BUTTON GOES TO THE SHARE PAGE, THE BARE LINK STAYS THE FRIEND'S
+         (2026-09-05, REF-13). Dax tapped this button in an RSVP and landed on the free
+         quote form: /r/<token> is the address the FRIEND opens, and sending the customer
+         there puts them on the one screen their own link is not for. /s/<token> is their
+         share page, where the phone's share sheet hands the /r/ link to whoever they pick.
+         ⚠ BOTH SPELLINGS MATCH admin.html's referralLinkFromToken and
+         referralShareLinkFromToken character for character. This is the {{photo}} pairing
+         again: two renderers, one template, changed in the same push. */
       const referToken = await ensureReferralToken(docSnap.id, d);
       const referUrl = 'https://highlightingutah.com/r/' + encodeURIComponent(referToken);
+      const hadReferralToken =
+        body.indexOf('{{referral_button}}') !== -1 || body.indexOf('{{referral_link}}') !== -1;
+      const referShareUrl = 'https://highlightingutah.com/s/' + encodeURIComponent(referToken);
       body = body.split('{{referral_link}}').join(referUrl);
+      /* ⚠ THE SAME WORDS admin.html's resolveLinkTokens sends, character for
+         character — they read "$25 Off" and "$25 off your bill" until 2026-09-05, so one
+         template said one thing and the nightly chase said another about one button. */
       body = body.split('{{referral_button}}').join(
-        '<a href="' + referUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Refer a Friend — $25 off your bill</a>');
+        '<a href="' + referShareUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Share My Link — $25 Off</a>');
       body = body.replace(/\n/g, '<br>');
+      /* ⚠ AND IF THE SAVED TEMPLATE PLACES NEITHER TOKEN, THE OFFER IS APPENDED
+         (2026-09-07, REF-15). MON-24 means a template already written in Firestore is
+         never rewritten, so the built-in body's {{referral_button}} does not reach the
+         one that is actually stored — and the send silently carries no offer at all.
+         ⚠ THE MIRROR OF referralEmailBlock IN admin.html, and it appends on the SAME
+         test: token present, nothing added; token absent, the block goes on the end.
+         Two renderers, one template — the rule this whole comment block already states.
+         ⚠ AFTER the newline replacement on purpose: this block is already HTML, and
+         running it through that replace would double the breaks it writes itself. */
+      /* ⚠ AND IT POINTS AT THE SHARE PAGE, NOT THE /r/ LINK. Merged 2026-09-07 with the
+         refer-share-sheet work: /r/ is the address the FRIEND opens, so a button carrying
+         it lands the referrer on the free quote form — the bug Dax reported. The appended
+         block is the one path that only appears when the saved template places no token,
+         so it is also the path least likely to be noticed pointing at the wrong page.
+         Same URL and same words as the {{referral_button}} above it, character for
+         character: two spellings of one button is one of them going wrong for whichever
+         half of the book this renderer happens to send. */
+      if (!hadReferralToken) {
+        body += '<br><br>—<br><br>Know somebody who wants lights? Send them your own link '
+          + 'and we take $25 off this season’s bill when they sign up — as many times as '
+          + 'you like.<br><br>'
+          + '<a href="' + referShareUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Share My Link — $25 Off</a>';
+      }
 
       const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
         method: 'POST',

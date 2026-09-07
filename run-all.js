@@ -47910,9 +47910,27 @@ suite('287. The routine route sweep does not bury the notice that matters');
       /* ⚠ AND NO FIGURE, WHICH IS RS-37. There is no token for the carried balance
          and {{amount_due}} means THIS year's install price, so an amount appearing
          here at all would be the wrong number in an email about an old debt. */
+      /* ⚠ NARROWED 2026-09-07, AND THE GUARANTEE IS UNCHANGED. This asserted
+         `body.indexOf('$') === -1`, which is stricter than RS-37 actually says and
+         was only ever TRUE OF THE FIXTURE: the shipped "Not Paid RSVP" body carries
+         the referral offer in prose AND renders {{referral_button}} as "Refer a
+         Friend — $25 off your bill", so the real email this suite is about has always
+         had a $ in it. The check was passing because the fixture body is minimal —
+         a check that holds for the harness and not for production.
+         ⚠ WHAT MUST NOT APPEAR IS A FIGURE THAT COULD READ AS WHAT THEY OWE. There is
+         no token for the carried balance and {{amount_due}} means THIS year's install
+         price, so any amount other than the fixed referral constant is a second,
+         invented answer to "how much do I owe" — which is the whole of RS-37. The
+         referral offer is a constant, is the same on every email, and cannot be
+         mistaken for a balance. So: every dollar figure in the body must be $25. */
+      const figures = body.match(/\$\s?[\d,]+(?:\.\d+)?/g) || [];
+      const notTheOffer = figures.filter(function (f) {
+        return f.replace(/[\s,]/g, '') !== '$25';
+      });
       check('S288', 'and no money figure is invented anywhere in it',
-        body.indexOf('$') === -1,
-        'the portal holds the one figure we computed; an amount here would be a second one');
+        notTheOffer.length === 0,
+        'found ' + JSON.stringify(notTheOffer) + ' — the portal holds the one figure we ' +
+        'computed; an amount here would be a second one');
     }).catch(function (e) { e.__suite = 'S288'; throw e; }));
 
     /* ---- the two ways it must stop, loudly, without writing to anybody ---- */
@@ -49528,6 +49546,11 @@ suite('299. A referral link, and the $25 that follows it');
      run; the flag says which of these need it back. */
   const PARTS = [
     ['referralCreditNote', false], ['referralLiveCount', false],
+    /* ⚠ referralEntrySeason IS NOT OPTIONAL — referralLiveCount calls it, and it is the
+       whole of REF-14 (a referral is $25 off the season it was earned in). Lifted, never
+       stubbed: a stub here would decide which credits still count, which is the exact
+       question these checks exist to ask. assertSandbox names it if this is forgotten. */
+    ['referralEntrySeason', false],
     ['referralIsSelfReferral', false], ['referralClawbackAllowed', false],
     ['applyReferralCreditLine', true], ['referralNote', true],
     ['creditReferralIfAny', true], ['referralBlocked', true],
@@ -49564,7 +49587,7 @@ suite('299. A referral link, and the $25 that follows it');
         lifted.join('\n'),
         'return {creditReferralIfAny, clawBackReferralIfAny, applyReferralCreditLine,',
         '        referralIsSelfReferral, referralClawbackAllowed, referralCreditNote,',
-        '        referralLiveCount};'
+        '        referralLiveCount, referralEntrySeason};'
       ].join('\n');
 
       assertSandbox('S299', 'referral money', BODY, admin,
@@ -49868,6 +49891,57 @@ suite('299. A referral link, and the $25 that follows it');
             'got credits=' + inv.credits + ', count=' + w.customers[0].data.referralCount +
             ' — the new referral is worth $25 and the two waived ones stay waived; ' +
             'anything higher is the × undoing itself');
+        }
+
+        /* ---- 9b. a referral is $25 off THE SEASON IT WAS EARNED IN ------
+         * REF-14. Dax, 2026-09-07: "a referral is $25 off for the current season per
+         * refferral." Entries are never deleted, so before this every referral ever
+         * earned came off every bill for ever — three in one good season quietly became
+         * a standing $75 discount for life.
+         * ⚠ RUN, NEVER MATCHED: every claim here is about what a count RESOLVES TO for
+         * a given set of entries, and the old rule reads identically in the source. */
+        {
+          const thisYear = new Date().getFullYear();
+          const api = world({}).api;
+          const entry = (over) => Object.assign(
+            {referredCustomerId: 'X', amount: 25, revoked: false}, over || {});
+
+          check('S299', 'a referral earned this season counts',
+            api.referralLiveCount([entry({season: thisYear})]) === 1,
+            'the season it was earned in is the season it comes off');
+          check('S299', 'and one earned in an earlier season does not',
+            api.referralLiveCount([entry({season: thisYear - 1})]) === 0,
+            'a referral that keeps discounting every future bill is a discount for life');
+          check('S299', 'the friend coming back next year is not a second referral',
+            api.referralLiveCount([entry({season: thisYear - 1}), entry({season: thisYear - 1})]) === 0,
+            'per referral, not per friend per season — otherwise one customer re-refers ' +
+            'the same household every autumn and never pays again');
+          check('S299', 'a new referral this season still counts beside expired ones',
+            api.referralLiveCount([entry({season: thisYear - 1}), entry({season: thisYear})]) === 1,
+            'expiring the old one must not take the new one with it');
+          /* ⚠ THE PRE-REF-14 SHAPE. Everything written before today carries no `season`,
+             so the year of creditedAt stands in for one — a pure read-side rule, with no
+             pass over the book and nothing rewritten. */
+          check('S299', 'an entry written before this rule is dated by creditedAt',
+            api.referralLiveCount([entry({creditedAt: (thisYear - 1) + '-11-02T10:00:00Z'})]) === 0 &&
+            api.referralLiveCount([entry({creditedAt: thisYear + '-11-02T10:00:00Z'})]) === 1,
+            'the old entries have no season field and must not all expire at once, nor ' +
+            'all survive for ever');
+          /* ⚠ AND IT FAILS TOWARDS HONOURING A CREDIT. Wrongly dropping $25 somebody
+             earned is the expensive mistake; wrongly keeping one costs $25. */
+          check('S299', 'an undateable entry is counted rather than silently dropped',
+            api.referralLiveCount([entry({})]) === 1 &&
+            api.referralLiveCount([entry({creditedAt: 'not a date'})]) === 1,
+            'a credit nobody can date is still a credit somebody earned');
+          check('S299', 'and revoked or waived still beats the season test',
+            api.referralLiveCount([entry({season: thisYear, revoked: true})]) === 0 &&
+            api.referralLiveCount([entry({season: thisYear, waived: true})]) === 0,
+            'the two older reasons a referral stops counting are unchanged');
+          check('S299', 'a credit earned this season is stamped with it',
+            /season:\s*new Date\(\)\.getFullYear\(\)/.test(
+              extractFn(admin, 'creditReferralIfAny') || ''),
+            'without the stamp every entry falls back to its date, which is the ' +
+            'fallback for OLD rows rather than the rule for new ones');
         }
 
         /* ---- 10. the manual box is unchanged --------------------------
@@ -51311,9 +51385,14 @@ suite('305. The referral link, from the office side');
     /* ⚠ AN UNRESOLVED CUSTOMER EMITS NOTHING AT ALL. An <a href=""> in a bulk send is
        a customer tapping something we sent them and landing nowhere, and there is no
        way for them to tell that from the scheme being broken. */
+    /* ⚠ THE GUARD MOVED WITH THE ADDRESS (2026-09-05, REF-13). The button now carries
+       refShareUrl — /s/<token>, the customer's own share page — while {{referral_link}}
+       stays the friend's /r/ link, so the ternary that empties the button when nobody
+       resolves has to be the one on the SHARE url. Pinned to it by name deliberately:
+       a check that accepts either name would pass on a button guarded by a variable
+       that is always set. */
     check('S305', 'and emits nothing at all when nobody resolves',
-      /: ''\)/.test(block) && /refUrl\s*$/m.test(block.replace(/\r/g, '')) ||
-      /out\.split\('\{\{referral_button\}\}'\)\.join\(refUrl[\s\S]{0,200}: ''\)/.test(block.replace(/\r/g, '')),
+      /out\.split\('\{\{referral_button\}\}'\)\.join\(refShareUrl[\s\S]{0,240}: ''\)/.test(block.replace(/\r/g, '')),
       'a dead button in a bulk send is worse than a missing paragraph');
     check('S305', 'both tokens are offered in the picker',
       /\{token:'\{\{referral_link\}\}'/.test(admin) && /\{token:'\{\{referral_button\}\}'/.test(admin),
@@ -52130,6 +52209,372 @@ suite('Suite 307. Filter, then select everyone under the filter');
       /etClearFiltersBtn'\)\?\.addEventListener[\s\S]{0,200}etResetAudienceFilters\(\)/.test(adm307),
       'a second copy of "put every filter back" is a second place to forget the ' +
       'do-not-send line, and the copy that forgets it clears past somebody on it');
+  }
+}
+
+// =====================================================================
+// 308. SHARING THE REFERRAL LINK, NOT OPENING IT
+// =====================================================================
+suite('308. Sharing the referral link, not opening it');
+/* ---------------------------------------------------------------------------
+ * Dax, 2026-09-05, twice. First: *"we would rather have it as a share link so it
+ * opens share options where they can copy it or send it to contact"*. Then, having
+ * tapped the Refer a Friend button in an RSVP: *"it takes you straight to the free
+ * quote form which is not what we want we want it to be sharable so you can send
+ * someone else that link"*.
+ *
+ * ⭐ ONE TOKEN, TWO ADDRESSES, FOR TWO DIFFERENT PEOPLE. /r/<token> is what the
+ * FRIEND opens and it credits the referral; /s/<token> is what the CUSTOMER opens to
+ * send that link on. The button in the email carried /r/, so the person we sent it to
+ * landed on the one screen their own link is not for.
+ *
+ * ⚠ IT RUNS THE CODE, IT DOES NOT READ IT. Every claim here is about what HAPPENS
+ * when the button is tapped, and this repo has already shipped a box whose listener
+ * silently did not apply: identical on screen to a working one, npm test green, and it
+ * saved nothing. The share routine is lifted and called against a fake share sheet, and
+ * the /s/ path matcher is lifted and run against real addresses.
+ *
+ * ⚠ AND THE THREE SHARE PATHS ARE THE POINT, two of them invisible from outside. A
+ * sheet that opens looks like success; a dismissed sheet looks exactly like a broken
+ * one; a browser with no sheet looks exactly like a button that does nothing.
+ * ------------------------------------------------------------------------- */
+{
+  const idx308 = read('index.html');
+  const bare308 = stripComments(idx308);
+  const canShareSrc = extractFn(idx308, 'portalCanShare');
+  /* ⚠ extractFn MATCHES FROM THE `function` KEYWORD AND DROPS THE `async` BEFORE IT,
+     so the body arrives full of bare `await` — a parse error that kills the whole run as
+     one unattributable crash. Suite 299 records the same trap costing three suites a run. */
+  const shareFn = extractFn(idx308, 'portalShareLink');
+  const shareSrc = shareFn ? 'async ' + shareFn : null;
+  const renderReferSrc = extractFn(idx308, 'portalRenderReferral');
+  const renderShareSrc = extractFn(idx308, 'renderSharePage');
+  const linkSrc = extractFn(idx308, 'portalReferralLink');
+  const parts308 = {portalCanShare: canShareSrc, portalShareLink: shareSrc,
+                    portalRenderReferral: renderReferSrc, renderSharePage: renderShareSrc,
+                    portalReferralLink: linkSrc};
+  const missing308 = Object.keys(parts308).filter(k => !parts308[k]);
+  check('S308', 'the share routine, both renderers and the link builder are findable',
+    !missing308.length,
+    'missing: ' + missing308.join(', ') + ' — repoint this lift rather than stubbing it; ' +
+    'a stub here keeps the suite green through a button that shares nothing');
+
+  /* ---- the wiring: two buttons, one routine, and no half-rename left behind ---- */
+  check('S308', 'the portal button is wired to the share routine',
+    /getElementById\('referShareBtn'\)\?\.addEventListener\('click'[\s\S]{0,220}portalShareLink\(document\.getElementById\('referLinkInput'\)/
+      .test(bare308),
+    'a renamed id with the listener left on the old one is a button that silently does ' +
+    'nothing — indistinguishable on screen from a working one');
+  check('S308', 'and so is the share page button',
+    /getElementById\('shareLinkBtn'\)\?\.addEventListener\('click'[\s\S]{0,220}portalShareLink\(document\.getElementById\('shareLinkInput'\)/
+      .test(bare308),
+    'the whole page is one button; unwired, the email lands somewhere that does nothing');
+  check('S308', 'no half of the old copy-button id is left behind',
+    idx308.indexOf('referCopyBtn') === -1 && idx308.indexOf('referCopyStatus') === -1,
+    'referCopyBtn / referCopyStatus still appears in index.html');
+  check('S308', 'both buttons ship the FALLBACK wording, never the promise',
+    /id="referShareBtn">Copy My Link</.test(idx308) &&
+    /id="shareLinkBtn">Copy My Link</.test(idx308),
+    'the label is upgraded in JS where a share sheet exists; shipping "Share My Link" ' +
+    'in the HTML promises a sheet to every desktop that will never get one');
+
+  /* ---- the share page exists, is routed, and is reachable at /s/ ---- */
+  check('S308', 'the share page is a real route with real markup',
+    /var routes = \[[^\]]*'\/share'/.test(bare308) &&
+    /'\/share':'page-share'/.test(bare308) &&
+    /id="page-share"/.test(idx308) &&
+    /id="shareLinkInput"/.test(idx308) && /id="shareLinkStatus"/.test(idx308),
+    'a route with no page, or a page with no route, is a button landing on the homepage');
+  /* ⚠ THE ROUTE IS RUN, NOT READ, and the first version of this check was the text
+     match it replaces. A red-check disabled the branch with `if(false)` and left the call
+     standing one word away — the page drew empty and the check passed, which is the exact
+     failure it was written for. navigate() is lifted and driven at the real address. */
+  if (JSDOM) {
+    const navSrc = extractFn(idx308, 'navigate');
+    const routesSrc = (idx308.match(/var routes = \[[^\]]*\];/) || [])[0];
+    const pageIdsAt = idx308.indexOf('var pageIds = {');
+    const pageIdsSrc = pageIdsAt === -1 ? '' :
+      idx308.slice(pageIdsAt, idx308.indexOf('};', pageIdsAt) + 2);
+    check('S308', 'the router and its page map are findable',
+      !!navSrc && !!routesSrc && !!pageIdsSrc);
+    if (navSrc && routesSrc && pageIdsSrc && renderShareSrc && linkSrc && canShareSrc) {
+      const ids = ['page-home', 'page-how', 'page-gallery', 'page-reviews', 'page-areas',
+        'page-faq', 'page-contact', 'page-quote', 'page-quote-details', 'page-payment',
+        'page-share', 'mobilePanel', 'mMoreToggle', 'mMoreSubmenu', 'shareLinkInput',
+        'shareLinkBtn', 'shareLinkStatus', 'shareLinkQuoteLine', 'shareLinkQuoteLink'];
+      const markup = '<div class="nav-dropdown"><div class="nav-links"></div></div>' +
+        ids.map(id => id === 'shareLinkInput'
+          ? '<input id="shareLinkInput">'
+          : (id === 'shareLinkQuoteLink' ? '<a id="shareLinkQuoteLink" href="#/quote"></a>'
+                                         : '<div id="' + id + '" class="page"></div>')).join('');
+      const dom308 = new JSDOM('<body>' + markup + '</body>');
+      const doc308 = dom308.window.document;
+      /* Our own window rather than jsdom's: navigate() calls scrollTo, which jsdom
+         answers with a "Not implemented" line across the middle of the run. */
+      const win308 = {location: {origin: 'https://highlightingutah.com', hash: '#/share?t=abc123'},
+                      scrollTo: function () {}};
+      new Function('document', 'window', 'URLSearchParams',
+        routesSrc + '\n' + pageIdsSrc + '\n' + linkSrc + '\n' + canShareSrc + '\n' +
+        renderShareSrc + '\n' + navSrc + '\nreturn navigate();')(doc308, win308, URLSearchParams);
+      check('S308', 'the /share address actually draws the share page',
+        doc308.getElementById('page-share').classList.contains('active') &&
+        !doc308.getElementById('page-home').classList.contains('active'),
+        'an unrouted hash falls through to the homepage, so the email button would land ' +
+        'on the marketing site with no sign of the link');
+      check('S308', 'and draws it with the token out of the address',
+        doc308.getElementById('shareLinkInput').value === 'https://highlightingutah.com/r/abc123',
+        'got: "' + doc308.getElementById('shareLinkInput').value + '" — the page drawn ' +
+        'empty is what a branch that never fires looks like');
+    }
+  }
+  check('S308', 'Netlify rewrites /s/* to the app',
+    /^\/s\/\*\s+\/index\.html\s+200\s*$/m.test(read('_redirects')),
+    'without the rewrite the share link is a 404 on a static host — the page never loads');
+  check('S308', 'and the share address gets the same no-cache rule as the app',
+    /^\/s\/\*\s*\r?\n\s+Cache-Control: no-cache\s*$/m.test(read('_headers')),
+    'a cached index.html served at /s/ is a stale half of the app answering a live link');
+
+  /* ---- one token, two addresses, and all three writers agree ---- */
+  const admShare = extractFn(admin, 'referralShareLinkFromToken');
+  check('S308', 'the office has a named builder for the share address',
+    !!admShare,
+    'a share link spelled inline at each call site is how two of them drift');
+  if (admShare && linkSrc) {
+    const mkShare = new Function('token', admShare + 'return referralShareLinkFromToken(token);');
+    const mkLink = new Function('token', 'window', linkSrc + 'return portalReferralLink(token);');
+    const W308 = {location: {origin: 'https://highlightingutah.com'}};
+    check('S308', 'the office share address is /s/<token> on the real domain',
+      mkShare('abc123') === 'https://highlightingutah.com/s/abc123',
+      'got: ' + mkShare('abc123'));
+    check('S308', 'and the server spells it identically',
+      fnsSrc.indexOf("'https://highlightingutah.com/s/' + encodeURIComponent(referToken)") !== -1,
+      'two renderers, one template — the {{photo}} pairing again. A second spelling ' +
+      '404s for whichever half of the book that renderer happens to send');
+    check('S308', 'no token makes no share link at all',
+      mkShare('') === '' && mkShare(null) === '' && mkShare(undefined) === '',
+      'a bare /s/ with nothing after it is a page that can only say it is broken');
+    check('S308', 'the two addresses are NOT the same link',
+      mkShare('abc123') !== mkLink('abc123', W308),
+      'if the share page and the quote link are one address, the customer is back on ' +
+      'the free quote form, which is the whole complaint');
+  }
+
+  /* ---- the email: the button shares, the bare token still credits ---- */
+  const refBlock = admin.slice(admin.indexOf("if(out.indexOf('{{referral_link}}')"),
+    admin.indexOf("if(out.indexOf('{{messages_link}}')"));
+  check('S308', 'the office button carries the SHARE address',
+    /\{\{referral_button\}\}'\)\.join\(refShareUrl/.test(refBlock),
+    'this is the line Dax tapped: a button on /r/ puts the customer on the friend\u2019s screen');
+  check('S308', 'and {{referral_link}} still carries the FRIEND\u2019s address',
+    /\{\{referral_link\}\}'\)\.join\(refUrl\)/.test(refBlock),
+    'that token is pasted into an email as text for the customer to forward — pointed ' +
+    'at the share page it would send their friend to a page about sharing');
+  const svrStart = fnsSrc.indexOf('const referToken = await ensureReferralToken');
+  const svrBlock = svrStart === -1 ? '' : fnsSrc.slice(svrStart,
+    fnsSrc.indexOf('const res = await fetch', svrStart));
+  /* ⭐ ONE BUTTON, ONE NAME. Dax: *"that button that says share my link should be the
+     same button we send in their email"*. The email button lands on the page whose gold
+     button says Share My Link, so the two are read minutes apart by one person.
+     ⚠ AND THE TWO RENDERERS ARE COMPARED TO EACH OTHER, not each to a literal: they
+     disagreed for a day ("$25 Off" against "$25 off your bill"), so which words a customer
+     saw depended on which renderer happened to send. The {{photo}} pairing again. */
+  /* ⚠ THE ESCAPE IS UNWOUND BEFORE COMPARING. admin.html writes the dash as
+     \u2014 inside a JS string and functions/index.js writes the character itself, so
+     the two labels are identical in a customer's inbox and differ in the source. A
+     comparison of the raw text fails on code that is right. */
+  const emailLabel = (s) => ((s.match(/>([^<]*\$25[^<]*)<\/a>/) || [])[1] || '')
+    .split('\\u2014').join('\u2014');
+  check('S308', 'the email button carries the page\u2019s own words',
+    /^Share My Link/.test(emailLabel(refBlock)) &&
+    /id="shareLinkBtn">Copy My Link</.test(idx308),
+    'got: "' + emailLabel(refBlock) + '" \u2014 two names for one button, and the customer ' +
+    'reads the email first');
+  check('S308', 'and both renderers send it character for character',
+    !!emailLabel(refBlock) && emailLabel(refBlock) === emailLabel(svrBlock),
+    'office: "' + emailLabel(refBlock) + '"  server: "' + emailLabel(svrBlock) + '"');
+  check('S308', 'the server sends the same pair, the same way round',
+    /\{\{referral_button\}\}'\)\.join\([\s\S]{0,80}referShareUrl/.test(svrBlock) &&
+    /\{\{referral_link\}\}'\)\.join\(referUrl\)/.test(svrBlock),
+    'the nightly arrears RSVP is sent with no browser involved; a fix in admin.html ' +
+    'alone leaves every automatic send pointing at the old screen');
+
+  if (!missing308.length) {
+    /* One tap, with a share sheet that behaves however the caller says. Everything the
+       routine can reach is watched: what it shared, what it copied, what it left on the
+       status line. */
+    function tap(opts) {
+      const calls = {shared: [], copied: [], exec: 0};
+      const input = {value: opts.link === undefined ? 'https://highlightingutah.com/r/abc123' : opts.link,
+                     focus: function () {}, select: function () {}};
+      const status = {textContent: 'left over from last time'};
+      const doc = {getElementById: function () { return null; },
+                   execCommand: function () { calls.exec++; return true; }};
+      const nav = {};
+      if (opts.share !== false) {
+        nav.share = function (data) {
+          calls.shared.push(data);
+          if (opts.reject) return Promise.reject(opts.reject);
+          return Promise.resolve();
+        };
+      }
+      if (opts.clipboard !== false) {
+        nav.clipboard = {writeText: function (v) { calls.copied.push(v); return Promise.resolve(); }};
+      }
+      const run = new Function('document', 'navigator', 'input', 'status',
+        canShareSrc + '\n' + shareSrc + '\nreturn portalShareLink(input, status);');
+      return run(doc, nav, input, status).then(function () { return {calls: calls, status: status}; });
+    }
+    const abort = Object.assign(new Error('cancelled'), {name: 'AbortError'});
+
+    pendingAsync.push((async function () {
+      /* ---- the phone: the sheet opens, with their own link in it ---- */
+      const sheet = await tap({});
+      check('S308', 'a phone with a share sheet gets the sheet',
+        sheet.calls.shared.length === 1,
+        'the whole change is this one call; without it the button is the old copy button');
+      check('S308', 'and it hands over the /r/ link, which is the one that credits them',
+        (sheet.calls.shared[0] || {}).url === 'https://highlightingutah.com/r/abc123',
+        'sharing the share page instead would send a friend to a page about sharing, and ' +
+        'nothing anywhere would go red');
+      check('S308', 'and nothing is copied behind it',
+        sheet.calls.copied.length === 0 && sheet.calls.exec === 0,
+        'clobbering the clipboard under a sheet they are still reading takes whatever ' +
+        'they had copied away from them');
+
+      /* ---- the dismissed sheet: not a failure, and not a copy either ---- */
+      const cancelled = await tap({reject: abort});
+      check('S308', 'backing out of the sheet says nothing at all',
+        cancelled.status.textContent === '',
+        'telling somebody who changed their mind that it "could not share" reads as a ' +
+        'broken feature');
+      check('S308', 'and backing out does not fall through to a copy',
+        cancelled.calls.copied.length === 0 && cancelled.calls.exec === 0,
+        'a cancel is a decision, not an error to recover from');
+
+      /* ---- any OTHER rejection: the copy is still there underneath ---- */
+      const broke = await tap({reject: new Error('blocked by permissions policy')});
+      check('S308', 'a share that fails for any other reason still copies',
+        broke.calls.copied.length === 1 && /Copied/.test(broke.status.textContent),
+        'in-app browsers and iframes reject for reasons that are not a cancel; ' +
+        'dead-ending there loses the link entirely');
+
+      /* ---- the desktop: no sheet, and the old behaviour intact ---- */
+      const desktop = await tap({share: false});
+      check('S308', 'a browser with no share sheet copies, exactly as before',
+        desktop.calls.copied.length === 1 &&
+        desktop.calls.copied[0] === 'https://highlightingutah.com/r/abc123' &&
+        /Copied/.test(desktop.status.textContent));
+      const noApi = await tap({share: false, clipboard: false});
+      check('S308', 'and with no clipboard either it falls to execCommand and then to words',
+        noApi.calls.exec === 1,
+        'plain http and some in-app browsers have neither; select-and-copy is the only ' +
+        'route left');
+
+      /* ---- no link yet: nothing happens ---- */
+      const blank = await tap({link: ''});
+      check('S308', 'a link that has not minted yet shares nothing and copies nothing',
+        blank.calls.shared.length === 0 && blank.calls.copied.length === 0,
+        'sharing an empty string sends a friend to the quote page crediting nobody, ' +
+        'which looks exactly like it worked');
+    })());
+
+    /* ---- both renderers: the label follows the capability ---- */
+    function els308() {
+      const mk = () => ({textContent: '', disabled: false, value: '', style: {}, href: ''});
+      const map = {referLinkInput: mk(), referShareStatus: mk(), referShareBtn: mk(),
+                   referCount: mk(), shareLinkInput: mk(), shareLinkStatus: mk(),
+                   shareLinkBtn: mk(), shareLinkQuoteLine: mk(), shareLinkQuoteLink: mk()};
+      return {map: map, doc: {getElementById: function (id) { return map[id] || null; }}};
+    }
+    const drawRefer = new Function('document', 'navigator', 'window', 'addrDoc',
+      linkSrc + '\n' + canShareSrc + '\n' + renderReferSrc + '\nreturn portalRenderReferral(addrDoc);');
+    const drawShare = new Function('document', 'navigator', 'window', 'token',
+      linkSrc + '\n' + canShareSrc + '\n' + renderShareSrc + '\nreturn renderSharePage(token);');
+    const WIN = {location: {origin: 'https://highlightingutah.com'}};
+    function refer(hasShare, token) {
+      const e = els308();
+      drawRefer(e.doc, hasShare ? {share: function () {}} : {}, WIN,
+        {referralToken: token, referralCount: 0});
+      return e.map;
+    }
+    function share(hasShare, token) {
+      const e = els308();
+      drawShare(e.doc, hasShare ? {share: function () {}} : {}, WIN, token);
+      return e.map;
+    }
+    check('S308', 'the portal button says Share where there is a sheet to open',
+      refer(true, 'abc123').referShareBtn.textContent === 'Share My Link' &&
+      refer(false, 'abc123').referShareBtn.textContent === 'Copy My Link',
+      'a button reading Share that silently copies leaves a customer waiting for a ' +
+      'sheet that is never coming');
+    check('S308', 'and so does the share page button',
+      share(true, 'abc123').shareLinkBtn.textContent === 'Share My Link' &&
+      share(false, 'abc123').shareLinkBtn.textContent === 'Copy My Link');
+    check('S308', 'and no token still disables both, sheet or no sheet',
+      refer(true, '').referShareBtn.disabled === true &&
+      share(true, '').shareLinkBtn.disabled === true,
+      'an enabled button over an empty link shares nothing and says nothing');
+
+    /* ⚠ THE SHARE PAGE SHOWS THE /r/ LINK, NOT ITS OWN ADDRESS. It is the one thing
+       the page is for, and the two are one character apart. */
+    const drawn = share(true, 'abc123');
+    check('S308', 'the share page shows the link that credits them',
+      drawn.shareLinkInput.value === 'https://highlightingutah.com/r/abc123',
+      'got: ' + drawn.shareLinkInput.value);
+    check('S308', 'and the "somebody sent you this" way out IS that same link',
+      drawn.shareLinkQuoteLink.href === 'https://highlightingutah.com/r/abc123' &&
+      drawn.shareLinkQuoteLine.style.display === '',
+      'a forwarded email used to land the friend on the quote form, credited. That route ' +
+      'is kept, and pointing it anywhere else silently stops crediting anybody');
+    const empty = share(true, '');
+    check('S308', 'a mangled link says so instead of offering an empty share',
+      /code/.test(empty.shareLinkStatus.textContent) &&
+      empty.shareLinkQuoteLine.style.display === 'none',
+      'a blank box with a live button is the worst of both');
+  }
+
+  /* ---- the /s/ reader: routes, and credits NOBODY ---- */
+  /* Built with fromCharCode so the backslashes cannot be mangled by whatever writes this
+     file — the trap CLAUDE.md §7 and Suites 74-76 each record. */
+  const S_NEEDLE = 'm = /^' + String.fromCharCode(92) + '/s' + String.fromCharCode(92) + '/([A-Za-z0-9_-]+)';
+  const sStart = idx308.indexOf(S_NEEDLE);
+  check('S308', 'the /s/ path reader is findable', sStart !== -1,
+    'the rewrite serves index.html at /s/<token>; something has to turn that path into a route');
+  if (sStart !== -1) {
+    const sBlock = idx308.slice(idx308.lastIndexOf('(function(){', sStart),
+      idx308.indexOf('})();', sStart) + 5);
+    /* ⚠ THIS IS THE ONE THAT COSTS MONEY IF IT IS WRONG. The /r/ reader stores the
+       token so the quote that follows is credited. Doing the same here would mark the
+       customer as referred by THEMSELVES, and their next quote would be refused as a
+       self-referral by a rule that is right — over a link we sent them. */
+    check('S308', 'opening your own share page does not mark you as referred',
+      sBlock.indexOf('sessionStorage') === -1 && sBlock.indexOf('REFERRAL_LINK_KEY') === -1,
+      'a self-referral is a hard refusal (S299), so this would cost the customer their ' +
+      'own next quote — silently, at the far end of the season');
+    check('S308', 'and it routes to the share page with the token',
+      /window\.location\.hash = '\/share\?t=' \+ encodeURIComponent\(m\[1\]\)/.test(sBlock),
+      'dropping the token here draws the page with nothing in it');
+    check('S308', 'it runs BEFORE the saved-login redirect',
+      idx308.indexOf(S_NEEDLE) < idx308.indexOf('savedPortalToken = localStorage.getItem'),
+      'run second, a remembered sign-in sends the customer to /payment and the share ' +
+      'page is never seen — the shape of the bug that ate Back Next Year');
+
+    const reMatch = sBlock.match(/\/\^[^\n]*?\/\.exec\(window\.location\.pathname/);
+    check('S308', 'the /s/ path pattern is findable', !!reMatch);
+    if (reMatch) {
+      const re = new Function('return ' + reMatch[0].slice(0, reMatch[0].indexOf('.exec(')))();
+      const tok = (p) => { const m = re.exec(p); return m && m[1]; };
+      check('S308', 'a share link resolves to its token', tok('/s/abc123') === 'abc123');
+      check('S308', 'a trailing slash is the same link', tok('/s/abc123/') === 'abc123',
+        'phones and mail clients add one — a link that dies on a slash dies at random');
+      check('S308', 'the homepage and the quote link are not swallowed',
+        tok('/') === null && tok('/s') === null && tok('/s/') === null &&
+        tok('/r/abc123') === null && tok('/q/abc123') === null,
+        'a pattern loose enough to match / would hijack every visit to the site');
+      check('S308', 'and a path with another segment is not a share link',
+        tok('/s/abc/def') === null,
+        'matching loosely turns a mistyped URL into a page about somebody else\u2019s link');
+    }
   }
 }
 
