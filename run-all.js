@@ -31166,6 +31166,27 @@ suite('Suite 72. An RSVP never goes to somebody who has never had lights');
   check('S72', 'and the screen says it happened',
     /New customers are left out automatically/.test(adm),
     'automatic is fine, invisible is not');
+
+  /* ⭐ AND NOBODY WHO HAS ALREADY ANSWERED (2026-09-07). Dax: "exclude people who are
+     confrmed." The server batch has always done this — runArrearsRsvpBatch skips on
+     `if (answered) continue;` — so the failure this guards is the two paths asking one
+     question of different books: the nightly chase leaving answered customers alone
+     while the office's own Send to Selected re-asked all of them. */
+  check('S72', 'choosing an RSVP template also drops anyone who already answered',
+    /etTemplateIsRsvp\(t\)[\s\S]{0,200}etFilterRsvp = 'pending'/.test(handler),
+    'a second "have you decided?" to somebody who already said yes reads as the ' +
+    'office losing their answer');
+  check('S72', 'and it is the same DEFAULT, not a lock',
+    !/etFilterRsvp.*disabled|disabled.*etFilterRsvp/.test(adm),
+    'asking a declined customer again is a real thing the office does');
+  check('S72', 'and the screen says that happened too',
+    /already answered is left out automatically/.test(adm),
+    'a shorter list with no reason reads as a lost audience');
+  check('S72', 'the server batch skips them for the same reason',
+    /const answered = String\(d\.rsvpStatus \|\| ''\)\.trim\(\);[\s\S]{0,120}if \(answered\)/
+      .test(fs.readFileSync(path.join(__dirname, 'functions', 'index.js'), 'utf8')),
+    'if the batch ever stops skipping, the screen and the schedule disagree about ' +
+    'who is still being asked, and this pairing is the only thing that would say so');
 }
 
 
