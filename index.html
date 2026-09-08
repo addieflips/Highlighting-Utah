@@ -265,6 +265,10 @@
   /* The dim behind the card is what turns a centred line into a pop-up. */
   body.rsvp-minimal.rsvp-back #page-home{ background:rgba(12,35,24,.10); }
 
+  /* ⚠ SHARE MINIMAL — same shape as quote-minimal (2026-09-06). Reached from the
+     RSVP email's own button, never browsed to, so it reads like a single card, not
+     a page of the marketing site. */
+
   /* ---------- Header ---------- */
   header{
     position:sticky; top:0; z-index:100;
@@ -1975,14 +1979,34 @@
                  Its own card rather than part of Lights, because the two cost
                  different things: colours are a $30 change fee, sides are a new
                  price altogether. -->
+            <!-- ⭐ WHICH SIDES, BY NAME (2026-09-06). Addie: "how are we supposed to
+                 know which sides they want if it just says how many ... that's why we
+                 need them to say which side of the house they want done from where
+                 their front door stands" — though see OPT-03 beside the copy below,
+                 which settles that LEFT and RIGHT are read from the STREET, not from the
+                 door. The count (houseSides) still drives pricing
+                 and the re-quote flag exactly as before — untouched. Which sides
+                 (houseSidesList) is a second, additive field: real going forward, but
+                 nobody backfills it for a customer who has never opened this tab, and
+                 nothing critical breaks if it is simply absent. -->
             <div id="tabPanel-sides" style="display:none;">
               <div style="background:#FDF3E3; border:1px solid #E7C98B; border-radius:10px; padding:11px 14px; margin:0 0 12px; font-size:12.5px; color:#7A5B1E; line-height:1.5;">&#9888;&#65039; <strong>Heads up:</strong> changing which sides of your house are lit changes the amount of lights we hang, so <strong>we will need to re-quote you</strong> before your install.</div>
-              <p class="form-note" style="margin:0 0 10px;">Tick the sides you would like lit, then save below.</p>
+              <p class="form-note" style="margin:0 0 4px;">Tick every side you would like lit, then save below.</p>
+              <!-- ⭐ FROM THE STREET, NOT FROM THE FRONT DOOR (2026-09-07, OPT-03). Addie: "we
+                   should be calculating left or right from the street not the front door."
+                   ⚠ THE TWO VIEWPOINTS ARE MIRROR IMAGES, so this is not a wording nicety:
+                   standing at the door looking out, your left is the OTHER side of the house
+                   from your left standing at the kerb. Get it the wrong way round and the crew
+                   lights the wrong half of the roof. Street-facing is also the only reading the
+                   crew can act on, because they arrive at the kerb. The first version said "as
+                   you stand at the street" and then "Left/Right follow from there", which named
+                   no viewpoint at all for the two words that actually need one. -->
+              <p class="form-note" style="margin:0 0 10px; font-size:12.5px;">Stand on the street facing your house. <strong>Front</strong> is the side facing you, <strong>Back</strong> is the far side, <strong>Left</strong> is on your left and <strong>Right</strong> is on your right.</p>
               <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
-                <label class="quote-side-pick"><input type="radio" name="portal_sides" class="portal-side-pick" value="1"> 1 side</label>
-                <label class="quote-side-pick"><input type="radio" name="portal_sides" class="portal-side-pick" value="2"> 2 sides</label>
-                <label class="quote-side-pick"><input type="radio" name="portal_sides" class="portal-side-pick" value="3"> 3 sides</label>
-                <label class="quote-side-pick"><input type="radio" name="portal_sides" class="portal-side-pick" value="4"> 4 sides</label>
+                <label class="quote-side-pick"><input type="checkbox" class="portal-side-pick" value="Front"> Front</label>
+                <label class="quote-side-pick"><input type="checkbox" class="portal-side-pick" value="Left"> Left</label>
+                <label class="quote-side-pick"><input type="checkbox" class="portal-side-pick" value="Right"> Right</label>
+                <label class="quote-side-pick"><input type="checkbox" class="portal-side-pick" value="Back"> Back</label>
               </div>
               <button type="button" class="btn btn-gold btn-block" id="sidesSaveBtn">Save Sides</button>
               <div id="sidesSaveStatus" role="status" aria-live="polite" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
@@ -2179,6 +2203,7 @@
   </section>
 </div>
 
+
 <!-- ============ FOOTER ============ -->
 <footer>
   <div class="wrap">
@@ -2246,7 +2271,7 @@ import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/
    following a quote text landed on, and it is why the short link had never
    once worked. Nothing threw anywhere a person would see it.
    ⚠ ANY future import here must be root-absolute for the same reason. */
-import { centsOf, ARREARS_KIND, arrearsOnInvoice } from "/js/money.js";
+import { centsOf, ARREARS_KIND, arrearsOnInvoice, NEW_MEMBER_FEE } from "/js/money.js";
 /* ⚠ THE CONSTANT AND THE LEDGER READER ARE IMPORTED, NOT RETYPED (2026-08-31).
    arrears-hold.test.js asserts this page never contains the arrears kind as a
    bare literal, because that is how a third copy of a money rule starts. The
@@ -2745,7 +2770,18 @@ var REFERRAL_LINK_KEY = 'hu.referredByToken';
     m = /^\/r\/([A-Za-z0-9_-]+)\/?$/.exec(window.location.pathname || '');
   } catch(e){ /* quiet on purpose: no readable location means this is not a /r/ link, and the ?ref= reader below still runs. */ }
   if(!m) return;
-  try{ sessionStorage.setItem(REFERRAL_LINK_KEY, String(m[1]).slice(0, 64)); }
+  var token = String(m[1]);
+  /* ⚠ THERE IS NO ?share=1 DOOR ANY MORE, and it is worth saying why rather than
+     leaving the next reader to wonder. Two sessions answered the same complaint — the
+     Refer a Friend button landing the CUSTOMER on the friend's quote form — and both
+     worked: /s/<token> (a page of its own, with its own Netlify rewrite) and
+     /r/<token>?share=1 (this reader branching on a query flag). /s/ shipped first and
+     is deployed, so it is the one kept; the merge that brought the other branch in left
+     this flag behind, pointing at a SECOND `hash === '/share'` router branch that could
+     never run — the branch above it always matched first and read a differently-named
+     parameter, so the flag landed on the share page with no token and drew the "link is
+     missing its code" message. Deleted rather than repaired: one door, and /s/ is it. */
+  try{ sessionStorage.setItem(REFERRAL_LINK_KEY, token.slice(0, 64)); }
   catch(e){ /* Private browsing refuses sessionStorage. The quote still goes through; the referral is simply not counted, which is the safe direction. */ }
   /* Straight to the quote form — that is what the link is FOR — and the token is
      already stored, so nothing rides in the address bar. */
@@ -6428,6 +6464,53 @@ var PORTAL_TAB_NAMES = ['payment','info','sides','lights','changes','refer','con
 function portalReferralLink(token){
   return window.location.origin + '/r/' + encodeURIComponent(String(token || ''));
 }
+/* ⭐ THE SHARED SHARE MESSAGE (2026-09-06). One line, used everywhere a referral
+   link goes out on the customer's own behalf — the portal's Share button, the
+   RSVP email's share page's Share button, and that page's Text/Email fallback.
+   Company voice, not personal voice, and no $25 mentioned here: that credit is
+   explained separately, in the RSVP email copy and the portal's own note, to the
+   REFERRER — it is their incentive, not the friend's, and naming it here would
+   make the recommendation read as self-serving, which Addie explicitly rejected.
+   ⚠ THERE IS ONLY ONE COPY. admin.html's and functions/index.js's referral buttons
+   both link to /s/<token>, which routes into THIS page's #/share, so
+   there is nothing for either of those files to keep in sync with this line —
+   they never carried their own copy of it.
+   ⭐ THE $30 SETUP-FEE WAIVER, ADDED 2026-09-07. Addie: "Anyone that is enrolled
+   by refer a friend will NOT be getting charged for the 30 dollar installation
+   fee. Can we also add that in the text/email" — and, on wording, "if you
+   register through this referral link you will not have to pay the 30 dollar
+   installation fee." Unlike the $25, this benefits the FRIEND directly, so it
+   belongs in their message rather than only in the referrer's. The waiver
+   itself is real, not just a line of copy — see quoteChargesSetupFee in
+   admin.html, which is what actually decides whether the fee is charged. */
+function referralShareLine(){
+  /* ⚠ THE FEE IS READ, NEVER TYPED. This sentence is a written promise to somebody
+     who is not a customer yet, and it goes out over Addie's name — so it is the LAST
+     place that should hold its own copy of the number. That figure moved $30 → $25 on
+     2026-09-03 and back to $30 on 2026-09-06; a literal here would have spent three
+     days promising a waiver of the wrong amount, with nothing going red. MON-63 is
+     the ruling that collapsed this fee into one constant for exactly that reason, and
+     index.html already imports from js/money.js, so there is no cost to obeying it. */
+  return 'You’ve been recommended for Christmas lights. Light your house with Highlighting Utah! ' +
+    'If you register through this referral link, you will not have to pay the $' +
+    NEW_MEMBER_FEE + ' installation fee.';
+}
+/* ⭐ REMOVED WITH THE TWO BUTTONS (2026-09-05, REF-12): referralShareMessage,
+   referralSmsHref and referralMailtoHref built the bodies for hand-rolled sms: and
+   mailto: links. Addie: "I don't want a text and email button I want to do a share
+   link kind of thing than depending on if they choose to send it through email or
+   text or whatsapp it will change how its sent."
+
+   ⚠ THE MESSAGE IS NOT LOST WITH THEM — referralShareLine above is what navigator.share
+   is handed as its `text`, so Messages, WhatsApp and Mail each prefill from the same
+   sentence and the same link, which is what makes text and WhatsApp identical BY
+   CONSTRUCTION rather than by two builders agreeing. The sms: builder was the thing
+   that had to guess (Android reads ?body=, iOS reads &body=, and it sent both); the
+   share sheet does not guess, because the app itself does the formatting.
+
+   ⚠ KEPT AS A NOTE RATHER THAN DELETED SILENTLY, because "why is there no email
+   option" is a reasonable question to ask of this file later, and the answer is that
+   it was asked for and then asked away again. */
 /* ⚠ THE TWO FIELDS ARE READ OFF `addrDoc` BY NAME, not through a shorthand alias. That
    is not style: portal-fields.test.js proves every whitelisted field is actually LOOKED
    AT by scanning for `addrDoc.<field>` and the handful of other real holder names, so
@@ -6785,53 +6868,123 @@ function portalSidesFromRecord(){
   var r = currentLookupRecord || {};
   return portalSideCount(d.houseSides !== undefined ? d.houseSides : r.houseSides);
 }
+/* ⭐ WHICH SIDES, BY NAME (2026-09-06). Addie: "how are we supposed to know which
+   sides they want if it just says how many ... that's why we need them to say
+   which side of the house they want done from where their front door stands."
+
+   ⚠ A SECOND, ADDITIVE FIELD — houseSidesList — NEVER A REPLACEMENT for houseSides.
+   The count above still drives pricing and the re-quote flag exactly as it did
+   before this shipped (see functions/index.js, section 'sides'); nothing here
+   changes that mechanism or its tests. This is real, trusted data going forward —
+   not decoration — but a customer who has never opened this tab simply has none
+   on file, and nothing that matters breaks because of it.
+
+   ⚠ CANONICAL ORDER, ALWAYS. Sanitizing every read through PORTAL_SIDE_NAMES means
+   a value however it was stored (any order, a duplicate, a value nobody offers any
+   more) always compares and displays the same way — the same discipline as
+   referralSidesList would need if it existed, and the reason houseSideCount reads
+   both shapes of the OLD field rather than trusting either blindly. */
+/* ⭐ AND LEFT/RIGHT ARE READ FROM THE STREET (2026-09-07, OPT-03). Addie: "we should
+   be calculating left or right from the street not the front door."
+   ⚠ THE TWO VIEWPOINTS ARE MIRROR IMAGES, so this decides which half of a roof gets
+   lit — it is not a wording preference. Street-facing is also the only one the crew
+   can act on, since they arrive at the kerb rather than at the door. The words stored
+   here are unchanged; what changed is the sentence in the portal that tells a customer
+   what they mean, and there is nothing to migrate: no house has ever been asked before
+   today, so no stored list was recorded under the other reading. */
+var PORTAL_SIDE_NAMES = ['Front', 'Left', 'Right', 'Back'];
+function portalSidesListFromValue(v){
+  if(!Array.isArray(v)) return [];
+  var picked = {};
+  v.forEach(function(s){ if(PORTAL_SIDE_NAMES.indexOf(s) !== -1) picked[s] = true; });
+  return PORTAL_SIDE_NAMES.filter(function(s){ return picked[s]; });
+}
+function portalSidesListFromRecord(){
+  var d = currentJobAddressData || {};
+  var r = currentLookupRecord || {};
+  var v = d.houseSidesList !== undefined ? d.houseSidesList : r.houseSidesList;
+  return portalSidesListFromValue(v);
+}
 function portalRenderSides(){
-  var have = portalSidesFromRecord();
-  document.querySelectorAll(".portal-side-pick").forEach(function(rb){
-    rb.checked = (Number(rb.value) === have);
+  var haveList = portalSidesListFromRecord();
+  document.querySelectorAll(".portal-side-pick").forEach(function(cb){
+    cb.checked = haveList.indexOf(cb.value) !== -1;
   });
 }
-function portalSidesPicked(){
-  var el = document.querySelector(".portal-side-pick:checked");
-  return portalSideCount(el ? el.value : 0);
+function portalSidesPickedList(){
+  var out = [];
+  document.querySelectorAll(".portal-side-pick:checked").forEach(function(cb){ out.push(cb.value); });
+  return portalSidesListFromValue(out);
 }
-function portalSidesWords(n){
-  var c = portalSideCount(n);
-  return c + " side" + (c === 1 ? "" : "s");
+function portalSidesListsEqual(a, b){
+  if(a.length !== b.length) return false;
+  for(var i = 0; i < a.length; i++){ if(a[i] !== b[i]) return false; }
+  return true;
+}
+/* One line naming which sides — or, for a customer who only ever had a count on
+   file, the count itself, saying plainly that the specific sides are not on
+   file yet rather than a blank that reads as "nothing set at all". */
+function portalSidesWords(list, count){
+  if(list && list.length){
+    return list.join(", ") + " (" + list.length + " side" + (list.length === 1 ? "" : "s") + ")";
+  }
+  var c = Number(count) || 0;
+  return c ? (c + " side" + (c === 1 ? "" : "s") + " (which ones is not on file)") : "not on file";
 }
 document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn").addEventListener("click", async function(){
   var statusEl = document.getElementById("sidesSaveStatus");
   if(!currentLookupRecord && !currentJobAddressId){ statusEl.textContent = "Please look up your invoice first."; return; }
-  var picked = portalSidesPicked();
-  var before = portalSidesFromRecord();
-  var same = picked === before;
-  if(same){ statusEl.textContent = "That is already what we have — nothing to change."; return; }
-  /* ⚠ The confirm names BOTH lists. "You will be requoted" without saying what
-     changed is the kind of warning people agree to and then ring about. */
-  var ok = window.confirm(
-    "You are changing which sides of your house we light.\n\n" +
-    "    Now: " + portalSidesWords(before) + "\n" +
-    "    New: " + portalSidesWords(picked) + "\n\n" +
-    "This changes how many lights we hang, so we will need to RE-QUOTE you before your install. " +
-    "Your price may go up or down.\n\nDo you want us to re-quote you?"
-  );
-  if(!ok){ statusEl.textContent = ""; portalRenderSides(); return; }
+  var pickedList = portalSidesPickedList();
+  if(!pickedList.length){ statusEl.textContent = "Please tick at least one side."; return; }
+  var beforeList = portalSidesListFromRecord();
+  var beforeCount = portalSidesFromRecord();
+  var pickedCount = pickedList.length;
+  if(portalSidesListsEqual(pickedList, beforeList) && pickedCount === beforeCount){
+    statusEl.textContent = "That is already what we have — nothing to change.";
+    return;
+  }
+  /* ⚠ ONLY AN ACTUAL COUNT CHANGE IS A RE-QUOTE. The server's re-quote flag is
+     driven by the COUNT alone (functions/index.js, section 'sides'), never by
+     which sides are named — so naming sides for a count that was already on
+     file (the common first save, for every existing customer) must not carry
+     the same "your price may change" warning as an actual change nobody asked
+     for. This mirrors exactly what the server is about to decide, rather than
+     guessing at a friendlier rule that could disagree with it. */
+  var countChanged = pickedCount !== beforeCount;
+  if(countChanged){
+    /* ⚠ The confirm names BOTH lists. "You will be requoted" without saying what
+       changed is the kind of warning people agree to and then ring about. */
+    var ok = window.confirm(
+      "You are changing which sides of your house we light.\n\n" +
+      "    Now: " + portalSidesWords(beforeList, beforeCount) + "\n" +
+      "    New: " + portalSidesWords(pickedList, pickedCount) + "\n\n" +
+      "This changes how many lights we hang, so we will need to RE-QUOTE you before your install. " +
+      "Your price may go up or down.\n\nDo you want us to re-quote you?"
+    );
+    if(!ok){ statusEl.textContent = ""; portalRenderSides(); return; }
+  }
   statusEl.textContent = "Saving…";
   try{
     await callPortalFn("portalSave", {
       token: getActivePortalToken(),
       section: "sides",
-      data: {houseSides: picked}
+      data: {houseSides: pickedCount, houseSidesList: pickedList}
     });
-    if(currentJobAddressData) currentJobAddressData.houseSides = picked;
-    if(currentLookupRecord) currentLookupRecord.houseSides = picked;
+    if(currentJobAddressData){ currentJobAddressData.houseSides = pickedCount; currentJobAddressData.houseSidesList = pickedList; }
+    if(currentLookupRecord){ currentLookupRecord.houseSides = pickedCount; currentLookupRecord.houseSidesList = pickedList; }
+    if(!countChanged){
+      /* Just naming sides for a count that already matched — no footage change,
+         no re-quote, nothing for the office to act on. */
+      statusEl.textContent = "Saved.";
+      return;
+    }
     /* ⭐ PUT THEM BACK IN QUOTES TO BE RE-PRICED.
        Owner, 2026-08-18: "we need to set it up so they are requoted, so they
        are removed as a customer and added in quotes instead."
 
        This is the second half. The quote carries existingCustomerId, which is
        what the Quotes list already reads to show "Old house · re-quote", to
-       skip the $30 set-up fee, and to pick the re-quote email template rather
+       skip the set-up fee, and to pick the re-quote email template rather
        than the new-lead one. `changed` is what fills the blue explainer on the
        card, so whoever prices it can see what moved without opening anything.
 
@@ -6849,7 +7002,8 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
         phone: (currentLookupRecord && currentLookupRecord.phone) || '',
         email: (currentLookupRecord && currentLookupRecord.email) || '',
         address: (currentJobAddressData && currentJobAddressData.address) || '',
-        houseSides: picked,
+        houseSides: pickedCount,
+        houseSidesList: pickedList,
         existingCustomerId: currentJobAddressId || null,
         /* ⭐ EVERYTHING THE OLD RECORD KNEW, CARRIED ON THE QUOTE.
            Owner, 2026-08-18: "we should be able to find what their old # was no
@@ -6869,8 +7023,8 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
         existingLightColors: (currentJobAddressData && currentJobAddressData.lightColors) || [],
         changed: {
           what: 'sides',
-          oldSides: portalSidesWords(before),
-          newSides: portalSidesWords(picked),
+          oldSides: portalSidesWords(beforeList, beforeCount),
+          newSides: portalSidesWords(pickedList, pickedCount),
           oldPrice: (currentJobAddressData && Number(currentJobAddressData.housePrice)) || 0
         },
         notes: 'Existing Customer - Sides Changed',
@@ -6891,8 +7045,8 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
       customer_phone: (currentLookupRecord && currentLookupRecord.phone) || "",
       customer_email: (currentLookupRecord && currentLookupRecord.email) || "",
       topic: "Existing Customer - Sides Changed",
-      message: "Customer changed which sides they want lit, from " + portalSidesWords(before) +
-               " to " + portalSidesWords(picked) + ". They need re-quoting before install."
+      message: "Customer changed which sides they want lit, from " + portalSidesWords(beforeList, beforeCount) +
+               " to " + portalSidesWords(pickedList, pickedCount) + ". They need re-quoting before install."
     });
     statusEl.textContent = "Saved. We will be in touch with your new quote.";
   } catch(err){
