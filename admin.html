@@ -45985,6 +45985,24 @@ document.addEventListener('DOMContentLoaded', function(){
         if(ledger === 'credit' && kind === 'referral'){
           document.getElementById('editCustReferralCount').value = '';
         }
+        /* ⭐ AND THE CARRIED-DEBT BOX IS A BOX LIKE THE OTHERS (2026-09-08). This was
+           the one rebuild the list above forgot, and it made the × on last season's debt
+           look broken. Dax: "the x in arrears in discount and fees doesnt work."
+           The office's own arrears line is rebuilt from “Owed from a previous season” on
+           save exactly as the manual fee is rebuilt from the Fee box — so crossing it off
+           and then pressing Save, which is why somebody is in this form at all, wrote the
+           debt straight back with the schedule hold on it. The × visibly worked, the
+           status line said “saved”, and the customer was held out of the season again.
+           ⚠ THE AUTOMATIC LINE NEEDS NO CLEARING and gets it anyway, because the box is
+           empty for one of those — keying this on `source` would be a second place that
+           has to agree with the save's filter about which lines that box owns.
+           ⚠ AND THE SEASON GOES BACK TO THE ASSUMED ONE, not to whatever named the debt
+           that has just gone. A fresh open with nothing on file shows the assumed season;
+           a box left naming 2024 is the next debt typed here silently landing in 2024. */
+        if(ledger === 'fee' && kind === ARREARS_KIND){
+          document.getElementById('editCustArrears').value = '';
+          document.getElementById('editCustArrearsSeason').value = ARREARS_ASSUMED_SEASON;
+        }
         if(ledger === 'credit') updateEditCustDiscountSummary();
         const after = editCustInvoiceNow();
         const d2 = (after && after.data) || {};
@@ -45994,6 +46012,10 @@ document.addEventListener('DOMContentLoaded', function(){
         const cust2 = jobAddresses.find(a => a.id === editCustomerId);
         renderEditCustCarriedLines((cust2 && Array.isArray(cust2.data.carryoverChargeNotes))
           ? cust2.data.carryoverChargeNotes : []);
+        /* ⚠ AND THE SUMMARY UNDER THE BOX IS DRAWN FROM THE INVOICE, so it goes stale on
+           any carried line coming off — including an automatic one, which no box holds and
+           which the branch above therefore cannot fix. Redrawn here for both. */
+        updateEditCustArrearsSummary(d2.changeFeeNotes || []);
         if(st) st.textContent = 'Took ' + fmtMoney(Number(res.removed.amount) || 0) + ' off — saved.' + (res.note || '');
       }catch(err){
         console.error('[HU] taking a ledger line off failed:', err);

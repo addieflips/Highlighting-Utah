@@ -931,6 +931,38 @@ function seasonResetWrite() {
     /not a charge for this year/.test(saveArr),
     'a line on a bill with no year on it is exactly what reads as being charged twice');
 
+  /* ---- and crossing that line off has to EMPTY the box -------------------
+     ⭐ Dax, 2026-09-08: "the x in arrears in discount and fees doesnt work." It did
+     work — for about as long as it took to press Save. The box above rebuilds the
+     office's own arrears line on every save of the customer, so a × that took the line
+     off and left $400 sitting in the box wrote the debt back on the next save, with the
+     schedule hold on it, from a screen that had just said “saved”.
+     ⚠ THE PAIR IS THE CLAIM, not either half: `saveArr` above proves the box rebuilds
+     the line, and this proves the × lets go of it. The manual fee, the manual discount
+     and the referral count each already had their half here; the carried debt is the
+     one that was missed, and it is the one that also holds somebody out of a season. */
+  {
+    const waiveAt = admin.indexOf("const kind = res.removed && res.removed.kind;");
+    const clearBlock = waiveAt === -1 ? '' :
+      admin.slice(waiveAt, admin.indexOf('const after = editCustInvoiceNow();', waiveAt));
+    check('the block that empties the boxes after a \u00d7 was found',
+      clearBlock.length > 0 && /editCustReferralCount/.test(clearBlock),
+      'a check that cannot find its target reports green for the worst possible reason');
+    check('a crossed-off carried debt empties the box that would rebuild it',
+      /kind === ARREARS_KIND/.test(clearBlock) &&
+      /getElementById\('editCustArrears'\)\.value = ''/.test(clearBlock),
+      'left in the box, the next Save puts the debt and the schedule hold straight ' +
+      'back — a × that visibly worked and then quietly undid itself');
+    check('and the season box goes back to the assumed season, not the dead debt\'s',
+      /editCustArrearsSeason'\)\.value = ARREARS_ASSUMED_SEASON/.test(clearBlock),
+      'a box still naming 2024 is the next debt typed here silently landing in 2024');
+    check('and the figure under the box is redrawn from the invoice',
+      /updateEditCustArrearsSummary\(d2\.changeFeeNotes/.test(admin),
+      'an automatic carried line is held by no box at all, so the branch above cannot ' +
+      'fix its summary — without this the line still reads “$400 carried by the app” ' +
+      'over a bill that no longer carries it');
+  }
+
   const createOrder = serverSrc.slice(serverSrc.indexOf('exports.paypalCreateOrder'),
                                       serverSrc.indexOf('exports.paypalCaptureOrder'));
   check('PayPal charges last season first, not the whole balance',
