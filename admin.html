@@ -7359,12 +7359,31 @@ function ledgerLineLabel(ledger, n){
 }
 function feeNoteLabel(n){ return ledgerLineLabel('fee', n); }
 function feeNoteIsLightChange(n){ return !n || !n.kind; }
-/* ⚠ ONE LINE IS NOT WAIVABLE AND IT IS THE CARRIED DEBT — see the block above.
-   Everything else on either ledger may be crossed off: Addie asked for "all
-   discounts and fees", and a whitelist of kinds fails silently, leaving whatever
-   was invented next with no × and a screen that looks like nobody was charged. */
+/* ⭐ EVERY LINE ON EVERY LEDGER MAY BE CROSSED OFF, THE CARRIED DEBT INCLUDED
+   (2026-09-07, MON-67). Dax: "make the arrear line have an x".
+
+   ⚠ THIS REVERSES [[MON-55]], WHICH WAS DERIVED FROM ADDIE'S OWN [[MON-38]], and the old
+   reasoning is kept in the map because it is exactly what the confirmation below now
+   carries: waiving the carried debt zeroes `arrearsOutstanding`, and that figure is the
+   ONLY thing holding an unpaid customer off the schedule. So this × is the "hang them
+   anyway" button Addie was offered and turned down — there is no version of it that
+   isn't, because the hold is derived from the debt and nothing else.
+
+   ⭐ WHAT MAKES IT DEFENSIBLE IS THAT IT IS NO LONGER SILENT, which was the actual harm
+   MON-55 recorded: the button it was written against wrote off a real debt AND released
+   the hold from a control labelled "remove light-change fee". This one sits on a row that
+   says "Unpaid balance from the 2025 season", and `editCustLedgerConfirm` names the
+   amount, the season, and the release of the hold before anything is written. Forgiving a
+   debt on purpose SHOULD release the hold — the customer then genuinely owes nothing.
+
+   ⚠ A WHITELIST OF KINDS FAILS SILENTLY, leaving whatever is invented next with no × and
+   a screen that looks like nobody was charged — which is why this stays a blanket yes
+   rather than a list. It is still the WRITE-side guard: `ledgerWaiveUpdates` will not
+   remove a line this refuses, so reintroducing a protection here protects the write and
+   the renderer at once. ⚠ IF ONE EVER IS reintroduced, the renderer has to gate on it
+   again — fee-waive.test.js §6 asserts the two agree, by running both. */
 function ledgerLineIsWaivable(ledger, n){
-  return !!n && !(ledger === 'fee' && n.kind === ARREARS_KIND);
+  return !!n;
 }
 function feeNoteIsWaivable(n){ return ledgerLineIsWaivable('fee', n); }
 /* Identity for one line. Ledger notes carry no id of their own, so this is what a
@@ -7498,6 +7517,28 @@ async function waiveLedgerLine(invoiceId, ledger, key){
   const fresh = snap.data();
   const plan = ledgerWaiveUpdates(fresh, ledger, key);
   if(!plan) return { ok:false, why:'That ' + spec.word + ' is no longer on this invoice — someone may have taken it off already.' };
+  /* ⭐ THE CARRIED DEBT IS ASKED ABOUT, NEVER TAKEN OFF SILENTLY (2026-09-07, MON-67).
+     [[MON-55]] refused this line an × entirely, because zeroing `arrearsOutstanding` is
+     the only thing that lifts the schedule hold — the "hang them anyway" button Addie
+     turned down in [[MON-38]]. Dax reversed that ("make the arrear line have an x"), and
+     THIS is what carries the old ruling's reasoning forward: the harm MON-55 recorded was
+     a real debt written off SILENTLY from a control labelled "remove light-change fee".
+     ⚠ IT LIVES HERE, NOT IN EITHER HANDLER, because both doors — the Invoices panel and
+     Edit Customer — come through this one function. A copy in one of them is a × that
+     asks on one screen and not on the other, about the same money.
+     ⚠ AND IT ASKS AFTER `plan` IS BUILT, so the amount and season named are the ones
+     actually coming off the bill, re-read a moment ago — not what the row said when the
+     form was opened. Cancelling writes nothing at all. */
+  if(ledger === 'fee' && plan.removed && plan.removed.kind === ARREARS_KIND){
+    const owedSeason = plan.removed.year || 'a previous';
+    const ok = confirm('Write off ' + fmtMoney(Number(plan.removed.amount) || 0) +
+      ' owed from the ' + owedSeason + ' season?\n\n' +
+      'This is not a fee — it is money the business is owed. Taking it off ALSO releases ' +
+      'the hold that keeps this customer off the schedule, so they will be routed and ' +
+      'hung as though the balance were settled.\n\n' +
+      'Cancel to leave the balance in place.');
+    if(!ok) return { ok:false, why:'Left the ' + owedSeason + ' balance in place — nothing was written.' };
+  }
   await updateDoc(doc(db,'invoices', invoiceId), Object.assign({}, plan.updates, { updatedAt: serverTimestamp() }));
   /* ⚠ MIRRORED INTO THE CACHE BEFORE ANYTHING REPAINTS. Edit Customer's Save
      rebuilds both ledgers from `allInvoicesCache`, so between this write and the
@@ -47948,14 +47989,43 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     if(newRsvp === 'no' && item.data.rsvpStatus !== 'no'){
       await clawBackReferralIfAny(editCustomerId, Object.assign({}, item.data, addrUpdates));
     }
-    const inv = allCustInvoiceFor(item);
+    let inv = allCustInvoiceFor(item);
     let resyncPayerAfter = null;
     let migratingFeeNotes = null;
-    /* Set below when a typed fee or discount had no bill to land on. Reported after the
-       save so the customer's own edits are still kept — the fee is the part that was
-       lost, not the phone number somebody was actually in here to fix. */
-    let ledgerLinesNeedInvoice = false;
+    /* Set below when a typed fee or discount had no bill to land on, so the toast can
+       name the customer whose bill was created for it. */
+    let mintedInvoiceForLedger = false;
     if(!newBillTo){
+      /* ⭐ A FEE OR A DISCOUNT TYPED ONTO A CUSTOMER WITH NO BILL NOW MAKES ONE
+         (2026-09-07, MON-67). Dax: "minting the invoice feel free to do that", after
+         "everyone should have a invoice".
+         ⛔ IT USED TO BE THROWN AWAY, SILENTLY. Every ledger line lives on the INVOICE,
+         and both branches below can leave without one — no invoice and no price wrote
+         nothing at all, and no invoice WITH a price created one carrying `install` and no
+         notes. So the office typed $50 and a reason, pressed Save, and reopened the
+         customer to an empty Fees box: no throw, no toast, a green "Saved".
+         ⚠ NOTHING IS WRITTEN HERE. The seed is built in memory and handed to the SAME
+         rebuild the existing-invoice branch runs, so the typed lines are placed by one
+         rule rather than a second copy of it, and the whole document lands in ONE write
+         below. Two awaited writes can half-succeed, and the half that survives would be
+         an empty invoice with the fee still lost.
+         ⚠ ONLY WHEN A LEDGER LINE WAS ACTUALLY TYPED. Minting on every save of an
+         un-invoiced customer would put a $0 bill on people nobody has priced yet, and the
+         price-only path below is untouched and still owns that case.
+         ⚠ `priceReviewed` FOLLOWS THE PRICE, not the fee: it is that other path's claim
+         that somebody looked at the number, and a fee typed onto a priced customer must
+         not silently lose it. */
+      if(!inv && newKey &&
+         (newManualFee > 0 || newManualDiscount > 0 || newArrearsAmount > 0 || newReferralCount > 0)){
+        const seeded = {
+          name: newName, phone: newPhone, email: newEmail,
+          install: newHousePrice > 0 ? newHousePrice : 0, removal: 0, deposit: 0,
+          credits: 0, creditNotes: [], changeFees: 0, changeFeeNotes: []
+        };
+        if(newHousePrice > 0) seeded.priceReviewed = true;
+        inv = { id: newKey, data: seeded };
+        mintedInvoiceForLedger = true;
+      }
       if(inv){
         const invoiceUpdates = {name: newName, phone: newPhone, email: newEmail};
         /* Referrals and the manual discount are rebuilt from the form every
@@ -48065,6 +48135,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         if(newKey !== oldKey){
           await setDoc(doc(db,'invoices', newKey), Object.assign({}, inv.data, invoiceUpdates), {merge:true});
           await deleteDoc(doc(db,'invoices', inv.id));
+        } else if(mintedInvoiceForLedger){
+          /* ⚠ setDoc+merge, NOT updateDoc: this document does not exist yet — it was
+             seeded in memory above so the ledger rebuild could place the typed lines on
+             it — and updateDoc would throw "No document to update" and lose the fee mid
+             save. One write, carrying the seed and everything the rebuild worked out. */
+          await setDoc(doc(db,'invoices', newKey), Object.assign({}, inv.data, invoiceUpdates), {merge:true});
         } else {
           await updateDoc(doc(db,'invoices', inv.id), invoiceUpdates);
         }
@@ -48074,24 +48150,6 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
           install: newHousePrice, removal: 0, deposit: 0,
           status: computeInvoiceStatus(newHousePrice, 0, 0), priceReviewed: true, updatedAt: serverTimestamp()
         }, {merge:true});
-      }
-      /* ⛔ AND A FEE OR A DISCOUNT TYPED ONTO A CUSTOMER WITH NO BILL WAS THROWN AWAY,
-         SILENTLY (found 2026-09-07, with Dax's "the fees and discounts arent being
-         listed"). Every ledger line lives on the INVOICE, and both branches above can
-         leave without one: no invoice and no price writes nothing at all, and no invoice
-         WITH a price creates a fresh one carrying `install` and no notes. So the office
-         typed $50 and a reason, pressed Save, watched the form close, and reopened the
-         customer to an empty Fees box — which is exactly the report, and looks like the
-         list being broken rather than the save.
-         ⚠ IT SAYS SO NOW RATHER THAN CREATING THE BILL. Addie's standing rule is that
-         nothing fails quietly, and this was the quietest kind — no throw, no toast, a
-         green "Saved". Minting an invoice here instead is a money write on a save path
-         that already runs ~36,000 characters, and it belongs with the rest of Dax's
-         "everyone should have a invoice": Invoices → Fix Missing Invoices already makes
-         one for everybody who has a price but no bill. Same words the × uses when it
-         dead-ends for the same reason, so the office reads one explanation, not two. */
-      if(!inv && (newManualFee > 0 || newManualDiscount > 0 || newArrearsAmount > 0 || newReferralCount > 0)){
-        ledgerLinesNeedInvoice = true;
       }
     } else if(inv){
       /* They now bill to someone else, so this house's price rolls into that
@@ -48212,12 +48270,11 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
             '" is not something the tick boxes can show, so they were not overwritten. ' +
             'Tick the real colours and save again to correct it.');
     }
-    /* ⚠ NAMED, AND WITH THE NEXT STEP ON IT. A bare "it did not save" is what sends
-       somebody looking for a bug; the tool that fixes it already exists. */
-    if(ledgerLinesNeedInvoice){
-      toast('Saved — but the fee/discount was NOT added: this customer has no invoice ' +
-            'for it to go on. Invoices → Fix Missing Invoices → "Scan & Create ' +
-            'Missing Invoices" makes one, then type it again.');
+    /* ⚠ SAID OUT LOUD. A bill appearing for somebody who had none is a real change to
+       what the office is looking at, and one that arrives unannounced reads as a bug. */
+    if(mintedInvoiceForLedger){
+      toast('Saved — ' + (newName || 'they') + ' had no invoice, so one was created for ' +
+            'the fee/discount to go on. Check it under Invoices.');
     }
     toast(geocodeFailed ? 'Saved — but the new address could not be located on the map. Check it manually so routes stay accurate.'
       : (lightChange.feeAmount > 0 && !lightFeeWaived

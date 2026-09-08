@@ -987,10 +987,37 @@ way to delete it."* Three faults, and the first one hit every customer in the bo
   lines, the ✕, its redraw and the carried-debt summary.
 - ⛔ **A FEE TYPED ONTO A CUSTOMER WITH NO BILL WAS THROWN AWAY SILENTLY.** Every
   ledger line lives on the invoice, and both no-invoice branches of the save write it
-  nowhere: no throw, no toast, a green *Saved*, and an empty Fees box on reopening. It
-  now names **Invoices → Fix Missing Invoices**, the same words the ✕ uses. ⚠ Minting
-  the invoice there is deliberately NOT done — a money write inside a ~36,000-character
-  save handler, and it belongs with the rest of *"everyone should have a invoice"*.
+  nowhere: no throw, no toast, a green *Saved*, and an empty Fees box on reopening.
+  **It now makes the bill** (MON-67, same day — Dax: *"minting the invoice feel free to
+  do that"*). The seed is built in memory and handed to the SAME rebuild the
+  existing-invoice branch runs, so the typed lines are placed by one rule and the whole
+  document lands in **one `setDoc`** — two awaited writes can half-succeed, and the half
+  that survives would be an empty bill with the fee still lost. ⚠ Only when a ledger line
+  was actually typed: minting on every save of an un-invoiced customer would put a $0
+  bill on people nobody has priced yet, and the price-only path still owns that case.
+  One live customer is affected today (956 customers, 935 invoices), so this is a guard
+  against a silent loss rather than a fix for a backlog.
+
+⭐ **AND THE CARRIED DEBT HAS AN ✕ NOW TOO** (2026-09-07, MON-67 — Dax: *"make the arrear
+line have an x"*). ⚠ **THIS REVERSES MON-55, WHICH CAME FROM ADDIE'S OWN MON-38**, and the
+old reasoning is kept because it is exactly what the new prompt carries: `arrearsOutstanding`
+is the **only** thing holding an unpaid customer off the schedule, so crossing that line off
+IS the *"hang them anyway"* button she was offered and turned down. There is no version of
+it that isn't — the hold is derived from the debt and nothing else.
+
+⭐ **What changed is that it can no longer happen silently**, which is the harm MON-55
+actually recorded: the button it was written against wrote off a real debt *and* released
+the hold, from a control labelled "remove light-change fee". `waiveLedgerLine` now names
+the amount, the season and the release of the hold before anything is written, and
+cancelling writes nothing at all. ⚠ It lives in the shared write, **not** in either click
+handler — the Invoices panel and Edit Customer both come through it, and a copy in one of
+them is an ✕ that asks on one screen and not the other about the same money.
+
+⚠ `ledgerLineIsWaivable` is a blanket yes now rather than a whitelist — a whitelist fails
+silently, leaving whatever is invented next with no ✕ and a screen that looks like nobody
+was charged. It is still the write-side guard, and **fee-waive.test.js §6 runs the renderer
+and the write over every kind and fails if they disagree**, so a protection reintroduced
+later cannot draw an ✕ the write refuses.
 
 ⚠ **`allCustInvoiceFor` IS UNTOUCHED AND MUST STAY NARROW** — it answers "the invoice
 filed under this HOUSE'S OWN key", and the Edit Customer save calls it directly to find

@@ -167,20 +167,70 @@ async function main() {
   }
 
   /* -------------------------------------------------------------------------
-   * 2. THE ONE THAT MATTERS. An arrears line is not waivable, from either door.
+   * 2. THE CARRIED DEBT. Waivable since 2026-09-07 (MON-67) — and the reason it was
+   *    NOT is now carried by a confirmation instead of a refusal.
+   *
+   * ⚠ REVERSED, NOT RELAXED, AND THE OLD REASONING STILL HOLDS. MON-55 refused this
+   *   line an × because `arrearsOutstanding` is the only thing holding an unpaid
+   *   customer off the schedule, so crossing it off IS the "hang them anyway" button
+   *   Addie turned down in MON-38. Dax reversed it: "make the arrear line have an x".
+   *   There is no version of this that does not release the hold — the hold is derived
+   *   from the debt and nothing else — so what changed is that it can no longer happen
+   *   SILENTLY, which is the harm MON-55 actually recorded (a real debt written off from
+   *   a control labelled "remove light-change fee").
    * ----------------------------------------------------------------------- */
   {
-    check('an arrears line is not waivable',
-      feeNoteIsWaivable(arrears) === false,
-      'waiving last season`s carried debt lifts the schedule hold with it — that is ' +
-      'the "hang them anyway" button Addie was offered and turned down');
+    check('an arrears line is waivable now',
+      feeNoteIsWaivable(arrears) === true,
+      'MON-67 gave the carried debt an × like every other line; a refusal here is the ' +
+      'old MON-55 rule coming back');
     const inv = invoice([arrears, lightA]);
     const out = feeWaiveUpdates(inv, feeNoteKey(arrears));
-    check('and asking to waive one is refused outright',
-      out === null,
-      'it returned ' + JSON.stringify(out) + '. A refusal is the whole guard: with the ' +
-      'debt gone arrearsSettled answers true and a crew is sent to a house that has ' +
-      'not paid for last season.');
+    check('and waiving one takes the debt off and re-totals the bill',
+      !!out && out.removed === arrears &&
+      out.updates.changeFeeNotes.length === 1 &&
+      out.updates.changeFeeNotes[0] === lightA &&
+      out.updates.changeFees === 30,
+      'got ' + JSON.stringify(out && out.updates) + '. Leaving the stored total behind ' +
+      'is a bill carrying a number nothing on it adds up to.');
+    /* ⚠ AND THE PROMPT IS WHAT MAKES IT SAFE, so it is asserted in the shipped source
+       rather than left to a reader: the amount, the season, and the fact that the
+       schedule hold goes with it. Both doors reach it because it lives inside
+       waiveLedgerLine, not in either click handler. */
+    /* ⚠ FROM `admin`, NOT FEE_SRC — that window deliberately stops at "The write", so
+       waiveLedgerLine is outside it and a slice of it comes back empty, which passes a
+       negative check and fails a positive one against code that is right.
+       ⚠ AND BRACE-MATCHED, NOT A FIXED WINDOW: §7 bans those by name, and run-all.js has
+       a meta-check that fails the build for one. */
+    const waiveSrc = (function () {
+      const at = admin.indexOf('async function waiveLedgerLine');
+      if (at === -1) return '';
+      let i = admin.indexOf('{', at), depth = 0;
+      for (; i < admin.length; i++) {
+        if (admin[i] === '{') depth++;
+        else if (admin[i] === '}') { depth--; if (depth === 0) return admin.slice(at, i + 1); }
+      }
+      return '';
+    })();
+    check('waiveLedgerLine is findable',
+      !!waiveSrc && waiveSrc.length > 200,
+      'renamed or moved — repoint this, or the two checks below pass vacuously');
+    /* ⚠ THE CONDITION ITSELF, NOT THE WORDS NEAR IT. The first version of this check
+       tested that `ARREARS_KIND`, `plan.removed` and `confirm(` all APPEARED in the
+       function — and the red-check proved it passed with the guard disabled as
+       `if(false && ...)`, every word still in place and the prompt unreachable. Same
+       shape as the message-in-the-source failures this repo has already shipped three
+       times. It pins the whole condition now. */
+    check('the office is asked before a carried debt is written off',
+      /if\(ledger === 'fee' && plan\.removed && plan\.removed\.kind === ARREARS_KIND\)\{/.test(waiveSrc) &&
+      /const ok = confirm\(/.test(waiveSrc) &&
+      /releases/.test(waiveSrc) && /Cancel to leave the balance in place/.test(waiveSrc),
+      'silently is exactly how the button MON-55 was written against behaved — and a ' +
+      'guard held open by a constant reads as present in every text search');
+    check('and cancelling writes nothing at all',
+      /if\(!ok\) return \{ ok:false/.test(waiveSrc) &&
+      waiveSrc.indexOf('if(!ok) return') < waiveSrc.indexOf('await updateDoc'),
+      'asking after the write is a question with no answer left to give');
     /* ⚠ AND THE NEIGHBOURING LINE MUST STILL GO. A guard that refused the whole
        invoice because one line is arrears would make every carried-debt customer's
        other fees unwaivable, which reads as the × being broken. */
@@ -259,18 +309,27 @@ async function main() {
   {
     const html = feeLinesHtml([lightA, arrears, manual]);
     const xs = (html.match(/class="fee-waive"/g) || []).length;
-    check('a × is drawn for every waivable line and none for the carried debt',
-      xs === 2,
-      'got ' + xs + ' of an expected 2 — a × on the arrears row is the guard in check 2 ' +
-      'defeated at the only place the office actually presses it');
-    check('the carried-debt row says where it IS edited',
-      /edit below/.test(html),
-      'a row with no × beside rows that have one reads as a bug rather than a rule');
+    check('a × is drawn for every line, the carried debt included',
+      xs === 3,
+      'got ' + xs + ' of an expected 3 — MON-67 gave the arrears row an × at the only ' +
+      'place the office actually presses one');
+    /* ⭐ THE RENDERER AND THE WRITE MUST AGREE, and this is the check that survives a
+       protection being reintroduced: whatever `ledgerLineIsWaivable` says, a row drawn
+       with an × must be one the write will accept, and a row without one must not be.
+       Drawing a × the write refuses is a button that does nothing; withholding one the
+       write would accept hides a line the office is allowed to take off. */
+    [lightA, arrears, manual].forEach(function (n) {
+      const drawn = feeLinesHtml([n]).indexOf('class="fee-waive"') !== -1;
+      const accepted = feeWaiveUpdates(invoice([n]), feeNoteKey(n)) !== null;
+      check('the × drawn for "' + (n.kind || 'light change') + '" matches what the write accepts',
+        drawn === accepted,
+        'drawn=' + drawn + ' accepted=' + accepted + ' — a × the write refuses is a ' +
+        'button that does nothing, and a missing one hides a line that could go');
+    });
     check('each × carries the token for its own line',
       html.indexOf(feeNoteToken(lightA)) !== -1 && html.indexOf(feeNoteToken(manual)) !== -1 &&
-      html.indexOf(feeNoteToken(arrears)) === -1,
-      'the token is what the write matches on; the arrears one must not be on the page ' +
-      'at all, so no hand-made click can reach it');
+      html.indexOf(feeNoteToken(arrears)) !== -1,
+      'the token is what the write matches on, so every drawn × needs its own');
     const nasty = feeLinesHtml([{ amount: 5, reason: '<img src=x onerror=alert(1)>' }]);
     check('a reason is escaped before it reaches the page',
       nasty.indexOf('<img') === -1 && nasty.indexOf('&lt;img') !== -1,

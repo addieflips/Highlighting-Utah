@@ -52984,22 +52984,36 @@ suite('Suite 309. Crossing a fee or a discount off a bill somebody else pays');
     /Fix Missing Invoices/.test(waiveBlock),
     'a dead-end refusal is what sends somebody looking for a bug that is not there');
 
-  /* ⛔ AND A TYPED FEE WITH NO BILL TO LAND ON IS SAID OUT LOUD (2026-09-07). Dax: "the
-     fees and discounts arent being listed." Both no-invoice branches of the save write
-     the ledger nowhere — no throw, no toast, a green "Saved" — so the office typed a fee
-     and reopened the customer to an empty box. Addie's standing rule is that nothing
-     fails quietly. */
-  check('S309', 'a fee typed onto a customer with no bill is not thrown away silently',
-    /ledgerLinesNeedInvoice = true;/.test(admin) &&
-    /ledgerLinesNeedInvoice\s*\)\s*\{[\s\S]{0,400}Fix Missing Invoices/.test(admin),
-    'it saved everything else and dropped the fee without a word, which reads as the ' +
-    'list being broken rather than the save');
+  /* ⛔ AND A TYPED FEE WITH NO BILL TO LAND ON NOW MAKES ONE (2026-09-07, MON-67). Dax:
+     "minting the invoice feel free to do that." Both no-invoice branches of the save
+     wrote the ledger nowhere — no throw, no toast, a green "Saved" — so the office typed
+     a fee and reopened the customer to an empty box. */
+  const mintCode = stripComments(admin);
+  check('S309', 'a fee typed onto a customer with no bill gets one made for it',
+    /mintedInvoiceForLedger = true;/.test(mintCode) &&
+    /let inv = allCustInvoiceFor\(item\);/.test(mintCode),
+    'the save kept everything else and dropped the fee without a word, which reads as ' +
+    'the list being broken rather than the save');
 
-  check('S309', 'and it only fires when something was actually typed',
-    /if\(!inv && \(newManualFee > 0 \|\| newManualDiscount > 0 \|\| newArrearsAmount > 0 \|\| newReferralCount > 0\)\)/
-      .test(admin),
-    'warning on every save of an un-invoiced customer is how a real warning gets ' +
-    'clicked past');
+  check('S309', 'and it only mints when a ledger line was actually typed',
+    /if\(!inv && newKey &&\s*\r?\n?\s*\(newManualFee > 0 \|\| newManualDiscount > 0 \|\| newArrearsAmount > 0 \|\| newReferralCount > 0\)\)/
+      .test(mintCode),
+    'minting on every save of an un-invoiced customer puts a $0 bill on people ' +
+    'nobody has priced yet, and the price-only path already owns that case');
+
+  /* ⚠ ONE WRITE, NOT TWO. The seed is built in memory and the whole document lands in a
+     single setDoc — two awaited writes can half-succeed, and the half that survives is an
+     empty invoice with the fee still lost. */
+  check('S309', 'the minted bill is created in one write, carrying the typed lines',
+    /else if\(mintedInvoiceForLedger\)\{[\s\S]{0,600}setDoc\(doc\(db,'invoices', newKey\), Object\.assign\(\{\}, inv\.data, invoiceUpdates\), \{merge:true\}\)/
+      .test(mintCode) &&
+    !/mintedInvoiceForLedger = true;[\s\S]{0,300}await /.test(mintCode),
+    'updateDoc on a document that does not exist throws "No document to update" and ' +
+    'loses the fee mid-save');
+
+  check('S309', 'and the office is told a bill was created',
+    /if\(mintedInvoiceForLedger\)\{[\s\S]{0,300}had no invoice, so one was created/.test(mintCode),
+    'an invoice appearing unannounced for somebody who had none reads as a bug');
 }
 
 /* ---------------------------------------------------------------------------
