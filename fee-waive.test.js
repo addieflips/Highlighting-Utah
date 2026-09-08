@@ -75,6 +75,12 @@ const FEE_SRC = between(admin,
   'const LEDGERS = {',
   '/* The write. Re-reads fresh', 'the ledger-waive helpers');
 
+/* Block and line comments out, so a check about what the CODE does cannot be satisfied
+   by the paragraph explaining it. Five suites in this repo have been caught that way. */
+const stripComments = s => (s || '')
+  .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+
 check('the lift found the ledger helpers',
   /function ledgerWaiveUpdates/.test(FEE_SRC) && /function ledgerLinesHtml/.test(FEE_SRC) &&
   /function ledgerLineIsWaivable/.test(FEE_SRC),
@@ -221,31 +227,24 @@ async function main() {
        `if(false && ...)`, every word still in place and the prompt unreachable. Same
        shape as the message-in-the-source failures this repo has already shipped three
        times. It pins the whole condition now. */
-    /* ⛔ TYPED, NOT CLICKED. Dax, 2026-09-07: "protect us from a bad miscick". A
-       `confirm()` is one more click, and the × sits in a LIST of them — the OK button
-       lands where the next × was about to be pressed. The repo's own type-to-unlock rule
-       (Delete All Customers, both duplicate tools) applies for the same reason: no stray
-       click can produce the digits. */
-    check('the office must TYPE the amount before a carried debt is written off',
-      /if\(ledger === 'fee' && plan\.removed && plan\.removed\.kind === ARREARS_KIND\)\{/.test(waiveSrc) &&
-      /const typed = prompt\(/.test(waiveSrc) &&
-      /Type the amount/.test(waiveSrc) && /releases/.test(waiveSrc),
-      'a click-only guard is not protection from a misclick — and a guard held open by ' +
-      'a constant reads as present in every text search');
-    check('a wrong number is refused, and so is cancelling',
-      /if\(typed === null\)\{/.test(waiveSrc) &&
-      /Math\.abs\(typedAmount - owedAmount\) < 0\.005/.test(waiveSrc) &&
-      waiveSrc.indexOf('const typed = prompt(') < waiveSrc.indexOf('await updateDoc'),
-      'asking after the write is a question with no answer left to give');
-    /* ⚠ AND THE MONEY COMPARISON IS NOT A STRING ONE: "$400", "400" and "400.00" are the
-       same answer, and refusing them teaches the office to fight the box. */
-    check('the typed amount is read as money, not matched as text',
-      /String\(typed\)\.replace\(\/\[\^0-9\.\]\/g, ''\)/.test(waiveSrc),
-      'a literal string compare refuses "$400.00" for a $400 line, which reads as the ' +
-      'box being broken and gets worked around rather than read');
-    /* ⭐ AND THE WRITE-OFF LEAVES A RECORD. The typed unlock stops the accident; this is
-       what makes one survivable — waiving DELETES the line, so without a note there is
-       no trace anywhere that the money was ever owed. */
+    /* ⭐ ONE PRESS, THE SAME AS EVERY OTHER LINE (MON-69). Dax: "Make it one press like
+       the others — I'd keep the Inbox note either way, so a wrong one is still findable
+       and reversible." This supersedes MON-68's typed unlock, and the risk MON-68 named
+       has not gone away — crossing this line off releases the schedule hold as well as
+       the money. What changed is which side of the trade is paid for: the × is a tool for
+       getting rid of a fee or a discount on somebody's profile, and a row that argues
+       back is one the office learns to work around.
+       ⚠ COMMENTS STRIPPED, because the block above this check explains the history and
+       contains the words `prompt` and `confirm()` — a plain search finds the explanation
+       and calls it the violation, the trap this repo has been caught by five times. */
+    const waiveCode = stripComments(waiveSrc);
+    check('no line is gated behind a dialog, the carried debt included',
+      !/\bprompt\(/.test(waiveCode) && !/\bconfirm\(/.test(waiveCode),
+      'MON-69 made this one press like every other ×; a dialog here is MON-68 coming ' +
+      'back, and on a list of ×s it is one more click rather than protection');
+    /* ⭐ SO THE PROTECTION IS THE RECORD, NOT THE CEREMONY — and that makes these checks
+       load-bearing rather than nice-to-have. Waiving DELETES the line, so without the
+       note there is no trace anywhere that the money was ever owed. */
     check('a written-off debt leaves a note naming what to type back',
       /topic: 'Carried Debt Written Off'/.test(waiveSrc) &&
       /Owed from a previous season/.test(waiveSrc) &&

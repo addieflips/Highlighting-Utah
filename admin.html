@@ -7529,35 +7529,20 @@ async function waiveLedgerLine(invoiceId, ledger, key){
      ⚠ AND IT ASKS AFTER `plan` IS BUILT, so the amount and season named are the ones
      actually coming off the bill, re-read a moment ago — not what the row said when the
      form was opened. Cancelling writes nothing at all. */
-  if(ledger === 'fee' && plan.removed && plan.removed.kind === ARREARS_KIND){
-    const owedSeason = plan.removed.year || 'a previous';
-    const owedAmount = Number(plan.removed.amount) || 0;
-    /* ⛔ TYPED, NOT CLICKED (2026-09-07). Dax, on being shown that this hands the office a
-       one-press way to write off ~$7,500 across the book: "protect us from a bad miscick".
-       ⚠ A `confirm()` IS NOT PROTECTION FROM A MISCLICK, it is one more click — and the
-       × sits in a list of them, so the OK button lands where the next × was about to be
-       pressed. This is the repo's own type-to-unlock rule (Delete All Customers, the
-       duplicate tools, Merge duplicates), and it is here for the same reason: no sequence
-       of stray clicks can produce the digits. It asks for the AMOUNT rather than a fixed
-       word, so the thing typed is the thing being given away — somebody typing 400 has
-       read the number, and a word like DELETE can be typed from habit.
-       ⚠ COMPARED AS MONEY, NOT AS TEXT: "$400", "400" and "400.00" are the same answer
-       and refusing them teaches the office to fight the box rather than read it. */
-    const typed = prompt('Write off ' + fmtMoney(owedAmount) + ' owed from the ' +
-      owedSeason + ' season?\n\n' +
-      'This is not a fee — it is money the business is owed. Taking it off ALSO releases ' +
-      'the hold that keeps this customer off the schedule, so they will be routed and ' +
-      'hung as though the balance were settled.\n\n' +
-      'Type the amount (' + owedAmount + ') to confirm. Cancel leaves it in place.');
-    if(typed === null){
-      return { ok:false, why:'Left the ' + owedSeason + ' balance in place — nothing was written.' };
-    }
-    const typedAmount = Number(String(typed).replace(/[^0-9.]/g, ''));
-    if(!(Math.abs(typedAmount - owedAmount) < 0.005)){
-      return { ok:false, why:'"' + typed + '" is not ' + fmtMoney(owedAmount) +
-        ' — the ' + owedSeason + ' balance was left in place.' };
-    }
-  }
+  /* ⭐ ONE PRESS, THE SAME AS EVERY OTHER LINE (2026-09-07, MON-69). Dax, asked whether
+     the carried debt should keep the typed unlock or behave like the rest: "Make it one
+     press like the others — I'd keep the Inbox note either way, so a wrong one is still
+     findable and reversible."
+     ⚠ THIS SUPERSEDES [[MON-68]], WHICH TYPED THE AMOUNT, and the reasoning for that is
+     kept because the risk it named has not gone away: crossing this line off releases the
+     schedule hold as well as the money, and there is $7,487.04 across the nineteen rows
+     carrying one. What changed is which side of the trade is paid for. Dax's answer is
+     that the × is a tool for getting rid of a fee or a discount on somebody's profile,
+     and a row that argues back is a row the office learns to work around.
+     ⭐ SO THE PROTECTION IS THE RECORD, NOT THE CEREMONY — the Inbox note below is what
+     makes a wrong press findable and undoable, and it is the reason this is safe to make
+     one press. Do not remove it as "just a notification": with the line deleted from
+     `changeFeeNotes` it is the only trace that the money was ever owed. */
   await updateDoc(doc(db,'invoices', invoiceId), Object.assign({}, plan.updates, { updatedAt: serverTimestamp() }));
   /* ⚠ MIRRORED INTO THE CACHE BEFORE ANYTHING REPAINTS. Edit Customer's Save
      rebuilds both ledgers from `allInvoicesCache`, so between this write and the

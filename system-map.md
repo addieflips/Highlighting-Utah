@@ -1012,16 +1012,18 @@ write, **not** in either click handler — the Invoices panel and Edit Customer 
 through it, and a copy in one of them is an ✕ that asks on one screen and not the other
 about the same money.
 
-⛔ **AND IT IS TYPED, NOT CLICKED** (MON-68, same day — Dax, shown that this is a one-press
-way to write off **$7,487.04** across the 19 customers in arrears: *"protect us from a bad
-miscick"*). A `confirm()` is not protection from a misclick, it is **one more click** — and
-the ✕ sits in a *list* of ✕s, so the OK button lands roughly where the next one was about
-to be pressed. The office types the **amount**: no stray click can produce the digits, and
-the thing typed is the thing being given away, where a fixed word like DELETE gets typed
-from habit. ⚠ Compared as money, not as text — "$400", "400" and "400.00" are one answer,
-and refusing them teaches the office to fight the box rather than read it.
+⭐ **IT IS ONE PRESS, THE SAME AS EVERY OTHER LINE** (MON-69). It briefly asked the office
+to type the amount (MON-68, superseded the same day); Dax: *"Make it one press like the
+others — I'd keep the Inbox note either way, so a wrong one is still findable and
+reversible"*, and, on what the ✕ is for at all, *"the x is if we want to get rid of a fee
+or discount on someones profile"*. ⚠ **The risk MON-68 named has not gone away** — there is
+**$7,487.04** across the 19 rows carrying a carried debt, and crossing one off releases the
+schedule hold with it. What changed is which side of the trade is paid for: a row that
+argues back is a row the office learns to work around, on a control pressed in the ordinary
+run of tidying a bill.
 
-⭐ **And a written-off debt leaves a record**, which is what makes a bad one survivable.
+⭐ **And a written-off debt leaves a record — which is now the WHOLE of the protection**,
+and is what makes a bad press survivable.
 Waiving DELETES the line from `changeFeeNotes`, so without this there is no trace anywhere
 that the money was ever owed — the same asymmetry this file already names, a charge leaving
 a dated line and a waiver leaving nothing. A **Carried Debt Written Off** notice lands in
