@@ -988,6 +988,86 @@ as the other two, because a second copy of "drop this line and re-total" is how
 one ledger starts disagreeing about what a ✕ does. ⚠ And it is never refused for
 want of an invoice: it exists precisely because the bill had already gone out.
 
+⛔ **AND FOR FOUR DAYS THE LINES WERE NOT LISTED AT ALL** (found and fixed 2026-09-07,
+MON-66). Dax: *"disounts and fees should be listed in a customers account but right now
+the fees and discounts arent being listed and when it is listed we should also have a
+way to delete it."* Three faults, and the first one hit every customer in the book.
+
+- ⛔ **`editCustInvoiceNow` ANSWERED `null` FOR EVERYBODY.** It handed the customer
+  RECORD to `allCustInvoiceFor`, which wants the address ITEM and asks
+  `custInvoiceKey(item.data)` — so it keyed on the empty string, every time. Every
+  caller therefore drew an EMPTY ledger: cross one fee off and the redraw blanked the
+  fee list **and** the discount list, so a ✕ that had genuinely worked looked like it
+  had deleted everything. Nothing threw. Every check on it read the code as text and
+  passed; only calling it can see this, which is why suite 309 now RUNS it.
+- ⚠ **THE LIST AND THE ✕ DISAGREED ABOUT WHICH BILL.** The ✕ was taught on 2026-09-07
+  to resolve `billToPhone` first; the LIST was left on the house's own key. A house
+  billed to somebody else has no invoice of its own, so it listed nothing while the ✕
+  pointed at the group's bill. One resolver now — `editCustInvoiceNow` — read by the
+  lines, the ✕, its redraw and the carried-debt summary.
+- ⛔ **A FEE TYPED ONTO A CUSTOMER WITH NO BILL WAS THROWN AWAY SILENTLY.** Every
+  ledger line lives on the invoice, and both no-invoice branches of the save write it
+  nowhere: no throw, no toast, a green *Saved*, and an empty Fees box on reopening.
+  **It now makes the bill** (MON-67, same day — Dax: *"minting the invoice feel free to
+  do that"*). The seed is built in memory and handed to the SAME rebuild the
+  existing-invoice branch runs, so the typed lines are placed by one rule and the whole
+  document lands in **one `setDoc`** — two awaited writes can half-succeed, and the half
+  that survives would be an empty bill with the fee still lost. ⚠ Only when a ledger line
+  was actually typed: minting on every save of an un-invoiced customer would put a $0
+  bill on people nobody has priced yet, and the price-only path still owns that case.
+  One live customer is affected today (956 customers, 935 invoices), so this is a guard
+  against a silent loss rather than a fix for a backlog.
+
+⭐ **AND THE CARRIED DEBT HAS AN ✕ NOW TOO** (2026-09-07, MON-67 — Dax: *"make the arrear
+line have an x"*). ⚠ **THIS REVERSES MON-55, WHICH CAME FROM ADDIE'S OWN MON-38**, and the
+old reasoning is kept because it is exactly what the new prompt carries: `arrearsOutstanding`
+is the **only** thing holding an unpaid customer off the schedule, so crossing that line off
+IS the *"hang them anyway"* button she was offered and turned down. There is no version of
+it that isn't — the hold is derived from the debt and nothing else.
+
+⭐ **What changed is that it can no longer happen silently**, which is the harm MON-55
+actually recorded: the button it was written against wrote off a real debt *and* released
+the hold, from a control labelled "remove light-change fee". ⚠ It lives in the shared
+write, **not** in either click handler — the Invoices panel and Edit Customer both come
+through it, and a copy in one of them is an ✕ that asks on one screen and not the other
+about the same money.
+
+⭐ **IT IS ONE PRESS, THE SAME AS EVERY OTHER LINE** (MON-69). It briefly asked the office
+to type the amount (MON-68, superseded the same day); Dax: *"Make it one press like the
+others — I'd keep the Inbox note either way, so a wrong one is still findable and
+reversible"*, and, on what the ✕ is for at all, *"the x is if we want to get rid of a fee
+or discount on someones profile"*. ⚠ **The risk MON-68 named has not gone away** — there is
+**$7,487.04** across the 19 rows carrying a carried debt, and crossing one off releases the
+schedule hold with it. What changed is which side of the trade is paid for: a row that
+argues back is a row the office learns to work around, on a control pressed in the ordinary
+run of tidying a bill.
+
+⭐ **And a written-off debt leaves a record — which is now the WHOLE of the protection**,
+and is what makes a bad press survivable.
+Waiving DELETES the line from `changeFeeNotes`, so without this there is no trace anywhere
+that the money was ever owed — the same asymmetry this file already names, a charge leaving
+a dated line and a waiver leaving nothing. A **Carried Debt Written Off** notice lands in
+the Inbox's *money* section carrying the amount, the season and the reason: everything
+needed to type it back into *Owed from a previous season*. ⚠ Only the carried debt gets
+one — a light-change fee or a discount coming off is ordinary office work, and a note for
+each would bury this one. ⚠ A failed note never undoes the write-off; the money is off the
+bill by then, so it is logged rather than thrown.
+
+⚠ `ledgerLineIsWaivable` is a blanket yes now rather than a whitelist — a whitelist fails
+silently, leaving whatever is invented next with no ✕ and a screen that looks like nobody
+was charged. It is still the write-side guard, and **fee-waive.test.js §6 runs the renderer
+and the write over every kind and fails if they disagree**, so a protection reintroduced
+later cannot draw an ✕ the write refuses.
+
+⚠ **`allCustInvoiceFor` IS UNTOUCHED AND MUST STAY NARROW** — it answers "the invoice
+filed under this HOUSE'S OWN key", and the Edit Customer save calls it directly to find
+and zero a leftover when somebody starts billing elsewhere. The guard written for that
+on 2026-09-07 named `editCustInvoiceNow` instead, which the save has never called; it is
+repointed to the function that actually carries the rule. ⚠ And the boxes above the
+lines still read `ecInv`, the house's own invoice, because the save rebuilds the manual
+fee and discount FROM those boxes — filling them from a group's bill would copy one
+household's fee onto another on the next press.
+
 **Two separate fees, easy to conflate — the set-up fee is $30, the light-change fee
 is $30.** The set-up one moved to $25 on 2026-09-03 (*"make the set up fee $25"*) and
 back to **$30 on 2026-09-07** — Dax: *"we need to change the instalation fee to $30."*
@@ -1093,13 +1173,34 @@ member's bill — with nobody in the office typing anything.
     (functions/index.js). **`{{referral_link}}`, the bare token, still resolves to `/r/`**
     — that one is pasted into an email as text for the customer to forward, so it is the
     friend's address by design.
-  - ⭐ **THE EMAIL BUTTON AND THE PAGE'S BUTTON SAY THE SAME THING** — **Share My Link
-    — $25 Off**. Dax: *"that button that says share my link should be the same button we
-    send in their email"*. It reads "Refer a Friend" no longer, because the customer reads
-    the email and then the page minutes apart and two names for one button is two buttons
-    to them. ⚠ Both renderers send it character for character; they said "$25 Off" and
-    "$25 off your bill" until 2026-09-05, so which words a customer got depended on which
-    renderer happened to send.
+  - ⭐ **WHAT THE OFFER LOOKS LIKE IN THE EMAIL: THE LINK, IN A BOX, WITH THE SHARE
+    SQUARE BESIDE IT** (2026-09-07, REF-19). Addie, sent the version built the day before
+    and shown a picture of what she meant instead: *"Okay i was thinking it would look
+    like the second picture"*. A bordered box holding `highlightingutah.com/r/<token>`
+    where she can read it, and one small gold share square next to it. **No gold
+    call-to-action button.** That finishes REF-17 rather than undoing it — Dax asked for
+    *"a share icon right next to link"*, and while the link only ever rendered AS a button
+    there was no link for the icon to sit beside.
+    ⚠ **The words and the `href` in the box are both the FRIEND's `/r/` link** — that is
+    the thing being copied out and forwarded, and what it says has to be where it goes or
+    a long-press copies the wrong address. **The ICON carries `/s/`**, the customer's own
+    share page, so the tap Dax complained about still lands on the share sheet.
+    ⚠ **This is the one place an earlier answer was reversed rather than refined.** Dax,
+    2026-09-05: *"that button that says share my link should be the same button we send in
+    their email"* — the words **Share My Link — $25 Off** were to match the share page's
+    own button, and they said "$25 Off" here and "$25 off your bill" there until that was
+    fixed. **The page still says them; the email now shows the address instead**, on her
+    newer answer. The paragraph above the box still says $25.
+    ⚠ **One builder per file, not four inline copies.** `referralShareBoxHtml` in
+    admin.html (used by `referralEmailBlock` and `resolveLinkTokens`) and
+    `referralShareBoxHtmlServer` in functions/index.js (used at both spots in
+    `runArrearsRsvpBatch`). Suite 308 RUNS both on one pair of addresses and compares the
+    bytes, rather than policing four regions and counting icons against buttons — which is
+    what it did before, and a red-check had already shown two of the four could be dropped
+    and sail through.
+    ⚠ **A table, not a flex row**, and inline styles only: Outlook has neither flexbox nor
+    `border-radius`, so it degrades to a square box with the link and the icon still side
+    by side, which is the whole of the design.
   - ⭐ **AND THE OFFICE CAN OPEN THAT PAGE** (2026-09-07, REF-18). Addie, after the share
     icon shipped: *"where do I find the page that comes up after pushing the share link
     icon cause I thought it would just go to there member portal refer a friend section."*
