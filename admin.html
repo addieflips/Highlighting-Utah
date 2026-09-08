@@ -8283,6 +8283,36 @@ document.getElementById('contactIdxRunBtn')?.addEventListener('click', onceAtATi
   logActivity('Filled in the customer sign-in shortcuts for ' + done + ' customer(s)', 'maintenance', '');
   document.getElementById('contactIdxRunBtn').style.display = 'none';
 }, function(){ return document.getElementById('contactIdxRunBtn'); }));
+/* ⭐ WHAT THIS BILL COMES TO (2026-09-08). Dax: *"it said $956.00 before and after i
+   added a discount so i dont know if its just not working but it should say $950 after
+   the discount everywhere"*, and *"if its a fee the other way where it adds to
+   everything"*. The discount HAD saved — credits was 6 on the invoice and the balance
+   was 950 — but four screens printed a figure built by hand out of `install + removal`
+   (and sometimes `+ changeFees`) and never once subtracted `credits`.
+
+   ⚠ THE REASON ALL FOUR DRIFTED THE SAME WAY IS THAT NOTHING COULD SEE THEM.
+   money-parity.test.js sweeps every place that works out an amount and compares it
+   against `balanceDueAmount` — but it lifts them by slicing a named statement out of the
+   source, and an expression written inline inside an HTML template string cannot be
+   sliced. So the four sites that printed money to the office were the four the guard was
+   blind to. A NAME is the fix; the check is a consequence of it.
+
+   ⚠ IT IS NOT balanceDueAmount AND MUST NOT BECOME IT. This is the bill BEFORE a penny
+   of it is paid — the Invoices row prints it as “Amount” and then “Paid so far” and
+   “Balance” beside it, so subtracting the deposit here would take the payment off twice
+   and the three figures on one line would stop adding up.
+   ⚠ AND IT IS FLOORED. Credits can exceed the charge — a referral earned by somebody
+   who barely owes anything — and “-$50.00” printed as a total reads as a fault.
+   ⚠ SPELLED OUT RATHER THAN CALLING THE OTHER ONE, deliberately: both are lifted BY
+   NAME and compiled ALONE by money-parity and arrears-hold, so a call to a sibling here
+   is a ReferenceError inside the harness that guards them. The two are held together by
+   a check that RUNS them over the same records instead — see money-parity § the figure
+   the screens print. */
+function billTotalAmount(d){
+  return Math.max((Number(d.install)||0)+(Number(d.removal)||0)+(Number(d.changeFees)||0)-(Number(d.credits)||0), 0);
+}
+/* ⚠ AND THIS ONE IS billTotalAmount LESS WHAT THEY HAVE PAID. Same reason it is written
+   out rather than calling it; the two are swept together. */
 function balanceDueAmount(d){
   // Credits (referrals, service adjustments) come off the balance, never below $0.
   // Light-change fees ($30 each) add on, the same way they do server-side.
@@ -20490,7 +20520,7 @@ function renderInvoicesList(){
           (d.email ? ' &middot; <span>'+esc(d.email)+'</span><button type="button" class="copy-field-btn" data-copyval="'+esc(d.email)+'" title="Copy email">'+copyIcon()+'</button>' : '')+
         '</div>'+
         (d.receiptError ? '<div class="rtext" style="color:var(--ember); font-weight:600;">&#9888; Receipt not sent &mdash; '+esc(d.receiptError)+'</div>' : '')+
-        '<div class="rtext">Amount: '+fmtMoney((d.install||0)+(d.removal||0)+(d.changeFees||0))+(liveStatus==='Partial Payment' ? ' &mdash; Paid so far: '+fmtMoney(d.deposit||0)+', Balance: '+fmtMoney(balance) : '')+(needsReview ? ' <span style="color:var(--ember); font-weight:600;">&mdash; calculated from house photo, not yet confirmed</span>' : '')+'</div>'+
+        '<div class="rtext">Amount: '+fmtMoney(billTotalAmount(d))+(liveStatus==='Partial Payment' ? ' &mdash; Paid so far: '+fmtMoney(d.deposit||0)+', Balance: '+fmtMoney(balance) : '')+(needsReview ? ' <span style="color:var(--ember); font-weight:600;">&mdash; calculated from house photo, not yet confirmed</span>' : '')+'</div>'+
         (d.tipTotal ? '<div class="rtext" style="color:#2E6B3E;">&#128179; Tip received: '+fmtMoney(d.tipTotal)+(d.lastPaymentMethod === 'paypal' ? ' (via PayPal)' : '')+'</div>' : '')+
         (d.lastPaymentMethod === 'paypal' && !d.tipTotal ? '<div class="rtext" style="color:var(--slate); font-size:12px;">Last payment: PayPal'+(d.lastPaymentAt && d.lastPaymentAt.toDate ? ', '+fmtDate(d.lastPaymentAt) : '')+'</div>' : '')+
         billedNote+
@@ -40136,7 +40166,11 @@ function buildAddressRowHtml(item){
   const needsQuote = hasOpenQuote(d.phone);
   const invStatus = matchedInvoice ? computeInvoiceStatus(matchedInvoice.data.install, matchedInvoice.data.removal, matchedInvoice.data.deposit, matchedInvoice.data.credits, matchedInvoice.data.changeFees) : '';
   const invChangeFee = matchedInvoice ? (Number(matchedInvoice.data.changeFees)||0) : 0;
-  const priceLine = matchedInvoice ? '<div class="row-phone-line">Price: '+fmtMoney((matchedInvoice.data.install||0)+(matchedInvoice.data.removal||0))+(invChangeFee>0 ? ' + '+fmtMoney(invChangeFee)+' light-change fee' : '')+(invStatus==='Partial Payment' ? ' &mdash; Paid so far: '+fmtMoney(matchedInvoice.data.deposit||0)+', Balance: '+fmtMoney(balanceDueAmount(matchedInvoice.data)) : '')+' &middot; <span class="status-pill '+statusClass(invStatus)+'" style="font-size:10.5px; padding:2px 8px;">'+invStatus+'</span></div>' : '';
+  /* ⚠ NAMED BESIDE THE FEE, because the line says what is IN the price now rather than
+     adding the fee on after it. “Price: $986 + $30 light-change fee” read as $1,016 and
+     was never what anybody owed. */
+  const invCredits = matchedInvoice ? (Number(matchedInvoice.data.credits)||0) : 0;
+  const priceLine = matchedInvoice ? '<div class="row-phone-line">Price: '+fmtMoney(billTotalAmount(matchedInvoice.data))+(invChangeFee>0 ? ' (incl. '+fmtMoney(invChangeFee)+' in fees)' : '')+(invCredits>0 ? ' (after '+fmtMoney(invCredits)+' off)' : '')+(invStatus==='Partial Payment' ? ' &mdash; Paid so far: '+fmtMoney(matchedInvoice.data.deposit||0)+', Balance: '+fmtMoney(balanceDueAmount(matchedInvoice.data)) : '')+' &middot; <span class="status-pill '+statusClass(invStatus)+'" style="font-size:10.5px; padding:2px 8px;">'+invStatus+'</span></div>' : '';
   const crewLines = [];
   if(d.scheduled && d.assignedCrew){
     const names = getEffectiveCrewNames(d.assignedCrew, d.scheduledDate);
@@ -45537,7 +45571,7 @@ function renderAllCustomersTable(){
     const billToDigits = (r.d.billToPhone||'').replace(/\D/g,'');
     const billedElsewhere = billToDigits ? custByPhoneDigits.get(billToDigits) : null;
     const invCell = r.inv
-      ? '<span class="status-pill '+statusClass(r.invStatus)+'">'+r.invStatus+arrearsBadgeSuffix(r.inv.data)+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+(r.invStatus==='Partial Payment' ? 'Paid '+fmtMoney(r.inv.data.deposit||0)+' &middot; Bal '+fmtMoney(balanceDueAmount(r.inv.data)) : fmtMoney((r.inv.data.install||0)+(r.inv.data.removal||0)))+'</span>'
+      ? '<span class="status-pill '+statusClass(r.invStatus)+'">'+r.invStatus+arrearsBadgeSuffix(r.inv.data)+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+(r.invStatus==='Partial Payment' ? 'Paid '+fmtMoney(r.inv.data.deposit||0)+' &middot; Bal '+fmtMoney(balanceDueAmount(r.inv.data)) : fmtMoney(billTotalAmount(r.inv.data)))+'</span>'
       : (r.d.billToPhone ? '<span style="color:var(--slate); font-size:12px;">Billed to '+esc((billedElsewhere && billedElsewhere.data.name) || r.d.billToPhone)+'</span>' : '<span style="color:var(--slate); font-size:12px;">No invoice</span>');
     /* ⚠ THE EFFECTIVE STATUS, NOT THE STORED FIELD — fixed 2026-08-27 while adding
        the badge below, because the badge would otherwise have sat on a row already
@@ -48999,7 +49033,7 @@ document.getElementById('allCustExportBtn').addEventListener('click', function()
     return {
       Name: d.name||'', Phone: d.phone||'', Email: d.email||'', Address: d.address||'', 'Customer #': d.customerNumber||'',
       Enrolled: memberExportDateAdded(d), 'Route Status': allCustRouteStatus(d), Difficulty: d.difficulty||'Unrated',
-      'Invoice Status': invStatus, 'Invoice Total': inv ? ((inv.data.install||0)+(inv.data.removal||0)+(inv.data.changeFees||0)) : '',
+      'Invoice Status': invStatus, 'Invoice Total': inv ? billTotalAmount(inv.data) : '',
       'Paid So Far': inv ? (inv.data.deposit||0) : '', 'Balance Due': inv ? balanceDueAmount(inv.data) : '',
       'Has Layout Map': d.layoutMapUrl ? 'Yes' : 'No',
       /* ⚠ THE $30 IS A COLUMN NOW. It is the one charge decided by a tick box rather

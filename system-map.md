@@ -972,6 +972,40 @@ owed = (install + removal + changeFees) − credits − deposit, floored at 0
 ```
 This lives as `computeInvoiceStatus(install, removal, deposit, credits, changeFees)` in admin.html and is mirrored server-side in `functions/index.js`. As of this pass, every place in the app that computes a balance or status uses the full formula — that was **not** true before this pass (see the P0 fix in git history: `changeFees` had been left out of roughly 15 different call sites, including the actual PayPal charge amount).
 
+⭐ **AND THE FIGURE THE OFFICE SCREENS PRINT IS ITS OWN NAMED RULE** (2026-09-08). Dax:
+*"it said $956.00 before and after i added a discount so i dont know if its just not
+working but it should say $950 after the discount everywhere"*, and *"if its a fee the
+other way where it adds to everything"*.
+
+```
+billTotalAmount(d) = (install + removal + changeFees) − credits, floored at 0
+balanceDueAmount(d) = billTotalAmount(d) − deposit, floored at 0
+```
+
+The discount **had** saved — the invoice held `credits: 6` and the balance really was
+$950 — and every figure the CUSTOMER ever sees was right: PayPal charged $950, the
+emailed invoice showed the discount as its own line, the portal balance was $950. What
+was wrong was four **office** screens, each of which built a total by hand out of
+`install + removal` (and sometimes `+ changeFees`) and never subtracted `credits`:
+the Invoices row's *Amount*, the customer row's *Price*, the All Customers table's
+invoice cell, and the *Invoice Total* column of the All Customers export.
+
+⚠ **They all drifted the same way because nothing could see them.** money-parity.test.js
+sweeps every site that works out an amount and compares it against `balanceDueAmount`,
+but it lifts each one by slicing a **named statement** out of the source — and all four
+of these were written inline inside an HTML template string, which cannot be sliced. So
+the four screens that printed money to the office were the four the guard was blind to.
+Giving the figure a NAME is the fix; the check is a consequence of it.
+
+⚠ **The deposit is deliberately not in `billTotalAmount`.** The Invoices row prints
+*Amount*, *Paid so far* and *Balance* on one line; a deposit inside the first of those
+takes the payment off twice and the three figures stop adding up.
+
+⚠ **The two are written out in full rather than one calling the other**, because both are
+lifted BY NAME and compiled ALONE by money-parity and arrears-hold — a call to a sibling
+there is a ReferenceError inside the harness that guards them. They are held together by
+a check that RUNS both over the same 13,068 records instead.
+
 ⭐ **EVERY FEE AND DISCOUNT IS ON THEIR ACCOUNT, AND EVERY ONE CAN BE WAIVED**
 (2026-09-03). Edit Customer lists them as lines with a ✕ each: the fees on the
 invoice, the discounts, and — new — **charges carried to next season**.

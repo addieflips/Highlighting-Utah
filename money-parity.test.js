@@ -681,6 +681,79 @@ for (const s of lifted) {
           ', balanceDueAmount says ' + bad.want : '');
 }
 
+/* ---------------------------------------------------------------------------
+ * ⭐ THE FIGURE THE SCREENS PRINT (2026-09-08). Dax: *"it said $956.00 before and
+ * after i added a discount ... it should say $950 after the discount everywhere"*, and
+ * *"if its a fee the other way where it adds to everything"*.
+ *
+ * ⚠ THE SWEEP ABOVE COULD NOT SEE THE SCREENS. It lifts each site by slicing a named
+ * statement out of the source, and the four places that printed a total to the office
+ * wrote it inline inside an HTML template string — `fmtMoney((d.install||0)+...)` —
+ * which `sliceTo` cannot slice. So the sites this file exists to guard were the four it
+ * was blind to, and all four drifted the same way: never subtracting `credits`. They go
+ * through `billTotalAmount` now, which is what makes them checkable at all.
+ *
+ * ⚠ RUN, NOT READ, AND OVER THE SAME RECORDS AS THE SWEEP. billTotalAmount and
+ * balanceDueAmount are each written out in full in admin.html rather than one calling
+ * the other, because both are lifted BY NAME and compiled ALONE by this file and by
+ * arrears-hold. Two spellings of one sum is exactly what this file exists to catch, so
+ * they are held together here: the second must be the first less what has been paid.
+ * ------------------------------------------------------------------------- */
+const billTotalSrc = extractFn(adminSrc, 'billTotalAmount');
+check('found admin.html billTotalAmount', !!billTotalSrc,
+  'the figure every office screen prints is gone — the four sites that used to build it ' +
+  'by hand inside an HTML string are unguarded again, which is how the discount stopped ' +
+  'coming off');
+if (billTotalSrc) {
+  const billTotal = compile([billTotalSrc], 'billTotalAmount');
+  let badTotal = null, badPair = null, totalCombos = 0;
+  for (const install of AMT) {
+    for (const removal of SML) {
+      for (const deposit of AMT) {
+        for (const credits of SML) {
+          for (const changeFees of FEE) {
+            totalCombos++;
+            const m = { install, removal, changeFees, credits, deposit };
+            const want = Math.max(install + removal + changeFees - credits, 0);
+            const got = billTotal(m);
+            if (!badTotal && Math.abs(got - want) > 1e-9) badTotal = { m, got, want };
+            const pair = Math.max(billTotal(m) - deposit, 0);
+            if (!badPair && Math.abs(pair - reference(m)) > 1e-9)
+              badPair = { m, pair, ref: reference(m) };
+          }
+        }
+      }
+    }
+  }
+  check('billTotalAmount is the charge plus the fees LESS the discounts, floored, across ' +
+        totalCombos.toLocaleString() + ' combinations',
+    !badTotal,
+    badTotal ? JSON.stringify(badTotal.m) + '  →  it says ' + badTotal.got + ', the charge ' +
+      'less the discounts is ' + badTotal.want : '');
+  /* ⚠ THE DEPOSIT IS NOT IN IT, and this is the check that says so. The Invoices row
+     prints “Amount”, “Paid so far” and “Balance” on one line; a deposit inside the first
+     of those is the payment taken off twice and three figures that do not add up. */
+  check('and balanceDueAmount is exactly that figure less what they have paid',
+    !badPair,
+    badPair ? JSON.stringify(badPair.m) + '  →  billTotal minus the deposit is ' +
+      badPair.pair + ', balanceDueAmount says ' + badPair.ref : '');
+}
+
+/* ⚠ AND THE FOUR SCREENS HAVE TO GO THROUGH IT. A source check, deliberately: the thing
+   that went wrong is a total built inline where nothing could lift it, and “is there an
+   inline total here” is a question about the SHAPE of the source. The run checks above
+   prove the rule is right; these prove the screens ask it. */
+[['the Invoices row “Amount”', "Amount: '+fmtMoney(billTotalAmount(d))"],
+ ['the customer row “Price”', "Price: '+fmtMoney(billTotalAmount(matchedInvoice.data))"],
+ ['the All Customers table', 'fmtMoney(billTotalAmount(r.inv.data))'],
+ ['the All Customers export', "'Invoice Total': inv ? billTotalAmount(inv.data) : ''"]
+].forEach(function (pair) {
+  check(pair[0] + ' prints the figure the rule works out',
+    adminSrc.indexOf(pair[1]) !== -1,
+    'it is building a total inline again — which is both wrong the moment there is a ' +
+    'discount AND invisible to every check in this file');
+});
+
 /* The CSV export's floor lives at the point of use, not on the variable the
    comparison above lifts. If someone deletes it, `balance` goes straight into
    the spreadsheet and a credit-heavy invoice exports as a negative amount owed.
