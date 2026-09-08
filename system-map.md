@@ -1467,8 +1467,27 @@ member's bill — with nobody in the office typing anything.
     presses Save, so bumping a count from a background write changes the record and nothing
     on the bill. `applyReferralCreditLine` owns the `referral` kind and keeps every other —
     the same discipline that stops `carried` and `manual` colliding.
-  - ⚠ **The total is rebuilt from the lines, never incremented**, and two referrals are ONE
-    $50 line rather than two saying "Referral".
+  - ⚠ **The total is rebuilt from the lines, never incremented.**
+  - ⭐ **ONE LINE PER FRIEND, NAMED, EACH WITH ITS OWN ×** (REF-24, 2026-09-08). ⚠ This
+    entry read *"two referrals are ONE $50 line rather than two saying Referral"* until
+    2026-09-08, which was true when it was written and had stopped being true the same
+    day. Two referrals now draw **two** lines — *Referral — Kyle New −$25* and
+    *Referral — Maria Lopez −$25* — and crossing one off leaves the other standing.
+    Each carries `ref`, the referred customer's id, which is what lets one × mark that
+    one entry `waived` rather than all of them. A count TYPED into the People They
+    Referred box beyond the linked entries still adds one collapsed *"Referral — N
+    people"* line, because nobody linked those to a person.
+  - ⭐ **AND THE INBOX NOTE ONLY CLAIMS A BILL WHEN THERE IS ONE** (REF-30, 2026-09-08).
+    `applyReferralCreditLine` gives up when the referrer has no invoice document — a real
+    state, which is why *Invoices → Fix Missing Invoices* exists — and its answer used to
+    be thrown away, so the note said the $25 *"has been taken off their bill"* when nothing
+    had been. The referral is still counted either way; what changed is that the note now
+    says it is **not on a bill yet** and names the tool that makes one. The clawback note
+    had the identical hole and moved in the same push.
+  - ⚠ **The credit goes to the referrer's OWN invoice key**, not to the bill they are on
+    when they bill elsewhere — so a tenant's $25 can land on a leftover invoice nobody
+    reads. Both writers agree on that today, so it is a settled shape rather than drift,
+    but where it SHOULD land is undecided: `docs/open-questions.md` Q-030.
 - **Who is refused.** Either the phone or the email matching the referrer's is a hard
   refusal, and their own record is refused first by document id. **Nothing verifies either
   field** — no OTP exists here and building one was turned down — so a determined person can

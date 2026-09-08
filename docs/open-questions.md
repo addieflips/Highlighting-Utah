@@ -2049,3 +2049,44 @@ customers, and all three are defensible from what she has said so far. Nothing a
 this case has been built; today's change is the earn-time rule only.
 
 **Resulting map change.** Named in REF-23 as the case it deliberately leaves open.
+
+## Q-030 · intent · OPEN · raised 2026-09-08
+
+**A referral earned by somebody whose house is billed to another person.**
+
+`applyReferralCreditLine` puts the $25 on the invoice found under `custInvoiceKey` —
+the referrer's OWN key. That is right for the ordinary customer, who pays their own
+bill. It is not obviously right for a house that bills elsewhere:
+
+> A tenant, or a child living at a parent's address, has `billToPhone` set. Their own
+> invoice has been zeroed or deleted, because the money moved onto the payer's bill.
+> They share their referral link, a friend joins, and the $25 goes onto their own
+> leftover invoice — which no screen reads — or nowhere at all.
+
+**This is a settled shape, not a fresh inconsistency.** The Edit Customer save resolves
+the same way (`allCustInvoiceFor`, also `custInvoiceKey`), and that is deliberate: it
+needs the house's own invoice in order to find and zero a leftover. So both writers
+agree today. What nobody has decided is where the credit is SUPPOSED to land.
+
+**Three answers, and only Addie can pick one:**
+
+1. **Onto the bill they are actually on.** The credit follows the money, the way
+   `getLiveInvoiceStatus` and `editCustInvoiceNow` already resolve `billToPhone ||
+   custInvoiceKey`. The referrer sees the discount where they read their balance.
+   ⚠ But the person who gets the $25 off is then the PAYER, not the referrer — a
+   landlord banking a tenant's referral, which may be exactly wrong.
+2. **Leave it on their own record and show it there.** Keeps the $25 attached to the
+   person who earned it, which matches how `paidBeforeBillTo` already carries money
+   with a house. Needs somewhere on screen for a credit that is on no live bill.
+3. **Leave it exactly as it is.** Rare enough not to be worth a money change. Today's
+   fix already stops it happening SILENTLY — the Inbox note now says the credit is not
+   on a bill and names Fix Missing Invoices — so the office finds out either way.
+
+⚠ **NOT GUESSED AT.** Seventeen numbers in the real book are shared, and fourteen of
+those are two genuinely different households, so this is not theoretical. Moving a
+credit between two people's bills is a tier-1 money decision under CLAUDE.md §2.
+
+⚠ **AND IT IS NOT WHAT WAS FIXED TODAY.** REF-30 changed only what the Inbox note
+CLAIMS when the credit reaches no bill. Where the credit should land is this question.
+
+**Resulting map change.** Named in REF-30 as the case it deliberately leaves open.

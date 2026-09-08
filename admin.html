@@ -11389,14 +11389,33 @@ async function creditReferralIfAny(quoteData, customerId, customerData){
     await updateDoc(doc(db,'jobAddresses', customerId), { referredByCustomerId: referrer.id });
     const cust = jobAddresses.find(function(a){ return a.id === customerId; });
     if(cust && cust.data) cust.data.referredByCustomerId = referrer.id;
-    await applyReferralCreditLine(referrer);
+    /* ⭐ AND WHETHER IT REACHED A BILL DECIDES WHAT THE NOTE SAYS (REF-30, 2026-09-08).
+       `applyReferralCreditLine` gives up when the referrer has no invoice document — a
+       real state, which is the whole reason Invoices → Fix Missing Invoices exists — and
+       its answer used to be thrown away, so this note claimed the $25 "has been taken
+       off their bill" when nothing had been. The count moved, the money did not, and the
+       one record anybody reads said the opposite.
+       ⚠ THE ENTRY IS STILL WRITTEN AND STILL COUNTED. The referral was earned, and the
+       count is what the next save rebuilds the line from — dropping it to keep the note
+       honest would lose the $25 outright. Only the CLAIM changes.
+       ⚠ AND IT NAMES THE NEXT STEP. A discrepancy with no way to act on it is what sends
+       somebody looking for a bug in the referral code when the answer is that this
+       customer has no invoice. */
+    const landed = await applyReferralCreditLine(referrer);
     await referralMarkQuote(q);
     await referralNote('Referral Credit Given', referrer,
       ((referrer.data.name || 'A customer') + ' referred ' + ((customerData && customerData.name) || 'a new customer') +
-       ', who has just become a customer. ' + fmtMoney(REFERRAL_CREDIT) + ' has been taken off ' +
-       (referrer.data.name || 'their') + ' bill — ' + count + ' referral' + (count === 1 ? '' : 's') +
-       ' now counted. Nobody had to type anything in for this.'));
-    return { ok:true, referrerId: referrer.id, count: count };
+       ', who has just become a customer. ' +
+       (landed
+         ? (fmtMoney(REFERRAL_CREDIT) + ' has been taken off ' + (referrer.data.name || 'their') +
+            ' bill — ' + count + ' referral' + (count === 1 ? '' : 's') +
+            ' now counted. Nobody had to type anything in for this.')
+         : (fmtMoney(REFERRAL_CREDIT) + ' is owed to ' + (referrer.data.name || 'them') + ' — ' +
+            count + ' referral' + (count === 1 ? '' : 's') + ' now counted — but it is NOT on ' +
+            'a bill yet, because they have no invoice on file. Invoices → Fix Missing ' +
+            'Invoices → "Scan & Create Missing Invoices" makes one, and the discount lands ' +
+            'as soon as it exists.'))));
+    return { ok:true, referrerId: referrer.id, count: count, onBill: landed };
   }catch(err){
     console.error('Could not credit a referral:', err);
     return { ok:false, why:'error' };
@@ -11477,13 +11496,19 @@ async function clawBackReferralIfAny(customerId, customerData){
     await updateDoc(doc(db,'jobAddresses', referrer.id),
       { referralCredits: entries, referralCount: count, updatedAt: serverTimestamp() });
     referrer.data.referralCredits = entries; referrer.data.referralCount = count;
-    await applyReferralCreditLine(referrer);
+    /* ⚠ THE SAME TRUTH TEST AS THE CREDIT NOTE ABOVE (REF-30). With no invoice on file
+       the credit was never ON a bill, so "taken back off their bill" describes a write
+       that did not happen — a fix in one direction is half a fix. */
+    const landedBack = await applyReferralCreditLine(referrer);
     await referralNote('Referral Taken Back', referrer,
       ((d.name || 'A customer') + ' cancelled before their lights went up, so the ' +
        fmtMoney(REFERRAL_CREDIT) + ' referral credit given to ' + (referrer.data.name || 'the person who referred them') +
-       ' has been taken back off their bill. They are down to ' + count + ' referral' +
+       (landedBack
+         ? ' has been taken back off their bill.'
+         : ' no longer counts. They have no invoice on file, so there was no bill line to take it off.') +
+       ' They are down to ' + count + ' referral' +
        (count === 1 ? '' : 's') + '.'));
-    return { ok:true, referrerId: referrer.id, count: count };
+    return { ok:true, referrerId: referrer.id, count: count, onBill: landedBack };
   }catch(err){
     console.error('Could not take a referral credit back:', err);
     return { ok:false, why:'error' };

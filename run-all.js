@@ -50002,6 +50002,65 @@ suite('299. A referral link, and the $25 that follows it');
             'without the stamp, re-saving the same conversion credits the referrer again');
         }
 
+        /* ---- 1b. THE REFERRER WITH NO BILL YET ---------------------------
+         * ⭐ REF-30. `applyReferralCreditLine` gives up when the referrer has no
+         * invoice document — a real state, which is why Invoices → Fix Missing
+         * Invoices exists — and its return value was thrown away, so the Inbox note
+         * went on saying the $25 "has been taken off their bill" when nothing had
+         * been. The count moved and the money did not, and the one record of it said
+         * the opposite. Addie asked for this to be automatic; when it cannot be, the
+         * requirement is that it SAYS SO rather than reporting success.
+         * ⚠ THE ENTRY IS STILL WRITTEN, deliberately. The referral was earned and the
+         * count is what the next save rebuilds the line from — dropping it to keep the
+         * note honest would lose the $25 outright. */
+        {
+          const w = world({
+            customers: [referrer(), {id: 'NEW1', data: {name: 'Kyle New'}}],
+            invoices: {},                       /* no bill on file for the referrer */
+            quotes: {q1: {}}
+          });
+          const res = await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com'});
+          const given = w.notes.find(n => n.topic === 'Referral Credit Given') || {};
+          check('S299', 'a referrer with no bill yet is not told the money came off one',
+            !/taken off/.test(String(given.message || '')),
+            'the note said the $25 was taken off a bill that does not exist — the count ' +
+            'moved and no money did, and this note is the only record anybody reads');
+          check('S299', 'and the note says what to do about it',
+            /Fix Missing Invoices/.test(String(given.message || '')),
+            'a discrepancy with no next step is what sends somebody looking for a bug ' +
+            'in the referral code when the answer is that this customer has no invoice');
+          check('S299', 'and the referral itself is still counted',
+            res.ok === true && (w.customers.find(c => c.id === 'REF1') || {}).data.referralCount === 1,
+            'the referral was earned — dropping the entry to keep the note honest would ' +
+            'lose the $25 for good, since the next save rebuilds the line from the count');
+        }
+
+        /* ---- 1c. AND THE SAME ON THE WAY BACK OUT ------------------------
+         * ⚠ A FIX IN ONE DIRECTION IS HALF A FIX, which this repo already records by
+         * name. The clawback note has the identical shape and the identical hole: with
+         * no invoice on file the credit was never ON a bill, so "taken back off their
+         * bill" describes a write that did not happen either. */
+        {
+          const w = world({
+            customers: [referrer({referralCredits: [{referredCustomerId: 'NEW1',
+                          referredName: 'Kyle New', amount: 25,
+                          creditedAt: new Date().toISOString(),
+                          season: new Date().getFullYear(), revoked: false}],
+                        referralCount: 1}),
+                        {id: 'NEW1', data: {name: 'Kyle New', referredByCustomerId: 'REF1'}}],
+            invoices: {}                      /* no bill on file for the referrer */
+          });
+          await w.api.clawBackReferralIfAny('NEW1',
+            {name: 'Kyle New', referredByCustomerId: 'REF1'});
+          const back = w.notes.find(n => n.topic === 'Referral Taken Back') || {};
+          check('S299', 'a clawback with no bill on file does not claim it came off one',
+            !!back.message && !/off their bill/.test(String(back.message)),
+            'the note said the credit was taken back off a bill that does not exist — ' +
+            'same hole as the credit note above, one direction further on');
+        }
+
         /* ---- 2. it is idempotent -------------------------------------- */
         {
           const w = world({
