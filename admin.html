@@ -7367,12 +7367,31 @@ function ledgerLineLabel(ledger, n){
 }
 function feeNoteLabel(n){ return ledgerLineLabel('fee', n); }
 function feeNoteIsLightChange(n){ return !n || !n.kind; }
-/* ⚠ ONE LINE IS NOT WAIVABLE AND IT IS THE CARRIED DEBT — see the block above.
-   Everything else on either ledger may be crossed off: Addie asked for "all
-   discounts and fees", and a whitelist of kinds fails silently, leaving whatever
-   was invented next with no × and a screen that looks like nobody was charged. */
+/* ⭐ EVERY LINE ON EVERY LEDGER MAY BE CROSSED OFF, THE CARRIED DEBT INCLUDED
+   (2026-09-07, MON-67). Dax: "make the arrear line have an x".
+
+   ⚠ THIS REVERSES [[MON-55]], WHICH WAS DERIVED FROM ADDIE'S OWN [[MON-38]], and the old
+   reasoning is kept in the map because it is exactly what the confirmation below now
+   carries: waiving the carried debt zeroes `arrearsOutstanding`, and that figure is the
+   ONLY thing holding an unpaid customer off the schedule. So this × is the "hang them
+   anyway" button Addie was offered and turned down — there is no version of it that
+   isn't, because the hold is derived from the debt and nothing else.
+
+   ⭐ WHAT MAKES IT DEFENSIBLE IS THAT IT IS NO LONGER SILENT, which was the actual harm
+   MON-55 recorded: the button it was written against wrote off a real debt AND released
+   the hold from a control labelled "remove light-change fee". This one sits on a row that
+   says "Unpaid balance from the 2025 season", and `editCustLedgerConfirm` names the
+   amount, the season, and the release of the hold before anything is written. Forgiving a
+   debt on purpose SHOULD release the hold — the customer then genuinely owes nothing.
+
+   ⚠ A WHITELIST OF KINDS FAILS SILENTLY, leaving whatever is invented next with no × and
+   a screen that looks like nobody was charged — which is why this stays a blanket yes
+   rather than a list. It is still the WRITE-side guard: `ledgerWaiveUpdates` will not
+   remove a line this refuses, so reintroducing a protection here protects the write and
+   the renderer at once. ⚠ IF ONE EVER IS reintroduced, the renderer has to gate on it
+   again — fee-waive.test.js §6 asserts the two agree, by running both. */
 function ledgerLineIsWaivable(ledger, n){
-  return !!n && !(ledger === 'fee' && n.kind === ARREARS_KIND);
+  return !!n;
 }
 function feeNoteIsWaivable(n){ return ledgerLineIsWaivable('fee', n); }
 /* Identity for one line. Ledger notes carry no id of their own, so this is what a
@@ -7506,12 +7525,75 @@ async function waiveLedgerLine(invoiceId, ledger, key){
   const fresh = snap.data();
   const plan = ledgerWaiveUpdates(fresh, ledger, key);
   if(!plan) return { ok:false, why:'That ' + spec.word + ' is no longer on this invoice — someone may have taken it off already.' };
+  /* ⭐ THE CARRIED DEBT IS ASKED ABOUT, NEVER TAKEN OFF SILENTLY (2026-09-07, MON-67).
+     [[MON-55]] refused this line an × entirely, because zeroing `arrearsOutstanding` is
+     the only thing that lifts the schedule hold — the "hang them anyway" button Addie
+     turned down in [[MON-38]]. Dax reversed that ("make the arrear line have an x"), and
+     THIS is what carries the old ruling's reasoning forward: the harm MON-55 recorded was
+     a real debt written off SILENTLY from a control labelled "remove light-change fee".
+     ⚠ IT LIVES HERE, NOT IN EITHER HANDLER, because both doors — the Invoices panel and
+     Edit Customer — come through this one function. A copy in one of them is a × that
+     asks on one screen and not on the other, about the same money.
+     ⚠ AND IT ASKS AFTER `plan` IS BUILT, so the amount and season named are the ones
+     actually coming off the bill, re-read a moment ago — not what the row said when the
+     form was opened. Cancelling writes nothing at all. */
+  /* ⭐ ONE PRESS, THE SAME AS EVERY OTHER LINE (2026-09-07, MON-69). Dax, asked whether
+     the carried debt should keep the typed unlock or behave like the rest: "Make it one
+     press like the others — I'd keep the Inbox note either way, so a wrong one is still
+     findable and reversible."
+     ⚠ THIS SUPERSEDES [[MON-68]], WHICH TYPED THE AMOUNT, and the reasoning for that is
+     kept because the risk it named has not gone away: crossing this line off releases the
+     schedule hold as well as the money, and there is $7,487.04 across the nineteen rows
+     carrying one. What changed is which side of the trade is paid for. Dax's answer is
+     that the × is a tool for getting rid of a fee or a discount on somebody's profile,
+     and a row that argues back is a row the office learns to work around.
+     ⭐ SO THE PROTECTION IS THE RECORD, NOT THE CEREMONY — the Inbox note below is what
+     makes a wrong press findable and undoable, and it is the reason this is safe to make
+     one press. Do not remove it as "just a notification": with the line deleted from
+     `changeFeeNotes` it is the only trace that the money was ever owed. */
   await updateDoc(doc(db,'invoices', invoiceId), Object.assign({}, plan.updates, { updatedAt: serverTimestamp() }));
   /* ⚠ MIRRORED INTO THE CACHE BEFORE ANYTHING REPAINTS. Edit Customer's Save
      rebuilds both ledgers from `allInvoicesCache`, so between this write and the
      listener reporting it back a Save would put the crossed-off line straight back. */
   const cached = allInvoicesCache.find(i => i.id === invoiceId);
   if(cached && cached.data) Object.assign(cached.data, plan.updates);
+  /* ⭐ AND A WRITTEN-OFF DEBT LEAVES A RECORD, so a wrong one can be found and put back
+     (2026-09-07). The second half of "protect us from a bad miscick": the typed unlock
+     stops the accident, this is what makes one survivable. Waiving DELETES the line from
+     `changeFeeNotes`, so without this there is no trace anywhere that the money was ever
+     owed — the same asymmetry this repo already names, a charge leaving a dated line and
+     a waiver leaving nothing.
+     ⚠ THE WHOLE LINE GOES IN THE NOTE, amount, season and reason, because that is what
+     it takes to type it back into Owed from a previous season. A note saying only that
+     something was waived tells the office it has a problem and not how to undo it.
+     ⚠ ONLY THE CARRIED DEBT. A light-change fee or a discount coming off is ordinary
+     office work; a note for each would bury this one, which is the whole point of it. */
+  if(ledger === 'fee' && plan.removed && plan.removed.kind === ARREARS_KIND){
+    try{
+      const who = jobAddresses.find(function(a){
+        const ad = a.data || {};
+        const bill = String(ad.billToPhone || '').replace(/\D/g, '');
+        return bill ? bill === invoiceId : custInvoiceKey(ad) === invoiceId;
+      });
+      const wd = (who && who.data) || {};
+      const amt = Number(plan.removed.amount) || 0;
+      const season = plan.removed.year || 'a previous';
+      await addDoc(collection(db,'messages'), {
+        topic: 'Carried Debt Written Off', folder: 'System',
+        name: wd.name || '', phone: wd.phone || '', email: wd.email || '', contactMethod: '',
+        message: fmtMoney(amt) + ' owed by ' + (wd.name || 'this customer') + ' from the ' +
+          season + ' season was crossed off in the office, so nothing is holding them off ' +
+          'the schedule any more. If that was a mistake, put it back under Customers → ' +
+          'Edit Customer → Owed from a previous season: amount ' + amt + ', season ' +
+          season + (plan.removed.reason ? (', reason "' + plan.removed.reason + '"') : '') + '.',
+        createdAt: serverTimestamp()
+      });
+    }catch(e){
+      /* Logged, never thrown: the write-off already succeeded and must not be undone by
+         a failed note — but it must not disappear quietly either. */
+      console.error('[HU] could not record the carried-debt write-off', e);
+    }
+  }
   /* ⭐ A REFERRAL CREDIT IS NOT STORED, IT IS DERIVED — `referralCount` on the
      customer is rebuilt into a credit on every Edit Customer save. So taking the
      line off without zeroing the count is a × that visibly works and is undone by
@@ -7532,17 +7614,34 @@ async function waiveLedgerLine(invoiceId, ledger, key){
        than deleted, and deliberately not `revoked`: the friend did join, and a season
        later the difference between "they cancelled" and "we crossed it off" is the only
        thing that explains the bill. */
+    /* ⭐ AND IT WAIVES THE ONE THE × WAS PRESSED ON (2026-09-08, REF-24). Every referral
+       used to collapse into a single line, so this loop marked EVERY live entry and
+       zeroed the count — the only thing one × could mean when one line stood for all of
+       them. A named line carries `ref`, the referred customer's id, so the mark now lands
+       on that entry alone and the customer's other referrals keep their discount.
+       ⚠ THE OLD SHAPE STILL WORKS AND MUST. Every invoice written before today holds a
+       collapsed "Referral — 3 people" line with no `ref` on it; that × still means all of
+       them, or crossing off an old line would take the money away and leave the count
+       standing to put it straight back. */
+    const oneRef = String((plan.removed && plan.removed.ref) || '');
     for(const a of onBill){
       try{
         const marked = (Array.isArray(a.data.referralCredits) ? a.data.referralCredits : [])
           .map(function(e){
-            return (e && !e.revoked && !e.waived)
-              ? Object.assign({}, e, { waived: true, waivedAt: new Date().toISOString() })
-              : e;
+            if(!e || e.revoked || e.waived) return e;
+            if(oneRef && String(e.referredCustomerId || e.creditedAt || '') !== oneRef) return e;
+            return Object.assign({}, e, { waived: true, waivedAt: new Date().toISOString() });
           });
+        /* ⚠ RECOMPUTED, NEVER SET TO NOUGHT, now that one × need not be all of them.
+           Writing 0 here would wipe the discount for referrals nobody crossed off. */
+        const stillCounted = referralLiveCount(marked);
+        /* ⚠ AND ONLY THE RECORD THAT ACTUALLY HELD THE ENTRY IS WRITTEN. A bill can
+           cover several houses, so this loop walks all of them; without this, crossing
+           off one referral would write to every sibling record for nothing. */
+        if(stillCounted === (Number(a.data.referralCount) || 0)) continue;
         await updateDoc(doc(db,'jobAddresses', a.id),
-          { referralCount: 0, referralCredits: marked });
-        a.data.referralCount = 0;
+          { referralCount: stillCounted, referralCredits: marked });
+        a.data.referralCount = stillCounted;
         a.data.referralCredits = marked;
       }catch(e){
         console.error('[HU] could not clear referralCount for', a.id, e);
@@ -8566,30 +8665,76 @@ function rsvpTemplateHasReferral(template){
   const s = String(template||'');
   return s.indexOf('{{referral_button}}') !== -1 || s.indexOf('{{referral_link}}') !== -1;
 }
-async function referralEmailBlock(item){
+/* ⭐ ONE ANSWER TO "WHAT REFERRAL OFFER DOES THIS CUSTOMER GET, AND IF NONE, WHY"
+   (2026-09-08, REF-20). Addie: *"why is the referal share button/link not working
+   anymore… its not even showing up anymore"*.
+
+   ⚠ THE OLD BEHAVIOUR WAS TO RENDER NOTHING AND SAY NOTHING. Every path here was
+   written to emit an empty string rather than a dead link — which is right for the
+   customer and was silent for the office: a whole-book RSVP could carry no referral
+   offer at all and the green "Done — sent 312" said exactly what it says on a send
+   where every one of them got it. That is the failure Addie's own rule names ("nothing
+   should fail quietly"), and it is why the question could only be answered by reading
+   the code.
+
+   ⚠ SO THE REASON TRAVELS WITH THE HTML. `html` is '' exactly as before — nothing about
+   what the customer receives has changed — and `why` is the sentence the send report
+   prints. A caller that ignores `why` behaves as it always did.
+
+   ⚠ AND IT IS THE ONE RESOLVER. The share box has one builder per file already
+   (referralShareBoxHtml); this is the same move one level up, so the appended block and
+   the send's own count cannot disagree about whether a customer has a link. */
+async function referralOfferFor(item){
   try{
-    if(!item || !item.data) return '';
-    const token = await referralTokenFor(item);
+    if(!item || !item.id || !item.data){
+      return {html: '', token: '', why: 'no customer record to build one from'};
+    }
     /* ⚠ THE SHARE PAGE, NOT THE /r/ LINK. `/r/` is the address the FRIEND opens, so a
        button carrying it lands the REFERRER on the free quote form — the bug Dax
-       reported and the whole point of referralShareLinkFromToken. This block is the one
-       path that appears only when the saved template places no token, which makes it the
-       path least likely to be caught pointing at the wrong page. The BOX is built by
+       reported and the whole point of referralShareLinkFromToken. The BOX is built by
        referralShareBoxHtml, the one builder resolveLinkTokens also calls and the mirror
        of the server's own in runArrearsRsvpBatch — three spellings of one thing is two
        of them wrong, which is what a shared builder removes rather than polices. */
+    const token = await referralTokenFor(item);
     const url = referralShareLinkFromToken(token);
-    if(!url) return '';   /* no link means no box — never a box around a dead address */
-    return '<br><br>—<br><br>Know somebody who wants lights? Send them your own link '
-      + 'and we take $25 off this season’s bill when they sign up — as many '
-      + 'times as you like.<br><br>'
-      + referralShareBoxHtml(referralLinkFromToken(token), url);
+    /* no link means no box — never a box around a dead address */
+    if(!url) return {html: '', token: '', why: 'no referral code could be made for them'};
+    return {html: referralShareBoxHtml(referralLinkFromToken(token), url), token: token, why: ''};
+  }catch(err){
+    console.error('[HU] referral offer failed', err);
+    return {html: '', token: '', why: 'building it failed: ' + ((err && err.message) || err)};
+  }
+}
+/* ⚠ THE SENTENCE LIVES HERE AND NOWHERE ELSE. The appended block and the send's own
+   copy both need it, and two spellings of the offer is the customer being told two
+   different things about the same $25 depending on which button the office pressed. */
+function referralOfferProse(boxHtml){
+  if(!boxHtml) return '';
+  return '<br><br>—<br><br>Know somebody who wants lights? Send them your own link '
+    + 'and we take $25 off this season’s bill when they sign up — as many '
+    + 'times as you like.<br><br>'
+    + boxHtml;
+}
+async function referralEmailBlock(item){
+  try{
+    return referralOfferProse((await referralOfferFor(item)).html);
   }catch(err){
     /* The RSVP itself is the thing that must go out. A referral offer that could not
        be built is a missing paragraph; a thrown error here would cost the send. */
     console.error('[HU] referral block failed', err);
     return '';
   }
+}
+/* ⭐ WHERE THE OFFER COMES FROM, FOR THE OFFICE TO READ BEFORE SENDING (REF-20).
+   'code' — her template places {{referral_button}} itself, so the box appears exactly
+   where she put it; 'appended' — it does not, so REF-15 adds the offer on the end;
+   'none' — not an RSVP, and the offer only ever rides on those. This is the line that
+   would have answered her question on its own: a template with no code in it puts the
+   link at the BOTTOM, not beside the sentence she wrote about it. */
+function referralOfferPlacement(template){
+  if(!etTemplateIsRsvp(template)) return 'none';
+  const d = (template && template.data) ? template.data : template;
+  return rsvpTemplateHasReferral(d && d.body) ? 'code' : 'appended';
 }
 /* The block itself. Empty string for the ordinary customer with nothing
    outstanding, exactly like billedHousesEmailBlock — a paragraph saying "you
@@ -8767,7 +8912,7 @@ const QUOTE_LINK_BUTTON_STYLE = 'display:inline-block; padding:12px 28px; border
    clients — Outlook especially — and this repo has nowhere already hosting an icon
    image for an email to reference. The templates already carry emoji (the RSVP's 🎄),
    so this is the same trick, not a new one. */
-const SHARE_ICON_BUTTON_STYLE = 'display:inline-block; padding:11px 13px; border-radius:8px; text-decoration:none; font-size:16px; line-height:1; margin:6px 0 6px 4px; background:#D89F3D; color:#1E3B2C; vertical-align:middle;';
+const SHARE_ICON_BUTTON_STYLE = 'display:inline-block; padding:9px 11px; border-radius:8px; text-decoration:none; font-size:17px; font-weight:bold; line-height:1; margin:0 0 0 4px; background:#D89F3D; color:#1E3B2C; vertical-align:middle;';
 /* ⭐ THE LINK ITSELF, IN A BOX, WITH THE SHARE ICON BESIDE IT (2026-09-07, REF-19).
    Addie, sent the two-button version and shown a picture of what she meant instead:
    *"Okay i was thinking it would look like the second picture"* — a bordered box
@@ -8799,11 +8944,11 @@ function referralShareBoxHtml(friendUrl, shareUrl){
      customer taps and lands nowhere. The same rule the button this replaces stated. */
   if(!link || !share) return '';
   const shown = link.replace(/^https?:\/\//, '');
-  return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate; border:1px solid #E3D9C2; border-radius:12px; background:#FFFDF7; margin:10px 0;">'
-    + '<tr><td style="padding:10px 4px 10px 14px; font-family:Arial,sans-serif; font-size:14px;">'
+  return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate; border:1px solid #E3D9C2; border-radius:12px; background:#FFFDF7; margin:8px 0;">'
+    + '<tr><td style="padding:8px 4px 8px 12px; font-family:Arial,sans-serif; font-size:14px;">'
     + '<a href="' + link + '" style="color:#1E3B2C; text-decoration:underline; word-break:break-all;">' + shown + '</a>'
-    + '</td><td valign="middle" style="padding:6px 8px 6px 4px;">'
-    + '<a href="' + share + '" style="' + SHARE_ICON_BUTTON_STYLE + '" title="Share">\uD83D\uDCE4</a>'
+    + '</td><td valign="middle" style="padding:4px 8px 4px 4px;">'
+    + '<a href="' + share + '" style="' + SHARE_ICON_BUTTON_STYLE + '" title="Share">\u2191</a>'
     + '</td></tr></table>';
 }
 const QUOTE_LINK_BUTTON_DEFAULT = 'View & Respond';
@@ -9836,7 +9981,7 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
       hdone += chunk.length;
       status.textContent = 'Reopening customers… ' + hdone + '/' + plan.houses.length;
     }
-    /* ⭐ A NEW REFERRAL LINK FOR EVERYBODY (2026-09-07, REF-18). Addie: "Can we just have
+    /* ⭐ A NEW REFERRAL LINK FOR EVERYBODY (2026-09-07, REF-28). Addie: "Can we just have
        a button we can push that says start new season and it will update everything?"
        This is that — one press now hands out the new season's links too, rather than a
        second button in Bulk Updates she has to remember.
@@ -10787,15 +10932,115 @@ function referralEntrySeason(e){
   const t = Date.parse(String(e.creditedAt || ''));
   return Number.isNaN(t) ? null : new Date(t).getFullYear();
 }
-function referralLiveCount(entries, seasonYear){
-  const season = Number.isFinite(Number(seasonYear))
+/* ⭐ WHICH SEASON A REFERRAL COMES OFF (2026-09-08, REF-23). Addie: *"if someone
+   shares there referal link but denied for this year than they will get discount for
+   next year however if they approved for this year they will get discount for this
+   year."*
+
+   ⚠ WITHOUT THIS THE $25 WAS SIMPLY LOST. A customer who has said no or Back Next Year
+   has no bill this season — `houseIsOnTheBill` drops them — so `applyReferralCreditLine`
+   found no invoice and returned false, and [[REF-14]] then stopped the entry counting in
+   any LATER season because it was stamped with the year it was earned. Somebody who
+   brought us a customer while sitting the season out earned nothing at all, silently.
+
+   ⚠ IT ASKS `houseIsOnTheBill`, NOT `isOutForSeason`. This is a question about a BILL —
+   is there one this season for the discount to come off — and that rule already answers
+   it and is swept against the server copy by money-parity. `isOutForSeason` would be
+   wrong twice over here: it also returns true for `needsLightRecycle`, a warehouse state
+   that says nothing about money, and once SEASON_ELIGIBILITY is live it returns true for
+   everybody who has not personally replied — which would push almost every referral in
+   the book to next season on the day the RSVP goes out.
+
+   ⚠ STAMPED WHEN IT IS EARNED, not re-derived on every read. That is [[REF-14]]'s own
+   rule and the reason `season` exists as a field; re-deciding it later would move a
+   credit off a bill the customer has already been shown. ⚠ THE ONE CASE IT DOES NOT
+   COVER, said plainly rather than left to be discovered: somebody who earns a credit
+   while they are IN the season and answers no afterwards keeps a credit stamped for a
+   season they are no longer billed for. Nothing is lost — the entry is still on their
+   record — but it will not come off next season's bill either. That is a second ruling
+   and it has not been made; see the open question raised with this change. */
+function referralCreditSeason(referrerData, now){
+  const year = (now instanceof Date ? now : new Date()).getFullYear();
+  return houseIsOnTheBill(referrerData || {}) ? year : year + 1;
+}
+/* ⭐ ONE LINE PER REFERRAL, NAMING THE PERSON (2026-09-08, REF-24). Addie: *"in discount
+   I cannot currently see who got what discount. That should show with an x at the right
+   side. the x is something I can waive the discount or fee."*
+
+   ⚠ THE × WAS ALREADY THERE; WHAT WAS MISSING WAS WHO. Every referral collapsed into a
+   single "Referral — 3 people" line, so the office could see that $75 had come off and
+   never which three friends earned it — and the one × beside it took all three off at
+   once, with no way to cross off the one that was wrong.
+
+   ⚠ EACH LINE CARRIES `ref`, THE REFERRED CUSTOMER'S ID, so the × can find the exact
+   entry to mark waived. `feeNoteKey` fingerprints kind+amount+reason+date and the reason
+   now holds a name, so the lines are already distinguishable to the waiver — `ref` is
+   what makes the mark land on the right ENTRY rather than on all of them.
+
+   ⚠ AND A TYPED COUNT WITH NO ENTRIES BEHIND IT STILL WORKS. The "People They Referred"
+   box on Add and Edit Customer writes a number nobody linked to a person; anything the
+   count claims beyond the entries becomes ONE collapsed line, exactly as before, so a
+   customer credited by hand is unchanged. That is also the whole of the Add Customer
+   path, where no entry can exist yet. */
+function referralCreditNotes(entries, count, seasonYear){
+  const season = referralSeasonOr(seasonYear);
+  /* ⚠ THE SAME PREDICATE THE COUNT USES, never a second copy of it. See
+     referralEntryCountsIn: a copy here put held credits on this season's bill and no
+     check anywhere could see it, because every one of them read the other copy. */
+  const live = (Array.isArray(entries) ? entries : [])
+    .filter(function(e){ return referralEntryCountsIn(e, season); });
+  const out = live.map(function(e){
+    const who = String(e.referredName || '').trim();
+    return { amount: REFERRAL_CREDIT,
+             /* ⚠ A NAME WE DO NOT HAVE IS SAID, NEVER LEFT BLANK. "Referral — " with
+                nothing after it reads as a rendering fault on a money line. */
+             reason: 'Referral \u2014 ' + (who || 'a customer'),
+             kind: 'referral',
+             ref: String(e.referredCustomerId || e.creditedAt || ''),
+             date: e.creditedAt || new Date().toISOString() };
+  });
+  const extra = Math.max(0, (Number(count) || 0) - live.length);
+  if(extra > 0){
+    const rest = referralCreditNote(extra);
+    if(rest) out.push(rest);
+  }
+  return out;
+}
+/* ⭐ AND THE ONES WAITING FOR NEXT SEASON (REF-23). Not a credit line — putting them on
+   this season's invoice would take money off a bill they are not for — but the office has
+   to be able to see that the $25 exists, or a referral earned while somebody was sitting
+   the season out looks exactly like one that never counted. Read by the Refer a friend
+   row in Edit Customer. */
+function referralHeldCount(entries, seasonYear){
+  const season = referralSeasonOr(seasonYear);
+  return (Array.isArray(entries) ? entries : []).filter(function(e){
+    if(!e || e.revoked || e.waived) return false;
+    const y = referralEntrySeason(e);
+    return y !== null && y > season;
+  }).length;
+}
+/* ⭐ WHETHER ONE ENTRY COUNTS IN ONE SEASON — THE ONE PREDICATE (2026-09-08, REF-24).
+   The count and the itemised lines both have to answer it, and a red-check proved what
+   two copies costs: with the filter written out twice, changing the LINE builder's copy
+   to `y >= season` put next season's held credits onto this season's bill and every
+   check in the repo stayed green, because they all went through the other copy.
+   ⚠ REVOKED AND WAIVED BEAT THE SEASON TEST, in that order and before it — the two
+   older reasons a referral stops counting are unchanged by REF-14 and REF-23.
+   ⚠ AND AN UNDATEABLE ENTRY COUNTS NOW. Wrongly dropping $25 somebody earned is the
+   expensive mistake; wrongly keeping one costs $25. */
+function referralEntryCountsIn(e, season){
+  if(!e || e.revoked || e.waived) return false;
+  const y = referralEntrySeason(e);
+  return y === null || y === season;
+}
+function referralSeasonOr(seasonYear){
+  return Number.isFinite(Number(seasonYear))
     ? Number(seasonYear) : new Date().getFullYear();
+}
+function referralLiveCount(entries, seasonYear){
+  const season = referralSeasonOr(seasonYear);
   return (Array.isArray(entries) ? entries : [])
-    .filter(function(e){
-      if(!e || e.revoked || e.waived) return false;
-      const y = referralEntrySeason(e);
-      return y === null || y === season;   /* undateable counts now — see above */
-    }).length;
+    .filter(function(e){ return referralEntryCountsIn(e, season); }).length;
 }
 /* ⭐ THE MEMBER'S OWN REFERRAL LINK, FROM THE OFFICE SIDE (2026-09-04, REF-07).
    Addie: the link belongs at the top of Edit Customer, and it has to be able to go out
@@ -10820,8 +11065,8 @@ function referralLiveCount(entries, seasonYear){
    ⚠ AND IT IS THE REFERRAL TOKEN, NEVER THE PORTAL TOKEN. A portal token signs
    somebody in; this one is pasted into a group chat. Two different secrets with two
    different blast radii, and they must never be interchanged. */
-/* ⭐ A NEW REFERRAL LINK EVERY SEASON, AND START NEW SEASON IS WHAT GIVES IT (REF-14,
-   rewritten 2026-09-07 as REF-18). Addie: "They should use there new referal link every
+/* ⭐ A NEW REFERRAL LINK EVERY SEASON, AND START NEW SEASON IS WHAT GIVES IT (REF-25,
+   rewritten 2026-09-07 as REF-28). Addie: "They should use there new referal link every
    year which should give new referal links every year", then: "Can we just have a button
    we can push that says start new season and it will update everything?"
 
@@ -11007,8 +11252,11 @@ async function applyReferralCreditLine(referrerItem){
   const inv = snap.data() || {};
   const kept = (Array.isArray(inv.creditNotes) ? inv.creditNotes : [])
     .filter(function(c){ return !c || c.kind !== 'referral'; });
-  const line = referralCreditNote(referralLiveCount(referrerItem.data.referralCredits));
-  const notes = line ? kept.concat([line]) : kept;
+  /* ⚠ ONE LINE PER REFERRAL, NAMED (REF-24). The count is derived from the entries here
+     rather than read off `referralCount`, so the automatic path never invents a collapsed
+     remainder line — that only exists for a number the office typed by hand. */
+  const notes = kept.concat(referralCreditNotes(referrerItem.data.referralCredits,
+    referralLiveCount(referrerItem.data.referralCredits)));
   const credits = notes.reduce(function(sum, c){ return sum + (Number(c && c.amount) || 0); }, 0);
   const updates = {
     creditNotes: notes, credits: credits,
@@ -11051,7 +11299,7 @@ async function creditReferralIfAny(quoteData, customerId, customerData){
     if(!token) return { ok:false, why:'no token' };
     if(q.referralCredited === true) return { ok:false, why:'already credited' };
     /* ⚠ LAST SEASON'S LINK STILL CREDITS THE $25, AND THAT IS THE UNCHANGED HALF.
-       REF-14 rotates the token every season and makes a stale one pay the set-up fee;
+       REF-28 rotates the token every season and REF-25 makes a stale one pay the fee;
        it says nothing about the referrer's own credit, so nothing here changes and the
        past tokens are searched too. If that is not what Addie wants, this is the one
        line to change — `holder.current` is already the answer. */
@@ -11071,8 +11319,10 @@ async function creditReferralIfAny(quoteData, customerId, customerData){
       amount: REFERRAL_CREDIT,
       creditedAt: new Date().toISOString(),
       /* The season this $25 comes off, stamped at the moment it is earned rather
-         than re-derived from the date later — see referralLiveCount (REF-14). */
-      season: new Date().getFullYear(),
+         than re-derived from the date later — see referralLiveCount (REF-14). Which
+         season that is depends on whether the referrer has a bill this year at all
+         (REF-23): somebody sitting the season out gets it off next season's. */
+      season: referralCreditSeason(referrer.data),
       revoked: false, revokedAt: null
     });
     const count = referralLiveCount(entries);
@@ -11375,7 +11625,7 @@ function quoteChargesSetupFee(d){
      only decides what happens when nobody has answered. */
   const referredBy = String(q.referredByToken || '').trim();
   if(referredBy){
-    /* ⚠ IT IS NOT ENOUGH THAT A TOKEN IS PRESENT (tightened 2026-09-07, REF-14).
+    /* ⚠ IT IS NOT ENOUGH THAT A TOKEN IS PRESENT (tightened 2026-09-07, REF-25).
        Addie: "If referal link is from last year and they are using it than it should
        still charge 30 dollar fee." So the waiver asks whether this token is the link
        that customer holds RIGHT NOW — which also closes the hole the first version
@@ -11404,7 +11654,7 @@ function quoteChargesSetupFee(d){
      genuinely new customer quoted against a relative's number. */
   return !quoteAlreadyACustomer(q);
 }
-/* ⭐ WHY THE BOX IS NOT TICKED (2026-09-07, REF-15). Addie: "For referals for not
+/* ⭐ WHY THE BOX IS NOT TICKED (2026-09-07, REF-26). Addie: "For referals for not
    tickig the box the reason is refferal."
 
    ⚠ AN UNTICKED BOX WITH NO REASON IS THE PROBLEM THIS SOLVES. quoteChargesSetupFee
@@ -11417,7 +11667,7 @@ function quoteChargesSetupFee(d){
    ⚠ IT NAMES THE REFERRER WHERE WE KNOW THEM, because "referral" alone still leaves
    the one question worth asking — WHOSE. And it says LAST SEASON'S for a stale link
    rather than staying quiet: that is the case where the box IS ticked and somebody
-   will want to know why a referred friend is being charged (REF-14).
+   will want to know why a referred friend is being charged (REF-25).
 
    ⚠ IT DESCRIBES, IT NEVER DECIDES. Every branch here reads what quoteChargesSetupFee
    already worked out; a second opinion about the fee would eventually disagree with
@@ -17244,6 +17494,11 @@ function etRenderRecipientList(){
       if(etRsvpAudienceAutoSet && etFilterNew === 'returning'){
         msg += ' — New customers are left out automatically, because an RSVP asks whether they want lights AGAIN. Change "New vs returning" above to include them.';
       }
+      /* ⚠ SAID FOR THE SAME REASON AS THE LINE ABOVE. A filter the office did not set
+         itself has to name itself, or a shorter list reads as a lost audience. */
+      if(etRsvpAudienceAutoSet && etFilterRsvp === 'pending'){
+        msg += ' — Anyone who has already answered is left out automatically. Change "RSVP" above to ask them again.';
+      }
       /* ⚠ SAID OUT LOUD, because a shorter list with the same tick count is exactly
          the moment somebody assumes the ticks went with it. */
       if(term && shown.length !== members.length){
@@ -17419,6 +17674,24 @@ document.getElementById('etSendTemplateSelect').addEventListener('change', funct
       etRsvpAudienceAutoSet = true;
       redraw = true;
     }
+  }
+  /* ⭐ AND NOBODY WHO HAS ALREADY ANSWERED (2026-09-07). Dax, of the five who had
+     replied before the season send: "exclude people who are confrmed."
+     ⚠ THE SERVER BATCH ALREADY DID THIS AND THE SCREEN DID NOT, which is the whole
+     reason this is here. runArrearsRsvpBatch skips on `if (answered) continue;`, so
+     the nightly chase has never re-asked somebody who replied — but the office
+     sending the same template by hand got the whole book, answered or not, because
+     this handler set the New-vs-returning and paid-last-year filters and left the
+     RSVP filter on All. Two paths, one question, different audiences.
+     ⚠ 'pending' IS NOT 'blank' — etRsvpAnswered counts the literal status
+     "unanswered" as still unanswered, so the one customer carrying it stays IN the
+     audience. They have not answered; they have only been asked. */
+  if(etTemplateIsRsvp(t) && etFilterRsvp !== 'pending'){
+    etFilterRsvp = 'pending';
+    const rsvpSel = document.getElementById('etFilterRsvp');
+    if(rsvpSel) rsvpSel.value = 'pending';
+    etRsvpAudienceAutoSet = true;
+    redraw = true;
   }
   if(redraw && typeof etRenderRecipientList === 'function') etRenderRecipientList();
   etUpdatePreview();
@@ -18133,8 +18406,25 @@ document.getElementById('etCopyForPreviewBtn').addEventListener('click', functio
  *
  * ⚠ AND IT NEVER THROWS OUT OF THE LOOP. One address EmailJS rejects must not stop
  *   the other nine hundred; a failure is counted and the run carries on. */
+/* ⭐ AND THE SEND SAYS SO OUT LOUD (2026-09-08, REF-20). One sentence, both senders,
+   because "Done — sent 312" reads identically whether every one of them carried the
+   referral offer or none of them did — which is exactly how a whole-book RSVP went out
+   with no link in it and nothing anywhere said a word. Empty when nobody was missed, so
+   an ordinary send is unchanged. */
+function referralMissingNote(run){
+  if(!run || !run.noReferral) return '';
+  const names = (run.noReferralNames || []);
+  return ' \u26A0 ' + run.noReferral + ' of them got NO referral link'
+    + (names.length ? ' \u2014 ' + names.join('; ')
+        + (run.noReferral > names.length ? ' and others' : '') : '')
+    + '. Open one of those records and check the Refer a Friend link at the top.';
+}
 async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId, statusEl, progressLabel){
-  let sent = 0, failed = 0, optedOut = 0;
+  let sent = 0, failed = 0, optedOut = 0, noReferral = 0;
+  /* ⚠ NAMES, NOT JUST A COUNT, AND ONLY THE FIRST FEW. "12 got no referral link" is
+     a number nobody can act on; a name and a reason is one record to open. Capped so
+     a whole-book send cannot print nine hundred names into a status line. */
+  const noReferralNames = [];
   for(const id of selectedIds){
     const member = jobAddresses.find(m => m.id === id);
     if(!member || !member.data.email) { failed++; continue; }
@@ -18171,10 +18461,29 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
        DOES place the token itself, or the offer would appear twice. Only on an
        RSVP: an add-on offer at the bottom of an invoice or a receipt is not
        what either email is for. */
-    const addOnBlock = (etTemplateIsRsvp(template) && !rsvpTemplateHasAddOn(template.data.body))
+    const isRsvp = etTemplateIsRsvp(template);
+    const addOnBlock = (isRsvp && !rsvpTemplateHasAddOn(template.data.body))
       ? await addOnEmailBlock(member.id) : '';
-    const referralBlock = (etTemplateIsRsvp(template) && !rsvpTemplateHasReferral(template.data.body))
-      ? await referralEmailBlock(member) : '';
+    /* ⭐ THE OFFER IS RESOLVED ONCE AND BOTH THINGS READ IT (2026-09-08, REF-20): what
+       goes in the email, and whether this customer is counted as having got one. Asking
+       twice is how a report ends up disagreeing with the email it is reporting on.
+       ⚠ IT IS COUNTED WHETHER THE TEMPLATE PLACES THE CODE OR NOT. The appended block is
+       skipped when her template carries {{referral_button}} — resolveLinkTokens draws it
+       instead — but the token behind BOTH is the same one, so an unresolvable customer
+       gets no link either way and must be counted either way. Counting only the appended
+       path would report a clean send on exactly the templates that place the code. */
+    let referralBlock = '';
+    if(isRsvp){
+      const offer = await referralOfferFor(member);
+      if(!offer.html){
+        noReferral++;
+        if(noReferralNames.length < 5){
+          noReferralNames.push((member.data.name || '(no name)') + ' — ' + offer.why);
+        }
+      } else if(!rsvpTemplateHasReferral(template.data.body)){
+        referralBlock = referralOfferProse(offer.html);
+      }
+    }
     const message = applyQuotePhotoBlock(
       await resolveLinkTokens(template.data.body, vars.phone, 0, vars),
       quotePhotosForPhone(vars.phone), false) + addOnBlock + referralBlock;
@@ -18185,7 +18494,8 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
       sent++;
     } catch(err){ failed++; }
   }
-  return { sent: sent, failed: failed, optedOut: optedOut };
+  return { sent: sent, failed: failed, optedOut: optedOut,
+           noReferral: noReferral, noReferralNames: noReferralNames };
 }
 document.getElementById('etSendToSelectedBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('etPreviewSendStatus');
@@ -18207,7 +18517,8 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
   emailjs.init(publicKey);
   const run = await etSendTemplateRun(template, selectedIds, serviceId, templateJsId, statusEl);
   const sent = run.sent, failed = run.failed, optedOut = run.optedOut;
-  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + (optedOut ? ', ' + optedOut + ' skipped (on the do-not-send list)' : '') + '.';
+  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + (optedOut ? ', ' + optedOut + ' skipped (on the do-not-send list)' : '') + '.'
+    + referralMissingNote(run);
   /* ⭐ AND RECORD THAT THE SEASON'S RSVP HAS GONE OUT. Only for an RSVP template, only
      when at least one email actually left, and only the FIRST time — see
      noteRsvpSendHappened. Whether the RSVP has been sent is the one fact that decides
@@ -18307,9 +18618,24 @@ function rsvpWholeRenderBreakdown(plan){
       + (note ? ' <span style="color:var(--slate); font-size:12px;">' + esc(note) + '</span>' : '')
       + '</span></div>';
   };
+  /* ⭐ WHERE THE REFERRAL OFFER WILL APPEAR, BEFORE A SINGLE EMAIL GOES (2026-09-08,
+     REF-20). Addie: *"why is the referal share button/link not working anymore… its not
+     even showing up anymore"* — and the answer was that her own RSVP body never carried
+     {{referral_button}}, so the offer was added on the END rather than beside the
+     sentence she had written about it. Nothing in the app said which of the two was
+     happening, so the only way to find out was to send one and look.
+     ⚠ IT NAMES THE CODE, because that is what she has to paste to move it. */
+  const referWhere = function(t){
+    const where = referralOfferPlacement(t);
+    return where === 'code' ? 'where {{referral_button}} sits in your template'
+      : where === 'appended' ? 'added at the END \u2014 put {{referral_button}} in the template to move it'
+      : 'NOT INCLUDED';
+  };
   box.innerHTML =
     row('Ordinary RSVP', plan.standard.length, tpl.standard ? ('"' + ((tpl.standard.data && tpl.standard.data.name) || '') + '"') : 'NO TEMPLATE FOUND') +
+    (tpl.standard ? row('\u21b3 referral link', '', referWhere(tpl.standard)) : '') +
     row('Not Paid RSVP', plan.arrears.length, tpl.arrears ? 'owes from last season' : 'NO TEMPLATE FOUND') +
+    (tpl.arrears ? row('\u21b3 referral link', '', referWhere(tpl.arrears)) : '') +
     row('To text instead', plan.noEmail.length, 'no email on file \u2014 see the card below') +
     row('Left out, do-not-send', plan.optedOut.length, 'they asked not to be mailed') +
     row('Already answered', plan.answered, 'not asked again') +
@@ -18357,7 +18683,8 @@ document.getElementById('rsvpWholeSendBtn')?.addEventListener('click', async fun
       + plan.noEmail.length + ' have no email and must be TEXTED (nothing is sent to them)\n\n'
       + 'That is ' + total + ' email(s). This cannot be taken back.')) return;
   btn.disabled = true;
-  let sent = 0, failed = 0, optedOut = 0;
+  let sent = 0, failed = 0, optedOut = 0, noReferral = 0;
+  const noReferralNames = [];
   try{
     emailjs.init(publicKey);
     const passes = [
@@ -18368,11 +18695,19 @@ document.getElementById('rsvpWholeSendBtn')?.addEventListener('click', async fun
       if(!pass.ids.length) continue;
       const r = await etSendTemplateRun(pass.t, pass.ids, serviceId, templateJsId, st, pass.label);
       sent += r.sent; failed += r.failed; optedOut += r.optedOut;
+      /* ⚠ SUMMED ACROSS BOTH PASSES, and the names kept from whichever pass had them.
+         Reporting the second pass alone would say nothing about the ordinary RSVP,
+         which is the bigger half of the book. */
+      noReferral += r.noReferral || 0;
+      (r.noReferralNames || []).forEach(function(n){
+        if(noReferralNames.length < 5) noReferralNames.push(n);
+      });
     }
     if(st) st.textContent = 'Done \u2014 sent ' + sent
       + (failed ? ', ' + failed + ' failed' : '')
       + (optedOut ? ', ' + optedOut + ' skipped (do-not-send)' : '')
-      + (plan.noEmail.length ? '. ' + plan.noEmail.length + ' still need texting \u2014 the card below lists them.' : '.');
+      + (plan.noEmail.length ? '. ' + plan.noEmail.length + ' still need texting \u2014 the card below lists them.' : '.')
+      + referralMissingNote({noReferral: noReferral, noReferralNames: noReferralNames});
     /* ⭐ MARKED ONCE, AFTER BOTH PASSES. rsvpSentAt is one fact about the season, not one
        per template — marking inside the sender would stamp it twice and report the season
        live before the second half of the book had been written to.
@@ -33207,9 +33542,10 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
          the season rollover already clears. Building a parallel discount field
          would have meant every screen that shows credits missing these. */
       const newCreditNotes = [];
-      if(referralCount > 0){
-        newCreditNotes.push(referralCreditNote(referralCount));
-      }
+      /* ⚠ NO ENTRIES CAN EXIST YET on a customer being created, so this is always the
+         collapsed line — built through the shared builder rather than beside it so a
+         typed count and a linked referral can never read differently (REF-24). */
+      referralCreditNotes([], referralCount).forEach(function(n){ newCreditNotes.push(n); });
       if(manualDiscount > 0){
         newCreditNotes.push({
           amount: manualDiscount,
@@ -45492,14 +45828,43 @@ function renderEditCustLedgerLines(ledger, listId, statusId, notes){
   const st = document.getElementById(statusId);
   if(st) st.textContent = '';
 }
-/* ⚠ RE-READ AT CLICK TIME, never captured when the form opened: the house tabs
+/* ⭐ THE ONE ANSWER TO "WHICH BILL DO THIS CUSTOMER'S FEE AND DISCOUNT LINES COME
+   FROM" (2026-09-07). Dax: "disounts and fees should be listed in a customers account
+   but right now the fees and discounts arent being listed and when it is listed we
+   should also have a way to delete it."
+
+   ⚠ RE-READ AT CLICK TIME, never captured when the form opened: the house tabs
    repoint this form at a sibling without closing it, so a captured invoice would
    waive a fee off the wrong household's bill. Same reason the carried-debt line
-   below re-reads on every keystroke. */
+   below re-reads on every keystroke.
+
+   ⛔ IT USED TO ANSWER null FOR EVERY CUSTOMER IN THE BOOK, AND THAT IS WHY THE LINES
+   WERE NOT LISTED. It called `allCustInvoiceFor(cust.data)`, and that function takes the
+   ADDRESS ITEM and asks `custInvoiceKey(addrItem.data)` — so it was handed `cust.data.data`,
+   which is undefined, keyed on the empty string, and returned null every single time.
+   Every one of its callers therefore rendered an EMPTY ledger: cross one fee off and the
+   redraw below blanked the fee list AND the discount list, so a working × looked like it
+   had deleted everything. Nothing threw, and every check on this code read it as text.
+   ⚠ THE OTHER EIGHT CALL SITES PASS THE ITEM (`allCustInvoiceFor(item)`) and are correct.
+   Do not "fix" this by widening `allCustInvoiceFor` — the Edit Customer save needs it to
+   go on answering the HOUSE'S OWN key, to find and zero a leftover when somebody starts
+   billing elsewhere.
+
+   ⭐ AND IT RESOLVES THE BILL, NOT THE HOUSE — `billToPhone` first, then the house's own
+   key, the same expression `billingGroupsByPayer` builds its map from and the one
+   `getLiveInvoiceStatus` was repointed to on 2026-08-26. The × already resolved it that
+   way (2026-09-07, REF's sibling ruling: "everyone should have a invoice and it should
+   delete"); the LIST did not, so on a house billed to somebody else the × was pointed at
+   one bill and the lines it was crossing off were drawn from another. One question, one
+   answer — seventeen numbers in the real book are shared, so this is not a rare shape. */
 function editCustInvoiceNow(){
   if(typeof editCustomerId === 'undefined' || !editCustomerId) return null;
   const cust = jobAddresses.find(x => x.id === editCustomerId);
-  return cust ? (allCustInvoiceFor(cust.data) || null) : null;
+  if(!cust) return null;
+  const billKey = String(cust.data.billToPhone || '').replace(/\D/g, '') ||
+                  custInvoiceKey(cust.data);
+  if(!billKey) return null;
+  return allInvoicesCache.find(i => i.id === billKey) || null;
 }
 function updateEditCustDiscountSummary(){
   const el = document.getElementById('editCustDiscountSummary');
@@ -45564,10 +45929,14 @@ document.addEventListener('DOMContentLoaded', function(){
       /* ⭐ AND IT TAKES THE LINE OFF THE BILL THIS CUSTOMER IS ACTUALLY ON (2026-09-07).
          Dax: "when i try to delete a discount or fee it says they dont have a invoice,
          and everyone should have a invoice and it should delete."
-         ⚠ `editCustInvoiceNow` asks `allCustInvoiceFor`, which answers "the invoice filed
-         under this HOUSE'S OWN key" — and that is deliberate and must not be widened,
-         because the Edit Customer save needs exactly that to find and zero a leftover
-         when somebody starts billing elsewhere. But a house billed to somebody else has
+         ⚠ CORRECTED 2026-09-07: this said `editCustInvoiceNow` asks `allCustInvoiceFor`
+         and therefore must stay narrow. The FUNCTION that must stay narrow is
+         `allCustInvoiceFor` — "the invoice filed under this HOUSE'S OWN key" — because
+         the Edit Customer save calls IT directly (`const inv = allCustInvoiceFor(item)`)
+         to find and zero a leftover when somebody starts billing elsewhere. It is
+         untouched. `editCustInvoiceNow` is used by NOTHING but this ledger UI, so it is
+         now the shared bill-first resolver the × and the lines both read. But a house
+         billed to somebody else has
          no invoice of its own, so the × dead-ended on every one of them: the line was
          drawn from the group's bill and then refused for want of a bill. Seventeen
          numbers in the real book are shared, so this is not a rare shape.
@@ -45577,16 +45946,14 @@ document.addEventListener('DOMContentLoaded', function(){
          ⚠ AND A GENUINELY MISSING INVOICE IS NOT A DEAD END EITHER. It says which tool
          makes one rather than stopping at a fact the office can do nothing with — a
          refusal with no next step is what sends somebody looking for a bug. */
-      const invForWaive = function(){
-        if(typeof editCustomerId === 'undefined' || !editCustomerId) return null;
-        const cust = jobAddresses.find(a => a.id === editCustomerId);
-        if(!cust) return null;
-        const billKey = String(cust.data.billToPhone || '').replace(/\D/g, '') ||
-                        custInvoiceKey(cust.data);
-        if(!billKey) return null;
-        return allInvoicesCache.find(i => i.id === billKey) || null;
-      };
-      const inv = ledger === 'carried' ? null : invForWaive();
+      /* ⭐ THE SAME RESOLVER THE LIST DREW FROM — `editCustInvoiceNow`, lifted out of
+         this closure on 2026-09-07. It was a second copy of the bill-first rule, and the
+         copy was the RIGHT one while the list beside it read the house's own key: the ×
+         and the lines it crosses off must be pointed at one invoice, or a house billed
+         to somebody else has its lines drawn from the group's bill and then waived off
+         its own. Two answers to one question is what this whole block already exists to
+         have fixed once. */
+      const inv = ledger === 'carried' ? null : editCustInvoiceNow();
       if(ledger !== 'carried' && !inv){
         if(st) st.textContent = 'No invoice on file for this customer yet, so there is '
           + 'nothing to take it off. Invoices → Fix Missing Invoices → "Scan & Create '
@@ -45652,8 +46019,11 @@ document.addEventListener('DOMContentLoaded', function(){
   });
   const editArrEl = document.getElementById('editCustArrears');
   if(editArrEl) editArrEl.addEventListener('input', function(){
-    const inv = (typeof allCustInvoiceFor === 'function' && typeof editCustomerId !== 'undefined')
-      ? allCustInvoiceFor((jobAddresses.find(x => x.id === editCustomerId) || {}).data || {}) : null;
+    /* ⚠ THE SECOND `.data` SITE, and it failed the same silent way (2026-09-07): handed
+       the record where `allCustInvoiceFor` wants the ITEM, it keyed on '' and answered
+       null on every keystroke, so the line under the box could never say "$X carried by
+       the app" however much was carried. One resolver now, the same one the lines use. */
+    const inv = (typeof editCustInvoiceNow === 'function') ? editCustInvoiceNow() : null;
     updateEditCustArrearsSummary((inv && inv.data && inv.data.changeFeeNotes) || []);
   });
 });
@@ -45913,6 +46283,11 @@ function editCustRenderReferLine(){
   const d = item.data || {};
   const url = referralLinkFromToken(d.referralToken);
   const n = referralLiveCount(d.referralCredits);
+  /* ⭐ AND THE ONES WAITING FOR NEXT SEASON (2026-09-08, REF-23). A referral earned
+     while this customer was sitting the season out comes off NEXT season's bill, so it
+     is on their record and deliberately not on this season's invoice — which, said
+     nowhere, is indistinguishable from a referral that never counted. */
+  const held = referralHeldCount(d.referralCredits);
   const bits = ['<span style="color:var(--slate);">Refer a friend</span>'];
   if(url){
     bits.push('<input type="text" readonly value="' + esc(url) + '" ' +
@@ -45970,6 +46345,11 @@ function editCustRenderReferLine(){
     ? (n === 1 ? '1 person has joined \u2014 ' : n + ' people have joined \u2014 ') +
       fmtMoney(n * REFERRAL_CREDIT) + ' off their bill'
     : 'nobody has joined through it yet') + '</span>');
+  if(held){
+    bits.push('<span style="color:var(--slate);">' +
+      '+ ' + held + ' held for next season (' + fmtMoney(held * REFERRAL_CREDIT) +
+      ') \u2014 they are not being billed this year</span>');
+  }
   bits.push('<span id="editCustReferStatus" style="color:var(--slate);"></span>');
   line.style.display = 'flex';
   line.style.flexWrap = 'wrap';
@@ -46045,7 +46425,7 @@ async function backfillReferralLinks(statusEl){
   const list = (jobAddresses || []).filter(function(a){
     return a && a.id && a.data && !String(a.data.referralToken || '').trim();
   });
-  /* ⚠ THERE IS NO DATING PASS HERE ANY MORE (removed 2026-09-07, REF-18). It existed
+  /* ⚠ THERE IS NO DATING PASS HERE ANY MORE (removed 2026-09-07, REF-28). It existed
      because rotation was lazy and an undated link would have been stamped with whatever
      year it was next opened in. Start New Season owns rotation now, so an undated link
      is simply this customer's current link until that button replaces it — which is
@@ -46359,8 +46739,18 @@ function openEditCustomerModal(id){
   updateEditCustArrearsSummary(ecFeeNotes);
   updateEditCustDiscountSummary();
   updateEditCustFeeSummary();
-  renderEditCustFeeLines(ecFeeNotes);
-  renderEditCustCreditLines(ecNotes);
+  /* ⭐ THE LINES COME OFF THE BILL THIS HOUSE IS ON, NOT OFF ITS OWN KEY (2026-09-07).
+     `ecInv` above is deliberately the house's OWN invoice and must stay that way — the
+     boxes it fills (the manual fee, the manual discount, the office's carried line) are
+     rebuilt from those boxes by the save, so filling them from a GROUP's bill would copy
+     one household's fee onto another on the next press. The LISTS are read-only and are
+     what the × acts on, so they ask `editCustInvoiceNow` — the same bill-first answer the
+     × uses. A house billed to somebody else has no invoice of its own, so this is the
+     difference between showing their fees and showing nothing at all. */
+  const ecLedgerInv = (typeof editCustInvoiceNow === 'function') ? editCustInvoiceNow() : ecInv;
+  const ecLedgerData = (ecLedgerInv && ecLedgerInv.data) || {};
+  renderEditCustFeeLines(Array.isArray(ecLedgerData.changeFeeNotes) ? ecLedgerData.changeFeeNotes : []);
+  renderEditCustCreditLines(Array.isArray(ecLedgerData.creditNotes) ? ecLedgerData.creditNotes : []);
   /* ⚠ FROM THE CUSTOMER, NOT THE INVOICE. This is the half that was missing: a
      colour change made after the bill went out never reaches changeFeeNotes. */
   renderEditCustCarriedLines(Array.isArray(d.carryoverChargeNotes) ? d.carryoverChargeNotes : []);
@@ -48199,10 +48589,43 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     if(newRsvp === 'no' && item.data.rsvpStatus !== 'no'){
       await clawBackReferralIfAny(editCustomerId, Object.assign({}, item.data, addrUpdates));
     }
-    const inv = allCustInvoiceFor(item);
+    let inv = allCustInvoiceFor(item);
     let resyncPayerAfter = null;
     let migratingFeeNotes = null;
+    /* Set below when a typed fee or discount had no bill to land on, so the toast can
+       name the customer whose bill was created for it. */
+    let mintedInvoiceForLedger = false;
     if(!newBillTo){
+      /* ⭐ A FEE OR A DISCOUNT TYPED ONTO A CUSTOMER WITH NO BILL NOW MAKES ONE
+         (2026-09-07, MON-67). Dax: "minting the invoice feel free to do that", after
+         "everyone should have a invoice".
+         ⛔ IT USED TO BE THROWN AWAY, SILENTLY. Every ledger line lives on the INVOICE,
+         and both branches below can leave without one — no invoice and no price wrote
+         nothing at all, and no invoice WITH a price created one carrying `install` and no
+         notes. So the office typed $50 and a reason, pressed Save, and reopened the
+         customer to an empty Fees box: no throw, no toast, a green "Saved".
+         ⚠ NOTHING IS WRITTEN HERE. The seed is built in memory and handed to the SAME
+         rebuild the existing-invoice branch runs, so the typed lines are placed by one
+         rule rather than a second copy of it, and the whole document lands in ONE write
+         below. Two awaited writes can half-succeed, and the half that survives would be
+         an empty invoice with the fee still lost.
+         ⚠ ONLY WHEN A LEDGER LINE WAS ACTUALLY TYPED. Minting on every save of an
+         un-invoiced customer would put a $0 bill on people nobody has priced yet, and the
+         price-only path below is untouched and still owns that case.
+         ⚠ `priceReviewed` FOLLOWS THE PRICE, not the fee: it is that other path's claim
+         that somebody looked at the number, and a fee typed onto a priced customer must
+         not silently lose it. */
+      if(!inv && newKey &&
+         (newManualFee > 0 || newManualDiscount > 0 || newArrearsAmount > 0 || newReferralCount > 0)){
+        const seeded = {
+          name: newName, phone: newPhone, email: newEmail,
+          install: newHousePrice > 0 ? newHousePrice : 0, removal: 0, deposit: 0,
+          credits: 0, creditNotes: [], changeFees: 0, changeFeeNotes: []
+        };
+        if(newHousePrice > 0) seeded.priceReviewed = true;
+        inv = { id: newKey, data: seeded };
+        mintedInvoiceForLedger = true;
+      }
       if(inv){
         const invoiceUpdates = {name: newName, phone: newPhone, email: newEmail};
         /* Referrals and the manual discount are rebuilt from the form every
@@ -48220,8 +48643,11 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
            automatic referral path writes are the same object. Both rebuild the same
            `kind: 'referral'` note from the same count, and a credit that came from a
            link must not read differently from one typed in by hand. */
-        const rebuiltReferral = referralCreditNote(newReferralCount);
-        if(rebuiltReferral) rebuiltNotes.push(rebuiltReferral);
+        /* ⚠ THE ENTRIES COME FIRST AND THE TYPED COUNT ONLY TOPS THEM UP (REF-24), so
+           a customer with three linked referrals gets three named lines with a × each,
+           and a count typed higher than that adds one collapsed line for the rest. */
+        referralCreditNotes(item.data.referralCredits, newReferralCount)
+          .forEach(function(n){ rebuiltNotes.push(n); });
         if(newManualDiscount > 0){
           rebuiltNotes.push({
             amount: newManualDiscount,
@@ -48312,6 +48738,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         if(newKey !== oldKey){
           await setDoc(doc(db,'invoices', newKey), Object.assign({}, inv.data, invoiceUpdates), {merge:true});
           await deleteDoc(doc(db,'invoices', inv.id));
+        } else if(mintedInvoiceForLedger){
+          /* ⚠ setDoc+merge, NOT updateDoc: this document does not exist yet — it was
+             seeded in memory above so the ledger rebuild could place the typed lines on
+             it — and updateDoc would throw "No document to update" and lose the fee mid
+             save. One write, carrying the seed and everything the rebuild worked out. */
+          await setDoc(doc(db,'invoices', newKey), Object.assign({}, inv.data, invoiceUpdates), {merge:true});
         } else {
           await updateDoc(doc(db,'invoices', inv.id), invoiceUpdates);
         }
@@ -48440,6 +48872,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       toast('Saved. Light colours left as they are — "' + editCustLightsRaw +
             '" is not something the tick boxes can show, so they were not overwritten. ' +
             'Tick the real colours and save again to correct it.');
+    }
+    /* ⚠ SAID OUT LOUD. A bill appearing for somebody who had none is a real change to
+       what the office is looking at, and one that arrives unannounced reads as a bug. */
+    if(mintedInvoiceForLedger){
+      toast('Saved — ' + (newName || 'they') + ' had no invoice, so one was created for ' +
+            'the fee/discount to go on. Check it under Invoices.');
     }
     toast(geocodeFailed ? 'Saved — but the new address could not be located on the map. Check it manually so routes stay accurate.'
       : (lightChange.feeAmount > 0 && !lightFeeWaived
@@ -54519,6 +54957,10 @@ const SYSTEM_NOTICE_SECTION_OF = {
   'Referral Taken Back': 'money',
   'Referral Blocked': 'money',
   'Cannot Be Billed': 'money',
+  /* Money the business is owed and has just stopped chasing — the money section is
+     exactly where somebody looks for that, and an unlisted topic falls through to
+     'other' silently, which for this one would hide the only trace it leaves. */
+  'Carried Debt Written Off': 'money',
   'Paid \u2014 Still Needs to RSVP': 'money',
   'Routes Kept Up To Date': 'schedule',
   'Moved To Another Day': 'schedule',

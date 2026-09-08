@@ -1943,7 +1943,7 @@ if (JSDOM) {
      exists. */
   /* ⚠ AND THE REFERRAL HELPERS IT NOW CALLS, LIFTED FOR THE SAME REASON (2026-09-07).
      quoteChargesSetupFee stopped being self-contained the day the waiver had to ask
-     whether a token is THIS season's link (REF-14): it calls referralHolderFor and
+     whether a token is THIS season's link (REF-25): it calls referralHolderFor and
      referralTokenIsCurrentSeason, and the card calls quoteSetupFeeReasonHtml beside
      the tick box. Stubbing any of them would let this suite agree with a fiction about
      who is charged $30 — and leaving them out crashed the whole suite with a bare
@@ -20389,21 +20389,26 @@ suite('Suite 63. Changing your sides in the Member Portal');
  * and executed with a fabricated updates/oldData, the same technique as the
  * asCount proof in Suite 63.
  * ============================================================ */
-suite('Suite 311. Which sides, by name — sanitized server-side, and the list wins');
+/* ⚠ RENUMBERED 311 → 313 ON THE MERGE (2026-09-08). A parallel session numbered its own
+ * new suite 311 and reached main first, which is the rule this repo already carries: the
+ * suite that gets there first keeps the number. The PREFIX moved with it, and that is the
+ * half that matters — a red line names the prefix, so two suites sharing one produce a
+ * failure that cannot say where it came from. Nothing inside this suite changed. */
+suite('Suite 313. Which sides, by name — sanitized server-side, and the list wins');
 {
   const fns = read('functions/index.js');
   const at = fns.indexOf("if (section === 'sides')");
   const end = fns.indexOf("if (section === 'cancel')", at);
   const body = at > 0 && end > at ? fns.slice(at, end) : '';
-  check('S311', 'the sides branch was found', !!body);
+  check('S313', 'the sides branch was found', !!body);
 
-  check('S311', 'the list is reduced to the four known names, in canonical order',
+  check('S313', 'the list is reduced to the four known names, in canonical order',
     /const SIDE_NAMES = \['Front', 'Left', 'Right', 'Back'\];/.test(body));
-  check('S311', 'and the list decides the count when both arrive',
+  check('S313', 'and the list decides the count when both arrive',
     /updates\.houseSides = sanitized\.length;/.test(body),
     'a stale page or a tampered request could send a mismatched count and list; ' +
     'the list is what a person actually ticked box by box');
-  check('S311', 'an empty result after sanitizing deletes the list rather than storing junk',
+  check('S313', 'an empty result after sanitizing deletes the list rather than storing junk',
     /delete updates\.houseSidesList;/.test(body));
 
   function run(updates, oldData) {
@@ -20413,34 +20418,34 @@ suite('Suite 311. Which sides, by name — sanitized server-side, and the list w
   }
 
   if (body) {
-    check('S311', 'a clean list of two names sets both the list and the matching count',
+    check('S313', 'a clean list of two names sets both the list and the matching count',
       (function(){
         var r = run({ houseSides: 9, houseSidesList: ['Back', 'Front'] }, {});
         return r.houseSidesList.join(',') === 'Front,Back' && r.houseSides === 2;
       })(),
       'canonical order and the list-derived count both come out of the same sanitize step');
 
-    check('S311', 'duplicates and unknown names are dropped, not stored',
+    check('S313', 'duplicates and unknown names are dropped, not stored',
       (function(){
         var r = run({ houseSides: 1, houseSidesList: ['Front', 'Front', 'Roof', 'Left'] }, {});
         return r.houseSidesList.join(',') === 'Front,Left' && r.houseSides === 2;
       })(),
       'a value nobody offers any more, or a doubled tick, must not reach a crew card');
 
-    check('S311', 'all four, in any order sent, come back in one fixed order',
+    check('S313', 'all four, in any order sent, come back in one fixed order',
       (function(){
         var r = run({ houseSides: 1, houseSidesList: ['Back', 'Right', 'Front', 'Left'] }, {});
         return r.houseSidesList.join(',') === 'Front,Left,Right,Back' && r.houseSides === 4;
       })());
 
-    check('S311', 'an empty list falls back to the count alone, and stores no list',
+    check('S313', 'an empty list falls back to the count alone, and stores no list',
       (function(){
         var r = run({ houseSides: 3, houseSidesList: [] }, {});
         return r.houseSidesList === undefined && r.houseSides === 3;
       })(),
       'nothing ticked is not the same as nothing sent — the count this request carried still counts');
 
-    check('S311', 'no list at all leaves the count-only path exactly as it was',
+    check('S313', 'no list at all leaves the count-only path exactly as it was',
       (function(){
         var r = run({ houseSides: 2 }, {});
         return r.houseSidesList === undefined && r.houseSides === 2;
@@ -20470,7 +20475,7 @@ suite('Suite 311. Which sides, by name — sanitized server-side, and the list w
     const guard = at > 0 && end > at
       ? admin.slice(at, end + 'addrUpdates.houseSidesList = null;'.length)
       : '';
-    check('S311', 'the office-side stale-list guard was found in the Edit Customer save',
+    check('S313', 'the office-side stale-list guard was found in the Edit Customer save',
       !!guard,
       'without it a count the office moves leaves a named list it no longer fits');
 
@@ -20483,19 +20488,19 @@ suite('Suite 311. Which sides, by name — sanitized server-side, and the list w
     }
 
     if (guard) {
-      check('S311', 'moving the count away from the stored list clears the list',
+      check('S313', 'moving the count away from the stored list clears the list',
         office(['Front', 'Left'], 3).houseSidesList === null,
         'two names under a count of three is the state that shows the customer an ' +
         'identical Now/New line and then files a re-quote nobody asked for');
-      check('S311', 'a count that still matches the stored list leaves it alone',
+      check('S313', 'a count that still matches the stored list leaves it alone',
         !Object.prototype.hasOwnProperty.call(office(['Front', 'Left'], 2), 'houseSidesList'),
         'writing it on every save posts a change-log row for every customer whose ' +
         'sides nobody touched');
-      check('S311', 'a customer who has no list on file is not given one, or a null',
+      check('S313', 'a customer who has no list on file is not given one, or a null',
         !Object.prototype.hasOwnProperty.call(office(null, 3), 'houseSidesList'),
         'most of the book has never opened that tab; a null written over nothing is ' +
         'a change-log row about a change that did not happen');
-      check('S311', 'and it clears rather than trimming the list to fit',
+      check('S313', 'and it clears rather than trimming the list to fit',
         guard.indexOf('slice(') === -1 && guard.indexOf('.length !== newHouseSides') > 0,
         '"which sides is not on file" is a question somebody can ask them; a list ' +
         'trimmed to fit is an answer nobody gave');
@@ -31355,6 +31360,27 @@ suite('Suite 72. An RSVP never goes to somebody who has never had lights');
   check('S72', 'and the screen says it happened',
     /New customers are left out automatically/.test(adm),
     'automatic is fine, invisible is not');
+
+  /* ⭐ AND NOBODY WHO HAS ALREADY ANSWERED (2026-09-07). Dax: "exclude people who are
+     confrmed." The server batch has always done this — runArrearsRsvpBatch skips on
+     `if (answered) continue;` — so the failure this guards is the two paths asking one
+     question of different books: the nightly chase leaving answered customers alone
+     while the office's own Send to Selected re-asked all of them. */
+  check('S72', 'choosing an RSVP template also drops anyone who already answered',
+    /etTemplateIsRsvp\(t\)[\s\S]{0,200}etFilterRsvp = 'pending'/.test(handler),
+    'a second "have you decided?" to somebody who already said yes reads as the ' +
+    'office losing their answer');
+  check('S72', 'and it is the same DEFAULT, not a lock',
+    !/etFilterRsvp.*disabled|disabled.*etFilterRsvp/.test(adm),
+    'asking a declined customer again is a real thing the office does');
+  check('S72', 'and the screen says that happened too',
+    /already answered is left out automatically/.test(adm),
+    'a shorter list with no reason reads as a lost audience');
+  check('S72', 'the server batch skips them for the same reason',
+    /const answered = String\(d\.rsvpStatus \|\| ''\)\.trim\(\);[\s\S]{0,120}if \(answered\)/
+      .test(fs.readFileSync(path.join(__dirname, 'functions', 'index.js'), 'utf8')),
+    'if the batch ever stops skipping, the screen and the schedule disagree about ' +
+    'who is still being asked, and this pairing is the only thing that would say so');
 }
 
 
@@ -36115,12 +36141,22 @@ suite('Suite 131. An outstanding add-on rides along with the RSVP');
      real email is one nobody proof-read; one that appears only in the preview
      is a promise that never arrives. Both ask the same two questions, which is
      why rsvpTemplateHasAddOn exists rather than the test being written twice. */
+  /* ⚠ REPOINTED 2026-09-08, NOT WEAKENED. This matched the literal
+     `etTemplateIsRsvp(template) &&`, so it failed on correct code the moment the real
+     send hoisted that answer into `isRsvp` to reuse it for the referral count — pinned
+     to where a string happened to sit rather than to what must be true, the same
+     slow-fuse shape as S82, S129 and the folder-names suite. The guarantee is unchanged
+     and both spellings are still counted; the alias is checked separately below so it
+     cannot come to mean something else. */
   const appends = stripComments(admin).match(
-    /etTemplateIsRsvp\(template\) && !rsvpTemplateHasAddOn\(template\.data\.body\)/g) || [];
+    /(?:etTemplateIsRsvp\(template\)|isRsvp) && !rsvpTemplateHasAddOn\(template\.data\.body\)/g) || [];
   check('S131', 'the send, the preview and the test send all append it the same way',
     appends.length === 3,
     'found ' + appends.length + ' of 3 — the on-screen preview, the test send ' +
     'and the real send must produce the same email');
+  check('S131', 'and the alias the send uses is that same question',
+    /const isRsvp = etTemplateIsRsvp\(template\);/.test(stripComments(admin)),
+    'isRsvp bound to anything else turns the check above into a check on a word');
 
   /* ⚠ ONLY ON AN RSVP. An add-on offer at the foot of an invoice or a receipt
      is not what either of those emails is for, and a second set of yes/no
@@ -45327,7 +45363,15 @@ if (!JSDOM) {
        inside `if(url)`, so a tokenless fixture hides it and the suite goes green while
        being one fixture away from taking the whole run down. Found exactly that way,
        by a red-check. Lifted, not stubbed: it is the address the office opens. */
-    'editCustRenderReferLine', 'referralLiveCount', 'referralLinkFromToken',
+    /* ⚠ AND referralHeldCount JOINED THEM (2026-09-08, REF-23). The row now also says
+       how many referrals are being held for NEXT season, so this lift throws a bare
+       ReferenceError on every fixture — which is how it was found, one run after being
+       written. Lifted, not stubbed, for the same reason as the count beside it: what it
+       says is a claim about money somebody has earned. Also needs referralEntrySeason,
+       which both counts call. */
+    'editCustRenderReferLine', 'referralLiveCount', 'referralHeldCount',
+    'referralEntrySeason', 'referralEntryCountsIn', 'referralSeasonOr',
+    'referralLinkFromToken',
     'referralShareLinkFromToken'];
   const bodies = NAMES.map(function (n) { return extractFn(admin, n); });
   const missing = NAMES.filter(function (n, i) { return !bodies[i]; });
@@ -49780,11 +49824,26 @@ suite('299. A referral link, and the $25 that follows it');
        stubbed: a stub here would decide which credits still count, which is the exact
        question these checks exist to ask. assertSandbox names it if this is forgotten. */
     ['referralEntrySeason', false],
+    /* ⚠ AND THE TWO REF-23/REF-24 RULES (2026-09-08), lifted for the same reason and
+       named by assertSandbox the moment they are not: `referralCreditNotes` decides how
+       many lines a bill carries and what each one says, and `referralCreditSeason`
+       decides WHICH SEASON the $25 comes off. Both are answers about money.
+       `houseIsOnTheBill` comes with the second — it is the rule that one asks, and a
+       stub of it would let this suite agree with a copy of the billing rule rather than
+       with the shipped one. `referralHeldCount` is the office-side counterpart. */
+    ['referralCreditNotes', false], ['referralCreditSeason', false],
+    ['referralHeldCount', false], ['houseIsOnTheBill', false],
+    /* ⚠ THE ONE PREDICATE BOTH COUNTS ASK (REF-24). It exists because a red-check
+       proved two copies of it: the line builder had its own, and changing that copy to
+       let next season's held credits onto this season's bill left every check in the
+       repo green — they all read the other one. Lifted, so the checks below exercise
+       the shipped rule rather than a second opinion. */
+    ['referralEntryCountsIn', false], ['referralSeasonOr', false],
     ['referralIsSelfReferral', false], ['referralClawbackAllowed', false],
     ['applyReferralCreditLine', true], ['referralNote', true],
     ['creditReferralIfAny', true], ['referralBlocked', true],
     ['referralMarkQuote', true], ['clawBackReferralIfAny', true],
-    /* ⚠ ADDED 2026-09-07 WITH REF-14. creditReferralIfAny stopped resolving a token
+    /* ⚠ ADDED 2026-09-07 WITH REF-25. creditReferralIfAny stopped resolving a token
        with a bare `.find()` on referralToken the day links began rotating every season:
        it asks referralHolderFor, which searches the CURRENT token and then the past
        ones, so a retired link still credits the referrer even though it no longer
@@ -49825,6 +49884,9 @@ suite('299. A referral link, and the $25 that follows it');
         lifted.join('\n'),
         'return {creditReferralIfAny, clawBackReferralIfAny, applyReferralCreditLine,',
         '        referralIsSelfReferral, referralClawbackAllowed, referralCreditNote,',
+        '        referralCreditNotes, referralCreditSeason, referralHeldCount,',
+        '        referralEntryCountsIn,',
+        '        houseIsOnTheBill,',
         '        referralLiveCount, referralEntrySeason};'
       ].join('\n');
 
@@ -50018,11 +50080,22 @@ suite('299. A referral link, and the $25 that follows it');
             'NEW1', {name: 'Kyle New', phone: '8015559999'});
           const inv = w.invoices['8015550111'];
           const refLines = (inv.creditNotes || []).filter(c => c.kind === 'referral');
-          check('S299', 'a second referral rebuilds one $50 line rather than adding another',
-            refLines.length === 1 && refLines[0].amount === 50,
-            'got ' + refLines.length + ' referral line(s) worth ' +
-            (refLines[0] && refLines[0].amount) + ' — two lines saying "Referral" is a bill ' +
-            'that reads as though we discounted them twice for the same friend');
+          /* ⚠ REPOINTED 2026-09-08 (REF-24), NOT WEAKENED. This required ONE collapsed
+             $50 line, which is exactly what Addie asked to be rid of: *"in discount I
+             cannot currently see who got what discount."* Two referrals are now two
+             NAMED $25 lines with a × each. What the check was really guarding is
+             untouched and is still asserted below it — the rebuild REPLACES the referral
+             lines rather than piling a stale one on top, so the total is $50 and not $75,
+             and every other kind of credit survives. */
+          const refTotal = refLines.reduce((n, c) => n + (Number(c.amount) || 0), 0);
+          check('S299', 'a second referral adds a second NAMED line, and replaces the old ones',
+            refLines.length === 2 && refTotal === 50 &&
+            refLines.every(c => /Referral \u2014 \S/.test(c.reason || '')) &&
+            refLines.every(c => !!c.ref),
+            'got ' + refLines.length + ' referral line(s) worth ' + refTotal + ' [' +
+            refLines.map(c => c.reason).join(' | ') + '] — a line per friend is how the ' +
+            'office sees who earned what, and `ref` is what lets one × cross off one of ' +
+            'them; a stale line left behind would discount them twice for one friend');
           check('S299', 'and every other kind of credit on that bill survives it',
             (inv.creditNotes || []).some(c => c.kind === 'manual' && c.amount === 40) &&
             inv.credits === 90,
@@ -50070,11 +50143,20 @@ suite('299. A referral link, and the $25 that follows it');
             two.ok === true,
             'got ' + JSON.stringify(two) + ' — a refusal here is the whole report: the ' +
             'referrer sent two friends and was thanked for one');
+          /* ⚠ REPOINTED 2026-09-08 (REF-24): two friends are two NAMED lines now, not
+             one collapsed $50. The claim this check exists for is the MONEY, and it is
+             unchanged — $50 off, for two friends. What is added is that each line names
+             its own friend, because a total that is right while the office cannot see
+             who earned it is the complaint that prompted the change. */
+          const twoTotal = refLines.reduce((n, c) => n + (Number(c.amount) || 0), 0);
           check('S299', 'so a customer who refers twice is discounted twice',
-            inv.credits === 50 && refLines.length === 1 && refLines[0].amount === 50,
+            inv.credits === 50 && refLines.length === 2 && twoTotal === 50 &&
+            refLines.some(c => /Kyle/.test(c.reason || '')) &&
+            refLines.some(c => /Pat/.test(c.reason || '')),
             'got credits=' + inv.credits + ' across ' + refLines.length + ' referral ' +
-            'line(s) worth ' + (refLines[0] && refLines[0].amount) + ' — $25 for two ' +
-            'friends is the referral scheme quietly paying half of what it promises');
+            'line(s) worth ' + twoTotal + ' [' + refLines.map(c => c.reason).join(' | ') +
+            '] — $25 for two friends is the referral scheme quietly paying half of what ' +
+            'it promises, and an unnamed line is a discount nobody can audit');
           check('S299', 'and the stored count keeps up with the entries',
             w.customers[0].data.referralCount === 2 &&
             (w.customers[0].data.referralCredits || []).length === 2,
@@ -50233,11 +50315,50 @@ suite('299. A referral link, and the $25 that follows it');
             api.referralLiveCount([entry({season: thisYear, revoked: true})]) === 0 &&
             api.referralLiveCount([entry({season: thisYear, waived: true})]) === 0,
             'the two older reasons a referral stops counting are unchanged');
+          /* ⚠ REPOINTED 2026-09-08 (REF-23), AND STRENGTHENED FROM A MATCH TO A RUN.
+             The stamp is no longer always this year: a referrer with no bill this season
+             earns it off NEXT season's. The old check matched the literal
+             `new Date().getFullYear()` and so failed on correct code. It RUNS the rule
+             now, both ways, which is the thing that actually decides where $25 lands. */
           check('S299', 'a credit earned this season is stamped with it',
-            /season:\s*new Date\(\)\.getFullYear\(\)/.test(
-              extractFn(admin, 'creditReferralIfAny') || ''),
+            /season: referralCreditSeason\(referrer\.data\)/.test(
+              extractFn(admin, 'creditReferralIfAny') || '') &&
+            api.referralCreditSeason({}) === thisYear &&
+            api.referralCreditSeason({rsvpStatus: 'yes'}) === thisYear,
             'without the stamp every entry falls back to its date, which is the ' +
             'fallback for OLD rows rather than the rule for new ones');
+          /* ⭐ AND THE OTHER HALF OF THE RULE (REF-23). Addie: *"if someone shares there
+             referal link but denied for this year than they will get discount for next
+             year however if they approved for this year they will get discount for this
+             year."* Both directions are checked, because a rule that always answers the
+             same year passes half of this on its own. */
+          check('S299', 'a referrer sitting the season out earns it off NEXT season',
+            api.referralCreditSeason({rsvpStatus: 'no'}) === thisYear + 1 &&
+            api.referralCreditSeason({rsvpStatus: 'backnextyear'}) === thisYear + 1 &&
+            api.referralCreditSeason({maybeNextYear: true}) === thisYear + 1,
+            'they have no bill this season, so the $25 lands nowhere and REF-14 then ' +
+            'stops it counting in any later one — earned and silently lost');
+          check('S299', 'and a house that was hung is billed, so it earns it now',
+            api.referralCreditSeason({rsvpStatus: 'no', completed: true}) === thisYear,
+            'Q-013: hung is hung, so there IS a bill this season for it to come off — ' +
+            'this is why the rule asks houseIsOnTheBill rather than deciding for itself');
+          /* ⚠ RUN AGAINST THE LINE BUILDER TOO, not only the count. The red-check that
+             found this had changed the builder's own copy of the season filter, which put
+             next season's credits onto this season's invoice while every count-based
+             check stayed green. There is one predicate now and this exercises it through
+             the builder, which is the half that reaches a bill. */
+          check('S299', 'a held credit never becomes a line on this season’s bill',
+            api.referralCreditNotes([entry({season: thisYear + 1})], 0).length === 0 &&
+            api.referralCreditNotes([entry({season: thisYear})], 0).length === 1,
+            'a credit for next season sitting on this season’s invoice is money off a ' +
+            'bill it is not for, and the customer has already been shown the total');
+          check('S299', 'and a held credit is counted for the office, off the bill',
+            api.referralHeldCount([entry({season: thisYear + 1})]) === 1 &&
+            api.referralLiveCount([entry({season: thisYear + 1})]) === 0 &&
+            api.referralHeldCount([entry({season: thisYear})]) === 0,
+            'held has to be visible somewhere or a referral earned while sitting out ' +
+            'looks exactly like one that never counted — and it must never reach the ' +
+            'invoice, which is a bill it is not for');
         }
 
         /* ---- 10. the manual box is unchanged --------------------------
@@ -50334,7 +50455,7 @@ suite('299. A referral link, and the $25 that follows it');
            account-security change. Naming the wrong one here leaves the sandbox missing
            the helper the real function calls. */
         generateReferralToken: () => 'tok-' + (++minted),
-        /* ⚠ THE REAL ONES, LIFTED (2026-09-07, REF-14). ensureReferralToken stopped
+        /* ⚠ THE REAL ONES, LIFTED (2026-09-07, REF-25). ensureReferralToken stopped
            being self-contained when it learned about seasons, and sandboxDeps named
            every one of these in turn. A stub for referralTokenSeasonOf in particular
            would let this suite agree with a fiction about WHICH links rotate. */
@@ -50353,7 +50474,7 @@ suite('299. A referral link, and the $25 that follows it');
         const first = await ensure('REF1', rec);
         /* The write is what the next visit reads back, so the harness plays Firestore
            and puts it on the record — exactly as portalLookup's next call would find it.
-           ⚠ THE WHOLE WRITE, not just the token: since REF-14 the mint also stamps the
+           ⚠ THE WHOLE WRITE, not just the token: since REF-25 the mint also stamps the
            season, and replaying one field of a two-field write left the record looking
            unstamped for ever, which made a correct grandfathering write look like a
            second mint. */
@@ -50364,7 +50485,7 @@ suite('299. A referral link, and the $25 that follows it');
           'got ' + first + ' then ' + second + ' after ' + writes.length + ' write(s) — a ' +
           'fresh token every visit breaks every link the customer has already shared');
 
-        /* ⭐ AND THE SERVER NEVER ROTATES (2026-09-07, REF-18). Addie: "Can we just have
+        /* ⭐ AND THE SERVER NEVER ROTATES (2026-09-07, REF-28). Addie: "Can we just have
            a button we can push that says start new season and it will update
            everything?" Start New Season owns rotation, so this side only ever mints.
            ⚠ AN EARLIER VERSION ROTATED HERE TOO, on the calendar year, and it had to go
@@ -50528,11 +50649,40 @@ suite('299. A referral link, and the $25 that follows it');
      a zeroed count with live entries, which the next referral silently undoes. */
   const waiveSection = sectionFrom(admin,
     admin.indexOf("if(ledger === 'credit' && plan.removed && plan.removed.kind === 'referral')"));
+  /* ⚠ REPOINTED 2026-09-08 (REF-24): the count is RECOMPUTED now rather than zeroed,
+     because one × need no longer mean all of them — writing 0 would wipe the discount for
+     referrals nobody crossed off. The guarantee is unchanged and is what is checked: the
+     two fields still travel in ONE write. */
+  /* ⚠ THE COUNT IS DERIVED FROM THE MARKED ENTRIES, and that is asserted separately
+     from the write. A red-check replacing it with a literal 0 passed the write check on
+     its own — the variable is still called `stillCounted`, only its value changed — and
+     zeroing it wipes the discount for every referral nobody crossed off. This is
+     structural and says so: running the real × needs the whole Firestore-writing waive
+     path, and what the × produces IS run, in fee-waive.test.js, against the renderer and
+     ledgerWaiveUpdates. */
+  check('S299', 'and the count it writes is recomputed from the marked entries',
+    /const stillCounted = referralLiveCount\(marked\);/.test(waiveSection),
+    'a literal 0 here, or a count read off the OLD array, wipes the discount for the ' +
+    'referrals nobody crossed off — which is the collapsed line’s behaviour returning');
   check('S299', 'crossing off a referral marks the entries in the same write as the count',
-    /referralCount: 0,\s*referralCredits: marked/.test(waiveSection),
-    'the × zeroes the count alone, and every referral path rebuilds that count from the ' +
+    /referralCount: stillCounted,\s*referralCredits: marked/.test(waiveSection),
+    'the × moves the count alone, and every referral path rebuilds that count from the ' +
     'entries — so the next referral through a link puts the whole discount back on the ' +
     'bill, from a screen nobody was looking at');
+  /* ⚠ AND ONE × IS ONE REFERRAL, NOT ALL OF THEM. The line carries `ref`, the referred
+     customer's id, and only the entry it names is marked — while a line with no `ref` (an
+     old collapsed "Referral — 3 people" written before today) still means all of them, or
+     crossing one off would take the money away and leave the count standing to put it
+     straight back. Both halves are asserted because either alone reads as correct. */
+  check('S299', 'and it marks the ONE referral the × was pressed on',
+    /const oneRef = String\(\(plan\.removed && plan\.removed\.ref\) \|\| ''\)/.test(waiveSection) &&
+    /if\(oneRef && String\(e\.referredCustomerId/.test(waiveSection),
+    'without `ref` one × takes every referral off the bill, which is the collapsed line ' +
+    'Addie asked to be rid of wearing a new shape');
+  check('S299', 'and an old collapsed line with no ref still means all of them',
+    /if\(oneRef && /.test(waiveSection),
+    'every invoice written before today holds one line for several referrals; a × that ' +
+    'matched nothing there would remove the money and leave the count to restore it');
 
   /* ⚠ THE OFFICE MARKING SOMEBODY NO IS THE THIRD DOOR, and it is the one the customer
      never touches — portalRsvp covers the other. */
@@ -51710,7 +51860,7 @@ suite('305. The referral link, from the office side');
     /* ⚠ REPOINTED 2026-09-07, NOT WEAKENED. This matched the literal early return
        `if(item.data.referralToken) return item.data.referralToken;` — that is, it was
        pinned to WHERE the rule happened to sit rather than to what has to be true. The
-       moment links began rotating every season (REF-14) that line legitimately became a
+       moment links began rotating every season (REF-25) that line legitimately became a
        season comparison, and the check failed on correct code. Same slow-fuse shape as
        S82, S129 and the folder-names suite. It now RUNS the function, which is the only
        way to state the guarantee that actually matters: within one season the token a
@@ -51728,7 +51878,7 @@ suite('305. The referral link, from the office side');
         Number((admin.match(/const REFERRAL_PAST_KEEP = (\d+);/) || [])[1]),
         {error: () => {}});
       /* ⭐ ROTATION IS ONE PURE FUNCTION, AND START NEW SEASON IS ITS ONLY CALLER
-         (2026-09-07, REF-18). Addie: "Can we just have a button we can push that says
+         (2026-09-07, REF-28). Addie: "Can we just have a button we can push that says
          start new season and it will update everything?" So the button owns it, and the
          lazy calendar-year rotation that used to sit in referralTokenFor is gone — two
          things rotating on two different triggers means the button she presses would
@@ -51745,7 +51895,7 @@ suite('305. The referral link, from the office side');
         const out = rot({referralToken: 'old1', referralTokenSeason: 2026}, 2027, 'new1');
         check('S305', 'rotating gives a new token and stamps the season',
           out && out.referralToken === 'new1' && out.referralTokenSeason === 2027,
-          'a link that never changes is last year\'s link for ever, and by REF-13 it ' +
+          'a link that never changes is last year\'s link for ever, and by REF-29 it ' +
           'would go on waiving the set-up fee');
         check('S305', 'and the old token is KEPT, with the season it belonged to',
           Array.isArray(out.referralTokensPast) &&
@@ -51803,7 +51953,7 @@ suite('305. The referral link, from the office side');
       }
 
       /* ⚠ AND referralTokenFor NEVER ROTATES. It mints for a record with none and hands
-         back whatever is there otherwise — the one-mechanism half of REF-18. */
+         back whatever is there otherwise — the one-mechanism half of REF-28. */
       {
         const writes = [];
         let n = 0;
@@ -52060,12 +52210,12 @@ suite('Suite 312. A friend who comes in through a referral link pays no setup fe
       body.indexOf('chargeSetupFee !== undefined') <
         body.indexOf("String(q.referredByToken || '').trim()"),
       'a box the office deliberately ticked or unticked must never be silently overridden');
-    /* ⚠ TIGHTENED 2026-09-07 (REF-14) AND THE CHECK MOVED WITH IT. It used to be enough
+    /* ⚠ TIGHTENED 2026-09-07 (REF-25) AND THE CHECK MOVED WITH IT. It used to be enough
        that a token was PRESENT; Addie: "If referal link is from last year and they are
        using it than it should still charge 30 dollar fee." So the waiver now asks
        whether this is the link that customer holds right now — which also closes the
        hole the first version had, where any invented string after /r/ bought $30 off.
-       ⚠ AND IT ASKS THAT AS A FACT, NOT AS A DATE (REF-18). `holder.current` means this
+       ⚠ AND IT ASKS THAT AS A FACT, NOT AS A DATE (REF-28). `holder.current` means this
        string IS the token on the record; a season comparison beside it was a second way
        of asking one question, and the one that could disagree — a stamp is missing on
        every link minted before stamping existed. The check asserts the season is NOT
@@ -52105,7 +52255,7 @@ suite('Suite 312. A friend who comes in through a referral link pays no setup fe
       check('S312', 'a fresh quote with no referral still defaults to charging it',
         sv.f({}) === true,
         'the waiver must not become the new default for every quote, only referred ones');
-      /* ⭐ REF-14, and the two cases it is really about. */
+      /* ⭐ REF-25, and the two cases it is really about. */
       check('S312', 'LAST season\'s referral link is charged the fee',
         sv.f({ referredByToken: 'stale1' }) === true,
         'Addie: "If referal link is from last year and they are using it than it should ' +
@@ -52131,7 +52281,7 @@ suite('Suite 312. A friend who comes in through a referral link pays no setup fe
         sv.f({ existingCustomerId: 'c1', referredByToken: 'live1' }) === false,
         'both rules agree here, but the re-quote check must not depend on the referral one running first');
 
-      /* ⭐ AND THE CARD SAYS WHY (REF-15). Addie: "For referals for not tickig the box
+      /* ⭐ AND THE CARD SAYS WHY (REF-26). Addie: "For referals for not tickig the box
          the reason is refferal." An unticked box with no reason is indistinguishable
          from somebody's stray click, and the office cannot tell which. */
       const why = new Function('jobAddresses',
@@ -52193,7 +52343,7 @@ suite('Suite 312. A friend who comes in through a referral link pays no setup fe
       /* ⚠ extractFn, NOT A SLICE TO THE NEXT NAMED FUNCTION. This used to cut from
          `function referralShareLine` to `\nfunction referralShareMessage`, so it was
          pinned to a NEIGHBOUR — and when that neighbour was deleted with the Text/Email
-         buttons (REF-16) the slice came back empty and the check failed on code that
+         buttons (REF-12) the slice came back empty and the check failed on code that
          was right. Same slow-fuse shape as S82, S129 and S305: anchor on the thing
          being tested, never on what happens to sit after it. */
       const body = stripComments(extractFn(index, 'referralShareLine') || '');
@@ -53172,8 +53322,14 @@ suite('308. Sharing the referral link, not opening it');
   const refEmailStart = admin.indexOf('async function referralEmailBlock');
   const refEmailBlock = refEmailStart === -1 ? '' : admin.slice(refEmailStart,
     admin.indexOf("'[HU] referral block failed'", refEmailStart));
-  check('S308', 'the block that appends itself draws the same box',
-    /referralShareBoxHtml\(referralLinkFromToken\(token\), url\)/.test(refEmailBlock),
+  /* ⚠ REPOINTED 2026-09-08 (REF-20), NOT WEAKENED. referralEmailBlock no longer builds
+     the box itself: it asks referralOfferFor, the one resolver the send's own
+     no-referral count also reads, so that the email and the report on it cannot
+     disagree about whether a customer has a link. The guarantee is the same and is now
+     RUN rather than matched — see the referral-offer suite, which executes this block
+     and reads the box out of what it returns. */
+  check('S308', 'the block that appends itself goes through the shared resolver',
+    /referralOfferProse\(\(await referralOfferFor\(item\)\)\.html\)/.test(refEmailBlock),
     'referralEmailBlock only runs when her saved template carries neither token ' +
     '(REF-15), which makes it the copy least likely to be noticed missing one');
   check('S308', 'and so do BOTH of the server’s spots',
@@ -53212,6 +53368,41 @@ suite('308. Sharing the referral link, not opening it');
       svrIconStyle.replace('SHARE_ICON_BUTTON_STYLE_SERVER', 'X'),
     'two definitions of one style is two chances for the icon to look different in the ' +
     'two emails it appears in');
+
+  /* ⭐ ONE ROUTER BRANCH PER HASH (added 2026-09-08, on the merge). Two sessions each
+     built a way for the RSVP email's share button to reach the share page — `/s/<token>`
+     and `/r/<token>?share=1` — and the merge that brought them together kept BOTH,
+     because they did not touch the same lines. The result was two
+     `else if(hash === '/share')` branches: the first always matched, it read a
+     differently-named parameter, and the second could never run. So the surviving
+     `?share=1` links landed on the share page with no token and drew "that link is
+     missing its code" — a dead door that looked alive in the source.
+     ⚠ NOTHING WENT RED, which is the point of adding this. Every share-page check
+     passed: they all drive `/s/`, which is the branch that won. A duplicate branch is
+     invisible to any test that only exercises the winner.
+     ⚠ IT COUNTS THE HASHES THE ROUTER TESTS, not the routes table beside it — the table
+     maps a hash to a page id and says nothing about which branch runs. */
+  {
+    const routerAt = idx308.indexOf("if(hash === '/payment'");
+    const routerEnd = idx308.indexOf('/* ⭐ THE SHORT QUOTE LINK', routerAt);
+    const router = (routerAt !== -1 && routerEnd > routerAt) ? idx308.slice(routerAt, routerEnd) : '';
+    check('S308', 'the hash router is findable', !!router,
+      'repoint this slice rather than deleting the check — it exists because a merge ' +
+      'produced an unreachable branch and nothing anywhere went red');
+    if (router) {
+      const hashes = (router.match(/hash === '[^']*'/g) || []);
+      const seen = {}, dupes = [];
+      hashes.forEach(function (h) {
+        if (seen[h]) { if (dupes.indexOf(h) === -1) dupes.push(h); }
+        seen[h] = true;
+      });
+      check('S308', 'no two router branches answer to the same hash',
+        dupes.length === 0,
+        'duplicated: ' + dupes.join(', ') + ' — the first match wins and the rest are ' +
+        'unreachable, so a link built for the second one lands on the first and reads ' +
+        'whatever parameter that branch happens to want');
+    }
+  }
 
   /* ⭐ THE OFFICE CAN OPEN THE PAGE THE ICON LEADS TO (added 2026-09-07, REF-18).
      Addie, of the share page: *"where do I find the page that comes up after pushing
@@ -53492,8 +53683,20 @@ suite('Suite 309. Crossing a fee or a discount off a bill somebody else pays');
      so "the end of its top-level construct" is the whole handler and hundreds of lines
      after it — which swallowed a mention of allCustInvoiceFor from elsewhere and failed
      the check below on correct code. Braces from the anchor, and no further. */
+  /* ⚠ REPOINTED 2026-09-07, NOT WEAKENED, AND THE OLD ANCHOR WAS PROTECTING THE WRONG
+     FUNCTION. `invForWaive` was a private closure holding a SECOND copy of the bill-first
+     rule while the LIST beside it read the house's own key — so the × and the lines it
+     crosses off were pointed at two different invoices. The copy is gone and
+     `editCustInvoiceNow` is now the one resolver both read.
+     ⛔ AND THE GUARD BELOW ASSERTED THE OPPOSITE OF WHAT IT MEANT. It required
+     `editCustInvoiceNow` to stay narrow "because the Edit Customer save needs it" — the
+     save has never called it. The save calls `allCustInvoiceFor(item)` directly, and THAT
+     is the function that must stay narrow. Measured: the only callers of
+     editCustInvoiceNow are the ×, its redraw, the ledger lists and the arrears summary.
+     So the invariant is unchanged and is now pinned to the function that carries it. */
+  const ledgerResolver = extractFn(admin, 'editCustInvoiceNow') || '';
   const waiveBlock = (function(){
-    const at = admin.indexOf('const invForWaive = function()');
+    const at = admin.indexOf("listEl.addEventListener('click'");
     if (at === -1) return '';
     let i = admin.indexOf('{', at), depth = 0;
     for (; i < admin.length; i++) {
@@ -53502,37 +53705,125 @@ suite('Suite 309. Crossing a fee or a discount off a bill somebody else pays');
     }
     return '';
   })();
-  /* The refusal message sits just after the resolver, so it is checked against a slice
-     that reaches a little past it rather than against the resolver alone. */
-  const waiveRefusal = admin.slice(admin.indexOf('const invForWaive = function()'),
-    admin.indexOf('const invForWaive = function()') + 2200);
   check('S309', 'the waive path is findable',
-    !!waiveBlock && waiveBlock.length > 40,
-    'renamed or inlined — repoint this rather than deleting it, or the two checks ' +
+    !!waiveBlock && waiveBlock.length > 40 && !!ledgerResolver,
+    'renamed or inlined — repoint this rather than deleting it, or the checks ' +
     'below pass vacuously against an empty string');
 
-  check('S309', 'the × resolves the bill the customer is actually on',
-    /billToPhone/.test(waiveBlock) && /custInvoiceKey/.test(waiveBlock),
-    'a house billed elsewhere has no invoice under its own key, so crossing a line ' +
-    'off its group bill was refused for want of a bill it never had');
+  /* ⭐ RUN, NOT MATCHED. The bug this replaced was invisible to a text check: the
+     resolver read correctly and answered null for every customer in the book, because it
+     handed the RECORD to a function that wants the ITEM. Only calling it can see that. */
+  if (ledgerResolver) {
+    const resolve = function (cust, invoices) {
+      return new Function('CUST', 'INVS',
+        'var editCustomerId = CUST ? CUST.id : null;' +
+        'var jobAddresses = CUST ? [CUST] : [];' +
+        'var allInvoicesCache = INVS;' +
+        'var invoiceById = new Map(INVS.map(function(i){ return [i.id, i]; }));' +
+        'function custInvoiceKey(d){ var p = String((d && d.phone) || "").replace(/[^0-9]/g, "");' +
+        '  if (p) return p; return String((d && d.email) || "").toLowerCase().trim(); }' +
+        'function allCustInvoiceFor(item){ var k = custInvoiceKey(item.data); return k ? (invoiceById.get(k) || null) : null; }' +
+        ledgerResolver + 'return editCustInvoiceNow();')(cust, invoices);
+    };
+    const ownBill = { id: '8015550123', data: { creditNotes: [{ amount: 25, reason: 'Loyalty' }] } };
+    const groupBill = { id: '8019990000', data: { creditNotes: [{ amount: 40, reason: 'Referral' }] } };
 
-  check('S309', 'and it does not reach for the own-key resolver',
-    waiveBlock.indexOf('allCustInvoiceFor') === -1,
-    'that one deliberately answers the narrower question; using it here is the bug');
+    check('S309', 'a customer who pays for themselves gets their own bill',
+      resolve({ id: 'c1', data: { phone: '801-555-0123' } }, [ownBill, groupBill]) === ownBill,
+      'it answered null for EVERY customer until 2026-09-07 — the record was passed ' +
+      'where the address ITEM was wanted, so it keyed on the empty string');
 
-  /* ⚠ THE NARROW RESOLVER MUST STAY NARROW. Widening it to billToPhone would "fix" the
-     × and quietly break the save, which uses it to find the leftover invoice to zero —
-     a customer who moves onto somebody else's bill would then keep billing themselves. */
-  const ownKey = extractFn(admin, 'editCustInvoiceNow') || '';
-  check('S309', 'editCustInvoiceNow still answers the house\'s OWN key',
-    /allCustInvoiceFor/.test(ownKey) && ownKey.indexOf('billToPhone') === -1,
+    check('S309', 'and a house billed elsewhere gets the bill it is really on',
+      resolve({ id: 'c2', data: { phone: '801-555-0123', billToPhone: '(801) 999-0000' } },
+        [ownBill, groupBill]) === groupBill,
+      'a house billed to somebody else has no invoice under its own key, so its fees ' +
+      'and discounts listed as nothing at all');
+
+    check('S309', 'a customer with no bill anywhere resolves to nothing, not to a guess',
+      resolve({ id: 'c3', data: { phone: '801-000-0000' } }, [ownBill, groupBill]) === null,
+      'answering some other customer\'s invoice here would cross a line off the ' +
+      'wrong household\'s bill');
+  }
+
+  /* ⚠ COMMENTS STRIPPED. The block's own paragraph explains why it does NOT use
+     `allCustInvoiceFor`, so a plain search finds the explanation and calls it the
+     violation — the trap Suites 58, 274, 275 and 300 each had to learn, hit again here
+     within a minute of this check being written. */
+  const waiveCode = stripComments(waiveBlock);
+  check('S309', 'the × and the lines read ONE resolver',
+    waiveCode.indexOf('editCustInvoiceNow()') !== -1 &&
+    waiveCode.indexOf('allCustInvoiceFor') === -1 &&
+    /billToPhone/.test(stripComments(ledgerResolver)) &&
+    /custInvoiceKey/.test(stripComments(ledgerResolver)),
+    'two answers to "which bill is this line on" is a × pointed at one invoice ' +
+    'crossing off a line drawn from another');
+
+  /* ⛔ AND THE LIST ON OPEN READS IT TOO. Caught by the red-check, not by design: with
+     the × repointed and the resolver fixed, sending the OPEN path back to the house's own
+     key left no check failing at all — so a house billed elsewhere would open showing an
+     empty Fees box and a × that works, which is the original report exactly. The boxes
+     above it (`ecInv`) deliberately stay on the own key; only the read-only lists move. */
+  check('S309', 'the lines drawn when the form opens come off the same bill',
+    /const ecLedgerInv = \(typeof editCustInvoiceNow === 'function'\) \? editCustInvoiceNow\(\)/
+      .test(stripComments(admin)) &&
+    /renderEditCustFeeLines\(Array\.isArray\(ecLedgerData\.changeFeeNotes\)/.test(admin) &&
+    /renderEditCustCreditLines\(Array\.isArray\(ecLedgerData\.creditNotes\)/.test(admin),
+    'the × resolved the group bill while the list read the house\'s own key, so a ' +
+    'house billed elsewhere listed nothing and the × had nothing to act on');
+
+  check('S309', 'and the boxes above them still read the house\'s OWN invoice',
+    /const ecInv = allInvoicesCache\.find\(i => i\.id === custInvoiceKey\(d\)\);/.test(admin),
+    'the manual fee and discount boxes are rebuilt onto this house\'s invoice by the ' +
+    'save, so filling them from a group bill copies one household\'s fee onto another');
+
+  /* ⚠ THE NARROW RESOLVER MUST STAY NARROW — and it is `allCustInvoiceFor`, which the
+     Edit Customer save calls to find the leftover invoice to zero. Widening THAT would
+     leave a customer who moves onto somebody else's bill still billing themselves. */
+  const ownKeyFn = extractFn(admin, 'allCustInvoiceFor') || '';
+  check('S309', 'allCustInvoiceFor still answers the house\'s OWN key',
+    !!ownKeyFn && /custInvoiceKey/.test(ownKeyFn) && ownKeyFn.indexOf('billToPhone') === -1,
     'widened — the Edit Customer save needs the narrow answer to find and zero a ' +
     'leftover invoice when somebody starts billing elsewhere');
 
+  check('S309', 'and the save is still the caller that depends on it',
+    /const inv = allCustInvoiceFor\(item\);/.test(admin),
+    'if the save stops calling it, the guard above is protecting nothing');
+
   /* A refusal the office can act on, rather than a fact it can do nothing with. */
   check('S309', 'a genuinely missing invoice names the tool that makes one',
-    /Fix Missing Invoices/.test(waiveRefusal),
+    /Fix Missing Invoices/.test(waiveBlock),
     'a dead-end refusal is what sends somebody looking for a bug that is not there');
+
+  /* ⛔ AND A TYPED FEE WITH NO BILL TO LAND ON NOW MAKES ONE (2026-09-07, MON-67). Dax:
+     "minting the invoice feel free to do that." Both no-invoice branches of the save
+     wrote the ledger nowhere — no throw, no toast, a green "Saved" — so the office typed
+     a fee and reopened the customer to an empty box. */
+  const mintCode = stripComments(admin);
+  check('S309', 'a fee typed onto a customer with no bill gets one made for it',
+    /mintedInvoiceForLedger = true;/.test(mintCode) &&
+    /let inv = allCustInvoiceFor\(item\);/.test(mintCode),
+    'the save kept everything else and dropped the fee without a word, which reads as ' +
+    'the list being broken rather than the save');
+
+  check('S309', 'and it only mints when a ledger line was actually typed',
+    /if\(!inv && newKey &&\s*\r?\n?\s*\(newManualFee > 0 \|\| newManualDiscount > 0 \|\| newArrearsAmount > 0 \|\| newReferralCount > 0\)\)/
+      .test(mintCode),
+    'minting on every save of an un-invoiced customer puts a $0 bill on people ' +
+    'nobody has priced yet, and the price-only path already owns that case');
+
+  /* ⚠ ONE WRITE, NOT TWO. The seed is built in memory and the whole document lands in a
+     single setDoc — two awaited writes can half-succeed, and the half that survives is an
+     empty invoice with the fee still lost. */
+  check('S309', 'the minted bill is created in one write, carrying the typed lines',
+    /else if\(mintedInvoiceForLedger\)\{[\s\S]{0,600}setDoc\(doc\(db,'invoices', newKey\), Object\.assign\(\{\}, inv\.data, invoiceUpdates\), \{merge:true\}\)/
+      .test(mintCode) &&
+    !/mintedInvoiceForLedger = true;[\s\S]{0,300}await /.test(mintCode),
+    'updateDoc on a document that does not exist throws "No document to update" and ' +
+    'loses the fee mid-save');
+
+  check('S309', 'and the office is told a bill was created',
+    /if\(mintedInvoiceForLedger\)\{[\s\S]{0,300}had no invoice, so one was created/.test(mintCode),
+    'an invoice appearing unannounced for somebody who had none reads as a bug');
 }
 
 /* ---------------------------------------------------------------------------
@@ -53628,5 +53919,210 @@ suite('Suite 310. The whole RSVP, in one press');
     check('S310', 'and says why, rather than looking like nothing happened',
       /invoices/i.test(run(book, false).why || ''),
       'a silent empty plan reads as "nobody to ask" and the office presses it again');
+  }
+}
+
+/* =====================================================================
+ * Suite 311. The referral offer, RUN rather than read
+ *
+ * Addie, 2026-09-08: "why is the referal share button/link not working anymore… its
+ * not even showing up anymore."
+ *
+ * ⚠ THE RENDERING HAD NEVER BEEN EXECUTED BY ANYTHING. Suite 305 checks the
+ * {{referral_button}} branch of resolveLinkTokens with a REGEX over a slice of the
+ * file, and Suite 308 runs the box BUILDER on a pair of addresses it hands in itself.
+ * Nothing had ever asked the question that was actually being asked: given a real
+ * customer record, does a link come out? That is the gap this suite closes, and it is
+ * the shape this repo keeps re-learning — "a message that is in the source is not a
+ * message on the screen".
+ *
+ * ⚠ AND resolveLinkTokens CANNOT BE LIFTED BY extractFn AT ALL, which is why nobody
+ * had. It contains the string '{{custom_' — two opening braces with no closers — so
+ * the brace counter runs off the end of the file and the function reads as MISSING.
+ * A suite written the ordinary way would have skipped, silently, for ever. It is
+ * sliced between its own signature and the next declaration instead, and the slice is
+ * asserted to be the whole function before anything is run on it.
+ *
+ * ⚠ WHAT IT PROVES IS THE PRESENCE OF A LINK, NOT ITS PRETTINESS. Suite 308 owns the
+ * box's shape and the office/server parity; this owns the one question that decides
+ * whether a customer gets an offer at all — does the customer RESOLVE — and the
+ * reporting that now says so out loud when one does not.
+ * ------------------------------------------------------------------------- */
+suite('Suite 311. The referral offer, RUN rather than read');
+
+{
+  const NL311 = String.fromCharCode(10);
+  const sigAt = admin.indexOf('async function resolveLinkTokens(');
+  const nextAt = admin.indexOf(NL311 + 'async function buildOutgoingEmailFooter(');
+  const resolveSrc = (sigAt !== -1 && nextAt > sigAt) ? admin.slice(sigAt, nextAt) : '';
+  /* ⚠ THE SLICE IS PROVED WHOLE BEFORE IT IS RUN. Cut short it would still parse as a
+     function and would silently stop resolving whichever tokens fell off the end —
+     green, and testing half the renderer. */
+  check('S311', 'the renderer is findable and the slice is the whole of it',
+    !!resolveSrc && /\{\{referral_button\}\}/.test(resolveSrc) &&
+    /out\.replace\(\/\\n\/g, '<br>'\)/.test(resolveSrc) && /return out;/.test(resolveSrc),
+    'repoint this slice rather than stubbing it — extractFn cannot lift this function ' +
+    'because of the ' + String.fromCharCode(39) + '{{custom_' + String.fromCharCode(39) +
+    ' literal inside it, so a stub here would be permanent');
+
+  const needed311 = ['hlxEmailCustomerItem', 'referralTokenFor', 'referralLinkFromToken',
+    'referralShareLinkFromToken', 'referralShareBoxHtml', 'generateReferralToken',
+    'applyQuoteLinkLabel', 'applyQuoteLinkButton', 'referralOfferFor', 'referralOfferProse',
+    'referralEmailBlock', 'referralOfferPlacement', 'rsvpTemplateHasReferral',
+    'etTemplateIsRsvp', 'referralMissingNote'];
+  const lifted311 = {};
+  needed311.forEach(function (n) { lifted311[n] = extractFn(admin, n); });
+  const missing311 = needed311.filter(function (n) { return !lifted311[n]; });
+  check('S311', 'every function this runs is lifted from the real file',
+    !missing311.length,
+    'missing: ' + missing311.join(', ') + ' — LIFT, NOT STUB: a stub here keeps the ' +
+    'suite green through an email that carries no link at all');
+
+  if (resolveSrc && !missing311.length) {
+    /* ⚠ extractFn DROPS THE async KEYWORD (§5), and three of these are async. Put back
+       by name rather than by a blanket prefix — referralShareBoxHtml is not async, and
+       an await inside a plain function is a parse error that kills the whole run as one
+       unattributable crash. */
+    const ASYNC311 = ['referralTokenFor', 'referralOfferFor', 'referralEmailBlock'];
+    const body311 = needed311.map(function (n) {
+      return (ASYNC311.indexOf(n) !== -1 ? 'async ' : '') + lifted311[n];
+    }).join(NL311);
+
+    const styles311 = ['SHARE_ICON_BUTTON_STYLE', 'QUOTE_LINK_BUTTON_STYLE',
+      'QUOTE_LINK_BUTTON_DEFAULT', 'REFERRAL_TOKEN_ALPHABET'].map(function (n) {
+      const m = admin.match(new RegExp('const ' + n + " = '[^']*';"));
+      return m ? m[0] : '';
+    });
+    check('S311', 'the four styles and alphabets are lifted too',
+      styles311.every(Boolean),
+      'a missing one is a ReferenceError inside the sandbox, reported as an unrelated crash');
+
+    /* Everything the referral path does NOT use is stubbed to nothing on purpose: the
+       fixtures place only the referral token, so no other branch of the renderer runs.
+       The writes array is the fake Firestore — referralTokenFor mints through it. */
+    const env311 = new Function('BOOK', [
+      'let jobAddresses = BOOK, custById = new Map();',
+      'BOOK.forEach(function(a){ if(a && a.id) custById.set(a.id, a); });',
+      'let allInvoicesCache = [], quotesCache = [], customCodes = [], perFootRate = 3;',
+      'const writes = [];',
+      'function doc(){ return {}; } function collection(){ return {}; }',
+      'async function updateDoc(_r, patch){ writes.push(patch); } const db = {};',
+      'function esc(s){ return String(s == null ? "" : s); }',
+      'function fmtMoney(n){ return "$" + Number(n || 0).toFixed(2); }',
+      'function niceDate(d){ return String(d); } function addDays(d){ return d; }',
+      'const PAYMENT_TERMS_DAYS = 30;',
+      'function invoiceIssuedAt(){ return new Date(); }',
+      'async function getOrCreatePortalToken(){ return "pt_test"; }',
+      'function billedHousesEmailBlock(){ return ""; }',
+      'function billedHousesPlainText(){ return ""; }',
+      'async function addOnEmailBlock(){ return ""; }',
+      styles311.join(NL311),
+      body311,
+      resolveSrc,
+      'return {resolveLinkTokens: resolveLinkTokens, referralOfferFor: referralOfferFor,',
+      '        referralEmailBlock: referralEmailBlock, referralMissingNote: referralMissingNote,',
+      '        referralOfferPlacement: referralOfferPlacement, writes: writes};'
+    ].join(NL311));
+
+    const withTok = { id: 'c1', data: { name: 'Brian Petersen', phone: '8015550111',
+      email: 'b@x.com', referralToken: 'ab3k9xyz' } };
+    const noTok = { id: 'c2', data: { name: 'Dana Reid', phone: '8015550222', email: 'd@x.com' } };
+    /* ⚠ TWO HOUSEHOLDS ON ONE NUMBER, which is the case that actually bites: seventeen
+       numbers in the real book are shared and fourteen are a parent and a child. */
+    const par = { id: 'c3', data: { name: 'Parent', phone: '8015550333', email: 'p@x.com' } };
+    const kid = { id: 'c4', data: { name: 'Child', phone: '8015550333', email: 'k@x.com' } };
+
+    const BODY311 = 'Hi {{name}},' + NL311 + NL311 +
+      'You now have your own personal referral link.' + NL311 + NL311 +
+      '{{referral_button}}' + NL311 + NL311 + 'RSVP below!';
+    const LINKED = 'highlightingutah.com/r/';
+
+    pendingAsync.push((async function () {
+      /* ---- the token in her template ---------------------------------------- */
+      const e1 = env311([withTok]);
+      const out1 = await e1.resolveLinkTokens(BODY311, '8015550111', 0,
+        { name: 'Brian Petersen', customerId: 'c1' });
+      check('S311', 'the RSVP send puts a real link where the template asks for it',
+        out1.indexOf(LINKED + 'ab3k9xyz') !== -1 && out1.indexOf('<table') !== -1,
+        'this is the send path the office actually uses; a blank here is an RSVP that ' +
+        'promises a referral link and carries none');
+      check('S311', 'and the words the customer reads are the FRIEND’s address',
+        out1.indexOf('>' + LINKED + 'ab3k9xyz</a>') !== -1 &&
+        out1.indexOf('href="https://highlightingutah.com/s/ab3k9xyz"') !== -1,
+        'REF-13: the words are what gets copied and forwarded, the icon is the ' +
+        'customer’s own share page');
+
+      /* ---- a customer who has never had one ---------------------------------- */
+      const e2 = env311([noTok]);
+      const out2 = await e2.resolveLinkTokens(BODY311, '8015550222', 0,
+        { name: 'Dana Reid', customerId: 'c2' });
+      check('S311', 'a customer with no code yet is given one rather than skipped',
+        out2.indexOf(LINKED) !== -1 && e2.writes.length === 1 && !!e2.writes[0].referralToken,
+        'REF-10 exists because most of the book had no token; minting on the way past ' +
+        'is what stops the offer working for some people and silently not for others');
+
+      /* ---- and the three ways it comes out empty ----------------------------- */
+      const e3 = env311([par, kid]);
+      const out3 = await e3.resolveLinkTokens(BODY311, '8015550333', 0, { name: 'Parent' });
+      check('S311', 'a shared phone with no customer id emits nothing at all',
+        out3.indexOf(LINKED) === -1 && out3.indexOf('<table') === -1 &&
+        out3.indexOf('{{referral_button}}') === -1,
+        'the strict resolver refuses a phone matching two customers rather than putting ' +
+        'the child’s link in the parent’s email — and it must leave no dead box behind');
+      const e4 = env311([withTok]);
+      const out4 = await e4.resolveLinkTokens(BODY311, '8015550111', 0,
+        { name: 'Brian Petersen', customerId: 'gone' });
+      check('S311', 'and so does an id that is no longer in the book',
+        out4.indexOf(LINKED) === -1 && out4.indexOf('<table') === -1,
+        'a dead box is a customer tapping something we sent them and landing nowhere');
+
+      /* ---- the resolver now says WHY, which is the whole of REF-20 ----------- */
+      const e5 = env311([withTok]);
+      const good = await e5.referralOfferFor(withTok);
+      const bad = await e5.referralOfferFor(null);
+      check('S311', 'a resolved customer comes back with a box and no complaint',
+        good.html.indexOf(LINKED + 'ab3k9xyz') !== -1 && good.why === '' &&
+        good.token === 'ab3k9xyz',
+        'why must be empty on success, or every send reports every customer as missed');
+      check('S311', 'and an unresolved one comes back empty AND says why',
+        bad.html === '' && typeof bad.why === 'string' && bad.why.length > 0,
+        'rendering nothing and saying nothing is how a whole-book RSVP went out with no ' +
+        'referral offer in it and the green line still read "Done — sent 312"');
+
+      /* ⚠ THE APPENDED BLOCK IS THE COPY NOBODY LOOKS AT, so it is RUN, not read. */
+      const appended = await e5.referralEmailBlock(withTok);
+      check('S311', 'the appended offer carries the same box and the $25 sentence',
+        appended.indexOf(LINKED + 'ab3k9xyz') !== -1 && /\$25/.test(appended) &&
+        appended.indexOf('<table') !== -1,
+        'REF-15: this is what a template with no code in it sends, which is most of them');
+      check('S311', 'and appends nothing at all for a customer with no link',
+        (await e5.referralEmailBlock(null)) === '',
+        'a heading over an empty space is worse than no paragraph');
+    })());
+
+    /* ---- what the office is told, before and after ------------------------- */
+    const e6 = env311([withTok]);
+    check('S311', 'a clean send says nothing about referral links',
+      e6.referralMissingNote({ noReferral: 0, noReferralNames: [] }) === '',
+      'a warning on every ordinary send is one the office learns to scroll past');
+    const note = e6.referralMissingNote({ noReferral: 3, noReferralNames: ['Parent — no code'] });
+    check('S311', 'and a send that missed some names them and counts them',
+      /3/.test(note) && note.indexOf('Parent') !== -1 && /and others/.test(note),
+      'got: ' + note + ' — a bare count is a number nobody can act on');
+
+    /* ---- and where the offer will appear, before a single email goes -------- */
+    const tplCode = { data: { body: 'Hi {{name}} {{rsvp_yes_button}} {{referral_button}}' } };
+    const tplBare = { data: { body: 'Hi {{name}} {{rsvp_yes_button}}' } };
+    const tplBill = { data: { body: 'Your invoice is {{amount}}' } };
+    check('S311', 'a template placing the code is reported as placing it',
+      e6.referralOfferPlacement(tplCode) === 'code',
+      'this is the line that answers her question without sending anything');
+    check('S311', 'one that does not is reported as having it added at the end',
+      e6.referralOfferPlacement(tplBare) === 'appended',
+      'her own RSVP body carried no code, so the offer went to the BOTTOM rather than ' +
+      'beside the sentence she had written about it — and nothing said so');
+    check('S311', 'and a template that is not an RSVP gets no offer at all',
+      e6.referralOfferPlacement(tplBill) === 'none',
+      'a referral offer at the foot of an invoice is not what that email is for');
   }
 }

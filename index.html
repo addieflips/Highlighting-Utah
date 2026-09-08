@@ -268,10 +268,6 @@
   /* ⚠ SHARE MINIMAL — same shape as quote-minimal (2026-09-06). Reached from the
      RSVP email's own button, never browsed to, so it reads like a single card, not
      a page of the marketing site. */
-  body.share-minimal header, body.share-minimal footer, body.share-minimal .page-hero{ display:none !important; }
-  body.share-minimal #page-share{ display:flex !important; min-height:100vh; align-items:center; justify-content:center; }
-  body.share-minimal #page-share > *{ width:100%; }
-  body.share-minimal #page-share .wrap{ width:100%; }
 
   /* ---------- Header ---------- */
   header{
@@ -2601,7 +2597,6 @@ function navigate(){
   document.getElementById('mMoreToggle').classList.remove('open');
   document.getElementById('mMoreSubmenu').classList.remove('open');
   document.body.classList.remove('rsvp-minimal', 'rsvp-back');
-  document.body.classList.remove('share-minimal');
   /* ⚠ AND quote-minimal, which this used to leave on. body.quote-minimal hides
      the header and footer and forces #page-quote-details visible with
      !important, so navigating away from a minimal screen left the site chrome
@@ -2687,16 +2682,6 @@ function navigate(){
     if(quoteToken && typeof handleQuoteLink === 'function'){
       document.body.classList.add('quote-minimal');
       handleQuoteLink(quoteToken, quoteAction);
-    }
-  } else if(hash === '/share' && queryString){
-    /* ⭐ THE SHARE PAGE (2026-09-06). Reached only through /r/<token>?share=1 —
-       the RSVP email's own button — never by a friend. See the /r/ reader below,
-       which is the only place that ever sets this hash. */
-    var shareParams = new URLSearchParams(queryString);
-    var shareToken = shareParams.get('token');
-    if(shareToken && typeof renderSharePage === 'function'){
-      document.body.classList.add('share-minimal');
-      renderSharePage(shareToken);
     }
   }
 }
@@ -2786,22 +2771,16 @@ var REFERRAL_LINK_KEY = 'hu.referredByToken';
   } catch(e){ /* quiet on purpose: no readable location means this is not a /r/ link, and the ?ref= reader below still runs. */ }
   if(!m) return;
   var token = String(m[1]);
-  /* ⭐ THE SHARE FLAG (2026-09-06). /r/<token> alone is still, and only ever, the
-     FRIEND'S quote form — every link already out in the wild (texts, the old RSVP
-     button) keeps working exactly as before. /r/<token>?share=1 is a second,
-     different door onto the SAME token: the address the RSVP email's own button
-     now points to, for the REFERRER to open and hand their link to somebody else.
-     Mixing the two up would put a customer on their own quote form, or a friend on
-     a page asking them to share a link that was never theirs. */
-  var isShareLink = false;
-  try{ isShareLink = new URLSearchParams(window.location.search || '').get('share') === '1'; }
-  catch(e){ /* quiet on purpose: an unreadable query is treated as a plain /r/ link, the safer of the two guesses */ }
-  if(isShareLink){
-    window.location.hash = '/share?token=' + encodeURIComponent(token);
-    try{ window.history.replaceState(null, '', '/' + window.location.hash); }
-    catch(e){ /* quiet on purpose: cosmetic. A blocked replaceState leaves /r/<token>?share=1 showing and changes nothing about which page opens */ }
-    return;
-  }
+  /* ⚠ THERE IS NO ?share=1 DOOR ANY MORE, and it is worth saying why rather than
+     leaving the next reader to wonder. Two sessions answered the same complaint — the
+     Refer a Friend button landing the CUSTOMER on the friend's quote form — and both
+     worked: /s/<token> (a page of its own, with its own Netlify rewrite) and
+     /r/<token>?share=1 (this reader branching on a query flag). /s/ shipped first and
+     is deployed, so it is the one kept; the merge that brought the other branch in left
+     this flag behind, pointing at a SECOND `hash === '/share'` router branch that could
+     never run — the branch above it always matched first and read a differently-named
+     parameter, so the flag landed on the share page with no token and drew the "link is
+     missing its code" message. Deleted rather than repaired: one door, and /s/ is it. */
   try{ sessionStorage.setItem(REFERRAL_LINK_KEY, token.slice(0, 64)); }
   catch(e){ /* Private browsing refuses sessionStorage. The quote still goes through; the referral is simply not counted, which is the safe direction. */ }
   /* Straight to the quote form — that is what the link is FOR — and the token is
@@ -6493,7 +6472,7 @@ function portalReferralLink(token){
    REFERRER — it is their incentive, not the friend's, and naming it here would
    make the recommendation read as self-serving, which Addie explicitly rejected.
    ⚠ THERE IS ONLY ONE COPY. admin.html's and functions/index.js's referral buttons
-   both link to /r/<token>?share=1, which routes into THIS page's #/share, so
+   both link to /s/<token>, which routes into THIS page's #/share, so
    there is nothing for either of those files to keep in sync with this line —
    they never carried their own copy of it.
    ⭐ THE $30 SETUP-FEE WAIVER, ADDED 2026-09-07. Addie: "Anyone that is enrolled
@@ -6516,7 +6495,7 @@ function referralShareLine(){
     'If you register through this referral link, you will not have to pay the $' +
     NEW_MEMBER_FEE + ' installation fee.';
 }
-/* ⭐ REMOVED WITH THE TWO BUTTONS (2026-09-07, REF-16): referralShareMessage,
+/* ⭐ REMOVED WITH THE TWO BUTTONS (2026-09-05, REF-12): referralShareMessage,
    referralSmsHref and referralMailtoHref built the bodies for hand-rolled sms: and
    mailto: links. Addie: "I don't want a text and email button I want to do a share
    link kind of thing than depending on if they choose to send it through email or

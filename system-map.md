@@ -153,6 +153,16 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    sentence is printed on the card beside the switch. **Admin › Invoices › Unpaid Last Season** holds the
    switch and a *Send Once, Now* button that runs the same batch without turning anything on.
 
+   ⚠ **AND ON 2026-09-07 IT WAS SWITCHED ON** (RS-55). Dax: *"turn the first one on."* The shipped state is
+   still off — this is a value in Firestore, not a code change — but `settings/arrearsRsvpAutomation.enabled`
+   now reads `true` in production, so the 10:00 America/Denver run sends for real, daily. **It reverses
+   MON-34, which is Addie's and is deliberately left Standing**; the card beside the switch says as much
+   ("worth a word with her first"). At the moment it was turned on the batch resolved to **19 customers,
+   $7,487.04, all 2025 arrears** — the rest skipping as owing nothing (929), already answered (5), no email
+   (2), or the test record (1). ⚠ Anyone reading this because a customer was chased twice wants
+   `arrearsRsvpEmailAt`, not the schedule: the switch decides whether it runs, that stamp decides who it
+   reaches. And a one-time send never needed the switch at all — *Send Once, Now* was always there.
+
    - **Who it writes to:** owes for a previous season **and has never answered the RSVP**. Not a no, not a
      back-next-year (RS-30 — they have answered), and not a yes (the template asks whether they want lights,
      which to somebody who already said so reads as us losing their answer).
@@ -178,6 +188,16 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
      She can set it back to All; what she cannot do is arrive at the overlap without choosing it.
    - ⚠ It leans on `etFilterPaidLast`, repointed on 2026-09-05 to read the **live** arrears rather than a
      snapshot nobody writes. That fix is the only reason this filter can be trusted to carry the split.
+   - **And it drops anyone who has already answered** (2026-09-07, RS-54). Dax: *"exclude people who are
+     confrmed."* Choosing either RSVP template also sets the *RSVP* filter to **Not answered yet**.
+     ⚠ **This was the last of the three send paths to do it**, which is why it survived so long: the nightly
+     chase skips on `if (answered) continue;` in `runArrearsRsvpBatch`, and *Send the whole RSVP* skips on
+     `effectiveRsvpStatus(d)` in `rsvpWholePlan`, so only Preview & Send — the one path driven by hand —
+     re-asked the people who had already replied. Three paths asking one question of different books is the
+     same failure shape as two senders over one book, and it reads to a customer as the office losing their
+     answer. ⚠ **`pending` is not `blank`**: `etRsvpAnswered` counts the literal status `unanswered` as
+     still unanswered, so that customer stays in the audience — they have not answered, they have only been
+     asked. A default, not a lock, like the two filters beside it, and the count line names itself.
 
    ⭐ **AND WHEN THEY PAY, EVERYTHING MOVES — INCLUDING THE OFFICE SCREEN** (2026-09-02, RS-40). Every
    figure on an All Customers row is derived live from the invoice, so a portal payment already cleared the
@@ -968,6 +988,86 @@ as the other two, because a second copy of "drop this line and re-total" is how
 one ledger starts disagreeing about what a ✕ does. ⚠ And it is never refused for
 want of an invoice: it exists precisely because the bill had already gone out.
 
+⛔ **AND FOR FOUR DAYS THE LINES WERE NOT LISTED AT ALL** (found and fixed 2026-09-07,
+MON-66). Dax: *"disounts and fees should be listed in a customers account but right now
+the fees and discounts arent being listed and when it is listed we should also have a
+way to delete it."* Three faults, and the first one hit every customer in the book.
+
+- ⛔ **`editCustInvoiceNow` ANSWERED `null` FOR EVERYBODY.** It handed the customer
+  RECORD to `allCustInvoiceFor`, which wants the address ITEM and asks
+  `custInvoiceKey(item.data)` — so it keyed on the empty string, every time. Every
+  caller therefore drew an EMPTY ledger: cross one fee off and the redraw blanked the
+  fee list **and** the discount list, so a ✕ that had genuinely worked looked like it
+  had deleted everything. Nothing threw. Every check on it read the code as text and
+  passed; only calling it can see this, which is why suite 309 now RUNS it.
+- ⚠ **THE LIST AND THE ✕ DISAGREED ABOUT WHICH BILL.** The ✕ was taught on 2026-09-07
+  to resolve `billToPhone` first; the LIST was left on the house's own key. A house
+  billed to somebody else has no invoice of its own, so it listed nothing while the ✕
+  pointed at the group's bill. One resolver now — `editCustInvoiceNow` — read by the
+  lines, the ✕, its redraw and the carried-debt summary.
+- ⛔ **A FEE TYPED ONTO A CUSTOMER WITH NO BILL WAS THROWN AWAY SILENTLY.** Every
+  ledger line lives on the invoice, and both no-invoice branches of the save write it
+  nowhere: no throw, no toast, a green *Saved*, and an empty Fees box on reopening.
+  **It now makes the bill** (MON-67, same day — Dax: *"minting the invoice feel free to
+  do that"*). The seed is built in memory and handed to the SAME rebuild the
+  existing-invoice branch runs, so the typed lines are placed by one rule and the whole
+  document lands in **one `setDoc`** — two awaited writes can half-succeed, and the half
+  that survives would be an empty bill with the fee still lost. ⚠ Only when a ledger line
+  was actually typed: minting on every save of an un-invoiced customer would put a $0
+  bill on people nobody has priced yet, and the price-only path still owns that case.
+  One live customer is affected today (956 customers, 935 invoices), so this is a guard
+  against a silent loss rather than a fix for a backlog.
+
+⭐ **AND THE CARRIED DEBT HAS AN ✕ NOW TOO** (2026-09-07, MON-67 — Dax: *"make the arrear
+line have an x"*). ⚠ **THIS REVERSES MON-55, WHICH CAME FROM ADDIE'S OWN MON-38**, and the
+old reasoning is kept because it is exactly what the new prompt carries: `arrearsOutstanding`
+is the **only** thing holding an unpaid customer off the schedule, so crossing that line off
+IS the *"hang them anyway"* button she was offered and turned down. There is no version of
+it that isn't — the hold is derived from the debt and nothing else.
+
+⭐ **What changed is that it can no longer happen silently**, which is the harm MON-55
+actually recorded: the button it was written against wrote off a real debt *and* released
+the hold, from a control labelled "remove light-change fee". ⚠ It lives in the shared
+write, **not** in either click handler — the Invoices panel and Edit Customer both come
+through it, and a copy in one of them is an ✕ that asks on one screen and not the other
+about the same money.
+
+⭐ **IT IS ONE PRESS, THE SAME AS EVERY OTHER LINE** (MON-69). It briefly asked the office
+to type the amount (MON-68, superseded the same day); Dax: *"Make it one press like the
+others — I'd keep the Inbox note either way, so a wrong one is still findable and
+reversible"*, and, on what the ✕ is for at all, *"the x is if we want to get rid of a fee
+or discount on someones profile"*. ⚠ **The risk MON-68 named has not gone away** — there is
+**$7,487.04** across the 19 rows carrying a carried debt, and crossing one off releases the
+schedule hold with it. What changed is which side of the trade is paid for: a row that
+argues back is a row the office learns to work around, on a control pressed in the ordinary
+run of tidying a bill.
+
+⭐ **And a written-off debt leaves a record — which is now the WHOLE of the protection**,
+and is what makes a bad press survivable.
+Waiving DELETES the line from `changeFeeNotes`, so without this there is no trace anywhere
+that the money was ever owed — the same asymmetry this file already names, a charge leaving
+a dated line and a waiver leaving nothing. A **Carried Debt Written Off** notice lands in
+the Inbox's *money* section carrying the amount, the season and the reason: everything
+needed to type it back into *Owed from a previous season*. ⚠ Only the carried debt gets
+one — a light-change fee or a discount coming off is ordinary office work, and a note for
+each would bury this one. ⚠ A failed note never undoes the write-off; the money is off the
+bill by then, so it is logged rather than thrown.
+
+⚠ `ledgerLineIsWaivable` is a blanket yes now rather than a whitelist — a whitelist fails
+silently, leaving whatever is invented next with no ✕ and a screen that looks like nobody
+was charged. It is still the write-side guard, and **fee-waive.test.js §6 runs the renderer
+and the write over every kind and fails if they disagree**, so a protection reintroduced
+later cannot draw an ✕ the write refuses.
+
+⚠ **`allCustInvoiceFor` IS UNTOUCHED AND MUST STAY NARROW** — it answers "the invoice
+filed under this HOUSE'S OWN key", and the Edit Customer save calls it directly to find
+and zero a leftover when somebody starts billing elsewhere. The guard written for that
+on 2026-09-07 named `editCustInvoiceNow` instead, which the save has never called; it is
+repointed to the function that actually carries the rule. ⚠ And the boxes above the
+lines still read `ecInv`, the house's own invoice, because the save rebuilds the manual
+fee and discount FROM those boxes — filling them from a group's bill would copy one
+household's fee onto another on the next press.
+
 **Two separate fees, easy to conflate — the set-up fee is $30, the light-change fee
 is $30.** The set-up one moved to $25 on 2026-09-03 (*"make the set up fee $25"*) and
 back to **$30 on 2026-09-07** — Dax: *"we need to change the instalation fee to $30."*
@@ -1057,6 +1157,48 @@ written into that customer's history.
     Each live entry is marked `waived` in the **same write** as the count — `waived` kept
     apart from `revoked`, because one means the office crossed it off and the other means
     the friend cancelled, and a season later that difference is what explains the bill.
+    ⭐ **AND SINCE 2026-09-08 (REF-24) IT IS ONE LINE PER REFERRAL, NAMING THE FRIEND,
+    WITH A × EACH.** Addie: *"in discount I cannot currently see who got what discount.
+    That should show with an x at the right side."* The × was already there; **who** was
+    missing — every referral collapsed into a single "Referral — 3 people" line, so the
+    office could see $75 had come off and never which three friends earned it, and one ×
+    took all three off at once. `referralCreditNotes` builds a `{amount, reason, kind,
+    ref, date}` line per live entry, `ref` being the referred customer's id, and the ×
+    marks **that entry alone** `waived`.
+    ⚠ **The count is RECOMPUTED, never zeroed**, now that one × need not mean all of
+    them — writing `referralCount: 0` would wipe the discount for referrals nobody
+    crossed off.
+    ⚠ **An old collapsed line still means all of them.** Every invoice raised before this
+    holds one line with no `ref`; a × that matched nothing there would take the money off
+    and leave the count standing to put it straight back on the next save.
+    ⚠ **A typed count with no entries behind it is unchanged.** The People They Referred
+    box writes a number nobody linked to a person, so anything it claims beyond the
+    entries stays one collapsed line — which is also the whole of the Add Customer path,
+    where no entry can exist yet.
+  - ⭐ **WHICH SEASON THE $25 COMES OFF** (2026-09-08, REF-23). Addie: *"if someone shares
+    there referal link but denied for this year than they will get discount for next year
+    however if they approved for this year they will get discount for this year."*
+    ⚠ **Without it the $25 was simply lost.** A customer who has said no or Back Next Year
+    has no bill this season, so `applyReferralCreditLine` found no invoice and returned
+    false — and REF-14 then stopped the entry counting in any LATER season, because it was
+    stamped with the year it was earned. Somebody who brought us a customer while sitting
+    out earned nothing at all, silently.
+    ⚠ **`referralCreditSeason` asks `houseIsOnTheBill`, not `isOutForSeason`.** This is a
+    question about a BILL — is there one this season for the discount to come off — and
+    that rule already answers it and is swept against the server copy by money-parity.
+    `isOutForSeason` would be wrong twice: it also returns true for `needsLightRecycle`, a
+    warehouse state that says nothing about money, and once `SEASON_ELIGIBILITY` is live it
+    returns true for everybody who has not replied, which would push almost every referral
+    in the book to next season on the day the RSVP goes out. A house that was **hung** is
+    billed (Q-013), so a flat "no" on a completed house still earns it this season.
+    ⚠ **Held credits are shown, never put on the invoice.** `referralHeldCount` feeds the
+    Refer a friend row in Edit Customer — "+1 held for next season" — because adding them
+    to this season's credits would take money off a bill they are not for, and leaving them
+    invisible makes a referral earned while sitting out look exactly like one that never
+    counted.
+    ⚠ **One case is deliberately open**: somebody who earns a credit while they are IN the
+    season and answers no afterwards keeps a credit stamped for a season they are no longer
+    billed for. `docs/open-questions.md` Q-029.
   - ⚠ **No late fee is charged today.** The rule is decided and unbuilt ($25 if they have
     paid something, $40 if they have not — PROC-32). The × is built against the ledger
     rather than against a named fee, so a late fee written later is waivable the day
@@ -1089,6 +1231,22 @@ member's bill — with nobody in the office typing anything.
       tree that does not implement it fails for the right reason and would have been
       "fixed" by somebody re-adding the flag; its duplicate `page-share` markup went too,
       because two elements with one id is a page where the wrong one wins silently.
+    - ⚠ **AND THE DROPPED HALF WAS STILL IN THE TREE UNTIL 2026-09-08.** The two sides
+      never touched the same lines, so the merge kept BOTH — and the result was two
+      `else if(hash === '/share')` branches in `index.html`'s router. The first always
+      matched, it read `?t=` while the second's producer wrote `?token=`, and the second
+      could never run: every surviving `?share=1` link landed on the share page with no
+      token and drew *"that link is missing its code"*. A dead door that read as live in
+      the source, and **nothing went red** — every share-page check drives `/s/`, which is
+      the branch that won, so a duplicate branch is invisible to any test that only
+      exercises the winner. The `?share=1` flag, the unreachable branch, its
+      `share-minimal` CSS and a comment claiming the email buttons pointed at it are all
+      gone; `/s/` is the one door. Suite 308 now counts the hashes the router tests and
+      fails on a repeat, which is the general form of this.
+      ⚠ **One thing went with it that was not a mistake**: their `share-minimal` styling
+    gave the share page the whole screen, with the site header and footer hidden. That
+    is a design change nobody asked for, so it was not smuggled in on a merge — the page
+    looks exactly as it has since 2026-09-05. It is four CSS lines if it is ever wanted.
   - ⭐ **ONE TOKEN, TWO ADDRESSES, FOR TWO DIFFERENT PEOPLE** (2026-09-05, REF-13).
     `/r/<token>` is what the **friend** opens — it stores the token and goes to the free
     quote form, which is what credits the referral. `/s/<token>` is what the **customer**
@@ -1127,6 +1285,25 @@ member's bill — with nobody in the office typing anything.
     ⚠ **A table, not a flex row**, and inline styles only: Outlook has neither flexbox nor
     `border-radius`, so it degrades to a square box with the link and the icon still side
     by side, which is the whole of the design.
+    ⚠ **AND IT IS THINNER SINCE 2026-09-08** (REF-20). Addie: *"can we make this box a
+    little thinner just is thick."* Padding only — the shape is unchanged, so REF-19 is
+    refined rather than superseded: the icon lost its 6px top-and-bottom margin and went
+    from 11px to 9px of vertical padding at 15px rather than 16px, and the two cells went
+    from 10px/6px to 8px/4px. About 62px tall to about 41px. It did not go thinner still
+    because the icon is a **tap target on a phone** — it is what reaches the share sheet,
+    and a 20px gold square in an email is a miss as often as a hit. Both renderers moved
+    in the same push, which suite 308's byte-for-byte comparison enforces.
+    ⚠ **AND THE SQUARE HOLDS AN ARROW, NOT A TRAY** (2026-09-08, REF-22). Addie sent a
+    picture of the macOS share button: *"can we cahnge the share button to this instead."*
+    The exact glyph is an Apple **private-use** SF Symbol — it renders on Apple devices
+    and as an empty box everywhere else — and REF-17's no-`<svg>`-no-`<img>` rule stands
+    (a hosted PNG is worse: most clients block remote images, so the icon would simply be
+    absent, which is the REF-21 complaint all over again). So **the gold rounded square is
+    the box**, and a plain `\u2191` (U+2191) on it is the arrow coming out of the top.
+    `\u2191` is a text arrow, not an emoji: monochrome everywhere, inheriting the button's
+    own dark green. `\u2b06` was rejected for the opposite reason — many clients draw it as
+    a blue emoji arrow, which fights the gold. 17px bold so it reads as the thick arrow in
+    her picture rather than a stray character.
   - ⭐ **AND THE OFFICE CAN OPEN THAT PAGE** (2026-09-07, REF-18). Addie, after the share
     icon shipped: *"where do I find the page that comes up after pushing the share link
     icon cause I thought it would just go to there member portal refer a friend section."*
@@ -1148,6 +1325,38 @@ member's bill — with nobody in the office typing anything.
     join its lift list in the same change. The new call sits inside `if(url)`, so a
     tokenless fixture hides the gap and the suite stays green while one fixture away from
     a bare ReferenceError that takes the whole run down. A red-check is what found it.
+  - ⭐ **AND THE SEND SAYS WHEN SOMEBODY GOT NO LINK** (2026-09-08, REF-21). Addie:
+    *"why is the referal share button/link not working anymore… its not even showing up
+    anymore."* The rendering was right; **the silence was the bug.** Every path here emits
+    an empty string rather than a dead link — correct for the customer, invisible to the
+    office — so a whole-book RSVP carrying no offer at all produced the same green
+    *"Done — sent 312"* as one where everybody got theirs.
+    ⚠ **`referralOfferFor` is now the one resolver**, and it returns the REASON beside the
+    html. `referralEmailBlock` and the send both read it, so the email and the report on it
+    cannot disagree about whether a customer has a link. `referralOfferProse` holds the $25
+    sentence once, for the same reason.
+    ⚠ **The send counts and names.** `etSendTemplateRun` returns `noReferral` and up to
+    five names with reasons; `referralMissingNote` writes the one sentence both senders
+    print. Empty when nobody was missed — a warning on every ordinary send is one the
+    office learns to scroll past.
+    ⚠ **AND `Check first` SAYS WHERE THE OFFER WILL APPEAR, BEFORE ANYTHING GOES.**
+    `referralOfferPlacement` answers `code` (her template places `{{referral_button}}`, so
+    the box lands where she put it), `appended` (it does not, so REF-15 puts the offer on
+    the END) or `none`. **This is the line that answers her question without sending
+    anything**: her own RSVP body carries no code, so the offer was going to the bottom
+    rather than beside the sentence she had written about it, and nothing anywhere said so.
+    ⚠ **The customer's email is unchanged** — `html` is '' in exactly the same cases as
+    before — and the offer is counted whether the template places the code or not, because
+    the token behind both paths is the same one.
+    ⚠ **And the rendering is RUN now, not read** (suite 311). It never had been: suite 305
+    matched a regex over a slice of the file and suite 308 ran the box builder on addresses
+    it supplied itself, so nothing had ever asked *given a real customer record, does a
+    link come out*. ⚠ `resolveLinkTokens` **cannot be lifted by `extractFn` at all** — it
+    contains the string `'{{custom_'`, two opening braces with no closers, which runs the
+    brace counter off the end of the file and makes the function read as MISSING — so a
+    suite written the ordinary way would have skipped, silently, for ever. It is sliced
+    between its own signature and the next declaration, and the slice is asserted whole
+    before anything runs on it.
   - ⚠ **The share page stores NOTHING as a referral.** The `/r/` reader writes the token
     into `sessionStorage` so the quote that follows is credited; doing the same on `/s/`
     would mark the customer as referred by themselves and their next quote would be
@@ -1371,7 +1580,7 @@ briefly became first).
 - **The Member Portal got the same Share button**, right in the Refer a Friend tab beside
   the existing Copy My Link, feature-detected the same way — never removed, never hidden
   behind it.
-- ⭐ **AND THE TEXT/EMAIL PAIR IS GONE, NOT HIDDEN** (2026-09-07, REF-16). Addie: *"I
+- ⭐ **AND THE TEXT/EMAIL PAIR IS GONE, NOT HIDDEN** (2026-09-07, REF-12). Addie: *"I
   don't want a text and email button I want to do a share link kind of thing than
   depending on if they choose to send it through email or text or whatsapp it will
   change how its sent. Whatsapp and text should be the same."* `navigator.share` is
@@ -1388,7 +1597,7 @@ briefly became first).
   the button while `{{referral_link}}` stays the untouched plain URL.
 
 ⭐ **A FRIEND WHO COMES IN THROUGH A REFERRAL LINK PAYS NO SETUP FEE** (added
-2026-09-07, REF-13). Addie: *"Anyone that is enrolled by refer a friend will NOT be
+2026-09-07, REF-29). Addie: *"Anyone that is enrolled by refer a friend will NOT be
 getting charged for the 30 dollar installation fee. Can we also add that in the
 text/email."*
 
@@ -1416,12 +1625,12 @@ text/email."*
   out of self-serving territory and Addie asked for it by name, with the exact
   wording used above. The RSVP email's own explainer to the referrer (the "$25 off
   your bill" line, and the share page's matching note) is unchanged.
-⭐ **AND THE LINK EXPIRES AT THE END OF THE SEASON** (added 2026-09-07, REF-14). Addie:
+⭐ **AND THE LINK EXPIRES AT THE END OF THE SEASON** (added 2026-09-07, REF-25). Addie:
 *"If referal link is from last year and they are using it than it should still charge 30
 dollar fee. They should use there new referal link every year which should give new
 referal links every year."* This narrows the rule directly above it.
 
-- ⭐ **Start New Season is what hands out the new links** (REF-18). Addie: *"Can we just
+- ⭐ **Start New Season is what hands out the new links** (REF-28). Addie: *"Can we just
   have a button we can push that says start new season and it will update everything?"*
   One press rotates every customer's referral link, stamps it with the season, and keeps
   the retired token so the $25 credit can still resolve it. **The season is the button,
@@ -1457,7 +1666,7 @@ referal links every year."* This narrows the rule directly above it.
   credit resolves a link back to whoever made it; throwing the retired token away would
   have quietly ended that credit for every link already out in the world. Addie ruled on
   the **fee**, not the credit, so a retired link still earns the $25. **That half is not a
-  live question yet** (REF-17): no such link exists, so there is nothing to decide until
+  live question yet** (REF-27): no such link exists, so there is nothing to decide until
   next season.
 - ⭐ **AND IT CLOSED A HOLE NOBODY HAD ASKED ABOUT.** The first version waived the fee for
   any non-empty token, so `/r/anything` typed into the address bar bought $30 off — the
@@ -1465,7 +1674,7 @@ referal links every year."* This narrows the rule directly above it.
   asks whether this is the link that customer holds right now, so an invented token and a
   retired one are both charged.
 
-⭐ **AND THE CARD SAYS WHY THE BOX IS UNTICKED** (added 2026-09-07, REF-15). Addie: *"For
+⭐ **AND THE CARD SAYS WHY THE BOX IS UNTICKED** (added 2026-09-07, REF-26). Addie: *"For
 referals for not tickig the box the reason is refferal."* `quoteChargesSetupFee` answers
 false for three quite different reasons — a re-quote, a referral, or the office having
 unticked it themselves — and only the first had ever said so on the card.
