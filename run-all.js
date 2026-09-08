@@ -48104,9 +48104,17 @@ suite('287. The routine route sweep does not bury the notice that matters');
              lift throws on its first call, the batch swallows it per customer, and the
              suite reports "0 customers written to" as though the filter were wrong. */
           const alpha = (fnsSrcChase.match(/const REFERRAL_TOKEN_ALPHABET = '[^']+';/) || [])[0];
-          if(!src || !gen || !alpha) return null;
+          /* ⚠ AND THE SEASON STAMP, for exactly the same reason and missed the same way.
+             ensureReferralToken writes `referralTokenSeason: referralSeasonNow()`, so
+             once that field was added this lift threw on its FIRST call — and the batch
+             swallows a throw per customer, so five checks here reported "0 customers
+             written to" as though the AUDIENCE FILTER were wrong. That is the second
+             time this exact trap has been sprung on this one function; the paragraph
+             above is about the first. */
+          const season = extractFn(fnsSrcChase, 'referralSeasonNow');
+          if(!src || !gen || !alpha || !season) return null;
           const NL = String.fromCharCode(10);
-          return new Function('db', alpha + NL + gen + NL + 'async ' + src + NL + 'return ensureReferralToken;')(db);
+          return new Function('db', alpha + NL + season + NL + gen + NL + 'async ' + src + NL + 'return ensureReferralToken;')(db);
         })(),
         /* ⚠ LIFTED, NOT STUBBED, for the same reason. This is what draws the referral
            BOX into the body (REF-19), and its icon style is a module-level const OUTSIDE
@@ -54025,7 +54033,12 @@ suite('Suite 311. The referral offer, RUN rather than read');
     'referralShareLinkFromToken', 'referralShareBoxHtml', 'generateReferralToken',
     'applyQuoteLinkLabel', 'applyQuoteLinkButton', 'referralOfferFor', 'referralOfferProse',
     'referralEmailBlock', 'referralOfferPlacement', 'rsvpTemplateHasReferral',
-    'etTemplateIsRsvp', 'referralMissingNote'];
+    'etTemplateIsRsvp', 'referralMissingNote',
+    /* ⚠ referralTokenFor MINTS A TOKEN AND STAMPS THE SEASON ON IT, so it calls
+       referralSeasonNow. Left out, every fixture that reaches the minting branch died
+       with a bare ReferenceError attributed to whichever suite happened to be running
+       — the exact unattributable crash assertSandbox exists to name (§3). */
+    'referralSeasonNow'];
   const lifted311 = {};
   needed311.forEach(function (n) { lifted311[n] = extractFn(admin, n); });
   const missing311 = needed311.filter(function (n) { return !lifted311[n]; });
