@@ -1488,6 +1488,29 @@ member's bill — with nobody in the office typing anything.
     when they bill elsewhere — so a tenant's $25 can land on a leftover invoice nobody
     reads. Both writers agree on that today, so it is a settled shape rather than drift,
     but where it SHOULD land is undecided: `docs/open-questions.md` Q-030.
+- ⭐ **THE LINK IS NOT SINGLE-USE, BUT ONE FRIEND EARNS IT ONCE** (REF-31, 2026-09-08).
+  Addie: *"If the link is used twice for two separate people and addresses then we can
+  give the costumer to referral discounts but discount only takes affect after they are
+  converted to costumer."* Two friends through one link is two $25 discounts on two named
+  lines — that already worked, because the idempotency guard is `referralCredited` on the
+  QUOTE. What did not work is the other half of her sentence: one friend who submits the
+  public form twice is two quotes, so the referrer was paid **$50 for one house**, and
+  nothing said so. `referralAlreadyCreditedFor` refuses the second, matching on phone or
+  email — never the address, and never the name.
+  - ⚠ **The refusal goes through `referralBlocked` like the other two**, so it is stamped
+    on the quote, recorded on the referrer's own record and named in the Inbox. The office
+    can still put it right by typing the count up.
+  - ⚠ **Revoked does not block; waived does.** Revoked means that friend cancelled, so a
+    genuine re-join earns it properly. Waived means the office crossed the $25 off on
+    purpose, and re-crediting it would undo that decision silently.
+  - ⚠ **Two different people at ONE address currently earn two discounts** (they differ by
+    phone and email). That reads right — two customers, two bills — but her wording could
+    be read the other way, so it is asked rather than assumed: `docs/open-questions.md`
+    Q-031.
+- **Nothing is credited until they are a customer.** `creditReferralIfAny` is called only
+  at the two conversion doors, so a quote that merely carries the token has moved no
+  money — her *"only takes affect after they are converted"*, now asserted rather than
+  left as a property nobody checked.
 - **Who is refused.** Either the phone or the email matching the referrer's is a hard
   refusal, and their own record is refused first by document id. **Nothing verifies either
   field** — no OTP exists here and building one was turned down — so a determined person can

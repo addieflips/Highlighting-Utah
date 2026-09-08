@@ -49854,6 +49854,12 @@ suite('299. A referral link, and the $25 that follows it');
        the shipped rule rather than a second opinion. */
     ['referralEntryCountsIn', false], ['referralSeasonOr', false],
     ['referralIsSelfReferral', false], ['referralClawbackAllowed', false],
+    /* ⚠ AND THE ONE THAT STOPS ONE FRIEND EARNING TWICE (REF-31). LIFTED, NOT STUBBED:
+       a stub of this decides who gets paid, which is the whole of what this suite
+       protects. Leaving it out is not a skip either — creditReferralIfAny swallows the
+       ReferenceError per conversion, so 18 checks failed as though the CREDIT PATH were
+       broken. That is §3's trap, sprung by the commit that added the function. */
+    ['referralAlreadyCreditedFor', false],
     ['applyReferralCreditLine', true], ['referralNote', true],
     ['creditReferralIfAny', true], ['referralBlocked', true],
     ['referralMarkQuote', true], ['clawBackReferralIfAny', true],
@@ -50059,6 +50065,258 @@ suite('299. A referral link, and the $25 that follows it');
             !!back.message && !/off their bill/.test(String(back.message)),
             'the note said the credit was taken back off a bill that does not exist — ' +
             'same hole as the credit note above, one direction further on');
+        }
+
+        /* ---- 1d. HER RULE FOR A LINK USED MORE THAN ONCE ------------------
+         * Addie, 2026-09-08: "If the link is used twice for two separate people and
+         * addresses then we can give the costumer to referral discounts but discount
+         * only takes affect after they are converted to costumer."
+         * Three claims, each RUN rather than read.  [[REF-31]] */
+        {
+          /* (a) two separate people at two separate addresses earn TWO discounts. */
+          const w = world({
+            customers: [referrer(),
+                        {id: 'NEW1', data: {name: 'Kyle New'}},
+                        {id: 'NEW2', data: {name: 'Maria Lopez'}}],
+            invoices: {'8015550111': bill()},
+            quotes: {q1: {}, q2: {}}
+          });
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com',
+                     street: '1 Elm St'});
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'},
+            'NEW2', {name: 'Maria Lopez', phone: '8015558888', email: 'maria@x.com',
+                     street: '2 Oak Ave'});
+          const inv = w.invoices['8015550111'];
+          const refLines = (inv.creditNotes || []).filter(c => c.kind === 'referral');
+          check('S299', 'one link used by two different people earns two discounts',
+            inv.credits === 50 && refLines.length === 2,
+            'got $' + inv.credits + ' over ' + refLines.length + ' line(s) — the link is ' +
+            'not single-use, and a second friend through it is a second $25');
+          check('S299', 'and each line names the friend who earned it',
+            refLines.some(c => /Kyle New/.test(c.reason)) &&
+            refLines.some(c => /Maria Lopez/.test(c.reason)),
+            'two lines both reading "Referral" cannot be told apart, and the × beside ' +
+            'them would be a guess about which friend is being crossed off');
+        }
+        {
+          /* (b) THE SAME PERSON THROUGH THE LINK TWICE IS ONE DISCOUNT, NOT TWO.
+             "two separate people and addresses" is the condition she put on the pair,
+             so a friend who submits the public form twice — or is converted twice — is
+             one referral. The office never sees the second $25 arrive, because the
+             count and the line both move silently. */
+          const w = world({
+            customers: [referrer(),
+                        {id: 'NEW1', data: {name: 'Kyle New'}},
+                        {id: 'NEW1B', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill()},
+            quotes: {q1: {}, q2: {}}
+          });
+          const same = {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com',
+                        street: '1 Elm St'};
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'}, 'NEW1', same);
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'}, 'NEW1B', same);
+          const inv = w.invoices['8015550111'];
+          check('S299', 'the same friend through the link twice is one discount, not two',
+            inv.credits === 25,
+            'got $' + inv.credits + ' — one friend, two quotes, and the referrer was ' +
+            'paid twice for them; her rule is two separate PEOPLE and ADDRESSES');
+        }
+        {
+          /* (c) NOTHING IS CREDITED UNTIL THEY ARE A CUSTOMER. The only callers are the
+             two conversion doors, so this asserts the property from the other end: a
+             quote that merely carries the token has changed no money. */
+          const w = world({
+            customers: [referrer(), {id: 'NEW1', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill()},
+            quotes: {q1: {referredByToken: 'tok-dana'}}
+          });
+          check('S299', 'a quote carrying the link has earned nothing yet',
+            w.invoices['8015550111'].credits === 0 &&
+            !(w.customers.find(c => c.id === 'REF1') || {}).data.referralCount,
+            'the discount only takes effect once the friend is converted — a quote ' +
+            'that may never be answered must not move money');
+        }
+
+        {
+          /* (d) AND AN ENTRY WRITTEN BEFORE TODAY CARRIES NO CONTACT AT ALL, so the rule
+             has to reach the customer RECORD to answer. Without that fallback it is blind
+             to precisely the duplicates already sitting in the book — the ones this was
+             built for. The entry here is shaped the way every pre-REF-31 writer wrote
+             one: an id and a name, nothing else. */
+          const w = world({
+            customers: [referrer({referralCredits: [{referredCustomerId: 'OLD1',
+                          referredName: 'Kyle New', amount: 25,
+                          creditedAt: new Date().toISOString(),
+                          season: new Date().getFullYear(), revoked: false}],
+                        referralCount: 1}),
+                        {id: 'OLD1', data: {name: 'Kyle New', phone: '8015559999',
+                                            email: 'kyle@x.com'}},
+                        {id: 'NEW2', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill({credits: 25, creditNotes: [
+              {kind: 'referral', amount: 25, reason: 'Referral — Kyle New', ref: 'OLD1'}]})},
+            quotes: {q2: {}}
+          });
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'},
+            'NEW2', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com'});
+          check('S299', 'a referral already on file with no contact stamped still blocks',
+            w.invoices['8015550111'].credits === 25,
+            'got $' + w.invoices['8015550111'].credits + ' — every entry written before ' +
+            'REF-31 holds only an id and a name, so a rule that reads the entry alone ' +
+            'cannot see the duplicates that already exist');
+          check('S299', 'and the refusal is recorded rather than dropped',
+            w.notes.some(n => n.topic === 'Referral Blocked'),
+            'a refusal nobody can see is indistinguishable from the link not working — ' +
+            'this is the same argument the self-referral refusal already makes');
+        }
+        {
+          /* (e) A REVOKED ENTRY DOES NOT BLOCK. Revoked means that friend cancelled, so
+             a genuine re-join earns it properly — the opposite of a duplicate. */
+          const w = world({
+            customers: [referrer({referralCredits: [{referredCustomerId: 'OLD1',
+                          referredName: 'Kyle New', referredPhone: '8015559999',
+                          amount: 25, creditedAt: new Date().toISOString(),
+                          season: new Date().getFullYear(), revoked: true}],
+                        referralCount: 0}),
+                        {id: 'NEW2', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill()},
+            quotes: {q2: {}}
+          });
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'},
+            'NEW2', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com'});
+          check('S299', 'a friend who cancelled and came back earns it properly',
+            w.invoices['8015550111'].credits === 25,
+            'got $' + w.invoices['8015550111'].credits + ' — a revoked entry is a ' +
+            'cancellation, not a duplicate, and blocking on it would silently refuse a ' +
+            'real referral for ever');
+        }
+
+        {
+          /* (f) AND THE CONTACT IS STAMPED ON THE ENTRY, which the fallback above hides:
+             with the record still in the book a lookup answers, so dropping the stamp
+             breaks nothing a fixture would notice. It matters once that customer is
+             DELETED or merged away — the lookup then returns nothing and the entry is the
+             only thing left that can say who this referral was for. A duplicate-customer
+             merge is ordinary housekeeping here, so this is not a hypothetical.
+             ⚠ THIS CHECK EXISTS BECAUSE THE RED-CHECK SAID SO: blanking the stamp was a
+             sabotage nothing caught. */
+          const w = world({
+            customers: [referrer(), {id: 'NEW1', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill()}, quotes: {q1: {}}
+          });
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com'});
+          const saved = ((w.customers.find(c => c.id === 'REF1') || {}).data || {})
+            .referralCredits || [];
+          check('S299', 'the friend\'s contact is stamped on the referral entry',
+            saved.length === 1 &&
+            String(saved[0].referredPhone || '').replace(/\D/g, '') === '8015559999' &&
+            String(saved[0].referredEmail || '') === 'kyle@x.com',
+            'got ' + JSON.stringify(saved[0] || {}) + ' — without the stamp the ' +
+            'no-double-credit rule depends on that customer still existing, and it is ' +
+            'blind the moment they are deleted or merged');
+
+          /* And it really is enough on its own: same friend, record GONE from the book. */
+          const w2 = world({
+            customers: [referrer({referralCredits: saved, referralCount: 1}),
+                        {id: 'NEW2', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill({credits: 25, creditNotes: [
+              {kind: 'referral', amount: 25, reason: 'Referral — Kyle New', ref: 'NEW1'}]})},
+            quotes: {q2: {}}
+          });
+          await w2.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'},
+            'NEW2', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com'});
+          check('S299', 'and that stamp still blocks after the friend\'s record is gone',
+            w2.invoices['8015550111'].credits === 25,
+            'got $' + w2.invoices['8015550111'].credits + ' — NEW1 is not in this book, ' +
+            'so only the stamp can answer, and this is exactly the state a merge leaves');
+        }
+
+        {
+          /* (g) THE PHONE IS NORMALISED BEFORE IT IS COMPARED, and only a fixture that
+             stores one the way the office really types it can prove that. Every fixture
+             above holds clean digits on both sides, so stripping the punctuation was
+             never exercised — a red-check comparing the raw strings went straight
+             through. This repo has been caught by exactly this before: "a fixture that
+             cannot fail is the trap this repo keeps re-learning". */
+          const w = world({
+            customers: [referrer({referralCredits: [{referredCustomerId: 'OLD1',
+                          referredName: 'Kyle New',
+                          referredPhone: '(801) 555-9999',      /* as an import keeps it */
+                          referredEmail: '',
+                          amount: 25, creditedAt: new Date().toISOString(),
+                          season: new Date().getFullYear(), revoked: false}],
+                        referralCount: 1}),
+                        {id: 'NEW2', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill({credits: 25, creditNotes: [
+              {kind: 'referral', amount: 25, reason: 'Referral — Kyle New', ref: 'OLD1'}]})},
+            quotes: {q2: {}}
+          });
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'},
+            'NEW2', {name: 'Kyle New', phone: '8015559999', email: ''});
+          check('S299', 'a formatted phone and a digits one are the same friend',
+            w.invoices['8015550111'].credits === 25,
+            'got $' + w.invoices['8015550111'].credits + ' — the office types ' +
+            '"(801) 555-9999" and every writer here stores digits, so a raw compare ' +
+            'never matches and the duplicate is paid for');
+
+          /* ⚠ AND THE OTHER WAY ROUND, which is a SEPARATE sabotage: the check above
+             formats the STORED side only, so normalising the INCOMING one was still
+             never exercised and a red-check on it went through. Both sides strip. */
+          const w2 = world({
+            customers: [referrer({referralCredits: [{referredCustomerId: 'OLD1',
+                          referredName: 'Kyle New', referredPhone: '8015559999',
+                          referredEmail: '', amount: 25,
+                          creditedAt: new Date().toISOString(),
+                          season: new Date().getFullYear(), revoked: false}],
+                        referralCount: 1}),
+                        {id: 'NEW2', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill({credits: 25, creditNotes: [
+              {kind: 'referral', amount: 25, reason: 'Referral — Kyle New', ref: 'OLD1'}]})},
+            quotes: {q2: {}}
+          });
+          await w2.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'},
+            'NEW2', {name: 'Kyle New', phone: '(801) 555-9999', email: ''});
+          check('S299', 'and a formatted phone arriving on the quote matches too',
+            w2.invoices['8015550111'].credits === 25,
+            'got $' + w2.invoices['8015550111'].credits + ' — the public form takes ' +
+            'whatever the friend types, so the incoming side needs normalising just as ' +
+            'much as the stored one');
+        }
+        {
+          /* (h) AND THE EMAIL HALF DECIDES ON ITS OWN. Every fixture above matches on the
+             phone as well, so deleting the email comparison entirely changed nothing —
+             the other red-check MISS. Two phones, one address. */
+          const w = world({
+            customers: [referrer({referralCredits: [{referredCustomerId: 'OLD1',
+                          referredName: 'Kyle New', referredPhone: '8015559999',
+                          referredEmail: 'Kyle@X.com',          /* and the case differs */
+                          amount: 25, creditedAt: new Date().toISOString(),
+                          season: new Date().getFullYear(), revoked: false}],
+                        referralCount: 1}),
+                        {id: 'NEW2', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill({credits: 25, creditNotes: [
+              {kind: 'referral', amount: 25, reason: 'Referral — Kyle New', ref: 'OLD1'}]})},
+            quotes: {q2: {}}
+          });
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'},
+            'NEW2', {name: 'Kyle New', phone: '8017770000', email: 'kyle@x.com'});
+          check('S299', 'the same email at a new number is still the same friend',
+            w.invoices['8015550111'].credits === 25,
+            'got $' + w.invoices['8015550111'].credits + ' — somebody who changed their ' +
+            'number is not a second referral, and an equality compare would miss the ' +
+            'case difference too');
         }
 
         /* ---- 2. it is idempotent -------------------------------------- */
