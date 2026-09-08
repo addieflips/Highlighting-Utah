@@ -8634,30 +8634,76 @@ function rsvpTemplateHasReferral(template){
   const s = String(template||'');
   return s.indexOf('{{referral_button}}') !== -1 || s.indexOf('{{referral_link}}') !== -1;
 }
-async function referralEmailBlock(item){
+/* ⭐ ONE ANSWER TO "WHAT REFERRAL OFFER DOES THIS CUSTOMER GET, AND IF NONE, WHY"
+   (2026-09-08, REF-20). Addie: *"why is the referal share button/link not working
+   anymore… its not even showing up anymore"*.
+
+   ⚠ THE OLD BEHAVIOUR WAS TO RENDER NOTHING AND SAY NOTHING. Every path here was
+   written to emit an empty string rather than a dead link — which is right for the
+   customer and was silent for the office: a whole-book RSVP could carry no referral
+   offer at all and the green "Done — sent 312" said exactly what it says on a send
+   where every one of them got it. That is the failure Addie's own rule names ("nothing
+   should fail quietly"), and it is why the question could only be answered by reading
+   the code.
+
+   ⚠ SO THE REASON TRAVELS WITH THE HTML. `html` is '' exactly as before — nothing about
+   what the customer receives has changed — and `why` is the sentence the send report
+   prints. A caller that ignores `why` behaves as it always did.
+
+   ⚠ AND IT IS THE ONE RESOLVER. The share box has one builder per file already
+   (referralShareBoxHtml); this is the same move one level up, so the appended block and
+   the send's own count cannot disagree about whether a customer has a link. */
+async function referralOfferFor(item){
   try{
-    if(!item || !item.data) return '';
-    const token = await referralTokenFor(item);
+    if(!item || !item.id || !item.data){
+      return {html: '', token: '', why: 'no customer record to build one from'};
+    }
     /* ⚠ THE SHARE PAGE, NOT THE /r/ LINK. `/r/` is the address the FRIEND opens, so a
        button carrying it lands the REFERRER on the free quote form — the bug Dax
-       reported and the whole point of referralShareLinkFromToken. This block is the one
-       path that appears only when the saved template places no token, which makes it the
-       path least likely to be caught pointing at the wrong page. The BOX is built by
+       reported and the whole point of referralShareLinkFromToken. The BOX is built by
        referralShareBoxHtml, the one builder resolveLinkTokens also calls and the mirror
        of the server's own in runArrearsRsvpBatch — three spellings of one thing is two
        of them wrong, which is what a shared builder removes rather than polices. */
+    const token = await referralTokenFor(item);
     const url = referralShareLinkFromToken(token);
-    if(!url) return '';   /* no link means no box — never a box around a dead address */
-    return '<br><br>—<br><br>Know somebody who wants lights? Send them your own link '
-      + 'and we take $25 off this season’s bill when they sign up — as many '
-      + 'times as you like.<br><br>'
-      + referralShareBoxHtml(referralLinkFromToken(token), url);
+    /* no link means no box — never a box around a dead address */
+    if(!url) return {html: '', token: '', why: 'no referral code could be made for them'};
+    return {html: referralShareBoxHtml(referralLinkFromToken(token), url), token: token, why: ''};
+  }catch(err){
+    console.error('[HU] referral offer failed', err);
+    return {html: '', token: '', why: 'building it failed: ' + ((err && err.message) || err)};
+  }
+}
+/* ⚠ THE SENTENCE LIVES HERE AND NOWHERE ELSE. The appended block and the send's own
+   copy both need it, and two spellings of the offer is the customer being told two
+   different things about the same $25 depending on which button the office pressed. */
+function referralOfferProse(boxHtml){
+  if(!boxHtml) return '';
+  return '<br><br>—<br><br>Know somebody who wants lights? Send them your own link '
+    + 'and we take $25 off this season’s bill when they sign up — as many '
+    + 'times as you like.<br><br>'
+    + boxHtml;
+}
+async function referralEmailBlock(item){
+  try{
+    return referralOfferProse((await referralOfferFor(item)).html);
   }catch(err){
     /* The RSVP itself is the thing that must go out. A referral offer that could not
        be built is a missing paragraph; a thrown error here would cost the send. */
     console.error('[HU] referral block failed', err);
     return '';
   }
+}
+/* ⭐ WHERE THE OFFER COMES FROM, FOR THE OFFICE TO READ BEFORE SENDING (REF-20).
+   'code' — her template places {{referral_button}} itself, so the box appears exactly
+   where she put it; 'appended' — it does not, so REF-15 adds the offer on the end;
+   'none' — not an RSVP, and the offer only ever rides on those. This is the line that
+   would have answered her question on its own: a template with no code in it puts the
+   link at the BOTTOM, not beside the sentence she wrote about it. */
+function referralOfferPlacement(template){
+  if(!etTemplateIsRsvp(template)) return 'none';
+  const d = (template && template.data) ? template.data : template;
+  return rsvpTemplateHasReferral(d && d.body) ? 'code' : 'appended';
 }
 /* The block itself. Empty string for the ordinary customer with nothing
    outstanding, exactly like billedHousesEmailBlock — a paragraph saying "you
@@ -8835,7 +8881,7 @@ const QUOTE_LINK_BUTTON_STYLE = 'display:inline-block; padding:12px 28px; border
    clients — Outlook especially — and this repo has nowhere already hosting an icon
    image for an email to reference. The templates already carry emoji (the RSVP's 🎄),
    so this is the same trick, not a new one. */
-const SHARE_ICON_BUTTON_STYLE = 'display:inline-block; padding:11px 13px; border-radius:8px; text-decoration:none; font-size:16px; line-height:1; margin:6px 0 6px 4px; background:#D89F3D; color:#1E3B2C; vertical-align:middle;';
+const SHARE_ICON_BUTTON_STYLE = 'display:inline-block; padding:9px 11px; border-radius:8px; text-decoration:none; font-size:17px; font-weight:bold; line-height:1; margin:0 0 0 4px; background:#D89F3D; color:#1E3B2C; vertical-align:middle;';
 /* ⭐ THE LINK ITSELF, IN A BOX, WITH THE SHARE ICON BESIDE IT (2026-09-07, REF-19).
    Addie, sent the two-button version and shown a picture of what she meant instead:
    *"Okay i was thinking it would look like the second picture"* — a bordered box
@@ -8867,11 +8913,11 @@ function referralShareBoxHtml(friendUrl, shareUrl){
      customer taps and lands nowhere. The same rule the button this replaces stated. */
   if(!link || !share) return '';
   const shown = link.replace(/^https?:\/\//, '');
-  return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate; border:1px solid #E3D9C2; border-radius:12px; background:#FFFDF7; margin:10px 0;">'
-    + '<tr><td style="padding:10px 4px 10px 14px; font-family:Arial,sans-serif; font-size:14px;">'
+  return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate; border:1px solid #E3D9C2; border-radius:12px; background:#FFFDF7; margin:8px 0;">'
+    + '<tr><td style="padding:8px 4px 8px 12px; font-family:Arial,sans-serif; font-size:14px;">'
     + '<a href="' + link + '" style="color:#1E3B2C; text-decoration:underline; word-break:break-all;">' + shown + '</a>'
-    + '</td><td valign="middle" style="padding:6px 8px 6px 4px;">'
-    + '<a href="' + share + '" style="' + SHARE_ICON_BUTTON_STYLE + '" title="Share">\uD83D\uDCE4</a>'
+    + '</td><td valign="middle" style="padding:4px 8px 4px 4px;">'
+    + '<a href="' + share + '" style="' + SHARE_ICON_BUTTON_STYLE + '" title="Share">\u2191</a>'
     + '</td></tr></table>';
 }
 const QUOTE_LINK_BUTTON_DEFAULT = 'View & Respond';
@@ -18008,8 +18054,25 @@ document.getElementById('etCopyForPreviewBtn').addEventListener('click', functio
  *
  * ⚠ AND IT NEVER THROWS OUT OF THE LOOP. One address EmailJS rejects must not stop
  *   the other nine hundred; a failure is counted and the run carries on. */
+/* ⭐ AND THE SEND SAYS SO OUT LOUD (2026-09-08, REF-20). One sentence, both senders,
+   because "Done — sent 312" reads identically whether every one of them carried the
+   referral offer or none of them did — which is exactly how a whole-book RSVP went out
+   with no link in it and nothing anywhere said a word. Empty when nobody was missed, so
+   an ordinary send is unchanged. */
+function referralMissingNote(run){
+  if(!run || !run.noReferral) return '';
+  const names = (run.noReferralNames || []);
+  return ' \u26A0 ' + run.noReferral + ' of them got NO referral link'
+    + (names.length ? ' \u2014 ' + names.join('; ')
+        + (run.noReferral > names.length ? ' and others' : '') : '')
+    + '. Open one of those records and check the Refer a Friend link at the top.';
+}
 async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId, statusEl, progressLabel){
-  let sent = 0, failed = 0, optedOut = 0;
+  let sent = 0, failed = 0, optedOut = 0, noReferral = 0;
+  /* ⚠ NAMES, NOT JUST A COUNT, AND ONLY THE FIRST FEW. "12 got no referral link" is
+     a number nobody can act on; a name and a reason is one record to open. Capped so
+     a whole-book send cannot print nine hundred names into a status line. */
+  const noReferralNames = [];
   for(const id of selectedIds){
     const member = jobAddresses.find(m => m.id === id);
     if(!member || !member.data.email) { failed++; continue; }
@@ -18046,10 +18109,29 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
        DOES place the token itself, or the offer would appear twice. Only on an
        RSVP: an add-on offer at the bottom of an invoice or a receipt is not
        what either email is for. */
-    const addOnBlock = (etTemplateIsRsvp(template) && !rsvpTemplateHasAddOn(template.data.body))
+    const isRsvp = etTemplateIsRsvp(template);
+    const addOnBlock = (isRsvp && !rsvpTemplateHasAddOn(template.data.body))
       ? await addOnEmailBlock(member.id) : '';
-    const referralBlock = (etTemplateIsRsvp(template) && !rsvpTemplateHasReferral(template.data.body))
-      ? await referralEmailBlock(member) : '';
+    /* ⭐ THE OFFER IS RESOLVED ONCE AND BOTH THINGS READ IT (2026-09-08, REF-20): what
+       goes in the email, and whether this customer is counted as having got one. Asking
+       twice is how a report ends up disagreeing with the email it is reporting on.
+       ⚠ IT IS COUNTED WHETHER THE TEMPLATE PLACES THE CODE OR NOT. The appended block is
+       skipped when her template carries {{referral_button}} — resolveLinkTokens draws it
+       instead — but the token behind BOTH is the same one, so an unresolvable customer
+       gets no link either way and must be counted either way. Counting only the appended
+       path would report a clean send on exactly the templates that place the code. */
+    let referralBlock = '';
+    if(isRsvp){
+      const offer = await referralOfferFor(member);
+      if(!offer.html){
+        noReferral++;
+        if(noReferralNames.length < 5){
+          noReferralNames.push((member.data.name || '(no name)') + ' — ' + offer.why);
+        }
+      } else if(!rsvpTemplateHasReferral(template.data.body)){
+        referralBlock = referralOfferProse(offer.html);
+      }
+    }
     const message = applyQuotePhotoBlock(
       await resolveLinkTokens(template.data.body, vars.phone, 0, vars),
       quotePhotosForPhone(vars.phone), false) + addOnBlock + referralBlock;
@@ -18060,7 +18142,8 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
       sent++;
     } catch(err){ failed++; }
   }
-  return { sent: sent, failed: failed, optedOut: optedOut };
+  return { sent: sent, failed: failed, optedOut: optedOut,
+           noReferral: noReferral, noReferralNames: noReferralNames };
 }
 document.getElementById('etSendToSelectedBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('etPreviewSendStatus');
@@ -18082,7 +18165,8 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
   emailjs.init(publicKey);
   const run = await etSendTemplateRun(template, selectedIds, serviceId, templateJsId, statusEl);
   const sent = run.sent, failed = run.failed, optedOut = run.optedOut;
-  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + (optedOut ? ', ' + optedOut + ' skipped (on the do-not-send list)' : '') + '.';
+  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + (optedOut ? ', ' + optedOut + ' skipped (on the do-not-send list)' : '') + '.'
+    + referralMissingNote(run);
   /* ⭐ AND RECORD THAT THE SEASON'S RSVP HAS GONE OUT. Only for an RSVP template, only
      when at least one email actually left, and only the FIRST time — see
      noteRsvpSendHappened. Whether the RSVP has been sent is the one fact that decides
@@ -18182,9 +18266,24 @@ function rsvpWholeRenderBreakdown(plan){
       + (note ? ' <span style="color:var(--slate); font-size:12px;">' + esc(note) + '</span>' : '')
       + '</span></div>';
   };
+  /* ⭐ WHERE THE REFERRAL OFFER WILL APPEAR, BEFORE A SINGLE EMAIL GOES (2026-09-08,
+     REF-20). Addie: *"why is the referal share button/link not working anymore… its not
+     even showing up anymore"* — and the answer was that her own RSVP body never carried
+     {{referral_button}}, so the offer was added on the END rather than beside the
+     sentence she had written about it. Nothing in the app said which of the two was
+     happening, so the only way to find out was to send one and look.
+     ⚠ IT NAMES THE CODE, because that is what she has to paste to move it. */
+  const referWhere = function(t){
+    const where = referralOfferPlacement(t);
+    return where === 'code' ? 'where {{referral_button}} sits in your template'
+      : where === 'appended' ? 'added at the END \u2014 put {{referral_button}} in the template to move it'
+      : 'NOT INCLUDED';
+  };
   box.innerHTML =
     row('Ordinary RSVP', plan.standard.length, tpl.standard ? ('"' + ((tpl.standard.data && tpl.standard.data.name) || '') + '"') : 'NO TEMPLATE FOUND') +
+    (tpl.standard ? row('\u21b3 referral link', '', referWhere(tpl.standard)) : '') +
     row('Not Paid RSVP', plan.arrears.length, tpl.arrears ? 'owes from last season' : 'NO TEMPLATE FOUND') +
+    (tpl.arrears ? row('\u21b3 referral link', '', referWhere(tpl.arrears)) : '') +
     row('To text instead', plan.noEmail.length, 'no email on file \u2014 see the card below') +
     row('Left out, do-not-send', plan.optedOut.length, 'they asked not to be mailed') +
     row('Already answered', plan.answered, 'not asked again') +
@@ -18232,7 +18331,8 @@ document.getElementById('rsvpWholeSendBtn')?.addEventListener('click', async fun
       + plan.noEmail.length + ' have no email and must be TEXTED (nothing is sent to them)\n\n'
       + 'That is ' + total + ' email(s). This cannot be taken back.')) return;
   btn.disabled = true;
-  let sent = 0, failed = 0, optedOut = 0;
+  let sent = 0, failed = 0, optedOut = 0, noReferral = 0;
+  const noReferralNames = [];
   try{
     emailjs.init(publicKey);
     const passes = [
@@ -18243,11 +18343,19 @@ document.getElementById('rsvpWholeSendBtn')?.addEventListener('click', async fun
       if(!pass.ids.length) continue;
       const r = await etSendTemplateRun(pass.t, pass.ids, serviceId, templateJsId, st, pass.label);
       sent += r.sent; failed += r.failed; optedOut += r.optedOut;
+      /* ⚠ SUMMED ACROSS BOTH PASSES, and the names kept from whichever pass had them.
+         Reporting the second pass alone would say nothing about the ordinary RSVP,
+         which is the bigger half of the book. */
+      noReferral += r.noReferral || 0;
+      (r.noReferralNames || []).forEach(function(n){
+        if(noReferralNames.length < 5) noReferralNames.push(n);
+      });
     }
     if(st) st.textContent = 'Done \u2014 sent ' + sent
       + (failed ? ', ' + failed + ' failed' : '')
       + (optedOut ? ', ' + optedOut + ' skipped (do-not-send)' : '')
-      + (plan.noEmail.length ? '. ' + plan.noEmail.length + ' still need texting \u2014 the card below lists them.' : '.');
+      + (plan.noEmail.length ? '. ' + plan.noEmail.length + ' still need texting \u2014 the card below lists them.' : '.')
+      + referralMissingNote({noReferral: noReferral, noReferralNames: noReferralNames});
     /* ⭐ MARKED ONCE, AFTER BOTH PASSES. rsvpSentAt is one fact about the season, not one
        per template — marking inside the sender would stamp it twice and report the season
        live before the second half of the book had been written to.

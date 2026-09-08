@@ -1230,7 +1230,7 @@ async function ensureReferralToken(id, data) {
 /* ⚠ THE MIRROR OF admin.html's SHARE_ICON_BUTTON_STYLE, character for character.
    A second spelling is the same square rendered two different sizes depending on
    which of the two renderers happened to send that customer's email. */
-const SHARE_ICON_BUTTON_STYLE_SERVER = 'display:inline-block; padding:11px 13px; border-radius:8px; text-decoration:none; font-size:16px; line-height:1; margin:6px 0 6px 4px; background:#D89F3D; color:#1E3B2C; vertical-align:middle;';
+const SHARE_ICON_BUTTON_STYLE_SERVER = 'display:inline-block; padding:9px 11px; border-radius:8px; text-decoration:none; font-size:17px; font-weight:bold; line-height:1; margin:0 0 0 4px; background:#D89F3D; color:#1E3B2C; vertical-align:middle;';
 /* ⭐ THE LINK ITSELF, IN A BOX, WITH THE SHARE ICON BESIDE IT (2026-09-07, REF-19).
    Addie, sent the two-button version and shown a picture of what she meant instead:
    *"Okay i was thinking it would look like the second picture"* — a bordered box
@@ -1262,11 +1262,11 @@ function referralShareBoxHtmlServer(friendUrl, shareUrl){
      customer taps and lands nowhere. The same rule the button this replaces stated. */
   if(!link || !share) return '';
   const shown = link.replace(/^https?:\/\//, '');
-  return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate; border:1px solid #E3D9C2; border-radius:12px; background:#FFFDF7; margin:10px 0;">'
-    + '<tr><td style="padding:10px 4px 10px 14px; font-family:Arial,sans-serif; font-size:14px;">'
+  return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate; border:1px solid #E3D9C2; border-radius:12px; background:#FFFDF7; margin:8px 0;">'
+    + '<tr><td style="padding:8px 4px 8px 12px; font-family:Arial,sans-serif; font-size:14px;">'
     + '<a href="' + link + '" style="color:#1E3B2C; text-decoration:underline; word-break:break-all;">' + shown + '</a>'
-    + '</td><td valign="middle" style="padding:6px 8px 6px 4px;">'
-    + '<a href="' + share + '" style="' + SHARE_ICON_BUTTON_STYLE_SERVER + '" title="Share">\uD83D\uDCE4</a>'
+    + '</td><td valign="middle" style="padding:4px 8px 4px 4px;">'
+    + '<a href="' + share + '" style="' + SHARE_ICON_BUTTON_STYLE_SERVER + '" title="Share">\u2191</a>'
     + '</td></tr></table>';
 }
 async function ensureToken(id, data) {
