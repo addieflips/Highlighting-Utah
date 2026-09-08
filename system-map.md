@@ -1053,6 +1053,25 @@ one — a light-change fee or a discount coming off is ordinary office work, and
 each would bury this one. ⚠ A failed note never undoes the write-off; the money is off the
 bill by then, so it is logged rather than thrown.
 
+⭐ **AND THE ✕ HAD TO EMPTY THE BOX THAT REBUILDS THE LINE** (fixed 2026-09-08). Dax:
+*"the x in arrears in discount and fees doesnt work."* It did work — for about as long as
+it took to press Save. In **Edit Customer** the ✕ on a manual fee, a manual discount and a
+referral credit each empties the box above that would otherwise write that line back on
+save; the carried debt is rebuilt exactly the same way, from *Owed from a previous
+season*, and it was the one never added to that list. So the sequence was: press ✕, the
+line comes off the invoice, the row says *“Took $400 off — saved.”*, then press Save —
+which is why somebody is in that form at all — and the debt is written straight back
+**with the schedule hold on it**, from a screen that had just said it was gone.
+  - ⚠ **Keyed on the KIND, not on `source`.** The automatic line Start New Season writes
+    needs no clearing, because no box holds it — but keying the ✕ on `source` would be a
+    second place that has to agree with the save's filter about which lines that box owns.
+  - ⚠ **The season box goes back to the assumed season**, not to whatever named the debt
+    that just went: a box left reading 2024 is the next debt typed there silently landing
+    in 2024.
+  - ⚠ **The figure under the box is redrawn from the invoice** after any waive. It went
+    stale for the automatic line too — still reading *“$400 carried by the app”* over a
+    bill that no longer carried it — and no box branch could ever have fixed that one.
+
 ⚠ `ledgerLineIsWaivable` is a blanket yes now rather than a whitelist — a whitelist fails
 silently, leaving whatever is invented next with no ✕ and a screen that looks like nobody
 was charged. It is still the write-side guard, and **fee-waive.test.js §6 runs the renderer
@@ -1138,12 +1157,13 @@ necessary."* Every line on either ledger — `changeFeeNotes` (fees) and `credit
 (discounts) — is drawn with an × beside it, in **two** places: the Invoices panel, and
 the Fees / Discounts boxes in **Edit Customer**. Pressing one saves straight away and is
 written into that customer's history.
-  - ⚠ **The carried debt is the one line with no ×.** It rides in the same fee ledger, and
-    `arrearsOutstanding` is what holds an unpaid customer off the schedule — so removing
-    it lifts the hold, which is the "hang them anyway" button Addie was offered and turned
-    down. Its row says where it *is* edited (the carried-debt box below it) rather than
-    showing an empty gap. **Nothing on the discount side is protected**: a credit can only
-    ever be money coming off.
+  - ⚠ **The carried debt was the one line with no ×, and since MON-67 it has one** — see
+    *AND THE CARRIED DEBT HAS AN ✕ NOW TOO* above, which carries this bullet's reasoning
+    forward rather than dropping it. It rides in the same fee ledger, and
+    `arrearsOutstanding` is what holds an unpaid customer off the schedule, so removing it
+    lifts the hold — that IS the "hang them anyway" button Addie was offered and turned
+    down in MON-38, and what changed is that it can no longer happen silently. **Nothing
+    on the discount side is protected**: a credit can only ever be money coming off.
   - ⚠ **This replaced a button that cleared the lot.** "Remove light-change fee(s)" wrote
     `changeFeeNotes: []`, and by then that array held manual fees and the carried debt as
     well — so a control labelled as removing a colour-change fee also wrote off a real
