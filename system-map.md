@@ -1007,11 +1007,29 @@ it that isn't — the hold is derived from the debt and nothing else.
 
 ⭐ **What changed is that it can no longer happen silently**, which is the harm MON-55
 actually recorded: the button it was written against wrote off a real debt *and* released
-the hold, from a control labelled "remove light-change fee". `waiveLedgerLine` now names
-the amount, the season and the release of the hold before anything is written, and
-cancelling writes nothing at all. ⚠ It lives in the shared write, **not** in either click
-handler — the Invoices panel and Edit Customer both come through it, and a copy in one of
-them is an ✕ that asks on one screen and not the other about the same money.
+the hold, from a control labelled "remove light-change fee". ⚠ It lives in the shared
+write, **not** in either click handler — the Invoices panel and Edit Customer both come
+through it, and a copy in one of them is an ✕ that asks on one screen and not the other
+about the same money.
+
+⛔ **AND IT IS TYPED, NOT CLICKED** (MON-68, same day — Dax, shown that this is a one-press
+way to write off **$7,487.04** across the 19 customers in arrears: *"protect us from a bad
+miscick"*). A `confirm()` is not protection from a misclick, it is **one more click** — and
+the ✕ sits in a *list* of ✕s, so the OK button lands roughly where the next one was about
+to be pressed. The office types the **amount**: no stray click can produce the digits, and
+the thing typed is the thing being given away, where a fixed word like DELETE gets typed
+from habit. ⚠ Compared as money, not as text — "$400", "400" and "400.00" are one answer,
+and refusing them teaches the office to fight the box rather than read it.
+
+⭐ **And a written-off debt leaves a record**, which is what makes a bad one survivable.
+Waiving DELETES the line from `changeFeeNotes`, so without this there is no trace anywhere
+that the money was ever owed — the same asymmetry this file already names, a charge leaving
+a dated line and a waiver leaving nothing. A **Carried Debt Written Off** notice lands in
+the Inbox's *money* section carrying the amount, the season and the reason: everything
+needed to type it back into *Owed from a previous season*. ⚠ Only the carried debt gets
+one — a light-change fee or a discount coming off is ordinary office work, and a note for
+each would bury this one. ⚠ A failed note never undoes the write-off; the money is off the
+bill by then, so it is logged rather than thrown.
 
 ⚠ `ledgerLineIsWaivable` is a blanket yes now rather than a whitelist — a whitelist fails
 silently, leaving whatever is invented next with no ✕ and a screen that looks like nobody

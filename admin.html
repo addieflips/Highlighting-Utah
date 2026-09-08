@@ -7531,13 +7531,32 @@ async function waiveLedgerLine(invoiceId, ledger, key){
      form was opened. Cancelling writes nothing at all. */
   if(ledger === 'fee' && plan.removed && plan.removed.kind === ARREARS_KIND){
     const owedSeason = plan.removed.year || 'a previous';
-    const ok = confirm('Write off ' + fmtMoney(Number(plan.removed.amount) || 0) +
-      ' owed from the ' + owedSeason + ' season?\n\n' +
+    const owedAmount = Number(plan.removed.amount) || 0;
+    /* ⛔ TYPED, NOT CLICKED (2026-09-07). Dax, on being shown that this hands the office a
+       one-press way to write off ~$7,500 across the book: "protect us from a bad miscick".
+       ⚠ A `confirm()` IS NOT PROTECTION FROM A MISCLICK, it is one more click — and the
+       × sits in a list of them, so the OK button lands where the next × was about to be
+       pressed. This is the repo's own type-to-unlock rule (Delete All Customers, the
+       duplicate tools, Merge duplicates), and it is here for the same reason: no sequence
+       of stray clicks can produce the digits. It asks for the AMOUNT rather than a fixed
+       word, so the thing typed is the thing being given away — somebody typing 400 has
+       read the number, and a word like DELETE can be typed from habit.
+       ⚠ COMPARED AS MONEY, NOT AS TEXT: "$400", "400" and "400.00" are the same answer
+       and refusing them teaches the office to fight the box rather than read it. */
+    const typed = prompt('Write off ' + fmtMoney(owedAmount) + ' owed from the ' +
+      owedSeason + ' season?\n\n' +
       'This is not a fee — it is money the business is owed. Taking it off ALSO releases ' +
       'the hold that keeps this customer off the schedule, so they will be routed and ' +
       'hung as though the balance were settled.\n\n' +
-      'Cancel to leave the balance in place.');
-    if(!ok) return { ok:false, why:'Left the ' + owedSeason + ' balance in place — nothing was written.' };
+      'Type the amount (' + owedAmount + ') to confirm. Cancel leaves it in place.');
+    if(typed === null){
+      return { ok:false, why:'Left the ' + owedSeason + ' balance in place — nothing was written.' };
+    }
+    const typedAmount = Number(String(typed).replace(/[^0-9.]/g, ''));
+    if(!(Math.abs(typedAmount - owedAmount) < 0.005)){
+      return { ok:false, why:'"' + typed + '" is not ' + fmtMoney(owedAmount) +
+        ' — the ' + owedSeason + ' balance was left in place.' };
+    }
   }
   await updateDoc(doc(db,'invoices', invoiceId), Object.assign({}, plan.updates, { updatedAt: serverTimestamp() }));
   /* ⚠ MIRRORED INTO THE CACHE BEFORE ANYTHING REPAINTS. Edit Customer's Save
@@ -7545,6 +7564,43 @@ async function waiveLedgerLine(invoiceId, ledger, key){
      listener reporting it back a Save would put the crossed-off line straight back. */
   const cached = allInvoicesCache.find(i => i.id === invoiceId);
   if(cached && cached.data) Object.assign(cached.data, plan.updates);
+  /* ⭐ AND A WRITTEN-OFF DEBT LEAVES A RECORD, so a wrong one can be found and put back
+     (2026-09-07). The second half of "protect us from a bad miscick": the typed unlock
+     stops the accident, this is what makes one survivable. Waiving DELETES the line from
+     `changeFeeNotes`, so without this there is no trace anywhere that the money was ever
+     owed — the same asymmetry this repo already names, a charge leaving a dated line and
+     a waiver leaving nothing.
+     ⚠ THE WHOLE LINE GOES IN THE NOTE, amount, season and reason, because that is what
+     it takes to type it back into Owed from a previous season. A note saying only that
+     something was waived tells the office it has a problem and not how to undo it.
+     ⚠ ONLY THE CARRIED DEBT. A light-change fee or a discount coming off is ordinary
+     office work; a note for each would bury this one, which is the whole point of it. */
+  if(ledger === 'fee' && plan.removed && plan.removed.kind === ARREARS_KIND){
+    try{
+      const who = jobAddresses.find(function(a){
+        const ad = a.data || {};
+        const bill = String(ad.billToPhone || '').replace(/\D/g, '');
+        return bill ? bill === invoiceId : custInvoiceKey(ad) === invoiceId;
+      });
+      const wd = (who && who.data) || {};
+      const amt = Number(plan.removed.amount) || 0;
+      const season = plan.removed.year || 'a previous';
+      await addDoc(collection(db,'messages'), {
+        topic: 'Carried Debt Written Off', folder: 'System',
+        name: wd.name || '', phone: wd.phone || '', email: wd.email || '', contactMethod: '',
+        message: fmtMoney(amt) + ' owed by ' + (wd.name || 'this customer') + ' from the ' +
+          season + ' season was crossed off in the office, so nothing is holding them off ' +
+          'the schedule any more. If that was a mistake, put it back under Customers → ' +
+          'Edit Customer → Owed from a previous season: amount ' + amt + ', season ' +
+          season + (plan.removed.reason ? (', reason "' + plan.removed.reason + '"') : '') + '.',
+        createdAt: serverTimestamp()
+      });
+    }catch(e){
+      /* Logged, never thrown: the write-off already succeeded and must not be undone by
+         a failed note — but it must not disappear quietly either. */
+      console.error('[HU] could not record the carried-debt write-off', e);
+    }
+  }
   /* ⭐ A REFERRAL CREDIT IS NOT STORED, IT IS DERIVED — `referralCount` on the
      customer is rebuilt into a credit on every Edit Customer save. So taking the
      line off without zeroing the count is a × that visibly works and is undone by
@@ -54354,6 +54410,10 @@ const SYSTEM_NOTICE_SECTION_OF = {
   'Referral Taken Back': 'money',
   'Referral Blocked': 'money',
   'Cannot Be Billed': 'money',
+  /* Money the business is owed and has just stopped chasing — the money section is
+     exactly where somebody looks for that, and an unlisted topic falls through to
+     'other' silently, which for this one would hide the only trace it leaves. */
+  'Carried Debt Written Off': 'money',
   'Paid \u2014 Still Needs to RSVP': 'money',
   'Routes Kept Up To Date': 'schedule',
   'Moved To Another Day': 'schedule',
