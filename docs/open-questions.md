@@ -2049,3 +2049,85 @@ customers, and all three are defensible from what she has said so far. Nothing a
 this case has been built; today's change is the earn-time rule only.
 
 **Resulting map change.** Named in REF-23 as the case it deliberately leaves open.
+
+## Q-030 · intent · OPEN · raised 2026-09-08
+
+**A referral earned by somebody whose house is billed to another person.**
+
+`applyReferralCreditLine` puts the $25 on the invoice found under `custInvoiceKey` —
+the referrer's OWN key. That is right for the ordinary customer, who pays their own
+bill. It is not obviously right for a house that bills elsewhere:
+
+> A tenant, or a child living at a parent's address, has `billToPhone` set. Their own
+> invoice has been zeroed or deleted, because the money moved onto the payer's bill.
+> They share their referral link, a friend joins, and the $25 goes onto their own
+> leftover invoice — which no screen reads — or nowhere at all.
+
+**This is a settled shape, not a fresh inconsistency.** The Edit Customer save resolves
+the same way (`allCustInvoiceFor`, also `custInvoiceKey`), and that is deliberate: it
+needs the house's own invoice in order to find and zero a leftover. So both writers
+agree today. What nobody has decided is where the credit is SUPPOSED to land.
+
+**Three answers, and only Addie can pick one:**
+
+1. **Onto the bill they are actually on.** The credit follows the money, the way
+   `getLiveInvoiceStatus` and `editCustInvoiceNow` already resolve `billToPhone ||
+   custInvoiceKey`. The referrer sees the discount where they read their balance.
+   ⚠ But the person who gets the $25 off is then the PAYER, not the referrer — a
+   landlord banking a tenant's referral, which may be exactly wrong.
+2. **Leave it on their own record and show it there.** Keeps the $25 attached to the
+   person who earned it, which matches how `paidBeforeBillTo` already carries money
+   with a house. Needs somewhere on screen for a credit that is on no live bill.
+3. **Leave it exactly as it is.** Rare enough not to be worth a money change. Today's
+   fix already stops it happening SILENTLY — the Inbox note now says the credit is not
+   on a bill and names Fix Missing Invoices — so the office finds out either way.
+
+⚠ **NOT GUESSED AT.** Seventeen numbers in the real book are shared, and fourteen of
+those are two genuinely different households, so this is not theoretical. Moving a
+credit between two people's bills is a tier-1 money decision under CLAUDE.md §2.
+
+⚠ **AND IT IS NOT WHAT WAS FIXED TODAY.** REF-30 changed only what the Inbox note
+CLAIMS when the credit reaches no bill. Where the credit should land is this question.
+
+**Resulting map change.** Named in REF-30 as the case it deliberately leaves open.
+
+## Q-031 · intent · OPEN · raised 2026-09-08
+
+**Two different people at the same address, both through one referral link.**
+
+REF-31 settled the pair she named: two separate people at two separate addresses earn
+two $25 discounts, and one friend coming through twice earns one. The rule matches on
+phone or email, so as it stands:
+
+> Two roommates at 1 Elm St each fill in the public form through Dana's link, each with
+> their own phone and email, and both are converted. Dana earns **$50**.
+
+That reads right — two customers, two installs, two bills, two houses' worth of work —
+and it is what the code does today.
+
+But her wording was *"two separate people **and addresses**"*, which can be read as
+requiring BOTH to differ. On that reading the roommates are one referral and Dana
+earns $25.
+
+**Two answers, and only Addie can pick one:**
+
+1. **Two discounts (what it does today).** They are two paying customers; the referral
+   brought in two of them. Matching on the address as well would also refuse a real
+   second referral whenever the two typed addresses merely LOOK alike, which is the
+   "Red Cedar Ln" vs "Red Cedar Lane" guess this repo already removed from the re-quote
+   flow by name.
+2. **One discount per address.** If the intent is one discount per HOUSE rather than
+   per customer, the rule needs an address comparison — and that comparison has to be
+   normalised carefully, or it will refuse referrals that are genuinely separate.
+
+⚠ **NOT GUESSED AT, AND THE ERRORS ARE NOT SYMMETRIC.** Paying $25 too much is
+visible on the bill and can be crossed off with the ×. Refusing a real referral is
+silent to the customer who earned it, and they are the person most likely to tell their
+friends about us. That asymmetry is why the current behaviour was left as it is rather
+than tightened on a reading of one word.
+
+⚠ **AND THE MULTI-UNIT CASE IS THE SAME QUESTION**: a duplex or a basement flat is two
+customers at one street address, and however this is answered it must not make those
+two impossible to refer.
+
+**Resulting map change.** Named in REF-31 as the case it deliberately leaves open.

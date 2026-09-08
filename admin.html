@@ -11274,6 +11274,56 @@ function referralIsSelfReferral(referrer, referred){
   const bMail = String(b.email || '').trim().toLowerCase();
   return !!(aMail && bMail && aMail === bMail);
 }
+/* ⭐ THE SAME FRIEND CANNOT EARN THE $25 TWICE (REF-31, 2026-09-08). Addie: "If the
+   link is used twice for two separate people and addresses then we can give the costumer
+   to referral discounts but discount only takes affect after they are converted to
+   costumer." The link is deliberately NOT single-use — two friends through it is two
+   discounts, which already worked — but "two SEPARATE people" is the condition she put on
+   the pair, and nothing enforced it.
+
+   ⚠ WHAT IT COST. The idempotency guard is `referralCredited` on the QUOTE, so one friend
+   who submits the public form twice — impatient, or correcting something — is two quotes,
+   two conversions and $50 to the referrer for one house. Silent: the count and the credit
+   line both just move.
+
+   ⚠ PHONE OR EMAIL, THE SAME RULE `referralIsSelfReferral` ALREADY USES, and deliberately
+   NOT the address. Two typed addresses that differ by "Ln" and "Lane" are the same house,
+   which is the guess this repo already removed from the re-quote flow by name; matching on
+   one here would refuse real referrals and pay for them at the same time.
+
+   ⚠ AND IT READS THE RECORD WHEN THE ENTRY CANNOT ANSWER. Every entry written before
+   today carries only `referredCustomerId` and a name, so the contact is looked up off
+   `jobAddresses` — without that this rule would be blind to exactly the duplicates that
+   already exist. A name is never matched on: two different people share one often enough,
+   and refusing a real referral is the costlier error of the two.
+
+   ⚠ REVOKED ENTRIES DO NOT BLOCK. Revoked means that friend cancelled ([[REF-13]]), so a
+   genuine re-join earns it properly. A WAIVED one does block: the office crossed that $25
+   off on purpose, and re-crediting it on a second conversion would quietly undo her
+   decision. Both are recoverable by typing the count up, and the refusal says so. */
+function referralAlreadyCreditedFor(entries, referred, lookup){
+  const b = referred || {};
+  const bPhone = String(b.phone || '').replace(/\D/g,'');
+  const bMail  = String(b.email || '').trim().toLowerCase();
+  const bId    = String(b.__customerId || '');
+  const list = Array.isArray(entries) ? entries : [];
+  for(let i = 0; i < list.length; i++){
+    const e = list[i];
+    if(!e || e.revoked) continue;
+    if(bId && String(e.referredCustomerId || '') === bId) return e;
+    /* The contact stamped on the entry, else whatever that customer's record says. */
+    let ePhone = String(e.referredPhone || '').replace(/\D/g,'');
+    let eMail  = String(e.referredEmail || '').trim().toLowerCase();
+    if(!ePhone && !eMail && typeof lookup === 'function'){
+      const rec = lookup(String(e.referredCustomerId || '')) || {};
+      ePhone = String(rec.phone || '').replace(/\D/g,'');
+      eMail  = String(rec.email || '').trim().toLowerCase();
+    }
+    if(bPhone && ePhone && bPhone === ePhone) return e;
+    if(bMail  && eMail  && bMail  === eMail)  return e;
+  }
+  return null;
+}
 /* ⭐ WHETHER A CANCELLATION CLAWS THE CREDIT BACK. Two rulings, both hers:
    ⚠ A referral that reached an INSTALL is earned — "if they cancel after completed
      the referral already did its job" — so `completed === true` stops it outright.
@@ -11368,9 +11418,27 @@ async function creditReferralIfAny(quoteData, customerId, customerData){
       return await referralBlocked(q, referrer, blockedWho, 'the phone number or email is the same as theirs');
     }
     const entries = Array.isArray(referrer.data.referralCredits) ? referrer.data.referralCredits.slice() : [];
+    /* ⚠ TWO SEPARATE PEOPLE, NOT ONE PERSON TWICE (REF-31). See
+       referralAlreadyCreditedFor — the quote-level guard above cannot see this, because
+       one friend submitting the form twice is two quotes. Refused through the same door
+       as the other two, so it is stamped on the quote, recorded on the referrer and named
+       in the Inbox rather than being dropped on the floor. */
+    const dupe = referralAlreadyCreditedFor(entries, blockedWho, function(id){
+      const hit = jobAddresses.find(function(a){ return a.id === id; });
+      return (hit && hit.data) || null;
+    });
+    if(dupe){
+      return await referralBlocked(q, referrer, blockedWho,
+        'they have already been counted as a referral for this customer' +
+        (dupe.referredName ? ' (' + dupe.referredName + ')' : ''));
+    }
     entries.push({
       referredCustomerId: customerId,
       referredName: (customerData && customerData.name) || '',
+      /* ⚠ STAMPED AT EARN TIME so the rule above need not look the record up later — and
+         so it still answers correctly once that customer is deleted or merged away. */
+      referredPhone: String((customerData && customerData.phone) || ''),
+      referredEmail: String((customerData && customerData.email) || ''),
       amount: REFERRAL_CREDIT,
       creditedAt: new Date().toISOString(),
       /* The season this $25 comes off, stamped at the moment it is earned rather
@@ -11389,14 +11457,33 @@ async function creditReferralIfAny(quoteData, customerId, customerData){
     await updateDoc(doc(db,'jobAddresses', customerId), { referredByCustomerId: referrer.id });
     const cust = jobAddresses.find(function(a){ return a.id === customerId; });
     if(cust && cust.data) cust.data.referredByCustomerId = referrer.id;
-    await applyReferralCreditLine(referrer);
+    /* ⭐ AND WHETHER IT REACHED A BILL DECIDES WHAT THE NOTE SAYS (REF-30, 2026-09-08).
+       `applyReferralCreditLine` gives up when the referrer has no invoice document — a
+       real state, which is the whole reason Invoices → Fix Missing Invoices exists — and
+       its answer used to be thrown away, so this note claimed the $25 "has been taken
+       off their bill" when nothing had been. The count moved, the money did not, and the
+       one record anybody reads said the opposite.
+       ⚠ THE ENTRY IS STILL WRITTEN AND STILL COUNTED. The referral was earned, and the
+       count is what the next save rebuilds the line from — dropping it to keep the note
+       honest would lose the $25 outright. Only the CLAIM changes.
+       ⚠ AND IT NAMES THE NEXT STEP. A discrepancy with no way to act on it is what sends
+       somebody looking for a bug in the referral code when the answer is that this
+       customer has no invoice. */
+    const landed = await applyReferralCreditLine(referrer);
     await referralMarkQuote(q);
     await referralNote('Referral Credit Given', referrer,
       ((referrer.data.name || 'A customer') + ' referred ' + ((customerData && customerData.name) || 'a new customer') +
-       ', who has just become a customer. ' + fmtMoney(REFERRAL_CREDIT) + ' has been taken off ' +
-       (referrer.data.name || 'their') + ' bill — ' + count + ' referral' + (count === 1 ? '' : 's') +
-       ' now counted. Nobody had to type anything in for this.'));
-    return { ok:true, referrerId: referrer.id, count: count };
+       ', who has just become a customer. ' +
+       (landed
+         ? (fmtMoney(REFERRAL_CREDIT) + ' has been taken off ' + (referrer.data.name || 'their') +
+            ' bill — ' + count + ' referral' + (count === 1 ? '' : 's') +
+            ' now counted. Nobody had to type anything in for this.')
+         : (fmtMoney(REFERRAL_CREDIT) + ' is owed to ' + (referrer.data.name || 'them') + ' — ' +
+            count + ' referral' + (count === 1 ? '' : 's') + ' now counted — but it is NOT on ' +
+            'a bill yet, because they have no invoice on file. Invoices → Fix Missing ' +
+            'Invoices → "Scan & Create Missing Invoices" makes one, and the discount lands ' +
+            'as soon as it exists.'))));
+    return { ok:true, referrerId: referrer.id, count: count, onBill: landed };
   }catch(err){
     console.error('Could not credit a referral:', err);
     return { ok:false, why:'error' };
@@ -11477,13 +11564,19 @@ async function clawBackReferralIfAny(customerId, customerData){
     await updateDoc(doc(db,'jobAddresses', referrer.id),
       { referralCredits: entries, referralCount: count, updatedAt: serverTimestamp() });
     referrer.data.referralCredits = entries; referrer.data.referralCount = count;
-    await applyReferralCreditLine(referrer);
+    /* ⚠ THE SAME TRUTH TEST AS THE CREDIT NOTE ABOVE (REF-30). With no invoice on file
+       the credit was never ON a bill, so "taken back off their bill" describes a write
+       that did not happen — a fix in one direction is half a fix. */
+    const landedBack = await applyReferralCreditLine(referrer);
     await referralNote('Referral Taken Back', referrer,
       ((d.name || 'A customer') + ' cancelled before their lights went up, so the ' +
        fmtMoney(REFERRAL_CREDIT) + ' referral credit given to ' + (referrer.data.name || 'the person who referred them') +
-       ' has been taken back off their bill. They are down to ' + count + ' referral' +
+       (landedBack
+         ? ' has been taken back off their bill.'
+         : ' no longer counts. They have no invoice on file, so there was no bill line to take it off.') +
+       ' They are down to ' + count + ' referral' +
        (count === 1 ? '' : 's') + '.'));
-    return { ok:true, referrerId: referrer.id, count: count };
+    return { ok:true, referrerId: referrer.id, count: count, onBill: landedBack };
   }catch(err){
     console.error('Could not take a referral credit back:', err);
     return { ok:false, why:'error' };
