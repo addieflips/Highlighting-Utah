@@ -2011,3 +2011,41 @@ red-checked, ten caught.
 
 **Resulting map change.** PR-07.
 
+## Q-029 · intent · OPEN · raised 2026-09-08
+
+**A referral earned while they were in the season, by somebody who then drops out.**
+
+REF-23 settled the case that was losing money: a customer who is already sitting the
+season out when they refer a friend earns the $25 off NEXT season's bill, because they
+have no bill this season for it to come off. That is stamped when the referral is
+earned, which is REF-14's own rule and the reason `season` exists as a field.
+
+What it does not settle is the same thing arriving in the other order:
+
+> They refer a friend in October while they are still down as having lights. The
+> credit is stamped for this season and goes on this season's bill. In November they
+> answer Back Next Year — so there is no bill for it to come off any more, and next
+> season it will not count either, because it is stamped for this one.
+
+Nothing is lost from the record — the entry is still there and the office can see it —
+but the $25 quietly stops being worth anything, which is the same harm REF-23 exists to
+prevent, reached by a different door.
+
+**Three answers, and only Addie can pick one:**
+
+1. **Roll it forward.** When somebody drops out of the season, any referral of theirs
+   still stamped for this season moves to next. Matches REF-23's intent exactly; costs
+   a write on every RSVP change, and needs deciding what happens if they come back to
+   Yes afterwards.
+2. **Leave it where it was earned.** They were in the season when they earned it; if
+   they choose to sit out, the credit sits out with them and lapses. Simplest, and it
+   is what the code does today.
+3. **Never lapse.** A referral is worth $25 off the next bill they ever get. That is
+   the discount-for-life REF-14 was written to stop, so it would need her to say she
+   meant something narrower there.
+
+⚠ **NOT GUESSED AT.** Which of these is right is a decision about real money to real
+customers, and all three are defensible from what she has said so far. Nothing about
+this case has been built; today's change is the earn-time rule only.
+
+**Resulting map change.** Named in REF-23 as the case it deliberately leaves open.
