@@ -1201,6 +1201,25 @@ member's bill — with nobody in the office typing anything.
     ⚠ **A table, not a flex row**, and inline styles only: Outlook has neither flexbox nor
     `border-radius`, so it degrades to a square box with the link and the icon still side
     by side, which is the whole of the design.
+    ⚠ **AND IT IS THINNER SINCE 2026-09-08** (REF-20). Addie: *"can we make this box a
+    little thinner just is thick."* Padding only — the shape is unchanged, so REF-19 is
+    refined rather than superseded: the icon lost its 6px top-and-bottom margin and went
+    from 11px to 9px of vertical padding at 15px rather than 16px, and the two cells went
+    from 10px/6px to 8px/4px. About 62px tall to about 41px. It did not go thinner still
+    because the icon is a **tap target on a phone** — it is what reaches the share sheet,
+    and a 20px gold square in an email is a miss as often as a hit. Both renderers moved
+    in the same push, which suite 308's byte-for-byte comparison enforces.
+    ⚠ **AND THE SQUARE HOLDS AN ARROW, NOT A TRAY** (2026-09-08, REF-22). Addie sent a
+    picture of the macOS share button: *"can we cahnge the share button to this instead."*
+    The exact glyph is an Apple **private-use** SF Symbol — it renders on Apple devices
+    and as an empty box everywhere else — and REF-17's no-`<svg>`-no-`<img>` rule stands
+    (a hosted PNG is worse: most clients block remote images, so the icon would simply be
+    absent, which is the REF-21 complaint all over again). So **the gold rounded square is
+    the box**, and a plain `\u2191` (U+2191) on it is the arrow coming out of the top.
+    `\u2191` is a text arrow, not an emoji: monochrome everywhere, inheriting the button's
+    own dark green. `\u2b06` was rejected for the opposite reason — many clients draw it as
+    a blue emoji arrow, which fights the gold. 17px bold so it reads as the thick arrow in
+    her picture rather than a stray character.
   - ⭐ **AND THE OFFICE CAN OPEN THAT PAGE** (2026-09-07, REF-18). Addie, after the share
     icon shipped: *"where do I find the page that comes up after pushing the share link
     icon cause I thought it would just go to there member portal refer a friend section."*
@@ -1222,6 +1241,38 @@ member's bill — with nobody in the office typing anything.
     join its lift list in the same change. The new call sits inside `if(url)`, so a
     tokenless fixture hides the gap and the suite stays green while one fixture away from
     a bare ReferenceError that takes the whole run down. A red-check is what found it.
+  - ⭐ **AND THE SEND SAYS WHEN SOMEBODY GOT NO LINK** (2026-09-08, REF-21). Addie:
+    *"why is the referal share button/link not working anymore… its not even showing up
+    anymore."* The rendering was right; **the silence was the bug.** Every path here emits
+    an empty string rather than a dead link — correct for the customer, invisible to the
+    office — so a whole-book RSVP carrying no offer at all produced the same green
+    *"Done — sent 312"* as one where everybody got theirs.
+    ⚠ **`referralOfferFor` is now the one resolver**, and it returns the REASON beside the
+    html. `referralEmailBlock` and the send both read it, so the email and the report on it
+    cannot disagree about whether a customer has a link. `referralOfferProse` holds the $25
+    sentence once, for the same reason.
+    ⚠ **The send counts and names.** `etSendTemplateRun` returns `noReferral` and up to
+    five names with reasons; `referralMissingNote` writes the one sentence both senders
+    print. Empty when nobody was missed — a warning on every ordinary send is one the
+    office learns to scroll past.
+    ⚠ **AND `Check first` SAYS WHERE THE OFFER WILL APPEAR, BEFORE ANYTHING GOES.**
+    `referralOfferPlacement` answers `code` (her template places `{{referral_button}}`, so
+    the box lands where she put it), `appended` (it does not, so REF-15 puts the offer on
+    the END) or `none`. **This is the line that answers her question without sending
+    anything**: her own RSVP body carries no code, so the offer was going to the bottom
+    rather than beside the sentence she had written about it, and nothing anywhere said so.
+    ⚠ **The customer's email is unchanged** — `html` is '' in exactly the same cases as
+    before — and the offer is counted whether the template places the code or not, because
+    the token behind both paths is the same one.
+    ⚠ **And the rendering is RUN now, not read** (suite 311). It never had been: suite 305
+    matched a regex over a slice of the file and suite 308 ran the box builder on addresses
+    it supplied itself, so nothing had ever asked *given a real customer record, does a
+    link come out*. ⚠ `resolveLinkTokens` **cannot be lifted by `extractFn` at all** — it
+    contains the string `'{{custom_'`, two opening braces with no closers, which runs the
+    brace counter off the end of the file and makes the function read as MISSING — so a
+    suite written the ordinary way would have skipped, silently, for ever. It is sliced
+    between its own signature and the next declaration, and the slice is asserted whole
+    before anything runs on it.
   - ⚠ **The share page stores NOTHING as a referral.** The `/r/` reader writes the token
     into `sessionStorage` so the quote that follows is credited; doing the same on `/s/`
     would mark the customer as referred by themselves and their next quote would be

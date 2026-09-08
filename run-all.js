@@ -35947,12 +35947,22 @@ suite('Suite 131. An outstanding add-on rides along with the RSVP');
      real email is one nobody proof-read; one that appears only in the preview
      is a promise that never arrives. Both ask the same two questions, which is
      why rsvpTemplateHasAddOn exists rather than the test being written twice. */
+  /* ⚠ REPOINTED 2026-09-08, NOT WEAKENED. This matched the literal
+     `etTemplateIsRsvp(template) &&`, so it failed on correct code the moment the real
+     send hoisted that answer into `isRsvp` to reuse it for the referral count — pinned
+     to where a string happened to sit rather than to what must be true, the same
+     slow-fuse shape as S82, S129 and the folder-names suite. The guarantee is unchanged
+     and both spellings are still counted; the alias is checked separately below so it
+     cannot come to mean something else. */
   const appends = stripComments(admin).match(
-    /etTemplateIsRsvp\(template\) && !rsvpTemplateHasAddOn\(template\.data\.body\)/g) || [];
+    /(?:etTemplateIsRsvp\(template\)|isRsvp) && !rsvpTemplateHasAddOn\(template\.data\.body\)/g) || [];
   check('S131', 'the send, the preview and the test send all append it the same way',
     appends.length === 3,
     'found ' + appends.length + ' of 3 — the on-screen preview, the test send ' +
     'and the real send must produce the same email');
+  check('S131', 'and the alias the send uses is that same question',
+    /const isRsvp = etTemplateIsRsvp\(template\);/.test(stripComments(admin)),
+    'isRsvp bound to anything else turns the check above into a check on a word');
 
   /* ⚠ ONLY ON AN RSVP. An add-on offer at the foot of an invoice or a receipt
      is not what either of those emails is for, and a second set of yes/no
@@ -52574,8 +52584,14 @@ suite('308. Sharing the referral link, not opening it');
   const refEmailStart = admin.indexOf('async function referralEmailBlock');
   const refEmailBlock = refEmailStart === -1 ? '' : admin.slice(refEmailStart,
     admin.indexOf("'[HU] referral block failed'", refEmailStart));
-  check('S308', 'the block that appends itself draws the same box',
-    /referralShareBoxHtml\(referralLinkFromToken\(token\), url\)/.test(refEmailBlock),
+  /* ⚠ REPOINTED 2026-09-08 (REF-20), NOT WEAKENED. referralEmailBlock no longer builds
+     the box itself: it asks referralOfferFor, the one resolver the send's own
+     no-referral count also reads, so that the email and the report on it cannot
+     disagree about whether a customer has a link. The guarantee is the same and is now
+     RUN rather than matched — see the referral-offer suite, which executes this block
+     and reads the box out of what it returns. */
+  check('S308', 'the block that appends itself goes through the shared resolver',
+    /referralOfferProse\(\(await referralOfferFor\(item\)\)\.html\)/.test(refEmailBlock),
     'referralEmailBlock only runs when her saved template carries neither token ' +
     '(REF-15), which makes it the copy least likely to be noticed missing one');
   check('S308', 'and so do BOTH of the server’s spots',
@@ -53130,5 +53146,210 @@ suite('Suite 310. The whole RSVP, in one press');
     check('S310', 'and says why, rather than looking like nothing happened',
       /invoices/i.test(run(book, false).why || ''),
       'a silent empty plan reads as "nobody to ask" and the office presses it again');
+  }
+}
+
+/* =====================================================================
+ * Suite 311. The referral offer, RUN rather than read
+ *
+ * Addie, 2026-09-08: "why is the referal share button/link not working anymore… its
+ * not even showing up anymore."
+ *
+ * ⚠ THE RENDERING HAD NEVER BEEN EXECUTED BY ANYTHING. Suite 305 checks the
+ * {{referral_button}} branch of resolveLinkTokens with a REGEX over a slice of the
+ * file, and Suite 308 runs the box BUILDER on a pair of addresses it hands in itself.
+ * Nothing had ever asked the question that was actually being asked: given a real
+ * customer record, does a link come out? That is the gap this suite closes, and it is
+ * the shape this repo keeps re-learning — "a message that is in the source is not a
+ * message on the screen".
+ *
+ * ⚠ AND resolveLinkTokens CANNOT BE LIFTED BY extractFn AT ALL, which is why nobody
+ * had. It contains the string '{{custom_' — two opening braces with no closers — so
+ * the brace counter runs off the end of the file and the function reads as MISSING.
+ * A suite written the ordinary way would have skipped, silently, for ever. It is
+ * sliced between its own signature and the next declaration instead, and the slice is
+ * asserted to be the whole function before anything is run on it.
+ *
+ * ⚠ WHAT IT PROVES IS THE PRESENCE OF A LINK, NOT ITS PRETTINESS. Suite 308 owns the
+ * box's shape and the office/server parity; this owns the one question that decides
+ * whether a customer gets an offer at all — does the customer RESOLVE — and the
+ * reporting that now says so out loud when one does not.
+ * ------------------------------------------------------------------------- */
+suite('Suite 311. The referral offer, RUN rather than read');
+
+{
+  const NL311 = String.fromCharCode(10);
+  const sigAt = admin.indexOf('async function resolveLinkTokens(');
+  const nextAt = admin.indexOf(NL311 + 'async function buildOutgoingEmailFooter(');
+  const resolveSrc = (sigAt !== -1 && nextAt > sigAt) ? admin.slice(sigAt, nextAt) : '';
+  /* ⚠ THE SLICE IS PROVED WHOLE BEFORE IT IS RUN. Cut short it would still parse as a
+     function and would silently stop resolving whichever tokens fell off the end —
+     green, and testing half the renderer. */
+  check('S311', 'the renderer is findable and the slice is the whole of it',
+    !!resolveSrc && /\{\{referral_button\}\}/.test(resolveSrc) &&
+    /out\.replace\(\/\\n\/g, '<br>'\)/.test(resolveSrc) && /return out;/.test(resolveSrc),
+    'repoint this slice rather than stubbing it — extractFn cannot lift this function ' +
+    'because of the ' + String.fromCharCode(39) + '{{custom_' + String.fromCharCode(39) +
+    ' literal inside it, so a stub here would be permanent');
+
+  const needed311 = ['hlxEmailCustomerItem', 'referralTokenFor', 'referralLinkFromToken',
+    'referralShareLinkFromToken', 'referralShareBoxHtml', 'generateReferralToken',
+    'applyQuoteLinkLabel', 'applyQuoteLinkButton', 'referralOfferFor', 'referralOfferProse',
+    'referralEmailBlock', 'referralOfferPlacement', 'rsvpTemplateHasReferral',
+    'etTemplateIsRsvp', 'referralMissingNote'];
+  const lifted311 = {};
+  needed311.forEach(function (n) { lifted311[n] = extractFn(admin, n); });
+  const missing311 = needed311.filter(function (n) { return !lifted311[n]; });
+  check('S311', 'every function this runs is lifted from the real file',
+    !missing311.length,
+    'missing: ' + missing311.join(', ') + ' — LIFT, NOT STUB: a stub here keeps the ' +
+    'suite green through an email that carries no link at all');
+
+  if (resolveSrc && !missing311.length) {
+    /* ⚠ extractFn DROPS THE async KEYWORD (§5), and three of these are async. Put back
+       by name rather than by a blanket prefix — referralShareBoxHtml is not async, and
+       an await inside a plain function is a parse error that kills the whole run as one
+       unattributable crash. */
+    const ASYNC311 = ['referralTokenFor', 'referralOfferFor', 'referralEmailBlock'];
+    const body311 = needed311.map(function (n) {
+      return (ASYNC311.indexOf(n) !== -1 ? 'async ' : '') + lifted311[n];
+    }).join(NL311);
+
+    const styles311 = ['SHARE_ICON_BUTTON_STYLE', 'QUOTE_LINK_BUTTON_STYLE',
+      'QUOTE_LINK_BUTTON_DEFAULT', 'REFERRAL_TOKEN_ALPHABET'].map(function (n) {
+      const m = admin.match(new RegExp('const ' + n + " = '[^']*';"));
+      return m ? m[0] : '';
+    });
+    check('S311', 'the four styles and alphabets are lifted too',
+      styles311.every(Boolean),
+      'a missing one is a ReferenceError inside the sandbox, reported as an unrelated crash');
+
+    /* Everything the referral path does NOT use is stubbed to nothing on purpose: the
+       fixtures place only the referral token, so no other branch of the renderer runs.
+       The writes array is the fake Firestore — referralTokenFor mints through it. */
+    const env311 = new Function('BOOK', [
+      'let jobAddresses = BOOK, custById = new Map();',
+      'BOOK.forEach(function(a){ if(a && a.id) custById.set(a.id, a); });',
+      'let allInvoicesCache = [], quotesCache = [], customCodes = [], perFootRate = 3;',
+      'const writes = [];',
+      'function doc(){ return {}; } function collection(){ return {}; }',
+      'async function updateDoc(_r, patch){ writes.push(patch); } const db = {};',
+      'function esc(s){ return String(s == null ? "" : s); }',
+      'function fmtMoney(n){ return "$" + Number(n || 0).toFixed(2); }',
+      'function niceDate(d){ return String(d); } function addDays(d){ return d; }',
+      'const PAYMENT_TERMS_DAYS = 30;',
+      'function invoiceIssuedAt(){ return new Date(); }',
+      'async function getOrCreatePortalToken(){ return "pt_test"; }',
+      'function billedHousesEmailBlock(){ return ""; }',
+      'function billedHousesPlainText(){ return ""; }',
+      'async function addOnEmailBlock(){ return ""; }',
+      styles311.join(NL311),
+      body311,
+      resolveSrc,
+      'return {resolveLinkTokens: resolveLinkTokens, referralOfferFor: referralOfferFor,',
+      '        referralEmailBlock: referralEmailBlock, referralMissingNote: referralMissingNote,',
+      '        referralOfferPlacement: referralOfferPlacement, writes: writes};'
+    ].join(NL311));
+
+    const withTok = { id: 'c1', data: { name: 'Brian Petersen', phone: '8015550111',
+      email: 'b@x.com', referralToken: 'ab3k9xyz' } };
+    const noTok = { id: 'c2', data: { name: 'Dana Reid', phone: '8015550222', email: 'd@x.com' } };
+    /* ⚠ TWO HOUSEHOLDS ON ONE NUMBER, which is the case that actually bites: seventeen
+       numbers in the real book are shared and fourteen are a parent and a child. */
+    const par = { id: 'c3', data: { name: 'Parent', phone: '8015550333', email: 'p@x.com' } };
+    const kid = { id: 'c4', data: { name: 'Child', phone: '8015550333', email: 'k@x.com' } };
+
+    const BODY311 = 'Hi {{name}},' + NL311 + NL311 +
+      'You now have your own personal referral link.' + NL311 + NL311 +
+      '{{referral_button}}' + NL311 + NL311 + 'RSVP below!';
+    const LINKED = 'highlightingutah.com/r/';
+
+    pendingAsync.push((async function () {
+      /* ---- the token in her template ---------------------------------------- */
+      const e1 = env311([withTok]);
+      const out1 = await e1.resolveLinkTokens(BODY311, '8015550111', 0,
+        { name: 'Brian Petersen', customerId: 'c1' });
+      check('S311', 'the RSVP send puts a real link where the template asks for it',
+        out1.indexOf(LINKED + 'ab3k9xyz') !== -1 && out1.indexOf('<table') !== -1,
+        'this is the send path the office actually uses; a blank here is an RSVP that ' +
+        'promises a referral link and carries none');
+      check('S311', 'and the words the customer reads are the FRIEND’s address',
+        out1.indexOf('>' + LINKED + 'ab3k9xyz</a>') !== -1 &&
+        out1.indexOf('href="https://highlightingutah.com/s/ab3k9xyz"') !== -1,
+        'REF-13: the words are what gets copied and forwarded, the icon is the ' +
+        'customer’s own share page');
+
+      /* ---- a customer who has never had one ---------------------------------- */
+      const e2 = env311([noTok]);
+      const out2 = await e2.resolveLinkTokens(BODY311, '8015550222', 0,
+        { name: 'Dana Reid', customerId: 'c2' });
+      check('S311', 'a customer with no code yet is given one rather than skipped',
+        out2.indexOf(LINKED) !== -1 && e2.writes.length === 1 && !!e2.writes[0].referralToken,
+        'REF-10 exists because most of the book had no token; minting on the way past ' +
+        'is what stops the offer working for some people and silently not for others');
+
+      /* ---- and the three ways it comes out empty ----------------------------- */
+      const e3 = env311([par, kid]);
+      const out3 = await e3.resolveLinkTokens(BODY311, '8015550333', 0, { name: 'Parent' });
+      check('S311', 'a shared phone with no customer id emits nothing at all',
+        out3.indexOf(LINKED) === -1 && out3.indexOf('<table') === -1 &&
+        out3.indexOf('{{referral_button}}') === -1,
+        'the strict resolver refuses a phone matching two customers rather than putting ' +
+        'the child’s link in the parent’s email — and it must leave no dead box behind');
+      const e4 = env311([withTok]);
+      const out4 = await e4.resolveLinkTokens(BODY311, '8015550111', 0,
+        { name: 'Brian Petersen', customerId: 'gone' });
+      check('S311', 'and so does an id that is no longer in the book',
+        out4.indexOf(LINKED) === -1 && out4.indexOf('<table') === -1,
+        'a dead box is a customer tapping something we sent them and landing nowhere');
+
+      /* ---- the resolver now says WHY, which is the whole of REF-20 ----------- */
+      const e5 = env311([withTok]);
+      const good = await e5.referralOfferFor(withTok);
+      const bad = await e5.referralOfferFor(null);
+      check('S311', 'a resolved customer comes back with a box and no complaint',
+        good.html.indexOf(LINKED + 'ab3k9xyz') !== -1 && good.why === '' &&
+        good.token === 'ab3k9xyz',
+        'why must be empty on success, or every send reports every customer as missed');
+      check('S311', 'and an unresolved one comes back empty AND says why',
+        bad.html === '' && typeof bad.why === 'string' && bad.why.length > 0,
+        'rendering nothing and saying nothing is how a whole-book RSVP went out with no ' +
+        'referral offer in it and the green line still read "Done — sent 312"');
+
+      /* ⚠ THE APPENDED BLOCK IS THE COPY NOBODY LOOKS AT, so it is RUN, not read. */
+      const appended = await e5.referralEmailBlock(withTok);
+      check('S311', 'the appended offer carries the same box and the $25 sentence',
+        appended.indexOf(LINKED + 'ab3k9xyz') !== -1 && /\$25/.test(appended) &&
+        appended.indexOf('<table') !== -1,
+        'REF-15: this is what a template with no code in it sends, which is most of them');
+      check('S311', 'and appends nothing at all for a customer with no link',
+        (await e5.referralEmailBlock(null)) === '',
+        'a heading over an empty space is worse than no paragraph');
+    })());
+
+    /* ---- what the office is told, before and after ------------------------- */
+    const e6 = env311([withTok]);
+    check('S311', 'a clean send says nothing about referral links',
+      e6.referralMissingNote({ noReferral: 0, noReferralNames: [] }) === '',
+      'a warning on every ordinary send is one the office learns to scroll past');
+    const note = e6.referralMissingNote({ noReferral: 3, noReferralNames: ['Parent — no code'] });
+    check('S311', 'and a send that missed some names them and counts them',
+      /3/.test(note) && note.indexOf('Parent') !== -1 && /and others/.test(note),
+      'got: ' + note + ' — a bare count is a number nobody can act on');
+
+    /* ---- and where the offer will appear, before a single email goes -------- */
+    const tplCode = { data: { body: 'Hi {{name}} {{rsvp_yes_button}} {{referral_button}}' } };
+    const tplBare = { data: { body: 'Hi {{name}} {{rsvp_yes_button}}' } };
+    const tplBill = { data: { body: 'Your invoice is {{amount}}' } };
+    check('S311', 'a template placing the code is reported as placing it',
+      e6.referralOfferPlacement(tplCode) === 'code',
+      'this is the line that answers her question without sending anything');
+    check('S311', 'one that does not is reported as having it added at the end',
+      e6.referralOfferPlacement(tplBare) === 'appended',
+      'her own RSVP body carried no code, so the offer went to the BOTTOM rather than ' +
+      'beside the sentence she had written about it — and nothing said so');
+    check('S311', 'and a template that is not an RSVP gets no offer at all',
+      e6.referralOfferPlacement(tplBill) === 'none',
+      'a referral offer at the foot of an invoice is not what that email is for');
   }
 }
