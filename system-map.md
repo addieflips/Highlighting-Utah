@@ -1476,6 +1476,21 @@ member's bill — with nobody in the office typing anything.
   Inbox note are the only defences. A refusal is marked on the quote so it is not retried
   for ever, and it raises its own note, because a refusal nobody can see is indistinguishable
   from the link not working.
+  - ⭐ **AND THE REFUSAL IS ON THE REFERRER'S OWN RECORD** (2026-09-08). Dax: *"someone
+    joined and accepted a quote under this referral link but you cant see him get the
+    discount here."* Nothing was wrong — the referral was refused, correctly, because the
+    friend's quote carried the **same phone number** as the link's owner. But the refusal
+    was written to the QUOTE and to the Inbox and never to the customer, so **Refer a
+    friend**, the one row on their own screen about their own link, still read *“nobody has
+    joined through it yet”* after somebody had joined through it. That row now says how
+    many uses earned nothing **and why**, and reads *“nobody has joined through it and been
+    credited”* rather than claiming nobody came.
+  - ⚠ **It is its own field, `referralBlocks`, never `referralCredits`.** Every count,
+    every line on a bill and the clawback read the credit array; a $0 refusal parked in it
+    would have to be excluded by each of them separately.
+  - ⚠ **Best effort, and it cannot cost the two traces that already worked.** The write
+    has its own catch, so a failure still leaves the quote stamped and the Inbox note
+    raised. It is keyed on the quote id, so a re-run refusal is still one refusal.
 - ⭐ **HOW LONG A REFERRAL IS WORTH $25** (2026-09-07, REF-14). Dax: *"a referral is $25
   off for the current season per refferral."* It comes off **the season it was earned in**
   and no season after it. ⚠ **Before this it was a discount for life, and nobody had
