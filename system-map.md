@@ -1151,6 +1151,48 @@ written into that customer's history.
     Each live entry is marked `waived` in the **same write** as the count — `waived` kept
     apart from `revoked`, because one means the office crossed it off and the other means
     the friend cancelled, and a season later that difference is what explains the bill.
+    ⭐ **AND SINCE 2026-09-08 (REF-24) IT IS ONE LINE PER REFERRAL, NAMING THE FRIEND,
+    WITH A × EACH.** Addie: *"in discount I cannot currently see who got what discount.
+    That should show with an x at the right side."* The × was already there; **who** was
+    missing — every referral collapsed into a single "Referral — 3 people" line, so the
+    office could see $75 had come off and never which three friends earned it, and one ×
+    took all three off at once. `referralCreditNotes` builds a `{amount, reason, kind,
+    ref, date}` line per live entry, `ref` being the referred customer's id, and the ×
+    marks **that entry alone** `waived`.
+    ⚠ **The count is RECOMPUTED, never zeroed**, now that one × need not mean all of
+    them — writing `referralCount: 0` would wipe the discount for referrals nobody
+    crossed off.
+    ⚠ **An old collapsed line still means all of them.** Every invoice raised before this
+    holds one line with no `ref`; a × that matched nothing there would take the money off
+    and leave the count standing to put it straight back on the next save.
+    ⚠ **A typed count with no entries behind it is unchanged.** The People They Referred
+    box writes a number nobody linked to a person, so anything it claims beyond the
+    entries stays one collapsed line — which is also the whole of the Add Customer path,
+    where no entry can exist yet.
+  - ⭐ **WHICH SEASON THE $25 COMES OFF** (2026-09-08, REF-23). Addie: *"if someone shares
+    there referal link but denied for this year than they will get discount for next year
+    however if they approved for this year they will get discount for this year."*
+    ⚠ **Without it the $25 was simply lost.** A customer who has said no or Back Next Year
+    has no bill this season, so `applyReferralCreditLine` found no invoice and returned
+    false — and REF-14 then stopped the entry counting in any LATER season, because it was
+    stamped with the year it was earned. Somebody who brought us a customer while sitting
+    out earned nothing at all, silently.
+    ⚠ **`referralCreditSeason` asks `houseIsOnTheBill`, not `isOutForSeason`.** This is a
+    question about a BILL — is there one this season for the discount to come off — and
+    that rule already answers it and is swept against the server copy by money-parity.
+    `isOutForSeason` would be wrong twice: it also returns true for `needsLightRecycle`, a
+    warehouse state that says nothing about money, and once `SEASON_ELIGIBILITY` is live it
+    returns true for everybody who has not replied, which would push almost every referral
+    in the book to next season on the day the RSVP goes out. A house that was **hung** is
+    billed (Q-013), so a flat "no" on a completed house still earns it this season.
+    ⚠ **Held credits are shown, never put on the invoice.** `referralHeldCount` feeds the
+    Refer a friend row in Edit Customer — "+1 held for next season" — because adding them
+    to this season's credits would take money off a bill they are not for, and leaving them
+    invisible makes a referral earned while sitting out look exactly like one that never
+    counted.
+    ⚠ **One case is deliberately open**: somebody who earns a credit while they are IN the
+    season and answers no afterwards keeps a credit stamped for a season they are no longer
+    billed for. `docs/open-questions.md` Q-029.
   - ⚠ **No late fee is charged today.** The rule is decided and unbuilt ($25 if they have
     paid something, $40 if they have not — PROC-32). The × is built against the ledger
     rather than against a named fee, so a late fee written later is waivable the day

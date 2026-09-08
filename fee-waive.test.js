@@ -469,6 +469,99 @@ async function main() {
       'share a note shape and must not share a vocabulary');
   }
 
+
+  /* -------------------------------------------------------------------------
+   * 8. ONE LINE PER REFERRAL, AND ONE × PER LINE (2026-09-08, REF-24).
+   *
+   * Addie: *"in discount I cannot currently see who got what discount. That should
+   * show with an x at the right side. the x is something I can waive the discount
+   * or fee."*
+   *
+   * ⚠ THE × WAS ALREADY THERE AND THE NAMES WERE NOT. Every referral collapsed into
+   * a single "Referral — 3 people" line, so the office could see that $75 had come
+   * off and never which three friends earned it — and the one × beside it took all
+   * three off at once.
+   *
+   * ⚠ THIS RUNS THE RENDERER AND THE WAIVER, rather than matching their source.
+   * Every claim here is about a ROW ON A SCREEN and about WHICH MONEY comes off,
+   * and this repo has been caught more than once by a check that matched the source
+   * of something that could never reach the page.
+   * ----------------------------------------------------------------------- */
+  {
+    const refJane = { amount: 25, reason: 'Referral — Jane Smith', kind: 'referral',
+                      ref: 'CUST-JANE', date: '2026-09-02T10:00:00.000Z' };
+    const refBob  = { amount: 25, reason: 'Referral — Bob Ng', kind: 'referral',
+                      ref: 'CUST-BOB', date: '2026-09-05T10:00:00.000Z' };
+    const goodwill = { amount: 40, reason: 'Goodwill', kind: 'manual',
+                       date: '2026-08-01T10:00:00.000Z' };
+    const creditInv = notes => ({
+      install: 500, removal: 0, deposit: 0, changeFees: 0,
+      credits: notes.reduce((s, n) => s + n.amount, 0),
+      creditNotes: notes
+    });
+
+    const html = ledgerLinesHtml('credit', [refJane, refBob, goodwill]);
+    check('each referral is drawn as its own line, naming the friend',
+      html.indexOf('Jane Smith') !== -1 && html.indexOf('Bob Ng') !== -1,
+      'got: ' + html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() +
+      ' — a total the office cannot attribute is the complaint this answers');
+    /* ⚠ THE × IS COUNTED, NOT MERELY LOOKED FOR. One × over three lines is exactly
+       the old behaviour, and it renders a perfectly good-looking row. */
+    check('and every one of them carries its own ×',
+      (html.match(/class="fee-waive"/g) || []).length === 3,
+      'got ' + (html.match(/class="fee-waive"/g) || []).length + ' of 3 — one × over ' +
+      'several referrals is the collapsed line wearing a new shape');
+    /* ⚠ AND EACH × CARRIES A DIFFERENT TOKEN. Three buttons that all fingerprint to
+       the same line is one × in three places: pressing any of them takes off whichever
+       the waiver happens to find first. */
+    const tokens = (html.match(/data-feetoken="([^"]*)"/g) || []);
+    check('and no two × buttons point at the same line',
+      tokens.length === 3 && new Set(tokens).size === 3,
+      'got ' + tokens.length + ' tokens, ' + new Set(tokens).size + ' distinct — a shared ' +
+      'fingerprint is a × that removes the wrong money');
+
+    const inv = creditInv([refJane, refBob, goodwill]);
+    const out = ledgerWaiveUpdates(inv, 'credit', feeNoteKey(refBob));
+    check('crossing off one referral leaves the other standing',
+      !!out && out.updates.creditNotes.length === 2 &&
+      out.updates.creditNotes.indexOf(refJane) !== -1 &&
+      out.updates.creditNotes.indexOf(refBob) === -1,
+      'got ' + JSON.stringify(out && out.updates.creditNotes.map(n => n.reason)) +
+      ' — taking every referral off because one was wrong is what this replaced');
+    check('and the bill is re-totalled from what is left',
+      !!out && out.updates.credits === 65,
+      'got ' + (out && out.updates.credits) + ', expected 65 (one $25 referral and the ' +
+      '$40 goodwill discount)');
+    /* ⚠ THE REMOVED LINE IS HANDED BACK CARRYING ITS `ref`, and that is what the
+       waiver in admin.html marks on the customer record. Without it the × takes the
+       money off the invoice and leaves the entry live, so the next referral through a
+       link recomputes the count and puts the whole discount straight back. */
+    check('and it hands back the line with the referred customer on it',
+      !!out && out.removed && out.removed.ref === 'CUST-BOB',
+      'got ' + JSON.stringify(out && out.removed && out.removed.ref) + ' — without it ' +
+      'the entry stays live on the record and the next referral restores the discount');
+    /* ⚠ AND THE GOODWILL DISCOUNT IS NOT A REFERRAL. A waiver that matched on kind
+       rather than on the line would take an unrelated credit off the same bill. */
+    const outManual = ledgerWaiveUpdates(creditInv([refJane, goodwill]), 'credit', feeNoteKey(goodwill));
+    check('a discount that is not a referral still waives on its own',
+      !!outManual && outManual.updates.credits === 25 &&
+      outManual.removed.kind === 'manual',
+      'got ' + (outManual && outManual.updates.credits) + ' — one rule over the whole ' +
+      'credit ledger, not a referral special case');
+
+    /* ⚠ AND THE OLD COLLAPSED LINE STILL WAIVES. Every invoice written before today
+       holds one "Referral — 3 people" line with no `ref` on it; if that stopped
+       working the office would be unable to cross off any referral on a bill raised
+       before the change. */
+    const oldStyle = { amount: 75, reason: 'Referral — 3 people', kind: 'referral',
+                       date: '2026-08-10T10:00:00.000Z' };
+    const outOld = ledgerWaiveUpdates(creditInv([oldStyle, goodwill]), 'credit', feeNoteKey(oldStyle));
+    check('an old collapsed referral line still comes off',
+      !!outOld && outOld.updates.credits === 40 && !outOld.removed.ref,
+      'got ' + (outOld && outOld.updates.credits) + ' — a bill raised before the change ' +
+      'must not become un-editable, and a line with no ref still means all of them');
+  }
+
   /* ------------------------------------------------------------------------- */
   console.log('');
   console.log('=== Waiving one fee off a bill ===');

@@ -45169,7 +45169,15 @@ if (!JSDOM) {
        inside `if(url)`, so a tokenless fixture hides it and the suite goes green while
        being one fixture away from taking the whole run down. Found exactly that way,
        by a red-check. Lifted, not stubbed: it is the address the office opens. */
-    'editCustRenderReferLine', 'referralLiveCount', 'referralLinkFromToken',
+    /* ⚠ AND referralHeldCount JOINED THEM (2026-09-08, REF-23). The row now also says
+       how many referrals are being held for NEXT season, so this lift throws a bare
+       ReferenceError on every fixture — which is how it was found, one run after being
+       written. Lifted, not stubbed, for the same reason as the count beside it: what it
+       says is a claim about money somebody has earned. Also needs referralEntrySeason,
+       which both counts call. */
+    'editCustRenderReferLine', 'referralLiveCount', 'referralHeldCount',
+    'referralEntrySeason', 'referralEntryCountsIn', 'referralSeasonOr',
+    'referralLinkFromToken',
     'referralShareLinkFromToken'];
   const bodies = NAMES.map(function (n) { return extractFn(admin, n); });
   const missing = NAMES.filter(function (n, i) { return !bodies[i]; });
@@ -49622,6 +49630,21 @@ suite('299. A referral link, and the $25 that follows it');
        stubbed: a stub here would decide which credits still count, which is the exact
        question these checks exist to ask. assertSandbox names it if this is forgotten. */
     ['referralEntrySeason', false],
+    /* ⚠ AND THE TWO REF-23/REF-24 RULES (2026-09-08), lifted for the same reason and
+       named by assertSandbox the moment they are not: `referralCreditNotes` decides how
+       many lines a bill carries and what each one says, and `referralCreditSeason`
+       decides WHICH SEASON the $25 comes off. Both are answers about money.
+       `houseIsOnTheBill` comes with the second — it is the rule that one asks, and a
+       stub of it would let this suite agree with a copy of the billing rule rather than
+       with the shipped one. `referralHeldCount` is the office-side counterpart. */
+    ['referralCreditNotes', false], ['referralCreditSeason', false],
+    ['referralHeldCount', false], ['houseIsOnTheBill', false],
+    /* ⚠ THE ONE PREDICATE BOTH COUNTS ASK (REF-24). It exists because a red-check
+       proved two copies of it: the line builder had its own, and changing that copy to
+       let next season's held credits onto this season's bill left every check in the
+       repo green — they all read the other one. Lifted, so the checks below exercise
+       the shipped rule rather than a second opinion. */
+    ['referralEntryCountsIn', false], ['referralSeasonOr', false],
     ['referralIsSelfReferral', false], ['referralClawbackAllowed', false],
     ['applyReferralCreditLine', true], ['referralNote', true],
     ['creditReferralIfAny', true], ['referralBlocked', true],
@@ -49658,6 +49681,9 @@ suite('299. A referral link, and the $25 that follows it');
         lifted.join('\n'),
         'return {creditReferralIfAny, clawBackReferralIfAny, applyReferralCreditLine,',
         '        referralIsSelfReferral, referralClawbackAllowed, referralCreditNote,',
+        '        referralCreditNotes, referralCreditSeason, referralHeldCount,',
+        '        referralEntryCountsIn,',
+        '        houseIsOnTheBill,',
         '        referralLiveCount, referralEntrySeason};'
       ].join('\n');
 
@@ -49851,11 +49877,22 @@ suite('299. A referral link, and the $25 that follows it');
             'NEW1', {name: 'Kyle New', phone: '8015559999'});
           const inv = w.invoices['8015550111'];
           const refLines = (inv.creditNotes || []).filter(c => c.kind === 'referral');
-          check('S299', 'a second referral rebuilds one $50 line rather than adding another',
-            refLines.length === 1 && refLines[0].amount === 50,
-            'got ' + refLines.length + ' referral line(s) worth ' +
-            (refLines[0] && refLines[0].amount) + ' — two lines saying "Referral" is a bill ' +
-            'that reads as though we discounted them twice for the same friend');
+          /* ⚠ REPOINTED 2026-09-08 (REF-24), NOT WEAKENED. This required ONE collapsed
+             $50 line, which is exactly what Addie asked to be rid of: *"in discount I
+             cannot currently see who got what discount."* Two referrals are now two
+             NAMED $25 lines with a × each. What the check was really guarding is
+             untouched and is still asserted below it — the rebuild REPLACES the referral
+             lines rather than piling a stale one on top, so the total is $50 and not $75,
+             and every other kind of credit survives. */
+          const refTotal = refLines.reduce((n, c) => n + (Number(c.amount) || 0), 0);
+          check('S299', 'a second referral adds a second NAMED line, and replaces the old ones',
+            refLines.length === 2 && refTotal === 50 &&
+            refLines.every(c => /Referral \u2014 \S/.test(c.reason || '')) &&
+            refLines.every(c => !!c.ref),
+            'got ' + refLines.length + ' referral line(s) worth ' + refTotal + ' [' +
+            refLines.map(c => c.reason).join(' | ') + '] — a line per friend is how the ' +
+            'office sees who earned what, and `ref` is what lets one × cross off one of ' +
+            'them; a stale line left behind would discount them twice for one friend');
           check('S299', 'and every other kind of credit on that bill survives it',
             (inv.creditNotes || []).some(c => c.kind === 'manual' && c.amount === 40) &&
             inv.credits === 90,
@@ -49903,11 +49940,20 @@ suite('299. A referral link, and the $25 that follows it');
             two.ok === true,
             'got ' + JSON.stringify(two) + ' — a refusal here is the whole report: the ' +
             'referrer sent two friends and was thanked for one');
+          /* ⚠ REPOINTED 2026-09-08 (REF-24): two friends are two NAMED lines now, not
+             one collapsed $50. The claim this check exists for is the MONEY, and it is
+             unchanged — $50 off, for two friends. What is added is that each line names
+             its own friend, because a total that is right while the office cannot see
+             who earned it is the complaint that prompted the change. */
+          const twoTotal = refLines.reduce((n, c) => n + (Number(c.amount) || 0), 0);
           check('S299', 'so a customer who refers twice is discounted twice',
-            inv.credits === 50 && refLines.length === 1 && refLines[0].amount === 50,
+            inv.credits === 50 && refLines.length === 2 && twoTotal === 50 &&
+            refLines.some(c => /Kyle/.test(c.reason || '')) &&
+            refLines.some(c => /Pat/.test(c.reason || '')),
             'got credits=' + inv.credits + ' across ' + refLines.length + ' referral ' +
-            'line(s) worth ' + (refLines[0] && refLines[0].amount) + ' — $25 for two ' +
-            'friends is the referral scheme quietly paying half of what it promises');
+            'line(s) worth ' + twoTotal + ' [' + refLines.map(c => c.reason).join(' | ') +
+            '] — $25 for two friends is the referral scheme quietly paying half of what ' +
+            'it promises, and an unnamed line is a discount nobody can audit');
           check('S299', 'and the stored count keeps up with the entries',
             w.customers[0].data.referralCount === 2 &&
             (w.customers[0].data.referralCredits || []).length === 2,
@@ -50066,11 +50112,50 @@ suite('299. A referral link, and the $25 that follows it');
             api.referralLiveCount([entry({season: thisYear, revoked: true})]) === 0 &&
             api.referralLiveCount([entry({season: thisYear, waived: true})]) === 0,
             'the two older reasons a referral stops counting are unchanged');
+          /* ⚠ REPOINTED 2026-09-08 (REF-23), AND STRENGTHENED FROM A MATCH TO A RUN.
+             The stamp is no longer always this year: a referrer with no bill this season
+             earns it off NEXT season's. The old check matched the literal
+             `new Date().getFullYear()` and so failed on correct code. It RUNS the rule
+             now, both ways, which is the thing that actually decides where $25 lands. */
           check('S299', 'a credit earned this season is stamped with it',
-            /season:\s*new Date\(\)\.getFullYear\(\)/.test(
-              extractFn(admin, 'creditReferralIfAny') || ''),
+            /season: referralCreditSeason\(referrer\.data\)/.test(
+              extractFn(admin, 'creditReferralIfAny') || '') &&
+            api.referralCreditSeason({}) === thisYear &&
+            api.referralCreditSeason({rsvpStatus: 'yes'}) === thisYear,
             'without the stamp every entry falls back to its date, which is the ' +
             'fallback for OLD rows rather than the rule for new ones');
+          /* ⭐ AND THE OTHER HALF OF THE RULE (REF-23). Addie: *"if someone shares there
+             referal link but denied for this year than they will get discount for next
+             year however if they approved for this year they will get discount for this
+             year."* Both directions are checked, because a rule that always answers the
+             same year passes half of this on its own. */
+          check('S299', 'a referrer sitting the season out earns it off NEXT season',
+            api.referralCreditSeason({rsvpStatus: 'no'}) === thisYear + 1 &&
+            api.referralCreditSeason({rsvpStatus: 'backnextyear'}) === thisYear + 1 &&
+            api.referralCreditSeason({maybeNextYear: true}) === thisYear + 1,
+            'they have no bill this season, so the $25 lands nowhere and REF-14 then ' +
+            'stops it counting in any later one — earned and silently lost');
+          check('S299', 'and a house that was hung is billed, so it earns it now',
+            api.referralCreditSeason({rsvpStatus: 'no', completed: true}) === thisYear,
+            'Q-013: hung is hung, so there IS a bill this season for it to come off — ' +
+            'this is why the rule asks houseIsOnTheBill rather than deciding for itself');
+          /* ⚠ RUN AGAINST THE LINE BUILDER TOO, not only the count. The red-check that
+             found this had changed the builder's own copy of the season filter, which put
+             next season's credits onto this season's invoice while every count-based
+             check stayed green. There is one predicate now and this exercises it through
+             the builder, which is the half that reaches a bill. */
+          check('S299', 'a held credit never becomes a line on this season’s bill',
+            api.referralCreditNotes([entry({season: thisYear + 1})], 0).length === 0 &&
+            api.referralCreditNotes([entry({season: thisYear})], 0).length === 1,
+            'a credit for next season sitting on this season’s invoice is money off a ' +
+            'bill it is not for, and the customer has already been shown the total');
+          check('S299', 'and a held credit is counted for the office, off the bill',
+            api.referralHeldCount([entry({season: thisYear + 1})]) === 1 &&
+            api.referralLiveCount([entry({season: thisYear + 1})]) === 0 &&
+            api.referralHeldCount([entry({season: thisYear})]) === 0,
+            'held has to be visible somewhere or a referral earned while sitting out ' +
+            'looks exactly like one that never counted — and it must never reach the ' +
+            'invoice, which is a bill it is not for');
         }
 
         /* ---- 10. the manual box is unchanged --------------------------
@@ -50315,11 +50400,40 @@ suite('299. A referral link, and the $25 that follows it');
      a zeroed count with live entries, which the next referral silently undoes. */
   const waiveSection = sectionFrom(admin,
     admin.indexOf("if(ledger === 'credit' && plan.removed && plan.removed.kind === 'referral')"));
+  /* ⚠ REPOINTED 2026-09-08 (REF-24): the count is RECOMPUTED now rather than zeroed,
+     because one × need no longer mean all of them — writing 0 would wipe the discount for
+     referrals nobody crossed off. The guarantee is unchanged and is what is checked: the
+     two fields still travel in ONE write. */
+  /* ⚠ THE COUNT IS DERIVED FROM THE MARKED ENTRIES, and that is asserted separately
+     from the write. A red-check replacing it with a literal 0 passed the write check on
+     its own — the variable is still called `stillCounted`, only its value changed — and
+     zeroing it wipes the discount for every referral nobody crossed off. This is
+     structural and says so: running the real × needs the whole Firestore-writing waive
+     path, and what the × produces IS run, in fee-waive.test.js, against the renderer and
+     ledgerWaiveUpdates. */
+  check('S299', 'and the count it writes is recomputed from the marked entries',
+    /const stillCounted = referralLiveCount\(marked\);/.test(waiveSection),
+    'a literal 0 here, or a count read off the OLD array, wipes the discount for the ' +
+    'referrals nobody crossed off — which is the collapsed line’s behaviour returning');
   check('S299', 'crossing off a referral marks the entries in the same write as the count',
-    /referralCount: 0,\s*referralCredits: marked/.test(waiveSection),
-    'the × zeroes the count alone, and every referral path rebuilds that count from the ' +
+    /referralCount: stillCounted,\s*referralCredits: marked/.test(waiveSection),
+    'the × moves the count alone, and every referral path rebuilds that count from the ' +
     'entries — so the next referral through a link puts the whole discount back on the ' +
     'bill, from a screen nobody was looking at');
+  /* ⚠ AND ONE × IS ONE REFERRAL, NOT ALL OF THEM. The line carries `ref`, the referred
+     customer's id, and only the entry it names is marked — while a line with no `ref` (an
+     old collapsed "Referral — 3 people" written before today) still means all of them, or
+     crossing one off would take the money away and leave the count standing to put it
+     straight back. Both halves are asserted because either alone reads as correct. */
+  check('S299', 'and it marks the ONE referral the × was pressed on',
+    /const oneRef = String\(\(plan\.removed && plan\.removed\.ref\) \|\| ''\)/.test(waiveSection) &&
+    /if\(oneRef && String\(e\.referredCustomerId/.test(waiveSection),
+    'without `ref` one × takes every referral off the bill, which is the collapsed line ' +
+    'Addie asked to be rid of wearing a new shape');
+  check('S299', 'and an old collapsed line with no ref still means all of them',
+    /if\(oneRef && /.test(waiveSection),
+    'every invoice written before today holds one line for several referrals; a × that ' +
+    'matched nothing there would remove the money and leave the count to restore it');
 
   /* ⚠ THE OFFICE MARKING SOMEBODY NO IS THE THIRD DOOR, and it is the one the customer
      never touches — portalRsvp covers the other. */
