@@ -45369,7 +45369,13 @@ if (!JSDOM) {
        written. Lifted, not stubbed, for the same reason as the count beside it: what it
        says is a claim about money somebody has earned. Also needs referralEntrySeason,
        which both counts call. */
+    /* ⚠ AND referralBlockCount / referralLastBlockWhy JOINED THEM (2026-09-08). The row
+       now also says how many uses of the link earned nothing and why, so this lift throws
+       a bare ReferenceError on every fixture — which is how it was found, on the first run
+       after it was written, exactly as referralHeldCount was. Lifted, not stubbed: what it
+       says is the difference between a rule working and a link being broken. */
     'editCustRenderReferLine', 'referralLiveCount', 'referralHeldCount',
+    'referralBlockCount', 'referralLastBlockWhy',
     'referralEntrySeason', 'referralEntryCountsIn', 'referralSeasonOr',
     'referralLinkFromToken',
     'referralShareLinkFromToken'];
@@ -50060,6 +50066,56 @@ suite('299. A referral link, and the $25 that follows it');
           check('S299', 'and it is said out loud rather than silently dropped',
             bySelf.notes.some(n => n.topic === 'Referral Blocked'),
             'a refusal nobody can see is indistinguishable from the link not working');
+
+          /* ⭐ AND THE REFUSAL IS ON THE REFERRER'S OWN RECORD (2026-09-08). Dax:
+             *"someone joined and accepted a quote under this referral link but you cant
+             see him get the discount here."* Nothing was wrong with the credit — it was
+             refused, correctly, because the phone matched — but the refusal was written
+             to the QUOTE and to the Inbox and never to the customer. So Refer a friend,
+             the one row on their own screen about their own link, still read *“nobody has
+             joined through it yet”* after somebody had joined through it. The check above
+             already proves the Inbox note; a note is not the screen somebody is looking at.
+             ⚠ RUN, NOT READ. The row draws referralBlockCount over this field, so what
+             matters is that the refusal path WRITES it — not that the words are present. */
+          const blockedOn = (w) => {
+            const r = w.customers.find(c => c.id === 'REF1');
+            return (r && Array.isArray(r.data.referralBlocks)) ? r.data.referralBlocks : [];
+          };
+          check('S299', 'a refused referral leaves a mark on the referrer, not just the quote',
+            blockedOn(bySelf).length === 1 && blockedOn(byPhone).length === 1,
+            'got ' + blockedOn(bySelf).length + ' and ' + blockedOn(byPhone).length +
+            ' — with nothing on the record their own screen says nobody has joined ' +
+            'through the link after somebody has');
+          check('S299', 'and it says WHY, which is the difference between a rule and a fault',
+            /phone number or email/.test(String((blockedOn(byPhone)[0] || {}).why)) &&
+            /own link/.test(String((blockedOn(bySelf)[0] || {}).why)),
+            'got ' + JSON.stringify(blockedOn(byPhone)[0]) + ' — “earned nothing” with no ' +
+            'reason sends somebody hunting for a link that is working perfectly');
+          /* ⚠ THE ONE THAT GUARDS MONEY. referralCredits is read by every count, every
+             line on a bill and the clawback; a $0 refusal parked in it would have to be
+             excluded by each of them separately, which is the two-copies failure REF-24
+             already paid for once. */
+          check('S299', 'and a refusal never lands in referralCredits, where money is counted',
+            !((bySelf.customers.find(c => c.id === 'REF1').data.referralCredits || []).length) &&
+            !((byPhone.customers.find(c => c.id === 'REF1').data.referralCredits || []).length),
+            'a refusal in the credit ledger is $25 the office cannot see and cannot remove');
+          /* ⚠ AND RE-RUNNING ONE REFUSAL MUST NOT STACK IT. A conversion can be re-saved;
+             the quote stamp normally stops that, but the record is keyed on the quote id
+             for the case where it does not. */
+          {
+            const twice = world({
+              customers: [referrer(), {id: 'NEW1', data: {}}],
+              invoices: {'8015550111': bill()}, quotes: {q1: {}}
+            });
+            const args = [{referredByToken: 'tok-dana', __quoteId: 'q1'},
+                          'NEW1', {name: 'Dana Again', phone: '8015550111'}];
+            await twice.api.creditReferralIfAny(args[0], args[1], args[2]);
+            await twice.api.creditReferralIfAny(args[0], args[1], args[2]);
+            check('S299', 'and one refusal re-run is still one refusal',
+              blockedOn(twice).length === 1,
+              'got ' + blockedOn(twice).length + ' — a row reading “4 uses earned nothing” ' +
+              'for one use is the same lie in the other direction');
+          }
         }
 
         /* ---- 5. two referrals are one line, not two -------------------- */

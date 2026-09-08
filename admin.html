@@ -11019,6 +11019,27 @@ function referralHeldCount(entries, seasonYear){
     return y !== null && y > season;
   }).length;
 }
+/* ⭐ AND THE USES THAT EARNED NOTHING (2026-09-08). A refusal used to leave the
+   referrer's record untouched — the quote was stamped, an Inbox note was raised, and the
+   customer themselves carried no trace at all. So the Refer a friend row on their own
+   screen read *“nobody has joined through it yet”* after somebody had joined through it
+   and been refused, which is the screen the office is on when it asks whether a link
+   works. Dax hit exactly that: *"someone joined and accepted a quote under this referral
+   link but you cant see him get the discount here."*
+   ⚠ A REFUSAL IS NOT A CREDIT AND MUST NEVER LAND IN `referralCredits`. Every count,
+   every line on a bill and the clawback all read that array, so an entry there worth $0
+   would have to be excluded by each of them separately — the two-copies-of-one-predicate
+   failure REF-24 already recorded. It is its own field, read by nothing that counts money.
+   ⚠ AND IT SAYS WHY. "1 use earned nothing" with no reason sends somebody hunting for a
+   broken link; the reason is the whole difference between a fault and a rule working. */
+function referralBlockCount(blocks){
+  return (Array.isArray(blocks) ? blocks : []).length;
+}
+function referralLastBlockWhy(blocks){
+  const list = Array.isArray(blocks) ? blocks : [];
+  const last = list[list.length - 1];
+  return (last && String(last.why || '').trim()) || '';
+}
 /* ⭐ WHETHER ONE ENTRY COUNTS IN ONE SEASON — THE ONE PREDICATE (2026-09-08, REF-24).
    The count and the itemised lines both have to answer it, and a red-check proved what
    two copies costs: with the filter written out twice, changing the LINE builder's copy
@@ -11308,9 +11329,13 @@ async function creditReferralIfAny(quoteData, customerId, customerData){
     /* ⚠ AN UNKNOWN TOKEN IS NOT AN ERROR. A link can outlive the customer who made
        it, and a conversion must not fail because of one. */
     if(!referrer) return { ok:false, why:'no referrer' };
-    if(referrer.id === customerId) return await referralBlocked(q, referrer, customerData, 'they used their own link');
+    /* ⚠ THE ID TRAVELS WITH THE NAME AND THE FIELDS, because referralBlocked keys its
+       record on the quote and falls back to the customer — and `customerData` is built by
+       the caller from the form, so it does not carry one on its own. */
+    const blockedWho = Object.assign({}, customerData, {__customerId: customerId});
+    if(referrer.id === customerId) return await referralBlocked(q, referrer, blockedWho, 'they used their own link');
     if(referralIsSelfReferral(referrer.data, customerData)){
-      return await referralBlocked(q, referrer, customerData, 'the phone number or email is the same as theirs');
+      return await referralBlocked(q, referrer, blockedWho, 'the phone number or email is the same as theirs');
     }
     const entries = Array.isArray(referrer.data.referralCredits) ? referrer.data.referralCredits.slice() : [];
     entries.push({
@@ -11352,6 +11377,34 @@ async function creditReferralIfAny(quoteData, customerId, customerData){
    nobody can see is indistinguishable from the link not working, and a pattern of
    them is the only thing this feature has instead of verification. */
 async function referralBlocked(quoteData, referrer, customerData, why){
+  /* ⭐ THE REFUSAL GOES ON THE REFERRER'S RECORD (2026-09-08) — see referralBlockCount
+     for why their own screen was the one place it could not be seen.
+     ⚠ BEST EFFORT, AND FIRST. Wrapped in its own catch so a failed write can never cost
+     the two traces that already worked: the stamp below is what stops the refusal being
+     run again for ever, and the Inbox note is what the office actually reads.
+     ⚠ KEYED ON THE QUOTE, so re-running a refusal cannot stack the same one twice. A
+     refusal with no quote id behind it falls back to the customer, which is the only
+     other thing that identifies one use of the link. */
+  try{
+    const list = Array.isArray(referrer.data.referralBlocks) ? referrer.data.referralBlocks.slice() : [];
+    const quoteId = String((quoteData && quoteData.__quoteId) || '');
+    const custId = String((customerData && customerData.__customerId) || '');
+    const already = list.some(function(b){
+      if(!b) return false;
+      return quoteId ? String(b.quote || '') === quoteId
+                     : (!!custId && String(b.referredCustomerId || '') === custId);
+    });
+    if(!already){
+      list.push({ quote: quoteId, referredCustomerId: custId,
+                  referredName: (customerData && customerData.name) || '',
+                  why: why, at: new Date().toISOString() });
+      await updateDoc(doc(db,'jobAddresses', referrer.id),
+        { referralBlocks: list, updatedAt: serverTimestamp() });
+      referrer.data.referralBlocks = list;
+    }
+  }catch(err){
+    console.error('Could not record the refused referral on the referrer:', err);
+  }
   await referralMarkQuote(quoteData);
   await referralNote('Referral Blocked', referrer,
     ((referrer.data.name || 'A customer') + '\u2019s referral link was used by ' +
@@ -46363,10 +46416,23 @@ function editCustRenderReferLine(){
       });
     }
   }
+  /* ⭐ AND THE USES THAT EARNED NOTHING (2026-09-08). Somebody DID join through this
+     link and was refused, and this row said “nobody has joined through it yet” — the one
+     sentence on the one screen where the office asks whether the link is working, saying
+     the opposite of what happened. See referralBlockCount. */
+  const refused = referralBlockCount(d.referralBlocks);
   bits.push('<span style="color:var(--slate);">' + (n
     ? (n === 1 ? '1 person has joined \u2014 ' : n + ' people have joined \u2014 ') +
       fmtMoney(n * REFERRAL_CREDIT) + ' off their bill'
-    : 'nobody has joined through it yet') + '</span>');
+    : (refused ? 'nobody has joined through it and been credited'
+               : 'nobody has joined through it yet')) + '</span>');
+  if(refused){
+    /* ⚠ THE REASON IS SHOWN, not just the count — “earned nothing” on its own sends
+       somebody hunting for a broken link, and the link is fine. */
+    const whyLast = referralLastBlockWhy(d.referralBlocks);
+    bits.push('<span style="color:var(--ember);">' + refused + ' use' + (refused === 1 ? '' : 's') +
+      ' of it earned nothing' + (whyLast ? ' \u2014 ' + esc(whyLast) : '') + '</span>');
+  }
   if(held){
     bits.push('<span style="color:var(--slate);">' +
       '+ ' + held + ' held for next season (' + fmtMoney(held * REFERRAL_CREDIT) +
