@@ -10444,7 +10444,9 @@ document.getElementById('sendBulkUpdateEmailBtn')?.addEventListener('click', asy
   const template = document.getElementById('bulkUpdateEmailTemplate')?.value;
   const includePortal = document.getElementById('bulkAutoIncludePortal')?.checked;
   const includeVenmo = document.getElementById('bulkAutoIncludeVenmo')?.checked;
-  let sent = 0, failed = 0;
+  let sent = 0, failed = 0, rateStop = null;
+  /* Shared across the whole run — see emailSendPaced (EM-08). */
+  const paceCtx = { autoWaits: 0 };
   for(const item of withEmail){
     const d = item.data;
     /* Key-based lookup, not phone-based — see the note in the single-send
@@ -10455,15 +10457,31 @@ document.getElementById('sendBulkUpdateEmailBtn')?.addEventListener('click', asy
     const footer = await buildOutgoingEmailFooter(d.phone, amount, {includePortal: includePortal, includeVenmo: includeVenmo, includeMessages: includeMessages});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, d.name || 'there').replace(/\{\{amount\}\}/g, fmtMoney(amount)), d.phone, amount) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
-    try{
-      await emailjs.send(serviceId, templateId, {
+    {
+      /* ⭐ PACED AND THROTTLE-AWARE LIKE EVERY OTHER SENDER (EM-08). This loop used to
+         fire the next send the instant the last returned, which is exactly what put 392
+         RSVP emails into "Gmail_API: User-rate limit exceeded". One helper, so the rule
+         cannot drift between the five places that mail customers. */
+      const paced = await emailSendPaced(function(){
+        return emailjs.send(serviceId, templateId, {
         to_email: d.email, to_name: d.name || '',
         message: message, button_url: 'https://highlightingutah.com/#/payment', button_label: '🎄 Update My Christmas Lights'
       });
-      sent++;
-    } catch(err){ failed++; lastEmailSendError = err; }
+      }, paceCtx, function(mins){
+        statusEl.textContent = 'Gmail asked us to slow down \u2014 waiting about ' + mins
+          + ' minute' + (mins === 1 ? '' : 's') + ', then carrying on by itself. '
+          + sent + ' sent so far. Leave this tab open.';
+      });
+      if(paced.sent) sent++;
+      else {
+        failed++; lastEmailSendError = paced.err;
+        /* ⚠ Gmail's limit is on the ACCOUNT: carrying on refuses every remaining send
+           and spends an EmailJS request each time being told so. */
+        if(paced.until){ rateStop = paced.until; break; }
+      }
+    }
   }
-  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+  statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' not sent' : '') + '.' + sendStoppedNote(rateStop);
   reportEmailSendFailures(failed, sent);
 });
 document.getElementById('bulkAutoTestBtn')?.addEventListener('click', async function(){
@@ -10528,7 +10546,9 @@ document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async fun
   if(!confirm('Send each of the ' + withEmail.length + ' selected member(s) this RSVP request now?')) return;
   emailjs.init(publicKey);
   const template = document.getElementById('rsvpEmailTemplate')?.value;
-  let sent = 0, failed = 0;
+  let sent = 0, failed = 0, rateStop = null;
+  /* Shared across the whole run — see emailSendPaced (EM-08). */
+  const paceCtx = { autoWaits: 0 };
   for(const item of withEmail){
     const d = item.data;
     const footer = await buildOutgoingEmailFooter(d.phone, 0, {includePortal: document.getElementById('rsvpIncludePortal')?.checked, includeVenmo: false, includeMessages: document.getElementById('rsvpIncludeMessages')?.checked});
@@ -10542,15 +10562,31 @@ document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async fun
        house, and a shared number cannot say which one — see hlxEmailCustomer. */
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, rsvpFirstNameOnly(d.name) || 'there'), d.phone, 0, {customerId: item.id}) + housesBlock + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
-    try{
-      await emailjs.send(serviceId, templateId, {
+    {
+      /* ⭐ PACED AND THROTTLE-AWARE LIKE EVERY OTHER SENDER (EM-08). This loop used to
+         fire the next send the instant the last returned, which is exactly what put 392
+         RSVP emails into "Gmail_API: User-rate limit exceeded". One helper, so the rule
+         cannot drift between the five places that mail customers. */
+      const paced = await emailSendPaced(function(){
+        return emailjs.send(serviceId, templateId, {
         to_email: d.email, to_name: d.name || '',
         message: message, button_url: 'https://highlightingutah.com/#/payment', button_label: '🎄 RSVP Now'
       });
-      sent++;
-    } catch(err){ failed++; lastEmailSendError = err; }
+      }, paceCtx, function(mins){
+        statusEl.textContent = 'Gmail asked us to slow down \u2014 waiting about ' + mins
+          + ' minute' + (mins === 1 ? '' : 's') + ', then carrying on by itself. '
+          + sent + ' sent so far. Leave this tab open.';
+      });
+      if(paced.sent) sent++;
+      else {
+        failed++; lastEmailSendError = paced.err;
+        /* ⚠ Gmail's limit is on the ACCOUNT: carrying on refuses every remaining send
+           and spends an EmailJS request each time being told so. */
+        if(paced.until){ rateStop = paced.until; break; }
+      }
+    }
   }
-  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+  statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' not sent' : '') + '.' + sendStoppedNote(rateStop);
   reportEmailSendFailures(failed, sent);
 });
 /* ---- RSVP preview + recipient picker ---- */
@@ -10718,17 +10754,35 @@ document.getElementById('pibSendUnpaidBtn')?.addEventListener('click', async fun
   if(!confirm('Send invoice emails to ' + withEmail.length + ' customer(s) now?')) return;
   emailjs.init(publicKey);
   const template = document.getElementById('pibUnpaidTemplate')?.value;
-  let sent = 0, failed = 0;
+  let sent = 0, failed = 0, rateStop = null;
+  /* Shared across the whole run — see emailSendPaced (EM-08). */
+  const paceCtx = { autoWaits: 0 };
   for(const row of withEmail){
     const footer = await buildOutgoingEmailFooter(row.phone, row.amount, {includePortal: document.getElementById('pibUnpaidIncludePortal')?.checked, includeVenmo: document.getElementById('pibUnpaidIncludeVenmo')?.checked, includeMessages: document.getElementById('pibUnpaidIncludeMessages')?.checked});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount), row.phone, row.amount) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
-    try{
-      await emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
-      sent++;
-    } catch(err){ failed++; lastEmailSendError = err; }
+    {
+      /* ⭐ PACED AND THROTTLE-AWARE LIKE EVERY OTHER SENDER (EM-08). This loop used to
+         fire the next send the instant the last returned, which is exactly what put 392
+         RSVP emails into "Gmail_API: User-rate limit exceeded". One helper, so the rule
+         cannot drift between the five places that mail customers. */
+      const paced = await emailSendPaced(function(){
+        return emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
+      }, paceCtx, function(mins){
+        statusEl.textContent = 'Gmail asked us to slow down \u2014 waiting about ' + mins
+          + ' minute' + (mins === 1 ? '' : 's') + ', then carrying on by itself. '
+          + sent + ' sent so far. Leave this tab open.';
+      });
+      if(paced.sent) sent++;
+      else {
+        failed++; lastEmailSendError = paced.err;
+        /* ⚠ Gmail's limit is on the ACCOUNT: carrying on refuses every remaining send
+           and spends an EmailJS request each time being told so. */
+        if(paced.until){ rateStop = paced.until; break; }
+      }
+    }
   }
-  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+  statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' not sent' : '') + '.' + sendStoppedNote(rateStop);
   reportEmailSendFailures(failed, sent);
 });
 document.getElementById('pibUnpaidTestBtn')?.addEventListener('click', async function(){
@@ -10768,17 +10822,35 @@ document.getElementById('pibSendPaidBtn')?.addEventListener('click', async funct
   if(!confirm('Send thank-you emails to ' + withEmail.length + ' customer(s) now?')) return;
   emailjs.init(publicKey);
   const template = document.getElementById('pibPaidTemplate')?.value;
-  let sent = 0, failed = 0;
+  let sent = 0, failed = 0, rateStop = null;
+  /* Shared across the whole run — see emailSendPaced (EM-08). */
+  const paceCtx = { autoWaits: 0 };
   for(const row of withEmail){
     const footer = await buildOutgoingEmailFooter(row.phone, 0, {includePortal: document.getElementById('pibPaidIncludePortal')?.checked, includeVenmo: false, includeMessages: document.getElementById('pibPaidIncludeMessages')?.checked});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount), row.phone, 0) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
-    try{
-      await emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
-      sent++;
-    } catch(err){ failed++; lastEmailSendError = err; }
+    {
+      /* ⭐ PACED AND THROTTLE-AWARE LIKE EVERY OTHER SENDER (EM-08). This loop used to
+         fire the next send the instant the last returned, which is exactly what put 392
+         RSVP emails into "Gmail_API: User-rate limit exceeded". One helper, so the rule
+         cannot drift between the five places that mail customers. */
+      const paced = await emailSendPaced(function(){
+        return emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
+      }, paceCtx, function(mins){
+        statusEl.textContent = 'Gmail asked us to slow down \u2014 waiting about ' + mins
+          + ' minute' + (mins === 1 ? '' : 's') + ', then carrying on by itself. '
+          + sent + ' sent so far. Leave this tab open.';
+      });
+      if(paced.sent) sent++;
+      else {
+        failed++; lastEmailSendError = paced.err;
+        /* ⚠ Gmail's limit is on the ACCOUNT: carrying on refuses every remaining send
+           and spends an EmailJS request each time being told so. */
+        if(paced.until){ rateStop = paced.until; break; }
+      }
+    }
   }
-  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+  statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' not sent' : '') + '.' + sendStoppedNote(rateStop);
   reportEmailSendFailures(failed, sent);
 });
 document.getElementById('pibPaidTestBtn')?.addEventListener('click', async function(){
@@ -18740,6 +18812,46 @@ const EMAIL_MAX_AUTO_WAIT_MS = 15 * 60 * 1000;
    whole-book RSVP through the usual couple of throttles and not enough to hide a
    genuinely blocked account. */
 const EMAIL_MAX_AUTO_WAITS = 6;
+/* ⭐ THE ONE PLACE THAT KNOWS HOW FAST WE MAY SEND (2026-09-09, EM-08). Addie, on what
+   this change is for: "I just want it to make it so we never have this happen again and
+   we keep track of which emails are being sent out."
+
+   ⚠ IT WAS TRUE OF ONE SENDER OUT OF FIVE. The pacing and the throttle stop went into
+   the RSVP runner because that is where the 392 happened — and `sendBulkUpdateEmailBtn`,
+   `pibSendUnpaidBtn` and `pibSendPaidBtn` were still firing back to back, so the invoice
+   run would have walked into the identical Gmail refusal on the identical loop. "Never
+   again" is not true while four of the five can still do it.
+
+   ⚠ ONE HELPER, NOT FOUR COPIES. A rule about how fast we may mail customers, written
+   out five times, is four chances for one of them to drift — and the one that drifts is
+   the one nobody is watching. Same argument as `hlxMarkJobDone` and `houseIsOnTheBill`.
+
+   `ctx` carries the auto-wait count across the WHOLE run, not per message: per message
+   it would allow six waits each and a throttled send could sit for hours. */
+async function emailSendPaced(send, ctx, onWait){
+  const c = ctx || {};
+  for(;;){
+    try{
+      await send();
+      /* AFTER a send that worked, never after a failure — a refusal cost Gmail nothing,
+         and the caller's own stop handles that case. */
+      await new Promise(r => setTimeout(r, EMAIL_SEND_GAP_MS));
+      return { sent: true };
+    }catch(err){
+      const until = emailSendRetryAfter(err);
+      const waitMs = until ? (until.getTime() - Date.now()) : 0;
+      if(until && waitMs > 0 && waitMs <= EMAIL_MAX_AUTO_WAIT_MS && (c.autoWaits || 0) < EMAIL_MAX_AUTO_WAITS){
+        c.autoWaits = (c.autoWaits || 0) + 1;
+        if(onWait) onWait(Math.max(1, Math.round(waitMs / 60000)), until);
+        /* A margin on top: returning the same second Gmail named is refused again and
+           spends one of the few auto-waits finding that out. */
+        await new Promise(r => setTimeout(r, waitMs + 5000));
+        continue;
+      }
+      return { sent: false, err: err, until: until };
+    }
+  }
+}
 /* Gmail's refusal carries the time it will accept mail again. Reading it is what lets
    the office be told WHEN rather than just no — and it is what tells a rate limit
    (seconds or minutes away) from the daily cap (hours), which need different answers:
@@ -18773,8 +18885,8 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
      arrive is a house the crew is never sent to. */
   const failedRecipients = [];
   let rateLimitedUntil = null;
-  /* Counted across the whole run, not per customer — see EMAIL_MAX_AUTO_WAITS. */
-  let autoWaits = 0;
+  /* Shared across the whole run, not per customer — see EMAIL_MAX_AUTO_WAITS. */
+  const paceCtx = { autoWaits: 0 };
   /* ⚠ NAMES, NOT JUST A COUNT, AND ONLY THE FIRST FEW. "12 got no referral link" is
      a number nobody can act on; a name and a reason is one record to open. Capped so
      a whole-book send cannot print nine hundred names into a status line. */
@@ -18859,13 +18971,23 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
        would ask `referralOfferFor` about the same customer twice and count them twice in
        `noReferral` — the report then disagrees with the emails it is reporting on, which
        is the fault REF-20 exists to prevent. */
+    /* ⭐ THE SAME PACING AND THROTTLE RULE AS EVERY OTHER SENDER (EM-08). This used to
+       be written out inline here and nowhere else, which is how four of the five bulk
+       senders were still firing back to back. `emailSendPaced` is the one copy.
+       ⚠ THE HELPER WRAPS THE SEND ONLY, never the message build above it: rebuilding
+       would ask `referralOfferFor` about one customer twice and double-count them in
+       `noReferral` (REF-20). */
+    const paced = await emailSendPaced(async function(){
+      const subject = await emailSubjectFor(template, vars.phone, vars);
+      await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', subject: subject, message: message });
+    }, paceCtx, function(mins){
+      statusEl.textContent = (progressLabel || '') + 'Gmail asked us to slow down \u2014 waiting about '
+        + mins + ' minute' + (mins === 1 ? '' : 's') + ', then carrying on by itself. '
+        + sent + ' sent so far. Leave this tab open.';
+    });
     let sendErr = null;
-    for(;;){
-      sendErr = null;
-      try{
-        const subject = await emailSubjectFor(template, vars.phone, vars);
-        await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', subject: subject, message: message });
-        sent++;
+    if(paced.sent){
+      sent++;
         /* ⭐ AND IT IS WRITTEN DOWN THAT THIS PERSON HAS NOW BEEN ASKED (2026-09-09,
            EM-04). Addie: "the people that have already got the email should not get it
            again" — which is impossible to honour unless somebody records who got it,
@@ -18892,33 +19014,7 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
             console.error('[HU] emailed ' + member.id + ' but could not record it:', stampErr);
           }
         }
-        /* ⭐ PACED, BECAUSE GMAIL COUNTS HOW FAST WE SEND (2026-09-09, EM-02). See
-           EMAIL_SEND_GAP_MS — this loop used to fire the next send the instant the last
-           one came back, which is what put 392 of them into "Gmail_API: User-rate limit
-           exceeded". The wait is AFTER a send that worked and never after a failure: a
-           refusal cost Gmail nothing, and the wait below is what handles that case. */
-        await new Promise(r => setTimeout(r, EMAIL_SEND_GAP_MS));
-      } catch(e){ sendErr = e; }
-      if(!sendErr) break;
-      /* ⭐ A SHORT WAIT IS WAITED OUT RATHER THAN HANDED BACK TO THE OFFICE. Gmail's
-         rate limit clears in minutes, so stopping the whole send and asking somebody to
-         come back and press a button is making a person do a timer's job.
-         ⚠ BOUNDED THREE WAYS, or a tab sits looking busy for ever: only a wait shorter
-         than EMAIL_MAX_AUTO_WAIT_MS (a long one is the DAY's cap, which no amount of
-         waiting fixes before midnight), only EMAIL_MAX_AUTO_WAITS times in one run, and
-         only when Gmail actually named a time. Anything else falls through to the stop. */
-      const retryAt = emailSendRetryAfter(sendErr);
-      const waitMs = retryAt ? (retryAt.getTime() - Date.now()) : 0;
-      if(!(retryAt && waitMs > 0 && waitMs <= EMAIL_MAX_AUTO_WAIT_MS && autoWaits < EMAIL_MAX_AUTO_WAITS)) break;
-      autoWaits++;
-      const mins = Math.max(1, Math.round(waitMs / 60000));
-      statusEl.textContent = (progressLabel || '') + 'Gmail asked us to slow down — waiting about '
-        + mins + ' minute' + (mins === 1 ? '' : 's') + ', then carrying on by itself. '
-        + sent + ' sent so far. Leave this tab open.';
-      /* ⚠ A MARGIN ON TOP. Returning the same second Gmail named is refused again and
-         spends one of the few auto-waits finding that out. */
-      await new Promise(r => setTimeout(r, waitMs + 5000));
-    }
+    } else { sendErr = paced.err; }
     if(sendErr){ const err = sendErr; failed++; lastEmailSendError = err;
       /* ⚠ THE REASON IS KEPT PER PERSON, not only in `lastEmailSendError`. That variable
          holds the LAST error of the run, so one report spoke for four hundred sends that

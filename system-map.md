@@ -3013,6 +3013,13 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
         refused too, each spending an EmailJS request to be told the same thing — and the Not
         Paid pass ran afterwards and lost all 19, because the limit is on the **account**, not
         the template. That is the "0 of 19" the office saw.
+      - ⭐ **AND IT IS EVERY SENDER NOW, NOT JUST THIS ONE** ([[EM-08]]). Addie: *"I just
+        want it to make it so we never have this happen again."* It was true of **one
+        sender out of five** — `sendBulkUpdateEmailBtn`, `sendRsvpEmailBtn`,
+        `pibSendUnpaidBtn` and `pibSendPaidBtn` were still firing back to back, so the
+        **invoice and receipt runs** would have hit the identical refusal on an identical
+        loop. `emailSendPaced` is the one copy of the rule and a gate counts that all five
+        call it; the wait budget is shared across the run rather than renewed per message.
       - `EMAIL_SEND_GAP_MS` (1000) paces it; `emailSendRetryAfter` reads Gmail's refusal and
         **stops the run**, recording everybody untried so *Send again* resumes exactly where it
         stopped. One pass being stopped stops the other, and the passes behind it are recorded
