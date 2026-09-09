@@ -330,6 +330,70 @@ console.log('  ' + w('value', 26) + w('import reads', 28) + 'warehouse groups as
 ['ww', 'soft', 'soft(recycled)', 'rr', 'bbb', 'rrgg', 'rgrg', 'pur', 'rainbow', 'mc', 'wwrr']
   .forEach((t) => console.log('  ' + w(JSON.stringify(t), 26) +
     w(importOf(t).join(', '), 28) + JSON.stringify(groupOf(t))));
+/* ---------------------------------------------------------------------------
+ * ⛔ A TIMER IS NOT WAITING ON THE COLOURS ([[WH-26]], 2026-09-09)
+ *
+ * Addie, reading five houses stuck in Waiting on light colours: "check to see if these
+ * guys just wanted there timer updated. Cause if so we don't need to worry about lights
+ * just about getting a timer in there bin."
+ *
+ * She was right, and the cost was worse than not knowing. `outletTimer` is one of the
+ * three WAREHOUSE_BUILD_FIELDS, so changing a timer ALONE queues a build — and a house
+ * with no colours then lands in the blocked block. That much is only untidy. The damage
+ * was the early `return` in whBuildQueueGroups, which sat AHEAD of the timer push: a
+ * blocked house never reached `timerHouses`, so the one thing that house actually needed
+ * was the one thing no sheet ever asked for.
+ * ------------------------------------------------------------------------- */
+{
+  const runQueue = (houses) => {
+    const sb = {};
+    new Function('jobAddresses', 'warehouseExtras', 'isOutForSeason', 'houseLightsText',
+      'whGroupKey', 'houseBundleNeed', 'whBinsForHouse', 'whBuildReasonKey', 'cnBinsForFeet',
+      fn('whBuildQueueGroups') + 'this.run = whBuildQueueGroups;')
+      .call(sb, houses, [], () => false,
+        (d) => d.lightsDescription || '', (l, w) => l + '|' + w,
+        () => 0, () => 1, () => '', () => 1);
+    return sb.run();
+  };
+
+  /* The row from her screenshot: a Timer chip, no colours on file. */
+  const out = runQueue([
+    {id:'kate', data:{name:'Kate Johnson', needsLightBuild:true, outletTimer:'Yes', wireColor:'White'}},
+    {id:'ok',   data:{name:'Has Colours',  needsLightBuild:true, outletTimer:'Yes', wireColor:'White',
+                      lightsDescription:'Red, Warm White'}}
+  ]);
+  const timerNames = (out.timerHouses || []).map(i => i.data.name);
+  const blockedNames = (out.blocked || []).map(i => i.data.name);
+
+  check('a house waiting on colours still reaches the timer list',
+    timerNames.indexOf('Kate Johnson') !== -1,
+    'she asked for a timer, the record says Yes, and before this nobody was told to put ' +
+    'one in — the early return sat ahead of the timer push. Got: ' + timerNames.join(', '));
+
+  /* ⚠ AND IT IS STILL BLOCKED FOR THE BUILD. The timer is the half that can proceed; the
+     glass genuinely cannot be made until somebody fills the colours in. Moving the house
+     out of the blocked block to "fix" this would order bulbs nobody chose. */
+  check('and is still blocked for the build itself',
+    blockedNames.indexOf('Kate Johnson') !== -1,
+    'the colours are still missing; only the timer stopped waiting');
+
+  check('a house with no timer is not put on the timer list',
+    runQueue([{id:'n', data:{name:'No Timer', needsLightBuild:true, wireColor:'White'}}])
+      .timerHouses.length === 0,
+    'blank means no timer — a third state would put one in every bin');
+
+  check('the blocked row says the timer can go in now',
+    /Timer can go in their bin now/.test(admin),
+    'a fix nobody can see on the sheet they are holding is not finished');
+
+  /* ⚠ THE CAUSE IS NAMED so nobody "fixes" the symptom by dropping outletTimer from
+     WAREHOUSE_BUILD_FIELDS — the timer list is DERIVED from the build queue, so a house
+     that stopped being queued would stop getting a timer at all. */
+  check('a timer change still queues the house, which is what puts it on the list',
+    /WAREHOUSE_BUILD_FIELDS = \['lightsDescription', 'wireColor', 'outletTimer'\]/.test(admin),
+    'drop outletTimer there and a timer added after the bundle is built reaches nobody');
+}
+
 console.log('');
 failures.forEach(f => console.log('  FAIL  ' + f));
 console.log((failures.length ? '\n' : '') + pass + ' passed, ' + fail + ' failed\n');
