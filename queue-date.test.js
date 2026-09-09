@@ -1240,6 +1240,12 @@ check('the path still has every step in it',
       'the same shape as arrearsPaidNoticeAt above and excused for the same reason: it ' +
       'records that WE wrote to them, not anything the customer did. Their side of it ' +
       'is the RSVP answer and the payment, and both are already steps',
+    rsvpEmailedAt: 'the once-per-season guard on the office\'s own RSVP send — the same ' +
+      'shape as arrearsRsvpEmailAt above and excused for exactly the same reason: it ' +
+      'records that WE wrote to them, not anything the customer did. Their side of it is ' +
+      'the RSVP answer, which is already a step. It exists because nothing recorded who ' +
+      'the send had reached, so 392 customers Gmail refused could not be told apart from ' +
+      'the ones who got it (EM-04)',
     archivedAt: 'on the archivedCustomers document, written as the customer is removed — ' +
       'the customer-side event is the recycle, and a step here could never be read because ' +
       'the jobAddresses record no longer exists',

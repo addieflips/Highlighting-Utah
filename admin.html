@@ -3172,6 +3172,12 @@
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
           <button type="button" class="btn btn-outline btn-sm" id="rsvpWholeCheckBtn">Check first &mdash; who gets what</button>
           <button type="button" class="btn btn-gold" id="rsvpWholeSendBtn">Send the whole RSVP</button>
+          <!-- ⭐ EM-06. For the one season where the RSVP went out before the app started
+               recording who it reached, and for any send finished OUTSIDE the app — a
+               resend from EmailJS's own error emails never passes through here, so no
+               stamp is written and everybody keeps reading as never-asked. Without this
+               the next press of the button above mails the whole book a second time. -->
+          <button type="button" class="btn btn-outline btn-sm" id="rsvpMarkAllAskedBtn">They have all been asked &mdash; record it</button>
         </div>
         <div id="rsvpWholeStatus" style="font-size:13px; color:var(--slate); margin:0 0 8px;"></div>
         <div id="rsvpWholeBreakdown" style="font-size:13px;"></div>
@@ -10031,6 +10037,13 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              customer per season by design. Cleared here so a new season starts with
              nobody already written to. */
           arrearsRsvpEmailAt: null,
+          /* ⚠ SEASON-SCOPED FOR EXACTLY THE SAME REASON (EM-04). This is what makes
+             "already asked" mean "asked THIS season" with no date arithmetic to drift.
+             Left standing, a new season would open with the whole book already marked
+             as asked and the RSVP would go to nobody — a send to nobody looks exactly
+             like a send that worked, which is the failure this file records elsewhere
+             by name. */
+          rsvpEmailedAt: null,
           /* The badge is season-scoped: left standing it would say somebody changed
              their mind this year when they did it last year. */
           cameBackThisSeasonAt: null,
@@ -10431,7 +10444,9 @@ document.getElementById('sendBulkUpdateEmailBtn')?.addEventListener('click', asy
   const template = document.getElementById('bulkUpdateEmailTemplate')?.value;
   const includePortal = document.getElementById('bulkAutoIncludePortal')?.checked;
   const includeVenmo = document.getElementById('bulkAutoIncludeVenmo')?.checked;
-  let sent = 0, failed = 0;
+  let sent = 0, failed = 0, rateStop = null;
+  /* Shared across the whole run — see emailSendPaced (EM-08). */
+  const paceCtx = { autoWaits: 0 };
   for(const item of withEmail){
     const d = item.data;
     /* Key-based lookup, not phone-based — see the note in the single-send
@@ -10442,15 +10457,31 @@ document.getElementById('sendBulkUpdateEmailBtn')?.addEventListener('click', asy
     const footer = await buildOutgoingEmailFooter(d.phone, amount, {includePortal: includePortal, includeVenmo: includeVenmo, includeMessages: includeMessages});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, d.name || 'there').replace(/\{\{amount\}\}/g, fmtMoney(amount)), d.phone, amount) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
-    try{
-      await emailjs.send(serviceId, templateId, {
+    {
+      /* ⭐ PACED AND THROTTLE-AWARE LIKE EVERY OTHER SENDER (EM-08). This loop used to
+         fire the next send the instant the last returned, which is exactly what put 392
+         RSVP emails into "Gmail_API: User-rate limit exceeded". One helper, so the rule
+         cannot drift between the five places that mail customers. */
+      const paced = await emailSendPaced(function(){
+        return emailjs.send(serviceId, templateId, {
         to_email: d.email, to_name: d.name || '',
         message: message, button_url: 'https://highlightingutah.com/#/payment', button_label: '🎄 Update My Christmas Lights'
       });
-      sent++;
-    } catch(err){ failed++; lastEmailSendError = err; }
+      }, paceCtx, function(mins){
+        statusEl.textContent = 'Gmail asked us to slow down \u2014 waiting about ' + mins
+          + ' minute' + (mins === 1 ? '' : 's') + ', then carrying on by itself. '
+          + sent + ' sent so far. Leave this tab open.';
+      });
+      if(paced.sent) sent++;
+      else {
+        failed++; lastEmailSendError = paced.err;
+        /* ⚠ Gmail's limit is on the ACCOUNT: carrying on refuses every remaining send
+           and spends an EmailJS request each time being told so. */
+        if(paced.until){ rateStop = paced.until; break; }
+      }
+    }
   }
-  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+  statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.' + sendStoppedNote(rateStop);
   reportEmailSendFailures(failed, sent);
 });
 document.getElementById('bulkAutoTestBtn')?.addEventListener('click', async function(){
@@ -10515,7 +10546,9 @@ document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async fun
   if(!confirm('Send each of the ' + withEmail.length + ' selected member(s) this RSVP request now?')) return;
   emailjs.init(publicKey);
   const template = document.getElementById('rsvpEmailTemplate')?.value;
-  let sent = 0, failed = 0;
+  let sent = 0, failed = 0, rateStop = null;
+  /* Shared across the whole run — see emailSendPaced (EM-08). */
+  const paceCtx = { autoWaits: 0 };
   for(const item of withEmail){
     const d = item.data;
     const footer = await buildOutgoingEmailFooter(d.phone, 0, {includePortal: document.getElementById('rsvpIncludePortal')?.checked, includeVenmo: false, includeMessages: document.getElementById('rsvpIncludeMessages')?.checked});
@@ -10529,15 +10562,31 @@ document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async fun
        house, and a shared number cannot say which one — see hlxEmailCustomer. */
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, rsvpFirstNameOnly(d.name) || 'there'), d.phone, 0, {customerId: item.id}) + housesBlock + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
-    try{
-      await emailjs.send(serviceId, templateId, {
+    {
+      /* ⭐ PACED AND THROTTLE-AWARE LIKE EVERY OTHER SENDER (EM-08). This loop used to
+         fire the next send the instant the last returned, which is exactly what put 392
+         RSVP emails into "Gmail_API: User-rate limit exceeded". One helper, so the rule
+         cannot drift between the five places that mail customers. */
+      const paced = await emailSendPaced(function(){
+        return emailjs.send(serviceId, templateId, {
         to_email: d.email, to_name: d.name || '',
         message: message, button_url: 'https://highlightingutah.com/#/payment', button_label: '🎄 RSVP Now'
       });
-      sent++;
-    } catch(err){ failed++; lastEmailSendError = err; }
+      }, paceCtx, function(mins){
+        statusEl.textContent = 'Gmail asked us to slow down \u2014 waiting about ' + mins
+          + ' minute' + (mins === 1 ? '' : 's') + ', then carrying on by itself. '
+          + sent + ' sent so far. Leave this tab open.';
+      });
+      if(paced.sent) sent++;
+      else {
+        failed++; lastEmailSendError = paced.err;
+        /* ⚠ Gmail's limit is on the ACCOUNT: carrying on refuses every remaining send
+           and spends an EmailJS request each time being told so. */
+        if(paced.until){ rateStop = paced.until; break; }
+      }
+    }
   }
-  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+  statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.' + sendStoppedNote(rateStop);
   reportEmailSendFailures(failed, sent);
 });
 /* ---- RSVP preview + recipient picker ---- */
@@ -10705,17 +10754,35 @@ document.getElementById('pibSendUnpaidBtn')?.addEventListener('click', async fun
   if(!confirm('Send invoice emails to ' + withEmail.length + ' customer(s) now?')) return;
   emailjs.init(publicKey);
   const template = document.getElementById('pibUnpaidTemplate')?.value;
-  let sent = 0, failed = 0;
+  let sent = 0, failed = 0, rateStop = null;
+  /* Shared across the whole run — see emailSendPaced (EM-08). */
+  const paceCtx = { autoWaits: 0 };
   for(const row of withEmail){
     const footer = await buildOutgoingEmailFooter(row.phone, row.amount, {includePortal: document.getElementById('pibUnpaidIncludePortal')?.checked, includeVenmo: document.getElementById('pibUnpaidIncludeVenmo')?.checked, includeMessages: document.getElementById('pibUnpaidIncludeMessages')?.checked});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount), row.phone, row.amount) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
-    try{
-      await emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
-      sent++;
-    } catch(err){ failed++; lastEmailSendError = err; }
+    {
+      /* ⭐ PACED AND THROTTLE-AWARE LIKE EVERY OTHER SENDER (EM-08). This loop used to
+         fire the next send the instant the last returned, which is exactly what put 392
+         RSVP emails into "Gmail_API: User-rate limit exceeded". One helper, so the rule
+         cannot drift between the five places that mail customers. */
+      const paced = await emailSendPaced(function(){
+        return emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
+      }, paceCtx, function(mins){
+        statusEl.textContent = 'Gmail asked us to slow down \u2014 waiting about ' + mins
+          + ' minute' + (mins === 1 ? '' : 's') + ', then carrying on by itself. '
+          + sent + ' sent so far. Leave this tab open.';
+      });
+      if(paced.sent) sent++;
+      else {
+        failed++; lastEmailSendError = paced.err;
+        /* ⚠ Gmail's limit is on the ACCOUNT: carrying on refuses every remaining send
+           and spends an EmailJS request each time being told so. */
+        if(paced.until){ rateStop = paced.until; break; }
+      }
+    }
   }
-  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+  statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.' + sendStoppedNote(rateStop);
   reportEmailSendFailures(failed, sent);
 });
 document.getElementById('pibUnpaidTestBtn')?.addEventListener('click', async function(){
@@ -10755,17 +10822,35 @@ document.getElementById('pibSendPaidBtn')?.addEventListener('click', async funct
   if(!confirm('Send thank-you emails to ' + withEmail.length + ' customer(s) now?')) return;
   emailjs.init(publicKey);
   const template = document.getElementById('pibPaidTemplate')?.value;
-  let sent = 0, failed = 0;
+  let sent = 0, failed = 0, rateStop = null;
+  /* Shared across the whole run — see emailSendPaced (EM-08). */
+  const paceCtx = { autoWaits: 0 };
   for(const row of withEmail){
     const footer = await buildOutgoingEmailFooter(row.phone, 0, {includePortal: document.getElementById('pibPaidIncludePortal')?.checked, includeVenmo: false, includeMessages: document.getElementById('pibPaidIncludeMessages')?.checked});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount), row.phone, 0) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
-    try{
-      await emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
-      sent++;
-    } catch(err){ failed++; lastEmailSendError = err; }
+    {
+      /* ⭐ PACED AND THROTTLE-AWARE LIKE EVERY OTHER SENDER (EM-08). This loop used to
+         fire the next send the instant the last returned, which is exactly what put 392
+         RSVP emails into "Gmail_API: User-rate limit exceeded". One helper, so the rule
+         cannot drift between the five places that mail customers. */
+      const paced = await emailSendPaced(function(){
+        return emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
+      }, paceCtx, function(mins){
+        statusEl.textContent = 'Gmail asked us to slow down \u2014 waiting about ' + mins
+          + ' minute' + (mins === 1 ? '' : 's') + ', then carrying on by itself. '
+          + sent + ' sent so far. Leave this tab open.';
+      });
+      if(paced.sent) sent++;
+      else {
+        failed++; lastEmailSendError = paced.err;
+        /* ⚠ Gmail's limit is on the ACCOUNT: carrying on refuses every remaining send
+           and spends an EmailJS request each time being told so. */
+        if(paced.until){ rateStop = paced.until; break; }
+      }
+    }
   }
-  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+  statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.' + sendStoppedNote(rateStop);
   reportEmailSendFailures(failed, sent);
 });
 document.getElementById('pibPaidTestBtn')?.addEventListener('click', async function(){
@@ -18727,6 +18812,46 @@ const EMAIL_MAX_AUTO_WAIT_MS = 15 * 60 * 1000;
    whole-book RSVP through the usual couple of throttles and not enough to hide a
    genuinely blocked account. */
 const EMAIL_MAX_AUTO_WAITS = 6;
+/* ⭐ THE ONE PLACE THAT KNOWS HOW FAST WE MAY SEND (2026-09-09, EM-08). Addie, on what
+   this change is for: "I just want it to make it so we never have this happen again and
+   we keep track of which emails are being sent out."
+
+   ⚠ IT WAS TRUE OF ONE SENDER OUT OF FIVE. The pacing and the throttle stop went into
+   the RSVP runner because that is where the 392 happened — and `sendBulkUpdateEmailBtn`,
+   `pibSendUnpaidBtn` and `pibSendPaidBtn` were still firing back to back, so the invoice
+   run would have walked into the identical Gmail refusal on the identical loop. "Never
+   again" is not true while four of the five can still do it.
+
+   ⚠ ONE HELPER, NOT FOUR COPIES. A rule about how fast we may mail customers, written
+   out five times, is four chances for one of them to drift — and the one that drifts is
+   the one nobody is watching. Same argument as `hlxMarkJobDone` and `houseIsOnTheBill`.
+
+   `ctx` carries the auto-wait count across the WHOLE run, not per message: per message
+   it would allow six waits each and a throttled send could sit for hours. */
+async function emailSendPaced(send, ctx, onWait){
+  const c = ctx || {};
+  for(;;){
+    try{
+      await send();
+      /* AFTER a send that worked, never after a failure — a refusal cost Gmail nothing,
+         and the caller's own stop handles that case. */
+      await new Promise(r => setTimeout(r, EMAIL_SEND_GAP_MS));
+      return { sent: true };
+    }catch(err){
+      const until = emailSendRetryAfter(err);
+      const waitMs = until ? (until.getTime() - Date.now()) : 0;
+      if(until && waitMs > 0 && waitMs <= EMAIL_MAX_AUTO_WAIT_MS && (c.autoWaits || 0) < EMAIL_MAX_AUTO_WAITS){
+        c.autoWaits = (c.autoWaits || 0) + 1;
+        if(onWait) onWait(Math.max(1, Math.round(waitMs / 60000)), until);
+        /* A margin on top: returning the same second Gmail named is refused again and
+           spends one of the few auto-waits finding that out. */
+        await new Promise(r => setTimeout(r, waitMs + 5000));
+        continue;
+      }
+      return { sent: false, err: err, until: until };
+    }
+  }
+}
 /* Gmail's refusal carries the time it will accept mail again. Reading it is what lets
    the office be told WHEN rather than just no — and it is what tells a rate limit
    (seconds or minutes away) from the daily cap (hours), which need different answers:
@@ -18853,6 +18978,32 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
         const subject = await emailSubjectFor(template, vars.phone, vars);
         await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', subject: subject, message: message });
         sent++;
+        /* ⭐ AND IT IS WRITTEN DOWN THAT THIS PERSON HAS NOW BEEN ASKED (2026-09-09,
+           EM-04). Addie: "the people that have already got the email should not get it
+           again" — which is impossible to honour unless somebody records who got it,
+           and until now NOTHING did. That is why the 392 could not be told apart from
+           the people the send reached: the office's own RSVP left no trace per
+           customer, so "who was missed" had no answer anywhere in Firebase.
+           ⚠ THE SHAPE IS `arrearsRsvpEmailAt`'s, deliberately — the server's arrears
+           chase has stamped its own customers since it was built, with this exact rule
+           in its comment ("ONCE PER CUSTOMER PER SEASON, EVER") and Start New Season
+           clearing it. This is that mechanism finally applied to the send the office
+           actually presses.
+           ⚠ ONLY ON AN RSVP. An invoice or a receipt is not the season's question, and
+           stamping one would make somebody look asked when nobody has asked them.
+           ⚠ AND A FAILED STAMP NEVER FAILS THE SEND. The email has gone; the worst a
+           lost stamp can do is offer them a duplicate later, which is the safe
+           direction — the opposite mistake is a customer who is never asked at all. */
+        if(isRsvp){
+          try{
+            await updateDoc(doc(db,'jobAddresses', member.id), { rsvpEmailedAt: serverTimestamp() });
+            /* Mirrored so the plan recomputes correctly before the listener comes back —
+               the same optimistic mirror the rest of admin already does. */
+            member.data.rsvpEmailedAt = new Date();
+          }catch(stampErr){
+            console.error('[HU] emailed ' + member.id + ' but could not record it:', stampErr);
+          }
+        }
         /* ⭐ PACED, BECAUSE GMAIL COUNTS HOW FAST WE SEND (2026-09-09, EM-02). See
            EMAIL_SEND_GAP_MS — this loop used to fire the next send the instant the last
            one came back, which is what put 392 of them into "Gmail_API: User-rate limit
@@ -18999,7 +19150,7 @@ function rsvpWholeTemplates(){
    or the preview is a second opinion — the same reasoning the Preview & Send preview and
    its send loop already share a renderer for. */
 function rsvpWholePlan(){
-  const out = { standard: [], arrears: [], noEmail: [], optedOut: [],
+  const out = { standard: [], arrears: [], noEmail: [], optedOut: [], alreadyEmailed: [],
                 answered: 0, newThisYear: 0, ready: false, why: '' };
   if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)){
     out.why = 'The customer list has not loaded yet.'; return out;
@@ -19021,6 +19172,19 @@ function rsvpWholePlan(){
     if(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus(d)){ out.answered++; return; }
     if(typeof etNoAutomationEmails === 'function' && etNoAutomationEmails(d)){ out.optedOut.push(item); return; }
     if(!String(d.email || '').trim()){ out.noEmail.push(item); return; }
+    /* ⭐ ALREADY ASKED IS NOT ASKED AGAIN (2026-09-09, EM-04). Addie: "the people that
+       have already got the email should not get it again." Either stamp counts — the
+       office's own send (`rsvpEmailedAt`) or the server's arrears chase
+       (`arrearsRsvpEmailAt`) — because both are us asking them about this season, and
+       reading only one would re-ask everybody the automation already reached.
+       ⚠ IT SITS AFTER the answered / opted-out / no-email tests on purpose: those are
+       reasons somebody is not in this send at all, and counting an opted-out customer
+       as "already emailed" would tell her we had asked somebody we are forbidden to
+       write to.
+       ⚠ AND IT IS SEASON-SCOPED BY THE RESET, not by a date comparison here. Start New
+       Season clears both fields, which is what makes "already asked" mean "asked THIS
+       season" without any arithmetic that could drift. */
+    if(d.rsvpEmailedAt || d.arrearsRsvpEmailAt){ out.alreadyEmailed.push(item); return; }
     if(typeof houseOwesFromLastSeason === 'function' && houseOwesFromLastSeason(d)) out.arrears.push(item);
     else out.standard.push(item);
   });
@@ -19058,6 +19222,10 @@ function rsvpWholeRenderBreakdown(plan){
     (tpl.arrears ? row('\u21b3 referral link', '', referWhere(tpl.arrears)) : '') +
     row('To text instead', plan.noEmail.length, 'no email on file \u2014 see the card below') +
     row('Left out, do-not-send', plan.optedOut.length, 'they asked not to be mailed') +
+    /* ⭐ EM-04. This line is the answer to "the people that have already got the email
+       should not get it again", and it is worth SEEING rather than merely trusting:
+       before a re-send it is the count of everybody the last run actually reached. */
+    row('Already emailed this season', plan.alreadyEmailed.length, 'they have it — not sent again') +
     row('Already answered', plan.answered, 'not asked again') +
     row('New this year', plan.newThisYear, 'never had lights \u2014 never asked') +
     '<p class="form-note" style="margin:10px 0 0;">Nobody appears in more than one line above.</p>';
@@ -19100,7 +19268,8 @@ document.getElementById('rsvpWholeSendBtn')?.addEventListener('click', async fun
   if(!confirm('Send the whole RSVP now?\n\n'
       + plan.standard.length + ' get the ordinary RSVP\n'
       + plan.arrears.length + ' get the Not Paid RSVP\n'
-      + plan.noEmail.length + ' have no email and must be TEXTED (nothing is sent to them)\n\n'
+      + plan.noEmail.length + ' have no email and must be TEXTED (nothing is sent to them)\n'
+      + plan.alreadyEmailed.length + ' already got it this season and are NOT sent it again\n\n'
       + 'That is ' + total + ' email(s). This cannot be taken back.')) return;
   btn.disabled = true;
   let sent = 0, failed = 0, optedOut = 0, noReferral = 0;
@@ -43511,6 +43680,73 @@ document.getElementById('sendFailureRetryBtn')?.addEventListener('click', async 
   }
   this.disabled = false;
 });
+/* ⭐ RECORDING A SEND THAT HAPPENED SOMEWHERE ELSE (added 2026-09-09, EM-06).
+   Addie is resending the customers Gmail refused from EmailJS's own error emails, which
+   is the right way to do it — EmailJS knows exactly which 401 failed and this app knows
+   none of them. But those sends never pass through admin.html, so no `rsvpEmailedAt` is
+   written, everybody keeps reading as never-asked, and the next press of Send the whole
+   RSVP would mail the entire book a second time. This is how she tells the app that the
+   asking is finished.
+
+   ⚠ IT STAMPS ONLY WHO THE SEND WOULD HAVE GONE TO, taken from the same planner the
+   button uses. Stamping the do-not-send list or somebody with no email would be
+   recording that we wrote to people we did not and cannot write to.
+
+   ⚠ AND IT IS A DRY RUN FIRST, then a typed word — CLAUDE.md §5, the same shape as every
+   other mass write here. The asymmetry is what earns it: a customer wrongly marked as
+   asked is never asked again this season, and because only people who have answered are
+   scheduled, that is a house no crew is sent to. A missing stamp only costs a duplicate.
+   ⚠ THE COUNT IS SHOWN BEFORE ANYTHING IS WRITTEN and the names of the first few with
+   it, because "mark 947 people" is a number nobody can check and a handful of names is. */
+async function rsvpMarkAllAsked(){
+  const st = document.getElementById('rsvpWholeStatus');
+  const plan = rsvpWholePlan();
+  if(!plan.ready){ if(st) st.textContent = plan.why; return; }
+  const targets = plan.standard.concat(plan.arrears);
+  if(!targets.length){
+    if(st) st.textContent = 'Nobody is waiting to be asked — there is nothing to record.';
+    return;
+  }
+  const sample = targets.slice(0, 5).map(function(t){ return (t.data && t.data.name) || '(no name)'; }).join(', ');
+  if(!confirm('Record that all ' + targets.length + ' of these customers have already been asked?\n\n'
+    + sample + (targets.length > 5 ? ', and ' + (targets.length - 5) + ' more' : '') + '\n\n'
+    + 'Use this ONLY when they really have been emailed — for example after resending from '
+    + 'EmailJS. Send the whole RSVP will then skip them.\n\n'
+    + 'Anybody marked wrongly is never asked again this season, and nobody who has not '
+    + 'answered is scheduled.')) return;
+  const typed = prompt('Type ASKED to confirm.');
+  if(String(typed || '').trim().toUpperCase() !== 'ASKED'){
+    if(st) st.textContent = 'Cancelled — nothing was recorded.';
+    return;
+  }
+  let done = 0, failed = 0;
+  for(const chunk of ssnChunk(targets, 400)){
+    const batch = writeBatch(db);
+    chunk.forEach(function(a){ batch.update(doc(db,'jobAddresses', a.id), { rsvpEmailedAt: serverTimestamp() }); });
+    try{
+      await batch.commit();
+      /* Mirrored only AFTER the commit lands — the other way round shows her a season
+         marked asked that was never written. */
+      chunk.forEach(function(a){ a.data.rsvpEmailedAt = new Date(); });
+      done += chunk.length;
+    }catch(err){
+      console.error('[HU] could not record that the RSVP was sent:', err);
+      failed += chunk.length;
+    }
+    if(st) st.textContent = 'Recording… ' + done + ' of ' + targets.length;
+  }
+  if(st) st.textContent = 'Recorded — ' + done + ' marked as already asked'
+    + (failed ? ', ' + failed + ' could not be saved (try again)' : '')
+    + '. Send the whole RSVP will now skip them.';
+  rsvpWholeRenderBreakdown(rsvpWholePlan());
+}
+document.getElementById('rsvpMarkAllAskedBtn')?.addEventListener('click', function(){
+  rsvpMarkAllAsked().catch(function(err){
+    console.error('[HU] mark-all-asked:', err);
+    const st = document.getElementById('rsvpWholeStatus');
+    if(st) st.textContent = 'Something went wrong — ' + (err && err.message ? err.message : 'nothing was recorded') + '.';
+  });
+});
 /* Read once at login. Not a listener: this changes about once a season, and a live
    listener on settings/season would be an open connection for a single date. */
 async function loadRsvpSentMark(){
@@ -57475,6 +57711,80 @@ function hcRunChecks(){
      ⚠ AND IT REPORTS BEFORE IT BITES. While the rule is not yet live it still lists
      them, saying so — that is the point at which she can still ring them. A warning
      that only appears once the damage is done is a report, not a warning. */
+  /* ⭐ THE RSVP NEVER REACHED THESE PEOPLE (added 2026-09-09, EM-04). Addie, after a
+     send where 392 emails were refused by Gmail and nothing said which: "We need to
+     determine the fails I though that's what health check was for."
+
+     ⚠ SHE IS RIGHT THAT THIS IS THE PLACE, AND IT REVERSES HC-03's INSTRUCTION —
+     said out loud per R-024, because that instruction is still written down in
+     CLAUDE.md. HC-03 (2026-08-26) said not to add a Health Check row as the way to
+     report a finding, because she did not open the panel: "I can't mark anything as
+     completed or outside of policy." That complaint was FIXED the next day — approve
+     and deny shipped 2026-08-27 — so the premise is gone, and she has now asked for
+     this by name. The newer answer wins.
+
+     ⚠ IT IS THE DIFFERENCE BETWEEN THIS ROW AND `seasonRuleDrops` THAT MATTERS, and
+     they are easy to confuse. That one lists people who were ASKED and said nothing —
+     a decision they made. This lists people who were NEVER ASKED, which is a failure of
+     ours. Both end up off the routes, and only one of them is anybody's fault.
+
+     ⚠ AND IT CANNOT SEE BACKWARDS. Nothing stamped a customer before `rsvpEmailedAt`
+     existed, so anybody emailed by the office before 2026-09-09 reads as never-reached
+     here. That is the honest answer rather than a flattering one — the row says so in
+     its own note, because a list that quietly conflated the two would be the panel
+     making a claim it cannot support about who has been asked. */
+  checks.push({
+    id: 'rsvpNeverReached',
+    title: 'The RSVP never reached these customers',
+    why: 'They cannot answer a question nobody asked them — and because only people who '
+      + 'have answered are scheduled, they are out of the season: no route, no bundle, no '
+      + 'crew. This is the list "Send the whole RSVP" will go to.',
+    fix: null,
+    fixNote: 'No button here: the fix is to send it. Automation Emails → Send the whole '
+      + 'RSVP goes to exactly these people and skips everybody who already has it. '
+      + '⚠ TWO KINDS OF CUSTOMER APPEAR HERE WHO HAVE ACTUALLY BEEN EMAILED, and both '
+      + 'are worth knowing before you press anything. Anyone the office emailed before '
+      + '2026-09-09 carries no record of it, because nothing was written down per '
+      + 'customer until then — that is the whole reason the failed send could not be '
+      + 'identified. And a message re-sent from EmailJS’s own error emails never '
+      + 'passes through this app at all, so it is invisible here too. Check this list '
+      + 'against EmailJS before treating it as "never asked".',
+    rows: (function(){
+      if(typeof rsvpWholePlan !== 'function') return [];
+      /* ⚠ SILENT UNTIL THE APP HAS ACTUALLY RECORDED A SEND, and this is the guard the
+         row shipped without — caught by Addie asking what it was for while she was
+         resending from EmailJS. With no stamp on ANYBODY, "never reached" is not a
+         finding about the customers, it is the app having no data: it would list the
+         whole book of ~950 and read as a catastrophe on the evening the RSVP went out
+         perfectly well. A warning that cries wolf is one the office learns to click
+         past, including the day it is right — the same argument seasonRuleDrops makes
+         about staying quiet before the send, and the same one behind
+         EMAIL_LOOKALIKE_BUT_REAL.
+         ⚠ ONE STAMP IS ENOUGH to establish that the app is now keeping the record, and
+         from that point everybody without one really has not been reached BY US. That
+         is what "They have all been asked — record it" sets in one press after an
+         EmailJS resend, and what an ordinary send sets by itself. */
+      const anyRecorded = (jobAddresses || []).some(function(a){
+        return a && a.data && (a.data.rsvpEmailedAt || a.data.arrearsRsvpEmailAt);
+      });
+      if(!anyRecorded) return [];
+      const plan = rsvpWholePlan();
+      /* ⚠ NOT READY IS NOT EMPTY. The plan refuses until the invoices have loaded,
+         because who owes from last season decides which of the two emails they get.
+         Reporting nothing then would say the RSVP had reached everybody. */
+      if(!plan.ready) return [];
+      /* ⭐ THE SAME PLANNER THE BUTTON USES, never a second opinion. A row that counted
+         "who still needs asking" its own way is how this panel and the send start
+         telling her different numbers about the same customers. */
+      return plan.standard.concat(plan.arrears).map(function(item){
+        const d = item.data || {};
+        return { label: d.name || '(no name)',
+                 detail: (d.email || 'no email') + ' — '
+                   + (typeof houseOwesFromLastSeason === 'function' && houseOwesFromLastSeason(d)
+                      ? 'would get the Not Paid RSVP' : 'would get the ordinary RSVP') };
+      });
+    })()
+  });
   checks.push({
     id: 'seasonRuleDrops',
     title: 'People who never replied to the RSVP',

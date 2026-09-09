@@ -4467,8 +4467,11 @@ console.log('\n=== 7. Health check engine ===');
      ⚠ TWO SESSIONS BOTH NUMBERED THEIR ROW 24 on the same day — this one is 25, and
      the count below is what caught it. That is the check earning its keep: a hard
      number is the only thing that notices two people adding a row at once. */
-  check('health', 'all 26 checks present',
-    all.length === 26, 'got ' + all.length);
+  /* 26 → 27 on 2026-09-09: rsvpNeverReached (EM-04). Bumped in the same edit that adds
+     the row, which this count's own reasoning demands — a check silently disappearing
+     is exactly the kind of thing nobody notices. */
+  check('health', 'all 27 checks present',
+    all.length === 27, 'got ' + all.length);
 
   /* ---- a card payment that found no bill (2026-08-30) -------------------
      Addie, asked where these should show: "Put that in health check." The money was
@@ -48319,6 +48322,75 @@ suite('287. The routine route sweep does not bury the notice that matters');
   check('S288', 'and the season reset clears the once-per-season stamp',
     /arrearsRsvpEmailAt: null/.test(admin),
     'left standing, nobody could ever be chased again in any later season');
+
+  /* ⭐ THE OFFICE'S OWN SEND STAMPS TOO NOW (EM-04). Addie: "the people that have
+     already got the email should not get it again" — impossible to honour while
+     nothing recorded who a send had reached, which is why 392 customers Gmail refused
+     could not be told apart from the ones who got it. Suite 310 proves the PLANNER
+     skips a stamped customer; these three prove the stamp is actually written, is
+     written only for an RSVP, and does not outlive the season. */
+  check('S288', 'a successful RSVP send records that this customer was asked',
+    /rsvpEmailedAt: serverTimestamp\(\)/.test(admin),
+    'without the write, Suite 310 proves a rule against a field nothing ever sets — ' +
+    'green while every re-send mails the whole book a second time');
+  check('S288', 'and only an RSVP is stamped, not every email',
+    /if\(isRsvp\)\{[\s\S]{0,400}?rsvpEmailedAt: serverTimestamp\(\)/.test(admin),
+    'an invoice or a receipt is not the season\'s question; stamping one makes ' +
+    'somebody look asked when nobody has asked them');
+  /* ⭐ RECORDING A SEND THAT HAPPENED OUTSIDE THE APP (EM-06). A resend from EmailJS's
+     own error emails never passes through admin.html, so nothing is stamped and the next
+     press of Send the whole RSVP would mail the entire book a second time. */
+  {
+    const markFn = extractFn(admin, 'rsvpMarkAllAsked');
+    check('S288', 'the mark-as-asked tool is findable',
+      !!markFn, 'renamed or removed — repoint this check');
+    if (markFn) {
+      /* ⚠ THE TARGETS ARE THE PLANNER'S, NEVER THE WHOLE BOOK. Stamping the do-not-send
+         list or somebody with no email records that we wrote to people we cannot write
+         to — and marks them asked for ever, so they are never asked and, because only
+         answered customers are scheduled, never visited. */
+      check('S288', 'it marks only who the send would have gone to',
+        /plan\.standard\.concat\(plan\.arrears\)/.test(markFn) &&
+        markFn.indexOf('jobAddresses.forEach') === -1,
+        'it must take its list from rsvpWholePlan, not from every customer');
+      /* ⚠ A TYPED WORD, like every other mass write here (CLAUDE.md §5). The asymmetry
+         earns it: a wrong stamp is a customer never asked again this season. */
+      check('S288', 'and it will not run on a stray click',
+        /ASKED/.test(markFn) && /prompt\(/.test(markFn),
+        'a one-click mass write that can strand ~950 customers outside the season');
+      /* ⚠ MIRRORED AFTER THE COMMIT, NEVER BEFORE. The other order shows her a season
+         marked asked that was never written — and she would then not send it. */
+      const commitAt = markFn.indexOf('await batch.commit()');
+      const mirrorAt = markFn.indexOf('a.data.rsvpEmailedAt = new Date()');
+      check('S288', 'and the local mirror follows the write rather than leading it',
+        commitAt !== -1 && mirrorAt !== -1 && commitAt < mirrorAt,
+        'mirroring first paints a send that never happened');
+    }
+  }
+
+  /* ⭐ AND THE ROW STAYS QUIET WHILE THE APP KNOWS NOTHING (EM-07). Shipped without this
+     and caught by Addie asking what the change was for: with no stamp on anybody,
+     "never reached" is not a finding about customers, it is the app having no record —
+     and it would list the whole book on an evening the RSVP had gone out fine. */
+  {
+    const hcSrc = String(admin);
+    const rowAt = hcSrc.indexOf("id: 'rsvpNeverReached'");
+    const rowBody = rowAt === -1 ? '' : hcSrc.slice(rowAt, hcSrc.indexOf("id: 'seasonRuleDrops'", rowAt));
+    check('S288', 'the never-reached row is silent until a send has been recorded',
+      !!rowBody && /anyRecorded/.test(rowBody) && /if\(!anyRecorded\) return \[\];/.test(rowBody),
+      'with nothing stamped anywhere this row lists every customer in the book — a ' +
+      'warning that cries wolf is one the office learns to click past, including the ' +
+      'day it is right');
+    check('S288', 'and it counts EITHER stamp as the app having a record',
+      /rsvpEmailedAt \|\| a\.data\.arrearsRsvpEmailAt/.test(rowBody),
+      'the arrears chase has been stamping customers for weeks; ignoring it would keep ' +
+      'the row silent on a book that does have a record');
+  }
+
+  check('S288', 'and the season reset clears the office stamp as well',
+    /rsvpEmailedAt: null/.test(admin),
+    'left standing, a new season opens with the whole book already marked asked and ' +
+    'the RSVP goes to nobody — which looks exactly like a send that worked');
   check('S288', 'the card carries her own words next to the switch',
     /I&rsquo;ll send those emails\/text myself/.test(admin),
     'whoever ticks this box is overriding her, and should be able to read it while doing so');
@@ -54432,7 +54504,11 @@ suite('Suite 310. The whole RSVP, in one press');
       c('stopped', { email: 'd@x.com', noAutomationEmails: true }),
       c('said',    { email: 'e@x.com', answered: true }),
       c('brandnew',{ email: 'f@x.com', newThisYear: true }),
-      c('test',    { email: 'g@x.com', isTestRecord: true })
+      c('test',    { email: 'g@x.com', isTestRecord: true }),
+      /* EM-04: two ways of already having been asked. Both must be skipped, and a
+         fixture carrying only one of them passes whether the other is read or not. */
+      c('gotit',   { email: 'h@x.com', rsvpEmailedAt: 'a-date' }),
+      c('chased',  { email: 'i@x.com', owes: true, arrearsRsvpEmailAt: 'a-date' })
     ];
     const p = run(book, true);
     const ids = l => l.map(x => x.id).sort().join(',');
@@ -54475,6 +54551,30 @@ suite('Suite 310. The whole RSVP, in one press');
     check('S310', 'and says why, rather than looking like nothing happened',
       /invoices/i.test(run(book, false).why || ''),
       'a silent empty plan reads as "nobody to ask" and the office presses it again');
+
+    /* ⭐ ALREADY ASKED IS NOT ASKED AGAIN (EM-04). Addie, after the Gmail refusals:
+       "the people that have already got the email should not get it again." Nothing
+       recorded who a send had reached until `rsvpEmailedAt`, which is why the 392 could
+       not be told apart from the people who got it.
+       ⚠ BOTH STAMPS, and the fixture carries one of each. The office's own send writes
+       `rsvpEmailedAt`; the server's arrears chase has always written
+       `arrearsRsvpEmailAt`. Reading only one of them re-asks everybody the automation
+       already reached — and a fixture holding a single kind passes either way. */
+    check('S310', 'somebody already emailed this season is not emailed again',
+      p.standard.concat(p.arrears).every(m => m.id !== 'gotit' && m.id !== 'chased'),
+      'got [' + ids(p.standard) + '] / [' + ids(p.arrears) + '] — a second copy of the ' +
+      'RSVP is exactly what she asked us to stop');
+    check('S310', 'and they are counted so the number can be seen before sending',
+      ids(p.alreadyEmailed) === 'chased,gotit',
+      'got [' + ids(p.alreadyEmailed) + '] — a skip nobody can see is indistinguishable ' +
+      'from a send that quietly lost them');
+    /* ⚠ THE ORDER OF THE TESTS IS THE CLAIM HERE. Already-emailed sits AFTER the
+       do-not-send and no-email branches, so somebody on the do-not-send list is never
+       reported as "already emailed" — that would tell her we had written to somebody we
+       are forbidden to write to. */
+    check('S310', 'and a do-not-send customer is never counted as already emailed',
+      p.alreadyEmailed.every(m => m.id !== 'stopped'),
+      'the two mean opposite things and only one of them is something we did');
   }
 }
 

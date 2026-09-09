@@ -663,100 +663,93 @@ console.log('--- wiring ---');
      The guarantee has not moved: every one of the five still keeps the reason. Same
      slow-fuse shape as S82, S129 and the folder-names suite — a check anchored on where
      a string happened to sit rather than on what must be true. */
-  const captured = admin.split('failed++; lastEmailSendError = err;').length - 1;
-  check('and each of them keeps the reason instead of dropping it (structural)',
-    captured === 5,
-    'the catch used to be `catch(err){ failed++; }` — the count survived and the reason ' +
-    'did not; found ' + captured);
-  /* ⭐ AND ONE OF THEM NAMES THE PEOPLE (EM-01). A count cannot be acted on: the send
-     that prompted this reported 392 not emailed and named nobody, so the only way to
-     reach them was to mail the whole book again. The bulk senders that write straight
-     to a status line are unchanged — this is asserted of the template runner, which is
-     what both RSVP buttons go through. */
+  /* The RSVP runner's own body, for the claims that are about IT rather than about
+     the shared pacer. Sliced to the next real structural marker, never a fixed
+     window (CLAUDE.md §7). */
   const runner = admin.slice(admin.indexOf('async function etSendTemplateRun('));
   const runnerBody = runner.slice(0, runner.indexOf('\ndocument.getElementById(\'etSendToSelectedBtn\')'));
-  /* ⚠ BOTH SITES, COUNTED — not "a push exists somewhere". There are exactly two ways
-     this loop increments `failed`: a recipient with no email (nothing was ever sent) and
-     a refused send. A red-check that renamed only the first sailed straight through a
-     check that asked whether ANY push was present, which would have let the list and the
-     `failed` count disagree — the card then reads "392 did not get it" over 4 names. */
-  const pushes = runnerBody.split('failedRecipients.push(').length - 1;
-  /* ⚠ BOTH WAYS THE COUNT CAN RISE. `failed++` is one at a time (no email, a refused
-     send); `failed +=` is the block the rate-limit stop adds for everybody it did not
-     get to. Counting only the first would let that whole group be tallied and never
-     named, which is the same hole in a new place. */
-  const bumps = (runnerBody.split('failed++').length - 1) + (runnerBody.split('failed +=').length - 1);
-  check('and the template runner records WHO it failed for, not just how many',
-    pushes === bumps && pushes === 3 &&
-    runnerBody.indexOf('failedRecipients: failedRecipients') !== -1,
-    'every way of counting a failure must also name the person: found ' + pushes +
-    ' record(s) against ' + bumps + ' failure(s) counted. Otherwise "send it again to ' +
-    'the ones it missed" silently leaves some of them out');
-  /* ⭐ AND IT STOPS WHEN GMAIL SAYS TO (EM-02). Carrying on after "User-rate limit
-     exceeded" is how one refusal became 392 — every send behind it was refused too. */
-  /* ⚠ SCOPED TO THE STOP ITSELF. A bare `break;` anywhere in the runner used to satisfy
-     this, and once the auto-wait added a retry loop of its own there were several — so
-     deleting the one that ACTUALLY stops the send went straight through. It is the break
-     that follows the recording of the remainder that matters. */
-  const stopBlock = runnerBody.slice(runnerBody.indexOf('rateLimitedUntil = until;'));
-  check('and it stops the run when Gmail refuses on rate, instead of burning the rest',
-    runnerBody.indexOf('emailSendRetryAfter(err)') !== -1 &&
-    runnerBody.indexOf('rateLimitedUntil = until;') !== -1 &&
-    /rest\.forEach\([\s\S]{0,400}?\bbreak;/.test(stopBlock),
-    'after recording the untried remainder the loop must BREAK, or a limit hit at ' +
-    'customer 550 spends the other 400 requests being told the same thing');
-  /* ⚠ THE REMAINDER IS TAKEN FROM THE REAL LIST, and this asserts the LINKAGE rather
-     than that a push exists — a red-check swapping `rest.forEach` for `[].forEach` went
-     straight through the looser version, which would have counted 392 as failed and
-     named none of them: the exact hole this whole change closes, one level down.
-     ⚠ STRUCTURAL, AND SAYING SO. Proving it by running would need a harness for the
-     whole sender (jobAddresses, emailjs, resolveLinkTokens, the token writes); the
-     claim is about one expression feeding another, which is the one shape a text check
-     reads honestly. If the admin browser harness in CLAUDE.md is ever built, run it. */
-  check('and the untried remainder is the people actually left, not an empty list',
-    /const rest = selectedIds\.slice\(selectedIds\.indexOf\(id\) \+ 1\);/.test(runnerBody) &&
-    /failed \+= rest\.length;/.test(runnerBody) &&
-    /rest\.forEach\(/.test(runnerBody),
-    'the count and the names must come from the SAME list — counting rest.length while ' +
-    'naming something else is how 392 got tallied and nobody got recorded');
-  /* ⚠ THE PACING IS ASSERTED AS A REAL WAIT, not as the constant existing. A named
-     constant nothing awaits is the shape of a guard that was written and never wired. */
+
+  /* ⚠ REPOINTED AGAIN 2026-09-09 (EM-08), NOT WEAKENED. The pacing and the throttle stop
+     moved out of the RSVP runner into `emailSendPaced`, because four of the five bulk
+     senders never had them — so checks pinned to the runner's own inline copy began
+     failing on code that is right. The guarantees are unchanged; they are asserted where
+     the rule now lives. */
+  const kept = (admin.split('lastEmailSendError = err;').length - 1)
+             + (admin.split('lastEmailSendError = paced.err;').length - 1);
+  check('and each of them keeps the reason instead of dropping it (structural)',
+    kept === 5,
+    'the catch used to be `catch(err){ failed++; }` — the count survived and the reason ' +
+    'did not; found ' + kept);
+
+  /* ⭐ THE ONE THAT MATTERS MOST NOW. Addie, on what this change is for: "I just want it
+     to make it so we never have this happen again." It was true of ONE sender out of
+     five — the invoice and receipt runs would have walked into the identical Gmail
+     refusal on an identical back-to-back loop. */
+  const pacedCalls = admin.split('emailSendPaced(').length - 1;
+  check('every bulk email sender is paced, not just the RSVP one',
+    pacedCalls === 5,
+    'expected the helper plus one call in each of the four status-line senders; found ' +
+    pacedCalls + '. A sender that skips it can still trip the limit that lost 392 emails');
+
+  /* ⚠ THE RULE IS IN TWO PLACES AND THAT IS A DELIBERATE, NAMED COST. The RSVP runner
+     keeps its own inline copy because it was already shipped and working, and Addie's
+     instruction was "make sure no code is changed unless we need the code changed" —
+     rewriting a live send path for tidiness is not a need, and this very refactor broke
+     the file once mid-edit. So the two copies are held together by the CONSTANTS instead,
+     the money-parity shape applied to a rule: both must read the same three names, so a
+     change to how fast we may send cannot move one and leave the other. If the runner is
+     ever folded into the helper for its own reasons, delete this check with it. */
+  /* ⚠ COMMENTS STRIPPED FIRST. The first version asked whether the names appeared in the
+     runner AT ALL, and every one of them is also written out in the paragraph explaining
+     the pacing — so a red-check that swapped the real `EMAIL_SEND_GAP_MS` for a hardcoded
+     200 sailed straight through, reading the explanation as the code. Suites 58, 274, 275
+     and 300 each learned this from the other direction. */
+  const runnerCode = runnerBody
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  const runnerPace = ['EMAIL_SEND_GAP_MS', 'EMAIL_MAX_AUTO_WAIT_MS', 'EMAIL_MAX_AUTO_WAITS']
+    .every(function(n){ return runnerCode.indexOf(n) !== -1; });
+  check('and the RSVP runner\'s own copy reads the same three limits as the helper',
+    runnerPace,
+    'the runner keeps an inline copy of the pacing; both must read the SAME constants, ' +
+    'or changing how fast we send moves one sender and not the other');
+
+  const helper = (function(){
+    const i = admin.indexOf('async function emailSendPaced(');
+    return i === -1 ? '' : admin.slice(i, admin.indexOf('async function etSendTemplateRun(', i));
+  })();
+  check('the shared pacer is findable', !!helper,
+    'renamed or removed — repoint these checks rather than deleting them');
   check('and it waits between sends rather than firing them back to back',
-    /await new Promise\(r => setTimeout\(r, EMAIL_SEND_GAP_MS\)\)/.test(runnerBody),
-    'sends went out ~1.7 a second and Gmail refused 392 of them; the gap is what ' +
-    'stops that happening again');
-  /* ⭐ EM-03: a short refusal is waited out, not handed back to the office. Gmail's
-     second refusal named a time six minutes away — a timer's job, not a person's. */
+    /await new Promise\(r => setTimeout\(r, EMAIL_SEND_GAP_MS\)\)/.test(helper),
+    'sends went out ~1.7 a second and Gmail refused 392 of them');
   check('and a short rate-limit wait is sat through and the send carries on',
-    /await new Promise\(r => setTimeout\(r, waitMs \+ 5000\)\)/.test(runnerBody),
-    'a rate limit that clears in minutes must be waited out; without this the office ' +
-    'has to come back and press the button for every throttle');
-  /* ⚠ BOTH BOUNDS, ASSERTED TOGETHER. Either one alone is the failure it exists to
-     prevent: with no time ceiling the run sits through the DAY's cap (which clears at
-     midnight, not in a wait), and with no count ceiling a send throttled every few
-     customers runs for hours looking healthy — and nobody watching can tell a slow send
-     from a stuck one. */
+    /await new Promise\(r => setTimeout\(r, waitMs \+ 5000\)\)/.test(helper),
+    'a rate limit that clears in minutes must be waited out, not handed to the office');
   check('and the automatic waiting is bounded by both a length and a count',
-    /waitMs <= EMAIL_MAX_AUTO_WAIT_MS/.test(runnerBody) &&
-    /autoWaits < EMAIL_MAX_AUTO_WAITS/.test(runnerBody) &&
-    /autoWaits\+\+/.test(runnerBody),
+    /waitMs <= EMAIL_MAX_AUTO_WAIT_MS/.test(helper) && /EMAIL_MAX_AUTO_WAITS/.test(helper),
     'an unbounded auto-retry is a tab that looks busy for ever, and a long wait is the ' +
-    'daily cap wearing a rate limit’s clothes');
-  /* ⚠ AND THE RETRY MUST NOT REBUILD THE MESSAGE. `referralOfferFor` decides whether
-     this customer is counted as having got a referral link; asking it twice for one
-     customer makes the report disagree with the email it is reporting on (REF-20). */
-  /* ⚠ COUNTED, NOT JUST POSITIONED. The first version asked whether the FIRST
-     `referralOfferFor` sat before the retry loop — so a red-check that ADDED a second
-     one inside the loop sailed straight through, which is exactly the double-count this
-     guards. There must be one, and it must be outside. */
-  const retryLoopAt = runnerBody.indexOf('for(;;){');
+    'daily cap wearing a rate limit\u2019s clothes');
+  /* ⚠ THE BUDGET IS SPENT ACROSS THE RUN, NOT RENEWED PER MESSAGE — per message it would
+     allow six waits each and one run could sit for hours looking healthy. */
+  /* ⚠ IT MUST READ THE CALLER'S COUNTER, not a fresh one. `/c\.autoWaits/` alone passed
+     with `const c = {}` — the counter still existed, it was just reborn on every message,
+     which is the per-message budget this forbids. Assert where `c` comes FROM. */
+  check('and the wait budget is shared across the whole run',
+    /const c = ctx \|\| \{\};/.test(helper) && /c\.autoWaits/.test(helper) &&
+    admin.indexOf('paceCtx = { autoWaits: 0 }') !== -1,
+    'a per-message budget lets one run wait dozens of times and look healthy doing it');
+
+  /* ⚠ AND THE PACER MUST NOT WRAP THE MESSAGE BUILD (REF-20). Counted, not positioned:
+     a check that only asked whether the FIRST call sat outside passed with a second one
+     added inside. */
+  const pacedAt = runnerBody.indexOf('for(;;){');
   const offers = runnerBody.split('referralOfferFor(member)').length - 1;
   check('and the retry wraps the send only, never the message build',
-    retryLoopAt !== -1 && offers === 1 &&
-    runnerBody.indexOf('referralOfferFor(member)') < retryLoopAt,
+    pacedAt !== -1 && offers === 1 &&
+    runnerBody.indexOf('referralOfferFor(member)') < pacedAt,
     'the referral offer must be resolved exactly ONCE per customer and outside the ' +
-    'retry — re-running it double-counts them in noReferral, so the report disagrees ' +
-    'with the emails it is reporting on. Found ' + offers + ' call(s)');
+    'retry. Found ' + offers + ' call(s)');
   /* ⚠ THE RUNNER MUST NOT SAVE THEM ITSELF. Send the whole RSVP calls it twice, so a
      save inside would let the Not Paid pass overwrite the ordinary RSVP's failures and
      only half the book could be sent again. Each button saves once, for all its passes. */

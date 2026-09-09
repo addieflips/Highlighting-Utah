@@ -3013,6 +3013,19 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
         refused too, each spending an EmailJS request to be told the same thing — and the Not
         Paid pass ran afterwards and lost all 19, because the limit is on the **account**, not
         the template. That is the "0 of 19" the office saw.
+      - ⭐ **AND IT IS EVERY SENDER NOW, NOT JUST THIS ONE** ([[EM-08]]). Addie: *"I just
+        want it to make it so we never have this happen again."* It was true of **one
+        sender out of five** — `sendBulkUpdateEmailBtn`, `sendRsvpEmailBtn`,
+        `pibSendUnpaidBtn` and `pibSendPaidBtn` were still firing back to back, so the
+        **invoice and receipt runs** would have hit the identical refusal on an identical
+        loop. `emailSendPaced` carries the rule and a gate counts that all four call it; the
+        wait budget is shared across the run rather than renewed per message.
+        ⚠ **The RSVP runner keeps its own inline copy on purpose** — it was already
+        shipped and working, and Addie's rule for this merge was *"make sure no code is
+        changed unless we need the code changed."* The cost is two copies, guarded by a
+        check that both read the SAME three constants (comments stripped, because each
+        name also appears in the prose explaining it). Fold them together only if that
+        runner is touched for its own reasons.
       - `EMAIL_SEND_GAP_MS` (1000) paces it; `emailSendRetryAfter` reads Gmail's refusal and
         **stops the run**, recording everybody untried so *Send again* resumes exactly where it
         stopped. One pass being stopped stops the other, and the passes behind it are recorded
@@ -3045,6 +3058,61 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
         halt the season's RSVP over one bad address. `emailSendRetryAfter` is **run** against
         the real string above rather than matched, and the silent side is checked as carefully
         as the catch.
+    - ⭐ **AND WHO HAS BEEN ASKED IS NOW WRITTEN DOWN PER CUSTOMER** (2026-09-09,
+      [[EM-04]]). Addie: *"the people that have already got the email should not get it
+      again"*, and *"We need to determine the fails I though that's what health check was
+      for."* Neither was possible, because **nothing recorded who a send reached** — the
+      office's own RSVP left no trace on the customer, so Firebase simply did not hold
+      the fact and the refused customers could not be told apart from the reached ones.
+      - `rsvpEmailedAt` is stamped on a successful RSVP send. **The mechanism already
+        existed for the other send**: `arrearsRsvpEmailAt` has been stamped by the
+        server's arrears chase since it was built, with her rule already in its comment
+        ("ONCE PER CUSTOMER PER SEASON, EVER") and Start New Season clearing it. This is
+        that, applied to the send the office actually presses.
+      - `rsvpWholePlan` skips **either** stamp and counts them as *Already emailed this
+        season*. Reading only one re-asks everybody the automation already reached.
+      - ⚠ **Only an RSVP is stamped.** An invoice or a receipt is not the season's
+        question, and stamping one makes somebody look asked when nobody asked them.
+      - ⚠ **A failed stamp never fails the send.** The email has gone; the worst a lost
+        stamp does is offer a duplicate later, which is the safe direction — the opposite
+        mistake is a customer never asked at all.
+      - Health Check row **The RSVP never reached these customers**. ⚠ **It is SILENT
+        until at least one send has been recorded** ([[EM-07]]) — with no stamp on
+        anybody, "never reached" is not a finding about customers, it is the app having
+        no data, and the row would list the whole book on an evening the RSVP had gone
+        out fine. It shipped without that guard and Addie's question is what found it.
+        Either stamp counts as a record. ⚠ It reverses HC-03,
+        which said not to add a row because she did not open the panel — that complaint
+        was fixed the day after, when approve/deny shipped, and she has now asked for
+        this by name (R-024). ⚠ It is a **different question** from `seasonRuleDrops`:
+        that lists people who were ASKED and said nothing, their decision; this lists
+        people who were NEVER ASKED, our failure.
+    - ⭐ **HOW THE MISSED ONES ACTUALLY GOT THEIR EMAIL** ([[EM-05]]): from **EmailJS's
+      own error emails**, which carry a resend button. Addie: *"they have resend buttons
+      in every error email it says there was 401 error email's I can resend those
+      tomorrow."* EmailJS holds the authoritative per-message record of what was refused;
+      this app holds none for that run. Re-sending there reaches exactly the 401 and
+      nobody else — a second whole-RSVP press would have mailed everybody who DID get it
+      a second time.
+      - ⚠ **A guess at the boundary was considered and dropped.** "Nobody after Laura
+        Checketts got one" was offered and then withdrawn, and nothing was built on it:
+        marking the wrong people as already-asked means a customer who is never asked,
+        whom `isOutForSeason` then drops from the season.
+      - ⚠ **A resend from EmailJS is invisible to this app.** It never passes through
+        admin.html, so no stamp is written and those customers keep appearing in
+        `rsvpNeverReached`. The row's own note says so.
+      - ⭐ **AND SHE CAN TELL THE APP IT IS DONE** ([[EM-06]]). *"So if we resend tomorrow
+        will it move passed people who have already been sent email?"* — the two routes
+        answer that differently, and that is the thing to be clear about. **EmailJS's
+        resend touches only the messages that failed**, because a successful send raised
+        no error email, so it cannot reach anybody who already got it. **The app's own
+        Send the whole RSVP would mail the whole book again**, because nobody from that
+        run carries `rsvpEmailedAt` — the stamp did not exist when it ran.
+        `rsvpMarkAllAsked` closes the gap: it stamps everybody the planner would have
+        written to, so the app stops offering to ask them again and the row goes quiet.
+        ⚠ It marks the **planner's** list, never the whole book, and takes a dry run then
+        a typed word — a customer wrongly marked as asked is never asked again this
+        season, while a missing stamp only ever costs a duplicate.
     - Each row carries its own reason rather than the run's last one, so the next occurrence
       names itself. 10 sabotages red-checked across the two passes.
   - ⚠ **The `{{quote_` prefix inside it is built with `String.fromCharCode(123,123)`.** Suites
