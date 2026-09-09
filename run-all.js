@@ -54864,7 +54864,7 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
   const need314 = ['bestCrewTowns', 'dayCrewTowns', 'dayCrewHouses', 'dayCrewCount',
                    'dayAssignedHouses', 'crewTownsFor', 'crewIndexes', 'crewCap',
                    'dayTownList', 'oneCrewMaxHouses', 'daySoloCrew',
-                   'oneManMaxHouses', 'planCities', 'extractCleanCity'];
+                   'oneManMaxHouses', 'planCities', 'extractCleanCity', 'isOneManDay'];
   const lifted314 = {};
   need314.forEach(function (n) { lifted314[n] = extractFn(admin, n); });
   const missing314 = need314.filter(function (n) { return !lifted314[n]; });
@@ -55049,6 +55049,35 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
        cannot test the two-town cap, and a day whose big towns must pair anyway gives
        "most houses" and "most towns" the same answer. Both are fixed above and both
        are the trap this file already records in four other places. */
+
+    /* ---- a one man day carries everybody on the day ------------------------ */
+    /* ⭐ Dax, 2026-09-09, shown the houses still left over on thin scattered days
+       and asked what should happen to them: put them on the one-man sheet. The town
+       cap is about where you may send a CREW; one person on a day of five houses is
+       the case it was never about, and leaving somebody off their own sheet only
+       buys a second trip by the same person. [[SCH-53]] */
+    sb314.setCrews(TWO_AUTO);
+    const oneMan = dayOf({ 'Provo': 2, 'Cedar Hills': 1, 'Moab': 1, 'Logan': 1 });
+    check('S314', 'a one man day puts every house on the day on its single sheet',
+      strandedCount(oneMan) === 0 && sb314.count(oneMan) === 1,
+      'got ' + sb314.count(oneMan) + ' crew(s), ' + strandedCount(oneMan) + ' stranded — ' +
+      'four scattered towns and five houses is one person, and the town rule is ' +
+      'about where a crew may be sent');
+    /* ⚠ AND ONLY A ONE MAN DAY. Twelve houses is a CREW — four people and a truck —
+       so "one crew, max two cities" applies to it as written: the day is not
+       collapsed onto one sheet and a town it may not drive stays visible, which is
+       the honest bucket [[SCH-50]] keeps. This is the check that stops the rule
+       above being widened by a one-word edit from isOneManDay to dayCrewCount.
+       ⚠ THE FIRST VERSION OF THIS CHECK ASSERTED AN UNREACHABLE STATE — a one-crew
+       day carrying a stranded town — and failed on correct code. It cannot happen:
+       for a town to be stranded both crews must be full, which is four towns, which
+       is two crews by the town count. What is actually worth pinning is that a
+       crew-sized day is NOT absorbed, so that is what this says now. */
+    const oneCrew = dayOf({ 'Provo': 6, 'Cedar Hills': 4, 'Moab': 1, 'Logan': 1 });
+    check('S314', 'but a crew-sized day is not absorbed, and still shows what it cannot drive',
+      sb314.count(oneCrew) === 2 && strandedCount(oneCrew) === 2,
+      'got ' + sb314.count(oneCrew) + ' crew(s), ' + strandedCount(oneCrew) + ' stranded — ' +
+      'twelve houses is a crew, and the town rule is exactly about them');
 
     /* ---- the forecast beside the map -------------------------------------- */
     /* ⭐ Dax, 2026-09-09: "also everday it should show the forecasted temperature

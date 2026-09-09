@@ -2379,7 +2379,27 @@ removed the second crew that could have taken them.
 what tells the office — and `rebuildSeasonDays` — to move those houses to a day that can
 hold them, rather than the split pretending they fit.
 
-Rulings **SCH-50** and **SCH-51**. *Proved by run-all.js **Suite 314**, which runs the real
+**And a one-man day carries everybody on it.** Some thin days hold four scattered towns
+that cannot pair into two legal crew-towns however they are arranged — 9 October is five
+houses across Provo, Cedar Hills, Cottonwood Hts and Salem. Those are one person's work,
+and the town rule is about where you may send a **crew**, so on a one-man day the cap
+stops applying and every house on the day goes on the single sheet (Dax, 2026-09-09).
+
+⚠ **This supersedes one clause of the 2026-08-20 ruling** — *"a light day spread over
+three towns still needs two crews however few houses are on it"* — and only that clause.
+It is still exactly right about a crew, so a one-**crew** day (nine to nineteen houses) is
+untouched and a town it may not drive still shows in the bucket above.
+
+⚠ **It also closed a disagreement between two screens that was already live.** `isOneManDay`
+counts the whole day, so One Man Installs listed these as one person's work, while
+`dayCrewCount` counted **towns** and badged the same day two crews — 11 December, two
+houses in Highland and West Jordan, was asking for two crews. Both answers were on screen
+at once and neither was reading the other. Ruling **SCH-53**.
+
+**Measured across the ten install days in the live plan: 7 houses on no sheet before, 0
+after**, and 11 December drops from two crews to one.
+
+Rulings **SCH-50**, **SCH-51** and **SCH-53**. *Proved by run-all.js **Suite 314**, which runs the real
 crew split against the 1 October day rather than reading it — every claim here is about
 which crew a house ends up on. Red-checked with eight sabotages, seven caught; the eighth
 flattens a tiebreak that only ever chooses between arrangements placing the same houses,

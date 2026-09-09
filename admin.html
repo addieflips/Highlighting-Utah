@@ -60495,7 +60495,31 @@ function dayCrewHouses(day){
      there is one run that day. A house in neither crew's town is still in neither. */
   if(typeof dayCrewCount === 'function' && dayCrewCount(day) === 1){
     const solo = (typeof daySoloCrew === 'function') ? daySoloCrew(day) : 0;
-    const all = out.reduce(function(a, b){ return a.concat(b); }, []);
+    /* ⭐ AND ON A ONE MAN DAY THE SHEET TAKES EVERYBODY (added 2026-09-09).
+       Dax, shown the five houses left over after the town split was fixed and asked
+       what should happen to them: put them on the one-man sheet. He had already said
+       why — "high milage is better for a one man than a one crew or two crew" — and
+       these are days of five and seven houses.
+
+       ⚠ THE TOWN RULE IS ABOUT A CREW, AND A ONE MAN DAY HAS NONE. "One crew can go
+       in a max of 2 cities" (2026-08-20) is a rule about where you can send four
+       people and a truck; one person on a day of five houses is the case that rule
+       was never about, and leaving somebody off THEIR OWN sheet only means a second
+       trip by the same person. So the cap decides who is ALLOWED on a crew day and
+       decides nothing here.
+
+       ⚠ ONE MAN, NOT ONE CREW. A one-CREW day is nine to nineteen houses and a full
+       crew, so the town rule applies to it exactly as written and a house it cannot
+       route stays visible — that is [[SCH-50]]'s honest bucket, and moving those is a
+       builder job rather than something to absorb quietly here.
+
+       ⚠ IN THE DAY'S OWN ORDER, not towns-first-then-leftovers: the day has already
+       been put in driving order by generateDayRoutes, and re-grouping it by town
+       would hand the one person a sheet that criss-crosses. */
+    const assigned = out.reduce(function(a, b){ return a.concat(b); }, []);
+    const all = (typeof isOneManDay === 'function' && isOneManDay(day))
+      ? (day.houses || []).slice()
+      : assigned;
     for(let i = 0; i < out.length; i++) out[i] = [];
     out[Math.min(solo, out.length - 1)] = all;
     return out;
@@ -63236,6 +63260,28 @@ function dayCrewCount(day){
   /* Asked before anything is measured. There is one crew that day because there is
      one crew that day, and no arrangement of houses and towns changes it. */
   if(dayLimitFor(day)) return 1;
+  /* ⭐ A ONE MAN DAY IS ONE PERSON, HOWEVER ITS TOWNS ARE SPREAD (added 2026-09-09).
+     Dax, shown the houses left off a sheet on thin scattered days: put them on the
+     one-man sheet. He had already given the reason — "high milage is better for a
+     one man than a one crew or two crew".
+
+     ⚠ THIS SUPERSEDES ONE CLAUSE OF THE 2026-08-20 RULING, and only that clause:
+     "a light day spread over three towns still needs two crews however few houses
+     are on it. Size alone is not the question, and merging it would hand one crew
+     the very sheet the town rule exists to prevent." That is still exactly right
+     about a CREW — nine to nineteen houses is four people and a truck, and the town
+     rule is about where you may send them, so a one-CREW day is untouched below.
+     It is wrong about a day of five. See [[SCH-53]].
+
+     ⚠ AND IT CLOSES A DISAGREEMENT BETWEEN TWO SCREENS. isOneManDay counts the whole
+     day, so One Man Installs already lists these as one person's work; dayCrewCount
+     counted TOWNS and badged the same day two crews. On the live plan that had 11
+     December — two houses, Highland and West Jordan — asking for two crews. Both
+     answers were on screen at once and neither was reading the other.
+
+     ⚠ IT IS ASKED BEFORE THE TOWN COUNT, not folded into it, so the thing being
+     overruled stays visible as the branch it is. */
+  if(typeof isOneManDay === 'function' && isOneManDay(day)) return 1;
   const held = dayAssignedHouses(day);
   if(!held.length) return 1;
   /* ⚠ NEVER MORE CREWS THAN THERE ARE. Everything below asks how many the day WANTS;
