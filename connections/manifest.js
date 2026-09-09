@@ -103,8 +103,9 @@ module.exports = [
         rules: ['Marking one built clears only that house.'] },
       { file: 'admin', el: 'editCustBuildStayBtn', where: 'Customers › All Customers', when: 'Build Them A New Set is pressed',
         rules: ['This button never also queues a recycle.'] },
-      { file: 'admin', near: 'if(warehouseRebuildFields(item.data, addrUpdates).length)', where: 'Customers › All Customers', when: 'the wire or timer changed',
-        rules: ['This can only turn it on, never off.'] },
+      { file: 'admin', near: 'else if(whChanged.length) addrUpdates.needsLightBuild = true;', where: 'Customers › All Customers', when: 'the wire changed, or the timer on a house that has colours',
+        rules: ['This can only turn it on, never off.',
+                'A timer ALONE on a house with no colours goes to needsTimerOnly instead (WH-27) — it queued a bundle nobody wanted, and with no colours the row could never clear.'] },
       /* ⚠ A REAL, LIVE BREAK — and the reason `never` exists. The house-details panel on
          an All Customers row DOES write this field, so an existence check calls it green
          for ever. What it writes is `: false` when the colour box is empty, which takes

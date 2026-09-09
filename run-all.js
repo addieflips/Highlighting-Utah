@@ -27833,6 +27833,15 @@ suite('Suite 108. The Edit Customer save, actually run');
       warehouseRebuildFields: new Function('WAREHOUSE_BUILD_FIELDS',
         'return ' + extractFn(admin, 'warehouseRebuildFields') + ';warehouseRebuildFields')(
         ['lightsDescription', 'wireColor', 'outletTimer']),
+      /* ⚠ THE REAL TIMER-ONLY RULE, LIFTED — not a stub. Joined this list 2026-09-09,
+         in the same commit that made the save handler call it ([[WH-27]]): the
+         extraction-list trap CLAUDE.md describes, hit a FOURTH time and caught a fourth
+         time by this suite failing loudly rather than skipping — 28 failures across the
+         re-quote and colour-wipe checks, none of them about the thing that was missing.
+         A stub would decide for itself which saves are timer-only, which is exactly the
+         question under test. */
+      whTimerOnlyQueue: new Function('return ' + extractFn(admin, 'whTimerOnlyQueue') +
+        ';whTimerOnlyQueue')(),
       lightsLockMillis: new Function('return ' + extractFn(admin, 'lightsLockMillis') +
         ';lightsLockMillis')(),
       /* ⚠ THE REAL SEASON-YES RULE, LIFTED — not a stub. Joined this list 2026-08-24,
@@ -36716,15 +36725,28 @@ suite('Suite 133. A wire or timer change reaches the warehouse');
   }
 
   /* ---- 3. and the office side does too -------------------------------- */
+  /* ⚠ REPOINTED 2026-09-09, NOT WEAKENED. Both of these matched the literal
+     `if(warehouseRebuildFields(item.data, addrUpdates).length) ...` — where the rule
+     happened to SIT, not what has to be true — so they failed on correct code the moment
+     [[WH-27]] gave a timer-only change its own branch. Same slow-fuse shape as S82, S129
+     and the folder-names suite. */
+  const admStripped = stripComments(admin);
   check('S133', 'the office save asks the same question',
-    /if\(warehouseRebuildFields\(item\.data, addrUpdates\)\.length\) addrUpdates\.needsLightBuild = true;/
-      .test(stripComments(admin)),
+    /warehouseRebuildFields\(item\.data, addrUpdates\)/.test(admStripped) &&
+    /whChanged\.length\)\s*addrUpdates\.needsLightBuild = true;/.test(admStripped),
     'a member can change their wire in the portal and the office can change it ' +
     'on their record — both have to reach the same queue');
+  /* ⭐ AND THE ONE CASE THAT IS DELIBERATELY NOT A BUILD ([[WH-27]]). Addie: "we don't
+     need to worry about lights just about getting a timer in there bin." A timer alone on
+     a house with no colours goes to its own queue instead — asserted here so the carve-out
+     cannot be widened into "a wire change is not a build either", which it is not. */
+  check('S133', 'and a timer alone on a colourless house goes to its own queue',
+    /whTimerOnlyQueue\(item\.data, addrUpdates, whChanged, newLightsDescription\)/.test(admStripped) &&
+    /addrUpdates\.needsTimerOnly = true;/.test(admStripped),
+    'it queued a bundle nobody wanted, and with no colours the row could never clear');
   /* ⚠ AFTER the existing lights expression, never before or instead of it. */
-  const admStripped = stripComments(admin);
   const iLights = admStripped.indexOf('addrUpdates.needsLightBuild = newLightsDescription');
-  const iWire = admStripped.indexOf('if(warehouseRebuildFields(item.data, addrUpdates).length)');
+  const iWire = admStripped.indexOf('warehouseRebuildFields(item.data, addrUpdates)');
   check('S133', 'and does it after the colour rule, not instead of it',
     iLights !== -1 && iWire > iLights,
     'that expression is what keeps a build OWED for a customer with no colours ' +
