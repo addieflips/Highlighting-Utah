@@ -43988,6 +43988,131 @@ suite('265. Measure Roof - the captured picture is clean, and can be marked up')
   check('S265', 'and the second button is enabled and disabled with the first',
     /attachMark\.disabled = false;/.test(extractFn(admin, 'rmRenderStaged') || ''),
     'one door open and the other shut is a button that looks broken beside a button that works');
+
+  /* ---- and the picture reaches the CUSTOMER, not only the quote ------ */
+  /* ⭐ 2026-09-09. Dax: "it seems to be capturing the picture but its not automatically
+     uploading it to the customer when i click attach to quote." The numbers had reached
+     the customer behind the quote since 2026-08-29 and the photograph never did — and a
+     quote photo only ever crosses to `housePhotos` at CONVERSION, so on every re-measure
+     the route card and the crew sheet kept showing the old picture, or none. */
+  check('S265', 'the press that attaches also pushes the picture at the customer',
+    /const saidPhotos = await rmPushPhotosToCustomer\(photos\.slice\(firstNew\)\)/.test(attach),
+    'the photograph reaching only the quote is the reported bug — the crew reads housePhotos');
+  check('S265', 'and it is NOT nested inside the feet-and-price push',
+    !/rmPushPhotosToCustomer/.test(extractFn(admin, 'rmSaveNumbersOnAttach') || ''),
+    'that function returns early when nothing was traced, so a capture with no lines on it would reach the quote and never the record');
+  check('S265', 'and the toast says whether it got there',
+    /saidPhotos \? ' — ' \+ saidPhotos/.test(attach),
+    'a half that happens silently is one nobody can tell did not happen');
+
+  /* RUN it. Every claim below is about WHICH DOCUMENT ends up holding a url, which a
+     text match cannot see — the same reason Suite 10 executes syncPayerInvoice.
+     ⚠ extractFn MATCHES 'function NAME(' AND SO DROPS THE async KEYWORD (CLAUDE.md §5).
+     Handed straight to new Function the body is a plain function full of bare `await`,
+     which is a parse error that kills the whole suite as one unattributable crash — it
+     did exactly that on the first run of these checks. `async ` is put back here. */
+  {
+    const pushSrc = extractFn(admin, 'rmPushPhotosToCustomer') || '';
+    check('S265', 'rmPushPhotosToCustomer exists to be run at all',
+      !!pushSrc, 'the checks below prove nothing if the function cannot be lifted');
+    const loadPush = (deps) => {
+      const names = Object.keys(deps);
+      return new Function(...names,
+        'return (async ' + pushSrc.replace(/^async\s+/, '') + ');')(...names.map(k => deps[k]));
+    };
+    const shot = {url: 'https://res/new.jpg', original: 'https://res/new-clean.jpg',
+                  markup: [{type: 'poly'}], label: 'Front of house'};
+    const depsFor = (quote, addrs, writes, boom) => ({
+      quotesCache: [{id: 'q1', data: quote}],
+      jobAddresses: addrs,
+      rmQuoteId: 'q1',
+      db: {},
+      doc: (_db, col, id) => ({col: col, id: id}),
+      updateDoc: async (ref, u) => {
+        if (boom) throw new Error('permission denied');
+        writes.push({col: ref.col, id: ref.id, u: u});
+      },
+      customerPhotoList: real('customerPhotoList'),
+      customerPhotoUpdates: real('customerPhotoUpdates')
+    });
+
+    /* A quote with no customer behind it writes NOTHING — a lead is not a record. */
+    pendingAsync.push((async () => {
+      const w = [];
+      const said = await loadPush(depsFor({name: 'Lead'}, [], w))([shot]);
+      check('S265', 'a quote with no customer behind it writes nothing at all',
+        w.length === 0 && said === '',
+        'a lead has no customer record to put a photograph on');
+    })());
+
+    /* The ordinary case: it lands on jobAddresses, appended, main photo untouched. */
+    pendingAsync.push((async () => {
+      const w = [];
+      const cust = {id: 'c1', data: {name: 'Ashley Wray', housePhotos: [
+        {url: 'https://res/old.jpg', original: 'https://res/old.jpg', markup: [], label: ''}]}};
+      const push = loadPush(depsFor({convertedToCustomerId: 'c1'}, [cust], w));
+      const said = await push([shot]);
+      check('S265', 'the picture is written to the CUSTOMER record, not the quote',
+        w.length === 1 && w[0].col === 'jobAddresses' && w[0].id === 'c1',
+        'writing it to `quotes` again is the bug; the crew reads jobAddresses');
+      const list = w.length ? w[0].u.housePhotos : [];
+      check('S265', 'it is APPENDED — the photo the crew knows the house by stays first',
+        list.length === 2 && list[0].url === 'https://res/old.jpg' && list[1].url === shot.url,
+        'a marked-up roofline replacing the picture the crew recognises the house by is not ours to decide');
+      check('S265', 'and housePhotoUrl still points at the original main photo',
+        w.length === 1 && w[0].u.housePhotoUrl === 'https://res/old.jpg',
+        'that field is what the route card and the crew sheet render');
+      check('S265', 'the marks travel with it, so Mark Up can still undo them',
+        list.length === 2 && Array.isArray(list[1].markup) && list[1].markup.length === 1,
+        'the shapes are what make the dots removable rather than burnt into the photograph');
+      check('S265', 'and the cache is updated so the record does not read stale',
+        (cust.data.housePhotos || []).length === 2,
+        'every other writer here mirrors into the cache; the panel repaints from it');
+      check('S265', 'and it says so',
+        /record/.test(said),
+        'a half that happens silently is one nobody can tell did not happen');
+      const before = w.length;
+      const twice = await push([shot]);
+      check('S265', 'pressing Attach again does not add the same picture twice',
+        w.length === before && twice === '',
+        'Attach is pressable again the moment it finishes, and a re-press is the ordinary way out of a partial failure');
+    })());
+
+    /* A customer with NO photographs gets this one as their main one. */
+    pendingAsync.push((async () => {
+      const w = [];
+      const cust = {id: 'c2', data: {name: 'New House'}};
+      await loadPush(depsFor({existingCustomerId: 'c2'}, [cust], w))([shot]);
+      check('S265', 'a customer with no photo at all gets this one as their main one',
+        w.length === 1 && w[0].u.housePhotoUrl === shot.url && w[0].u.housePhotos.length === 1,
+        'appending must not mean a record with no main photo keeps not having one');
+      check('S265', 'and existingCustomerId is read as well as convertedToCustomerId',
+        w.length === 1,
+        'a re-quote links through the other field — reading one of the two misses half the cases');
+    })());
+
+    /* A refused write reports, names them, and never claims the picture got there. */
+    pendingAsync.push((async () => {
+      const w = [];
+      const cust = {id: 'c3', data: {name: 'Ashley Wray'}};
+      const said = await loadPush(depsFor({convertedToCustomerId: 'c3'}, [cust], w, true))([shot]);
+      check('S265', 'a refused write says so, names them, and does not throw',
+        /did NOT reach/.test(said) && /Ashley Wray/.test(said),
+        'the photograph is already on the quote — a failure here must report and leave that half standing');
+      check('S265', 'and it never claims the picture is on their record',
+        !/is on their record too/.test(said),
+        'saying it landed when it did not is worse than saying nothing');
+    })());
+
+    /* A customer who has since been deleted is named as such, not written to. */
+    pendingAsync.push((async () => {
+      const w = [];
+      const said = await loadPush(depsFor({convertedToCustomerId: 'gone'}, [], w))([shot]);
+      check('S265', 'a customer who has since been deleted is reported, not written to',
+        w.length === 0 && /could not be found/.test(said),
+        'writing into a document that is not there reports success and changes nothing');
+    })());
+  }
 }
 
 

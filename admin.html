@@ -28363,6 +28363,79 @@ async function rmPushToCustomer(feet, price){
   return 'and onto ' + (cust.data.name || 'their customer record') + billNote +
     (fits ? '' : ' — #' + num + ' is the wrong series for ' + bins + ' bin' + (bins === 1 ? '' : 's') + ', so check their number');
 }
+/* ⭐ AND THE PICTURE REACHES THE CUSTOMER, NOT ONLY THE QUOTE (2026-09-09).
+   Dax, on Measure Roof: "it seems to be capturing the picture but its not
+   automatically uploading it to the customer when i click attach to quote."
+
+   ⚠ HE IS DESCRIBING A REAL GAP, NOT THE CLOUDINARY OUTAGE. rmAttachShots wrote
+   the photograph to `quotes/<id>` and stopped there. The numbers went further —
+   rmPushToCustomer has put the feet and the price onto the customer behind the
+   quote since 2026-08-29 — so one press already reached the customer record with
+   everything EXCEPT the picture.
+
+   ⚠ AND THE QUOTE IS NOT WHERE THE CREW LOOKS. A customer's photographs live in
+   `housePhotos`; the quote's live in `quotePhotos`, and the only thing that has
+   ever carried one across is CONVERSION (fillAddCustFromQuote, whose own note
+   says why: "Without this the route card has nothing to show"). So on an
+   ALREADY-CONVERTED customer — which is every re-measure — the route card, the
+   crew sheet and the customer record went on showing the old picture, or none,
+   however many times the roof was measured.
+
+   ⚠ IT APPENDS, IT NEVER REPLACES. addCustomerPhotos — the Edit Customer
+   uploader — pushes onto the end of the list, and customerPhotoUpdates makes
+   entry [0] the `housePhotoUrl` the route card shows. So a customer who already
+   has a photograph keeps it as their main one and gains this beside it; a
+   customer with none gets this as theirs. Putting a marked-up roofline in front
+   of the picture the crew recognises the house by is not ours to decide.
+
+   ⚠ THE SAME URL IS NEVER ADDED TWICE. Attach is pressable again the moment it
+   finishes, and a re-press after a partial failure is the ordinary way out of
+   one — without this, the record collects the same photograph on every press.
+
+   ⚠ IT STAMPS NOTHING, deliberately, and that is a decision rather than an
+   omission: addCustomerPhotos does not stamp either, and this is the same act by
+   another door. rmPushToCustomer stamps because it writes MONEY. One convention
+   per kind of write.
+
+   ⚠ AND IT NEVER TAKES THE QUOTE'S COPY DOWN WITH IT. The photograph has already
+   landed on the quote by the time this runs, so a failure here reports itself and
+   leaves that half standing — rmSaveNumbersOnAttach's own rule, for the same
+   reason. */
+async function rmPushPhotosToCustomer(added){
+  if(!added || !added.length) return '';
+  const item = quotesCache.find(function(q){ return q.id === rmQuoteId; });
+  const d = item ? item.data : null;
+  if(!d) return '';
+  /* The same two fields rmPushToCustomer reads, in the same order — "which
+     customer is behind this quote" must have one answer, not two. */
+  const custId = String(d.convertedToCustomerId || d.existingCustomerId || '').trim();
+  if(!custId) return '';
+  const cust = (jobAddresses || []).find(function(a){ return a.id === custId; });
+  if(!cust) return 'their customer record could not be found, so the picture is on the quote only';
+  /* Read the list fresh rather than holding one from when the tool opened: a
+     photograph could have been added on the record behind, and writing a stale
+     list back would drop it. */
+  const have = customerPhotoList(cust.data);
+  const already = {};
+  have.forEach(function(p){ already[p.url] = true; });
+  const fresh = added.filter(function(p){ return p && p.url && !already[p.url]; });
+  if(!fresh.length) return '';
+  const next = have.concat(fresh.map(function(p){
+    return {url: p.url, original: p.original || p.url,
+            markup: Array.isArray(p.markup) ? p.markup : [], label: p.label || ''};
+  }));
+  try{
+    const updates = customerPhotoUpdates(next);
+    await updateDoc(doc(db, 'jobAddresses', custId), updates);
+    Object.assign(cust.data, updates);
+  } catch(err){
+    return 'the picture did NOT reach ' + (cust.data.name || 'their customer record') +
+           ' — it is on the quote, so add it to their record by hand';
+  }
+  return fresh.length === 1
+    ? 'the picture is on their record too'
+    : 'all ' + fresh.length + ' are on their record too';
+}
 /* ⭐ AND THE NUMBERS GO ON WITH THE PICTURE (2026-08-29). Owner: "after
    everything happens it should close it automatically after everything
    attaches" - so one press has to BE everything, or closing on it loses the
@@ -31251,11 +31324,18 @@ function openRoofMeasure(quoteId){
           uploadFailAdvice(failWhy) + (failWhy ? ' (' + failWhy + ')' : '');
         btn.disabled = false; return;
       }
+      /* ⭐ THE PICTURE GOES ONTO THE CUSTOMER IN THE SAME PRESS TOO (2026-09-09).
+         ⚠ NOT INSIDE rmSaveNumbersOnAttach, which returns early when nothing was
+         traced — a screen captured on a house with no lines on it would then reach
+         the quote and never the record, which is the reported bug wearing a
+         narrower hat. `photos.slice(firstNew)` is exactly what this press added. */
+      const saidPhotos = await rmPushPhotosToCustomer(photos.slice(firstNew));
       /* ⭐ THE FEET AND THE PRICE GO ON IN THE SAME PRESS, and onto the customer
          behind the quote when there is one - see rmSaveNumbersOnAttach. */
       const saidNumbers = await rmSaveNumbersOnAttach();
       toast((added === 1 ? 'Picture added to the quote' : (added + ' pictures added to the quote')) +
             (marksSaid ? ' (' + marksSaid + ')' : '') +
+            (saidPhotos ? ' — ' + saidPhotos : '') +
             (saidNumbers ? ' — ' + saidNumbers : ''));
       /* ⭐ AND IT CLOSES ITSELF (owner, 2026-08-29: "after everything happens it
          should close it automatically after everything attaches") — after the
