@@ -43912,10 +43912,66 @@ suite('265. Measure Roof - the captured picture is clean, and can be marked up')
     'the tool existed; reaching it took three navigations from where you already were');
   /* ⚠ ONE ATTACH, TWO DOORS. A second copy of the upload loop is a second place
      for the photo list to be written back stale. */
+  /* ⚠ REPOINTED, NOT WEAKENED (2026-09-09). This matched the literal `rmAttachShots(this,
+     false)` — that is, the exact text of the call rather than the guarantee. Both buttons
+     now go through rmAttachSafely, which is the ONE door, so the old match failed on code
+     that is right. The claim is unchanged and is asserted one step further along: two
+     buttons, one entry point, one attach. Same slow-fuse shape as S82 and S129. */
   check('S265', 'both buttons run the SAME attach, differing only in what follows',
     !!extractFn(admin, 'rmAttachShots') &&
-    /rmAttachShots\(this, false\)/.test(admin) && /rmAttachShots\(this, true\)/.test(admin),
+    /rmAttachSafely\(this, false\)/.test(admin) && /rmAttachSafely\(this, true\)/.test(admin) &&
+    /rmAttachShots\(btn, thenMarkUp\)/.test(extractFn(admin, 'rmAttachSafely') || ''),
     'two upload loops is two places for the photo list to be written back stale');
+
+  /* ---- and a press can never end in silence ------------------------- */
+  /* ⭐ 2026-09-09. Dax, on Attach to Quote: "it thinks for a quarter second then stops and
+     doesnt do or say anything." rmAttachShots already CLAIMED this — its own note says
+     "EVERY WAY OUT OF THIS SAYS SOMETHING" — and every deliberate way out does. But it is
+     an async function with two awaits outside any try (rmCapture, and rmMarkTallyText
+     under it), so a throw in either REJECTS THE PROMISE with nothing awaiting it: no
+     message, no toast, the button left disabled, and the press indistinguishable from a
+     click that never registered. */
+  {
+    const safe = extractFn(admin, 'rmAttachSafely') || '';
+    check('S265', 'the door catches what the attach throws',
+      !!safe && /\.catch\(/.test(safe),
+      'an async rejection nobody awaits is a silent no-op — the dead button being reported');
+    check('S265', 'and the button goes back so it can be pressed again',
+      /btn\.disabled = false/.test(safe),
+      'rmAttachShots disables on the way in; a throw skips every path that re-enables it');
+    check('S265', 'and it is filed, not only shown',
+      /console\.error\(/.test(safe),
+      'console.error is wired to the Admin Errors folder — the next one is recorded whether or not anybody is watching');
+
+    /* RUN it. The claim is about what ends up ON SCREEN after a throw, which a text match
+       cannot see — and "the message is in the source" has been green over a message that
+       could never reach the page three times in this repo. */
+    const el = { textContent: '' };
+    const btn = { disabled: true };
+    const logged = [];
+    const deps = {
+      document: { getElementById: (id) => (id === 'rmStatus' ? el : null) },
+      console: { error: (...a) => logged.push(a.join(' ')) },
+      rmAttachShots: async () => { throw new Error('Cannot read properties of null'); }
+    };
+    const names = Object.keys(deps);
+    const run = new Function(...names, safe + '; return rmAttachSafely;')(...names.map(k => deps[k]));
+    run(btn, false);
+    pendingAsync.push(Promise.resolve().then(() => Promise.resolve()).then(() => {
+      check('S265', 'a throw reaches the line beside the button, in words',
+        /Cannot read properties of null/.test(el.textContent),
+        'the error\'s own words are what makes it diagnosable; "something went wrong" cost this repo a day once');
+      check('S265', 'and says nothing was saved, so the press can be repeated',
+        /again/i.test(el.textContent),
+        'a message with no next step sends somebody looking for a bug in the upload code');
+      check('S265', 'and the button is pressable again after a throw',
+        btn.disabled === false,
+        'a dead gold button is the thing being reported, whatever the reason for it');
+      check('S265', 'and the reason was filed to the Admin Errors folder',
+        logged.some(l => /Cannot read properties of null/.test(l)),
+        'a message only on screen is gone on the next reload');
+    }));
+  }
   const attach = extractFn(admin, 'rmAttachShots') || '';
   /* ⚠ THE INDEX IS TAKEN BEFORE THE WRITE, and the markup opened AFTER it.
      openQuoteMarkup indexes into the photo list off quotesCache — opening it
