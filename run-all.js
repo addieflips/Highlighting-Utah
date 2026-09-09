@@ -51925,26 +51925,55 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
 
       /* ⭐ A DAY THEY WERE PROMISED THAT DID NOT HAPPEN. Owner: "anyone that was scheduled
          for a day but didnt get done should take higher priority for where needs to be
-         routed." To the front of their own tier — never out of it. */
+         routed." ⚠ THIS CHECK SURVIVES THE [[SCH-61]] REVERSAL UNCHANGED and is kept for
+         that reason: ahead of your equals was true under the old ±5 bump and is still
+         true under the rank, so it is the half of [[SCH-45]] that never moved. The check
+         below is the half that did. */
       check('S300', 'a house the crew missed goes ahead of its equals',
         p(missed(''), OLD) < p({ pref: '' }, OLD) &&
         p(missed('OCT'), OLD) < p({ pref: 'OCT' }, OLD) &&
         p(missed('NOV'), OLD) < p({ pref: 'NOV' }, OLD),
         'being driven past is a reason to go first among your equals');
-      check('S300', 'and never out of its tier — a missed Any still waits behind October',
-        p(missed(''), OLD) > p({ pref: 'OCT' }, OLD),
-        'a missed morning is not a reason to be given a month somebody else asked for');
-      check('S300', 'a missed October house still sits behind a new hang',
-        p(missed('OCT'), OLD) > p({ pref: '' }, NEW),
-        "owner, 2026-08-17: 'the very top priority is new hangs'");
-      check('S300', 'and behind somebody the office moved up by hand',
-        p(missed('OCT'), OLD) > p({ pref: '' }, RUSH));
-      /* ⚠ THE SPACING IS WHAT MAKES ALL OF THAT TRUE. Tiers one apart leave nowhere to put
-         a bump, so the only way up is into the next tier — which is precisely the two
-         failures checked above. */
-      check('S300', 'the tiers are spaced far enough apart to hold a bump',
-        (p({ pref: '' }, OLD) - p({ pref: 'OCT' }, OLD)) > (p({ pref: '' }, OLD) - p(missed(''), OLD)),
-        'the gap between two tiers must be bigger than the bump, or the bump jumps a tier');
+      /* ⭐ CHANGED 2026-09-09 — MISSED IS NOW THIRD OVERALL, ABOVE EVERY MONTH.
+         Dax: "we want houses that were scheduled for a day but werent to take
+         priority just below new hangs and set priority customers." The check this
+         replaces asserted the OPPOSITE — "a missed Any still waits behind October" —
+         and is written out here so the reversal is legible rather than looking like
+         a weakened test. [[SCH-45]]'s tier half superseded by [[SCH-61]]. */
+      check('S300', 'a missed house now goes ahead of every month, not just its equals',
+        p(missed(''), OLD) < p({ pref: 'OCT' }, OLD) &&
+        p(missed('NOV'), OLD) < p({ pref: 'OCT' }, OLD),
+        'we told them a date and did not turn up; that outranks a month preference');
+      check('S300', 'but still behind a new hang and behind asked-sooner',
+        p(missed('OCT'), OLD) > p({ pref: '' }, NEW) &&
+        p(missed('OCT'), OLD) > p({ pref: '' }, RUSH),
+        "Dax: 'just below new hangs and set priority customers' — below, not level");
+      /* ⚠ THE ONE CASE WHERE THIS COULD HAVE MADE SOMEBODY LATER. A flat `tier = 15`
+         DEMOTES a missed new hang from 10 to 15. Math.min is what stops it, and this
+         is the check that would catch the flat form. */
+      check('S300', 'and a new hang who was missed is not demoted by being missed',
+        p(missed(''), NEW) === p({ pref: '' }, NEW),
+        'being missed may only ever pull a house UP the order, never down');
+      /* ⚠ THE SPACING IS WHAT MAKES THAT POSSIBLE WITHOUT RESPACING ANYTHING. Ten
+         apart leaves room for a whole rank between the new-hang tier and October,
+         which is exactly what the 2026-09-03 note said the gaps were for. */
+      check('S300', 'the missed rank sits between new hangs and October, on the existing spacing',
+        p(missed(''), OLD) > p({ pref: '' }, NEW) && p(missed(''), OLD) < p({ pref: 'OCT' }, OLD),
+        'got ' + p(missed(''), OLD) + ' against new hang ' + p({ pref: '' }, NEW) +
+        ' and October ' + p({ pref: 'OCT' }, OLD));
+      /* ⛔ AND IT LANDS ABOVE A DATE THE OFFICE TYPED, WHICH IS A COLLISION BETWEEN TWO
+         RULINGS GIVEN THE SAME DAY BY TWO DIFFERENT PEOPLE. Addie, [[SCH-57]]: "The staff
+         dates should be second to these" — second behind new members, and a typed date is
+         tier 20. Dax, [[SCH-61]], named exactly two things above a missed house, "new hangs
+         and set priority customers", and both are tier 10 — so taking him literally puts
+         missed at 15 and makes a staff date THIRD. Neither was asked about the other.
+         Fifteen is the instruction as given. This check exists so that reading it back is
+         possible and so moving the number is a decision somebody makes on purpose: if she
+         means second ahead of a missed house too, 20 ties them and 25 puts missed behind,
+         and nothing else in the ladder has to move either way. */
+      check('S300', 'a missed house currently outranks a date the office typed',
+        p(missed(''), OLD) < p({ pref: '', notBefore: '2026-10-01' }, OLD),
+        'SCH-61 read literally against SCH-57 — see the note above before changing this'); 
 
       /* ⚠ DATES, NOT A COUNTER. Recalculate everything gets pressed twice in a row and Undo
          puts the plan back so it can be pressed again; a counter would climb every time and
@@ -55512,10 +55541,39 @@ suite('Suite 316. Closest to a date the office typed');
   {
     const sb2 = {};
     new Function('BASE_START', 'houseMissedCount', BODY).call(sb2, new Date(2026, 9, 1), () => 2);
-    check('S316', 'a house both missed and out of time still moves five, not ten',
-      sb2.pri({ pref: 'October' }, OLD, '2026-10-27') === sb.pri({ pref: 'October' }, OLD) - 5,
-      'ten is the whole gap between tiers, so summing the two bumps would land this ' +
+    /* ⚠ REPOINTED 2026-09-09 BY [[SCH-61]], NOT WEAKENED, and the old assertion is
+       written out here so the reversal stays legible. It used to read:
+         "a house both missed and out of time still moves five, not ten"
+         sb2.pri(oct, OLD, lateOct) === sb.pri(oct, OLD) - 5
+       That was right while BOTH reasons were the same ±5 bump. Being missed is now a
+       RANK of its own (15), so a missed October house lands on 15 whatever the clock
+       says, and the old equality fails on correct code. What SCH-51 actually needs
+       protecting is the DEADLINE half — that running out of time alone still moves
+       five and no further — and that is asserted on its own above and again here. */
+    check('S316', 'running out of time alone still moves five, never ten',
+      sb.pri({ pref: 'October' }, OLD, '2026-10-27') === sb.pri({ pref: 'October' }, OLD) - 5,
+      'ten is the whole gap between tiers, so a deadline bump of ten would land this ' +
       'house exactly on the tier above and the spacing would stop meaning anything');
+    /* ⚠ AND THE TWO STILL DO NOT SUM. Missed floors at 15; it must not become 10 by
+       having the deadline bump taken off it afterwards, which is the arithmetic that
+       would quietly put a missed October house level with a new hang. */
+    check('S316', 'a house both missed and out of time is floored at the missed rank, not stacked',
+      sb2.pri({ pref: 'October' }, OLD, '2026-10-27') === 15,
+      'stacking would read 20 or 10 — one is no move at all, the other is a promotion ' +
+      'into the tier above, and both are the spacing quietly stopping meaning anything');
+    /* ⚠ AND THE FLOOR IS APPLIED TO WHAT THE DEADLINE LEFT, NEVER TO THE BARE TIER —
+       the one case where this change could make somebody LATER than before it. A new
+       hang who is both missed and out of time scores 5; floored against the raw tier
+       it would read 10, demoting the one house with two reasons to be first. */
+    /* the fixture needs a house that really IS pressed, or the two expressions cannot
+       differ and the check passes whatever the code does. pref 'Any' carries no deadline,
+       so it is never pressed — a red-check proved that version vacuous. October on the
+       27th is pressed, and a new hang keeps tier 10, so base is 5 and the floor must
+       leave it there. */
+    check('S316', 'a new hang that is missed AND out of time is not dragged back up to 10',
+      sb2.pri({ pref: 'October' }, { chargeNewMemberFee: true }, '2026-10-27') ===
+        sb.pri({ pref: 'October' }, { chargeNewMemberFee: true }, '2026-10-27'),
+      'being missed may only ever pull a house UP — flooring against the bare tier here reads 10 where the truth is 5');
   }
 
   /* ---- the new member's own clock ---- */

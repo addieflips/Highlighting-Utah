@@ -2264,18 +2264,36 @@ loud, because a crew sent out at 30° reads as the rule not working.
 date that has already passed is a house the crew did not reach, and `rebuildSeasonDays`
 writes that date onto it (`markHouseMissed`); the *"not all of them got done"* screen does
 the same, which is a better signal because somebody typed it. `houseInstallPriority` then
-moves them to the front of **their own tier** — and the town with them in it rises too,
-since a town's urgency is the best number in it, which is the *"higher priority for where
-needs to be routed"* half of the ask.
+gives them a **rank of their own at 15** — third overall, just behind new hangs and
+asked-sooner (10) and ahead of every month (October is 30) — and the town with them in it
+rises too, since a town's urgency is the best number in it, which is the *"higher priority
+for where needs to be routed"* half of the ask.
+
+⚠ **That rank changed on 2026-09-09 and the old answer is worth knowing.** Until then it
+was a bump of five INSIDE the tier and never out of it, so a missed October house still sat
+behind a new hang and a missed Any house still sat behind everybody who asked for October —
+on the argument that being missed is a reason to go first among your equals and not a reason
+to be given a month somebody else asked for. What that missed is WHY they are late: we named
+a date and did not turn up. Dax, 2026-09-09: *"we want houses that were scheduled for a day
+but werent to take priority just below new hangs and set priority customers because we want
+to get to them as soon as possible because we told them theyd have lights on that day and
+that didnt end up happening."* See ruling **SCH-61**; the month guard below is the half of
+the old argument that is untouched and still holds.
+
+⚠ **`Math.min(tier, 15)`, never a flat 15.** Being missed may only pull a house UP. A flat
+assignment DEMOTES a missed new hang from 10 to 15 — the one way this change could have made
+somebody later than they were before it, and the sabotage a red-check exists to catch.
 
 ⚠ **The tiers were respaced from 0,1,2,3,4 to 0,10,20,30,40,50 for exactly this.** With
 nothing between them the only way up was into the next tier, which would have let a missed
 October house outrank a new hang and a missed Any house jump the whole October queue. Ten
-apart leaves room for a bump of five that reaches the front of a tier and no further.
-Nothing reads these numbers for their value — every comparison is `<` or `>`.
-*(Respaced once more on 2026-09-09 — `-10,0,5,10,20,30,40,50,60` — to open a slot for a
-date the office typed and two for a new member's own clock. Nothing changed places; see
-**Closest to a date the office typed** below.)*
+apart is what leaves room to rank something BETWEEN two tiers, which is exactly where the
+missed rank of **15** now sits — between asked-sooner at 10 and the office's own typed date
+at 20 — so it needed no respacing of its own. Nothing reads these numbers for their value;
+every comparison is `<` or `>`, so the spacing can move and the ORDER cannot.
+*(Respaced once more on 2026-09-09 — `-10,0,5,10,15,20,30,40,50,60` — to open a slot for a
+date the office typed, two for a new member's own clock, and one for a house the crew never
+reached. Nothing changed places; see **Closest to a date the office typed** below.)*
 
 ⚠ **It is recorded as a list of dates, not a counter.** Recalculate gets pressed twice in a
 row and Undo puts the plan back so it can be pressed again; a counter would climb each time
@@ -2326,7 +2344,7 @@ quietly changes place in a season is what this office rings up about.
 
 *Where it's proved*: run-all.js **Suite 300** runs the real builder against a cold snap and
 the real ordering against fixtures; 24 sabotages were red-checked against it.
-*Rulings*: [[SCH-44]], [[SCH-45]], [[SCH-46]] in `claude/questions-map.md`.
+*Rulings*: [[SCH-44]], [[SCH-45]], [[SCH-46]], [[SCH-61]] in `claude/questions-map.md`.
 
 ### Closest to a date the office typed
 

@@ -62581,20 +62581,52 @@ function houseInstallPriority(h, custData, opts){
   else if(p.indexOf('BEFORE THANKS') !== -1 || p === 'THANKSGIVING') tier = 30;
   else if(p.indexOf('NOV')===0) tier = 50;   // asked for November — waits
   else tier = 40;                            // no preference — fills in behind October
-  /* ⭐ A DAY THEY WERE PROMISED THAT DID NOT HAPPEN (added 2026-09-03). Owner:
-     "anyone that was scheduled for a day but didnt get done should take higher
-     priority for where needs to be routed."
+  /* ⭐ A DAY THEY WERE PROMISED THAT DID NOT HAPPEN — THIRD OVERALL (changed
+     2026-09-09). Dax: "we want houses that were scheduled for a day but werent to
+     take priority just below new hangs and set priority customers because we want
+     to get to them as soon as possible because we told them theyd have lights on
+     that day and that didnt end up happening so we need to do it the next time we
+     get the chance."
 
-     ⚠ TO THE FRONT OF THEIR OWN TIER, NEVER OUT OF IT. Five is less than the ten
-     between tiers, so a missed October house still sits behind a new hang and a
-     missed Any house still sits behind everybody who asked for October — which is
-     the point. Being missed is a reason to go first among your equals; it is not a
-     reason to be given a month somebody else asked for.
+     ⚠ THIS REVERSES THE 2026-09-03 RULING AND THE OLD ARGUMENT IS KEPT, because it
+     is a good one and somebody will otherwise restore it. It used to be `tier - 5`
+     — a bump to the FRONT OF ITS OWN TIER, never out of it — reasoning that "being
+     missed is a reason to go first among your equals; it is not a reason to be given
+     a month somebody else asked for". What that missed is WHY they are late: we
+     told them a date and did not turn up. Dax's ordering makes that a rank of its
+     own, above every month. See [[SCH-61]].
 
-     It moves the TOWN too, which is the half she actually asked for: a town's
-     urgency is the best number in it (see allowedStats), so a town holding houses
-     the crew did not reach yesterday wins its next crew-day ahead of an equal town
-     that is fully on schedule.
+     ⚠ IT STILL CANNOT MOVE THEIR MONTH, which is what makes the reversal safe and
+     is the half the old argument was really protecting. houseAllowedFrom is
+     untouched, so a missed NOVEMBER house is not hung in October — it is taken
+     first on the first November day it is allowed on. The tier decides the order
+     among houses that are already allowed out; nothing else.
+
+     ⚠ Math.min, NOT an assignment. Being missed may only pull a house UP: a new
+     hang who was missed stays at 10 rather than being demoted to 15, which a flat
+     `tier = 15` would do — and that is the one case where the change could quietly
+     make somebody LATER than they were before.
+
+     ⚠ FIFTEEN IS WHY THE TIERS ARE TEN APART. It sits between the new hang / asked
+     sooner rank (10) and the office's own typed date (20) with no respacing, which is
+     exactly the room the 2026-09-03 note said the gaps existed to leave. Nothing reads
+     these numbers for their value; every comparison is < or >.
+
+     ⚠ AND IT LANDS ABOVE [[SCH-57]], WHICH IS A COLLISION WORTH KNOWING ABOUT. Addie,
+     the same day: "The staff dates should be second to these" — second behind new
+     members — and a date the office types is tier 20. Dax named exactly two things
+     above a missed house, "new hangs and set priority customers", and both are tier 10,
+     so taking him literally puts missed at 15 and makes a staff date THIRD. Neither of
+     them was asked about the other. Fifteen is Dax's instruction as given; if Addie
+     meant second ahead of a missed house too, this is the one number to move (20 ties
+     them, 25 puts missed behind) and nothing else here changes.
+
+     It moves the TOWN too, which is the half originally asked for: a town's urgency
+     is the best number in it (see allowedStats), so a town holding houses the crew
+     did not reach yesterday wins its next crew-day ahead of an equal town that is
+     fully on schedule. ⚠ AND THAT SURVIVED THE forTown CHANGE OF [[SCH-54]] on
+     purpose — the rush flag is dropped when a TOWN is asking, the missed rank is
+     not, because the crew really did drive past that house.
 
      ⚠ ASKED THROUGH THE HELPER, GUARDED, because the suites above lift this
      function alone. No list of missed days on the house means no bump, which is the
@@ -62646,12 +62678,24 @@ function houseInstallPriority(h, custData, opts){
      town's urgency is the best number in it (allowedStats), the towns re-order
      themselves. That is the half she actually asked for: "We will rearange the days we
      are doing those houses based on the costumers that urgently need to be done."
-     ⚠ ONE BUMP, NEVER TWO, WHICH IS WHY THIS IS AN OR AND NOT A SUM. Five is half the
-     gap between tiers, so a house that is BOTH missed and out of time must still move
-     five — ten would land it exactly on somebody else's tier, and "to the front of
-     their own tier, never out of it" is the rule the spacing exists to keep. */
+     ⚠ ONE BUMP, NEVER TWO, AND NEVER A SUM. Five is half the gap between tiers, so two
+     reasons to move must still move five — ten would land a house on somebody else's
+     tier by accident. ⚠ THIS USED TO READ `(missed || pressed) ? tier - 5 : tier` and it
+     no longer does: [[SCH-61]] took the MISSED half out of this bump and made it a rank
+     of its own, so what is left here is the deadline half alone. The argument above is
+     unchanged and still governs it — running out of time moves you to the front of your
+     own tier and no further, which is what Addie asked for. */
   const pressed = !!(todayStr && typeof deadlineIsClose === 'function' && deadlineIsClose(h, todayStr));
-  return (missed || pressed) ? tier - 5 : tier;
+  /* ⚠ THE TWO ARE NOT THE SAME MOVE ANY MORE, AND THE ORDER HERE IS THE RULE.
+     Running out of time is still a bump to the front of your own tier ([[SCH-51]] —
+     "one bump, never two"), so it is applied FIRST and to the tier. Being missed is a
+     RANK ([[SCH-61]]), so it is applied to whatever that left, as a FLOOR.
+     ⚠ THE FLOOR GOES ON `base`, NEVER ON `tier`. A new hang who was missed AND is out
+     of time scores 5; floored against the bare tier it would read 10, which DEMOTES the
+     one house that has both reasons to be first. Being missed may only ever pull a
+     house up, and that is the whole care in this line. */
+  const base = pressed ? tier - 5 : tier;
+  return missed ? Math.min(base, 15) : base;
 }
 function rebuildSeasonDays(){
   /* Before anything is grouped: the clustering below measures distances, and a
