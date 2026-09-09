@@ -3026,6 +3026,15 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
         check that both read the SAME three constants (comments stripped, because each
         name also appears in the prose explaining it). Fold them together only if that
         runner is touched for its own reasons.
+      - ⭐ **AND EVERY SENDER NAMES WHO IT FAILED FOR** ([[EM-09]]). Addie: *"it should
+        also note whos email failed to send this is the biggest peice."* Four of the five
+        reported a bare COUNT — including the **invoice and receipt** runs, so a customer
+        whose bill never arrived was invisible and never chased. All five now record a
+        row per failure, plus everybody left untried when Gmail stops the run.
+        ⚠ Four of them are **listed but not re-sendable from the card** (`resend: false`):
+        their body comes from a box on their own tab, so there is no saved template to
+        re-render. The card names the tab instead — a button that silently does nothing
+        is worse than one that says it cannot.
       - `EMAIL_SEND_GAP_MS` (1000) paces it; `emailSendRetryAfter` reads Gmail's refusal and
         **stops the run**, recording everybody untried so *Send again* resumes exactly where it
         stopped. One pass being stopped stops the other, and the passes behind it are recorded
