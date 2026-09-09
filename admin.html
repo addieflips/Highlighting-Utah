@@ -6040,6 +6040,12 @@ import {
   NEW_MEMBER_FEE
 } from './js/money.js';
 import { fetchPano as rmFetchPano, cameraHeight as rmDepthCameraHeight } from './js/svdepth.js';
+/* ⭐ WIRED 2026-09-09, AFTER EIGHTEEN DAYS PARKED. js/grid.js has been on main and
+   unwired since 2026-08-27, waiting on Q-023 — is a crew-day a patch of map or a town?
+   Addie answered it on 2026-08-28: "what matters is that all the houses are next to
+   each other. So if there not all in Lehi that is okay just as long as the houses are
+   next to each other." See seasonAreasFor. */
+import { planBlocks as gridPlanBlocks } from './js/grid.js';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
@@ -52302,6 +52308,90 @@ function forecastNote(coldDays){
    Still true, and still asserted: a crew does its own town plus AT MOST ONE
    other; the other is chosen by urgency, not distance; and two crews are never
    in the same town on the same day. */
+/* ⭐ WHAT A CREW-DAY IS BUILT OUT OF: A PATCH OF MAP, NOT A TOWN (added 2026-09-09,
+   [[SCH-63]], answering Q-023).
+
+   Addie, 2026-08-28, asked whether it matters that a crew’s houses are all in one
+   town: "what matters is that all the houses are next to each other. So if there not
+   all in Lehi that is okay just as long as the houses are next to each other." Dax,
+   2026-09-09: "the way its set up is like a grid across everywhere we do so each box
+   on average has 20 houses and so then the crews can go across."
+
+   A town boundary is a line on a county plat, not a fact about driving. Lehi is 23
+   miles wide — measured on the real book — so "one town" never meant "near each
+   other", while eleven houses in Lehi and nine in American Fork within a few streets
+   were REFUSED because American Fork had to be on a typed list of neighbours.
+
+   ⚠ WHAT CHANGES IS THE KEY, AND ONLY THE KEY. planNewCrewDays still buckets, still
+   sorts each bucket by priority, still fills a day from one bucket and tops up from at
+   most one neighbouring bucket, still refuses to put two crews in the same bucket on
+   one day. Every rule Addie set between 24 and 26 August is untouched — they were
+   written in town words because a town was the only container the builder had, and
+   Q-023 is explicit that porting the container must leave the rest alone.
+
+   ⚠ THE TOWN SURVIVES AS A LABEL AND AS THE FORECAST’S KEY. A block spanning Lehi and
+   American Fork prints "Lehi + American Fork" (Dax chose that over a block number or a
+   cross-street), and the cold rule still asks about a real town, because Open-Meteo
+   has never heard of block 41.
+
+   ⚠ AN OUTLIER GETS ITS OWN AREA RATHER THAN BEING DROPPED. grid.js argues a real
+   outlier should not be scheduled at all — Addie, 2026-08-22: "if they are a real
+   outlier they arent in the grid at all... its for my dad to do". That predates One
+   Man Installs, which is main’s own answer to the same problem and which she has used
+   since. So an outlier becomes an area of one and lands on the one-man tab, where she
+   can see it, rather than vanishing off the season with nothing on screen saying so.
+
+   ⚠ AND A HOUSE WITH NO PIN KEEPS ITS TOWN. It cannot be put in a block at all, so it
+   falls back to exactly the behaviour it has today. That fallback is also what keeps
+   every existing fixture honest: a queue entry with no `area` is bucketed by town, so
+   nothing written before this changes meaning. */
+/* ⚠ THE CAP COMES IN AS AN ARGUMENT, IT IS NOT READ FROM crewCap(). That helper is
+   scoped to the schedule widget, and this sits in the main app — calling it throws "is
+   not defined" at the one moment a season is being rebuilt, and the reliability suite
+   catches exactly that leak. The caller knows the cap; this does not need to. */
+function seasonAreasFor(waiting, cap){
+  if(typeof gridPlanBlocks !== "function") return 0;
+  const pinned = (waiting || []).filter(function(w){
+    const st = w && w.stop;
+    return st && typeof st.lat === "number" && typeof st.lng === "number" &&
+           isFinite(st.lat) && isFinite(st.lng);
+  });
+  if(!pinned.length) return 0;
+  let plan;
+  /* ⚠ A THROW HERE MUST NOT COST THE WHOLE REBUILD. Without an area every house falls
+     back to its town, which is the season this page built for the last three weeks —
+     worse than the grid, and far better than no season at all. */
+  try{
+    plan = gridPlanBlocks(pinned.map(function(w){
+      return {id: w.id, lat: w.stop.lat, lng: w.stop.lng};
+    }), {cap: (typeof cap === "number" && cap > 0) ? cap : 20});
+  }catch(err){ console.error("Grid blocks failed, falling back to towns:", err); return 0; }
+  const areaOf = {};
+  (plan.blocks || []).forEach(function(b){
+    (b.ids || []).forEach(function(id){ areaOf[id] = "g:" + b.id; });
+  });
+  /* ⛔ AN OUTLIER IS DELIBERATELY LEFT UNSTAMPED, so it falls back to its TOWN and is
+     handled exactly as it was before any of this. Two other answers were tried and
+     measured on an 810-house book:
+       an area of one each ..... one-man days 1 -> 3. An area of one IS a one-man day,
+                                 and Dax: "what we want to minimize the most is one man
+                                 days". Building them on purpose is the wrong direction.
+       dropped from the season .. what grid.js itself argues for, and what Addie said in
+                                 2026-08-22 — "if they are a real outlier they arent in
+                                 the grid at all... its for my dad to do". That predates
+                                 One Man Installs, which is main’s own answer to the
+                                 same problem and which she has used since; dropping a
+                                 customer off the season with nothing on screen saying
+                                 so is not something to do as a side effect of a
+                                 container change.
+     Falling back to the town keeps Levan exactly where it is today: its own thin day,
+     visible on the One Man Installs tab, which is the thing she asked for it. */
+  let n = 0;
+  (waiting || []).forEach(function(w){
+    if(w && areaOf[w.id]){ w.area = areaOf[w.id]; n++; }
+  });
+  return n;
+}
 function planNewCrewDays(waiting, taken, opts){
   const o = opts || {};
   /* ⭐ A DAY IS A CLUSTER, NOT THE TOP OF A LIST (added 2026-08-21).
@@ -52451,7 +52541,12 @@ function planNewCrewDays(waiting, taken, opts){
     return typeof t === 'number' && isFinite(t) && t > coldBelow && t <= chillyBelow;
   };
   const tooCold = function(city, ds){
-    const t = tempFor(city, ds);
+    /* ⚠ ASKED ABOUT THE TOWN, NOT THE AREA. Since areas became blocks the key here is
+       "g:41", and Open-Meteo has never heard of it — tempFor would answer null for
+       every area in the book and the cold rule would silently stop existing. The
+       forecast table is still built town by town; areaTown maps a block to the town
+       most of it sits in. */
+    const t = tempFor(areaTown(city), ds);
     return typeof t === 'number' && isFinite(t) && t <= coldBelow;
   };
   /* Which of two candidate towns should get this crew-slot. Written out rather than
@@ -52488,11 +52583,17 @@ function planNewCrewDays(waiting, taken, opts){
   const horizon = o.horizonDays == null ? 400 : o.horizonDays;
   const busy = {};
   Object.keys(taken || {}).forEach(function(dt){ busy[dt] = Object.assign({}, taken[dt]); });
-  /* Every town worked on a date, not just each crew's MAIN town. Once a
-     crew-day can be topped up from a neighbour, the crew->town map alone stops
-     answering "is anybody in this town today" — a day whose main town is
-     Highland but which borrowed from Alpine would still look Alpine-free, and a
-     second crew could be sent there. Seeded from the days that already exist. */
+  /* Every AREA worked on a date, not just each crew's main one. Once a crew-day can be
+     topped up from a neighbour, the crew->area map alone stops answering "is anybody
+     here today" — a day whose main area is one block but which borrowed from the next
+     would still look free, and a second crew could be sent into it. Seeded from the
+     days that already exist.
+     ⭐ IT COUNTS AREAS NOW, WHICH DELIBERATELY RELAXES A TOWN RULE. Two crews were
+     never allowed in one town on one day; on the real book Lehi holds around 140
+     houses, which is seven blocks, so that rule was capping the biggest town in the
+     book at one crew a day for no reason a driver would recognise. Two crews in two
+     different Lehi blocks is exactly what Addie described — "as long as the houses are
+     next to each other" — and they are still kept out of each other's block. */
   const usedTowns = {};
   function townsUsedOn(dateStr){ return usedTowns[dateStr] || []; }
   function markTownUsed(dateStr, town){
@@ -52503,18 +52604,40 @@ function planNewCrewDays(waiting, taken, opts){
   Object.keys(busy).forEach(function(dt){
     Object.keys(busy[dt]).forEach(function(cr){ markTownUsed(dt, busy[dt][cr]); });
   });
-  /* Grouped by town, and within a town by who has waited longest for a slot
-     they are allowed on — new hangs, then October, then no preference. */
+  /* ⭐ GROUPED BY AREA — a block of map where the house has a pin, its town where it
+     does not. See seasonAreasFor for the ruling and for why the fallback matters.
+     Within an area, by who has waited longest for a slot they are allowed on: new
+     hangs, then October, then no preference. */
+  const areaKeyOf = function(w){ return (w && w.area) || (w && w.city) || ''; };
   const byCity = {};
+  /* every town an area covers, commonest first: the label the crew sheet prints, and
+     the key the forecast is asked for, because Open-Meteo has never heard of block 41 */
+  const areaTownCounts = {};
   waiting.forEach(function(w){
     if(!w || !w.city) return;
     /* ⚠ A STREET IN A TOWN BOX SEEDS NOTHING. See townIsPhantom: grouped as a town it
        gets a crew-day of its own, neighbours are borrowed onto it to fill it, and the
        sweep evicts every one of them on the next pass because their real town is not on
-       that day. The house is reported by name in the sweep's stranded list instead. */
+       that day. The house is reported by name in the sweep’s stranded list instead.
+       ⚠ STILL ASKED OF THE TOWN, NOT THE AREA. A phantom town is a DATA fault on the
+       record; a house carrying one still has a real pin and would otherwise be blocked
+       perfectly well, and then the sweep would evict it for a town nobody can match. */
     if(townIsPhantom(w.city)) return;
-    (byCity[w.city] = byCity[w.city] || []).push(w);
+    const key = areaKeyOf(w);
+    if(!key) return;
+    (byCity[key] = byCity[key] || []).push(w);
+    const c = areaTownCounts[key] = areaTownCounts[key] || {};
+    c[w.city] = (c[w.city] || 0) + 1;
   });
+  /* Most houses first, then alphabetical, so the same block always prints the same
+     heading whatever order the book arrived in. */
+  const areaTowns = function(key){
+    const c = areaTownCounts[key] || {};
+    return Object.keys(c).sort(function(a, b){
+      return (c[b] - c[a]) || (a < b ? -1 : a > b ? 1 : 0);
+    });
+  };
+  const areaTown = function(key){ return areaTowns(key)[0] || key; };
   Object.keys(byCity).forEach(function(c){
     byCity[c].sort(function(a,b){
       /* ⭐ ONCE A NAMED DAY HAS OPENED, IT GOES AHEAD OF THE PEOPLE WHO DO NOT MIND
@@ -52701,7 +52824,8 @@ function planNewCrewDays(waiting, taken, opts){
             const cold = tooCold(c, ds);
             if(cold && !allowCold) return;
             const fits = fillableCount(c, ds);
-            const cand = {city: c, n: st.n, urg: st.urg, fits: fits, temp: tempFor(c, ds), cold: cold};
+            const cand = {city: c, n: st.n, urg: st.urg, fits: fits,
+                          temp: tempFor(areaTown(c), ds), cold: cold};
             if(betterTown(cand, pick)) pick = cand;
           });
         }
@@ -52772,7 +52896,26 @@ function planNewCrewDays(waiting, taken, opts){
         busy[ds] = busy[ds] || {};
         busy[ds][String(cr)] = city;
         towns.forEach(function(t){ markTownUsed(ds, t); });
-        out.push({date: ds, crew: String(cr), city: city, towns: towns, ids: ids});
+        /* ⭐ THE DAY IS LABELLED WITH THE TOWNS IT COVERS, NOT WITH ITS AREA KEY. Dax,
+           2026-09-09, asked which of three the crew sheet should say: the towns, a main
+           town plus a count, or the nearest cross-streets — "the towns it covers". So a
+           block spanning two towns prints both, and the many blocks that sit inside one
+           town read exactly as they always did.
+           ⚠ `towns` IS WHAT THE ROUTE SWEEP EVICTS AGAINST (routeDayTowns, stopProblem),
+           so it has to be every town the day is ALLOWED to hold. Listing only the main
+           one puts the sweep and the builder back in the build-evict-rebuild loop that
+           Suite 18.9 exists to stop.
+           ⚠ AND `areas` IS KEPT BESIDE IT so a rebuilt day can be matched back to the
+           block it came from without re-deriving it from coordinates. */
+        const townsCovered = [];
+        towns.forEach(function(k){
+          areaTowns(k).forEach(function(t){
+            if(t && townsCovered.indexOf(t) === -1) townsCovered.push(t);
+          });
+        });
+        out.push({date: ds, crew: String(cr), city: areaTown(city),
+                  towns: townsCovered.length ? townsCovered : towns,
+                  areas: towns.slice(), ids: ids});
         made++;
         placedToday++;
       }
@@ -60904,6 +61047,38 @@ const MAX_TOWNS_PER_CREW = 2;
    that may be driving fifty miles for them. If a real pair keeps coming up unassigned,
    the answer is to add it to the nearby-towns list, not to soften this. */
 function townsAreNeighbours(a, b, day){
+  /* ⭐ TWO TOWNS SHARING A BLOCK ARE NEIGHBOURS, WHATEVER THE TYPED LIST SAYS
+     ([[SCH-63]], added 2026-09-09). A crew-day is a patch of map now, so a block can
+     hold eleven houses in Lehi and nine in American Fork within a few streets. Asked
+     the old way that pairing is legal only if somebody typed it into Scheduling
+     settings — and where they have not, the second town is legal for no crew and every
+     house in it is stranded on a day nobody is driving to. That is [[SCH-50]] exactly,
+     arriving through a new door.
+     ⚠ IT IS NOT A SOFTENING. The rule below refuses when it cannot TELL; this is a case
+     where it can — two towns in one block is a statement about distance and nothing
+     else. Merely sharing a DAY is not enough, and the typed list and the tape measure
+     are both untouched.
+     ⚠ IT ANSWERS ONLY FOR THE DAY IT IS HANDED. Blocks are rebuilt from scratch on
+     every Recalculate, so nothing anywhere stores a claim that these two towns are
+     neighbours in general.
+     ⚠ AND IT IS NESTED HERE ON PURPOSE. As its own top-level function it had to be
+     added to the seven sandboxes that lift this one, and the first to miss it died with
+     a bare ReferenceError that took a whole suite down. Nested, it travels with its
+     only caller — no stub, and no sandbox quietly grading against the old answer. */
+  const shareABlock = function(){
+    if(!day || !a || !b) return false;
+    const houses=(day.houses)||[];
+    const inA={}, inB={};
+    for(let i=0;i<houses.length;i++){
+      const h=houses[i];
+      if(!h || !h.area) continue;
+      const c=(typeof extractCleanCity==="function")?extractCleanCity(h.city):h.city;
+      if(sameTownName(c, a)) inA[h.area]=1;
+      if(sameTownName(c, b)) inB[h.area]=1;
+    }
+    return Object.keys(inA).some(function(k){ return inB[k]; });
+  };
+  if(shareABlock()) return true;
   if(!a || !b) return false;
   if(sameCity(a, b)) return true;
   if(typeof NEARBY_TOWN_LIST === 'object' && NEARBY_TOWN_LIST){
@@ -63596,6 +63771,21 @@ function rebuildSeasonDays(){
             stop:(typeof houseGeoPoint==='function' ? houseGeoPoint(h,d)
                   : {lat:(typeof d.lat==='number'?d.lat:null), lng:(typeof d.lng==='number'?d.lng:null)})};
   });
+  /* ⭐ THE GRID, WORKED OUT ONCE FOR THE WHOLE REBUILD ([[SCH-63]]). Every house that
+     has a pin is put in a block of about a crew-day of neighbours; the builder then
+     buckets on that instead of on the town name. A house with no pin keeps its town
+     and behaves exactly as it did. See seasonAreasFor.
+     ⚠ FRESH EVERY TIME, never cached across the session — the office edits addresses
+     and customers arrive, and a grid worked out an hour ago would place houses from a
+     book that has moved. Same rule refreshTownGrids follows two lines above.
+     ⚠ AND IT IS COUNTED, because "the grid quietly did nothing" and "the grid ran" are
+     indistinguishable from the season otherwise: a throw inside it falls back to towns
+     on purpose, and a fallback nobody is told about is the failure this repo keeps
+     re-learning. The number reaches the office through the rebuild report. */
+  const areaById={};
+  const areaN=(typeof seasonAreasFor==="function")
+    ? seasonAreasFor(waiting, (typeof crewCap==="function")?crewCap():20) : 0;
+  waiting.forEach(function(w){ if(w && w.id) areaById[w.id]=w; });
   const homeless=waiting.filter(function(w){return !w.city;});
   const placeable=waiting.filter(function(w){return w.city;});
   /* New days start after the last day that was actually worked, and never
@@ -63657,7 +63847,23 @@ function rebuildSeasonDays(){
        later after an iced-off morning, or one added to by hand, still describes
        itself correctly instead of insisting on the towns it was born with. */
     crews.forEach(function(cd){
-      cd.ids.forEach(function(id){ placedIds[id]=true; if(byId[id]) houses.push(byId[id]); });
+      cd.ids.forEach(function(id){
+        placedIds[id]=true;
+        const h=byId[id];
+        if(!h) return;
+        /* ⭐ THE BLOCK RIDES ON THE HOUSE ([[SCH-63]]). The crew split still works in
+           town words, and a block can legitimately span two towns that are not on the
+           office's typed neighbour list — at which point townsAreNeighbours would say
+           no and every house in the second town would be stranded on a day no crew is
+           driving to, which is the exact fault [[SCH-50]] was written to close. Two
+           towns sharing a block ARE adjacent, by construction, and this is what lets
+           townsAreNeighbours say so.
+           ⚠ serialize copies every field off a house, so this survives a save and a
+           reload without a line of its own — the same way srcId and missedDays do. */
+        const w=areaById[id];
+        if(w && w.area) h.area=w.area; else delete h.area;
+        houses.push(h);
+      });
     });
     return {id:'rb'+i, base:daysBetween(mdToDate((dt.slice(5,7)*1)+'-'+(dt.slice(8,10)*1)), BASE_START),
             cascade:0, pin:null, houses:houses};
