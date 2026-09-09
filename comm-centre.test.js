@@ -156,8 +156,13 @@ console.log('');
 console.log('--- and it has to reach the screen ---');
 /* Suite 276's lesson: a renderer proved against a harness while the page never calls it
    is green and useless. */
-check('the list is drawn from the view',
-  /let filtered = commView\.section === 'folder'/.test(admin));
+/* ⚠ REPOINTED with the folder branch it named ([[MSG-12]]). The list used to choose
+   between a folder and a view; there are no folders now, so it simply IS the view — which
+   is the stronger claim and the one worth holding. */
+check('the list is drawn from the view, and has no second source',
+  /let filtered = commRows\(commView\.section, commView\.tab\)/.test(admin) &&
+  !/messageFolderOf\(m\.data\) === selectedFolder/.test(admin),
+  'a second way of choosing the rows is how the nav and the list start disagreeing');
 check('the nav and the summary are drawn in the same pass as the list',
   /function renderMessagesList\(\)\{[\s\S]{0,600}renderCommNav[\s\S]{0,200}renderCommDash/.test(admin),
   'drawn from their own listener the counts are right only until the next thing happens');
@@ -170,15 +175,38 @@ check('the row wears its type, category and status as chips',
 check('each type chip carries an icon AND a word',
   /Error<\/span>/.test(admin) && /System<\/span>/.test(admin) && /Member<\/span>/.test(admin),
   '"Do not rely only on color. Use icons + labels"');
-/* ⛔ NOTHING SHE FILED BY HAND IS THROWN AWAY. The blueprint moves folders out of first
-   place; it does not delete the folders, and deleting them to honour a redesign would be
-   destroying her own filing to make a point. */
-check('the folder tree is still rendered, under its own heading',
-  /id="customFolderList"/.test(admin) && /comm-yours/.test(admin) &&
-  /function renderFolderSidebar/.test(admin));
-check('and picking a folder hands the list back to that folder',
-  /commView = \{section:'folder', tab:'all'\}/.test(admin),
-  'without it the tree highlights one thing while the list shows another');
+/* ⛔ THE FOLDER TREE IS GONE (2026-09-09, [[MSG-12]]). Addie, once the system was in:
+   "can we just get rid of your folders altogether if the system is made?" Every one of
+   the eight folders the app created maps onto a category she now has, so the tree had
+   become a second way of saying the same thing.
+   ⚠ WHAT MATTERS IS THAT THE FIELD SURVIVED. Nothing was written to the database to take
+   a message's filing away, and `msgTypeOf` still reads folder === 'System' to recognise
+   notices written before the topic list existed. That is what makes this reversible, and
+   it is the half worth a check. */
+check('the folder-creating UI is gone, not merely hidden',
+  !/id="customFolderList"/.test(admin) && !/id="addFolderBtn"/.test(admin) &&
+  !/function renderFolderSidebar/.test(admin),
+  'left in place it is dead code that still writes folder documents nobody can see');
+check('but the folder field is still read, so old notices are still recognised',
+  /folder \|\| ''\) === 'System'/.test(admin) || /d\.folder \|\| ''\)/.test(admin),
+  'a notice written before SYSTEM_NOTICE_TOPICS existed is known only by its folder — ' +
+  'drop that and a season of notices reads as member messages needing a reply');
+{
+  const sysByFolder = sb.facets({topic:'Something Nobody Listed', folder:'System', read:true, message:'x'});
+  check('and it is proved by running one, not by reading the source',
+    sysByFolder.type === 'system' && sysByFolder.status !== 'needs_reply',
+    'got type ' + sysByFolder.type + ', status ' + sysByFolder.status);
+}
+/* ⛔ AND THE THREE TOP TABS ARE GONE ([[MSG-13]]) — "how can we make system messages be
+   incorporated in this so that we don't need a seperate tab ... and completley get rid of
+   employee messages". Customer and System were tabs across the top while the new nav has
+   them as sections down the side: the same choice offered twice, in two places that could
+   disagree about which was showing. */
+check('the inbox no longer offers the same choice twice',
+  !/data-inboxtab/.test(admin) && !/function switchInboxTab/.test(admin));
+check('and employee messages are gone entirely, loader included',
+  !/function loadEmployeeNotes/.test(admin) && !/employeeNotesList/.test(admin) &&
+  !/function renderEmployeeNotesTab/.test(admin));
 
 console.log('');
 console.log('=== The communication centre ===');

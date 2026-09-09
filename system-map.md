@@ -3243,9 +3243,29 @@ any of it urgent, what is already handled.
 answer is still right about what it was protecting — a tree is how you file something you
 will look for later — but filing turned out to be the wrong FIRST question.
 
-⛔ **Nothing she filed by hand is deleted.** The folder tree, the drag, the right-click and
-Move to… all still work and still hold everything in them. They moved *down* the sidebar,
-under **Your folders**, and picking one hands the list straight back to that folder.
+⛔ **The folders are gone** ([[MSG-12]], the same day). Once the system was in, Addie asked
+*"can we just get rid of your folders altogether if the system is made?"* — and they had
+become a second way of saying the same thing: every one of the eight the app created maps
+onto a category she now has, and the error folders onto the System Errors section.
+
+⚠ **Nothing was written to the database to take it away.** The `folder` field survives on
+every record and is still read — `msgTypeOf` uses `folder === 'System'` to recognise
+notices written before the topic list existed, so a season of old notices is still
+classified correctly. The UI stopped offering folders; the data is untouched. That is what
+makes it reversible.
+
+⚠ **What is genuinely lost is hand-filing** — a folder she invented for her own purpose,
+and `filedByHand` pinning a message to it. Categories are a fixed list and cannot reproduce
+that. Fifteen checks were removed alongside the code they drove, with the reasoning kept in
+run-all.js, so nobody restores them thinking a regression happened.
+
+⛔ **And the three tabs across the top are gone** ([[MSG-13]]): *"we don't need a seperate
+tab for this and completley get rid of employee messages."* Customer and System were tabs
+across the top while the nav has them as sections down the side — the same choice offered
+twice. ⚠ **Employee messages leaves an orphan, and it is said out loud rather than left to
+be found**: `employee.html` still writes `employeeNotes` in two places and admin was the
+only reader. It is acceptable only because the crew portal is not in use this season; if it
+comes back, either stop that write or fold the notes in as an ordinary message type.
 
 ⛔ **Derived, never migrated.** Every classification is computed from what the record
 already carries — `topic`, `folder`, `read`, `responded` — so it is right for a season of
