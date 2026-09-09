@@ -62381,11 +62381,11 @@ function houseDeadline(h){
    ⚠ RESPACED TWICE ON 2026-09-09, BY TWO SESSIONS, AND BOTH HALVES SURVIVE.
    One made a rush install LEVEL with a new hang ([[SCH-49]]) — tier 0 is empty
    because of it, and nothing the office does by hand outranks a new hang any
-   more. The other opened tier 20 for a date the office typed ([[SCH-55]]) and
+   more. The other opened tier 20 for a date the office typed ([[SCH-56]]) and
    moved every tier below it down one step. Neither changed anybody's ORDER
    relative to anybody else; no comparison anywhere reads a value.
 
-   ⚠ THE ONLY THING ABOVE TIER 10 IS A NEW MEMBER WHO IS OUT OF TIME ([[SCH-58]]),
+   ⚠ THE ONLY THING ABOVE TIER 10 IS A NEW MEMBER WHO IS OUT OF TIME ([[SCH-59]]),
    and it is not an exception to "nothing outranks a new hang" — it IS a new hang,
    moved within its own class because we have held their sale a fortnight. It was
    safe to add only because a house can no longer be stranded on a day no crew is
@@ -62466,7 +62466,7 @@ function houseInstallPriority(h, custData, opts){
   let tier;
   if((custData && custData.chargeNewMemberFee === true) ||
      (!forTown && custData && custData.rushInstall === true)) tier = 10;   // never been hung, or asked to go sooner
-  /* ⭐ A DATE THE OFFICE TYPED SITS SECOND (2026-09-09, [[SCH-56]]). Addie: "New members
+  /* ⭐ A DATE THE OFFICE TYPED SITS SECOND (2026-09-09, [[SCH-57]]). Addie: "New members
      come first and should be done within a week but can push it to 2 weeks if
      necessary. The staff dates should be second to these."
      ⚠ THIS IS NOT A CUSTOMER NAMING A DAY, and the difference is the whole ruling. A
@@ -62484,7 +62484,7 @@ function houseInstallPriority(h, custData, opts){
      thirty October houses, and win a crew-day of its own. That is Darlene Price again
      in a second flag. Addie's "within a week of it" is not lost: houseDeadline still
      gives the house that window, so `deadlineIsClose` moves the TOWN as the window
-     closes — which is [[SCH-57]]'s own mechanism doing the job, and the one claim about
+     closes — which is [[SCH-58]]'s own mechanism doing the job, and the one claim about
      a town that is genuinely about the work rather than about one phone call. */
   else if(!forTown && h && h.notBefore) tier = 20;
   /* ⭐ A NAMED DAY IS NOT AN URGENT ONE. Owner, 2026-08-19: "if they ask for a
@@ -62799,7 +62799,7 @@ function rebuildSeasonDays(){
                `forTown`, and [[SCH-54]].
                ⚠ THE DAY IS PASSED HERE TOO. A deadline running out is a claim about the
                WORK, not about one phone call, so it must still move the town — that is
-               [[SCH-45]]'s argument and [[SCH-57]] asked for it in as many words. Drop
+               [[SCH-45]]'s argument and [[SCH-58]] asked for it in as many words. Drop
                `today` here and a town whose October houses are about to run out of month
                stops climbing, which is the opposite of what she asked for. */
             townPriority:houseInstallPriority(h,d,{forTown:true, today:todayStr}),

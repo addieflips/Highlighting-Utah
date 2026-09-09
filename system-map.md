@@ -2403,12 +2403,12 @@ true})` drops both, exactly as it drops the rush box. They still order the house
 a crew is going there, which is what *"ahead of everybody"* has to mean once a house cannot
 earn its town a day. ⚠ **The deadline-pressure bump is deliberately NOT dropped** — a
 deadline running out is a claim about the work, not about one phone call ([[SCH-45]]), and
-[[SCH-57]] asked for the towns to re-order themselves in as many words. It is also how the
+[[SCH-58]] asked for the towns to re-order themselves in as many words. It is also how the
 office date's own week still reaches the town: as that window closes, the house's deadline
 does, and the town climbs.
 
 ⚠ **This one is an inference, not a ruling.** Dax's [[SCH-54]] named the rush box; Addie's
-[[SCH-56]] and [[SCH-58]] were written before it existed and never mentioned towns. Reading
+[[SCH-57]] and [[SCH-59]] were written before it existed and never mentioned towns. Reading
 his rule as covering all three "a person decided about one customer" flags is the merge's
 own judgement — it is the reading that cannot re-create the bug he had just reported, and
 it is one line to flip if he meant it narrowly.
@@ -2439,7 +2439,7 @@ nothing left on screen to remove.
 *Where it's proved*: run-all.js **Suite 315** runs the shipped functions in a sandbox — the
 floor, the working-day ceiling across a weekend and across Thanksgiving, the tier order, the
 single bump, the new member's clock, and the date travelling both ways through the sync.
-*Rulings*: [[SCH-55]], [[SCH-56]], [[SCH-57]], [[SCH-58]], [[SCH-59]] in
+*Rulings*: [[SCH-56]], [[SCH-57]], [[SCH-58]], [[SCH-59]], [[SCH-60]] in
 `claude/questions-map.md`.
 
 ### How many crews there are, and what they are called
