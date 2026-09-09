@@ -2567,6 +2567,28 @@ of 47 span more than one town** — every one of those was impossible before. Th
 one more working day and two more one-man days, both top-up remnants; the tail packer
 runs after the builder in a real rebuild and is not in those figures.
 
+
+⭐ **And this is what acts on the two-mile rule.** Dax, 2026-09-09: *"everyone in a route
+should never be more than a like two miles between houses."* Which two houses that meant
+was a real decision, so it has a row of its own ([[SCH-65]]) — **between consecutive
+stops, not across the whole route**. Measured on the 956 pinned houses of the live
+season, the two readings are nothing alike:
+
+| reading | median | over two miles |
+|---|---|---|
+| drive from one stop to the next | 0.27 mi | 30 of 901 hops |
+| width of a whole route | 2.92 mi | 43 of 52 routes |
+
+The width reading was rejected on the numbers, not for convenience: holding a whole route
+inside two miles forces days well under twenty houses, which fights *"prioritize doing the
+most houses in a day as possible"* head-on. Lehi alone is **23.4 miles wide**, which is
+also the plainest argument that "one town" never meant "near each other".
+
+⚠ **Nothing enforces it as a hard limit**, and that is worth saying rather than implying.
+What acts on it is the grid: a block is cut wherever consecutive houses are further apart
+than `MAX_CURVE_JUMP_MILES` (3, stretching where the book thins out), and a house genuinely
+on its own is lifted out as an outlier rather than packed into somebody's morning.
+
 ⛔ **An outlier keeps its town** rather than being dropped or given a block of its own.
 grid.js argues for dropping it, and so did Addie in August — *"if they are a real
 outlier they arent in the grid at all... its for my dad to do"* — but that predates One
