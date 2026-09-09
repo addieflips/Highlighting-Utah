@@ -43896,9 +43896,61 @@ suite('265. Measure Roof - the captured picture is clean, and can be marked up')
     'the markup tool reads the list off quotesCache, which the write is what updates');
   /* A partial upload leaves the count uncertain, so it reports rather than
      opening a markup on a picture that may not be the one meant. */
+  /* ⚠ MATCHED ON THE RETURN, NOT ON THE FORMATTING. This used to require the whole
+     block inside 160 characters and ending literally `return; }` — so adding the
+     REASON to the message (2026-09-09) failed a check about opening markup, which is
+     the slow fuse this file's own extractTo note warns about. What matters is that
+     the branch RETURNS; how long it takes to explain itself is not the gate. */
   check('S265', 'a partly failed upload reports instead of opening markup',
-    /if\(failed\.length\)\{[\s\S]{0,160}return; \}/.test(attach),
+    /if\(failed\.length\)\{[\s\S]{0,900}?return;\s*\}/.test(attach) &&
+    attach.indexOf('if(failed.length)') < attach.indexOf('openQuoteMarkup'),
     'opening markup after a partial failure marks up whichever picture did land');
+
+  /* ---- and a refused upload says WHY, not "try again" ---------------- */
+  /* ⭐ 2026-09-09. Owner: "out of no where ... it fails when i click attach to quote."
+     The picture service had switched the whole account off — a plain 401 saying
+     `cloud_name ... is disabled` — and the office saw only "Nothing uploaded — try
+     again." Retrying could not work at any hour of any day, so the one line she was
+     given sent her to the one action guaranteed to fail. The reason existed the whole
+     time; the catch threw it away. */
+  check('S265', 'a refused upload keeps the reason instead of discarding it',
+    /catch\(err\)\{[\s\S]{0,400}?failWhy = \(err && err\.message\)/.test(attach),
+    'a catch that keeps only the COUNT makes every different failure print one sentence');
+  check('S265', 'and the office is told what it was',
+    /uploadFailAdvice\(failWhy\)/.test(attach) && /\+ failWhy \+/.test(attach),
+    'advice without the service\'s own words is a guess presented as a diagnosis');
+  check('S265', 'and "try again" is no longer the whole answer',
+    !/'Nothing uploaded — try again\.'/.test(attach),
+    'the same sentence for a dead account, a bad preset and a dropped wifi is four wrong answers');
+  /* ⚠ AND IT GOES SOMEWHERE THAT KEEPS. console.error is wired to the Admin Errors
+     folder, so nobody has to be standing at the screen to catch the next one. */
+  check('S265', 'and the reason is filed, not only shown',
+    /console\.error\('Attach: a picture would not upload/.test(attach),
+    'a message only on screen is gone on the next reload — which is how this one survived a day');
+
+  /* RUN the advice against the real refusal, rather than matching its source: a
+     branch that reads right and never fires is the failure this whole file exists
+     to catch. The string is the one Cloudinary actually returned. */
+  const advice = real('uploadFailAdvice');
+  const disabledSaid = 'Cloudinary 401: cloud_name highlighting-utah is disabled';
+  check('S265', 'a switched-off account is not called a thing to retry',
+    /billing|account/i.test(advice(disabledSaid)) && !/again/i.test(advice(disabledSaid)),
+    'telling the office to retry a disabled account costs a day and reads as a glitch');
+  check('S265', 'and a dropped connection still IS a thing to retry',
+    /again/i.test(advice('Failed to fetch')),
+    'the opposite mistake — a momentary network fault sent to whoever pays the bill');
+  check('S265', 'and an unrecognised refusal still says something',
+    advice('').length > 10 && advice('some new thing').length > 10,
+    'an empty message for an unfamiliar fault is the silent failure back again');
+
+  /* ⚠ res.json() IS ITSELF A THING THAT THROWS. A gateway page or an empty body is
+     not JSON, so what reached the caller was the PARSER's complaint about a response
+     the service had already explained itself in. */
+  const upload = extractFn(admin, 'uploadOneToCloudinary') || '';
+  check('S265', 'a non-JSON refusal still arrives with its status',
+    /try\{ data = await res\.json\(\); \}/.test(upload) &&
+    /res\.status/.test(upload),
+    'an unparseable body threw the parser\'s error and lost the service\'s own');
   check('S265', 'and the second button is enabled and disabled with the first',
     /attachMark\.disabled = false;/.test(extractFn(admin, 'rmRenderStaged') || ''),
     'one door open and the other shut is a button that looks broken beside a button that works');
