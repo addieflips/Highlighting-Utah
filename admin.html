@@ -31359,11 +31359,49 @@ function openRoofMeasure(quoteId){
       btn.disabled = false;
     }
   }
+  /* ⭐ AND A PRESS CAN NEVER END IN SILENCE (2026-09-09). Dax, on Attach to Quote:
+     "it thinks for a quarter second then stops and doesnt do or say anything."
+
+     ⚠ rmAttachShots ALREADY CLAIMED THIS AND DID NOT HAVE IT. Its own note says
+     "EVERY WAY OUT OF THIS SAYS SOMETHING", and every deliberate way out does — but
+     it is an ASYNC function with two awaits sitting outside any try (rmCapture, and
+     rmMarkTallyText's tally beneath it). A throw in either REJECTS THE PROMISE, and
+     nothing was awaiting it: no message, no toast, the button left disabled, and the
+     whole press indistinguishable from a click that never registered. That is the
+     dead button this tool has now been reported for three times.
+
+     ⭐ SO THE GUARD IS AT THE DOOR, NOT INSIDE. Wrapping the body would mean
+     re-indenting 150 lines and repointing every check that lifts that function by
+     name; catching at the call turns EVERY rejection into a sentence, including the
+     ones somebody adds later, and touches nothing that already works.
+
+     ⚠ IT NAMES THE FAULT RATHER THAN APOLOGISING FOR IT. "Something went wrong" is
+     the message that cost this repo a day on the Edit Customer save handler, whose
+     own note records it: five grey words, nothing saved, and nothing to diagnose
+     over the phone. The error's own words go on the line beside the button.
+
+     ⚠ AND IT GOES TO console.error, which is wired to the Admin Errors folder — so
+     the next one is filed whether or not anybody is looking at the screen. */
+  function rmAttachSafely(btn, thenMarkUp){
+    Promise.resolve()
+      .then(function(){ return rmAttachShots(btn, thenMarkUp); })
+      .catch(function(err){
+        const why = (err && err.message) || String(err);
+        console.error('Attach: the press stopped partway —', why);
+        const status = document.getElementById('rmStatus');
+        if(status) status.textContent = 'Attach stopped partway — ' + why +
+          '. Nothing was saved onto the quote; your capture is still here, so Attach can be pressed again.';
+        /* ⚠ THE BUTTON GOES BACK, ALWAYS. rmAttachShots disables it on the way in and
+           every deliberate exit re-enables it; a throw skipped that, so the one thing
+           left on screen was a dead gold button. */
+        if(btn) btn.disabled = false;
+      });
+  }
   document.getElementById('rmAttachBtn').addEventListener('click', function(){
-    rmAttachShots(this, false);
+    rmAttachSafely(this, false);
   });
   document.getElementById('rmAttachMarkBtn').addEventListener('click', function(){
-    rmAttachShots(this, true);
+    rmAttachSafely(this, true);
   });
   /* KEYBOARD. ⚠ Every one of these is a SECOND way to reach a button that is
      already on screen, never the only way - a shortcut nobody can discover is
