@@ -2273,11 +2273,22 @@ and it lets somebody missed three times go before somebody missed once (`missed`
 into the builder's queue sort for that).
 
 **3. A customer the office moves up by hand.** `rushInstall`, a checkbox in Edit Customer
-beside the timing preference. It is the **top tier — ahead of new hangs** — because it is a
-person deciding after a phone call, and an override that cannot override the automatic rule
-is not an override. Both orderings read the same flag (`houseInstallPriority` for the
-schedule, `installPriority` for the nightly sweep) so the two cannot disagree about who is
-in a hurry.
+beside the timing preference. It ranks **level with a new hang — not above one** (Dax,
+2026-09-09: *"ask sooner is the same as new hangs"*), so it puts them at the front of the
+queue the moment their town is being worked and cannot invent a day for them.
+
+⚠ **This changed on 2026-09-09 and the old answer is worth knowing.** It used to be the
+top tier, ahead of new hangs, on the argument that an override which cannot override is not
+an override. What that missed is the cost: a rushed house outranked its own town, so one
+phone call could pull a single customer onto a day whose crews were working somewhere else
+— and a stop no crew can reach is a one-man trip. See ruling **SCH-49**, which supersedes
+SCH-46.
+
+⚠ **The two orderings read the flag in different places, on purpose.** The Schedule has a
+new-hang tier, so `houseInstallPriority` puts a rushed house in it (10). The nightly sweep
+has no such tier — new hangs are the sort key on the pool that feeds `fillDays` — so
+`installPriority` no longer reads the flag at all and that sort does instead. They still
+agree; each says it where it actually ranks.
 
 ⚠ **None of the three touches the month.** `houseAllowedFrom` and *Don't Install Before
 This Date* are untouched, so a November customer who is rushed, or who was missed, is taken
@@ -2335,6 +2346,60 @@ the hand-back is still a hand-back rather than a leveller.
 *Proved by run-all.js suite 304, which runs all of it — the two-crew answers are
 re-asserted beside the three-crew ones, because the expensive failure is not "three does
 not work", it is "three works and two quietly changed".*
+
+### Nobody is scheduled for a day no crew is driving to
+
+Added 2026-09-09. Dax: *"we never want to see people not on either crews route but
+scheduled for a day, thats just the same as a one man at the end of the day we calculate
+for milage so put them on a day that they can be in the route."*
+
+The day panel has a bucket headed **"Not on either crew's route"**, and it was there by
+design: a town neither crew may legally work was left unassigned and shown, rather than
+quietly loaded onto a crew that cannot drive it. Visible was right. Leaving them there was
+not — a stop nobody is holding a sheet for is a special trip, which is the one thing the
+whole season is arranged to avoid.
+
+**Most of them never had to be stranded.** `dayCrewTowns` shared towns out biggest-first
+to whichever crew was carrying least, which hands the second town to the **empty** crew —
+so on 1 October, Lehi (14) and American Fork (4), which are neighbours and would happily
+have ridden together on one sheet, went one each and spent both crews' dominant-city
+slots. Orem and Vineyard were then legal for nobody, and two customers sat in the bucket.
+`bestCrewTowns` looks for a better arrangement — but **only when the greedy has actually
+dropped somebody**, so every day that was already whole comes out exactly as before. It
+maximises **houses on a sheet**, never towns covered, and it may not buy a placement by
+breaking the two-town cap or the neighbour rule.
+
+⚠ **The stranding was self-reinforcing, which is why it stuck.** `dayCrewCount` measures
+`dayAssignedHouses` — the houses a crew actually holds — so the two stranded houses were
+not counted, the day read as 18 over two neighbouring towns, and a day that size is a
+**one-crew day**, which collapses both crews' towns onto one sheet. Being stranded is what
+removed the second crew that could have taken them.
+
+⚠ **The honest empty bucket survives** for a day that genuinely cannot be covered. That is
+what tells the office — and `rebuildSeasonDays` — to move those houses to a day that can
+hold them, rather than the split pretending they fit.
+
+Rulings **SCH-50** and **SCH-51**. *Proved by run-all.js **Suite 314**, which runs the real
+crew split against the 1 October day rather than reading it — every claim here is about
+which crew a house ends up on. Red-checked with eight sabotages, seven caught; the eighth
+flattens a tiebreak that only ever chooses between arrangements placing the same houses,
+and is reported rather than papered over.*
+
+### The forecast, beside the map
+
+Added 2026-09-09. Dax: *"also everday it should show the forecasted temperature for the
+area by the map."* The builder has read the forecast since 2026-09-03 and nothing ever
+showed it, so a day pushed for being freezing looked exactly like a day pushed for any
+other reason. `dayForecastChips` puts one chip per town in the caption above the day's
+maps, marking a town at or below the cutoff — which is **read** from `COLD_DAY_MAX_F`, not
+typed again.
+
+⚠ **No forecast means no chip** — never a dash, a zero or an "unknown". Open-Meteo answers
+about sixteen days and the season runs into December, so most dates have no number, and a
+placeholder on every one of them is a strip of noise that teaches the office to stop
+reading it on the days it does say something. `ensureForecastForPanel` fetches once, from a
+flag rather than on each draw, because this panel redraws on every tick of every box on the
+page. Ruling **SCH-52**.
 
 ### A day the office has short-handed on purpose
 
