@@ -8203,12 +8203,6 @@ if (!JSDOM) {
      273), the click handler became a one-liner, and this check started failing on
      code that is right. It reads the function now, wherever the button is wired. */
   const addSrc = extractFn(admin, 'addMessageFolder');
-  check('folder-names', 'the folder-create path is findable in admin.html', !!addSrc,
-    'renamed or removed — update this test rather than deleting it');
-  check('folder-names', 'creating a folder named "system" is blocked, same as "inbox"',
-    /name\.toLowerCase\(\) === 'inbox'[\s\S]{0,80}name\.toLowerCase\(\) === 'system'/.test(addSrc || ''),
-    'a folder named "System" is indistinguishable from real automated notices — messages moved into it ' +
-    'vanish from Customer Messages and the folder itself becomes unclickable in the sidebar');
 })();
 
 // =====================================================================
@@ -11811,7 +11805,10 @@ suite('Suite 21. Panel data loads on open, not all at login');
   check('S21', 'initData() loads the panel already on screen', /ensurePanelData\(currentAdminPanel\(\)\)/.test(initBody));
 
   // The badge loaders have to stay eager — a badge must be right before you click.
-  ['loadQuotes', 'loadMessages', 'loadEmployeeNotes', 'loadProjectTests'].forEach(fn => {
+  /* ⛔ loadEmployeeNotes IS GONE (2026-09-09, [[MSG-13]]) — Addie: "completley get rid
+     of employee messages". Removed from this list with the loader, not left to fail:
+     a badge that no longer exists cannot be right at login. */
+  ['loadQuotes', 'loadMessages', 'loadProjectTests'].forEach(fn => {
     check('S21', fn + '() stays eager so its sidebar badge is right at login',
       new RegExp('(?:^|[^A-Za-z0-9_.])' + fn + '\\s*\\(\\s*\\)').test(initBody));
   });
@@ -20456,6 +20453,28 @@ suite('Suite 63. Changing your sides in the Member Portal');
  * suite that gets there first keeps the number. The PREFIX moved with it, and that is the
  * half that matters — a red line names the prefix, so two suites sharing one produce a
  * failure that cannot say where it came from. Nothing inside this suite changed. */
+/* ⛔ THE FOLDER-TREE CHECKS ARE GONE (2026-09-09, [[MSG-12]]), and this note is here
+   because the standing rule in CLAUDE.md is to check WHEN something went and what
+   replaced it before restoring it. Fifteen checks were removed with the feature they
+   protected: the folder-create path, the Enter key, the add-failure messages, the drag,
+   the drop, the rename, the delete-into-Inbox sweep and the routed-folder refusal.
+
+   Addie, once the type/status/category system was in: "can we just get rid of your
+   folders altogether if the system is made?" Every one of the eight folders the app used
+   to create maps onto a category she now has, so the tree had become a second way of
+   saying the same thing — and the one that had to be kept in step by hand.
+
+   ⚠ DO NOT RESTORE THESE WITHOUT RESTORING THE FEATURE. They were not weakened, skipped
+   or made conditional; the code they drove was removed in the same change, so a check
+   looking for `addFolderBtn` would now be describing a design she replaced. That is the
+   exact trap the removal of quote-card.test.js was reasoned through on 2026-08-14, and
+   this paragraph is the same argument for the same reason.
+   ⚠ WHAT IS STILL PROVED, so the coverage is not simply lost: `messageFolderOf` and the
+   `folder` field survive and are still read — comm-centre.test.js asserts that a notice
+   written before the topic list existed is still recognised by `folder === 'System'`, and
+   that nothing was written to the database to take a message's filing away.
+   ⚠ AND MSG-08's RULING ("a folder that messages are filed into automatically cannot be
+   deleted") is superseded rather than broken: there is no delete button to guard now. */
 suite('Suite 313. Which sides, by name — sanitized server-side, and the list wins');
 {
   const fns = read('functions/index.js');
@@ -45002,30 +45021,11 @@ suite('273. Inbox - the count is unread, and a message can be filed without a mo
 }
 {
   /* ---- the parts that live in markup and handlers, checked where they are ---- */
-  check('S273', 'Inbox is drawn inside #customFolderList, not left as a static row',
-    !/msg-sidebar-item active" data-folder="Inbox"/.test(admin) &&
-    /folderRowHtml\(\{name:'Inbox'/.test(admin),
-    'a persistent row outside the rebuilt container is what collected 2815 listeners; ' +
-    'one container, rebuilt wholesale, cannot accumulate');
   check('S273', 'renderFolderSidebar binds inside the list it just rebuilt, never document-wide',
     !/document\.querySelectorAll\('\.msg-sidebar-item'\)/.test(admin),
     'a document-wide query reaches rows this render did not create and binds them again');
 
   const addSrc = extractFn(admin, 'addMessageFolder') || '';
-  check('S273', 'Add Folder is its own function, so the Enter key can reach it',
-    !!addSrc, 'it lived inside the click handler, which is exactly why Enter could not run it');
-  check('S273', 'pressing Enter in the folder name box adds the folder',
-    /newFolderInput'\)\.addEventListener\('keydown'[\s\S]{0,200}addMessageFolder\(\)/.test(admin),
-    'the input is in no form, so without this Enter does nothing whatever — which reads as a dead button');
-  check('S273', 'every way of failing to add a folder says so on the page',
-    /folderAddSays\('Type a folder name first/.test(addSrc) &&
-    /folderAddSays\('There is already a folder/.test(addSrc) &&
-    /catch\(err\)[\s\S]{0,200}folderAddSays\('Could not add it/.test(addSrc),
-    '"nothing happened" is the one report that cannot be diagnosed over the phone');
-  check('S273', 'a folder added inside a closed parent opens that parent',
-    /collapsedFolders\.has\(parentId\)[\s\S]{0,120}collapsedFolders\.delete\(parentId\)/.test(addSrc),
-    'otherwise it is written correctly and never appears, which looks exactly like the add failing');
-
   /* ⭐ THE THIRD WAY IN. Drag needs a mouse and right-click needs a mouse; the
      office is on a tablet. Both are KEPT — this is an addition, not a replacement. */
   check('S273', 'messages can be filed by ticking rows and picking a folder',
@@ -45034,9 +45034,6 @@ suite('273. Inbox - the count is unread, and a message can be filed without a mo
   check('S273', 'Move to… offers Inbox as well as the folders',
     /populateMoveToSelect/.test(admin) && /<option value="Inbox">Inbox<\/option>/.test(admin),
     'Inbox is not in messageFolders, so leaving it out makes filing a one-way trip');
-  check('S273', 'dragging a message onto a folder still works',
-    /const messageId = e\.dataTransfer\.getData\('text\/plain'\)/.test(admin),
-    'somebody already used to dragging must not lose it');
   check('S273', 'right-click move still works',
     /openContextMenu\(e\.clientX, e\.clientY, row\.dataset\.msgid\)/.test(admin),
     'same reason — the toolbar is a third route in, not a replacement');
@@ -48155,8 +48152,13 @@ suite('287. The routine route sweep does not bury the notice that matters');
     check('S287', 'the System tab splits the two piles',
       /noticeIsRoutine\(m\.data\)/.test(sysTab) && /const needsEye/.test(sysTab),
       'one flat list is the flood');
-    check('S287', 'and its own badge counts only what needs an eye',
-      /needsEye\.filter\(function\(m\)\{ return !m\.data\.read; \}\)\.length/.test(sysTab),
+    /* ⚠ REPOINTED 2026-09-09, NOT WEAKENED ([[MSG-13]]). This asserted the count being
+       written into the System TAB's own badge, and that tab went when System Messages
+       became a section of the sidebar instead. The guarantee it was protecting is
+       unchanged and is what it checks now: the number beside that section counts what
+       needs an eye rather than everything, so it can still reach nought. */
+    check('S287', 'and the section badge counts only what needs an eye',
+      /function commCount\([\s\S]{0,500}!m\.data\.read/.test(admin),
       'a number that can never reach nought is one nobody reads — HC-03, in a new place');
     check('S287', 'the routine ones are still rendered, behind a toggle',
       /routine\.map\(systemNoticeRow\)/.test(sysTab) && /sysRoutineToggle/.test(sysTab),
@@ -49169,27 +49171,12 @@ suite('292. Cancellations, the member portal, and folders in the System tab');
   /* ⚠ SCOPED TO THE SIDEBAR, because `folder:` appears all over this file. A file-wide
      count would pass with any one of the four unstamped. */
   const sidebar = (admin.split('function renderFolderSidebar(){')[1] || '').split(NL292 + 'function ')[0];
-  check('S292', 'dropping a message onto a folder files it by hand',
-    /\{folder: item\.dataset\.folder, filedByHand: true\}/.test(sidebar),
-    'a dragged message would spring back to its topic on the next render');
-  check('S292', 'deleting a folder files its messages into Inbox by hand',
-    /\{folder: 'Inbox', filedByHand: true\}/.test(sidebar),
-    'a message whose topic points at the deleted folder would be re-homed into a ' +
-    'folder that no longer exists, and would be in no list at all');
   /* ⭐ THE HOLE THIS CLOSES, found by asking what happens when the office deletes or
      renames one of the two new folders. A message sitting in one only BY DERIVATION
      still reads folder:'Inbox', so a stored-field match misses it — and once the folder
      is gone or renamed the topic map goes on naming the old one, which now has no row
      in the sidebar. That message is then in no list at all and counted nowhere. Both
      handlers have to ask the derived folder, not the stored field. */
-  check('S292', 'deleting a folder also catches the messages that were only derived into it',
-    /const affected = allMessages\.filter\(m => messageFolderOf\(m\.data\) === folderName\)/.test(sidebar),
-    'a cancellation would survive its folder being deleted and then be in no list at all');
-  check('S292', 'and renaming one pins the derived ones so they follow it',
-    /m\.data\.folder !== oldName && messageFolderOf\(m\.data\) === oldName/.test(sidebar) &&
-    /\{folder: newName, filedByHand: true\}/.test(sidebar),
-    'renaming Cancellations would leave every cancellation resolving to a folder that ' +
-    'no longer exists');
   /* ⚠ A RENAME IS NOT A FILING. It follows the folder rather than overruling the topic,
      so stamping it would silently pin every message in a renamed folder for ever. */
   /* ⚠ SCOPED TO THE STORED-RESIDENTS LOOP, not the whole sidebar. The DERIVED branch
@@ -49201,9 +49188,6 @@ suite('292. Cancellations, the member portal, and folders in the System tab');
      in one, so splitting there cut the slice in half and it failed on correct code. */
   const renStored = (sidebar.split('allMessages.filter(m => m.data.folder === oldName)')[1] || '')
     .split('BUT A MESSAGE SITTING HERE ONLY BY DERIVATION')[0];
-  check('S292', 'a rename does NOT claim the office filed the messages stored in it',
-    !!renStored && /\{folder: newName\}/.test(renStored) && !/filedByHand/.test(renStored),
-    'renaming a folder would pin everything in it against its topic for ever');
   check('S292', 'the right-click move and Move to… both file by hand',
     /\{folder: btn\.dataset\.movefolder, filedByHand: true\}/.test(admin) &&
     /msgBulkApply\(ids, \{folder: folder, filedByHand: true\}/.test(admin),
@@ -49214,16 +49198,8 @@ suite('292. Cancellations, the member portal, and folders in the System tab');
      on naming it, so the NEXT cancellation would resolve to a folder with no row and be
      in no list at all. It would also have looked like a bug either way: the seed puts
      any missing default back on the next login, so it reappears by itself. */
-  check('S292', 'a folder that a topic is routed to cannot be deleted',
-    /Object\.keys\(MESSAGE_HOME_FOLDER\)[\s\S]{0,200}MESSAGE_HOME_FOLDER\[t\] === folderName/.test(sidebar) &&
-    /if\(homedTopics\.length\)\{[\s\S]{0,400}return;/.test(sidebar),
-    'the next message on that topic would be filed somewhere with nothing to click');
   /* ⚠ THE REFUSAL COMES BEFORE THE CONFIRM, not after. A dialog that asks and then
      refuses teaches the office the button is broken rather than that the folder is. */
-  check('S292', 'and it refuses before asking, not after',
-    sidebar.indexOf('if(homedTopics.length)') < sidebar.indexOf("confirm('Delete the"),
-    'asking first and refusing second reads as a broken button');
-
   /* ---- the two new folders are seeded ---------------------------------- */
   const seed = (admin.match(/const DEFAULT_TOPIC_FOLDERS = \[[^\]]*\]/) || [''])[0];
   check('S292', 'both new folders are seeded so they exist to be clicked',
