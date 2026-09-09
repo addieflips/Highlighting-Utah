@@ -2720,6 +2720,75 @@ function navigate(){
    under the key "undefined" — the app booted, the page was right, and the referral was
    silently worth nothing. A browser spec caught it; no source check could have. */
 var REFERRAL_LINK_KEY = 'hu.referredByToken';
+/* ⭐ THE TOKEN HAS TO SURVIVE THE TRIP FROM THE LINK TO THE FORM (REF-33, 2026-09-08).
+ *
+ * Addie shared her link with two people through the phone share sheet, both filled the
+ * form in, and NEITHER counted: *"it was 2 links filled out by 2 different people"*, and
+ * on the one she then converted, the $30 set-up fee was still charged. Both symptoms are
+ * the same single fact — `referredByToken` was never written onto the quote — because
+ * `quoteChargesSetupFee` waives the fee on that field and `creditReferralIfAny` pays the
+ * $25 on it. Nothing was logged, on either side. This is the caveat REF-29 wrote down
+ * and did not fix: *"it rides in sessionStorage, so a friend who opens the link, closes
+ * the tab and comes back through the front door pays the fee after being told they
+ * would not."*
+ *
+ * ⚠ sessionStorage IS PER-TAB, AND A SHARED LINK IS OPENED IN THE WORST POSSIBLE PLACE:
+ * a link tapped in Messages, WhatsApp or Instagram opens in that app's own in-app
+ * browser. Read the page, close it, come back later through the front door — or tap
+ * "Open in Safari", which starts a different browser — and the token is gone. On a phone
+ * that is the ORDINARY path, not an edge case, which is why both of Addie's went the
+ * same way rather than one of them.
+ *
+ * ⭐ TWO CHANGES, AND THE SECOND IS THE ONE THAT ACTUALLY SAVES IT.
+ *   1. localStorage as well, so closing the tab no longer loses it.
+ *   2. THE TOKEN STAYS IN THE ADDRESS BAR as ?ref=<token>. The /r/ reader used to strip
+ *      it — deliberately, for a tidy URL — so once storage was lost there was nothing
+ *      left anywhere to recover it from. Kept, the link the friend is holding still
+ *      carries its own answer: a fresh browser, a bookmark, an "Open in Safari" and a
+ *      reload all work, and none of them can be fixed by storage of any kind.
+ *
+ * ⚠ IT EXPIRES. A token that lives for ever means somebody who once opened a referral
+ * link credits that referrer for a quote submitted a year later, on a link that has since
+ * rotated. REFERRAL_REMEMBER_DAYS is 90 — long enough for the friend who thinks about it
+ * for two months, short of a season. sessionStorage is NOT aged: that is this visit.
+ *
+ * ⚠ AND A STORED TOKEN NEVER OVERRIDES ONE IN THE ADDRESS BAR. A friend who opens a
+ * SECOND person's link is telling us who sent them this time; the older stored one is
+ * stale by exactly the amount that matters. Newest wins, which is also what makes the
+ * office's own testing behave the way anybody would expect. */
+var REFERRAL_LINK_AT_KEY = 'hu.referredByTokenAt';
+var REFERRAL_REMEMBER_DAYS = 90;
+function rememberReferralToken(token){
+  var t = String(token || '').slice(0, 64);
+  if(!t) return;
+  /* Each store is tried on its own: private browsing refuses one and not always the
+     other, and half a memory is better than none. */
+  try{ sessionStorage.setItem(REFERRAL_LINK_KEY, t); }
+  catch(e){ /* Refused (private browsing). The ?ref= in the address bar is still the answer, and the localStorage attempt below is independent. */ }
+  try{
+    localStorage.setItem(REFERRAL_LINK_KEY, t);
+    localStorage.setItem(REFERRAL_LINK_AT_KEY, String(Date.now()));
+  }catch(e){ /* Same refusal, and it costs only the come-back-tomorrow case — the link itself still carries the token. */ }
+}
+function readReferralToken(){
+  /* This visit wins: it is the most recent thing the friend actually did. */
+  try{
+    var t = sessionStorage.getItem(REFERRAL_LINK_KEY) || '';
+    if(t) return t;
+  }catch(e){ /* Refused; fall through to the durable copy below. */ }
+  try{
+    var saved = localStorage.getItem(REFERRAL_LINK_KEY) || '';
+    if(!saved) return '';
+    var at = Number(localStorage.getItem(REFERRAL_LINK_AT_KEY) || 0);
+    /* ⚠ NO TIMESTAMP MEANS TOO OLD TO TRUST, never "keep it for ever". Nothing writes
+       one without the other, so an unstamped token is from a build that predates this
+       or from somebody editing storage by hand. */
+    if(!at || !isFinite(at)) return '';
+    if(Date.now() - at > REFERRAL_REMEMBER_DAYS * 86400000) return '';
+    return saved;
+  }catch(e){ /* Refused; no token, which is the safe direction — the referral simply is not counted. */ }
+  return '';
+}
 /* ⭐ THE SHARE LINK — /s/<token> (2026-09-05, REF-13).
 
    Dax, having tapped the Refer a Friend button in an RSVP: *"it takes you straight to
@@ -2781,13 +2850,21 @@ var REFERRAL_LINK_KEY = 'hu.referredByToken';
      never run — the branch above it always matched first and read a differently-named
      parameter, so the flag landed on the share page with no token and drew the "link is
      missing its code" message. Deleted rather than repaired: one door, and /s/ is it. */
-  try{ sessionStorage.setItem(REFERRAL_LINK_KEY, token.slice(0, 64)); }
-  catch(e){ /* Private browsing refuses sessionStorage. The quote still goes through; the referral is simply not counted, which is the safe direction. */ }
-  /* Straight to the quote form — that is what the link is FOR — and the token is
-     already stored, so nothing rides in the address bar. */
+  rememberReferralToken(token);
+  /* Straight to the quote form — that is what the link is FOR.
+     ⚠ AND THE TOKEN STAYS IN THE ADDRESS BAR (REF-33). This used to rewrite to a bare
+     '/#/quote', on the reasoning that the token was already stored so nothing needed to
+     ride in the URL. That reasoning holds only while the storage does, and on a phone it
+     does not: the link is tapped inside Messages' in-app browser, and closing it or
+     tapping "Open in Safari" loses the lot. Kept in the URL, the link the friend is
+     holding still answers the question by itself — which is the only thing that survives
+     a change of browser. */
   window.location.hash = '/quote';
-  try{ window.history.replaceState(null, '', '/' + window.location.hash); }
-  catch(e){ /* quiet on purpose: cosmetic. A blocked replaceState leaves /r/<token> showing and changes nothing about the referral. */ }
+  try{
+    window.history.replaceState(null, '',
+      '/?ref=' + encodeURIComponent(token) + window.location.hash);
+  }
+  catch(e){ /* quiet on purpose: cosmetic. A blocked replaceState leaves /r/<token> showing, which still carries the token and still works on a reload. */ }
 })();
 (function(){
   var m = null;
@@ -2976,17 +3053,24 @@ async function geocodeForStreetView(addressText){
    from a made-up one, and pretending otherwise would mean shipping the customer list to
    the public page. An unknown token is refused by creditReferralIfAny, where the real
    records are, and refused SILENTLY — a link can outlive the customer who made it. */
-(function rememberReferralToken(){
+/* ⚠ NAMED readRefFromQuery, NOT rememberReferralToken (REF-33). This IIFE used to
+   carry that name itself, and a named function expression binds its own name inside its
+   own body — so the call below resolved to THIS function rather than the helper above,
+   recursed until the stack blew, and the `catch` swallowed the RangeError. Every ?ref=
+   link stored nothing, silently, which is the exact failure this whole change exists to
+   fix. A browser spec caught it; no source check would have. */
+(function readRefFromQuery(){
   try{
     var t = new URLSearchParams(window.location.search || '').get('ref');
-    if(t) sessionStorage.setItem(REFERRAL_LINK_KEY, String(t).slice(0, 64));
+    if(t) rememberReferralToken(t);
   }catch(err){ /* Private browsing refuses sessionStorage. The quote still goes through;
                   the referral is simply not counted, which is the safe direction. */ }
 })();
 function referralQuoteFields(){
-  var t = '';
-  try{ t = sessionStorage.getItem(REFERRAL_LINK_KEY) || ''; }
-  catch(err){ /* Same refusal as above; no token means no referral and no error. */ }
+  /* ⚠ readReferralToken, NOT sessionStorage DIRECTLY (REF-33). This visit's token wins,
+     and a remembered one within REFERRAL_REMEMBER_DAYS stands in when the tab that
+     opened the link is gone — which on a phone is the ordinary case, not an edge one. */
+  var t = readReferralToken();
   /* ⚠ THE FIELD IS OMITTED ENTIRELY WHEN THERE IS NONE. An empty string stored on
      every quote in the book would read as a token that failed rather than a customer
      who simply came to us directly. */
