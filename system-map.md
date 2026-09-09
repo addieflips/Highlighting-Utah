@@ -3321,6 +3321,42 @@ there having been clicked once would be the panel lying.
 *Where it's proved*: `comm-centre.test.js` (`npm run test:comm`) RUNS the classifier over
 real message shapes, including her worked example, rather than matching its source.
 
+**How to reach them** ([[MSG-14]], 2026-09-09). Addie: *"on inbox can you show email and
+phone number under name so I can communicate with them?"* The phone and the email now sit on
+their **own line directly under the name**, as a `tel:` link and a `mailto:` link she can
+press.
+
+They were on the row before this, which is not the same thing: both were buried in the small
+grey meta line, run together with *"Prefers text"* and the date — so the one thing on the row
+she has to act on was set in the same type as the one thing she never needs. That line now
+holds only the preference and the date.
+
+⭐ **And the message is not the only place it looks.** A message carries whatever the sender
+typed, so a portal-raised one often has a phone and no email, and a Member Error has neither
+— the row above had just learned to *name* those customers and still gave her no way to ring
+them. If a detail is missing, it is filled in from the customer record, found by phone, by
+email, or by the same portal-token match as [[MSG-10]].
+
+⚠ **A detail that matches two people resolves to nobody.** Seventeen phone numbers in the
+real book are shared and fourteen of those are two genuinely different households; a shared
+email is as ordinary. Giving her the wrong person's address on a screen whose whole purpose
+is writing to them is worse than giving her none — so an ambiguous match is refused, and
+whatever the message itself carried is still shown.
+
+⚠ **What they typed always wins.** The record only ever fills a gap, because somebody
+writing in from a new address wants the reply there. Anything taken from the record is
+labelled *from their record*, so she can tell their own answer from one worked out on their
+behalf.
+
+⚠ **A System notice gets no contact line at all** — there is no customer behind a route
+sweep. On a member row that genuinely has nothing, the line *says* so; blank would read as
+nothing-to-do-here on a message somebody is waiting on.
+
+⚠ **If a number looks wrong, check for an extension.** A number typed as *"(801) 555-0999
+ext 4"* used to become `tel:+180155509994` — eleven digits, dials perfectly, reaches a
+stranger. The link now stops at the first letter, and a number too short to ring is shown
+without being made a link at all.
+
 **Who hit it** ([[MSG-10]], 2026-09-09). Addie, reading a folder in which one row was named
 and the rest were blank: *"we need to know who hit an error so you need to show me who hit
 that error."* Three different things were happening in those rows, and only the first was

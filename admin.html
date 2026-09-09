@@ -740,6 +740,16 @@
   .address-link-btn:hover{ color:var(--ink); }
   .row-name-line{ font-weight:700; font-size:14.5px; color:var(--ink); margin-bottom:2px; }
   .row-phone-line{ font-size:12.5px; color:var(--slate); margin-top:2px; }
+  /* ⭐ The contact line sits under the name and is the one thing on the row you press.
+     Set slightly larger and darker than .rmeta on purpose: it used to share that line's
+     grey with the date, which is the piece of it nobody ever needs ([[MSG-14]]). */
+  .row-contact{ font-size:13px; color:var(--ink); margin-top:3px; font-weight:600; }
+  .row-contact a{ color:var(--emerald); text-decoration:none; border-bottom:1px solid rgba(0,0,0,.15); }
+  .row-contact a:hover{ text-decoration:none; border-bottom-color:currentColor; }
+  /* Not an error, so not drawn as one — it is just the honest answer. */
+  .row-contact.none{ color:var(--slate); font-weight:500; font-style:italic; }
+  /* Small and plain: a caveat on the detail beside it, never a heading of its own. */
+  .row-contact-src{ font-size:11px; color:var(--slate); font-weight:500; }
   @media (max-width:900px){
     .list-with-map{ flex-direction:column; }
     .list-with-map-panel{ position:static; width:100%; }
@@ -20226,6 +20236,108 @@ function openContextMenu(x, y, messageId){
   });
 }
 document.addEventListener('click', function(){ contextMenuEl.classList.remove('open'); });
+/* ⭐ THE CONTACT DETAILS BELONG UNDER THE NAME (2026-09-09, [[MSG-14]]). Addie: "on
+   inbox can you show email and phone number under name so I can communicate with them?"
+
+   ⚠ THEY WERE ON THE ROW ALREADY, AND THAT IS NOT THE SAME THING. The phone and email
+   sat in the small grey `rmeta` line, run together with "Prefers text" and the date —
+   so the one thing on the row you have to ACT on was set in the same type as the one
+   thing you never do. They are their own line under the name now, and they are links:
+   `tel:` and `mailto:`, because "so I can communicate with them" is the whole request
+   and a number you have to copy out by hand is not that.
+
+   ⭐ AND THE MESSAGE IS NOT THE ONLY PLACE TO LOOK. A message carries whatever the
+   sender typed, so a portal-raised one often has a phone and no email, and a Member
+   Error has neither — the row named the customer (matched by their link, [[MSG-10]])
+   and then offered no way to ring them, which is exactly the row you most want to ring.
+   `msgContactFor` falls back to the customer record.
+
+   ⚠ IT REFUSES AN AMBIGUOUS MATCH RATHER THAN PICKING ONE. Seventeen phone numbers in
+   the real book are shared and fourteen of those are two genuinely different households,
+   a parent paying for a child’s house — so a phone that matches twice resolves to
+   NOBODY. Handing back the wrong person’s email on a screen whose purpose is to send
+   them something is worse than handing back nothing.
+
+   ⚠ AND A DETAIL TAKEN FROM THE RECORD SAYS SO. The same rule `msgErrorWhoLabel`
+   already follows: the office should be able to tell what the sender actually gave us
+   from what we worked out on their behalf, because only one of those is their own
+   answer. */
+function msgContactCustomer(d){
+  d = d || {};
+  const list = (typeof jobAddresses !== 'undefined' && jobAddresses) ? jobAddresses : [];
+  const digits = String(d.phone || '').replace(/\D/g, '');
+  if(digits){
+    const byPhone = list.filter(function(a){
+      return String((a.data || {}).phone || '').replace(/\D/g, '') === digits;
+    });
+    if(byPhone.length === 1) return byPhone[0];
+    if(byPhone.length > 1) return null;   /* shared household — see above */
+  }
+  const email = String(d.email || '').trim().toLowerCase();
+  if(email){
+    const byEmail = list.filter(function(a){
+      return String((a.data || {}).email || '').trim().toLowerCase() === email;
+    });
+    if(byEmail.length === 1) return byEmail[0];
+    if(byEmail.length > 1) return null;
+  }
+  /* Last resort, and the one that rescues a Member Error: the redacted portal token on
+     the link they hit. Already refuses on more than one match. */
+  const found = (typeof msgErrorWhoIs === 'function') ? msgErrorWhoIs(d) : null;
+  return (found && found.cust) ? found.cust : null;
+}
+/* What the sender gave us wins; the record only ever fills a GAP. Their own answer is
+   the one to reply to — somebody who wrote in from a new address wants the reply
+   there, not at the old one still on file. */
+function msgContactFor(d){
+  d = d || {};
+  const ownPhone = String(d.phone || '').trim();
+  const ownEmail = String(d.email || '').trim();
+  if(ownPhone && ownEmail) return { phone: ownPhone, email: ownEmail, fromRecord: false };
+  const cust = msgContactCustomer(d);
+  const c = (cust && cust.data) ? cust.data : {};
+  const phone = ownPhone || String(c.phone || '').trim();
+  const email = ownEmail || String(c.email || '').trim();
+  return {
+    phone: phone,
+    email: email,
+    fromRecord: (!ownPhone && !!phone) || (!ownEmail && !!email)
+  };
+}
+/* ⚠ A SYSTEM NOTICE GETS NO LINE AT ALL. There is no customer behind a route sweep, so
+   "no phone or email" under every one of them is noise on the rows that need none — and
+   noise is how a line stops being read on the rows that do.
+   ⚠ AND ON A ROW THAT SHOULD HAVE ONE, EMPTY IS SAID RATHER THAN LEFT BLANK. A blank
+   reads as nothing-to-do-here on a message that is sitting in the Inbox precisely because
+   somebody is waiting. Same rule as the fix sheet’s "?". */
+function msgContactLineHtml(d){
+  if(typeof msgTypeOf === 'function' && msgTypeOf(d) === MSG_TYPE_SYSTEM) return '';
+  const c = msgContactFor(d);
+  const bits = [];
+  if(c.phone){
+    /* Keep + for an international number; strip the punctuation a dialler chokes on.
+       ⚠ AND CUT AT THE FIRST LETTER. "(801) 555-0999 ext 4" with only the punctuation
+       taken out becomes 80155509994 — eleven digits, perfectly dialable, and somebody
+       else's phone. Anything from the first letter onwards is a note ABOUT the number,
+       never part of it. Caught by its own check rather than reasoned about. */
+    const dial = c.phone.split(/[A-Za-z]/)[0].replace(/[^\d+]/g, '');
+    const shown = (typeof fmtPhone === 'function') ? fmtPhone(c.phone) : c.phone;
+    /* ⚠ TOO SHORT TO RING IS SHOWN, NOT LINKED. A half-typed number is still worth
+       reading — it is what the office has — but a link that dials four digits is a
+       wrong call somebody makes by accident. */
+    bits.push('\u{1F4DE} ' + (dial.replace(/\D/g, '').length >= 7
+      ? '<a href="tel:' + esc(dial) + '">' + esc(shown) + '</a>'
+      : esc(shown)));
+  }
+  if(c.email){
+    bits.push('\u{2709}\u{FE0F} <a href="mailto:' + esc(c.email) + '">' + esc(c.email) + '</a>');
+  }
+  if(!bits.length){
+    return '<div class="row-contact none">No phone or email on this message, and no record matches it</div>';
+  }
+  return '<div class="row-contact">' + bits.join(' &middot; ') +
+    (c.fromRecord ? ' <span class="row-contact-src">from their record</span>' : '') + '</div>';
+}
 function messageAddressLookup(d){
   const phoneDigits = (d.phone||'').replace(/\D/g,'');
   if(!phoneDigits) return '';
@@ -20824,12 +20936,18 @@ function renderMessagesList(){
     const msgDigits = msgTerm.replace(/\D/g,'');
     filtered = filtered.filter(function(m){
       const d = m.data || {};
+      /* ⚠ THE RESOLVED CONTACT, NOT ONLY THE ONE ON THE MESSAGE. The row can now show
+         a phone or an email taken from the customer record, and this block's own rule is
+         that what you can read you can find — a number printed on screen that the search
+         box cannot match is worse than one that was never shown. */
+      const c = msgContactFor(d);
+      const cDigits = String(c.phone||'').replace(/\D/g,'');
       return String(d.name||'').toLowerCase().indexOf(msgTerm) !== -1 ||
-        String(d.email||'').toLowerCase().indexOf(msgTerm) !== -1 ||
+        String(c.email||'').toLowerCase().indexOf(msgTerm) !== -1 ||
         String(d.message||'').toLowerCase().indexOf(msgTerm) !== -1 ||
         String(d.topic||'').toLowerCase().indexOf(msgTerm) !== -1 ||
         String(messageAddressLookup(d)||'').toLowerCase().indexOf(msgTerm) !== -1 ||
-        (!!msgDigits && String(d.phone||'').replace(/\D/g,'').indexOf(msgDigits) !== -1);
+        (!!msgDigits && cDigits.indexOf(msgDigits) !== -1);
     });
   }
   /* Counts what somebody actually has to look at: every unread customer message,
@@ -20867,8 +20985,13 @@ function renderMessagesList(){
            reads on the one folder that exists to be acted on. */
         commChipsHtml(d)+
         '<h4>'+(esc(d.name) || esc(msgErrorWhoLabel(d)))+(d.topic ? ' <span class="status-pill status-new">'+esc(d.topic)+'</span>' : '')+' <span class="status-pill '+(isResponded?'status-paid':'status-due')+'">'+(isResponded?'Responded':'Awaiting Response')+'</span></h4>'+
+                /* ⭐ DIRECTLY UNDER THE NAME, ABOVE THE ADDRESS. The address is context;
+           the phone and the email are what she opened the row to DO. */
+        msgContactLineHtml(d)+
         (address ? '<div class="row-phone-line">'+esc(address)+'</div>' : '')+
-        '<div class="rmeta">'+esc(d.phone)+(d.email ? ' &middot; '+esc(d.email) : '')+(d.contactMethod ? ' &middot; Prefers '+esc(d.contactMethod) : '')+' &middot; '+fmtDate(d.createdAt)+'</div>'+
+        /* Phone and email have moved up to their own line, so what is left here is
+           how they would rather be reached, and when they wrote. */
+        '<div class="rmeta">'+(d.contactMethod ? 'Prefers '+esc(d.contactMethod)+' &middot; ' : '')+fmtDate(d.createdAt)+'</div>'+
         '<div class="rtext">'+esc(d.message)+'</div>'+
         (d.colors && d.colors.length ? '<div class="rtext" style="margin-top:4px;"><strong>Colors requested:</strong> '+d.colors.map(esc).join(', ')+'</div>' : '')+
         (feetEstimate ? '<div class="rtext" style="margin-top:4px; font-weight:600; color:var(--dusk);">'+esc(feetEstimate)+'</div>' : '')+
