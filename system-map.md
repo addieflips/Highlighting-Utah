@@ -3321,6 +3321,34 @@ there having been clicked once would be the panel lying.
 *Where it's proved*: `comm-centre.test.js` (`npm run test:comm`) RUNS the classifier over
 real message shapes, including her worked example, rather than matching its source.
 
+**The sidebar is yours to shape** ([[MSG-15]], 2026-09-09). Addie: *"for inbox I have no way
+of adding anything deleting anything or adding a whole new section with subtabs? Can we get
+that added so I can make it like this?"* **＋ New section** at the bottom of the sidebar
+builds one: a name, an icon, what belongs in it, and as many subtabs as you like — the same
+shape as Member Messages and its five.
+
+⛔ **A section is a saved filter, not a folder.** This is not the folders coming back. Nothing
+is *moved* into a section: a message shows up in every view it matches, so it can be in two
+sections at once, and **deleting a section can never lose a message**. That is why there is
+no "put this message here" anywhere in it — the whole point of [[MSG-12]] was that filing a
+message in one place is how it goes missing.
+
+**What a filter is made of:** message type, category, status, priority, and optionally words
+that must appear. Nothing ticked in a row means *any*; ticks in different rows must **all**
+match. A subtab **narrows** its section and can never reach outside it, so a Payments subtab
+under a Member section shows member payment questions, never system payment notices.
+
+**Every filter shows a live count while you build it**, so you can see what a tab will hold
+before saving. Nothing is written until **Save** — Cancel leaves everything as it was.
+
+**The four built-in sections can be hidden, not deleted.** They are the spine the dashboard
+tiles are built on, so deleting one would leave those tiles pointing at nothing. Hidden ones
+are listed at the bottom of the sidebar with a one-click way back.
+
+⚠ Sections live in `settings/commSections`, one small document. If two people edit sections
+at the same moment, the last save wins — they change rarely enough that this is the right
+trade, and it is the same one the scheduling settings already make.
+
 **How to reach them** ([[MSG-14]], 2026-09-09). Addie: *"on inbox can you show email and
 phone number under name so I can communicate with them?"* The phone and the email now sit on
 their **own line directly under the name**, as a `tel:` link and a `mailto:` link she can
