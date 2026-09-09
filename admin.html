@@ -30932,6 +30932,10 @@ function openRoofMeasure(quoteId){
        back would drop it. */
     const photos = quotePhotoList(item.data);
     const failed = [];
+    /* ⚠ THE FIRST REASON, KEPT. Every picture in one press fails for the same reason
+       in practice, and the first is the one that has not been overwritten by a
+       knock-on — see uploadFailAdvice for why the office has to be told it. */
+    let failWhy = '';
     let added = 0;
     for(let i = 0; i < rmShots.length; i++){
       status.textContent = rmShots.length > 1 ? ('Uploading ' + (i+1) + ' of ' + rmShots.length + '…') : 'Uploading…';
@@ -30954,9 +30958,25 @@ function openRoofMeasure(quoteId){
         }
         photos.push({url: url, original: original, markup: rmShots[i].markup || [], label: rmShots[i].label});
         added++;
-      } catch(err){ failed.push(i+1); }
+      } catch(err){
+        failed.push(i+1);
+        if(!failWhy) failWhy = (err && err.message) || String(err);
+        /* ⭐ AND IT GOES WHERE IT KEEPS. console.error is wired to the Admin Errors
+           folder, so the next time this happens the reason is already filed and
+           nobody has to be standing at the screen to catch it. */
+        console.error('Attach: a picture would not upload —', failWhy);
+      }
     }
-    if(!added){ status.textContent = 'Nothing uploaded — try again.'; btn.disabled = false; return; }
+    if(!added){
+      /* ⭐ IT SAYS WHY, AND SAYS THE SERVICE'S OWN WORDS AFTER IT (2026-09-09).
+         ⚠ THIS LINE USED TO BE "Nothing uploaded — try again." and nothing else, which
+         is the same failure as a dead button one step further on: it is the identical
+         sentence whether the account is switched off, the preset is wrong, the wifi
+         dropped or the file was refused — four different things to do, and no way to
+         tell which. Owner's standing rule, 2026-08-25: "nothing should fail quietly." */
+      status.textContent = uploadFailAdvice(failWhy) + (failWhy ? ' (' + failWhy + ')' : '');
+      btn.disabled = false; return;
+    }
     /* The first picture just added. Taken BEFORE the write, because the list
        is what the markup tool indexes into. */
     const firstNew = photos.length - added;
@@ -30968,7 +30988,13 @@ function openRoofMeasure(quoteId){
       rmShots.forEach(function(s){ URL.revokeObjectURL(s.preview); });
       rmShots = []; rmRenderStaged();
       status.textContent = '';
-      if(failed.length){ status.textContent = 'Could not upload ' + failed.length + ' of them.'; btn.disabled = false; return; }
+      if(failed.length){
+        /* The ones that DID land are already saved above; this is about the rest, and
+           it names the reason for the same reason the all-failed line does. */
+        status.textContent = 'Could not upload ' + failed.length + ' of them — ' +
+          uploadFailAdvice(failWhy) + (failWhy ? ' (' + failWhy + ')' : '');
+        btn.disabled = false; return;
+      }
       /* ⭐ THE FEET AND THE PRICE GO ON IN THE SAME PRESS, and onto the customer
          behind the quote when there is one - see rmSaveNumbersOnAttach. */
       const saidNumbers = await rmSaveNumbersOnAttach();
@@ -31936,9 +31962,43 @@ async function uploadOneToCloudinary(file){
   fd.append('file', file);
   fd.append('upload_preset', CLOUDINARY_PRESET);
   const res = await fetch('https://api.cloudinary.com/v1_1/'+CLOUDINARY_CLOUD+'/image/upload', { method:'POST', body: fd });
-  const data = await res.json();
-  if(!data.secure_url) throw new Error((data.error && data.error.message) || 'Upload failed');
-  return data.secure_url;
+  /* ⭐ IT ALWAYS THROWS SOMETHING SOMEBODY CAN ACT ON (2026-09-09). The service
+     spent an afternoon answering a plain 401 with `cloud_name ... is disabled`, and
+     not one person could find that out — every caller printed a line of its own and
+     the service's own words never left this function.
+     ⚠ res.json() IS ITSELF A THING THAT THROWS, which is how the reason got lost.
+     A gateway page or an empty body is not JSON, so what reached the caller was the
+     PARSER's complaint — "Unexpected token <" — about a response the service had
+     already explained itself in. The status is kept whatever the body turns out to
+     be, so even a refusal that says nothing at all still arrives with its number. */
+  let data = null;
+  try{ data = await res.json(); }
+  catch(err){ /* not JSON — deliberately quiet, because the status below is then the only
+                thing there is to report and the parser's own words are about the wrong
+                subject entirely. */ }
+  if(data && data.secure_url) return data.secure_url;
+  const said = (data && data.error && data.error.message) || res.statusText || 'Upload failed';
+  throw new Error('Cloudinary ' + res.status + ': ' + said);
+}
+/* ⭐ AND WHAT TO DO ABOUT IT, NOT ONLY THAT IT HAPPENED (2026-09-09). Owner, on the
+   Measure Roof attach button: "out of no where ... it fails when i click attach to
+   quote." The whole picture account had been switched off — uploads AND every
+   photograph already sitting on a quote — and the single line the office was given
+   read "Nothing uploaded — try again."
+   ⚠ "TRY AGAIN" WAS THE WORST INSTRUCTION AVAILABLE. Retrying could not work at any
+   hour of any day, and it reads as a glitch worth waiting out rather than as a bill
+   somebody has to go and settle — so the one action that would have fixed it was the
+   one nobody was told to take. A message that sends the office somewhere useless is
+   not better than silence; it costs the same day and feels like an answer.
+   ⚠ IT NEVER REPLACES THE ORIGINAL, only leads it. The advice is a GUESS made from a
+   message; the message is the FACT. Callers print both, in that order. */
+function uploadFailAdvice(msg){
+  const m = String(msg || '');
+  if(/disabled/i.test(m)) return 'The picture service account is switched off, so nothing can be uploaded — and the photographs already on quotes will not show either. That is billing on the Cloudinary account, not something Attach can retry.';
+  if(/preset|unsigned/i.test(m)) return 'The picture service will not accept our upload preset — check the unsigned preset on the Cloudinary account.';
+  if(/rate limit|too many|quota|limit reached/i.test(m)) return 'The picture service is holding us off for the moment — wait a minute, then press Attach again.';
+  if(/failed to fetch|networkerror|load failed|network/i.test(m)) return 'Could not reach the picture service — check the connection, then press Attach again.';
+  return 'The picture service refused the upload.';
 }
 /* Cloudinary's hard cap is 10MB, and a phone screenshot or a photo straight
    off a modern camera can easily blow past that. Nothing this app displays a
