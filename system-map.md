@@ -3083,6 +3083,18 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
       - ⚠ **A resend from EmailJS is invisible to this app.** It never passes through
         admin.html, so no stamp is written and those customers keep appearing in
         `rsvpNeverReached`. The row's own note says so.
+      - ⭐ **AND SHE CAN TELL THE APP IT IS DONE** ([[EM-06]]). *"So if we resend tomorrow
+        will it move passed people who have already been sent email?"* — the two routes
+        answer that differently, and that is the thing to be clear about. **EmailJS's
+        resend touches only the messages that failed**, because a successful send raised
+        no error email, so it cannot reach anybody who already got it. **The app's own
+        Send the whole RSVP would mail the whole book again**, because nobody from that
+        run carries `rsvpEmailedAt` — the stamp did not exist when it ran.
+        `rsvpMarkAllAsked` closes the gap: it stamps everybody the planner would have
+        written to, so the app stops offering to ask them again and the row goes quiet.
+        ⚠ It marks the **planner's** list, never the whole book, and takes a dry run then
+        a typed word — a customer wrongly marked as asked is never asked again this
+        season, while a missing stamp only ever costs a duplicate.
     - Each row carries its own reason rather than the run's last one, so the next occurrence
       names itself. 10 sabotages red-checked across the two passes.
   - ⚠ **The `{{quote_` prefix inside it is built with `String.fromCharCode(123,123)`.** Suites

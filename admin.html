@@ -3172,6 +3172,12 @@
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
           <button type="button" class="btn btn-outline btn-sm" id="rsvpWholeCheckBtn">Check first &mdash; who gets what</button>
           <button type="button" class="btn btn-gold" id="rsvpWholeSendBtn">Send the whole RSVP</button>
+          <!-- ⭐ EM-06. For the one season where the RSVP went out before the app started
+               recording who it reached, and for any send finished OUTSIDE the app — a
+               resend from EmailJS's own error emails never passes through here, so no
+               stamp is written and everybody keeps reading as never-asked. Without this
+               the next press of the button above mails the whole book a second time. -->
+          <button type="button" class="btn btn-outline btn-sm" id="rsvpMarkAllAskedBtn">They have all been asked &mdash; record it</button>
         </div>
         <div id="rsvpWholeStatus" style="font-size:13px; color:var(--slate); margin:0 0 8px;"></div>
         <div id="rsvpWholeBreakdown" style="font-size:13px;"></div>
@@ -43561,6 +43567,73 @@ document.getElementById('sendFailureRetryBtn')?.addEventListener('click', async 
     if(statusEl) statusEl.textContent = 'Stopped — ' + (err && err.message ? err.message : 'something went wrong') + '. The list above is unchanged.';
   }
   this.disabled = false;
+});
+/* ⭐ RECORDING A SEND THAT HAPPENED SOMEWHERE ELSE (added 2026-09-09, EM-06).
+   Addie is resending the customers Gmail refused from EmailJS's own error emails, which
+   is the right way to do it — EmailJS knows exactly which 401 failed and this app knows
+   none of them. But those sends never pass through admin.html, so no `rsvpEmailedAt` is
+   written, everybody keeps reading as never-asked, and the next press of Send the whole
+   RSVP would mail the entire book a second time. This is how she tells the app that the
+   asking is finished.
+
+   ⚠ IT STAMPS ONLY WHO THE SEND WOULD HAVE GONE TO, taken from the same planner the
+   button uses. Stamping the do-not-send list or somebody with no email would be
+   recording that we wrote to people we did not and cannot write to.
+
+   ⚠ AND IT IS A DRY RUN FIRST, then a typed word — CLAUDE.md §5, the same shape as every
+   other mass write here. The asymmetry is what earns it: a customer wrongly marked as
+   asked is never asked again this season, and because only people who have answered are
+   scheduled, that is a house no crew is sent to. A missing stamp only costs a duplicate.
+   ⚠ THE COUNT IS SHOWN BEFORE ANYTHING IS WRITTEN and the names of the first few with
+   it, because "mark 947 people" is a number nobody can check and a handful of names is. */
+async function rsvpMarkAllAsked(){
+  const st = document.getElementById('rsvpWholeStatus');
+  const plan = rsvpWholePlan();
+  if(!plan.ready){ if(st) st.textContent = plan.why; return; }
+  const targets = plan.standard.concat(plan.arrears);
+  if(!targets.length){
+    if(st) st.textContent = 'Nobody is waiting to be asked — there is nothing to record.';
+    return;
+  }
+  const sample = targets.slice(0, 5).map(function(t){ return (t.data && t.data.name) || '(no name)'; }).join(', ');
+  if(!confirm('Record that all ' + targets.length + ' of these customers have already been asked?\n\n'
+    + sample + (targets.length > 5 ? ', and ' + (targets.length - 5) + ' more' : '') + '\n\n'
+    + 'Use this ONLY when they really have been emailed — for example after resending from '
+    + 'EmailJS. Send the whole RSVP will then skip them.\n\n'
+    + 'Anybody marked wrongly is never asked again this season, and nobody who has not '
+    + 'answered is scheduled.')) return;
+  const typed = prompt('Type ASKED to confirm.');
+  if(String(typed || '').trim().toUpperCase() !== 'ASKED'){
+    if(st) st.textContent = 'Cancelled — nothing was recorded.';
+    return;
+  }
+  let done = 0, failed = 0;
+  for(const chunk of ssnChunk(targets, 400)){
+    const batch = writeBatch(db);
+    chunk.forEach(function(a){ batch.update(doc(db,'jobAddresses', a.id), { rsvpEmailedAt: serverTimestamp() }); });
+    try{
+      await batch.commit();
+      /* Mirrored only AFTER the commit lands — the other way round shows her a season
+         marked asked that was never written. */
+      chunk.forEach(function(a){ a.data.rsvpEmailedAt = new Date(); });
+      done += chunk.length;
+    }catch(err){
+      console.error('[HU] could not record that the RSVP was sent:', err);
+      failed += chunk.length;
+    }
+    if(st) st.textContent = 'Recording… ' + done + ' of ' + targets.length;
+  }
+  if(st) st.textContent = 'Recorded — ' + done + ' marked as already asked'
+    + (failed ? ', ' + failed + ' could not be saved (try again)' : '')
+    + '. Send the whole RSVP will now skip them.';
+  rsvpWholeRenderBreakdown(rsvpWholePlan());
+}
+document.getElementById('rsvpMarkAllAskedBtn')?.addEventListener('click', function(){
+  rsvpMarkAllAsked().catch(function(err){
+    console.error('[HU] mark-all-asked:', err);
+    const st = document.getElementById('rsvpWholeStatus');
+    if(st) st.textContent = 'Something went wrong — ' + (err && err.message ? err.message : 'nothing was recorded') + '.';
+  });
 });
 /* Read once at login. Not a listener: this changes about once a season, and a live
    listener on settings/season would be an open connection for a single date. */

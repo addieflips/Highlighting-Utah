@@ -48337,6 +48337,37 @@ suite('287. The routine route sweep does not bury the notice that matters');
     /if\(isRsvp\)\{[\s\S]{0,400}?rsvpEmailedAt: serverTimestamp\(\)/.test(admin),
     'an invoice or a receipt is not the season\'s question; stamping one makes ' +
     'somebody look asked when nobody has asked them');
+  /* ⭐ RECORDING A SEND THAT HAPPENED OUTSIDE THE APP (EM-06). A resend from EmailJS's
+     own error emails never passes through admin.html, so nothing is stamped and the next
+     press of Send the whole RSVP would mail the entire book a second time. */
+  {
+    const markFn = extractFn(admin, 'rsvpMarkAllAsked');
+    check('S288', 'the mark-as-asked tool is findable',
+      !!markFn, 'renamed or removed — repoint this check');
+    if (markFn) {
+      /* ⚠ THE TARGETS ARE THE PLANNER'S, NEVER THE WHOLE BOOK. Stamping the do-not-send
+         list or somebody with no email records that we wrote to people we cannot write
+         to — and marks them asked for ever, so they are never asked and, because only
+         answered customers are scheduled, never visited. */
+      check('S288', 'it marks only who the send would have gone to',
+        /plan\.standard\.concat\(plan\.arrears\)/.test(markFn) &&
+        markFn.indexOf('jobAddresses.forEach') === -1,
+        'it must take its list from rsvpWholePlan, not from every customer');
+      /* ⚠ A TYPED WORD, like every other mass write here (CLAUDE.md §5). The asymmetry
+         earns it: a wrong stamp is a customer never asked again this season. */
+      check('S288', 'and it will not run on a stray click',
+        /ASKED/.test(markFn) && /prompt\(/.test(markFn),
+        'a one-click mass write that can strand ~950 customers outside the season');
+      /* ⚠ MIRRORED AFTER THE COMMIT, NEVER BEFORE. The other order shows her a season
+         marked asked that was never written — and she would then not send it. */
+      const commitAt = markFn.indexOf('await batch.commit()');
+      const mirrorAt = markFn.indexOf('a.data.rsvpEmailedAt = new Date()');
+      check('S288', 'and the local mirror follows the write rather than leading it',
+        commitAt !== -1 && mirrorAt !== -1 && commitAt < mirrorAt,
+        'mirroring first paints a send that never happened');
+    }
+  }
+
   check('S288', 'and the season reset clears the office stamp as well',
     /rsvpEmailedAt: null/.test(admin),
     'left standing, a new season opens with the whole book already marked asked and ' +
