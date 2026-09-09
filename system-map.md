@@ -3025,6 +3025,21 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
       - ⚠ **The retry time is what tells the two causes apart**, so it is shown in local time
         and in words (`sendStoppedNote`): minutes away is the rate limit and waiting works;
         hours away is the day's sending cap and the rest go tomorrow.
+      - ⭐ **AND A SHORT REFUSAL IS WAITED OUT RATHER THAN HANDED BACK** (2026-09-09,
+        [[EM-03]]). The second refusal named a time **minutes** away — the rate limit
+        clearing — so the send now sits through it and carries on by itself rather than
+        stopping and asking the office to press the button again. Bounded three ways, or
+        the tab looks busy for ever: a wait under `EMAIL_MAX_AUTO_WAIT_MS` (15 min), at
+        most `EMAIL_MAX_AUTO_WAITS` (6) in a run, and only when Gmail named a time.
+        - ⚠ **The length ceiling is what keeps the two causes apart.** A rate limit clears
+          in minutes; the day's cap clears at midnight Pacific and no wait inside one run
+          fixes it, so a long one stops and the rest go tomorrow. The count ceiling is
+          about being readable: a send throttled every few customers would run for hours
+          looking healthy, and nobody watching can tell slow from stuck.
+        - ⚠ **The retry wraps the send only, never the message build** — rebuilding asks
+          `referralOfferFor` about one customer twice and double-counts them in
+          `noReferral`. Asserted by COUNT: a check that only asked whether the first call
+          sat outside the loop passed with a second one added inside.
       - ⚠ **Only a refusal about RATE halts the run.** An ordinary bounce or a bad address skips
         that one person and the send carries on — a parser that stopped on any failure would
         halt the season's RSVP over one bad address. `emailSendRetryAfter` is **run** against
