@@ -10447,6 +10447,8 @@ document.getElementById('sendBulkUpdateEmailBtn')?.addEventListener('click', asy
   let sent = 0, failed = 0, rateStop = null;
   /* Shared across the whole run — see emailSendPaced (EM-08). */
   const paceCtx = { autoWaits: 0 };
+  /* WHO failed, not only how many (EM-09). */
+  const failedRecipients = [];
   for(const item of withEmail){
     const d = item.data;
     /* Key-based lookup, not phone-based — see the note in the single-send
@@ -10475,14 +10477,31 @@ document.getElementById('sendBulkUpdateEmailBtn')?.addEventListener('click', asy
       if(paced.sent) sent++;
       else {
         failed++; lastEmailSendError = paced.err;
+        /* ⭐ AND WHO IT WAS, NOT ONLY HOW MANY (2026-09-09, EM-09). Addie: "it should
+           also note whos email failed to send this is the biggest peice." These four
+           senders reported a bare count — including the INVOICE and RECEIPT runs, so a
+           customer whose bill never arrived was invisible and simply never chased. */
+        failedRecipients.push({ id: item.id, name: d.name || '', email: d.email || '',
+          why: String((paced.err && (paced.err.text || paced.err.message || paced.err.status)) || 'no reason was given').slice(0, 200) });
         /* ⚠ Gmail's limit is on the ACCOUNT: carrying on refuses every remaining send
            and spends an EmailJS request each time being told so. */
-        if(paced.until){ rateStop = paced.until; break; }
+        if(paced.until){
+          rateStop = paced.until;
+          /* Everybody behind the stop was never tried — recorded so the list and the
+             count agree, and so they can be reached. */
+          withEmail.slice(withEmail.indexOf(item) + 1).map(function(x){ return { id: x.id, name: (x.data && x.data.name) || '', email: (x.data && x.data.email) || '', why: 'not attempted \u2014 Gmail stopped the send' }; }).forEach(function(r){ failed++; failedRecipients.push(r); });
+          break;
+        }
       }
     }
   }
   statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.' + sendStoppedNote(rateStop);
   reportEmailSendFailures(failed, sent);
+  /* ⭐ SAVED SO THE CARD CAN NAME THEM (EM-09). `resend: false` because this send's
+     body comes from a box on this tab rather than a saved template, so there is
+     nothing for the Send-again button to re-render — they are listed to be SEEN and
+     chased from here. Saying so beats a button that silently does nothing. */
+  await saveEmailSendFailures([{ templateId: '', templateName: 'Bulk update email (Automation tab)', resend: false, people: failedRecipients }]);
 });
 document.getElementById('bulkAutoTestBtn')?.addEventListener('click', async function(){
   const statusEl = document.getElementById('bulkAutoTestStatus');
@@ -10549,6 +10568,8 @@ document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async fun
   let sent = 0, failed = 0, rateStop = null;
   /* Shared across the whole run — see emailSendPaced (EM-08). */
   const paceCtx = { autoWaits: 0 };
+  /* WHO failed, not only how many (EM-09). */
+  const failedRecipients = [];
   for(const item of withEmail){
     const d = item.data;
     const footer = await buildOutgoingEmailFooter(d.phone, 0, {includePortal: document.getElementById('rsvpIncludePortal')?.checked, includeVenmo: false, includeMessages: document.getElementById('rsvpIncludeMessages')?.checked});
@@ -10580,14 +10601,31 @@ document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async fun
       if(paced.sent) sent++;
       else {
         failed++; lastEmailSendError = paced.err;
+        /* ⭐ AND WHO IT WAS, NOT ONLY HOW MANY (2026-09-09, EM-09). Addie: "it should
+           also note whos email failed to send this is the biggest peice." These four
+           senders reported a bare count — including the INVOICE and RECEIPT runs, so a
+           customer whose bill never arrived was invisible and simply never chased. */
+        failedRecipients.push({ id: item.id, name: d.name || '', email: d.email || '',
+          why: String((paced.err && (paced.err.text || paced.err.message || paced.err.status)) || 'no reason was given').slice(0, 200) });
         /* ⚠ Gmail's limit is on the ACCOUNT: carrying on refuses every remaining send
            and spends an EmailJS request each time being told so. */
-        if(paced.until){ rateStop = paced.until; break; }
+        if(paced.until){
+          rateStop = paced.until;
+          /* Everybody behind the stop was never tried — recorded so the list and the
+             count agree, and so they can be reached. */
+          withEmail.slice(withEmail.indexOf(item) + 1).map(function(x){ return { id: x.id, name: (x.data && x.data.name) || '', email: (x.data && x.data.email) || '', why: 'not attempted \u2014 Gmail stopped the send' }; }).forEach(function(r){ failed++; failedRecipients.push(r); });
+          break;
+        }
       }
     }
   }
   statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.' + sendStoppedNote(rateStop);
   reportEmailSendFailures(failed, sent);
+  /* ⭐ SAVED SO THE CARD CAN NAME THEM (EM-09). `resend: false` because this send's
+     body comes from a box on this tab rather than a saved template, so there is
+     nothing for the Send-again button to re-render — they are listed to be SEEN and
+     chased from here. Saying so beats a button that silently does nothing. */
+  await saveEmailSendFailures([{ templateId: '', templateName: 'RSVP email (RSVP tab)', resend: false, people: failedRecipients }]);
 });
 /* ---- RSVP preview + recipient picker ---- */
 let rsvpRecipientSearchTerm = '';
@@ -10757,6 +10795,8 @@ document.getElementById('pibSendUnpaidBtn')?.addEventListener('click', async fun
   let sent = 0, failed = 0, rateStop = null;
   /* Shared across the whole run — see emailSendPaced (EM-08). */
   const paceCtx = { autoWaits: 0 };
+  /* WHO failed, not only how many (EM-09). */
+  const failedRecipients = [];
   for(const row of withEmail){
     const footer = await buildOutgoingEmailFooter(row.phone, row.amount, {includePortal: document.getElementById('pibUnpaidIncludePortal')?.checked, includeVenmo: document.getElementById('pibUnpaidIncludeVenmo')?.checked, includeMessages: document.getElementById('pibUnpaidIncludeMessages')?.checked});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount), row.phone, row.amount) + footer;
@@ -10776,14 +10816,31 @@ document.getElementById('pibSendUnpaidBtn')?.addEventListener('click', async fun
       if(paced.sent) sent++;
       else {
         failed++; lastEmailSendError = paced.err;
+        /* ⭐ AND WHO IT WAS, NOT ONLY HOW MANY (2026-09-09, EM-09). Addie: "it should
+           also note whos email failed to send this is the biggest peice." These four
+           senders reported a bare count — including the INVOICE and RECEIPT runs, so a
+           customer whose bill never arrived was invisible and simply never chased. */
+        failedRecipients.push({ id: row.id || '', name: row.name || '', email: row.email || '',
+          why: String((paced.err && (paced.err.text || paced.err.message || paced.err.status)) || 'no reason was given').slice(0, 200) });
         /* ⚠ Gmail's limit is on the ACCOUNT: carrying on refuses every remaining send
            and spends an EmailJS request each time being told so. */
-        if(paced.until){ rateStop = paced.until; break; }
+        if(paced.until){
+          rateStop = paced.until;
+          /* Everybody behind the stop was never tried — recorded so the list and the
+             count agree, and so they can be reached. */
+          withEmail.slice(withEmail.indexOf(row) + 1).map(function(x){ return { id: x.id || '', name: x.name || '', email: x.email || '', why: 'not attempted \u2014 Gmail stopped the send' }; }).forEach(function(r){ failed++; failedRecipients.push(r); });
+          break;
+        }
       }
     }
   }
   statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.' + sendStoppedNote(rateStop);
   reportEmailSendFailures(failed, sent);
+  /* ⭐ SAVED SO THE CARD CAN NAME THEM (EM-09). `resend: false` because this send's
+     body comes from a box on this tab rather than a saved template, so there is
+     nothing for the Send-again button to re-render — they are listed to be SEEN and
+     chased from here. Saying so beats a button that silently does nothing. */
+  await saveEmailSendFailures([{ templateId: '', templateName: 'Invoice emails — unpaid (Invoices tab)', resend: false, people: failedRecipients }]);
 });
 document.getElementById('pibUnpaidTestBtn')?.addEventListener('click', async function(){
   const statusEl = document.getElementById('pibUnpaidTestStatus');
@@ -10825,6 +10882,8 @@ document.getElementById('pibSendPaidBtn')?.addEventListener('click', async funct
   let sent = 0, failed = 0, rateStop = null;
   /* Shared across the whole run — see emailSendPaced (EM-08). */
   const paceCtx = { autoWaits: 0 };
+  /* WHO failed, not only how many (EM-09). */
+  const failedRecipients = [];
   for(const row of withEmail){
     const footer = await buildOutgoingEmailFooter(row.phone, 0, {includePortal: document.getElementById('pibPaidIncludePortal')?.checked, includeVenmo: false, includeMessages: document.getElementById('pibPaidIncludeMessages')?.checked});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount), row.phone, 0) + footer;
@@ -10844,14 +10903,31 @@ document.getElementById('pibSendPaidBtn')?.addEventListener('click', async funct
       if(paced.sent) sent++;
       else {
         failed++; lastEmailSendError = paced.err;
+        /* ⭐ AND WHO IT WAS, NOT ONLY HOW MANY (2026-09-09, EM-09). Addie: "it should
+           also note whos email failed to send this is the biggest peice." These four
+           senders reported a bare count — including the INVOICE and RECEIPT runs, so a
+           customer whose bill never arrived was invisible and simply never chased. */
+        failedRecipients.push({ id: row.id || '', name: row.name || '', email: row.email || '',
+          why: String((paced.err && (paced.err.text || paced.err.message || paced.err.status)) || 'no reason was given').slice(0, 200) });
         /* ⚠ Gmail's limit is on the ACCOUNT: carrying on refuses every remaining send
            and spends an EmailJS request each time being told so. */
-        if(paced.until){ rateStop = paced.until; break; }
+        if(paced.until){
+          rateStop = paced.until;
+          /* Everybody behind the stop was never tried — recorded so the list and the
+             count agree, and so they can be reached. */
+          withEmail.slice(withEmail.indexOf(row) + 1).map(function(x){ return { id: x.id || '', name: x.name || '', email: x.email || '', why: 'not attempted \u2014 Gmail stopped the send' }; }).forEach(function(r){ failed++; failedRecipients.push(r); });
+          break;
+        }
       }
     }
   }
   statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.' + sendStoppedNote(rateStop);
   reportEmailSendFailures(failed, sent);
+  /* ⭐ SAVED SO THE CARD CAN NAME THEM (EM-09). `resend: false` because this send's
+     body comes from a box on this tab rather than a saved template, so there is
+     nothing for the Send-again button to re-render — they are listed to be SEEN and
+     chased from here. Saying so beats a button that silently does nothing. */
+  await saveEmailSendFailures([{ templateId: '', templateName: 'Receipt emails — paid (Invoices tab)', resend: false, people: failedRecipients }]);
 });
 document.getElementById('pibPaidTestBtn')?.addEventListener('click', async function(){
   const statusEl = document.getElementById('pibPaidTestStatus');
@@ -43560,6 +43636,10 @@ async function saveEmailSendFailures(passes){
         passes: keep.map(p => ({
           templateId: p.templateId || '',
           templateName: p.templateName || '',
+          /* ⚠ FALSE means "listed so she can SEE who missed out", not "forgotten" — that
+             send's body came from a box on its own tab, so there is no saved template for
+             the button to re-render (EM-09). The card says where to go instead. */
+          resend: p.resend !== false,
           total: p.people.length,
           people: p.people.slice(0, SEND_FAILURE_LIST_CAP)
         }))
@@ -43614,6 +43694,7 @@ function renderSendFailureCard(){
     const more = (Number(p.total) || 0) - Math.min(8, (p.people || []).length);
     return '<div style="margin-bottom:10px;"><strong>' + esc(p.templateName || 'this email') + '</strong> &mdash; ' +
            (Number(p.total) || 0) + ' did not get it' +
+           (p.resend === false ? ' <span style="color:var(--slate);">(send these again from that tab — the button below cannot rebuild this one)</span>' : '') +
            '<ul style="margin:4px 0 0 18px; padding:0;">' + shown +
            (more > 0 ? '<li style="color:var(--slate);">&hellip; and ' + more + ' more</li>' : '') + '</ul></div>';
   }).join('');
@@ -43633,15 +43714,29 @@ document.getElementById('sendFailureRetryBtn')?.addEventListener('click', async 
   const publicKey = document.getElementById('emailjsPublicKey').value.trim();
   if(!serviceId || !templateJsId || !publicKey){ if(statusEl) statusEl.textContent = 'Set up EmailJS (EmailJS Setup tab) first.'; return; }
   if(!window.emailjs){ if(statusEl) statusEl.textContent = 'Email service failed to load — check your connection.'; return; }
-  const total = sendFailureTotal();
+  /* ⚠ ONLY WHAT THIS BUTTON CAN ACTUALLY REBUILD. Offering to re-send a list it holds no
+     template for is a button that does nothing, which is worse than saying so (EM-09). */
+  const sendable = passes.filter(p => p.resend !== false);
+  const listedOnly = passes.filter(p => p.resend === false)
+    .reduce((n, p) => n + (Number(p.total) || 0), 0);
+  if(!sendable.length){
+    if(statusEl) statusEl.textContent = 'These ' + listedOnly + ' are listed so you can see who '
+      + 'missed out, but they were not sent from a saved template — send them again from the tab named above.';
+    return;
+  }
+  const total = sendable.reduce((n, p) => n + (Number(p.total) || 0), 0);
   if(!confirm('Send again to the ' + total + ' customer(s) who did not get it?\n\n'
-    + 'Only these people are emailed — nobody who already got it is sent a second copy.')) return;
+    + 'Only these people are emailed — nobody who already got it is sent a second copy.'
+    + (listedOnly ? '\n\n' + listedOnly + ' other(s) are listed but cannot be re-sent from here.' : ''))) return;
   this.disabled = true;
   let sent = 0, failed = 0, rateStop = null;
   const stillFailing = [];
   try{
     emailjs.init(publicKey);
-    for(const p of passes){
+    /* Listed-only passes carry straight across — they were never going to be sent from
+       here, and dropping them is the silence this card exists to end. */
+    passes.filter(p => p.resend === false).forEach(p => stillFailing.push(p));
+    for(const p of sendable){
       const template = emailTemplates.find(t => t.id === p.templateId);
       if(!template){
         /* Kept, not dropped. Losing them here would be the same silence this card exists
@@ -43662,7 +43757,7 @@ document.getElementById('sendFailureRetryBtn')?.addEventListener('click', async 
          on the list untried rather than spent finding out the same thing. */
       if(r.rateLimitedUntil){
         rateStop = r.rateLimitedUntil;
-        passes.slice(passes.indexOf(p) + 1).forEach(function(rest){ stillFailing.push(rest); });
+        sendable.slice(sendable.indexOf(p) + 1).forEach(function(rest){ stillFailing.push(rest); });
         break;
       }
     }

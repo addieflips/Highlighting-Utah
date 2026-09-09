@@ -691,6 +691,21 @@ console.log('--- wiring ---');
     'expected the helper plus one call in each of the four status-line senders; found ' +
     pacedCalls + '. A sender that skips it can still trip the limit that lost 392 emails');
 
+  /* ⭐ AND EVERY ONE OF THEM NAMES WHO FAILED (EM-09). Addie: "it should also note whos
+     email failed to send this is the biggest peice." Four of the five reported a bare
+     COUNT — including the INVOICE and RECEIPT runs, so a customer whose bill never
+     arrived was invisible and simply never chased. A count cannot be acted on; that is
+     the whole lesson of the 392. */
+  const named = admin.split('failedRecipients.push(').length - 1;
+  const saved = (admin.split('await saveEmailSendFailures(').length - 1);
+  check('every bulk sender records WHO it failed for, not just how many',
+    named === 11 && saved === 7,
+    'expected 11 pushes — three in the RSVP runner (no email, refused, untried after a ' +
+    'stop) and two in each of the four others — and 7 saves: one per sender, the ' +
+    'whole-RSVP button, and the retry rewriting the list. Found ' + named + ' push(es), ' +
+    saved + ' save(s). A sender that only counts leaves those customers invisible, which ' +
+    'is the whole lesson of the 392');
+
   /* ⚠ THE RULE IS IN TWO PLACES AND THAT IS A DELIBERATE, NAMED COST. The RSVP runner
      keeps its own inline copy because it was already shipped and working, and Addie's
      instruction was "make sure no code is changed unless we need the code changed" —
