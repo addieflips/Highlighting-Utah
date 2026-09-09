@@ -3710,24 +3710,26 @@
                throwing that away to honour a redesign would be destroying her own work to
                make a point. -->
           <div id="commCentreNav"></div>
-          <div id="customFolderList"></div>
-          <div style="margin-top:14px;">
-            <label for="newFolderInput" style="display:block; font-size:11.5px; font-weight:700; color:var(--slate); margin-bottom:4px;">New folder</label>
-            <input type="text" id="newFolderInput" placeholder="Folder name" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:12.5px; margin-bottom:6px;">
-            <label for="newFolderParent" style="display:block; font-size:11.5px; font-weight:700; color:var(--slate); margin-bottom:4px;">Inside</label>
-            <select id="newFolderParent" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:12.5px; margin-bottom:6px;">
-              <option value="">-- Top Level --</option>
-            </select>
-            <button type="button" class="btn btn-gold btn-sm" id="addFolderBtn" style="width:100%;">+ Add Folder</button>
-            <div class="folder-add-status" id="folderAddStatus"></div>
-          </div>
-        </div>
+          <!-- ⛔ THE FOLDER TREE IS GONE (2026-09-09, [[MSG-12]]). Addie, once the
+               type/status/category system was in: "can we just get rid of your folders
+               altogether if the system is made?" Every one of the eight folders this
+               used to create maps onto a category she now has — Billing onto Payment,
+               Change My Light Colors onto Lights / Colors, Reschedule onto Scheduling —
+               so the tree had become a second way of saying the same thing, and the one
+               that had to be kept in step by hand.
+               ⚠ THE `folder` FIELD IS NOT DELETED AND IS STILL READ. `msgTypeOf` uses
+               folder === 'System' to recognise notices written before the topic list
+               existed, and every message keeps whatever it was filed under. Nothing was
+               written to the database to take this away: the UI stopped offering it, the
+               records are untouched, and that is what makes this reversible. -->        </div>
         <div class="messages-content">
-          <div class="inbox-tabs">
-            <button type="button" class="inbox-tab active" data-inboxtab="customer">Customer Messages</button>
-            <button type="button" class="inbox-tab" data-inboxtab="employee">Employee Messages<span class="inbox-tab-badge" id="empNotesBadge" style="display:none;">0</span></button>
-            <button type="button" class="inbox-tab" data-inboxtab="system">System Messages<span class="inbox-tab-badge" id="sysMsgBadge" style="display:none;">0</span></button>
-          </div>
+          <!-- ⛔ THE THREE TOP TABS ARE GONE (2026-09-09, [[MSG-13]]). Addie: "how can we
+               make system messages be incorporated in this so that we don't need a
+               seperate tab for this and completley get rid of employee messages."
+               Customer and System were tabs ACROSS the top while the new nav already has
+               them as sections DOWN the side — the same choice offered twice, in two
+               places that could disagree about which was showing. The sidebar keeps it,
+               because that is where the counts and the subtabs live. -->
           <div id="inboxpane-customer">
             <!-- ⭐ THE SUMMARY AT THE TOP, AND EVERY NUMBER ON IT IS A FILTER (blueprint
                  §10): "Clicking '5 Need Reply' immediately filters the inbox to those five."
@@ -3758,15 +3760,15 @@
             </div>
             <div class="row-list" id="messagesList"><div class="empty-note">Loading…</div></div>
           </div>
-          <div id="inboxpane-employee" style="display:none;">
-            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
-              <select id="inboxEmployeeSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
-                <option value="">All Employees</option>
-              </select>
-              <button type="button" class="btn btn-outline btn-sm" id="markAllNotesReadBtn" style="margin-left:auto;">Mark all read</button>
-            </div>
-            <div class="row-list" id="employeeNotesList"><div class="empty-note">Loading…</div></div>
-          </div>
+          <!-- ⛔ EMPLOYEE MESSAGES REMOVED (2026-09-09, [[MSG-13]]). Addie: "completley
+               get rid of employee messages." The crew portal is not in use this season
+               ("were not using the employee portal this year", 2026-08-21), so this pane
+               was reading a collection nobody was filling.
+               ⚠ employee.html STILL WRITES `employeeNotes` — two addDoc calls — and this
+               was the only place the office read them. That is an orphan by §1's own
+               test and it is called out rather than left to be discovered: if the crew
+               portal comes back, either stop that write or fold the notes in as an
+               ordinary message type. Nothing was deleted from the database. -->
           <div id="inboxpane-system" style="display:none;">
             <p style="font-size:13px; margin:0 0 14px;">Notices the system writes on its own &mdash; light colour, wire and timer changes, and crew reassign flags. Kept separate so they don&rsquo;t bury real customer messages.</p>
             <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
@@ -11177,7 +11179,6 @@ function initData(){
   setupEmailTemplateExtras('pibPaidTemplateExtras', 'pibPaidTemplate');
   setupEmailTemplateExtras('rsvpEmailTemplateExtras', 'rsvpEmailTemplate', {supportsAmount: false});
   loadScheduledRoutes();
-  loadEmployeeNotes();
   loadEmailjsSettings();
   loadQuoteTemplateSettings();
   loadQuoteNudgeSettings();
@@ -20192,181 +20193,6 @@ function populateMoveToSelect(){
     flatFolderList().map(f => '<option value="'+esc(f.name)+'">'+esc(new Array(f.depth+1).join('\u2014 ') + f.name)+'</option>').join('');
   sel.value = '';
 }
-function populateNewFolderParentSelect(){
-  const sel = document.getElementById('newFolderParent');
-  if(!sel) return;
-  const current = sel.value;
-  // depth-ordered and indented, so nesting is obvious when picking a parent
-  const flat = flatFolderList();
-  sel.innerHTML = '<option value="">-- Top Level --</option>' + flat.map(f => '<option value="'+f.id+'">'+esc(new Array(f.depth+1).join('\u2014 ') + f.name)+'</option>').join('');
-  if([...sel.options].some(o => o.value === current)) sel.value = current;
-}
-function renderFolderSidebar(){
-  /* The System folder entry was removed from this sidebar — system notices live
-     on the System tab above instead. Messages still carry folder:'System' and are
-     still filtered out of the customer list below; nothing about them changed. */
-  if(selectedFolder === 'System') selectedFolder = 'Inbox';
-  const wrap = document.getElementById('customFolderList');
-  if(!wrap) return;
-  const tree = buildFolderTree();
-  /* Inbox is the first row of the same list rather than a separate static div —
-     see the note in the markup. It carries no id, so it gets no caret, no rename
-     and no delete, and dropping a folder on it means "move to the top level". */
-  wrap.innerHTML = folderRowHtml({name:'Inbox', id:null, indent:0, hasKids:false,
-      collapsed:false, unread:folderUnread('Inbox')}) +
-    tree.map(node => renderFolderNode(node, 0)).join('');
-  populateNewFolderParentSelect();
-  populateMoveToSelect();
-  /* Open and close a branch. ⚠ Bound before the row-level click handler below has
-     a chance to treat the caret as "select this folder" — the click handler bails
-     on a caret press for the same reason it bails on rename and delete. */
-  wrap.querySelectorAll('[data-togglefolder]').forEach(function(btn){
-    btn.addEventListener('click', function(e){
-      e.stopPropagation();
-      const id = btn.dataset.togglefolder;
-      if(collapsedFolders.has(id)) collapsedFolders.delete(id); else collapsedFolders.add(id);
-      saveCollapsedFolders();
-      renderFolderSidebar();
-    });
-  });
-  // click to select folder (all sidebar items, including Inbox)
-  wrap.querySelectorAll('.msg-sidebar-item').forEach(function(item){
-    item.addEventListener('click', function(e){
-      if(e.target.closest('.folder-del') || e.target.closest('.folder-ren') || e.target.closest('.folder-caret')) return;
-      selectedFolder = item.dataset.folder;
-      /* ⚠ PICKING A FOLDER HANDS THE LIST BACK TO THE FOLDER. Without this the tree
-         highlighted a folder while the list went on showing whichever tab was last
-         pressed — two things on screen disagreeing about what you are looking at, which
-         is worse than either being wrong. [[MSG-11]] */
-      commView = {section:'folder', tab:'all'};
-      if(typeof renderCommNav === 'function') renderCommNav();
-      if(typeof renderCommDash === 'function') renderCommDash();
-      document.getElementById('currentFolderLabel').textContent = selectedFolder;
-      /* ⚠ A tick belongs to the list it was made on. Carrying the selection into
-         another folder means Move to… acts on rows nobody can see. */
-      pickedMsgIds.clear();
-      renderFolderSidebar();
-      renderMessagesList();
-    });
-    // folders (not Inbox) can be dragged onto other folders to nest them
-    if(item.dataset.folderid){
-      item.addEventListener('dragstart', function(e){
-        draggingFolderId = item.dataset.folderid;
-        e.dataTransfer.setData('text/x-folder-id', item.dataset.folderid);
-      });
-      item.addEventListener('dragend', function(){ draggingFolderId = null; });
-    }
-    // drag-and-drop target: accepts a dragged message (file it here) or a dragged folder (nest it here)
-    item.addEventListener('dragover', function(e){ e.preventDefault(); item.classList.add('drag-over'); });
-    item.addEventListener('dragleave', function(){ item.classList.remove('drag-over'); });
-    item.addEventListener('drop', function(e){
-      e.preventDefault();
-      item.classList.remove('drag-over');
-      const droppedFolderId = e.dataTransfer.getData('text/x-folder-id');
-      if(droppedFolderId){
-        const targetFolderId = item.dataset.folderid || null; // null means dropped on Inbox = move to top level
-        if(droppedFolderId === targetFolderId) return;
-        if(targetFolderId && isFolderDescendantOf(targetFolderId, droppedFolderId)){
-          toast('Can\'t nest a folder inside its own subfolder');
-          return;
-        }
-        updateDoc(doc(db,'messageFolders',droppedFolderId), {parentId: targetFolderId});
-        toast(targetFolderId ? 'Folder nested' : 'Folder moved to top level');
-        return;
-      }
-      const messageId = e.dataTransfer.getData('text/plain');
-      /* ⚠ filedByHand IS WHAT MAKES THE OFFICE'S FILING STICK. Without it a message
-         dragged out of the folder its topic sends it to would spring straight back on
-         the next render, which reads as the drag not working. See messageFolderOf. */
-      if(messageId) updateDoc(doc(db,'messages',messageId), {folder: item.dataset.folder, filedByHand: true});
-    });
-  });
-  /* Rename. Messages store the folder by NAME (not id), so a rename has to
-     rewrite every message sitting in it or they'd be pointing at a folder
-     that no longer exists and would quietly vanish from every list. */
-  wrap.querySelectorAll('[data-renfolder]').forEach(function(btn){
-    btn.addEventListener('click', function(e){
-      e.stopPropagation();
-      const folderId = btn.dataset.renfolder;
-      const oldName = btn.dataset.renname;
-      const entered = prompt('Rename this folder:', oldName);
-      if(entered === null) return;
-      const newName = entered.trim();
-      if(!newName || newName === oldName) return;
-      if(newName.toLowerCase() === 'inbox' || newName.toLowerCase() === 'system'){ toast('That name is reserved'); return; }
-      if(messageFolders.some(f => f.id !== folderId && f.name.toLowerCase() === newName.toLowerCase())){ toast('A folder with that name already exists'); return; }
-      updateDoc(doc(db,'messageFolders',folderId), {name: newName});
-      /* ⚠ A RENAME IS NOT A FILING for a message that is STORED here — it follows the
-         folder rather than overruling the topic, so it does not stamp filedByHand.
-         Stamping every message in a renamed folder would pin the lot against their
-         topic for ever. */
-      allMessages.filter(m => m.data.folder === oldName).forEach(function(m){
-        updateDoc(doc(db,'messages',m.id), {folder: newName});
-      });
-      /* ⭐ BUT A MESSAGE SITTING HERE ONLY BY DERIVATION MUST BE PINNED, OR IT GOES
-         INVISIBLE. Its stored folder is still 'Inbox' — MESSAGE_HOME_FOLDER is what puts
-         it in this row — so the rewrite above cannot see it, and once the folder is
-         renamed the topic map still names the OLD folder, which now has no row in the
-         sidebar. The message is then in no list at all and counted nowhere.
-         ⚠ SO THIS ONE IS A FILING, deliberately and unlike the loop above: the office
-         renamed the folder these are in, so they follow it, and being pinned is what
-         stops the topic dragging them back to a name that no longer exists. */
-      allMessages.filter(m => m.data.folder !== oldName && messageFolderOf(m.data) === oldName)
-        .forEach(function(m){
-          updateDoc(doc(db,'messages',m.id), {folder: newName, filedByHand: true});
-        });
-      if(selectedFolder === oldName){
-        selectedFolder = newName;
-        document.getElementById('currentFolderLabel').textContent = newName;
-      }
-      toast('Folder renamed');
-    });
-  });
-  // double-confirm delete
-  wrap.querySelectorAll('[data-delfolder]').forEach(function(btn){
-    btn.addEventListener('click', function(e){
-      e.stopPropagation();
-      const folderId = btn.dataset.delfolder;
-      const folderName = btn.dataset.delname;
-      /* ⭐ A FOLDER A TOPIC IS ROUTED TO CANNOT BE DELETED (2026-09-03, found in a
-         self-review of MSG-07). Deleting one files everything CURRENTLY in it into
-         Inbox — but the topic map goes on naming it, so the NEXT cancellation to
-         arrive would resolve to a folder with no row and be in no list at all.
-         ⚠ AND IT WOULD HAVE LOOKED LIKE A BUG EITHER WAY: loadMessageFolders re-seeds
-         any missing default on the next login, so the folder reappears by itself and
-         the office is left deleting something that keeps coming back, with a window
-         in between where new messages are invisible. Refusing is the honest answer.
-         ⚠ It names the topics, because "you cannot delete this" with no reason is the
-         kind of refusal people work around by making a duplicate folder. */
-      const homedTopics = Object.keys(MESSAGE_HOME_FOLDER)
-        .filter(function(t){ return MESSAGE_HOME_FOLDER[t] === folderName; });
-      if(homedTopics.length){
-        alert('\u201C' + folderName + '\u201D cannot be deleted \u2014 messages are filed ' +
-          'into it automatically.\n\nThese arrive here on their own: ' + homedTopics.join(', ') +
-          '.\n\nYou can rename it, and you can move any message out of it by hand.');
-        return;
-      }
-      if(!confirm('Delete the "'+folderName+'" folder? Messages inside will move back to Inbox, and any subfolders will move up to where this one was.')) return;
-      if(!confirm('Are you sure? This can\'t be undone.')) return;
-      const deletedFolder = messageFolders.find(f => f.id === folderId);
-      // reassign affected messages back to Inbox
-      /* ⚠ messageFolderOf, NOT THE STORED FIELD. A message sitting here only because its
-         TOPIC sends it here still reads folder:'Inbox', so a stored-field match misses
-         it entirely — and once the folder is gone the topic map goes on naming it, so
-         that message resolves to a folder with no row and is in no list at all. */
-      const affected = allMessages.filter(m => messageFolderOf(m.data) === folderName);
-      /* ⚠ filedByHand HERE TOO, AND FOR A DIFFERENT REASON: without it a message whose
-         TOPIC sends it to the folder being deleted would be re-homed straight back into
-         a folder that no longer exists, and would then be in no list at all. */
-      affected.forEach(function(m){ updateDoc(doc(db,'messages',m.id), {folder: 'Inbox', filedByHand: true}); });
-      // any subfolders move up to this folder's own parent (instead of vanishing)
-      const children = messageFolders.filter(f => f.parentId === folderId);
-      children.forEach(function(c){ updateDoc(doc(db,'messageFolders',c.id), {parentId: deletedFolder ? deletedFolder.parentId : null}); });
-      deleteDoc(doc(db,'messageFolders',folderId));
-      if(selectedFolder === folderName){ selectedFolder = 'Inbox'; document.getElementById('currentFolderLabel').textContent = 'Inbox'; }
-    });
-  });
-}
 /* ⭐ ADD FOLDER ANSWERS, WHATEVER HAPPENS (2026-08-25). Owner: "the add folder is
    not working." The mechanism was fine — a folder really was written — but every
    way of failing was silent or nearly so: an empty box returned with no word at
@@ -20375,48 +20201,7 @@ function renderFolderSidebar(){
    in a form and nothing listened for the key. Typing a name and pressing Enter is
    what everybody does, and it looked exactly like a dead button.
    The status line under the button now says what happened, every time. */
-function folderAddSays(msg){
-  const el = document.getElementById('folderAddStatus');
-  if(el) el.textContent = msg || '';
-}
-async function addMessageFolder(){
-  const input = document.getElementById('newFolderInput');
-  const name = input.value.trim();
-  const parentId = document.getElementById('newFolderParent').value || null;
-  if(!name){ folderAddSays('Type a folder name first.'); input.focus(); return; }
-  /* 'system' is reserved the same way 'inbox' is (see the rename handler
-     above, which already blocked it) — a folder literally named "System"
-     is indistinguishable from real automated system notices: messages
-     moved into it vanish from Customer Messages (folder === 'System' is
-     filtered out there unconditionally), and the folder itself becomes
-     unclickable in the sidebar, which resets straight back to Inbox
-     whenever selectedFolder === 'System'. */
-  if(name.toLowerCase() === 'inbox' || name.toLowerCase() === 'system'){ folderAddSays('\u201C'+name+'\u201D is a reserved name \u2014 pick another.'); toast('That name is reserved'); return; }
-  if(messageFolders.some(f => f.name.toLowerCase() === name.toLowerCase())){ folderAddSays('There is already a folder called \u201C'+name+'\u201D.'); toast('That folder already exists'); return; }
-  const parentName = parentId ? (messageFolders.find(f => f.id === parentId) || {}).name : '';
-  /* ⚠ A THROW HERE USED TO BE AN UNHANDLED REJECTION AND NOTHING ELSE — no toast,
-     no cleared box, no line in the page. "Nothing happened" is the one report that
-     cannot be diagnosed over the phone. */
-  try{
-    folderAddSays('Adding\u2026');
-    await addDoc(collection(db,'messageFolders'), {name: name, parentId: parentId, createdAt: serverTimestamp()});
-  }catch(err){
-    console.error('Add folder failed:', err);
-    folderAddSays('Could not add it: ' + (err && err.message ? err.message : 'unknown error'));
-    return;
-  }
-  /* A folder added inside a closed parent would be written and never appear. */
-  if(parentId && collapsedFolders.has(parentId)){ collapsedFolders.delete(parentId); saveCollapsedFolders(); }
-  input.value = '';
-  document.getElementById('newFolderParent').value = '';
-  folderAddSays('Added \u201C'+name+'\u201D'+(parentName ? ' inside \u201C'+parentName+'\u201D' : ' at the top level')+'.');
-  toast('Folder added');
-}
-document.getElementById('addFolderBtn').addEventListener('click', addMessageFolder);
-document.getElementById('newFolderInput').addEventListener('keydown', function(e){
-  if(e.key === 'Enter'){ e.preventDefault(); addMessageFolder(); }
-});
-/* ---------------- RIGHT-CLICK MOVE MENU ---------------- */
+async /* ---------------- RIGHT-CLICK MOVE MENU ---------------- */
 const contextMenuEl = document.getElementById('msgContextMenu');
 function openContextMenu(x, y, messageId){
   const folders = [{name:'Inbox'}].concat(messageFolders);
@@ -21015,9 +20800,7 @@ function renderMessagesList(){
      ⚠ ONE RULE, `commRowMatches`, shared with every count beside every tab. The folder
      sidebar and the nav badge disagreeing about the same folder is a bug this Inbox has
      already had once. */
-  let filtered = commView.section === 'folder'
-    ? allMessages.filter(m => messageFolderOf(m.data) === selectedFolder)
-    : commRows(commView.section, commView.tab);
+  let filtered = commRows(commView.section, commView.tab);
   /* The old dropdown still narrows whatever the view produced, so nothing she is used to
      pressing stopped working on the day this shipped. */
   if(msgFilter === 'unread') filtered = filtered.filter(m => !m.data.read);
@@ -57000,46 +56783,9 @@ document.getElementById('saveChecklistBtn').addEventListener('click', async func
   updateChecklistDateHint();
 })();
 /* ---------------- NOTES FROM EMPLOYEES (kept, simple one-way notes) ---------------- */
-let employeeNotesCache = [];
-function loadEmployeeNotes(){
-  const q = query(collection(db,'employeeNotes'), orderBy('createdAt','desc'), limit(200));
-  onSnapshot(q, function(snap){
-    employeeNotesCache = [];
-    snap.forEach(function(docSnap){ employeeNotesCache.push({id:docSnap.id, data:docSnap.data()}); });
-    renderEmployeeNotesTab();
-  });
-}
-function populateInboxEmployeeSelect(){
-  const sel = document.getElementById('inboxEmployeeSelect');
-  if(!sel) return;
-  const current = sel.value;
-  sel.innerHTML = '<option value="">All Employees</option>' +
-    employeeNames.map(function(e){ return '<option value="'+esc(e.name)+'">'+esc(e.name)+'</option>'; }).join('');
-  if(employeeNames.some(e => e.name === current)) sel.value = current;
-}
-document.getElementById('inboxEmployeeSelect').addEventListener('change', function(){
-  selectedEmployee = this.value;
-  renderEmployeeNotesTab();
-});
 // Notes written before this feature have no read field. Treating those as read
 // keeps the badge meaningful instead of lighting up with the whole backlog.
 function noteIsUnread(d){ return d.read === false; }
-function switchInboxTab(which){
-  document.querySelectorAll('.inbox-tab').forEach(function(b){
-    b.classList.toggle('active', b.dataset.inboxtab === which);
-  });
-  document.getElementById('inboxpane-customer').style.display = which === 'customer' ? 'block' : 'none';
-  document.getElementById('inboxpane-employee').style.display = which === 'employee' ? 'block' : 'none';
-  document.getElementById('inboxpane-system').style.display = which === 'system' ? 'block' : 'none';
-  // The folder sidebar only applies to customer messages.
-  const sidebar = document.getElementById('messagesSidebar');
-  if(sidebar) sidebar.style.display = which === 'customer' ? '' : 'none';
-  if(which === 'employee') renderEmployeeNotesTab();
-  if(which === 'system') renderSystemMessagesTab();
-}
-document.querySelectorAll('.inbox-tab').forEach(function(btn){
-  btn.addEventListener('click', function(){ switchInboxTab(btn.dataset.inboxtab); });
-});
 /* System notices live in the "System" folder. They get their own tab so they
    don't bury real customer messages, and they're excluded from the customer
    list below rather than appearing in both places. */
@@ -57110,12 +56856,9 @@ function renderSystemMessagesTab(){
   /* See noticeIsRoutine: the sweep's own ⚠ decides which side a note falls on. */
   const routine = msgs.filter(function(m){ return noticeIsRoutine(m.data); });
   const needsEye = msgs.filter(function(m){ return !noticeIsRoutine(m.data); });
-  const badge = document.getElementById('sysMsgBadge');
-  const unread = needsEye.filter(function(m){ return !m.data.read; }).length;
-  if(badge){
-    badge.style.display = unread ? 'flex' : 'none';
-    badge.textContent = unread > 99 ? '99+' : String(unread);
-  }
+  /* ⛔ The System Messages tab badge went with the tab (2026-09-09, [[MSG-13]]).
+     That count lives on the sidebar section now, beside every other one, and is
+     drawn by renderCommNav from the same pass as the list. */
   const list = document.getElementById('systemMessagesList');
   if(!list) return;
   if(!msgs.length){ list.innerHTML = '<div class="empty-note">No system notices right now.</div>'; return; }
@@ -57305,77 +57048,6 @@ document.getElementById('deleteAllSystemBtn')?.addEventListener('click', async f
   toast(failed.length
     ? (gone + ' of ' + doomed.length + ' system notices deleted')
     : ('All ' + gone + ' system notice' + (gone === 1 ? '' : 's') + ' deleted'));
-});
-function renderEmployeeNotesTab(){
-  const badge = document.getElementById('empNotesBadge');
-  const unreadTotal = employeeNotesCache.filter(function(i){ return noteIsUnread(i.data); }).length;
-  if(badge){
-    badge.style.display = unreadTotal ? 'flex' : 'none';
-    badge.textContent = unreadTotal > 99 ? '99+' : String(unreadTotal);
-  }
-  const list = document.getElementById('employeeNotesList');
-  if(!list) return;
-  const notes = selectedEmployee
-    ? employeeNotesCache.filter(function(i){ return i.data.employeeName === selectedEmployee; })
-    : employeeNotesCache;
-  if(!notes.length){
-    list.innerHTML = '<div class="empty-note">'+(selectedEmployee ? 'No notes from '+esc(selectedEmployee)+' yet.' : 'No employee messages yet.')+'</div>';
-    return;
-  }
-  list.innerHTML = notes.map(function(item){
-    const d = item.data;
-    const unread = noteIsUnread(d);
-    // Time-off notes carry the request id so they can be actioned right here.
-    const req = d.requestId ? timeOffRequests.find(function(r){ return r.id === d.requestId; }) : null;
-    let actionHtml = '';
-    if(d.kind === 'timeoff'){
-      if(req && req.status === 'pending'){
-        actionHtml = '<button class="icon-btn" data-noteapprove="'+d.requestId+'" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:#2E6B3E;">Approve</button>'+
-                     '<button class="icon-btn" data-notedeny="'+d.requestId+'" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; color:var(--ember);">Deny</button>';
-      } else if(req && req.status === 'approved'){
-        actionHtml = '<span class="status-pill status-paid">Approved</span>';
-      } else {
-        actionHtml = '<span class="status-pill">Closed</span>';
-      }
-    }
-    return '<div class="row-item'+(unread ? ' unread' : '')+'">'+
-      '<div class="rmain">'+
-        '<h4>'+esc(d.employeeName||'Unknown')+(d.kind === 'timeoff' ? ' <span class="status-pill status-due">Time Off</span>' : '')+'</h4>'+
-        '<div class="rmeta">'+fmtDate(d.createdAt)+'</div>'+
-        '<div class="rtext" style="margin-top:6px;">'+esc(d.text||'')+'</div>'+
-      '</div>'+
-      '<div class="row-actions">'+
-        actionHtml+
-        '<button class="icon-btn" data-noteread="'+item.id+'" data-current="'+(unread?0:1)+'" title="'+(unread?'Mark as read':'Mark as unread')+'">'+(unread ? mailIcon() : mailOpenIcon())+'</button>'+
-        '<button class="icon-btn danger" data-del="employeeNotes" data-id="'+item.id+'">'+trashIcon()+'</button>'+
-      '</div>'+
-    '</div>';
-  }).join('');
-  list.querySelectorAll('[data-noteread]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      updateDoc(doc(db,'employeeNotes',btn.dataset.noteread), {read: btn.dataset.current === '1' ? false : true});
-    });
-  });
-  list.querySelectorAll('[data-noteapprove]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      approveTimeOffRequest(btn.dataset.noteapprove);
-    });
-  });
-  list.querySelectorAll('[data-notedeny]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      updateDoc(doc(db,'employeeRequests',btn.dataset.notedeny), {status: 'denied', seenByEmployee: false});
-      toast('Request denied');
-    });
-  });
-  attachDeleteHandlers(list);
-}
-document.getElementById('markAllNotesReadBtn').addEventListener('click', async function(){
-  const unread = employeeNotesCache.filter(function(i){ return noteIsUnread(i.data); });
-  if(!unread.length){ toast('Nothing unread'); return; }
-  for(const item of unread){
-    await updateDoc(doc(db,'employeeNotes',item.id), {read: true});
-  }
-  toast('Marked all read');
 });
 let crewOverrides = [];
 function loadCrewOverrides(){
