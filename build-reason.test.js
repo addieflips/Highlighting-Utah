@@ -306,10 +306,19 @@ check('and still applies the season rule',
   /isOutForSeason\(d\)/.test(printFilter),
   'the printed sheet once listed people the screen beside it had already dropped');
 /* ⚠ AND THE TAB ASKS THE SAME FLAG. If either side changes, they disagree about who is
-   being built for, and the one on paper is the one nobody can check. */
+   being built for, and the one on paper is the one nobody can check.
+   ⚠ REPOINTED 2026-09-09, NOT WEAKENED. This matched the literal `!d.needsLightBuild ||`,
+   which is where the gate happened to SIT rather than what has to be true — so it failed on
+   correct code the moment [[WH-27]] gave the timer its own queue and the gate became an OR.
+   Same slow-fuse shape as S82, S129 and the folder-names suite. What must hold is that a
+   BUILD is decided by `needsLightBuild` on both sides and by no stamp; that a timer-only
+   house is never built is proved by RUNNING the queue, in warehouse-colours.test.js. */
+const whQueueCode = fn('whBuildQueueGroups')
+  .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
 check('and the warehouse tab asks it too',
-  /!d\.needsLightBuild \|\|/.test(fn('whBuildQueueGroups')),
-  'one flag, both lists');
+  /needsLightBuild/.test(whQueueCode) &&
+  !/chargeNewMemberFee|requoteAppliedAt/.test(whQueueCode),
+  'one flag, both lists — and no stamp may creep in on either side');
 /* ⭐ AND THE PRINTED SHEET SAYS HOW MANY BINS (2026-08-25). Addie: "Everyone needs to
    know how many bins there are for each house so bin # and costumer # does matter."
    ⚠ THIS CHECK ASSERTED THE OPPOSITE YESTERDAY — that the sheet kept a CONDITIONAL note

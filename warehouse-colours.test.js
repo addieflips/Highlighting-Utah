@@ -392,6 +392,104 @@ console.log('  ' + w('value', 26) + w('import reads', 28) + 'warehouse groups as
   check('a timer change still queues the house, which is what puts it on the list',
     /WAREHOUSE_BUILD_FIELDS = \['lightsDescription', 'wireColor', 'outletTimer'\]/.test(admin),
     'drop outletTimer there and a timer added after the bundle is built reaches nobody');
+
+  /* -----------------------------------------------------------------------
+   * ⭐ AND A TIMER ON ITS OWN IS NOT A BUILD AT ALL ([[WH-27]], 2026-09-09)
+   * Addie, shown that those five houses were queued by a timer change: "can you fix
+   * those." The half above stopped the timer being LOST. This half stops the house
+   * being parked: nothing is being made up for them, so there are no colours to wait
+   * for, and "Nothing can be made up until somebody fills them in" was simply false
+   * about them — it sent the office to chase an answer that does not exist.
+   * --------------------------------------------------------------------- */
+  {
+    const only = runQueue([
+      {id:'t', data:{name:'Timer Only', needsTimerOnly:true, outletTimer:'Yes', wireColor:'White'}}
+    ]);
+    check('a house queued for a timer alone still reaches the timer list',
+      (only.timerHouses || []).map(i => i.data.name).indexOf('Timer Only') !== -1,
+      'the timer is the whole of what that house needs');
+    check('and is NOT waiting on light colours',
+      (only.blocked || []).length === 0,
+      'nobody is waiting on any colours, because nobody asked for lights: ' +
+      (only.blocked || []).map(i => i.data.name).join(', '));
+    check('and nothing is built for them',
+      only.keys.length === 0, 'a timer is not a bundle');
+
+    /* ⚠ THE EXPENSIVE DIRECTION, asserted on its own. A real build must never be
+       suppressed by the timer flag — the flags are an OR and the build wins. A stale
+       needsTimerOnly costs one extra row on a list; a build silently dropped costs a
+       crew standing at a house with nothing for it. */
+    const both = runQueue([
+      {id:'b', data:{name:'Both', needsLightBuild:true, needsTimerOnly:true,
+                     outletTimer:'Yes', wireColor:'White'}}
+    ]);
+    check('a house carrying BOTH flags is a build, not a timer job',
+      (both.blocked || []).map(i => i.data.name).indexOf('Both') !== -1,
+      'the build flag wins on its own: ' + JSON.stringify(both.keys));
+
+    /* ⚠ AND THE FLAG CANNOT DRAG SOMEBODY BACK INTO THE SEASON. isOutForSeason is asked
+       before either queue, so a house sitting the season out is on no list whatever it
+       carries — the same rule the build flag has followed since 2026-08-22. */
+    const outQ = (() => {
+      const sb = {};
+      new Function('jobAddresses', 'warehouseExtras', 'isOutForSeason', 'houseLightsText',
+        'whGroupKey', 'houseBundleNeed', 'whBinsForHouse', 'whBuildReasonKey', 'cnBinsForFeet',
+        fn('whBuildQueueGroups') + 'this.run = whBuildQueueGroups;')
+        .call(sb, [{id:'o', data:{name:'Gone', needsTimerOnly:true, outletTimer:'Yes'}}], [],
+          () => true, (d) => d.lightsDescription || '', (l, w) => l + '|' + w,
+          () => 0, () => 1, () => '', () => 1);
+      return sb.run();
+    })();
+    check('a timer-only house sitting the season out is on no list',
+      (outQ.timerHouses || []).length === 0 && (outQ.blocked || []).length === 0,
+      'nothing gets built OR fitted for somebody who is not having lights this year');
+
+    /* ⚠ AND THE WAY OUT OF THE LIST EXISTS. A timer-only house is in no colour group, so
+       the group's Mark Done can never reach it — without a control of its own it would
+       sit there for ever, which is the shape of bug this whole entry is about. */
+    check('a timer-only row can be finished from the timer list',
+      /data-whtimerdone=/.test(admin) && /needsTimerOnly: false/.test(admin),
+      'no colour group means no Mark Done — it needs one of its own');
+    /* ⚠ AND THE HOUSES ALREADY PARKED CAN BE MOVED. The write-site fix only reaches the
+       NEXT one; a fix that cannot reach the case that prompted it is not finished. */
+    check('an already-parked house can be marked timer-only from the blocked row',
+      /data-whtimeronly=/.test(admin),
+      'the five she was looking at carry no flag and would stay blocked for ever');
+
+    /* ⚠ AND THE WRITE-SIDE RULE IS RUN, NOT READ. It is its own function precisely so it
+       can be: written inline in the ~36,000-character save handler the only thing a suite
+       could do was match its text, which this repo has been burned by three times. */
+    const timerOnly = new Function('return ' + fn('whTimerOnlyQueue') + ';whTimerOnlyQueue')();
+    const OLD = {outletTimer:'No'};
+    check('a timer switched on, alone, on a colourless house is a timer job',
+      timerOnly(OLD, {outletTimer:'Yes'}, ['outletTimer'], '') === true);
+    check('a WIRE change is still a build',
+      timerOnly(OLD, {wireColor:'Green'}, ['wireColor'], '') === false,
+      'holes C and D are not reversed — a wire change genuinely needs the bundle remade');
+    /* ⚠ AND THE FIXTURE THAT ACTUALLY BITES. The one above passes whether the field is
+       tested or not, because its record has no timer — so the timer-value test answers
+       first and the check proves nothing about the field name. It takes a house whose
+       timer is ALREADY Yes, having its wire changed: exactly the shape where dropping the
+       field test would route a real rebuild into the timer queue and no bundle would ever
+       be made. Found by the red-check reporting this sabotage as MISSED. */
+    check('a wire change on a house that already has a timer is still a build',
+      timerOnly({outletTimer:'Yes', wireColor:'White'}, {wireColor:'Green'}, ['wireColor'], '') === false,
+      'the field that changed decides, not the value the timer happens to hold');
+    check('a timer change alongside anything else is still a build',
+      timerOnly(OLD, {outletTimer:'Yes', wireColor:'Green'}, ['outletTimer','wireColor'], '') === false);
+    check('a timer change on a house that HAS colours is still a build',
+      timerOnly(OLD, {outletTimer:'Yes'}, ['outletTimer'], 'Red, Warm White') === false,
+      'that house is in a real build group and always was; only the case she reported moves');
+    /* ⚠ TURNING A TIMER OFF KEEPS TODAY'S BEHAVIOUR, deliberately. `timerHouses` only ever
+       collects Yes, so routing a removal here would drop it off every screen silently —
+       worse than the untidiness this fixes. Flagged to Addie rather than guessed at. */
+    check('turning a timer OFF is left exactly as it was',
+      timerOnly({outletTimer:'Yes'}, {outletTimer:'No'}, ['outletTimer'], '') === false,
+      'the warehouse still has to be told to take one out, and only the build queue says so');
+    check('and it never fires when a build is already being queued by the same save',
+      timerOnly(OLD, {outletTimer:'Yes', needsLightBuild:true}, ['outletTimer'], '') === false,
+      'a build owed for another reason wins — the flags are an OR and the build is the safe side');
+  }
 }
 
 console.log('');

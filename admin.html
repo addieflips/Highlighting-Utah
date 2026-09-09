@@ -8025,6 +8025,10 @@ const CUSTOMER_FIELD_LABELS = {
      reports fields the save actually carries. */
   cancellationReason: {label: 'Why they are cancelling', kind: 'text'},
   needsLightBuild: {label: 'Waiting to be built', kind: 'yesno'},
+  /* [[WH-27]] — its own queue, so it reads as its own line: "Waiting to be built: No" beside
+     "Waiting for a timer: Yes" is the whole distinction, and the history is where somebody
+     later asks why a house was never built. */
+  needsTimerOnly: {label: 'Waiting for a timer', kind: 'yesno'},
   needsLightRecycle: {label: 'Old set to come back', kind: 'yesno'},
   recycleKeepingCustomer: {label: 'Keeping them as a customer', kind: 'yesno'},
   buildTopUpFromFeet: {label: 'Feet already in their bin', kind: 'number'},
@@ -44984,6 +44988,34 @@ function whNormalizeLights(text){
  * ⚠ ONE RULE, TWO COPIES, ASSERTED IDENTICAL — the browser cannot run the
  * server's. run-all.js runs both over the same table of cases and fails if they
  * ever disagree, the money-parity pattern. */
+/* ⭐ IS THIS SAVE A TIMER AND NOTHING ELSE? ([[WH-27]], 2026-09-09)
+ *
+ * ⚠ ITS OWN FUNCTION SO A TEST CAN RUN IT. Written inline in the ~36,000-character Edit
+ * Customer save handler the only thing a suite could do was match its text, which this repo
+ * has already been burned by three times (`rmCommitPayload`, `carriedPaymentOnBillToChange`).
+ *
+ * All four conditions are load-bearing:
+ *   - the timer is the ONLY warehouse-relevant field that moved — a wire change is a real
+ *     rebuild and always was (holes C and D are not reversed);
+ *   - it ends up **Yes**. Turning a timer OFF keeps today's behaviour, because `timerHouses`
+ *     only ever collects Yes and routing it here would drop it off every screen silently;
+ *   - no build is already being queued by this same save;
+ *   - the house has NO colours on file. A house that HAS colours is in a real build group
+ *     and always was — only the case Addie reported is moved.
+ *
+ * ⚠ IT ONLY EVER ADDS A SEPARATE FLAG. It cannot clear or suppress `needsLightBuild`, so the
+ * worst a wrong answer here can do is put one extra row on the timer list. The opposite
+ * design — a marker that switches the build flag off — would, the first time one of the seven
+ * places that queue a build forgot to clear it, leave a house nobody builds. */
+function whTimerOnlyQueue(oldData, updates, changedFields, newLightsDescription){
+  const u = updates || {}, o = oldData || {};
+  if(!Array.isArray(changedFields) || changedFields.length !== 1) return false;
+  if(changedFields[0] !== 'outletTimer') return false;
+  if(u.needsLightBuild) return false;
+  if(newLightsDescription) return false;
+  const timer = Object.prototype.hasOwnProperty.call(u, 'outletTimer') ? u.outletTimer : o.outletTimer;
+  return String(timer == null ? '' : timer).trim() === 'Yes';
+}
 const WAREHOUSE_BUILD_FIELDS = ['lightsDescription', 'wireColor', 'outletTimer'];
 function warehouseRebuildFields(oldData, newData) {
   const o = oldData || {}, n = newData || {};
@@ -45205,7 +45237,12 @@ function whBuildQueueGroups(){
        building for them and recycling them at the same time is two jobs cancelling
        out. Somebody who MOVED is not out (recycleKeepingCustomer), so they still
        build — which is the whole reason those two buttons were split. */
-    if(!d.needsLightBuild || (typeof isOutForSeason === 'function' && isOutForSeason(d))) return;
+    /* ⭐ EITHER QUEUE PUTS A HOUSE ON THIS TAB ([[WH-27]]). `needsTimerOnly` says the
+       warehouse has something to do for this house and it is NOT a bundle. Read as an OR so
+       a house carrying both is simply a build, which is what it is. */
+    const wantsBuild = !!d.needsLightBuild;
+    const timerOnly = !wantsBuild && !!d.needsTimerOnly;
+    if((!wantsBuild && !timerOnly) || (typeof isOutForSeason === 'function' && isOutForSeason(d))) return;
     /* ⚠ BOTH FIELDS. Testing lightsDescription alone put every ordinary house the
        master-sheet sync added into the blocked block with its colours sitting on the
        record — see houseLightsText. */
@@ -45225,6 +45262,10 @@ function whBuildQueueGroups(){
        out to be, so there is nothing to wait for — which is her own rule in as many
        words. Collected first; the blocked branch still blocks the BUILD. */
     if(String(d.outletTimer || '').trim() === 'Yes') timerHouses.push(item);
+    /* ⛔ AND A TIMER-ONLY HOUSE IS NEVER BLOCKED. Nothing is being built for them, so there
+       are no colours to wait for — the whole point of [[WH-27]]. It has already been pushed
+       to `timerHouses` above, which is the one thing that house actually needs. */
+    if(timerOnly) return;
     if(!lights){ blocked.push(item); return; }
     const key = whGroupKey(lights, d.wireColor);
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
@@ -45308,6 +45349,10 @@ function whHouseBuildStatus(item){
     const bny = !!d.maybeNextYear || String(d.rsvpStatus || '').toLowerCase() === 'backnextyear';
     return {state: 'nextyear', why: bny ? 'Back Next Year' : ''};
   }
+  /* ⭐ [[WH-27]] — queued for a timer and nothing else. Answered BEFORE 'notqueued', which
+     would otherwise send the office to press Build Them A New Set on a house that is on this
+     tab and needs no bundle. */
+  if(!d.needsLightBuild && d.needsTimerOnly) return {state: 'timeronly'};
   if(!d.needsLightBuild) return {state: 'notqueued'};
   return {state: 'unknown'};
 }
@@ -45317,6 +45362,7 @@ function whBuildStatusText(name, st){
   if(st.state === 'building') return who + ' IS on the build list \u2014 under \u201c' + st.where + '\u201d. Open that heading to see them.';
   if(st.state === 'extra') return who + ' is on the list as an extra request \u2014 under \u201c' + st.where + '\u201d.';
   if(st.state === 'blocked') return who + ' is queued to build but has NO LIGHT COLOURS on file, so they are in \u201cWaiting on light colours\u201d at the top. Add their colours and they join a build group.';
+  if(st.state === 'timeronly') return who + ' only needs a TIMER \u2014 they are on the Timers list, not the build list. Nothing is being made up for them and no colours are needed. Press \u201cBuild Them A New Set\u201d on their record if they do need a bundle.';
   if(st.state === 'nextyear') return who + (st.why === 'Back Next Year'
     ? ' is marked Back Next Year'
     : ' is out for this season — their lights are queued to be recycled') +
@@ -45362,6 +45408,17 @@ function renderWarehouseQueue(){
             '</span>'+
             '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
               '<button type="button" class="btn btn-gold btn-sm" data-wheditcust="'+h.id+'">Add colours</button>'+
+              /* ⭐ AND THE WAY OUT FOR A HOUSE ALREADY PARKED HERE ([[WH-27]]). The write-site
+                 fix stops the NEXT one; it cannot reach the houses already sitting on this
+                 list, and this repo's own rule is that a fix which cannot reach the case that
+                 prompted it is not finished. Only offered where the record says a timer was
+                 actually asked for — on a house with no timer it would be a button that means
+                 nothing. ⚠ It is a PERSON answering, never a guess: nothing on the record can
+                 tell a house queued by a timer change from one converted with its colours
+                 still to come, which is the same wall `lightsChangedVia` hit. */
+              (String(h.data.outletTimer || '').trim() === 'Yes'
+                ? '<button type="button" class="btn btn-outline btn-sm" data-whtimeronly="'+h.id+'">Only needed a timer</button>'
+                : '')+
             '</span>'+
           '</div>';
         }).join('')+
@@ -45385,13 +45442,23 @@ function renderWarehouseQueue(){
           /* Still no Mark Done here on purpose (see the note above), but the
              timer answer itself is wrong often enough to need fixing from the
              screen that shows it — that is the customer record. */
+          /* ⭐ A TIMER-ONLY HOUSE IS THE ONE ROW HERE THAT NEEDS ITS OWN Done ([[WH-27]]).
+             The note above is right that a timer is finished by marking its colour group
+             done — but a house queued for a timer ALONE is in no colour group, so with no
+             control of its own it would sit on this list for ever. That is the same rule,
+             not an exception to it: the Done goes where the work is. */
+          const isTimerOnlyRow = !h.data.needsLightBuild && !!h.data.needsTimerOnly;
           return '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:6px 0; font-size:13.5px;">'+
             '<span>'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+
-              (h.data.customerNumber ? custNumChip(h.data) : '')+'</span>'+
-            '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'" style="flex:0 0 auto;">Edit</button>'+
+              (h.data.customerNumber ? custNumChip(h.data) : '')+
+              (isTimerOnlyRow ? ' <span class="status-pill status-new" style="font-size:10.5px;">Timer only</span>' : '')+'</span>'+
+            '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
+              (isTimerOnlyRow ? '<button type="button" class="btn btn-gold btn-sm" data-whtimerdone="'+h.id+'">Timer in the bin</button>' : '')+
+              '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'">Edit</button>'+
+            '</span>'+
           '</div>';
         }).join('')+
-        '<div style="font-size:12px; color:var(--slate); margin-top:8px;">These are already listed in their colour groups below &mdash; marking a house done there covers its timer too.</div>'+
+        '<div style="font-size:12px; color:var(--slate); margin-top:8px;">Most of these are listed in their colour groups below &mdash; marking a house done there covers its timer too. A row badged <strong>Timer only</strong> is in no group and has nothing being built, so it is finished from here.</div>'+
       '</div>'+
     '</div>';
   }
@@ -45606,6 +45673,62 @@ function renderWarehouseQueue(){
     btn.addEventListener('click', function(e){
       e.stopPropagation();
       openEditCustomerModal(btn.dataset.wheditcust);
+    });
+  });
+  /* ⭐ [[WH-27]] — the office saying this house never needed a bundle. It clears the build
+     and queues the timer instead, so the row leaves Waiting on light colours and joins the
+     Timers list, which is the one thing that house does need.
+     ⚠ IT MIRRORS INTO `jobAddresses` BEFORE THE WRITE IS AWAITED, like every other optimistic
+     tick in this file — the tab repaints from the cache, so without it the row visibly springs
+     back and somebody presses it twice.
+     ⚠ AND IT IS REVERSIBLE BY THE BUTTON THAT ALREADY EXISTS: Build Them A New Set puts
+     `needsLightBuild` back, and it wins on its own (see the queue loop's OR). */
+  list.querySelectorAll('[data-whtimeronly]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const id = btn.dataset.whtimeronly;
+      const rec = jobAddresses.find(function(a){ return a.id === id; });
+      if(!rec) return;
+      if(!confirm('Take ' + (rec.data.name || 'this house') + ' off the build list?\n\n' +
+        'Nothing will be made up for them. They stay on the Timers list, so a timer still goes' +
+        ' in their bin.\n\nPress Build Them A New Set on their record to undo this.')) return;
+      btn.disabled = true;
+      /* ⚠ THE WRITE GOES FIRST, THEN THE CACHE. Nothing repaints between the two — the render
+         is the line after — so there is no optimistic paint to protect, and doing it this way
+         round means there is no rollback to get wrong if the write throws. A rollback holding
+         the old value in a variable also reads to queue-date.test.js's census as a NEW place
+         that queues a build, which it is not. */
+      try{
+        await updateDoc(doc(db, 'jobAddresses', id), {needsLightBuild: false, needsTimerOnly: true});
+        rec.data.needsLightBuild = false;
+        rec.data.needsTimerOnly = true;
+        toast((rec.data.name || 'That house') + ' \u2014 timer only. They are off the build list.');
+        renderWarehouseQueue();
+      }catch(err){
+        btn.disabled = false;
+        console.error('Could not mark timer-only:', err);
+        alert('Could not save that: ' + (err && err.message ? err.message : err));
+      }
+    });
+  });
+  list.querySelectorAll('[data-whtimerdone]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const id = btn.dataset.whtimerdone;
+      const rec = jobAddresses.find(function(a){ return a.id === id; });
+      if(!rec) return;
+      btn.disabled = true;
+      try{
+        /* Write, then cache, then paint — same order and same reason as the button above. */
+        await updateDoc(doc(db, 'jobAddresses', id), {needsTimerOnly: false});
+        rec.data.needsTimerOnly = false;
+        toast('Timer done for ' + (rec.data.name || 'that house') + '.');
+        renderWarehouseQueue();
+      }catch(err){
+        btn.disabled = false;
+        console.error('Could not clear the timer queue:', err);
+        alert('Could not save that: ' + (err && err.message ? err.message : err));
+      }
     });
   });
   list.querySelectorAll('[data-wheditextra]').forEach(function(btn){
@@ -49807,7 +49930,41 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        rule that blank colours mean the build cannot be DONE yet rather than not
        owed, and overwriting it would bring back the bug where saving a customer
        with no colours silently cleared their build. */
-    if(warehouseRebuildFields(item.data, addrUpdates).length) addrUpdates.needsLightBuild = true;
+    /* ⭐ A TIMER ON ITS OWN IS NOT A LIGHT BUILD (2026-09-09, [[WH-27]]). Addie, on five
+       houses parked in Waiting on light colours: "check to see if these guys just wanted
+       there timer updated. Cause if so we don't need to worry about lights just about
+       getting a timer in there bin", then "can you fix those."
+
+       ⚠ `outletTimer` IS ONE OF THE THREE WAREHOUSE_BUILD_FIELDS, so changing a timer and
+       nothing else set `needsLightBuild` — and a house with no colours on file then landed
+       in the blocked block, under a heading reading "Nothing can be made up until somebody
+       fills them in". That sentence is FALSE for those houses: nobody is waiting on any
+       colours, because nobody asked for lights. So the office is sent to chase an answer
+       that does not exist, and the row never clears.
+
+       ⭐ `needsTimerOnly` IS THE TIMER'S OWN QUEUE. The warehouse still hears about it
+       (`whBuildQueueGroups` reads either flag), the house still reaches `timerHouses`, and
+       nothing is being built — so there is nothing to block on and nothing to chase.
+
+       ⚠ IT FAILS TOWARDS THE BUILD, deliberately, and that is why it is a SEPARATE flag
+       rather than a marker on the existing one. This never clears or suppresses
+       `needsLightBuild`: a real build queued before, after or at the same time wins on its
+       own and is untouched. The worst a stale `needsTimerOnly` can do is put one extra row
+       on the timer list; a marker that could switch the build flag off would, if any of the
+       seven places that queue a build ever forgot to clear it, leave a house nobody builds.
+
+       ⚠ SCOPED TO A TIMER THAT ENDS UP **Yes**. Turning a timer OFF keeps today's exact
+       behaviour (a rebuild is queued), because the warehouse has to be told to take one out
+       and `timerHouses` only ever collects Yes — routing it here instead would drop it off
+       every screen silently, which is worse than the untidiness this fixes. Flagged to
+       Addie rather than guessed at.
+
+       ⚠ AND HOLES C AND D ARE NOT REVERSED. A WIRE change still re-queues the build, and so
+       does a timer change on a house that has colours — that house is in a real build group
+       and always was. Only the case she reported is moved. */
+    const whChanged = warehouseRebuildFields(item.data, addrUpdates);
+    if(whTimerOnlyQueue(item.data, addrUpdates, whChanged, newLightsDescription)) addrUpdates.needsTimerOnly = true;
+    else if(whChanged.length) addrUpdates.needsLightBuild = true;
     /* "They said no" is a lasting fact; "their lights need pulling back into
        stock" is a job that gets finished. This used to be re-derived from the
        dropdown on EVERY save, so opening a recycled customer's record months
