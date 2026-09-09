@@ -3018,8 +3018,14 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
         sender out of five** — `sendBulkUpdateEmailBtn`, `sendRsvpEmailBtn`,
         `pibSendUnpaidBtn` and `pibSendPaidBtn` were still firing back to back, so the
         **invoice and receipt runs** would have hit the identical refusal on an identical
-        loop. `emailSendPaced` is the one copy of the rule and a gate counts that all five
-        call it; the wait budget is shared across the run rather than renewed per message.
+        loop. `emailSendPaced` carries the rule and a gate counts that all four call it; the
+        wait budget is shared across the run rather than renewed per message.
+        ⚠ **The RSVP runner keeps its own inline copy on purpose** — it was already
+        shipped and working, and Addie's rule for this merge was *"make sure no code is
+        changed unless we need the code changed."* The cost is two copies, guarded by a
+        check that both read the SAME three constants (comments stripped, because each
+        name also appears in the prose explaining it). Fold them together only if that
+        runner is touched for its own reasons.
       - `EMAIL_SEND_GAP_MS` (1000) paces it; `emailSendRetryAfter` reads Gmail's refusal and
         **stops the run**, recording everybody untried so *Send again* resumes exactly where it
         stopped. One pass being stopped stops the other, and the passes behind it are recorded

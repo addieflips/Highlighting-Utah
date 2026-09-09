@@ -686,10 +686,33 @@ console.log('--- wiring ---');
      five — the invoice and receipt runs would have walked into the identical Gmail
      refusal on an identical back-to-back loop. */
   const pacedCalls = admin.split('emailSendPaced(').length - 1;
-  check('every bulk email sender is paced by the shared rule, not just the RSVP one',
-    pacedCalls === 6,
-    'expected the helper plus one call in each of the five senders; found ' + pacedCalls +
-    '. A sender that skips it can still trip the limit that lost 392 emails');
+  check('every bulk email sender is paced, not just the RSVP one',
+    pacedCalls === 5,
+    'expected the helper plus one call in each of the four status-line senders; found ' +
+    pacedCalls + '. A sender that skips it can still trip the limit that lost 392 emails');
+
+  /* ⚠ THE RULE IS IN TWO PLACES AND THAT IS A DELIBERATE, NAMED COST. The RSVP runner
+     keeps its own inline copy because it was already shipped and working, and Addie's
+     instruction was "make sure no code is changed unless we need the code changed" —
+     rewriting a live send path for tidiness is not a need, and this very refactor broke
+     the file once mid-edit. So the two copies are held together by the CONSTANTS instead,
+     the money-parity shape applied to a rule: both must read the same three names, so a
+     change to how fast we may send cannot move one and leave the other. If the runner is
+     ever folded into the helper for its own reasons, delete this check with it. */
+  /* ⚠ COMMENTS STRIPPED FIRST. The first version asked whether the names appeared in the
+     runner AT ALL, and every one of them is also written out in the paragraph explaining
+     the pacing — so a red-check that swapped the real `EMAIL_SEND_GAP_MS` for a hardcoded
+     200 sailed straight through, reading the explanation as the code. Suites 58, 274, 275
+     and 300 each learned this from the other direction. */
+  const runnerCode = runnerBody
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  const runnerPace = ['EMAIL_SEND_GAP_MS', 'EMAIL_MAX_AUTO_WAIT_MS', 'EMAIL_MAX_AUTO_WAITS']
+    .every(function(n){ return runnerCode.indexOf(n) !== -1; });
+  check('and the RSVP runner\'s own copy reads the same three limits as the helper',
+    runnerPace,
+    'the runner keeps an inline copy of the pacing; both must read the SAME constants, ' +
+    'or changing how fast we send moves one sender and not the other');
 
   const helper = (function(){
     const i = admin.indexOf('async function emailSendPaced(');
@@ -720,9 +743,9 @@ console.log('--- wiring ---');
   /* ⚠ AND THE PACER MUST NOT WRAP THE MESSAGE BUILD (REF-20). Counted, not positioned:
      a check that only asked whether the FIRST call sat outside passed with a second one
      added inside. */
-  const pacedAt = runnerBody.indexOf('emailSendPaced(');
+  const pacedAt = runnerBody.indexOf('for(;;){');
   const offers = runnerBody.split('referralOfferFor(member)').length - 1;
-  check('and the pacer wraps the send only, never the message build',
+  check('and the retry wraps the send only, never the message build',
     pacedAt !== -1 && offers === 1 &&
     runnerBody.indexOf('referralOfferFor(member)') < pacedAt,
     'the referral offer must be resolved exactly ONCE per customer and outside the ' +

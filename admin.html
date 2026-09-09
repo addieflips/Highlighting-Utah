@@ -10481,7 +10481,7 @@ document.getElementById('sendBulkUpdateEmailBtn')?.addEventListener('click', asy
       }
     }
   }
-  statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' not sent' : '') + '.' + sendStoppedNote(rateStop);
+  statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.' + sendStoppedNote(rateStop);
   reportEmailSendFailures(failed, sent);
 });
 document.getElementById('bulkAutoTestBtn')?.addEventListener('click', async function(){
@@ -10586,7 +10586,7 @@ document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async fun
       }
     }
   }
-  statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' not sent' : '') + '.' + sendStoppedNote(rateStop);
+  statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.' + sendStoppedNote(rateStop);
   reportEmailSendFailures(failed, sent);
 });
 /* ---- RSVP preview + recipient picker ---- */
@@ -10782,7 +10782,7 @@ document.getElementById('pibSendUnpaidBtn')?.addEventListener('click', async fun
       }
     }
   }
-  statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' not sent' : '') + '.' + sendStoppedNote(rateStop);
+  statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.' + sendStoppedNote(rateStop);
   reportEmailSendFailures(failed, sent);
 });
 document.getElementById('pibUnpaidTestBtn')?.addEventListener('click', async function(){
@@ -10850,7 +10850,7 @@ document.getElementById('pibSendPaidBtn')?.addEventListener('click', async funct
       }
     }
   }
-  statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' not sent' : '') + '.' + sendStoppedNote(rateStop);
+  statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.' + sendStoppedNote(rateStop);
   reportEmailSendFailures(failed, sent);
 });
 document.getElementById('pibPaidTestBtn')?.addEventListener('click', async function(){
@@ -18885,8 +18885,8 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
      arrive is a house the crew is never sent to. */
   const failedRecipients = [];
   let rateLimitedUntil = null;
-  /* Shared across the whole run, not per customer — see EMAIL_MAX_AUTO_WAITS. */
-  const paceCtx = { autoWaits: 0 };
+  /* Counted across the whole run, not per customer — see EMAIL_MAX_AUTO_WAITS. */
+  let autoWaits = 0;
   /* ⚠ NAMES, NOT JUST A COUNT, AND ONLY THE FIRST FEW. "12 got no referral link" is
      a number nobody can act on; a name and a reason is one record to open. Capped so
      a whole-book send cannot print nine hundred names into a status line. */
@@ -18971,23 +18971,13 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
        would ask `referralOfferFor` about the same customer twice and count them twice in
        `noReferral` — the report then disagrees with the emails it is reporting on, which
        is the fault REF-20 exists to prevent. */
-    /* ⭐ THE SAME PACING AND THROTTLE RULE AS EVERY OTHER SENDER (EM-08). This used to
-       be written out inline here and nowhere else, which is how four of the five bulk
-       senders were still firing back to back. `emailSendPaced` is the one copy.
-       ⚠ THE HELPER WRAPS THE SEND ONLY, never the message build above it: rebuilding
-       would ask `referralOfferFor` about one customer twice and double-count them in
-       `noReferral` (REF-20). */
-    const paced = await emailSendPaced(async function(){
-      const subject = await emailSubjectFor(template, vars.phone, vars);
-      await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', subject: subject, message: message });
-    }, paceCtx, function(mins){
-      statusEl.textContent = (progressLabel || '') + 'Gmail asked us to slow down \u2014 waiting about '
-        + mins + ' minute' + (mins === 1 ? '' : 's') + ', then carrying on by itself. '
-        + sent + ' sent so far. Leave this tab open.';
-    });
     let sendErr = null;
-    if(paced.sent){
-      sent++;
+    for(;;){
+      sendErr = null;
+      try{
+        const subject = await emailSubjectFor(template, vars.phone, vars);
+        await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', subject: subject, message: message });
+        sent++;
         /* ⭐ AND IT IS WRITTEN DOWN THAT THIS PERSON HAS NOW BEEN ASKED (2026-09-09,
            EM-04). Addie: "the people that have already got the email should not get it
            again" — which is impossible to honour unless somebody records who got it,
@@ -19014,7 +19004,33 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
             console.error('[HU] emailed ' + member.id + ' but could not record it:', stampErr);
           }
         }
-    } else { sendErr = paced.err; }
+        /* ⭐ PACED, BECAUSE GMAIL COUNTS HOW FAST WE SEND (2026-09-09, EM-02). See
+           EMAIL_SEND_GAP_MS — this loop used to fire the next send the instant the last
+           one came back, which is what put 392 of them into "Gmail_API: User-rate limit
+           exceeded". The wait is AFTER a send that worked and never after a failure: a
+           refusal cost Gmail nothing, and the wait below is what handles that case. */
+        await new Promise(r => setTimeout(r, EMAIL_SEND_GAP_MS));
+      } catch(e){ sendErr = e; }
+      if(!sendErr) break;
+      /* ⭐ A SHORT WAIT IS WAITED OUT RATHER THAN HANDED BACK TO THE OFFICE. Gmail's
+         rate limit clears in minutes, so stopping the whole send and asking somebody to
+         come back and press a button is making a person do a timer's job.
+         ⚠ BOUNDED THREE WAYS, or a tab sits looking busy for ever: only a wait shorter
+         than EMAIL_MAX_AUTO_WAIT_MS (a long one is the DAY's cap, which no amount of
+         waiting fixes before midnight), only EMAIL_MAX_AUTO_WAITS times in one run, and
+         only when Gmail actually named a time. Anything else falls through to the stop. */
+      const retryAt = emailSendRetryAfter(sendErr);
+      const waitMs = retryAt ? (retryAt.getTime() - Date.now()) : 0;
+      if(!(retryAt && waitMs > 0 && waitMs <= EMAIL_MAX_AUTO_WAIT_MS && autoWaits < EMAIL_MAX_AUTO_WAITS)) break;
+      autoWaits++;
+      const mins = Math.max(1, Math.round(waitMs / 60000));
+      statusEl.textContent = (progressLabel || '') + 'Gmail asked us to slow down — waiting about '
+        + mins + ' minute' + (mins === 1 ? '' : 's') + ', then carrying on by itself. '
+        + sent + ' sent so far. Leave this tab open.';
+      /* ⚠ A MARGIN ON TOP. Returning the same second Gmail named is refused again and
+         spends one of the few auto-waits finding that out. */
+      await new Promise(r => setTimeout(r, waitMs + 5000));
+    }
     if(sendErr){ const err = sendErr; failed++; lastEmailSendError = err;
       /* ⚠ THE REASON IS KEPT PER PERSON, not only in `lastEmailSendError`. That variable
          holds the LAST error of the run, so one report spoke for four hundred sends that
