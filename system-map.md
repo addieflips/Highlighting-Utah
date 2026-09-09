@@ -1507,6 +1507,22 @@ member's bill — with nobody in the office typing anything.
     phone and email). That reads right — two customers, two bills — but her wording could
     be read the other way, so it is asked rather than assumed: `docs/open-questions.md`
     Q-031.
+- ⭐ **THE TOKEN HAS TO SURVIVE THE TRIP FROM THE LINK TO THE FORM** (REF-33,
+  2026-09-08). Addie shared her link with two people through the phone share sheet; both
+  filled the form in, neither counted, and the one she converted was still charged the
+  $30. One fact behind both: `referredByToken` never reached the quote — the fee waiver
+  and the $25 both hang off that single field.
+  - ⚠ **It rode in `sessionStorage`, which is per TAB.** A link tapped in Messages opens
+    in that app's in-app browser; closing it and coming back through the front door, or
+    tapping "Open in Safari", loses it. On a phone that is the ordinary path, not an edge
+    case. It is now in `localStorage` too, and **the token stays in the address bar** as
+    `?ref=` — the `/r/` reader used to strip it, and the URL is the only thing that
+    survives a change of browser.
+  - ⚠ **It expires after `REFERRAL_REMEMBER_DAYS` (90)**, and an undated stored token is
+    treated as too old rather than kept for ever. A newer link always beats a remembered
+    one.
+  - ⚠ **`test/referral-token.spec.js` reproduces her flow** and reads the real quote
+    write, because everything here is about what a browser still has after a navigation.
 - **Nothing is credited until they are a customer.** `creditReferralIfAny` is called only
   at the two conversion doors, so a quote that merely carries the token has moved no
   money — her *"only takes affect after they are converted"*, now asserted rather than
