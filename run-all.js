@@ -56276,3 +56276,159 @@ suite('Suite 318. A crew-day is a patch of map, not a town');
     }));
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Suite 319. Priority moves an area up, once the area can carry a day.
+ *
+ * Dax, 2026-09-09, asked directly whether being moved up the schedule should be
+ * able to move somebody's AREA up: "it can move their area up unless something
+ * else is prioritizing above it."
+ *
+ * ⚠ [[SCH-54]] SHIPPED THAT AS A BLANKET REFUSAL and this suite is the half of it
+ * being given back. What he was looking at was Darlene Price alone on 1 October
+ * with a whole crew rostered for her and one other house: a town of ONE scored as
+ * urgent as a town of thirty. The fault was never that priority moved an area, it
+ * was that the area could not fill a morning — and since [[SCH-63]] an area is a
+ * block of about twenty adjacent houses, so moving one up moves a real day.
+ *
+ * ⚠ SUITE 315 IS THE OTHER HALF AND IS DELIBERATELY STILL GREEN. Its fixture is a
+ * town of one, which is still refused. If these two ever disagree, read them
+ * together before touching either.
+ *
+ * ⚠ RUN, NOT MATCHED. Every claim is about which area a crew is SENT TO.
+ */
+suite('Suite 319. Priority moves an area up, once the area can carry a day');
+{
+  const start = admin.indexOf('function planNewCrewDays(');
+  const end = admin.indexOf('/* Top every day up to the cap.', start);
+  const nearbyConst = admin.indexOf('const NEARBY_TOWN_MILES');
+  if (start === -1 || end < start || nearbyConst === -1) {
+    check('S319', 'the day builder is findable', false, 'renamed — repoint this');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    const api = eval('(function(){' + LF_ +
+      'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+      'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;' +
+      'return 2*R*Math.asin(Math.sqrt(q));}' + LF_ +
+      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + LF_ +
+      admin.slice(nearbyConst, admin.indexOf('function townCentres')) + LF_ +
+      'let NEARBY_TOWN_LIST={};' + LF_ + phantomTownSrc() +
+      extractFn(admin, 'thanksgivingDate') + LF_ + extractFn(admin, 'toDateStr') + LF_ +
+      extractFn(admin, 'sameTownName') + LF_ + extractFn(admin, 'townCentres') + LF_ +
+      extractFn(admin, 'nearbyTowns') + LF_ + extractFn(admin, 'installPriority') + LF_ +
+      admin.slice(start, end) + LF_ +
+      'return {plan: planNewCrewDays};})()');
+
+    /* ⚠ THE TWO AREAS ARE THE SAME SIZE AND THE SAME DISTANCE OUT, so the ONLY thing
+       that can separate them is the rushed house. Made equal deliberately: with one
+       bigger than the other, head-count decides and the check proves nothing.
+       ⚠ AND THEY ARE FAR APART, so neither can lend to the other — a loan would change
+       what `fits` reports and the gate is measured on exactly that. */
+    const mk = (id, town, lat, lng, pri, extra) => Object.assign({
+      id: id, city: town, priority: pri, townPriority: pri === 10 ? 30 : pri,
+      named: false, from: '2026-10-01', missed: 0,
+      stop: { id: id, lat: lat, lng: lng, name: id }
+    }, extra || {});
+
+    /* Twelve a side: enough to be a one-crew day, so the gate opens.
+       ⚠ THE RUSHED AREA IS NAMED TO LOSE EVERY OTHER TIEBREAK. Ties break
+       alphabetically so the plan is stable, so an area called Alpha wins day one
+       whether or not the rush counted — the first version of this fixture did exactly
+       that and THREE red-check sabotages went straight through it, one of them a
+       revert of the whole ruling. Zulu can only ever get day one by being more
+       urgent, which is the only thing worth asserting. */
+    const build = (rushed) => {
+      const out = [];
+      for (let i = 0; i < 12; i++)
+        out.push(mk('Z' + i, 'Zulu', 40.40 + i * 0.001, -111.80,
+          (rushed && i === 0) ? 10 : 30));
+      for (let i = 0; i < 12; i++)
+        out.push(mk('A' + i, 'Alpha', 40.20 + i * 0.001, -112.10, 30));
+      return out;
+    };
+    const OPTS = { floorDate: '2026-10-01', maxDays: 40 };
+    const townsOnFirstDay = (waiting, extra) => {
+      const days = api.plan(waiting, {}, Object.assign({}, OPTS, extra || {}));
+      if (!days.length) return [];
+      const first = days[0].date;
+      const out = [];
+      days.filter(d => d.date === first).forEach(d => (d.towns || [d.city]).forEach(t => {
+        if (out.indexOf(t) === -1) out.push(t);
+      }));
+      return out;
+    };
+
+    /* ⚠ THE CONTROL COMES FIRST. With nobody rushed the two areas are identical, so
+       the tie breaks alphabetically and Alpha wins anyway — which would make the real
+       check below pass for the wrong reason. Bravo is named to lose the tie, so
+       Alpha winning WITH a rush and NOT winning without it is the whole proof. */
+    {
+      const both = api.plan(build(false), {}, OPTS);
+      const firstDate = both.length ? both[0].date : null;
+      const onFirst = both.filter(d => d.date === firstDate).length;
+      check('S319', 'the two areas are evenly matched with nobody rushed',
+        onFirst === 2,
+        'both areas should be worked on day one when there are two crews and two equal ones — got ' + onFirst + ', so this fixture cannot show a preference at all');
+    }
+
+    /* ---- the ruling ---- */
+    {
+      /* one crew, so only ONE area can be worked on day one and the builder has to
+         choose between them */
+      const one = Object.assign({}, OPTS, { crews: 1 });
+      const plain = api.plan(build(false), {}, one);
+      const rushed = api.plan(build(true), {}, one);
+      const firstOf = (days) => days.length ? (days[0].towns || [days[0].city]) : [];
+      /* ⚠ THE CONTROL IS THE HALF THAT MAKES THE NEXT CHECK MEAN ANYTHING: with nobody
+         rushed the tie must go to Alpha, so Zulu winning below can only be the rush. */
+      check('S319', 'with nobody rushed the tie goes the other way',
+        firstOf(plain).indexOf('Alpha') !== -1 && firstOf(plain).indexOf('Zulu') === -1,
+        'got ' + JSON.stringify(firstOf(plain)) + ' — if Zulu won here anyway the check below would pass whatever the code did');
+      check('S319', 'a rushed house moves its area up the schedule',
+        firstOf(rushed).indexOf('Zulu') !== -1,
+        'Dax: "it can move their area up" — got ' + JSON.stringify(firstOf(rushed)));
+    }
+
+    /* ---- and the Darlene Price case is still refused ---- */
+    {
+      /* ⚠ ONE HOUSE, RUSHED, ON ITS OWN. This is [[SCH-54]] exactly: the area cannot
+         carry a day, so the phone call must not earn it one. */
+      const waiting = [];
+      for (let i = 0; i < 20; i++)
+        waiting.push(mk('big' + i, 'Bravo', 40.20 + i * 0.001, -112.10, 30));
+      waiting.push(mk('alone', 'Lonely', 40.90, -111.20, 10));
+      /* ⚠ ONE CREW, AND THE FIRST VERSION OF THIS CHECK FAILED WITHOUT IT — on correct
+         code. With two crews and only two areas in the book the second crew has nowhere
+         else in the world to go, so it takes the lonely house whatever the urgency says,
+         and the check was measuring that rather than the rule. Suite 315 records the
+         same trap in its own fixture. One crew makes it a CHOICE, which is the only
+         thing worth asserting here. */
+      const towns = townsOnFirstDay(waiting, { crews: 1 });
+      check('S319', 'but a rushed house ALONE still does not earn its area a crew-day',
+        towns.indexOf('Lonely') === -1,
+        'got ' + JSON.stringify(towns) + ' — this is Darlene Price on 1 October, and [[SCH-54]] is not being undone, only narrowed');
+      check('S319', 'and the real day is built anyway',
+        towns.indexOf('Bravo') !== -1,
+        'if nothing were built the check above would pass for the boring reason');
+    }
+
+    /* ---- something prioritizing above it still wins ---- */
+    {
+      /* Dax: "unless something else is prioritizing above it". A new member out of
+         time scores 5 and a rushed house scores 10, so the rival area must win — and
+         this needs no code of its own, which is the point of the check. */
+      const waiting = [];
+      /* ⚠ AND HERE THE RUSHED AREA IS THE ONE THAT WOULD WIN THE TIE, so the rival can
+         only take day one by being genuinely more urgent. */
+      for (let i = 0; i < 12; i++)
+        waiting.push(mk('A' + i, 'Alpha', 40.40 + i * 0.001, -111.80, i === 0 ? 10 : 30));
+      for (let i = 0; i < 12; i++)
+        waiting.push(mk('Z' + i, 'Zulu', 40.20 + i * 0.001, -112.10, i === 0 ? 5 : 30));
+      const days = api.plan(waiting, {}, Object.assign({}, OPTS, { crews: 1 }));
+      const first = days.length ? (days[0].towns || [days[0].city]) : [];
+      check('S319', 'and something more urgent than a phone call still goes first',
+        first.indexOf('Zulu') !== -1,
+        'got ' + JSON.stringify(first) + ' — a new member out of time (5) outranks somebody who rang up this morning (10), and betterTown already knew that');
+    }
+  }
+}

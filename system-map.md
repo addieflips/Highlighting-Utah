@@ -2322,6 +2322,22 @@ is exactly how Darlene Price ended up alone on 1 October with a crew rostered fo
 `houseInstallPriority(h, cust, {forTown:true})` drops the rush flag, and that is the
 number `allowedStats` scores a town on; the house's own queue position is unchanged.
 
+
+⭐ **And a rushed house CAN move its area up, once the area can carry a day** (added
+2026-09-09, [[SCH-64]]). Dax, asked directly: *"it can move their area up unless
+something else is prioritizing above it."* The rule above shipped that morning as a
+blanket refusal, and it was too wide: what he was looking at was a town of ONE scoring
+as urgent as a town of thirty, so the fault was never that priority moved an area — it
+was that the area could not fill a morning. Now that an area is a block of about twenty
+adjacent houses, moving one up moves a real day, and the gate is `fillableCount`: nine
+houses or more, derived from `ONE_MAN_MAX_HOUSES`, because below that a crew is a
+one-man trip and that is the shape of the day he complained about.
+
+⚠ The Darlene Price case is **still refused** — one rushed house on its own earns its
+area nothing, and Suite 315 still asserts it. And *"unless something else is prioritizing
+above it"* needed no code: a rushed house scores 10, a new member out of time scores 5
+or -10, and the town pick already compares urgency first.
+
 ⚠ **The missed bump is deliberately NOT dropped with it.** A house the crew drove past
 yesterday moves its town too — that is what was asked for, and the town really is more
 urgent. Being asked to go sooner is not the same claim about the town. New hangs are
