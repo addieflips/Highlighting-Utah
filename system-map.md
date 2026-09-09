@@ -2974,6 +2974,64 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
     several templates, and `rsvpSentAt` is one fact about the *season*, not one per pass.
     Marking inside would stamp it twice and report the season live before the second half of
     the book had been written to. The caller marks, once, at the end.
+  - ⭐ **AND IT NAMES WHO IT FAILED FOR, SO THEY CAN BE SENT TO AGAIN** (2026-09-09,
+    [[EM-01]]). Addie, after a send where 392 did not go out: *"We need to be able to send it
+    again to failed recepients."* The report said 392 had not been emailed and named **nobody**,
+    so the only way to reach them was to send the whole book a second time — mailing everybody
+    who already had it twice. `etSendTemplateRun` now collects a `{id, name, email, why}` row
+    for every failure and hands them back; **⚠ Some emails did not go out**, a red card under
+    *Send the whole RSVP*, lists them and sends to only those people.
+    - ⚠ **Why it is worth more than an unsent email usually is.** `SEASON_ELIGIBILITY` is
+      `confirmed-only` and `seasonRuleIsLive()` is true, so a customer who was never asked
+      cannot answer, and `isOutForSeason` therefore has them **off the routes, out of the build
+      queue and off the schedule**. An email that quietly did not arrive is a house no crew is
+      sent to. That is why the card says so in as many words, and why `loadEmailSendFailures`
+      is eager at login rather than waiting for something to draw it.
+    - ⚠ **The list is kept per template, never as one list of ids.** *Send the whole RSVP* runs
+      the sender **twice** — the ordinary RSVP, then the Not Paid one — so a merged list would
+      send the ordinary email to somebody who owes from last season, the exact mix-up that
+      button exists to prevent. Each pass stores its own `templateId` and the re-send looks the
+      template up fresh; one deleted since is **reported and its people kept**, never dropped
+      and never quietly sent something else.
+    - ⚠ **The runner does not save the list itself, the button does.** A save inside would let
+      the second pass overwrite the first, leaving only half the book sendable — asserted, and
+      red-checked.
+    - ⚠ **A retry replaces the list, it never merges.** Somebody who got through has to leave
+      it, or the card asks her to keep emailing people who already have it — and a card that
+      cries wolf is one she stops opening. An empty result clears it.
+    - ⚠ **Both ways of counting a failure record a person.** A recipient with no email (nothing
+      was ever sent) and a refused send both increment `failed`, so recording only one would let
+      the card read "392 did not get it" over four names. The gate counts the two against each
+      other; a red-check that renamed one of them went straight through the first version.
+    - ⭐ **AND THE CAUSE WAS FOUND: GMAIL WAS REFUSING THEM FOR GOING TOO FAST** (2026-09-09,
+      [[EM-02]]). The refusal, read off EmailJS: *"Gmail_API: User-rate limit exceeded. Retry
+      after 2026-09-09T21:44:42.819Z (Mail sending)"*, against sends taking **0.603s each**. It
+      was never the EmailJS quota — 1,025 requests were left. Gmail counts the **rate**, and
+      this loop fired the next send the instant the last one returned: about 1.7 a second,
+      sustained across the whole book.
+      - ⚠ **Carrying on is what turned one refusal into 392.** Every send behind the limit was
+        refused too, each spending an EmailJS request to be told the same thing — and the Not
+        Paid pass ran afterwards and lost all 19, because the limit is on the **account**, not
+        the template. That is the "0 of 19" the office saw.
+      - `EMAIL_SEND_GAP_MS` (1000) paces it; `emailSendRetryAfter` reads Gmail's refusal and
+        **stops the run**, recording everybody untried so *Send again* resumes exactly where it
+        stopped. One pass being stopped stops the other, and the passes behind it are recorded
+        rather than dropped.
+      - ⚠ **The gap is a floor, not a target.** A send already takes ~0.6s, so a 950-customer
+        RSVP now takes ~25 minutes. That is the right trade: the season's RSVP is sent once, and
+        a slow send that reaches everybody beats a fast one that reaches half. **Do not lower it
+        to speed a send up** — the cost of being wrong is not a slow send, it is a customer who
+        is never asked and whom `isOutForSeason` then drops from the season for not answering.
+      - ⚠ **The retry time is what tells the two causes apart**, so it is shown in local time
+        and in words (`sendStoppedNote`): minutes away is the rate limit and waiting works;
+        hours away is the day's sending cap and the rest go tomorrow.
+      - ⚠ **Only a refusal about RATE halts the run.** An ordinary bounce or a bad address skips
+        that one person and the send carries on — a parser that stopped on any failure would
+        halt the season's RSVP over one bad address. `emailSendRetryAfter` is **run** against
+        the real string above rather than matched, and the silent side is checked as carefully
+        as the catch.
+    - Each row carries its own reason rather than the run's last one, so the next occurrence
+      names itself. 10 sabotages red-checked across the two passes.
   - ⚠ **The `{{quote_` prefix inside it is built with `String.fromCharCode(123,123)`.** Suites
     lift a function by counting braces from its signature, so two unbalanced opening braces in
     a string run the count off the end and the whole function reads as **missing** — the suite
