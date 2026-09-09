@@ -55137,3 +55137,110 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
       'a split that depends on arrival order re-cuts the season on every render');
   }
 }
+
+suite('Suite 315. Priority orders a house, it does not earn its town a day');
+
+/* ⭐ Dax, 2026-09-09, looking at Darlene Price alone on 1 October while a whole crew
+   was rostered for her and one other house: "crews are heavily uneven at that point
+   just have it 20 houses in the same area and 1 house, if someone has priority that
+   doesnt mean they will be done the very next day it means they will be done the
+   very next time it makes any sense in a route."
+
+   A town's urgency is the BEST number in it (allowedStats), so a rushed house sitting
+   alone in a town of one made that town look as urgent as a town holding thirty
+   October houses — and it won a crew-day of its own on day one. That is priority
+   deciding the ROUTE. It should decide the ORDER once a crew is going there anyway.
+
+   ⚠ RUN, NOT MATCHED. The claim is about which town a crew is SENT TO, which no regex
+   over the builder can see. */
+{
+  const start315 = admin.indexOf('function planNewCrewDays(');
+  const end315 = admin.indexOf('\nfunction ', start315 + 10);
+  const priSrc315 = extractFn(admin, 'houseInstallPriority');
+  if (start315 === -1 || end315 < start315 || !priSrc315) {
+    check('S315', 'the day builder and the ordering are findable', false,
+      'renamed — repoint this rather than stubbing either');
+  } else {
+    const LF315 = String.fromCharCode(10);
+    const consts315 = admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'),
+                                  admin.indexOf('function installPriority'));
+    const api315 = eval('(function(){' + LF315 + 'const NEARBY_TOWN_LIST = {};' + LF315 +
+      'const BASE_START = new Date(2026, 9, 1);' + LF315 +
+      extractFn(admin, 'haversine') + LF315 + extractFn(admin, 'sameTownName') + LF315 +
+      extractFn(admin, 'prefSpecificDate') + LF315 + consts315 + LF315 +
+      extractFn(admin, 'installPriority') + LF315 + priSrc315 + LF315 +
+      admin.slice(start315, end315) + LF315 +
+      'return {plan: planNewCrewDays, pri: houseInstallPriority};})()');
+
+    /* ---- the ordering itself ---------------------------------------------- */
+    const RUSH315 = { rushInstall: true };
+    const NEWH315 = { chargeNewMemberFee: true };
+    const PLAIN315 = {};
+    check('S315', 'asked-sooner still moves the house itself to the front',
+      api315.pri({ pref: 'OCT' }, RUSH315) < api315.pri({ pref: 'OCT' }, PLAIN315),
+      'the tick has to do something, or it is a box that lies');
+    check('S315', 'but asked on behalf of the TOWN it counts for nothing',
+      api315.pri({ pref: 'OCT' }, RUSH315, { forTown: true }) ===
+        api315.pri({ pref: 'OCT' }, PLAIN315, { forTown: true }),
+      'a town is not more urgent because one person in it rang up');
+    /* ⚠ A NEW HANG IS NOT DROPPED WITH IT. "The very top priority is new hangs" is a
+       rule about the book; only the phone call is excluded from what a town claims. */
+    check('S315', 'and a new hang still makes its town urgent',
+      api315.pri({ pref: '' }, NEWH315, { forTown: true }) <
+        api315.pri({ pref: '' }, PLAIN315, { forTown: true }),
+      'dropping new hangs here would undo the 2026-08-17 ruling by a side door');
+
+    /* ⚠ THE WIRING IS ASSERTED SEPARATELY, because a red-check PROVED it had to be:
+       the fixture below supplies `townPriority` itself, so deleting the line that puts
+       it on the queue in rebuildSeasonDays left this whole suite green while the rule
+       could never fire on the real page. Exactly the miss Suite 276 records — a
+       renderer proved against a harness that hands it what the page had stopped
+       providing. Comments stripped, so the paragraph explaining the rule cannot pass
+       for the rule. */
+    check('S315', 'and the real builder actually puts that number on the queue',
+      /townPriority\s*:\s*houseInstallPriority\(\s*h\s*,\s*d\s*,\s*\{\s*forTown\s*:\s*true\s*\}\s*\)/
+        .test(stripComments(admin)),
+      'rebuildSeasonDays is the only place the season queue is built; without this the ' +
+      'fallback in allowedStats reads `priority` and a rushed house earns its town a day ' +
+      'again, with every check here still green');
+
+    /* ---- and what that means on the calendar ------------------------------- */
+    /* ⚠ THE FIXTURE NEEDS A THIRD TOWN, and the first version did not have one: with
+       two towns and two crews the second crew has nowhere else to go, so Vineyard got
+       day one whatever the rule said and the check failed on correct code. Lehi and
+       Draper are both real days' worth of October work; Vineyard is one rushed house.
+       The question the fixture actually asks is which of Draper and Vineyard the
+       SECOND crew is sent to.
+       ⚠ AND DRAPER SITS OUT OF BORROWING RANGE of Lehi (the sandbox has an empty
+       nearby-towns list, so it falls back to eight miles), or it would be topped up
+       onto Lehi's day rather than earning its own. */
+    const mk315 = (id, city, pri, townPri, lat, lng) => ({
+      id: id, city: city, priority: pri, townPriority: townPri, named: false,
+      from: '2026-10-01', stop: { id: id, lat: lat, lng: lng, name: id }
+    });
+    const waiting315 = [];
+    for (let i = 0; i < 25; i++) waiting315.push(mk315('lehi' + i, 'Lehi', 20, 20, 40.39 + i * 0.001, -111.85));
+    for (let i = 0; i < 18; i++) waiting315.push(mk315('drap' + i, 'Draper', 20, 20, 40.58 + i * 0.001, -111.86));
+    waiting315.push(mk315('rush1', 'Vineyard', 10, 20, 40.12, -111.75));
+
+    const days315 = api315.plan(waiting315, {}, { floorDate: '2026-10-01', maxDays: 12, horizonDays: 120 });
+    const firstDate = (days315 || []).reduce(function (a, d) { return !a || d.date < a ? d.date : a; }, null);
+    const dayOne = (days315 || []).filter(function (d) { return d.date === firstDate; });
+    const dayOneTowns = dayOne.map(function (d) { return d.city; });
+    check('S315', 'a town of one rushed house does not win a crew-day of its own on day one',
+      dayOneTowns.indexOf('Vineyard') === -1,
+      'day one went to ' + JSON.stringify(dayOneTowns) + ' — "if someone has priority ' +
+      'that doesnt mean they will be done the very next day"');
+    check('S315', 'the crew goes where the work is instead',
+      dayOneTowns.indexOf('Lehi') !== -1,
+      'day one went to ' + JSON.stringify(dayOneTowns));
+    /* ⚠ AND THEY ARE NOT DROPPED — "the very next time it makes any sense in a route"
+       is a promise that they still go out, just not on a day built for them alone. */
+    const allTowns315 = [];
+    (days315 || []).forEach(function (d) { (d.towns || [d.city]).forEach(function (t) { if (t) allTowns315.push(t); }); });
+    check('S315', 'and the rushed house is still scheduled, later in the season',
+      allTowns315.indexOf('Vineyard') !== -1,
+      'towns built: ' + JSON.stringify([...new Set(allTowns315)]) + ' — not earning a day ' +
+      'is not the same as never being done');
+  }
+}
