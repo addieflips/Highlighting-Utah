@@ -18700,6 +18700,38 @@ function referralMissingNote(run){
         + (run.noReferral > names.length ? ' and others' : '') : '')
     + '. Open one of those records and check the Refer a Friend link at the top.';
 }
+/* ⭐ HOW FAST WE ARE ALLOWED TO SEND (added 2026-09-09, EM-02). Measured, not guessed:
+   the run that failed reported "Gmail_API: User-rate limit exceeded. Retry after
+   2026-09-09T…" against sends taking 0.603s each, fired back to back — about 1.7 a
+   second, sustained over the whole book. Gmail counts the RATE, not only the daily
+   total, and 392 of ~410 remaining sends were refused once it tripped.
+   ⚠ THIS IS A FLOOR ON THE GAP, NOT A TARGET. A send already takes ~0.6s, so the real
+   pace is roughly one every 1.6s — about 25 minutes for a 950-customer RSVP. That is
+   the right trade: the season's RSVP is sent once, and a send that takes half an hour
+   and reaches everybody beats one that takes four minutes and reaches half of them.
+   ⚠ DO NOT LOWER IT TO SPEED A SEND UP without watching for the error above. The cost
+   of being wrong is not a slow send — it is a customer who is never asked, and who is
+   then dropped from the season for not answering (`isOutForSeason`, confirmed-only). */
+const EMAIL_SEND_GAP_MS = 1000;
+/* Gmail's refusal carries the time it will accept mail again. Reading it is what lets
+   the office be told WHEN rather than just no — and it is what tells a rate limit
+   (seconds or minutes away) from the daily cap (hours), which need different answers:
+   one is waited out, the other means finishing tomorrow.
+   ⚠ NULL FOR ANYTHING ELSE, deliberately. Only a refusal that names a time stops the
+   run; an ordinary bounce or a bad address must not halt the send for everybody behind
+   it. */
+function emailSendRetryAfter(err){
+  const text = String((err && (err.text || err.message)) || '');
+  if(!/rate limit|rateLimitExceeded|too many/i.test(text)) return null;
+  const m = /Retry after\s+(\S+)/i.exec(text);
+  if(m){
+    const when = new Date(m[1]);
+    if(!isNaN(when.getTime())) return when;
+  }
+  /* Rate-limited but with no time given — still a stop, just without a promise about
+     when. Carrying on would spend the rest of the list finding out the same thing. */
+  return new Date(Date.now() + 60000);
+}
 async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId, statusEl, progressLabel){
   let sent = 0, failed = 0, optedOut = 0, noReferral = 0;
   /* ⭐ WHO FAILED, NOT ONLY HOW MANY (added 2026-09-09, EM-01). Addie, on a send where
@@ -18713,6 +18745,7 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
      routes, out of the build queue and off the schedule. An email that silently did not
      arrive is a house the crew is never sent to. */
   const failedRecipients = [];
+  let rateLimitedUntil = null;
   /* ⚠ NAMES, NOT JUST A COUNT, AND ONLY THE FIRST FEW. "12 got no referral link" is
      a number nobody can act on; a name and a reason is one record to open. Capped so
      a whole-book send cannot print nine hundred names into a status line. */
@@ -18793,18 +18826,41 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
       const subject = await emailSubjectFor(template, vars.phone, vars);
       await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', subject: subject, message: message });
       sent++;
+      /* ⭐ PACED, BECAUSE GMAIL COUNTS HOW FAST WE SEND (2026-09-09, EM-02). See
+         EMAIL_SEND_GAP_MS — this loop used to fire the next send the instant the last
+         one came back, which is what put 392 of them into "Gmail_API: User-rate limit
+         exceeded". The wait is AFTER a send that worked and never after a failure: a
+         refusal cost Gmail nothing, and the stop below is what handles that case. */
+      await new Promise(r => setTimeout(r, EMAIL_SEND_GAP_MS));
     } catch(err){ failed++; lastEmailSendError = err;
       /* ⚠ THE REASON IS KEPT PER PERSON, not only in `lastEmailSendError`. That variable
          holds the LAST error of the run, so one report spoke for four hundred sends that
          may have failed for different reasons. Here each row carries its own. */
       failedRecipients.push({ id: member.id, name: member.data.name || '', email: member.data.email || '',
                               why: String((err && (err.text || err.message || err.status)) || 'no reason was given').slice(0, 200) });
+      /* ⭐ AND WHEN GMAIL SAYS STOP, STOP (EM-02). Carrying on after a rate limit is
+         how one refusal became 392: every remaining send was refused too, each one
+         spending an EmailJS request to be told the same thing. The rest of the list is
+         recorded as not-sent WITH the time Gmail named, so Send again can reach exactly
+         them — nobody is lost by breaking early. */
+      const until = emailSendRetryAfter(err);
+      if(until){
+        rateLimitedUntil = until;
+        const rest = selectedIds.slice(selectedIds.indexOf(id) + 1);
+        failed += rest.length;
+        rest.forEach(function(restId){
+          const m = jobAddresses.find(x => x.id === restId);
+          failedRecipients.push({ id: restId, name: (m && m.data.name) || '', email: (m && m.data.email) || '',
+                                  why: 'not attempted — Gmail stopped the send' });
+        });
+        break;
+      }
     }
   }
   reportEmailSendFailures(failed, sent);
   return { sent: sent, failed: failed, optedOut: optedOut,
            noReferral: noReferral, noReferralNames: noReferralNames,
-           failedRecipients: failedRecipients };
+           failedRecipients: failedRecipients, rateLimitedUntil: rateLimitedUntil };
 }
 document.getElementById('etSendToSelectedBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('etPreviewSendStatus');
@@ -18832,8 +18888,9 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
      be the only one anybody could send again. Each button saves once, for all of its
      passes, when they are all finished. */
   await saveEmailSendFailures([{templateId: template.id, templateName: template.data.name || '', people: run.failedRecipients || []}]);
-  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + (optedOut ? ', ' + optedOut + ' skipped (on the do-not-send list)' : '') + '.'
-    + referralMissingNote(run);
+  const stopped = sendStoppedNote(run.rateLimitedUntil);
+  statusEl.textContent = (stopped ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' not sent' : '') + (optedOut ? ', ' + optedOut + ' skipped (on the do-not-send list)' : '') + '.'
+    + stopped + referralMissingNote(run);
   /* ⭐ AND RECORD THAT THE SEASON'S RSVP HAS GONE OUT. Only for an RSVP template, only
      when at least one email actually left, and only the FIRST time — see
      noteRsvpSendHappened. Whether the RSVP has been sent is the one fact that decides
@@ -19003,6 +19060,7 @@ document.getElementById('rsvpWholeSendBtn')?.addEventListener('click', async fun
   /* Both passes' failures, saved together once at the end — see the note on the
      Send to Selected handler for why the runner must not save them itself. */
   const failedPasses = [];
+  let rateStop = null;
   try{
     emailjs.init(publicKey);
     const passes = [
@@ -19016,6 +19074,29 @@ document.getElementById('rsvpWholeSendBtn')?.addEventListener('click', async fun
       if(r.failedRecipients && r.failedRecipients.length){
         failedPasses.push({templateId: pass.t.id, templateName: pass.t.data.name || '', people: r.failedRecipients});
       }
+      /* ⚠ ONE PASS BEING RATE-LIMITED STOPS THE OTHER TOO (EM-02). Gmail's limit is on
+         the ACCOUNT, not on a template, so running the Not Paid pass after the ordinary
+         one was cut short just refuses nineteen more sends — which is exactly what
+         happened: 0 of 19. Both halves are on the failed list, so Send again does the
+         whole remainder in the right template each. */
+      if(r.rateLimitedUntil){
+        rateStop = r.rateLimitedUntil;
+        /* ⚠ AND THE PASSES BEHIND IT ARE RECORDED, NOT DROPPED. Breaking out without
+           this loses everybody in the Not Paid half from the failed list — they were
+           never attempted, so nothing else anywhere knows they are owed an email, and
+           the card would quietly cover only the pass that happened to run first. */
+        passes.slice(passes.indexOf(pass) + 1).forEach(function(rest){
+          if(!rest.ids.length) return;
+          failed += rest.ids.length;
+          failedPasses.push({templateId: rest.t.id, templateName: rest.t.data.name || '',
+            people: rest.ids.map(function(rid){
+              const m = jobAddresses.find(x => x.id === rid);
+              return { id: rid, name: (m && m.data.name) || '', email: (m && m.data.email) || '',
+                       why: 'not attempted — Gmail stopped the send' };
+            })});
+        });
+        break;
+      }
       /* ⚠ SUMMED ACROSS BOTH PASSES, and the names kept from whichever pass had them.
          Reporting the second pass alone would say nothing about the ordinary RSVP,
          which is the bigger half of the book. */
@@ -19028,10 +19109,11 @@ document.getElementById('rsvpWholeSendBtn')?.addEventListener('click', async fun
        keeps its own template, so Send again gives the arrears half the Not Paid RSVP
        rather than the ordinary one (EM-01). */
     await saveEmailSendFailures(failedPasses);
-    if(st) st.textContent = 'Done \u2014 sent ' + sent
-      + (failed ? ', ' + failed + ' failed \u2014 the card below can send to just them' : '')
+    if(st) st.textContent = (rateStop ? 'Stopped early' : 'Done') + ' \u2014 sent ' + sent
+      + (failed ? ', ' + failed + ' not sent \u2014 the card below can send to just them' : '')
       + (optedOut ? ', ' + optedOut + ' skipped (do-not-send)' : '')
       + (plan.noEmail.length ? '. ' + plan.noEmail.length + ' still need texting \u2014 the card below lists them.' : '.')
+      + sendStoppedNote(rateStop)
       + referralMissingNote({noReferral: noReferral, noReferralNames: noReferralNames});
     /* ⭐ MARKED ONCE, AFTER BOTH PASSES. rsvpSentAt is one fact about the season, not one
        per template — marking inside the sender would stamp it twice and report the season
@@ -43225,6 +43307,22 @@ async function noteRsvpSendHappened(count){
    would have.
    ========================================================================== */
 let emailSendFailuresCache = null;
+/* ⚠ SAID IN LOCAL TIME AND IN WORDS. Gmail hands back a UTC timestamp, which nobody in
+   the office can act on — "Retry after 2026-09-09T21:44:42.819Z" is not a time of day.
+   The gap between now and then is also what separates the two causes: minutes means the
+   rate limit and waiting works, hours means the daily cap and the rest go tomorrow. */
+function sendStoppedNote(until){
+  if(!until) return '';
+  const when = (until instanceof Date) ? until : new Date(until);
+  if(isNaN(when.getTime())) return ' Gmail stopped the send — try again shortly.';
+  const mins = Math.max(1, Math.round((when.getTime() - Date.now()) / 60000));
+  const clock = when.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+  return ' Gmail stopped the send because it was going too fast — it will accept mail again at '
+    + clock + (mins > 90
+      ? ' (about ' + Math.round(mins/60) + ' hours). That long a wait usually means the day’s sending limit, so the rest go out tomorrow.'
+      : ' (about ' + mins + ' minute' + (mins === 1 ? '' : 's') + ').')
+    + ' Nobody after that point was tried — press Send again then and it picks up exactly where it stopped.';
+}
 /* ⚠ CAPPED. `messages` and settings documents are not a place to put nine hundred
    rows, and a Firestore document is 1MB — a whole-book failure would otherwise write
    a list nobody can render and the save would throw, losing the lot. The COUNT is
@@ -43322,7 +43420,7 @@ document.getElementById('sendFailureRetryBtn')?.addEventListener('click', async 
   if(!confirm('Send again to the ' + total + ' customer(s) who did not get it?\n\n'
     + 'Only these people are emailed — nobody who already got it is sent a second copy.')) return;
   this.disabled = true;
-  let sent = 0, failed = 0;
+  let sent = 0, failed = 0, rateStop = null;
   const stillFailing = [];
   try{
     emailjs.init(publicKey);
@@ -43342,14 +43440,23 @@ document.getElementById('sendFailureRetryBtn')?.addEventListener('click', async 
       if(r.failedRecipients && r.failedRecipients.length){
         stillFailing.push({templateId: p.templateId, templateName: p.templateName, people: r.failedRecipients});
       }
+      /* ⚠ THE SAME ACCOUNT-WIDE STOP AS THE FIRST SEND (EM-02). Gmail's limit does not
+         care that this is a second attempt, so the passes behind a stopped one are kept
+         on the list untried rather than spent finding out the same thing. */
+      if(r.rateLimitedUntil){
+        rateStop = r.rateLimitedUntil;
+        passes.slice(passes.indexOf(p) + 1).forEach(function(rest){ stillFailing.push(rest); });
+        break;
+      }
     }
     /* ⚠ THE LIST IS REPLACED BY WHAT FAILED THIS TIME, never merged with the old one.
        Somebody who got through must leave the list, or the card asks her to keep
        emailing people who already have it — and a card that cries wolf is one she
        stops opening. An empty result clears it. */
     await saveEmailSendFailures(stillFailing);
-    if(statusEl) statusEl.textContent = 'Done — sent ' + sent
-      + (failed ? ', ' + failed + ' still failed. They are still listed above.' : '. Everybody has now been emailed.');
+    if(statusEl) statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent
+      + (failed ? ', ' + failed + ' still to go. They are still listed above.' : '. Everybody has now been emailed.')
+      + sendStoppedNote(rateStop);
   }catch(err){
     console.error('[HU] re-send to failed recipients:', err);
     if(statusEl) statusEl.textContent = 'Stopped — ' + (err && err.message ? err.message : 'something went wrong') + '. The list above is unchanged.';

@@ -94,6 +94,7 @@ const ERROR_CONSTS = between(admin, "const ERROR_FOLDER = 'Errors';",
 const ADMIN_BLOCK = between(admin, 'const ERROR_REPEAT_HOURS = 12;',
   'function loadMessageFolders(', 'the admin reporter');
 const SEED_FN = extractFn(admin, 'seedErrorFolders');
+const RETRY_AFTER_FN = extractFn(admin, 'emailSendRetryAfter');
 const HOME_MAP = (admin.match(/const MESSAGE_HOME_FOLDER = \{[\s\S]*?\};/) || [])[0];
 const FOLDER_OF = extractFn(admin, 'messageFolderOf');
 const MEMBER_BLOCK = between(index, "var MEMBER_ERROR_TOPIC = 'Member Error';",
@@ -680,13 +681,43 @@ console.log('--- wiring ---');
      check that asked whether ANY push was present, which would have let the list and the
      `failed` count disagree — the card then reads "392 did not get it" over 4 names. */
   const pushes = runnerBody.split('failedRecipients.push(').length - 1;
-  const bumps = runnerBody.split('failed++').length - 1;
+  /* ⚠ BOTH WAYS THE COUNT CAN RISE. `failed++` is one at a time (no email, a refused
+     send); `failed +=` is the block the rate-limit stop adds for everybody it did not
+     get to. Counting only the first would let that whole group be tallied and never
+     named, which is the same hole in a new place. */
+  const bumps = (runnerBody.split('failed++').length - 1) + (runnerBody.split('failed +=').length - 1);
   check('and the template runner records WHO it failed for, not just how many',
-    pushes === bumps && pushes === 2 &&
+    pushes === bumps && pushes === 3 &&
     runnerBody.indexOf('failedRecipients: failedRecipients') !== -1,
     'every way of counting a failure must also name the person: found ' + pushes +
     ' record(s) against ' + bumps + ' failure(s) counted. Otherwise "send it again to ' +
     'the ones it missed" silently leaves some of them out');
+  /* ⭐ AND IT STOPS WHEN GMAIL SAYS TO (EM-02). Carrying on after "User-rate limit
+     exceeded" is how one refusal became 392 — every send behind it was refused too. */
+  check('and it stops the run when Gmail refuses on rate, instead of burning the rest',
+    runnerBody.indexOf('emailSendRetryAfter(err)') !== -1 && /\bbreak;/.test(runnerBody),
+    'the loop must break on a rate-limit refusal and record the untried remainder, or ' +
+    'a limit hit at customer 550 spends the other 400 requests being told the same thing');
+  /* ⚠ THE REMAINDER IS TAKEN FROM THE REAL LIST, and this asserts the LINKAGE rather
+     than that a push exists — a red-check swapping `rest.forEach` for `[].forEach` went
+     straight through the looser version, which would have counted 392 as failed and
+     named none of them: the exact hole this whole change closes, one level down.
+     ⚠ STRUCTURAL, AND SAYING SO. Proving it by running would need a harness for the
+     whole sender (jobAddresses, emailjs, resolveLinkTokens, the token writes); the
+     claim is about one expression feeding another, which is the one shape a text check
+     reads honestly. If the admin browser harness in CLAUDE.md is ever built, run it. */
+  check('and the untried remainder is the people actually left, not an empty list',
+    /const rest = selectedIds\.slice\(selectedIds\.indexOf\(id\) \+ 1\);/.test(runnerBody) &&
+    /failed \+= rest\.length;/.test(runnerBody) &&
+    /rest\.forEach\(/.test(runnerBody),
+    'the count and the names must come from the SAME list — counting rest.length while ' +
+    'naming something else is how 392 got tallied and nobody got recorded');
+  /* ⚠ THE PACING IS ASSERTED AS A REAL WAIT, not as the constant existing. A named
+     constant nothing awaits is the shape of a guard that was written and never wired. */
+  check('and it waits between sends rather than firing them back to back',
+    /await new Promise\(r => setTimeout\(r, EMAIL_SEND_GAP_MS\)\)/.test(runnerBody),
+    'sends went out ~1.7 a second and Gmail refused 392 of them; the gap is what ' +
+    'stops that happening again');
   /* ⚠ THE RUNNER MUST NOT SAVE THEM ITSELF. Send the whole RSVP calls it twice, so a
      save inside would let the Not Paid pass overwrite the ordinary RSVP's failures and
      only half the book could be sent again. Each button saves once, for all its passes. */
@@ -694,6 +725,50 @@ console.log('--- wiring ---');
     runnerBody.indexOf('saveEmailSendFailures(') === -1,
     'etSendTemplateRun calls saveEmailSendFailures itself — the second pass of the ' +
     'whole-RSVP send would erase the first pass’s list');
+}
+
+/* ---------------------------------------------------------------------------
+ * Reading Gmail's refusal (EM-02).
+ *
+ * ⚠ RUN, NOT MATCHED. Every claim here is about what a string PARSES TO, which a
+ * regex over the source cannot see — and the whole point of the function is to tell a
+ * rate limit (wait, then carry on) from an ordinary bounce (skip that one person and
+ * keep going). Getting that backwards either halts a whole send over one bad address
+ * or spends four hundred requests being refused.
+ * ------------------------------------------------------------------------- */
+{
+  const retryAfter = new Function(RETRY_AFTER_FN + '; return emailSendRetryAfter;')();
+
+  /* ⭐ THE ACTUAL STRING FROM THE FAILED SEND, not an invented one. A fixture of
+     made-up messages can pass while missing the one that happened — the lesson Suite
+     274 records by name. This is what EmailJS handed back on 2026-09-09. */
+  const real = { text: 'Gmail_API: User-rate limit exceeded. Retry after 2026-09-09T21:44:42.819Z (Mail sending)' };
+  const got = retryAfter(real);
+  check('the real Gmail refusal is read as a stop, with its time',
+    got instanceof Date && got.toISOString() === '2026-09-09T21:44:42.819Z',
+    'the send that failed said exactly this; if it does not parse, the run does not stop ' +
+    'and the office is told nothing about when to try again. Got: ' + got);
+
+  check('a rate limit with no time still stops the run',
+    retryAfter({text: 'Gmail_API: rateLimitExceeded'}) instanceof Date,
+    'rate-limited but undated is still rate-limited — carrying on spends the rest of ' +
+    'the list finding that out');
+
+  /* ⚠ THE SILENT SIDE MATTERS MORE THAN THE CATCH, same as EMAIL_LOOKALIKE_BUT_REAL.
+     A parser that answers "stop" to an ordinary failure halts the season's RSVP over
+     one bad address, and every customer behind it goes unasked. */
+  check('an ordinary bounce does NOT stop the send',
+    retryAfter({text: 'The recipient address is invalid'}) === null &&
+    retryAfter({text: 'Bad Request'}) === null &&
+    retryAfter({}) === null && retryAfter(null) === null,
+    'only a refusal about RATE may halt the run; anything else is one customer skipped');
+
+  /* A malformed date must not come back as an Invalid Date wearing a Date's clothes —
+     `sendStoppedNote` would then print "Invalid Date" at the office. */
+  const junk = retryAfter({text: 'User-rate limit exceeded. Retry after not-a-date'});
+  check('and a time it cannot read still stops, without claiming a bogus one',
+    junk instanceof Date && !isNaN(junk.getTime()),
+    'an unreadable timestamp must fall back to a real one, not to Invalid Date');
 }
 
 /* ---------------------------------------------------------------------------

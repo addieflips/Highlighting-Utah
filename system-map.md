@@ -3003,9 +3003,35 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
       was ever sent) and a refused send both increment `failed`, so recording only one would let
       the card read "392 did not get it" over four names. The gate counts the two against each
       other; a red-check that renamed one of them went straight through the first version.
-    - ⚠ **What made the 392 fail is not recorded**, because it was not known: EmailJS still had
-      1,025 requests, so it was not the quota. Each row now carries its own reason rather than
-      the run's last one, so the next occurrence names itself.
+    - ⭐ **AND THE CAUSE WAS FOUND: GMAIL WAS REFUSING THEM FOR GOING TOO FAST** (2026-09-09,
+      [[EM-02]]). The refusal, read off EmailJS: *"Gmail_API: User-rate limit exceeded. Retry
+      after 2026-09-09T21:44:42.819Z (Mail sending)"*, against sends taking **0.603s each**. It
+      was never the EmailJS quota — 1,025 requests were left. Gmail counts the **rate**, and
+      this loop fired the next send the instant the last one returned: about 1.7 a second,
+      sustained across the whole book.
+      - ⚠ **Carrying on is what turned one refusal into 392.** Every send behind the limit was
+        refused too, each spending an EmailJS request to be told the same thing — and the Not
+        Paid pass ran afterwards and lost all 19, because the limit is on the **account**, not
+        the template. That is the "0 of 19" the office saw.
+      - `EMAIL_SEND_GAP_MS` (1000) paces it; `emailSendRetryAfter` reads Gmail's refusal and
+        **stops the run**, recording everybody untried so *Send again* resumes exactly where it
+        stopped. One pass being stopped stops the other, and the passes behind it are recorded
+        rather than dropped.
+      - ⚠ **The gap is a floor, not a target.** A send already takes ~0.6s, so a 950-customer
+        RSVP now takes ~25 minutes. That is the right trade: the season's RSVP is sent once, and
+        a slow send that reaches everybody beats a fast one that reaches half. **Do not lower it
+        to speed a send up** — the cost of being wrong is not a slow send, it is a customer who
+        is never asked and whom `isOutForSeason` then drops from the season for not answering.
+      - ⚠ **The retry time is what tells the two causes apart**, so it is shown in local time
+        and in words (`sendStoppedNote`): minutes away is the rate limit and waiting works;
+        hours away is the day's sending cap and the rest go tomorrow.
+      - ⚠ **Only a refusal about RATE halts the run.** An ordinary bounce or a bad address skips
+        that one person and the send carries on — a parser that stopped on any failure would
+        halt the season's RSVP over one bad address. `emailSendRetryAfter` is **run** against
+        the real string above rather than matched, and the silent side is checked as carefully
+        as the catch.
+    - Each row carries its own reason rather than the run's last one, so the next occurrence
+      names itself. 10 sabotages red-checked across the two passes.
   - ⚠ **The `{{quote_` prefix inside it is built with `String.fromCharCode(123,123)`.** Suites
     lift a function by counting braces from its signature, so two unbalanced opening braces in
     a string run the count off the end and the whole function reads as **missing** — the suite
