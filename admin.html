@@ -57639,6 +57639,23 @@ function hcRunChecks(){
       + 'against EmailJS before treating it as "never asked".',
     rows: (function(){
       if(typeof rsvpWholePlan !== 'function') return [];
+      /* ⚠ SILENT UNTIL THE APP HAS ACTUALLY RECORDED A SEND, and this is the guard the
+         row shipped without — caught by Addie asking what it was for while she was
+         resending from EmailJS. With no stamp on ANYBODY, "never reached" is not a
+         finding about the customers, it is the app having no data: it would list the
+         whole book of ~950 and read as a catastrophe on the evening the RSVP went out
+         perfectly well. A warning that cries wolf is one the office learns to click
+         past, including the day it is right — the same argument seasonRuleDrops makes
+         about staying quiet before the send, and the same one behind
+         EMAIL_LOOKALIKE_BUT_REAL.
+         ⚠ ONE STAMP IS ENOUGH to establish that the app is now keeping the record, and
+         from that point everybody without one really has not been reached BY US. That
+         is what "They have all been asked — record it" sets in one press after an
+         EmailJS resend, and what an ordinary send sets by itself. */
+      const anyRecorded = (jobAddresses || []).some(function(a){
+        return a && a.data && (a.data.rsvpEmailedAt || a.data.arrearsRsvpEmailAt);
+      });
+      if(!anyRecorded) return [];
       const plan = rsvpWholePlan();
       /* ⚠ NOT READY IS NOT EMPTY. The plan refuses until the invoices have loaded,
          because who owes from last season decides which of the two emails they get.

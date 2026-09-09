@@ -3063,7 +3063,12 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
       - ⚠ **A failed stamp never fails the send.** The email has gone; the worst a lost
         stamp does is offer a duplicate later, which is the safe direction — the opposite
         mistake is a customer never asked at all.
-      - Health Check row **The RSVP never reached these customers**. ⚠ It reverses HC-03,
+      - Health Check row **The RSVP never reached these customers**. ⚠ **It is SILENT
+        until at least one send has been recorded** ([[EM-07]]) — with no stamp on
+        anybody, "never reached" is not a finding about customers, it is the app having
+        no data, and the row would list the whole book on an evening the RSVP had gone
+        out fine. It shipped without that guard and Addie's question is what found it.
+        Either stamp counts as a record. ⚠ It reverses HC-03,
         which said not to add a row because she did not open the panel — that complaint
         was fixed the day after, when approve/deny shipped, and she has now asked for
         this by name (R-024). ⚠ It is a **different question** from `seasonRuleDrops`:

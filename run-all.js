@@ -48368,6 +48368,25 @@ suite('287. The routine route sweep does not bury the notice that matters');
     }
   }
 
+  /* ⭐ AND THE ROW STAYS QUIET WHILE THE APP KNOWS NOTHING (EM-07). Shipped without this
+     and caught by Addie asking what the change was for: with no stamp on anybody,
+     "never reached" is not a finding about customers, it is the app having no record —
+     and it would list the whole book on an evening the RSVP had gone out fine. */
+  {
+    const hcSrc = String(admin);
+    const rowAt = hcSrc.indexOf("id: 'rsvpNeverReached'");
+    const rowBody = rowAt === -1 ? '' : hcSrc.slice(rowAt, hcSrc.indexOf("id: 'seasonRuleDrops'", rowAt));
+    check('S288', 'the never-reached row is silent until a send has been recorded',
+      !!rowBody && /anyRecorded/.test(rowBody) && /if\(!anyRecorded\) return \[\];/.test(rowBody),
+      'with nothing stamped anywhere this row lists every customer in the book — a ' +
+      'warning that cries wolf is one the office learns to click past, including the ' +
+      'day it is right');
+    check('S288', 'and it counts EITHER stamp as the app having a record',
+      /rsvpEmailedAt \|\| a\.data\.arrearsRsvpEmailAt/.test(rowBody),
+      'the arrears chase has been stamping customers for weeks; ignoring it would keep ' +
+      'the row silent on a book that does have a record');
+  }
+
   check('S288', 'and the season reset clears the office stamp as well',
     /rsvpEmailedAt: null/.test(admin),
     'left standing, a new season opens with the whole book already marked asked and ' +
