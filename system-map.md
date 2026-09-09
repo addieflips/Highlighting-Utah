@@ -1535,6 +1535,17 @@ member's bill — with nobody in the office typing anything.
   at the two conversion doors, so a quote that merely carries the token has moved no
   money — her *"only takes affect after they are converted"*, now asserted rather than
   left as a property nobody checked.
+- ⭐ **THE ROW HOLDS THE LINK; THE DISCOUNTS BOX HOLDS THE MONEY** (REF-34, 2026-09-09).
+  Addie: *"It looks like you put it here. It should be under here."* The joined, waiting,
+  refused and held counts render in `editCustReferStatusLine` inside the Discounts box,
+  beside the discount they explain. One function still writes both halves, so the two
+  panels cannot disagree about the count; the Copy feedback stays with its button.
+- ⭐ **AND THE FRIEND'S MESSAGE PROMISES THE $30 WAIVER** (REF-35, 2026-09-09). It did
+  not until now: `referralShareLine` holds that promise and **nothing called it** —
+  `navigator.share` was handed a hardcoded sentence about a free quote, while the comment
+  above the function claimed otherwise. The fee is read from `NEW_MEMBER_FEE`, never
+  typed. ⚠ The Copy fallback still copies the link alone, deliberately — the button says
+  *Copy My Link* and it is the desktop path where the customer writes their own message.
 - **Who is refused.** Either the phone or the email matching the referrer's is a hard
   refusal, and their own record is refused first by document id. **Nothing verifies either
   field** — no OTP exists here and building one was turned down — so a determined person can

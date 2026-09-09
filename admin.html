@@ -2263,6 +2263,16 @@
               <div class="form-row"><label>Reason</label><input type="text" id="editCustDiscountReason" placeholder="e.g. loyalty, price match"></div>
             </div>
             <div id="editCustDiscountSummary" style="font-size:13px; font-weight:600; color:var(--dusk); margin-top:8px;"></div>
+            <!-- ⭐ HOW THEIR REFERRAL LINK IS DOING, BESIDE THE MONEY IT EARNS (REF-34,
+                 2026-09-09). Addie, pointing at the Refer a friend row and then at this
+                 box: "It looks like you put it here. It should be under here."
+                 ⚠ THE LINK STAYS UP THERE AND THE MONEY COMES DOWN HERE. That row is
+                 for copying and sharing the address; how many friends joined, how many
+                 are waiting and how much comes off the bill are facts about THIS box,
+                 and reading them two panels away from the discount they explain is what
+                 made them easy to miss. Written by editCustRenderReferLine, which owns
+                 both halves so they cannot disagree about the count. -->
+            <div id="editCustReferStatusLine" style="display:none; font-size:12.5px; line-height:1.5; margin-top:6px;"></div>
             <!-- Same × as the Fees box above, on the other ledger. Addie: "we should
                  have an x next to all discounts and fees to get rid of those if
                  necessary." -->
@@ -46529,6 +46539,17 @@ function editCustRenderHouseTabs(){
    tell the office a customer has a discount they do not have. */
 function editCustRenderReferLine(){
   const line = document.getElementById('editCustReferLine');
+  /* ⭐ THE SECOND HALF LIVES IN THE DISCOUNTS BOX (REF-34, 2026-09-09). Addie, pointing
+     at the Refer a friend row and then at the Discounts box: "It looks like you put it
+     here. It should be under here." The row keeps the LINK — the thing you copy and
+     share — and everything about the MONEY it has earned moves down beside the discount
+     it explains.
+     ⚠ ONE FUNCTION STILL OWNS BOTH, deliberately. Two renderers reading
+     `referralCredits` separately is how the count beside the link and the count beside
+     the money start disagreeing, which is the whole shape of the bug this feature has
+     already had twice. Both halves are written in the same pass or neither is. */
+  const statusLine = document.getElementById('editCustReferStatusLine');
+  if(statusLine){ statusLine.style.display = 'none'; statusLine.innerHTML = ''; }
   if(!line) return;
   line.style.display = 'none';
   line.innerHTML = '';
@@ -46606,7 +46627,10 @@ function editCustRenderReferLine(){
      joined through it yet" \u2014 the same sentence it gives a link nobody has ever opened.
      Those two need opposite actions, so they cannot share a sentence. */
   const waiting = referralPendingQuotes(d, (typeof quotesCache !== 'undefined' ? quotesCache : [])).length;
-  bits.push('<span style="color:var(--slate);">' + (n
+  /* Everything from here down describes the MONEY, so it is collected separately and
+     written into the Discounts box rather than onto the link row. */
+  const money = [];
+  money.push('<span style="color:var(--slate);">' + (n
     ? (n === 1 ? '1 person has joined \u2014 ' : n + ' people have joined \u2014 ') +
       fmtMoney(n * REFERRAL_CREDIT) + ' off their bill'
     : (refused ? 'nobody has joined through it and been credited'
@@ -46616,7 +46640,7 @@ function editCustRenderReferLine(){
     /* \u26a0 IT NAMES THE NEXT STEP, because the office has to DO something for this to
        become money \u2014 the whole reason the count was worth showing. Gold rather than
        amber: this is the link working, not a fault. */
-    bits.push('<span style="color:var(--gold, #D89F3D);">' + waiting + ' quote' +
+    money.push('<span style="color:var(--gold, #D89F3D);">' + waiting + ' quote' +
       (waiting === 1 ? '' : 's') + ' from their link waiting to be converted \u2014 ' +
       'the ' + fmtMoney(REFERRAL_CREDIT) + (waiting === 1 ? '' : ' each') +
       ' goes on when you convert them</span>');
@@ -46625,20 +46649,33 @@ function editCustRenderReferLine(){
     /* ⚠ THE REASON IS SHOWN, not just the count — “earned nothing” on its own sends
        somebody hunting for a broken link, and the link is fine. */
     const whyLast = referralLastBlockWhy(d.referralBlocks);
-    bits.push('<span style="color:var(--ember);">' + refused + ' use' + (refused === 1 ? '' : 's') +
+    money.push('<span style="color:var(--ember);">' + refused + ' use' + (refused === 1 ? '' : 's') +
       ' of it earned nothing' + (whyLast ? ' \u2014 ' + esc(whyLast) : '') + '</span>');
   }
   if(held){
-    bits.push('<span style="color:var(--slate);">' +
+    money.push('<span style="color:var(--slate);">' +
       '+ ' + held + ' held for next season (' + fmtMoney(held * REFERRAL_CREDIT) +
       ') \u2014 they are not being billed this year</span>');
   }
+  /* \u26a0 THE COPY/WORKING FEEDBACK STAYS WITH THE BUTTON IT REPORTS ON. It is written
+     by editCustReferClick after Copy link is pressed, and a confirmation that appears in
+     a different panel from the button is one nobody sees. */
   bits.push('<span id="editCustReferStatus" style="color:var(--slate);"></span>');
   line.style.display = 'flex';
   line.style.flexWrap = 'wrap';
   line.style.alignItems = 'center';
   line.style.gap = '8px';
   line.innerHTML = bits.join('');
+  /* \u26a0 AND THE MONEY HALF, IN THE DISCOUNTS BOX. Written last so a missing container
+     (an older page, or this form opened before the markup shipped) costs the status and
+     not the link \u2014 the link is the half somebody came here to copy. */
+  if(statusLine){
+    statusLine.style.display = 'flex';
+    statusLine.style.flexWrap = 'wrap';
+    statusLine.style.alignItems = 'center';
+    statusLine.style.gap = '8px';
+    statusLine.innerHTML = money.join('');
+  }
 }
 /* ⚠ NAMED AND DELEGATED, for the reason written above editCustTabsClick: an inline
    listener can only be checked by matching its source, and this repo has already

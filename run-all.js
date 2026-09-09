@@ -45396,6 +45396,10 @@ if (!JSDOM) {
       '<div id="editCustHouseTabs" style="display:none;"></div>' +
       '<div id="editCustBillLine" style="display:none;"></div>' +
       '<div id="editCustReferLine" style="display:none;"></div>' +
+      /* REF-34: the money half of the referral row now renders in the Discounts
+         box. Without this container the split is untestable and the renderer
+         silently writes nowhere. */
+      '<div id="editCustReferStatusLine" style="display:none;"></div>' +
       '<input id="editCustName" value="Heather Anderson">' +
       '<input id="editCustFeet" value="200">' +
       '<input type="checkbox" id="editCustNewMemberFee">' +
@@ -45458,6 +45462,7 @@ if (!JSDOM) {
       '   return {tabs:document.getElementById("editCustHouseTabs"),' +
       '           line:document.getElementById("editCustBillLine"),' +
       '           refer:document.getElementById("editCustReferLine"),' +
+      '           referMoney:document.getElementById("editCustReferStatusLine"),' +
       '           save:document.getElementById("editCustSaveBtn"),' +
       '           top:document.getElementById("editCustTopSave")};' +
       ' },' +
@@ -45635,6 +45640,54 @@ if (!JSDOM) {
         'got ' + after.length + ' writes for one customer — a second token silently ' +
         'retires every link already shared, and the office has no way to see it happen');
     })().catch(function(e){ e.__suite = 'S276'; throw e; }));
+
+    /* ---- REF-34: which panel each half lands in --------------------------
+     * Addie, pointing at the Refer a friend row and then at the Discounts box: "It
+     * looks like you put it here. It should be under here."
+     * ⚠ RUN, NOT MATCHED. The first two versions of these were source checks and the
+     * red-check proved both vacuous: `statusLine.innerHTML = money.join('')` survives
+     * `if(false && statusLine)` with every character intact. Every claim here is about
+     * which panel a sentence ends up in, which only rendering can answer. */
+    {
+      const bookSplit = [{id: 's1', data: {name: 'Dana Referrer', phone: '8015550111',
+        customerNumber: '5', housePrice: 400, referralToken: 'tok-dana',
+        referralCredits: [{referredCustomerId: 'f1', referredName: 'Kyle New', amount: 25,
+          creditedAt: new Date().toISOString(), season: new Date().getFullYear(),
+          revoked: false}], referralCount: 1}}];
+      const split = F.open(bookSplit, 's1', []);
+      const linkHtml = (split.refer && split.refer.innerHTML) || '';
+      const moneyHtml = (split.referMoney && split.referMoney.innerHTML) || '';
+
+      check('S276', 'the referral money renders in the Discounts box',
+        /has joined/.test(moneyHtml) && /\$25\.00 off their bill/.test(moneyHtml),
+        'got ' + JSON.stringify(moneyHtml.slice(0, 120)) + ' — this is what Addie asked ' +
+        'for: the count belongs beside the discount it explains');
+      check('S276', 'and it is no longer on the link row',
+        !/has joined/.test(linkHtml),
+        'got ' + JSON.stringify(linkHtml.slice(0, 120)) + ' — left on both, the two ' +
+        'panels each tell half the same story, which is what made it easy to miss');
+      check('S276', 'the link row still holds the link and the share page',
+        /editCustReferInput/.test(linkHtml) && /editCustReferShare/.test(linkHtml),
+        'the row is what somebody opens this form to copy — moving the money out of ' +
+        'it must not take the link with it');
+      check('S276', 'and the Copy feedback span stays beside its button',
+        /editCustReferStatus"/.test(linkHtml),
+        'a confirmation rendered in a different panel from the button somebody just ' +
+        'pressed is one nobody sees');
+      /* ⚠ AND BOTH CONTAINERS ARE CLEARED ON A REPOINT. The strip re-renders on every
+         tab click and every save; a stale count left in the Discounts box would be one
+         customer's referrals shown on another's bill. */
+      const other = F.open([{id: 'n1', data: {name: 'Nobody', phone: '8015559090',
+        customerNumber: '9', housePrice: 100, referralToken: 'tok-n'}}], 'n1', []);
+      /* ⚠ MATCHED ON THE PREVIOUS CUSTOMER'S OWN FIGURE, not on "has joined" — the
+         empty state reads "nobody HAS JOINED through it yet", so the looser pattern
+         failed on correct code the moment it was written. */
+      check('S276', 'and switching customer does not leave the last one\'s count behind',
+        !/1 person has joined/.test((other.referMoney && other.referMoney.innerHTML) || '') &&
+        !/\$25\.00 off their bill/.test((other.referMoney && other.referMoney.innerHTML) || ''),
+        'a count left standing after a repoint is one customer\'s referrals shown ' +
+        'against another customer\'s bill');
+    }
 
     /* ---- the save button ---- */
     out = F.open(BOOK, 'a27', INVOICES);
@@ -53504,9 +53557,15 @@ suite('308. Sharing the referral link, not opening it');
   const renderReferSrc = extractFn(idx308, 'portalRenderReferral');
   const renderShareSrc = extractFn(idx308, 'renderSharePage');
   const linkSrc = extractFn(idx308, 'portalReferralLink');
+  /* ⚠ AND THE SENTENCE THE FRIEND ACTUALLY READS (REF-35). portalShareLink hands this to
+     navigator.share, so without it the sandbox dies on a bare ReferenceError and the
+     whole suite is reported as an unattributable crash — §3's trap, which this file has
+     now been bitten by four times. LIFTED, NOT STUBBED: it carries the $30 promise, and
+     a stub would keep the suite green through a message that no longer makes it. */
+  const shareLineSrc = extractFn(idx308, 'referralShareLine');
   const parts308 = {portalCanShare: canShareSrc, portalShareLink: shareSrc,
                     portalRenderReferral: renderReferSrc, renderSharePage: renderShareSrc,
-                    portalReferralLink: linkSrc};
+                    portalReferralLink: linkSrc, referralShareLine: shareLineSrc};
   const missing308 = Object.keys(parts308).filter(k => !parts308[k]);
   check('S308', 'the share routine, both renderers and the link builder are findable',
     !missing308.length,
@@ -53823,6 +53882,33 @@ suite('308. Sharing the referral link, not opening it');
     'one token, two addresses (REF-13) — a second source for it is how the two start ' +
     'naming different customers, and on a shared-phone household that is the wrong bill');
 
+  /* ⭐ THE LINK AND THE MONEY ARE IN DIFFERENT PLACES NOW (REF-34, 2026-09-09). Addie,
+     pointing at the Refer a friend row and then at the Discounts box: "It looks like you
+     put it here. It should be under here."
+     ⚠ ASSERTED ON THE SLICE, not the file: admin.html names both container ids in
+     comments, so a file-wide search passes on the prose while the writes are gone. */
+  /* ⚠ THE FIRST TWO OF THESE WERE TEXT MATCHES AND THE RED-CHECK PROVED THEM VACUOUS:
+     `statusLine.innerHTML = money.join('')` survives `if(false && statusLine)` intact,
+     and excluding the gold and ember pushes said nothing about the joined line. They
+     are RUN against jsdom below instead — every claim here is about which panel a
+     sentence ends up in, which no source match can see. */
+  check('S308', 'and the joined / waiting / refused / held counts all go to the money half',
+    !!referLine &&
+    !/bits\.push\('<span style="color:var\(--gold/.test(referLine) &&
+    !/bits\.push\('<span style="color:var\(--ember/.test(referLine),
+    'a count left on the link row is the split half-done — two panels each telling ' +
+    'part of the same story is what made this easy to miss in the first place');
+  check('S308', 'and the Copy feedback stays with the button it reports on',
+    !!referLine && /bits\.push\('<span id="editCustReferStatus"/.test(referLine),
+    'a confirmation that appears in a different panel from the button somebody just ' +
+    'pressed is one nobody sees');
+  /* ⚠ ONE FUNCTION STILL OWNS BOTH HALVES. Two renderers reading referralCredits
+     separately is how the count beside the link and the count beside the money start
+     disagreeing — the exact shape this feature has already had twice. */
+  check('S308', 'and one function still writes both halves',
+    (admin.match(/document\.getElementById\('editCustReferStatusLine'\)/g) || []).length === 1,
+    'a second writer for the status line is a second opinion about the count');
+
   if (!missing308.length) {
     /* One tap, with a share sheet that behaves however the caller says. Everything the
        routine can reach is watched: what it shared, what it copied, what it left on the
@@ -53845,9 +53931,13 @@ suite('308. Sharing the referral link, not opening it');
       if (opts.clipboard !== false) {
         nav.clipboard = {writeText: function (v) { calls.copied.push(v); return Promise.resolve(); }};
       }
-      const run = new Function('document', 'navigator', 'input', 'status',
-        canShareSrc + '\n' + shareSrc + '\nreturn portalShareLink(input, status);');
-      return run(doc, nav, input, status).then(function () { return {calls: calls, status: status}; });
+      /* NEW_MEMBER_FEE is imported from js/money.js in the real page; supplied here as
+         the real constant so the sentence carries the shipped figure, not a guess. */
+      const run = new Function('document', 'navigator', 'input', 'status', 'NEW_MEMBER_FEE',
+        canShareSrc + '\n' + shareLineSrc + '\n' + shareSrc +
+        '\nreturn portalShareLink(input, status);');
+      return run(doc, nav, input, status, NEW_MEMBER_FEE_NUM)
+        .then(function () { return {calls: calls, status: status}; });
     }
     const abort = Object.assign(new Error('cancelled'), {name: 'AbortError'});
 
@@ -53857,6 +53947,29 @@ suite('308. Sharing the referral link, not opening it');
       check('S308', 'a phone with a share sheet gets the sheet',
         sheet.calls.shared.length === 1,
         'the whole change is this one call; without it the button is the old copy button');
+      /* ⭐ AND THE MESSAGE PROMISES THE WAIVER (REF-35, 2026-09-09). Addie, asked what
+         the friend receives: does it "say anything about get 30 dollars off installation
+         fee?" It did not. `referralShareLine` was written for [[REF-29]] — her
+         instruction and her own wording — and NOTHING CALLED IT: a hardcoded sentence
+         about a free quote sat in navigator.share instead, while the comment above the
+         function claimed this was where it went. So the promise the waiver exists to
+         make was never made to the person it is made to.
+         ⚠ THE FEE IS ASSERTED AS THE SHIPPED CONSTANT, never a literal. That figure
+         moved $30 → $25 → $30 inside three days; a hardcoded 30 here would pass while
+         the page promised something else. */
+      const shareText = String((sheet.calls.shared[0] || {}).text || '');
+      check('S308', 'and the message tells the friend the set-up fee is waived',
+        /referral link/i.test(shareText) && shareText.indexOf(feeMoney.replace('.00', '')) !== -1 &&
+        /installation fee/i.test(shareText),
+        'got ' + JSON.stringify(shareText) + ' — this is the whole promise the waiver ' +
+        'is for, and it goes out over Addie\'s name to somebody who is not a customer yet');
+      check('S308', 'and it is the shared sentence, not a second copy of it',
+        shareText === (function(){
+          try{ return new Function('NEW_MEMBER_FEE', shareLineSrc +
+            '\nreturn referralShareLine();')(NEW_MEMBER_FEE_NUM); }catch(e){ return null; }
+        })(),
+        'a literal here is a second place the wording and the figure have to be kept ' +
+        'true, and it is the copy that goes stale — which is exactly what happened');
       check('S308', 'and it hands over the /r/ link, which is the one that credits them',
         (sheet.calls.shared[0] || {}).url === 'https://highlightingutah.com/r/abc123',
         'sharing the share page instead would send a friend to a page about sharing, and ' +
