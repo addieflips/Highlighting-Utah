@@ -185,6 +185,13 @@ jobs:
       # different thing to go and look at than a line inside the big suite.
       - name: Last season's unpaid bill (carried, and holding the season)
         run: npm run test:arrears
+      # ⭐ WHEN SOMETHING GOES WRONG, SOMEBODY IS TOLD. Named separately because a
+      # failure here is invisible in production by construction: the whole feature is
+      # about reporting faults nobody was watching, so if the reporter itself breaks,
+      # the only symptom is a folder that quietly stays empty — which reads exactly
+      # like a good week.
+      - name: Errors reach the Inbox (member and admin)
+        run: npm run test:errors
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 
