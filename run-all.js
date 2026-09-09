@@ -45376,6 +45376,12 @@ if (!JSDOM) {
        says is the difference between a rule working and a link being broken. */
     'editCustRenderReferLine', 'referralLiveCount', 'referralHeldCount',
     'referralBlockCount', 'referralLastBlockWhy',
+    /* ⚠ AND referralPendingQuotes / referralTokensOf JOINED THEM (REF-33). The row now
+       also says how many friends have used the link and are waiting to be converted,
+       which is the question Addie asked when two of hers counted for nothing. Same trap
+       as every name above it: left out, the whole suite dies on a bare ReferenceError
+       inside the renderer rather than failing a named check. */
+    'referralPendingQuotes', 'referralTokensOf',
     'referralEntrySeason', 'referralEntryCountsIn', 'referralSeasonOr',
     'referralLinkFromToken',
     'referralShareLinkFromToken'];

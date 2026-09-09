@@ -1523,6 +1523,14 @@ member's bill — with nobody in the office typing anything.
     one.
   - ⚠ **`test/referral-token.spec.js` reproduces her flow** and reads the real quote
     write, because everything here is about what a browser still has after a navigation.
+- ⭐ **AND THE ROW COUNTS THE FRIENDS STILL WAITING ON THE OFFICE** (REF-32). The $25
+  lands on conversion, so a friend who has only submitted a quote has earned nothing yet
+  — and this row used to call that "nobody has joined through it yet", the same sentence
+  it gives a link nobody has ever opened. Those two need opposite actions.
+  `referralPendingQuotes` counts quotes carrying the customer's token (current or past)
+  that are not yet credited, refused, archived or converted, and the row names the next
+  step. ⚠ It counts QUOTES, not people — deduping here would be a second copy of the
+  REF-31 rule that decides who gets paid.
 - **Nothing is credited until they are a customer.** `creditReferralIfAny` is called only
   at the two conversion doors, so a quote that merely carries the token has moved no
   money — her *"only takes affect after they are converted"*, now asserted rather than
