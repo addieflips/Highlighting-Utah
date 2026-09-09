@@ -694,10 +694,17 @@ console.log('--- wiring ---');
     'the ones it missed" silently leaves some of them out');
   /* ⭐ AND IT STOPS WHEN GMAIL SAYS TO (EM-02). Carrying on after "User-rate limit
      exceeded" is how one refusal became 392 — every send behind it was refused too. */
+  /* ⚠ SCOPED TO THE STOP ITSELF. A bare `break;` anywhere in the runner used to satisfy
+     this, and once the auto-wait added a retry loop of its own there were several — so
+     deleting the one that ACTUALLY stops the send went straight through. It is the break
+     that follows the recording of the remainder that matters. */
+  const stopBlock = runnerBody.slice(runnerBody.indexOf('rateLimitedUntil = until;'));
   check('and it stops the run when Gmail refuses on rate, instead of burning the rest',
-    runnerBody.indexOf('emailSendRetryAfter(err)') !== -1 && /\bbreak;/.test(runnerBody),
-    'the loop must break on a rate-limit refusal and record the untried remainder, or ' +
-    'a limit hit at customer 550 spends the other 400 requests being told the same thing');
+    runnerBody.indexOf('emailSendRetryAfter(err)') !== -1 &&
+    runnerBody.indexOf('rateLimitedUntil = until;') !== -1 &&
+    /rest\.forEach\([\s\S]{0,400}?\bbreak;/.test(stopBlock),
+    'after recording the untried remainder the loop must BREAK, or a limit hit at ' +
+    'customer 550 spends the other 400 requests being told the same thing');
   /* ⚠ THE REMAINDER IS TAKEN FROM THE REAL LIST, and this asserts the LINKAGE rather
      than that a push exists — a red-check swapping `rest.forEach` for `[].forEach` went
      straight through the looser version, which would have counted 392 as failed and
@@ -718,6 +725,38 @@ console.log('--- wiring ---');
     /await new Promise\(r => setTimeout\(r, EMAIL_SEND_GAP_MS\)\)/.test(runnerBody),
     'sends went out ~1.7 a second and Gmail refused 392 of them; the gap is what ' +
     'stops that happening again');
+  /* ⭐ EM-03: a short refusal is waited out, not handed back to the office. Gmail's
+     second refusal named a time six minutes away — a timer's job, not a person's. */
+  check('and a short rate-limit wait is sat through and the send carries on',
+    /await new Promise\(r => setTimeout\(r, waitMs \+ 5000\)\)/.test(runnerBody),
+    'a rate limit that clears in minutes must be waited out; without this the office ' +
+    'has to come back and press the button for every throttle');
+  /* ⚠ BOTH BOUNDS, ASSERTED TOGETHER. Either one alone is the failure it exists to
+     prevent: with no time ceiling the run sits through the DAY's cap (which clears at
+     midnight, not in a wait), and with no count ceiling a send throttled every few
+     customers runs for hours looking healthy — and nobody watching can tell a slow send
+     from a stuck one. */
+  check('and the automatic waiting is bounded by both a length and a count',
+    /waitMs <= EMAIL_MAX_AUTO_WAIT_MS/.test(runnerBody) &&
+    /autoWaits < EMAIL_MAX_AUTO_WAITS/.test(runnerBody) &&
+    /autoWaits\+\+/.test(runnerBody),
+    'an unbounded auto-retry is a tab that looks busy for ever, and a long wait is the ' +
+    'daily cap wearing a rate limit’s clothes');
+  /* ⚠ AND THE RETRY MUST NOT REBUILD THE MESSAGE. `referralOfferFor` decides whether
+     this customer is counted as having got a referral link; asking it twice for one
+     customer makes the report disagree with the email it is reporting on (REF-20). */
+  /* ⚠ COUNTED, NOT JUST POSITIONED. The first version asked whether the FIRST
+     `referralOfferFor` sat before the retry loop — so a red-check that ADDED a second
+     one inside the loop sailed straight through, which is exactly the double-count this
+     guards. There must be one, and it must be outside. */
+  const retryLoopAt = runnerBody.indexOf('for(;;){');
+  const offers = runnerBody.split('referralOfferFor(member)').length - 1;
+  check('and the retry wraps the send only, never the message build',
+    retryLoopAt !== -1 && offers === 1 &&
+    runnerBody.indexOf('referralOfferFor(member)') < retryLoopAt,
+    'the referral offer must be resolved exactly ONCE per customer and outside the ' +
+    'retry — re-running it double-counts them in noReferral, so the report disagrees ' +
+    'with the emails it is reporting on. Found ' + offers + ' call(s)');
   /* ⚠ THE RUNNER MUST NOT SAVE THEM ITSELF. Send the whole RSVP calls it twice, so a
      save inside would let the Not Paid pass overwrite the ordinary RSVP's failures and
      only half the book could be sent again. Each button saves once, for all its passes. */

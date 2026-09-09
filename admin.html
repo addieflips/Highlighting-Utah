@@ -18713,6 +18713,20 @@ function referralMissingNote(run){
    of being wrong is not a slow send — it is a customer who is never asked, and who is
    then dropped from the season for not answering (`isOutForSeason`, confirmed-only). */
 const EMAIL_SEND_GAP_MS = 1000;
+/* ⭐ HOW LONG THE SEND WILL WAIT FOR GMAIL BY ITSELF (2026-09-09, EM-03). The second
+   refusal named a time SIX MINUTES out, which is the rate limit clearing — waiting it
+   out is the whole answer, and it is a timer's job rather than the office's.
+   ⚠ THE CEILING IS WHAT KEEPS THE TWO CAUSES APART. A rate limit clears in minutes; the
+   DAY's sending cap clears at midnight Pacific, and no amount of waiting inside one run
+   fixes that. A wait longer than this is therefore not something to sit through — the
+   run stops, everybody untried is recorded, and the rest go out tomorrow. */
+const EMAIL_MAX_AUTO_WAIT_MS = 15 * 60 * 1000;
+/* ⚠ AND A CEILING ON HOW MANY TIMES. Without it a send that trips the limit every few
+   customers runs for hours looking healthy, which is worse than stopping and saying so:
+   nobody watching can tell a slow send from a stuck one. Six is enough to carry a
+   whole-book RSVP through the usual couple of throttles and not enough to hide a
+   genuinely blocked account. */
+const EMAIL_MAX_AUTO_WAITS = 6;
 /* Gmail's refusal carries the time it will accept mail again. Reading it is what lets
    the office be told WHEN rather than just no — and it is what tells a rate limit
    (seconds or minutes away) from the daily cap (hours), which need different answers:
@@ -18746,6 +18760,8 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
      arrive is a house the crew is never sent to. */
   const failedRecipients = [];
   let rateLimitedUntil = null;
+  /* Counted across the whole run, not per customer — see EMAIL_MAX_AUTO_WAITS. */
+  let autoWaits = 0;
   /* ⚠ NAMES, NOT JUST A COUNT, AND ONLY THE FIRST FEW. "12 got no referral link" is
      a number nobody can act on; a name and a reason is one record to open. Capped so
      a whole-book send cannot print nine hundred names into a status line. */
@@ -18822,17 +18838,49 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
       await resolveLinkTokens(template.data.body, vars.phone, 0, vars),
       quotePhotosForPhone(vars.phone), false) + addOnBlock + referralBlock;
     statusEl.textContent = (progressLabel || '') + 'Sending ' + (sent+failed+1) + ' of ' + selectedIds.length + '…';
-    try{
-      const subject = await emailSubjectFor(template, vars.phone, vars);
-      await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', subject: subject, message: message });
-      sent++;
-      /* ⭐ PACED, BECAUSE GMAIL COUNTS HOW FAST WE SEND (2026-09-09, EM-02). See
-         EMAIL_SEND_GAP_MS — this loop used to fire the next send the instant the last
-         one came back, which is what put 392 of them into "Gmail_API: User-rate limit
-         exceeded". The wait is AFTER a send that worked and never after a failure: a
-         refusal cost Gmail nothing, and the stop below is what handles that case. */
-      await new Promise(r => setTimeout(r, EMAIL_SEND_GAP_MS));
-    } catch(err){ failed++; lastEmailSendError = err;
+    /* ⭐ ONE PERSON, RETRIED IN PLACE UNTIL GMAIL WILL TAKE THEM (2026-09-09, EM-03).
+       The second refusal named 01:44:42Z — MINUTES away, not hours, so it was the rate
+       limit rather than the day's cap, and the only thing between a stopped send and a
+       finished one was somebody sitting there pressing the button again.
+       ⚠ THE RETRY WRAPS THE SEND ONLY, never the message build above it. Rebuilding
+       would ask `referralOfferFor` about the same customer twice and count them twice in
+       `noReferral` — the report then disagrees with the emails it is reporting on, which
+       is the fault REF-20 exists to prevent. */
+    let sendErr = null;
+    for(;;){
+      sendErr = null;
+      try{
+        const subject = await emailSubjectFor(template, vars.phone, vars);
+        await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', subject: subject, message: message });
+        sent++;
+        /* ⭐ PACED, BECAUSE GMAIL COUNTS HOW FAST WE SEND (2026-09-09, EM-02). See
+           EMAIL_SEND_GAP_MS — this loop used to fire the next send the instant the last
+           one came back, which is what put 392 of them into "Gmail_API: User-rate limit
+           exceeded". The wait is AFTER a send that worked and never after a failure: a
+           refusal cost Gmail nothing, and the wait below is what handles that case. */
+        await new Promise(r => setTimeout(r, EMAIL_SEND_GAP_MS));
+      } catch(e){ sendErr = e; }
+      if(!sendErr) break;
+      /* ⭐ A SHORT WAIT IS WAITED OUT RATHER THAN HANDED BACK TO THE OFFICE. Gmail's
+         rate limit clears in minutes, so stopping the whole send and asking somebody to
+         come back and press a button is making a person do a timer's job.
+         ⚠ BOUNDED THREE WAYS, or a tab sits looking busy for ever: only a wait shorter
+         than EMAIL_MAX_AUTO_WAIT_MS (a long one is the DAY's cap, which no amount of
+         waiting fixes before midnight), only EMAIL_MAX_AUTO_WAITS times in one run, and
+         only when Gmail actually named a time. Anything else falls through to the stop. */
+      const retryAt = emailSendRetryAfter(sendErr);
+      const waitMs = retryAt ? (retryAt.getTime() - Date.now()) : 0;
+      if(!(retryAt && waitMs > 0 && waitMs <= EMAIL_MAX_AUTO_WAIT_MS && autoWaits < EMAIL_MAX_AUTO_WAITS)) break;
+      autoWaits++;
+      const mins = Math.max(1, Math.round(waitMs / 60000));
+      statusEl.textContent = (progressLabel || '') + 'Gmail asked us to slow down — waiting about '
+        + mins + ' minute' + (mins === 1 ? '' : 's') + ', then carrying on by itself. '
+        + sent + ' sent so far. Leave this tab open.';
+      /* ⚠ A MARGIN ON TOP. Returning the same second Gmail named is refused again and
+         spends one of the few auto-waits finding that out. */
+      await new Promise(r => setTimeout(r, waitMs + 5000));
+    }
+    if(sendErr){ const err = sendErr; failed++; lastEmailSendError = err;
       /* ⚠ THE REASON IS KEPT PER PERSON, not only in `lastEmailSendError`. That variable
          holds the LAST error of the run, so one report spoke for four hundred sends that
          may have failed for different reasons. Here each row carries its own. */
