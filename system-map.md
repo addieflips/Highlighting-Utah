@@ -2768,6 +2768,57 @@ the reconcile note hit in 2026-08-19, reported as "Missing or insufficient permi
 *Gated by* `route-digest.test.js` (`npm run test:digest`), which runs both functions against a
 fake Firestore that reads back what it wrote.
 
+### When something goes wrong, somebody is told (2026-09-08)
+
+Addie: *"give an error message to them if it fails. Is there a way to send inbox message
+that there was an error with sending an email/ or an error in approving/back next year/no
+there RSVP? And can we make another spot in inbox that is error so anytime a member runs
+into an error or our website runs into errors it will let us know. With two seperate
+sections in error for member error and admin error?"*
+
+**What was already true, and was the whole of it.** When a customer taps Yes on an RSVP
+email and the call fails, they see an apology and a phone number. That has always worked.
+Nothing anywhere told the office. So that customer goes on reading, for the rest of the
+season, exactly like somebody who ignored the email — and on a send of around 960 people
+that is a silence nobody can audit.
+
+**Where it goes now.** The Inbox sidebar has a folder called **Errors**, with two sections
+under it:
+
+| Section | What lands there | Written by |
+|---|---|---|
+| **Member Errors** | A customer hit a failure on the website — an RSVP Yes/No, Back Next Year, approving or declining a quote, or the page breaking under them while they were in their account | `index.html` |
+| **Admin Errors** | Something went wrong in the dashboard — anything the red "problems found" badge catches, plus every bulk email send that failed, with the reason | `admin.html` |
+
+**Each report says what was being done, not just that something broke.** A member row names
+the action ("Answering Yes to the RSVP email"), says the answer did **not** save, and warns
+that the customer may ring. An admin row names who was signed in and, for emails, how many
+did not go out and what the mail service said — a count the status line showed and then
+threw away the moment she clicked anything else.
+
+⚠ **Both sides stop themselves.** Each dedupes on a fingerprint with the numbers stripped
+out, so 900 failed rows are one fault rather than 900. The member side stops after three
+per visit; the admin side after five per session, and stays quiet about a fault already
+written down in the last twelve hours. Without that last one a fault that fires on every
+page load posts a fresh row every time the tab is opened — which is how a folder becomes
+one nobody opens.
+
+⚠ **A portal token is never written down in full.** The address the customer was on is the
+most useful line in the report and it carries theirs. `messages` is staff-read-only but
+publicly *creatable* — that is how the contact form works with no login — so the token is
+cut to its last six characters: enough to match a record, useless to anybody who finds it.
+
+⚠ **It is a best effort, by construction.** The report is itself a Firestore write, so the
+one failure it can never carry is the network being down altogether. That is not a hole to
+plug; it is why the customer is still shown a phone number.
+
+⚠ **The Firestore reconnection line is deliberately not reported.** `Fetch failed` on the
+long-poll channel is normal noise (§7 of CLAUDE.md), it arrives in bursts, and left in it
+would fill the folder on a flaky connection.
+
+*Gated by* `error-inbox.test.js` (`npm run test:errors`), which runs both reporters against
+a fake Firestore rather than reading their source; 16 sabotages red-checked.
+
 ---
 
 ## 6. Customer Numbers

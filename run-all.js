@@ -44749,9 +44749,19 @@ suite('273. Inbox - the count is unread, and a message can be filed without a mo
     const homeMap = (admin.match(/const MESSAGE_HOME_FOLDER = \{[\s\S]*?\};/) || [])[0];
     check('S273', 'the topic-to-folder table was lifted, not retyped', !!homeMap,
       'a copy in this file would agree with itself and prove nothing');
+    /* ⚠ AND THE CONSTANTS THAT TABLE NOW READS. MESSAGE_HOME_FOLDER stopped being a table
+       of plain strings when the Errors sections were added (2026-09-08) — two of its keys
+       are computed from MEMBER_ERROR_TOPIC / ADMIN_ERROR_TOPIC, so lifting the table alone
+       throws a bare ReferenceError and takes the whole suite with it. Lifted, never stubbed:
+       a stub here would let the two error topics file into the wrong folder while this
+       reported green, which is exactly what the table is checked for. */
+    const errConsts = (admin.match(/const ERROR_FOLDER = [\s\S]*?const ADMIN_ERROR_TOPIC = '[^']*';/) || [])[0];
+    check('S273', 'the Errors folder constants were lifted too', !!errConsts,
+      'MESSAGE_HOME_FOLDER reads them, so without them this whole suite dies on a ReferenceError');
     const preamble =
       'let allMessages = [], messageFolders = [], selectedFolder = "Inbox";' +
       'let collapsedFolders = new Set();' +
+      (errConsts || '') +
       (homeMap || 'const MESSAGE_HOME_FOLDER = {};') +
       (escSrc || 'function esc(x){return String(x==null?"":x);}') + ';';
     const code = preamble + bodies.join(';') + ';' +
@@ -48785,16 +48795,19 @@ suite('292. Cancellations, the member portal, and folders in the System tab');
 {
   const NL292 = String.fromCharCode(10);
   const homeMap = (admin.match(/const MESSAGE_HOME_FOLDER = \{[\s\S]*?\};/) || [])[0];
+  /* Lifted for the same reason as in Suite 273 above — see the note there. */
+  const errConsts292 = (admin.match(/const ERROR_FOLDER = [\s\S]*?const ADMIN_ERROR_TOPIC = '[^']*';/) || [])[0];
   const folderOf = extractFn(admin, 'messageFolderOf');
   const sectionOf = extractFn(admin, 'systemNoticeSection');
   const secMap = (admin.match(/const SYSTEM_NOTICE_SECTION_OF = \{[\s\S]*?\};/) || [])[0];
   const secList = (admin.match(/const SYSTEM_NOTICE_SECTIONS = \[[\s\S]*?\];/) || [])[0];
   check('S292', 'the two tables and the two rules were all found',
-    !!homeMap && !!folderOf && !!sectionOf && !!secMap && !!secList,
+    !!homeMap && !!folderOf && !!sectionOf && !!secMap && !!secList && !!errConsts292,
     'renamed? update this suite rather than deleting it');
 
   if (homeMap && folderOf && sectionOf && secMap && secList) {
     const api = new Function(
+      (errConsts292 || '') + NL292 +
       homeMap + NL292 + folderOf + NL292 + secMap + NL292 + secList + NL292 + sectionOf + NL292 +
       'return {folderOf: messageFolderOf, sectionOf: systemNoticeSection,' +
       ' sections: SYSTEM_NOTICE_SECTIONS, home: MESSAGE_HOME_FOLDER};')();

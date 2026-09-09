@@ -5209,7 +5209,7 @@ function handleRsvpLink(token, rsvpValue){
        the wrong one. */
     var empty = document.getElementById('lookupEmpty');
     if(empty) empty.style.display = 'none';
-    if(confirmMsg) confirmMsg.textContent = portalCallFailedText(err, 'account');
+    if(confirmMsg) confirmMsg.textContent = portalCallFailedText(err, 'account', rsvpValue === 'yes' ? 'Answering Yes to the RSVP email' : 'Answering No to the RSVP email');
   }
 }
 function handleBackNextYear(token){
@@ -5227,13 +5227,13 @@ function handleBackNextYear(token){
   // "Back Next Year" gets its own status and never triggers light recycling.
   callPortalFn('portalRsvp', {token: token, response: 'backnextyear'}).then(function(res){
     if(!res || !res.ok){
-      if(msg) msg.textContent = portalCallFailedText(null, 'account');
+      if(msg) msg.textContent = portalCallFailedText(null, 'account', 'Answering Back Next Year from the RSVP email');
       return;
     }
     if(title) title.style.display = 'block';
     if(msg) msg.textContent = 'We look forward to seeing you next year!';
   }).catch(function(err){
-    if(msg) msg.textContent = portalCallFailedText(err, 'account');
+    if(msg) msg.textContent = portalCallFailedText(err, 'account', 'Answering Back Next Year from the RSVP email');
   });
 }
 /* ⭐ WHAT A CUSTOMER IS TOLD WHEN THEIR LINK FAILS (fixed 2026-08-31). Addie,
@@ -5263,12 +5263,134 @@ function handleBackNextYear(token){
    ⚠ AND THE REAL ERROR IS STILL LOGGED. The customer gets plain English; the
    console keeps the code, because "nothing should fail quietly" cuts both ways
    — a genuine outage must not be silently relabelled as a stale link. */
+/* ⭐ THE OFFICE IS TOLD, NOT JUST THE CUSTOMER (2026-09-08). Addie: "give an error message
+   to them if it fails. Is there a way to send inbox message that there was an error with
+   sending an email/ or an error in approving/back next year/no there RSVP?"
+
+   ⚠ THE APOLOGY ALREADY EXISTED AND WAS THE WHOLE OF IT. portalCallFailedText below has
+   always told the customer to ring us; nothing told US. So the only way the office ever
+   learned that an RSVP link had failed was if that customer bothered to call — and the
+   ones who do not simply read as never having answered, which is indistinguishable from
+   somebody who ignored the email. On a send of ~960 that is a silence nobody can audit.
+
+   ⚠ THIS REVERSES notifyBusinessOfMessage's OWN REASONING, and it is kept there because
+   it is still right about the thing it was refusing: a public page must not spam the Inbox
+   "on behalf of a customer who asked for none of it". These do not go in the Inbox. They
+   go in Member Errors, which is a folder about US rather than a message from THEM.
+
+   ⚠ AND IT IS A BEST EFFORT, BY CONSTRUCTION. This write is itself a Firestore call, so
+   the one failure it can never report is the network being down altogether. That is not a
+   hole to plug — it is why the customer is still shown a phone number. */
+var MEMBER_ERROR_TOPIC = 'Member Error';
+var MEMBER_ERROR_FOLDER = 'Member Errors';
+/* Per VISIT, not per customer: a page that keeps failing must not turn one unhappy
+   customer into forty rows the office has to read past to find the next one. */
+var MEMBER_ERROR_MAX_PER_VISIT = 3;
+var memberErrorsSent = {};
+var memberErrorCount = 0;
+var memberErrorBusy = false;
+/* ⚠ A PORTAL TOKEN IS A KEY TO SOMEBODY'S ACCOUNT. The address the customer was on is the
+   most useful thing in the whole report, and it carries theirs — so it is cut to the last
+   six characters, which is enough to match against a record and useless to anybody who
+   finds it. `messages` is staff-read-only, but it is also PUBLICLY CREATABLE (that is how
+   the contact form works), and writing a live credential into a collection anybody can
+   append to is not a thing to do on the strength of the read rule alone. */
+function redactTokens(text){
+  return String(text || '').replace(/([?&#])(token|quoteToken|t|p)=([^&\s]+)/gi, function(m, lead, key, val){
+    return lead + key + '=\u2026' + String(val).slice(-6);
+  });
+}
+/* ⚠ NEVER THROWS. Every caller is already handling a failure; a reporter that can fail on
+   top of it would replace the apology the customer is about to read with a blank screen. */
+function reportMemberError(doing, err, who){
+  try{
+    if(memberErrorBusy || memberErrorCount >= MEMBER_ERROR_MAX_PER_VISIT) return;
+    /* ⭐ NAME THEM WHEN WE CAN. A failure inside the portal is the one case where we
+       already know exactly who is looking at it, and a report the office can act on
+       without detective work is worth far more than one they cannot. An RSVP link that
+       failed before sign-in genuinely has nobody to name — that is what the redacted
+       address at the bottom is for. */
+    if(!who && typeof currentJobAddressData !== 'undefined' && currentJobAddressData) who = currentJobAddressData;
+    var reason = (err && (err.message || err.code || err.text)) || 'no reason was given';
+    var key = String(doing || 'using the website') + '|' + String(reason).replace(/[0-9]+/g, '#').slice(0, 120);
+    if(memberErrorsSent[key]) return;
+    memberErrorsSent[key] = true;
+    memberErrorCount++;
+    memberErrorBusy = true;
+    var rawHref = String((location && location.href) || '').slice(0, 300);
+    var safeHref = redactTokens(rawHref);
+    try{
+      addDoc(collection(db,'messages'), {
+        topic: MEMBER_ERROR_TOPIC, folder: MEMBER_ERROR_FOLDER,
+        name: (who && who.name) || '', phone: (who && who.phone) || '', email: (who && who.email) || '',
+        contactMethod: '',
+        errorKey: key.slice(0, 160),
+        message: 'A customer hit an error on the website.' + String.fromCharCode(10,10) +
+          'What they were doing: ' + String(doing || 'using the website') + String.fromCharCode(10) +
+          'What went wrong: ' + String(reason).slice(0, 300) + String.fromCharCode(10,10) +
+          'They were shown an apology and our phone number, so they may ring. Whatever they ' +
+          'were trying to do did NOT save \u2014 if this was an RSVP or a quote answer, we still ' +
+          'do not have it, and to them it will look like they already told us.' + String.fromCharCode(10,10) +
+          'Page they were on: ' + safeHref + String.fromCharCode(10) +
+          /* ⚠ ONLY WHEN SOMETHING WAS ACTUALLY CUT. On a page carrying no token the line
+             is a claim about nothing, and a report that explains a redaction that did not
+             happen is the sort of thing that makes somebody distrust the rest of it. */
+          (safeHref === rawHref ? '' :
+            '(their link is cut short on purpose \u2014 the last six characters still match ' +
+            'their record)' + String.fromCharCode(10)) +
+          'Browser: ' + String(navigator.userAgent || '').slice(0, 200),
+        createdAt: serverTimestamp()
+      }).catch(function(){ /* quiet on purpose: this write IS the report, so there is nowhere
+                              left to report to. The customer still has the phone number. */ });
+    } finally { memberErrorBusy = false; }
+  } catch(e){ memberErrorBusy = false; }
+}
+/* ⚠ ONLY WHERE A FAILURE COSTS THE CUSTOMER SOMETHING. A script error on the marketing
+   pages is worth nothing to the office and there are hundreds of visitors a week; a script
+   error while somebody is answering an RSVP or looking at their bill is the thing this
+   folder exists for. "Script error." with no detail is what a cross-origin script gives us
+   and cannot be acted on at all, so it is dropped rather than filed. */
+function memberErrorScreenMatters(){
+  var h = String((location && location.hash) || '');
+  return h.indexOf('/payment') !== -1 || h.indexOf('/quote-details') !== -1 || h.indexOf('rsvp=') !== -1;
+}
+function memberErrorNoise(text){
+  return /^script error\.?$/i.test(String(text || '').trim()) || /ResizeObserver loop/i.test(String(text || ''));
+}
+window.addEventListener('error', function(e){
+  if(!memberErrorScreenMatters()) return;
+  var what = (e && e.message) || 'Script error';
+  if(memberErrorNoise(what)) return;
+  reportMemberError('Something broke on the page while they were using their account', {message: what});
+});
+window.addEventListener('unhandledrejection', function(e){
+  if(!memberErrorScreenMatters()) return;
+  var r = e && e.reason;
+  var what = (r && (r.message || r.code)) || String(r);
+  if(memberErrorNoise(what)) return;
+  reportMemberError('Something broke on the page while they were using their account', {message: what});
+});
+/* Decline and Maybe share one code path, so the report has to say which of the two it was.
+   ⚠ Reading it off `action` rather than off the URL: the link's own marker is what draws
+   the screen BEFORE any call, and if the two ever disagree the one that was actually sent
+   to the server is the one worth writing down. */
+function quoteAnswerWords(action){
+  if(action === 'maybe_next_year') return 'Answering Maybe Next Year to their quote';
+  if(action === 'decline') return 'Declining their quote';
+  return 'Answering their quote';
+}
 function portalCallMissed(err){
   var code = String((err && (err.code || err.status)) || '').toLowerCase();
   return code === 'functions/not-found' || code === 'not-found';
 }
-function portalCallFailedText(err, thing){
+/* ⭐ `doing` IS WHAT THE OFFICE READS, and it is why the report is raised HERE rather than
+   at each of the eight catch blocks that call this. Every portal failure the customer can
+   see already funnels through this one function to be turned into an apology; raising it
+   here means a failure path added later is reported without anybody remembering to. The
+   caller passes what they were doing because this function cannot know it. */
+function portalCallFailedText(err, thing, doing){
   if(err) console.error('[HU] portal call failed', err);
+  reportMemberError(doing || ('using their ' + thing), err);
   if(err && !portalCallMissed(err)){
     return "Something went wrong — please call or text us at (801) 901-0011 " +
            "and we'll get it sorted out.";
@@ -5567,7 +5689,7 @@ function handleQuoteLink(token, action, confirmed){
       if(!res || !res.ok){
         if(formWrap) formWrap.style.display = 'none';
         if(confirmWrap) confirmWrap.style.display = 'block';
-        if(confirmMsg) confirmMsg.textContent = portalCallFailedText(null, 'quote');
+        if(confirmMsg) confirmMsg.textContent = portalCallFailedText(null, 'quote', 'Approving their quote');
         return;
       }
       quoteDetailQuoteId = res.quoteId || null;
@@ -5604,7 +5726,7 @@ function handleQuoteLink(token, action, confirmed){
     }).catch(function(err){
       if(formWrap) formWrap.style.display = 'none';
       if(confirmWrap) confirmWrap.style.display = 'block';
-      if(confirmMsg) confirmMsg.textContent = portalCallFailedText(err, 'quote');
+      if(confirmMsg) confirmMsg.textContent = portalCallFailedText(err, 'quote', 'Approving their quote');
     });
     return;
   }
@@ -5618,7 +5740,7 @@ function handleQuoteLink(token, action, confirmed){
 
   callPortalFn('quoteRespond', {quoteToken: token, action: action}).then(function(res){
     if(!res || !res.ok){
-      if(confirmMsg) confirmMsg.textContent = portalCallFailedText(null, 'quote');
+      if(confirmMsg) confirmMsg.textContent = portalCallFailedText(null, 'quote', quoteAnswerWords(action));
       return;
     }
     if(action === 'maybe_next_year'){
@@ -5637,7 +5759,7 @@ function handleQuoteLink(token, action, confirmed){
       setQuoteConfirmSub('We appreciate you taking the time to consider us. If anything changes \u2014 this year or years from now \u2014 we\'d be glad to hear from you. There\'s no catch and no hard feelings.<br><br>Merry Christmas from all of us at Highlighting Utah.');
     }
   }).catch(function(err){
-    if(confirmMsg) confirmMsg.textContent = portalCallFailedText(err, 'quote');
+    if(confirmMsg) confirmMsg.textContent = portalCallFailedText(err, 'quote', quoteAnswerWords(action));
   });
 }
 

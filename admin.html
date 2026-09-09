@@ -1059,6 +1059,10 @@
     if(list) list.textContent = caught.join('\n\n');
   }
   var seen = {};
+  // Caught before the main script was running. Drained by the module the moment it
+  // installs the sink; capped, because a page that fails to boot can loop in here.
+  var early = [];
+  window.__huAdminErrorEarly = early;
   function add(text){
     if(!text) return;
     // The stored line carries a timestamp, so dedupe has to compare the raw
@@ -1080,6 +1084,23 @@
     seen[text] = 1;
     caught.push('[' + stamp() + '] ' + text);
     show();
+    /* ⭐ AND IT GOES SOMEWHERE THAT KEEPS (2026-09-08). The badge above is only any use to
+       somebody looking at this tab at the moment it happens, and it is gone on the next
+       reload — so a fault that happened while she was on the phone was never seen by
+       anybody. __huAdminErrorSink files it under Admin Errors in the Inbox instead.
+       ⚠ THIS CODE RUNS BEFORE FIREBASE EXISTS, which is the whole reason the sink is
+       fetched off window rather than called directly: the module sets it minutes later, and
+       everything caught before then waits in early[] rather than being lost. That window is
+       exactly when the worst errors happen — a page that fails to boot never sets it at all,
+       and the badge is still the answer for those. */
+    if(typeof window.__huAdminErrorSink === 'function'){
+      try{ window.__huAdminErrorSink(text); }
+      catch(x){ /* quiet on purpose: this IS the error reporter, and a reporter that can
+                   throw takes down the page it was reporting on. The badge above already
+                   has the message either way. */ }
+    } else if(early.length < 20){
+      early.push(text);
+    }
   }
   window.addEventListener('error', function(e){
     add((e.message || 'Script error') + (e.filename ? '\n  at ' + String(e.filename).split('/').pop() + ':' + e.lineno : ''));
@@ -10404,9 +10425,10 @@ document.getElementById('sendBulkUpdateEmailBtn')?.addEventListener('click', asy
         message: message, button_url: 'https://highlightingutah.com/#/payment', button_label: '🎄 Update My Christmas Lights'
       });
       sent++;
-    } catch(err){ failed++; }
+    } catch(err){ failed++; lastEmailSendError = err; }
   }
   statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+  reportEmailSendFailures(failed, sent);
 });
 document.getElementById('bulkAutoTestBtn')?.addEventListener('click', async function(){
   const statusEl = document.getElementById('bulkAutoTestStatus');
@@ -10490,9 +10512,10 @@ document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async fun
         message: message, button_url: 'https://highlightingutah.com/#/payment', button_label: '🎄 RSVP Now'
       });
       sent++;
-    } catch(err){ failed++; }
+    } catch(err){ failed++; lastEmailSendError = err; }
   }
   statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+  reportEmailSendFailures(failed, sent);
 });
 /* ---- RSVP preview + recipient picker ---- */
 let rsvpRecipientSearchTerm = '';
@@ -10667,9 +10690,10 @@ document.getElementById('pibSendUnpaidBtn')?.addEventListener('click', async fun
     try{
       await emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
       sent++;
-    } catch(err){ failed++; }
+    } catch(err){ failed++; lastEmailSendError = err; }
   }
   statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+  reportEmailSendFailures(failed, sent);
 });
 document.getElementById('pibUnpaidTestBtn')?.addEventListener('click', async function(){
   const statusEl = document.getElementById('pibUnpaidTestStatus');
@@ -10716,9 +10740,10 @@ document.getElementById('pibSendPaidBtn')?.addEventListener('click', async funct
     try{
       await emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
       sent++;
-    } catch(err){ failed++; }
+    } catch(err){ failed++; lastEmailSendError = err; }
   }
   statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+  reportEmailSendFailures(failed, sent);
 });
 document.getElementById('pibPaidTestBtn')?.addEventListener('click', async function(){
   const statusEl = document.getElementById('pibPaidTestStatus');
@@ -18668,8 +18693,9 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
       const subject = await emailSubjectFor(template, vars.phone, vars);
       await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', subject: subject, message: message });
       sent++;
-    } catch(err){ failed++; }
+    } catch(err){ failed++; lastEmailSendError = err; }
   }
+  reportEmailSendFailures(failed, sent);
   return { sent: sent, failed: failed, optedOut: optedOut,
            noReferral: noReferral, noReferralNames: noReferralNames };
 }
@@ -19261,6 +19287,29 @@ document.getElementById('ccSaveBtn').addEventListener('click', async function(){
    added here are ours, and are named after where the message CAME FROM rather than
    after a topic, which is why they are listed separately. */
 const DEFAULT_TOPIC_FOLDERS = ['Billing / Payment Question','Change My Light Colors','Report an Issue','Reschedule Install or Removal','General Question','Something Else','Cancellations','Member Portal'];
+/* ⭐ ERRORS GET THEIR OWN PLACE IN THE INBOX, IN TWO SECTIONS (2026-09-08). Addie:
+   "can we make another spot in inbox that is error so anytime a member runs into an error
+   or our website runs into errors it will let us know. With two seperate sections in error
+   for member error and admin error?"
+
+   ⚠ THIS REVERSES A REASONED DECISION AND THE OLD REASONING IS KEPT, because it is
+   still the argument for the shape this took. notifyBusinessOfMessage in index.html says
+   a public page "cannot write anywhere the office would look without spamming the Inbox on
+   behalf of a customer who asked for none of it" — true of a report filed as a customer
+   MESSAGE, and the whole reason these are their own folders under their own topics rather
+   than another line in the Inbox. What that decision could not do was tell anybody a link
+   she had sent had failed; the customer saw the apology and the office saw nothing at all.
+
+   ⚠ A COUNT IS NOT THE POINT, THE NAME IS. Every reporter here dedupes on a fingerprint
+   and stops after a handful, because a folder that fills with four hundred copies of one
+   fault is one nobody opens — the same argument this repo already makes about a warning
+   that cries wolf. What has to survive is WHICH customer and WHAT they were doing, so the
+   office can ring them; a tally of how many times it happened is worth less than that. */
+const ERROR_FOLDER = 'Errors';
+const ERROR_FOLDER_MEMBER = 'Member Errors';
+const ERROR_FOLDER_ADMIN = 'Admin Errors';
+const MEMBER_ERROR_TOPIC = 'Member Error';
+const ADMIN_ERROR_TOPIC = 'Admin Error';
 /* ⭐ WHERE A MESSAGE BELONGS, DERIVED FROM ITS TOPIC (2026-09-02). One table, read by
    the sidebar counts and the list, so a message cannot be counted in one folder and
    drawn in another.
@@ -19283,7 +19332,15 @@ const DEFAULT_TOPIC_FOLDERS = ['Billing / Payment Question','Change My Light Col
 const MESSAGE_HOME_FOLDER = {
   'Cancellation Request': 'Cancellations',
   'Note Added': 'Member Portal',
-  'Existing Customer - Address Changed': 'Member Portal'
+  'Existing Customer - Address Changed': 'Member Portal',
+  /* ⚠ BOTH ERROR TOPICS ARE MAPPED HERE *AS WELL AS* BEING WRITTEN AS `folder`, and the
+     duplication is deliberate. The member half is written by index.html, which has no login,
+     cannot read this table and cannot know if these folders have been renamed since — so a
+     report that names a folder nobody has any more still sorts into the right section, and
+     one written before the folders existed at all lands the moment they do. The office's own
+     filing still wins, because messageFolderOf tests filedByHand before it reads this. */
+  [MEMBER_ERROR_TOPIC]: ERROR_FOLDER_MEMBER,
+  [ADMIN_ERROR_TOPIC]: ERROR_FOLDER_ADMIN
 };
 function messageFolderOf(d){
   d = d || {};
@@ -19295,6 +19352,142 @@ function messageFolderOf(d){
 let messageFolders = [];
 let foldersSeeded = false;
 let draggingFolderId = null;
+/* Creates Errors, then Member Errors and Admin Errors underneath it. Runs once per load and
+   is a no-op the moment they exist. */
+async function seedErrorFolders(existing){
+  const byName = {};
+  (existing || []).forEach(function(f){ byName[f.name] = f; });
+  let parentId = byName[ERROR_FOLDER] ? byName[ERROR_FOLDER].id : null;
+  if(!parentId){
+    const ref = await addDoc(collection(db,'messageFolders'), {name: ERROR_FOLDER, parentId: null, createdAt: serverTimestamp()});
+    parentId = ref.id;
+  }
+  for(const name of [ERROR_FOLDER_MEMBER, ERROR_FOLDER_ADMIN]){
+    /* ⚠ A SECTION THAT ALREADY EXISTS IS LEFT WHERE IT IS, wherever that is. These can be
+       dragged anywhere like any other folder, and re-parenting them on every login would
+       undo the office's filing every single time the page was opened. */
+    if(!byName[name]) await addDoc(collection(db,'messageFolders'), {name: name, parentId: parentId, createdAt: serverTimestamp()});
+  }
+}
+/* ⭐ SOMETHING WENT WRONG ON THE ADMIN PAGE, WRITTEN DOWN WHERE SHE WILL SEE IT
+   (2026-09-08). See the ERROR_FOLDER block above for what Addie asked for. This is the
+   admin half; index.html has its own, deliberately not shared — that page has no login,
+   no module system and no access to any of this, and a copy that had to be kept in step
+   across the two would be one more thing to get wrong. Nothing compares a key written by
+   one against a key written by the other: each only ever dedupes its own topic.
+
+   ⚠ THE CAPS ARE THE FEATURE, NOT A LIMITATION. A folder holding four hundred copies of
+   one fault is a folder nobody opens, and this repo already says as much about a warning
+   that cries wolf. What has to survive is that the fault happened at all and what it
+   said — not how many times. The red badge in the corner still counts every one. */
+const ERROR_REPEAT_HOURS = 12;
+const ADMIN_ERROR_MAX_PER_SESSION = 5;
+/* ⚠ KNOWN NOISE, NAMED ONE BY ONE. CLAUDE.md §7 records the Firestore long-poll
+   "Fetch failed" line as normal reconnection noise rather than a fault, and it arrives in
+   bursts — left in, a flaky connection alone would fill this folder. Anything added here
+   has to be genuinely harmless, never merely frequent: a real fault that happens often is
+   the one thing this whole folder exists to show her. */
+const ADMIN_ERROR_IGNORE = [/Listen\/channel/i, /Fetch failed/i, /ERR_BLOCKED_BY_CLIENT/i, /ResizeObserver loop/i];
+/* Collapses the numbers out of a message so "row 41 failed" and "row 87 failed" are one
+   fault rather than two hundred. */
+function errorKeyFor(topic, text){
+  return topic + '|' + String(text || '').toLowerCase().replace(/[0-9]+/g, '#').replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+/* Has this exact fault already been written down recently? Survives a reload, which the
+   in-memory set below does not — without it a fault that fires on every page load would
+   post a fresh copy every time the office opened the tab. */
+function errorAlreadyReported(topic, key){
+  if(!Array.isArray(allMessages)) return false;
+  const cutoff = Date.now() - ERROR_REPEAT_HOURS * 3600 * 1000;
+  return allMessages.some(function(m){
+    const d = (m && m.data) || {};
+    if(d.topic !== topic || d.errorKey !== key) return false;
+    const t = toJsDate(d.createdAt);
+    /* ⚠ NO DATE COUNTS AS RECENT. serverTimestamp() reads back null on the writing tab's
+       own first snapshot, and treating that as old writes a second copy of the message we
+       have this very instant written. */
+    if(!t) return true;
+    return t.getTime() >= cutoff;
+  });
+}
+let adminErrorsWritten = 0;
+let adminErrorBusy = false;
+let adminErrorReady = false;
+const adminErrorKeysSent = new Set();
+const adminErrorQueue = [];
+function adminErrorIsNoise(text){
+  return ADMIN_ERROR_IGNORE.some(function(re){ return re.test(text); });
+}
+/* ⚠ NEVER THROWS, AND NEVER RETURNS A PROMISE ANYBODY AWAITS. Every caller is a catch
+   block or the global error handler — a reporter that can break the thing it is reporting
+   on is worse than no reporter at all. */
+function reportAdminError(text){
+  try{
+    text = String(text || '').trim();
+    if(!text || adminErrorBusy || adminErrorIsNoise(text)) return;
+    if(!adminErrorReady){
+      /* Messages have not loaded, so the repeat check cannot run — and writing without it
+         duplicates on every reload. HELD, not dropped: flushed the moment they land. */
+      if(adminErrorQueue.length < 20) adminErrorQueue.push(text);
+      return;
+    }
+    const key = errorKeyFor(ADMIN_ERROR_TOPIC, text);
+    if(adminErrorKeysSent.has(key)) return;
+    adminErrorKeysSent.add(key);
+    if(adminErrorsWritten >= ADMIN_ERROR_MAX_PER_SESSION) return;
+    if(errorAlreadyReported(ADMIN_ERROR_TOPIC, key)) return;
+    adminErrorsWritten++;
+    /* Synchronous only, and it is about re-entry rather than concurrency: the wrapped
+       console.error comes straight back in here if anything below logs. */
+    adminErrorBusy = true;
+    try{
+      addDoc(collection(db,'messages'), {
+        topic: ADMIN_ERROR_TOPIC, folder: ERROR_FOLDER_ADMIN,
+        name: '', phone: '', email: '', contactMethod: '',
+        errorKey: key,
+        message: 'Something went wrong on the admin page.' + String.fromCharCode(10,10) +
+          text.slice(0, 1500) + String.fromCharCode(10,10) +
+          'Where: ' + String((location && location.hash) || '(the dashboard)').slice(0, 120) + String.fromCharCode(10) +
+          'Signed in as: ' + ((auth && auth.currentUser && auth.currentUser.email) || 'nobody') + String.fromCharCode(10) +
+          'Browser: ' + String(navigator.userAgent || '').slice(0, 200),
+        autoQueuedToWarehouse: false, needsReassign: false,
+        createdAt: serverTimestamp()
+      }).catch(function(){ /* quiet on purpose: the write IS the report, so there is nowhere
+                              left to report to. The red badge still holds the original. */ });
+    } finally { adminErrorBusy = false; }
+  } catch(err){ adminErrorBusy = false; }
+}
+/* Called once messages have loaded, which is what makes the repeat check above answerable. */
+function flushAdminErrors(){
+  adminErrorReady = true;
+  if(!adminErrorQueue.length) return;
+  adminErrorQueue.splice(0, adminErrorQueue.length).forEach(reportAdminError);
+}
+/* The catcher at the top of this page is plain JS running before Firebase exists, so it
+   cannot write anything itself. It calls this, and hands over whatever it caught first. */
+window.__huAdminErrorSink = reportAdminError;
+try{
+  if(Array.isArray(window.__huAdminErrorEarly)){
+    window.__huAdminErrorEarly.splice(0, window.__huAdminErrorEarly.length).forEach(reportAdminError);
+  }
+} catch(err){ /* a boot-time buffer that cannot be read is not worth failing the page over —
+                 and every one of those lines is still on the badge. */ }
+let lastEmailSendError = null;
+/* ⭐ WHY AN EMAIL DID NOT GO OUT (2026-09-08). Addie asked for "an error with sending an
+   email" to reach the Inbox. Every bulk sender in this file already counted its failures
+   and put them on a status line — but the REASON was thrown away in the catch, and the
+   line itself is gone the moment she clicks anything else. Nobody was ever told which
+   customers had not heard from us, or why. */
+function reportEmailSendFailures(failed, sent){
+  const err = lastEmailSendError;
+  lastEmailSendError = null;
+  if(!failed) return;
+  const why = (err && (err.text || err.message || err.status)) || 'no reason was given';
+  reportAdminError('Emails did not send: ' + failed + ' of ' + (Number(failed) + Number(sent || 0)) +
+    ' failed. The email service said: ' + String(why).slice(0, 300) + String.fromCharCode(10,10) +
+    'Those customers have NOT been emailed and do not know anything is wrong. Check ' +
+    'Automation Emails → Email Setup, then send to them again.');
+}
 function loadMessageFolders(){
   onSnapshot(collection(db,'messageFolders'), async function(snap){
     messageFolders = [];
@@ -19306,6 +19499,13 @@ function loadMessageFolders(){
       for(const name of missing){
         await addDoc(collection(db,'messageFolders'), {name: name, parentId: null, createdAt: serverTimestamp()});
       }
+      /* ⚠ SEEDED SEPARATELY BECAUSE IT IS A TREE. The loop above creates every name FLAT
+         (parentId null); Errors is a parent with two children, and a child needs an id that
+         may not have existed a line ago. It is read back off the write rather than waited
+         for in the next snapshot — that snapshot arrives with foldersSeeded already true,
+         so the children would never be created at all. */
+      try{ await seedErrorFolders(messageFolders); }
+      catch(err){ console.error('Could not create the Errors folders:', err); }
     }
     renderFolderSidebar();
     renderMessagesList();
@@ -20069,6 +20269,9 @@ function loadMessages(){
     }
     renderSystemMessagesTab();
     renderFolderSidebar();
+    /* Last: the repeat check reads allMessages, so anything held while this was loading can
+       only be decided now. */
+    flushAdminErrors();
   });
 }
 /* ---------------- INVOICES ---------------- */
