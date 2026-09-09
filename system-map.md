@@ -2287,6 +2287,20 @@ phone call could pull a single customer onto a day whose crews were working some
 — and a stop no crew can reach is a one-man trip. See ruling **SCH-49**, which supersedes
 SCH-46.
 
+⚠ **And it does not earn their town a crew-day** (added 2026-09-09). Dax: *"if someone
+has priority that doesnt mean they will be done the very next day it means they will be
+done the very next time it makes any sense in a route."* A town's urgency is the **best
+number in it**, so one rushed house in a town of one made that town look as urgent as a
+town holding thirty October houses — and it won a crew-day of its own on day one, which
+is exactly how Darlene Price ended up alone on 1 October with a crew rostered for her.
+`houseInstallPriority(h, cust, {forTown:true})` drops the rush flag, and that is the
+number `allowedStats` scores a town on; the house's own queue position is unchanged.
+
+⚠ **The missed bump is deliberately NOT dropped with it.** A house the crew drove past
+yesterday moves its town too — that is what was asked for, and the town really is more
+urgent. Being asked to go sooner is not the same claim about the town. New hangs are
+untouched in both. Ruling **SCH-54**.
+
 ⚠ **The two orderings read the flag in different places, on purpose.** The Schedule has a
 new-hang tier, so `houseInstallPriority` puts a rushed house in it (10). The nightly sweep
 has no such tier — new hangs are the sort key on the pool that feeds `fillDays` — so
@@ -2373,6 +2387,24 @@ ordinary new hang (10), so an overdue one at 5 leads it. Neither ruling addresse
 pair directly; it falls out of the two together, which is why Suite 315 asserts it rather
 than leaving it to be inferred.
 
+⛔ **Neither the office date nor the overdue-new-member bump moves a TOWN** ([[SCH-54]]).
+A town's urgency is the best number in it, so one house at −10 would score its whole town
+better than anything in the book and a town of one would win a crew-day of its own — the
+Darlene Price shape arriving through a new flag. `houseInstallPriority(h, cust, {forTown:
+true})` drops both, exactly as it drops the rush box. They still order the house the moment
+a crew is going there, which is what *"ahead of everybody"* has to mean once a house cannot
+earn its town a day. ⚠ **The deadline-pressure bump is deliberately NOT dropped** — a
+deadline running out is a claim about the work, not about one phone call ([[SCH-45]]), and
+[[SCH-57]] asked for the towns to re-order themselves in as many words. It is also how the
+office date's own week still reaches the town: as that window closes, the house's deadline
+does, and the town climbs.
+
+⚠ **This one is an inference, not a ruling.** Dax's [[SCH-54]] named the rush box; Addie's
+[[SCH-56]] and [[SCH-58]] were written before it existed and never mentioned towns. Reading
+his rule as covering all three "a person decided about one customer" flags is the merge's
+own judgement — it is the reading that cannot re-create the bug he had just reported, and
+it is one line to flip if he meant it narrowly.
+
 ⛔ **The clock is gated on the new-member box, never on `tier === 10`.** Since [[SCH-49]] a
 rush install shares that tier, and `newHangWaitDays` counts from `createdAt` — so a tier
 test would hand −10 to every rushed customer on the book the moment the box was ticked,
@@ -2399,7 +2431,7 @@ nothing left on screen to remove.
 *Where it's proved*: run-all.js **Suite 315** runs the shipped functions in a sandbox — the
 floor, the working-day ceiling across a weekend and across Thanksgiving, the tier order, the
 single bump, the new member's clock, and the date travelling both ways through the sync.
-*Rulings*: [[SCH-54]], [[SCH-55]], [[SCH-56]], [[SCH-57]], [[SCH-58]] in
+*Rulings*: [[SCH-55]], [[SCH-56]], [[SCH-57]], [[SCH-58]], [[SCH-59]] in
 `claude/questions-map.md`.
 
 ### How many crews there are, and what they are called

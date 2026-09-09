@@ -51919,7 +51919,15 @@ function planNewCrewDays(waiting, taken, opts){
     for(let i = 0; i < q.length; i++){
       if(q[i].from > ds) continue;
       n++;
-      if(q[i].priority < urg) urg = q[i].priority;
+      /* ⚠ townPriority, NOT priority — a house asked to go sooner orders itself
+         inside its town and does NOT make the town urgent (Dax, 2026-09-09: "if
+         someone has priority that doesnt mean they will be done the very next day
+         it means they will be done the very next time it makes any sense in a
+         route"). Falls back to `priority` so a caller that supplies neither — the
+         nightly sweep, and every fixture written before this — behaves exactly as
+         it did. See [[SCH-54]]. */
+      const u = (typeof q[i].townPriority === 'number') ? q[i].townPriority : q[i].priority;
+      if(u < urg) urg = u;
     }
     return {n: n, urg: urg};
   };
@@ -62325,11 +62333,11 @@ function houseDeadline(h){
    ⚠ RESPACED TWICE ON 2026-09-09, BY TWO SESSIONS, AND BOTH HALVES SURVIVE.
    One made a rush install LEVEL with a new hang ([[SCH-49]]) — tier 0 is empty
    because of it, and nothing the office does by hand outranks a new hang any
-   more. The other opened tier 20 for a date the office typed ([[SCH-54]]) and
+   more. The other opened tier 20 for a date the office typed ([[SCH-55]]) and
    moved every tier below it down one step. Neither changed anybody's ORDER
    relative to anybody else; no comparison anywhere reads a value.
 
-   ⚠ THE ONLY THING ABOVE TIER 10 IS A NEW MEMBER WHO IS OUT OF TIME ([[SCH-57]]),
+   ⚠ THE ONLY THING ABOVE TIER 10 IS A NEW MEMBER WHO IS OUT OF TIME ([[SCH-58]]),
    and it is not an exception to "nothing outranks a new hang" — it IS a new hang,
    moved within its own class because we have held their sale a fortnight. It was
    safe to add only because a house can no longer be stranded on a day no crew is
@@ -62345,12 +62353,38 @@ function houseDeadline(h){
 
    ⚠ SELF-CONTAINED ON PURPOSE. Suites 43, 44 and 50 lift this function on its own
    into a bare sandbox, so it names no constant that lives outside it. */
-/* ⭐ AND TODAY IS AN ARGUMENT, NEVER A GLOBAL (2026-09-09). Three suites lift this
-   function on its own into a bare sandbox, so reading a clock from outside it would
-   turn "the tiers" into "the tiers, if the harness happened to provide a Date". A
-   caller that passes no day gets exactly the old, timeless answer, which is also what
-   every existing call site does. */
-function houseInstallPriority(h, custData, todayStr){
+/* ⭐ `opts.forTown` — THE SAME ORDER, ASKED ON BEHALF OF A TOWN (added 2026-09-09).
+   Dax, looking at Darlene Price pulled onto 1 October on her own: "if someone has
+   priority that doesnt mean they will be done the very next day it means they will
+   be done the very next time it makes any sense in a route."
+
+   A town's urgency is the best number in it (see allowedStats), so a rushed house
+   in a town of one made that town look as urgent as a town holding thirty October
+   houses — and it won a crew-day of its own. That is priority DECIDING THE ROUTE,
+   which is what he is ruling out; it should decide the ORDER once a crew is going
+   there anyway.
+
+   ⚠ A MISSED HOUSE STILL MOVES ITS TOWN, which is [[SCH-45]] and was asked for in as
+   many words — the crew drove past that house yesterday, so the town genuinely is
+   more urgent. Being asked to go sooner is not the same claim about the town.
+   ⚠ AND NEW HANGS ARE UNTOUCHED IN BOTH. "The very top priority is new hangs" is a
+   rule about the book, not about one phone call.
+
+   ⭐ `opts.today` — THE SAME ORDER, ASKED ON A PARTICULAR DAY (added 2026-09-09).
+   Three suites lift this function alone into a bare sandbox, so reading a clock from
+   outside it would turn "the tiers" into "the tiers, if the harness happened to
+   provide a Date". A caller that passes no day gets exactly the old, timeless answer.
+
+   ⚠ THE THIRD ARGUMENT ARRIVED TWICE IN ONE DAY, from two sessions, as two different
+   shapes — `{forTown:true}` and a bare ISO day. Both are accepted and normalised here
+   rather than one being renamed, because a caller written from memory against either
+   shape must not get a confidently wrong answer: a bare string read as an options
+   object silently answers `forTown:false` AND drops the clock, which is two rules
+   quietly off at once. The same both-shapes contract `billedHousesFor` already keeps. */
+function houseInstallPriority(h, custData, opts){
+  const o = (typeof opts === 'string') ? {today: opts} : (opts || {});
+  const forTown = !!o.forTown;
+  const todayStr = o.today || '';
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
   /* ⭐ SOMEBODY WHO ASKED TO GO SOONER GOES FIRST (added 2026-09-03). Owner: "we
      should be able to manually add priority to specific customers if they directly
@@ -62383,8 +62417,8 @@ function houseInstallPriority(h, custData, todayStr){
      instead. The two still agree; they say it in the place each one ranks. */
   let tier;
   if((custData && custData.chargeNewMemberFee === true) ||
-     (custData && custData.rushInstall === true)) tier = 10;   // never been hung, or asked to go sooner
-  /* ⭐ A DATE THE OFFICE TYPED SITS SECOND (2026-09-09, [[SCH-55]]). Addie: "New members
+     (!forTown && custData && custData.rushInstall === true)) tier = 10;   // never been hung, or asked to go sooner
+  /* ⭐ A DATE THE OFFICE TYPED SITS SECOND (2026-09-09, [[SCH-56]]). Addie: "New members
      come first and should be done within a week but can push it to 2 weeks if
      necessary. The staff dates should be second to these."
      ⚠ THIS IS NOT A CUSTOMER NAMING A DAY, and the difference is the whole ruling. A
@@ -62392,11 +62426,19 @@ function houseInstallPriority(h, custData, todayStr){
      day though that is not top priority we just do it the next time we have a chance"
      (2026-08-19). That was about the CUSTOMER asking. This is somebody in the office
      typing a date onto a record, which is the same kind of act as ticking the rush box
-     — and since 2026-09-09 that box is tier 10, so the two sit one step apart rather
+     — and since [[SCH-49]] that box is tier 10, so the two sit one step apart rather
      than at opposite ends of the ladder.
      ⚠ IT DECIDES ORDER, NOT MONTH. houseAllowedFrom already holds the house until the
-     date, so this only ever governs what happens once the date has arrived. */
-  else if(h && h.notBefore) tier = 20;
+     date, so this only ever governs what happens once the date has arrived.
+     ⛔ AND IT IS DROPPED FOR A TOWN, exactly like the rush box beside it ([[SCH-54]]).
+     It is the same act — a person deciding for one customer — so one house with a date
+     typed on it would otherwise make a town of one look more urgent than a town holding
+     thirty October houses, and win a crew-day of its own. That is Darlene Price again
+     in a second flag. Addie's "within a week of it" is not lost: houseDeadline still
+     gives the house that window, so `deadlineIsClose` moves the TOWN as the window
+     closes — which is [[SCH-57]]'s own mechanism doing the job, and the one claim about
+     a town that is genuinely about the work rather than about one phone call. */
+  else if(!forTown && h && h.notBefore) tier = 20;
   /* ⭐ A NAMED DAY IS NOT AN URGENT ONE. Owner, 2026-08-19: "if they ask for a
      specific day though that is not top priority we just do it the next time we
      have a chance for when they ask."
@@ -62458,7 +62500,14 @@ function houseInstallPriority(h, custData, todayStr){
      both a silent reversal of [[SCH-49]] and the stranding it was written to stop.
      ⚠ IT RETURNS, so a new member out of time is never also given the bump below — one
      move, not two. */
-  if(custData && custData.chargeNewMemberFee === true &&
+  /* ⛔ AND IT IS DROPPED FOR A TOWN, for the same reason the rush box is ([[SCH-54]]).
+     A town's urgency is the best number in it, so one new member out of time would
+     otherwise score their whole town -10 — better than any town in the book — and a
+     town of one would win a crew-day of its own on the first day of the season. That
+     is exactly the Darlene Price shape Dax had fixed hours earlier, arriving through a
+     different flag. She is still first the moment a crew is going there, which is what
+     "ahead of everybody" has to mean once a house cannot earn its town a day. */
+  if(!forTown && custData && custData.chargeNewMemberFee === true &&
      todayStr && typeof newHangWaitDays === 'function'){
     const waited = newHangWaitDays(custData, todayStr);
     if(waited !== null){
@@ -62692,7 +62741,20 @@ function rebuildSeasonDays(){
     const cust=planCustomerFor(h);
     const town=extractCleanCity((cust&&cust.data&&cust.data.city)||h.city);
     const d=(cust&&cust.data)||{};
-    return {id:key, city:town, priority:houseInstallPriority(h,d,todayStr),
+    return {id:key, city:town, priority:houseInstallPriority(h,d,{today:todayStr}),
+            /* ⭐ WHAT THIS HOUSE SAYS ABOUT ITS TOWN, which is not the same as what it
+               says about itself (added 2026-09-09). Dax: "if someone has priority that
+               doesnt mean they will be done the very next day it means they will be
+               done the very next time it makes any sense in a route." A town's urgency
+               is the best number in it, so without this a single rushed house in a town
+               of one earns that town its own crew-day. See houseInstallPriority's
+               `forTown`, and [[SCH-54]].
+               ⚠ THE DAY IS PASSED HERE TOO. A deadline running out is a claim about the
+               WORK, not about one phone call, so it must still move the town — that is
+               [[SCH-45]]'s argument and [[SCH-57]] asked for it in as many words. Drop
+               `today` here and a town whose October houses are about to run out of month
+               stops climbing, which is the opposite of what she asked for. */
+            townPriority:houseInstallPriority(h,d,{forTown:true, today:todayStr}),
             /* ⭐ HOW MANY TIMES A DAY WAS PROMISED AND MISSED. The tier bump inside
                houseInstallPriority already puts them ahead of their equals; this
                decides the order among the missed themselves, so somebody the crew
