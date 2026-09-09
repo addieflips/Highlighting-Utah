@@ -20469,6 +20469,77 @@ function noticeIsRoutine(d){
   if(d.topic !== ROUTINE_NOTICE_TOPIC) return false;
   return String(d.message || '').indexOf('⚠') === -1;
 }
+/* ⭐ WHO HIT THE ERROR, WHERE THE PAGE COULD NOT SAY (2026-09-09, [[MSG-10]]). Addie,
+   reading a Member Errors folder in which one row was named and the rest were blank: "we
+   need to know who hit an error so you need to show me who hit that error."
+
+   ⚠ THE BLANK ONES ARE NOT A RENDERING FAULT — the row prints `name` and the write simply
+   had none. A failure INSIDE the portal knows exactly who is looking at it; an RSVP link
+   that fails BEFORE sign-in has no record on the page at all, and those are precisely the
+   rows that matter most, because to that customer it looks like they already answered.
+
+   ⭐ THE ANSWER WAS ALREADY IN THE ROW. Every one of those links carries the customer's
+   own token, and the report already wrote its last six characters down. The office holds
+   `portalToken` on every customer, so this matches the two and prints the name — no new
+   data, nothing new stored, and nothing about the customer that we did not already have.
+
+   ⚠ IT READS THE OLD ROWS TOO, and that is the point rather than a nicety. New reports
+   carry `tokenTail` in its own field; every row written before today has the tail only
+   inside the message prose, and those are the rows she is looking at. A fix that cannot
+   reach the case that prompted it is not finished — the same rule the recycle bin-number
+   box was corrected under.
+
+   ⚠ TWO CANDIDATES IS NO MATCH, NEVER THE FIRST ONE. Six of thirty-six characters is one
+   in two billion against ~960 customers, so a collision is vanishingly unlikely — but
+   naming the wrong customer on a report about a failure is worse than naming nobody, and
+   this file already settled that argument once ("a number never outranks a name that
+   disagrees"). It says it found more than one instead.
+
+   ⚠ AND A quoteToken IS NOT A portalToken. They are the same shape and belong to different
+   collections, so a tail lifted from a quote link is deliberately not resolved here — it
+   would name a real person who had nothing to do with it. */
+function msgErrorTokenTail(d){
+  if(!d) return '';
+  /* The field, where the report carried one. `kind` is checked rather than assumed: only
+     a portal token identifies a CUSTOMER. */
+  if(d.tokenTail && d.tokenKind === 'portal') return String(d.tokenTail).toLowerCase();
+  if(d.tokenTail && !d.tokenKind) return String(d.tokenTail).toLowerCase();
+  /* ⚠ THE OLDER ROWS. `quoteToken=` must not match here, so the key is anchored — a bare
+     `token=` search also matches the tail of the word quoteToken and would resolve a quote
+     link against the customer list, which is the one wrong answer available. */
+  const m = /[?&#]token=\u2026?([a-z0-9]{6})\b/i.exec(String(d.message || ''));
+  return m ? String(m[1]).toLowerCase() : '';
+}
+/* Returns the customer, or a reason there is not exactly one. */
+function msgErrorWhoIs(d){
+  const tail = msgErrorTokenTail(d);
+  if(!tail) return null;
+  const list = (typeof jobAddresses !== 'undefined' && jobAddresses) ? jobAddresses : [];
+  const hits = list.filter(function(a){
+    const t = String((a.data && a.data.portalToken) || '').toLowerCase();
+    return t.length >= 6 && t.slice(-6) === tail;
+  });
+  if(hits.length !== 1) return { ambiguous: hits.length > 1, count: hits.length, tail: tail };
+  return { cust: hits[0], tail: tail };
+}
+/* What to print in place of a name. Empty string when there is nothing honest to say, so
+   the heading is unchanged for every ordinary message. */
+function msgErrorWhoLabel(d){
+  if(d && d.name) return '';
+  const found = msgErrorWhoIs(d);
+  if(!found) return '';
+  if(!found.cust){
+    return found.ambiguous
+      ? 'more than one customer matches this link'
+      : 'no customer matches this link (…' + found.tail + ')';
+  }
+  const c = found.cust.data || {};
+  const num = c.customerNumber ? ' #' + c.customerNumber : '';
+  /* ⚠ SAID TO BE A MATCH, not printed as though the report named them. The office should
+     be able to tell at a glance which rows the customer's own page identified and which
+     were worked out from a link. */
+  return (c.name || '(no name on the record)') + num + ' — matched by their link';
+}
 function renderMessagesList(){
   const list = document.getElementById('messagesList');
   let filtered = msgFilter === 'awaiting' ? allMessages.slice() : allMessages.filter(m => messageFolderOf(m.data) === selectedFolder);
@@ -20522,7 +20593,11 @@ function renderMessagesList(){
     html += '<div class="row-item'+(isUnread ? ' unread' : '')+(pickedMsgIds.has(item.id) ? ' picked' : '')+'" draggable="true" data-msgid="'+item.id+'">'+
       '<input type="checkbox" class="msg-pick" data-pickmsg="'+item.id+'"'+(pickedMsgIds.has(item.id)?' checked':'')+' title="Select this message">'+
       '<div class="rmain">'+
-        '<h4>'+esc(d.name)+(d.topic ? ' <span class="status-pill status-new">'+esc(d.topic)+'</span>' : '')+' <span class="status-pill '+(isResponded?'status-paid':'status-due')+'">'+(isResponded?'Responded':'Awaiting Response')+'</span></h4>'+
+        /* ⭐ A Member Error with no name of its own is resolved from the link it carries
+           ([[MSG-10]]). Rendered in the HEADING, where a name goes, because that is the
+           line the office scans down — a note further into the row is a note nobody
+           reads on the one folder that exists to be acted on. */
+        '<h4>'+(esc(d.name) || esc(msgErrorWhoLabel(d)))+(d.topic ? ' <span class="status-pill status-new">'+esc(d.topic)+'</span>' : '')+' <span class="status-pill '+(isResponded?'status-paid':'status-due')+'">'+(isResponded?'Responded':'Awaiting Response')+'</span></h4>'+
         (address ? '<div class="row-phone-line">'+esc(address)+'</div>' : '')+
         '<div class="rmeta">'+esc(d.phone)+(d.email ? ' &middot; '+esc(d.email) : '')+(d.contactMethod ? ' &middot; Prefers '+esc(d.contactMethod) : '')+' &middot; '+fmtDate(d.createdAt)+'</div>'+
         '<div class="rtext">'+esc(d.message)+'</div>'+
