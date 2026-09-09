@@ -11222,6 +11222,58 @@ function referralHolderFor(token){
   }
   return null;
 }
+/* ⭐ THE FRIENDS WHO USED THE LINK AND ARE NOT CUSTOMERS YET (REF-32, 2026-09-08).
+   Addie, having shared her link with two people through the phone share sheet: *"I
+   shared the link through the email link then share link on my phone but did not update
+   the discounts... it was 2 links filled out by 2 different people."*
+
+   ⚠ NOTHING WAS BROKEN, AND THAT IS EXACTLY THE PROBLEM. The $25 lands on CONVERSION —
+   her own rule ([[REF-31]], "discount only takes affect after they are converted to
+   costumer") — so two friends who have submitted quotes have earned nothing yet and the
+   invoice is right to show nothing. But this row read `referralCredits` alone, so it
+   said "nobody has joined through it yet" while two quotes carrying her token sat in the
+   Quotes tab. There is no way to tell a link that WORKED and is waiting on the office
+   from a link that is broken, and the two need opposite actions.
+
+   ⚠ SAME SHAPE AS THE REFUSAL COUNT beside it, and as [[REF-21]]: the code was right and
+   the silence was the bug. This is the third time that has been the answer on this
+   feature, which is the argument for the row reporting every state the token can be in
+   rather than only the one that pays.
+
+   ⚠ IT COUNTS QUOTES, NOT PEOPLE, and says so on screen. Two quotes from one friend is
+   two rows here — deliberately, because deduping them would be a second, quieter copy of
+   the REF-31 rule that decides who gets paid, and the two would eventually disagree. The
+   office converts them and REF-31 does the deduping where the money is.
+
+   ⚠ PAST TOKENS COUNT TOO. `referralHolderFor` resolves a link to its owner through
+   `referralTokensPast`, so a friend who used last season's link is still waiting on the
+   office; leaving them out would report a confident nought on the exact link most likely
+   to be sitting in somebody's messages.
+
+   ⚠ AND `referralCredited` MEANS DEALT WITH, NOT PAID. `referralMarkQuote` stamps it for
+   a refusal as well as a credit, which is what stops a refused referral being counted
+   here as still pending for ever — it is already reported as a refusal beside this. */
+function referralTokensOf(data){
+  const d = data || {};
+  const out = [];
+  if(d.referralToken) out.push(String(d.referralToken));
+  (Array.isArray(d.referralTokensPast) ? d.referralTokensPast : []).forEach(function(p){
+    if(p && p.token) out.push(String(p.token));
+  });
+  return out;
+}
+function referralPendingQuotes(data, quotes){
+  const mine = referralTokensOf(data);
+  if(!mine.length) return [];
+  const list = Array.isArray(quotes) ? quotes : [];
+  return list.filter(function(q){
+    const qd = (q && q.data) || {};
+    if(qd.referralCredited === true) return false;      /* credited or refused already */
+    if(qd.quoteArchived) return false;                  /* the office closed it */
+    if(qd.convertedToCustomerAt) return false;          /* converted; the credit path ran */
+    return mine.indexOf(String(qd.referredByToken || '')) !== -1;
+  });
+}
 async function referralTokenFor(item){
   if(!item || !item.id || !item.data) return null;
   if(item.data.referralToken) return item.data.referralToken;
@@ -46751,11 +46803,27 @@ function editCustRenderReferLine(){
      sentence on the one screen where the office asks whether the link is working, saying
      the opposite of what happened. See referralBlockCount. */
   const refused = referralBlockCount(d.referralBlocks);
+  /* \u2b50 AND THE ONES STILL WAITING ON THE OFFICE (REF-32, 2026-09-08). See
+     referralPendingQuotes: the $25 lands on conversion, so a friend who has only
+     submitted a quote has earned nothing yet and this row used to call that "nobody has
+     joined through it yet" \u2014 the same sentence it gives a link nobody has ever opened.
+     Those two need opposite actions, so they cannot share a sentence. */
+  const waiting = referralPendingQuotes(d, (typeof quotesCache !== 'undefined' ? quotesCache : [])).length;
   bits.push('<span style="color:var(--slate);">' + (n
     ? (n === 1 ? '1 person has joined \u2014 ' : n + ' people have joined \u2014 ') +
       fmtMoney(n * REFERRAL_CREDIT) + ' off their bill'
     : (refused ? 'nobody has joined through it and been credited'
-               : 'nobody has joined through it yet')) + '</span>');
+               : (waiting ? 'nobody has been credited yet'
+                          : 'nobody has joined through it yet'))) + '</span>');
+  if(waiting){
+    /* \u26a0 IT NAMES THE NEXT STEP, because the office has to DO something for this to
+       become money \u2014 the whole reason the count was worth showing. Gold rather than
+       amber: this is the link working, not a fault. */
+    bits.push('<span style="color:var(--gold, #D89F3D);">' + waiting + ' quote' +
+      (waiting === 1 ? '' : 's') + ' from their link waiting to be converted \u2014 ' +
+      'the ' + fmtMoney(REFERRAL_CREDIT) + (waiting === 1 ? '' : ' each') +
+      ' goes on when you convert them</span>');
+  }
   if(refused){
     /* ⚠ THE REASON IS SHOWN, not just the count — “earned nothing” on its own sends
        somebody hunting for a broken link, and the link is fine. */
