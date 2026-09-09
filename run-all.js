@@ -52775,17 +52775,52 @@ suite('Suite 312. A friend who comes in through a referral link pays no setup fe
      that had quietly frozen at the old number. Both directions are wrong. It builds
      the sentence with the shipped constant and requires the two to agree. */
   {
+    /* ⚠ A MISSING LIFT IS A NAMED FAILURE, NEVER A CRASH (added 2026-09-09, REF-36).
+       This used to hand extractFn's result straight to `new Function`, so renaming
+       referralShareLine produced the string "nullreturn referralShareLine();" — a
+       SyntaxError thrown where nothing catches it, which KILLS THE WHOLE RUN mid-way
+       and scores every suite after this one as absent. Measured on a rename: 5167
+       passed, 1 failed, and the summary itself says the run stopped. That is the
+       unattributable-crash failure CLAUDE.md §3 records costing three suites a run,
+       and it now matters more than it did, because Suite 308 lifts this same function
+       to prove the share sheet is handed it. */
+    const shareLine312 = extractFn(index, 'referralShareLine');
+    check('S312', 'the friend-facing message builder is findable',
+      !!shareLine312,
+      'referralShareLine could not be lifted out of index.html — repoint this lift; ' +
+      'a rename here also blinds Suite 308, which proves anybody actually sends it');
+  }
+  if (extractFn(index, 'referralShareLine')) {
     const line = new Function('NEW_MEMBER_FEE',
       extractFn(index, 'referralShareLine') + 'return referralShareLine();')(NEW_MEMBER_FEE_NUM);
+    /* ⚠ THE WORDING IS ASSERTED POSITIVELY, AND THAT IS THE POINT OF REF-36. This
+       check used to require "you will not have to pay the $N installation fee".
+       Addie, 2026-09-09: "lets reword the you will not have to pay 30 dollars
+       installation fee cause not can be overlooked" — a negated promise read at a
+       glance says the opposite of what it means. The check moved with the sentence
+       rather than being widened to accept both, because accepting both is how the
+       ruling quietly stops being enforced. */
     check('S312', 'the friend-facing message says the fee is waived',
-      line.indexOf('you will not have to pay the $' + NEW_MEMBER_FEE_NUM + ' installation fee') !== -1,
+      line.indexOf('your $' + NEW_MEMBER_FEE_NUM + ' installation fee will be waived') !== -1,
       'Addie asked for this in the text/email a friend receives, not just the referrer\'s incentive line');
+    check('S312', 'and it does not say it with a "not"',
+      !/\bnot\b/i.test(line),
+      'REF-36: "not can be overlooked" — a skimmed negation reads as its opposite, and ' +
+      'this sentence arrives in Messages between two other conversations');
     check('S312', 'and it reads the fee rather than typing it',
       /NEW_MEMBER_FEE/.test(extractFn(index, 'referralShareLine')),
       'this sentence is a written promise to somebody who is not a customer yet; the ' +
       'fee moved twice in four days, and a literal here promises the wrong amount with ' +
       'nothing going red');
   }
+
+  /* ⚠ AND WHETHER ANYBODY SENDS THIS SENTENCE IS SUITE 308'S JOB, NOT THIS ONE'S.
+     Everything above runs referralShareLine ALONE and reads its return value, which
+     proves the wording and says nothing whatever about whether it reaches a friend —
+     and for three days nothing did (REF-35). Suite 308 already lifts portalShareLink
+     with a fake share sheet, so the "is it actually sent" check belongs there beside
+     the URL and clipboard checks that harness already makes. A second copy of it here
+     is two places to keep one rule, and the one nobody looks at is the one that rots. */
   /* ⚠ COMMENTS STRIPPED — the rule Suites 58, 274, 275 and 300 have each already
      learned, and this check re-learned it the hour it was written: the note beside
      this function explains that the fee moved $30 → $25 → $30, so a raw search found
@@ -53971,8 +54006,16 @@ suite('308. Sharing the referral link, not opening it');
          moved $30 → $25 → $30 inside three days; a hardcoded 30 here would pass while
          the page promised something else. */
       const shareText = String((sheet.calls.shared[0] || {}).text || '');
+      /* ⚠ THE PROMISE, NOT THE PHRASING (REF-36, hours after this was written). This
+         asked for the words "referral link", which the sentence carried while it read
+         "If you register through this referral link, you will not have to pay…" — and
+         Addie then had it reworded to "Sign up through this link and your $30
+         installation fee will be waived", because "not can be overlooked". A check
+         pinned to a phrase fails on correct copy the first time the copy is edited,
+         which is the slow fuse S82, S129 and S305 each caught. What must be true is the
+         PROMISE: the fee, named, and said to be waived. */
       check('S308', 'and the message tells the friend the set-up fee is waived',
-        /referral link/i.test(shareText) && shareText.indexOf(feeMoney.replace('.00', '')) !== -1 &&
+        /waived/i.test(shareText) && shareText.indexOf(feeMoney.replace('.00', '')) !== -1 &&
         /installation fee/i.test(shareText),
         'got ' + JSON.stringify(shareText) + ' — this is the whole promise the waiver ' +
         'is for, and it goes out over Addie\'s name to somebody who is not a customer yet');

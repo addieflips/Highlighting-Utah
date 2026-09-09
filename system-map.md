@@ -1763,14 +1763,34 @@ text/email."*
   fee on for a specific referred quote, that tick wins. (Addie confirmed this is
   the behaviour she wants, rather than a rule with no override.)
 - **The copy.** The friend-facing share message (`referralShareLine`, index.html)
-  now says so directly — *"...If you register through this referral link, you will
-  not have to pay the $30 installation fee."* This is new: the message was
-  deliberately built with no dollar amounts (see REF-12 above), on the reasoning
-  that naming the referrer's own $25 credit there would read as self-serving. The
-  $30 waiver is different — it benefits the FRIEND, not the referrer — so it stays
-  out of self-serving territory and Addie asked for it by name, with the exact
-  wording used above. The RSVP email's own explainer to the referrer (the "$25 off
-  your bill" line, and the share page's matching note) is unchanged.
+  now says so directly — *"You've been recommended for Christmas lights. Light your
+  house with Highlighting Utah! Sign up through this link and your $30 installation
+  fee will be waived."* This is new: the message was deliberately built with no
+  dollar amounts (see REF-12 above), on the reasoning that naming the referrer's own
+  $25 credit there would read as self-serving. The $30 waiver is different — it
+  benefits the FRIEND, not the referrer — so it stays out of self-serving territory
+  and Addie asked for it by name. The RSVP email's own explainer to the referrer
+  (the "$25 off your bill" line, and the share page's matching note) is unchanged.
+  - ⚠ **The wording was NEGATIVE until 2026-09-09 and is now positive** (REF-36).
+    It read *"you will not have to pay the $30 installation fee"*; Addie: *"lets
+    reword the you will not have to pay 30 dollars installation fee cause not can
+    be overlooked"*. Nothing about the waiver changed. The figure is still read
+    from `NEW_MEMBER_FEE`, never typed, because it moved $30 → $25 → $30 in four
+    days (MON-63/MON-64).
+  - ⛔ **It was not being sent at all until 2026-09-09** — `portalShareLink` handed
+    `navigator.share` a hardcoded sentence and `referralShareLine` was called by
+    nothing. The account of that is the REF-35 bullet a few sections up; it is not
+    repeated here. What this section adds is the check that now answers *"is the
+    referral message actually going out"*: suite 308 RUNS `portalShareLink` with a
+    fake share sheet and reads the `text` it was handed. Reading `referralShareLine`
+    alone proves the sentence and nothing about who sends it, which is why two green
+    suites missed it.
+  - **The quote page the link lands on says nothing yet.** Addie asked for one line
+    there too — *"Your $30 installation fee is waived"*, nothing under it — and it
+    is **decided and not built** (REF-37): the public page cannot tell a real token
+    from an invented one, and a link from a rotated season is deliberately still
+    charged (REF-25), so the banner would promise a waiver the office then refuses.
+    `docs/open-questions.md` **Q-032** carries the three ways out.
 ⭐ **AND THE LINK EXPIRES AT THE END OF THE SEASON** (added 2026-09-07, REF-25). Addie:
 *"If referal link is from last year and they are using it than it should still charge 30
 dollar fee. They should use there new referal link every year which should give new
