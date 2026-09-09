@@ -10031,6 +10031,13 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              customer per season by design. Cleared here so a new season starts with
              nobody already written to. */
           arrearsRsvpEmailAt: null,
+          /* ⚠ SEASON-SCOPED FOR EXACTLY THE SAME REASON (EM-04). This is what makes
+             "already asked" mean "asked THIS season" with no date arithmetic to drift.
+             Left standing, a new season would open with the whole book already marked
+             as asked and the RSVP would go to nobody — a send to nobody looks exactly
+             like a send that worked, which is the failure this file records elsewhere
+             by name. */
+          rsvpEmailedAt: null,
           /* The badge is season-scoped: left standing it would say somebody changed
              their mind this year when they did it last year. */
           cameBackThisSeasonAt: null,
@@ -18853,6 +18860,32 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
         const subject = await emailSubjectFor(template, vars.phone, vars);
         await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', subject: subject, message: message });
         sent++;
+        /* ⭐ AND IT IS WRITTEN DOWN THAT THIS PERSON HAS NOW BEEN ASKED (2026-09-09,
+           EM-04). Addie: "the people that have already got the email should not get it
+           again" — which is impossible to honour unless somebody records who got it,
+           and until now NOTHING did. That is why the 392 could not be told apart from
+           the people the send reached: the office's own RSVP left no trace per
+           customer, so "who was missed" had no answer anywhere in Firebase.
+           ⚠ THE SHAPE IS `arrearsRsvpEmailAt`'s, deliberately — the server's arrears
+           chase has stamped its own customers since it was built, with this exact rule
+           in its comment ("ONCE PER CUSTOMER PER SEASON, EVER") and Start New Season
+           clearing it. This is that mechanism finally applied to the send the office
+           actually presses.
+           ⚠ ONLY ON AN RSVP. An invoice or a receipt is not the season's question, and
+           stamping one would make somebody look asked when nobody has asked them.
+           ⚠ AND A FAILED STAMP NEVER FAILS THE SEND. The email has gone; the worst a
+           lost stamp can do is offer them a duplicate later, which is the safe
+           direction — the opposite mistake is a customer who is never asked at all. */
+        if(isRsvp){
+          try{
+            await updateDoc(doc(db,'jobAddresses', member.id), { rsvpEmailedAt: serverTimestamp() });
+            /* Mirrored so the plan recomputes correctly before the listener comes back —
+               the same optimistic mirror the rest of admin already does. */
+            member.data.rsvpEmailedAt = new Date();
+          }catch(stampErr){
+            console.error('[HU] emailed ' + member.id + ' but could not record it:', stampErr);
+          }
+        }
         /* ⭐ PACED, BECAUSE GMAIL COUNTS HOW FAST WE SEND (2026-09-09, EM-02). See
            EMAIL_SEND_GAP_MS — this loop used to fire the next send the instant the last
            one came back, which is what put 392 of them into "Gmail_API: User-rate limit
@@ -18999,7 +19032,7 @@ function rsvpWholeTemplates(){
    or the preview is a second opinion — the same reasoning the Preview & Send preview and
    its send loop already share a renderer for. */
 function rsvpWholePlan(){
-  const out = { standard: [], arrears: [], noEmail: [], optedOut: [],
+  const out = { standard: [], arrears: [], noEmail: [], optedOut: [], alreadyEmailed: [],
                 answered: 0, newThisYear: 0, ready: false, why: '' };
   if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)){
     out.why = 'The customer list has not loaded yet.'; return out;
@@ -19021,6 +19054,19 @@ function rsvpWholePlan(){
     if(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus(d)){ out.answered++; return; }
     if(typeof etNoAutomationEmails === 'function' && etNoAutomationEmails(d)){ out.optedOut.push(item); return; }
     if(!String(d.email || '').trim()){ out.noEmail.push(item); return; }
+    /* ⭐ ALREADY ASKED IS NOT ASKED AGAIN (2026-09-09, EM-04). Addie: "the people that
+       have already got the email should not get it again." Either stamp counts — the
+       office's own send (`rsvpEmailedAt`) or the server's arrears chase
+       (`arrearsRsvpEmailAt`) — because both are us asking them about this season, and
+       reading only one would re-ask everybody the automation already reached.
+       ⚠ IT SITS AFTER the answered / opted-out / no-email tests on purpose: those are
+       reasons somebody is not in this send at all, and counting an opted-out customer
+       as "already emailed" would tell her we had asked somebody we are forbidden to
+       write to.
+       ⚠ AND IT IS SEASON-SCOPED BY THE RESET, not by a date comparison here. Start New
+       Season clears both fields, which is what makes "already asked" mean "asked THIS
+       season" without any arithmetic that could drift. */
+    if(d.rsvpEmailedAt || d.arrearsRsvpEmailAt){ out.alreadyEmailed.push(item); return; }
     if(typeof houseOwesFromLastSeason === 'function' && houseOwesFromLastSeason(d)) out.arrears.push(item);
     else out.standard.push(item);
   });
@@ -19058,6 +19104,10 @@ function rsvpWholeRenderBreakdown(plan){
     (tpl.arrears ? row('\u21b3 referral link', '', referWhere(tpl.arrears)) : '') +
     row('To text instead', plan.noEmail.length, 'no email on file \u2014 see the card below') +
     row('Left out, do-not-send', plan.optedOut.length, 'they asked not to be mailed') +
+    /* ⭐ EM-04. This line is the answer to "the people that have already got the email
+       should not get it again", and it is worth SEEING rather than merely trusting:
+       before a re-send it is the count of everybody the last run actually reached. */
+    row('Already emailed this season', plan.alreadyEmailed.length, 'they have it — not sent again') +
     row('Already answered', plan.answered, 'not asked again') +
     row('New this year', plan.newThisYear, 'never had lights \u2014 never asked') +
     '<p class="form-note" style="margin:10px 0 0;">Nobody appears in more than one line above.</p>';
@@ -19100,7 +19150,8 @@ document.getElementById('rsvpWholeSendBtn')?.addEventListener('click', async fun
   if(!confirm('Send the whole RSVP now?\n\n'
       + plan.standard.length + ' get the ordinary RSVP\n'
       + plan.arrears.length + ' get the Not Paid RSVP\n'
-      + plan.noEmail.length + ' have no email and must be TEXTED (nothing is sent to them)\n\n'
+      + plan.noEmail.length + ' have no email and must be TEXTED (nothing is sent to them)\n'
+      + plan.alreadyEmailed.length + ' already got it this season and are NOT sent it again\n\n'
       + 'That is ' + total + ' email(s). This cannot be taken back.')) return;
   btn.disabled = true;
   let sent = 0, failed = 0, optedOut = 0, noReferral = 0;
@@ -57475,6 +57526,63 @@ function hcRunChecks(){
      ⚠ AND IT REPORTS BEFORE IT BITES. While the rule is not yet live it still lists
      them, saying so — that is the point at which she can still ring them. A warning
      that only appears once the damage is done is a report, not a warning. */
+  /* ⭐ THE RSVP NEVER REACHED THESE PEOPLE (added 2026-09-09, EM-04). Addie, after a
+     send where 392 emails were refused by Gmail and nothing said which: "We need to
+     determine the fails I though that's what health check was for."
+
+     ⚠ SHE IS RIGHT THAT THIS IS THE PLACE, AND IT REVERSES HC-03's INSTRUCTION —
+     said out loud per R-024, because that instruction is still written down in
+     CLAUDE.md. HC-03 (2026-08-26) said not to add a Health Check row as the way to
+     report a finding, because she did not open the panel: "I can't mark anything as
+     completed or outside of policy." That complaint was FIXED the next day — approve
+     and deny shipped 2026-08-27 — so the premise is gone, and she has now asked for
+     this by name. The newer answer wins.
+
+     ⚠ IT IS THE DIFFERENCE BETWEEN THIS ROW AND `seasonRuleDrops` THAT MATTERS, and
+     they are easy to confuse. That one lists people who were ASKED and said nothing —
+     a decision they made. This lists people who were NEVER ASKED, which is a failure of
+     ours. Both end up off the routes, and only one of them is anybody's fault.
+
+     ⚠ AND IT CANNOT SEE BACKWARDS. Nothing stamped a customer before `rsvpEmailedAt`
+     existed, so anybody emailed by the office before 2026-09-09 reads as never-reached
+     here. That is the honest answer rather than a flattering one — the row says so in
+     its own note, because a list that quietly conflated the two would be the panel
+     making a claim it cannot support about who has been asked. */
+  checks.push({
+    id: 'rsvpNeverReached',
+    title: 'The RSVP never reached these customers',
+    why: 'They cannot answer a question nobody asked them — and because only people who '
+      + 'have answered are scheduled, they are out of the season: no route, no bundle, no '
+      + 'crew. This is the list "Send the whole RSVP" will go to.',
+    fix: null,
+    fixNote: 'No button here: the fix is to send it. Automation Emails → Send the whole '
+      + 'RSVP goes to exactly these people and skips everybody who already has it. '
+      + '⚠ TWO KINDS OF CUSTOMER APPEAR HERE WHO HAVE ACTUALLY BEEN EMAILED, and both '
+      + 'are worth knowing before you press anything. Anyone the office emailed before '
+      + '2026-09-09 carries no record of it, because nothing was written down per '
+      + 'customer until then — that is the whole reason the failed send could not be '
+      + 'identified. And a message re-sent from EmailJS’s own error emails never '
+      + 'passes through this app at all, so it is invisible here too. Check this list '
+      + 'against EmailJS before treating it as "never asked".',
+    rows: (function(){
+      if(typeof rsvpWholePlan !== 'function') return [];
+      const plan = rsvpWholePlan();
+      /* ⚠ NOT READY IS NOT EMPTY. The plan refuses until the invoices have loaded,
+         because who owes from last season decides which of the two emails they get.
+         Reporting nothing then would say the RSVP had reached everybody. */
+      if(!plan.ready) return [];
+      /* ⭐ THE SAME PLANNER THE BUTTON USES, never a second opinion. A row that counted
+         "who still needs asking" its own way is how this panel and the send start
+         telling her different numbers about the same customers. */
+      return plan.standard.concat(plan.arrears).map(function(item){
+        const d = item.data || {};
+        return { label: d.name || '(no name)',
+                 detail: (d.email || 'no email') + ' — '
+                   + (typeof houseOwesFromLastSeason === 'function' && houseOwesFromLastSeason(d)
+                      ? 'would get the Not Paid RSVP' : 'would get the ordinary RSVP') };
+      });
+    })()
+  });
   checks.push({
     id: 'seasonRuleDrops',
     title: 'People who never replied to the RSVP',
