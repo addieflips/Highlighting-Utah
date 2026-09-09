@@ -51646,9 +51646,21 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
   // ---------------------------------------------------------------- the rule
   {
     const cold = (admin.match(/const COLD_DAY_MAX_F = (\d+);/) || [])[1];
+    const chilly = (admin.match(/const COLD_DAY_CHILLY_F = (\d+);/) || [])[1];
     const band = (admin.match(/const WARMTH_BAND_F = (\d+);/) || [])[1];
-    check('S300', 'the cutoff the owner named is written down once, as 35',
-      cold === '35', 'got ' + cold + " — owner: '35 degrees or lower'");
+    /* ⚠ CHANGED 2026-09-09 — 35 WAS THE VETO AND IS NOW ONLY THE TOP OF THE DISLIKE.
+       Dax: "31 degrees or lower in that area is vital and above 35 degrees can be
+       prioritzed however you would like because its not essential but it is
+       preferable." So one number became two, and this check was pinned to the old
+       one. See [[SCH-55]]; SCH-44's cutoff half is superseded, its "unless" half is
+       untouched and still asserted below. */
+    check('S300', 'the vital cutoff is written down once, as 31',
+      cold === '31', 'got ' + cold + " — Dax: '31 degrees or lower in that area is vital'");
+    check('S300', 'and the merely-preferable band tops out at 35',
+      chilly === '35', 'got ' + chilly + " — Dax: 'above 35 degrees... its not essential but it is preferable'");
+    check('S300', 'and the two are a real band apart, not the same number twice',
+      Number(chilly) > Number(cold),
+      'a chilly ceiling at or below the veto makes the 32-35 rule unreachable code');
     check('S300', 'and warmth is compared in ten-degree bands',
       band === '10',
       'a smaller band lets a degree of noise overrule "the town with the most houses waiting"');
@@ -51660,11 +51672,20 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
     const plan = admin.slice(admin.indexOf('function planNewCrewDays(waiting, taken, opts)'),
                              admin.indexOf('/* Top every day up to the cap.'));
     const fbCold = (plan.match(/o\.coldBelow === 'number' \? o\.coldBelow : (\d+)/) || [])[1];
+    const fbChilly = (plan.match(/o\.chillyBelow === 'number' \? o\.chillyBelow : (\d+)/) || [])[1];
     const fbBand = (plan.match(/o\.warmBand > 0 \? o\.warmBand : (\d+)/) || [])[1];
     check('S300', "the builder's own fallback numbers agree with the constants",
-      fbCold === cold && fbBand === band,
-      'builder falls back to ' + fbCold + '/' + fbBand + ', the page says ' + cold + '/' + band +
+      fbCold === cold && fbBand === band && fbChilly === chilly,
+      'builder falls back to ' + fbCold + '/' + fbChilly + '/' + fbBand + ', the page says ' +
+      cold + '/' + chilly + '/' + band +
       ' — a lifted copy would then test a rule the live plan does not use');
+    /* ⚠ AND rebuildSeasonDays HAS TO HAND THE NEW ONE OVER. Without this the page
+       keeps its own 35 while the builder falls back to its default and nothing goes
+       red — the two-copies drift this whole block exists to catch. */
+    check('S300', 'and the live rebuild passes the chilly ceiling in too',
+      /chillyBelow\s*:\s*\(typeof COLD_DAY_CHILLY_F/.test(admin),
+      'rebuildSeasonDays is what the office actually presses; a constant it never ' +
+      'forwards is a rule that only exists in the tests');
   }
 
   // ------------------------------------------------- the builder, run for real
@@ -51722,20 +51743,53 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
        on the day it was written. 34 against 39 is one band, so the tiebreak has nothing
        to say and only the veto can move the crew. */
     const veto = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 34, Lehi: 39 });
-    check('S300', 'a town at 34° is skipped while a warmer town has anybody waiting',
+    /* ⚠ WORDING CORRECTED 2026-09-09. This said "skipped", which was true while 35 was
+       the veto and is not now: at 34° Draper is merely sorted BELOW Lehi. The outcome
+       on this fixture is the same either way, which is exactly why it kept passing
+       through the rule change — the veto/dislike pair further down is what tells them
+       apart. Kept because equal-urgency, equal-size is still the case worth pinning. */
+    check('S300', 'a town at 34° goes after a warmer town when nothing else separates them',
       veto.length && veto[0].city === 'Lehi',
-      'got ' + (veto[0] && veto[0].city) + ' — this is the whole rule, and Draper wins the ' +
-      'same fixture without a forecast, so nothing but the temperature moved it');
-    check('S300', 'and the freezing town still gets its day, later',
+      'got ' + (veto[0] && veto[0].city) + ' — Draper wins the same fixture without a ' +
+      'forecast, so nothing but the temperature moved it');
+    check('S300', 'and the chilly town still gets its day, later',
       veto.some(d => d.city === 'Draper'),
       'the cold rule reorders the season; it must never drop a town out of it');
 
-    /* ⚠ EXACTLY AT THE CUTOFF IS COLD. "35 degrees or lower" — a rule written as < would
-       send a crew out on the one day she named. Same band on both sides, same reason. */
-    const edge = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 35, Lehi: 39 });
-    check('S300', '35° itself counts as too cold, not just below it',
+    /* ⚠ EXACTLY AT THE CUTOFF IS COLD. A rule written as < would send a crew out on
+       the one day he named. Same band on both sides, same reason.
+       ⚠ CHANGED 2026-09-09: this used to read "35° itself counts as too cold". 35 is
+       no longer the veto — 31 is — so the fixture moved with the rule. At 35 Draper
+       is still sorted BELOW Lehi, which is why the old check stayed green while
+       testing something that had stopped being true; the pair below is what actually
+       tells a veto from a dislike. [[SCH-55]] */
+    const edge = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 31, Lehi: 39 });
+    check('S300', '31° itself counts as too cold, not just below it',
       edge.length && edge[0].city === 'Lehi',
-      "owner said '35 degrees or lower', so the cutoff is inclusive");
+      "Dax said '31 degrees or lower', so the cutoff is inclusive");
+
+    /* ⭐ THE DIFFERENCE BETWEEN VITAL AND PREFERABLE, WHICH IS THE WHOLE RULING.
+       A VETO is applied before anything else is weighed, so a vetoed town loses even
+       when it is the more urgent one. A DISLIKE sits with warmth — below urgency and
+       below how full a day the town can make — so a chilly town that is more urgent
+       still gets the crew.
+       ⚠ Both fixtures are identical apart from the temperature, so nothing but the
+       veto/dislike distinction can move the answer. */
+    const chillyUrgent = build(
+      town('Draper', 20, 0).concat(town('Lehi', 20, 4)), { Draper: 33, Lehi: 39 });
+    check('S300', 'a chilly town that is more urgent still gets the crew first',
+      chillyUrgent.length && chillyUrgent[0].city === 'Draper',
+      'got ' + (chillyUrgent[0] && chillyUrgent[0].city) + " — Dax: 32-35 is 'not " +
+      "essential but it is preferable', so it must never outrank October");
+    const vitalUrgent = build(
+      town('Draper', 20, 0).concat(town('Lehi', 20, 4)), { Draper: 30, Lehi: 39 });
+    check('S300', 'but at 30° it is refused even though it is the more urgent town',
+      vitalUrgent.length && vitalUrgent[0].city === 'Lehi',
+      'got ' + (vitalUrgent[0] && vitalUrgent[0].city) + " — Dax: '31 degrees or lower " +
+      "in that area is vital', and vital means it outranks urgency");
+    check('S300', 'and the vitally cold town is still not dropped from the season',
+      vitalUrgent.some(d => d.city === 'Draper'),
+      'the cold rule reorders the season; it must never lose a town out of it');
     /* ⚠ AND THE SAME FIXTURE ONE DEGREE THE OTHER SIDE. */
     const warm = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 36, Lehi: 39 });
     check('S300', 'and 36° is an ordinary day, so the alphabetical tiebreak returns',

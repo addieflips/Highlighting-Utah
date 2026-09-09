@@ -50762,7 +50762,28 @@ function maxStopsPerWorkingDay(){ return MAX_STOPS_PER_ROUTE * CREWS_PER_DAY; }
    it does for a one man day — planNewCrewDays is pure and the suites lift it on
    its own. rebuildSeasonDays passes these in, so the live plan uses THESE; Suite
    300 fails if the two ever stop agreeing. */
-const COLD_DAY_MAX_F = 35;
+/* ⭐ THIRTY-ONE IS THE VITAL ONE; 32-35 IS ONLY PREFERABLE (changed 2026-09-09).
+   Dax: "31 degrees or lower in that area is vital and above 35 degrees can be
+   prioritzed however you would like because its not essential but it is preferable."
+
+   ⚠ THAT SPLITS ONE NUMBER INTO TWO, and the split is the whole change. Until now
+   COLD_DAY_MAX_F was 35 and was the VETO, so 32°, 33°, 34° and 35° all refused the
+   date outright — a hard no on four degrees he has now called merely preferable.
+   The veto is 31 and below; 32 to 35 is a strong dislike that sorts a town DOWN
+   but can never refuse it a day.
+
+   ⚠ THE VETO STILL LIFTS WHEN NOTHING WARMER IS WAITING. That is unchanged and is
+   the half that keeps the calendar moving — see the two-pass note in
+   planNewCrewDays. Narrowing the veto makes that fallback fire less often, which
+   is the point: fewer days go out freezing because fewer days had to.
+
+   ⚠ AND THE CHILLY BAND IS A SORT, NOT A SECOND VETO. It sits with warmth, BELOW
+   urgency and below how full a day a town can make, exactly where the 2026-09-03
+   ruling put warmth — "dont make a route that is 100 miles longer because you were
+   to worried about priority". A town at 33° holding thirty October houses still
+   beats an empty town at 50°. */
+const COLD_DAY_MAX_F = 31;        // vital: at or below this, the town is not offered the date
+const COLD_DAY_CHILLY_F = 35;     // preferable: 32-35 sorts down, never refuses
 const WARMTH_BAND_F = 10;
 /* ---- when the season is allowed to start ----
    earliestAllowedInstallDate returns TODAY for anybody whose timing is "Any",
@@ -51798,9 +51819,29 @@ function planNewCrewDays(waiting, taken, opts){
      is told what counts as cold rather than knowing it, so there is one place to
      change it and the tests can put a cold snap wherever they need one. */
   const tempFor = typeof o.tempFor === 'function' ? o.tempFor : function(){ return null; };
-  const coldBelow = typeof o.coldBelow === 'number' ? o.coldBelow : 35;
+  const coldBelow = typeof o.coldBelow === 'number' ? o.coldBelow : 31;
+  /* ⭐ 32-35: PREFERABLE, NOT VITAL (added 2026-09-09). Dax: "31 degrees or lower in
+     that area is vital and above 35 degrees can be prioritzed however you would like
+     because its not essential but it is preferable." So the band between the veto and
+     comfortable is a strong DISLIKE — it sorts a town down, ahead of the ordinary
+     warmth tiebreak, and can never refuse it the day. Defaults kept beside coldBelow
+     so the builder stays pure and the suites can move both. */
+  const chillyBelow = typeof o.chillyBelow === 'number' ? o.chillyBelow : 35;
   const warmBandF = typeof o.warmBand === 'number' && o.warmBand > 0 ? o.warmBand : 10;
   const bandOf = function(t){ return t === null || t === undefined ? null : Math.floor(t / warmBandF); };
+  /* True only for a KNOWN temperature in the chilly band. Unknown is "no opinion",
+     the same rule the veto follows — see COLD_DAY_MAX_F. */
+  const isChilly = function(t){
+    /* ⚠ THE `> coldBelow` LOWER BOUND IS DEFENSIVE AND A RED-CHECK PROVED IT INERT,
+       which is worth saying rather than leaving as an untested-looking line. Removing
+       it makes a vetoed town count as chilly too — and that changes no answer, because
+       the only path on which a vetoed town is ever compared is the second pass, which
+       runs precisely when EVERY candidate is vetoed. They would all be chilly together
+       and the comparison falls through identically. It is kept because "chilly" naming
+       a temperature the veto has already refused is a trap for the next reader, not
+       because anything can currently observe it. */
+    return typeof t === 'number' && isFinite(t) && t > coldBelow && t <= chillyBelow;
+  };
   const tooCold = function(city, ds){
     const t = tempFor(city, ds);
     return typeof t === 'number' && isFinite(t) && t <= coldBelow;
@@ -51822,6 +51863,13 @@ function planNewCrewDays(waiting, taken, opts){
     if(!p) return true;
     if(c.urg !== p.urg) return c.urg < p.urg;
     if(c.fits !== p.fits) return c.fits > p.fits;
+    /* ⚠ 3a. THE CHILLY BAND FIRST, and only against a town that is NOT chilly.
+       "31 or lower is vital, above 35 is preferable" leaves 32-35 as a real dislike
+       rather than a refusal, so it outranks the ordinary warmth bands but still sits
+       below urgency and below how full a day the town can make. Two chilly towns fall
+       through to the ordinary comparison, which is right — neither is better for it. */
+    const cc = isChilly(c.temp), pc = isChilly(p.temp);
+    if(cc !== pc) return !cc;
     const cb = bandOf(c.temp), pb = bandOf(p.temp);
     if(cb !== null && pb !== null && cb !== pb) return cb > pb;
     if(c.n !== p.n) return c.n > p.n;
@@ -62837,7 +62885,8 @@ function rebuildSeasonDays(){
   const tempFor=(typeof forecastHighFor==='function')?forecastHighFor:function(){ return null; };
   const built=planNewCrewDays(placeable, {}, {floorDate:floorStr, maxDays:400, horizonDays:400,
                                               dayShape:dayShapeOn, tempFor:tempFor,
-                                              coldBelow:(typeof COLD_DAY_MAX_F==='number'?COLD_DAY_MAX_F:35),
+                                              coldBelow:(typeof COLD_DAY_MAX_F==='number'?COLD_DAY_MAX_F:31),
+                                              chillyBelow:(typeof COLD_DAY_CHILLY_F==='number'?COLD_DAY_CHILLY_F:35),
                                               warmBand:(typeof WARMTH_BAND_F==='number'?WARMTH_BAND_F:10)});
   /* ⭐ WHAT THE COLD RULE COULD NOT AVOID, counted off the plan that came back rather
      than reported from inside the builder. Every one of these is the owner's "unless"
