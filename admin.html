@@ -45041,14 +45041,27 @@ function whBuildQueueGroups(){
        master-sheet sync added into the blocked block with its colours sitting on the
        record — see houseLightsText. */
     const lights = houseLightsText(d);
+    /* ⛔ THE TIMER IS COLLECTED BEFORE THE COLOURS ARE ASKED ABOUT (2026-09-09, [[WH-26]]).
+       Addie, reading five houses stuck in Waiting on light colours: "check to see if these
+       guys just wanted there timer updated. Cause if so we don't need to worry about
+       lights just about getting a timer in there bin."
+       ⚠ SHE WAS RIGHT, AND THE COST WAS WORSE THAN NOT KNOWING. `outletTimer` is one of the
+       three fields in WAREHOUSE_BUILD_FIELDS, so changing a timer ALONE sets
+       needsLightBuild — and a house with no colours on file then lands in the blocked
+       block. That much is only untidy. The damage was this early `return`, which sat
+       AHEAD of the timer push: a blocked house never reached `timerHouses`, so the one
+       thing that house actually needed was the one thing no sheet ever asked for. She
+       asked for a timer, the record says Yes, and nobody was ever told to put one in.
+       ⚠ A TIMER IS INDEPENDENT OF THE GLASS. It goes in the bin whatever the lights turn
+       out to be, so there is nothing to wait for — which is her own rule in as many
+       words. Collected first; the blocked branch still blocks the BUILD. */
+    if(String(d.outletTimer || '').trim() === 'Yes') timerHouses.push(item);
     if(!lights){ blocked.push(item); return; }
     const key = whGroupKey(lights, d.wireColor);
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
     groups[key].houses.push(item);
-    /* A timer is part of that house's build, not loose buffer stock. It used to
-       appear only as a generic "Timer — buffer stock" pile, so nothing on this
-       screen said WHO had asked for one and the count was guesswork. */
-    if(String(d.outletTimer || '').trim() === 'Yes') timerHouses.push(item);
+    /* A timer is part of that house's build, not loose buffer stock — collected above,
+       before the blocked branch, so a house waiting on colours still gets one. */
   });
   warehouseExtras.forEach(function(item){
     if(!item.data.pattern) return;
@@ -45162,6 +45175,15 @@ function renderWarehouseQueue(){
           return '<div style="display:flex; justify-content:space-between; align-items:flex-start; padding:8px 0; gap:10px;">'+
             '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+
               '<span style="display:block; font-size:12px; color:var(--ember); margin-top:2px;">No light colours on file</span>'+
+              /* ⭐ AND WHAT CAN BE DONE ANYWAY (2026-09-09, [[WH-26]]). Addie: "we don't need
+                 to worry about lights just about getting a timer in there bin." A house here
+                 is waiting on somebody to fill in colours — but if it also asked for a
+                 timer, that half needs nothing and can go in today. Said on the row itself,
+                 because the timer list is a different sheet and the person reading this one
+                 is the person who would otherwise leave the whole house alone. */
+              (String(item.data.outletTimer || '').trim() === 'Yes'
+                ? '<span style="display:block; font-size:12px; color:var(--emerald); margin-top:2px; font-weight:600;">Timer can go in their bin now &mdash; that part is not waiting on the colours</span>'
+                : '')+
               '<span style="display:block; margin-top:4px; line-height:1.9;">'+whHouseFactsHtml(h.data)+'</span>'+
             '</span>'+
             '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
