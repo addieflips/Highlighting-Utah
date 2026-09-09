@@ -1575,7 +1575,21 @@ the file, it was the six wiring commits around it. Those still have to be redone
 against today's admin.html whenever this is answered, and that cost is unchanged.
 What this removes is the pressure to answer quickly to avoid losing the work.
 
-**Resulting map change:** `SCH-25` in `claude/questions-map.md`.
+**Resulting map change:** `SCH-25` in `claude/questions-map.md`, and `SCH-63` for the
+build.
+
+### ⭐ BUILT 2026-09-09 — `js/grid.js` is wired
+
+The container is a block of about twenty adjacent houses. What this question said the
+port had to do, it does: the container came across and the rest was left alone — the
+crew split, the near-empty-day rescue, One Man Installs and both printed sheets are
+untouched, and every rule Addie set between the 24th and the 26th still holds, because
+only the KEY the builder buckets on changed.
+
+The sub-question this file flagged as *"the first thing to put to her when this is
+built"* — what a sheet says when a crew-day is no longer one town — was put to Dax on
+2026-09-09. He chose **the towns it covers**, over a main town plus a count and over
+the nearest cross-streets. See `SCH-63`.
 
 ---
 

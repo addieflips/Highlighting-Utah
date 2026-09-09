@@ -56032,3 +56032,223 @@ suite('Suite 317. The day finishes pointing at where the crews go next');
     }
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Suite 318. A crew-day is a patch of map, not a town.
+ *
+ * Q-023, open from 2026-08-27 and answered by Addie on the 28th: "what matters
+ * is that all the houses are next to each other. So if there not all in Lehi
+ * that is okay just as long as the houses are next to each other." Dax,
+ * 2026-09-09: "the way its set up is like a grid across everywhere we do so each
+ * box on average has 20 houses and so then the crews can go across."
+ *
+ * ⚠ THE CONTAINER IS ALL THAT MOVED. planNewCrewDays still buckets, sorts each
+ * bucket by priority, fills a day from one and tops up from at most one
+ * neighbour, and keeps two crews out of one bucket. What changed is the KEY.
+ * Q-023's own answer is explicit that porting the container must leave the rest
+ * alone, so most of what is checked here is that it did.
+ *
+ * ⚠ AND THE FALLBACK IS NOT A DETAIL. A queue entry with no `area` is bucketed
+ * by town exactly as before — that is what a house with no map pin gets, and it
+ * is also why every fixture written before today still means what it meant.
+ */
+suite('Suite 318. A crew-day is a patch of map, not a town');
+{
+  const start = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const end = admin.indexOf('/* Top every day up to the cap.', start);
+  const nearbyConst = admin.indexOf('const NEARBY_TOWN_MILES');
+  if (start === -1 || end < start || nearbyConst === -1) {
+    check('S318', 'the day builder is findable', false, 'renamed — repoint this');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    /* ⚠ THE REAL MODULE, NOT A FAKE ONE. js/grid.js is an ES module and this suite is
+       CommonJS, so it is loaded the way grid-parked.test.js loads it and handed in as
+       an argument. A stubbed block planner here would prove the plumbing and nothing
+       about the blocks, which is the half that decides what a crew drives. */
+    const gridUrl = require('url').pathToFileURL(require('path').join(__dirname, 'js', 'grid.js')).href;
+    const mk = (G) => eval('(function(gridPlanBlocks){' + LF_ +
+      'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+      'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;' +
+      'return 2*R*Math.asin(Math.sqrt(q));}' + LF_ +
+      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + LF_ +
+      admin.slice(nearbyConst, admin.indexOf('function townCentres')) + LF_ +
+      'let NEARBY_TOWN_LIST={};' + LF_ + phantomTownSrc() +
+      extractFn(admin, 'thanksgivingDate') + LF_ + extractFn(admin, 'toDateStr') + LF_ +
+      extractFn(admin, 'sameTownName') + LF_ + extractFn(admin, 'townCentres') + LF_ +
+      extractFn(admin, 'nearbyTowns') + LF_ + extractFn(admin, 'installPriority') + LF_ +
+      extractFn(admin, 'seasonAreasFor') + LF_ + admin.slice(start, end) + LF_ +
+      'return {plan: planNewCrewDays, areas: seasonAreasFor, near: townsAreNeighbours};})')(G.planBlocks);
+
+    pendingAsync.push(import(gridUrl).then(function (G) {
+      const A = mk(G);
+
+      /* ⚠ THREE TOWNS IN ONE NEIGHBOURHOOD, AND THE THIRD IS THE WHOLE FIXTURE. The
+         first version used two, and a red-check proved it could not tell the containers
+         apart at all: two towns a few streets apart are neighbours by tape measure, so
+         the TOWN container reaches them too, through its top-up. What it cannot do is
+         reach a THIRD — a crew is its own town plus at most one other, which is Addie's
+         own rule and is not being relaxed. One block holding all three is the container
+         change and nothing else, and it is the only thing that can produce a crew-day
+         naming three towns. */
+      const houses = [];
+      const push = (town, lat, lng, i) => {
+        const id = town.replace(/ /g, '') + i;
+        houses.push({ id: id, city: town, priority: 30, townPriority: 30, named: false,
+          from: '2026-10-01', missed: 0, stop: { id: id, lat: lat, lng: lng, name: id } });
+      };
+      /* eleven and nine, a few streets apart, either side of the line */
+      /* ⚠ THE INDEX IS PASSED, and the first version of this fixture forgot it — every
+         house in a town then shared one id, planBlocks saw three houses instead of
+         forty, and the check below failed on code that was right. An id that is not
+         unique is not a fixture, it is one house wearing eleven hats. */
+      for (let i = 0; i < 7; i++) push('Lehi', 40.3900 + i * 0.0009, -111.8510, i);
+      for (let i = 0; i < 7; i++) push('American Fork', 40.3900 + i * 0.0009, -111.8480, i);
+      for (let i = 0; i < 6; i++) push('Highland', 40.3900 + i * 0.0009, -111.8450, i);
+      /* and a full block of its own twenty-five miles south, so the book is not one clump */
+      for (let i = 0; i < 20; i++) push('Payson', 40.0440 + i * 0.0009, -111.7320, i);
+
+      const withAreas = houses.map(h => Object.assign({}, h));
+      const stamped = A.areas(withAreas, 20);
+
+      check('S318', 'every pinned house is put in a block',
+        stamped === withAreas.length && withAreas.every(w => !!w.area),
+        'stamped ' + stamped + ' of ' + withAreas.length);
+
+      const areaOf = {};
+      withAreas.forEach(w => { areaOf[w.id] = w.area; });
+      check('S318', 'and the two towns a few streets apart share one',
+        areaOf['Lehi0'] === areaOf['AmericanFork0'],
+        'this is the whole ruling: "if there not all in Lehi that is okay just as long as the houses are next to each other"');
+      check('S318', 'while the block twenty-five miles away is a different one',
+        areaOf['Payson0'] !== areaOf['Lehi0'],
+        'if everything landed in one block the check above would pass for no reason');
+
+      /* ---- what the builder does with them ---- */
+      const OPTS = { floorDate: '2026-10-01', maxDays: 40 };
+      const days = A.plan(withAreas.map(w => Object.assign({}, w)), {}, OPTS);
+      const mixed = days.filter(d => (d.towns || []).length > 1);
+
+      check('S318', 'a crew-day is built across THREE town lines, which a town day cannot be',
+        mixed.some(d => d.towns.length >= 3),
+        'got ' + JSON.stringify(days.map(d => d.towns)) + ' — a crew is its own town plus at most one other, so three names on one day can only come from a block');
+      check('S318', 'and it is labelled with the towns it covers, not with a block id',
+        days.every(d => !/^[gx]:/.test(String(d.city))) &&
+        days.every(d => (d.towns || []).every(t => !/^[gx]:/.test(String(t)))),
+        'Dax chose "the towns it covers" over a block number — got ' +
+        JSON.stringify(days.map(d => d.city)));
+      check('S318', 'every house is still placed',
+        days.reduce((a, d) => a + d.ids.length, 0) === houses.length,
+        'a container change that loses a customer is the one failure that matters here');
+
+      /* ⭐ AND NOBODY IS STRANDED. A block spanning two towns the office never typed
+         into its neighbour list is exactly how [[SCH-50]] comes back: the second town
+         is legal for no crew, and its houses sit on a day nobody drives to. */
+      {
+        const day = { houses: withAreas.map(w => ({ city: w.city, area: w.area })) };
+        check('S318', 'two towns sharing a block are neighbours, though nothing typed says so',
+          A.near('Lehi', 'American Fork', day) === true,
+          'without this every American Fork house on that day is stranded — SCH-50 through a new door');
+        check('S318', 'but two towns that merely share a DAY are not',
+          A.near('Lehi', 'Payson', day) === false,
+          'sharing a block is a statement about distance; sharing a day is not, and reading them the same way would make the rule meaningless');
+      }
+
+      /* ---- the wiring, asserted apart from the mechanism ----
+         ⚠ THE CHECKS ABOVE BUILD THEIR OWN DAY OBJECTS, so they stay green even if
+         nothing ever puts an `area` on a real plan house — at which point the neighbour
+         rule can never read one and every mixed-town day strands half its houses. A
+         red-check proved exactly that. */
+      {
+        const rb = sectionFrom(admin, admin.indexOf('function rebuildSeasonDays()'));
+        const rbC = stripComments(rb);
+        check('S318', 'the rebuild puts the block on the house it belongs to',
+          /h\.area\s*=\s*w\.area/.test(rbC) && /delete h\.area/.test(rbC),
+          'both halves: a house that has a block carries it, and one that no longer does loses it rather than keeping a stale block from an older rebuild');
+        /* ⚠ AGAINST THE CALL, NOT AGAINST THE NAME. The first version compared the
+           first mention of each, and rebuildSeasonDays opens with a
+           `typeof planNewCrewDays!=='function'` guard hundreds of lines earlier — so it
+           failed on code that was right. Anchor on where the builder is INVOKED. */
+        check('S318', 'and it works the areas out before it builds the days',
+          rbC.indexOf('seasonAreasFor') !== -1 &&
+          rbC.indexOf('seasonAreasFor') < rbC.indexOf('=planNewCrewDays('),
+          'stamped after the builder ran, every house would be bucketed by town and the grid would be decoration');
+      }
+
+      /* ---- the forecast still asks about a town ---- */
+      {
+        /* ⚠ tempFor IS KEYED BY TOWN AND KNOWS NOTHING ELSE, which is exactly how the
+           real one behaves — Open-Meteo is asked town by town. Handed a block id it
+           answers null, the cold rule sees no opinion anywhere, and it silently stops
+           existing. A red-check proved nothing noticed. */
+        const cold = [];
+        for (let i = 0; i < 20; i++) push('Santaquin', 39.9760 + i * 0.0009, -111.7850, i);
+        const src = houses.map(w => Object.assign({}, w));
+        A.areas(src, 20);
+        const asked = {};
+        const days2 = A.plan(src, {}, Object.assign({}, OPTS, {
+          tempFor: function(town, ds){ asked[town] = 1; return town === 'Santaquin' ? 20 : 55; },
+          coldBelow: 31, chillyBelow: 35
+        }));
+        check('S318', 'the forecast is asked about towns, never about block ids',
+          Object.keys(asked).length > 0 &&
+          Object.keys(asked).every(t => !/^[gx]:/.test(String(t))),
+        'asked about ' + JSON.stringify(Object.keys(asked)) + ' — a block id answers null for every area and the whole cold rule quietly stops working');
+        check('S318', 'and the freezing town is still held back',
+          (function(){
+            const first = days2.filter(d => d.date === (days2[0] || {}).date);
+            return first.every(d => (d.towns || []).indexOf('Santaquin') === -1);
+          })(),
+          'at 20 degrees it is below COLD_DAY_MAX_F and must not be offered the first day while warmer work is waiting');
+      }
+
+      /* ---- an outlier keeps its town ---- */
+      {
+        /* one house on its own, far from everybody: grid.js calls it an outlier, and
+           an area of one IS a one-man day. Dax: "what we want to minimize the most is
+           one man days", so it falls back to its town instead. */
+        const lonely = houses.map(w => Object.assign({}, w));
+        lonely.push({ id: 'levan0', city: 'Levan', priority: 30, townPriority: 30,
+          named: false, from: '2026-10-01', missed: 0,
+          stop: { id: 'levan0', lat: 39.5540, lng: -111.8620, name: 'levan0' } });
+        A.areas(lonely, 20);
+        const out = lonely.filter(w => w.id === 'levan0')[0];
+        check('S318', 'a house too far from everybody is left in its town, not given a block',
+          !out.area,
+          'got ' + out.area + ' — an area of one is a one-man day built on purpose');
+      }
+
+      /* ---- the fallback, which is what keeps every older fixture honest ---- */
+      {
+        const bare = houses.map(w => Object.assign({}, w));   // no area stamped
+        const plain = A.plan(bare, {}, OPTS);
+        check('S318', 'a queue with no areas is bucketed by town, exactly as before',
+          plain.every(d => (d.towns || []).every(t => !/^[gx]:/.test(String(t)))) &&
+          plain.reduce((a, d) => a + d.ids.length, 0) === houses.length,
+          'a house with no map pin cannot be blocked at all, and every fixture written before today depends on this path');
+        const day = { houses: bare.map(w => ({ city: w.city })) };
+        check('S318', 'and with no blocks the neighbour rule is untouched',
+          A.near('Lehi', 'Payson', day) === false,
+          'the typed list and the tape measure still decide when there is no block to read');
+      }
+
+      /* ---- the size Dax asked for ---- */
+      {
+        const big = [];
+        for (let i = 0; i < 300; i++)
+          big.push({ id: 'b' + i, city: 'Lehi', priority: 30, townPriority: 30, named: false,
+            from: '2026-10-01', missed: 0,
+            stop: { id: 'b' + i, lat: 40.36 + (i % 30) * 0.0035, lng: -111.90 + Math.floor(i / 30) * 0.0035 } });
+        A.areas(big, 20);
+        const counts = {};
+        big.forEach(w => { if (w.area) counts[w.area] = (counts[w.area] || 0) + 1; });
+        const sizes = Object.keys(counts).map(k => counts[k]);
+        const mean = sizes.reduce((a, b) => a + b, 0) / sizes.length;
+        check('S318', 'a box holds about twenty houses',
+          sizes.length > 1 && mean >= 12 && mean <= 20 && sizes.every(x => x <= 20),
+          'Dax: "each box on average has 20 houses" — got ' + sizes.length + ' blocks, mean ' + mean.toFixed(1) + ', largest ' + Math.max.apply(null, sizes));
+      }
+    }).catch(function (err) {
+      check('S318', 'the grid module loads', false, String(err && err.message || err));
+    }));
+  }
+}

@@ -2506,6 +2506,74 @@ the hand-back is still a hand-back rather than a leveller.
 re-asserted beside the three-crew ones, because the expensive failure is not "three does
 not work", it is "three works and two quietly changed".*
 
+### What a crew-day is made of: a patch of map, not a town
+
+Added 2026-09-09, closing Q-023, which had been open since 27 August. Addie, asked
+whether it matters that a crew's houses are all in one town: *"what matters is that all
+the houses are next to each other. So if there not all in Lehi that is okay just as long
+as the houses are next to each other."* Dax: *"the way its set up is like a grid across
+everywhere we do so each box on average has 20 houses and so then the crews can go
+across."*
+
+A town boundary is a line on a county plat, not a fact about driving. Lehi is 23 miles
+wide, so "one town" never meant "near each other" — while eleven houses in Lehi and nine
+in American Fork within a few streets were **refused**, because American Fork had to be
+on a list somebody typed.
+
+`js/grid.js` — 718 lines that sat on main, tested and imported by nothing, since 27
+August — is now wired. `seasonAreasFor` runs it once per rebuild and stamps a **block**
+on every house that has a map pin; `planNewCrewDays` buckets on that instead of on the
+town name.
+
+⚠ **The container is all that moved.** The builder still sorts each bucket by priority,
+still fills a day from one bucket and tops up from at most one neighbouring bucket,
+still keeps two crews out of one bucket. Every rule from 24–26 August stands; they were
+written in town words because a town was the only container there was.
+
+⭐ **The sheet says the towns it covers** — Dax chose that over a block number and over
+the nearest cross-streets. A day spanning two towns prints both; the many blocks inside
+one town read exactly as before. The town is also still what the **forecast** is asked
+about: Open-Meteo has never heard of block 41, and handing it one turns the cold rule
+silently off.
+
+**Measured on an 810-house book before it shipped:**
+
+| | town container | grid container |
+|---|---|---|
+| working days | 21 | 22 |
+| crew-days | 42 | 44 |
+| one-man days | 1 | 3 |
+| median crew-day width | 2.79 mi | 2.63 mi |
+| **worst crew-day width** | **28.7 mi** | **10.0 mi** |
+
+Blocks come out a median of 20 houses (mean 17.2, none over 20, smallest 10), and **23
+of 47 span more than one town** — every one of those was impossible before. The cost is
+one more working day and two more one-man days, both top-up remnants; the tail packer
+runs after the builder in a real rebuild and is not in those figures.
+
+⛔ **An outlier keeps its town** rather than being dropped or given a block of its own.
+grid.js argues for dropping it, and so did Addie in August — *"if they are a real
+outlier they arent in the grid at all... its for my dad to do"* — but that predates One
+Man Installs, which is this app's own answer and the one she has used since. A block of
+one IS a one-man day: measured, it took them from 1 to 3.
+
+⚠ **Two towns sharing a block are neighbours, whatever the typed list says.** Without
+that the second town is legal for no crew and its houses are stranded on a day nobody
+drives to — the fault SCH-50 was written to close, arriving through a new door. Sharing
+a *day* is not enough; sharing a *block* is a statement about distance.
+
+⚠ **And a house with no map pin keeps its town**, so it behaves exactly as it did. That
+fallback is also what keeps every fixture written before this honest.
+
+*Takes effect on* **Recalculate everything**.
+*Where it is proved*: run-all.js **Suite 318** loads the real `js/grid.js` and runs the
+real builder. 10 sabotages red-checked — four were misses on the first pass, including
+the most important one of all: the fixture used two towns a few streets apart, which the
+town container reaches anyway through its top-up, so it could not tell the two
+containers apart. Three towns in one neighbourhood can, because a crew is its own town
+plus at most one other.
+*Rulings*: [[SCH-63]] in `claude/questions-map.md`.
+
 ### The order a crew drives a day, and where the leftover lands
 
 Added 2026-09-09. Dax: *"we want it so they start in the back corner and they work there
