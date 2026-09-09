@@ -6654,9 +6654,23 @@ async function portalShareLink(input, status){
   if(status) status.textContent = '';
   if(portalCanShare()){
     try{
+      /* ⭐ THE SENTENCE THAT PROMISES THE $30 WAIVER, NOT A SECOND ONE (REF-35,
+         2026-09-09). Addie, asked what the friend receives: does it "say anything about
+         get 30 dollars off installation fee?"
+         ⚠ IT DID NOT, AND `referralShareLine` HAD NEVER BEEN CALLED. It was written for
+         [[REF-29]] — her instruction "Can we also add that in the text/email", and her
+         own wording for it — and the comment above this function says in as many words
+         that it is what navigator.share is handed. It was not: a hardcoded sentence sat
+         here instead, mentioning only a free quote. So the promise the whole waiver
+         exists to make was never actually made to the person it is made to, on the one
+         path a phone takes. `grep -c 'referralShareLine()'` returned 1: its own
+         declaration, and no caller.
+         ⚠ THE FEE IS READ FROM `NEW_MEMBER_FEE`, never typed here — see that function's
+         own note. This sentence is a written promise to somebody who is not a customer
+         yet, going out over Addie's name. */
       await navigator.share({
         title: 'Highlighting Utah',
-        text: 'Highlighting Utah does our Christmas lights — here is my link for a free quote:',
+        text: referralShareLine(),
         url: input.value
       });
       /* ⚠ NOTHING IS CLAIMED ON THE WAY BACK OUT. A resolved share says a target
