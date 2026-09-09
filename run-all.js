@@ -51902,20 +51902,33 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
         p(missed('OCT'), OLD) < p({ pref: 'OCT' }, OLD) &&
         p(missed('NOV'), OLD) < p({ pref: 'NOV' }, OLD),
         'being driven past is a reason to go first among your equals');
-      check('S300', 'and never out of its tier — a missed Any still waits behind October',
-        p(missed(''), OLD) > p({ pref: 'OCT' }, OLD),
-        'a missed morning is not a reason to be given a month somebody else asked for');
-      check('S300', 'a missed October house still sits behind a new hang',
-        p(missed('OCT'), OLD) > p({ pref: '' }, NEW),
-        "owner, 2026-08-17: 'the very top priority is new hangs'");
-      check('S300', 'and behind somebody the office moved up by hand',
-        p(missed('OCT'), OLD) > p({ pref: '' }, RUSH));
-      /* ⚠ THE SPACING IS WHAT MAKES ALL OF THAT TRUE. Tiers one apart leave nowhere to put
-         a bump, so the only way up is into the next tier — which is precisely the two
-         failures checked above. */
-      check('S300', 'the tiers are spaced far enough apart to hold a bump',
-        (p({ pref: '' }, OLD) - p({ pref: 'OCT' }, OLD)) > (p({ pref: '' }, OLD) - p(missed(''), OLD)),
-        'the gap between two tiers must be bigger than the bump, or the bump jumps a tier');
+      /* ⭐ CHANGED 2026-09-09 — MISSED IS NOW THIRD OVERALL, ABOVE EVERY MONTH.
+         Dax: "we want houses that were scheduled for a day but werent to take
+         priority just below new hangs and set priority customers." The check this
+         replaces asserted the OPPOSITE — "a missed Any still waits behind October" —
+         and is written out here so the reversal is legible rather than looking like
+         a weakened test. [[SCH-45]] superseded by [[SCH-56]]. */
+      check('S300', 'a missed house now goes ahead of every month, not just its equals',
+        p(missed(''), OLD) < p({ pref: 'OCT' }, OLD) &&
+        p(missed('NOV'), OLD) < p({ pref: 'OCT' }, OLD),
+        'we told them a date and did not turn up; that outranks a month preference');
+      check('S300', 'but still behind a new hang and behind asked-sooner',
+        p(missed('OCT'), OLD) > p({ pref: '' }, NEW) &&
+        p(missed('OCT'), OLD) > p({ pref: '' }, RUSH),
+        "Dax: 'just below new hangs and set priority customers' — below, not level");
+      /* ⚠ THE ONE CASE WHERE THIS COULD HAVE MADE SOMEBODY LATER. A flat `tier = 15`
+         DEMOTES a missed new hang from 10 to 15. Math.min is what stops it, and this
+         is the check that would catch the flat form. */
+      check('S300', 'and a new hang who was missed is not demoted by being missed',
+        p(missed(''), NEW) === p({ pref: '' }, NEW),
+        'being missed may only ever pull a house UP the order, never down');
+      /* ⚠ THE SPACING IS WHAT MAKES THAT POSSIBLE WITHOUT RESPACING ANYTHING. Ten
+         apart leaves room for a whole rank between the new-hang tier and October,
+         which is exactly what the 2026-09-03 note said the gaps were for. */
+      check('S300', 'the missed rank sits between new hangs and October, on the existing spacing',
+        p(missed(''), OLD) > p({ pref: '' }, NEW) && p(missed(''), OLD) < p({ pref: 'OCT' }, OLD),
+        'got ' + p(missed(''), OLD) + ' against new hang ' + p({ pref: '' }, NEW) +
+        ' and October ' + p({ pref: 'OCT' }, OLD));
 
       /* ⚠ DATES, NOT A COUNTER. Recalculate everything gets pressed twice in a row and Undo
          puts the plan back so it can be pressed again; a counter would climb every time and

@@ -62338,26 +62338,49 @@ function houseInstallPriority(h, custData, opts){
   else if(p.indexOf('BEFORE THANKS') !== -1 || p === 'THANKSGIVING') tier = 20;
   else if(p.indexOf('NOV')===0) tier = 40;   // asked for November — waits
   else tier = 30;                            // no preference — fills in behind October
-  /* ⭐ A DAY THEY WERE PROMISED THAT DID NOT HAPPEN (added 2026-09-03). Owner:
-     "anyone that was scheduled for a day but didnt get done should take higher
-     priority for where needs to be routed."
+  /* ⭐ A DAY THEY WERE PROMISED THAT DID NOT HAPPEN — THIRD OVERALL (changed
+     2026-09-09). Dax: "we want houses that were scheduled for a day but werent to
+     take priority just below new hangs and set priority customers because we want
+     to get to them as soon as possible because we told them theyd have lights on
+     that day and that didnt end up happening so we need to do it the next time we
+     get the chance."
 
-     ⚠ TO THE FRONT OF THEIR OWN TIER, NEVER OUT OF IT. Five is less than the ten
-     between tiers, so a missed October house still sits behind a new hang and a
-     missed Any house still sits behind everybody who asked for October — which is
-     the point. Being missed is a reason to go first among your equals; it is not a
-     reason to be given a month somebody else asked for.
+     ⚠ THIS REVERSES THE 2026-09-03 RULING AND THE OLD ARGUMENT IS KEPT, because it
+     is a good one and somebody will otherwise restore it. It used to be `tier - 5`
+     — a bump to the FRONT OF ITS OWN TIER, never out of it — reasoning that "being
+     missed is a reason to go first among your equals; it is not a reason to be given
+     a month somebody else asked for". What that missed is WHY they are late: we
+     told them a date and did not turn up. Dax's ordering makes that a rank of its
+     own, above every month. See [[SCH-56]].
 
-     It moves the TOWN too, which is the half she actually asked for: a town's
-     urgency is the best number in it (see allowedStats), so a town holding houses
-     the crew did not reach yesterday wins its next crew-day ahead of an equal town
-     that is fully on schedule.
+     ⚠ IT STILL CANNOT MOVE THEIR MONTH, which is what makes the reversal safe and
+     is the half the old argument was really protecting. houseAllowedFrom is
+     untouched, so a missed NOVEMBER house is not hung in October — it is taken
+     first on the first November day it is allowed on. The tier decides the order
+     among houses that are already allowed out; nothing else.
+
+     ⚠ Math.min, NOT an assignment. Being missed may only pull a house UP: a new
+     hang who was missed stays at 10 rather than being demoted to 15, which a flat
+     `tier = 15` would do — and that is the one case where the change could quietly
+     make somebody LATER than they were before.
+
+     ⚠ FIFTEEN IS WHY THE TIERS ARE TEN APART. It sits between the new hang / asked
+     sooner rank (10) and October (20) with no respacing, which is exactly the room
+     the 2026-09-03 note said the gaps existed to leave. Nothing reads these numbers
+     for their value; every comparison is < or >.
+
+     It moves the TOWN too, which is the half originally asked for: a town's urgency
+     is the best number in it (see allowedStats), so a town holding houses the crew
+     did not reach yesterday wins its next crew-day ahead of an equal town that is
+     fully on schedule. ⚠ AND THAT SURVIVED THE forTown CHANGE OF [[SCH-54]] on
+     purpose — the rush flag is dropped when a TOWN is asking, the missed rank is
+     not, because the crew really did drive past that house.
 
      ⚠ ASKED THROUGH THE HELPER, GUARDED, because the suites above lift this
      function alone. No list of missed days on the house means no bump, which is the
      right answer there and the ordinary one everywhere. */
   const missed = (typeof houseMissedCount === 'function') ? houseMissedCount(h) : 0;
-  return missed ? tier - 5 : tier;
+  return missed ? Math.min(tier, 15) : tier;
 }
 function rebuildSeasonDays(){
   /* Before anything is grouped: the clustering below measures distances, and a
