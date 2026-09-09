@@ -2284,6 +2284,20 @@ phone call could pull a single customer onto a day whose crews were working some
 — and a stop no crew can reach is a one-man trip. See ruling **SCH-49**, which supersedes
 SCH-46.
 
+⚠ **And it does not earn their town a crew-day** (added 2026-09-09). Dax: *"if someone
+has priority that doesnt mean they will be done the very next day it means they will be
+done the very next time it makes any sense in a route."* A town's urgency is the **best
+number in it**, so one rushed house in a town of one made that town look as urgent as a
+town holding thirty October houses — and it won a crew-day of its own on day one, which
+is exactly how Darlene Price ended up alone on 1 October with a crew rostered for her.
+`houseInstallPriority(h, cust, {forTown:true})` drops the rush flag, and that is the
+number `allowedStats` scores a town on; the house's own queue position is unchanged.
+
+⚠ **The missed bump is deliberately NOT dropped with it.** A house the crew drove past
+yesterday moves its town too — that is what was asked for, and the town really is more
+urgent. Being asked to go sooner is not the same claim about the town. New hangs are
+untouched in both. Ruling **SCH-54**.
+
 ⚠ **The two orderings read the flag in different places, on purpose.** The Schedule has a
 new-hang tier, so `houseInstallPriority` puts a rushed house in it (10). The nightly sweep
 has no such tier — new hangs are the sort key on the pool that feeds `fillDays` — so

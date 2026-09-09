@@ -51919,7 +51919,15 @@ function planNewCrewDays(waiting, taken, opts){
     for(let i = 0; i < q.length; i++){
       if(q[i].from > ds) continue;
       n++;
-      if(q[i].priority < urg) urg = q[i].priority;
+      /* ⚠ townPriority, NOT priority — a house asked to go sooner orders itself
+         inside its town and does NOT make the town urgent (Dax, 2026-09-09: "if
+         someone has priority that doesnt mean they will be done the very next day
+         it means they will be done the very next time it makes any sense in a
+         route"). Falls back to `priority` so a caller that supplies neither — the
+         nightly sweep, and every fixture written before this — behaves exactly as
+         it did. See [[SCH-54]]. */
+      const u = (typeof q[i].townPriority === 'number') ? q[i].townPriority : q[i].priority;
+      if(u < urg) urg = u;
     }
     return {n: n, urg: urg};
   };
@@ -62211,7 +62219,24 @@ function houseDeadline(h){
 
    ⚠ SELF-CONTAINED ON PURPOSE. Suites 43, 44 and 50 lift this function on its own
    into a bare sandbox, so it names no constant that lives outside it. */
-function houseInstallPriority(h, custData){
+/* ⭐ `opts.forTown` — THE SAME ORDER, ASKED ON BEHALF OF A TOWN (added 2026-09-09).
+   Dax, looking at Darlene Price pulled onto 1 October on her own: "if someone has
+   priority that doesnt mean they will be done the very next day it means they will
+   be done the very next time it makes any sense in a route."
+
+   A town's urgency is the best number in it (see allowedStats), so a rushed house
+   in a town of one made that town look as urgent as a town holding thirty October
+   houses — and it won a crew-day of its own. That is priority DECIDING THE ROUTE,
+   which is what he is ruling out; it should decide the ORDER once a crew is going
+   there anyway.
+
+   ⚠ THE RUSH FLAG IS THE ONLY THING DROPPED, and only when a TOWN is asking. A
+   missed house still moves its town, which is [[SCH-45]] and was asked for in as
+   many words — the crew drove past that house yesterday, so the town genuinely is
+   more urgent. Being asked to go sooner is not the same claim about the town.
+   ⚠ AND NEW HANGS ARE UNTOUCHED IN BOTH. "The very top priority is new hangs" is a
+   rule about the book, not about one phone call. */
+function houseInstallPriority(h, custData, opts){
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
   /* ⭐ SOMEBODY WHO ASKED TO GO SOONER GOES FIRST (added 2026-09-03). Owner: "we
      should be able to manually add priority to specific customers if they directly
@@ -62242,9 +62267,10 @@ function houseInstallPriority(h, custData){
      ⚠ installPriority NO LONGER READS THE FLAG — the nightly sweep has no new-hang
      TIER to be level with, so it reads it on the pool sort that feeds fillDays
      instead. The two still agree; they say it in the place each one ranks. */
+  const forTown = !!(opts && opts.forTown);
   let tier;
   if((custData && custData.chargeNewMemberFee === true) ||
-     (custData && custData.rushInstall === true)) tier = 10;   // never been hung, or asked to go sooner
+     (!forTown && custData && custData.rushInstall === true)) tier = 10;   // never been hung, or asked to go sooner
   /* ⭐ A NAMED DAY IS NOT AN URGENT ONE. Owner, 2026-08-19: "if they ask for a
      specific day though that is not top priority we just do it the next time we
      have a chance for when they ask."
@@ -62492,6 +62518,14 @@ function rebuildSeasonDays(){
     const town=extractCleanCity((cust&&cust.data&&cust.data.city)||h.city);
     const d=(cust&&cust.data)||{};
     return {id:key, city:town, priority:houseInstallPriority(h,d),
+            /* ⭐ WHAT THIS HOUSE SAYS ABOUT ITS TOWN, which is not the same as what it
+               says about itself (added 2026-09-09). Dax: "if someone has priority that
+               doesnt mean they will be done the very next day it means they will be
+               done the very next time it makes any sense in a route." A town's urgency
+               is the best number in it, so without this a single rushed house in a town
+               of one earns that town its own crew-day. See houseInstallPriority's
+               `forTown`, and [[SCH-54]]. */
+            townPriority:houseInstallPriority(h,d,{forTown:true}),
             /* ⭐ HOW MANY TIMES A DAY WAS PROMISED AND MISSED. The tier bump inside
                houseInstallPriority already puts them ahead of their equals; this
                decides the order among the missed themselves, so somebody the crew
