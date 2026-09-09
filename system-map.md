@@ -2233,11 +2233,19 @@ town→date→high table. `rebuildSeasonDays` hands the builder a plain lookup, 
 `planNewCrewDays` stays pure and every test suite still builds a whole season offline.
 Inside the builder there are **two rules and only one of them is hard**:
 
-* **The cutoff is a veto.** A town whose forecast high for that date is at or below
-  `COLD_DAY_MAX_F` (35°) is not offered the day at all. That is done as two passes rather
-  than one more clause in the comparison, because of the *"unless"*: if nothing warmer has
-  anybody waiting, the second pass runs with the veto lifted and the crew goes out anyway.
-  The rule holds a crew back from the cold; it never holds them back from working.
+* **The cutoff is a veto — and it is 31°, not 35° (changed 2026-09-09).** Dax: *"31 degrees
+  or lower in that area is vital and above 35 degrees can be prioritzed however you would
+  like because its not essential but it is preferable."* A town whose forecast high for
+  that date is at or below `COLD_DAY_MAX_F` (**31°**) is not offered the day at all. That
+  is done as two passes rather than one more clause in the comparison, because of the
+  *"unless"*: if nothing warmer has anybody waiting, the second pass runs with the veto
+  lifted and the crew goes out anyway. The rule holds a crew back from the cold; it never
+  holds them back from working.
+* **32–35° is a strong dislike, not a refusal.** `COLD_DAY_CHILLY_F` (35°). A chilly town
+  sorts *down* — ahead of the ordinary warmth bands, but still below urgency and below how
+  full a day it can make — and can never be refused the day. The difference from a veto is
+  exactly this: a vetoed town loses **even when it is the more urgent one**; a chilly town
+  does not. Ruling **SCH-55**; SCH-44's cutoff half is superseded and the rest of it stands.
 * **Warmth above the cutoff is only a tiebreak, and it is banded.** It sits *below*
   urgency and *below* how full a day the town can make, and it only fires when one town is
   a whole `WARMTH_BAND_F` (10°) warmer. Two Wasatch Front towns on one day are a degree or
