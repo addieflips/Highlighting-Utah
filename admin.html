@@ -61491,7 +61491,74 @@ function outlyingStops(points){
   if(out.length > points.length * OUTLIER_MAX_SHARE) return none;
   return {core: core, out: out};
 }
-function orderHousesForDriving(list){
+/* ⭐ THE DAY FINISHES POINTING AT WHERE THE CREWS GO NEXT (added 2026-09-09). Dax:
+   "we want it so they start in the back corner and they work there way in on this
+   grid so that if the last house doesnt get done its not way out of the way then you
+   can just adjust the next days box (or the next time you are in that area) so then
+   it can just start on the house that didnt get done then it moves into its box."
+
+   A day is planned more often than it is finished, so the question is not how long
+   the tour is — it is WHICH END the unfinished tail falls off. Aim the finish at the
+   next area and the house nobody reached is the one nearest tomorrow, which is what
+   makes "just start on the house that didnt get done" a sensible thing to do.
+
+   ⭐ AND THE BACK CORNER IS NOT FORCED, IT FALLS OUT — which is the whole reason this
+   is affordable. To finish nearest the next area the orderer has to begin at the far
+   side, so the day sweeps inward on its own. MEASURED over a simulated 30-day season
+   (scratchpad/measure2.js), four orderings of the same houses:
+       yard to yard, as it shipped .......... 1263 mi, leftover 2.58 mi from next
+       back corner forced, ending at yard ... 1332 mi, leftover 2.80 mi   <- worse at both
+       back corner forced, ending at next ... 1324 mi, leftover 1.29 mi
+       yard, ending at next ................. 1285 mi, leftover 1.29 mi   <- this
+   28 of 29 days start further from the next area than they end, so they really do
+   work inward. ⛔ FORCING THE START WAS BUILT FIRST AND THROWN AWAY: it costs three
+   times as much and, ending at the yard, left the leftover FURTHER from tomorrow than
+   doing nothing at all. Do not re-add it because the words say "start" — the start is
+   the effect, the finish is the cause.
+
+   ⚠ THE PRICE IS 21 MILES A SEASON, about two thirds of a mile a day, and it is named
+   here so it can be argued with. Dax, on what priority may cost: "we arent sacraficing
+   dozens of miles for good customer service for one person." This is not for one
+   person and it is not dozens, but it is not nothing either.
+
+   ⚠ IT MOVES THE FINISH OFF THE YARD, AND THAT IS A REAL CHANGE TO AN EARLIER RULE.
+   Addie, 2026-08-21: "still remembering 209 s 850 w is the end point." The 21 miles
+   above already include the drive home from wherever the day ends, so what her rule
+   was protecting costs that and no more. ⛔ HER FAR-HOUSE RULE IS UNTOUCHED: a day
+   holding a real outlier still ends on it, on the way home (outlyingStops, the branch
+   below, and Suite 124). This owns the ordinary path only.
+
+   ⚠ AIM IS OPTIONAL AND ITS ABSENCE IS THE OLD BEHAVIOUR EXACTLY. A caller that names
+   none — the fixer route, a lifted sandbox, anything written before this — gets the
+   yard-to-yard round trip it has always had. */
+function stopFarthestFrom(points, from){
+  if(!from || !stopHasPin(from)) return null;
+  let best = null, bestD = -1;
+  (points || []).forEach(function(p){
+    if(!stopHasPin(p)) return;
+    const d = haversine(from.lat, from.lng, p.lat, p.lng);
+    if(d > bestD){ bestD = d; best = p; }
+  });
+  return best ? {lat: best.lat, lng: best.lng} : null;
+}
+/* ⭐ AND A HOUSE WE ALREADY FAILED TO REACH IS THE FIRST STOP OF THE DAY THAT PICKS IT
+   UP. Dax, same message: "it can just start on the house that didnt get done then it
+   moves into its box." This is the ROUTE half of being missed; [[SCH-61]] is the ORDER
+   half, which decides they are on this day at all. Both are needed — ranking a house
+   onto a day says nothing about where in the morning the crew reaches it, and being
+   late is the exact thing this is trying to stop repeating.
+   ⚠ THE ONE FURTHEST FROM WHERE THE DAY IS HEADED, where there are several, so the
+   day still sweeps inward from the back rather than starting in the middle and
+   doubling back over itself. */
+function missedStopStart(points, aim){
+  if(typeof houseMissedCount !== "function") return null;
+  const missed = (points || []).filter(function(p){
+    return stopHasPin(p) && p.ref && houseMissedCount(p.ref) > 0;
+  });
+  if(!missed.length) return null;
+  return stopFarthestFrom(missed, aim) || {lat: missed[0].lat, lng: missed[0].lng};
+}
+function orderHousesForDriving(list, opts){
   const houses=(list||[]).slice();
   if(houses.length<2) return houses;
   if(typeof reorderFlatStops!=='function') return houses;
@@ -61507,7 +61574,11 @@ function orderHousesForDriving(list){
     const bare = points.filter(function(p){ return !stopHasPin(p); });
     const split = outlyingStops(pinned);
     if(!split.out.length){
-      ordered = reorderFlatStops(points, home, home);
+      /* No aim means no next area to point at — the last day of the season, a fixer
+         route, a sandbox — and then this is the yard-to-yard trip it always was. */
+      const aim = (opts && opts.aim && stopHasPin(opts.aim)) ? opts.aim : home;
+      const start = missedStopStart(points, aim) || home;
+      ordered = reorderFlatStops(points, start, aim);
     } else {
       /* The cluster is aimed at the far houses so it finishes on that side,
          rather than finishing wherever and then crossing back over itself. */
@@ -61532,28 +61603,51 @@ function orderHousesForDriving(list){
 }
 /* One day, laid out as the routes the crews actually drive. Returns how many
    stops it ordered, or 0 if it changed nothing. */
-function generateDayRoutes(day){
+function generateDayRoutes(day, opts){
   const houses=(day&&day.houses)||[];
   if(houses.length<2) return 0;
   let out=[];
+  /* Where the season goes after today. Each crew finishes pointing at it, so a house
+     left unfinished is on the side nearest tomorrow — see orderHousesForDriving. */
+  const aim=(opts&&opts.aim)||null;
   if(day.isFixRoute){
     /* One fixer, one van, one run — there is no crew split to make. */
-    out=orderHousesForDriving(houses);
+    out=orderHousesForDriving(houses,{aim:aim});
   } else {
     const seen=new Set();
     CREWS.forEach(function(c,i){
       const mine=crewHousesFor(i,day).filter(function(h){ return !seen.has(h); });
       mine.forEach(function(h){ seen.add(h); });
-      out=out.concat(orderHousesForDriving(mine));
+      out=out.concat(orderHousesForDriving(mine,{aim:aim}));
     });
     /* A house in neither crew's town is still on the day and still has to be
        driven to. It goes on the end, where it stays visible — the same reason
        unassignedHousesFor reports it rather than swallowing it. */
-    out=out.concat(orderHousesForDriving(houses.filter(function(h){ return !seen.has(h); })));
+    out=out.concat(orderHousesForDriving(houses.filter(function(h){ return !seen.has(h); }),{aim:aim}));
   }
   if(out.length!==houses.length) return 0;
   day.houses=out;
   return out.length;
+}
+/* ⭐ WHERE THE WORK STILL IS, AFTER EACH DAY. Walked backwards, so every day is handed
+   the centre of everything that comes AFTER it — which is what its route is aimed at.
+   The last day has nothing after it and gets null, which orderHousesForDriving reads
+   as the plain round trip: right, because there is no next visit for a leftover to be
+   convenient for.
+   ⚠ THE MEDIAN, through stopsCentre, NEVER THE MEAN. One customer two hundred miles
+   south would otherwise drag the aim towards themselves and tilt every day in the
+   season at a house nobody is driving to for weeks. */
+function seasonAimPoints(days){
+  const per=(days||[]).map(function(d){
+    return ((d&&d.houses)||[]).map(houseStopPoint).filter(stopHasPin);
+  });
+  const out=new Array(per.length).fill(null);
+  let tail=[];
+  for(let i=per.length-1;i>=0;i--){
+    out[i]=tail.length?stopsCentre(tail):null;
+    if(per[i].length) tail=tail.concat(per[i]);
+  }
+  return out;
 }
 /* Every day of the season, except the ones nobody may touch. */
 function generateAllRoutes(){
@@ -61562,7 +61656,9 @@ function generateAllRoutes(){
      since moved. Guarded because the suites lift this function on its own. */
   if(typeof refreshTownGrids==='function') refreshTownGrids();
   const res={days:0, stops:0, locked:0, started:0, nopin:0, guessed:0};
-  (typeof SEASON==='undefined'?[]:SEASON).forEach(function(d){
+  const days=(typeof SEASON==='undefined'?[]:SEASON);
+  const aims=seasonAimPoints(days);
+  days.forEach(function(d,di){
     const dt=dayDate(d);
     /* ⭐ A DAY INSIDE 48 HOURS IS PRINTED, AND PRINTED IS FINISHED. Owner,
        2026-08-20: "not recalculate houses within two days cause weve already
@@ -61574,7 +61670,7 @@ function generateAllRoutes(){
     /* A day somebody has started ticking through is being worked right now.
        Re-ordering what is left of it under them helps nobody. */
     if((d.houses||[]).some(function(h){ return h.done; })){ res.started++; return; }
-    const n=generateDayRoutes(d);
+    const n=generateDayRoutes(d,{aim:aims[di]});
     if(n){
       res.days++; res.stops+=n;
       /* Counted only on the days it actually ordered. A house on a day left

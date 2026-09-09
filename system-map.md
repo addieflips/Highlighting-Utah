@@ -2506,6 +2506,58 @@ the hand-back is still a hand-back rather than a leveller.
 re-asserted beside the three-crew ones, because the expensive failure is not "three does
 not work", it is "three works and two quietly changed".*
 
+### The order a crew drives a day, and where the leftover lands
+
+Added 2026-09-09. Dax: *"we want it so they start in the back corner and they work there
+way in on this grid so that if the last house doesnt get done its not way out of the way
+then you can just adjust the next days box (or the next time you are in that area) so then
+it can just start on the house that didnt get done then it moves into its box."*
+
+A day is planned more often than it is finished, so the question this answers is not how
+long the route is — it is **which end the unfinished tail falls off**. Each crew-day is now
+ordered to FINISH pointing at the area the crews work next (`seasonAimPoints` walks the
+season backwards and hands every day the centre of everything after it). The house nobody
+reached is then the one nearest tomorrow, which is what makes *"just start on the house
+that didnt get done"* a sensible thing to do rather than a detour.
+
+⭐ **The back corner is the effect, not the instruction.** To finish near tomorrow the
+route has to begin at the far side, so the day sweeps inward on its own — 28 of 29 days in
+the measurement below. Forcing the first stop instead was built and thrown away:
+
+| ordering | season miles | leftover → next area |
+|---|---|---|
+| yard to yard, as it shipped | 1263 | 2.58 mi |
+| back corner forced, ending at the yard | 1332 | 2.80 mi |
+| back corner forced, ending at the next area | 1324 | 1.29 mi |
+| **yard, ending at the next area** | **1285** | **1.29 mi** |
+
+Forcing the start costs three times as much, and ending at the yard left the leftover
+FURTHER from tomorrow than changing nothing at all. **The price of what shipped is 21 miles
+a season**, about two thirds of a mile a day, and that figure already includes the drive
+home from wherever the day ends.
+
+⭐ **A house the crew never reached is the first stop of the day that picks it up.** That is
+the route half of being missed; the rank at 15 ([[SCH-61]]) is the order half, and it only
+decides that they are on the day at all.
+
+⚠ **The far-house rule is untouched and still wins where it applies.** Addie, 2026-08-21: a
+house *"a little furthur out than everyone else"* falls at the END of the route, *"on their
+way back home"*, because a long leg in the middle of the day costs an hour with twelve
+houses still to do. That fires only when a day holds a real outlier; this owns the ordinary
+day, which has none. A red-check sabotage that stubs the outlier test out is caught.
+
+⚠ **And aiming is optional everywhere.** A caller that names no aim — the last day of the
+season, a fixer route, a lifted sandbox — gets exactly the yard-to-yard round trip it
+always had.
+
+*Takes effect on* **Recalculate everything**, like the rest of the season.
+*Where it is proved*: run-all.js **Suite 317** runs the orderer and reads the stops back —
+every claim here is about the order of a list, which no source check can see. 9 sabotages
+red-checked, and three of them were misses on the first pass: two because the wiring was
+never asserted apart from the mechanism, and one because the fixture put the outlier on the
+same side as the aim, so it passed whether the rule fired or not.
+*Rulings*: [[SCH-62]] in `claude/questions-map.md`.
+
 ### Nobody is scheduled for a day no crew is driving to
 
 Added 2026-09-09. Dax: *"we never want to see people not on either crews route but
