@@ -429,6 +429,64 @@
     border-radius:var(--radius); padding:14px; box-shadow:var(--shadow);
   }
   .messages-content{ flex:1; min-width:0; }
+  /* ⭐ COMMUNICATION CENTRE (2026-09-09, [[MSG-11]]). Colour is used for status,
+     priority and severity only — never decoration — which is her §19 in one line. */
+  .comm-nav{display:flex; flex-direction:column; gap:2px; margin-bottom:10px;}
+  .comm-sec-head{display:flex; align-items:center; gap:8px; width:100%; text-align:left;
+    background:none; border:0; padding:8px 10px; border-radius:8px; cursor:pointer;
+    font-size:13px; font-weight:700; color:var(--ink);}
+  .comm-sec-head:hover{background:var(--snow);}
+  .comm-sec.open > .comm-sec-head{background:var(--snow);}
+  .comm-sec-icon{font-size:14px;}
+  .comm-tabs{display:flex; flex-direction:column; gap:1px; padding:2px 0 6px 26px;}
+  .comm-tab{display:flex; align-items:center; justify-content:space-between; gap:8px;
+    background:none; border:0; text-align:left; padding:6px 10px; border-radius:7px;
+    cursor:pointer; font-size:12.5px; color:var(--slate); font-weight:600;}
+  .comm-tab:hover{background:var(--snow); color:var(--ink);}
+  .comm-tab.on{background:var(--ink); color:#fff;}
+  .comm-badge{font-size:11px; font-weight:800; background:var(--line); color:var(--ink);
+    border-radius:999px; padding:1px 7px; min-width:20px; text-align:center;}
+  .comm-tab.on .comm-badge{background:rgba(255,255,255,.24); color:#fff;}
+  .comm-yours{font-size:11px; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--slate); margin:10px 0 4px 10px;}
+  .comm-dash{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; align-items:stretch;}
+  .comm-tile{display:flex; flex-direction:column; gap:1px; min-width:86px; padding:9px 13px;
+    border:1px solid var(--line); border-radius:11px; background:var(--snow); cursor:pointer; text-align:left;}
+  .comm-tile:hover{border-color:var(--ink);}
+  .comm-tile b{font-size:19px; line-height:1.1; color:var(--ink);}
+  .comm-tile span{font-size:11.5px; font-weight:700; color:var(--slate);}
+  .comm-tile.quiet b{color:var(--slate);}
+  .comm-tile.bad{border-color:#F3C8C2; background:#FDF3F1;}
+  .comm-tile.bad b{color:var(--ember);}
+  .comm-health{margin-left:auto; display:flex; flex-direction:column; gap:1px; justify-content:center;
+    padding:9px 15px; border-radius:11px; border:1px solid var(--line); background:var(--snow);
+    cursor:pointer; text-align:left;}
+  .comm-health span{font-size:11px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--slate);}
+  .comm-health b{font-size:13px; color:var(--ink);}
+  .comm-health.bad{border-color:#F3C8C2; background:#FDF3F1;}
+  .comm-health.warn{border-color:#F0D9A8; background:#FDF8EE;}
+  .cchips{display:flex; gap:5px; flex-wrap:wrap; margin-bottom:5px;}
+  .cchip{font-size:10.5px; font-weight:800; letter-spacing:.03em; padding:2px 8px;
+    border-radius:999px; border:1px solid var(--line); color:var(--slate); background:#fff;
+    text-transform:uppercase; white-space:nowrap;}
+  .cchip.ctype{color:var(--ink);}
+  .cchip.cmem{background:#EEF3FB; border-color:#CFDDF2;}
+  .cchip.csys{background:var(--snow);}
+  .cchip.cerr{background:#FDF3F1; border-color:#F3C8C2; color:var(--ember);}
+  .cchip.ccat{background:var(--snow);}
+  .cchip.st-unread{background:var(--ink); color:#fff; border-color:var(--ink);}
+  .cchip.st-needs_reply{background:#FDF8EE; border-color:#F0D9A8; color:#8A6A18;}
+  .cchip.st-waiting,.cchip.st-in_progress{background:#EEF3FB; border-color:#CFDDF2; color:#2C4C7C;}
+  .cchip.cpri.pri-urgent{background:var(--ember); color:#fff; border-color:var(--ember);}
+  .cchip.cpri.pri-high{background:#FDF3F1; border-color:#F3C8C2; color:var(--ember);}
+  .cchip.csev.sev-critical{background:var(--ember); color:#fff; border-color:var(--ember);}
+  .cchip.csev.sev-warning{background:#FDF8EE; border-color:#F0D9A8; color:#8A6A18;}
+  /* Tablet: the nav collapses to a row of sections rather than a column (blueprint §20). */
+  @media (max-width: 900px){
+    .comm-nav{flex-direction:row; flex-wrap:wrap; gap:6px;}
+    .comm-tabs{padding-left:0;}
+    .comm-health{margin-left:0;}
+  }
   .msg-sidebar-item{
     display:flex; justify-content:space-between; align-items:center; gap:6px;
     padding:10px 10px; border-radius:8px; font-size:13.5px; font-weight:600; color:var(--ink);
@@ -3642,6 +3700,16 @@
                drop listener to it on every single render and never removed the old
                ones — so by mid-session one drop onto Inbox fired the handler dozens
                of times. One container, rebuilt wholesale, cannot accumulate. -->
+          <!-- ⭐ THE COMMUNICATION CENTRE NAV (2026-09-09, [[MSG-11]]). Four sections, each
+               with the subtabs from Addie's blueprint. It is BUILT rather than written out
+               so a count can sit beside every line: "Display a small unread/count badge
+               beside tabs when applicable."
+               ⚠ THE FOLDER TREE IS NOT DELETED — it is drawn underneath, collapsed, under
+               "Your folders". Nine folders as the FIRST question is what she is moving away
+               from; the folders themselves still hold everything she has filed by hand, and
+               throwing that away to honour a redesign would be destroying her own work to
+               make a point. -->
+          <div id="commCentreNav"></div>
           <div id="customFolderList"></div>
           <div style="margin-top:14px;">
             <label for="newFolderInput" style="display:block; font-size:11.5px; font-weight:700; color:var(--slate); margin-bottom:4px;">New folder</label>
@@ -3661,6 +3729,10 @@
             <button type="button" class="inbox-tab" data-inboxtab="system">System Messages<span class="inbox-tab-badge" id="sysMsgBadge" style="display:none;">0</span></button>
           </div>
           <div id="inboxpane-customer">
+            <!-- ⭐ THE SUMMARY AT THE TOP, AND EVERY NUMBER ON IT IS A FILTER (blueprint
+                 §10): "Clicking '5 Need Reply' immediately filters the inbox to those five."
+                 A count you cannot act on is a count nobody reads. -->
+            <div id="commDash" class="comm-dash"></div>
             <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
               <select id="msgFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
                 <option value="all">All Messages</option>
@@ -20156,6 +20228,13 @@ function renderFolderSidebar(){
     item.addEventListener('click', function(e){
       if(e.target.closest('.folder-del') || e.target.closest('.folder-ren') || e.target.closest('.folder-caret')) return;
       selectedFolder = item.dataset.folder;
+      /* ⚠ PICKING A FOLDER HANDS THE LIST BACK TO THE FOLDER. Without this the tree
+         highlighted a folder while the list went on showing whichever tab was last
+         pressed — two things on screen disagreeing about what you are looking at, which
+         is worse than either being wrong. [[MSG-11]] */
+      commView = {section:'folder', tab:'all'};
+      if(typeof renderCommNav === 'function') renderCommNav();
+      if(typeof renderCommDash === 'function') renderCommDash();
       document.getElementById('currentFolderLabel').textContent = selectedFolder;
       /* ⚠ A tick belongs to the list it was made on. Carrying the selection into
          another folder means Move to… acts on rows nobody can see. */
@@ -20469,6 +20548,195 @@ function noticeIsRoutine(d){
   if(d.topic !== ROUTINE_NOTICE_TOPIC) return false;
   return String(d.message || '').indexOf('⚠') === -1;
 }
+/* =========================================================================
+   ⭐ THE COMMUNICATION CENTRE — TYPE, STATUS, CATEGORY, PRIORITY (2026-09-09).
+
+   Addie's blueprint, in her own words: "Do NOT simply create more folders. Instead,
+   create a system based on MESSAGE TYPE → STATUS → CATEGORY → PRIORITY", and the test
+   she set for it — the office should be able to answer, in seconds: who contacted us,
+   what do they need, do I need to respond, is somebody waiting on us, is the system
+   having problems, is any of it urgent, what is already handled.
+
+   ⭐ THIS REVERSES THE FOLDER-SHAPED INBOX OF 2026-08-25, WHICH WAS ALSO HERS
+   ("I want this to be very similar to gmail layout"), so R-024 applies: the newer
+   answer wins and the older one is marked superseded rather than deleted. The old
+   reasoning is still right about what it was protecting — a folder tree is how you
+   file a thing you will look for later — and none of that machinery is removed here.
+   What changed is that filing is the wrong FIRST question: nine folders make you ask
+   "where does this belong" before "does anybody need an answer".
+
+   ⛔ DERIVED, NEVER MIGRATED, and that is the whole safety argument. A season of
+   messages is already written; rewriting them to add four new fields is a mass write
+   over the one collection the office reads every morning, and it would be wrong the
+   first time anybody changed a topic. Every classification below is computed from what
+   the record ALREADY carries — `topic`, `folder`, `read`, `responded` — so it is right
+   for messages written last month and for messages written tonight, and there is
+   nothing to undo if a rule turns out wrong. The same argument `oneManDays()` and
+   `derivedDoneFor` were built on.
+   ⚠ ONLY WHAT A PERSON DECIDES IS STORED: a status she sets by hand, a priority she
+   raises, a tag she adds, who she assigned it to. A human answer must outlast the rule
+   that would otherwise have guessed it. Questions map [[MSG-11]].
+   ========================================================================= */
+
+/* ⭐ WHAT KIND OF THING IS THIS. Three answers, and the blueprint is explicit that they
+   must be told apart by ICON AND LABEL, not by colour alone: "Do not rely only on
+   colour." A member message is somebody asking for something; a system message is the
+   app reporting activity nobody has to act on; an error is something that broke. */
+const MSG_TYPE_MEMBER = 'member', MSG_TYPE_SYSTEM = 'system', MSG_TYPE_ERROR = 'error';
+/* ⚠ THE ERROR TOPICS ARE NAMED, NOT GUESSED. They are the two constants the reporters
+   already write, so this cannot drift from them. */
+function msgTypeOf(d){
+  d = d || {};
+  const topic = String(d.topic || '');
+  if(topic === MEMBER_ERROR_TOPIC || topic === ADMIN_ERROR_TOPIC) return MSG_TYPE_ERROR;
+  /* ⚠ A FAILED SEND IS AN ERROR WHEREVER IT WAS FILED. The bulk-email reporter writes
+     its own topic, and a row saying the mail did not go out is not "activity". */
+  if(/failed|error|could not|didn.t send/i.test(topic)) return MSG_TYPE_ERROR;
+  /* The System tab has always been the app talking to itself; `folder` is what put it
+     there and remains the honest test for every notice written before this existed. */
+  if(String(d.folder || '') === 'System') return MSG_TYPE_SYSTEM;
+  if(SYSTEM_NOTICE_TOPICS.indexOf(topic) !== -1) return MSG_TYPE_SYSTEM;
+  return MSG_TYPE_MEMBER;
+}
+/* Every topic this app writes for ITSELF rather than on behalf of a customer. Listed
+   rather than pattern-matched: a customer is free to type any subject they like, and a
+   guess here files somebody's question where nobody answers it. */
+const SYSTEM_NOTICE_TOPICS = [
+  'Routes Kept Up To Date', 'Moved To Another Day', 'A Route Sheet Is Out Of Date',
+  'Lights Changed After Assignment', 'Rejoined After Recycling', 'Customer Number Needs Fixing',
+  'A Background Check Has Stopped', 'Carried Debt Written Off', 'Add-On Declined',
+  'Cannot Be Billed', 'Maybe Next Year — New Record', 'Payment With No Bill',
+  'Re-quote Declined', 'Referral Taken Back'
+];
+
+/* ⭐ CATEGORIES ARE TAGS, NOT FOLDERS, WHICH IS THE POINT OF THE WHOLE BLUEPRINT.
+   Addie: "A message can have multiple categories… The admin should not have to choose
+   which folder it belongs in." Her worked example is a customer asking to change to red
+   and green AND move their install — one message, two categories, and no folder can
+   hold it twice. */
+const MSG_CATEGORIES = ['Scheduling','Lights / Colors','Payment','Account','Installation',
+                        'Removal','Repair / Issue','General Question','Other'];
+/* ⚠ THE TOPIC DECIDES FIRST, because the portal already asked the customer and their
+   answer beats anything read out of prose. The text scan only ever ADDS. */
+const MSG_TOPIC_CATEGORIES = {
+  'Billing / Payment Question': ['Payment'],
+  'Change My Light Colors': ['Lights / Colors'],
+  'Light Color Change': ['Lights / Colors'],
+  'Report an Issue': ['Repair / Issue'],
+  'Reschedule Install or Removal': ['Scheduling'],
+  'General Question': ['General Question'],
+  'Cancellation Request': ['Account'],
+  'Note Added': ['Account'],
+  'Existing Customer - Address Changed': ['Account'],
+  'Payment With No Bill': ['Payment'],
+  'Cannot Be Billed': ['Payment'],
+  'Carried Debt Written Off': ['Payment'],
+  'Moved To Another Day': ['Scheduling'],
+  'Routes Kept Up To Date': ['Scheduling'],
+  'A Route Sheet Is Out Of Date': ['Scheduling'],
+  'Lights Changed After Assignment': ['Lights / Colors'],
+  'Rejoined After Recycling': ['Account']
+};
+/* ⚠ WHOLE WORDS, AND DELIBERATELY FEW. A loose scan tags everything and a tag on every
+   row carries no information at all — the same argument the email-typo list turns on
+   itself. Each of these is a word that means one thing in this business. */
+const MSG_TEXT_CATEGORIES = [
+  /* ⚠ THE WORDING IN HER OWN WORKED EXAMPLE IS THE TEST. "move my installation to
+     November 20" must come back Scheduling as well as Lights / Colors — the first
+     version stopped at `move my install` and the \b after it failed on the "a" of
+     installation, so her one stated example was the one sentence it got wrong. */
+  [/\b(reschedul\w*|schedul\w*|push (it )?back|earlier|later date)\b/i, 'Scheduling'],
+  [/\bmove\b[^.!?]{0,30}\b(install\w*|date|appointment|hang\w*)\b/i, 'Scheduling'],
+  [/\b(install\w*|hang\w*|remov\w*|take ?down)\b[^.!?]{0,20}\b(to|on|for)\b[^.!?]{0,20}\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\b/i, 'Scheduling'],
+  [/\b(colou?rs?|red|green|warm white|pure white|multi|bulbs?|lights? (to|colou?r))\b/i, 'Lights / Colors'],
+  [/\b(pay|paid|payment|invoice|bill|charge|refund|card|venmo|paypal)\b/i, 'Payment'],
+  [/\b(install\w*|hang\w*|put up)\b/i, 'Installation'],
+  [/\b(remov\w*|take ?down|takedown)\b/i, 'Removal'],
+  [/\b(broke\w*|not working|out|dead|repair|fix|fell|sagg?\w*)\b/i, 'Repair / Issue'],
+  [/\b(account|login|log in|password|portal|sign in)\b/i, 'Account']
+];
+function msgCategories(d){
+  d = d || {};
+  const out = [];
+  const add = c => { if(c && out.indexOf(c) === -1) out.push(c); };
+  (MSG_TOPIC_CATEGORIES[String(d.topic || '')] || []).forEach(add);
+  /* ⚠ HER OWN TAGS COUNT AND ARE NEVER OVERWRITTEN — "The admin should always be able to
+     manually change the classification." */
+  (Array.isArray(d.tags) ? d.tags : []).forEach(add);
+  const text = String(d.message || '') + ' ' + String(d.topic || '');
+  MSG_TEXT_CATEGORIES.forEach(function(pair){ if(pair[0].test(text)) add(pair[1]); });
+  /* Only where nothing else fits: a row with no category at all reads as unclassified
+     rather than as deliberately general. */
+  if(!out.length) add(msgTypeOf(d) === MSG_TYPE_MEMBER ? 'General Question' : 'Other');
+  /* ⚠ "General Question" IS A FALLBACK, NOT A FACT. The portal offers it as a subject, so
+     it arrives on messages that turn out to be about something specific — and her worked
+     example ("red and green … and move my installation") should read Lights / Colors and
+     Scheduling, not those plus a shrug. Dropped the moment anything real is found; kept
+     when it is genuinely all we know. */
+  if(out.length > 1 && out.indexOf('General Question') !== -1){
+    return out.filter(function(c){ return c !== 'General Question'; });
+  }
+  return out;
+}
+
+/* ⭐ STATUS — the column that answers "do I need to respond".
+   ⚠ `responded` MEANS RESOLVED, NOT WAITING, and getting this backwards would relabel
+   every message the office has ever ticked. That button has always meant "dealt with";
+   Waiting On Member is a NEW answer she sets deliberately, so it is stored and never
+   inferred. */
+const MSG_STATUS = ['unread','needs_reply','waiting','in_progress','resolved','archived'];
+const MSG_STATUS_LABEL = {unread:'Unread', needs_reply:'Needs Reply', waiting:'Waiting on Member',
+                          in_progress:'In Progress', resolved:'Resolved', archived:'Archived'};
+function msgStatusOf(d){
+  d = d || {};
+  if(d.archived === true) return 'archived';
+  /* A person's own answer outlasts every rule below it. */
+  if(d.status && MSG_STATUS.indexOf(d.status) !== -1) return d.status;
+  if(d.responded === true) return 'resolved';
+  if(!d.read) return 'unread';
+  /* ⚠ ONLY A MEMBER MESSAGE CAN NEED A REPLY. A notice that nobody has ticked is read
+     and finished; calling it Needs Reply is how a queue of five real questions gets
+     buried under four hundred route notices — the exact complaint the badge count was
+     fixed for on 2026-08-25. */
+  return msgTypeOf(d) === MSG_TYPE_MEMBER ? 'needs_reply' : 'resolved';
+}
+
+/* ⭐ PRIORITY, AND HER WARNING ABOUT IT: "Do not make every message feel urgent."
+   So nothing is urgent unless it broke something or she said so. */
+const MSG_PRIORITY = ['urgent','high','normal','low'];
+const MSG_PRIORITY_LABEL = {urgent:'Urgent', high:'High', normal:'Normal', low:'Low'};
+function msgPriorityOf(d){
+  d = d || {};
+  if(d.priority && MSG_PRIORITY.indexOf(d.priority) !== -1) return d.priority;
+  if(msgTypeOf(d) === MSG_TYPE_ERROR) return msgSeverityOf(d) === 'critical' ? 'urgent' : 'high';
+  /* `important` is the star the office already uses, so it keeps meaning something. */
+  if(d.important === true) return 'high';
+  return 'normal';
+}
+
+/* ⭐ SEVERITY — errors only. Critical is reserved for the two things that cost money or
+   lose an answer: a payment that did not go through, and a customer whose RSVP or quote
+   reply never reached us. Everything else is a warning until somebody looks. */
+const MSG_SEVERITY_LABEL = {critical:'Critical', warning:'Warning', review:'Needs Review', resolved:'Resolved'};
+function msgSeverityOf(d){
+  d = d || {};
+  if(d.severity && MSG_SEVERITY_LABEL[d.severity]) return d.severity;
+  if(msgStatusOf(d) === 'resolved' || d.responded === true) return 'resolved';
+  const text = String(d.message || '') + ' ' + String(d.topic || '');
+  if(/payment|charge|paypal|venmo|billing failed|could not bill/i.test(text)) return 'critical';
+  /* An answer the customer believes they gave us and we never received. The report says
+     so in as many words, which is why this reads the sentence the reporter writes. */
+  if(/RSVP|quote answer|did NOT save|Answering /i.test(text)) return 'critical';
+  if(String(d.topic || '') === ADMIN_ERROR_TOPIC) return 'warning';
+  return 'review';
+}
+
+/* One place that answers "what does the office see on this row", so the list, the
+   dashboard counts and the filters cannot disagree about the same message. */
+function msgFacets(d){
+  return {type: msgTypeOf(d), status: msgStatusOf(d), priority: msgPriorityOf(d),
+          categories: msgCategories(d), severity: msgTypeOf(d) === MSG_TYPE_ERROR ? msgSeverityOf(d) : ''};
+}
 /* ⭐ WHO HIT THE ERROR, WHERE THE PAGE COULD NOT SAY (2026-09-09, [[MSG-10]]). Addie,
    reading a Member Errors folder in which one row was named and the rest were blank: "we
    need to know who hit an error so you need to show me who hit that error."
@@ -20540,13 +20808,217 @@ function msgErrorWhoLabel(d){
      were worked out from a link. */
   return (c.name || '(no name on the record)') + num + ' — matched by their link';
 }
+/* ⭐ THE VIEW THE OFFICE IS LOOKING AT, as one value rather than four globals. A view is
+   a SECTION plus a SUBTAB, and everything on screen — the list, the counts, the heading —
+   is derived from it, so the nav and the list can never disagree about what is being
+   shown. [[MSG-11]] */
+let commView = {section:'inbox', tab:'all'};
+const COMM_SECTIONS = [
+  {key:'inbox',  icon:'\u{1F4E5}', label:'Inbox',
+   tabs:[['all','All'],['unread','Unread'],['needs_reply','Needs Reply'],
+         ['waiting','Waiting'],['urgent','Urgent'],['resolved','Resolved']]},
+  {key:'member', icon:'\u{1F465}', label:'Member Messages',
+   tabs:[['all','All Members'],['questions','Questions'],['requests','Requests'],
+         ['complaints','Complaints'],['resolved','Resolved']]},
+  {key:'system', icon:'⚙️', label:'System Messages',
+   tabs:[['all','All'],['activity','Customer Activity'],['payments','Payments'],
+         ['scheduling','Scheduling'],['notifications','Notifications']]},
+  {key:'errors', icon:'\u{1F6A8}', label:'System Errors',
+   tabs:[['all','All Errors'],['critical','Critical'],['warnings','Warnings'],
+         ['review','Needs Review'],['resolved','Resolved']]}
+];
+/* ⚠ ONE RULE FOR "IS THIS ROW IN THIS VIEW", asked by the list AND by every count beside
+   a tab. Two implementations is how a tab reads 5 and shows 4 — the bug the folder badge
+   already had once, when the sidebar counted everything and the nav counted unread. */
+function commRowMatches(d, section, tab){
+  const f = msgFacets(d);
+  if(section === 'errors'){
+    if(f.type !== MSG_TYPE_ERROR) return false;
+    if(tab === 'critical') return f.severity === 'critical';
+    if(tab === 'warnings') return f.severity === 'warning';
+    if(tab === 'review') return f.severity === 'review';
+    if(tab === 'resolved') return f.severity === 'resolved';
+    return true;
+  }
+  if(section === 'system'){
+    if(f.type !== MSG_TYPE_SYSTEM) return false;
+    if(tab === 'payments')   return f.categories.indexOf('Payment') !== -1;
+    if(tab === 'scheduling') return f.categories.indexOf('Scheduling') !== -1;
+    /* Customer Activity is the app reporting what a CUSTOMER did — an RSVP, an approval,
+       a colour change. Notifications is everything the app is telling itself. */
+    if(tab === 'activity')      return COMM_ACTIVITY_TOPICS.indexOf(String(d.topic||'')) !== -1;
+    if(tab === 'notifications') return COMM_ACTIVITY_TOPICS.indexOf(String(d.topic||'')) === -1;
+    return true;
+  }
+  if(section === 'member'){
+    if(f.type !== MSG_TYPE_MEMBER) return false;
+    if(tab === 'resolved')   return f.status === 'resolved' || f.status === 'archived';
+    if(tab === 'complaints') return f.categories.indexOf('Repair / Issue') !== -1;
+    if(tab === 'requests')   return f.categories.some(function(c){
+                                return ['Scheduling','Lights / Colors','Installation','Removal','Account'].indexOf(c) !== -1; });
+    if(tab === 'questions')  return f.categories.indexOf('General Question') !== -1 ||
+                                    f.categories.indexOf('Payment') !== -1;
+    return true;
+  }
+  /* Inbox — everything that is somebody's problem. ⚠ SYSTEM NOTICES ARE NOT MIXED IN
+     unless she asks for All: "System messages should generally not appear mixed into the
+     main member conversation list unless the admin chooses All." */
+  if(tab === 'unread')      return f.status === 'unread';
+  if(tab === 'needs_reply') return f.status === 'needs_reply';
+  if(tab === 'waiting')     return f.status === 'waiting' || f.status === 'in_progress';
+  if(tab === 'urgent')      return f.priority === 'urgent';
+  if(tab === 'resolved')    return f.status === 'resolved' || f.status === 'archived';
+  return f.type !== MSG_TYPE_SYSTEM;
+}
+/* The app reporting something a CUSTOMER did, rather than something it did itself. */
+const COMM_ACTIVITY_TOPICS = ['Rejoined After Recycling','Add-On Declined','Re-quote Declined',
+  'Maybe Next Year — New Record','Referral Taken Back','Payment With No Bill','Lights Changed After Assignment'];
+
+function commRows(section, tab){
+  return allMessages.filter(function(m){ return commRowMatches(m.data, section, tab); });
+}
+/* ⚠ THE NUMBER BESIDE A TAB IS UNREAD, NOT TOTAL, everywhere except the error section —
+   the rule she set on 2026-08-25 ("I only want the number to show how many are unread")
+   and the reason the old folder count was ignored. An error that nobody has resolved is
+   worth counting whether or not somebody has clicked it, which is why it is the one
+   exception and why it says so here. */
+function commCount(section, tab){
+  const rows = commRows(section, tab);
+  if(section === 'errors') return rows.filter(function(m){ return msgSeverityOf(m.data) !== 'resolved'; }).length;
+  return rows.filter(function(m){ return !m.data.read; }).length;
+}
+/* ⭐ THE CHIPS ON A ROW (blueprint §4/§5). Type, then what it is about, then what has to
+   happen to it. ⚠ ICON AND WORD, NEVER COLOUR ALONE — she asked for that in as many
+   words: "Do not rely only on color. Use icons + labels so the interface remains
+   understandable." Colour here only ever repeats what the word already says. */
+function commChipsHtml(d){
+  const f = msgFacets(d);
+  const typeChip = f.type === MSG_TYPE_ERROR
+      ? '<span class="cchip ctype cerr">\u26A0\uFE0F Error</span>'
+      : f.type === MSG_TYPE_SYSTEM
+      ? '<span class="cchip ctype csys">\u2699\uFE0F System</span>'
+      : '<span class="cchip ctype cmem">\u{1F464} Member</span>';
+  let html = '<div class="cchips">' + typeChip;
+  /* ⚠ AT MOST THREE. A row wearing seven tags is unreadable, and the categories are
+     ordered topic-first so the customer's own answer is the one that survives the cut. */
+  f.categories.slice(0, 3).forEach(function(c){
+    html += '<span class="cchip ccat">' + esc(c) + '</span>';
+  });
+  if(f.type === MSG_TYPE_ERROR && f.severity){
+    html += '<span class="cchip csev sev-' + f.severity + '">' + esc(MSG_SEVERITY_LABEL[f.severity]) + '</span>';
+  }
+  /* Resolved is not worth a chip on every finished row — the whole list would wear one. */
+  if(f.status !== 'resolved'){
+    html += '<span class="cchip cstat st-' + f.status + '">' + esc(MSG_STATUS_LABEL[f.status]) + '</span>';
+  }
+  /* ⚠ ONLY WHEN IT IS NOT NORMAL. "Do not make every message feel urgent." */
+  if(f.priority === 'urgent' || f.priority === 'high'){
+    html += '<span class="cchip cpri pri-' + f.priority + '">' + esc(MSG_PRIORITY_LABEL[f.priority]) + '</span>';
+  }
+  return html + '</div>';
+}
+function commViewLabel(){
+  const sec = COMM_SECTIONS.filter(function(x){ return x.key === commView.section; })[0];
+  if(!sec) return 'Inbox';
+  const tab = sec.tabs.filter(function(t){ return t[0] === commView.tab; })[0];
+  return sec.label + (tab && tab[0] !== 'all' ? ' · ' + tab[1] : '');
+}
+function renderCommNav(){
+  const host = document.getElementById('commCentreNav');
+  if(!host) return;
+  let html = '<div class="comm-nav">';
+  COMM_SECTIONS.forEach(function(sec){
+    const open = commView.section === sec.key;
+    html += '<div class="comm-sec' + (open ? ' open' : '') + '">' +
+      '<button type="button" class="comm-sec-head" data-commsec="' + sec.key + '">' +
+        '<span class="comm-sec-icon">' + sec.icon + '</span>' + esc(sec.label) + '</button>' +
+      '<div class="comm-tabs"' + (open ? '' : ' hidden') + '>';
+    sec.tabs.forEach(function(t){
+      const n = commCount(sec.key, t[0]);
+      const on = open && commView.tab === t[0];
+      html += '<button type="button" class="comm-tab' + (on ? ' on' : '') + '" ' +
+        'data-commsec="' + sec.key + '" data-commtab="' + t[0] + '">' + esc(t[1]) +
+        /* A nought is drawn as nothing at all — a column of zeroes reads as a broken
+           counter, which is half of why the old total count was ignored. */
+        (n ? '<span class="comm-badge">' + n + '</span>' : '') + '</button>';
+    });
+    html += '</div></div>';
+  });
+  html += '</div><div class="comm-yours">Your folders</div>';
+  host.innerHTML = html;
+  host.querySelectorAll('[data-commtab]').forEach(function(b){
+    b.addEventListener('click', function(){
+      commView = {section: b.dataset.commsec, tab: b.dataset.commtab};
+      renderCommNav(); renderCommDash(); renderMessagesList();
+    });
+  });
+  host.querySelectorAll('.comm-sec-head').forEach(function(b){
+    b.addEventListener('click', function(){
+      commView = {section: b.dataset.commsec, tab: 'all'};
+      renderCommNav(); renderCommDash(); renderMessagesList();
+    });
+  });
+}
+/* ⭐ THE DASHBOARD AND THE HEALTH LINE. Every tile is a button, because a number the
+   office cannot click is a number that sends them folder-hunting again. */
+function renderCommDash(){
+  const host = document.getElementById('commDash');
+  if(!host) return;
+  const tiles = [
+    ['inbox','all','Total', commRows('inbox','all').length],
+    ['inbox','unread','Unread', commCount('inbox','unread')],
+    ['inbox','needs_reply','Need Reply', commRows('inbox','needs_reply').length],
+    ['inbox','waiting','Waiting', commRows('inbox','waiting').length],
+    ['inbox','urgent','Urgent', commRows('inbox','urgent').length],
+    ['errors','all','System Errors', commCount('errors','all')]
+  ];
+  let html = '';
+  tiles.forEach(function(t){
+    html += '<button type="button" class="comm-tile' + (t[3] ? '' : ' quiet') +
+      (t[0] === 'errors' && t[3] ? ' bad' : '') + '" data-dashsec="' + t[0] +
+      '" data-dashtab="' + t[1] + '"><b>' + t[3] + '</b><span>' + esc(t[2]) + '</span></button>';
+  });
+  /* ⚠ HEALTH IS ABOUT UNRESOLVED ERRORS, NOT UNREAD ONES. "All systems operational" while
+     two critical errors sit there having been clicked once would be the panel lying. */
+  const crit = commRows('errors','critical').filter(function(m){ return msgSeverityOf(m.data) !== 'resolved'; }).length;
+  const warn = commRows('errors','warnings').length;
+  html += '<button type="button" class="comm-health' + (crit ? ' bad' : warn ? ' warn' : ' good') +
+    '" data-dashsec="errors" data-dashtab="' + (crit ? 'critical' : 'all') + '">' +
+    '<span>System Health</span><b>' + (crit ? '\u{1F534} ' + crit + ' Critical' :
+      warn ? '\u{1F7E0} ' + warn + ' Warning' + (warn === 1 ? '' : 's') :
+      '\u{1F7E2} All Systems Operational') + '</b></button>';
+  host.innerHTML = html;
+  host.querySelectorAll('[data-dashsec]').forEach(function(b){
+    b.addEventListener('click', function(){
+      commView = {section: b.dataset.dashsec, tab: b.dataset.dashtab};
+      renderCommNav(); renderCommDash(); renderMessagesList();
+    });
+  });
+}
 function renderMessagesList(){
+  /* ⭐ THE NAV AND THE SUMMARY ARE DRAWN FROM THE SAME PASS AS THE LIST, so a message
+     arriving, being read or being resolved moves the counts at the same moment it moves
+     the list. Drawn from their own listener they would be right only until the next
+     thing happened, which is the state the folder badge was in before 2026-08-25. */
+  if(typeof renderCommNav === 'function') renderCommNav();
+  if(typeof renderCommDash === 'function') renderCommDash();
   const list = document.getElementById('messagesList');
-  let filtered = msgFilter === 'awaiting' ? allMessages.slice() : allMessages.filter(m => messageFolderOf(m.data) === selectedFolder);
+  /* ⭐ THE VIEW DECIDES THE LIST (2026-09-09, [[MSG-11]]). The folder tree still works and
+     still filters — picking one sets `commView.section` to 'folder' — but the FIRST
+     question is now "what needs an answer", not "which folder was that filed in".
+     ⚠ ONE RULE, `commRowMatches`, shared with every count beside every tab. The folder
+     sidebar and the nav badge disagreeing about the same folder is a bug this Inbox has
+     already had once. */
+  let filtered = commView.section === 'folder'
+    ? allMessages.filter(m => messageFolderOf(m.data) === selectedFolder)
+    : commRows(commView.section, commView.tab);
+  /* The old dropdown still narrows whatever the view produced, so nothing she is used to
+     pressing stopped working on the day this shipped. */
   if(msgFilter === 'unread') filtered = filtered.filter(m => !m.data.read);
   if(msgFilter === 'important') filtered = filtered.filter(m => m.data.important);
   if(msgFilter === 'awaiting') filtered = filtered.filter(m => !m.data.responded);
-  document.getElementById('currentFolderLabel').textContent = msgFilter === 'awaiting' ? 'Awaiting Response (all folders)' : selectedFolder;
+  document.getElementById('currentFolderLabel').textContent =
+    commView.section === 'folder' ? selectedFolder : commViewLabel();
   filtered = filtered.filter(m => (m.data.folder || 'Inbox') !== 'System');
   /* Search across everything the card shows, so what you can read you can find:
      the name, either contact detail, the address it was matched to, and the
@@ -20597,6 +21069,7 @@ function renderMessagesList(){
            ([[MSG-10]]). Rendered in the HEADING, where a name goes, because that is the
            line the office scans down — a note further into the row is a note nobody
            reads on the one folder that exists to be acted on. */
+        commChipsHtml(d)+
         '<h4>'+(esc(d.name) || esc(msgErrorWhoLabel(d)))+(d.topic ? ' <span class="status-pill status-new">'+esc(d.topic)+'</span>' : '')+' <span class="status-pill '+(isResponded?'status-paid':'status-due')+'">'+(isResponded?'Responded':'Awaiting Response')+'</span></h4>'+
         (address ? '<div class="row-phone-line">'+esc(address)+'</div>' : '')+
         '<div class="rmeta">'+esc(d.phone)+(d.email ? ' &middot; '+esc(d.email) : '')+(d.contactMethod ? ' &middot; Prefers '+esc(d.contactMethod) : '')+' &middot; '+fmtDate(d.createdAt)+'</div>'+

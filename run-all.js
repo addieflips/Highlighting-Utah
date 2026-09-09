@@ -6348,7 +6348,13 @@ suite('11. Reliability pass');
     widgetStart > -1,
     'the scope check below silently passes on everything if this anchor moves');
   if(widgetStart > -1){
-    const mainApp = admin.slice(0, widgetStart);
+    /* ⚠ IT READS THE CODE, NOT THE COMMENTS (2026-09-09). A comment in the main app that
+       NAMES a widget helper — explaining why some other rule works the way that one does —
+       was read as a call to it, and the check failed on a file that was right. That is the
+       same trap Suites 58, 274, 275 and 300 each had to learn, and the argument every time
+       was to strip by default rather than when somebody remembers. Stripping also makes
+       this check STRONGER: a real call can no longer hide inside a commented-out block. */
+    const mainApp = stripComments(admin.slice(0, widgetStart));
     const widget  = admin.slice(widgetStart);
     const widgetFns = new Set();
     let m;
