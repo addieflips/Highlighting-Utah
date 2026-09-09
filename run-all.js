@@ -32793,14 +32793,29 @@ suite('122. Out of the yard and back, and a picture of it');
   check('S122', 'a real customer record at the yard still wins over the estimate',
     home.indexOf('custByAddrKey') < home.indexOf('estimatedPinFromAddress'),
     'same rule as everywhere else: measured beats calculated');
-  const ord = sectionFrom(admin, admin.indexOf('function orderHousesForDriving(list)'));
+  /* ⚠ ANCHORED ON THE NAME, NOT THE SIGNATURE. This read 'orderHousesForDriving(list)'
+     and the function gained an optional second argument on 2026-09-09 — indexOf then
+     returned -1 and sectionFrom sliced from the top of the file, so both checks below
+     failed on code that was right. A signature is not a stable anchor. */
+  const ord = sectionFrom(admin, admin.indexOf('function orderHousesForDriving(list'));
   /* ⚠ THE YARD IS BOTH ENDS ON BOTH PATHS. Since Suite 124 the day may be
      ordered in two passes when somebody lives out on their own, and the SECOND
      pass is the one that has to finish at the yard — checking only the simple
      path would go green while every day with an outlier ended in the wrong place. */
-  check('S122', 'every crew route is ordered yard-to-yard',
-    /reorderFlatStops\(points, home, home\)/.test(ord),
-    'both legs, or the day still ends wherever the last cluster happened to be');
+  /* ⚠ REPOINTED 2026-09-09, AND THIS ONE IS A REAL CHANGE RATHER THAN A MOVED STRING.
+     It read:
+       'every crew route is ordered yard-to-yard'
+       /reorderFlatStops\(points, home, home\)/
+     The ordinary path now finishes at the NEXT AREA the crews are working, not at the
+     yard, so that a house left unfinished is near tomorrow — measured at 21 miles a
+     season including the drive home, against a leftover that ends up half as far from
+     the next box. See Suite 317, which runs it. What is kept and asserted here is that
+     the aim DEFAULTS to the yard, so every caller that names none is unaffected.
+     ⛔ The far-houses pass below still ends at the yard and is untouched. */
+  check('S122', 'the ordinary path is aimed, and falls back to the yard when it is not',
+    /const aim = \(opts && opts\.aim && stopHasPin\(opts\.aim\)\) \? opts\.aim : home;/.test(ord) &&
+    /reorderFlatStops\(points, start, aim\)/.test(ord),
+    'without the fallback every caller that names no aim silently loses its end point');
   check('S122', 'and the far-houses pass finishes at the yard too',
     /reorderFlatStops\(split\.out,[\s\S]{0,120}home\);/.test(ord),
     'owner: "still remembering 209 s 850 w is the end point"');
@@ -55673,5 +55688,188 @@ suite('Suite 316. Closest to a date the office typed');
       'THE OTHER HALF OF THE RULE. It exists because a half-loaded customer record must ' +
       'not empty a card the crew relies on, and relaxing it for everybody to reach one ' +
       'field would undo that quietly');
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite 317. The day finishes pointing at where the crews go next.
+ *
+ * Dax, 2026-09-09: "we want it so they start in the back corner and they work
+ * there way in on this grid so that if the last house doesnt get done its not way
+ * out of the way then you can just adjust the next days box (or the next time you
+ * are in that area) so then it can just start on the house that didnt get done
+ * then it moves into its box."
+ *
+ * ⚠ EVERY CLAIM HERE IS ABOUT THE ORDER OF A LIST, so every check RUNS the orderer
+ * and reads the stops back. A source check cannot see an order.
+ *
+ * ⭐ THE START IS NOT FORCED AND MUST NOT BE. Forcing the first stop to the back
+ * corner was built first and measured: it cost three times as much and, still
+ * ending at the yard, left the leftover FURTHER from tomorrow than changing
+ * nothing. Aiming the FINISH makes the day sweep inward on its own. The check
+ * below asserts the sweep as an OUTCOME, which is the only honest way to hold a
+ * property that nothing in the code states directly.
+ *
+ * ⚠ Suite 124 holds the rule that points the other way — a genuinely far house
+ * goes LAST, on the way home — and is deliberately still green. It fires only on a
+ * day with a statistical outlier in it; this owns the ordinary path. The last
+ * check here is what goes red if this one ever takes that case over.
+ */
+suite('Suite 317. The day finishes pointing at where the crews go next');
+{
+  const crewStart = admin.indexOf('function cityOf(h)');
+  const crewEnd = admin.indexOf('/* ---------- build from imported rows', crewStart);
+  const geoStart = admin.indexOf('function twoOptImprove(');
+  const geoEnd = admin.indexOf('function nearestNeighborOrder(', geoStart);
+  if (crewStart === -1 || crewEnd < crewStart || geoStart === -1) {
+    check('S317', 'the route orderer is findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    const YARD = { lat: 40.3866, lng: -111.8616 };        // 209 S 850 W, Lehi
+    /* ⚠ THE YARD IS SUPPLIED AS DATA, NOT AS A FAKE FUNCTION. routeHomePoint is lifted
+       whole and prefers a real customer record at the yard over its own estimate, so
+       handing it that record through the real key builder exercises the path the page
+       takes — and puts no stub in the way of a name admin.html already defines, which
+       the reliability gate refuses, rightly. */
+    global.custAddrKey = real('custAddrKey');
+    global.custByAddrKey = new Map([
+      [global.custAddrKey('209 S 850 W', 'Lehi'), { data: { lat: YARD.lat, lng: YARD.lng } }]
+    ]);
+    global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
+
+    const api = eval(extractFn(admin, 'haversine') + LF_ +
+      extractFn(admin, 'houseMissedDays') + LF_ + extractFn(admin, 'houseMissedCount') + LF_ +
+      admin.slice(geoStart, geoEnd) + LF_ + admin.slice(crewStart, crewEnd) + LF_ +
+      ';({order: orderHousesForDriving, plain: reorderFlatStops, hav: haversine,' +
+      '  home: routeHomePoint, point: houseStopPoint, aims: seasonAimPoints,' +
+      '  centre: stopsCentre})');
+
+    check('S317', 'the yard resolves, so these checks are not all measuring null',
+      !!api.home() && Math.abs(api.home().lat - YARD.lat) < 1e-9,
+      'with no yard the orderer falls back and every check below would pass for the wrong reason');
+
+    /* ⚠ THE FIXTURE IS A BLOCK, NOT A LINE, AND THAT IS NOT A DETAIL. The first
+       version was fourteen houses in a straight line and it proved nothing: a line
+       reversed is the same length, so the orderer has no reason to prefer either end
+       and the aimed and unaimed days came out identical. The "different finish" check
+       below is what caught it. A 4x4 block north-west of the yard, with tomorrow
+       further north-west again, gives "nearest the yard" and "nearest tomorrow"
+       genuinely different corners. No outlier in either, so Suite 124 stays out. */
+    const mk = (name, lat, lng, extra) => Object.assign({ name, city: 'Lehi', _cust: { lat, lng } }, extra || {});
+    const today = [], tomorrow = [];
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++)
+      today.push(mk('r' + r + 'c' + c, 40.46 + r * 0.012, -111.95 - c * 0.012));
+    for (let i = 0; i < 12; i++) tomorrow.push(mk('n' + i, 40.60 + i * 0.003, -112.05));
+    const nextCentre = api.centre(tomorrow.map(api.point));
+    const dTo = (h, p) => api.hav(h._cust.lat, h._cust.lng, p.lat, p.lng);
+
+    const plain = api.order(today.slice());                       // no aim: as it was
+    const aimed = api.order(today.slice(), { aim: nextCentre });
+
+    check('S317', 'with no aim the day is exactly what it always was',
+      plain.map(h => h.name).join() === api.plain(today.map(api.point), api.home(), api.home())
+        .map(s => s.ref.name).join(),
+      'the optional argument must leave every existing caller alone');
+
+    /* ⚠ CLOSER, NOT NEAREST, AND THE DIFFERENCE IS HONEST RATHER THAN A CLIMBDOWN.
+       The orderer balances the whole tour; it does not promise the globally nearest
+       last stop and never did. What it promises — and what the leftover rule needs —
+       is that the day ends nearer tomorrow than it would have. Measured across a
+       simulated season that is 2.58 mi down to 1.29 mi. */
+    check('S317', 'the aimed day finishes closer to tomorrow than the unaimed one',
+      dTo(aimed[aimed.length - 1], nextCentre) < dTo(plain[plain.length - 1], nextCentre) - 0.25,
+      'aimed ends ' + dTo(aimed[aimed.length - 1], nextCentre).toFixed(2) + ' mi from tomorrow, plain ends ' + dTo(plain[plain.length - 1], nextCentre).toFixed(2) + ' mi — that gap is the leftover rule, and the whole point');
+    check('S317', 'and it starts further from tomorrow than it ends: the day sweeps in',
+      dTo(aimed[0], nextCentre) > dTo(aimed[aimed.length - 1], nextCentre) + 0.5,
+      'start ' + dTo(aimed[0], nextCentre).toFixed(2) + ' mi, end ' +
+      dTo(aimed[aimed.length - 1], nextCentre).toFixed(2) + ' mi — "they start in the back corner and they work there way in", as an outcome rather than an instruction');
+    check('S317', 'and it really is a different finish from the unaimed day',
+      aimed[aimed.length - 1] !== plain[plain.length - 1],
+      'if the two agreed, this fixture would prove nothing about aiming');
+    check('S317', 'every house is still on the day',
+      aimed.length === today.length && new Set(aimed).size === today.length,
+      'an ordering that drops a stop is a customer nobody visits');
+
+    /* ⭐ AND THE PRICE IS NAMED. Aiming trades a little mileage for where the leftover
+       falls; if that trade ever grows past a mile or two on a fixture this size, the
+       reasoning behind it has gone rather than merely the number. */
+    const tour = order => {
+      let prev = YARD, sum = 0;
+      order.forEach(h => { sum += api.hav(prev.lat, prev.lng, h._cust.lat, h._cust.lng); prev = h._cust; });
+      return sum + api.hav(prev.lat, prev.lng, YARD.lat, YARD.lng);
+    };
+    check('S317', 'and it costs a mile or so on the day, not a detour of its own',
+      tour(aimed) - tour(plain) < 2,
+      'cost ' + (tour(aimed) - tour(plain)).toFixed(2) + ' mi'); 
+
+    /* ---- where the season goes after each day ---- */
+    {
+      const days = [{ houses: today }, { houses: tomorrow }];
+      const aims = api.aims(days);
+      check('S317', 'each day is aimed at the work that comes after it',
+        aims[0] && Math.abs(aims[0].lat - nextCentre.lat) < 1e-9,
+        'day one should be pointed at day two');
+      check('S317', 'and the last day of the season is aimed at nothing',
+        aims[1] === null,
+        'there is no next visit for a leftover to be convenient for, so it is the plain round trip');
+    }
+
+    /* ---- the house we already failed to reach ---- */
+    {
+      /* deliberately NOT the stop the sweep would have started on, so the check can
+         tell the two rules apart */
+      const withMissed = today.map((h, i) => i === 6
+        ? Object.assign({}, h, { missedDays: ['2026-10-06'] })
+        : Object.assign({}, h));
+      const owed = withMissed[6];
+      const out = api.order(withMissed.slice(), { aim: nextCentre });
+      check('S317', 'a house the crew never reached is the first stop of the day that picks it up',
+        out[0] === owed,
+        'got ' + out[0].name + ' — Dax: "it can just start on the house that didnt get done then it moves into its box"');
+      check('S317', 'and that is a different answer from where the sweep would have begun',
+        owed !== aimed[0],
+        'if the missed house were also the natural first stop, this check would prove nothing');
+    }
+
+    /* ---- the wiring, asserted apart from the mechanism ----
+       ⚠ EVERY CHECK ABOVE CALLS orderHousesForDriving ITSELF, so all of them stay
+       green if the aim is never handed to it. Two red-check sabotages proved exactly
+       that: dropping {aim:aim} from the crew loop, and dropping {aim:aims[di]} from
+       the season loop, both left 6538 checks passing while no real day was ever
+       aimed at anything. These are the checks that fail instead. */
+    {
+      const gen = sectionFrom(admin, admin.indexOf('function generateDayRoutes(day'));
+      const all = sectionFrom(admin, admin.indexOf('function generateAllRoutes()'));
+      const genC = stripComments(gen), allC = stripComments(all);
+      check('S317', 'the day generator hands its aim to every crew',
+        /* counted on the argument, not on a bracket walk: one of the three call sites
+           passes a filter callback, so a [^)]* between the name and the aim can never
+           reach past it and the check failed on code that was right. */
+        (genC.match(/,\{aim:aim\}\)/g) || []).length === 3,
+        'all three call sites — the fixer route, each crew, and the stops in neither crew town — or one kind of run is quietly left unaimed');
+      check('S317', 'and the season works out an aim for each day and passes it',
+        /seasonAimPoints\(days\)/.test(allC) && /generateDayRoutes\(d,\{aim:aims\[di\]\}\)/.test(allC),
+        'without this the aim is computed and thrown away, or never computed at all');
+    }
+
+    /* ---- and the far-house rule still owns its own case ---- */
+    {
+      /* ⚠ THE OUTLIER SITS ON THE OPPOSITE SIDE FROM THE AIM, DELIBERATELY. The first
+         version put it NORTH, the same way as tomorrow — so the aimed path finished on
+         it anyway and the check passed with the far-house branch stubbed clean out. A
+         red-check caught that. South of the street, the two rules want opposite ends
+         and only hers can produce this answer. */
+      const street = [];
+      for (let i = 0; i < 16; i++) street.push(mk('s' + i, 40.400, -111.900 + i * 0.0055));
+      const far = mk('FAR', 40.325, -111.860);
+      const out = api.order(street.concat([far]), { aim: nextCentre });
+      check('S317', 'a day with a real outlier still ends on it, on the way home',
+        out[out.length - 1] === far,
+        'Suite 124 holds her rule and this one must not have quietly taken it over');
+      check('S317', 'and the aim really does pull the other way, so that proves something',
+        dTo(far, nextCentre) > dTo(street[0], nextCentre),
+        'the outlier must be FURTHER from tomorrow than the street, or the aimed path would finish on it by accident and this check would be vacuous');
+    }
   }
 }
