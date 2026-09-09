@@ -52579,7 +52579,7 @@ function planNewCrewDays(waiting, taken, opts){
      urgent allowed house — no second scan needed. */
   const allowedStats = function(city, ds){
     const q = byCity[city] || [];
-    let n = 0, urg = 99;
+    let n = 0, urg = 99, urgRush = 99;
     for(let i = 0; i < q.length; i++){
       if(q[i].from > ds) continue;
       n++;
@@ -52592,8 +52592,14 @@ function planNewCrewDays(waiting, taken, opts){
          it did. See [[SCH-54]]. */
       const u = (typeof q[i].townPriority === 'number') ? q[i].townPriority : q[i].priority;
       if(u < urg) urg = u;
+      /* ⭐ AND THE SAME NUMBER WITH THE RUSH FLAG LEFT IN ([[SCH-64]]). Which of the two
+         an area is scored on depends on whether it can make a real route — see the
+         candidate below. Both are worked out in the one pass because this runs for
+         every area on every working day of the season. */
+      const r = (typeof q[i].priority === 'number') ? q[i].priority : u;
+      if(r < urgRush) urgRush = r;
     }
-    return {n: n, urg: urg};
+    return {n: n, urg: urg, urgRush: Math.min(urgRush, urg)};
   };
   const allowedCount = function(city, ds){ return allowedStats(city, ds).n; };
   /* ⭐ HOW BIG A CREW-DAY THIS TOWN CAN ACTUALLY MAKE TODAY (added 2026-08-20).
@@ -52709,7 +52715,35 @@ function planNewCrewDays(waiting, taken, opts){
             const cold = tooCold(c, ds);
             if(cold && !allowCold) return;
             const fits = fillableCount(c, ds);
-            const cand = {city: c, n: st.n, urg: st.urg, fits: fits,
+            /* ⭐ A HOUSE ASKED TO GO SOONER MOVES ITS AREA UP — WHEN THE AREA CAN
+               CARRY A REAL DAY ([[SCH-64]], 2026-09-09). Dax, asked directly whether
+               priority should be able to move an area: "it can move their area up
+               unless something else is prioritizing above it."
+               ⚠ [[SCH-54]] SHIPPED THAT AS A BLANKET REFUSAL, AND THIS IS THE HALF OF
+               IT THAT WAS TOO WIDE. What he was actually looking at was Darlene Price
+               alone on 1 October with a whole crew rostered for her and one other
+               house — a TOWN OF ONE made as urgent as a town of thirty. The fault was
+               never that priority moved an area; it was that the area could not fill a
+               morning. Dropping the flag everywhere fixed the symptom by taking away
+               something he had asked for.
+               ⭐ AND [[SCH-63]] IS WHAT MAKES IT SAFE TO GIVE BACK. A crew-day is a
+               block of about twenty adjacent houses now, so a rushed house moves a
+               FULL DAY forward rather than earning itself a private one. `fits` is
+               what says so — fillableCount, what this area could actually produce
+               today including one neighbour's loan.
+               ⚠ THE GATE IS A ONE-CREW DAY, NOT A FULL ONE. Nine houses is the
+               established shape of a legitimate short day in this app; below it a crew
+               is a one-man trip, which is the thing Dax most wanted fewer of and the
+               exact shape of the day he complained about. Derived from
+               ONE_MAN_MAX_HOUSES rather than typed, so changing the crew size moves it.
+               ⚠ "UNLESS SOMETHING ELSE IS PRIORITIZING ABOVE IT" NEEDS NO CODE. A
+               rushed house scores 10, level with a new hang; a new member out of time
+               scores 5 or -10 and still wins, and betterTown already compares urgency
+               first. Giving rush its own override would be the very thing he was
+               refusing on 1 October. */
+            const viable = fits >= ((typeof ONE_MAN_MAX_HOUSES === 'number'
+                                     ? ONE_MAN_MAX_HOUSES : 8) + 1);
+            const cand = {city: c, n: st.n, urg: viable ? st.urgRush : st.urg, fits: fits,
                           temp: tempFor(areaTown(c), ds), cold: cold};
             if(betterTown(cand, pick)) pick = cand;
           });
