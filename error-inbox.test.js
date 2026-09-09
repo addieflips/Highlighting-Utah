@@ -656,11 +656,44 @@ console.log('--- wiring ---');
     calls === 5,
     'expected the four status-line senders plus the referral one; found ' + calls +
     '. A sender added later without this line fails silently exactly as they all used to');
-  const captured = admin.split('catch(err){ failed++; lastEmailSendError = err; }').length - 1;
+  /* ⚠ REPOINTED 2026-09-09, NOT WEAKENED. This matched the whole catch INCLUDING its
+     closing brace, so it was pinned to the catch doing nothing else — and it failed on
+     correct code the moment one of them also recorded WHO the send failed for (EM-01).
+     The guarantee has not moved: every one of the five still keeps the reason. Same
+     slow-fuse shape as S82, S129 and the folder-names suite — a check anchored on where
+     a string happened to sit rather than on what must be true. */
+  const captured = admin.split('failed++; lastEmailSendError = err;').length - 1;
   check('and each of them keeps the reason instead of dropping it (structural)',
     captured === 5,
     'the catch used to be `catch(err){ failed++; }` — the count survived and the reason ' +
     'did not; found ' + captured);
+  /* ⭐ AND ONE OF THEM NAMES THE PEOPLE (EM-01). A count cannot be acted on: the send
+     that prompted this reported 392 not emailed and named nobody, so the only way to
+     reach them was to mail the whole book again. The bulk senders that write straight
+     to a status line are unchanged — this is asserted of the template runner, which is
+     what both RSVP buttons go through. */
+  const runner = admin.slice(admin.indexOf('async function etSendTemplateRun('));
+  const runnerBody = runner.slice(0, runner.indexOf('\ndocument.getElementById(\'etSendToSelectedBtn\')'));
+  /* ⚠ BOTH SITES, COUNTED — not "a push exists somewhere". There are exactly two ways
+     this loop increments `failed`: a recipient with no email (nothing was ever sent) and
+     a refused send. A red-check that renamed only the first sailed straight through a
+     check that asked whether ANY push was present, which would have let the list and the
+     `failed` count disagree — the card then reads "392 did not get it" over 4 names. */
+  const pushes = runnerBody.split('failedRecipients.push(').length - 1;
+  const bumps = runnerBody.split('failed++').length - 1;
+  check('and the template runner records WHO it failed for, not just how many',
+    pushes === bumps && pushes === 2 &&
+    runnerBody.indexOf('failedRecipients: failedRecipients') !== -1,
+    'every way of counting a failure must also name the person: found ' + pushes +
+    ' record(s) against ' + bumps + ' failure(s) counted. Otherwise "send it again to ' +
+    'the ones it missed" silently leaves some of them out');
+  /* ⚠ THE RUNNER MUST NOT SAVE THEM ITSELF. Send the whole RSVP calls it twice, so a
+     save inside would let the Not Paid pass overwrite the ordinary RSVP's failures and
+     only half the book could be sent again. Each button saves once, for all its passes. */
+  check('and it leaves the saving to the button, so two passes cannot overwrite each other',
+    runnerBody.indexOf('saveEmailSendFailures(') === -1,
+    'etSendTemplateRun calls saveEmailSendFailures itself — the second pass of the ' +
+    'whole-RSVP send would erase the first pass’s list');
 }
 
 /* ---------------------------------------------------------------------------

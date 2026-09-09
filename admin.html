@@ -3176,6 +3176,19 @@
         <div id="rsvpWholeStatus" style="font-size:13px; color:var(--slate); margin:0 0 8px;"></div>
         <div id="rsvpWholeBreakdown" style="font-size:13px;"></div>
       </div>
+      <!-- Hidden until a send actually loses somebody. A permanent empty card about
+           failures is one nobody reads, and this one has to be noticed on the day it
+           appears: until these people are emailed they cannot RSVP, and a customer who
+           has not answered is OUT of the season — no route, no bundle, no crew. -->
+      <div class="card" id="sendFailureCard" hidden style="margin-bottom:22px; border-color:#c0392b;">
+        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#9888; Some emails did not go out</h3>
+        <p class="form-note" style="margin:0 0 12px;">These customers were <strong>not</strong> emailed and do not know anything is wrong &mdash; and because nobody who has not answered the RSVP is scheduled, they are currently out of the season. Sending again reaches <strong>only these people</strong>; nobody who already got the email is sent a second copy. Each one is sent the same template it was meant to get the first time.</p>
+        <div id="sendFailureBody" style="font-size:13px; margin-bottom:10px;"></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+          <button type="button" class="btn btn-gold" id="sendFailureRetryBtn">Send again to the ones it missed</button>
+        </div>
+        <div id="sendFailureStatus" style="font-size:13px; color:var(--slate);"></div>
+      </div>
       <div class="card" id="rsvpTextCard" style="margin-bottom:22px; border-color:var(--gold-dim);">
         <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128241; Text the RSVP &mdash; no email on file</h3>
         <p class="form-note" style="margin:0 0 12px;">The RSVP email cannot reach these customers, so they are never asked. Each link signs that person into their own portal, where the first thing on the page is <strong>&ldquo;Are you having lights this season?&rdquo;</strong> with Yes, Back next year and Not this season &mdash; so one short link is the whole RSVP. Nobody who has already answered is listed, and nobody in their first year, for the same reason the email skips them.</p>
@@ -10876,6 +10889,11 @@ function initData(){
      "not sent yet" for a second because its read had not landed is worse than no
      marker — that is the exact sentence somebody would act on. */
   loadRsvpSentMark();
+  /* ⚠ EAGER FOR THE SAME REASON, and it is one document. People the last send did not
+     reach cannot answer the RSVP, and nobody who has not answered is scheduled — so
+     this card must be on screen the first time Automation Emails is opened rather than
+     after whatever draws it happens to run (EM-01). */
+  loadEmailSendFailures();
   /* loadProjectPeople, the Reviews/Gallery/Hero/FAQ loaders, the people loaders
      and the money loaders now run when their panel is first opened — see
      PANEL_DATA above. loadProjectTests stays here because the sidebar badge
@@ -18684,13 +18702,33 @@ function referralMissingNote(run){
 }
 async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId, statusEl, progressLabel){
   let sent = 0, failed = 0, optedOut = 0, noReferral = 0;
+  /* ⭐ WHO FAILED, NOT ONLY HOW MANY (added 2026-09-09, EM-01). Addie, on a send where
+     392 did not go out: "We need to be able to send it again to failed recepients."
+     A count cannot be acted on — `reportEmailSendFailures` said 392 had not been
+     emailed and named nobody, so the only way to reach them was to send the whole book
+     a second time and mail everybody who DID get it twice.
+     ⚠ AND IT MATTERS MORE THAN AN UNSENT EMAIL USUALLY WOULD, because
+     SEASON_ELIGIBILITY is 'confirmed-only' and `seasonRuleIsLive()` is true: a customer
+     who was never asked cannot answer, and `isOutForSeason` therefore has them off the
+     routes, out of the build queue and off the schedule. An email that silently did not
+     arrive is a house the crew is never sent to. */
+  const failedRecipients = [];
   /* ⚠ NAMES, NOT JUST A COUNT, AND ONLY THE FIRST FEW. "12 got no referral link" is
      a number nobody can act on; a name and a reason is one record to open. Capped so
      a whole-book send cannot print nine hundred names into a status line. */
   const noReferralNames = [];
   for(const id of selectedIds){
     const member = jobAddresses.find(m => m.id === id);
-    if(!member || !member.data.email) { failed++; continue; }
+    /* ⚠ RECORDED, NOT JUST COUNTED. This is not an email-service failure — nothing was
+       ever sent — but it lands in the same `failed` tally, so leaving it out of the list
+       would make the list and the count disagree, and a re-send card reading "3 of 4
+       failed" over three names is one nobody can trust. The reason says which it was. */
+    if(!member || !member.data.email) {
+      failed++;
+      failedRecipients.push({ id: id, name: (member && member.data.name) || '(not on the customer list)',
+                              email: '', why: 'no email address on file' });
+      continue;
+    }
     /* ⚠ THE LAST GATE, and it is not redundant with the render. The list is rebuilt
        from `jobAddresses`, but these checkboxes are read straight out of the DOM at
        send time — so a row ticked a moment before somebody was added to the list is
@@ -18755,11 +18793,18 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
       const subject = await emailSubjectFor(template, vars.phone, vars);
       await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', subject: subject, message: message });
       sent++;
-    } catch(err){ failed++; lastEmailSendError = err; }
+    } catch(err){ failed++; lastEmailSendError = err;
+      /* ⚠ THE REASON IS KEPT PER PERSON, not only in `lastEmailSendError`. That variable
+         holds the LAST error of the run, so one report spoke for four hundred sends that
+         may have failed for different reasons. Here each row carries its own. */
+      failedRecipients.push({ id: member.id, name: member.data.name || '', email: member.data.email || '',
+                              why: String((err && (err.text || err.message || err.status)) || 'no reason was given').slice(0, 200) });
+    }
   }
   reportEmailSendFailures(failed, sent);
   return { sent: sent, failed: failed, optedOut: optedOut,
-           noReferral: noReferral, noReferralNames: noReferralNames };
+           noReferral: noReferral, noReferralNames: noReferralNames,
+           failedRecipients: failedRecipients };
 }
 document.getElementById('etSendToSelectedBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('etPreviewSendStatus');
@@ -18781,6 +18826,12 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
   emailjs.init(publicKey);
   const run = await etSendTemplateRun(template, selectedIds, serviceId, templateJsId, statusEl);
   const sent = run.sent, failed = run.failed, optedOut = run.optedOut;
+  /* ⭐ RECORDED BY THE CALLER, NOT INSIDE THE RUNNER (EM-01). "Send the whole RSVP"
+     calls the runner twice, so a save in there would write the ordinary RSVP's
+     failures and then have the Not Paid pass overwrite them — the second pass would
+     be the only one anybody could send again. Each button saves once, for all of its
+     passes, when they are all finished. */
+  await saveEmailSendFailures([{templateId: template.id, templateName: template.data.name || '', people: run.failedRecipients || []}]);
   statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + (optedOut ? ', ' + optedOut + ' skipped (on the do-not-send list)' : '') + '.'
     + referralMissingNote(run);
   /* ⭐ AND RECORD THAT THE SEASON'S RSVP HAS GONE OUT. Only for an RSVP template, only
@@ -18949,6 +19000,9 @@ document.getElementById('rsvpWholeSendBtn')?.addEventListener('click', async fun
   btn.disabled = true;
   let sent = 0, failed = 0, optedOut = 0, noReferral = 0;
   const noReferralNames = [];
+  /* Both passes' failures, saved together once at the end — see the note on the
+     Send to Selected handler for why the runner must not save them itself. */
+  const failedPasses = [];
   try{
     emailjs.init(publicKey);
     const passes = [
@@ -18959,6 +19013,9 @@ document.getElementById('rsvpWholeSendBtn')?.addEventListener('click', async fun
       if(!pass.ids.length) continue;
       const r = await etSendTemplateRun(pass.t, pass.ids, serviceId, templateJsId, st, pass.label);
       sent += r.sent; failed += r.failed; optedOut += r.optedOut;
+      if(r.failedRecipients && r.failedRecipients.length){
+        failedPasses.push({templateId: pass.t.id, templateName: pass.t.data.name || '', people: r.failedRecipients});
+      }
       /* ⚠ SUMMED ACROSS BOTH PASSES, and the names kept from whichever pass had them.
          Reporting the second pass alone would say nothing about the ordinary RSVP,
          which is the bigger half of the book. */
@@ -18967,8 +19024,12 @@ document.getElementById('rsvpWholeSendBtn')?.addEventListener('click', async fun
         if(noReferralNames.length < 5) noReferralNames.push(n);
       });
     }
+    /* Both passes are finished, so the record covers the whole RSVP \u2014 and each half
+       keeps its own template, so Send again gives the arrears half the Not Paid RSVP
+       rather than the ordinary one (EM-01). */
+    await saveEmailSendFailures(failedPasses);
     if(st) st.textContent = 'Done \u2014 sent ' + sent
-      + (failed ? ', ' + failed + ' failed' : '')
+      + (failed ? ', ' + failed + ' failed \u2014 the card below can send to just them' : '')
       + (optedOut ? ', ' + optedOut + ' skipped (do-not-send)' : '')
       + (plan.noEmail.length ? '. ' + plan.noEmail.length + ' still need texting \u2014 the card below lists them.' : '.')
       + referralMissingNote({noReferral: noReferral, noReferralNames: noReferralNames});
@@ -43145,6 +43206,156 @@ async function noteRsvpSendHappened(count){
     return false;
   }
 }
+/* ============================================================================
+   SEND AGAIN TO THE ONES IT DID NOT REACH (added 2026-09-09, EM-01)
+   Addie, after a send where 392 did not go out: "We need to be able to send it
+   again to failed recepients."
+
+   ⚠ WHY A STORED RECORD AND NOT A VARIABLE. The failures are worth nothing if they
+   die with the tab. A run of ~950 takes long enough that the office walks away from
+   it, and the whole point is coming back to the ones that did not land — possibly
+   from the other machine. settings/emailSendFailures is read at login like the RSVP
+   mark beside it.
+
+   ⚠ PER TEMPLATE, NEVER ONE FLAT LIST OF IDS. "Send the whole RSVP" runs
+   `etSendTemplateRun` TWICE — the ordinary RSVP, then the Not Paid one — and the two
+   audiences must never be merged: re-sending the ordinary email to somebody who owes
+   from last season is the exact mix-up that button was built to prevent. Each pass
+   keeps its own template id, so the second attempt sends what the first attempt
+   would have.
+   ========================================================================== */
+let emailSendFailuresCache = null;
+/* ⚠ CAPPED. `messages` and settings documents are not a place to put nine hundred
+   rows, and a Firestore document is 1MB — a whole-book failure would otherwise write
+   a list nobody can render and the save would throw, losing the lot. The COUNT is
+   kept whole so the card cannot understate what happened. */
+const SEND_FAILURE_LIST_CAP = 400;
+async function saveEmailSendFailures(passes){
+  /* Only the passes that actually lost somebody. A pass that went out cleanly has no
+     business putting an empty row on a card about failures. */
+  const keep = (passes || []).filter(p => p && p.people && p.people.length);
+  try{
+    if(!keep.length){
+      await setDoc(doc(db,'settings','emailSendFailures'), {passes: [], at: serverTimestamp(), by: ''}, {merge:true});
+      emailSendFailuresCache = null;
+    } else {
+      const payload = {
+        at: serverTimestamp(),
+        by: (typeof paymentLedgerUser === 'function') ? paymentLedgerUser() : '',
+        passes: keep.map(p => ({
+          templateId: p.templateId || '',
+          templateName: p.templateName || '',
+          total: p.people.length,
+          people: p.people.slice(0, SEND_FAILURE_LIST_CAP)
+        }))
+      };
+      await setDoc(doc(db,'settings','emailSendFailures'), payload, {merge:true});
+      emailSendFailuresCache = payload;
+    }
+  }catch(err){
+    /* ⚠ NEVER THROWN BACK AT THE CALLER. The emails have already gone out by the time
+       this runs; losing the record of who missed out is bad, and undoing the status
+       line that tells her what happened would be worse. It is said out loud rather
+       than swallowed — nothing fails quietly. */
+    console.error('[HU] could not record who the send failed for:', err);
+    if(typeof toast === 'function') toast('Sent, but the list of who it failed for could not be saved — write the number down.');
+  }
+  if(typeof renderSendFailureCard === 'function') renderSendFailureCard();
+}
+async function loadEmailSendFailures(){
+  try{
+    const snap = await getDoc(doc(db,'settings','emailSendFailures'));
+    const d = snap.exists() ? snap.data() : null;
+    emailSendFailuresCache = (d && d.passes && d.passes.length) ? d : null;
+  }catch(err){
+    /* Unknown, not empty. Drawing no card because the read failed would tell her every
+       email landed, which is the one claim this must never make by accident. */
+    console.error('[HU] could not read who the last send failed for:', err);
+    emailSendFailuresCache = null;
+  }
+  renderSendFailureCard();
+}
+function sendFailureTotal(){
+  const p = emailSendFailuresCache && emailSendFailuresCache.passes;
+  return (p || []).reduce((n, x) => n + (Number(x.total) || 0), 0);
+}
+function renderSendFailureCard(){
+  const card = document.getElementById('sendFailureCard');
+  if(!card) return;
+  const passes = (emailSendFailuresCache && emailSendFailuresCache.passes) || [];
+  if(!passes.length){ card.hidden = true; return; }
+  card.hidden = false;
+  const total = sendFailureTotal();
+  const body = document.getElementById('sendFailureBody');
+  if(!body) return;
+  /* ⚠ NAMES AND THE REASON, not a bare number — that is the whole complaint this
+     answers. Only the first few are drawn: a wall of four hundred names is as
+     unreadable as the count was, and the button acts on all of them either way. */
+  const rows = passes.map(function(p){
+    const shown = (p.people || []).slice(0, 8).map(function(x){
+      return '<li>' + esc(x.name || '(no name)') + (x.email ? ' &mdash; ' + esc(x.email) : '') +
+             '<span style="color:var(--slate);"> &middot; ' + esc(x.why || '') + '</span></li>';
+    }).join('');
+    const more = (Number(p.total) || 0) - Math.min(8, (p.people || []).length);
+    return '<div style="margin-bottom:10px;"><strong>' + esc(p.templateName || 'this email') + '</strong> &mdash; ' +
+           (Number(p.total) || 0) + ' did not get it' +
+           '<ul style="margin:4px 0 0 18px; padding:0;">' + shown +
+           (more > 0 ? '<li style="color:var(--slate);">&hellip; and ' + more + ' more</li>' : '') + '</ul></div>';
+  }).join('');
+  body.innerHTML = rows;
+  const btn = document.getElementById('sendFailureRetryBtn');
+  if(btn) btn.textContent = 'Send again to the ' + total + ' who did not get it';
+}
+/* ⚠ IT RESENDS THE TEMPLATE THAT PASS WAS SENT WITH, looked up fresh by id. A template
+   deleted since is REPORTED and its people are KEPT on the list rather than being
+   dropped or quietly sent something else — the wrong RSVP is worse than none. */
+document.getElementById('sendFailureRetryBtn')?.addEventListener('click', async function(){
+  const statusEl = document.getElementById('sendFailureStatus');
+  const passes = (emailSendFailuresCache && emailSendFailuresCache.passes) || [];
+  if(!passes.length){ if(statusEl) statusEl.textContent = 'Nothing left to send.'; return; }
+  const serviceId = document.getElementById('emailjsServiceId').value.trim();
+  const templateJsId = document.getElementById('emailjsTemplateId').value.trim();
+  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
+  if(!serviceId || !templateJsId || !publicKey){ if(statusEl) statusEl.textContent = 'Set up EmailJS (EmailJS Setup tab) first.'; return; }
+  if(!window.emailjs){ if(statusEl) statusEl.textContent = 'Email service failed to load — check your connection.'; return; }
+  const total = sendFailureTotal();
+  if(!confirm('Send again to the ' + total + ' customer(s) who did not get it?\n\n'
+    + 'Only these people are emailed — nobody who already got it is sent a second copy.')) return;
+  this.disabled = true;
+  let sent = 0, failed = 0;
+  const stillFailing = [];
+  try{
+    emailjs.init(publicKey);
+    for(const p of passes){
+      const template = emailTemplates.find(t => t.id === p.templateId);
+      if(!template){
+        /* Kept, not dropped. Losing them here would be the same silence this card exists
+           to end, and she can re-make the template. */
+        stillFailing.push(p);
+        continue;
+      }
+      const ids = (p.people || []).map(x => x.id).filter(Boolean);
+      if(!ids.length) continue;
+      const r = await etSendTemplateRun(template, ids, serviceId, templateJsId, statusEl,
+                                        (p.templateName || '') + ': ');
+      sent += r.sent; failed += r.failed;
+      if(r.failedRecipients && r.failedRecipients.length){
+        stillFailing.push({templateId: p.templateId, templateName: p.templateName, people: r.failedRecipients});
+      }
+    }
+    /* ⚠ THE LIST IS REPLACED BY WHAT FAILED THIS TIME, never merged with the old one.
+       Somebody who got through must leave the list, or the card asks her to keep
+       emailing people who already have it — and a card that cries wolf is one she
+       stops opening. An empty result clears it. */
+    await saveEmailSendFailures(stillFailing);
+    if(statusEl) statusEl.textContent = 'Done — sent ' + sent
+      + (failed ? ', ' + failed + ' still failed. They are still listed above.' : '. Everybody has now been emailed.');
+  }catch(err){
+    console.error('[HU] re-send to failed recipients:', err);
+    if(statusEl) statusEl.textContent = 'Stopped — ' + (err && err.message ? err.message : 'something went wrong') + '. The list above is unchanged.';
+  }
+  this.disabled = false;
+});
 /* Read once at login. Not a listener: this changes about once a season, and a live
    listener on settings/season would be an open connection for a single date. */
 async function loadRsvpSentMark(){

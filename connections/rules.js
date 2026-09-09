@@ -24,7 +24,11 @@ const AREAS = {
   RS: 'RSVP and the season', SH: 'The master sheet', PROC: 'How we work',
   CN: 'Customer numbers', DUP: 'Duplicates', MSG: 'Messages',
   PR: 'Printing', HC: 'Health Check', FIX: 'Fixes', OPT: 'Options',
-  MR: 'Measure Roof', REF: 'Referrals'
+  MR: 'Measure Roof', REF: 'Referrals',
+  /* ⚠ NOT `MSG`. That family is the Inbox — post arriving. This one is mail going OUT:
+     who a send reached, who it did not, and getting to the second group. They fail in
+     opposite directions and filing them together would hide both. */
+  EM: 'Sending email'
 };
 
 /* The map's own Status column is the honest starting state. A person confirming a block
