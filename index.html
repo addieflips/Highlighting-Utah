@@ -5384,6 +5384,34 @@ function redactTokens(text){
     return lead + key + '=\u2026' + String(val).slice(-6);
   });
 }
+/* \u2b50 THE LAST SIX CHARACTERS, IN THEIR OWN FIELD, SO THE OFFICE SCREEN CAN NAME THEM
+   (2026-09-09, [[MSG-10]]). Addie: "we need to know who hit an error so you need to show
+   me who hit that error."
+
+   \u26a0 THE HARDEST CASE IS THE ONE THAT MATTERS MOST. An RSVP link that fails BEFORE sign-in
+   has no record on this page to read a name off \u2014 and that is exactly the failure the
+   folder was built for, because to the customer it looks like they already answered. The
+   tail was already in the report, buried inside the page address as prose; nobody can act
+   on that. In its own field, admin matches it against the `portalToken` it already holds
+   on every customer and prints the name.
+
+   \u26a0 SIX CHARACTERS, AND NOT ONE MORE. The whole token is a key to somebody's account and
+   `messages` is PUBLICLY CREATABLE, so the existing rule stands unchanged \u2014 this widens
+   nothing, it just stops the office having to read a URL to use what was already there.
+   Six of 36 characters is one in two billion, which is a match rather than a guess.
+
+   \u26a0 AND THE KIND TRAVELS WITH IT. A quoteToken belongs to a quote and a portalToken to a
+   customer; they are the same shape, so a tail matched against the wrong collection would
+   name a real person who had nothing to do with it. Admin only ever resolves `portal`. */
+function memberErrorTokenTail(){
+  var href = String((location && location.href) || '');
+  var m = /[?&#](token|quoteToken|t|p)=([^&\s]+)/i.exec(href);
+  if(!m) return null;
+  var key = String(m[1]).toLowerCase();
+  var val = String(m[2] || '');
+  if(val.length < 6) return null;
+  return { tail: val.slice(-6).toLowerCase(), kind: (key === 'quotetoken') ? 'quote' : 'portal' };
+}
 /* ⚠ NEVER THROWS. Every caller is already handling a failure; a reporter that can fail on
    top of it would replace the apology the customer is about to read with a blank screen. */
 function reportMemberError(doing, err, who){
@@ -5391,10 +5419,15 @@ function reportMemberError(doing, err, who){
     if(memberErrorBusy || memberErrorCount >= MEMBER_ERROR_MAX_PER_VISIT) return;
     /* ⭐ NAME THEM WHEN WE CAN. A failure inside the portal is the one case where we
        already know exactly who is looking at it, and a report the office can act on
-       without detective work is worth far more than one they cannot. An RSVP link that
-       failed before sign-in genuinely has nobody to name — that is what the redacted
-       address at the bottom is for. */
+       without detective work is worth far more than one they cannot.
+       ⚠ BOTH RECORDS, NOT JUST THE FIRST. `currentJobAddressData` is set by the token
+       route; the ordinary phone-and-surname sign-in fills `currentLookupRecord` and may
+       never set the other one. Reading only the first named nobody for every customer who
+       signed in the normal way — which is most of them — and every other reader in this
+       file already asks for the pair (`currentJobAddressData || currentLookupRecord`).
+       That is [[MSG-10]], and it is the commonest of the three blank cases. */
     if(!who && typeof currentJobAddressData !== 'undefined' && currentJobAddressData) who = currentJobAddressData;
+    if(!who && typeof currentLookupRecord !== 'undefined' && currentLookupRecord) who = currentLookupRecord;
     var reason = (err && (err.message || err.code || err.text)) || 'no reason was given';
     var key = String(doing || 'using the website') + '|' + String(reason).replace(/[0-9]+/g, '#').slice(0, 120);
     if(memberErrorsSent[key]) return;
@@ -5409,6 +5442,13 @@ function reportMemberError(doing, err, who){
         name: (who && who.name) || '', phone: (who && who.phone) || '', email: (who && who.email) || '',
         contactMethod: '',
         errorKey: key.slice(0, 160),
+        /* ⭐ The last six characters of whatever token this page carried, in their own
+           field, so the office screen can name a customer the page itself could not
+           ([[MSG-10]]). Six characters is not a credential; the whole token is, and it is
+           still never written here. `null` where there was no token at all — a blank
+           stored where an answer goes reads as an answer. */
+        tokenTail: (memberErrorTokenTail() || {}).tail || null,
+        tokenKind: (memberErrorTokenTail() || {}).kind || null,
         message: 'A customer hit an error on the website.' + String.fromCharCode(10,10) +
           'What they were doing: ' + String(doing || 'using the website') + String.fromCharCode(10) +
           'What went wrong: ' + String(reason).slice(0, 300) + String.fromCharCode(10,10) +

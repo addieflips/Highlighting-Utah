@@ -819,6 +819,128 @@ console.log('--- wiring ---');
 }
 
 /* ---------------------------------------------------------------------------
+ * ⭐ WHO HIT THE ERROR ([[MSG-10]], 2026-09-09)
+ *
+ * Addie, reading a Member Errors folder in which one row was named and the rest were
+ * blank: "we need to know who hit an error so you need to show me who hit that error."
+ *
+ * ⚠ THE BLANK ROWS WERE NOT A RENDERING FAULT. The heading already prints `name`; the
+ * write had none, because an RSVP link that fails BEFORE sign-in has no record on the
+ * page. Those are the rows that matter most — to that customer it looks like they
+ * already answered — so this RUNS the resolver rather than matching its source.
+ * ------------------------------------------------------------------------- */
+{
+  const liftFn = (src, n) => {
+    const a = src.indexOf('function ' + n + '(');
+    if (a === -1) throw new Error('could not find ' + n + '()');
+    let i = src.indexOf('{', a), d = 0;
+    for (; i < src.length; i++) {
+      const c = src[i];
+      if (c === '{') d++;
+      else if (c === '}') { d--; if (!d) return src.slice(a, i + 1) + '\n'; }
+    }
+    throw new Error('could not lift ' + n + '() whole');
+  };
+
+  /* The office's own list, shaped the way admin holds it. Ashley carries the tail that
+     appears in the real blank row; Adrienne carries the one from the row that WAS named. */
+  const BOOK = [
+    { id: 'c1', data: { name: 'Ashley Wray', customerNumber: 894, portalToken: 'abcdefghijklmnw5o9tx' } },
+    { id: 'c2', data: { name: 'Adrienne Torkildson', portalToken: 'zzzzzzzzzzzzzzix2cng' } }
+  ];
+  const sb = {};
+  new Function('jobAddresses',
+    liftFn(admin, 'msgErrorTokenTail') + liftFn(admin, 'msgErrorWhoIs') + liftFn(admin, 'msgErrorWhoLabel') +
+    'this.label = msgErrorWhoLabel; this.tail = msgErrorTokenTail;').call(sb, BOOK);
+
+  /* ⚠ THE ACTUAL ROW FROM THE FOLDER, not an invented one. A fixture of made-up shapes
+     can pass while missing the one that happened — the rule Suite 274 was corrected under. */
+  const REAL_BLANK_ROW = {
+    name: '',
+    message: 'A customer hit an error on the website.\n\nWhat they were doing: Answering Back ' +
+      'Next Year from the RSVP email\nWhat went wrong: internal\n\nThey were shown an apology ' +
+      'and our phone number, so they may ring.\n\nPage they were on: ' +
+      'https://highlightingutah.com/#/?token=\u2026w5o9tx&rsvp=back\n(their link is cut short ' +
+      'on purpose — the last six characters still match their record)\nBrowser: Mozilla/5.0'
+  };
+
+  check('the row that named nobody is resolved from the link it carries',
+    sb.label(REAL_BLANK_ROW).indexOf('Ashley Wray') === 0,
+    'this is the real row out of the folder she was reading; got: ' + JSON.stringify(sb.label(REAL_BLANK_ROW)));
+
+  check('and it says the name was worked out, not reported',
+    /matched by their link/.test(sb.label(REAL_BLANK_ROW)),
+    'the office should be able to tell which rows the page identified and which were ' +
+    'matched from a token — printed plain, they read as equally certain');
+
+  check('the customer number rides along, since that is what the office searches by',
+    /#894/.test(sb.label(REAL_BLANK_ROW)));
+
+  /* ⚠ THE HALF THAT MUST NOT MOVE. Every ordinary message already carries a name, and a
+     resolver that spoke up there would put a second answer beside a real one. */
+  check('a row that already has a name is left completely alone',
+    sb.label({ name: 'Adrienne Torkildson', message: 'token=\u2026ix2cng' }) === '',
+    'the heading prints the real name; this must add nothing to it');
+
+  check('a new report carries the tail in its own field and needs no prose',
+    sb.label({ name: '', tokenTail: 'w5o9tx', tokenKind: 'portal', message: 'no address in here' })
+      .indexOf('Ashley Wray') === 0,
+    'the field is what new rows will use; the prose match exists for the ones already filed');
+
+  /* ⛔ A quoteToken BELONGS TO A QUOTE. Same shape, different collection — resolved against
+     the customer list it would name a real person who had nothing to do with it. */
+  check('a quote link is never resolved against the customer list',
+    sb.tail({ message: 'they were on https://highlightingutah.com/#/q?quoteToken=\u2026w5o9tx' }) === '' &&
+    sb.label({ name: '', message: '?quoteToken=\u2026w5o9tx' }) === '',
+    'the key is anchored so the tail of the word quoteToken cannot pass for token=');
+
+  check('and a portal tail that matches nobody says so rather than going quiet',
+    /no customer matches/.test(sb.label({ name: '', message: '?token=\u2026zzzzzz' })),
+    'a blank heading is what she reported; "nobody matches" is at least an answer');
+
+  /* ⚠ TWO CANDIDATES IS NO MATCH. Naming the wrong customer on a report about a failure
+     is worse than naming none — "a number never outranks a name that disagrees". */
+  {
+    const twin = {};
+    new Function('jobAddresses',
+      liftFn(admin, 'msgErrorTokenTail') + liftFn(admin, 'msgErrorWhoIs') + liftFn(admin, 'msgErrorWhoLabel') +
+      'this.label = msgErrorWhoLabel;').call(twin, [
+        { id: 'a', data: { name: 'One', portalToken: 'aaaaaaaaaaaaaaw5o9tx' } },
+        { id: 'b', data: { name: 'Two', portalToken: 'bbbbbbbbbbbbbbw5o9tx' } }
+      ]);
+    check('two customers on one tail names neither',
+      /more than one/.test(twin.label(REAL_BLANK_ROW)),
+      'it must not take the first; that is a coin toss printed as a fact');
+  }
+
+  /* ⚠ AND THE RESOLVER HAS TO REACH THE SCREEN. Suite 276's lesson: a renderer proved
+     against a harness while the page never calls it is green and useless. */
+  check('the message heading actually calls it',
+    /'<h4>'\+\(esc\(d\.name\) \|\| esc\(msgErrorWhoLabel\(d\)\)\)/.test(admin),
+    'without this the resolver is correct and invisible, which is the state she reported');
+
+  /* The client half: both records, and the tail written down. */
+  check('the portal names a customer who signed in the ordinary way, not just by token',
+    /if\(!who && typeof currentLookupRecord !== 'undefined' && currentLookupRecord\) who = currentLookupRecord;/.test(index),
+    'currentJobAddressData is the token route only; the phone-and-surname sign-in fills ' +
+    'currentLookupRecord, and reading one of the two named nobody for most customers');
+
+  check('and the report writes the tail down as a field',
+    /tokenTail:\s*\(memberErrorTokenTail\(\) \|\| \{\}\)\.tail \|\| null/.test(index) &&
+    /tokenKind:\s*\(memberErrorTokenTail\(\) \|\| \{\}\)\.kind \|\| null/.test(index),
+    'the kind travels with it, or a quote tail gets resolved against customers');
+
+  /* ⚠ THE WHOLE TOKEN IS STILL NEVER WRITTEN. This widens what the office can SEE, not
+     what is stored — `messages` is publicly creatable and that rule is unchanged. */
+  {
+    const fn = liftFn(index, 'memberErrorTokenTail');
+    check('the tail is six characters and never the token',
+      /slice\(-6\)/.test(fn) && !/val\s*\)/.test(fn.replace(/slice\(-6\)/g, '')),
+      'six of thirty-six characters is a match; the whole token is a key to an account');
+  }
+}
+
+/* ---------------------------------------------------------------------------
  * The async folder checks have to finish before the summary, or a failure scores
  * after the total is printed and can never fail the build.
  * ------------------------------------------------------------------------- */
