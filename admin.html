@@ -20094,7 +20094,14 @@ function loadMessageFolders(){
       try{ await seedErrorFolders(messageFolders); }
       catch(err){ console.error('Could not create the Errors folders:', err); }
     }
-    renderFolderSidebar();
+    /* ⭐ renderCommNav, NOT renderFolderSidebar (2026-09-09). The Communication Centre
+       replaced the folder sidebar and took its renderer with it; these two calls were
+       left pointing at a function that no longer exists, so BOTH threw on every page
+       load — `Uncaught ReferenceError: renderFolderSidebar is not defined`, straight
+       into the Admin Errors folder, twice. `renderCommNav` is what draws that sidebar
+       now (it writes the nav and the "Your folders" heading into the same host), so it
+       is the same intent: redraw the sidebar once the folders have loaded. */
+    renderCommNav();
     renderMessagesList();
   });
 }
@@ -21226,7 +21233,8 @@ function loadMessages(){
       renderMessagesList();
     }
     renderSystemMessagesTab();
-    renderFolderSidebar();
+    /* Same repoint as above — the sidebar is renderCommNav's now. */
+    renderCommNav();
     /* Last: the repeat check reads allMessages, so anything held while this was loading can
        only be decided now. */
     flushAdminErrors();
@@ -45342,7 +45350,12 @@ function renderWarehouseQueue(){
                  timer, that half needs nothing and can go in today. Said on the row itself,
                  because the timer list is a different sheet and the person reading this one
                  is the person who would otherwise leave the whole house alone. */
-              (String(item.data.outletTimer || '').trim() === 'Yes'
+              /* ⚠ `h`, NOT `item` (2026-09-09). This block is inside blocked.map(function(h)),
+                 and the timer line arrived carrying the loop variable from somewhere else —
+                 `Uncaught ReferenceError: item is not defined`, thrown while DRAWING the
+                 Waiting-on-light-colours block, which is the one part of that tab nobody in
+                 the warehouse can act on and so the one most likely to go unnoticed. */
+              (String(h.data.outletTimer || '').trim() === 'Yes'
                 ? '<span style="display:block; font-size:12px; color:var(--emerald); margin-top:2px; font-weight:600;">Timer can go in their bin now &mdash; that part is not waiting on the colours</span>'
                 : '')+
               '<span style="display:block; margin-top:4px; line-height:1.9;">'+whHouseFactsHtml(h.data)+'</span>'+
