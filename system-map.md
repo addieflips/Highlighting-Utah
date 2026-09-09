@@ -3147,6 +3147,54 @@ that the customer may ring. An admin row names who was signed in and, for emails
 did not go out and what the mail service said — a count the status line showed and then
 threw away the moment she clicked anything else.
 
+### The Communication Centre — type, status, category, priority
+
+Added 2026-09-09 ([[MSG-11]]). Addie's blueprint: *"Do NOT simply create more folders.
+Instead, create a system based on MESSAGE TYPE → STATUS → CATEGORY → PRIORITY"*, and the
+test she set for it — the office should answer, in seconds: who contacted us, what do they
+need, do I need to respond, is somebody waiting on us, is the system having problems, is
+any of it urgent, what is already handled.
+
+⭐ **This supersedes the folder-shaped Inbox of [[MSG-05]]**, which was also hers. The old
+answer is still right about what it was protecting — a tree is how you file something you
+will look for later — but filing turned out to be the wrong FIRST question.
+
+⛔ **Nothing she filed by hand is deleted.** The folder tree, the drag, the right-click and
+Move to… all still work and still hold everything in them. They moved *down* the sidebar,
+under **Your folders**, and picking one hands the list straight back to that folder.
+
+⛔ **Derived, never migrated.** Every classification is computed from what the record
+already carries — `topic`, `folder`, `read`, `responded` — so it is right for a season of
+messages already written, and there is nothing to undo if a rule turns out wrong. Only what
+a *person* decides is stored: a status she sets, a priority she raises, a tag she adds.
+
+| | |
+|---|---|
+| **Type** | `member` (somebody asking for something), `system` (the app reporting activity), `error` (something broke). Icon **and** word on every chip — *"Do not rely only on color"* |
+| **Category** | tags, not folders, and a message may carry several. Her own example — *"red and green … and move my installation to November 20"* — comes out **Lights / Colors + Scheduling**, which no folder could hold twice |
+| **Status** | Unread → Needs Reply → Waiting on Member → In Progress → Resolved → Archived |
+| **Priority** | Urgent / High / Normal / Low. Nothing is urgent unless it broke something or she said so — *"Do not make every message feel urgent"* |
+| **Severity** | errors only: Critical / Warning / Needs Review / Resolved |
+
+⚠ **`responded` means Resolved, not Waiting.** That button has always meant *dealt with*;
+reading it the other way would relabel every message she has ever ticked. **Waiting on
+Member** is a new answer she sets herself, so it is stored and never inferred.
+
+⚠ **A system notice never reads as Needs Reply.** Route notices outnumber real questions
+hundreds to one, and burying the queue is the complaint this whole thing exists to fix —
+the same argument the unread badge was fixed under in August.
+
+⚠ **One rule, `commRowMatches`, decides both the list and every count beside every tab.**
+Two implementations is how a tab says 5 and shows 4, which this Inbox has already done once.
+
+The summary strip along the top is all buttons: *"Clicking '5 Need Reply' immediately
+filters the inbox to those five."* Beside it sits **System Health**, which reads unresolved
+errors rather than unread ones — "All systems operational" while two critical errors sat
+there having been clicked once would be the panel lying.
+
+*Where it's proved*: `comm-centre.test.js` (`npm run test:comm`) RUNS the classifier over
+real message shapes, including her worked example, rather than matching its source.
+
 **Who hit it** ([[MSG-10]], 2026-09-09). Addie, reading a folder in which one row was named
 and the rest were blank: *"we need to know who hit an error so you need to show me who hit
 that error."* Three different things were happening in those rows, and only the first was
@@ -4831,4 +4879,5 @@ are the two copies of the rule — change one, change the other, in the same pus
 - **The same System notice arrives twice, word for word, minutes apart** → treat it as a sweep loop, not as noise. A sweep doing real work finds *less* to do next pass; a byte-for-byte identical notice (same counts, same names in every list) is the signature of one pass undoing another. Check that eviction and the cap/top-up are asking the same question about the same day — `routeDayTowns` is the single answer, and `stopProblem` and `evenOutDays`/`fillDays` must all read it (§5).
 - **A button on a generated page does nothing at all, with no error** → look at what is being written into the button, not at the handler. On 2026-08-27 not one of the 181 blocks in the Rules view would open, because a rule name Addie wrote carries a double quote (`Is a pooled number somebody still holds "available"?`) and it was being pasted straight into the button's hidden label — the quote ends the label early, the button hands back a chopped-off name, the lookup finds nothing and the click quietly does nothing. Anything taken from `claude/questions-map.md`, from `connections/manifest.js`, or from a customer record is prose somebody typed, so it must be escaped at every point it is written into the page — and never at the source, because the real text is what every lookup is keyed on.
 - **A crew-day appears for a town nobody recognises** → look at that customer's `city` field on the record, not at the scheduler. `extractCleanCity` only strips zips and `UT`/`Utah` and drops any part containing a digit, so a *street* typed into the town field (`S Summit Crest Ln`) survives cleaning and reads as a town. Since 2026-08-31 the builder **refuses to seed a crew-day from one** (`townIsPhantom`), so those houses are left unplaced and named in the "Routes Kept Up To Date" notice under *these houses have a street in the town box*, with the bad value quoted. That line **is** the fix: correct the town on the record, and the customer sync carries it across. Before this, the invented town got a crew-day of its own, borrowed real houses from a neighbour to fill it, and `stopProblem` evicted those borrowed houses again on the next pass — the eviction/replacement loop behind twenty identical System notices a day.
+- **Measure Roof's Attach to Quote says "Nothing uploaded"** → read the rest of that line, and believe it over the button. Since 2026-09-09 the message carries the picture service's own words, because for one afternoon it said only *"Nothing uploaded — try again."* while Cloudinary was answering every request `401 cloud_name highlighting-utah is disabled` — the whole account switched off, so retrying could not work at any hour of any day and the office was sent to the one action guaranteed to fail. **A disabled account is a billing problem at Cloudinary, not a bug in Attach**, and it takes down every photograph already on a quote as well as new uploads (delivery from `res.cloudinary.com` 401s too), so the symptom to expect alongside it is blank pictures across the whole app. Check it in one line from any machine: `curl -s -D - -o /dev/null https://res.cloudinary.com/highlighting-utah/image/upload/sample.jpg` — the `X-Cld-Error` header names the fault. `uploadFailAdvice` is what turns the message into an instruction; it never replaces the service's words, only leads them.
 - **Firestore's "Fetch failed" / long-poll `Listen`/`channel` message in the console** → normal reconnection noise, not a bug.
