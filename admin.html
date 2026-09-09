@@ -2075,9 +2075,9 @@
                 <option value="backnextyear">Back Next Year</option>
               </select>
             </div>
-            <div class="form-row"><label>Don't Install Before This Date (staff only)</label><input type="date" id="editCustEarliestInstall"></div>
+            <div class="form-row"><label>Install Closest To This Date (staff only)</label><input type="date" id="editCustEarliestInstall"></div>
           </div>
-          <p class="form-note" style="margin:-4px 0 16px;">Customers never see or can change this &mdash; use it when someone needs us to hold off until a specific date (e.g. they're out of town until then). Leave blank for no restriction.</p>
+          <p class="form-note" style="margin:-4px 0 16px;">Customers never see or can change this &mdash; use it when someone needs us to hold off until a specific date (e.g. they're out of town until then). We will <b>never</b> hang them before it, and the schedule now aims to hang them <b>within a week of it</b> (five working days) rather than whenever we are next in their town. It puts them behind new members and ahead of everyone else, and it does not move them into a month they did not ask for. Takes effect the next time you press <b>Recalculate everything</b> on the Schedule tab. Leave blank for no restriction.</p>
           <!-- ⭐ WHY THIS CUSTOMER IS NOT BEING SCHEDULED (added 2026-08-31). Filled by
                openEditCustomerModal from seasonHold(), which is gated on isOutForSeason —
                the same rule the routes ask — so this box can never disagree with whether a
@@ -2210,7 +2210,7 @@
                actually keep, every time.
                ⚠ AND IT NEVER MOVES THEIR MONTH. Owner, in the same breath: "dont do
                someone in a month they dont want to be hung though." The dropdown above and
-               Don't Install Before This Date both still hold; this only decides the order
+               Install Closest To This Date both still hold; this only decides the order
                once they are allowed out at all. Said on screen so nobody ticks it expecting
                a November customer to be hung in October. -->
           <div class="form-row" style="margin-top:14px;">
@@ -2219,7 +2219,7 @@
               <span>Move this customer up the schedule &mdash; they asked to be hung sooner</span>
             </label>
           </div>
-          <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Takes effect the next time you press <b>Recalculate everything</b> on the Schedule tab. It puts them first in their own town &mdash; ahead of new hangs &mdash; and nudges that town up the list for its next crew&nbsp;day. It does <b>not</b> move them into a month they did not ask for, and it does not override <b>Don&rsquo;t Install Before This Date</b>.</p>
+          <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Takes effect the next time you press <b>Recalculate everything</b> on the Schedule tab. It puts them first in their own town &mdash; ahead of new hangs &mdash; and nudges that town up the list for its next crew&nbsp;day. It does <b>not</b> move them into a month they did not ask for, and it does not override <b>Install Closest To This Date</b>.</p>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Notes for the Crew</label>
             <p style="font-size:12px; color:var(--slate); margin:0 0 10px;">Both show to your crew only &mdash; never on the customer&rsquo;s invoice or portal.</p>
@@ -41068,7 +41068,7 @@ function buildAddressRowHtml(item){
         (d.oneTimeNote ? '<div class="row-phone-line" style="color:var(--ember);">&#128221; (this visit only) '+esc(d.oneTimeNote)+'</div>' : '')+
         (d.seasonStatus === 'cancellation_requested' && d.cancellationReason ? '<div class="row-phone-line" style="color:var(--ember);">&#128683; Cancellation reason: '+esc(d.cancellationReason)+'</div>' : '')+
         (d.contactMethod ? '<div class="row-phone-line">&#128172; Prefers: '+esc(d.contactMethod)+'</div>' : '')+
-        (isEarliestInstallDateLocked(d) ? '<div class="row-phone-line" style="color:var(--ember); font-weight:600;">&#128197; Don\'t install before '+fmtDate(d.earliestInstallDate)+'</div>' : '')+
+        (isEarliestInstallDateLocked(d) ? '<div class="row-phone-line" style="color:var(--ember); font-weight:600;">&#128197; Hang closest to '+fmtDate(d.earliestInstallDate)+'</div>' : '')+
         (d.housePhotoUrl ? '<div class="row-phone-line">&#128247; Photo on file'+(d.houseHighlights && d.houseHighlights.length ? ' &middot; '+d.houseHighlights.length+' section(s), '+fmtMoney(d.houseHighlights.reduce((s,h)=>s+(Number(h.price)||0),0)) : '')+'</div>' : '')+
         '<div class="diff-pick-row">'+
           '<select class="diff-select" data-setdiff="'+item.id+'" style="border-radius:8px; border:1px solid var(--line); padding:6px 10px; font-size:13px; font-weight:600; background:var(--snow); color:var(--ink);">'+
@@ -61867,7 +61867,106 @@ function seasonStartDate(){
    no preference at all and offered the FIRST day of October, which is the one
    month they explicitly did not want. Checked before the others because the
    words "after thanksgiving" contain neither "oct" nor "nov". */
+/* ⭐ "CLOSEST TO THIS DATE" — THE OFFICE'S OWN DATE, AND WHAT A WEEK MEANS
+   (added 2026-09-09, SCH-49 to SCH-52).
+
+   Addie, asked whether "Don't Install Before This Date" should stay a floor or become
+   a target: **"Still never before, but aim just after it."** So the floor half is
+   unchanged and lives in houseAllowedFrom; the aiming half is a CEILING (houseDeadline)
+   plus a PLACE IN THE QUEUE (houseInstallPriority). Three functions, one field.
+
+   ⚠ A WEEK IS FIVE WORKING DAYS, EVERYWHERE IN THIS FEATURE. Asked calendar or
+   working, she said working days. The 72-hour warehouse hold already skips weekends and
+   Thanksgiving, so a ceiling counted in calendar days sitting beside a floor counted in
+   working ones would quietly shrink every window that crossed a Sunday — and the two
+   would disagree about the same customer, which is the failure this whole area keeps
+   producing. Do not "fix" the five to a seven. */
+const STAFF_DATE_WINDOW_DAYS = 5;   // how long after the office's date still counts as closest to it
+const DEADLINE_PRESSURE_DAYS = 5;   // a house starts climbing this far out from its last allowed day
+const NEW_HANG_TARGET_DAYS   = 5;   // a new member should be hung inside this
+const NEW_HANG_LIMIT_DAYS    = 10;  // ... and past this they go ahead of everybody
+function isoToLocalDate(iso){
+  const parts = ('' + (iso || '')).split('-');
+  if(parts.length !== 3) return null;
+  const dt = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  return isNaN(dt) ? null : dt;
+}
+/* ⚠ FAILS TO null, NOT TO CALENDAR DAYS. Without isWorkingDay this cannot answer the
+   question it was asked, and quietly counting weekends would hand back a shorter window
+   wearing the right name. Callers turn null into "no ceiling", which is what every house
+   had before this existed. */
+function addWorkingDays(dt, n){
+  if(!dt || typeof isWorkingDay !== 'function') return null;
+  const d = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+  let left = Math.max(0, Math.floor(Number(n) || 0));
+  let guard = 0;
+  while(left > 0 && guard++ < 400){
+    d.setDate(d.getDate() + 1);
+    if(isWorkingDay(d)) left--;
+  }
+  return d;
+}
+/* Whole working days from one ISO day to another. 0 when the second is not later —
+   never a negative, because every caller is asking "how long has this been" or "how
+   long is left", and a negative would read as plenty of time. */
+function workingDaysBetween(fromIso, toIso){
+  const a = isoToLocalDate(fromIso), b = isoToLocalDate(toIso);
+  if(!a || !b || typeof isWorkingDay !== 'function') return null;
+  if(b <= a) return 0;
+  const cur = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+  let n = 0, guard = 0;
+  while(cur < b && guard++ < 400){
+    cur.setDate(cur.getDate() + 1);
+    if(isWorkingDay(cur)) n++;
+  }
+  return n;
+}
+/* The last day a house carrying an office date is still "closest to" it. */
+function staffDateWindowEnd(notBeforeIso){
+  const start = isoToLocalDate(notBeforeIso);
+  if(!start) return '';
+  const end = addWorkingDays(start, STAFF_DATE_WINDOW_DAYS);
+  return end ? isoOf(end) : '';
+}
+/* ⭐ IS THIS HOUSE INSIDE THE LAST WEEK OF ITS OWN WINDOW? Addie, on when a house
+   should start climbing because time is running out: "1 week out".
+   ⚠ ALREADY PAST ITS DAY COUNTS TOO, and is the case that matters most — an October
+   house still waiting on 2 November is the exact complaint this area was built from. */
+function deadlineIsClose(h, todayStr){
+  if(!h || !todayStr || typeof houseDeadline !== 'function') return false;
+  const until = houseDeadline(h);
+  if(!until) return false;
+  if(until <= todayStr) return true;
+  const left = workingDaysBetween(todayStr, until);
+  return left === null ? false : left <= DEADLINE_PRESSURE_DAYS;
+}
+/* ⭐ HOW LONG A NEW MEMBER HAS BEEN WAITING, in working days since they became a
+   customer. Addie, asked where the clock starts: "When they are converted to costumer."
+   ⚠ MEASURED FROM createdAt, WHICH IS ONLY SAFE BECAUSE NO IMPORTER SETS
+   chargeNewMemberFee. The bulk import stamped all ~945 houses with one createdAt, and
+   the last thing that measured from it (the old guessed New Hang badge) flagged the
+   entire book. Only Add Customer and Edit Customer write the new-member box — a person
+   deciding — so an imported row never reaches this. If an importer is ever taught to
+   set that box, this line is the second thing that breaks. */
+function newHangWaitDays(custData, todayStr){
+  if(!custData || !todayStr) return null;
+  const ms = (typeof anyStampMillis === 'function') ? anyStampMillis(custData.createdAt) : 0;
+  if(!ms) return null;
+  return workingDaysBetween(isoOf(new Date(ms)), todayStr);
+}
 function houseAllowedFrom(h, startStr){
+  /* ⭐ AND THE OFFICE'S OWN DATE IS A FLOOR TOO (2026-09-09, SCH-49). "Still never
+     before, but aim just after it" — this is the "never before" half, and it is the
+     only half that changes what the builder is ALLOWED to do.
+     ⚠ THE LATER OF THE TWO WINS, never the office date on its own. A November customer
+     with 12 October typed on them is still a November customer; taking the office date
+     alone would hang somebody in a month they did not ask for, which is the one thing
+     every rule around this function refuses to do.
+     ⚠ IT READS h.notBefore RATHER THAN THE CUSTOMER RECORD, so this stays self-contained
+     for the suites that lift it alone. SCHEDULE_SYNC_FIELDS is what puts it on the house,
+     and that entry is the one place a cleared date has to travel. */
+  const nb = (''+((h&&h.notBefore)||'')).trim();
+  const base = (function(){
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
   if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX'){
     const tg = thanksgivingDate(BASE_START.getFullYear());
@@ -61897,6 +61996,8 @@ function houseAllowedFrom(h, startStr){
   if(named) return named > startStr ? named : startStr;
   if(p.indexOf('NOV')===0) return (BASE_START.getFullYear())+'-11-01';
   return startStr;
+  })();
+  return (nb && nb > base) ? nb : base;
 }
 /* ⭐ THE LAST DAY A HOUSE MAY BE HUNG, where the customer named one.
    Owner, 2026-08-18, reading October customers sitting on a 26 November day:
@@ -61936,6 +62037,20 @@ function houseHoldFrom(custData){
 }
 function houseDeadline(h){
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
+  /* ⭐ AN OFFICE DATE IS A WINDOW, NOT JUST A STARTING GUN (2026-09-09, SCH-49). Asked
+     how close "just after" should be, Addie chose within a week of the date. Without a
+     ceiling the tail sweep is free to push the house to the end of the season, which is
+     exactly the drift the word "closest" was asked for to stop.
+     ⚠ IT SITS ABOVE THE PREFERENCE BRANCHES ON PURPOSE, and it wins. A house with 12
+     November typed on it and October on its own form would otherwise be handed a 31
+     October ceiling that sits BEFORE its own floor — an impossible window, which the
+     packer would read as "may never move" rather than as a contradiction. The office
+     date is a person overruling the form, so its window is the window.
+     ⚠ EMPTY WHEN THE CALENDAR HELPERS ARE ABSENT (a lifted sandbox), which reads as no
+     ceiling — the behaviour every house had before this existed. */
+  if(h && h.notBefore && typeof staffDateWindowEnd === 'function'){
+    return staffDateWindowEnd(h.notBefore) || '';
+  }
   if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX') return '';
   if(p.indexOf('BEFORE THANKS') !== -1 || p === 'THANKSGIVING'){
     return isoOf(thanksgivingDate(BASE_START.getFullYear()));
@@ -61970,12 +62085,21 @@ function houseDeadline(h){
    would have jumped the whole October queue. Ten apart leaves room for a bump that
    moves somebody to the front of their own tier and no further.
 
+   -10  a new member nobody has hung inside two weeks
      0  somebody the office moved up by hand
+     5  a new member past their first week
     10  a new hang — never had lights before
-    20  asked for October; Before Thanksgiving once its week opens
-    30  no preference, or a named day that has arrived
-    40  asked for November
-    50  after Thanksgiving
+    20  a date the office typed on them, once it has arrived
+    30  asked for October; Before Thanksgiving once its week opens
+    40  no preference, or a named day that has arrived
+    50  asked for November
+    60  after Thanksgiving
+
+   ⚠ RESPACED 2026-09-09 to make room for the office date at 20. Every tier below it
+   moved down one step; NOTHING moved past anything else, and no comparison anywhere
+   reads a value, so the season lays out the same but for the new tier. If you are
+   tempted to close the gaps up again, read the paragraph above first — the empty
+   fives are where a within-tier bump lands.
 
    ⚠ NOTHING READS THESE NUMBERS FOR THEIR VALUE — every comparison in the builder
    is < or >. Change the spacing here and the season lays out the same; change the
@@ -61983,7 +62107,12 @@ function houseDeadline(h){
 
    ⚠ SELF-CONTAINED ON PURPOSE. Suites 43, 44 and 50 lift this function on its own
    into a bare sandbox, so it names no constant that lives outside it. */
-function houseInstallPriority(h, custData){
+/* ⭐ AND TODAY IS AN ARGUMENT, NEVER A GLOBAL (2026-09-09). Three suites lift this
+   function on its own into a bare sandbox, so reading a clock from outside it would
+   turn "the tiers" into "the tiers, if the harness happened to provide a Date". A
+   caller that passes no day gets exactly the old, timeless answer, which is also what
+   every existing call site does. */
+function houseInstallPriority(h, custData, todayStr){
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
   /* ⭐ SOMEBODY WHO ASKED TO GO SOONER GOES FIRST (added 2026-09-03). Owner: "we
      should be able to manually add priority to specific customers if they directly
@@ -62004,6 +62133,17 @@ function houseInstallPriority(h, custData){
   if(custData && custData.rushInstall === true) return 0;
   let tier;
   if(custData && custData.chargeNewMemberFee === true) tier = 10;   // never been hung
+  /* ⭐ A DATE THE OFFICE TYPED SITS SECOND (2026-09-09, SCH-50). Addie: "New members
+     come first and should be done within a week but can push it to 2 weeks if
+     necessary. The staff dates should be second to these."
+     ⚠ THIS IS NOT A CUSTOMER NAMING A DAY, and the difference is the whole ruling. A
+     customer who writes 11/9 is tier 40 and stays there — "if they ask for a specific
+     day though that is not top priority we just do it the next time we have a chance"
+     (2026-08-19). That was about the CUSTOMER asking. This is somebody in the office
+     typing a date onto a record, which is the same kind of act as ticking the rush box.
+     ⚠ IT DECIDES ORDER, NOT MONTH. houseAllowedFrom already holds the house until the
+     date, so this only ever governs what happens once the date has arrived. */
+  else if(h && h.notBefore) tier = 20;
   /* ⭐ A NAMED DAY IS NOT AN URGENT ONE. Owner, 2026-08-19: "if they ask for a
      specific day though that is not top priority we just do it the next time we
      have a chance for when they ask."
@@ -62013,16 +62153,16 @@ function houseInstallPriority(h, custData){
      is a different thing. houseAllowedFrom already holds them until that day; from
      there they take their turn like anybody with no preference, which is exactly
      "the next time we have a chance". */
-  else if(prefSpecificDate(p, BASE_START.getFullYear())) tier = 30;
-  else if(p.indexOf('OCT')===0) tier = 20;   // asked for October
-  else if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX') tier = 50;   // last of all
+  else if(prefSpecificDate(p, BASE_START.getFullYear())) tier = 40;
+  else if(p.indexOf('OCT')===0) tier = 30;   // asked for October
+  else if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX') tier = 60;   // last of all
   /* ⚠ FIRST ONCE THE RUN-UP OPENS. houseAllowedFrom holds these back until the
      week of the holiday, so this decides only what happens inside that week —
      and there they must outrank everybody, because for them a day late is a
      missed Thanksgiving rather than a slightly later hang. */
-  else if(p.indexOf('BEFORE THANKS') !== -1 || p === 'THANKSGIVING') tier = 20;
-  else if(p.indexOf('NOV')===0) tier = 40;   // asked for November — waits
-  else tier = 30;                            // no preference — fills in behind October
+  else if(p.indexOf('BEFORE THANKS') !== -1 || p === 'THANKSGIVING') tier = 30;
+  else if(p.indexOf('NOV')===0) tier = 50;   // asked for November — waits
+  else tier = 40;                            // no preference — fills in behind October
   /* ⭐ A DAY THEY WERE PROMISED THAT DID NOT HAPPEN (added 2026-09-03). Owner:
      "anyone that was scheduled for a day but didnt get done should take higher
      priority for where needs to be routed."
@@ -62041,8 +62181,41 @@ function houseInstallPriority(h, custData){
      ⚠ ASKED THROUGH THE HELPER, GUARDED, because the suites above lift this
      function alone. No list of missed days on the house means no bump, which is the
      right answer there and the ordinary one everywhere. */
+  /* ⭐ A NEW MEMBER LEFT WAITING CLIMBS, AND EVENTUALLY BEATS EVERYTHING (2026-09-09,
+     SCH-52). Addie: "New members come first and should be done within a week but can
+     push it to 2 weeks if necessary", and, asked where one still waiting at two weeks
+     goes: ahead of everyone, rush installs included.
+     ⚠ THE CLOCK STARTS AT CONVERSION AND THE 72-HOUR HOLD RUNS INSIDE IT, not before
+     it. "When they are converted to costumer", said with the hold already in front of
+     her — "they should not be scheduled for 72 hours after becoming a new member" — so
+     roughly three of the five working days are spent held and the usable window is the
+     back half. That is the rule as given, not an oversight to correct.
+     ⭐ MINUS TEN PUTS THEM ABOVE A RUSH INSTALL, which is the only place anything has
+     ever been put above one. A rush is somebody ringing up this morning; this is a sale
+     we have held for a fortnight and not hung, and she put it first in as many words.
+     ⚠ IT RETURNS, so a new member out of time is never also given the bump below — one
+     move, not two. */
+  if(tier === 10 && todayStr && typeof newHangWaitDays === 'function'){
+    const waited = newHangWaitDays(custData, todayStr);
+    if(waited !== null){
+      if(waited >= NEW_HANG_LIMIT_DAYS) return -10;
+      if(waited >= NEW_HANG_TARGET_DAYS) return 5;
+    }
+  }
   const missed = (typeof houseMissedCount === 'function') ? houseMissedCount(h) : 0;
-  return missed ? tier - 5 : tier;
+  /* ⭐ AND RUNNING OUT OF TIME IS THE OTHER WAY TO THE FRONT OF A TIER (2026-09-09,
+     SCH-51). Addie, asked when a house should start climbing: "1 week out". October in
+     the last week of October, Before Thanksgiving in its run-up and an office date
+     inside its own window now all say the same thing to the builder — and because a
+     town's urgency is the best number in it (allowedStats), the towns re-order
+     themselves. That is the half she actually asked for: "We will rearange the days we
+     are doing those houses based on the costumers that urgently need to be done."
+     ⚠ ONE BUMP, NEVER TWO, WHICH IS WHY THIS IS AN OR AND NOT A SUM. Five is half the
+     gap between tiers, so a house that is BOTH missed and out of time must still move
+     five — ten would land it exactly on somebody else's tier, and "to the front of
+     their own tier, never out of it" is the rule the spacing exists to keep. */
+  const pressed = !!(todayStr && typeof deadlineIsClose === 'function' && deadlineIsClose(h, todayStr));
+  return (missed || pressed) ? tier - 5 : tier;
 }
 function rebuildSeasonDays(){
   /* Before anything is grouped: the clustering below measures distances, and a
@@ -62055,6 +62228,11 @@ function rebuildSeasonDays(){
      rule the crew's sweep follows. Anything with a house ticked off counts as
      started even if its date has not arrived. */
   const today=new Date(); today.setHours(0,0,0,0);
+  /* ⭐ THE DAY THE PLAN IS BEING BUILT ON, handed to houseInstallPriority so a
+     deadline running out can move somebody up. Read once here rather than inside the
+     priority function, which is lifted alone by three suites and must stay timeless
+     unless a caller says otherwise. */
+  const todayStr=isoOf(today);
   /* Fixes ride along on a day rather than being scheduled by town, so they stay
      where somebody put them. */
   const keep=[], movable=[], riders=[], locked=[];
@@ -62250,7 +62428,7 @@ function rebuildSeasonDays(){
     const cust=planCustomerFor(h);
     const town=extractCleanCity((cust&&cust.data&&cust.data.city)||h.city);
     const d=(cust&&cust.data)||{};
-    return {id:key, city:town, priority:houseInstallPriority(h,d),
+    return {id:key, city:town, priority:houseInstallPriority(h,d,todayStr),
             /* ⭐ HOW MANY TIMES A DAY WAS PROMISED AND MISSED. The tier bump inside
                houseInstallPriority already puts them ahead of their equals; this
                decides the order among the missed themselves, so somebody the crew
@@ -62721,7 +62899,21 @@ const SCHEDULE_SYNC_FIELDS = [
   {key:'address', label:'address', read:function(d){ return d.street || (('' + (d.address||'')).split(',')[0]); }},
   {key:'phone',   label:'phone',   read:function(d){ return d.phone; },
                                    same:function(a,b){ return ('' + (a||'')).replace(/\D/g,'') === ('' + (b||'')).replace(/\D/g,''); }},
-  {key:'details', label:'notes',   read:function(d){ return d.notes; }}
+  {key:'details', label:'notes',   read:function(d){ return d.notes; }},
+  /* ⭐ THE OFFICE'S OWN DATE (added 2026-09-09, SCH-49). Carried as a plain ISO day
+     so houseAllowedFrom, houseDeadline and houseInstallPriority can all read it off
+     the house without any of them needing the customer record.
+     ⚠ blankClears IS THE POINT OF THIS ENTRY. Asked whether clearing the date in
+     Customers should clear it on the plan, Addie said yes — so this one field is the
+     exception to "a blank on the customer never wipes what the plan has". It has to
+     be: the rule was written for half-filled records, and here an empty box is a
+     person deliberately lifting a restriction. Without it a date typed once would
+     hold the house for the rest of the season with nothing on screen to remove. */
+  {key:'notBefore', label:'earliest date', blankClears:true,
+                                   read:function(d){
+                                     const ms = (typeof anyStampMillis === 'function') ? anyStampMillis(d.earliestInstallDate) : 0;
+                                     return ms ? isoOf(new Date(ms)) : '';
+                                   }}
 ];
 /* ---------------- NOBODY IS HUNG BEFORE THEY ASKED TO BE ------------------
    Owner, 2026-08-17: "the first day should not be doing any Nov people, in
@@ -63190,7 +63382,12 @@ function syncHousesFromCustomers(){
       const d = cust.data || {};
       SCHEDULE_SYNC_FIELDS.forEach(function(f){
         const theirs = f.read(d);
-        if(theirs === undefined || theirs === null || ('' + theirs).trim() === '') return;   // blank never wipes
+        /* ⚠ A BLANK STILL NEVER WIPES, EXCEPT WHERE THE FIELD SAYS ITS BLANK IS A FACT
+           (2026-09-09). Opting in per field rather than relaxing the rule for everybody:
+           the rule exists because a half-loaded customer record must not empty a card the
+           crew relies on, and that is still true of every other field in this list. */
+        const blank = (theirs === undefined || theirs === null || ('' + theirs).trim() === '');
+        if(blank && !f.blankClears) return;
         const mine = h[f.key];
         const same = f.same ? f.same(mine, theirs, cust) : (('' + (mine == null ? '' : mine)).trim() === ('' + theirs).trim());
         if(same) return;
@@ -63200,7 +63397,8 @@ function syncHousesFromCustomers(){
            Reporting the name alone means the only way to find them again is to match
            on it, and two customers really do share a name in this book. */
         changed.push({name: h.name || '(no name)', field: f.label, id: h.id,
-                      from: (mine == null || ('' + mine).trim() === '') ? '(blank)' : ('' + mine), to: '' + theirs});
+                      from: (mine == null || ('' + mine).trim() === '') ? '(blank)' : ('' + mine),
+                      to: blank ? '(cleared)' : ('' + theirs)});
         h[f.key] = theirs;
       });
     });

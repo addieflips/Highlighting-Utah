@@ -2265,6 +2265,9 @@ nothing between them the only way up was into the next tier, which would have le
 October house outrank a new hang and a missed Any house jump the whole October queue. Ten
 apart leaves room for a bump of five that reaches the front of a tier and no further.
 Nothing reads these numbers for their value — every comparison is `<` or `>`.
+*(Respaced once more on 2026-09-09 — `-10,0,5,10,20,30,40,50,60` — to open a slot for a
+date the office typed and two for a new member's own clock. Nothing changed places; see
+**Closest to a date the office typed** below.)*
 
 ⚠ **It is recorded as a list of dates, not a counter.** Recalculate gets pressed twice in a
 row and Undo puts the plan back so it can be pressed again; a counter would climb each time
@@ -2279,9 +2282,10 @@ is not an override. Both orderings read the same flag (`houseInstallPriority` fo
 schedule, `installPriority` for the nightly sweep) so the two cannot disagree about who is
 in a hurry.
 
-⚠ **None of the three touches the month.** `houseAllowedFrom` and *Don't Install Before
-This Date* are untouched, so a November customer who is rushed, or who was missed, is taken
-first on the first **November** day and not one day earlier. The box says so on screen.
+⚠ **None of the three touches the month.** `houseAllowedFrom` and the office's own date box
+(*Install Closest To This Date* since 2026-09-09; it was *Don't Install Before This Date*)
+are untouched by any of them, so a November customer who is rushed, or who was missed, is
+taken first on the first **November** day and not one day earlier. The box says so on screen.
 
 The Schedule's day panel badges a rushed house **ASKED SOONER** and a missed one
 **MISSED ×n**, and the button's summary names how many of each it moved — a customer who
@@ -2290,6 +2294,82 @@ quietly changes place in a season is what this office rings up about.
 *Where it's proved*: run-all.js **Suite 300** runs the real builder against a cold snap and
 the real ordering against fixtures; 24 sabotages were red-checked against it.
 *Rulings*: [[SCH-44]], [[SCH-45]], [[SCH-46]] in `claude/questions-map.md`.
+
+### Closest to a date the office typed
+
+Added 2026-09-09. The staff-only box in Edit Customer is now **Install Closest To This
+Date** — it was *Don't Install Before This Date*, and it means both halves. Addie, asked
+whether it should stay a floor, become a pure target, or sit beside a second field:
+*"Still never before, but aim just after it."* Asked how close: within a week. Asked
+calendar or working days: *"Working days."*
+
+⚠ **The season planner had never heard of the field at all**, which is the part worth
+knowing before anybody hunts a bug here. `houseAllowedFrom` read the customer's own
+Install Timing and nothing else; the date was honoured on the **Routes** side only (route
+generation, the nearby-house suggester, auto-scheduling a new customer), so a date typed
+in Customers held the house off a crew route and did nothing whatever to the plan.
+
+Three functions read one field, and it reaches them as `h.notBefore` on the house rather
+than off the customer record — so each stays self-contained for the suites that lift it
+alone:
+
+* **The floor** — `houseAllowedFrom`. Unchanged in meaning: never before that day. **The
+  later of the two dates wins, always.** A November customer with 12 October typed on them
+  is still a November customer; the office date may move somebody later, never into a
+  month they did not ask for.
+* **The ceiling** — `houseDeadline`, via `staffDateWindowEnd`, five working days on
+  (`STAFF_DATE_WINDOW_DAYS`). It sits **above** the preference branches and wins, because a
+  house with 12 November typed on it and October on its own form would otherwise be handed
+  a 31 October ceiling sitting *before* its own floor — and `packTailCrewDays` reads an
+  impossible window as *"never move me"* rather than as a contradiction.
+* **The place in the queue** — `houseInstallPriority`, tier **20**: behind new members,
+  ahead of October. Addie: *"New members come first... The staff dates should be second to
+  these."* ⚠ This is **not** [[SCH-15]]'s named day. A customer who writes 11/9 on their own
+  form is a wait, not a hurry, and stays at 40; the office typing a date is the same kind of
+  act as ticking the rush box.
+
+**A week is five working days everywhere in this feature.** The 72-hour warehouse hold
+already skips weekends and Thanksgiving, so a ceiling counted in calendar days sitting
+beside a floor counted in working ones would quietly shrink every window that crossed a
+Sunday, and the two would disagree about the same customer.
+
+**Time running out moves a house up, and the towns re-order themselves.** Nothing in the
+planner had a clock in it — October was tier 20 on 1 October and on the 28th alike. A house
+within `DEADLINE_PRESSURE_DAYS` (5) of its last allowed day, or already past it, now goes to
+the front of **its own tier** (`deadlineIsClose`). Because a town's urgency is the best
+number in it (`allowedStats`), its town rises for its next crew-day and the days rearrange
+with nothing new deciding them — which is the half Addie actually asked for: *"if its almost
+november and october has still not been done yet. We will rearange the days we are doing
+those houses based on the costumers that urgently need to be done."*
+⚠ **One bump, never two.** The missed-day bump and this one are an **or**, not a sum: five
+is half the gap between tiers, and ten would land the house exactly on the tier above.
+
+**A new member has a week, two at the outside.** Past `NEW_HANG_TARGET_DAYS` (5 working
+days from conversion) they go to the front of the new hangs; past `NEW_HANG_LIMIT_DAYS`
+(10) they go **ahead of everybody, rush installs included** — the only thing ever put above
+a rush. ⚠ The **72-hour hold runs inside that week, not before it**: asked where the clock
+starts, Addie said *"When they are converted to costumer"*, with the hold in front of her.
+So roughly three of the five working days are spent held and the usable window is the back
+half. That is the rule as given. ⚠ Measured from `createdAt`, which is safe only while no
+importer sets `chargeNewMemberFee` — the bulk import stamped all ~945 houses with one
+`createdAt`, and the last thing that measured from it flagged the whole book. A new member
+with no `createdAt` is left exactly where they were.
+
+**A cleared date clears the plan.** `notBefore` is the one entry in `SCHEDULE_SYNC_FIELDS`
+carrying `blankClears`. The sync's standing rule is that a blank on the customer never wipes
+what the plan holds — written for half-loaded records, and still right for the town, the
+timing, the name, the phone and the notes. Here an empty box is a person deliberately
+lifting a restriction, and Addie was asked directly. **Opt a field in; do not relax the
+guard.** Without it a date typed once would hold the house for the rest of the season with
+nothing left on screen to remove.
+
+*Takes effect on* **Recalculate everything**, like the three above.
+*Where it's proved*: run-all.js **Suite 315** runs the shipped functions in a sandbox — the
+floor, the working-day ceiling across a weekend and across Thanksgiving, the tier order, the
+single bump, the new member's clock, and the date travelling both ways through the sync.
+*Rulings*: [[SCH-49]], [[SCH-50]], [[SCH-51]], [[SCH-52]], [[SCH-53]] in
+`claude/questions-map.md`.
+
 ### How many crews there are, and what they are called
 
 Addie, 2026-09-04: *"on schedule can you make it so we can add on crews and name them?"*

@@ -1390,6 +1390,12 @@ const RETIRED_CHECKLIST_TERMS = [
   ['quick material estimate', 'removed 2026-08-25 — bulbs sit a foot apart, so the count is the footage; it is a subline under the total now'],
   ['load property', 'the tool only opens from a quote, which knows its own address, so the address bar went (2026-08-25)'],
   ['capture sky view', 'removed 2026-08-30 — the picture that goes on a quote is the street view, so an aerial has no way onto one and the button had no job left: "we just want the street view to be uploaded"'],
+  /* ⚠ THE TAIL OF THE LABEL, NOT THE WHOLE OF IT. The retired one was written
+     "Don't Install Before This Date" in the form label and "Don&rsquo;t Install
+     Before This Date" in the rush-install note, so a term starting at "don't"
+     would match one spelling and sail past the other. No seed row uses either
+     today — this entry is here to catch the NEXT one written from memory. */
+  ['install before this date', 'renamed to Install Closest To This Date on 2026-09-09 — it is a window now, not only a floor: never before that day, and aimed inside the five working days after it (SCH-49)'],
   /* ⚠ THE TERM IS THE TAIL OF THE LABEL, NOT THE WHOLE OF IT. The retired
      button read "Use <n> as Estimated Feet" with the footage in the middle, so
      a seed row quoting it writes "Use ... as Estimated Feet" and a term
@@ -15249,7 +15255,7 @@ suite('Suite 43. Install order and the one-other-town rule');
   }
 
   check('S43', 'the customer record is passed in, not ignored',
-    /priority:houseInstallPriority\(h,d\)/.test(admin),
+    /priority:houseInstallPriority\(h,d,todayStr\)/.test(admin),
     'without the record every house looks like a returning one and new hangs lose their place');
 
   /* ---- the builder, run for real ---- */
@@ -15789,6 +15795,24 @@ suite('Suite 46. Nobody is hung before the month they asked for');
        ReferenceError raised inside a forEach with no suite name attached. */
     /* The sandbox's parameter names and its assembled body, named once so the guard
        below can be asked the same question the engine will be. */
+    /* ⚠ AND THE OFFICE-DATE WINDOW IS LIFTED TOO (2026-09-09). houseDeadline now asks
+       staffDateWindowEnd whether this house carries a date somebody typed, and that
+       reaches isWorkingDay through addWorkingDays — five names, one behaviour. Stubbing
+       any of them would make every claim below about a house with a date a claim about
+       the stub, and the fixtures here carry none, so the real chain simply answers ''.
+       The window itself is read out of the source rather than written as 5, so moving
+       the constant cannot leave this suite proving the old number. */
+    const staffWindow = (admin.match(/const STAFF_DATE_WINDOW_DAYS\s*=\s*(\d+);/) || [])[1];
+    /* ⚠ ASSERTED, NOT ASSUMED. A miss here would splice 'const X=undefined;' into the
+       sandbox — legal JavaScript, so nothing would throw, and staffDateWindowEnd would
+       quietly return the date itself as its own window end. A silent wrong answer is
+       worse than a red line, so the read is checked before it is used. */
+    check('S46', 'the office-date window was found in the source', !!staffWindow,
+      'const STAFF_DATE_WINDOW_DAYS did not match — fix this regex, do not let it splice undefined');
+    const STAFF_SRC =
+      'const STAFF_DATE_WINDOW_DAYS=' + (staffWindow || 5) + ';' +
+      fn('isThanksgivingDay') + fn('isWorkingDay') + fn('isoToLocalDate') +
+      fn('addWorkingDays') + fn('staffDateWindowEnd');
     const SWEEP_PROVIDED = ['SEASON', 'isoOf', 'seasonStartDate', 'dayDate',
       'houseAllowedFrom', 'extractCleanCity', 'maxStopsPerWorkingDay', 'BASE_START',
       'prefSpecificDate', 'routeDayIsLocked', 'String', 'Number', 'Boolean', 'Object',
@@ -15801,7 +15825,7 @@ suite('Suite 46. Nobody is hung before the month they asked for');
          every fixture below still gets the four-town answer it was written for. */
       dayLimitSrc({haveDates: true}) +
       fn('dayTownList') + fn('dayTownCount') + fn('maxTownsPerDay') +
-      fn('thanksgivingDate') + fn('houseDeadline') + fn('nextInstallDayFor') +
+      fn('thanksgivingDate') + STAFF_SRC + fn('houseDeadline') + fn('nextInstallDayFor') +
       src + 'this.run = enforceInstallTiming;';
     /* ⚠ Same guard as the portalRsvp sandbox — this one has gone stale twice
        (houseDeadline, then nextInstallDayFor), and each time the whole run died on a
@@ -15831,7 +15855,7 @@ suite('Suite 46. Nobody is hung before the month they asked for');
            also asks. Leaving it out is a ReferenceError inside a forEach, which
            surfaces as the whole suite dying with no failure list; stubbing it would
            make every claim below about WHICH day is chosen a claim about the stub. */
-        fn('thanksgivingDate') + fn('houseDeadline') + fn('nextInstallDayFor') +
+        fn('thanksgivingDate') + STAFF_SRC + fn('houseDeadline') + fn('nextInstallDayFor') +
         src + 'this.run = enforceInstallTiming;'
       ).call(sb, SEASON,
         (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'),
@@ -54785,5 +54809,228 @@ suite('Suite 311. The referral offer, RUN rather than read');
     check('S311', 'and a template that is not an RSVP gets no offer at all',
       e6.referralOfferPlacement(tplBill) === 'none',
       'a referral offer at the foot of an invoice is not what that email is for');
+  }
+}
+
+/*
+ * Suite 315. Closest to a date the office typed.
+ *
+ * ⭐ WHAT THIS PROVES. "Don't Install Before This Date" was a floor and nothing else,
+ * and the season planner had never heard of it — houseAllowedFrom read the CUSTOMER's
+ * timing only, so a date somebody typed in Customers held the house off a crew route
+ * and did nothing whatever to the plan. Addie, 2026-09-09: "Still never before, but aim
+ * just after it", within a week, counted in working days.
+ *
+ * ⚠ RUN, NOT READ. Every check below executes the shipped functions in a sandbox. The
+ * one exception is the constants check, which reads them out of the source on purpose:
+ * five and ten are her numbers, and a suite that lifted whatever it found could not
+ * tell that somebody had changed them.
+ */
+suite('Suite 315. Closest to a date the office typed');
+{
+  const admin = read('admin.html');
+  const fn = (n) => extractFn(admin, n);
+
+  /* Her numbers, asserted as numbers. Same reason Suite 39 pins BULK_CHUNK_SIZE. */
+  const num = (name) => {
+    const m = new RegExp('const ' + name + '\\s*=\\s*(-?\\d+);').exec(admin);
+    return m ? Number(m[1]) : null;
+  };
+  check('S315', 'a week is five working days, in both halves of the feature',
+    num('STAFF_DATE_WINDOW_DAYS') === 5 && num('DEADLINE_PRESSURE_DAYS') === 5,
+    'she was asked calendar or working and said working days; got ' +
+    num('STAFF_DATE_WINDOW_DAYS') + ' and ' + num('DEADLINE_PRESSURE_DAYS'));
+  check('S315', 'a new member is a week to hang and two weeks at the outside',
+    num('NEW_HANG_TARGET_DAYS') === 5 && num('NEW_HANG_LIMIT_DAYS') === 10,
+    '"within a week but can push it to 2 weeks if necessary"; got ' +
+    num('NEW_HANG_TARGET_DAYS') + ' and ' + num('NEW_HANG_LIMIT_DAYS'));
+
+  /* ⚠ LIFTED, NOT STUBBED, all the way down to isWorkingDay — the whole point of the
+     window is which days do not count, and a stub of the calendar is a stub of the
+     feature. houseMissedCount is the one deliberate stub: it reads a house's own record
+     of missed days, which these fixtures do not have, and it is proved by Suite 300. */
+  const BODY =
+    'const PRE_THANKSGIVING_DAYS=' + (admin.match(/const PRE_THANKSGIVING_DAYS = (\d+);/) || [])[1] + ';' +
+    'const STAFF_DATE_WINDOW_DAYS=' + num('STAFF_DATE_WINDOW_DAYS') + ';' +
+    'const DEADLINE_PRESSURE_DAYS=' + num('DEADLINE_PRESSURE_DAYS') + ';' +
+    'const NEW_HANG_TARGET_DAYS=' + num('NEW_HANG_TARGET_DAYS') + ';' +
+    'const NEW_HANG_LIMIT_DAYS=' + num('NEW_HANG_LIMIT_DAYS') + ';' +
+    fn('isoOf') + fn('thanksgivingDate') + fn('isThanksgivingDay') + fn('isWorkingDay') +
+    fn('anyStampMillis') + fn('prefSpecificDate') +
+    fn('isoToLocalDate') + fn('addWorkingDays') + fn('workingDaysBetween') +
+    fn('staffDateWindowEnd') + fn('deadlineIsClose') + fn('newHangWaitDays') +
+    fn('houseAllowedFrom') + fn('houseDeadline') + fn('houseInstallPriority') +
+    'this.from = houseAllowedFrom; this.until = houseDeadline; this.pri = houseInstallPriority;' +
+    'this.close = deadlineIsClose; this.waited = newHangWaitDays; this.wd = workingDaysBetween;';
+  assertSandbox('S315', 'the closest-to-a-date chain', BODY, admin,
+    ['BASE_START', 'houseMissedCount', 'String', 'Number', 'Boolean', 'Object', 'Array',
+     'Date', 'Math', 'JSON', 'Set', 'Map', 'RegExp', 'isNaN']);
+
+  const sb = {};
+  new Function('BASE_START', 'houseMissedCount', BODY).call(sb, new Date(2026, 9, 1), () => 0);
+  const START = '2026-09-28';
+  const NEW = { chargeNewMemberFee: true };
+  const OLD = { chargeNewMemberFee: false };
+
+  /* ---- the floor half: never before, and never instead of their own month ---- */
+  check('S315', 'a date the office typed holds the house until that day',
+    sb.from({ pref: 'Any', notBefore: '2026-11-12' }, START) === '2026-11-12',
+    'this is the half that already worked on Routes and had never reached the plan');
+  check('S315', 'no date on the house changes nothing at all',
+    sb.from({ pref: 'Any' }, START) === START &&
+    sb.from({ pref: 'November' }, START) === '2026-11-01',
+    'the whole book carries no date; if this moves, every house moved');
+  check('S315', 'a November customer with an October date typed on them still waits for November',
+    sb.from({ pref: 'November', notBefore: '2026-10-12' }, START) === '2026-11-01',
+    'THE LATER OF THE TWO WINS — the office date must never hang somebody in a month ' +
+    'they did not ask for, which is the rule every other branch of this function keeps');
+  check('S315', 'and a November customer with a later date waits for the date',
+    sb.from({ pref: 'November', notBefore: '2026-11-20' }, START) === '2026-11-20');
+
+  /* ---- the aiming half: a ceiling, counted in working days ---- */
+  check('S315', 'the window ends five WORKING days later, so a weekend does not shrink it',
+    sb.until({ pref: 'Any', notBefore: '2026-11-12' }) === '2026-11-19',
+    'Thu 12 Nov + five working days is Thu 19 Nov; a calendar week would say the 17th ' +
+    'and quietly take two days off the window');
+  check('S315', 'and Thanksgiving Day does not count either',
+    sb.until({ pref: 'Any', notBefore: '2026-11-24' }) === '2026-12-02',
+    'nobody works the holiday — isWorkingDay has excluded it since 2026-08-18, and a ' +
+    'window that spent a day on it would be four days long');
+  check('S315', 'a house with no date keeps exactly the ceiling it had before',
+    sb.until({ pref: 'October' }) === '2026-10-31' &&
+    sb.until({ pref: 'Any' }) === '' &&
+    sb.until({ pref: '11/9+' }) === '',
+    'a named day is a floor and never a ceiling — that is 2026-08-20 and is untouched');
+  check('S315', 'an office date beats the month on their form, rather than dating a ceiling before its own floor',
+    sb.until({ pref: 'October', notBefore: '2026-11-12' }) === '2026-11-19' &&
+    sb.from({ pref: 'October', notBefore: '2026-11-12' }, START) === '2026-11-12',
+    'October would otherwise hand this house a 31 October ceiling sitting BEFORE its ' +
+    '12 November floor, and the packer reads an impossible window as "never move me"');
+
+  /* ---- where it sits in the queue ---- */
+  check('S315', 'an office date goes behind a new member and ahead of October',
+    sb.pri({ pref: 'Any', notBefore: '2026-11-12' }, OLD) > sb.pri({ pref: 'Any' }, NEW) &&
+    sb.pri({ pref: 'Any', notBefore: '2026-11-12' }, OLD) < sb.pri({ pref: 'October' }, OLD),
+    '"New members come first ... The staff dates should be second to these"');
+  check('S315', 'it is not read as a customer naming a day, which stays behind October',
+    sb.pri({ pref: '11/9+' }, OLD) > sb.pri({ pref: 'October' }, OLD),
+    'the customer asking for a day is a wait, not a hurry (2026-08-19) — only the ' +
+    'office typing one is urgent, and conflating the two would move every named day up');
+  check('S315', 'the old order below it is unchanged',
+    sb.pri({ pref: 'October' }, OLD) < sb.pri({ pref: '' }, OLD) &&
+    sb.pri({ pref: '' }, OLD) < sb.pri({ pref: 'November' }, OLD) &&
+    sb.pri({ pref: 'November' }, OLD) < sb.pri({ pref: 'After Thanksgiving' }, OLD) &&
+    sb.pri({ pref: 'Any' }, NEW) < sb.pri({ pref: 'October' }, OLD),
+    'the tiers were respaced to make room at 20; nothing was allowed to change places');
+  check('S315', 'a rush install still beats everything the system decides by itself',
+    sb.pri({ pref: 'November' }, { rushInstall: true }) < sb.pri({ pref: 'Any' }, NEW),
+    'SCH-46, and it is checked here because respacing is exactly how it would be lost');
+
+  /* ---- time running out ---- */
+  check('S315', 'an October house is ordinary at the start of October',
+    sb.close({ pref: 'October' }, '2026-10-01') === false &&
+    sb.pri({ pref: 'October' }, OLD, '2026-10-01') === sb.pri({ pref: 'October' }, OLD),
+    'climbing all month would make the tier meaningless');
+  check('S315', 'and climbs in its last week',
+    sb.close({ pref: 'October' }, '2026-10-27') === true &&
+    sb.pri({ pref: 'October' }, OLD, '2026-10-27') < sb.pri({ pref: 'October' }, OLD),
+    '"1 week out" — this is the "almost November and October is not done" case');
+  check('S315', 'a house already past its day is the most urgent kind there is',
+    sb.close({ pref: 'October' }, '2026-11-02') === true,
+    'an October house still waiting in November is the complaint this area was built from');
+  check('S315', 'climbing never crosses into somebody else\'s tier',
+    sb.pri({ pref: 'October' }, OLD, '2026-10-27') > sb.pri({ pref: 'Any', notBefore: '2026-10-01' }, OLD),
+    'front of their own tier, never out of it — an October house out of time must still ' +
+    'sit behind a date the office typed, or the bump has quietly become a promotion');
+  check('S315', 'a house with no date and no deadline is untouched by any of it',
+    sb.pri({ pref: 'Any' }, OLD, '2026-10-27') === sb.pri({ pref: 'Any' }, OLD),
+    'most of the book is this house');
+
+  /* ---- one bump, not two ---- */
+  {
+    const sb2 = {};
+    new Function('BASE_START', 'houseMissedCount', BODY).call(sb2, new Date(2026, 9, 1), () => 2);
+    check('S315', 'a house both missed and out of time still moves five, not ten',
+      sb2.pri({ pref: 'October' }, OLD, '2026-10-27') === sb.pri({ pref: 'October' }, OLD) - 5,
+      'ten is the whole gap between tiers, so summing the two bumps would land this ' +
+      'house exactly on the tier above and the spacing would stop meaning anything');
+  }
+
+  /* ---- the new member's own clock ---- */
+  {
+    const made = new Date(2026, 9, 1);            // Thu 1 October
+    const NEWC = { chargeNewMemberFee: true, createdAt: made };
+    check('S315', 'the wait is counted in working days from becoming a customer',
+      sb.waited(NEWC, '2026-10-06') === 3 && sb.waited(NEWC, '2026-10-08') === 5,
+      '"When they are converted to costumer", counted in working days');
+    check('S315', 'inside their first week a new member is an ordinary new hang',
+      sb.pri({ pref: 'Any' }, NEWC, '2026-10-06') === sb.pri({ pref: 'Any' }, NEW),
+      'the 72-hour warehouse hold runs inside this week — they cannot be hung yet anyway');
+    check('S315', 'past a week they go to the front of the new hangs',
+      sb.pri({ pref: 'Any' }, NEWC, '2026-10-08') < sb.pri({ pref: 'Any' }, NEW) &&
+      sb.pri({ pref: 'Any' }, NEWC, '2026-10-08') > sb.pri({ pref: 'Any' }, { rushInstall: true }),
+      'still behind somebody who rang up this morning, which is where a week-old sale belongs');
+    check('S315', 'and past a fortnight they go ahead of everybody, rush installs included',
+      sb.pri({ pref: 'Any' }, NEWC, '2026-10-16') < sb.pri({ pref: 'Any' }, { rushInstall: true }),
+      '"ahead of everyone, rush installs included" — the only thing ever put above a rush');
+    check('S315', 'a new member with no created date is left exactly as they were',
+      sb.pri({ pref: 'Any' }, NEW, '2026-11-30') === sb.pri({ pref: 'Any' }, NEW) &&
+      sb.waited(NEW, '2026-11-30') === null,
+      'guessing "now" would make every undated record permanently overdue, which is how ' +
+      'the old createdAt-guessed New Hang badge flagged all ~945 houses at once');
+    check('S315', 'and it still does not move them into a month they did not ask for',
+      sb.from({ pref: 'November' }, '2026-09-28') === '2026-11-01',
+      'houseAllowedFrom is untouched by any priority rule, and must stay that way');
+  }
+
+  /* ---- the date has to travel, and a cleared date has to travel too ---- */
+  {
+    const listSrc = (() => {
+      const i = admin.indexOf('const SCHEDULE_SYNC_FIELDS = [');
+      const j = admin.indexOf('\n];', i);
+      return i === -1 || j === -1 ? '' : admin.slice(i, j + 3);
+    })();
+    check('S315', 'the office date rides across on the shared field list',
+      /key:'notBefore'/.test(listSrc) && /blankClears\s*:\s*true/.test(listSrc),
+      'a field added here reaches houseFromCustomer as well, so new arrivals carry it too');
+
+    const env = (custData, houseNotBefore) => {
+      const sbx = {};
+      new Function('SEASON', 'jobAddresses', 'BASE_START', 'customerForHouse',
+        'extractCleanCity', 'isoOf', 'anyStampMillis', 'prefSpecificDate', 'prefKey',
+        listSrc + fn('syncHousesFromCustomers') + 'this.run = syncHousesFromCustomers;')
+        .call(sbx,
+          [{ houses: [{ id: 'h1', name: 'Test', pref: 'Any', notBefore: houseNotBefore, details: 'keep me' }] }],
+          [{ id: 'c1', data: custData }],
+          new Date(2026, 9, 1),
+          () => ({ id: 'c1', data: custData }),
+          (c) => ('' + (c || '')).split(',')[0].trim(),
+          (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'),
+          (t) => (t ? new Date(t).getTime() : 0),
+          () => null,
+          (p) => ('' + (p || '')).toLowerCase());
+      return sbx;
+    };
+
+    const setRun = env({ name: 'Test', earliestInstallDate: new Date(2026, 10, 12) }, '');
+    const changes = setRun.run();
+    check('S315', 'a date typed in Customers reaches the plan and is reported',
+      changes.some(c => c.field === 'earliest date' && c.to === '2026-11-12'),
+      'without this the field is set in Customers and the planner never hears about it');
+
+    const cleared = env({ name: 'Test' }, '2026-11-12');
+    const clearedChanges = cleared.run();
+    check('S315', 'and clearing it in Customers clears it on the plan',
+      clearedChanges.some(c => c.field === 'earliest date' && c.to === '(cleared)'),
+      'she was asked and said yes — without it a date typed once holds the house for the ' +
+      'rest of the season with nothing on screen left to remove');
+
+    const keep = env({ name: 'Test', notes: '' }, '2026-11-12');
+    const keepChanges = keep.run();
+    check('S315', 'but a blank anywhere else still never wipes what the plan has',
+      !keepChanges.some(c => c.field === 'notes'),
+      'THE OTHER HALF OF THE RULE. It exists because a half-loaded customer record must ' +
+      'not empty a card the crew relies on, and relaxing it for everybody to reach one ' +
+      'field would undo that quietly');
   }
 }
