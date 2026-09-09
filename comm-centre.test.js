@@ -208,6 +208,214 @@ check('and employee messages are gone entirely, loader included',
   !/function loadEmployeeNotes/.test(admin) && !/employeeNotesList/.test(admin) &&
   !/function renderEmployeeNotesTab/.test(admin));
 
+/* =============================================================================
+ * ⭐ THE CONTACT DETAILS UNDER THE NAME ([[MSG-14]])
+ * Addie: "on inbox can you show email and phone number under name so I can communicate
+ * with them?"
+ *
+ * ⚠ EVERY CLAIM HERE IS ABOUT WHAT THE ROW SAYS, so every check RUNS the renderer and
+ * reads the HTML back. A regex proving the words exist in the source is the failure this
+ * repo has shipped three times — most memorably the ledger message that was built and
+ * then overwritten by a default on the line below it.
+ * ============================================================================= */
+console.log('');
+console.log('--- the contact line under the name ---');
+
+const CONTACT_SRC =
+  liftConst('MSG_TYPE_MEMBER') + liftConst('SYSTEM_NOTICE_TOPICS') +
+  liftFn('esc') + liftFn('fmtPhone') + liftFn('msgTypeOf') +
+  liftFn('msgErrorTokenTail') + liftFn('msgErrorWhoIs') +
+  liftFn('msgContactCustomer') + liftFn('msgContactFor') + liftFn('msgContactLineHtml');
+const cb = {};
+new Function('MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'jobAddresses',
+  CONTACT_SRC + 'this.line = msgContactLineHtml; this.contact = msgContactFor;')
+  .call(cb, 'Member Error', 'Admin Error', []);
+
+/* Rebuild the sandbox against a given book, because jobAddresses is what every fallback
+   reads and each of these checks needs a different one. */
+function withBook(book){
+  const o = {};
+  new Function('MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'jobAddresses',
+    CONTACT_SRC + 'this.line = msgContactLineHtml; this.contact = msgContactFor;')
+    .call(o, 'Member Error', 'Admin Error', book);
+  return o;
+}
+
+const DANA  = {id:'c1', data:{name:'Dana Reed',  phone:'(801) 555-0111', email:'dana@example.com',
+                              portalToken:'AAAAAAw5o9tx'}};
+const KYLE  = {id:'c2', data:{name:'Kyle Reed',  phone:'(801) 555-0111', email:'kyle@example.com'}};
+const SOLO  = {id:'c3', data:{name:'Ada Frost',  phone:'8015550999',     email:'ada@example.com'}};
+
+/* 1 — the ordinary case. What they typed is what she rings. */
+{
+  const html = withBook([SOLO]).line({topic:'General Question', name:'Ada Frost',
+    phone:'8015550999', email:'ada@example.com', message:'hello'});
+  check('a message that carries both shows both, as links you can press',
+    /href="tel:8015550999"/.test(html) && /href="mailto:ada@example\.com"/.test(html),
+    html);
+  check('and it does not claim they came from the record',
+    !/from their record/.test(html), html);
+  check('the number is shown the way the office writes it, not as ten bare digits',
+    />\(801\) 555-0999</.test(html), html);
+}
+
+/* 2 — the half-filled case, which is most portal-raised messages. */
+{
+  const html = withBook([SOLO]).line({topic:'Light Color Change', name:'Ada Frost',
+    phone:'8015550999', message:'red and green please'});
+  check('an email missing from the message is filled in from their record',
+    /mailto:ada@example\.com/.test(html), html);
+  check('and the row says that is where it came from',
+    /from their record/.test(html),
+    'the office should be able to tell their own answer from one we worked out');
+}
+
+/* 3 — THE SAFETY CHECK. Seventeen numbers in the real book are shared and fourteen of
+   those are two different households. */
+{
+  const o = withBook([DANA, KYLE]);
+  const c = o.contact({topic:'General Question', phone:'(801) 555-0111', message:'x'});
+  check('a phone shared by two households resolves to nobody, rather than to one of them',
+    c.email === '',
+    'got ' + JSON.stringify(c) + ' — mailing the wrong half of a household is worse than mailing neither');
+  check('but the number they actually gave us is still offered',
+    /href="tel:8015550111"/.test(o.line({topic:'General Question', phone:'(801) 555-0111', message:'x'})),
+    'refusing the lookup must not throw away what the message itself carried');
+}
+{
+  /* ⚠ AND THE SAME REFUSAL ON A SHARED ADDRESS. One inbox between a couple, or a
+     landlord's address on two tenants, is as ordinary as one phone between them —
+     and the red-check is what said this had no fixture at all. */
+  const a = {id:'e1', data:{name:'One Reed',  phone:'8015551001', email:'reeds@example.com'}};
+  const b = {id:'e2', data:{name:'Two Reed',  phone:'8015551002', email:'reeds@example.com'}};
+  const c = withBook([a, b]).contact({topic:'General Question',
+    email:'reeds@example.com', message:'x'});
+  check('an email shared by two records resolves to nobody either',
+    c.phone === '',
+    'got ' + JSON.stringify(c) + ' — ringing one of two people on one address is a guess');
+}
+
+/* 4 — the row that most needs this. A Member Error carries no name and no contact at
+   all; the only thing identifying anybody is the redacted token on the link they hit. */
+{
+  const html = withBook([DANA]).line({topic:'Member Error',
+    message:'RSVP failed at /#/?token=' + '…' + 'w5o9tx&rsvp=back'});
+  check('a Member Error with no contact of its own is reached through their link',
+    /tel:8015550111/.test(html) && /mailto:dana@example\.com/.test(html),
+    'this is the row you most want to ring, and it offered no way to: ' + html);
+}
+{
+  /* ⚠ AND IT KEEPS THE SAME REFUSAL. Two customers whose tokens end the same way is
+     not a weaker match, it is no match — msgErrorWhoIs's own rule. */
+  const twin = {id:'c9', data:{name:'Other Person', phone:'8015552222',
+                               email:'other@example.com', portalToken:'ZZZZZZw5o9tx'}};
+  const html = withBook([DANA, twin]).line({topic:'Member Error',
+    message:'RSVP failed at /#/?token=' + '…' + 'w5o9tx&rsvp=back'});
+  check('two customers behind one link resolves to neither',
+    !/mailto:/.test(html), html);
+}
+
+/* 5 — a route sweep has no customer behind it, so it gets no line. */
+{
+  const html = withBook([SOLO]).line({topic:'Routes Kept Up To Date', folder:'System',
+    message:'29 moved, 29 removed'});
+  check('a System notice gets no contact line at all',
+    html === '',
+    '"no phone or email" under every route sweep is noise on the rows that need none');
+}
+
+/* 6 — and on a row that SHOULD have one, empty is said rather than left blank. */
+{
+  const html = withBook([]).line({topic:'General Question', name:'Nobody Known', message:'x'});
+  check('a member message with nothing to go on says so rather than rendering blank',
+    /row-contact none/.test(html) && /No phone or email/.test(html),
+    'blank reads as nothing-to-do on a row sitting in the Inbox because somebody is waiting');
+}
+
+/* 7 — their own answer wins. Somebody writing in from a new address wants the reply
+   there, not at the old one still on file. */
+{
+  /* ⚠ THE FIXTURE HAS TO REACH THE LINE. The first version gave the message BOTH details,
+     so msgContactFor returned at its early guard and never ran the merge at all —
+     the red-check is what said so. This one carries an email that FINDS the record and a
+     phone that DISAGREES with it, which is the only shape that can tell the two apart. */
+  const c = withBook([DANA]).contact({topic:'Member Error', phone:'8015551111',
+    message:'RSVP failed at /#/?token=' + '\u2026' + 'w5o9tx&rsvp=back'});
+  check('a phone they typed is not quietly replaced by the one on file',
+    c.phone === '8015551111',
+    'got ' + c.phone + ' — the record must only ever fill a GAP');
+  /* ⚠ AND THE EMAIL SIDE NEEDS THE RECORD FOUND SOME OTHER WAY, or the fixture cannot
+     tell an override from a match: found BY the email, the two are the same string.
+     The token is the one route in that does not go through either field. */
+  const c2 = withBook([DANA]).contact({topic:'Member Error', email:'typed@example.com',
+    message:'RSVP failed at /#/?token=' + '\u2026' + 'w5o9tx&rsvp=back'});
+  check('nor is an address they wrote in from',
+    c2.email === 'typed@example.com',
+    'somebody writing from a new address wants the reply there: ' + JSON.stringify(c2));
+  check('and the phone still comes across from the record they were matched to',
+    c2.phone === '(801) 555-0111' && c2.fromRecord === true, JSON.stringify(c2));
+}
+
+/* 8 — the links have to be pressable, which means the dialler gets digits. */
+{
+  const html = withBook([]).line({topic:'General Question', phone:'+1 (801) 555-0999 ext 4',
+    message:'x'});
+  check('punctuation is stripped out of the tel: link but kept in what is shown',
+    /href="tel:\+18015550999"/.test(html) && /\+1 \(801\) 555-0999 ext 4/.test(html), html);
+  /* ⚠ THIS CHECK FOUND A REAL ONE. Stripping punctuation alone turned that number into
+     tel:+180155509994 — the 4 of "ext 4" welded on the end. Eleven digits, dials
+     perfectly, and reaches a stranger. */
+  check('an extension is not welded onto the end of the number',
+    !/8015550999\d/.test(html), html);
+}
+{
+  const html = withBook([]).line({topic:'General Question', phone:'801-55', message:'x'});
+  check('a number too short to ring is shown but not made a link',
+    /801-55/.test(html) && !/href="tel:/.test(html),
+    'a link that dials four digits is a wrong call somebody makes by accident: ' + html);
+}
+
+/* 9 — a contact detail is text somebody typed, so it is escaped where it is written into
+   the page. An unescaped quote ends the href early and the link goes nowhere. */
+{
+  const html = withBook([]).line({topic:'General Question',
+    email: 'a"b<script>@example.com', message:'x'});
+  check('a quote in an address cannot break out of the href',
+    html.indexOf('mailto:a"b') === -1 && /mailto:a&quot;b/.test(html), html);
+  check('and it cannot inject markup either',
+    html.indexOf('<script>') === -1, html);
+}
+
+/* 10 — ⚠ THE WIRING IS ASSERTED SEPARATELY FROM THE MECHANISM, because this suite calls
+   the renderer from its own harness: delete the call from renderMessagesList and every
+   check above still passes while the line never appears on the real page. That exact
+   sabotage went green across a 5,162-check suite once ([[MSG-11]]'s tab strip). */
+{
+  const a = admin.indexOf('function renderMessagesList(');
+  const rowStart = admin.indexOf('esc(msgErrorWhoLabel(d))', a);
+  const rowEnd = admin.indexOf("'<div class=\"rtext\">'", rowStart);
+  const row = admin.slice(rowStart, rowEnd);
+  check('renderMessagesList actually draws the contact line',
+    /msgContactLineHtml\(d\)/.test(row),
+    'the mechanism can be perfect and still never reach the screen');
+  check('and it draws it under the name, above the address',
+    row.indexOf('msgContactLineHtml(d)') < row.indexOf('row-phone-line'),
+    'the address is context; the phone and the email are what she opened the row to do');
+  check('the meta line no longer repeats the phone and email',
+    !/rmeta">'\+esc\(d\.phone\)/.test(row),
+    'shown twice, the small grey copy is the one that keeps being read');
+}
+
+/* 11 — this block's own standing rule: what you can read, you can find. */
+{
+  const a = admin.indexOf('function renderMessagesList(');
+  const searchBlock = admin.slice(admin.indexOf('const msgDigits', a),
+                                  admin.indexOf('const unreadCount', a));
+  check('the search box reaches the contact the row actually shows',
+    /msgContactFor\(d\)/.test(searchBlock) && !/String\(d\.phone\|\|''\)\.replace/.test(searchBlock),
+    'a number printed on screen that the search cannot match is worse than one never shown');
+}
+
 console.log('');
 console.log('=== The communication centre ===');
 console.log('');
