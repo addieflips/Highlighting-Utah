@@ -3077,6 +3077,54 @@ that the customer may ring. An admin row names who was signed in and, for emails
 did not go out and what the mail service said — a count the status line showed and then
 threw away the moment she clicked anything else.
 
+### The Communication Centre — type, status, category, priority
+
+Added 2026-09-09 ([[MSG-11]]). Addie's blueprint: *"Do NOT simply create more folders.
+Instead, create a system based on MESSAGE TYPE → STATUS → CATEGORY → PRIORITY"*, and the
+test she set for it — the office should answer, in seconds: who contacted us, what do they
+need, do I need to respond, is somebody waiting on us, is the system having problems, is
+any of it urgent, what is already handled.
+
+⭐ **This supersedes the folder-shaped Inbox of [[MSG-05]]**, which was also hers. The old
+answer is still right about what it was protecting — a tree is how you file something you
+will look for later — but filing turned out to be the wrong FIRST question.
+
+⛔ **Nothing she filed by hand is deleted.** The folder tree, the drag, the right-click and
+Move to… all still work and still hold everything in them. They moved *down* the sidebar,
+under **Your folders**, and picking one hands the list straight back to that folder.
+
+⛔ **Derived, never migrated.** Every classification is computed from what the record
+already carries — `topic`, `folder`, `read`, `responded` — so it is right for a season of
+messages already written, and there is nothing to undo if a rule turns out wrong. Only what
+a *person* decides is stored: a status she sets, a priority she raises, a tag she adds.
+
+| | |
+|---|---|
+| **Type** | `member` (somebody asking for something), `system` (the app reporting activity), `error` (something broke). Icon **and** word on every chip — *"Do not rely only on color"* |
+| **Category** | tags, not folders, and a message may carry several. Her own example — *"red and green … and move my installation to November 20"* — comes out **Lights / Colors + Scheduling**, which no folder could hold twice |
+| **Status** | Unread → Needs Reply → Waiting on Member → In Progress → Resolved → Archived |
+| **Priority** | Urgent / High / Normal / Low. Nothing is urgent unless it broke something or she said so — *"Do not make every message feel urgent"* |
+| **Severity** | errors only: Critical / Warning / Needs Review / Resolved |
+
+⚠ **`responded` means Resolved, not Waiting.** That button has always meant *dealt with*;
+reading it the other way would relabel every message she has ever ticked. **Waiting on
+Member** is a new answer she sets herself, so it is stored and never inferred.
+
+⚠ **A system notice never reads as Needs Reply.** Route notices outnumber real questions
+hundreds to one, and burying the queue is the complaint this whole thing exists to fix —
+the same argument the unread badge was fixed under in August.
+
+⚠ **One rule, `commRowMatches`, decides both the list and every count beside every tab.**
+Two implementations is how a tab says 5 and shows 4, which this Inbox has already done once.
+
+The summary strip along the top is all buttons: *"Clicking '5 Need Reply' immediately
+filters the inbox to those five."* Beside it sits **System Health**, which reads unresolved
+errors rather than unread ones — "All systems operational" while two critical errors sat
+there having been clicked once would be the panel lying.
+
+*Where it's proved*: `comm-centre.test.js` (`npm run test:comm`) RUNS the classifier over
+real message shapes, including her worked example, rather than matching its source.
+
 **Who hit it** ([[MSG-10]], 2026-09-09). Addie, reading a folder in which one row was named
 and the rest were blank: *"we need to know who hit an error so you need to show me who hit
 that error."* Three different things were happening in those rows, and only the first was
