@@ -10151,9 +10151,27 @@ check('fill', 'the fill is bounded so one sweep cannot make hundreds of writes',
 check('fill', 'every unscheduled customer is a candidate now, not just new hangs',
   /pool\.push\(\{id: a\.id/.test(admin) && /pool\.sort\(/.test(admin),
   "owner's correction, 2026-08-15: a day of 12 should fill up to 40");
-check('fill', 'and new hangs get the seats first when there are not enough',
-  /\(b\.newHang \? 1 : 0\) - \(a\.newHang \? 1 : 0\)/.test(admin),
-  'a returning customer waiting one more week is not the same as a new hang never going out');
+/* ⚠ REPOINTED 2026-09-09, NOT WEAKENED. This matched the sort expression as
+   LITERAL TEXT — `(b.newHang ? 1 : 0) - (a.newHang ? 1 : 0)` — so it failed on
+   correct code the moment the comparator gained the rush flag beside newHang.
+   Same slow-fuse shape as S82, S129 and the folder-names suite: pinned to where
+   a string happens to sit rather than to what must be true. It RUNS the real
+   comparator now, which is a stronger claim than the text ever made. */
+(function(){
+  const m = admin.replace(/\r/g, '').match(/pool\.sort\(function\(a,\s*b\)\{[\s\S]*?\n    \}\);/);
+  let cmp = null;
+  try { cmp = m ? eval('(function(a,b){' + m[0].replace(/^pool\.sort\(function\(a,\s*b\)\{/, '').replace(/\}\);$/, '') + '})') : null; }
+  catch(err){ cmp = null; }
+  check('fill', 'and new hangs get the seats first when there are not enough',
+    !!cmp && cmp({newHang: false}, {newHang: true}) > 0 && cmp({newHang: true}, {newHang: false}) < 0,
+    'a returning customer waiting one more week is not the same as a new hang never going out');
+  /* ⭐ AND THE SAME COMPARATOR CARRIES DAX'S 2026-09-09 RULING, so the two cannot
+     be separated: "ask sooner is the same as new hangs" — level, neither jumping
+     the other. See [[SCH-46]], superseded by [[SCH-49]]. */
+  check('fill', 'and asked-sooner ranks level with a new hang, neither above the other',
+    !!cmp && cmp({rush: true}, {newHang: true}) === 0 && cmp({rush: true}, {newHang: false}) < 0,
+    'a phone call must not outrank a new hang, and must not sit behind one either');
+})();
 check('fill', 'pulling a house forward is gated on their timing preference',
   /const allowedOn = function\(id, dateStr\)\{[\s\S]{0,220}earliestAllowedInstallDate\(d\)\) <= dateStr/
     .test(admin.replace(/\r/g, '')),
@@ -16793,14 +16811,20 @@ suite('Suite 50. A Pref Date that names an actual day');
         sb2.pri({ pref: '11/9+' }, { chargeNewMemberFee: true }) < sb2.pri({ pref: '11/9+' }, {}) &&
         sb2.pri({ pref: '11/9+' }, { chargeNewMemberFee: true }) < sb2.pri({ pref: '' }, {}),
         'new hangs outrank every preference, which is the one thing above this');
-      /* ⭐ AND THE ONE THING ABOVE A NEW HANG IS A PERSON DECIDING (added 2026-09-03).
-         Owner: "we should be able to manually add priority to specific customers if they
-         directly ask if they can be hung sooner than later." An override that cannot
-         override the automatic rule is not an override — see houseInstallPriority. */
-      check('S50', 'and the office moving somebody up by hand outranks even a new hang',
-        sb2.pri({ pref: '' }, { rushInstall: true }) <
-          sb2.pri({ pref: '' }, { chargeNewMemberFee: true }),
-        'the checkbox is the only thing a person sets by hand, so it has to win');
+      /* ⭐ A PERSON DECIDING RANKS WITH A NEW HANG (changed 2026-09-09). Dax:
+         "ask sooner is the same as new hangs."
+         ⚠ THIS REVERSES THE 2026-09-03 ASSERTION, which read `pri(RUSH) < pri(NEW)`
+         on the delegated reasoning that "an override that cannot override the
+         automatic rule is not an override". Written out here rather than deleted,
+         because that reasoning is what makes the new answer legible: a tier of its
+         own let one phone call pull a house onto a day no crew was working — which
+         is how Darlene Price ended up in the "not on either crew's route" bucket on
+         1 October. [[SCH-46]] superseded by [[SCH-49]]. */
+      check('S50', 'and the office moving somebody up by hand ranks level with a new hang',
+        sb2.pri({ pref: '' }, { rushInstall: true }) ===
+          sb2.pri({ pref: '' }, { chargeNewMemberFee: true }) &&
+        sb2.pri({ pref: '' }, { rushInstall: true }) < sb2.pri({ pref: 'OCT' }, {}),
+        'a tick by hand is level with a new hang, and both are ahead of a plain October house');
 
       /* ⭐ AND THE SCHEDULE FILES THEM UNDER THE RIGHT MONTH. Owner, 2026-08-19:
          "there are two people who entered their preferred date in a wrong format
@@ -51778,15 +51802,35 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
 
       /* ⭐ MOVED UP BY HAND. Owner: "we should be able to manually add priority to specific
          customers if they directly ask if they can be hung sooner than later." */
-      check('S300', 'the office moving somebody up puts them ahead of everybody',
-        p({ pref: '' }, RUSH) < p({ pref: 'OCT' }, NEW) &&
+      /* ⭐ CHANGED 2026-09-09 — LEVEL WITH A NEW HANG, NOT ABOVE ONE. Dax, asked
+         where it sits: "ask sooner is the same as new hangs." [[SCH-46]] is
+         superseded by [[SCH-49]]; the old assertion was `p(RUSH) < p(OCT, NEW)`,
+         which is the claim being withdrawn, and it is written out here so nobody
+         restores it thinking it was lost in a merge. */
+      check('S300', 'the office moving somebody up ranks them level with a new hang',
+        p({ pref: '' }, RUSH) === p({ pref: '' }, NEW) &&
+        p({ pref: 'OCT' }, RUSH) === p({ pref: 'OCT' }, NEW),
+        'Dax settled the placement: asked-sooner is the same as a new hang, neither above');
+      check('S300', 'and it still goes ahead of everybody who did not ask',
         p({ pref: '' }, RUSH) < p({ pref: 'OCT' }, OLD) &&
-        p({ pref: 'NOV' }, RUSH) < p({ pref: '' }, OLD),
-        'an override that cannot override the automatic rule is not an override');
-      check('S300', 'and the flag is the same one the nightly sweep reads',
-        /rushInstall === true/.test(bare(pri)) && /rushInstall === true/.test(bare(fn('installPriority'))),
+        p({ pref: '' }, RUSH) < p({ pref: '' }, OLD),
+        'level with a new hang is still the front of the queue');
+      /* ⚠ THE AGREEMENT CHECK HAD TO CHANGE SHAPE, NOT GO AWAY. It matched
+         `rushInstall === true` inside BOTH orderings — but the sweep has no
+         new-hang TIER for a rush to be level with, so it reads the flag on the
+         pool sort that feeds fillDays instead of inside installPriority. Asserting
+         the old text would now fail on correct code AND would force the flag back
+         into a function where it can only mean "outranks October". */
+      check('S300', 'and the nightly sweep reads the same flag, in the place it ranks',
+        /rushInstall === true/.test(bare(pri)) &&
+        /rush:\s*isRushInstall\(d\)/.test(bare(admin)) &&
+        /a\.newHang \|\| a\.rush/.test(bare(admin)),
         'two definitions of "asked to go sooner" would let Recalculate everything and the ' +
         'sweep disagree about who is in a hurry');
+      check('S300', 'and installPriority no longer gives it a tier of its own',
+        !/rushInstall/.test(bare(fn('installPriority'))),
+        'returning -1 there jumped a rushed house over everybody who asked for October, ' +
+        'which is the month tier Dax ruled it must not jump');
       /* ⚠ THE HALF THAT MATTERS MORE. Owner, in the same breath: "dont do someone in a month
          they dont want to be hung though." The month is houseAllowedFrom's job and this must
          not touch it — a rush that moved somebody's month would be the one outcome she ruled
@@ -54785,5 +54829,311 @@ suite('Suite 311. The referral offer, RUN rather than read');
     check('S311', 'and a template that is not an RSVP gets no offer at all',
       e6.referralOfferPlacement(tplBill) === 'none',
       'a referral offer at the foot of an invoice is not what that email is for');
+  }
+}
+
+suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
+
+/* ⭐ Dax, 2026-09-09: "we never want to see people not on either crews route but
+   scheduled for a day, thats just the same as a one man at the end of the day we
+   calculate for milage so put them on a day that they can be in the route."
+
+   THE DAY HE WAS LOOKING AT, and every fixture below is built from it: 1 October
+   held Lehi 14, American Fork 4, Orem 1, Vineyard 1. Lehi and American Fork are
+   neighbours; so are Orem and Vineyard. dayCrewTowns' greedy gave Lehi to crew 1
+   and then LOAD-BALANCED American Fork onto the empty crew 2 — spending crew 2's
+   dominant-city slot on a town crew 1 could have taken as its neighbour. Orem and
+   Vineyard were then legal for nobody and fell into the "not on either crew's
+   route" bucket, where Darlene Price and Aaron Marvel sat.
+
+   ⚠ AND THE DAY THEN CALLED ITSELF A ONE-CREW DAY, which is what made it stick.
+   dayCrewCount measures dayAssignedHouses — the houses a crew actually holds — so
+   the two stranded ones were not counted, the day read as 18 houses over two
+   neighbouring towns, and the one-crew collapse put everything on Chase's sheet.
+   Being stranded is what removed the second crew that could have taken them.
+
+   ⚠ THESE RUN THE REAL FUNCTIONS. Every claim here is about WHICH CREW A HOUSE
+   ENDS UP ON, which a text match cannot see — and the greedy that caused this was
+   itself perfectly readable code. */
+{
+  /* ⚠ LIFTED, NEVER STUBBED (§3). oneManMaxHouses, planCities and extractCleanCity
+     are reached through dayCrewCount and crewTownsFor; a stub for any of them makes
+     the crew-count half of this suite agree with itself and prove nothing about the
+     page. assertSandbox named all three the first time this ran, which is what that
+     gate is for. */
+  const need314 = ['bestCrewTowns', 'dayCrewTowns', 'dayCrewHouses', 'dayCrewCount',
+                   'dayAssignedHouses', 'crewTownsFor', 'crewIndexes', 'crewCap',
+                   'dayTownList', 'oneCrewMaxHouses', 'daySoloCrew',
+                   'oneManMaxHouses', 'planCities', 'extractCleanCity', 'isOneManDay'];
+  const lifted314 = {};
+  need314.forEach(function (n) { lifted314[n] = extractFn(admin, n); });
+  const missing314 = need314.filter(function (n) { return !lifted314[n]; });
+  check('S314', 'the crew-split functions are all findable',
+    missing314.length === 0,
+    'missing: ' + missing314.join(', ') + ' — repoint the lift rather than stubbing one, ' +
+    'a stub here makes the very rule this suite exists for untestable');
+
+  if (!missing314.length) {
+    /* ⚠ THE NEIGHBOUR TABLE IS SUPPLIED, exactly as the live page supplies one.
+       Without it townsAreNeighbours falls through to a tape measure over customer
+       coordinates the fixtures do not have, every pairing answers NO, and the whole
+       suite runs against a builder with town-mixing switched off — the vacuous shape
+       Suite 22 was caught by. */
+    /* ⚠ Draper/Sandy/Midvale are a TRIANGLE on purpose — mutually neighbouring, so
+       nothing but MAX_TOWNS_PER_CREW stops a crew taking all three. A table of
+       disjoint PAIRS cannot test the cap at all: the neighbour rule refuses the
+       third town on its own and the check passes with the cap deleted. That is the
+       vacuous shape Suite 101 already records, and the first draft of this suite
+       had it. Levan/Santaquin are a pair with no big neighbour, used below to make
+       "most houses" and "most towns" give different answers. */
+    const NEIGH314 = [['Lehi', 'American Fork'], ['Orem', 'Vineyard'],
+                      ['Draper', 'Sandy'], ['Alpine', 'Highland'],
+                      ['Draper', 'Midvale'], ['Sandy', 'Midvale'],
+                      ['Levan', 'Santaquin']];
+    const pre314 =
+      'const MAX_TOWNS_PER_CREW = 2;' +
+      'const MAX_STOPS_PER_ROUTE = 20;' +
+      'const ONE_MAN_MAX_HOUSES = 8;' +
+      'let CREWS = [];' +
+      'function crewCount(){ return CREWS.length; }' +
+      'function crewName(i){ return (CREWS[i] && CREWS[i].name) || ("Crew " + (i + 1)); }' +
+      'function sameCity(a,b){ return (""+a).trim().toLowerCase() === (""+b).trim().toLowerCase(); }' +
+      'function cityOf(h){ return h.city; }' +
+      'function dayLimitFor(){ return null; }' +
+      /* planCities only answers for a NULL day, which no fixture here passes; it
+         still has to be defined, and its own dependency has to exist with it. */
+      'function allHouses(){ return []; }' +
+      'const NEIGH = ' + JSON.stringify(NEIGH314) + ';' +
+      'function townsAreNeighbours(a,b){ if(sameCity(a,b)) return true;' +
+      ' return NEIGH.some(function(p){ return (sameCity(p[0],a)&&sameCity(p[1],b))||' +
+      '(sameCity(p[0],b)&&sameCity(p[1],a)); }); }';
+    const body314 = pre314 + need314.map(function (n) { return lifted314[n]; }).join('\n');
+
+    assertSandbox('S314', 'dayCrewTowns', body314, admin,
+      ['MAX_TOWNS_PER_CREW', 'MAX_STOPS_PER_ROUTE', 'ONE_MAN_MAX_HOUSES', 'CREWS',
+       'crewCount', 'crewName', 'sameCity', 'cityOf', 'dayLimitFor', 'NEIGH',
+       'townsAreNeighbours', 'allHouses'].concat(need314));
+
+    const sb314 = {};
+    new Function(body314 +
+      ';this.towns = dayCrewTowns; this.houses = dayCrewHouses;' +
+      'this.count = dayCrewCount; this.assigned = dayAssignedHouses;' +
+      'this.setCrews = function(c){ CREWS = c; };').call(sb314);
+
+    const dayOf = function (towns) {
+      const out = [];
+      Object.keys(towns).forEach(function (t) {
+        for (let i = 0; i < towns[t]; i++) out.push({ city: t, id: t + '-' + i });
+      });
+      return { houses: out };
+    };
+    const TWO_AUTO = [{ name: 'Chase', city: '' }, { name: 'Crew 2', city: '' }];
+    const strandedCount = function (day) {
+      const held = sb314.houses(day).reduce(function (a, b) { return a.concat(b); }, []);
+      return day.houses.length - held.length;
+    };
+
+    /* ---- the day he reported --------------------------------------------- */
+    sb314.setCrews(TWO_AUTO);
+    const oct1 = dayOf({ 'Lehi': 14, 'American Fork': 4, 'Orem': 1, 'Vineyard': 1 });
+    const oct1Towns = sb314.towns(oct1).map(function (l) { return l.slice().sort(); });
+    check('S314', '1 October: every town on the day lands on a crew',
+      JSON.stringify(oct1Towns) ===
+        JSON.stringify([['American Fork', 'Lehi'], ['Orem', 'Vineyard']]),
+      'got ' + JSON.stringify(oct1Towns) + ' — Lehi and American Fork ride together so ' +
+      'the other crew is free for Orem and Vineyard');
+    check('S314', 'and nobody is left off a sheet',
+      strandedCount(oct1) === 0,
+      'this is the bucket Darlene Price and Aaron Marvel were sitting in');
+    /* ⚠ THE COLLAPSE IS THE OTHER HALF. Stranding two houses made the day read as
+       18 over two neighbouring towns — a one-crew day — and a one-crew day has no
+       second crew to give them to. Assert the COUNT, or the split above is correct
+       and the sheet still comes out with everything on Chase. */
+    check('S314', 'and the day is worked out as needing two crews, not collapsed to one',
+      sb314.count(oct1) === 2 && sb314.assigned(oct1).length === 20,
+      'got ' + sb314.count(oct1) + ' crew(s) over ' + sb314.assigned(oct1).length +
+      ' assigned houses — a stranded house is not counted, which is what removed ' +
+      'the second crew that could have driven to it');
+
+    /* ---- and a day that was already whole is untouched --------------------- */
+    /* ⚠ THIS IS THE CHECK THAT KEEPS THE FIX SURGICAL. bestCrewTowns runs ONLY
+       when the greedy has actually dropped somebody, so every ordinary day must
+       come out exactly as it did before — otherwise the whole season reshuffles. */
+    const plain = dayOf({ 'Lehi': 14, 'Draper': 6 });
+    check('S314', 'a two-town day still goes one town per crew, as it always did',
+      JSON.stringify(sb314.towns(plain)) === JSON.stringify([['Lehi'], ['Draper']]),
+      'got ' + JSON.stringify(sb314.towns(plain)) + ' — the greedy is kept whenever ' +
+      'it strands nobody, so no plan that was already whole may move');
+    const paired = dayOf({ 'Lehi': 10, 'American Fork': 6, 'Draper': 9, 'Sandy': 3 });
+    check('S314', 'and a four-town day the greedy already handles is unchanged',
+      strandedCount(paired) === 0 &&
+      sb314.towns(paired).every(function (l) { return l.length <= 2; }),
+      'got ' + JSON.stringify(sb314.towns(paired)));
+
+    /* ---- the rules it may never buy its way out of ------------------------- */
+    /* ⚠ THE SEARCH INVENTS NO PERMISSION. Placing everybody is worth nothing if it
+       is bought by handing a crew three towns, or two towns forty miles apart —
+       that is the sheet the town rule exists to prevent, and it would read as this
+       fix working. */
+    /* ⚠ THE CAP FIXTURE USES THE TRIANGLE. Draper, Sandy and Midvale are mutually
+       neighbouring, so all three are legal for one crew and only the cap refuses
+       the third; Moab is a stranger nobody can take, which is what makes the search
+       run at all. With MAX_TOWNS_PER_CREW dropped the search finds Draper+Sandy+
+       Midvale on one crew and Moab on the other — one house better, and exactly the
+       three-city sheet the town rule exists to prevent. */
+    const triangle = dayOf({ 'Draper': 6, 'Sandy': 4, 'Midvale': 3, 'Moab': 1 });
+    const triTowns = sb314.towns(triangle);
+    check('S314', 'no crew is given more than two towns to buy a placement',
+      triTowns.every(function (l) { return l.length <= 2; }),
+      'got ' + JSON.stringify(triTowns) + ' — MAX_TOWNS_PER_CREW is the ceiling ' +
+      'whatever it costs in stranded houses');
+    const spread = dayOf({ 'Lehi': 5, 'Draper': 4, 'Provo': 3, 'Logan': 2, 'Moab': 1 });
+    const spreadTowns = sb314.towns(spread);
+    check('S314', 'and a second town is still only ever a neighbour of the first',
+      spreadTowns.every(function (l) {
+        return l.length < 2 || NEIGH314.some(function (p) {
+          return (p[0] === l[0] && p[1] === l[1]) || (p[1] === l[0] && p[0] === l[1]);
+        });
+      }),
+      'got ' + JSON.stringify(spreadTowns) + ' — "the second city being a neighboring ' +
+      'city is mandatory not a priority" (2026-08-20)');
+    check('S314', 'and a day nobody can cover still reports what it cannot hold',
+      strandedCount(spread) > 0,
+      'the honest empty bucket has to survive — rebuildSeasonDays moves those houses ' +
+      'to a day that can hold them, and it can only do that if it is told');
+
+    /* ---- houses, not towns ------------------------------------------------- */
+    /* ⚠ THE TWO SCORES HAVE TO GIVE DIFFERENT ANSWERS OR THIS PROVES NOTHING, and
+       the first draft of this check did not: on a fixture where the big towns must
+       pair anyway, "most houses" and "most towns" pick the SAME arrangement and the
+       check passes with the scoring swapped.
+       Five towns, four crew-slots, so something must be stranded whatever happens.
+       The greedy splits Lehi and American Fork across the two crews — the 1 October
+       mistake — and then strands all three of the rest. Put the pair back together
+       and one crew is free, for EITHER Nephi (3 houses, 1 town) OR Orem + Vineyard
+       (2 houses, 2 towns):
+         most houses -> 21 placed over 3 towns   (Nephi)
+         most towns  -> 20 placed over 4 towns   (Orem + Vineyard)
+       Dax's rule is houses on a sheet, so Nephi wins.
+       ⚠ NEPHI IS SMALLER THAN AMERICAN FORK ON PURPOSE. Sized above it, the greedy
+       hands Nephi the empty crew before American Fork ever asks, reaches the
+       best answer by itself, and the search is never adopted — which is what made
+       the first version of this fixture pass with the scoring swapped. */
+    const weighted = dayOf({ 'Lehi': 14, 'American Fork': 4, 'Nephi': 3,
+                             'Orem': 1, 'Vineyard': 1 });
+    const wTowns = sb314.towns(weighted).reduce(function (a, b) { return a.concat(b); }, []);
+    check('S314', 'it maximises houses on a sheet, not towns covered',
+      wTowns.indexOf('Nephi') !== -1 &&
+      wTowns.indexOf('Lehi') !== -1 && wTowns.indexOf('American Fork') !== -1,
+      'got ' + JSON.stringify(sb314.towns(weighted)) + ' — stranding a town of three to ' +
+      'rescue two towns of one covers more towns and fewer houses, which is not the rule');
+    /* ⚠ AND THE SAME FIXTURE PINS "leaving a town to nobody stays legal". Five towns
+       cannot all be placed, so if the search may not leave one out it finds NO
+       arrangement at all, returns null, and the greedy — which strands Nephi — stands.
+       Without this the leave-unassigned branch can be deleted and nothing goes red. */
+    check('S314', 'and it can still answer when not every town can be covered',
+      wTowns.length === 3,
+      'got ' + JSON.stringify(sb314.towns(weighted)) + ' — a day that cannot be fully ' +
+      'covered must still get the best partial answer, not fall back to the greedy');
+
+    /* ⚠ RED-CHECKED WITH EIGHT SABOTAGES, SEVEN CAUGHT, AND THE EIGHTH IS REPORTED
+       RATHER THAN PAPERED OVER. Flattening the tiebreak — `return [-placed, 0, 0]`,
+       which drops both "prefer one city per crew" and the load balance — leaves this
+       suite green, and that is the honest answer rather than a hole: the tiebreak
+       only ever chooses between arrangements that place the SAME houses, so no rule
+       stated anywhere pins which of them wins. Writing a fixture to freeze one would
+       be inventing a rule nobody gave, and "1 city for a crew would be 4th or 5th in
+       priority" (2026-08-20) is explicit that it loses to almost everything.
+       ⚠ THREE OF THE OTHER SEVEN WERE MISSED ON THE FIRST PASS AND EVERY ONE WAS A
+       VACUOUS FIXTURE, not a missing check: a neighbour table of disjoint pairs
+       cannot test the two-town cap, and a day whose big towns must pair anyway gives
+       "most houses" and "most towns" the same answer. Both are fixed above and both
+       are the trap this file already records in four other places. */
+
+    /* ---- a one man day carries everybody on the day ------------------------ */
+    /* ⭐ Dax, 2026-09-09, shown the houses still left over on thin scattered days
+       and asked what should happen to them: put them on the one-man sheet. The town
+       cap is about where you may send a CREW; one person on a day of five houses is
+       the case it was never about, and leaving somebody off their own sheet only
+       buys a second trip by the same person. [[SCH-53]] */
+    sb314.setCrews(TWO_AUTO);
+    const oneMan = dayOf({ 'Provo': 2, 'Cedar Hills': 1, 'Moab': 1, 'Logan': 1 });
+    check('S314', 'a one man day puts every house on the day on its single sheet',
+      strandedCount(oneMan) === 0 && sb314.count(oneMan) === 1,
+      'got ' + sb314.count(oneMan) + ' crew(s), ' + strandedCount(oneMan) + ' stranded — ' +
+      'four scattered towns and five houses is one person, and the town rule is ' +
+      'about where a crew may be sent');
+    /* ⚠ AND ONLY A ONE MAN DAY. Twelve houses is a CREW — four people and a truck —
+       so "one crew, max two cities" applies to it as written: the day is not
+       collapsed onto one sheet and a town it may not drive stays visible, which is
+       the honest bucket [[SCH-50]] keeps. This is the check that stops the rule
+       above being widened by a one-word edit from isOneManDay to dayCrewCount.
+       ⚠ THE FIRST VERSION OF THIS CHECK ASSERTED AN UNREACHABLE STATE — a one-crew
+       day carrying a stranded town — and failed on correct code. It cannot happen:
+       for a town to be stranded both crews must be full, which is four towns, which
+       is two crews by the town count. What is actually worth pinning is that a
+       crew-sized day is NOT absorbed, so that is what this says now. */
+    const oneCrew = dayOf({ 'Provo': 6, 'Cedar Hills': 4, 'Moab': 1, 'Logan': 1 });
+    check('S314', 'but a crew-sized day is not absorbed, and still shows what it cannot drive',
+      sb314.count(oneCrew) === 2 && strandedCount(oneCrew) === 2,
+      'got ' + sb314.count(oneCrew) + ' crew(s), ' + strandedCount(oneCrew) + ' stranded — ' +
+      'twelve houses is a crew, and the town rule is exactly about them');
+
+    /* ---- the forecast beside the map -------------------------------------- */
+    /* ⭐ Dax, 2026-09-09: "also everday it should show the forecasted temperature
+       for the area by the map." RUN, not matched: every claim here is about a chip
+       that does or does not appear, and the whole risk is the SILENT case — a date
+       past the forecast horizon must draw nothing rather than a zero or a dash. */
+    (function () {
+      const chipsSrc = extractFn(admin, 'dayForecastChips');
+      check('S314', 'the forecast strip is findable',
+        !!chipsSrc, 'repoint this lift rather than stubbing it');
+      if (!chipsSrc) return;
+      const FC = { 'Lehi': { '2026-10-01': 54 }, 'Levan': { '2026-10-01': 31 } };
+      const chips = new Function('esc', 'dayAreas', 'isoOf', 'dayDate',
+        'forecastHighFor', 'COLD_DAY_MAX_F',
+        chipsSrc + '\nreturn dayForecastChips;')(
+        function (s) { return String(s); },
+        function (d) {
+          const c = {}; d.houses.forEach(function (h) { c[h.city] = (c[h.city] || 0) + 1; });
+          return Object.keys(c).sort(function (a, b) { return c[b] - c[a]; });
+        },
+        function () { return '2026-10-01'; },
+        function () { return new Date(2026, 9, 1); },
+        function (t, ds) { const r = FC[t]; const v = r && r[ds]; return typeof v === 'number' ? v : null; },
+        35);
+      const warm = chips({ houses: [{ city: 'Lehi' }, { city: 'Lehi' }] });
+      check('S314', 'a town with a forecast shows its high beside the map',
+        /Lehi/.test(warm) && /54/.test(warm),
+        'got ' + JSON.stringify(warm));
+      const cold = chips({ houses: [{ city: 'Levan' }] });
+      check('S314', 'and one at or below the cutoff is marked as freezing',
+        /31/.test(cold) && cold.indexOf(String.fromCharCode(10052)) !== -1,
+        'got ' + JSON.stringify(cold) + ' — the cutoff is what vetoes a town, so the ' +
+        'screen has to show the number the plan was built on');
+      /* ⚠ THE ONE THAT MATTERS. Open-Meteo answers ~16 days and the season runs into
+         December, so MOST dates have no number at all. A dash, a zero or an "unknown"
+         on every one of them is a strip of noise that teaches the office to stop
+         reading the row on the days it does say something — and "no forecast is not a
+         cold forecast" is the builder's own rule. */
+      const unknown = chips({ houses: [{ city: 'Moab' }] });
+      check('S314', 'and a town with no forecast is silent, not a dash or a zero',
+        unknown === '',
+        'got ' + JSON.stringify(unknown) + ' — no forecast is not a cold forecast, and ' +
+        'a placeholder on every December day is a row nobody reads');
+      check('S314', 'and a day with no forecast anywhere draws no strip at all',
+        chips({ houses: [{ city: 'Moab' }, { city: 'Provo' }] }) === '',
+        'an empty strip is the honest answer for most of the season');
+    })();
+
+    /* ---- and it is stable -------------------------------------------------- */
+    /* ⚠ The same day fed in twice must give the same answer, or a plan changes
+       under the office every time anything re-renders. */
+    const orderA = dayOf({ 'Lehi': 14, 'American Fork': 4, 'Orem': 1, 'Vineyard': 1 });
+    const orderB = { houses: orderA.houses.slice().reverse() };
+    check('S314', 'and the same day gives the same split whatever order it arrives in',
+      JSON.stringify(sb314.towns(orderA).map(function (l) { return l.slice().sort(); })) ===
+      JSON.stringify(sb314.towns(orderB).map(function (l) { return l.slice().sort(); })),
+      'a split that depends on arrival order re-cuts the season on every render');
   }
 }
