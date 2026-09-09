@@ -3095,6 +3095,32 @@ that the customer may ring. An admin row names who was signed in and, for emails
 did not go out and what the mail service said — a count the status line showed and then
 threw away the moment she clicked anything else.
 
+**Who hit it** ([[MSG-10]], 2026-09-09). Addie, reading a folder in which one row was named
+and the rest were blank: *"we need to know who hit an error so you need to show me who hit
+that error."* Three different things were happening in those rows, and only the first was
+what it looked like:
+
+* **Signed in through the portal** — already named, and always was. A failure inside the
+  account knows exactly whose account it is.
+* **Signed in the ordinary way** (phone and surname) — was blank, and should never have
+  been. The reporter read `currentJobAddressData`, which only the token route fills; every
+  other reader in that file asks for `currentJobAddressData || currentLookupRecord`. It
+  does now too.
+* **An RSVP link that failed before sign-in** — genuinely had nobody to name, and these are
+  the rows that matter most, because to that customer it looks like they already answered.
+  The link carries their own token and the report already wrote its **last six characters**
+  down; the office holds `portalToken` on every customer, so the Inbox now matches the two
+  and prints the name, marked *"matched by their link"* so it is never mistaken for one the
+  page reported.
+
+⚠ **It reads the rows already filed**, not just new ones — those carry the tail only inside
+the page address as prose, and they are the rows she was looking at. New reports also write
+`tokenTail`/`tokenKind` as fields. ⚠ **Two candidates names neither**, because naming the
+wrong customer on a report about a failure is worse than naming none. ⚠ **A `quoteToken` is
+never resolved against the customer list** — same shape, different collection. ⚠ **And the
+whole token is still never written down**; this widens what the office can see, not what is
+stored.
+
 ⚠ **Both sides stop themselves.** Each dedupes on a fingerprint with the numbers stripped
 out, so 900 failed rows are one fault rather than 900. The member side stops after three
 per visit; the admin side after five per session, and stays quiet about a fault already
