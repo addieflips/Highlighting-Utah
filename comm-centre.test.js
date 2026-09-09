@@ -45,14 +45,20 @@ function liftConst(n){
 const NAMES = ['MSG_TYPE_MEMBER','SYSTEM_NOTICE_TOPICS','MSG_CATEGORIES','MSG_TOPIC_CATEGORIES',
   'MSG_TEXT_CATEGORIES','MSG_STATUS','MSG_STATUS_LABEL','MSG_PRIORITY','MSG_PRIORITY_LABEL',
   'MSG_SEVERITY_LABEL','COMM_ACTIVITY_TOPICS'];
+/* ⚠ commRowMatches CALLS BOTH OF THESE NOW ([[MSG-15]]) — lifted, never stubbed. A stub for
+   commSectionByKey would decide for itself which sections exist, which is exactly the thing
+   under test; and the suite dies with a bare ReferenceError rather than skipping, which is
+   the extraction-list trap CLAUDE.md describes working as intended. */
 const SRC = NAMES.map(liftConst).join('') +
   liftFn('msgTypeOf') + liftFn('msgCategories') + liftFn('msgStatusOf') +
   liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
-  liftFn('commRowMatches');
+  liftFn('commFilterMatches') + liftFn('commSectionByKey') + liftFn('commRowMatches');
 const sb = {};
-new Function('MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', SRC +
-  'this.facets = msgFacets; this.matches = commRowMatches;')
-  .call(sb, 'Member Error', 'Admin Error');
+new Function('MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'commSections',
+  'let __cs = commSections;' + SRC.replace(/\bcommSections\b(?!\s*[,)])/g, '__cs') +
+  'this.facets = msgFacets; this.matches = commRowMatches; this.filter = commFilterMatches;' +
+  'this.setSections = function(v){ __cs = v; };')
+  .call(sb, 'Member Error', 'Admin Error', {custom: [], hidden: []});
 
 console.log('');
 console.log('--- what kind of thing is this ---');
@@ -414,6 +420,256 @@ const SOLO  = {id:'c3', data:{name:'Ada Frost',  phone:'8015550999',     email:'
   check('the search box reaches the contact the row actually shows',
     /msgContactFor\(d\)/.test(searchBlock) && !/String\(d\.phone\|\|''\)\.replace/.test(searchBlock),
     'a number printed on screen that the search cannot match is worse than one never shown');
+}
+
+/* =============================================================================
+ * ⭐ SECTIONS SHE BUILDS HERSELF ([[MSG-15]])
+ * Addie: "for inbox I have no way of adding anything deleting anything or adding a whole
+ * new section with subtabs? Can we get that added so I can make it like this?"
+ *
+ * ⛔ THE LINE THIS MUST NOT CROSS is [[MSG-12]]: folders are not coming back. A section is
+ * a SAVED FILTER over the same derived facets, so nothing is moved, a message appears
+ * wherever it matches, and deleting a section cannot lose one. These checks are what hold
+ * that — they RUN the matcher, because every claim here is about which rows a tab holds.
+ * ============================================================================= */
+console.log('');
+console.log('--- sections she builds herself ---');
+
+const MINE = {
+  custom: [{
+    key: 'c-1', icon: '\u{1F4CC}', label: 'Gate codes',
+    filter: {types: ['member'], categories: [], statuses: [], priorities: [], severities: [], search: ''},
+    tabs: [
+      {key: 't-a', label: 'Unread', filter: {types: [], categories: [], statuses: ['unread'],
+                                             priorities: [], severities: [], search: ''}},
+      {key: 't-b', label: 'Colours', filter: {types: [], categories: ['Lights / Colors'],
+                                              statuses: [], priorities: [], severities: [], search: ''}}
+    ]
+  }],
+  hidden: []
+};
+sb.setSections(MINE);
+
+const aMemberUnread = {topic: 'General Question', read: false, message: 'what is the gate code'};
+const aColourRead   = {topic: 'Change My Light Colors', read: true, responded: true, message: 'red and green'};
+const aNotice       = {topic: 'Routes Kept Up To Date', folder: 'System', read: true, message: '29 moved'};
+
+check('a custom section holds what its own filter says',
+  sb.matches(aMemberUnread, 'c-1', 'all') === true &&
+  sb.matches(aNotice, 'c-1', 'all') === false,
+  'the section filter is Member Messages, so a route sweep is not in it');
+check('and a subtab narrows the section rather than replacing it',
+  sb.matches(aMemberUnread, 'c-1', 't-a') === true &&
+  sb.matches(aColourRead, 'c-1', 't-a') === false,
+  'the Unread subtab must still be inside Member Messages, not across everything');
+check('a second subtab picks a different slice of the same section',
+  sb.matches(aColourRead, 'c-1', 't-b') === true &&
+  sb.matches(aMemberUnread, 'c-1', 't-b') === false);
+
+/* ⚠ THE SECTION FILTER IS AN AND, NOT A STARTING POINT. A subtab that matched on its own
+   would quietly widen the section — a Payments subtab under a Member section would start
+   showing system payment notices, which is the folder-shaped confusion this replaced. */
+{
+  const wide = {custom: [{key: 'c-2', label: 'X', icon: '\u{1F4CC}',
+    filter: {types: ['member'], categories: [], statuses: [], priorities: [], severities: [], search: ''},
+    tabs: [{key: 't-x', label: 'Errors', filter: {types: ['error'], categories: [], statuses: [],
+                                                  priorities: [], severities: [], search: ''}}]}], hidden: []};
+  sb.setSections(wide);
+  const anErr = {topic: 'Member Error', read: false, message: 'RSVP failed'};
+  check('a subtab can never reach outside its section',
+    sb.matches(anErr, 'c-2', 't-x') === false,
+    'both filters have to pass — a subtab is a narrowing, never a second opinion');
+  sb.setSections(MINE);
+}
+
+/* ⚠ AN EMPTY LIST MEANS "DO NOT CARE", NOT "MATCH NOTHING". Read the other way a
+   half-built section shows zero and reads as broken rather than as unnarrowed. */
+check('a filter with nothing ticked matches everything',
+  sb.filter(aNotice, {types: [], categories: [], statuses: [], priorities: [], severities: [], search: ''}) === true &&
+  sb.filter(aMemberUnread, {}) === true);
+/* ⚠ AND TICKS ACROSS TWO ROWS HAVE TO BOTH MATCH — "a colour question that is still
+   unread" is the shape somebody actually wants, and it is what the built-ins already do. */
+check('ticks in different rows are ANDed',
+  sb.filter(aColourRead, {categories: ['Lights / Colors'], statuses: ['unread']}) === false &&
+  sb.filter(aColourRead, {categories: ['Lights / Colors'], statuses: ['resolved']}) === true);
+check('ticks in the same row are ORed',
+  sb.filter(aColourRead, {categories: ['Payment', 'Lights / Colors']}) === true);
+check('the words filter reads the topic, the message and the name',
+  sb.filter(aMemberUnread, {search: 'gate code'}) === true &&
+  sb.filter(aMemberUnread, {search: 'invoice'}) === false);
+
+/* ⚠ A TAB SHE HAS JUST DELETED SHOWS THE SECTION, NOT AN EMPTY LIST. She can delete a
+   subtab while standing on it, and zero rows there reads as the section being broken. */
+check('a subtab that no longer exists falls back to the section',
+  sb.matches(aMemberUnread, 'c-1', 't-gone') === true);
+
+/* ⚠ AND AN UNKNOWN SECTION IS NOT A CUSTOM ONE. `commSectionByKey` returning null must
+   drop through to the built-in branches, or hiding a section would break every view. */
+check('the built-in sections still work with custom ones present',
+  sb.matches(aNotice, 'system', 'all') === true &&
+  sb.matches(aMemberUnread, 'member', 'questions') === true);
+
+/* ⭐ AND THE LINE THAT MUST NOT BE CROSSED, asserted as code rather than left as a note:
+   a section is a filter, so nothing about it can WRITE to a message. If a future change
+   gives sections a membership list, this is what should go red. */
+/* ⚠ SCOPED TO THE SECTION CODE, NOT THE FILE. The first version searched all of admin.html
+   for `filedByHand` and failed on correct code: that field is LEGACY filing which [[MSG-12]]
+   deliberately still reads, so a message somebody filed before the folders went is still
+   found. What must be true is narrower — nothing in the section machinery writes to a
+   message at all. */
+const sectionCode = (liftFn('commEditSection') + liftFn('saveCommSections') +
+                     liftFn('commFilterMatches') + liftFn('commSectionByKey') +
+                     liftFn('commAllSections'))
+  .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
+check('a section stores a filter, never a list of messages',
+  !/messageIds|filedByHand/.test(sectionCode),
+  'that would be folders again ([[MSG-12]]) — a message would then live in exactly one ' +
+  'place and deleting a section could lose it');
+check('and nothing in the section machinery writes to a message',
+  !/doc\(db,\s*'messages'/.test(sectionCode) && !/msgBulkApply/.test(sectionCode),
+  'a saved filter that edited rows would be filing wearing a different name');
+check('deleting a section only ever rewrites the settings document',
+  /saveCommSections/.test(liftFn('commEditSection')) &&
+  /setDoc\(doc\(db, 'settings', 'commSections'\)/.test(liftFn('saveCommSections')),
+  'it must not touch the messages collection at all');
+
+/* =============================================================================
+ * ⭐ AND THE EDITOR IS DRIVEN, NOT READ ([[MSG-15]])
+ * ~250 lines of new UI that has never been executed is exactly what this repo has been
+ * caught by four times — a message that is in the source is not a message on the screen.
+ * These RUN commEditSection against jsdom and read the markup back.
+ * ⚠ THE TWO SIDE EFFECTS ARE STUBBED (the Firestore write and the toast) and nothing else:
+ * stubbing the filter or the counter would be stubbing the thing under test.
+ * ============================================================================= */
+console.log('');
+console.log('--- the section editor, driven ---');
+let JSDOM = null;
+try { ({ JSDOM } = require('jsdom')); } catch (e) { /* reported below, never silently skipped */ }
+if(!JSDOM){
+  check('jsdom is installed so the editor can be driven', false,
+    'run npm install — without it this whole block is skipped, which is the silent pass ' +
+    'CLAUDE.md warns about by name');
+} else {
+  const dom = new JSDOM('<!doctype html><body></body>');
+  const win = dom.window, docu = win.document;
+  const ED = liftConst('MSG_TYPE_MEMBER') + liftConst('MSG_CATEGORIES') + liftConst('MSG_STATUS') +
+    liftConst('MSG_STATUS_LABEL') + liftConst('MSG_PRIORITY') + liftConst('MSG_PRIORITY_LABEL') +
+    liftConst('SYSTEM_NOTICE_TOPICS') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
+    liftFn('esc') + liftFn('msgTypeOf') + liftFn('msgCategories') + liftFn('msgStatusOf') +
+    liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
+    liftFn('commFilterMatches') + liftFn('commEditSection');
+  const ed = {};
+  new Function('document', 'allMessages', 'commSections', 'saveCommSections', 'toast',
+    'confirm', 'alert', 'MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC',
+    ED + 'this.open = commEditSection;')
+    .call(ed, docu,
+      [{id: 'm1', data: {topic: 'General Question', read: false, message: 'gate code?'}},
+       {id: 'm2', data: {topic: 'Routes Kept Up To Date', folder: 'System', read: true, message: 'x'}}],
+      {custom: [], hidden: []},
+      async function(){ /* the write is not what is under test */ },
+      function(){ /* toast */ }, function(){ return true; }, function(){ /* alert */ },
+      'Member Error', 'Admin Error');
+
+  ed.open(null);
+  const card = docu.querySelector('.comm-editor');
+  check('the editor actually renders', !!card,
+    'a popup that produces no markup is the failure four other checks in this repo exist for');
+  check('it offers a name and an icon',
+    !!docu.getElementById('commEdLabel') && !!docu.getElementById('commEdIcon'));
+  check('it offers every facet as a row of choices',
+    docu.querySelectorAll('[data-f="types"]').length > 0 &&
+    docu.querySelectorAll('[data-f="categories"]').length === (new Function(liftConst('MSG_CATEGORIES') + 'return MSG_CATEGORIES.length;')()) &&
+    docu.querySelectorAll('[data-f="statuses"]').length > 0 &&
+    docu.querySelectorAll('[data-f="priorities"]').length > 0 &&
+    !!docu.querySelector('[data-f="search"]'),
+    'found ' + docu.querySelectorAll('[data-f="categories"]').length + ' category boxes');
+  /* ⚠ THE LIVE COUNT IS THE HALF THAT MAKES IT USABLE, so it is checked as a number on
+     screen rather than as a call in the source. A new section starts on Member Messages,
+     and the fixture holds exactly one member message and one system notice. */
+  const sectionTab = docu.querySelector('[data-edtab="section"]');
+  check('and a live count of what the section would hold',
+    !!sectionTab && /\b1\b/.test(sectionTab.textContent),
+    'got "' + (sectionTab ? sectionTab.textContent.trim() : 'no tab') + '" — the fixture has ' +
+    'one member message and one system notice, and a new section starts on Member Messages');
+  check('a new section does not start matching everything',
+    !!sectionTab && !/\b2\b/.test(sectionTab.textContent),
+    'an empty filter would show the route sweeps too, which reads as broken rather than as unnarrowed');
+
+  /* ⭐ AND THE SUBTAB BUTTON IS PRESSED, because "add a whole new section with subtabs" is
+     the request and a button that renders but does nothing is the exact bug the recycle
+     "bin says" box shipped with. */
+  const before = docu.querySelectorAll('[data-edtab]').length;
+  docu.getElementById('commEdAddTab').dispatchEvent(new win.MouseEvent('click', {bubbles: true}));
+  const after = docu.querySelectorAll('[data-edtab]').length;
+  check('pressing ＋ Subtab really adds one',
+    after === before + 1, 'went from ' + before + ' to ' + after);
+  check('and the new subtab can be named and filtered',
+    !!docu.getElementById('commEdTabName') && !!docu.querySelector('.comm-filter [data-f="categories"]'));
+  check('and deleted again',
+    !!docu.getElementById('commEdDelTab'));
+  docu.getElementById('commEdDelTab').dispatchEvent(new win.MouseEvent('click', {bubbles: true}));
+  check('deleting the subtab takes it off the row',
+    docu.querySelectorAll('[data-edtab]').length === before,
+    'a delete that renders and does nothing is worse than not offering one');
+
+  /* ⚠ AND TYPING SURVIVES A REDRAW. The popup is rebuilt wholesale on every change so the
+     counts move, which destroys the inputs — without readAll() first, anything typed is
+     silently gone and it reads as the field not saving. */
+  docu.getElementById('commEdLabel').value = 'Gate codes';
+  docu.querySelector('[data-f="categories"]').dispatchEvent(new win.Event('change', {bubbles: true}));
+  check('a name typed before a redraw is still there afterwards',
+    docu.getElementById('commEdLabel').value === 'Gate codes',
+    'the popup redraws on every tick; anything not read back first is simply lost');
+}
+
+/* ⭐ AND THE CONTROLS REACH THE SIDEBAR ([[MSG-15]]) — asserted separately from the editor,
+   because the editor passing proves nothing about anybody being able to open it. That exact
+   gap went green across a 5,162-check suite once (the Edit Customer tab strip). */
+if(JSDOM){
+  const dom2 = new JSDOM('<!doctype html><body><div id="commCentreNav"></div></body>');
+  const d2 = dom2.window.document;
+  const NAV = liftConst('MSG_TYPE_MEMBER') + liftConst('SYSTEM_NOTICE_TOPICS') +
+    liftConst('MSG_CATEGORIES') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
+    liftConst('MSG_STATUS') + liftConst('MSG_STATUS_LABEL') + liftConst('MSG_PRIORITY') +
+    liftConst('MSG_PRIORITY_LABEL') + liftConst('MSG_SEVERITY_LABEL') + liftConst('COMM_ACTIVITY_TOPICS') +
+    liftConst('COMM_SECTIONS') +
+    liftFn('esc') + liftFn('msgTypeOf') + liftFn('msgCategories') + liftFn('msgStatusOf') +
+    liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
+    liftFn('commFilterMatches') + liftFn('commSectionByKey') + liftFn('commAllSections') +
+    liftFn('commRowMatches') + liftFn('commRows') + liftFn('commCount') + liftFn('renderCommNav');
+  const nav = {};
+  new Function('document', 'allMessages', 'commSections', 'commView', 'renderCommDash',
+    'renderMessagesList', 'commEditSection', 'saveCommSections', 'confirm', 'toast',
+    'MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC',
+    NAV + 'this.draw = renderCommNav;')
+    .call(nav, d2, [{id: 'm1', data: {topic: 'General Question', read: false, message: 'x'}}],
+      {custom: [{key: 'c-9', icon: '\u{1F4CC}', label: 'Gate codes',
+                 filter: {types: ['member']}, tabs: [{key: 't-1', label: 'Unread',
+                 filter: {statuses: ['unread']}}]}], hidden: ['system']},
+      {section: 'inbox', tab: 'all'},
+      function(){}, function(){}, function(){}, async function(){},
+      function(){ return true; }, function(){}, 'Member Error', 'Admin Error');
+  nav.draw();
+  const host = d2.getElementById('commCentreNav');
+  check('the sidebar offers a way to add a section',
+    !!d2.getElementById('commAddSection'),
+    'the editor is unreachable without it');
+  check('her own section is drawn, with its subtabs',
+    /Gate codes/.test(host.innerHTML) && /Unread/.test(host.innerHTML));
+  check('and its All tab is added rather than stored',
+    host.querySelectorAll('[data-commsec="c-9"][data-commtab="all"]').length === 1,
+    'a section with one subtab must still have an All that agrees with it');
+  check('her section carries an edit control and a built-in does not',
+    !!host.querySelector('[data-commedit="c-9"]') && !host.querySelector('[data-commedit="inbox"]'),
+    'Delete on a built-in would break the dashboard tiles pointing at it');
+  check('a built-in carries a hide control instead',
+    !!host.querySelector('[data-commhide="inbox"]'));
+  /* ⚠ A HIDDEN SECTION IS NAMED, NOT FORGOTTEN. "Where did System Messages go" is a
+     question the screen should answer itself. */
+  check('a hidden section is still listed, with a way back',
+    !!host.querySelector('[data-commshow="system"]') &&
+    !host.querySelector('[data-commsec="system"]'),
+    'hidden with no route back is a feature lost rather than tidied');
 }
 
 console.log('');

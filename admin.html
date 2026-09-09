@@ -449,6 +449,44 @@
   .comm-tab.on .comm-badge{background:rgba(255,255,255,.24); color:#fff;}
   .comm-yours{font-size:11px; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
     color:var(--slate); margin:10px 0 4px 10px;}
+  /* ⭐ HER OWN SECTIONS ([[MSG-15]]). The edit/hide control shares the section's row so it
+     cannot push the label around, and it stays faint until the row is hovered — it is a
+     housekeeping control on a list somebody reads all day, not something to look at. */
+  .comm-sec-row{display:flex; align-items:center; gap:2px;}
+  .comm-sec-row .comm-sec-head{flex:1; min-width:0;}
+  .comm-sec-edit{flex:0 0 auto; background:none; border:0; cursor:pointer; padding:6px 7px;
+    border-radius:7px; font-size:12px; color:var(--slate); opacity:0; transition:opacity .12s;}
+  .comm-sec-row:hover .comm-sec-edit{opacity:1;}
+  .comm-sec-edit:hover{background:var(--line); color:var(--ink);}
+  .comm-add{width:100%; text-align:left; background:none; border:1px dashed var(--line);
+    border-radius:8px; padding:7px 10px; cursor:pointer; font-size:12.5px; font-weight:700;
+    color:var(--slate); margin-top:4px;}
+  .comm-add:hover{border-color:var(--ink); color:var(--ink);}
+  .comm-hidden-note{font-size:11.5px; color:var(--slate); margin:8px 0 0 2px;}
+  .comm-unhide{background:none; border:0; cursor:pointer; padding:2px 5px; border-radius:6px;
+    font-size:11.5px; color:var(--emerald); font-weight:700;}
+  .comm-unhide:hover{background:var(--snow);}
+  /* The editor. Wide enough for the checkbox rows to sit two or three across rather than
+     one per line, which is what makes it readable as a set of choices. */
+  .comm-editor{max-width:620px;}
+  .comm-ed-row{display:flex; gap:10px; align-items:flex-start;}
+  .comm-ed-tabs{display:flex; flex-wrap:wrap; gap:6px; margin:12px 0 10px;}
+  .comm-ed-tab{display:flex; align-items:center; gap:6px; background:var(--snow);
+    border:1px solid var(--line); border-radius:999px; padding:5px 11px; cursor:pointer;
+    font-size:12.5px; font-weight:700; color:var(--slate);}
+  .comm-ed-tab.on{background:var(--ink); color:#fff; border-color:var(--ink);}
+  .comm-ed-tab.on .comm-badge{background:rgba(255,255,255,.24); color:#fff;}
+  .comm-ed-tab.add{border-style:dashed; font-weight:700;}
+  .comm-filter{border:1px solid var(--line); border-radius:11px; padding:11px 13px; background:var(--snow);}
+  .comm-flabel{font-size:11px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--slate); margin:8px 0 4px;}
+  .comm-flabel:first-child{margin-top:0;}
+  .comm-fset{display:flex; flex-wrap:wrap; gap:4px 14px;}
+  .comm-chk{display:flex; align-items:center; gap:5px; font-size:12.5px; font-weight:600;
+    color:var(--ink); cursor:pointer;}
+  .comm-chk input{width:15px; height:15px;}
+  .comm-filter input[type=text]{width:100%; margin-top:2px;}
+  .comm-fnote{font-size:11.5px; color:var(--slate); margin-top:9px; line-height:1.5;}
   .comm-dash{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; align-items:stretch;}
   .comm-tile{display:flex; flex-direction:column; gap:1px; min-width:86px; padding:9px 13px;
     border:1px solid var(--line); border-radius:11px; background:var(--snow); cursor:pointer; text-align:left;}
@@ -11128,6 +11166,10 @@ function initData(){
   loadEmailTemplates();
   loadCustomCodes();
   loadMessages();
+  /* ⚠ EAGER, beside loadMessages and for the same reason: the Inbox nav is the frame the
+     badge and every count are drawn in, so it cannot wait for the panel to be opened.
+     It is one small settings document, not a collection. */
+  loadCommSections();
   loadInvoices();
   /* ⭐ The Recycle queue lists people who have already been removed as customers, so
      it needs the archive as well as the book. Only the ones still waiting are watched —
@@ -20727,6 +20769,32 @@ function msgErrorWhoLabel(d){
    is derived from it, so the nav and the list can never disagree about what is being
    shown. [[MSG-11]] */
 let commView = {section:'inbox', tab:'all'};
+/* ⭐ THE NAV IS HERS TO SHAPE ([[MSG-15]], 2026-09-09). Addie: "for inbox I have no way of
+ * adding anything deleting anything or adding a whole new section with subtabs? Can we get
+ * that added so I can make it like this?" — pointing at Member Messages and its five subtabs.
+ *
+ * ⛔ THIS IS NOT THE FOLDERS COMING BACK, and the distinction is the whole design. [[MSG-12]]
+ * removed FILING — a message put in one place by hand, which is then the only place it is.
+ * A section here is a SAVED FILTER over the same derived facets everything else already
+ * reads: nothing is moved, a message shows up wherever it matches, and deleting a section
+ * cannot lose one. That is [[MSG-11]]'s own rule ("less folder hunting → more filtering")
+ * given a UI rather than reversed.
+ *
+ * ⚠ ONE RULE STILL DECIDES. A custom tab is evaluated by `commRowMatches` like every built-in
+ * one, so the list and the count beside the tab cannot disagree — the bug the folder badge
+ * already had once.
+ *
+ * ⚠ STORED IN `settings/commSections`, NOT A COLLECTION OF ITS OWN. `settings/{id}` is already
+ * open to signed-in staff in firestore.rules; a new collection would be denied by default and
+ * fail SILENTLY in a listener, and that file is not deployed by CI — it needs a hand-run.
+ * A whole feature that looks saved and is not is a worse trade than the one cost here, which
+ * is that two people editing sections at the same moment overwrite each other. Same trade
+ * `settings/scheduling` already makes, on something that changes about as often. */
+let commSections = {custom: [], hidden: []};
+/* Built-in sections are the spine: every dashboard tile, and the classification itself, is
+   written in terms of them. They can be HIDDEN — which is what "deleting anything" means for
+   a list you did not create — and never deleted, because deleting one would leave the tiles
+   pointing at a view that does not exist. */
 const COMM_SECTIONS = [
   {key:'inbox',  icon:'\u{1F4E5}', label:'Inbox',
    tabs:[['all','All'],['unread','Unread'],['needs_reply','Needs Reply'],
@@ -20741,10 +20809,94 @@ const COMM_SECTIONS = [
    tabs:[['all','All Errors'],['critical','Critical'],['warnings','Warnings'],
          ['review','Needs Review'],['resolved','Resolved']]}
 ];
+/* Every section on screen, in order: the built-ins she has not hidden, then hers. ONE list,
+   so the nav, the counts, the list and the heading cannot disagree about what exists. */
+/* ⚠ A LIVE LISTENER, NOT A ONE-OFF READ. Two people are in admin every day and the nav is
+   the frame everything else is drawn in — a stale copy means one machine filing against a
+   section the other has deleted. ⚠ AND A FAILED READ LEAVES THE BUILT-INS STANDING rather
+   than blanking the nav: an Inbox with no sections at all is indistinguishable from a broken
+   page, and every built-in view still works with no settings document at all. */
+function loadCommSections(){
+  onSnapshot(doc(db, 'settings', 'commSections'), function(snap){
+    const d = snap.exists() ? (snap.data() || {}) : {};
+    commSections = {custom: Array.isArray(d.custom) ? d.custom : [],
+                    hidden: Array.isArray(d.hidden) ? d.hidden : []};
+    /* If she is looking at a section that has just gone, put her somewhere real. */
+    if(!commAllSections().some(function(x){ return x.key === commView.section; })){
+      commView = {section: 'inbox', tab: 'all'};
+    }
+    if(typeof renderMessagesList === 'function') renderMessagesList();
+  }, function(err){
+    console.error('Could not read the Inbox sections:', err);
+    toast('Could not load your Inbox sections \u2014 showing the built-in ones.');
+  });
+}
+async function saveCommSections(next){
+  /* Written whole rather than merged: `custom` is an ARRAY, and a merge on an array replaces
+     it anyway, so a partial write here would be a lie about what it does. */
+  await setDoc(doc(db, 'settings', 'commSections'),
+    {custom: next.custom || [], hidden: next.hidden || []}, {merge: true});
+}
+function commAllSections(){
+  const hidden = (commSections && Array.isArray(commSections.hidden)) ? commSections.hidden : [];
+  const mine = (commSections && Array.isArray(commSections.custom)) ? commSections.custom : [];
+  return COMM_SECTIONS.filter(function(s){ return hidden.indexOf(s.key) === -1; })
+    .concat(mine.map(function(sec){
+      /* ⚠ THE All TAB IS ADDED HERE, NEVER STORED. It is the section's own filter with no
+         narrowing — exactly what `all` means on every built-in — so a section with one tab
+         cannot be saved in a state where All disagrees with it. */
+      return {key: sec.key, icon: sec.icon || '\u{1F4CC}', label: sec.label || 'Untitled',
+              custom: true, filter: sec.filter,
+              tabs: [['all', 'All']].concat((sec.tabs || []).map(function(t){ return [t.key, t.label]; }))};
+    }));
+}
+function commSectionByKey(key){
+  const mine = (commSections && Array.isArray(commSections.custom)) ? commSections.custom : [];
+  return mine.find(function(s){ return s.key === key; }) || null;
+}
+/* ⭐ ONE FILTER EVALUATOR, over the SAME facets the built-in tabs are written in terms of.
+   ⚠ EVERY LIST IS AN OR WITHIN ITSELF AND AN AND BETWEEN THEM — "a Payment question that is
+   still unread" is the shape somebody actually wants, and it is what the built-ins already do.
+   ⚠ AN EMPTY LIST MEANS "DO NOT CARE", NOT "MATCH NOTHING". The other reading makes a
+   half-built section show zero and read as broken; this way it shows everything, which is
+   visibly a filter nobody has narrowed yet. The editor says so and shows a live count. */
+function commFilterMatches(d, filter){
+  if(!filter) return true;
+  const f = msgFacets(d);
+  const any = function(list, value){ return !list || !list.length || list.indexOf(value) !== -1; };
+  if(!any(filter.types, f.type)) return false;
+  if(!any(filter.statuses, f.status)) return false;
+  if(!any(filter.priorities, f.priority)) return false;
+  if(!any(filter.severities, f.severity)) return false;
+  if(filter.categories && filter.categories.length &&
+     !filter.categories.some(function(c){ return f.categories.indexOf(c) !== -1; })) return false;
+  const term = String(filter.search || '').trim().toLowerCase();
+  if(term){
+    /* The same three fields the search box reads, so what she can find by typing she can
+       also pin to a tab. Never the contact details: those are resolved from the record and
+       a tab keyed on one would silently change membership when a record is edited. */
+    const hay = (String(d.topic||'') + ' ' + String(d.message||'') + ' ' + String(d.name||'')).toLowerCase();
+    if(hay.indexOf(term) === -1) return false;
+  }
+  return true;
+}
 /* ⚠ ONE RULE FOR "IS THIS ROW IN THIS VIEW", asked by the list AND by every count beside
    a tab. Two implementations is how a tab reads 5 and shows 4 — the bug the folder badge
    already had once, when the sidebar counted everything and the nav counted unread. */
 function commRowMatches(d, section, tab){
+  /* ⭐ HER OWN SECTIONS GO THROUGH THIS SAME FUNCTION ([[MSG-15]]). A second evaluator for
+     custom tabs is how a tab reads 5 and shows 4 — the exact failure this function's own
+     note above exists to prevent, so the new kind of view must not get one. */
+  const mine = commSectionByKey(section);
+  if(mine){
+    if(!commFilterMatches(d, mine.filter)) return false;
+    if(!tab || tab === 'all') return true;
+    const t = (mine.tabs || []).find(function(x){ return x.key === tab; });
+    /* ⚠ A TAB THAT NO LONGER EXISTS SHOWS THE SECTION, not nothing. She can delete a tab
+       while looking at it, and an empty list there reads as the section being broken. */
+    if(!t) return true;
+    return commFilterMatches(d, t.filter);
+  }
   const f = msgFacets(d);
   if(section === 'errors'){
     if(f.type !== MSG_TYPE_ERROR) return false;
@@ -20840,25 +20992,48 @@ function commViewLabel(){
 function renderCommNav(){
   const host = document.getElementById('commCentreNav');
   if(!host) return;
+  const sections = commAllSections();
   let html = '<div class="comm-nav">';
-  COMM_SECTIONS.forEach(function(sec){
+  sections.forEach(function(sec){
     const open = commView.section === sec.key;
     html += '<div class="comm-sec' + (open ? ' open' : '') + '">' +
-      '<button type="button" class="comm-sec-head" data-commsec="' + sec.key + '">' +
-        '<span class="comm-sec-icon">' + sec.icon + '</span>' + esc(sec.label) + '</button>' +
+      '<div class="comm-sec-row">' +
+        '<button type="button" class="comm-sec-head" data-commsec="' + esc(sec.key) + '">' +
+          '<span class="comm-sec-icon">' + esc(sec.icon) + '</span>' + esc(sec.label) + '</button>' +
+        /* ⭐ HER OWN SECTIONS ARE EDITABLE; THE BUILT-INS CAN BE PUT AWAY ([[MSG-15]]).
+           "Deleting anything" means two different things for the two kinds, and offering
+           Delete on a built-in would be a button that either breaks the dashboard tiles
+           pointing at it or quietly does nothing. */
+        (sec.custom
+          ? '<button type="button" class="comm-sec-edit" data-commedit="' + esc(sec.key) + '" title="Edit this section">\u270E</button>'
+          : '<button type="button" class="comm-sec-edit" data-commhide="' + esc(sec.key) + '" title="Hide this section">\u2715</button>') +
+      '</div>' +
       '<div class="comm-tabs"' + (open ? '' : ' hidden') + '>';
     sec.tabs.forEach(function(t){
       const n = commCount(sec.key, t[0]);
       const on = open && commView.tab === t[0];
       html += '<button type="button" class="comm-tab' + (on ? ' on' : '') + '" ' +
-        'data-commsec="' + sec.key + '" data-commtab="' + t[0] + '">' + esc(t[1]) +
+        'data-commsec="' + esc(sec.key) + '" data-commtab="' + esc(t[0]) + '">' + esc(t[1]) +
         /* A nought is drawn as nothing at all — a column of zeroes reads as a broken
            counter, which is half of why the old total count was ignored. */
         (n ? '<span class="comm-badge">' + n + '</span>' : '') + '</button>';
     });
     html += '</div></div>';
   });
-  html += '</div><div class="comm-yours">Your folders</div>';
+  html += '</div>';
+  html += '<button type="button" class="comm-add" id="commAddSection">\uFF0B New section</button>';
+  /* ⚠ THE PUT-AWAY ONES ARE NAMED, NOT FORGOTTEN. A hidden section with no way back is a
+     feature she has lost rather than tidied, and "where did System Messages go" is a
+     question the screen should answer itself. */
+  const hidden = (commSections.hidden || []).filter(function(k){
+    return COMM_SECTIONS.some(function(s){ return s.key === k; }); });
+  if(hidden.length){
+    html += '<div class="comm-hidden-note">Hidden: ' + hidden.map(function(k){
+      const s0 = COMM_SECTIONS.find(function(x){ return x.key === k; });
+      return '<button type="button" class="comm-unhide" data-commshow="' + esc(k) + '">' +
+        esc(s0 ? s0.label : k) + ' \u21A9</button>';
+    }).join(' ') + '</div>';
+  }
   host.innerHTML = html;
   host.querySelectorAll('[data-commtab]').forEach(function(b){
     b.addEventListener('click', function(){
@@ -20872,6 +21047,235 @@ function renderCommNav(){
       renderCommNav(); renderCommDash(); renderMessagesList();
     });
   });
+  host.querySelectorAll('[data-commedit]').forEach(function(b){
+    b.addEventListener('click', function(e){
+      e.stopPropagation();   /* the row underneath opens the section; this must not */
+      commEditSection(commSectionByKey(b.dataset.commedit));
+    });
+  });
+  host.querySelectorAll('[data-commhide]').forEach(function(b){
+    b.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const key = b.dataset.commhide;
+      const sec = COMM_SECTIONS.find(function(x){ return x.key === key; });
+      if(!confirm('Hide "' + (sec ? sec.label : key) + '" from the sidebar?\n\n' +
+        'No messages are deleted or moved — they still show in the other views, and you can ' +
+        'put this section back from the bottom of the sidebar.')) return;
+      const next = {custom: commSections.custom || [],
+                    hidden: (commSections.hidden || []).concat([key])};
+      try{ await saveCommSections(next); }
+      catch(err){ console.error('Could not hide the section:', err);
+                  alert('Could not save that: ' + (err && err.message ? err.message : err)); }
+    });
+  });
+  host.querySelectorAll('[data-commshow]').forEach(function(b){
+    b.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const key = b.dataset.commshow;
+      const next = {custom: commSections.custom || [],
+                    hidden: (commSections.hidden || []).filter(function(k){ return k !== key; })};
+      try{ await saveCommSections(next); }
+      catch(err){ console.error('Could not show the section:', err);
+                  alert('Could not save that: ' + (err && err.message ? err.message : err)); }
+    });
+  });
+  const addBtn = document.getElementById('commAddSection');
+  if(addBtn) addBtn.addEventListener('click', function(){ commEditSection(null); });
+}
+/* ⭐ THE EDITOR ([[MSG-15]]). One popup for the whole section: its name, its icon, what
+   belongs in it at all, and its subtabs. A popup rather than a `confirm()` for the reason
+   every other builder here is one — there are several fields and one of them is a list.
+
+   ⚠ IT SHOWS A LIVE COUNT BESIDE EVERY FILTER, and that is the half that makes it usable
+   rather than a form. A filter nobody can see the effect of is a filter somebody sets once,
+   gets wrong, and never opens again — and an empty list here means "do not care", which
+   without a number on screen reads as a rule that did not save.
+
+   ⚠ NOTHING IS WRITTEN UNTIL Save. Cancel leaves the stored sections untouched, so a
+   half-built section cannot appear in the sidebar for anybody else mid-edit. */
+function commEditSection(existing){
+  const isNew = !existing;
+  /* A deep copy: editing must not mutate what is on screen behind the popup, or Cancel
+     has already half-applied by the time it is pressed. */
+  const draft = existing
+    ? JSON.parse(JSON.stringify(existing))
+    : {key: 'c-' + Date.now().toString(36), icon: '\u{1F4CC}', label: '',
+       /* ⚠ A NEW SECTION STARTS ON MEMBER MESSAGES, not on nothing. An empty filter matches
+          every row including the route sweeps, and a brand-new section showing 900 system
+          notices reads as broken rather than as unnarrowed. */
+       filter: {types: [MSG_TYPE_MEMBER], categories: [], statuses: [], priorities: [], severities: [], search: ''},
+       tabs: []};
+  draft.tabs = draft.tabs || [];
+
+  const overlay = document.createElement('div');
+  overlay.className = 'needsfix-popup-overlay';
+  overlay.innerHTML = '<div class="needsfix-popup comm-editor"></div>';
+  const card = overlay.querySelector('.comm-editor');
+
+  /* How many messages a filter would hold right now. Counted through the SAME rule the
+     nav and the list use, never a second scan — a preview that disagreed with the tab it
+     is previewing would be worse than no preview. */
+  const countFor = function(filter){
+    return allMessages.filter(function(m){
+      return commFilterMatches(m.data, draft.filter) &&
+             (filter === draft.filter ? true : commFilterMatches(m.data, filter));
+    }).length;
+  };
+
+  const boxes = function(name, list, labels, chosen){
+    return '<div class="comm-fset">' + list.map(function(v){
+      const lab = labels ? (labels[v] || v) : v;
+      return '<label class="comm-chk"><input type="checkbox" data-f="' + esc(name) + '" value="' +
+        esc(v) + '"' + (chosen.indexOf(v) !== -1 ? ' checked' : '') + '> ' + esc(lab) + '</label>';
+    }).join('') + '</div>';
+  };
+
+  const filterUi = function(filter, name) {
+    return '<div class="comm-filter" data-for="' + esc(name) + '">' +
+      '<div class="comm-flabel">Type</div>' +
+        boxes('types', [MSG_TYPE_MEMBER, MSG_TYPE_SYSTEM, MSG_TYPE_ERROR],
+              {member: 'Member Messages', system: 'System', error: 'Errors'}, filter.types || []) +
+      '<div class="comm-flabel">Category</div>' + boxes('categories', MSG_CATEGORIES, null, filter.categories || []) +
+      '<div class="comm-flabel">Status</div>' + boxes('statuses', MSG_STATUS, MSG_STATUS_LABEL, filter.statuses || []) +
+      '<div class="comm-flabel">Priority</div>' + boxes('priorities', MSG_PRIORITY, MSG_PRIORITY_LABEL, filter.priorities || []) +
+      '<div class="comm-flabel">Contains these words (optional)</div>' +
+        '<input type="text" data-f="search" value="' + esc(filter.search || '') + '" placeholder="e.g. gate code">' +
+      '<div class="comm-fnote">Nothing ticked in a row means <strong>any</strong>. Ticks across ' +
+        'different rows have to <strong>all</strong> match.</div>' +
+    '</div>';
+  };
+
+  let editingTab = null;   /* null = editing the section itself */
+
+  const draw = function(){
+    const target = editingTab === null ? draft.filter : draft.tabs[editingTab].filter;
+    card.innerHTML =
+      '<h3 style="color:var(--dusk);">' + (isNew ? 'New section' : 'Edit section') + '</h3>' +
+      '<div class="comm-ed-row">' +
+        '<div class="form-row" style="flex:0 0 80px;"><label>Icon</label>' +
+          '<input type="text" id="commEdIcon" maxlength="4" value="' + esc(draft.icon) + '"></div>' +
+        '<div class="form-row" style="flex:1;"><label>Name</label>' +
+          '<input type="text" id="commEdLabel" placeholder="e.g. Gate codes" value="' + esc(draft.label) + '"></div>' +
+      '</div>' +
+      '<div class="comm-ed-tabs">' +
+        '<button type="button" class="comm-ed-tab' + (editingTab === null ? ' on' : '') + '" data-edtab="section">' +
+          'What belongs in this section <span class="comm-badge">' + countFor(draft.filter) + '</span></button>' +
+        draft.tabs.map(function(t, i){
+          return '<button type="button" class="comm-ed-tab' + (editingTab === i ? ' on' : '') +
+            '" data-edtab="' + i + '">' + esc(t.label || 'Untitled') +
+            '<span class="comm-badge">' + countFor(t.filter) + '</span></button>';
+        }).join('') +
+        '<button type="button" class="comm-ed-tab add" id="commEdAddTab">＋ Subtab</button>' +
+      '</div>' +
+      (editingTab === null
+        ? '<div class="comm-fnote" style="margin-bottom:6px;">Every subtab below narrows this. ' +
+          'The section’s own <strong>All</strong> tab shows exactly what is set here.</div>'
+        : '<div class="comm-ed-row">' +
+            '<div class="form-row" style="flex:1;"><label>Subtab name</label>' +
+              '<input type="text" id="commEdTabName" value="' + esc(draft.tabs[editingTab].label || '') + '"></div>' +
+            '<button type="button" class="btn btn-outline btn-sm" id="commEdDelTab" style="align-self:flex-end;">Delete subtab</button>' +
+          '</div>') +
+      filterUi(target, editingTab === null ? 'section' : String(editingTab)) +
+      '<div class="foot" style="display:flex; justify-content:space-between; gap:8px; margin-top:14px;">' +
+        (isNew ? '<span></span>'
+               : '<button type="button" class="btn btn-outline btn-sm" id="commEdDelete" style="color:var(--ember);">Delete section</button>') +
+        '<span style="display:flex; gap:8px;">' +
+          '<button type="button" class="btn btn-outline" id="commEdCancel">Cancel</button>' +
+          '<button type="button" class="btn btn-gold" id="commEdSave">Save</button>' +
+        '</span>' +
+      '</div>';
+    wire();
+  };
+
+  const readInto = function(filter){
+    card.querySelectorAll('.comm-filter [data-f]').forEach(function(el){
+      const key = el.dataset.f;
+      if(key === 'search'){ filter.search = el.value.trim(); return; }
+      if(!Array.isArray(filter[key])) filter[key] = [];
+      const at = filter[key].indexOf(el.value);
+      if(el.checked && at === -1) filter[key].push(el.value);
+      if(!el.checked && at !== -1) filter[key].splice(at, 1);
+    });
+  };
+  /* ⚠ READ BEFORE EVERY REDRAW. The popup is rebuilt wholesale on each change so the live
+     counts move, which destroys the inputs — anything typed and not read back first is
+     simply gone, and it would look like the field not saving. */
+  const readAll = function(){
+    const el = card.querySelector('#commEdIcon'); if(el) draft.icon = el.value.trim() || '\u{1F4CC}';
+    const lb = card.querySelector('#commEdLabel'); if(lb) draft.label = lb.value.trim();
+    const tn = card.querySelector('#commEdTabName');
+    if(tn && editingTab !== null) draft.tabs[editingTab].label = tn.value.trim();
+    readInto(editingTab === null ? draft.filter : draft.tabs[editingTab].filter);
+  };
+
+  function wire(){
+    card.querySelectorAll('.comm-filter [data-f]').forEach(function(el){
+      el.addEventListener('change', function(){ readAll(); draw(); });
+    });
+    card.querySelectorAll('[data-edtab]').forEach(function(b){
+      b.addEventListener('click', function(){
+        readAll();
+        editingTab = b.dataset.edtab === 'section' ? null : Number(b.dataset.edtab);
+        draw();
+      });
+    });
+    const add = card.querySelector('#commEdAddTab');
+    if(add) add.addEventListener('click', function(){
+      readAll();
+      /* A new subtab starts as a copy of nothing — no narrowing — so it shows the section
+         and she narrows from there. Starting it empty of everything would show zero. */
+      draft.tabs.push({key: 't-' + Date.now().toString(36) + '-' + draft.tabs.length,
+                       label: 'New subtab',
+                       filter: {types: [], categories: [], statuses: [], priorities: [], severities: [], search: ''}});
+      editingTab = draft.tabs.length - 1;
+      draw();
+    });
+    const del = card.querySelector('#commEdDelTab');
+    if(del) del.addEventListener('click', function(){
+      readAll();
+      draft.tabs.splice(editingTab, 1);
+      editingTab = null;
+      draw();
+    });
+    const cancel = card.querySelector('#commEdCancel');
+    if(cancel) cancel.addEventListener('click', function(){ overlay.remove(); });
+    const delSec = card.querySelector('#commEdDelete');
+    if(delSec) delSec.addEventListener('click', async function(){
+      if(!confirm('Delete the section "' + (draft.label || 'Untitled') + '"?\n\n' +
+        'No messages are deleted. A section is only a saved filter, so everything in it ' +
+        'still shows in the Inbox and in every other view.')) return;
+      const next = {custom: (commSections.custom || []).filter(function(x){ return x.key !== draft.key; }),
+                    hidden: commSections.hidden || []};
+      try{ await saveCommSections(next); overlay.remove(); toast('Section deleted.'); }
+      catch(err){ console.error('Could not delete the section:', err);
+                  alert('Could not save that: ' + (err && err.message ? err.message : err)); }
+    });
+    const save = card.querySelector('#commEdSave');
+    if(save) save.addEventListener('click', async function(){
+      readAll();
+      if(!draft.label){ alert('Give the section a name.'); return; }
+      save.disabled = true;
+      const list = (commSections.custom || []).slice();
+      const at = list.findIndex(function(x){ return x.key === draft.key; });
+      if(at === -1) list.push(draft); else list[at] = draft;
+      try{
+        await saveCommSections({custom: list, hidden: commSections.hidden || []});
+        overlay.remove();
+        commView = {section: draft.key, tab: 'all'};
+        toast('Saved "' + draft.label + '".');
+      }catch(err){
+        save.disabled = false;
+        console.error('Could not save the section:', err);
+        alert('Could not save that: ' + (err && err.message ? err.message : err));
+      }
+    });
+  }
+
+  document.body.appendChild(overlay);
+  draw();
+  /* Clicking the dark surround closes it, like every other popup here — but only the
+     surround, never a click that started inside the card. */
+  overlay.addEventListener('click', function(e){ if(e.target === overlay) overlay.remove(); });
 }
 /* ⭐ THE DASHBOARD AND THE HEALTH LINE. Every tile is a button, because a number the
    office cannot click is a number that sends them folder-hunting again. */
