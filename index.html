@@ -6688,7 +6688,16 @@ function portalReferralLink(token){
    installation fee." Unlike the $25, this benefits the FRIEND directly, so it
    belongs in their message rather than only in the referrer's. The waiver
    itself is real, not just a line of copy — see quoteChargesSetupFee in
-   admin.html, which is what actually decides whether the fee is charged. */
+   admin.html, which is what actually decides whether the fee is charged.
+   ⭐ REWORDED 2026-09-09, REF-36 — "will be waived", NOT "you will not have to
+   pay". Addie, shown the old sentence: "lets reword the you will not have to pay
+   30 dollars installation fee cause not can be overlooked", then on the exact
+   wording, "and your 30 dollar installation fee will be waived". The 2026-09-07
+   wording above is KEPT rather than edited away because it is the reasoning that
+   picked this one: a negated promise ("will NOT have to pay") reads as its
+   opposite to anybody skimming a text message, and this sentence is skimmed by
+   construction — it arrives in Messages between two other conversations. The
+   waiver itself did not change; only how it is said. */
 function referralShareLine(){
   /* ⚠ THE FEE IS READ, NEVER TYPED. This sentence is a written promise to somebody
      who is not a customer yet, and it goes out over Addie's name — so it is the LAST
@@ -6698,8 +6707,8 @@ function referralShareLine(){
      the ruling that collapsed this fee into one constant for exactly that reason, and
      index.html already imports from js/money.js, so there is no cost to obeying it. */
   return 'You’ve been recommended for Christmas lights. Light your house with Highlighting Utah! ' +
-    'If you register through this referral link, you will not have to pay the $' +
-    NEW_MEMBER_FEE + ' installation fee.';
+    'Sign up through this link and your $' + NEW_MEMBER_FEE +
+    ' installation fee will be waived.';
 }
 /* ⭐ REMOVED WITH THE TWO BUTTONS (2026-09-05, REF-12): referralShareMessage,
    referralSmsHref and referralMailtoHref built the bodies for hand-rolled sms: and

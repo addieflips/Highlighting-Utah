@@ -2131,3 +2131,51 @@ customers at one street address, and however this is answered it must not make t
 two impossible to refer.
 
 **Resulting map change.** Named in REF-31 as the case it deliberately leaves open.
+
+## Q-032 · intent · OPEN · raised 2026-09-09
+
+**A banner on the quote page promising the friend their fee is waived — when the page
+cannot tell whether it is true.**
+
+REF-36 put the waiver into the message a friend receives, and that sentence is safe by
+construction: it goes out carrying the sender's own CURRENT link, so what it promises is
+what `quoteChargesSetupFee` will do.
+
+Addie also asked for the promise on the page the link lands on — one line, *"Your $30
+installation fee is waived"*, with nothing under it. That half is **not built**, because
+the page cannot honestly make the claim:
+
+> Nothing in the browser can tell a real token from an invented one. `/r/anything`
+> typed into the address bar stores a token and reaches `#/quote` exactly like a real
+> link — and a link from a season Start New Season has rotated away is *deliberately*
+> still charged the fee ([[REF-25]], her own ruling). In both cases the banner would
+> promise a waiver and the office would then charge $30.
+
+⚠ **THE VALIDATION LIVES IN admin.html, NOT IN THE PAGE.** `referralHolderFor` resolves a
+token against the loaded customer book, which the public site does not have and must not
+have. So the page has no way to ask the question locally.
+
+**Three answers, and only Addie can pick one:**
+
+1. **Soften the wording.** The banner says the friend came in through a referral link
+   without promising the amount — no new server call, and never wrong. It is also the
+   weakest version of the thing she asked for.
+2. **Ask the server first.** A small callable that answers *is this token current* and
+   nothing else, with the banner drawn only on yes. Honest in every case, and it is a
+   new public endpoint on a page anybody can open — so it must answer yes/no and never
+   name the referrer, or it becomes a way to test tokens against the customer book.
+3. **Show it anyway.** Accept that a made-up or retired link sees a promise that is not
+   kept. The cost lands on a person who is not a customer yet, at the moment they are
+   deciding whether to become one, which is the worst possible moment for it.
+
+⚠ **THE ERRORS ARE NOT SYMMETRIC, WHICH IS WHY THIS IS NOT BEING GUESSED.** A banner
+that fails to appear for a genuine referral costs nothing — the fee is waived anyway,
+by the quote card, whether or not the page said so. A banner that appears wrongly is a
+written promise the business then breaks, on the page whose whole job is to turn a
+stranger into a customer.
+
+⚠ **AND THE MESSAGE HALF IS NOT WAITING ON THIS.** It shipped on its own; this question
+blocks only the banner.
+
+**Resulting map change.** Named in REF-37, which records the banner ruling as decided
+and not built.
