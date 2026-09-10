@@ -4060,6 +4060,21 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
             and the redraw writes its own count into that same line — so the press read
             identically whether it saved three hundred records or none, a refused batch
             included. Redraw first, result last. 11 sabotages red-checked.
+          - ⭐ **And the report redraws itself when customer data changes** ([[EM-13]], 2026-09-10).
+            Addie ticked 495 off, the result line said *Ticked off 495 of 495*, and the list beneath
+            still read 495 NOT ticked — so it looked like a failed write. It was not: a second press
+            of **Check this list** showed 495 recorded, 170 already answered, **0 not ticked**.
+            ⚠ **`jobAddresses` is rebuilt wholesale by its listener**, so the tick's optimistic
+            mirror is thrown away, and `rsvpWholeRenderBreakdown` — the only thing that redraws this
+            report — is wired to buttons, not to customer data. The screen could sit stale with
+            nothing to tell it from a refused write.
+            - **Quiet**, so it corrects the list under her but never the line saying what the last
+              press did. A person pressing a button still gets the count.
+            - **Never blanks a report she is reading**: an unready plan changes nothing rather than
+              clearing the box on a transient, since an empty report reads as "found nothing".
+            - Mapped to the automation panel, so it draws only while that tab is open.
+            7 sabotages red-checked — one of which caught the fixture for the blanking rule being
+            vacuous, because a report built unready is already empty and cannot show being cleared.
     - Each row carries its own reason rather than the run's last one, so the next occurrence
       names itself. 10 sabotages red-checked across the two passes.
   - ⚠ **The `{{quote_` prefix inside it is built with `String.fromCharCode(123,123)`.** Suites

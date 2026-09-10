@@ -43393,6 +43393,7 @@ const RENDER_PANEL = {
   whCustomerList: 'warehouse',
   customerNumbers: 'customer-numbers',
   dashRsvp: 'dashboard',
+  rsvpCheckList: 'automation',
   etMemberSelect: 'automation',
   etRecipients: 'automation',
   invRecipients: 'automation',
@@ -43544,6 +43545,11 @@ function renderJobAddressPanels(){
       if(currentRouteStops.length && typeof renderRouteOrderedList === 'function') renderRouteOrderedList(currentRouteStops);
     });
     safeRender('warehouseQueue', typeof renderWarehouseQueue === 'function' ? renderWarehouseQueue : null);
+    /* EM-13. Quiet: it may correct the list under her, never the line telling her
+       what the last press did. A no-op until a list has actually been checked. */
+    safeRender('rsvpCheckList', function(){
+      if(typeof rsvpCheckListRefresh === 'function') rsvpCheckListRefresh(null, {quiet: true});
+    });
     safeRender('warehouseRecycleQueue', typeof renderWarehouseRecycleQueue === 'function' ? renderWarehouseRecycleQueue : null);
     safeRender('customerNumbers', typeof renderCustomerNumbersPanel === 'function' ? renderCustomerNumbersPanel : null);
     safeRender('dashRsvp', typeof renderDashRsvpPanel === 'function' ? renderDashRsvpPanel : null);
@@ -45318,33 +45324,56 @@ function rsvpCheckListRun(text){
   rsvpCheckListText = String(text == null ? '' : text);
   rsvpCheckListRefresh();
 }
-function rsvpCheckListRefresh(plan){
+/* ⭐ A QUIET REFRESH IS HOW THE REPORT STOPS LYING AFTER A TICK (2026-09-10, EM-13).
+   Addie ticked 495 off, the result line said "Ticked off 495 of 495", and the list
+   underneath still read 495 NOT ticked — so it looked as though nothing had saved. It
+   HAD: pressing Check this list again showed 495 recorded, 170 already answered, 0 not
+   ticked. The report was simply drawn once and never again.
+   ⚠ THE CAUSE IS THAT `jobAddresses` IS REBUILT WHOLESALE by its own listener — new
+   objects every snapshot — so the optimistic mirror the tick writes is thrown away, and
+   `rsvpWholeRenderBreakdown` (the only thing that redraws this report) is wired to
+   BUTTONS, not to customer data. Between those two the screen could sit stale
+   indefinitely with no way to tell it from a failed write.
+   ⚠ QUIET MEANS THE STATUS LINE IS LEFT ALONE, and that is the whole reason the flag
+   exists rather than just calling the refresh: this same function writes its own count
+   into that line, so an automatic redraw firing a moment after a tick would wipe
+   "Ticked off 495 of 495" — the exact bug fixed one commit earlier, arriving from a new
+   direction. A person pressing a button still gets the count.
+   ⚠ AND A QUIET REDRAW NEVER BLANKS A REPORT SHE IS READING. If the plan is not ready
+   it returns and changes nothing, rather than clearing the box on a transient — a
+   button press still says why. */
+function rsvpCheckListRefresh(plan, opts){
+  const quiet = !!(opts && opts.quiet);
   const box = document.getElementById('rsvpCheckListReport');
   const st = document.getElementById('rsvpCheckListStatus');
   if(!box) return;
+  const say = function(t){ if(!quiet && st) st.textContent = t; };
   if(!String(rsvpCheckListText).trim()){
+    if(quiet) return;
     box.innerHTML = '';
-    if(st) st.textContent = '';
+    say('');
     return;
   }
   const p = plan || ((typeof rsvpWholePlan === 'function') ? rsvpWholePlan() : null);
   if(!p || !p.ready){
+    if(quiet) return;
     box.innerHTML = '';
-    if(st) st.textContent = (p && p.why) || 'The customer list has not loaded yet.';
+    say((p && p.why) || 'The customer list has not loaded yet.');
     return;
   }
   const parsed = rsvpCheckListNames(rsvpCheckListText);
   if(!parsed.names.length){
+    if(quiet) return;
     box.innerHTML = '';
-    if(st) st.textContent = 'No names found in that paste — one person per line, the name first.';
+    say('No names found in that paste — one person per line, the name first.');
     return;
   }
   const res = rsvpCheckListCompare(parsed, p, rsvpCheckListIndex());
-  if(st){
-    st.textContent = res.total + (res.total === 1 ? ' name read' : ' names read')
+  {
+    say(res.total + (res.total === 1 ? ' name read' : ' names read')
       + (res.repeats ? ' (' + res.repeats + ' repeated, counted once)' : '')
       + (res.headers ? ' (heading row ignored)' : '')
-      + ' — ' + res.waiting.length + ' of them NOT ticked off in the app.';
+      + ' — ' + res.waiting.length + ' of them NOT ticked off in the app.');
   }
   rsvpCheckListRenderReport(box, res);
 }
