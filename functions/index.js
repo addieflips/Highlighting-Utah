@@ -2663,20 +2663,28 @@ exports.portalChangeAddress = onCall({ cors: true }, async (request) => {
   const match = await findByToken(token);
   if (!match) throw new HttpsError('not-found', 'Account not found.');
 
-  /* ⚠ DELIBERATELY NOT BEHIND THE ARREARS HOLD, and this is a decision rather than
-     an omission — do not "fix" it without asking. portalSave refuses every section
-     but `cancel` while last season is unpaid (Dax: "before anything goes into the
-     system"), and by that reading a move belongs behind it too, since applying one
-     raises a re-quote.
-     It is left open because the failure directions are not symmetrical. Where they
-     live is a FACT we need whether or not they have paid: refused, the record keeps
-     an address they have left, and the one thing nobody can undo is a crew standing
-     at the wrong house. Accepting it costs nothing — the hold still bars every other
-     change, the badge only asks the office to look, and a debtor is held out of the
-     season by isOutForSeason regardless, so nothing here gets them scheduled.
-     ⚠ CANCELLING IS EXEMPT FOR THE SAME SHAPE OF REASON: somebody trying to leave
-     must not be told to pay first, or they stop replying and Addie never learns why.
-     Raised as an open question rather than settled quietly. */
+  /* ⭐ DELIBERATELY NOT BEHIND THE ARREARS HOLD — RULED ON, NOT LEFT OPEN (2026-09-10,
+     QT-36). Addie, answering Q-033 directly: "Yes anyone can report a move but when we
+     requote the person that didn't pay for last year still can't be scheduled until
+     they pay there balance." So do not "fix" this to match portalSave, which refuses
+     every section but `cancel` while last season is unpaid (Dax: "before anything goes
+     into the system"). A move is the exception, and it is hers.
+
+     ⚠ WHAT MAKES IT SAFE IS THE SECOND HALF OF HER SENTENCE, and it is enforced
+     somewhere else entirely: `houseOwesFromLastSeason` inside `isOutForSeason`, tested
+     AHEAD of the rsvpStatus and Confirmed branches. So a debtor may tell us they moved,
+     the office may apply it and re-quote them, and they may APPROVE that re-quote — and
+     they are still off the routes, out of the build queue and off the schedule until
+     the balance is paid. arrears-hold.test.js §4d runs the real `seasonYesUpdates` into
+     the real `isOutForSeason` to prove exactly that, and pins the placer's own guard.
+
+     ⚠ AND THE ASYMMETRY IS WHY SHE RULED THIS WAY. Where somebody lives is a FACT we
+     need whether or not they have paid: refused, the record keeps an address they have
+     left, and the one thing nobody can undo is a crew standing at the wrong house.
+     Accepting it grants nothing — the hold still bars every other change, and the badge
+     only asks the office to look.
+     ⚠ CANCELLING IS EXEMPT FOR THE SAME SHAPE OF REASON: somebody trying to leave must
+     not be told to pay first, or they stop replying and Addie never learns why. */
   const oldData = match.data || {};
   const oldAddress = oldData.address || '';
   const pendingAddress = street + ', ' + city + (zip ? ' ' + zip : '');
