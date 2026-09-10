@@ -1991,6 +1991,17 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
            Nothing recorded which, so the two could not be told apart. This is the
            portal; admin.html stamps 'office' on its own save. */
         updates.lightsChangedVia = 'portal';
+        /* ⭐ AND ONTO THE WAREHOUSE COLOUR-CHANGE LIST (added 2026-09-10). Dax:
+           "also make sure anyone who gets a color change is directed there." Beside
+           the stamp, inside the same `oldData.lightsDescription` guard, so a
+           first-time colour still does not count as a change here either.
+           ⚠ admin.html sets these three on its own save and functions/index.js sets
+           them at BOTH portal writes. Three doors, one list: miss one and a customer
+           who changed their colours is simply absent from the warehouse's list, which
+           looks exactly like nobody having asked. */
+        updates.needsColorChange = true;
+        updates.colorChangeColors = updates.lightsDescription;
+        updates.colorChangeRequestedAt = admin.firestore.FieldValue.serverTimestamp();
       }
     }
     // Unchanged? Leave the flag alone. Opening the Lights tab and pressing Save
@@ -2102,6 +2113,12 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
           /* Same stamp, the other portal write path — see the note above. Both have to
              set it or a change made through one door is unattributable. */
           custWrite.lightsChangedVia = 'portal';
+          /* ⭐ The other half of the same rule — see path A above. Both portal
+             writes set it or a change made through one door is invisible to the
+             warehouse. */
+          custWrite.needsColorChange = true;
+          custWrite.colorChangeColors = updates.lightsDescription;
+          custWrite.colorChangeRequestedAt = admin.firestore.FieldValue.serverTimestamp();
         }
         if (d.feeAmount > 0 && d.feeDestination === 'nextSeason') {
           /* ⭐ THE BILL HAS ALREADY GONE, SO THIS RIDES TO NEXT SEASON. Owner:
