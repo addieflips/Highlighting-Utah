@@ -53376,22 +53376,39 @@ function seasonAreasFor(waiting, cap){
   (plan.blocks || []).forEach(function(b){
     (b.ids || []).forEach(function(id){ areaOf[id] = "g:" + b.id; });
   });
-  /* ⛔ AN OUTLIER IS DELIBERATELY LEFT UNSTAMPED, so it falls back to its TOWN and is
-     handled exactly as it was before any of this. Two other answers were tried and
-     measured on an 810-house book:
-       an area of one each ..... one-man days 1 -> 3. An area of one IS a one-man day,
-                                 and Dax: "what we want to minimize the most is one man
-                                 days". Building them on purpose is the wrong direction.
-       dropped from the season .. what grid.js itself argues for, and what Addie said in
-                                 2026-08-22 — "if they are a real outlier they arent in
-                                 the grid at all... its for my dad to do". That predates
-                                 One Man Installs, which is main’s own answer to the
-                                 same problem and which she has used since; dropping a
-                                 customer off the season with nothing on screen saying
-                                 so is not something to do as a side effect of a
-                                 container change.
-     Falling back to the town keeps Levan exactly where it is today: its own thin day,
-     visible on the One Man Installs tab, which is the thing she asked for it. */
+  /* ⭐ AN OUTLIER GETS AN AREA OF ITS OWN, WHICH IS A ONE-MAN DAY, AND THAT IS THE
+     POINT ([[SCH-69]], 2026-09-10). Dax: "if someone is way out of the way as an
+     outlier they should fall into a one man day so a full crew isnt being paid to go
+     that far out."
+
+     ⛔ THIS REVERSES THE CALL I MADE ON 2026-09-09 AND THE OLD REASONING IS KEPT,
+     because it is a good argument that was pointed at the wrong cost. It read: an area
+     of one IS a one-man day, measured at one-man days going 1 -> 3 on an 810-house
+     book, and Dax had said "what we want to minimize the most is one man days" — so
+     building them on purpose looked like the wrong direction, and outliers were left
+     unstamped to fall back to their town.
+
+     ⚠ WHAT THAT MISSED IS WHOSE MONEY IT IS. Minimising one-man days is about not
+     sending ONE person where a crew could work a full day; it was never an argument for
+     sending FOUR people forty miles to hang one house. His older ruling says the same
+     thing from the other side and I had it in front of me: "high milage is better for a
+     one man than a one crew or two crew." A crew-day is four wages; the miles are the
+     smaller half of that bill, and no measurement in this file was ever counting it.
+
+     ⚠ SO THE COST IS REAL AND IS ACCEPTED, NOT HIDDEN: on the same 810-house book this
+     takes one-man days from 1 to 3. Those three are Levan and the far south, which is
+     exactly who it is meant to catch.
+
+     ⚠ AND IT IS STILL NOT "DROPPED FROM THE SEASON", which is what grid.js argues for
+     and what Addie said in 2026-08-22 — "if they are a real outlier they arent in the
+     grid at all... its for my dad to do". A house nobody is scheduled for is invisible;
+     an outlier on the One Man Installs tab is a decision somebody can see and act on.
+     ⛔ AND NOTHING HERE MAY LEAVE THEM OFF A CREW SHEET — [[SCH-67]] is absolute, and a
+     one-man day is a sheet with one person’s name on it, not an absence. */
+  (plan.outliers || []).forEach(function(o){
+    const h = o && o.house;
+    if(h && h.id) areaOf[h.id] = "x:" + h.id;
+  });
   let n = 0;
   (waiting || []).forEach(function(w){
     if(w && areaOf[w.id]){ w.area = areaOf[w.id]; n++; }
@@ -63506,8 +63523,15 @@ function renderPanelInto(elId,day){
            holding a sheet for, and it has to stay on screen saying so. */
         h+='<div class="routehead spare">Not on either crew\u2019s route<span>'+g.houses.length+' stop'+(g.houses.length===1?'':'s')+' · nobody is holding a sheet for '+(g.houses.length===1?'it':'them')+'</span></div>';
       } else {
+        /* ⭐ A RUN ONE PERSON SHOULD BE DOING SAYS SO HERE ([[SCH-69]]). This heading is
+           what the office reads when it decides who is going out, so a run of one house
+           beside a run of twenty has to be visibly different — otherwise four people are
+           rostered for it and Dax is paying a crew to drive sixty miles for one house. */
+        const solo=(typeof crewIsOneMan==='function') && crewIsOneMan(day, g.crew||0);
         h+='<div class="routehead">Route '+((g.crew||0)+1)+' · '+esc(g.label)+
-           '<span>'+esc(crewCityFor(g.crew||0,day)||'no town')+' · '+g.houses.length+' stop'+(g.houses.length===1?'':'s')+'</span></div>';
+           (solo?'<span class="newbadge">1 MAN</span>':'')+
+           '<span>'+esc(crewCityFor(g.crew||0,day)||'no town')+' · '+g.houses.length+' stop'+(g.houses.length===1?'':'s')+
+           (solo?' · one person, not a crew':'')+'</span></div>';
       }
       h+=g.houses.map(function(x,k){ return stopHTML(x,k+1,day.id); }).join('');
     });
@@ -63914,9 +63938,40 @@ function renderOneMan(){
       ((d.houses || []).length === 1 ? '' : 's') + '</b> \u00b7 ' +
       esc(towns.join(' \u00b7 ') || 'no town') + '</div></div></div>' + who;
   }).join('');
+  /* ⭐ AND THE THIN RUNS HIDING BESIDE FULL ONES ([[SCH-69]], 2026-09-10). Dax: "if
+     someone is way out of the way as an outlier they should fall into a one man day so
+     a full crew isnt being paid to go that far out."
+     ⚠ THIS TAB LISTED WHOLE DATES ONLY, which is why Levan never reached it: one house
+     sixty miles south, sharing its date with a twenty-house run, so the DATE holds
+     twenty-one and reads as ordinary work. The run is what one person does, and it is
+     what has to be visible here — otherwise the office rosters a crew for it and this
+     tab, the one place that exists to stop exactly that, says nothing.
+     ⚠ SEPARATE FROM THE DAYS ABOVE, not merged into them: those are dates where nobody
+     else is working, and these are dates where somebody is. They are rostered
+     differently and reading them as one list would hide that. */
+  const runs = (typeof oneManCrewRuns === 'function') ? oneManCrewRuns() : [];
+  let runRows = '';
+  if(runs.length){
+    runRows = '<div class="grouph">On a day somebody else is also working</div>' +
+      '<div class="traynote">These are not whole days — another crew is out that date.' +
+      ' Each one is a run small enough for one person, so it needs one person rostered' +
+      ' rather than a crew.</div>' +
+      runs.map(function(r){
+        const dt = dayDate(r.day), lab = dlabel(dt);
+        const towns = [...new Set(r.houses.map(cityOf).filter(Boolean))];
+        return '<div class="newrow"><div class="who">' + esc(lab.wd + ' ' + lab.full) +
+          '<span class="newbadge">1 MAN</span></div><div class="meta"><b>' +
+          r.houses.length + ' house' + (r.houses.length === 1 ? '' : 's') + '</b> \u00b7 ' +
+          esc(towns.join(' \u00b7 ') || 'no town') + ' \u00b7 ' +
+          esc(crewName(r.crew)) + '</div></div>';
+      }).join('');
+  }
+  const runHouses = runs.reduce(function(a, r){ return a + r.houses.length; }, 0);
   el.innerHTML = lead + '<h3>' + days.length + ' day' + (days.length === 1 ? '' : 's') +
     ' \u00b7 ' + total + ' house' + (total === 1 ? '' : 's') +
-    ' <span class="cnt">' + days.length + '</span></h3>' + rows;
+    (runs.length ? ' \u00b7 and ' + runs.length + ' run' + (runs.length === 1 ? '' : 's') +
+      ' beside other work (' + runHouses + ' house' + (runHouses === 1 ? '' : 's') + ')' : '') +
+    ' <span class="cnt">' + (days.length + runs.length) + '</span></h3>' + rows + runRows;
 }
 function renderCrewBar(){
   const bar=RT.getElementById('crewBar'); if(!bar) return;
@@ -65585,6 +65640,48 @@ function isOneManDay(day){
      — somebody said so. See the note above dayLimitOn. */
   if(dayLimitFor(day) === 'man') return true;
   return n <= oneManMaxHouses();
+}
+/* ⭐ AND ONE PERSON IS A PROPERTY OF A CREW’S RUN, NOT ONLY OF A DATE ([[SCH-69]],
+   2026-09-10). Dax: "if someone is way out of the way as an outlier they should fall
+   into a one man day so a full crew isnt being paid to go that far out."
+
+   ⚠ isOneManDay ASKS ABOUT THE WHOLE DATE, and that is the hole he was pointing at.
+   Levan comes out as a crew-day of ONE house — but it shares its date with a full
+   twenty-house run somewhere else, so the DATE holds twenty-one, isOneManDay is false,
+   and the office rosters two full crews. One of them drives sixty miles to hang one
+   house. The date is not the thing being paid for; the crew is.
+
+   ⚠ IT DOES NOT REPLACE THE DAY RULE, IT COMPLETES IT. A date that is wholly one-man
+   is still one-man for every purpose it always was — dayCrewCount, the badge, the tab.
+   This only answers the narrower question the sheets need: is THIS run one person?
+
+   ⚠ AND IT PREDATES THE GRID. A thin crew-day riding alongside a full one is what the
+   town container did with Levan too; [[SCH-63]] did not cause it and [[SCH-69]] is not
+   a repair of it. */
+function crewIsOneMan(day, i){
+  if(!day || day.isFixRoute || day.isTakedown) return false;
+  if(typeof isOneManDay === 'function' && isOneManDay(day)) return true;
+  if(typeof crewHousesFor !== 'function') return false;
+  const n = (crewHousesFor(i, day) || []).length;
+  /* an empty run is nobody’s day, not one person’s */
+  return n > 0 && n <= oneManMaxHouses();
+}
+/* Every crew-run this season that one person should be doing, as {day, crew, houses}.
+   Worked out at render time like oneManDays, never stored — a run that fills up leaves
+   the list on the next draw and one that empties joins it. */
+function oneManCrewRuns(){
+  if(typeof installDays !== 'function') return [];
+  const out = [];
+  installDays().forEach(function(day){
+    /* a wholly one-man DAY is already listed as itself; this is for the thin run
+       hiding beside a full one */
+    if(typeof isOneManDay === 'function' && isOneManDay(day)) return;
+    crewIndexes().forEach(function(i){
+      const mine = (typeof crewHousesFor === 'function') ? (crewHousesFor(i, day) || []) : [];
+      if(mine.length && mine.length <= oneManMaxHouses()) out.push({day: day, crew: i, houses: mine});
+    });
+  });
+  return out;
 }
 function oneManDays(){
   if(typeof installDays !== 'function') return [];
