@@ -786,6 +786,9 @@ const BOOK = function () {
             '<div id="rsvpCheckListStatus"></div>' +
             '<div id="rsvpCheckListReport"></div>');
           const writes = [], asked = [];
+          /* Mutable, so a test can make a plan go unready AFTER a report is drawn —
+             the only shape that can see a quiet redraw blanking one. */
+          const state = { invoicesLoaded: o.invoicesLoaded !== false };
           const api = {
             document: dom.window.document,
             console: { error: function () {}, warn: function () {}, log: function () {} },
@@ -800,7 +803,7 @@ const BOOK = function () {
             effectiveRsvpStatus: function (d) { return d.rsvpStatus || ''; },
             etNoAutomationEmails: function (d) { return d.noAuto === true; },
             houseOwesFromLastSeason: function (d) { return d.owes === true; },
-            audienceHasLastSeason: function () { return o.invoicesLoaded !== false; },
+            audienceHasLastSeason: function () { return state.invoicesLoaded; },
             /* The two gates, driven from the fixture so a test can refuse either. */
             confirm: function (msg) { asked.push(msg); return o.confirmYes !== false; },
             prompt: function () { return o.typed === undefined ? 'ASKED' : o.typed; },
@@ -832,12 +835,14 @@ const BOOK = function () {
             '         rsvpCheckListNames: rsvpCheckListNames,\n' +
             '         rsvpCheckListIndex: rsvpCheckListIndex,\n' +
             '         rsvpWholePlan: rsvpWholePlan,\n' +
+            '         rsvpCheckListRefresh: rsvpCheckListRefresh,\n' +
             '         report: function(){ return document.getElementById("rsvpCheckListReport").innerHTML; },\n' +
             '         status: function(){ return document.getElementById("rsvpCheckListStatus").textContent; } };\n';
           const made = new Function(names.join(','), body)
             .apply(null, names.map(function (k) { return api[k]; }));
           made.writes = writes;
           made.asked = asked;
+          made.state = state;
           made.records = records;
           return made;
         }
@@ -993,6 +998,95 @@ const BOOK = function () {
           check('an informational bucket is capped and says so',
             /Showing the first 2\./.test(w.report()),
             'the cap is what keeps a 900-row paste readable');
+        }
+
+        /* ------------------------------------------------------------------
+           4g. THE REPORT CORRECTS ITSELF (EM-13).
+           ------------------------------------------------------------------
+           Addie ticked 495 off, the result line said "Ticked off 495 of 495", and the
+           list underneath still read 495 NOT ticked — so it read as a failed write. It
+           was not: pressing Check this list again showed 495 recorded, 170 already
+           answered, 0 not ticked. `jobAddresses` is rebuilt wholesale by its own
+           listener, so the tick's optimistic mirror is discarded, and the only thing
+           that redraws this report was wired to BUTTONS rather than to customer data. */
+        {
+          /* A snapshot landing the way the real listener does: the array is REPLACED
+             with fresh objects, which is exactly what throws the mirror away. */
+          const snapshotBrings = function (w, ids) {
+            w.records.forEach(function (r) {
+              if (ids.indexOf(r.id) !== -1) r.data = Object.assign({}, r.data, { rsvpEmailedAt: 'a-date' });
+            });
+          };
+
+          const w = bulkWorld(BOOK());
+          w.rsvpCheckListRun('anna,x\nbrian,x\n');
+          check('the report starts by naming them as not ticked',
+            /data-rsvpmarkone="anna"/.test(w.report()) && /Tick all 2 off as asked/.test(w.report()));
+          const said = w.status();
+          /* The write lands elsewhere and the truth arrives on the next snapshot. */
+          snapshotBrings(w, ['anna', 'brian']);
+          w.rsvpCheckListRefresh(null, { quiet: true });
+          check('a quiet redraw corrects the list once the data catches up',
+            !/data-rsvpmarkone="anna"/.test(w.report()) && !/Tick all/.test(w.report()),
+            'this is the exact screen that read 495 NOT ticked straight after ticking 495');
+          /* ⚠ AND IT MUST NOT WIPE WHAT THE LAST PRESS SAID. This function writes its own
+             count into that same line — an automatic redraw doing so is the bug fixed one
+             commit earlier, arriving from a new direction. */
+          check('and leaves the result line exactly as the press left it',
+            w.status() === said, 'was ' + JSON.stringify(said) + ' now ' + JSON.stringify(w.status()));
+        }
+
+        /* A press still reports, or nobody is ever told anything. */
+        {
+          const w = bulkWorld(BOOK());
+          w.rsvpCheckListRun('anna,x\nbrian,x\n');
+          w.rsvpCheckListRefresh();
+          check('a refresh a PERSON asked for still writes the count',
+            /NOT ticked off/.test(w.status()), 'got ' + JSON.stringify(w.status()));
+        }
+
+        /* ⚠ A QUIET REDRAW NEVER BLANKS A REPORT SHE IS READING. Firing on every customer
+           change, it would otherwise clear the box on any transient — and an empty report
+           is indistinguishable from one that found nothing. */
+        {
+          /* ⚠ THE REPORT HAS TO BE DRAWN FIRST, and the red-check is why this is written
+             this way round: built unready from the start, the box is already empty, so a
+             sabotage that blanks it changes nothing and the check passes on broken code.
+             Draw it, THEN take the invoices away. */
+          const w = bulkWorld(BOOK());
+          w.rsvpCheckListRun('anna,x\n');
+          const before = w.report();
+          check('the report really was drawn before the plan went unready',
+            before.indexOf('data-rsvpmarkone="anna"') !== -1,
+            'without this the next check cannot fail');
+          w.state.invoicesLoaded = false;
+          w.rsvpCheckListRefresh(null, { quiet: true });
+          check('a quiet redraw on an unready plan changes nothing',
+            w.report() === before, 'it must not clear a report on a transient');
+        }
+        {
+          const w = bulkWorld(BOOK());
+          w.rsvpCheckListRun('');
+          const before = w.report();
+          w.rsvpCheckListRefresh(null, { quiet: true });
+          check('a quiet redraw with nothing pasted is a no-op', w.report() === before);
+        }
+
+        /* ⚠ THE WIRING IS ASSERTED SEPARATELY FROM THE BEHAVIOUR, because the harness
+           calls the refresh itself — without these two lines it would never run in the
+           real page and every check above would still pass. That is the failure this
+           repo has shipped before. */
+        {
+          const sweep = stripComments(lift('renderJobAddressPanels'));
+          check('the customer-change sweep redraws the pasted report',
+            /safeRender\('rsvpCheckList'/.test(sweep),
+            'without this the report goes stale the moment anything else writes a customer');
+          check('and it asks for it quietly',
+            /rsvpCheckListRefresh\(null, *\{ *quiet: *true *\}\)/.test(sweep),
+            'a loud automatic redraw wipes the line saying what the last press did');
+          check('and it only draws while Automation Emails is open',
+            /rsvpCheckList: 'automation'/.test(stripComments(admin)),
+            'an unmapped label redraws on every customer change on every panel');
         }
       }
     })
