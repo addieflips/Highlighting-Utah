@@ -1966,6 +1966,29 @@
               <div class="form-row" id="infoEmail2Row" style="display:none;"><label for="infoEmail2">Second Email</label><input type="email" id="infoEmail2" autocomplete="email" inputmode="email"></div>
               <a href="#" id="addEmail2Link" style="display:block; font-size:12.5px; color:var(--gold-dim); margin:-10px 0 20px;">+ Add a second email</a>
               <div class="form-row"><label for="infoAddress">Address</label><input type="text" id="infoAddress" autocomplete="street-address"></div>
+              <!-- ⭐ MOVING IS ITS OWN DOOR (2026-09-10). Addie: "changing gate code or
+                   phone number should not notify us", and "you should have to apply
+                   changes in order for it to go to requote".
+                   ⚠ THE BOX ABOVE STAYS EDITABLE ON PURPOSE — it is how somebody fixes a
+                   typo or adds an apartment number, and that is NOT a move: nothing is
+                   re-quoted and nobody is notified. The string differing cannot tell the
+                   two apart, which is the whole reason this button exists rather than the
+                   save guessing. A move goes through portalChangeAddress, which leaves
+                   the live address alone until the office applies it. -->
+              <p class="form-note" id="infoMovedNote" style="margin:-10px 0 20px;">Moved house? Don't edit the box above &mdash; <a href="#" id="infoMovedLink" style="color:var(--gold-dim); font-weight:bold;">tell us you've moved</a> and we'll re-quote the new place.</p>
+              <div id="infoMovedForm" style="display:none; border:1px solid var(--gold-dim); border-radius:10px; padding:14px 14px 4px; margin:-6px 0 20px;">
+                <p class="form-note" style="margin-top:0;">Your new address. We'll keep the old one on file until we've had a look, so nothing gets mixed up.</p>
+                <div class="form-row"><label for="movedStreet">Street Address</label><input type="text" id="movedStreet" autocomplete="off" placeholder="123 N Main St"></div>
+                <div class="form-row"><label for="movedCity">Town</label><input type="text" id="movedCity" autocomplete="off" placeholder="Lehi"></div>
+                <div class="form-row"><label for="movedZip">Zip (optional)</label><input type="text" id="movedZip" autocomplete="off" inputmode="numeric" placeholder="84043"></div>
+                <div class="form-row"><label for="movedDate">When are you in? (optional)</label><input type="text" id="movedDate" autocomplete="off" placeholder="e.g. mid-October"></div>
+                <button type="button" class="btn btn-gold btn-block" id="movedSaveBtn">Send Us The New Address</button>
+                <div id="movedSaveStatus" role="status" aria-live="polite" style="font-size:13px; color:var(--slate); margin:8px 0 10px; text-align:center;"></div>
+              </div>
+              <!-- ⚠ SO THEY DO NOT SEND IT TWICE. The live address above is deliberately
+                   still the old one until the office applies the move, so with nothing on
+                   screen saying why, the obvious read is that the form did not work. -->
+              <div id="infoMovePending" style="display:none; background:#F1F5EB; border-radius:10px; padding:12px 14px; margin:-6px 0 20px; font-size:13px;"></div>
               <div class="form-row"><label>Gate Code (optional)</label><input type="text" id="infoGateCode" autocomplete="off" placeholder="e.g. #4521"></div>
               <p class="form-note" style="margin:-10px 0 20px;">If your community or property is gated, this lets our crew get in without calling ahead.</p>
               <button type="button" class="btn btn-gold btn-block" id="infoSaveBtn">Save Information</button>
@@ -3691,6 +3714,13 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
       console.error('[HU] portalRenderSides failed', err); }
     document.getElementById('infoAddress').value = addrDoc.address || '';
     document.getElementById('infoGateCode').value = addrDoc.gateCode || '';
+    /* ⚠ CALLED HERE, AND THE CALL IS THE HALF THAT IS EASY TO LOSE. Every behavioural
+       check on the banner can pass while nothing reaches the screen if this line is
+       missing — the shape MSG-14 records, and the recycle "bin says" box shipped as.
+       Wrapped for the same reason portalRenderSides is: one panel must not take down
+       the account page, and the address, the balance and the invoice all render below. */
+    try{ portalRenderPendingMove(); }
+    catch(err){ console.error('[HU] portalRenderPendingMove failed', err); }
     if(addrDoc.phone2){
       document.getElementById('infoPhone2').value = formatPhoneDisplay(addrDoc.phone2);
       document.getElementById('infoPhone2Row').style.display = 'block';
@@ -7369,8 +7399,10 @@ document.getElementById('infoSaveBtn').addEventListener('click', async function(
   var newGateCode = document.getElementById('infoGateCode').value.trim();
   if(!newName || !newPhoneRaw || !newAddress){ statusEl.textContent = 'Name, phone, and address are required.'; return; }
 
-  var oldAddress = (currentJobAddressData && currentJobAddressData.address) || '';
-  var addressChanged = oldAddress && newAddress !== oldAddress;
+  /* ⚠ `oldAddress` AND `addressChanged` WERE READ HERE AND ARE GONE (2026-09-10).
+     They existed only to raise a re-quote and reword the status line from this save,
+     and both of those are the move door's job now — see the note further down. Left
+     as dead locals they would read as a rule somebody forgot to finish wiring. */
   var oldPhone = (currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || '';
 
   statusEl.textContent = 'Saving…';
@@ -7385,23 +7417,99 @@ document.getElementById('infoSaveBtn').addEventListener('click', async function(
         phone2: newPhone2Raw, email2: newEmail2, gateCode: newGateCode
       }
     });
-    if(addressChanged){
-      await addDoc(collection(db,'quotes'), {
-        name: newName, phone: newPhoneRaw, email: newEmail, address: newAddress,
-        notes: 'Existing Customer - Address Changed', existingCustomerAddressChange: true,
-        status: 'new', createdAt: serverTimestamp()
-      });
-      notifyBusinessOfMessage({
-        customer_name: newName, customer_phone: newPhoneRaw, customer_email: newEmail,
-        topic: 'Existing Customer - Address Changed',
-        message: 'Existing customer changed their address from "' + oldAddress + '" to "' + newAddress + '". A new quote is required.'
-      });
-    }
+    /* ⭐ THIS SAVE NO LONGER RAISES A QUOTE (2026-09-10). Addie: "you should have to
+       apply changes in order for it to go to requote", and "changing gate code or
+       phone number should not notify us."
+
+       ⚠ IT USED TO DO BOTH FROM HERE, on nothing more than the address STRING having
+       changed — it wrote a `quotes` document with status 'new' and emailed the office.
+       So adding an apartment number or fixing a spelling raised a real re-quote card
+       somebody then had to answer, and the server parked the customer in
+       address_changed / needs_changes at the same time. A correction is not a move,
+       and the string differing cannot tell them apart.
+
+       ⚠ THE MOVE PATH IS NOT LOST, IT IS THE BUTTON ABOVE — portalChangeAddress, which
+       records the new address as PENDING, badges the customer for the office and files
+       an Inbox note. The re-quote is raised when the office applies it, from the one
+       place that also re-geocodes the house and re-points a saved route stop. Raising
+       it here could only ever be a card against an address with no pin. */
     if(currentLookupRecord){ currentLookupRecord.name = newName; currentLookupRecord.phone = newPhoneRaw; currentLookupRecord.email = newEmail; }
     if(currentJobAddressData){ currentJobAddressData.address = newAddress; currentJobAddressData.phone2 = newPhone2Raw; currentJobAddressData.email2 = newEmail2; currentJobAddressData.gateCode = newGateCode; }
-    statusEl.textContent = addressChanged ? 'Saved! Since your address changed, we\'ll be in touch with a new quote.' : 'Saved!';
+    /* ⚠ AND IT NO LONGER PROMISES A NEW QUOTE. That sentence was the visible half of
+       the same bug: it told somebody who had corrected their street spelling to expect
+       a re-quote nobody was going to send them. The server still computes and returns
+       `addressChanged`; nothing acts on it, here or anywhere. */
+    statusEl.textContent = 'Saved!';
   } catch(err){
     statusEl.textContent = 'Something went wrong — please call (801) 901-0011 instead.';
+  }
+});
+
+/* ⭐ TELLING US YOU HAVE MOVED (2026-09-10) — the door the info save used to guess at.
+   Opens the form; the link stays visible so it can be folded away again. */
+document.getElementById('infoMovedLink').addEventListener('click', function(e){
+  e.preventDefault();
+  var form = document.getElementById('infoMovedForm');
+  var open = form.style.display !== 'none';
+  form.style.display = open ? 'none' : 'block';
+  if(!open) document.getElementById('movedStreet').focus();
+});
+
+/* ⚠ WHAT IS ALREADY WITH THE OFFICE. Drawn from `pendingAddress`, which is on the
+   portal's read whitelist for exactly this: the live address stays the OLD one until
+   the office applies the move, so with nothing here the tab looks like it lost the
+   form. It also folds the offer away — a second submission is the failure this
+   prevents, and the surest way to invite one is to leave the button looking unused. */
+function portalRenderPendingMove(){
+  var box = document.getElementById('infoMovePending');
+  var note = document.getElementById('infoMovedNote');
+  var form = document.getElementById('infoMovedForm');
+  if(!box) return;
+  var pending = (currentJobAddressData && currentJobAddressData.pendingAddress) || '';
+  if(!pending){
+    box.style.display = 'none';
+    if(note) note.style.display = '';
+    return;
+  }
+  var when = (currentJobAddressData && currentJobAddressData.pendingMoveDate) || '';
+  box.innerHTML = '<b>We have your new address.</b><br>' + escapeHtmlPortal(pending) +
+    (when ? '<br>You told us you are in by ' + escapeHtmlPortal(when) + '.' : '') +
+    '<br><br>We are still showing the old address above until we have priced the new ' +
+    'place &mdash; that is on purpose, so your crew sheet and your bill do not get ' +
+    'mixed up. We will be in touch with a quote for it. Nothing else to do.';
+  box.style.display = 'block';
+  if(note) note.style.display = 'none';
+  if(form) form.style.display = 'none';
+}
+
+document.getElementById('movedSaveBtn').addEventListener('click', async function(){
+  var statusEl = document.getElementById('movedSaveStatus');
+  var street = document.getElementById('movedStreet').value.trim();
+  var city = document.getElementById('movedCity').value.trim();
+  var zip = document.getElementById('movedZip').value.trim();
+  var when = document.getElementById('movedDate').value.trim();
+  /* ⚠ CHECKED HERE AND AGAIN ON THE SERVER. The town is what a crew-day is grouped
+     by, so a street with no town is a move nobody can schedule; this message is only
+     so they are told which box, rather than being refused with no reason. */
+  if(!street || !city){ statusEl.textContent = 'Please give us both the street and the town.'; return; }
+  statusEl.textContent = 'Sending…';
+  try{
+    var res = await callPortalFn('portalChangeAddress', {
+      token: getActivePortalToken(),
+      street: street, city: city, zip: zip, moveDate: when
+    });
+    /* ⚠ MIRRORED ONTO THE LOCAL RECORD so the banner below can draw immediately.
+       Without it the form clears, nothing appears, and the obvious read is that
+       pressing the button did nothing — see MSG-14's own note about a renderer that
+       is never called. */
+    if(currentJobAddressData){
+      currentJobAddressData.pendingAddress = (res && res.pendingAddress) || (street + ', ' + city);
+      currentJobAddressData.pendingMoveDate = when;
+    }
+    statusEl.textContent = '';
+    portalRenderPendingMove();
+  } catch(err){
+    statusEl.textContent = portalCallFailedText(err, 'account', 'Sending us a new address after moving');
   }
 });
 

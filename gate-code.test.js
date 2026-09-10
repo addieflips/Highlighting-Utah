@@ -103,7 +103,7 @@ check('the value is bounded',
 
 /* ⭐ THE ONE THAT MATTERS MOST, AND THE LEAST OBVIOUS. gateCode is already in
    PORTAL_WRITE_FIELDS under the `info` section, so reusing portalSave looks
-   like the clean move — and that section ends with
+   like the clean move — and that section used to end with
        updates.seasonStatus = addressChanged ? 'address_changed' : 'needs_changes';
    which is the RE-QUOTE state, resolved by answering a quote. No quote exists
    here, so every customer who typed a gate code during their RSVP would sit in
@@ -112,10 +112,42 @@ check('it does not set seasonStatus',
   !/seasonStatus/.test(setSrc),
   "a gate code is not a change to the job — setting it parks the customer in the re-quote state");
 
-check('and the trap it avoids is still real',
-  /updates\.seasonStatus = addressChanged \? 'address_changed' : 'needs_changes';/.test(fns),
-  'if portalSave stops doing this, the reason for a separate function is gone and ' +
-  'this check should be revisited rather than deleted');
+/* ⭐ REVISITED 2026-09-10, WHICH IS WHAT THE CHECK BELOW USED TO ASK FOR.
+   It matched the literal `updates.seasonStatus = addressChanged ? ...` line in
+   portalSave and its own failure message said: "if portalSave stops doing this,
+   the reason for a separate function is gone and this check should be revisited
+   rather than deleted." portalSave stopped doing it — an info save now writes no
+   seasonStatus at all, for exactly the reason this function was carved out,
+   applied to the whole tab.
+
+   ⚠ SO THE CLAIM IS REPOINTED, NOT WEAKENED, AND NOT DROPPED. Pinned to that
+   spelling it would now fail on code that is right — the §7 slow-fuse shape this
+   repo has been bitten by in S82, S129 and the folder-names suite. What must
+   still be TRUE is the guarantee, not the location: nowhere in the portal's
+   contact-details path may a customer be parked in the re-quote state without a
+   quote to answer. So both writers are asserted directly — the info save writes
+   no status, and the one path that legitimately does is the move door, which
+   raises a real re-quote for the office to answer. */
+/* ⚠ COMMENTS STRIPPED FIRST, and the very first draft of this check proved why
+   by failing on correct code: the explanation now sitting inside that branch says
+   "AN INFO SAVE NO LONGER WRITES seasonStatus AT ALL", so a plain search read the
+   prose as the code it describes. Suites 58, 274, 275 and 300 each learned this
+   separately; §7 has the general form. Sliced to its own structural end rather
+   than by a character count — §7 bans fixed-length windows by name. */
+function stripComments(s) {
+  return s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+}
+const infoSection = stripComments(fns.slice(fns.indexOf("if (section === 'info') {")));
+check('an info save parks nobody in the re-quote state',
+  !/seasonStatus/.test(infoSection.slice(0, infoSection.indexOf('\n  }'))),
+  'a corrected phone number or gate code would sit in Needs Changes for ever, ' +
+  'waiting on a question nobody asked — the trap this whole function exists to avoid');
+
+check('and the move door is the one path that still sets it',
+  /exports\.portalChangeAddress\s*=/.test(fns) &&
+  /seasonStatus: 'address_changed'/.test(fns),
+  'a move genuinely does owe a re-quote, so if NOTHING writes address_changed any ' +
+  'more the office has lost the badge it works from');
 
 /* The office and the portal must agree about what fits in the box. */
 check('the length cap matches the office writer',
