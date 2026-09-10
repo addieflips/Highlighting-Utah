@@ -957,12 +957,18 @@ check('badging Back Next Year clears the build but not the recycle',
     /changed\.push\(\{name: h\.name \|\| '\(no name\)', field: f\.label, id: h\.id,/.test(admin),
     'matching a house back by name is how the wrong household gets rescheduled');
   if (src) {
-    /* The real helpers, lifted rather than stubbed: unassignedHousesFor is the whole
+    /* The real helpers, lifted rather than stubbed: housesOutsideCrewTowns is the whole
        question ("do this day's crews go to their new town"), so a stub would make the
        test agree with itself. Only nextInstallDayFor and routeDayIsLocked are handed
-       in, because those are what each case is varying. */
-    const deps = ['unassignedHousesFor', 'crewTownsFor', 'cityOf', 'sameCity',
-                  'extractCleanCity', 'isoOf', 'dayDate'].map(fnBraced);
+       in, because those are what each case is varying.
+       ⚠ IT WAS unassignedHousesFor UNTIL 2026-09-10 AND THE RENAME IS THE POINT OF THE
+       RULING BEHIND IT ([[SCH-67]]). Every house on a day is now on some crew's sheet,
+       so "who is unassigned" is always nobody — and re-homing needs the OTHER question,
+       "whose town do this day's crews not work". Left pointing at the old name this
+       sandbox would have thrown, which is how CI caught it; left pointing at the old
+       MEANING the feature would have gone quiet with every screen looking right. */
+    const deps = ['housesOutsideCrewTowns', 'crewIndexes', 'crewTownsFor', 'cityOf',
+                  'sameCity', 'extractCleanCity', 'isoOf', 'dayDate'].map(fnBraced);
     const missingDep = deps.some(d => !d);
     check('and its helpers were all found', !missingDep,
       'a sandbox missing a helper reaches for a global left behind by another suite ' +
