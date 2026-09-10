@@ -366,7 +366,7 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
 ## 2. Fields that drive more than one thing
 
 **Measured Feet** (`measuredFeet` on `jobAddresses`) is the single highest-leverage field in the app. One number drives:
-- **Bin count**: a house needs another bin for every **260 ft**. Up to 260 → 1 bin; 261–520 → 2; 521–780 → 3; and so on. More than one bin means a **5000-series** customer number instead of a regular one — there are only two series, so a 3-bin and a 4-bin house both get a 5000 number, while the bin count saved on the customer is the real 3 or 4 so the warehouse builds the right amount. *(Note: some older docs and the Health Check UI call this "the 200 ft rule" — the cutoff in code is 260 ft, `cnBinsForFeet` / `CN_DOUBLE_BIN_FEET` in js/money.js. The 260 boundary has not moved; before 2026-08-15 the count simply stopped at 2, so a 900 ft house was built two bins short.)*
+- **Bin count**: a house needs another bin for every **320 ft** (⭐ **320 since 2026-09-10** — Addie: *"lets change feet to 320 feet in order to have two bins"*; it was 260 before that). Up to 320 → 1 bin; 321–640 → 2; 641–960 → 3; and so on. More than one bin means a **5000-series** customer number instead of a regular one — there are only two series, so a 3-bin and a 4-bin house both get a 5000 number, while the bin count saved on the customer is the real 3 or 4 so the warehouse builds the right amount. *(Note: older docs call this "the 200 ft rule" and it was 260 until 2026-09-10 — the cutoff in code is `cnBinsForFeet` / `CN_DOUBLE_BIN_FEET` in js/money.js, and nothing anywhere should type the number out for itself.)* ⛔ **Raising it does NOT re-count the houses already on the books, and must not.** `numberOfBins` is **stored**, worked out at the moment a footage is saved. A house between **261 and 320 ft** is stored as 2 bins on a 5000-series number and would now work out as 1 bin on a regular one — it keeps what it has until somebody re-saves its footage on purpose. Their bins are labelled and their numbers painted on, so changing them silently would send the warehouse to shelves that do not match the screen.
 - **Warehouse bundle count**: `ceil(feet / 40)`.
 - **Auto-priced estimate**: `price ≈ feet × perFootRate`, padded ~5% upward, never down.
 
@@ -3349,6 +3349,49 @@ are listed at the bottom of the sidebar with a one-click way back.
 at the same moment, the last save wins — they change rarely enough that this is the right
 trade, and it is the same one the scheduling settings already make.
 
+**Why some light changes never showed a $30 fee** ([[WH-28]], 2026-09-10). Addie: *"there are
+member that did light changes but are not showing 30 dollar fee on there account."*
+
+A house's colours live in **two** fields. The master-sheet sync only fills `lightsDescription`
+when a colour *repeats* (an alternating pattern, where the order matters); an ordinary house
+keeps its colours in `lightColors` and its description is empty. The fee was reading the
+description alone — so those houses looked as though they had **no colours at all**, and the
+rule that filling colours in for the first time is free (correctly) charged nothing. In
+practice that was most of the imported book.
+
+⭐ **The portal picker had the same hole, and that is the half that made it unfair.** It filled
+from the description alone too, so a customer who already had colours opened the page with
+**nothing selected**, picked some, was warned about $30 — and then was not charged. The
+warning and the charge disagreed. Fixing the money without fixing the picker would have
+charged people for filling in what looked like a blank.
+
+⚠ The rule that decides the fee was never wrong, and the parity test between the office and
+the server copies has been passing correctly the whole time. What was wrong is what the caller
+handed it. `houseLightsText` is the one answer to *"what colours does this house have"*, and
+the fee is the sixth reader brought to it.
+
+**And how they asked to be reached** ([[MSG-16]], 2026-09-10). Addie: *"we can no longer see how
+someone prefers to be contacted."* It had not been removed — it was sitting in the small grey
+line with the date, which is the line that stopped carrying anything you needed once the phone
+and email moved up. It is now **on the contact line**, against the detail it is about:
+*Text them* beside the number, *Email them* beside the address.
+
+⚠ Call and text are shown as **different instructions**, never as a highlight on the same
+number — ringing somebody who asked to be texted is the whole thing this prevents. Anything
+that isn't one of the three is shown **exactly as written** rather than guessed at.
+
+⚠ **If they asked for something we do not have** — an email preference with no email on file —
+the row says so in red. That used to be invisible: it looked like an ordinary row with a phone
+number on it and nothing saying they had not wanted it used.
+
+⭐ **The phone and email are plain text with a Copy button, not links** — Addie: *"I want to be
+able to copy and paste phone number and email but not a link."* This reverses half of
+[[MSG-14]], which made them `tel:`/`mailto:`; the older reasoning was sound (on a phone a link
+is one press) but it cost the thing she actually does, because dragging to select inside a link
+follows the link instead. **Copy takes exactly what is on screen** — the number with its
+punctuation and extension, the address as typed. If the browser refuses to copy, it says so
+and tells you to select and press Ctrl+C; it never just does nothing.
+
 **How to reach them** ([[MSG-14]], 2026-09-09). Addie: *"on inbox can you show email and
 phone number under name so I can communicate with them?"* The phone and the email now sit on
 their **own line directly under the name**, as a `tel:` link and a `mailto:` link she can
@@ -3438,7 +3481,7 @@ a fake Firestore rather than reading their source; 16 sabotages red-checked.
 
 ## 6. Customer Numbers
 
-- **260 ft cutoff** (see §2) decides regular-series (1 bin) vs 5000-series (2 or more bins). Only two series exist, so the test is "more than one bin", not "exactly two".
+- **The bin cutoff** (320 ft — see §2) decides regular-series (1 bin) vs 5000-series (2 or more bins). Only two series exist, so the test is "more than one bin", not "exactly two".
 - **Pool**: `availableCustomerNumbers`, one doc per free number, `{type, releasedAt, releasedFrom}`.
 - **Assign**: lowest free pooled number of the right type wins; if the pool is empty, the next number above the current highest is used.
 - **Release**: freeing a number (edit, removal, recycle) drops it back into the pool.
@@ -5065,8 +5108,8 @@ are the two copies of the rule — change one, change the other, in the same pus
 - **An invoice's balance/status looks wrong** → check whether `changeFees` is actually being included in that particular screen's math. This was the P0 bug for this pass; the formula is documented in §3 so any *new* code touching balances can be checked against it.
 - **A route change (address, gate code, name) isn't reaching the crew** → check whether the route is *upcoming* — both resync paths deliberately skip past/history routes. Also remember only `id, address, name, phone, difficulty, lat, lng, gateCode, specificOutlet, specificOutletNotes, customerNumber` are ever frozen into a stop; other fields are supposed to be looked up live, so if one of *those* isn't updating, the live-lookup code itself is the place to check, not the resync.
 - **Firestore is throwing `failed-precondition`** → almost always a missing composite index. The index (or rules) file being correct in the repo means nothing until `firebase deploy --only firestore:indexes` (or `:rules`) actually runs — Netlify never touches Firebase, and a correct file sitting undeployed looks identical to a wrong one from the app's point of view.
-- **A customer's bin/number logic looks off at exactly 200 ft** → the actual cutoff in code is 260 ft, not 200 (see §2). Check `cnBinsForFeet` / `CN_DOUBLE_BIN_FEET` in js/money.js (they moved out of admin.html) before assuming a bug.
-- **A big house shows fewer bins than it needs** → check whether the code doing the deciding tests `numberOfBins === 2`. Bins go up in 260s now, so a 900 ft house is 4 bins; `=== 2` reads that as "not a double" and hands it a regular customer number.
+- **A customer's bin/number logic looks off at exactly 200 or 260 ft** → the cutoff in code is **320 ft** since 2026-09-10, and was 260 before that (see §2). Check `cnBinsForFeet` / `CN_DOUBLE_BIN_FEET` in js/money.js (they moved out of admin.html) before assuming a bug.
+- **A big house shows fewer bins than it needs** → check whether the code doing the deciding tests `numberOfBins === 2`. Bins go up in 320s, so a 900 ft house is 3 bins; `=== 2` reads that as "not a double" and hands it a regular customer number.
 - **The same System notice arrives twice, word for word, minutes apart** → treat it as a sweep loop, not as noise. A sweep doing real work finds *less* to do next pass; a byte-for-byte identical notice (same counts, same names in every list) is the signature of one pass undoing another. Check that eviction and the cap/top-up are asking the same question about the same day — `routeDayTowns` is the single answer, and `stopProblem` and `evenOutDays`/`fillDays` must all read it (§5).
 - **A button on a generated page does nothing at all, with no error** → look at what is being written into the button, not at the handler. On 2026-08-27 not one of the 181 blocks in the Rules view would open, because a rule name Addie wrote carries a double quote (`Is a pooled number somebody still holds "available"?`) and it was being pasted straight into the button's hidden label — the quote ends the label early, the button hands back a chopped-off name, the lookup finds nothing and the click quietly does nothing. Anything taken from `claude/questions-map.md`, from `connections/manifest.js`, or from a customer record is prose somebody typed, so it must be escaped at every point it is written into the page — and never at the source, because the real text is what every lookup is keyed on.
 - **A crew-day appears for a town nobody recognises** → look at that customer's `city` field on the record, not at the scheduler. `extractCleanCity` only strips zips and `UT`/`Utah` and drops any part containing a digit, so a *street* typed into the town field (`S Summit Crest Ln`) survives cleaning and reads as a town. Since 2026-08-31 the builder **refuses to seed a crew-day from one** (`townIsPhantom`), so those houses are left unplaced and named in the "Routes Kept Up To Date" notice under *these houses have a street in the town box*, with the bad value quoted. That line **is** the fix: correct the town on the record, and the customer sync carries it across. Before this, the invented town got a crew-day of its own, borrowed real houses from a neighbour to fill it, and `stopProblem` evicted those borrowed houses again on the next pass — the eviction/replacement loop behind twenty identical System notices a day.

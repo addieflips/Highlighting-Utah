@@ -782,8 +782,21 @@
      Set slightly larger and darker than .rmeta on purpose: it used to share that line's
      grey with the date, which is the piece of it nobody ever needs ([[MSG-14]]). */
   .row-contact{ font-size:13px; color:var(--ink); margin-top:3px; font-weight:600; }
-  .row-contact a{ color:var(--emerald); text-decoration:none; border-bottom:1px solid rgba(0,0,0,.15); }
-  .row-contact a:hover{ text-decoration:none; border-bottom-color:currentColor; }
+  /* ⭐ SELECTABLE, NOT A LINK ([[MSG-16]]). `user-select` is spelled out rather than left to
+     inherit: the row is draggable (that is how a message is filed), and a draggable ancestor
+     is what stops a drag-to-select inside it in WebKit — so the detail would look like plain
+     text and still refuse to be highlighted. */
+  .row-contact-val{ user-select:text; -webkit-user-select:text; cursor:text; }
+  .row-contact-copy{ background:none; border:1px solid var(--line); border-radius:6px;
+    padding:0 6px; margin-left:2px; font-size:10.5px; font-weight:700; color:var(--slate);
+    cursor:pointer; vertical-align:1px; }
+  .row-contact-copy:hover{ border-color:var(--ink); color:var(--ink); }
+  .row-contact-copy.done{ border-color:var(--emerald); color:var(--emerald); }
+  /* The instruction about WHICH one to use, beside the one it is about. */
+  .row-contact-pref{ font-size:11px; font-weight:800; letter-spacing:.02em; color:var(--emerald);
+    background:rgba(62,122,91,.10); border-radius:999px; padding:1px 7px; margin-left:2px; }
+  /* A preference we cannot act on is a problem, so it is drawn as one. */
+  .row-contact-warn{ font-size:12px; font-weight:600; color:var(--ember); margin-top:2px; }
   /* Not an error, so not drawn as one — it is just the honest answer. */
   .row-contact.none{ color:var(--slate); font-weight:500; font-style:italic; }
   /* Small and plain: a caveat on the detail beside it, never a heading of its own. */
@@ -1666,7 +1679,7 @@
             <div class="form-row" style="max-width:180px; margin-top:12px;"><label>Number of Bins</label><input type="number" id="addCustBins" min="1" step="1" value="1"></div>
             <div class="form-row" style="max-width:220px; margin-top:12px;"><label>Customer # (optional)</label><input type="text" id="addCustNumber" placeholder="Assigned automatically"></div>
             <div id="addCustNumberPreview" style="font-size:12.5px; font-weight:600; margin-top:4px;"></div>
-            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Leave it blank and you can assign the next available one from Customer Numbers. Normally left blank &mdash; the number is picked for you from Measured Feet. Over 260 feet means 2 bins and the next free 5000-series number; anything up to 260 means 1 bin and the next free regular number. Without Measured Feet no number is given.</p>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Leave it blank and you can assign the next available one from Customer Numbers. Normally left blank &mdash; the number is picked for you from Measured Feet. Over 320 feet means 2 bins and the next free 5000-series number; anything up to 320 means 1 bin and the next free regular number. Without Measured Feet no number is given.</p>
             <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:12px;"><input type="checkbox" id="addCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
           </div>
           <!-- Filled in by showAddCustMissing() when Add Customer is pressed with
@@ -1894,7 +1907,7 @@
               <div class="form-row">
                 <label>Measured Feet (optional) <span class="bulk-count" id="rbCountFeet">0 rows</span></label>
                 <textarea id="rbFeetArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="230&#10;490&#10;(blank = leave as is)"></textarea>
-                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">The <strong>#&nbsp;Feet</strong> column off the master sheet. This is the one that drives everything else &mdash; how many bins the house needs, how many bundles the warehouse builds, and the per-foot price. Filling it in also sets <strong>Number of Bins</strong> to match: one bin up to 260&nbsp;ft, another for every 260&nbsp;ft after that. Blank leaves both alone.</p>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">The <strong>#&nbsp;Feet</strong> column off the master sheet. This is the one that drives everything else &mdash; how many bins the house needs, how many bundles the warehouse builds, and the per-foot price. Filling it in also sets <strong>Number of Bins</strong> to match: one bin up to 320&nbsp;ft, another for every 320&nbsp;ft after that. Blank leaves both alone.</p>
               </div>
               <div class="form-row">
                 <label>Crew Notes (optional) <span class="bulk-count" id="rbCountNotes">0 rows</span></label>
@@ -20350,6 +20363,34 @@ function msgContactFor(d){
     fromRecord: (!ownPhone && !!phone) || (!ownEmail && !!email)
   };
 }
+/* ⭐ WHICH OF THE TWO THEY ASKED US TO USE ([[MSG-16]], 2026-09-10). Addie: "we can no
+ * longer see how someone prefers to be contacted. Can you make sure that is still shown in
+ * there request?"
+ *
+ * ⚠ IT WAS NEVER REMOVED, AND SHE IS STILL RIGHT. [[MSG-14]] moved the phone and the email
+ * up to their own line and left "Prefers Text" behind in the small grey meta line with the
+ * date — so the one line she had learned to scan for contact details no longer had any, and
+ * the preference went with the part she stopped reading. Rendered is not the same as seen.
+ *
+ * ⭐ AND IT BELONGS ON THE CONTACT LINE ANYWAY, because it is not a fact about the customer,
+ * it is an instruction about WHICH of the two links to press. Beside the date it was trivia.
+ *
+ * ⚠ CALL AND TEXT ARE NOT THE SAME INSTRUCTION even though both point at the phone —
+ * ringing somebody who asked to be texted is exactly the mistake this exists to stop — so
+ * the WORDS travel, never merely a highlight on the right detail.
+ *
+ * ⚠ AND ANYTHING WE DO NOT RECOGNISE IS KEPT VERBATIM, never guessed at. The field is free
+ * text on an imported record, and reading "do not ring before 6" as a phone preference is
+ * how somebody gets rung who asked for anything but. */
+function msgContactPreference(d){
+  const raw = String((d && d.contactMethod) || '').trim();
+  if(!raw) return null;
+  const low = raw.toLowerCase();
+  if(/\btext\b|\bsms\b/.test(low))            return {route:'phone', words:'Text them'};
+  if(/\bcall\b|\bphone\b|\bvoice\b/.test(low)) return {route:'phone', words:'Call them'};
+  if(/e-?mail/.test(low))                       return {route:'email', words:'Email them'};
+  return {route:'', words:'Prefers: ' + raw};
+}
 /* ⚠ A SYSTEM NOTICE GETS NO LINE AT ALL. There is no customer behind a route sweep, so
    "no phone or email" under every one of them is noise on the rows that need none — and
    noise is how a line stops being read on the rows that do.
@@ -20359,30 +20400,52 @@ function msgContactFor(d){
 function msgContactLineHtml(d){
   if(typeof msgTypeOf === 'function' && msgTypeOf(d) === MSG_TYPE_SYSTEM) return '';
   const c = msgContactFor(d);
+  const pref = msgContactPreference(d);
+  const tag = function(where){
+    return (pref && pref.route === where)
+      ? ' <span class="row-contact-pref">' + esc(pref.words) + '</span>' : '';
+  };
   const bits = [];
+  /* ⭐ PLAIN TEXT YOU CAN SELECT, WITH A COPY BUTTON — NOT A LINK ([[MSG-16]], 2026-09-10).
+     Addie: "I want to be able to copy and paste phone number and email but not a link."
+     ⚠ THIS REVERSES THE tel:/mailto: HALF OF [[MSG-14]], and R-024 applies — her newer
+     answer wins and it is said out loud rather than applied quietly. The older reasoning is
+     kept because it was sound: "so I can communicate with them" read as tap-to-dial, and on
+     a phone that is genuinely one press. What it cost is the thing she actually does, which
+     is paste a number into something else — dragging to select inside an anchor starts a
+     drag or follows the link instead, so the detail was readable and not takeable.
+     ⚠ IT COPIES WHAT IS ON SCREEN, not a normalised form. What you see is what you paste is
+     the only rule nobody has to be told, and "(801) 555-0111" pastes into a phone, a text
+     and a document alike. */
+  const copyBtn = function(value){
+    return ' <button type="button" class="row-contact-copy" data-copyval="' + esc(value) +
+      '" title="Copy">Copy</button>';
+  };
   if(c.phone){
-    /* Keep + for an international number; strip the punctuation a dialler chokes on.
-       ⚠ AND CUT AT THE FIRST LETTER. "(801) 555-0999 ext 4" with only the punctuation
-       taken out becomes 80155509994 — eleven digits, perfectly dialable, and somebody
-       else's phone. Anything from the first letter onwards is a note ABOUT the number,
-       never part of it. Caught by its own check rather than reasoned about. */
-    const dial = c.phone.split(/[A-Za-z]/)[0].replace(/[^\d+]/g, '');
     const shown = (typeof fmtPhone === 'function') ? fmtPhone(c.phone) : c.phone;
-    /* ⚠ TOO SHORT TO RING IS SHOWN, NOT LINKED. A half-typed number is still worth
-       reading — it is what the office has — but a link that dials four digits is a
-       wrong call somebody makes by accident. */
-    bits.push('\u{1F4DE} ' + (dial.replace(/\D/g, '').length >= 7
-      ? '<a href="tel:' + esc(dial) + '">' + esc(shown) + '</a>'
-      : esc(shown)));
+    bits.push('\u{1F4DE} <span class="row-contact-val">' + esc(shown) + '</span>' +
+      tag('phone') + copyBtn(shown));
   }
   if(c.email){
-    bits.push('\u{2709}\u{FE0F} <a href="mailto:' + esc(c.email) + '">' + esc(c.email) + '</a>');
+    bits.push('\u{2709}\u{FE0F} <span class="row-contact-val">' + esc(c.email) + '</span>' +
+      tag('email') + copyBtn(c.email));
   }
+  /* ⚠ A PREFERENCE WE CANNOT ACT ON IS THE ONE MOST WORTH SAYING. Somebody who asked to be
+     emailed and left no email is currently invisible: the row shows a phone number and
+     nothing says they did not want it used. That is a real answer, not a gap. */
+  const stranded = pref && pref.route && !c[pref.route];
+  const extra = (pref && !pref.route) ? ' <span class="row-contact-pref">' + esc(pref.words) + '</span>' : '';
+  const strandedLine = stranded
+    ? '<div class="row-contact-warn">' + esc(pref.words) +
+      ' &mdash; and there is no ' + (pref.route === 'email' ? 'email' : 'phone number') +
+      ' on this message or on their record.</div>'
+    : '';
   if(!bits.length){
-    return '<div class="row-contact none">No phone or email on this message, and no record matches it</div>';
+    return '<div class="row-contact none">No phone or email on this message, and no record matches it' +
+      (pref ? ' &mdash; they asked for: ' + esc(pref.words.replace(/^Prefers: /, '')) : '') + '</div>' + strandedLine;
   }
-  return '<div class="row-contact">' + bits.join(' &middot; ') +
-    (c.fromRecord ? ' <span class="row-contact-src">from their record</span>' : '') + '</div>';
+  return '<div class="row-contact">' + bits.join(' &middot; ') + extra +
+    (c.fromRecord ? ' <span class="row-contact-src">from their record</span>' : '') + '</div>' + strandedLine;
 }
 function messageAddressLookup(d){
   const phoneDigits = (d.phone||'').replace(/\D/g,'');
@@ -21397,9 +21460,10 @@ function renderMessagesList(){
            the phone and the email are what she opened the row to DO. */
         msgContactLineHtml(d)+
         (address ? '<div class="row-phone-line">'+esc(address)+'</div>' : '')+
-        /* Phone and email have moved up to their own line, so what is left here is
-           how they would rather be reached, and when they wrote. */
-        '<div class="rmeta">'+(d.contactMethod ? 'Prefers '+esc(d.contactMethod)+' &middot; ' : '')+fmtDate(d.createdAt)+'</div>'+
+        /* ⚠ THE PREFERENCE HAS MOVED ONTO THE CONTACT LINE ([[MSG-16]]), so this is the date
+           alone. Shown in both places the small grey copy is the one that keeps being read,
+           and two copies of one fact is how they start disagreeing. */
+        '<div class="rmeta">'+fmtDate(d.createdAt)+'</div>'+
         '<div class="rtext">'+esc(d.message)+'</div>'+
         (d.colors && d.colors.length ? '<div class="rtext" style="margin-top:4px;"><strong>Colors requested:</strong> '+d.colors.map(esc).join(', ')+'</div>' : '')+
         (feetEstimate ? '<div class="rtext" style="margin-top:4px; font-weight:600; color:var(--dusk);">'+esc(feetEstimate)+'</div>' : '')+
@@ -21425,6 +21489,46 @@ function renderMessagesList(){
   Array.from(pickedMsgIds).forEach(function(id){ if(!shown.has(id)) pickedMsgIds.delete(id); });
   msgPickShown = filtered.map(m => m.id);
   refreshMsgToolbar();
+  /* ⭐ ONE PRESS TO COPY ([[MSG-16]]). ⚠ IT NEVER FAILS QUIETLY — the Clipboard API is
+     refused outright on an insecure origin and by some browser settings, and a Copy button
+     that does nothing is indistinguishable from one that worked, so the office pastes the
+     last thing they copied into a customer's email. The old execCommand path is the fallback
+     and a refusal says so. */
+  list.querySelectorAll('[data-copyval]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const value = btn.dataset.copyval;
+      const done = function(){
+        const was = btn.textContent;
+        btn.textContent = 'Copied';
+        btn.classList.add('done');
+        setTimeout(function(){ btn.textContent = was; btn.classList.remove('done'); }, 1400);
+      };
+      try{
+        await navigator.clipboard.writeText(value);
+        done();
+      }catch(err){
+        /* Older browsers, and any page not served over https, refuse the API above. */
+        try{
+          const ta = document.createElement('textarea');
+          ta.value = value;
+          ta.setAttribute('readonly', '');
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          const ok = document.execCommand('copy');
+          ta.remove();
+          if(!ok) throw new Error('the browser refused');
+          done();
+        }catch(err2){
+          console.error('Could not copy:', err, err2);
+          alert('This browser would not let the page copy that. It is selectable \u2014 ' +
+            'highlight it and press Ctrl+C (or Cmd+C).');
+        }
+      }
+    });
+  });
   list.querySelectorAll('[data-pickmsg]').forEach(function(box){
     box.addEventListener('click', function(e){ e.stopPropagation(); });
     box.addEventListener('change', function(){
@@ -50241,7 +50345,20 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     addrUpdates.oneTimeNote = newOneTimeNote;
     addrUpdates.chargeNewMemberFee = newChargeNewMemberFee;
     addrUpdates.referralCount = newReferralCount;
-    const oldLightsForBuild = item.data.lightsDescription || '';
+  /* ⭐ WHAT THEY HAD IS BOTH FIELDS, NOT ONE ([[WH-28]], 2026-09-10). Addie: "there are member
+     that did light changes but are not showing 30 dollar fee on there account."
+     ⚠ THIS IS THE SAME FAULT `warehouse-colours.test.js` WAS BUILT FOR, in a place that costs
+     MONEY rather than bundles. `rbDetectColorsAndPattern` — which the master-sheet sync writes
+     through — only fills `lightsDescription` when a colour REPEATS, so an ordinary house keeps
+     its colours in `lightColors` with the description EMPTY. Reading the description alone
+     made those houses look as though they had no colours at all, and
+     `applyLightChange`'s own rule is that filling colours in for the FIRST time is not a
+     change and is not charged. So every ordinary house changed its colours for free.
+     ⚠ THE RULE ITSELF IS UNTOUCHED — it is a pure comparison and money-parity sweeps it. What
+     was wrong is what the caller handed it. `houseLightsText` is the one answer, the same one
+     the build queue, the colour totals, the pending count, the recycle queue and the printed
+     sheet were all brought to on 2026-08-24. This is the sixth reader. */
+    const oldLightsForBuild = houseLightsText(item.data);
     /* ⭐ THE SAME COLOUR-CHANGE RULE THE PORTAL RUNS (added 2026-08-21).
        Owner: an office change now charges, locks and notifies exactly as a member's
        own change does. Until today this path wrote lightsChangedAt and needsLightBuild

@@ -1152,31 +1152,44 @@ check('logic', 'statusClass maps each status to a pill colour',
   statusClass('Partial Payment') === 'status-partial' &&
   statusClass('Unpaid') === 'status-due');
 
-check('logic', 'the bin cutoff is 260 feet, not 200',
-  CN_DOUBLE_BIN_FEET === 260,
-  'some UI text and older notes say 200 — the code has always used 260');
-check('logic', '260 feet is still one bin',
-  cnBinsForFeet(260) === 1, 'the cutoff is "over 260", so 260 itself stays single-bin');
-check('logic', '261 feet needs two bins', cnBinsForFeet(261) === 2);
+/* ⭐ 320 SINCE 2026-09-10 ([[WH-29]]). Addie: "lets change feet to 320 feet in order to have
+   two bins." It was 260 before that and 200 in older notes, so the exact value is asserted
+   here and NOWHERE typed out for itself in the app — every screen and every warning reads
+   CN_DOUBLE_BIN_FEET, which is the only reason a change like this is one line.
+   ⚠ THE BOUNDARY CASES ARE WRITTEN OUT ON PURPOSE, not derived from the constant. Derived,
+   they would pass whatever the constant said and prove nothing about the rule; these are the
+   arithmetic somebody would check by hand against a real roofline. */
+check('logic', 'the bin cutoff is 320 feet',
+  CN_DOUBLE_BIN_FEET === 320,
+  'it was 260 until 2026-09-10 and 200 in older notes — if this fails, say which it is now');
+check('logic', '320 feet is still one bin',
+  cnBinsForFeet(320) === 1, 'the cutoff is "over 320", so 320 itself stays single-bin');
+check('logic', '321 feet needs two bins', cnBinsForFeet(321) === 2);
 check('logic', 'blank or junk feet does not become a two-bin house',
   cnBinsForFeet(0) === 1 && cnBinsForFeet('') === 1 &&
   cnBinsForFeet(null) === 1 && cnBinsForFeet('abc') === 1);
-/* Bins go up in 260s now instead of stopping at two — a house needs another bin
-   for every 260 feet. The boundary has NOT moved (260 is still one bin, 261 is
-   still two), so nobody already on the books changes bin count or customer
-   number; the only houses that come out differently are the ones over 520 feet,
-   which used to be capped at 2 bins no matter how big they were. Those get the
-   bins they actually need. */
-check('logic', '520 feet is still two bins',
-  cnBinsForFeet(520) === 2, 'the second bin covers up to 520 — two lots of 260');
-check('logic', '521 feet needs three bins',
-  cnBinsForFeet(521) === 3,
-  'a house past 520 ft used to be capped at 2 bins, so the warehouse built short');
-check('logic', '780 feet is three bins and 781 is four',
-  cnBinsForFeet(780) === 3 && cnBinsForFeet(781) === 4);
-check('logic', 'bins never exceed one per 260 feet',
-  [1, 259, 260, 261, 400, 520, 521, 900, 1500].every(f => cnBinsForFeet(f) === Math.max(1, Math.ceil(f / 260))),
+/* Bins go up in 320s — a house needs another bin for every 320 feet.
+   ⚠ THE HOUSES ALREADY ON THE BOOKS DO NOT MOVE. `numberOfBins` is STORED, written by
+   cnBinsForFeet at the moment a footage is saved, so raising the cutoff re-counts nobody —
+   and it must not, because their bins are physically labelled and their numbers painted on.
+   A house between 261 and 320 ft is stored as 2 bins on a 5000-series number and would now
+   work out as 1 on a regular one; it keeps what it has until somebody re-saves its footage
+   deliberately. That is a decision about real boxes on real shelves. */
+check('logic', '640 feet is two bins',
+  cnBinsForFeet(640) === 2, 'the second bin covers up to 640 — two lots of 320');
+check('logic', '641 feet needs three bins',
+  cnBinsForFeet(641) === 3,
+  'a house past the second bin used to be capped at 2, so the warehouse built short');
+check('logic', '960 feet is three bins and 961 is four',
+  cnBinsForFeet(960) === 3 && cnBinsForFeet(961) === 4);
+check('logic', 'bins never exceed one per 320 feet',
+  [1, 319, 320, 321, 400, 640, 641, 900, 1500].every(f => cnBinsForFeet(f) === Math.max(1, Math.ceil(f / 320))),
   'the bin count and the warehouse bundle count would disagree about the same house');
+/* ⚠ AND THE OLD BOUNDARY IS NOW INSIDE ONE BIN, which is the whole point of the change and
+   the thing most likely to be "fixed" back by somebody reading an old note. */
+check('logic', '261 feet is one bin now, not two',
+  cnBinsForFeet(261) === 1,
+  'this is what changed on 2026-09-10 — it was the first two-bin house under the 260 rule');
 check('logic', 'a huge measurement does not produce a silly bin count',
   cnBinsForFeet(-50) === 1, 'negative feet is a typo, not a zero-bin house');
 
@@ -1850,7 +1863,7 @@ check('logic', 'footage estimate then bundles up',
  * everyday values and the one that used to be wrong. */
 check('logic', 'bins: 200 ft is 1 bin (real cnBinsForFeet, not a local copy)',
   cnBinsForFeet(200) === 1);
-check('logic', 'bins: 201 ft is STILL 1 bin — the cutoff is 260, not 200',
+check('logic', 'bins: 201 ft is STILL 1 bin — the cutoff has never been 200',
   cnBinsForFeet(201) === 1,
   'if this fails the bin cutoff moved back to 200 — check CN_DOUBLE_BIN_FEET in js/money.js');
 check('logic', 'bins: 400 ft is 2 bins', cnBinsForFeet(400) === 2);
@@ -1981,8 +1994,11 @@ if (JSDOM) {
   // "this customer has been deleted since", which is the fall-through case; the
   // re-quote checks below fill it in for the case that actually matters.
   global.jobAddresses = [];
-  global.CN_DOUBLE_BIN_FEET = 260;
-  global.cnBinsForFeet = f => (Number(f) > 0 ? Math.ceil(Number(f) / 260) : 0);
+  global.CN_DOUBLE_BIN_FEET = CN_DOUBLE_BIN_FEET;
+  /* ⚠ DERIVED FROM THE REAL CONSTANT, never typed. Two copies of the bin cutoff is how a
+     sandbox goes on passing against a rule the app no longer has — it sat at 260 for a day
+     after the app moved to 320 ([[WH-29]]). */
+  global.cnBinsForFeet = f => (Number(f) > 0 ? Math.ceil(Number(f) / CN_DOUBLE_BIN_FEET) : 0);
   global.requoteBeingConverted = null;
   /* ⚠ THE HELPERS quoteChargesSetupFee NOW REACHES FOR (added 2026-08-24). The join-fee
      rule started asking whether the house is already on the books, and this sandbox
@@ -2382,15 +2398,15 @@ if (JSDOM) {
         popup().textContent.includes('$480.00') && popup().textContent.includes('$615.00'),
         'a price change nobody can see before pressing the button is a price change nobody checks');
 
-      /* ⚠ THE 260 LINE, SAID BEFORE THE FORM OPENS. Owner: "hold everything as
-         long as they stay below 260 feet", "if they go above 260 feet hold what you
-         can". #541 is a regular number; 300 ft is 2 bins, which is the 5000 series
+      /* ⚠ THE BIN LINE, SAID BEFORE THE FORM OPENS. Owner: "hold everything as
+         long as they stay below [the cutoff] feet", "if they go above ... hold what you
+         can". #541 is a regular number; 400 ft is 2 bins, which is the 5000 series
          — so the number is the one thing that cannot be held, and that is worth
          knowing before the form is filled in rather than as a confirm box halfway
          through saving. */
       closePopup();
       showConvertQuoteChoice('q-re2', Object.assign({}, full, {
-        existingCustomerId: 'cust1', chargeSetupFee: undefined, estimatedFeet: 300
+        existingCustomerId: 'cust1', chargeSetupFee: undefined, estimatedFeet: 400
       }));
       check('render', 'and warns when the new footage outgrows their number',
         popup().textContent.includes('no longer matches') &&
@@ -24109,8 +24125,8 @@ suite('Suite 104. The Printing tab');
       )();
 
       check('S104', 'the bin count is the real bin rule, not a second one',
-        sb.b({ measuredFeet: 260 }) === '1' && sb.b({ measuredFeet: 261 }) === '2' &&
-        sb.b({ measuredFeet: 521 }) === '3',
+        sb.b({ measuredFeet: 320 }) === '1' && sb.b({ measuredFeet: 321 }) === '2' &&
+        sb.b({ measuredFeet: 641 }) === '3',
         'the crew loading two bins for a house the warehouse built one for is a van ' +
         'that leaves without half the lights');
       /* ⚠ BLANK, NEVER "1". cnBinsForFeet floors at 1, so an unmeasured house would
@@ -24119,17 +24135,19 @@ suite('Suite 104. The Printing tab');
       check('S104', 'a house nobody has measured prints nothing, not a confident 1',
         sb.b({}) === '' && sb.b({ measuredFeet: 0 }) === '',
         'got ' + JSON.stringify(sb.b({})));
+      /* ⚠ 400 FT, NOT 300 ([[WH-29]]). 300 was two bins under the 260 rule and is one under
+         320, so the fixture would have gone on passing while testing a single-bin house. */
       check('S104', 'a moved bin label is named beside the count',
-        sb.b({ measuredFeet: 300, customerNumber: '5051', binLabelNumber: '894' })
+        sb.b({ measuredFeet: 400, customerNumber: '5051', binLabelNumber: '894' })
           .indexOf('bin says #894') !== -1,
         'the Cust # column is exactly the number that will not be found');
       /* ⚠ AND ONLY WHEN IT REALLY MOVED. Stamping every row with a bin number the
          crew can already read off the Cust # column is noise, and noise in a column
          is how the one row that matters stops being noticed. */
       check('S104', 'and stays quiet when it did not move',
-        sb.b({ measuredFeet: 300, customerNumber: '894', binLabelNumber: '894' }) === '2' &&
-        sb.b({ measuredFeet: 300, customerNumber: '894' }) === '2',
-        'got ' + JSON.stringify(sb.b({ measuredFeet: 300, customerNumber: '894',
+        sb.b({ measuredFeet: 400, customerNumber: '894', binLabelNumber: '894' }) === '2' &&
+        sb.b({ measuredFeet: 400, customerNumber: '894' }) === '2',
+        'got ' + JSON.stringify(sb.b({ measuredFeet: 400, customerNumber: '894',
           binLabelNumber: '894' })));
 
       check('S104', 'a gate code reaches the printed sheet',
@@ -24549,7 +24567,7 @@ suite('Suite 104. The Printing tab');
       useEaves: true, outletTimer: 'Yes', notes: 'gate 4321'}},
     {crew: 0, id: 'h2', cust: {customerNumber: '12', name: 'B', street: '2 St'}},
     {crew: 1, id: 'h3', cust: {customerNumber: '21', name: 'C', street: '3 St', outletTimer: 'Yes',
-      gateCode: '4412', houseSides: 3, measuredFeet: 300,
+      gateCode: '4412', houseSides: 3, measuredFeet: 400,
       specificOutletNotes: 'lower outlet by door',
       oneTimeNote: 'ring the bell', notes: 'dog in the back'}},
     /* ⚠ THE BIN THAT WEARS THE OLD NUMBER. This customer moved from #894 to the
@@ -24558,9 +24576,12 @@ suite('Suite 104. The Printing tab');
        not be found in the warehouse. Same crew as h3 so it lands on the printed
        sheet under test. */
     {crew: 1, id: 'h5', cust: {customerNumber: '5051', name: 'E', street: '5 St',
-      measuredFeet: 300, binLabelNumber: '894'}}],
+      measuredFeet: 400, binLabelNumber: '894'}}],
     spare: [{id: 'h4', city: 'Levan', cust: {customerNumber: '31', name: 'D',
-      outletTimer: 'Yes', gateCode: '7788', measuredFeet: 600}}]};
+      /* ⚠ 700 FT, NOT 600 ([[WH-29]]). 600 was three bins under the 260 rule and is two under
+         320; the assertion below is on the number 3, so the fixture has to stay a three-bin
+         house or it proves the column is filled with something else. */
+      outletTimer: 'Yes', gateCode: '7788', measuredFeet: 700}}]};
 
   const crewOut = runSheet('crew', aDay);
   const crewBody = ((crewOut[0] || {}).pages || [{}])[0].body || '';
@@ -24682,7 +24703,7 @@ suite('Suite 104. The Printing tab');
       const blk = at === -1 ? '' : dayBody.slice(at);
       return /<td>Yes<\/td>/.test(blk) &&      /* timer  */
              blk.indexOf('<td>7788</td>') !== -1 &&   /* gate   */
-             blk.indexOf('<td>3</td>') !== -1 &&      /* bins — 600 ft */
+             blk.indexOf('<td>3</td>') !== -1 &&      /* bins — 700 ft */
              blk.indexOf('<td>1</td>') !== -1;        /* sides  */
     })(),
     'a column added to the crew builder and not to this one prints a header with ' +
@@ -25304,7 +25325,9 @@ suite('Suite 107. Pricing a re-quote from the popup');
       document: dom.document,
       esc: (x) => String(x == null ? '' : x),
       fmtMoney: (n) => '$' + Number(n || 0).toFixed(2),
-      cnBinsForFeet: (f) => (Number(f) >= 260 ? 2 : 1),
+      /* ⚠ DERIVED FROM THE REAL CUTOFF ([[WH-29]]). Typed out, this stub went on
+         answering the 260 rule after the app moved to 320. */
+      cnBinsForFeet: (f) => (Number(f) > CN_DOUBLE_BIN_FEET ? 2 : 1),
       CN_DOUBLE_BIN_FEET: 260,
       perFootRate: rate,
       openEditCustomerModal: (id) => { opened = id; },
@@ -25979,13 +26002,16 @@ suite('Suite 107. Pricing a re-quote from the popup');
       'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
       /* Lifted with the row builder they belong to: the Bin # column is a COUNT now
          and the customer number rides beside the name. */
-      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= 260 ? 1 : Math.ceil(f / 260); }' +
+      /* ⚠ THE REAL CUTOFF, INTERPOLATED — a second copy of this number is how a sandbox
+         keeps passing against a rule the app no longer has ([[WH-29]]). */
+      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= ' + CN_DOUBLE_BIN_FEET +
+        ' ? 1 : Math.ceil(f / ' + CN_DOUBLE_BIN_FEET + '); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
       extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const rows = sheet([{id: 'a894', data: {name: 'Ashley Wray', customerNumber: '894',
                                             address: '9873 N Sunnybank Pl',
-                                            needsLightBuild: true, measuredFeet: 300}}],
+                                            needsLightBuild: true, measuredFeet: 400}}],
       [], (p, w) => p + '|' + (w || ''), (d) => ({feet: 0, bundles: 1}),
       (w) => String(w || 'white'), () => '', []).rows;
     const blockedRow = rows.filter(function(r){ return r.type === 'Blocked'; });
@@ -25998,13 +26024,13 @@ suite('Suite 107. Pricing a re-quote from the popup');
     /* ⭐ THE CUSTOMER NUMBER MOVED (2026-08-21). Owner: "Bin # is how many bins were
        making for them but costumer # should also show next to costumers name." So the
        identifier is in the Customer column now, and `bins` is a quantity — for a
-       300 ft house, two. */
+       400 ft house, two. */
     check('S107', 'and it still carries the customer number, so somebody can find them',
       blockedRow[0] && /#894/.test(blockedRow[0].what),
       'got ' + JSON.stringify(blockedRow[0] && blockedRow[0].what));
     check('S107', 'and the Bins column is a count, not that number',
       blockedRow[0] && blockedRow[0].bins === '2',
-      '300 ft is two bins - got ' + JSON.stringify(blockedRow[0] && blockedRow[0].bins));
+      '400 ft is two bins - got ' + JSON.stringify(blockedRow[0] && blockedRow[0].bins));
   }
 
   /* ⭐ AND APPLYING A RE-QUOTE IS TWO STEPS, THE SECOND OF WHICH WAS SILENT. Owner:
@@ -27496,7 +27522,10 @@ suite('Suite 112. The number on the bin');
   {
     const rows = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
-      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= 260 ? 1 : Math.ceil(f / 260); }' +
+      /* ⚠ THE REAL CUTOFF, INTERPOLATED — a second copy of this number is how a sandbox
+         keeps passing against a rule the app no longer has ([[WH-29]]). */
+      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= ' + CN_DOUBLE_BIN_FEET +
+        ' ? 1 : Math.ceil(f / ' + CN_DOUBLE_BIN_FEET + '); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
       extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
@@ -27733,7 +27762,10 @@ suite('Suite 108. The Edit Customer save, actually run');
     const o = opts || {};
     const FIELDS = {editCustName: 'Ashley Wray', editCustPhone: '8016160714',
       editCustEmail: 'wraynash@gmail.com', editCustAddress: '9991 Red Cedar Ln, Highland, UT',
-      editCustHousePrice: '600', editCustFeet: '300', editCustNumber: '894',
+      /* ⚠ 400 FT, NOT 300 ([[WH-29]]). This fixture exists to prove the save MOVES them onto
+         the 5000 series, and 300 stopped being two bins when the cutoff went to 320 — it would
+         have gone on passing while proving the opposite. */
+      editCustHousePrice: '600', editCustFeet: '400', editCustNumber: '894',
       editCustRsvp: 'yes'};
     const els = {};
     const elm = (id) => els[id] || (els[id] = {id: id,
@@ -27798,7 +27830,9 @@ suite('Suite 108. The Edit Customer save, actually run');
       console: {error: (a, b) => errs.push(String(a) + ' ' + String(b && b.message || b)),
                 log: () => {}, warn: () => {}},
       logActivity: () => {}, paymentLedgerUser: () => 'test',
-      cnBinsForFeet: (f) => (Number(f) >= 260 ? 2 : 1),
+      /* ⚠ DERIVED FROM THE REAL CUTOFF ([[WH-29]]). Typed out, this stub went on
+         answering the 260 rule after the app moved to 320. */
+      cnBinsForFeet: (f) => (Number(f) > CN_DOUBLE_BIN_FEET ? 2 : 1),
       cnNextAvailable: () => ({number: '5001', fromPool: false}),
       compileLightsDescription: () => (o.lights || ''), computeInvoiceStatus: () => 'Unpaid',
       custInvoiceKey: (d) => String(d.phone || '').replace(/[^0-9]/g, ''),
@@ -27842,6 +27876,14 @@ suite('Suite 108. The Edit Customer save, actually run');
          question under test. */
       whTimerOnlyQueue: new Function('return ' + extractFn(admin, 'whTimerOnlyQueue') +
         ';whTimerOnlyQueue')(),
+      /* ⚠ THE REAL COLOUR READER, LIFTED — not a stub. Joined this list 2026-09-10, in the
+         same commit that made the fee path ask it ([[WH-28]]): the extraction-list trap
+         CLAUDE.md describes, hit a SIXTH time and caught a sixth time by this suite failing
+         loudly rather than skipping — 28 failures across the re-quote and colour-wipe checks,
+         none of them naming the missing function. A stub would decide for itself what colours
+         a house already had, which is the exact question the $30 turns on. */
+      houseLightsText: new Function('return ' + extractFn(admin, 'houseLightsText') +
+        ';houseLightsText')(),
       lightsLockMillis: new Function('return ' + extractFn(admin, 'lightsLockMillis') +
         ';lightsLockMillis')(),
       /* ⚠ THE REAL SEASON-YES RULE, LIFTED — not a stub. Joined this list 2026-08-24,
@@ -28071,7 +28113,7 @@ suite('Suite 108. The Edit Customer save, actually run');
   if (handlerSrc) pendingAsync.push((async () => {
     const ok = await runSave({});
     check('S108', 'an ordinary re-quote save writes the customer',
-      !!ok.cust && ok.cust.payload.measuredFeet === 300,
+      !!ok.cust && ok.cust.payload.measuredFeet === 400,
       'the whole flow depends on this one write');
     check('S108', 'and closes the re-quote card',
       !!ok.quote && ok.quote.payload.status === 'closed',
@@ -28082,7 +28124,7 @@ suite('Suite 108. The Edit Customer save, actually run');
       'owner: "warehouse isnt being updated"');
     check('S108', 'and moves them onto the number series the footage needs',
       !!ok.cust && ok.cust.payload.customerNumber === '5001',
-      '300 ft is 2 bins, which is a 5000-series bin');
+      '400 ft is 2 bins, which is a 5000-series bin');
 
     /* ⚠ AND ONE FAILING WRITE TO THE NUMBER POOL USED TO LOSE ALL OF IT. Those two
        pool writes run BEFORE the customer is written and the first was unguarded, so a
@@ -28091,7 +28133,7 @@ suite('Suite 108. The Edit Customer save, actually run');
        reported, and saying nothing at all. */
     const broke = await runSave({breakPool: true});
     check('S108', 'the customer is still saved when the number pool write fails',
-      !!broke.cust && broke.cust.payload.measuredFeet === 300,
+      !!broke.cust && broke.cust.payload.measuredFeet === 400,
       'the pool is recoverable by hand from the Customer Numbers panel; a lost save ' +
       'is not, and this is the exact shape of what the owner was seeing');
     check('S108', 'and the re-quote still closes',
@@ -32248,11 +32290,16 @@ suite('Suite 117. The colour-change fee, actually charged');
 
   const ruleSrc = extractFn(fns, 'applyLightChangeServer');
   const toMillisSrc = extractFn(fns, 'toMillis');
-  check('S117', 'and the rule and the timestamp reader are both findable',
-    !!ruleSrc && !!toMillisSrc,
+  /* ⚠ THE BLOCK CALLS THIS NOW ([[WH-28]]) — lifted, never stubbed. It decides what counts as
+     the colours a house ALREADY had, which is the whole question the fee turns on: a stub
+     would answer it for itself and the suite would prove nothing. The extraction-list trap,
+     hit a fifth time and caught a fifth time by the suite failing loudly. */
+  const lightsTextSrc = extractFn(fns, 'houseLightsTextServer');
+  check('S117', 'and the rule, the timestamp reader and the colour reader are all findable',
+    !!ruleSrc && !!toMillisSrc && !!lightsTextSrc,
     'extracted rather than stubbed on purpose: a stub would agree with itself');
 
-  if (a !== -1 && b > a && ruleSrc && toMillisSrc) {
+  if (a !== -1 && b > a && ruleSrc && toMillisSrc && lightsTextSrc) {
     const blockSrc = fns.slice(a, b);
 
     /* A fake Firestore that records what was written. Deliberately small, and
@@ -32336,7 +32383,7 @@ suite('Suite 117. The colour-change fee, actually charged');
       const updates = { lightsDescription: newLights };
       return new Function('db', 'admin', 'toMillis', 'section', 'updates', 'oldData',
         'oldKey', 'match', 'console',
-        ruleSrc + '\nconst LIGHT_CHANGE_FEE = 30;\nconst LIGHT_WINDOW_MS = 48*60*60*1000;\n' +
+        ruleSrc + '\n' + lightsTextSrc + '\nconst LIGHT_CHANGE_FEE = 30;\nconst LIGHT_WINDOW_MS = 48*60*60*1000;\n' +
         'return (async function(){\n' + blockSrc + '\nreturn lightFeeInfo;\n})();')
         (db, fakeAdmin, new Function('return ' + toMillisSrc + ';toMillis')(),
          'lights', updates, cust, inv ? '8015550100' : '', { id: 'c1' }, console)
