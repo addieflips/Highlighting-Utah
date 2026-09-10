@@ -4060,6 +4060,22 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
             and the redraw writes its own count into that same line — so the press read
             identically whether it saved three hundred records or none, a refused batch
             included. Redraw first, result last. 11 sabotages red-checked.
+          - ⭐ **A Tick-all can be taken back** ([[EM-14]], 2026-09-10). `rsvpMarkOneRecent` — the Undo
+            behind the one-at-a-time button — is only ever added to by that button, so a bulk tick had
+            **no undo anywhere**: those customers left every waiting list at once and the way back was
+            editing records one by one. **Undo that — put those N back** appears after a tick.
+            - ⚠ **No typed word on the way back**, deliberately: ticking wrongly loses a house a crew
+              never visits, un-ticking wrongly costs one duplicate email. The lock belongs on the
+              dangerous direction only.
+            - ⚠ **It holds the ids the server took**, not the ones it set out with — a refused batch
+              left them unticked, and un-ticking those would write null over another send's stamp.
+            - ⚠ **A refused undo keeps what it was undoing**, so it can be pressed again. Session-only,
+              and the button says so.
+          - ⭐ **An ambiguous name names both customers** ([[EM-14]]). Five on the real book match two
+            customers each; the row said *matches 2 customers — not resolved* and gave her nothing to
+            act on, the search box being no help when both share the name. It now shows both with the
+            address and email that separate them. **Naming both is not picking one** — the refusal to
+            resolve is unchanged and still asserted.
           - ⭐ **And the report redraws itself when customer data changes** ([[EM-13]], 2026-09-10).
             Addie ticked 495 off, the result line said *Ticked off 495 of 495*, and the list beneath
             still read 495 NOT ticked — so it looked like a failed write. It was not: a second press

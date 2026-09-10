@@ -489,6 +489,7 @@ const BOOK = function () {
         const names = Object.keys(api);
         const body =
           'let rsvpCheckListText = "";\n' +
+          'let rsvpCheckListLastTick = null;\n' +
           'const RSVP_CHECK_LIST_SHOWN = ' + (o.shown || 200) + ';\n' +
           CHECK_LIFTS.map(lift).join('\n') + '\n' +
           'return { rsvpWholePlan: rsvpWholePlan, rsvpCheckListNames: rsvpCheckListNames,\n' +
@@ -774,7 +775,7 @@ const BOOK = function () {
         const BULK_LIFTS = ['dupNormName', 'rsvpWholePlan', 'rsvpCheckListNames',
           'rsvpCheckListIndex', 'rsvpCheckListCompare', 'rsvpCheckListRenderReport',
           'rsvpCheckListRefresh', 'rsvpCheckListRun', 'rsvpCheckListBulkTargets',
-          'rsvpCheckListMarkAll'];
+          'rsvpCheckListMarkAll', 'rsvpCheckListUndoTick'];
         BULK_LIFTS.forEach(function (n) {
           check('lifted ' + n + ' and it parses', liftOk(lift(n)));
         });
@@ -788,7 +789,8 @@ const BOOK = function () {
           const writes = [], asked = [];
           /* Mutable, so a test can make a plan go unready AFTER a report is drawn —
              the only shape that can see a quiet redraw blanking one. */
-          const state = { invoicesLoaded: o.invoicesLoaded !== false };
+          const state = { invoicesLoaded: o.invoicesLoaded !== false,
+                          writeFails: !!o.writeFails };
           const api = {
             document: dom.window.document,
             console: { error: function () {}, warn: function () {}, log: function () {} },
@@ -815,7 +817,7 @@ const BOOK = function () {
               return {
                 update: function (ref, payload) { ops.push({ id: ref.id, payload: payload }); },
                 commit: async function () {
-                  if (o.writeFails) throw new Error('permission denied');
+                  if (state.writeFails) throw new Error('permission denied');
                   ops.forEach(function (op) { writes.push(op); });
                   return true;
                 }
@@ -825,11 +827,14 @@ const BOOK = function () {
           const names = Object.keys(api);
           const body =
             'let rsvpCheckListText = "";\n' +
+            'let rsvpCheckListLastTick = null;\n' +
             'const RSVP_CHECK_LIST_SHOWN = ' + (o.shown || 200) + ';\n' +
             ssnChunkSrc + '\n' +
             BULK_LIFTS.map(lift).join('\n') + '\n' +
             'return { rsvpCheckListRun: rsvpCheckListRun,\n' +
             '         rsvpCheckListMarkAll: rsvpCheckListMarkAll,\n' +
+            '         rsvpCheckListUndoTick: rsvpCheckListUndoTick,\n' +
+            '         lastTick: function(){ return rsvpCheckListLastTick; },\n' +
             '         rsvpCheckListBulkTargets: rsvpCheckListBulkTargets,\n' +
             '         rsvpCheckListCompare: rsvpCheckListCompare,\n' +
             '         rsvpCheckListNames: rsvpCheckListNames,\n' +
@@ -958,7 +963,7 @@ const BOOK = function () {
           await w.rsvpCheckListMarkAll();
           check('a list with nobody waiting writes nothing and says so',
             w.writes.length === 0 && /nothing to record/.test(w.status()));
-          check('and no Tick-all button is offered', !/data-rsvpchecklistmarkall/.test(w.report()),
+          check('and no Tick-all button is offered', !/data-rsvpchecklistmarkall="/.test(w.report()),
             'a button that can only refuse is worse than no button');
         })();
 
@@ -970,7 +975,7 @@ const BOOK = function () {
           w.rsvpCheckListRun(ALL);
           const html = w.report();
           check('a Tick-all button is offered when somebody is waiting',
-            /data-rsvpchecklistmarkall/.test(html) && /Tick all 2 off as asked/.test(html),
+            /data-rsvpchecklistmarkall="/.test(html) && /Tick all 2 off as asked/.test(html),
             'the count on the button is what she is agreeing to');
           check('the button says the word it will ask for', /type ASKED/.test(html));
         }
@@ -1087,6 +1092,131 @@ const BOOK = function () {
           check('and it only draws while Automation Emails is open',
             /rsvpCheckList: 'automation'/.test(stripComments(admin)),
             'an unmapped label redraws on every customer change on every panel');
+        }
+
+        /* ------------------------------------------------------------------
+           4h. TAKING A TICK-ALL BACK (EM-14).
+           ------------------------------------------------------------------
+           `rsvpMarkOneRecent` — the Undo behind the one-at-a-time button — is only ever
+           added to by that button, so a Tick-all of 495 had NO undo anywhere: those
+           customers left every waiting list at once and the way back was editing records
+           one by one, having first worked out which ones. The single tick's whole safety
+           argument is that a visible Undo beats a confirm nobody reads; the bulk had the
+           confirm and not the Undo, on a press five hundred times the size. */
+        {
+          await (async function () {
+            const w = bulkWorld(BOOK());
+            w.rsvpCheckListRun('anna,x\nbrian,x\n');
+            await w.rsvpCheckListMarkAll();
+            const held = w.lastTick();
+            check('the tick remembers exactly what it wrote',
+              !!held && JSON.stringify(held.ids.slice().sort()) === JSON.stringify(['anna', 'brian']),
+              'got ' + JSON.stringify(held && held.ids));
+            check('and offers to put them back, saying how many',
+              /data-rsvpchecklistundo="/.test(w.report()) && /put those 2 back/.test(w.report()));
+            check('and says it only lasts the session',
+              /until you reload/.test(w.report()),
+              'a button that quietly stops working is worse than one that says when it will');
+
+            w.writes.length = 0;
+            await w.rsvpCheckListUndoTick();
+            const ids = w.writes.map(function (x) { return x.id; }).sort();
+            check('undoing writes to exactly the customers it ticked',
+              JSON.stringify(ids) === JSON.stringify(['anna', 'brian']), 'wrote ' + JSON.stringify(ids));
+            /* ⚠ `null`, NOT a deleted field — the spelling Start New Season and the single
+               Undo both use. Two spellings of "not asked" is how one of them stops counting,
+               and rsvpWholePlan would never report it; it would just keep skipping them. */
+            check('and writes null, the same spelling everything else uses',
+              w.writes.every(function (x) {
+                return Object.keys(x.payload).length === 1 && x.payload.rsvpEmailedAt === null;
+              }));
+            check('they are back on the list to be asked',
+              /data-rsvpmarkone="anna"/.test(w.report()) && /Tick all 2 off as asked/.test(w.report()));
+            check('the undo button goes once there is nothing left to undo',
+              !/data-rsvpchecklistundo="/.test(w.report()) && w.lastTick() === null);
+            check('and it says how many came back', /Put 2 back/.test(w.status()),
+              'got ' + JSON.stringify(w.status()));
+          })();
+
+          /* ⚠ NO TYPED WORD ON THE WAY BACK, and the asymmetry is the point rather than an
+             oversight: ticking wrongly means somebody is never asked again this season and
+             no crew is sent to their house; un-ticking wrongly costs one duplicate email.
+             The lock belongs on the dangerous direction only. */
+          await (async function () {
+            const w = bulkWorld(BOOK(), { typed: 'nonsense', confirmYes: false });
+            w.rsvpCheckListRun('anna,x\nbrian,x\n');
+            /* Tick it with the gates open, then close them and undo. */
+            const w2 = bulkWorld(BOOK());
+            w2.rsvpCheckListRun('anna,x\nbrian,x\n');
+            await w2.rsvpCheckListMarkAll();
+            const askedBefore = w2.asked.length;
+            w2.writes.length = 0;
+            await w2.rsvpCheckListUndoTick();
+            check('undoing asks for no confirm and no typed word',
+              w2.asked.length === askedBefore && w2.writes.length === 2,
+              'the lock is on the direction that loses a house, not the one that costs an email');
+          })();
+
+          /* ⚠ ONLY WHAT THE SERVER TOOK. A refused batch left those customers unticked, so
+             offering to un-tick them would write null over a stamp somebody else's send put
+             there. */
+          await (async function () {
+            const w = bulkWorld(BOOK(), { writeFails: true });
+            w.rsvpCheckListRun('anna,x\nbrian,x\n');
+            await w.rsvpCheckListMarkAll();
+            check('a refused tick leaves nothing to undo', w.lastTick() === null);
+            check('and offers no undo button', !/data-rsvpchecklistundo="/.test(w.report()));
+          })();
+
+          await (async function () {
+            const w = bulkWorld(BOOK());
+            w.rsvpCheckListRun('anna,x\n');
+            await w.rsvpCheckListUndoTick();
+            check('undoing when nothing was ticked writes nothing and says so',
+              w.writes.length === 0 && /nothing to undo/.test(w.status()));
+          })();
+
+          /* ⚠ A HALF-UNDONE STATE IS THE ONE WORTH RETRYING, so a refused undo keeps what
+             it was undoing. Cleared regardless, a second press would silently skip the
+             remainder and she would be told nothing was left to put back. */
+          await (async function () {
+            const w = bulkWorld(BOOK());
+            w.rsvpCheckListRun('anna,x\nbrian,x\n');
+            await w.rsvpCheckListMarkAll();
+            w.state.writeFails = true;
+            await w.rsvpCheckListUndoTick();
+            check('a refused undo can still be retried',
+              !!w.lastTick() && w.lastTick().ids.length === 2,
+              'clearing it here loses the only record of what to put back');
+            check('and says it could not be undone', /could not be undone/.test(w.status()),
+              'got ' + JSON.stringify(w.status()));
+          })();
+        }
+
+        /* ------------------------------------------------------------------
+           4i. AN AMBIGUOUS NAME IS NAMED, WITH ENOUGH TO ACT ON.
+           ------------------------------------------------------------------
+           Five of these on her real book. The report said "matches 2 customers — not
+           resolved" and handed her nothing: same name on both, so the search box above
+           could not tell them apart either. Carrying the candidates is not resolving
+           them — it is showing her which two people they are so she can decide. */
+        {
+          const book = BOOK();
+          book.push({ id: 'anna2', data: { name: 'anna', email: 'other@x.com', address: '9 Oak Ave' } });
+          book[0].data.address = '1 Elm St';
+          const w = bulkWorld(book);
+          w.rsvpCheckListRun('anna,x\n');
+          const html = w.report();
+          check('both candidates are named', /1 Elm St/.test(html) && /9 Oak Ave/.test(html),
+            'the address is what tells two people of one name apart');
+          check('with the address that separates them, and their emails',
+            /other@x\.com/.test(html) && /anna@x\.com/.test(html));
+          check('and it still resolves to neither of them',
+            !/data-rsvpmarkone="anna"/.test(html) && !/data-rsvpmarkone="anna2"/.test(html),
+            'naming the wrong one is worse than naming none — showing both is not picking one');
+          check('and no Tick-all is offered for them',
+            !/data-rsvpchecklistmarkall="/.test(html),
+            'nobody is waiting, so a button that can only refuse is worse than none');
         }
       }
     })
