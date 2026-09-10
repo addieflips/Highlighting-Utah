@@ -45338,14 +45338,26 @@ function rsvpCheckListRenderReport(box, res){
       + (note ? ' <span style="color:var(--slate); font-size:12px;">' + esc(note) + '</span>' : '')
       + '</span></div>';
   };
-  const block = function(title, list, note, withMark){
+  /* ⚠ `showAll` IS A SAFETY SETTING, NOT A DISPLAY ONE, and only the waiting block asks
+     for it. The Tick-all button acts on every waiting row, so capping that one list would
+     act on names she never saw — which is the bug the sheet ledger shipped once, where
+     everything past the 400 drawn rode on the default. The informational buckets stay
+     capped: nothing presses a button on those. */
+  const block = function(title, list, note, opts){
+    const o = opts || {};
     if(!list.length) return '';
-    const shown = list.slice(0, RSVP_CHECK_LIST_SHOWN);
+    const shown = o.showAll ? list : list.slice(0, RSVP_CHECK_LIST_SHOWN);
     return '<div style="margin-top:12px;">'
       + '<div style="font-weight:600; font-size:13px;">' + esc(title) + ' (' + list.length + ')</div>'
       + (note ? '<p class="form-note" style="margin:2px 0 4px;">' + esc(note) + '</p>' : '')
       + (list.length > shown.length
           ? '<p class="form-note" style="margin:2px 0 4px;">Showing the first ' + shown.length + '.</p>' : '')
+      + (o.bulk
+          ? '<div style="margin:6px 0 8px;"><button type="button" class="btn btn-outline btn-sm" data-rsvpchecklistmarkall="1">'
+            + 'Tick all ' + list.length + ' off as asked</button>'
+            + '<span class="form-note" style="margin-left:8px;">Only these ' + list.length
+            + ' — it asks you to type ASKED first.</span></div>'
+          : '')
       + shown.map(function(x){
           const d = (x.item && x.item.data) || {};
           return '<div style="display:flex; justify-content:space-between; gap:12px; align-items:center; padding:5px 0; border-bottom:1px solid var(--line);">'
@@ -45353,7 +45365,7 @@ function rsvpCheckListRenderReport(box, res){
             + (d.email ? ' <span style="color:var(--slate); font-size:12px;">' + esc(d.email) + '</span>' : '')
             + (x.count ? ' <span style="color:var(--slate); font-size:12px;">matches ' + x.count + ' customers — not resolved</span>' : '')
             + '</span>'
-            + (withMark && x.item
+            + (o.mark && x.item
                 ? '<button type="button" class="btn btn-outline btn-sm" data-rsvpmarkone="' + esc(x.item.id) + '" data-rsvpmarkoneon="1">Mark as asked</button>'
                 : '')
             + '</div>';
@@ -45369,19 +45381,104 @@ function rsvpCheckListRenderReport(box, res){
     + row('New this year', res.newThisYear.length, 'never had lights — never asked')
     + row('Could not be matched', res.unknown.length + res.ambiguous.length, 'named below')
     + (res.elsewhere.length ? row('Unaccounted for', res.elsewhere.length, 'named below — report this') : '')
-    + block('Not ticked off in the app', res.waiting, 'Send the whole RSVP would email these people. Tick anyone you have already emailed yourself.', true)
-    + block('No email on file', res.noEmail, 'Your log says these were sent, but the app holds no address for them — worth checking which is right.', false)
-    + block('Left out, do-not-send', res.optedOut, 'Your log says these were sent, and the app is told never to mail them.', false)
-    + block('New this year', res.newThisYear, 'Never had lights, so the RSVP deliberately skips them.', false)
-    + block('Two customers share this name', res.ambiguous, 'Not resolved on purpose — naming the wrong one is worse than naming none. Use the search box above.', false)
-    + block('Not found in the customer list', res.unknown, 'Spelled differently here than on the record, or not a customer any more.', false)
-    + block('Unaccounted for', res.elsewhere, 'The app has no answer for these — please report it.', false)
+    + block('Not ticked off in the app', res.waiting, 'Send the whole RSVP would email these people. Tick them off if your log is right that they were already emailed.', { mark: true, showAll: true, bulk: true })
+    + block('No email on file', res.noEmail, 'Your log says these were sent, but the app holds no address for them — worth checking which is right.', {})
+    + block('Left out, do-not-send', res.optedOut, 'Your log says these were sent, and the app is told never to mail them.', {})
+    + block('New this year', res.newThisYear, 'Never had lights, so the RSVP deliberately skips them.', {})
+    + block('Two customers share this name', res.ambiguous, 'Not resolved on purpose — naming the wrong one is worse than naming none. Use the search box above.', {})
+    + block('Not found in the customer list', res.unknown, 'Spelled differently here than on the record, or not a customer any more.', {})
+    + block('Unaccounted for', res.elsewhere, 'The app has no answer for these — please report it.', {})
     + (res.waiting.length
         ? '<div style="margin-top:12px;"><div style="font-weight:600; font-size:13px; margin-bottom:4px;">The not-ticked names, to paste back into your sheet</div>'
           + '<textarea readonly rows="6" style="width:100%; font-family:ui-monospace,monospace; font-size:12px;">'
           + esc(res.waiting.map(function(x){ return x.raw; }).join('\n')) + '</textarea></div>'
         : '')
     + '<p class="form-note" style="margin:10px 0 0;">Nobody appears in more than one count above.</p>';
+}
+/* ⭐ AND IT CAN TICK THE WHOLE LIST AT ONCE (2026-09-10, EM-12). Addie, reading EM-11:
+   *"will this tick all the people that are not ticked?"* It did not — it offered one button
+   per row, which is the nine-hundred-searches problem EM-10 named, moved up one level and
+   no better. A report she has to act on three hundred times is a report she stops using.
+   ⚠ IT IS THE SAME RISK CLASS AS `rsvpMarkAllAsked` AND CARRIES THE SAME LOCK — a confirm
+   naming the count, then the word ASKED typed out — because a wrong stamp is still a house
+   no crew is sent to. What makes it SAFER than that button rather than merely equal is the
+   evidence: that one stamps everybody the planner would write to, sight unseen, while this
+   one can only ever stamp names SHE pasted from her own send log, every one of them drawn
+   on screen above the button first.
+   ⚠ THE WAITING BUCKET AND NOTHING ELSE. A no-email row records that we emailed somebody
+   we hold no address for; a do-not-send row records that we wrote to somebody we are
+   forbidden to write to; a new-this-year row records an RSVP we deliberately never send;
+   an ambiguous row would name the wrong customer. Each of those is a different way to
+   write down something untrue about a real person, which is why the scope is its own
+   function a test can RUN rather than a filter buried in the handler. */
+function rsvpCheckListBulkTargets(res){
+  const list = (res && res.waiting) ? res.waiting : [];
+  return list.map(function(x){ return x && x.item; })
+             .filter(function(i){ return i && i.id != null; });
+}
+/* ⚠ THE LIST IS RE-DERIVED AT THE PRESS, never read off the last render. The report is
+   drawn from this same computation, so the two cannot disagree — and a stamp acting on a
+   list that went stale while the popup was open is the one failure no confirm can catch. */
+async function rsvpCheckListMarkAll(){
+  const st = document.getElementById('rsvpCheckListStatus');
+  const plan = (typeof rsvpWholePlan === 'function') ? rsvpWholePlan() : null;
+  if(!plan || !plan.ready){
+    if(st) st.textContent = (plan && plan.why) || 'The customer list has not loaded yet.';
+    return;
+  }
+  const parsed = rsvpCheckListNames(rsvpCheckListText);
+  const res = rsvpCheckListCompare(parsed, plan, rsvpCheckListIndex());
+  const targets = rsvpCheckListBulkTargets(res);
+  if(!targets.length){
+    if(st) st.textContent = 'Nothing in that list is waiting to be asked — there is nothing to record.';
+    return;
+  }
+  const sample = targets.slice(0, 5).map(function(t){ return (t.data && t.data.name) || '(no name)'; }).join(', ');
+  const held = res.noEmail.length + res.optedOut.length + res.newThisYear.length
+             + res.ambiguous.length + res.unknown.length;
+  if(!confirm('Record that all ' + targets.length + ' of these customers have already been asked?\n\n'
+    + sample + (targets.length > 5 ? ', and ' + (targets.length - 5) + ' more' : '') + '\n\n'
+    + 'These are the ones your pasted list names that the app has NOT recorded as asked.'
+    + (held ? '\n\nThe other ' + held + ' in your list are left alone — no email on file, '
+              + 'do-not-send, new this year, or the name could not be matched.' : '')
+    + '\n\nUse this ONLY where your list is right that they really were emailed. Send the '
+    + 'whole RSVP will then skip them.\n\n'
+    + 'Anybody marked wrongly is never asked again this season, and nobody who has not '
+    + 'answered is scheduled.')) return;
+  const typed = prompt('Type ASKED to confirm.');
+  if(String(typed || '').trim().toUpperCase() !== 'ASKED'){
+    if(st) st.textContent = 'Cancelled — nothing was recorded.';
+    return;
+  }
+  let done = 0, failed = 0;
+  for(const chunk of ssnChunk(targets, 400)){
+    const batch = writeBatch(db);
+    chunk.forEach(function(a){ batch.update(doc(db,'jobAddresses', a.id), { rsvpEmailedAt: serverTimestamp() }); });
+    try{
+      await batch.commit();
+      /* Mirrored only AFTER the commit lands — the other way round shows her a list
+         marked asked that was never written. Same order as `rsvpMarkAllAsked`. */
+      chunk.forEach(function(a){ a.data.rsvpEmailedAt = new Date(); });
+      done += chunk.length;
+    }catch(err){
+      console.error('[HU] could not tick the pasted list off as asked:', err);
+      failed += chunk.length;
+    }
+    if(st) st.textContent = 'Recording… ' + done + ' of ' + targets.length;
+  }
+  /* ⚠ THE REDRAW COMES FIRST AND THE RESULT LINE LAST, and that order is the whole of
+     it being reported at all: `rsvpCheckListRefresh` writes its own count into this same
+     status line, so setting the result before it destroys the result. Written the other
+     way round the press looked identical whether it saved 300 records or none — the
+     failure the gate below caught, and exactly the quiet failure this repo forbids. */
+  rsvpCheckListRefresh();
+  if(typeof rsvpWholeRenderBreakdown === 'function') rsvpWholeRenderBreakdown(rsvpWholePlan());
+  /* ⚠ WHAT FAILED IS NAMED, not swallowed. A half-written batch leaves those customers
+     still waiting, which is the safe direction, but she has to be told so she can press
+     it again. */
+  if(st) st.textContent = 'Ticked off ' + done + ' of ' + targets.length
+    + (failed ? ' — ' + failed + ' could not be saved, press it again' : '')
+    + '. Send the whole RSVP will now skip them.';
 }
 document.getElementById('rsvpCheckListBtn')?.addEventListener('click', function(){
   const ta = document.getElementById('rsvpCheckListPaste');
@@ -45397,6 +45494,14 @@ document.getElementById('rsvpCheckListClearBtn')?.addEventListener('click', func
    detached nodes. It calls the SAME `rsvpMarkOneAsked` — a second write here is how this
    report and that button would start recording "asked" two different ways. */
 document.getElementById('rsvpCheckListReport')?.addEventListener('click', function(e){
+  const all = e.target && e.target.closest ? e.target.closest('[data-rsvpchecklistmarkall]') : null;
+  if(all){
+    all.disabled = true;
+    rsvpCheckListMarkAll()
+      .catch(function(err){ console.error('[HU] check-list mark-all:', err); })
+      .then(function(){ all.disabled = false; });
+    return;
+  }
   const btn = e.target && e.target.closest ? e.target.closest('[data-rsvpmarkone]') : null;
   if(!btn) return;
   btn.disabled = true;

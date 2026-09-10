@@ -3847,6 +3847,31 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
           holds that customer, filed in the plan's order, first bucket wins. 13 further sabotages
           red-checked; the only one not caught by the check written for it was caught by three
           siblings.
+        - ⭐ **And one button ticks the whole not-ticked list** ([[EM-12]], 2026-09-10). Addie:
+          *"will this tick all the people that are not ticked?"* — and what it is for:
+          *"so I can send out emails to people that need there email sent out through the send
+          button you created to all the people who aren't ticked."*
+          ⭐ **So the tick is the NARROWING and Send the whole RSVP is the send.** That button
+          already skips anybody carrying `rsvpEmailedAt`, so ticking the people her log says
+          were emailed is precisely what leaves it aimed at the ones who still need it.
+          ⛔ **No second sender was built on this report, and none should be** — one job, one
+          sender. The narrowing was the only part missing.
+          - ⚠ **Her own pasted names, and only the NOT-recorded bucket of them.** *"Should only
+            tick people I added above."* Each excluded bucket is a different way to write down
+            something untrue about a real person: no email on file (we hold no address),
+            do-not-send (we are forbidden to write to them), new this year (an RSVP we never
+            send), an ambiguous name (whichever twin came back first).
+          - ⚠ **The same lock as the all-or-nothing button** — a confirm naming the count and
+            what it leaves alone, then `ASKED` typed out. It is SAFER than that button rather
+            than merely equal, because that one stamps the planner's whole list sight unseen
+            while this one can only stamp names she supplied and can see above the button.
+          - ⚠ **The waiting list is drawn in FULL, uncapped**, so the number on the button is
+            the number of rows she is looking at. Capping it would tick names she never saw —
+            the sheet ledger's own shipped bug. The informational buckets stay capped.
+          - ⭐ **Its own gate caught a real bug**: the result line was written before the redraw,
+            and the redraw writes its own count into that same line — so the press read
+            identically whether it saved three hundred records or none, a refused batch
+            included. Redraw first, result last. 11 sabotages red-checked.
     - Each row carries its own reason rather than the run's last one, so the next occurrence
       names itself. 10 sabotages red-checked across the two passes.
   - ⚠ **The `{{quote_` prefix inside it is built with `String.fromCharCode(123,123)`.** Suites
