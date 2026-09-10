@@ -62159,10 +62159,26 @@ function crewCap(){
 function dayCrewHouses(day){
   const out=CREWS.map(function(){ return []; });
   if(!day||!day.houses) return out;
+  /* ⚠ EXACTLY ONE CREW EACH, WHICH IS THE OTHER HALF OF [[SCH-67]]. Each crew used to
+     filter the whole day independently, so a town two crews both hold put its houses on
+     BOTH sheets — two trucks to one driveway, and the customer visited twice.
+     ⚠ IT CANNOT HAPPEN THROUGH dayCrewTowns, which marks a town `taken` as it hands it
+     out, and that is exactly why it was worth closing here rather than relying on it:
+     the guarantee then belongs to this function whatever it is handed — a hand-built
+     day, an imported plan, two crews the office pinned to the same city. Dax asked for
+     the system not to make the fault possible, and a house on nobody's sheet and a
+     house on two are the same fault pointing opposite ways.
+     ⚠ FOUND BY THE PROPERTY CHECK IN SUITE 320, not by anybody thinking of it. */
+  const claimed = new Set();
   crewIndexes().forEach(function(i){
     const towns=crewTownsFor(i,day);
     out[i]=towns.length
-      ? day.houses.filter(h=>towns.some(function(t){return sameCity(cityOf(h),t);}))
+      ? day.houses.filter(function(h){
+          if(claimed.has(h)) return false;
+          if(!towns.some(function(t){ return sameCity(cityOf(h),t); })) return false;
+          claimed.add(h);
+          return true;
+        })
       : [];
   });
   /* ⭐ A ONE-CREW DAY IS ONE SHEET. Owner: "any days with under 20 houses but over
@@ -62201,6 +62217,86 @@ function dayCrewHouses(day){
     for(let i = 0; i < out.length; i++) out[i] = [];
     out[Math.min(solo, out.length - 1)] = all;
     return out;
+  }
+  /* ⛔ AND NOW NOBODY IS LEFT OFF A SHEET. EVER. Dax, 2026-09-10, reading ten stops
+     under "Not on either crew's route" after a rebuild: "it is off limits to have
+     anyone scheduled in a day not on either crews routes, save that as a rule and dont
+     design the system so its even possible." [[SCH-67]].
+
+     ⚠ WHAT PUT THEM THERE, so the same door is not left open again. The split above
+     counts TOWN NAMES and gives each crew at most MAX_TOWNS_PER_CREW of them, so two
+     crews can hold four towns and no more. That was a sound cap while a crew-day WAS a
+     town — and [[SCH-63]] made a crew-day a block of adjacent houses instead, which on
+     the Wasatch Front routinely spans eight or ten town lines within a few streets. His
+     1 October held thirty-three houses across ten towns; four towns got sheets and the
+     other ten stops fell out of the bottom.
+
+     ⭐ SO THE LAST STEP IS TOTAL BY CONSTRUCTION. Whatever the towns did or did not
+     manage, every house on the day now belongs to exactly one crew when this returns.
+     That is the difference between rescuing a stranded house — which [[SCH-50]] already
+     tried, and which this bug walked straight around — and making stranding
+     unrepresentable: there is no path out of this function that drops anybody.
+
+     ⚠ TO THE CREW WITH THE NEAREST HOUSE, not the emptiest one. These are houses the
+     town rule could not place, so the only honest question left is who is already
+     driving closest to them. Falls back to the least-loaded crew when there is nothing
+     to measure — an unpinned house, or a crew holding nothing yet.
+
+     ⚠ AND IT RUNS BEFORE THE HAND-BACK, so a crew that ends up over the cap because of
+     it still gives its overflow back exactly as it always has.
+
+     ⛔ THIS OVERRULES THE OLDER COMMENT ABOVE, which said a house in neither crew's
+     town "stays unassigned ON PURPOSE ... rather than being quietly loaded onto a crew
+     that cannot drive it". That reasoning is kept where it stands because it is still
+     right about the HARM — a crew must not be handed a fifty-mile detour — but the
+     place to prevent that is the BUILDER, which decides who shares a day, not here,
+     which only decides who carries what is already on it. Leaving a real customer on a
+     day with nobody holding their sheet was never the safer failure. */
+  {
+    const held = new Set();
+    out.forEach(function(list){ list.forEach(function(h){ held.add(h); }); });
+    const orphans = (day.houses || []).filter(function(h){ return !held.has(h); });
+    if(orphans.length){
+      /* ⚠ THE WHOLE CHAIN, NOT JUST THE FRONT OF IT. houseStopPoint reaches
+         customerForHouse and houseGeoPoint, so testing only the first name throws a
+         bare ReferenceError inside a sandbox that lifted one and not the others — which
+         is what happened the first time this was written, and it took a whole suite
+         down with it.
+         ⭐ AND THE GUARANTEE DOES NOT DEPEND ON ANY OF THEM. Where the geometry is not
+         available the fallback below still puts every orphan on a crew; all that
+         degrades is WHICH crew, from "nearest" to "carrying least". That is the
+         difference between a guard that quietly switches a rule off and one that
+         quietly switches a tiebreak off. */
+      const canMeasure = typeof houseStopPoint === 'function' &&
+                         typeof customerForHouse === 'function' &&
+                         typeof houseGeoPoint === 'function' &&
+                         typeof haversine === 'function';
+      const pointOf = function(h){
+        const p = canMeasure ? houseStopPoint(h) : null;
+        return (p && typeof p.lat === 'number' && typeof p.lng === 'number' &&
+                isFinite(p.lat) && isFinite(p.lng)) ? p : null;
+      };
+      orphans.forEach(function(h){
+        const hp = pointOf(h);
+        let best = -1, bestD = Infinity;
+        if(hp){
+          out.forEach(function(list, i){
+            list.forEach(function(other){
+              const op = pointOf(other);
+              if(!op) return;
+              const d = haversine(hp.lat, hp.lng, op.lat, op.lng);
+              if(d < bestD){ bestD = d; best = i; }
+            });
+          });
+        }
+        if(best === -1){
+          /* nothing to measure against: the crew carrying least */
+          best = 0;
+          for(let i = 1; i < out.length; i++) if(out[i].length < out[best].length) best = i;
+        }
+        out[best].push(h);
+      });
+    }
   }
   /* ⚠ THE HAND-BACK IS THE SAME RULE OVER N CREWS, not a new one: the fullest crew
      that is over the cap gives its last stop to the emptiest crew that is under it and
@@ -62257,10 +62353,43 @@ function nextDayInCity(day,city){
 }
 /* Houses in neither crew's city. Shown rather than silently swallowed — a
    stop nobody is holding a sheet for is a stop nobody drives to. */
+/* ⛔ THIS SHOULD NOW ALWAYS BE EMPTY, AND IT IS KEPT AS THE TRIPWIRE THAT SAYS SO
+   ([[SCH-67]], 2026-09-10). dayCrewHouses assigns every house on a day to exactly one
+   crew, so there is nothing left for this to find — but a function that answers "who is
+   holding nobody's sheet" is worth keeping precisely while the answer is nobody, and
+   the panel still renders whatever it returns.
+   ⚠ DERIVED FROM THE SPLIT, NOT FROM THE TOWNS. It used to ask crewTownsFor itself and
+   re-decide the question, so the panel and the split were two rules answering one
+   question — and when they disagreed the panel was right and the sheets were wrong.
+   That is the bug Dax reported on 2026-09-10 in its reporting half.
+   ⚠ AND IT COUNTED CREWS 0 AND 1 BY HAND, so on a three-crew day the third crew's
+   houses read as unassigned on a screen while they were on a real sheet. */
+/* ⭐ AND THIS IS THE OTHER QUESTION, WHICH IS STILL A REAL ONE ([[SCH-67]]).
+   "Is anybody on this day on nobody's sheet?" is now always answered NO, by
+   construction. "Is anybody on this day OUTSIDE THE TOWNS ITS CREWS WORK?" is a
+   different question and still has a real answer — it is how rehomeMovedHouses knows
+   that a customer who moved from Lehi to Provo is sitting on a Lehi day and should be
+   moved to a Provo one rather than merely carried.
+   ⚠ COLLAPSING THE TWO WOULD HAVE SILENTLY SWITCHED THAT OFF. rehomeMovedHouses tests
+   `adrift.indexOf(h) === -1` and treats a miss as "the crews already go there", so an
+   always-empty list means it never moves anybody again — a customer who moved house
+   would keep their old day for the rest of the season and every screen would look
+   right. That is exactly the shape of failure this whole area keeps producing. */
+function housesOutsideCrewTowns(day){
+  if(!day || !day.houses) return [];
+  const mine=crewIndexes().reduce(function(a,i){ return a.concat(crewTownsFor(i,day)); }, []);
+  return day.houses.filter(function(h){
+    const c=cityOf(h);
+    return !mine.some(function(t){ return t && sameCity(c,t); });
+  });
+}
 function unassignedHousesFor(day){
-  if(!day) return [];
-  const mine=crewTownsFor(0,day).concat(crewTownsFor(1,day));
-  return day.houses.filter(h=>{const c=cityOf(h);return !mine.some(function(t){return t&&sameCity(c,t);});});
+  if(!day || !day.houses) return [];
+  const held = new Set();
+  (typeof dayCrewHouses === 'function' ? dayCrewHouses(day) : []).forEach(function(list){
+    (list || []).forEach(function(h){ held.add(h); });
+  });
+  return day.houses.filter(function(h){ return !held.has(h); });
 }
 /* ---------- the route generator ----------
    ⭐ THE PRINTED SHEET IS A DRIVING ORDER, NOT A LIST OF NAMES.
@@ -65634,7 +65763,11 @@ function rehomeMovedHouses(ids){
   SEASON.filter(function(d){ return !d.isFixRoute && !d.isTakedown && dayStr(d); })
         .forEach(function(day){
     const here = dayStr(day);
-    const adrift = unassignedHousesFor(day);
+    /* ⚠ THE TOWN QUESTION, NOT THE SHEET ONE. Since [[SCH-67]] every house on a day is
+       on some crew's sheet, so unassignedHousesFor is always empty and asking it here
+       would mean never re-homing anybody again. What this needs to know is whether the
+       day's crews actually work the town the customer has moved TO. */
+    const adrift = housesOutsideCrewTowns(day);
     (day.houses || []).slice().forEach(function(h){
       if(!want['' + h.id]) return;
       if(h.isFix || h.isTakedown || h.done) return;
