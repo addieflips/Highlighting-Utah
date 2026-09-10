@@ -2561,6 +2561,67 @@ it is computed from a constant.
 *Where it is proved*: run-all.js **Suite 314**. 6 sabotages red-checked.
 *Rulings*: [[SCH-70]] in `claude/questions-map.md`.
 
+### Why a route went far out at stop 11 and came back beside stop 2
+
+Added 2026-09-10. Dax, reading a crew route off the map: *"1 2 3 4 5 6 7 can make
+sense but the you get to 11 and youre way far out and then 12 is back where 2 was, so
+it shouldve just been knocked out when you were there."*
+
+Two faults, found in one sentence.
+
+**The orderer could not move a stop.** 2-opt only ever *reverses* a run, so it can
+straighten a crossing but can never lift one house out of the day and put it back
+somewhere better — which is the move he is describing. `orOptImprove` makes it: one to
+three consecutive stops, tried at every other position, both ways round, alternating
+with 2-opt until neither finds anything more.
+
+⚠ **The first measurement of this said it was worthless.** 19 miles a season, on a
+simulated book that dropped every house into a tidy pocket 0.8 miles across — where
+almost any order is a good order. Scattering the customers across their towns, which is
+the book the office actually has, made the same change worth **113 miles a season off
+10,167, about 1.1%, with no day made longer**. A fixture that is too easy does not
+report a small benefit; it reports a false one.
+
+**And "far" was being measured from the wrong place.** `outlyingStops` asks how far
+each house is from the *day’s centre*, and the branch below it then holds the far ones
+back to the end, on Addie’s rule — *"we dont want a long drive in the middle of the day
+we would rather that be at the end of the day on their way back home."* On a day whose
+weight is out north, two houses south-west of the yard are "far from the centre". So
+the crew drove past them at eight in the morning, worked the north all day, and came
+five miles back for them. ⛔ **The half nobody was asking was whether last was on the
+way home.**
+
+Both shapes are built now and the shorter one is driven:
+
+| the day | what happens |
+|---|---|
+| the far group really is on the way home | it goes last, exactly as it always did |
+| the far group is a knot beside the yard | it goes first, on the way out |
+| the two are within `FAR_FIRST_MARGIN_MILES` | her rule keeps the tie |
+
+⚠ **The margin is 0.5 miles and it is not decoration.** A round trip driven backwards
+is nearly the same round trip, so a bare `<` would flip a standing instruction on
+rounding and the far house would land first for no reason anybody could see. Measured
+over 8 simulated seasons, 0.5 keeps 13.8 of the 15.8 available miles while overturning
+her on **9 days of 337 instead of 25**.
+
+⛔ **Not splitting at all was tried and refused.** A third shape — one plain tour, no
+outlier held back — is worth another 85 miles a season, and it **tripled** the number
+of days with a long leg buried mid-day, 8 to 24. That is the thing her rule exists to
+prevent, so it is not ours to take on mileage alone; it is written down as a question
+for her.
+
+⚠ **And mileage is not the argument for the second fix.** Once or-opt is in, choosing
+the shape is worth about 1.7 miles a season. It is in because driving past a house in
+the morning and coming back for it in the afternoon is *visibly* wrong, and the office
+is looking at it.
+
+*Where it is proved*: run-all.js **Suite 322**. 10 sabotages red-checked — and the
+first pass caught only 7: crippling or-opt to move a single stop, to refuse to turn a
+moved run round, or to run once instead of alternating all left the suite green, so
+three more days were searched for and added.
+*Rulings*: [[SCH-71]] in `claude/questions-map.md`.
+
 ### Who goes to the house that is miles from anywhere
 
 Added 2026-09-10. Dax: *"if someone is way out of the way as an outlier they should fall

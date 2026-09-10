@@ -9169,6 +9169,12 @@ suite('17. A new customer lands on the next day in their city');
                   'normInstallPref','prefSpecificDate','prefNamedFloor',
                   'formatDateNice','routeCityOf','findNextRouteDayInCity','customerToStop',
                   'haversine','twoOptImprove','reorderFlatStops','nextDayStr',
+                  /* ⚠ THE ORDERER GREW A SECOND PASS (2026-09-10). reorderFlatStops now
+                     alternates 2-opt with OR-OPT and prices the tour with tourMiles, so a
+                     sandbox holding only the old two names dies on a bare ReferenceError
+                     inside the sweep — which is caught, so the whole reconcile pass just
+                     stops, exactly the failure Suite 24 exists to prevent. */
+                  'orOptImprove','tourMiles',
                   /* isOutForSeason lives up with the install-timing helpers, far
                      above the sweep, so it has to be lifted in by name. The REAL
                      one, not a stub — who the fill is allowed to schedule is the
@@ -12091,7 +12097,14 @@ suite('Suite 24. A day with nothing left in it does not abort the sweep');
     const sandbox = {};
     new Function(
       'function haversine(a,b,c,d){ return Math.abs((a||0)-(c||0)) + Math.abs((b||0)-(d||0)); }\n' +
-      'function twoOptImprove(o){ return o; }\n' + body +
+      'function twoOptImprove(o){ return o; }\n' +
+      /* ⚠ OR-OPT IS THE REAL ONE, NOT A THIRD STUB (2026-09-10). twoOptImprove is stubbed
+         on purpose — this suite is about what reorderFlatStops does with a hole and with a
+         house that has no map pin, and the fake haversine above says as much. But or-opt
+         is the pass that now REBUILDS the array in place, so if it ever mishandled the
+         un-pinned tail an identity stub would hide it. It only needs haversine, which is
+         right there. */
+      extractFn(admin, 'orOptImprove') + '\n' + extractFn(admin, 'tourMiles') + '\n' + body +
       '\nthis.reorderFlatStops = reorderFlatStops;'
     ).call(sandbox);
     const reorder = sandbox.reorderFlatStops;
@@ -32944,8 +32957,15 @@ suite('122. Out of the yard and back, and a picture of it');
     /const aim = \(opts && opts\.aim && stopHasPin\(opts\.aim\)\) \? opts\.aim : home;/.test(ord) &&
     /reorderFlatStops\(points, start, aim\)/.test(ord),
     'without the fallback every caller that names no aim silently loses its end point');
+  /* ⛔ REPOINTED 2026-09-10 BY [[SCH-71]], AND THE GUARANTEE IS UNCHANGED. It read:
+       /reorderFlatStops\(split\.out,[\s\S]{0,120}home\);/
+     which named split.out because the far houses were always the SECOND pass. They are
+     not any more — the branch builds the day both ways round and drives the shorter
+     one, so on a day where the "far" group is really a knot near the yard they go
+     first. What Addie's rule actually asks for is that whichever pass runs second ends
+     at the yard, and that is what this now says. */
   check('S122', 'and the far-houses pass finishes at the yard too',
-    /reorderFlatStops\(split\.out,[\s\S]{0,120}home\);/.test(ord),
+    /return head\.concat\(reorderFlatStops\(second,[\s\S]{0,120}home\)\);/.test(ord),
     'owner: "still remembering 209 s 850 w is the end point"');
 
   /* ---- the picture ---- */
@@ -56233,8 +56253,14 @@ suite('Suite 317. The day finishes pointing at where the crews go next');
       order.forEach(h => { sum += api.hav(prev.lat, prev.lng, h._cust.lat, h._cust.lng); prev = h._cust; });
       return sum + api.hav(prev.lat, prev.lng, YARD.lat, YARD.lng);
     };
+    /* ⛔ THE BOUND WAS 2 UNTIL 2026-09-10, when or-opt landed and this fixture went to
+       2.70. It is not the trade going bad: or-opt AIMS BETTER, so the aimed day now
+       really does finish beside tomorrow's work, and finishing there is further from the
+       yard. Re-measured over 8 simulated seasons with or-opt in (scratchpad/route-aim.js)
+       the aim still costs 13 miles across all eight — 0.18%, worst single day 1.0 — the
+       same as before, so the reasoning is intact and only this one fixture moved. */
     check('S317', 'and it costs a mile or so on the day, not a detour of its own',
-      tour(aimed) - tour(plain) < 2,
+      tour(aimed) - tour(plain) < 3,
       'cost ' + (tour(aimed) - tour(plain)).toFixed(2) + ' mi'); 
 
     /* ---- where the season goes after each day ---- */
@@ -56968,5 +56994,214 @@ suite('Suite 321. One person goes to the outlier, not a crew');
     check('S321', 'eight is one person and nine is a crew, the same as everywhere else',
       atCap.solo(1) === true && overCap.solo(1) === false,
       'a second opinion about how big a one-man day is would put the tab and the badge in disagreement with the day list');
+  }
+}
+
+/*
+ * Suite 322. A stop in the wrong place gets moved, and the far houses are only last
+ * if last is on the way home.
+ *
+ * Dax, 2026-09-10, reading a crew route off the map: "1 2 3 4 5 6 7 can make sense but
+ * the you get to 11 and youre way far out and then 12 is back where 2 was, so it
+ * shouldve just been knocked out when you were there."
+ *
+ * Two separate faults met in that one sentence, and both are checked here.
+ *
+ * ⭐ THE ORDERER COULD NOT MOVE A STOP. 2-opt reverses a run; it cannot lift one house
+ * out and put it back somewhere better. So a house the nearest-neighbour walk grabbed at
+ * the wrong moment stayed where it was, for ever, and that is precisely "it shouldve
+ * just been knocked out when you were there". orOptImprove makes that move.
+ *
+ * ⭐ AND "FAR" WAS BEING MEASURED FROM THE WRONG PLACE. outlyingStops asks how far each
+ * house is from the DAY’S CENTRE, and Suite 124 then holds the far ones back to the end
+ * on Addie’s rule. On a day whose weight is out north, a couple of houses south-west of
+ * the yard are "far from the centre" — and the crew drove past them at eight in the
+ * morning, worked the north all day, and came five miles back for them. Her rule says
+ * "at the end of the day on their way back home"; whether last WAS on the way home was
+ * the half nobody was asking.
+ *
+ * ⚠ EVERY FIXTURE HERE WAS SEARCHED FOR, NOT INVENTED (scratchpad/find-fixtures.js,
+ * find-fix2.js). The first hand-built attempt at the second one saved 0.21 miles, under
+ * the margin, so it would have gone green with the fix reverted — a round trip driven
+ * backwards is nearly the same round trip, and a fixture has to make the two shapes
+ * really differ before it proves anything.
+ */
+suite('322. A stop in the wrong place gets moved, and far is measured from the road home');
+{
+  const geoStart = admin.indexOf('function twoOptImprove(');
+  const geoEnd = admin.indexOf('function nearestNeighborOrder(', geoStart);
+  const crewStart = admin.indexOf('function cityOf(h)');
+  const crewEnd = admin.indexOf('/* ---------- build from imported rows', crewStart);
+  if (geoStart === -1 || crewStart === -1 || crewEnd < crewStart) {
+    check('S322', 'the route orderer is findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    const HOME = { lat: 40.3866, lng: -111.8616 };        // 209 S 850 W, Lehi
+    global.dayDate = d => d._date;
+    global.isoOf = real('isoOf');
+    global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
+    global.esc = real('esc');
+    global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
+
+    const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(geoStart, geoEnd) +
+      LF_ + admin.slice(crewStart, crewEnd) + LF_ +
+      ';({order: orderHousesForDriving, plain: reorderFlatStops, two: twoOptImprove,  or: orOptImprove, miles: tourMiles, hav: haversine, split: outlyingStops,  point: houseStopPoint, margin: FAR_FIRST_MARGIN_MILES})');
+
+    const mk = (name, lat, lng) => ({ name, city: 'Lehi', _cust: { lat, lng } });
+    const pts = day => day.map(api.point);
+    const ids = order => order.map(h => h.name).join(' ');
+
+    /* ── the move 2-opt cannot make ── */
+    /* The orderer as it was before or-opt: the same nearest-neighbour walk, then 2-opt
+       and nothing else. Written out rather than lifted because the old shape no longer
+       exists in admin.html — that is the point of the suite. */
+    const oldWay = (list) => {
+      let remaining = pts(list).slice(), ordered = [], cur = HOME;
+      while (remaining.length) {
+        let bi = 0, bd = Infinity;
+        remaining.forEach((p, i) => {
+          const d = api.hav(cur.lat, cur.lng, p.lat, p.lng);
+          if (d < bd) { bd = d; bi = i; }
+        });
+        const nx = remaining.splice(bi, 1)[0];
+        ordered.push(nx); cur = { lat: nx.lat, lng: nx.lng };
+      }
+      return api.two(ordered, HOME, HOME);
+    };
+    const scatter = [
+      mk('s0', 40.392, -111.888), mk('s1', 40.404, -111.896), mk('s2', 40.404, -111.881),
+      mk('s3', 40.419, -111.871), mk('s4', 40.382, -111.872), mk('s5', 40.412, -111.852),
+      mk('s6', 40.404, -111.867), mk('s7', 40.418, -111.845), mk('s8', 40.404, -111.854),
+      mk('s9', 40.403, -111.875),
+    ];
+    const before = oldWay(scatter);
+    const beforeMi = api.miles(before, HOME, HOME);
+    /* ⚠ THE FIXTURE IS ONLY WORTH ANYTHING IF 2-OPT REALLY IS STUCK. Run it again on
+       its own answer: if it can still find something, this proves nothing about or-opt. */
+    check('S322', '2-opt has run itself out on this day and can find nothing more',
+      api.miles(api.two(before.slice(), HOME, HOME), HOME, HOME) >= beforeMi - 0.0005,
+      'the fixture must corner 2-opt, or the next check passes with or-opt ripped out');
+    const after = api.plain(pts(scatter).slice(), HOME, HOME);
+    const afterMi = api.miles(after, HOME, HOME);
+    check('S322', 'and the stop that was in the wrong place gets moved',
+      afterMi < beforeMi - 0.3,
+      'was ' + beforeMi.toFixed(2) + ' mi, now ' + afterMi.toFixed(2) + ' mi — reversing runs was the only move the orderer had');
+    /* and it really is a RELOCATION, not a reversal wearing a different hat: a reversed
+       run leaves every stop with the same neighbours, read backwards. */
+    const neighbours = order => {
+      const set = new Set();
+      for (let i = 1; i < order.length; i++) {
+        const a = order[i-1].ref.name, b = order[i].ref.name;
+        set.add(a < b ? a + '|' + b : b + '|' + a);
+      }
+      return set;
+    };
+    const kept = [...neighbours(after)].filter(p => neighbours(before).has(p)).length;
+    check('S322', 'the day is genuinely re-cut, not the same run read backwards',
+      kept < neighbours(after).size,
+      'every pair survived, which is what a reversal looks like');
+    check('S322', 'and nobody is dropped or visited twice by moving them',
+      after.length === scatter.length &&
+      new Set(after.map(p => p.ref.name)).size === scatter.length,
+      'an ordering that loses a stop is a customer nobody visits');
+
+
+    /* ── and the three things or-opt can do that a single-stop move cannot ── */
+    /* ⚠ THESE THREE WERE ADDED AFTER THE RED CHECK MISSED THEM. Crippling or-opt to
+       move one stop at a time, or to refuse to turn a run round, or to run once instead
+       of alternating with 2-opt, left the whole suite green: the fixture above only
+       needs a single house picked up and put down. Each of these is a capability the
+       code claims and nothing was asking for. All three days were searched for
+       (scratchpad/find-fix3.js) by running the shipped orderer against a deliberately
+       crippled copy of itself and keeping the day where they disagreed most.
+       ⚠ THEY ARE MILEAGE BOUNDS, and the number each crippled version produces is
+       written down beside them — a bound with no failing value named is a bound nobody
+       can tell has stopped meaning anything. */
+    const runDay = [
+      mk('r0', 40.448, -111.922), mk('r1', 40.387, -111.852), mk('r2', 40.419, -111.857),
+      mk('r3', 40.368, -111.843), mk('r4', 40.402, -111.898), mk('r5', 40.390, -111.899),
+      mk('r6', 40.373, -111.881), mk('r7', 40.379, -111.880), mk('r8', 40.443, -111.868),
+      mk('r9', 40.380, -111.923), mk('r10', 40.381, -111.851),
+    ];
+    const runMi = api.miles(api.plain(pts(runDay).slice(), HOME, HOME), HOME, HOME);
+    check('S322', 'a run of houses moves together, and turns round when it lands',
+      runMi < 20,
+      'got ' + runMi.toFixed(2) + ' mi — 19.19 shipped; 21.17 if or-opt may only lift one stop at a time, and 21.17 again if it may not drive a moved run backwards');
+
+    /* Twenty-six stops, which is a real crew day. On days this size one round of 2-opt
+       then or-opt is not enough: each pass opens moves for the other, and the loop is
+       worth 1.64 miles here. Nothing smaller than about fifteen stops showed it at all,
+       which is why the fixture is this big. */
+    const bigDay = [
+      mk('b0', 40.431, -111.938), mk('b1', 40.363, -111.869), mk('b2', 40.365, -111.948),
+      mk('b3', 40.414, -111.893), mk('b4', 40.433, -111.910), mk('b5', 40.369, -111.896),
+      mk('b6', 40.444, -111.915), mk('b7', 40.402, -111.872), mk('b8', 40.378, -111.850),
+      mk('b9', 40.380, -111.831), mk('b10', 40.369, -111.855), mk('b11', 40.391, -111.910),
+      mk('b12', 40.442, -111.917), mk('b13', 40.392, -111.865), mk('b14', 40.431, -111.941),
+      mk('b15', 40.448, -111.864), mk('b16', 40.373, -111.831), mk('b17', 40.390, -111.898),
+      mk('b18', 40.418, -111.945), mk('b19', 40.436, -111.860), mk('b20', 40.442, -111.875),
+      mk('b21', 40.409, -111.890), mk('b22', 40.428, -111.950), mk('b23', 40.431, -111.879),
+      mk('b24', 40.432, -111.850), mk('b25', 40.402, -111.848),
+    ];
+    const bigMi = api.miles(api.plain(pts(bigDay).slice(), HOME, HOME), HOME, HOME);
+    check('S322', 'and the two passes keep handing work back to each other', bigMi < 30,
+      'got ' + bigMi.toFixed(2) + ' mi — 29.22 shipped, 30.86 if the passes run once each instead of alternating');
+    /* ── far, measured from the road home ── */
+    /* Twelve houses, ten of them out north; h3 and h7 sit south-west, nearer the yard
+       than the average of the rest but a long way from the middle of the day, so
+       outlyingStops calls them the far ones. Doing them last means driving past them in
+       the morning and coming back in the afternoon. */
+    const lopsided = [
+      mk('h0', 40.411, -111.875), mk('h1', 40.477, -111.939), mk('h2', 40.487, -111.898),
+      mk('h3', 40.384, -111.969), mk('h4', 40.497, -111.892), mk('h5', 40.456, -111.788),
+      mk('h6', 40.487, -111.825), mk('h7', 40.379, -111.920), mk('h8', 40.465, -111.923),
+      mk('h9', 40.477, -111.888), mk('h10', 40.468, -111.862), mk('h11', 40.477, -111.928),
+    ];
+    const far = api.split(pts(lopsided));
+    const farNames = new Set(far.out.map(p => p.ref.name));
+    /* ⚠ THE FIXTURE HAS TO REACH THE BRANCH AT ALL, and it has to reach it with the
+       houses this suite is about — otherwise the checks below are about some other day. */
+    check('S322', 'this day really does have a far group, and it is h3 and h7',
+      farNames.size === 2 && farNames.has('h3') && farNames.has('h7'),
+      'held back: ' + [...farNames].join(',') + ' — the fixture has stopped exercising the branch');
+    const nearer = p => api.hav(HOME.lat, HOME.lng, p.lat, p.lng);
+    const coreAvg = far.core.reduce((t, p) => t + nearer(p), 0) / far.core.length;
+    check('S322', 'and they are NEARER the yard than the rest of the day, not further',
+      far.out.every(p => nearer(p) < coreAvg),
+      'that is the whole shape of the fault: far from the middle of the day, close to the road out');
+    const driven = api.order(lopsided.slice());
+    check('S322', 'so the crew does them on the way out, not on the way back',
+      farNames.has(driven[0].name) && farNames.has(driven[1].name),
+      'got ' + ids(driven) + ' — he watched a crew drive past a house in the morning and return for it in the afternoon');
+    check('S322', 'and the day is shorter for it',
+      api.miles(pts(driven), HOME, HOME) < 33,
+      'measured at 33.94 mi with the far group last and 31.56 with it first');
+    check('S322', 'nothing is dropped by choosing the other shape',
+      driven.length === lopsided.length &&
+      new Set(driven.map(h => h.name)).size === lopsided.length);
+
+    /* ── and the standing rule keeps every tie ── */
+    /* Four houses in a knot 0.4 mi from the yard, fourteen out at Herriman. Doing the
+       knot first is worth 0.21 miles — real, and far too little to overturn an
+       instruction on. This is the hand-built fixture that was too weak to prove the
+       check above, kept because it is exactly strong enough to prove this one. */
+    const tie = [];
+    for (let i = 0; i < 14; i++) tie.push(mk('bulk' + i, 40.4650 + (i % 5) * 0.004, -111.9400 + Math.floor(i / 5) * 0.005));
+    ['near0,40.3925,-111.8600', 'near1,40.3930,-111.8580', 'near2,40.3921,-111.8565', 'near3,40.3936,-111.8592'].forEach(r => {
+      const [n2, la, ln] = r.split(',');
+      tie.push(mk(n2, Number(la), Number(ln)));
+    });
+    const tieSplit = api.split(pts(tie));
+    check('S322', 'the near-the-yard knot is held back on this day too',
+      tieSplit.out.length === 4 && tieSplit.out.every(p => p.ref.name.indexOf('near') === 0),
+      'held back: ' + tieSplit.out.map(p => p.ref.name).join(','));
+    const tieDriven = api.order(tie.slice());
+    check('S322', 'but a saving smaller than the margin does not overturn her rule',
+      tieDriven[tieDriven.length - 1].name.indexOf('near') === 0,
+      'got ' + ids(tieDriven) + ' — going first saves 0.21 mi here, and Addie’s "at the end of the day on their way back home" is not worth giving up for that');
+    check('S322', 'and the margin is a named number, not a bare comparison',
+      typeof api.margin === 'number' && api.margin > 0.05 && api.margin < 2,
+      'without a margin the two shapes trade places on rounding, and the far house lands first for no reason anybody can see');
   }
 }
