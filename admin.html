@@ -5849,7 +5849,7 @@
                    gold one got pressed, the price landed and estimatedFeet was
                    left empty. Nothing errors on that: quoteFeetOrEstimate turns
                    the price back into feet with a 5% margin, and THAT figure
-                   sizes the bins at 260 ft, picks the 5000-series number and
+                   sizes the bins, picks the 5000-series number and
                    counts the bundles at 40 ft. Owner: "I need no guessing I need
                    feet to be correct."
                    ⚠ THE SHELL IS STATIC AND ONLY ITS TEXT IS UPDATED. Three
@@ -15024,11 +15024,13 @@ function renderQuoteRows(filtered){
             (d.changed.what === 'feet'
               ? '<div style="margin-top:4px;">Feet changed <strong>'+d.changed.oldFeet+' ft &rarr; '+d.changed.newFeet+' ft</strong>'+
                 (d.changed.oldPrice ? '. They were paying '+fmtMoney(d.changed.oldPrice)+'.' : '.')+
-                /* ⚠ 260, READ FROM THE BIN MATHS, not the 200 that was typed here.
-                   The two had disagreed since CN_DOUBLE_BIN_FEET was settled at 260,
-                   so a house going 210 -> 250 ft was told in red that it needed a
+                /* ⚠ READ FROM THE BIN MATHS, never a number typed here. This line
+                   held a literal 200 while CN_DOUBLE_BIN_FEET said 260, so at that
+                   time a house going 210 -> 250 ft was told in red that it needed a
                    second bin it does not need, and one going 190 -> 265 was told
-                   nothing at all. And the old number does NOT go back to the pool -
+                   nothing at all. The cutoff has moved again since - 320 as of
+                   2026-09-10 - which is exactly why nothing here spells it out.
+                   And the old number does NOT go back to the pool -
                    the customer still holds it until somebody reassigns them. */
                 ((cnBinsForFeet(Number(d.changed.newFeet)) >= 2 && cnBinsForFeet(Number(d.changed.oldFeet)) < 2)
                   ? '<div style="margin-top:4px; color:#B91C1C; font-weight:700;">Now over '+CN_DOUBLE_BIN_FEET+' ft \u2014 needs '+cnBinsForFeet(Number(d.changed.newFeet))+' bins and a 5000-series number.</div>' : '')+
@@ -15047,8 +15049,10 @@ function renderQuoteRows(filtered){
                    isnt a new quote so we dont accidentally build the house
                    again but hold everything as long as they stay below 260
                    feet", and "if they go above 260 feet hold what you can".
-                   260ft is the line: below it their existing bin and number
-                   still fit, so nothing needs rebuilding or renumbering. */
+                   CN_DOUBLE_BIN_FEET is the line, READ and never typed here:
+                   below it their existing bin and number still fit, so nothing
+                   needs rebuilding or renumbering. (It was 260 when she said
+                   that, and is 320 since 2026-09-10.) */
                 '<div style="margin-top:8px; background:#FFF8E9; border:1px solid var(--gold-dim); border-radius:8px; padding:8px 10px;">'+
                   '<strong>⚠ They are already built &mdash; do not build this house again.</strong>'+
                   '<div style="margin-top:3px;">'+
@@ -23214,7 +23218,7 @@ const RM_TYPES = {
    thing she has fixed. The history of this dial is 2.9 -> 1.45 -> 1.3 -> 1.15.
 
    ⚠ AND IT IS NOT ONLY A PRICE. This figure is SAVED as the customer's footage,
-   so it also sizes the bins at 260 ft, picks the number series and counts the
+   so it also sizes the bins, picks the number series and counts the
    bundles at 40 ft - see the note in system-map.md. Lowering it to 1.15 narrows
    that distortion; it does not remove it. */
 const RM_FEET_MULTIPLIER = 1.15;
@@ -29237,7 +29241,7 @@ function rmRenderCommit(){
   document.getElementById('rmCommitPr').textContent = price ? fmtMoney(price) : '—';
 
   /* ⚠ THE SAME TWO FUNCTIONS THE REST OF THE APP USES. Re-deriving the bin
-     rule here would put a second copy of 260 in the file, and the last time two
+     rule here would put a second copy of the bin cutoff in the file, and the last time two
      screens each held their own copy of that number one of them said 200. */
   const bins = cnBinsForFeet(feet);
   document.getElementById('rmChipBins').textContent    = bins;
@@ -35321,8 +35325,9 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     )) return;
   }
   /* Feet decide the bins, and the bins decide which sequence the number comes from.
-     A house needs another bin every 260 feet — up to 260 is 1 bin on a regular
-     number, over that is 2 or more bins on a 5000 number. With no feet measured
+     A house needs another bin every CN_DOUBLE_BIN_FEET — one bin up to that, 2 or
+     more bins on a 5000 number over it. The cutoff is READ, never typed here: it
+     was 200, then 260, and has been 320 since 2026-09-10. With no feet measured
      yet there's nothing to decide from, so the customer is saved without a
      number. */
   let customerNumber = document.getElementById('addCustNumber').value.trim();
@@ -41476,7 +41481,7 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
            The line above sets one bin for any number under 5000, which is a
            stand-in for when nobody has measured the house. Once the feet are
            known they are the real answer — a 600 ft house needs three bins
-           whatever its number is (cnBinsForFeet, one per 260 ft). Written the
+           whatever its number is (cnBinsForFeet, one per CN_DOUBLE_BIN_FEET). Written the
            other way round, pasting the sheet's # Feet column would set the feet
            and then immediately contradict them. */
         if(feetVal){
@@ -67041,10 +67046,13 @@ function printNeedsBuildList(){
                  how many bins on there", then, shown where that breaks: "just put how
                  many bins will be needed if it is more than 2 bins."
 
-                 ⚠ THE SHORTHAND IS RIGHT UNTIL 520 FT. A 5000-series number means TWO
-                 OR MORE bins, not exactly two — cnBinsForFeet adds one per 260 ft — so
-                 521 ft is three bins on a 5000 number and 781 ft is four. Everything up
-                 to 520 reads correctly off the customer number, which is why this says
+                 ⚠ THE SHORTHAND IS RIGHT UNTIL TWO BINS’ WORTH OF FEET, AND THAT FIGURE
+                 MOVES. A 5000-series number means TWO OR MORE bins, not exactly two —
+                 cnBinsForFeet adds one per CN_DOUBLE_BIN_FEET — so a house a foot past
+                 two bins is three on a 5000 number, and one past three bins is four.
+                 Everything below that reads correctly off the customer number, and no
+                 number is written out here because the cutoff has moved twice already
+                 (200, then 260, then 320 on 2026-09-10). That is why this says
                  nothing on the ordinary rows: a column that repeats what the number
                  already tells them is a column that stops being read.
 

@@ -642,9 +642,11 @@ the rate box instead would change the figure printed on the customer's invoice,
 which is the one thing she has fixed.
 
 ⚠ **And it is not only a price — it is saved as the customer's footage.** That
-same inflated figure sizes the bins at 260 ft, picks the number series and counts
-the bundles at 40 ft, so a 230 ft house is filed as 265 and can be given a second
-bin and a 5000-series number it does not need. Dropping the dial from 1.3 to 1.15
+same inflated figure sizes the bins, picks the number series and counts the
+bundles at 40 ft, so a 285 ft house is filed as 328 and can be given a second bin
+and a 5000-series number it does not need. (The bin cutoff is `CN_DOUBLE_BIN_FEET`
+— 320 since 2026-09-10, 260 before that — so the pair of numbers that lands a
+house the wrong side of it moves whenever the constant does.) Dropping the dial from 1.3 to 1.15
 narrowed that; it did not remove it. The clean fix is to store the true footage
 and apply the multiplier to the MONEY only — offered, not yet decided.
 
