@@ -796,6 +796,100 @@ if (runBatch) {
   check('the renderer never writes the line saying what the last press did',
     stripComments(liftFrom(admin, 'rsvpDripRender')).indexOf('rsvpDripStatus') === -1,
     'a redraw a moment after a press would wipe the result — EM-13, from the other direction');
+  /* ==================================================================
+     THE TAB IT LIVES ON, AND WHICH BUTTON IS THE NEXT STEP.
+     ==================================================================
+     Addie: *"Make a new tab in automation email for RSVP for this send 200 for each day."*
+     It started as a card under Templates, which is where the RSVP send already lived — but a
+     card at the bottom of the tab somebody opens to EDIT an email is not where anybody looks
+     to find out whether today's batch went out. */
+  check('it has a tab of its own on Automation Emails',
+    admin.indexOf('data-automationtab="rsvpdrip"') !== -1 &&
+    admin.indexOf('id="automationtab-rsvpdrip"') !== -1,
+    'a button with no panel, or a panel with no button, is a tab that cannot be opened');
+  /* ⚠ NAMED JUST "RSVP" — Addie, 2026-09-10: "put it in it's own tab on Automation Email named
+     RSVP". Asserted because the first label described the mechanism ("a few hundred a day")
+     and she renamed it; a label nobody checks drifts back the next time somebody explains the
+     feature in the tab bar. */
+  check('and the tab is named RSVP, nothing longer',
+    /data-automationtab="rsvpdrip">RSVP<\/button>/.test(admin),
+    'the tab is named for what is on it, not for how it works');
+  /* ⚠ THE CARD MUST BE INSIDE THAT PANEL. Both ids existing proves nothing about where the
+     card ended up — a move that left it under Templates would pass on the ids alone. */
+  {
+    const panelAt = admin.indexOf('id="automationtab-rsvpdrip"');
+    const nextPanel = admin.indexOf('class="route-tab-panel"', panelAt + 10);
+    const cardAt = admin.indexOf('id="rsvpDripCard"');
+    check('and the card is inside that panel, not left behind on Templates',
+      panelAt !== -1 && cardAt > panelAt && (nextPanel === -1 || cardAt < nextPanel),
+      'card at ' + cardAt + ', panel at ' + panelAt + ', next panel at ' + nextPanel);
+  }
+  /* ⚠ AND IT DRAWS WHEN THE TAB IS OPENED. `rsvpDrip` is a deferred render, and
+     `flushPendingRenders` fires on the PANEL opening — switching tabs inside an
+     already-open Automation Emails never triggers it, so a first visit would show nothing. */
+  check('opening the tab draws it',
+    /tab === 'rsvpdrip'[\s\S]{0,140}rsvpDripRender\(\)/.test(plain),
+    'the Invoices tab already does this for the same reason');
+  /* ⭐ WHICH BUTTON IS GOLD MOVES WITH THE NEXT STEP, and this is RUN rather than matched:
+     it is a claim about what the office sees and presses. The repo has already paid for
+     getting it wrong — the measure tool had two commit buttons, one gold, and the gold one
+     is the one that got pressed, so houses ended up priced with no footage. */
+  {
+    const { JSDOM } = require('jsdom');
+    const src = liftFrom(admin, 'rsvpDripSetButtons');
+    check('the button-prominence rule could be lifted', !!src);
+    if (src) {
+      const dom = new JSDOM('<button id="rsvpDripBuildBtn" class="btn btn-gold btn-sm"></button>' +
+        '<button id="rsvpDripSendNowBtn" class="btn btn-outline btn-sm"></button>');
+      const fn = new Function('document', 'RSVP_DRIP_DEFAULT_PER_DAY',
+        src + '\nreturn rsvpDripSetButtons;')(dom.window.document, 200);
+      const build = dom.window.document.getElementById('rsvpDripBuildBtn');
+      const send = dom.window.document.getElementById('rsvpDripSendNowBtn');
+      fn(false, 200);
+      check('with no plan, Build the plan is the gold one',
+        build.classList.contains('btn-gold') && !send.classList.contains('btn-gold'),
+        'building it IS the next step before one exists');
+      fn(true, 200);
+      check('with a plan, sending today\'s batch is the gold one',
+        send.classList.contains('btn-gold') && !build.classList.contains('btn-gold'),
+        'a grey "send" beside a gold "build" is the measure tool\'s failure again');
+      /* ⚠ IT NAMES THE CAP, NOT THE QUEUE. "Send 955 now" is the press she is trying to
+         stop making; this button sends one day's worth. */
+      check('and it names how many that press sends',
+        /200/.test(send.textContent) && !/955/.test(send.textContent),
+        'got ' + JSON.stringify(send.textContent));
+      check('the cap on the button follows the plan, not a hardcoded 200',
+        (function () { fn(true, 150); return /150/.test(send.textContent); })(),
+        'got ' + JSON.stringify(send.textContent));
+      /* ⚠ EXACTLY ONE GOLD AFTER EVERY TRANSITION, IN BOTH DIRECTIONS. A class added and
+         never removed is how both buttons end up gold after the first rebuild — and the
+         red-check proved the first version of this check could not see that: it ran
+         true-then-false, which an add-only implementation happens to recover from. Going
+         false-then-true is what leaves both gold, so both orders are walked and the
+         invariant is counted rather than spot-checked. */
+      check('and exactly one button is gold after every transition, either order',
+        (function () {
+          const golds = function () {
+            return (build.classList.contains('btn-gold') ? 1 : 0) +
+                   (send.classList.contains('btn-gold') ? 1 : 0);
+          };
+          const seq = [false, true, false, false, true, true, false];
+          for (const hasPlan of seq) {
+            fn(hasPlan, 200);
+            if (golds() !== 1) return false;
+            /* And the one that is gold is the right one. */
+            if (hasPlan && !send.classList.contains('btn-gold')) return false;
+            if (!hasPlan && !build.classList.contains('btn-gold')) return false;
+          }
+          return true;
+        })(),
+        'toggling one way only leaves both gold, and the same press then reads as the ' +
+        'finish line twice over');
+      check('and Build says Rebuild once a plan exists',
+        (function () { fn(true, 200); return /Rebuild/.test(build.textContent); })(),
+        'pressing "Build the plan" on a plan that exists reads as a first build');
+    }
+  }
   check('the plan is read when the automation settings are',
     /loadRsvpDripPlan\(\)/.test(plain),
     'a switch that shows its stored state only after some other click is one nobody can trust');

@@ -4149,8 +4149,30 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
             that blocks a legitimate send has no way round it at all. It is its own function because
             the check for it was weak: a red-check proved `/total > RSVP_DRIP_DEFAULT_PER_DAY/` stays
             green with `false &&` in front of it.
-          `rsvp-daily-send.test.js`, 47 sabotages red-checked. Three of its own checks were caught
-          being weak by that pass, and one sabotage was a no-op that retired a dead guard.
+          - ⭐ **IT HAS A TAB OF ITS OWN, NAMED RSVP.** Addie: *"Make a new tab in automation
+            email for RSVP for this send 200 for each day"*, then *"put it in it's own tab on
+            Automation Email named RSVP"*. It started as a card under **Templates**, which is
+            where the RSVP send already lived — but a card at the bottom of the tab somebody
+            opens to EDIT an email is not where anybody looks to find out whether today's batch
+            went out, and "how many are left" is asked on days when no template is touched.
+            ⚠ **Send the whole RSVP stays on Templates**: it is one press beside the templates
+            it sends, and moving it would break the one route the office already knows.
+            ⚠ **The tab draws on open**, the way the Invoices tab does — `rsvpDrip` is a
+            deferred render and `flushPendingRenders` fires on the PANEL opening, so switching
+            tabs inside an already-open Automation Emails would otherwise show nothing.
+          - ⭐ **WHICH BUTTON IS GOLD MOVES WITH THE NEXT STEP** (`rsvpDripSetButtons`). Addie
+            asked twice for *"a button that lets us send 200 emails a day"* when both the button
+            and the schedule were already there — which says the card was not making either
+            obvious, not that they were missing. Before a plan exists **Build the plan** is
+            gold; once one does, **Send today's 200 now** is, and it NAMES the cap rather than
+            the queue. ⚠ This is the measure tool's own lesson (MR: two commit buttons, one
+            gold, and the gold one is the one that got pressed, so houses ended up priced with
+            no footage). ⚠ **Exactly one is gold after every transition, in both directions** —
+            a class added and never removed leaves both gold, and the red-check proved a
+            spot-check in one order cannot see it.
+          `rsvp-daily-send.test.js`, 137 checks, 57 sabotages red-checked across two passes.
+          Four of its own checks were caught being weak by those passes, and one sabotage was a
+          no-op that retired a dead guard.
     - Each row carries its own reason rather than the run's last one, so the next occurrence
       names itself. 10 sabotages red-checked across the two passes.
   - ⚠ **The `{{quote_` prefix inside it is built with `String.fromCharCode(123,123)`.** Suites

@@ -3281,6 +3281,18 @@
       <!-- ===== AUTOMATION TABS ===== -->
       <div class="route-tabs" style="margin-bottom:20px;">
         <button type="button" class="route-tab-btn active" data-automationtab="templates">Templates</button>
+        <!-- ⭐ ITS OWN TAB (2026-09-10, [[EM-16]]). Addie: "Make a new tab in automation email
+             for RSVP for this send 200 for each day." It started as a card under Templates,
+             which is where the RSVP send already lived — but a card at the bottom of the tab
+             somebody opens to EDIT an email is not where anybody looks to find out whether
+             today's batch went out, and "how many are left" is a question asked on days when
+             no template is being touched at all. ⚠ The Send the whole RSVP card stays under
+             Templates: it is one press beside the templates it sends, and moving it would
+             break the one route the office already knows. -->
+        <!-- ⚠ NAMED JUST "RSVP" — Addie, 2026-09-10: "put it in it's own tab on Automation
+             Email named RSVP". The longer label described the mechanism; the tab is named for
+             what is on it. -->
+        <button type="button" class="route-tab-btn" data-automationtab="rsvpdrip">RSVP</button>
         <button type="button" class="route-tab-btn" data-automationtab="invoices">Invoices</button>
         <button type="button" class="route-tab-btn" data-automationtab="emailjs">EmailJS Setup</button>
       </div>
@@ -3347,33 +3359,6 @@
           <div id="rsvpCheckListStatus" style="font-size:13px; color:var(--slate); margin:0 0 6px;"></div>
           <div id="rsvpCheckListReport" style="font-size:13px;"></div>
         </div>
-      </div>
-      <!-- ⭐ EM-16. Addie, after a send of ~950 that Gmail cut off partway and that took a
-           pasted spreadsheet of 673 names to reconcile: "we need to make sure we don't run
-           into this situation in the future. Can we make a calendar for RSVP emails that
-           will only send 200 emails a day until we send them all out?"
-           ⚠ THE PLAN IS BUILT HERE AND SENT BY THE SERVER, which is the whole design: the
-           seven reasons somebody is or is not owed an RSVP rest on five rules that exist
-           only in this file, so the browser decides once and the 9 AM Cloud Function sends
-           the names it was handed. See rsvpSendSkipReason and runRsvpDailyBatch. -->
-      <div class="card" id="rsvpDripCard" style="margin-bottom:22px;">
-        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128197; Send the RSVP a few hundred a day</h3>
-        <p class="form-note" style="margin:0 0 12px;">Gmail stops a big send partway through, which is how half a send ends up needing to be tracked by hand. This lays the RSVP out over several mornings instead: <b>Build the plan</b> works out who gets which email and in what order, then the server sends the next batch at <b>9:00 AM</b> every day until the list is done &mdash; whether or not this page is open. Nobody is ever sent twice, and anybody who answers in the meantime is dropped from the rest of the plan automatically.</p>
-        <p class="form-note" style="margin:0 0 12px;">It sends <b>your own two RSVP emails</b>, and it picks between them per person exactly as <b>Send the whole RSVP</b> does: everybody straight gets the ordinary one, everybody who owes from last season gets <b>Not Paid RSVP</b>, and nobody gets both. The two it will use are named below &mdash; if either says <i>no template found</i>, fix that under Templates &rarr; RSVP first.</p>
-        <div id="rsvpDripKeyWarn" hidden style="font-size:13px; background:var(--paper); border:1px solid #c0392b; border-radius:6px; padding:8px; margin-bottom:10px;"></div>
-        <div id="rsvpDripBody" style="font-size:13px; margin-bottom:10px;"></div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
-          <button type="button" class="btn btn-gold btn-sm" id="rsvpDripBuildBtn">Build the plan</button>
-          <button type="button" class="btn btn-outline btn-sm" id="rsvpDripSendNowBtn">Send today&rsquo;s batch now</button>
-          <label style="display:flex; align-items:center; gap:6px; margin:0; font-size:13px;">
-            <input type="checkbox" id="rsvpDripEnabled" style="width:auto; margin:0;">
-            <span>Send automatically at 9:00 AM each day</span>
-          </label>
-        </div>
-        <label style="display:block; font-size:13px; margin:0 0 10px;">How many a day
-          <input type="number" id="rsvpDripPerDay" min="1" max="2000" step="10" style="width:90px; margin-left:6px;">
-        </label>
-        <div id="rsvpDripStatus" style="font-size:13px; color:var(--slate);"></div>
       </div>
       <!-- Hidden until a send actually loses somebody. A permanent empty card about
            failures is one nobody reads, and this one has to be noticed on the day it
@@ -3668,6 +3653,43 @@
       </div>
       </div>
       <!-- ===== INVOICES TAB ===== -->
+      <!-- ===== RSVP DRIP TAB ===== -->
+      <div class="route-tab-panel" id="automationtab-rsvpdrip">
+      <!-- ⭐ EM-16. Addie, after a send of ~950 that Gmail cut off partway and that took a
+           pasted spreadsheet of 673 names to reconcile: "we need to make sure we don't run
+           into this situation in the future. Can we make a calendar for RSVP emails that
+           will only send 200 emails a day until we send them all out?"
+           ⚠ THE PLAN IS BUILT HERE AND SENT BY THE SERVER, which is the whole design: the
+           seven reasons somebody is or is not owed an RSVP rest on five rules that exist
+           only in this file, so the browser decides once and the 9 AM Cloud Function sends
+           the names it was handed. See rsvpSendSkipReason and runRsvpDailyBatch. -->
+      <div class="card" id="rsvpDripCard" style="margin-bottom:22px;">
+        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128197; Send the RSVP a few hundred a day</h3>
+        <p class="form-note" style="margin:0 0 12px;">Gmail stops a big send partway through, which is how half a send ends up needing to be tracked by hand. This lays the RSVP out over several mornings instead: <b>Build the plan</b> works out who gets which email and in what order, then the server sends the next batch at <b>9:00 AM</b> every day until the list is done &mdash; whether or not this page is open. Nobody is ever sent twice, and anybody who answers in the meantime is dropped from the rest of the plan automatically.</p>
+        <p class="form-note" style="margin:0 0 12px;">It sends <b>your own two RSVP emails</b>, and it picks between them per person exactly as <b>Send the whole RSVP</b> does: everybody straight gets the ordinary one, everybody who owes from last season gets <b>Not Paid RSVP</b>, and nobody gets both. The two it will use are named below &mdash; if either says <i>no template found</i>, fix that under Templates &rarr; RSVP first.</p>
+        <p class="form-note" style="margin:0 0 12px;">The <b>Send the whole RSVP</b> button on the <b>Templates</b> tab is still there and still sends everybody at once. This is the same send, paced.</p>
+        <div id="rsvpDripKeyWarn" hidden style="font-size:13px; background:var(--paper); border:1px solid #c0392b; border-radius:6px; padding:8px; margin-bottom:10px;"></div>
+        <div id="rsvpDripBody" style="font-size:13px; margin-bottom:10px;"></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+          <!-- ⭐ WHICH OF THESE IS GOLD MOVES WITH THE NEXT STEP (2026-09-10). The repo has
+               already paid for getting this wrong once: the measure tool had two commit
+               buttons and only one was gold, so "the gold one reads like the finish line" is
+               the one that got pressed and houses ended up priced with no footage. Before a
+               plan exists, building it IS the next step; once one does, sending is. Set by
+               `rsvpDripRender`, not written here, so the two can never both be gold. -->
+          <button type="button" class="btn btn-gold btn-sm" id="rsvpDripBuildBtn">Build the plan</button>
+          <button type="button" class="btn btn-outline btn-sm" id="rsvpDripSendNowBtn">Send today&rsquo;s batch now</button>
+          <label style="display:flex; align-items:center; gap:6px; margin:0; font-size:13px;">
+            <input type="checkbox" id="rsvpDripEnabled" style="width:auto; margin:0;">
+            <span>Send automatically at 9:00 AM each day</span>
+          </label>
+        </div>
+        <label style="display:block; font-size:13px; margin:0 0 10px;">How many a day
+          <input type="number" id="rsvpDripPerDay" min="1" max="2000" step="10" style="width:90px; margin-left:6px;">
+        </label>
+        <div id="rsvpDripStatus" style="font-size:13px; color:var(--slate);"></div>
+      </div>
+      </div>
       <div class="route-tab-panel" id="automationtab-invoices">
         <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
           <h3 style="margin-top:0;">See exactly what customers' invoices look like</h3>
@@ -9652,6 +9674,14 @@ document.querySelectorAll('[data-automationtab]').forEach(function(btn){
     if(tab === 'invoices'){
       if(typeof invRenderRecipientList === 'function') invRenderRecipientList();
       if(typeof invUpdatePreview === 'function') invUpdatePreview();
+    }
+    /* ⚠ DRAWN ON OPEN, for the same reason the Invoices tab is. `rsvpDrip` is a deferred
+       render (RENDER_PANEL), and `flushPendingRenders` only fires when the PANEL is opened —
+       so switching between tabs INSIDE an already-open Automation Emails never triggers it,
+       and the tab would show whatever it last drew, or nothing at all on a first visit. The
+       counts here are the ones the office acts on. */
+    if(tab === 'rsvpdrip'){
+      if(typeof rsvpDripRender === 'function') rsvpDripRender();
     }
   });
 });
@@ -19613,6 +19643,26 @@ function rsvpDripKindCount(queue, kind){
     return r && ((r.t === 'arrears') ? 'arrears' : 'standard') === kind;
   }).length;
 }
+/* ⚠ ITS OWN FUNCTION SO A TEST CAN RUN IT. Which button is gold is a claim about what the
+   office sees and presses, and a source check cannot see a class being swapped. */
+function rsvpDripSetButtons(hasPlan, perDay){
+  const build = document.getElementById('rsvpDripBuildBtn');
+  const send = document.getElementById('rsvpDripSendNowBtn');
+  if(build){
+    build.classList.toggle('btn-gold', !hasPlan);
+    build.classList.toggle('btn-outline', !!hasPlan);
+    build.textContent = hasPlan ? 'Rebuild the plan' : 'Build the plan';
+  }
+  if(send){
+    send.classList.toggle('btn-gold', !!hasPlan);
+    send.classList.toggle('btn-outline', !hasPlan);
+    /* ⚠ IT NAMES THE CAP, NOT THE QUEUE. "Send 955 now" is the press she is trying to stop
+       making; what this button actually sends is one day's worth. */
+    send.textContent = hasPlan
+      ? ('Send today\u2019s ' + Math.max(1, Number(perDay) || RSVP_DRIP_DEFAULT_PER_DAY) + ' now')
+      : 'Send today\u2019s batch now';
+  }
+}
 function rsvpDripRender(){
   const box = document.getElementById('rsvpDripBody');
   if(!box) return;
@@ -19643,9 +19693,18 @@ function rsvpDripRender(){
     }
   }
 
+  /* ⭐ THE BUTTON THAT IS THE NEXT STEP IS THE GOLD ONE, and it NAMES the number it will
+     send. Addie asked twice for "a button that lets us send 200 emails a day" when both the
+     button and the schedule were already there — which says the card was not making either
+     obvious, not that they were missing. A button reading "Send today's batch now" in outline
+     grey beside a gold one is the measure tool's two-commit-buttons failure: the gold one
+     reads like the finish line. ⚠ ONE OF THE TWO, NEVER BOTH: `rsvpDripSetButtons` sets and
+     CLEARS both classes on every draw, because a class added and never removed is how they
+     both end up gold after the first rebuild. */
   const plan = (typeof rsvpWholePlan === 'function') ? rsvpWholePlan() : null;
   if(!plan || !plan.ready){
     box.innerHTML = '<p class="form-note" style="margin:0;">' + esc((plan && plan.why) || 'The customer list has not loaded yet.') + '</p>';
+    rsvpDripSetButtons(false, 0);
     return;
   }
   const owedNow = plan.standard.length + plan.arrears.length;
@@ -19663,6 +19722,7 @@ function rsvpDripRender(){
   };
 
   if(!queue || !queue.length){
+    rsvpDripSetButtons(false, per);
     /* ⚠ THE TWO EMAILS ARE NAMED BEFORE A PLAN EXISTS, not only after. "It will use your
        RSVP templates" is a claim; the names are the proof, and this is the moment she can
        still fix a missing one without having built anything. */
@@ -19684,6 +19744,7 @@ function rsvpDripRender(){
     return;
   }
 
+  rsvpDripSetButtons(true, per);
   /* ⚠ THE FIRST BATCH IS TOMORROW ONCE TODAY'S HAS GONE — see rsvpDripSchedule. */
   const startFrom = new Date();
   if(ranToday) startFrom.setDate(startFrom.getDate() + 1);
@@ -19785,7 +19846,7 @@ function rsvpWholeSendWarning(total){
   if(!(Number(total) > RSVP_DRIP_DEFAULT_PER_DAY)) return '';
   return '\n\nThat is more than ' + RSVP_DRIP_DEFAULT_PER_DAY + ' in one go, which is '
     + 'where Gmail has stopped a send before — and a send it stops partway has to '
-    + 'be worked out by hand afterwards. The card underneath this one spreads the '
+    + 'be worked out by hand afterwards. The RSVP tab beside this one spreads the '
     + 'same list over several mornings instead.';
 }
 document.getElementById('rsvpDripBuildBtn')?.addEventListener('click', async function(){
