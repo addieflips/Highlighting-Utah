@@ -4160,6 +4160,13 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
             ⚠ **The tab draws on open**, the way the Invoices tab does — `rsvpDrip` is a
             deferred render and `flushPendingRenders` fires on the PANEL opening, so switching
             tabs inside an already-open Automation Emails would otherwise show nothing.
+          - ⚠ **AND WITH NO PLAN IT NAMES ONLY ONE NEXT STEP.** The card used to read *"Nothing
+            is sent until you switch it on or press Send today's batch now"* — and both of those
+            are REFUSED until a plan exists (the button answers "There is no plan to send", the
+            switch refuses to arm). So the one sentence saying what to do next named two presses
+            that cannot work. It names **Build the plan** alone. That is this repo's "a message
+            that is on screen and cannot be true" failure, which it has paid for at least three
+            times, so the no-plan branch is asserted rather than only corrected.
           - ⭐ **WHICH BUTTON IS GOLD MOVES WITH THE NEXT STEP** (`rsvpDripSetButtons`). Addie
             asked twice for *"a button that lets us send 200 emails a day"* when both the button
             and the schedule were already there — which says the card was not making either
