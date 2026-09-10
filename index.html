@@ -7426,8 +7426,29 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
   if(!currentLookupRecord && !currentJobAddressId){ statusEl.textContent = 'Please look up your invoice first.'; return; }
   var newPref = document.getElementById('schedSelect').value;
   var newWireColor = document.getElementById('wireColorSelect').value;
-  var newOutletTimer = document.querySelector('input[name="changes_outlet_timer"]:checked').value;
-  var newSpecificOutlet = document.querySelector('input[name="changes_specific_outlet"]:checked').value;
+  /* ⭐ NEITHER RADIO HAS A DEFAULT, SO NEITHER IS ALWAYS ANSWERED (2026-09-10, from the Errors folder).
+     `querySelector(':checked')` returns null when nothing is ticked, and `.value` on that
+     throws — which took the whole save down before a single field was read. Found in the
+     Errors folder: a real customer on an iPhone, "null is not an object (evaluating
+     'document.querySelector('input[name="changes_outlet_timer"]:checked').value')".
+     ⚠ THE CRASH WAS THE SMALL HALF. It happened on a page opened from an RSVP link
+     (`&rsvp=yes`), so the answer went down with it — and the apology tells them to ring
+     us while `portalCallFailedText` files it under Member Errors. To that customer it
+     looks like they already replied, and because only people who have answered are
+     scheduled, nobody is sent to their house.
+     ⚠ FALLS BACK TO WHAT THE RECORD ALREADY HOLDS, never to a fresh answer. A blank
+     never wipes what is on file — the rule the sheet sync, the bulk importer and the
+     schedule sync all already follow.
+     ⚠ AND THE FALLBACK IS `'No'` TO MATCH THE COMPARISON BELOW, which reads a missing
+     timer as 'No' (`(currentJobAddressData.outletTimer || 'No')`). Anything else makes an
+     untouched radio read as a CHANGE — and `outletTimer` is one of the three
+     WAREHOUSE_BUILD_FIELDS, so that would queue a rebuild for a house nobody touched. */
+  var outletTimerEl = document.querySelector('input[name="changes_outlet_timer"]:checked');
+  var newOutletTimer = outletTimerEl ? outletTimerEl.value
+    : ((currentJobAddressData && currentJobAddressData.outletTimer) || 'No');
+  var specificOutletEl = document.querySelector('input[name="changes_specific_outlet"]:checked');
+  var newSpecificOutlet = specificOutletEl ? specificOutletEl.value
+    : ((currentJobAddressData && currentJobAddressData.specificOutlet) || 'No');
   var newSpecificOutletNotes = newSpecificOutlet === 'Yes' ? document.getElementById('changesSpecificOutletNotes').value.trim() : '';
   var newNotes = document.getElementById('changesNotes').value.trim();
   btn.disabled = true;

@@ -3253,6 +3253,50 @@ that the customer may ring. An admin row names who was signed in and, for emails
 did not go out and what the mail service said — a count the status line showed and then
 threw away the moment she clicked anything else.
 
+#### What the folder has already caught (2026-09-10)
+
+The first real read of these rows found three faults and one data problem. Recorded here
+because the folder earning its keep within two days is the argument for it.
+
+- ⭐ **The preferences form crashed for anybody who never ticked the outlet radios.**
+  Neither `changes_outlet_timer` nor `changes_specific_outlet` carries `checked` in the
+  markup, and both were read as `document.querySelector('…:checked').value` — which is
+  `null.value` when nothing is ticked, so the whole save died before a single field was
+  read. Now falls back to what the record already holds, else `'No'`.
+  - ⚠ **The fallback is `'No'` to match the change test below it**, which reads a missing
+    timer as `'No'`. Anything else makes an untouched radio look CHANGED, and
+    `outletTimer` is one of the three `WAREHOUSE_BUILD_FIELDS` — that would queue a
+    bundle rebuild for a house nobody touched.
+  - ⚠ **The crash was the small half.** It arrived on a page opened from an RSVP link
+    (`&rsvp=yes`), so the customer's answer went down with it. Only people who have
+    answered are scheduled, so that is a house no crew is sent to — while the apology
+    tells them to ring us and to them it looks like they already replied.
+  - Covered by SCENARIO 7 of `portal-repro.test.js`, which runs the real lines out of
+    `index.html` against the real page's DOM. 4 sabotages red-checked.
+- ⭐ **Edit Customer save was failing outright, twice, and the report named nothing
+  fixable.** "null is not an object (evaluating `s.indexOf`)" on Safari and "Cannot read
+  properties of null (reading 'indexOf')" on Chrome — one fault, two wordings.
+  - ⚠ **NOT DIAGNOSED, AND DELIBERATELY NOT GUESSED AT.** All four `.indexOf` call sites
+    reachable from that handler were checked and every one is correctly guarded
+    (`Array.isArray` on both colour comparisons, `String(x||'')` in
+    `rsvpTemplateHasReferral`, `custInvoiceKey` can only return a string). `s` is not a
+    variable in `admin.html` at all — a single letter means minified third-party code, so
+    the throw is inside the Firebase SDK and the likeliest cause is a document id
+    reaching `doc()` as null. **Which** id is the part nothing recorded.
+  - So the catch now reports the first two stack frames. The next occurrence names its
+    own function instead of costing another read of a 1,400-line handler. Two frames, not
+    the whole stack: `messages` is capped at 5,000 characters on create by
+    `firestore.rules`, and a refused write is how this reporter goes silent.
+- ⚠ **An "Unhandled promise: Missing or insufficient permissions" row is not necessarily
+  an auth fault** — §5 records that the same wording is what Firestore returns when a
+  `messages` write breaks the 5,000-character cap. Check the rule's CONTENT conditions
+  before its auth ones.
+- ⛔ **And six customers' RSVP answers were lost** — `internal` and `deadline-exceeded`
+  out of `portalRsvp`, meaning the Cloud Function threw or timed out. Those are people who
+  opened the email, pressed the button, and were not recorded. They read as non-repliers,
+  so `isOutForSeason` drops them. **The rows are the only record that they answered at
+  all**, which is the whole reason this folder exists.
+
 ### The Communication Centre — type, status, category, priority
 
 Added 2026-09-09 ([[MSG-11]]). Addie's blueprint: *"Do NOT simply create more folders.
