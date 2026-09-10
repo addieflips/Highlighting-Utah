@@ -231,7 +231,8 @@ const CONTACT_SRC =
   liftConst('MSG_TYPE_MEMBER') + liftConst('SYSTEM_NOTICE_TOPICS') +
   liftFn('esc') + liftFn('fmtPhone') + liftFn('msgTypeOf') +
   liftFn('msgErrorTokenTail') + liftFn('msgErrorWhoIs') +
-  liftFn('msgContactCustomer') + liftFn('msgContactFor') + liftFn('msgContactLineHtml');
+  liftFn('msgContactCustomer') + liftFn('msgContactFor') +
+  liftFn('msgContactPreference') + liftFn('msgContactLineHtml');
 const cb = {};
 new Function('MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'jobAddresses',
   CONTACT_SRC + 'this.line = msgContactLineHtml; this.contact = msgContactFor;')
@@ -256,9 +257,20 @@ const SOLO  = {id:'c3', data:{name:'Ada Frost',  phone:'8015550999',     email:'
 {
   const html = withBook([SOLO]).line({topic:'General Question', name:'Ada Frost',
     phone:'8015550999', email:'ada@example.com', message:'hello'});
-  check('a message that carries both shows both, as links you can press',
-    /href="tel:8015550999"/.test(html) && /href="mailto:ada@example\.com"/.test(html),
+  /* ⚠ REPOINTED 2026-09-10, NOT WEAKENED ([[MSG-16]]). These asserted `tel:` and `mailto:`
+     links, which Addie has since reversed: "I want to be able to copy and paste phone number
+     and email but not a link." R-024 — the newer answer wins. What must still be true is that
+     BOTH details reach the row and can be taken off it. */
+  check('a message that carries both shows both, as text you can take',
+    /row-contact-val">\(801\) 555-0999</.test(html) &&
+    /row-contact-val">ada@example\.com</.test(html),
     html);
+  check('and neither is a link',
+    !/href="tel:/.test(html) && !/href="mailto:/.test(html) && !/<a /.test(html),
+    'a link is what stops a drag-to-select, which is the thing she actually does with these');
+  check('and each has a Copy button carrying exactly what is shown',
+    /data-copyval="\(801\) 555-0999"/.test(html) && /data-copyval="ada@example\.com"/.test(html),
+    'what you see is what you paste is the only rule nobody has to be told');
   check('and it does not claim they came from the record',
     !/from their record/.test(html), html);
   check('the number is shown the way the office writes it, not as ten bare digits',
@@ -270,7 +282,7 @@ const SOLO  = {id:'c3', data:{name:'Ada Frost',  phone:'8015550999',     email:'
   const html = withBook([SOLO]).line({topic:'Light Color Change', name:'Ada Frost',
     phone:'8015550999', message:'red and green please'});
   check('an email missing from the message is filled in from their record',
-    /mailto:ada@example\.com/.test(html), html);
+    /ada@example\.com/.test(html), html);
   check('and the row says that is where it came from',
     /from their record/.test(html),
     'the office should be able to tell their own answer from one we worked out');
@@ -285,7 +297,7 @@ const SOLO  = {id:'c3', data:{name:'Ada Frost',  phone:'8015550999',     email:'
     c.email === '',
     'got ' + JSON.stringify(c) + ' — mailing the wrong half of a household is worse than mailing neither');
   check('but the number they actually gave us is still offered',
-    /href="tel:8015550111"/.test(o.line({topic:'General Question', phone:'(801) 555-0111', message:'x'})),
+    /\(801\) 555-0111/.test(o.line({topic:'General Question', phone:'(801) 555-0111', message:'x'})),
     'refusing the lookup must not throw away what the message itself carried');
 }
 {
@@ -307,7 +319,7 @@ const SOLO  = {id:'c3', data:{name:'Ada Frost',  phone:'8015550999',     email:'
   const html = withBook([DANA]).line({topic:'Member Error',
     message:'RSVP failed at /#/?token=' + '…' + 'w5o9tx&rsvp=back'});
   check('a Member Error with no contact of its own is reached through their link',
-    /tel:8015550111/.test(html) && /mailto:dana@example\.com/.test(html),
+    /\(801\) 555-0111/.test(html) && /dana@example\.com/.test(html),
     'this is the row you most want to ring, and it offered no way to: ' + html);
 }
 {
@@ -318,7 +330,7 @@ const SOLO  = {id:'c3', data:{name:'Ada Frost',  phone:'8015550999',     email:'
   const html = withBook([DANA, twin]).line({topic:'Member Error',
     message:'RSVP failed at /#/?token=' + '…' + 'w5o9tx&rsvp=back'});
   check('two customers behind one link resolves to neither',
-    !/mailto:/.test(html), html);
+    !/@example\.com/.test(html), html);
 }
 
 /* 5 — a route sweep has no customer behind it, so it gets no line. */
@@ -366,19 +378,23 @@ const SOLO  = {id:'c3', data:{name:'Ada Frost',  phone:'8015550999',     email:'
 {
   const html = withBook([]).line({topic:'General Question', phone:'+1 (801) 555-0999 ext 4',
     message:'x'});
-  check('punctuation is stripped out of the tel: link but kept in what is shown',
-    /href="tel:\+18015550999"/.test(html) && /\+1 \(801\) 555-0999 ext 4/.test(html), html);
-  /* ⚠ THIS CHECK FOUND A REAL ONE. Stripping punctuation alone turned that number into
-     tel:+180155509994 — the 4 of "ext 4" welded on the end. Eleven digits, dials
-     perfectly, and reaches a stranger. */
-  check('an extension is not welded onto the end of the number',
-    !/8015550999\d/.test(html), html);
+  /* ⚠ THE TRAP THESE TWO GUARDED IS GONE WITH THE LINK, and that is recorded rather than
+     left as two checks that can no longer fail. The old pair proved a `tel:` href was built
+     from the digits without welding "ext 4" onto the end — a number that dialled perfectly
+     and reached a stranger. There is no href now ([[MSG-16]]), so there is nothing to build
+     wrongly; what is left to hold is that the number reaches the row EXACTLY as stored,
+     notes and all, because that is what somebody is about to copy. */
+  check('a number with an extension is shown exactly as it was typed',
+    /\+1 \(801\) 555-0999 ext 4/.test(html), html);
+  check('and it is copied exactly as it is shown, extension included',
+    /data-copyval="\+1 \(801\) 555-0999 ext 4"/.test(html),
+    'pasting a number without its extension is the same wrong call by another route');
 }
 {
   const html = withBook([]).line({topic:'General Question', phone:'801-55', message:'x'});
-  check('a number too short to ring is shown but not made a link',
-    /801-55/.test(html) && !/href="tel:/.test(html),
-    'a link that dials four digits is a wrong call somebody makes by accident: ' + html);
+  check('a half-typed number is still shown, and is still copyable',
+    /801-55/.test(html) && /data-copyval="801-55"/.test(html),
+    'it is what the office has: ' + html);
 }
 
 /* 9 — a contact detail is text somebody typed, so it is escaped where it is written into
@@ -386,10 +402,82 @@ const SOLO  = {id:'c3', data:{name:'Ada Frost',  phone:'8015550999',     email:'
 {
   const html = withBook([]).line({topic:'General Question',
     email: 'a"b<script>@example.com', message:'x'});
-  check('a quote in an address cannot break out of the href',
-    html.indexOf('mailto:a"b') === -1 && /mailto:a&quot;b/.test(html), html);
+  /* ⚠ THE ATTRIBUTE IT COULD BREAK OUT OF IS NOW data-copyval, NOT href. The risk did not
+     go away with the link — it moved — and an unescaped quote there ends the attribute and
+     puts the rest of the address into the markup as code. */
+  check('a quote in an address cannot break out of the copy attribute',
+    html.indexOf('data-copyval="a"b') === -1 && /a&quot;b/.test(html), html);
   check('and it cannot inject markup either',
     html.indexOf('<script>') === -1, html);
+}
+
+/* ⭐ HOW THEY ASKED TO BE REACHED ([[MSG-16]], 2026-09-10)
+   Addie: "we can no longer see how someone prefers to be contacted. Can you make sure that
+   is still shown in there request?"
+   ⚠ IT WAS NEVER REMOVED AND SHE IS STILL RIGHT — [[MSG-14]] left it behind in the small
+   grey meta line with the date while the contact details moved up, so the line she had
+   learned to scan no longer had any contact on it and the preference went with the part she
+   stopped reading. Rendered is not the same as seen. It sits ON the contact line now,
+   against the detail it is an instruction about. */
+{
+  const book = [SOLO];
+  const line = function(pref){
+    return withBook(book).line({topic:'General Question', name:'Ada Frost',
+      phone:'8015550999', email:'ada@example.com', contactMethod:pref, message:'x'});
+  };
+  check('a texting preference is shown, beside the phone',
+    /Text them/.test(line('Text')), line('Text'));
+  /* ⚠ CALL AND TEXT BOTH POINT AT THE PHONE AND ARE NOT THE SAME INSTRUCTION. Ringing
+     somebody who asked to be texted is the mistake this exists to stop, so the WORDS have
+     to travel — a highlight on the right detail cannot tell the two apart. */
+  check('and a calling preference says something different',
+    /Call them/.test(line('Call')) && !/Text them/.test(line('Call')));
+  check('an email preference is shown too',
+    /Email them/.test(line('Email')));
+  /* ⚠ IT IS ON THE CONTACT LINE, NOT IN THE META LINE WITH THE DATE. That is the whole of
+     what she reported: the words were there and she could not see them. */
+  check('the preference is on the contact line, not by the date',
+    /row-contact[^>]*>[^<]*(<[^>]+>[^<]*)*Text them/.test(line('Text')) ||
+    line('Text').indexOf('Text them') < line('Text').indexOf('row-contact-src') ||
+    /row-contact-pref/.test(line('Text')),
+    'beside the date it was trivia; beside the number it is an instruction');
+  /* ⚠ COMMENTS STRIPPED, AND SCOPED TO THE ROW. The first version searched all of admin.html
+     and matched [[MSG-14]]'s own explanatory paragraph — the one describing the `rmeta` line
+     that used to run "Prefers text" together with the date. It read the explanation as the
+     code and failed on a file that is right: the trap Suites 58, 274, 275, 300 and the
+     duplicate-prefix gate have each already learned. */
+  const rowSrc = (function(){
+    const a = admin.indexOf('function renderMessagesList(');
+    const b = admin.indexOf("'<div class=\"rtext\">'", a);
+    return admin.slice(a, b).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
+  })();
+  check('and it is not also left in the meta line',
+    /rmeta/.test(rowSrc) && !/rmeta[\s\S]{0,120}Prefers/.test(rowSrc),
+    'two copies of one fact is how they start disagreeing, and the grey one wins');
+
+  /* ⚠ ANYTHING WE DO NOT RECOGNISE IS KEPT VERBATIM, never guessed at. The field is free
+     text on an imported record; reading "do not ring before 6" as a phone preference is how
+     somebody gets rung who asked for anything but. */
+  const odd = line('do not ring before 6');
+  check('an answer nobody anticipated is shown exactly as written',
+    /do not ring before 6/.test(odd), odd);
+  check('and is not guessed onto the phone or the email',
+    !/Call them|Text them|Email them/.test(odd),
+    'a guess here is a wrong call, which is the one thing this field exists to prevent');
+
+  /* ⭐ AND A PREFERENCE WE CANNOT ACT ON IS THE ONE MOST WORTH SAYING. Somebody who asked to
+     be emailed and left no email currently reads as an ordinary row with a phone number on
+     it, and nothing anywhere says they did not want it used. */
+  const stranded = withBook([]).line({topic:'General Question', name:'No Email',
+    phone:'8015550999', contactMethod:'Email', message:'x'});
+  check('asking for an email we do not have is said out loud',
+    /row-contact-warn/.test(stranded) && /no email/.test(stranded), stranded);
+  check('and a preference we CAN act on raises no warning',
+    !/row-contact-warn/.test(line('Text')));
+
+  check('no preference on the message says nothing at all',
+    !/row-contact-pref/.test(line('')) && !/row-contact-warn/.test(line('')),
+    'most portal-raised messages carry none, and a label on every one of them is noise');
 }
 
 /* 10 — ⚠ THE WIRING IS ASSERTED SEPARATELY FROM THE MECHANISM, because this suite calls

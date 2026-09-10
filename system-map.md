@@ -3349,6 +3349,28 @@ are listed at the bottom of the sidebar with a one-click way back.
 at the same moment, the last save wins — they change rarely enough that this is the right
 trade, and it is the same one the scheduling settings already make.
 
+**And how they asked to be reached** ([[MSG-16]], 2026-09-10). Addie: *"we can no longer see how
+someone prefers to be contacted."* It had not been removed — it was sitting in the small grey
+line with the date, which is the line that stopped carrying anything you needed once the phone
+and email moved up. It is now **on the contact line**, against the detail it is about:
+*Text them* beside the number, *Email them* beside the address.
+
+⚠ Call and text are shown as **different instructions**, never as a highlight on the same
+number — ringing somebody who asked to be texted is the whole thing this prevents. Anything
+that isn't one of the three is shown **exactly as written** rather than guessed at.
+
+⚠ **If they asked for something we do not have** — an email preference with no email on file —
+the row says so in red. That used to be invisible: it looked like an ordinary row with a phone
+number on it and nothing saying they had not wanted it used.
+
+⭐ **The phone and email are plain text with a Copy button, not links** — Addie: *"I want to be
+able to copy and paste phone number and email but not a link."* This reverses half of
+[[MSG-14]], which made them `tel:`/`mailto:`; the older reasoning was sound (on a phone a link
+is one press) but it cost the thing she actually does, because dragging to select inside a link
+follows the link instead. **Copy takes exactly what is on screen** — the number with its
+punctuation and extension, the address as typed. If the browser refuses to copy, it says so
+and tells you to select and press Ctrl+C; it never just does nothing.
+
 **How to reach them** ([[MSG-14]], 2026-09-09). Addie: *"on inbox can you show email and
 phone number under name so I can communicate with them?"* The phone and the email now sit on
 their **own line directly under the name**, as a `tel:` link and a `mailto:` link she can
