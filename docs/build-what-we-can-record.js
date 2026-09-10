@@ -45,7 +45,7 @@ const PROSE = {
   notes:              ['Anything standing that is always true about the house.', 'the quote form and the office'],
   oneTimeNote:        ['Something true for this visit only.', 'the office'],
   wantsMailedInvoice: ['Whether they want the bill posted rather than emailed.', 'the quote form'],
-  numberOfBins:       ['How many bins their lights fill. Worked out from the feet, never asked.', 'derived — one bin per 260 ft'],
+  numberOfBins:       ['How many bins their lights fill. Worked out from the feet, never asked.', 'derived — one bin per 320 ft'],
   difficulty:         ['How hard the house is to do.', 'the office'],
 };
 

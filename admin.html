@@ -1679,7 +1679,7 @@
             <div class="form-row" style="max-width:180px; margin-top:12px;"><label>Number of Bins</label><input type="number" id="addCustBins" min="1" step="1" value="1"></div>
             <div class="form-row" style="max-width:220px; margin-top:12px;"><label>Customer # (optional)</label><input type="text" id="addCustNumber" placeholder="Assigned automatically"></div>
             <div id="addCustNumberPreview" style="font-size:12.5px; font-weight:600; margin-top:4px;"></div>
-            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Leave it blank and you can assign the next available one from Customer Numbers. Normally left blank &mdash; the number is picked for you from Measured Feet. Over 260 feet means 2 bins and the next free 5000-series number; anything up to 260 means 1 bin and the next free regular number. Without Measured Feet no number is given.</p>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Leave it blank and you can assign the next available one from Customer Numbers. Normally left blank &mdash; the number is picked for you from Measured Feet. Over 320 feet means 2 bins and the next free 5000-series number; anything up to 320 means 1 bin and the next free regular number. Without Measured Feet no number is given.</p>
             <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:12px;"><input type="checkbox" id="addCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
           </div>
           <!-- Filled in by showAddCustMissing() when Add Customer is pressed with
@@ -1907,7 +1907,7 @@
               <div class="form-row">
                 <label>Measured Feet (optional) <span class="bulk-count" id="rbCountFeet">0 rows</span></label>
                 <textarea id="rbFeetArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="230&#10;490&#10;(blank = leave as is)"></textarea>
-                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">The <strong>#&nbsp;Feet</strong> column off the master sheet. This is the one that drives everything else &mdash; how many bins the house needs, how many bundles the warehouse builds, and the per-foot price. Filling it in also sets <strong>Number of Bins</strong> to match: one bin up to 260&nbsp;ft, another for every 260&nbsp;ft after that. Blank leaves both alone.</p>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">The <strong>#&nbsp;Feet</strong> column off the master sheet. This is the one that drives everything else &mdash; how many bins the house needs, how many bundles the warehouse builds, and the per-foot price. Filling it in also sets <strong>Number of Bins</strong> to match: one bin up to 320&nbsp;ft, another for every 320&nbsp;ft after that. Blank leaves both alone.</p>
               </div>
               <div class="form-row">
                 <label>Crew Notes (optional) <span class="bulk-count" id="rbCountNotes">0 rows</span></label>
