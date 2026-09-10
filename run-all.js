@@ -56413,20 +56413,46 @@ suite('Suite 318. A crew-day is a patch of map, not a town');
           'at 20 degrees it is below COLD_DAY_MAX_F and must not be offered the first day while warmer work is waiting');
       }
 
-      /* ---- an outlier keeps its town ---- */
+      /* ---- an outlier gets a day of its own, and one person on it ---- */
       {
-        /* one house on its own, far from everybody: grid.js calls it an outlier, and
-           an area of one IS a one-man day. Dax: "what we want to minimize the most is
-           one man days", so it falls back to its town instead. */
+        /* ⛔ REPOINTED 2026-09-10 BY [[SCH-69]], REVERSING WHAT I DECIDED THE DAY
+           BEFORE. It read:
+             "a house too far from everybody is left in its town, not given a block"
+               !out.area
+           on the argument that an area of one IS a one-man day and Dax had said "what
+           we want to minimize the most is one man days". He corrected it: "if someone
+           is way out of the way as an outlier they should fall into a one man day so a
+           full crew isnt being paid to go that far out." Minimising one-man days was
+           never an argument for sending FOUR people forty miles to hang one house — a
+           crew-day is four wages, and no measurement in this repo was counting them.
+           His own earlier ruling says it from the other side: "high milage is better
+           for a one man than a one crew or two crew." */
         const lonely = houses.map(w => Object.assign({}, w));
         lonely.push({ id: 'levan0', city: 'Levan', priority: 30, townPriority: 30,
           named: false, from: '2026-10-01', missed: 0,
           stop: { id: 'levan0', lat: 39.5540, lng: -111.8620, name: 'levan0' } });
         A.areas(lonely, 20);
         const out = lonely.filter(w => w.id === 'levan0')[0];
-        check('S318', 'a house too far from everybody is left in its town, not given a block',
-          !out.area,
-          'got ' + out.area + ' — an area of one is a one-man day built on purpose');
+        check('S318', 'a house too far from everybody gets an area of its own',
+          !!out.area && /^x:/.test(out.area),
+          'got ' + out.area + ' — an area of one is a one-man day, which is the point: a full crew must not be paid to drive that far for one house');
+        /* ⚠ AND EACH OUTLIER GETS ITS OWN, WHICH TAKES TWO OF THEM IN THE FIXTURE.
+           With one, "shares with nobody" is true however the areas are handed out — a
+           red-check that gave every outlier the SAME area walked straight through it.
+           Two, far apart, is what tells "an area of its own" from "an outlier area",
+           and one shared area would send a van from Levan to St George. */
+        check('S318', 'and shares that area with nobody',
+          lonely.filter(w => w.area === out.area).length === 1,
+          'an outlier bundled in with other houses is a crew-day wearing a one-man label');
+        lonely.push({ id: 'stgeorge0', city: 'St George', priority: 30, townPriority: 30,
+          named: false, from: '2026-10-01', missed: 0,
+          stop: { id: 'stgeorge0', lat: 37.0965, lng: -113.5684, name: 'stgeorge0' } });
+        A.areas(lonely, 20);
+        const out2 = lonely.filter(w => w.id === 'stgeorge0')[0];
+        const out1 = lonely.filter(w => w.id === 'levan0')[0];
+        check('S318', 'and two outliers get an area each, not one between them',
+          !!out1.area && !!out2.area && out1.area !== out2.area,
+          'got ' + out1.area + ' and ' + out2.area + ' — one shared area is a crew-day wearing a one-man label');
       }
 
       /* ---- the fallback, which is what keeps every older fixture honest ---- */
@@ -56775,5 +56801,109 @@ suite('Suite 320. Nobody is on a day with nobody holding their sheet');
         held.size === houses.length,
         'got ' + held.size + ' of ' + houses.length + ' — this is the exact shape he was looking at: ten towns, four of them covered by the crew towns');
     }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite 321. One person goes to the outlier, not a crew.
+ *
+ * Dax, 2026-09-10: "if someone is way out of the way as an outlier they should
+ * fall into a one man day so a full crew isnt being paid to go that far out."
+ *
+ * ⛔ THIS REVERSES A CALL MADE THE DAY BEFORE, in [[SCH-63]]: outliers were left
+ * in their town precisely BECAUSE an area of one becomes a one-man day, on the
+ * argument that he had asked for fewer of those. He had — but that was never an
+ * argument for sending four people forty miles to hang one house. A crew-day is
+ * four wages and nothing in this repo was counting them.
+ *
+ * ⚠ AND THE FIRST HALF ALONE WOULD HAVE MADE THINGS WORSE. Giving the outlier its
+ * own area produces a crew-day of one house — which then shares its DATE with a
+ * full run, so isOneManDay (a property of the date) is false and the office
+ * rosters two full crews. That is the very thing he asked to stop, arriving one
+ * step later. crewIsOneMan is the half that closes it.
+ */
+suite('Suite 321. One person goes to the outlier, not a crew');
+{
+  const oneManSrc = extractFn(admin, 'isOneManDay');
+  const crewSrc = extractFn(admin, 'crewIsOneMan');
+  const runsSrc = extractFn(admin, 'oneManCrewRuns');
+  if (!oneManSrc || !crewSrc || !runsSrc) {
+    check('S321', 'the one-man rules are findable', false,
+      'renamed — repoint this rather than stubbing one');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    /* crewHousesFor is the input here — this is about what the RULES make of a
+       split, not about how the split was arrived at. */
+    const api = new Function('byCrew', 'CAP',
+      'function oneManMaxHouses(){ return CAP; }' + LF_ +
+      'function dayLimitFor(){ return null; }' + LF_ +
+      'function crewIndexes(){ return byCrew.map(function(_, i){ return i; }); }' + LF_ +
+      'function crewHousesFor(i){ return byCrew[i] || []; }' + LF_ +
+      'function installDays(){ return [DAY]; }' + LF_ +
+      'function cityOf(h){ return h.city; }' + LF_ +
+      'const DAY = {houses: byCrew.reduce(function(a, b){ return a.concat(b); }, [])};' + LF_ +
+      oneManSrc + LF_ + crewSrc + LF_ + runsSrc + LF_ +
+      'return {day: DAY, isDay: isOneManDay(DAY), ' +
+      'solo: function(i){ return crewIsOneMan(DAY, i); }, runs: oneManCrewRuns()};');
+
+    const house = (n, town) => ({ id: n, city: town || 'Lehi', name: n });
+    const many = (n, town) => Array.from({length: n}, (_, i) => house(town + i, town));
+
+    /* ⚠ THE FIXTURE IS THE WHOLE POINT: a full run and a run of one, on ONE date.
+       That is Levan beside Lehi, and it is the case the day-level rule cannot see. */
+    const mixed = api([many(20, 'Lehi'), [house('levan', 'Levan')]], 8);
+    check('S321', 'a date holding a full run and a single house is NOT a one-man date',
+      mixed.isDay === false,
+      'twenty-one houses is not one person\u2019s day, and pretending otherwise would put the full run on one pair of hands');
+    check('S321', 'but the run of one IS one person',
+      mixed.solo(1) === true,
+      'this is the ruling: the date is not what is being paid for, the crew is');
+    check('S321', 'and the full run beside it is not',
+      mixed.solo(0) === false,
+      'if every run read as one-man the badge would mean nothing');
+
+    /* ⚠ AND IT REACHES THE TAB, which is the only place the office would see it.
+       A rule nobody is shown rosters nobody differently. */
+    check('S321', 'the thin run is listed for the office to roster',
+      mixed.runs.length === 1 && mixed.runs[0].crew === 1 &&
+      mixed.runs[0].houses.length === 1,
+      'got ' + JSON.stringify(mixed.runs.map(r => ({crew: r.crew, n: r.houses.length}))));
+
+    /* ⛔ AND THE TAB ACTUALLY SHOWS THEM. Suite 321 calls oneManCrewRuns itself, so
+       gutting renderOneMan leaves every check above green while the office is shown
+       nothing — a red-check proved exactly that, and a rule nobody is shown rosters
+       nobody differently. A WIRING assertion, deliberately apart from the mechanism. */
+    {
+      const tab = stripComments(extractFn(admin, 'renderOneMan'));
+      check('S321', 'the One Man tab asks for the thin runs and renders them',
+        /oneManCrewRuns\(\)/.test(tab) && /innerHTML[^;]*runRows/.test(tab),
+        "asking for them and not rendering them is the same as not asking");
+      check('S321', 'and counts them in the heading, so the tab is not quietly short',
+        /days\.length \+ runs\.length/.test(tab),
+        "a tab headed 2 while listing 5 is how somebody stops trusting it");
+    }
+
+    /* a date that is wholly one person is already listed as a DAY, and must not be
+       listed a second time as a run — the office would read two jobs where there is one */
+    const wholly = api([[house('a'), house('b')], []], 8);
+    check('S321', 'a wholly one-man date is still a one-man date',
+      wholly.isDay === true && wholly.solo(0) === true,
+      'the day rule is completed by the crew rule, not replaced by it');
+    check('S321', 'and is not listed twice',
+      wholly.runs.length === 0,
+      'it is already on the tab as a day; a second row is two jobs where there is one');
+
+    /* an empty run is nobody\u2019s day */
+    const empty = api([many(20, 'Lehi'), []], 8);
+    check('S321', 'a crew with nothing to do is not "one person"',
+      empty.solo(1) === false && empty.runs.length === 0,
+      'rostering somebody for an empty run is a job on the board with nobody on it');
+
+    /* the boundary is the same number the rest of the app uses */
+    const atCap = api([many(20, 'Lehi'), many(8, 'Payson')], 8);
+    const overCap = api([many(20, 'Lehi'), many(9, 'Payson')], 8);
+    check('S321', 'eight is one person and nine is a crew, the same as everywhere else',
+      atCap.solo(1) === true && overCap.solo(1) === false,
+      'a second opinion about how big a one-man day is would put the tab and the badge in disagreement with the day list');
   }
 }

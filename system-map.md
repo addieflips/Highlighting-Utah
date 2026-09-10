@@ -2524,6 +2524,41 @@ the hand-back is still a hand-back rather than a leveller.
 re-asserted beside the three-crew ones, because the expensive failure is not "three does
 not work", it is "three works and two quietly changed".*
 
+### Who goes to the house that is miles from anywhere
+
+Added 2026-09-10. Dax: *"if someone is way out of the way as an outlier they should fall
+into a one man day so a full crew isnt being paid to go that far out."*
+
+An outlier — a house with fewer than eight others within ten miles — now gets an **area
+of its own**, which makes it a crew-day of one house. ⛔ **This reverses the call made
+the day before**, which left outliers in their town precisely *because* an area of one
+becomes a one-man day (measured: one-man days 1 → 3). That argument was sound about the
+wrong cost. Minimising one-man days was never a reason to send **four people** forty
+miles to hang one house — and his own earlier ruling says so: *"high milage is better for
+a one man than a one crew or two crew."* A crew-day is four wages; every mileage figure
+in this document prices fuel and none of them price people.
+
+⭐ **The first half alone would have made it worse**, and this is the part worth knowing.
+A crew-day of one house still *shares its date* with a full run — so the date holds 21
+houses, `isOneManDay` (a property of the **date**) is false, and the office rosters two
+full crews. One of them drives sixty miles for one house, which is exactly what he asked
+to stop. So being one person became a property of a **crew's run**: `crewIsOneMan`.
+
+It shows up in the two places the rostering is actually read — the route heading on the
+day panel badges the run **1 MAN**, and the One Man Installs tab now lists thin runs
+beside the whole days, under *"On a day somebody else is also working"*.
+
+⚠ **It completes the day rule rather than replacing it.** A date that is wholly one
+person is still one-man for everything it always was, and is deliberately not listed
+twice. ⚠ **And it predates the grid** — a thin crew-day beside a full one is what the
+town container did with Levan too.
+
+*Where it is proved*: run-all.js **Suites 318 and 321**. 7 sabotages red-checked; two
+were misses on the first pass — a fixture with only ONE outlier cannot tell "its own
+area" from "one shared outlier area", and nothing asserted that the tab actually renders
+the runs it asks for.
+*Rulings*: [[SCH-69]] in `claude/questions-map.md`.
+
 ### Nobody is on a day with nobody holding their sheet
 
 Added 2026-09-10. Dax, reading ten stops under *"Not on either crew's route"* after a
@@ -2620,7 +2655,15 @@ properly ([[SCH-66]]):
 So the grid costs **44 miles a season, about $10** — and buys about **two hours of
 driving back**, because those miles move off residential streets and onto the freeway.
 The break-even is a between-stops average of 31.6 mph; a crew stopping at every driveway
-is well under it. ⛔ **A "send them to the nearest area" tiebreak was tried and measured
+is well under it. ⛔ **And doing FEWER houses in a day does not save miles either** ([[SCH-68]]). Asked
+whether the builder should leave a day short when that comes out cheaper overall, it was
+measured: never topping a short day up costs **1108 miles and 24 working days** against
+**1067 and 22.3** as it ships. Every crew-day costs a drive out and back whatever it
+holds, so fewer, fuller days is the cheaper shape. The borrow radius was swept from 0 to
+20 miles across eight books: everything between 2 and 12 lands within **0.5%**, and one
+book alone made 5 miles look like a 1.4% winner. Nothing changed.
+
+⛔ **A "send them to the nearest area" tiebreak was tried and measured
 at two miles** — every area is worked once a season, so the total drive-out-and-back is
 fixed by how many crew-days there are, not by their order. `betterTown` carries that
 note so it is not re-attempted.
