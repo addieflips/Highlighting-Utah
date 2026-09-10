@@ -176,6 +176,100 @@ if (btn) {
     'change-log.test.js fails an unaccounted field the save writes');
 });
 
+/* ── 1b. The fourth door: the All Customers row panel ────────────────────────
+   ⚠ NOT COUNTED BY THE STAMP SWEEP ABOVE, because this writer has never set
+   lightsChangedVia — it does not charge, does not lock, and is not part of the
+   fee path. So it is named here explicitly, and that is the point: questions map
+   WH-22 records this exact panel being left behind when the build-flag rule was
+   fixed in the Edit Customer save five days earlier. One rule, two writers, one
+   repaired. It happened again with this rule, which is why it gets its own gate
+   rather than being trusted to the sweep. */
+function panelSrc() {
+  const at = admin.indexOf('function attachAddressRowHandlers(');
+  if (at < 0) return '';
+  let b = admin.indexOf('{', at), d = 0, k = b;
+  for (;;) { if (admin[k] === '{') d++; else if (admin[k] === '}') { d--; if (!d) break; } k++; }
+  return admin.slice(b + 1, k);
+}
+const panel = panelSrc();
+check('the All Customers row panel was found', !!panel,
+  'the checks below prove nothing against an empty string');
+if (panel) {
+  check('editing colours in the All Customers panel reaches the colour-change list',
+    /needsColorChange\s*=\s*true/.test(panel),
+    'this panel has its own lights picker — Dax: "if someone manually does their own ' +
+    'color change they go there". Without it, colours changed from the customer list ' +
+    'never reach the warehouse and it looks exactly like nobody having asked.');
+  check('and it copies the colours across',
+    /colorChangeColors\s*=/.test(panel),
+    'the printed row would have an empty Colors column');
+  /* ⚠ THE CALL IS NOT THE CLAIM — THE ANSWER BEING USED IS. A red-check that left
+     `applyLightChange(` in place and short-circuited its result went straight through
+     an earlier version of this check, which is the "matched the source of a message
+     that can never reach the screen" trap this repo has been caught by four times. */
+  check('it asks applyLightChange what counts as a change, and uses the answer',
+    /const\s+\w+\s*=\s*applyLightChange\s*\(/.test(panel) &&
+    /if\s*\(\s*\w+\.isChange\s*\)/.test(panel),
+    'a hand-rolled string comparison here would queue a colour change for somebody ' +
+    'filling their colours in for the FIRST time — which swept twelve ordinary new ' +
+    'customers onto the Color Changes sheet once already');
+  check('and it does not charge anybody',
+    !/LIGHT_CHANGE_FEE|askLightChangeFee/.test(panel) &&
+    !/changeFees\s*[:=][^=]/.test(panel),
+    'this panel has never charged for a colour change and this is not the change ' +
+    'that starts it — only isChange is read off the result. (Reading changeFees to ' +
+    'show an invoice status is fine and it does; WRITING one is what is banned.)');
+}
+
+/* ── 6. The printed sheet ────────────────────────────────────────────────────
+   Dax: "make sure there is a print button with numbered 1-whatever and then #CU
+   then name then colors they want then a empty column for checking." */
+check('there is a print button on the Color Change tab',
+  /id="whPrintColorChangeBtn"/.test(admin),
+  'the sheet cannot be reached without it');
+check('and it is wired to the printer',
+  /whPrintColorChangeBtn[\s\S]{0,400}addEventListener[\s\S]{0,120}whPrintColorChangeSheet/.test(admin) ||
+  /colorBtn\.addEventListener\('click',\s*whPrintColorChangeSheet\)/.test(admin),
+  'a button that renders and does nothing is worse than no button');
+check('the sheet is built from the same list the tab draws',
+  /function whSheetRowsForColorChange\(\)[\s\S]{0,600}whColorChangeHouses\(\)/.test(admin),
+  'a printed sheet that disagrees with the screen it was printed from is the bug ' +
+  'the two build sheets already had once');
+
+/* ⚠ THE NUMBER AND THE TICK COLUMN ARE ASSERTED AS *ABSENT* FROM THE COLUMN LIST,
+   which reads backwards until you know why: whSheetTable adds a "#" on the left and
+   a blank on the right of EVERY sheet, so declaring either here prints it twice.
+   The guarantee is that the shared renderer still does it — checked directly. */
+const CC_COLS = (/const WH_COLORCHANGE_COLUMNS = \[[\s\S]*?\];/.exec(admin) || [''])[0];
+check('the colour-change sheet declares its columns', !!CC_COLS,
+  'nothing below can be checked without them');
+if (CC_COLS) {
+  check('the sheet has a #CU column', /label:\s*'#CU'/.test(CC_COLS),
+    'Dax asked for the customer number by name');
+  check('the sheet has a name column', /key:\s*'what'/.test(CC_COLS),
+    '"then name"');
+  check('the sheet has a colours column', /label:\s*'Colors they want'/.test(CC_COLS),
+    '"then colors they want"');
+  check('it does not declare its own number or tick column',
+    !/label:\s*'#'/.test(CC_COLS) && !/'blank'|'tick'/.test(CC_COLS),
+    'whSheetTable adds both to every sheet — declaring them here prints them twice');
+}
+check('the shared renderer still numbers every row from 1',
+  /whSheetTable[\s\S]{0,900}<th class="num">#<\/th>/.test(admin) &&
+  /whSheetTable[\s\S]{0,1400}\(n\+1\)/.test(admin),
+  'Addie 2026-08-20: "every single list should be numbered 1- whatever on the left, ' +
+  'always starting with 1 even if its crew 2"');
+check('and still ends every row with a blank column to tick',
+  /whSheetTable[\s\S]{0,1400}<td class="blank"><\/td>/.test(admin),
+  '"and also a blank column on the right" — the column somebody ticks work off in');
+check('#CU on this sheet is the number on the record, not the bin label',
+  !/whBinNumberFor/.test((/function whSheetRowsForColorChange\(\)[\s\S]*?\n\}/.exec(admin) || [''])[0]),
+  'the recycle sheet asks which number is painted on the BIN because somebody is ' +
+  'fetching it; nobody is fetching anything here, so the number wanted is the ' +
+  'customer\'s own — and those two differ for every house whose footage moved it ' +
+  'between number series');
+
+
 console.log('');
 failures.forEach(f => console.log('  FAIL  ' + f));
 console.log((failures.length ? '\n' : '') + pass + ' passed, ' + fail + ' failed\n');

@@ -4513,6 +4513,7 @@
       <div class="gen-subtab-panel" id="whtab-colorchange">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
           <p class="form-note" style="margin:0;">Customers who asked for different colours &mdash; their new set needs making up. Anybody whose colours change lands here on their own, whether they did it in the Member Portal or the office typed it in; the button at the bottom of a customer's record sends one over by hand.</p>
+          <button type="button" class="btn btn-outline btn-sm" id="whPrintColorChangeBtn" style="flex:0 0 auto;">Print Color Change Sheet</button>
         </div>
         <div id="warehouseColorChangeQueueList" class="row-list"><div class="empty-note">Loading&hellip;</div></div>
       </div>
@@ -42098,6 +42099,36 @@ function attachAddressRowHandlers(container){
            so a plain re-import of nine hundred houses would otherwise re-stamp every one
            of them and the warehouse's oldest job would look like today's. */
         stampBuildQueued(updates, !!existingCust.needsLightBuild);
+        /* ⭐ AND ONTO THE WAREHOUSE COLOUR-CHANGE LIST (added 2026-09-10). Dax: "also
+           make sure that if someone manually does their own color change they go there."
+           This panel has its own lights picker and is the FOURTH way colours move — the
+           Edit Customer save, both portal writes, and here.
+
+           ⚠ THIS IS THE WRITER THAT KEEPS GETTING MISSED. Questions map WH-22 records the
+           same shape: the build-flag rule was ruled in August, fixed in the Edit Customer
+           save, and this copy was left behind for five days. One rule, two writers, one
+           repaired. It happened again here, so the check for it counts this door by name.
+
+           ⚠ IT ASKS applyLightChange RATHER THAN COMPARING THE TWO STRINGS ITSELF, and
+           only reads `isChange`. That rule already refuses a FIRST-TIME colour and a
+           CLEARED one, and getting that wrong queues a colour change for somebody filling
+           their own colours in for the first time — which is how twelve ordinary new
+           customers reached the Color Changes sheet once already.
+
+           ⚠ AND NO FEE IS WRITTEN HERE, deliberately. This panel has never charged for a
+           colour change and this is not the change that starts it: the $30 belongs to the
+           Edit Customer save, which asks the office first. Only `isChange` is read off the
+           result — feeAmount, the 48-hour lock and feeDestination are all ignored. */
+        const hdChange = applyLightChange({
+          oldLights: existingCust.lightsDescription || '',
+          newLights: newLights,
+          lockedUntil: 0, invoiceSent: false, scheduled: false, nowMs: Date.now()
+        });
+        if(hdChange.isChange){
+          updates.needsColorChange = true;
+          updates.colorChangeColors = newLights;
+          updates.colorChangeRequestedAt = serverTimestamp();
+        }
         await updateDoc(doc(db,'jobAddresses',id), updates);
         if(currentPhotoUrl){
         }
@@ -46344,9 +46375,62 @@ const WH_RECYCLE_COLUMNS = [
 (function wireWhPrintButtons(){
   const buildBtn = document.getElementById('whPrintBuildBtn');
   const recycleBtn = document.getElementById('whPrintRecycleBtn');
+  /* Guarded like the two above — the warehouse render tests eval this block against a
+     DOM holding only the queue list, where an unguarded getElementById throws. */
+  const colorBtn = document.getElementById('whPrintColorChangeBtn');
   if(buildBtn) buildBtn.addEventListener('click', whPrintBuildSheet);
   if(recycleBtn) recycleBtn.addEventListener('click', whPrintRecycleSheet);
+  if(colorBtn) colorBtn.addEventListener('click', whPrintColorChangeSheet);
 })();
+/* ⭐ THE COLOUR-CHANGE SHEET (added 2026-09-10). Dax: "make sure there is a print button
+   with numbered 1-whatever and then #CU then name then colors they want then a empty
+   column for checking."
+
+   ⚠ THE NUMBER AND THE TICK BOX ARE NOT DECLARED HERE, and must not be. whSheetTable
+   puts a "#" column on the left of every sheet and a blank one on the right of every
+   sheet — Addie's own rule from 2026-08-20, "every single list should be numbered
+   1- whatever on the left, always starting with 1 even if its crew 2, and also a blank
+   column on the right". Declaring either here would print it twice; leaving them to the
+   shared renderer is what stops one sheet quietly losing them.
+
+   ⚠ AND #CU IS THE NUMBER ON THEIR RECORD, NOT whBinNumberFor. The recycle sheet asks
+   which number is PAINTED ON THE BIN, because somebody is walking to a shelf to find it.
+   Nobody is fetching anything here — a new set is being made up — so the number wanted is
+   the one on the customer, which is what Dax asked for by name. Those two answers differ
+   for every house whose footage moved it between number series. */
+const WH_COLORCHANGE_COLUMNS = [
+  {key:'cu', label:'#CU', num:true},
+  {key:'what', label:'Customer'},
+  {key:'colors', label:'Colors they want'}
+];
+function whSheetRowsForColorChange(){
+  /* The SAME list the tab draws, in the same order — a printed sheet that disagrees with
+     the screen it was printed from is the bug the two build sheets already had once. */
+  const houses = whColorChangeHouses();
+  const rows = houses.map(function(h){
+    const d = h.data || {};
+    return {
+      group: 'colorchange',
+      cu: String(d.customerNumber || '').trim(),
+      what: d.name || '(no name)',
+      /* Blank prints as blank, never as a guess. A row with no colours is on this sheet
+         because somebody asked for a change, and inventing a pattern for it is worse than
+         an empty cell somebody can query. */
+      colors: String(d.colorChangeColors || '').trim()
+    };
+  });
+  return {rows: rows, columns: WH_COLORCHANGE_COLUMNS};
+}
+function whPrintColorChangeSheet(){
+  const sheet = whSheetRowsForColorChange();
+  const summary = sheet.rows.length
+    ? sheet.rows.length + ' colour change' + (sheet.rows.length===1?'':'s') + ' to make up'
+    : '';
+  whOpenPrintWindow('Warehouse \u2014 Color Change Sheet',
+    [{title: 'Warehouse \u2014 Color Change Sheet', summary: summary,
+      tableHtml: sheet.rows.length ? whSheetTable(sheet.rows, sheet.columns) : ''}],
+    'No colour changes waiting right now.');
+}
 function whPrintBuildSheet(){
   /* ⭐ ONE PAGE PER COLOUR GROUP — see whBuildSheetPages for why that is the unit. The
      whole-sheet totals that used to sit here have moved onto each page, because a page
