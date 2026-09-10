@@ -22,6 +22,10 @@ const path = require('path');
 
 const admin = fs.readFileSync(path.join(__dirname, 'admin.html'), 'utf8');
 const emp = fs.readFileSync(path.join(__dirname, 'employee.html'), 'utf8');
+/* The server and the public page, for [[WH-28]]: the $30 fee is decided in three files and
+   all three had to be brought to the same rule about where a house's colours live. */
+const fns = fs.readFileSync(path.join(__dirname, 'functions', 'index.js'), 'utf8');
+const idx = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -118,6 +122,53 @@ check('and a house with genuinely nothing still has nothing',
 /* ⚠ AND THE READERS MUST ASK IT. A helper nothing calls fixed nothing — these four are
    the ones that were wrong, and the colour totals are the expensive one because those
    totals are what gets ORDERED. */
+/* ⭐ AND THE SIXTH READER IS THE $30 FEE ([[WH-28]], 2026-09-10). Addie: "there are member
+   that did light changes but are not showing 30 dollar fee on there account."
+   ⚠ SAME FAULT AS THE FIVE BELOW, IN THE ONE PLACE THAT COSTS MONEY. `oldLightsForBuild` read
+   `lightsDescription` alone, so every ordinary house — colours in `lightColors`, description
+   empty, which is what the master-sheet sync writes — looked as though it had NO colours. And
+   `applyLightChange`'s own rule is that filling colours in for the first time is not a change
+   and is not charged. So the whole imported book could change its lights for free.
+   ⚠ THE RULE ITSELF IS UNTOUCHED and money-parity still sweeps it: what was wrong is what the
+   caller handed it. */
+check('the $30 light-change fee reads both colour fields',
+  /const oldLightsForBuild = houseLightsText\(item\.data\)/.test(admin),
+  'reading lightsDescription alone let every ordinary house change colours for free');
+check('and the server side of the same fee does too',
+  /oldLights: houseLightsTextServer\(oldData\)/.test(fns),
+  'the portal is where a member actually changes them, so this is the half that was live');
+/* ⚠ AND THE TWO COPIES HAVE TO AGREE, or the office and the portal charge different people.
+   Compared as CODE with the comments stripped — the twin of the parity rule for the maths. */
+{
+  /* ⚠ SPACING AROUND PUNCTUATION IS NORMALISED, WORDS ARE NOT. The two files keep different
+     brace styles on purpose (`if(desc)` here, `if (desc)` there), and the claim being made is
+     that they DECIDE the same thing, not that they are typed the same. Space between two word
+     characters is left alone, so `return desc` can never collapse into something else. */
+  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '')
+                        .replace(/\s+/g, ' ')
+                        .replace(/\s*([^\w$\s])\s*/g, '$1').trim();
+  const A = strip(fn('houseLightsText'));
+  const B = strip((function(){
+    const i = fns.indexOf('function houseLightsTextServer(');
+    let j = fns.indexOf('{', i), d = 0;
+    for(; j < fns.length; j++){
+      if(fns[j] === '{') d++;
+      else if(fns[j] === '}'){ d--; if(!d) return fns.slice(i, j + 1); }
+    }
+    return '';
+  })()).replace('houseLightsTextServer', 'houseLightsText');
+  check('the browser and server copies of "what colours has this house" agree',
+    !!A && !!B && A === B,
+    'they decide the same $30:\n    admin : ' + A + '\n    server: ' + B);
+}
+/* ⚠ AND THE PORTAL'S OWN PICKER READS BOTH, which is what makes charging for it FAIR. It
+   filled from the description alone, so a customer with colours opened it showing nothing
+   selected — charging them for "filling in a blank" would have been the same bug wearing a
+   bill. */
+check('the portal colour picker falls back to the colour list',
+  /if\(!parsedColors\.length\)\{[\s\S]{0,400}lightColors/.test(idx),
+  'they must be able to see what they already have before they are charged for changing it');
+
 [['whBuildQueueGroups', 'the build queue'],
  ['computeColorDemand', 'the colour totals — this is what gets ORDERED'],
  ['computePendingHouseCount', 'the pending count'],

@@ -1585,6 +1585,24 @@ exports.portalLookup = onCall({ cors: true }, async (request) => {
  * ⚠ ONE RULE, TWO COPIES, ASSERTED IDENTICAL — the browser cannot run the
  * server's. run-all.js runs both over the same table of cases and fails if they
  * ever disagree, the money-parity pattern. */
+/* ⭐ WHAT COLOURS A HOUSE ACTUALLY HAS — BOTH FIELDS ([[WH-28]], 2026-09-10).
+ * The twin of `houseLightsText` in admin.html; run-all.js compares the two.
+ *
+ * ⚠ AN ORDINARY HOUSE KEEPS ITS COLOURS IN `lightColors` AND ITS DESCRIPTION IS EMPTY.
+ * `rbDetectColorsAndPattern`, which the master-sheet sync writes through, only fills
+ * lightsDescription when a colour REPEATS — a repeat is an alternating pattern where the
+ * order matters. Reading the description alone therefore reports every ordinary house as
+ * having no colours, which is what let a member change theirs for free: applyLightChange's
+ * own rule is that filling colours in for the FIRST time is not a change and is not charged.
+ *
+ * ⚠ THE DESCRIPTION WINS WHERE THERE IS ONE, because it carries the ORDER and the list
+ * does not. Same precedence as the admin copy, and the tests hold them together. */
+function houseLightsTextServer(d) {
+  const c = d || {};
+  const desc = String(c.lightsDescription || '').trim();
+  if (desc) return desc;
+  return (Array.isArray(c.lightColors) ? c.lightColors.filter(Boolean).join(', ') : '');
+}
 const WAREHOUSE_BUILD_FIELDS = ['lightsDescription', 'wireColor', 'outletTimer'];
 /* ⭐ THE SERVER HALF OF "WHEN WAS THIS SENT TO THE WAREHOUSE" (added 2026-08-28).
    Change this and change `stampBuildQueued` in admin.html, in the same push — the
@@ -2030,7 +2048,10 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
         const inv = (invSnap && invSnap.exists) ? invSnap.data() : {};
 
         const d = applyLightChangeServer({
-          oldLights: oldData.lightsDescription,
+          /* ⚠ BOTH FIELDS ([[WH-28]]). The description alone reads as "no colours on file" for
+             every ordinary house, and a first-time fill is deliberately free — so the fee was
+             never charged for exactly the customers the sync had imported. */
+          oldLights: houseLightsTextServer(oldData),
           newLights: updates.lightsDescription,
           lockedUntil: toMillis(cust.lightsLockedUntil),
           invoiceSent: !!cust.invoiceEmailSent,

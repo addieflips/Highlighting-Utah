@@ -3349,6 +3349,27 @@ are listed at the bottom of the sidebar with a one-click way back.
 at the same moment, the last save wins — they change rarely enough that this is the right
 trade, and it is the same one the scheduling settings already make.
 
+**Why some light changes never showed a $30 fee** ([[WH-28]], 2026-09-10). Addie: *"there are
+member that did light changes but are not showing 30 dollar fee on there account."*
+
+A house's colours live in **two** fields. The master-sheet sync only fills `lightsDescription`
+when a colour *repeats* (an alternating pattern, where the order matters); an ordinary house
+keeps its colours in `lightColors` and its description is empty. The fee was reading the
+description alone — so those houses looked as though they had **no colours at all**, and the
+rule that filling colours in for the first time is free (correctly) charged nothing. In
+practice that was most of the imported book.
+
+⭐ **The portal picker had the same hole, and that is the half that made it unfair.** It filled
+from the description alone too, so a customer who already had colours opened the page with
+**nothing selected**, picked some, was warned about $30 — and then was not charged. The
+warning and the charge disagreed. Fixing the money without fixing the picker would have
+charged people for filling in what looked like a blank.
+
+⚠ The rule that decides the fee was never wrong, and the parity test between the office and
+the server copies has been passing correctly the whole time. What was wrong is what the caller
+handed it. `houseLightsText` is the one answer to *"what colours does this house have"*, and
+the fee is the sixth reader brought to it.
+
 **And how they asked to be reached** ([[MSG-16]], 2026-09-10). Addie: *"we can no longer see how
 someone prefers to be contacted."* It had not been removed — it was sitting in the small grey
 line with the date, which is the line that stopped carrying anything you needed once the phone

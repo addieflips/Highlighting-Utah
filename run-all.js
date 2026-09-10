@@ -27842,6 +27842,14 @@ suite('Suite 108. The Edit Customer save, actually run');
          question under test. */
       whTimerOnlyQueue: new Function('return ' + extractFn(admin, 'whTimerOnlyQueue') +
         ';whTimerOnlyQueue')(),
+      /* ⚠ THE REAL COLOUR READER, LIFTED — not a stub. Joined this list 2026-09-10, in the
+         same commit that made the fee path ask it ([[WH-28]]): the extraction-list trap
+         CLAUDE.md describes, hit a SIXTH time and caught a sixth time by this suite failing
+         loudly rather than skipping — 28 failures across the re-quote and colour-wipe checks,
+         none of them naming the missing function. A stub would decide for itself what colours
+         a house already had, which is the exact question the $30 turns on. */
+      houseLightsText: new Function('return ' + extractFn(admin, 'houseLightsText') +
+        ';houseLightsText')(),
       lightsLockMillis: new Function('return ' + extractFn(admin, 'lightsLockMillis') +
         ';lightsLockMillis')(),
       /* ⚠ THE REAL SEASON-YES RULE, LIFTED — not a stub. Joined this list 2026-08-24,
@@ -32248,11 +32256,16 @@ suite('Suite 117. The colour-change fee, actually charged');
 
   const ruleSrc = extractFn(fns, 'applyLightChangeServer');
   const toMillisSrc = extractFn(fns, 'toMillis');
-  check('S117', 'and the rule and the timestamp reader are both findable',
-    !!ruleSrc && !!toMillisSrc,
+  /* ⚠ THE BLOCK CALLS THIS NOW ([[WH-28]]) — lifted, never stubbed. It decides what counts as
+     the colours a house ALREADY had, which is the whole question the fee turns on: a stub
+     would answer it for itself and the suite would prove nothing. The extraction-list trap,
+     hit a fifth time and caught a fifth time by the suite failing loudly. */
+  const lightsTextSrc = extractFn(fns, 'houseLightsTextServer');
+  check('S117', 'and the rule, the timestamp reader and the colour reader are all findable',
+    !!ruleSrc && !!toMillisSrc && !!lightsTextSrc,
     'extracted rather than stubbed on purpose: a stub would agree with itself');
 
-  if (a !== -1 && b > a && ruleSrc && toMillisSrc) {
+  if (a !== -1 && b > a && ruleSrc && toMillisSrc && lightsTextSrc) {
     const blockSrc = fns.slice(a, b);
 
     /* A fake Firestore that records what was written. Deliberately small, and
@@ -32336,7 +32349,7 @@ suite('Suite 117. The colour-change fee, actually charged');
       const updates = { lightsDescription: newLights };
       return new Function('db', 'admin', 'toMillis', 'section', 'updates', 'oldData',
         'oldKey', 'match', 'console',
-        ruleSrc + '\nconst LIGHT_CHANGE_FEE = 30;\nconst LIGHT_WINDOW_MS = 48*60*60*1000;\n' +
+        ruleSrc + '\n' + lightsTextSrc + '\nconst LIGHT_CHANGE_FEE = 30;\nconst LIGHT_WINDOW_MS = 48*60*60*1000;\n' +
         'return (async function(){\n' + blockSrc + '\nreturn lightFeeInfo;\n})();')
         (db, fakeAdmin, new Function('return ' + toMillisSrc + ';toMillis')(),
          'lights', updates, cust, inv ? '8015550100' : '', { id: 'c1' }, console)

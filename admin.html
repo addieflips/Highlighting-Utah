@@ -50345,7 +50345,20 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     addrUpdates.oneTimeNote = newOneTimeNote;
     addrUpdates.chargeNewMemberFee = newChargeNewMemberFee;
     addrUpdates.referralCount = newReferralCount;
-    const oldLightsForBuild = item.data.lightsDescription || '';
+  /* ⭐ WHAT THEY HAD IS BOTH FIELDS, NOT ONE ([[WH-28]], 2026-09-10). Addie: "there are member
+     that did light changes but are not showing 30 dollar fee on there account."
+     ⚠ THIS IS THE SAME FAULT `warehouse-colours.test.js` WAS BUILT FOR, in a place that costs
+     MONEY rather than bundles. `rbDetectColorsAndPattern` — which the master-sheet sync writes
+     through — only fills `lightsDescription` when a colour REPEATS, so an ordinary house keeps
+     its colours in `lightColors` with the description EMPTY. Reading the description alone
+     made those houses look as though they had no colours at all, and
+     `applyLightChange`'s own rule is that filling colours in for the FIRST time is not a
+     change and is not charged. So every ordinary house changed its colours for free.
+     ⚠ THE RULE ITSELF IS UNTOUCHED — it is a pure comparison and money-parity sweeps it. What
+     was wrong is what the caller handed it. `houseLightsText` is the one answer, the same one
+     the build queue, the colour totals, the pending count, the recycle queue and the printed
+     sheet were all brought to on 2026-08-24. This is the sixth reader. */
+    const oldLightsForBuild = houseLightsText(item.data);
     /* ⭐ THE SAME COLOUR-CHANGE RULE THE PORTAL RUNS (added 2026-08-21).
        Owner: an office change now charges, locks and notifies exactly as a member's
        own change does. Until today this path wrote lightsChangedAt and needsLightBuild
