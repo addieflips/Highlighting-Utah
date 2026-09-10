@@ -45306,7 +45306,17 @@ function rsvpCheckListCompare(parsed, plan, index){
   parsed.names.forEach(function(n){
     const hits = index.get(n.key) || [];
     if(!hits.length){ out.unknown.push({ raw: n.raw }); return; }
-    if(hits.length > 1){ out.ambiguous.push({ raw: n.raw, count: hits.length }); return; }
+    /* ⚠ NAMED, NEVER RESOLVED. Carrying the candidates is not the same as picking one:
+       the report can now say WHICH two people share the name, with the addresses that
+       tell them apart, and she decides. Before this it reported a problem and handed
+       her nothing to act on — five of them on her real book. */
+    if(hits.length > 1){
+      out.ambiguous.push({ raw: n.raw, count: hits.length, who: hits.map(function(h){
+        const hd = (h && h.data) || {};
+        return { id: h.id, name: hd.name || '', email: hd.email || '', address: hd.address || hd.street || '' };
+      }) });
+      return;
+    }
     const item = hits[0];
     /* `elsewhere` should be unreachable — the plan walks the whole book and this index is
        built from it with the same exclusion. It exists so a customer the plan stops
@@ -45320,6 +45330,23 @@ function rsvpCheckListCompare(parsed, plan, index){
    of editing a cached bucket — the `oneManDays()` argument: a stored answer is right on
    the press and wrong every render after. */
 let rsvpCheckListText = '';
+/* ⭐ WHAT THE LAST TICK-ALL WROTE, SO IT CAN BE TAKEN BACK (2026-09-10, EM-14).
+   `rsvpMarkOneRecent` — the Undo behind the one-at-a-time button — is only ever added to
+   by that button, so a Tick-all of 495 had NO undo anywhere: those customers left every
+   waiting list at once and the only way back was editing records one by one, having first
+   worked out which ones. That is the wrong way round. The single tick's whole safety
+   argument is that a visible Undo beats a confirm nobody reads; the bulk had the confirm
+   and not the Undo, on a press five hundred times the size.
+   ⚠ UNDOING NEEDS NO TYPED WORD, and that asymmetry is deliberate rather than sloppy:
+   ticking wrongly means somebody is never asked again this season and no crew is sent to
+   their house, while un-ticking wrongly costs one duplicate email. The lock belongs on the
+   dangerous direction only.
+   ⚠ IT HOLDS THE IDS THAT WERE ACTUALLY WRITTEN, never the targets it set out with — a
+   batch that failed left those customers ticked-off-nothing, and offering to un-tick them
+   would write null over a stamp somebody else's send had put there.
+   ⚠ AND IT IS SESSION-ONLY, exactly like `rsvpMarkOneRecent`. A reload clears it; the
+   button says so rather than leaving her to find out. */
+let rsvpCheckListLastTick = null;
 function rsvpCheckListRun(text){
   rsvpCheckListText = String(text == null ? '' : text);
   rsvpCheckListRefresh();
@@ -45414,6 +45441,14 @@ function rsvpCheckListRenderReport(box, res){
             + '<span><b>' + esc(x.raw) + '</b>'
             + (d.email ? ' <span style="color:var(--slate); font-size:12px;">' + esc(d.email) + '</span>' : '')
             + (x.count ? ' <span style="color:var(--slate); font-size:12px;">matches ' + x.count + ' customers — not resolved</span>' : '')
+            + ((x.who && x.who.length)
+                ? '<div style="color:var(--slate); font-size:12px; margin-top:2px;">'
+                  + x.who.map(function(c){
+                      return esc(c.name) + (c.address ? ' — ' + esc(c.address) : '')
+                        + (c.email ? ' — ' + esc(c.email) : '');
+                    }).join('<br>')
+                  + '</div>'
+                : '')
             + '</span>'
             + (o.mark && x.item
                 ? '<button type="button" class="btn btn-outline btn-sm" data-rsvpmarkone="' + esc(x.item.id) + '" data-rsvpmarkoneon="1">Mark as asked</button>'
@@ -45422,8 +45457,16 @@ function rsvpCheckListRenderReport(box, res){
         }).join('')
       + '</div>';
   };
-  box.innerHTML =
-      row('Already recorded as asked', res.ticked.length, 'nothing to do')
+  /* Offered at the TOP, because it is about what just happened rather than about the list
+     below it, and because a press she wants to take back is one she wants to take back now. */
+  const undoBar = (rsvpCheckListLastTick && rsvpCheckListLastTick.ids.length)
+    ? '<div style="margin:0 0 10px; padding:8px; background:var(--paper); border:1px solid var(--line); border-radius:6px;">'
+      + '<button type="button" class="btn btn-outline btn-sm" data-rsvpchecklistundo="1">Undo that \u2014 put those '
+      + rsvpCheckListLastTick.ids.length + ' back</button>'
+      + '<span class="form-note" style="margin-left:8px;">Only until you reload the page.</span></div>'
+    : '';
+  box.innerHTML = undoBar
+    + row('Already recorded as asked', res.ticked.length, 'nothing to do')
     + row('Already answered', res.answered.length, 'nothing to do — they replied')
     + row('NOT recorded as asked', res.waiting.length, 'these are the ones to tick')
     + row('No email on file', res.noEmail.length, 'the app could not have emailed them')
@@ -45501,6 +45544,7 @@ async function rsvpCheckListMarkAll(){
     return;
   }
   let done = 0, failed = 0;
+  const written = [];
   for(const chunk of ssnChunk(targets, 400)){
     const batch = writeBatch(db);
     chunk.forEach(function(a){ batch.update(doc(db,'jobAddresses', a.id), { rsvpEmailedAt: serverTimestamp() }); });
@@ -45509,6 +45553,8 @@ async function rsvpCheckListMarkAll(){
       /* Mirrored only AFTER the commit lands — the other way round shows her a list
          marked asked that was never written. Same order as `rsvpMarkAllAsked`. */
       chunk.forEach(function(a){ a.data.rsvpEmailedAt = new Date(); });
+      /* Only what the server took. See the note on rsvpCheckListLastTick. */
+      chunk.forEach(function(a){ written.push(a.id); });
       done += chunk.length;
     }catch(err){
       console.error('[HU] could not tick the pasted list off as asked:', err);
@@ -45521,6 +45567,7 @@ async function rsvpCheckListMarkAll(){
      status line, so setting the result before it destroys the result. Written the other
      way round the press looked identical whether it saved 300 records or none — the
      failure the gate below caught, and exactly the quiet failure this repo forbids. */
+  rsvpCheckListLastTick = written.length ? { ids: written } : null;
   rsvpCheckListRefresh();
   if(typeof rsvpWholeRenderBreakdown === 'function') rsvpWholeRenderBreakdown(rsvpWholePlan());
   /* ⚠ WHAT FAILED IS NAMED, not swallowed. A half-written batch leaves those customers
@@ -45529,6 +45576,39 @@ async function rsvpCheckListMarkAll(){
   if(st) st.textContent = 'Ticked off ' + done + ' of ' + targets.length
     + (failed ? ' — ' + failed + ' could not be saved, press it again' : '')
     + '. Send the whole RSVP will now skip them.';
+}
+/* ⚠ IT WRITES `null`, NOT A DELETED FIELD — the same spelling Start New Season uses and the
+   same one the single Undo writes. Two spellings of "not asked" is how one of them stops
+   counting, which `rsvpWholePlan` would never report; it would simply keep skipping them. */
+async function rsvpCheckListUndoTick(){
+  const st = document.getElementById('rsvpCheckListStatus');
+  const last = rsvpCheckListLastTick;
+  if(!last || !last.ids.length){
+    if(st) st.textContent = 'There is nothing to undo.';
+    return;
+  }
+  const items = (jobAddresses || []).filter(function(a){ return last.ids.indexOf(a.id) !== -1; });
+  let back = 0, failed = 0;
+  for(const chunk of ssnChunk(items, 400)){
+    const batch = writeBatch(db);
+    chunk.forEach(function(a){ batch.update(doc(db,'jobAddresses', a.id), { rsvpEmailedAt: null }); });
+    try{
+      await batch.commit();
+      chunk.forEach(function(a){ a.data.rsvpEmailedAt = null; });
+      back += chunk.length;
+    }catch(err){
+      console.error('[HU] could not undo the tick:', err);
+      failed += chunk.length;
+    }
+  }
+  /* Only cleared where every one came back, or a second press would silently skip the
+     remainder — the half-undone state is the one worth being able to retry. */
+  if(!failed) rsvpCheckListLastTick = null;
+  rsvpCheckListRefresh();
+  if(typeof rsvpWholeRenderBreakdown === 'function') rsvpWholeRenderBreakdown(rsvpWholePlan());
+  if(st) st.textContent = 'Put ' + back + ' back on the list to be asked'
+    + (failed ? ' — ' + failed + ' could not be undone, press it again' : '')
+    + '. Send the whole RSVP will include them again.';
 }
 document.getElementById('rsvpCheckListBtn')?.addEventListener('click', function(){
   const ta = document.getElementById('rsvpCheckListPaste');
@@ -45544,6 +45624,14 @@ document.getElementById('rsvpCheckListClearBtn')?.addEventListener('click', func
    detached nodes. It calls the SAME `rsvpMarkOneAsked` — a second write here is how this
    report and that button would start recording "asked" two different ways. */
 document.getElementById('rsvpCheckListReport')?.addEventListener('click', function(e){
+  const undo = e.target && e.target.closest ? e.target.closest('[data-rsvpchecklistundo]') : null;
+  if(undo){
+    undo.disabled = true;
+    rsvpCheckListUndoTick()
+      .catch(function(err){ console.error('[HU] check-list undo:', err); })
+      .then(function(){ undo.disabled = false; });
+    return;
+  }
   const all = e.target && e.target.closest ? e.target.closest('[data-rsvpchecklistmarkall]') : null;
   if(all){
     all.disabled = true;
