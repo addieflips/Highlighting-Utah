@@ -2146,6 +2146,16 @@
             <div class="form-row"><label>Secondary Email</label><input type="email" id="editCustEmail2"></div>
             <div class="form-row"><label>Enrolled Date</label><input type="date" id="editCustEnrolled"></div>
           </div>
+          <!-- ⭐ THE MOVE THEY TOLD THE PORTAL ABOUT (2026-09-10). portalChangeAddress
+               writes the new address to pendingAddress and leaves the live one alone, so
+               this banner is the only thing on any screen that shows it. Without it those
+               five fields are written and read by nobody — §1's own failure.
+               ⚠ APPLY FILLS THE BOXES, IT DOES NOT SAVE. The Save button below is the
+               authoritative writer: it re-geocodes the new house, raises the re-quote with
+               existingCustomerId so the card reads as an old house, and re-syncs any
+               upcoming route stop. A write of its own here would be the copy that quietly
+               falls behind, and it would move a pin nobody had looked at. -->
+          <div id="editCustPendingMove" style="display:none;"></div>
           <div class="form-row"><label>Address</label><input type="text" id="editCustAddress"></div>
           <div class="form-row"><label>Town</label><input type="text" id="editCustCity" list="editCustCityList">
             <datalist id="editCustCityList"></datalist>
@@ -8110,6 +8120,17 @@ const CUSTOMER_FIELD_LABELS = {
    list of field names, and the census cannot tell them apart either. */
 const CUSTOMER_FIELD_QUIET = {
   updatedAt: 'the entry carries its own time',
+  /* ⚠ ALL FIVE ARE THE OFFICE RETIRING A REQUEST, IN THE SAME SAVE THAT GRANTS IT. The
+     customer told the portal they had moved; applying it writes the new `address`, which
+     IS labelled and is the line the history shows. These clear alongside it so the banner
+     cannot go sticky — five more rows reading "Pending address: 123 Main St → (blank)"
+     would report one event six times, and in the record's own words rather than the
+     office's. Same reasoning as lightsChangedAt directly below. */
+  pendingAddress: 'the address line is the event; this is the request it came from',
+  pendingCity: 'cleared with the pending address above, in the save that applies it',
+  pendingZip: 'cleared with the pending address above, in the save that applies it',
+  pendingMoveDate: 'cleared with the pending address above, in the save that applies it',
+  pendingAddressAt: 'the address line is the event; this is when they asked for it',
   createdAt: 'set once, when the record is made',
   lastEditedBy: 'the entry already records who',
   lat: 'moves only because the address did, which has its own line',
@@ -49222,6 +49243,58 @@ function editCustFormTouched(e){
 document.addEventListener('click', editCustTabsClick, true);
 document.addEventListener('input', editCustFormTouched, true);
 document.addEventListener('change', editCustFormTouched, true);
+/* ⭐ THE PENDING MOVE, AND THE ONE BUTTON THAT ACTS ON IT (2026-09-10).
+ * Addie: "you should have to apply changes in order for it to go to requote."
+ *
+ * ⚠ IT SHOWS BOTH ADDRESSES. "They moved" with only the new one gives the office no
+ * way to tell a real move from a corrected flat number, which is the judgement the
+ * whole door exists to put in front of a person rather than guess at.
+ *
+ * ⚠ AND IT NEVER WRITES. Apply fills the two boxes and says to press Save; the save
+ * is what re-geocodes, raises the re-quote and re-points the route. See the markup.
+ */
+function editCustPendingMoveOf(d){
+  const at = (d && d.pendingAddress) ? String(d.pendingAddress).trim() : '';
+  return at ? {
+    address: at,
+    city: String((d && d.pendingCity) || '').trim(),
+    when: String((d && d.pendingMoveDate) || '').trim(),
+    from: String((d && d.address) || '').trim()
+  } : null;
+}
+function renderEditCustPendingMove(d){
+  const box = document.getElementById('editCustPendingMove');
+  if(!box) return;
+  const move = editCustPendingMoveOf(d);
+  if(!move){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.innerHTML =
+    '<div style="background:#FDF3E0; border:1px solid var(--gold); border-radius:10px; padding:12px 14px; margin:0 0 14px;">' +
+      '<div style="font-weight:700; color:#1E3B2C;">They told us they have moved</div>' +
+      '<div style="font-size:13px; margin-top:6px; line-height:1.6;">' +
+        'From <strong>' + esc(move.from || 'no address on file') + '</strong><br>' +
+        'To <strong>' + esc(move.address) + '</strong>' +
+        (move.when ? '<br>They are in by ' + esc(move.when) : '') +
+      '</div>' +
+      '<div style="font-size:12px; color:var(--slate); margin-top:8px; line-height:1.55;">' +
+        'Nothing has been re-quoted and no pin has moved — the boxes below still hold ' +
+        'the old house on purpose. Apply fills them in; pressing Save is what prices ' +
+        'the new place and re-points their route.' +
+      '</div>' +
+      '<button type="button" class="btn btn-gold" id="editCustApplyMove" style="margin-top:10px;">Apply this move</button>' +
+    '</div>';
+  /* ⚠ BOUND HERE, NOT DELEGATED FROM THE DOCUMENT. The box is rebuilt on every
+     repoint, so a document-wide binding would stack a listener per tab click — the
+     2815-write folder-sidebar leak, in a smaller place. */
+  const btn = document.getElementById('editCustApplyMove');
+  if(btn) btn.addEventListener('click', function(){
+    document.getElementById('editCustAddress').value = move.address;
+    /* ⚠ THE TOWN ONLY IF THEY GAVE ONE. It is what a crew-day is grouped by, and
+       blanking it would send the season planner to derive a town out of the address
+       line — right often enough to be trusted and wrong on a street called Provo. */
+    if(move.city) document.getElementById('editCustCity').value = move.city;
+    toast('New address filled in — press Save Changes to price it and re-point their route.');
+  });
+}
 function openEditCustomerModal(id){
   const item = jobAddresses.find(a => a.id === id);
   if(!item) return;
@@ -49248,6 +49321,12 @@ function openEditCustomerModal(id){
      is no longer in the box. emailTypoWatch binds once and is safe to call again. */
   emailTypoWatchAll();
   document.getElementById('editCustAddress').value = d.address || '';
+  /* ⚠ THE CALL IS THE HALF THAT IS EASY TO LOSE — every behavioural check on the
+     banner can pass while nothing reaches the screen if this line goes. Suite 276
+     proved exactly that about the house tabs, and the recycle "bin says" box shipped
+     as a control with no listener. Here, not in a render, because Edit Customer is
+     repointed by openEditCustomerModal and a tab click is that call plus a repaint. */
+  renderEditCustPendingMove(d);
   document.getElementById('editCustCity').value = d.city || '';
   /* Offer the towns already in use, so a corrected town matches the others
      rather than becoming a town of one through a typo or "Amercian Fork". */
@@ -50966,6 +51045,29 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        the ReQuotes wording instead of the new-customer one. */
     const feetChanged = Number(d.measuredFeet || 0) !== Number(newMeasuredFeet || 0);
     const addressChanged = String(d.address || '').trim().toLowerCase() !== String(newAddress || '').trim().toLowerCase();
+    /* ⭐ THE PENDING MOVE IS CLEARED BY THE SAVE THAT ACTS ON IT (2026-09-10).
+
+       ⚠ ONE WRITER, AND THAT IS THE WHOLE SAFETY ARGUMENT. A flag with a way in and
+       no way out is the sticky-field bug this repo has already shipped once —
+       maybeNextYear, set freely and cleared by exactly one thing — so the same save
+       that applies a move is the thing that retires the request.
+
+       ⚠ ON THE ADDRESS HAVING CHANGED, NOT ON IT MATCHING pendingAddress. Matching
+       looks stricter and is worse: the office routinely tidies what a customer typed
+       (a missing apartment number, "St" for "Street"), and on an exact test the
+       banner would then sit there for ever advertising a move that is already done —
+       and the next person would apply it a second time over the corrected address.
+
+       ⚠ AND seasonStatus IS DELIBERATELY LEFT ALONE. The re-quote raised below is
+       what answers it, through QUOTE_RAISED_STATUSES; clearing the badge here would
+       drop the customer off the office filter while the question is still open. */
+    if(addressChanged && (d.pendingAddress || '')){
+      addrUpdates.pendingAddress = '';
+      addrUpdates.pendingCity = '';
+      addrUpdates.pendingZip = '';
+      addrUpdates.pendingMoveDate = '';
+      addrUpdates.pendingAddressAt = null;
+    }
     /* ⭐ AND A PRICE CHANGE ASKS. Owner, 2026-08-21: "we need to set up for price change
        so when you go to edit customer and change the price it gives you the option if you
        want to requote or not requote."
