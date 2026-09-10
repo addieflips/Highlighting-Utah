@@ -3282,6 +3282,18 @@
       <!-- ===== AUTOMATION TABS ===== -->
       <div class="route-tabs" style="margin-bottom:20px;">
         <button type="button" class="route-tab-btn active" data-automationtab="templates">Templates</button>
+        <!-- ⭐ ITS OWN TAB (2026-09-10, [[EM-16]]). Addie: "Make a new tab in automation email
+             for RSVP for this send 200 for each day." It started as a card under Templates,
+             which is where the RSVP send already lived — but a card at the bottom of the tab
+             somebody opens to EDIT an email is not where anybody looks to find out whether
+             today's batch went out, and "how many are left" is a question asked on days when
+             no template is being touched at all. ⚠ The Send the whole RSVP card stays under
+             Templates: it is one press beside the templates it sends, and moving it would
+             break the one route the office already knows. -->
+        <!-- ⚠ NAMED JUST "RSVP" — Addie, 2026-09-10: "put it in it's own tab on Automation
+             Email named RSVP". The longer label described the mechanism; the tab is named for
+             what is on it. -->
+        <button type="button" class="route-tab-btn" data-automationtab="rsvpdrip">RSVP</button>
         <button type="button" class="route-tab-btn" data-automationtab="invoices">Invoices</button>
         <button type="button" class="route-tab-btn" data-automationtab="emailjs">EmailJS Setup</button>
       </div>
@@ -3642,6 +3654,43 @@
       </div>
       </div>
       <!-- ===== INVOICES TAB ===== -->
+      <!-- ===== RSVP DRIP TAB ===== -->
+      <div class="route-tab-panel" id="automationtab-rsvpdrip">
+      <!-- ⭐ EM-16. Addie, after a send of ~950 that Gmail cut off partway and that took a
+           pasted spreadsheet of 673 names to reconcile: "we need to make sure we don't run
+           into this situation in the future. Can we make a calendar for RSVP emails that
+           will only send 200 emails a day until we send them all out?"
+           ⚠ THE PLAN IS BUILT HERE AND SENT BY THE SERVER, which is the whole design: the
+           seven reasons somebody is or is not owed an RSVP rest on five rules that exist
+           only in this file, so the browser decides once and the 9 AM Cloud Function sends
+           the names it was handed. See rsvpSendSkipReason and runRsvpDailyBatch. -->
+      <div class="card" id="rsvpDripCard" style="margin-bottom:22px;">
+        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128197; Send the RSVP a few hundred a day</h3>
+        <p class="form-note" style="margin:0 0 12px;">Gmail stops a big send partway through, which is how half a send ends up needing to be tracked by hand. This lays the RSVP out over several mornings instead: <b>Build the plan</b> works out who gets which email and in what order, then the server sends the next batch at <b>9:00 AM</b> every day until the list is done &mdash; whether or not this page is open. Nobody is ever sent twice, and anybody who answers in the meantime is dropped from the rest of the plan automatically.</p>
+        <p class="form-note" style="margin:0 0 12px;">It sends <b>your own two RSVP emails</b>, and it picks between them per person exactly as <b>Send the whole RSVP</b> does: everybody straight gets the ordinary one, everybody who owes from last season gets <b>Not Paid RSVP</b>, and nobody gets both. The two it will use are named below &mdash; if either says <i>no template found</i>, fix that under Templates &rarr; RSVP first.</p>
+        <p class="form-note" style="margin:0 0 12px;">The <b>Send the whole RSVP</b> button on the <b>Templates</b> tab is still there and still sends everybody at once. This is the same send, paced.</p>
+        <div id="rsvpDripKeyWarn" hidden style="font-size:13px; background:var(--paper); border:1px solid #c0392b; border-radius:6px; padding:8px; margin-bottom:10px;"></div>
+        <div id="rsvpDripBody" style="font-size:13px; margin-bottom:10px;"></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+          <!-- ⭐ WHICH OF THESE IS GOLD MOVES WITH THE NEXT STEP (2026-09-10). The repo has
+               already paid for getting this wrong once: the measure tool had two commit
+               buttons and only one was gold, so "the gold one reads like the finish line" is
+               the one that got pressed and houses ended up priced with no footage. Before a
+               plan exists, building it IS the next step; once one does, sending is. Set by
+               `rsvpDripRender`, not written here, so the two can never both be gold. -->
+          <button type="button" class="btn btn-gold btn-sm" id="rsvpDripBuildBtn">Build the plan</button>
+          <button type="button" class="btn btn-outline btn-sm" id="rsvpDripSendNowBtn">Send today&rsquo;s batch now</button>
+          <label style="display:flex; align-items:center; gap:6px; margin:0; font-size:13px;">
+            <input type="checkbox" id="rsvpDripEnabled" style="width:auto; margin:0;">
+            <span>Send automatically at 9:00 AM each day</span>
+          </label>
+        </div>
+        <label style="display:block; font-size:13px; margin:0 0 10px;">How many a day
+          <input type="number" id="rsvpDripPerDay" min="1" max="2000" step="10" style="width:90px; margin-left:6px;">
+        </label>
+        <div id="rsvpDripStatus" style="font-size:13px; color:var(--slate);"></div>
+      </div>
+      </div>
       <div class="route-tab-panel" id="automationtab-invoices">
         <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
           <h3 style="margin-top:0;">See exactly what customers' invoices look like</h3>
@@ -9648,6 +9697,14 @@ document.querySelectorAll('[data-automationtab]').forEach(function(btn){
       if(typeof invRenderRecipientList === 'function') invRenderRecipientList();
       if(typeof invUpdatePreview === 'function') invUpdatePreview();
     }
+    /* ⚠ DRAWN ON OPEN, for the same reason the Invoices tab is. `rsvpDrip` is a deferred
+       render (RENDER_PANEL), and `flushPendingRenders` only fires when the PANEL is opened —
+       so switching between tabs INSIDE an already-open Automation Emails never triggers it,
+       and the tab would show whatever it last drew, or nothing at all on a first visit. The
+       counts here are the ones the office acts on. */
+    if(tab === 'rsvpdrip'){
+      if(typeof rsvpDripRender === 'function') rsvpDripRender();
+    }
   });
 });
 async function loadEmailjsSettings(){
@@ -9795,6 +9852,10 @@ async function loadNightlyInvoiceSettings(){
      together — a switch that shows its stored state only after some other
      click is a switch nobody can trust. */
   loadArrearsChaseSetting();
+  /* ⚠ READ HERE RATHER THAN AT LOGIN, because the card lives in this panel and a switch
+     that shows its stored state only after some other click is a switch nobody can
+     trust — the reason beside loadArrearsChaseSetting, for the same reason. */
+  loadRsvpDripPlan();
   try{
     const snap = await getDoc(doc(db,'settings','nightlyInvoiceAutomation'));
     document.getElementById('nightlyInvoiceEnabled').checked = snap.exists() ? !!snap.data().enabled : false;
@@ -19454,6 +19515,577 @@ function rsvpWholeTemplates(){
     }) || rsvps.find(function(t){ return !etRsvpTemplateIsArrears(t); }) || null;
   return { standard: standard, arrears: arrears };
 }
+/* ============================================================================
+   THE RSVP, A FEW HUNDRED A DAY (added 2026-09-10, EM-16)
+
+   Addie, after a send of ~950 that Gmail cut off partway and that then took a pasted
+   spreadsheet of 673 names to reconcile: "we need to make sure we don't run into this
+   situation in the future. Can we make a calendar for RSVP emails that will only send
+   200 emails a day until we send them all out?"
+
+   ⭐ THIS SIDE DECIDES, THE SERVER SENDS. `rsvpSendSkipReason` and the arrears split rest
+   on `audienceNeverAsked`, `audienceQuoteJoinYear`, `isRequote`, `enrollmentYearOf`,
+   `effectiveRsvpStatus` and `houseOwesFromLastSeason` — six rules that live only in this
+   file, three of which need `quotesCache` and one of which needs every invoice. Copying
+   them onto the server to make the drip autonomous would put six new drift surfaces on the
+   one send that has to reach everybody exactly once. So the queue is decided here, written
+   to `settings/rsvpSendPlan`, and `runRsvpDailyBatch` sends the names it was given.
+
+   ⚠ WHICH MEANS THE PLAN CAN GO STALE, AND THAT IS SAID ON SCREEN RATHER THAN HIDDEN. A
+   customer added after the plan was built is not on it. The card counts them and offers
+   the rebuild; it does NOT rebuild by itself, because a plan that silently reorders
+   between two mornings is one nobody can check against what they saw yesterday.
+
+   ⚠ NOTHING HERE RECORDS WHO IS DONE. `rsvpEmailedAt` on the customer is the one record,
+   the same field the office's own send and the pasted-list tick both write. A second list
+   inside the plan document is the `derivedDoneFor` argument again, and the copy that went
+   stale would either re-mail somebody or drop them for the season.
+   ========================================================================== */
+let rsvpDripCache = null;
+/* ⚠ THE CAP IS ONE NUMBER AND THE SERVER OWNS IT. `RSVP_DAILY_CAP` in functions/index.js
+   is the default; this is only what a fresh card shows before a plan exists, and the
+   stored `perDay` wins once one does. Two screens each holding their own copy of a number
+   is how one of them moved and the other did not — CN_DOUBLE_BIN_FEET's lesson. */
+const RSVP_DRIP_DEFAULT_PER_DAY = 200;
+/* How many days of the plan to spell out before summarising. Long enough that a normal
+   season's whole schedule is listed, short enough that a mis-set cap does not print a
+   hundred rows. */
+const RSVP_DRIP_SHOW_DAYS = 10;
+
+async function loadRsvpDripPlan(){
+  try{
+    const snap = await getDoc(doc(db,'settings','rsvpSendPlan'));
+    rsvpDripCache = snap.exists() ? (snap.data() || {}) : null;
+  }catch(err){
+    /* Logged, never swallowed (Addie, 2026-08-25: "nothing should fail quietly").
+       ⚠ AND AN UNREADABLE PLAN READS AS NO PLAN, never as whatever was cached before —
+       a card claiming a send is scheduled when it cannot see the schedule is worse than
+       one saying it does not know. */
+    console.error('[HU] could not read the RSVP send plan:', err);
+    rsvpDripCache = null;
+  }
+  if(typeof rsvpDripRender === 'function') rsvpDripRender();
+}
+
+/* ⭐ THE QUEUE, IN SEND ORDER. Its own function so a test can RUN it rather than match
+   its source — every claim about this is about who is in the list and where.
+
+   ⚠ THE ARREARS HALF GOES FIRST, and the reason is theirs rather than ours: their email
+   is the one carrying a balance they have to act on before anything can be scheduled, and
+   there are a few dozen of them against several hundred of the others. Putting the big
+   half first would leave them waiting days for the more urgent message.
+
+   ⚠ AND THE ORDER WITHIN EACH HALF IS BY CUSTOMER ID, not by however `jobAddresses`
+   happened to arrive. Firestore hands a snapshot back in its own order, so an unsorted
+   queue rebuilt on two machines would be two different plans — and the card's "finishing
+   Friday" would be about one of them. Stable input, stable plan. */
+function rsvpDripBuildQueue(plan){
+  const rows = [];
+  const add = function(list, kind){
+    list.slice()
+      .sort(function(a,b){ return String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0; })
+      .forEach(function(m){ rows.push({ id: m.id, t: kind }); });
+  };
+  add((plan && plan.arrears) || [], 'arrears');
+  add((plan && plan.standard) || [], 'standard');
+  return rows;
+}
+
+/* ⭐ THE CALENDAR ITSELF — which morning each batch goes and how big it is.
+   ⚠ CONSECUTIVE DAYS, WEEKENDS INCLUDED, because the cron runs every day and an email
+   does not care. Skipping weekends here would print a finish date two days later than the
+   one that actually happens.
+   ⚠ AND DAY ONE IS TOMORROW WHEN TODAY'S BATCH HAS ALREADY GONE. Otherwise the card says
+   "today: 200" all afternoon on a day that is finished, and the finish date is a day early
+   for the whole run. */
+function rsvpDripSchedule(total, perDay, from){
+  const out = [];
+  const n = Math.max(0, Number(total) || 0);
+  const per = Math.max(1, Number(perDay) || RSVP_DRIP_DEFAULT_PER_DAY);
+  /* ⚠ NO `if(!n) return` GUARD, and its absence is deliberate rather than an oversight:
+     the loop below is `while(left > 0)`, so nought mornings is already what nothing to
+     send produces. One was written and REMOVED when the red-check proved deleting it
+     changed no answer at all — a line nothing can break is a line that reads as a
+     safeguard while guarding nothing. */
+  const start = (from instanceof Date && !isNaN(from.getTime())) ? new Date(from.getTime()) : new Date();
+  let left = n, day = 0;
+  while(left > 0){
+    const when = new Date(start.getTime());
+    when.setDate(when.getDate() + day);
+    out.push({ date: when, count: Math.min(per, left) });
+    left -= Math.min(per, left);
+    day++;
+    /* A cap of 1 against the whole book would otherwise build a thousand-entry array for
+       a card nobody wants that much detail from. The finish date is still exact — it is
+       arithmetic on the last entry, not the length of this list. */
+    if(out.length > 400) break;
+  }
+  return out;
+}
+
+/* Whether today's batch has already run, in Mountain terms — the cron's own timezone, so
+   the card and the schedule agree about what "today" is. */
+function rsvpDripRanToday(last){
+  if(!last) return false;
+  const t = (typeof last.toDate === 'function') ? last.toDate() : new Date(last);
+  if(isNaN(t.getTime())) return false;
+  const key = function(d){
+    return d.toLocaleDateString('en-US', { timeZone: 'America/Denver' });
+  };
+  return key(t) === key(new Date());
+}
+
+/* ⭐ HOW MANY OF THE SAVED QUEUE ARE STILL OWED AN EMAIL, and who is owed one but is not
+   on it. Two separate numbers on purpose: the first is what the drip will actually send,
+   the second is the only thing a rebuild fixes. Reporting one total would hide whichever
+   half was the problem. */
+function rsvpDripQueueState(plan, queue){
+  const out = { queued: 0, missing: 0, missingNames: [] };
+  const owed = new Map();
+  ((plan && plan.standard) || []).forEach(function(m){ owed.set(m.id, 'standard'); });
+  ((plan && plan.arrears) || []).forEach(function(m){ owed.set(m.id, 'arrears'); });
+  const inQueue = new Set((queue || []).map(function(r){ return r && r.id; }));
+  (queue || []).forEach(function(r){ if(r && owed.has(r.id)) out.queued++; });
+  owed.forEach(function(kind, id){
+    if(inQueue.has(id)) return;
+    out.missing++;
+    if(out.missingNames.length < 5){
+      const m = (jobAddresses || []).find(function(a){ return a.id === id; });
+      out.missingNames.push((m && m.data && m.data.name) || id);
+    }
+  });
+  return out;
+}
+
+/* How many of the queue are each kind. Its own function so the card and a test read the
+   same arithmetic, and so the two lines naming her templates cannot quote a total that does
+   not add up to the queue. */
+function rsvpDripKindCount(queue, kind){
+  return (queue || []).filter(function(r){
+    return r && ((r.t === 'arrears') ? 'arrears' : 'standard') === kind;
+  }).length;
+}
+/* ⚠ ITS OWN FUNCTION SO A TEST CAN RUN IT. Which button is gold is a claim about what the
+   office sees and presses, and a source check cannot see a class being swapped. */
+function rsvpDripSetButtons(hasPlan, perDay){
+  const build = document.getElementById('rsvpDripBuildBtn');
+  const send = document.getElementById('rsvpDripSendNowBtn');
+  if(build){
+    build.classList.toggle('btn-gold', !hasPlan);
+    build.classList.toggle('btn-outline', !!hasPlan);
+    build.textContent = hasPlan ? 'Rebuild the plan' : 'Build the plan';
+  }
+  if(send){
+    send.classList.toggle('btn-gold', !!hasPlan);
+    send.classList.toggle('btn-outline', !hasPlan);
+    /* ⚠ IT NAMES THE CAP, NOT THE QUEUE. "Send 955 now" is the press she is trying to stop
+       making; what this button actually sends is one day's worth. */
+    send.textContent = hasPlan
+      ? ('Send today\u2019s ' + Math.max(1, Number(perDay) || RSVP_DRIP_DEFAULT_PER_DAY) + ' now')
+      : 'Send today\u2019s batch now';
+  }
+}
+function rsvpDripRender(){
+  const box = document.getElementById('rsvpDripBody');
+  if(!box) return;
+  const warn = document.getElementById('rsvpDripKeyWarn');
+  const perDayEl = document.getElementById('rsvpDripPerDay');
+  const onEl = document.getElementById('rsvpDripEnabled');
+  const saved = rsvpDripCache;
+  const per = Math.max(1, Number(saved && saved.perDay) || RSVP_DRIP_DEFAULT_PER_DAY);
+  if(perDayEl && document.activeElement !== perDayEl) perDayEl.value = per;
+  if(onEl) onEl.checked = !!(saved && saved.enabled);
+
+  /* ⭐ THE PRIVATE KEY IS THE ONE THING THAT CAN MAKE ALL OF THIS SILENTLY DO NOTHING,
+     so it is checked before anything else is drawn. The browser sends with the PUBLIC key
+     and the server needs the PRIVATE one — so "Send the whole RSVP" can work perfectly
+     while the 9 AM run cannot send a single email, and the only symptom would be a
+     schedule that is switched on and quiet. That is the exact failure this card exists to
+     prevent, arriving through its own setup. */
+  if(warn){
+    const pk = (document.getElementById('emailjsPrivateKey') || {}).value || '';
+    if(String(pk).trim()){ warn.hidden = true; warn.innerHTML = ''; }
+    else {
+      warn.hidden = false;
+      warn.innerHTML = '<b>The server cannot send yet.</b> Automation Emails &rarr; '
+        + 'EmailJS Setup has no <b>private key</b> saved. Your own <b>Send the whole RSVP</b> '
+        + 'button does not need one, so it will keep working &mdash; but the daily 9:00 AM run '
+        + 'is the server sending, and without that key it will run every morning and send '
+        + 'nothing. Add it there first.';
+    }
+  }
+
+  /* ⭐ THE BUTTON THAT IS THE NEXT STEP IS THE GOLD ONE, and it NAMES the number it will
+     send. Addie asked twice for "a button that lets us send 200 emails a day" when both the
+     button and the schedule were already there — which says the card was not making either
+     obvious, not that they were missing. A button reading "Send today's batch now" in outline
+     grey beside a gold one is the measure tool's two-commit-buttons failure: the gold one
+     reads like the finish line. ⚠ ONE OF THE TWO, NEVER BOTH: `rsvpDripSetButtons` sets and
+     CLEARS both classes on every draw, because a class added and never removed is how they
+     both end up gold after the first rebuild. */
+  const plan = (typeof rsvpWholePlan === 'function') ? rsvpWholePlan() : null;
+  if(!plan || !plan.ready){
+    box.innerHTML = '<p class="form-note" style="margin:0;">' + esc((plan && plan.why) || 'The customer list has not loaded yet.') + '</p>';
+    rsvpDripSetButtons(false, 0);
+    return;
+  }
+  const owedNow = plan.standard.length + plan.arrears.length;
+  const queue = Array.isArray(saved && saved.queue) ? saved.queue : null;
+  const state = rsvpDripQueueState(plan, queue || []);
+  const ranToday = rsvpDripRanToday(saved && saved.lastRunAt);
+  const thisYear = new Date().getFullYear();
+  const wrongSeason = queue && Number(saved.season) !== thisYear;
+
+  const line = function(label, value, note){
+    return '<div style="display:flex; justify-content:space-between; gap:12px; padding:5px 0; border-bottom:1px solid var(--line);">'
+      + '<span>' + label + '</span><span><b>' + value + '</b>'
+      + (note ? ' <span style="color:var(--slate); font-size:12px;">' + note + '</span>' : '')
+      + '</span></div>';
+  };
+
+  if(!queue || !queue.length){
+    rsvpDripSetButtons(false, per);
+    /* ⚠ THE TWO EMAILS ARE NAMED BEFORE A PLAN EXISTS, not only after. "It will use your
+       RSVP templates" is a claim; the names are the proof, and this is the moment she can
+       still fix a missing one without having built anything. */
+    const live = (typeof rsvpWholeTemplates === 'function') ? rsvpWholeTemplates() : {standard:null, arrears:null};
+    const nameOf = function(t){
+      return (t && t.data && String(t.data.name || '').trim()) || '';
+    };
+    box.innerHTML = line('Waiting to be asked', owedNow, esc(plan.arrears.length + ' of them owe from last season'))
+      + line('Already paid up \u2014 they would get', esc(nameOf(live.standard) || 'NO TEMPLATE FOUND'),
+          esc(plan.standard.length + ' people'))
+      + line('Owes from last season \u2014 they would get', esc(nameOf(live.arrears) || 'NO TEMPLATE FOUND'),
+          esc(plan.arrears.length + ' people'))
+      + line('On a plan', 0, 'nothing is scheduled')
+      + '<p class="form-note" style="margin:10px 0 0;">Press <b>Build the plan</b> and '
+      + (owedNow ? ('these ' + owedNow + ' are laid out ' + per + ' a morning &mdash; '
+          /* ⚠ IT DOES NOT NAME THE SEND BUTTON HERE. With no plan that button is REFUSED
+             ("There is no plan to send"), so offering it as one of two next steps sends her to
+             a press that cannot work — the shape of a message that is on screen and cannot be
+             true. The only next step without a plan is building one. */
+          + esc(rsvpDripFinishWords(owedNow, per, new Date())) + '. Nothing is sent until you '
+          + 'switch it on or send a batch by hand — both of which need the plan first.')
+         : 'there is nobody waiting, so it would send nothing.')
+      + '</p>';
+    return;
+  }
+
+  rsvpDripSetButtons(true, per);
+  /* ⚠ THE FIRST BATCH IS TOMORROW ONCE TODAY'S HAS GONE — see rsvpDripSchedule. */
+  const startFrom = new Date();
+  if(ranToday) startFrom.setDate(startFrom.getDate() + 1);
+  const days = rsvpDripSchedule(state.queued, per, startFrom);
+
+  /* ⭐ WHICH OF HER EMAILS EACH HALF GETS, NAMED ON THE CARD (2026-09-10). Addie, reading
+     this the first time: "Can you make sure it is attached to the RSVP automation emails I
+     created and will send out both depending on who paid and who did not pay?" The only
+     honest answer to that is to show her the two names the plan actually holds, rather than
+     to assert it in a paragraph. A plan built before the ids existed says so here, which is
+     also the one state the server refuses. */
+  const savedStdName = String(saved.standardTemplateName || '').trim();
+  const savedArrName = String(saved.arrearsTemplateName || '').trim();
+  const haveTplIds = !!(saved.standardTemplateId && saved.arrearsTemplateId);
+  let html = line('Already paid up \u2014 they get', esc(savedStdName || 'the ordinary RSVP'),
+      esc(rsvpDripKindCount(queue, 'standard') + ' people'))
+    + line('Owes from last season \u2014 they get', esc(savedArrName || 'Not Paid RSVP'),
+      esc(rsvpDripKindCount(queue, 'arrears') + ' people'))
+    + line('Still to send from the plan', state.queued,
+      esc(queue.length + ' on the plan, ' + Math.max(0, queue.length - state.queued) + ' already done or no longer owed'))
+    + line('A morning', per, 'at 9:00 AM Mountain')
+    + line('Finishes', esc(rsvpDripFinishWords(state.queued, per, startFrom)), '');
+  if(!haveTplIds){
+    html += '<p class="form-note" style="margin:10px 0 0; color:#c0392b;"><b>This plan does not '
+      + 'say which of your RSVP emails to send.</b> It was built before that was recorded, so '
+      + 'the 9:00 AM run will refuse it rather than guess. Press <b>Build the plan</b> again.</p>';
+  }
+  if(state.missing){
+    /* ⚠ NAMED, NOT JUST COUNTED. "3 not on the plan" is a number nobody can act on; the
+       names are what tell her whether it is a new customer she expects or a sign the plan
+       was built before half the book loaded. */
+    html += line('Waiting but NOT on the plan', state.missing,
+      esc(state.missingNames.join(', ') + (state.missing > state.missingNames.length ? ' and more' : '')
+        + ' — press Build the plan again to include them'));
+  }
+  if(wrongSeason){
+    html += '<p class="form-note" style="margin:10px 0 0; color:#c0392b;"><b>This plan is for '
+      + esc(String(saved.season || 'an unknown season')) + ' and it is now ' + thisYear + '.</b> '
+      + 'The server will refuse it rather than send last season&rsquo;s list. Build it again.</p>';
+  }
+  if(days.length){
+    html += '<div style="margin-top:10px;"><b style="font-size:13px;">The plan</b><div style="margin-top:4px;">'
+      + days.slice(0, RSVP_DRIP_SHOW_DAYS).map(function(x){
+          return '<div style="display:flex; justify-content:space-between; gap:12px; padding:3px 0; color:var(--slate);">'
+            + '<span>' + esc(x.date.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'})) + '</span>'
+            + '<span>' + x.count + '</span></div>';
+        }).join('')
+      + (days.length > RSVP_DRIP_SHOW_DAYS
+          ? '<div style="padding:3px 0; color:var(--slate);">and ' + (days.length - RSVP_DRIP_SHOW_DAYS) + ' more morning(s)</div>'
+          : '')
+      + '</div></div>';
+  }
+  /* ⭐ WHAT THE LAST RUN DID. A schedule nobody watches has to say so, and the failure
+     worth catching is the one where it ran and sent nothing — which looks identical to
+     everybody having been asked unless the run is reported separately from the count. */
+  if(saved.lastRunAt){
+    const when = (typeof saved.lastRunAt.toDate === 'function') ? saved.lastRunAt.toDate() : new Date(saved.lastRunAt);
+    const ok = !isNaN(when.getTime());
+    html += '<p class="form-note" style="margin:10px 0 0;">Last run '
+      + (ok ? esc(when.toLocaleString()) : 'at an unreadable time')
+      + (saved.lastRunSource === 'manual' ? ' (by hand)' : '')
+      + ' &mdash; sent <b>' + (Number(saved.lastSent) || 0) + '</b>, skipped '
+      + (Number(saved.lastSkipped) || 0) + '.'
+      + (saved.lastStopped ? ' <span style="color:#c0392b;">' + esc(String(saved.lastStopped)) + '</span>' : '')
+      + ((saved.lastErrors && saved.lastErrors.length)
+          ? ' <span style="color:#c0392b;">' + esc(saved.lastErrors.slice(0,3).join('; ')) + '</span>' : '')
+      + '</p>';
+  } else {
+    html += '<p class="form-note" style="margin:10px 0 0;">It has not run yet.</p>';
+  }
+  box.innerHTML = html;
+}
+
+/* The finish date in words, shared by the no-plan line and the plan summary so the two
+   cannot quote different dates for the same arithmetic. */
+function rsvpDripFinishWords(total, perDay, from){
+  const days = rsvpDripSchedule(total, perDay, from);
+  if(!days.length) return 'nothing to send';
+  const last = days[days.length - 1].date;
+  const n = days.length;
+  return (n === 1 ? 'all of them in one morning, ' : n + ' mornings, finishing ')
+    + last.toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'});
+}
+
+/* ⭐ WHAT THE WHOLE-RSVP BUTTON WARNS ABOUT, AS A FUNCTION A TEST CAN RUN (2026-09-10).
+   Returns the extra paragraph for the confirm, or '' when the send is small enough not to
+   need one.
+   ⚠ ITS OWN FUNCTION BECAUSE THE CHECK FOR IT WAS WEAK. Written inline, the only thing a
+   suite could do was match `total > RSVP_DRIP_DEFAULT_PER_DAY` in the source — and a
+   red-check proved that regex stays green with `false &&` in front of it, so the warning
+   could be switched off with every check still passing. Same shape as matching
+   `/data-rsvpchecklistundo/` and having a renamed attribute sail through.
+   ⚠ IT WARNS, IT NEVER REFUSES. A guard that blocks a legitimate send is worse than the
+   mistake it prevents, because there is no way round it at all — emailTypoSuggestion's
+   rule. The caller appends this to a confirm she can still say yes to.
+   ⚠ AND ONLY OVER THE CAP. On a send of forty this paragraph is noise, and a warning that
+   appears every time is one nobody reads on the day it matters. */
+function rsvpWholeSendWarning(total){
+  if(!(Number(total) > RSVP_DRIP_DEFAULT_PER_DAY)) return '';
+  return '\n\nThat is more than ' + RSVP_DRIP_DEFAULT_PER_DAY + ' in one go, which is '
+    + 'where Gmail has stopped a send before — and a send it stops partway has to '
+    + 'be worked out by hand afterwards. The RSVP tab beside this one spreads the '
+    + 'same list over several mornings instead.';
+}
+document.getElementById('rsvpDripBuildBtn')?.addEventListener('click', async function(){
+  const st = document.getElementById('rsvpDripStatus');
+  const plan = (typeof rsvpWholePlan === 'function') ? rsvpWholePlan() : null;
+  if(!plan || !plan.ready){
+    if(st){ st.textContent = (plan && plan.why) || 'The customer list has not loaded yet.'; st.style.color = 'var(--ember)'; }
+    return;
+  }
+  const queue = rsvpDripBuildQueue(plan);
+  if(!queue.length){
+    if(st){ st.textContent = 'Nobody is waiting to be asked, so there is no plan to build.'; st.style.color = 'var(--slate)'; }
+    return;
+  }
+  /* ⭐ THE PLAN CARRIES THE TWO TEMPLATES, RESOLVED HERE (2026-09-10). `rsvpWholeTemplates`
+     is the one place that decides which of her emails is the ordinary RSVP and which is the
+     Not Paid one — it finds an RSVP template by its CONTENT ({{rsvp_yes_button}} and friends)
+     or by its folder, and names the ordinary one with a fallback. The server used to repeat
+     that decision by looking up the exact names "RSVP Email" and "Not Paid RSVP", which is a
+     second opinion that disagrees the moment a template is renamed: the card would show a
+     plan of several hundred and the 9 AM run would refuse every morning. Storing the ids
+     means there is only ever one decision, made on the screen that can show her which two
+     it picked. */
+  const tpl = (typeof rsvpWholeTemplates === 'function') ? rsvpWholeTemplates() : {standard:null, arrears:null};
+  /* ⚠ BOTH OR NEITHER, AND REFUSED HERE RATHER THAN AT 9 AM. A plan saved with one template
+     missing is a plan that looks armed and can only ever send half the book — and the half
+     it drops is silent, which is the whole failure being fixed. */
+  if(!tpl.standard || !tpl.arrears){
+    if(st){
+      st.textContent = 'Missing a template: '
+        + (!tpl.standard ? 'the ordinary RSVP' : '')
+        + (!tpl.standard && !tpl.arrears ? ' and ' : '')
+        + (!tpl.arrears ? '"Not Paid RSVP"' : '')
+        + '. Both live under Templates \u2192 RSVP. An RSVP email is one carrying the '
+        + '{{rsvp_yes_button}} tokens or sitting in a folder called RSVP, and the unpaid one '
+        + 'must be named exactly "Not Paid RSVP".';
+      st.style.color = 'var(--ember)';
+    }
+    return;
+  }
+  const perEl = document.getElementById('rsvpDripPerDay');
+  const per = Math.max(1, Number(perEl && perEl.value) || RSVP_DRIP_DEFAULT_PER_DAY);
+  const keep = !!(rsvpDripCache && rsvpDripCache.enabled);
+  this.disabled = true;
+  if(st){ st.textContent = 'Saving the plan…'; st.style.color = 'var(--slate)'; }
+  try{
+    /* ⚠ merge:true AND `enabled` CARRIED ACROSS DELIBERATELY. A rebuild is somebody
+       adding the three customers the card just named, not somebody switching the whole
+       thing off — silently turning it off there would stop the RSVP mid-season with a
+       card that still looked fine. The run record is left alone for the same reason: it
+       is what happened, and rebuilding the list does not un-happen it. */
+    await setDoc(doc(db,'settings','rsvpSendPlan'), {
+      enabled: keep,
+      perDay: per,
+      /* ⚠ THE SEASON IS STAMPED SO THE SERVER CAN REFUSE A STALE PLAN. Start New Season
+         clears every `rsvpEmailedAt`, so a plan left behind would read the whole book as
+         unasked and re-send last year's RSVP using last year's paid/unpaid split. */
+      season: new Date().getFullYear(),
+      builtAt: serverTimestamp(),
+      builtBy: (typeof paymentLedgerUser === 'function') ? paymentLedgerUser() : '',
+      standardTemplateId: tpl.standard.id,
+      arrearsTemplateId: tpl.arrears.id,
+      /* ⚠ THE NAMES ARE STORED TOO, AND ONLY SO THE CARD CAN SAY THEM. Nothing sends off a
+         name — the server loads by id — so a template renamed later still goes out, and the
+         card showing its old name is a cosmetic staleness rather than a wrong send. */
+      standardTemplateName: (tpl.standard.data && tpl.standard.data.name) || '',
+      arrearsTemplateName: (tpl.arrears.data && tpl.arrears.data.name) || '',
+      queue: queue
+    }, {merge: true});
+    rsvpDripCache = Object.assign({}, rsvpDripCache || {}, {
+      enabled: keep, perDay: per, season: new Date().getFullYear(), queue: queue,
+      standardTemplateId: tpl.standard.id, arrearsTemplateId: tpl.arrears.id,
+      standardTemplateName: (tpl.standard.data && tpl.standard.data.name) || '',
+      arrearsTemplateName: (tpl.arrears.data && tpl.arrears.data.name) || ''
+    });
+    rsvpDripRender();
+    if(st){
+      st.textContent = 'Plan saved — ' + queue.length + ' to ask, '
+        + rsvpDripFinishWords(queue.length, per, new Date()) + '.'
+        + (keep ? ' It is switched on, so the first batch goes at 9:00 AM.'
+                : ' Nothing is sent until you switch it on or press Send today’s batch now.');
+      st.style.color = 'var(--emerald)';
+    }
+  }catch(err){
+    console.error('[HU] could not save the RSVP send plan:', err);
+    if(st){ st.textContent = '✗ Could not save the plan — ' + ((err && err.message) || 'try again'); st.style.color = 'var(--ember)'; }
+  }
+  this.disabled = false;
+});
+
+document.getElementById('rsvpDripEnabled')?.addEventListener('change', async function(){
+  const st = document.getElementById('rsvpDripStatus');
+  const on = this.checked;
+  /* ⚠ SWITCHING IT ON WITH NO PLAN WOULD DO NOTHING AND LOOK ARMED. The server refuses an
+     empty queue, so the tick has to be refused here instead of leaving a card that says
+     the RSVP is going out every morning when no email can. */
+  if(on && !(rsvpDripCache && Array.isArray(rsvpDripCache.queue) && rsvpDripCache.queue.length)){
+    this.checked = false;
+    if(st){ st.textContent = 'Build the plan first — there is nothing for the 9:00 AM run to send.'; st.style.color = 'var(--ember)'; }
+    return;
+  }
+  try{
+    await setDoc(doc(db,'settings','rsvpSendPlan'), {enabled: on}, {merge: true});
+    rsvpDripCache = Object.assign({}, rsvpDripCache || {}, {enabled: on});
+    if(st){
+      st.textContent = on
+        ? '✓ On — the next batch goes at 9:00 AM Mountain.'
+        : 'Off — nothing is sent automatically. The plan is kept.';
+      st.style.color = on ? 'var(--emerald)' : 'var(--slate)';
+    }
+  }catch(err){
+    /* Put back, so the box never claims a state the database does not hold. */
+    this.checked = !on;
+    if(st){ st.textContent = '✗ Couldn’t save that — try again'; st.style.color = 'var(--ember)'; }
+  }
+});
+
+document.getElementById('rsvpDripSendNowBtn')?.addEventListener('click', async function(){
+  const st = document.getElementById('rsvpDripStatus');
+  const saved = rsvpDripCache;
+  if(!saved || !Array.isArray(saved.queue) || !saved.queue.length){
+    if(st){ st.textContent = 'There is no plan to send. Press Build the plan first.'; st.style.color = 'var(--ember)'; }
+    return;
+  }
+  const per = Math.max(1, Number(saved.perDay) || RSVP_DRIP_DEFAULT_PER_DAY);
+  /* ⚠ THE CONFIRM NAMES THE CAP, NOT THE WHOLE QUEUE, because that is what one press
+     actually sends — a dialog quoting the queue length would read as "this sends all 955"
+     and is exactly the press she is trying to stop making. */
+  if(!confirm('Send today’s batch now?\n\nUp to ' + per + ' email(s) go out, taken from '
+      + 'the top of the plan. Anybody already asked or who has since answered is skipped.\n\n'
+      + 'This cannot be taken back.')) return;
+  this.disabled = true;
+  if(st){ st.textContent = 'Working… this can take a few minutes.'; st.style.color = 'var(--slate)'; }
+  try{
+    const run = httpsCallable(fbFunctions, 'runRsvpDailyNow');
+    const res = (await run({})).data || {};
+    /* ⚠ A STOPPED RUN IS NOT A QUIET ZERO. "0 sent" on its own reads as "everybody has
+       been asked", when it may be a missing template, a missing private key or a stale
+       plan — so the reason is shown instead of the count. */
+    if(res.stopped && !res.sent){
+      if(st){ st.textContent = 'Nothing sent — ' + res.stopped; st.style.color = 'var(--ember)'; }
+    } else {
+      const errs = (res.errors && res.errors.length) || 0;
+      if(st){
+        st.textContent = res.sent + ' sent (' + (res.arrears || 0) + ' Not Paid, '
+          + (res.standard || 0) + ' ordinary), ' + (res.skipped || 0) + ' skipped'
+          + (errs ? ', ' + errs + ' failed: ' + res.errors.slice(0,3).join('; ') : '')
+          + (res.stopped ? ' — ' + res.stopped : '');
+        st.style.color = (errs || res.stopped) ? 'var(--ember)' : 'var(--emerald)';
+      }
+    }
+    /* Re-read rather than patching the cache: the server wrote the run record, and the
+       card's whole job is to show what actually happened rather than what we asked for. */
+    await loadRsvpDripPlan();
+  }catch(err){
+    console.error('[HU] could not run the RSVP drip:', err);
+    if(st){ st.textContent = '✗ Couldn’t run that — ' + ((err && err.message) || 'try again'); st.style.color = 'var(--ember)'; }
+  }
+  this.disabled = false;
+});
+/* ⭐ WHY SOMEBODY IS NOT IN THE RSVP SEND — ONE RULE, TWO COPIES (2026-09-10, EM-15).
+   Returns '' when this customer is owed an RSVP email, else the reason they are not.
+   `rsvpSendSkipReasonServer` in functions/index.js is the other copy and
+   `rsvp-daily-send.test.js` runs both over every combination, asserting the answers are
+   RIGHT rather than merely equal — two copies wrong in the same way agree perfectly.
+
+   ⚠ ITS OWN FUNCTION SO A TEST CAN RUN IT. Written inline in the loop, the only thing a
+   suite could do was match its text, and the daily drip could not ask it at all.
+
+   ⚠ THE ORDER IS THE RULE, AND A CHECK PINS IT. Every line below returns a DIFFERENT
+   bucket on the screen, so moving one changes what the office is told rather than only
+   how it is worked out:
+     - a test record is not a customer and is counted nowhere
+     - never asked (audienceNeverAsked) beats everything, because somebody who has never
+       had lights must not be asked whether they want them AGAIN (RS-20)
+     - answered beats asked: they have told us, so re-asking argues with their own answer
+     - do-not-send and no-email come BEFORE the already-emailed test, because those are
+       reasons somebody is not in this send at all — counting an opted-out customer as
+       "already emailed" would say we had written to somebody we are forbidden to write to
+     - already emailed is LAST of the skips (EM-04). Addie: "the people that have already
+       got the email should not get it again." Either stamp counts, the office's own send
+       (`rsvpEmailedAt`) or the server's arrears chase (`arrearsRsvpEmailAt`), because both
+       are us asking them about this season; reading one would re-ask everybody the
+       automation already reached.
+
+   ⚠ AND IT IS SEASON-SCOPED BY THE RESET, not by a date comparison here. Start New Season
+   clears both stamps, which is what makes "already asked" mean "asked THIS season" with no
+   arithmetic that could drift.
+
+   ⚠ IT SAYS NOTHING ABOUT WHICH TEMPLATE. That needs the invoices, which the server reads
+   one document at a time and the browser holds in a cache, so the two cannot share it —
+   and a rule that needed money could not be swept synchronously. Who is owed an email is
+   the half that decides duplicates; which email they get is decided after. */
+/* ⚠ THE SERVER DOES NOT HOLD A COPY OF THIS, DELIBERATELY. Mirroring it would mean
+   server copies of `audienceNeverAsked`, `audienceQuoteJoinYear`, `isRequote`,
+   `enrollmentYearOf` and `effectiveRsvpStatus` — five new paired rules deciding who gets
+   asked, on the one send that has to reach everybody exactly once, and the server's copy
+   is the one nobody looks at. Instead this rule runs HERE, once, and the queue it produces
+   is written to `settings/rsvpSendPlan`; the drip is a dumb pipe that sends the names it
+   was given. `rsvpStillOwedServer` is the narrower second gate it applies just before each
+   send, and it can only ever REMOVE somebody — rsvp-daily-send.test.js asserts that
+   direction rather than claiming the two are equal, because they are not and should not be. */
+function rsvpSendSkipReason(d){
+  const rec = d || {};
+  if(typeof isTestRecordData === 'function' && isTestRecordData(rec)) return 'test';
+  if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(rec)) return 'new';
+  if(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus(rec)) return 'answered';
+  if(typeof etNoAutomationEmails === 'function' && etNoAutomationEmails(rec)) return 'optedout';
+  if(!String(rec.email || '').trim()) return 'noemail';
+  if(rec.rsvpEmailedAt || rec.arrearsRsvpEmailAt) return 'emailed';
+  return '';
+}
 /* ⚠ ONE PLAN, READ BY BOTH BUTTONS. What "Check first" shows has to be what Send does,
    or the preview is a second opinion — the same reasoning the Preview & Send preview and
    its send loop already share a renderer for. */
@@ -19473,31 +20105,19 @@ function rsvpWholePlan(){
   jobAddresses.forEach(function(item){
     const d = (item && item.data) || null;
     if(!d) return;
-    if(typeof isTestRecordData === 'function' && isTestRecordData(d)) return;
-    /* Never asks somebody about lights they have never had — the same predicate the
-       RSVP audience filter uses, so the two cannot drift (RS-20). */
-    if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)){
-      out.newThisYear++; out.newThisYearList.push(item); return;
-    }
-    /* Somebody who has already answered is not asked again. */
-    if(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus(d)){
-      out.answered++; out.answeredList.push(item); return;
-    }
-    if(typeof etNoAutomationEmails === 'function' && etNoAutomationEmails(d)){ out.optedOut.push(item); return; }
-    if(!String(d.email || '').trim()){ out.noEmail.push(item); return; }
-    /* ⭐ ALREADY ASKED IS NOT ASKED AGAIN (2026-09-09, EM-04). Addie: "the people that
-       have already got the email should not get it again." Either stamp counts — the
-       office's own send (`rsvpEmailedAt`) or the server's arrears chase
-       (`arrearsRsvpEmailAt`) — because both are us asking them about this season, and
-       reading only one would re-ask everybody the automation already reached.
-       ⚠ IT SITS AFTER the answered / opted-out / no-email tests on purpose: those are
-       reasons somebody is not in this send at all, and counting an opted-out customer
-       as "already emailed" would tell her we had asked somebody we are forbidden to
-       write to.
-       ⚠ AND IT IS SEASON-SCOPED BY THE RESET, not by a date comparison here. Start New
-       Season clears both fields, which is what makes "already asked" mean "asked THIS
-       season" without any arithmetic that could drift. */
-    if(d.rsvpEmailedAt || d.arrearsRsvpEmailAt){ out.alreadyEmailed.push(item); return; }
+    /* ⭐ ONE RULE, ASKED HERE AND ON THE SERVER (2026-09-10, EM-15). The seven reasons
+       somebody is not in this send used to be written out inline, so the daily drip in
+       functions/index.js had to re-decide them — and a drip that disagreed with this
+       screen by one rule either mails somebody twice or never mails them at all, with
+       nothing on any screen saying which. `rsvpSendSkipReason` is the one answer, and it
+       is the ONLY thing that decides who joins the drip's queue — see EM-16. */
+    const why = rsvpSendSkipReason(d);
+    if(why === 'test') return;
+    if(why === 'new'){ out.newThisYear++; out.newThisYearList.push(item); return; }
+    if(why === 'answered'){ out.answered++; out.answeredList.push(item); return; }
+    if(why === 'optedout'){ out.optedOut.push(item); return; }
+    if(why === 'noemail'){ out.noEmail.push(item); return; }
+    if(why === 'emailed'){ out.alreadyEmailed.push(item); return; }
     if(typeof houseOwesFromLastSeason === 'function' && houseOwesFromLastSeason(d)) out.arrears.push(item);
     else out.standard.push(item);
   });
@@ -19591,7 +20211,13 @@ document.getElementById('rsvpWholeSendBtn')?.addEventListener('click', async fun
       + plan.arrears.length + ' get the Not Paid RSVP\n'
       + plan.noEmail.length + ' have no email and must be TEXTED (nothing is sent to them)\n'
       + plan.alreadyEmailed.length + ' already got it this season and are NOT sent it again\n\n'
-      + 'That is ' + total + ' email(s). This cannot be taken back.')) return;
+      + 'That is ' + total + ' email(s), ALL AT ONCE. This cannot be taken back.'
+      /* ⭐ SAID PLAINLY, AND IT IS NOT A REFUSAL (2026-09-10, EM-16). One press of this is
+         what Gmail cut off partway on a book of ~950, and what then took a pasted
+         spreadsheet of 673 names to work out who had actually been reached. The wording and
+         the when live in `rsvpWholeSendWarning` so a test can RUN them rather than match a
+         regex that survives being switched off. */
+      + rsvpWholeSendWarning(total))) return;
   btn.disabled = true;
   let sent = 0, failed = 0, optedOut = 0, noReferral = 0;
   const noReferralNames = [];
@@ -43446,6 +44072,7 @@ const RENDER_PANEL = {
   customerNumbers: 'customer-numbers',
   dashRsvp: 'dashboard',
   rsvpCheckList: 'automation',
+  rsvpDrip: 'automation',
   etMemberSelect: 'automation',
   etRecipients: 'automation',
   invRecipients: 'automation',
@@ -43602,6 +44229,13 @@ function renderJobAddressPanels(){
     safeRender('rsvpCheckList', function(){
       if(typeof rsvpCheckListRefresh === 'function') rsvpCheckListRefresh(null, {quiet: true});
     });
+    /* ⭐ EM-16. The drip card counts who is still waiting, so it has to follow the book —
+       the number it shows is the argument for pressing Build the plan again.
+       ⚠ IT NEEDS NO `quiet` FLAG, unlike the line above it: `rsvpDripRender` writes only
+       the body, never `rsvpDripStatus`, so an automatic redraw cannot wipe the line saying
+       what the last press did. That separation is why the status line is a different
+       element rather than part of the rendered block. */
+    safeRender('rsvpDrip', typeof rsvpDripRender === 'function' ? rsvpDripRender : null);
     safeRender('warehouseRecycleQueue', typeof renderWarehouseRecycleQueue === 'function' ? renderWarehouseRecycleQueue : null);
     safeRender('warehouseColorChangeQueue', typeof renderWarehouseColorChangeQueue === 'function' ? renderWarehouseColorChangeQueue : null);
     safeRender('customerNumbers', typeof renderCustomerNumbersPanel === 'function' ? renderCustomerNumbersPanel : null);

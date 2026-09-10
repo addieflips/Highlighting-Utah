@@ -4109,6 +4109,92 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
             - Mapped to the automation panel, so it draws only while that tab is open.
             7 sabotages red-checked — one of which caught the fixture for the blanking rule being
             vacuous, because a report built unready is already empty and cannot show being cleared.
+        - ⭐ **THE WHOLE RSVP, 200 A MORNING, SENT BY THE SERVER** ([[EM-16]], 2026-09-10).
+          Addie: *"we need to make sure we don't run into this situation in the future. Can we
+          make a calendar for RSVP emails that will only send 200 emails a day until we send them
+          all out?"* The situation was a send of ~950 that Gmail cut off partway, which then took
+          a pasted spreadsheet of 673 names to reconcile. **Automation Emails → Send the RSVP a
+          few hundred a day**: Build the plan, then a 9 AM Cloud Function works down it.
+          - ⭐ **THE BROWSER DECIDES, THE SERVER SENDS.** `rsvpSendSkipReason` ([[EM-15]]) and the
+            paid/unpaid split rest on six rules that live only in admin.html —
+            `audienceNeverAsked`, `audienceQuoteJoinYear`, `isRequote`, `enrollmentYearOf`,
+            `effectiveRsvpStatus`, `houseOwesFromLastSeason` — three needing `quotesCache` and one
+            needing every invoice. So the queue is decided once, written to
+            `settings/rsvpSendPlan` carrying a template per person, and `runRsvpDailyBatch` is a
+            pipe that sends the names it was handed. ⚠ **Copying those rules onto the server**
+            would put six new drift surfaces on the one send that has to reach everybody exactly
+            once, and the server's copy is always the one nobody looks at.
+          - ⭐ **IT IS ATTACHED TO HER OWN TWO TEMPLATES, BY ID.** Her follow-up: *"Can you make
+            sure it is attached to the RSVP automation emails I created and will send out both
+            depending on who paid and who did not pay?"* The first version looked them up by the
+            exact names "RSVP Email" and "Not Paid RSVP" — a second opinion, because
+            `rsvpWholeTemplates` finds an RSVP template by its CONTENT (any `{{rsvp_*}}` token) or
+            its folder and tolerates the ordinary one being renamed. A renamed template was found
+            on the screen and not on the server: the card would show a plan of several hundred and
+            the 9 AM run would refuse every morning, in silence. The ids are resolved on the screen
+            that can NAME the two it picked, and the card names them with a count each.
+          - ⚠ **9 AM, NOT 10.** The unpaid chase and the quote nudges are both on 10:00, and three
+            batches on one Gmail account is the limit this exists to stay under.
+          - ⚠ **NOT A BROWSER TIMER.** A drip that stalls because nobody opened a tab is a season
+            where half the book is never asked — the same failure wearing a calendar.
+          - ⚠ **NOTHING RECORDS WHO IS DONE.** `rsvpEmailedAt` on the customer is the one record,
+            so a queue walked past stamped names costs nothing and one plan serves all season.
+          - ⚠ **THE CAP IS COUNTED IN SENDS, NEVER IN ROWS WALKED.** Counting rows makes a plan
+            whose first 200 names are stamped send nothing on day two and report 0 — which reads
+            as everybody having been asked.
+          - ⚠ **A REFUSAL STOPS THE RUN** rather than burning 199 more attempts on an
+            account-wide limit, and stamps nobody, so tomorrow carries on from there.
+          - ⚠ **A PLAN FROM ANOTHER SEASON IS REFUSED.** Start New Season clears every stamp, so a
+            leftover plan would re-send last year's RSVP on last year's paid/unpaid split.
+          - ⚠ **THE STALE-PLAN COST IS SHOWN, NOT HIDDEN.** A customer added after the plan was
+            built is not on it, so the card counts and NAMES them and offers the rebuild. Nothing
+            rebuilds itself: a plan that silently reorders between two mornings cannot be checked
+            against what she saw yesterday.
+          - ⚠ **THE PRIVATE KEY IS THE ONE THING THAT CAN MAKE ALL OF IT SILENTLY DO NOTHING.** The
+            browser sends with the public key, so **Send the whole RSVP** can work perfectly while
+            the 9 AM run cannot send a single email. The card checks for it and says so in red.
+          - ⭐ **IT CLOSED A DOUBLE-SEND HOLE ON THE WAY PAST.** `runArrearsRsvpBatch` skipped
+            `arrearsRsvpEmailAt` alone, so anybody the office's own send had already asked would get
+            the Not Paid email on top — the harassment that block's own header warns about, from the
+            one direction it was not guarding. It reads both stamps now, as `rsvpWholePlan` always has.
+          - ⚠ **AND THE RENDERER IS SHARED, NOT COPIED.** The RSVP body builder moved out of the
+            unpaid chase into `rsvpEmailBodyServer` so the drip would not be a third copy — the
+            `{{photo}}` and `{{link}}` pairings in this repo are both about two renderers drifting.
+          - ⚠ **THE OFFICE'S OWN BUTTON WARNS BUT NEVER REFUSES** (`rsvpWholeSendWarning`). A guard
+            that blocks a legitimate send has no way round it at all. It is its own function because
+            the check for it was weak: a red-check proved `/total > RSVP_DRIP_DEFAULT_PER_DAY/` stays
+            green with `false &&` in front of it.
+          - ⭐ **IT HAS A TAB OF ITS OWN, NAMED RSVP.** Addie: *"Make a new tab in automation
+            email for RSVP for this send 200 for each day"*, then *"put it in it's own tab on
+            Automation Email named RSVP"*. It started as a card under **Templates**, which is
+            where the RSVP send already lived — but a card at the bottom of the tab somebody
+            opens to EDIT an email is not where anybody looks to find out whether today's batch
+            went out, and "how many are left" is asked on days when no template is touched.
+            ⚠ **Send the whole RSVP stays on Templates**: it is one press beside the templates
+            it sends, and moving it would break the one route the office already knows.
+            ⚠ **The tab draws on open**, the way the Invoices tab does — `rsvpDrip` is a
+            deferred render and `flushPendingRenders` fires on the PANEL opening, so switching
+            tabs inside an already-open Automation Emails would otherwise show nothing.
+          - ⚠ **AND WITH NO PLAN IT NAMES ONLY ONE NEXT STEP.** The card used to read *"Nothing
+            is sent until you switch it on or press Send today's batch now"* — and both of those
+            are REFUSED until a plan exists (the button answers "There is no plan to send", the
+            switch refuses to arm). So the one sentence saying what to do next named two presses
+            that cannot work. It names **Build the plan** alone. That is this repo's "a message
+            that is on screen and cannot be true" failure, which it has paid for at least three
+            times, so the no-plan branch is asserted rather than only corrected.
+          - ⭐ **WHICH BUTTON IS GOLD MOVES WITH THE NEXT STEP** (`rsvpDripSetButtons`). Addie
+            asked twice for *"a button that lets us send 200 emails a day"* when both the button
+            and the schedule were already there — which says the card was not making either
+            obvious, not that they were missing. Before a plan exists **Build the plan** is
+            gold; once one does, **Send today's 200 now** is, and it NAMES the cap rather than
+            the queue. ⚠ This is the measure tool's own lesson (MR: two commit buttons, one
+            gold, and the gold one is the one that got pressed, so houses ended up priced with
+            no footage). ⚠ **Exactly one is gold after every transition, in both directions** —
+            a class added and never removed leaves both gold, and the red-check proved a
+            spot-check in one order cannot see it.
+          `rsvp-daily-send.test.js`, 137 checks, 57 sabotages red-checked across two passes.
+          Four of its own checks were caught being weak by those passes, and one sabotage was a
+          no-op that retired a dead guard.
     - Each row carries its own reason rather than the run's last one, so the next occurrence
       names itself. 10 sabotages red-checked across the two passes.
   - ⚠ **The `{{quote_` prefix inside it is built with `String.fromCharCode(123,123)`.** Suites

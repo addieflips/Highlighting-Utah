@@ -77,7 +77,17 @@ function stripComments(s) {
   return s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 }
 
-const LIFTS = ['rsvpWholePlan', 'rsvpMarkOneRows', 'rsvpMarkOneRender', 'rsvpMarkOneAsked'];
+/* ⚠ `rsvpSendSkipReason` IS IN THIS LIST, LIFTED AND NEVER STUBBED (2026-09-10, EM-15).
+   The seven reasons somebody is not in the RSVP send moved out of `rsvpWholePlan` into their
+   own rule, and this sandbox was not given it — so every scenario here died on a bare
+   `ReferenceError: rsvpSendSkipReason is not defined`, which is the extraction-list trap
+   CLAUDE.md §3 names. It is LIFTED rather than stubbed because the six predicates BELOW are
+   the fixture dial and this is the rule that ORDERS them: a stub would leave every check
+   here green while the real page counted an opted-out customer as already-emailed.
+   ⚠ AND IT CRASHED RATHER THAN FAILING A CHECK, which is why it reached CI: a crash prints
+   no "N failed" line and no FAIL row, so a local run verified by grepping for those words
+   looks clean. Check the EXIT CODE of `npm test`, never its text. */
+const LIFTS = ['rsvpSendSkipReason', 'rsvpWholePlan', 'rsvpMarkOneRows', 'rsvpMarkOneRender', 'rsvpMarkOneAsked'];
 LIFTS.forEach(function (n) {
   check('lifted ' + n + ' and it parses', liftOk(lift(n)),
     'a truncated lift answers confidently and wrongly while the suite reports green');
@@ -134,8 +144,8 @@ function world(records, opts) {
     'const rsvpMarkOneRecent = new Set();\n' +
     'const RSVP_MARK_ONE_SHOWN = ' + (o.shown || 50) + ';\n' +
     LIFTS.map(lift).join('\n') + '\n' +
-    'return { rsvpWholePlan, rsvpMarkOneRows, rsvpMarkOneRender, rsvpMarkOneAsked,' +
-    '         rsvpMarkOneRecent, doc: document };\n';
+    'return { rsvpSendSkipReason, rsvpWholePlan, rsvpMarkOneRows, rsvpMarkOneRender,' +
+    '         rsvpMarkOneAsked, rsvpMarkOneRecent, doc: document };\n';
 
   const made = new Function(names.join(','), body).apply(null, names.map(function (k) { return api[k]; }));
   made.writes = writes;
@@ -453,7 +463,10 @@ const BOOK = function () {
        customer as still needing a tick — which is the one outcome that costs a
        house its crew. */
     .then(async function () {
-      const CHECK_LIFTS = ['dupNormName', 'rsvpWholePlan', 'rsvpCheckListNames',
+      /* ⚠ `rsvpSendSkipReason` FIRST — see the note on LIFTS at the top. All THREE sandboxes
+         in this file lift `rsvpWholePlan`, so all three need the rule it calls; fixing one and
+         running it is what sent a bare ReferenceError to CI. Run the WHOLE file. */
+      const CHECK_LIFTS = ['rsvpSendSkipReason', 'dupNormName', 'rsvpWholePlan', 'rsvpCheckListNames',
         'rsvpCheckListIndex', 'rsvpCheckListCompare', 'rsvpCheckListRenderReport',
         'rsvpCheckListRefresh', 'rsvpCheckListRun'];
       CHECK_LIFTS.forEach(function (n) {
@@ -772,7 +785,7 @@ const BOOK = function () {
         check('lifted ssnChunk by line and it parses', liftOk(ssnChunkSrc),
           'a stubbed chunker that drops a batch would pass silently');
 
-        const BULK_LIFTS = ['dupNormName', 'rsvpWholePlan', 'rsvpCheckListNames',
+        const BULK_LIFTS = ['rsvpSendSkipReason', 'dupNormName', 'rsvpWholePlan', 'rsvpCheckListNames',
           'rsvpCheckListIndex', 'rsvpCheckListCompare', 'rsvpCheckListRenderReport',
           'rsvpCheckListRefresh', 'rsvpCheckListRun', 'rsvpCheckListBulkTargets',
           'rsvpCheckListMarkAll', 'rsvpCheckListUndoTick'];
