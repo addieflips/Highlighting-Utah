@@ -276,6 +276,42 @@ step('note-throws', runMove(
     'the customer would be told it went wrong when their move was safely recorded');
 });
 
+/* ---- ⭐ ANYONE MAY REPORT A MOVE, PAID UP OR NOT (2026-09-10, QT-36) --------
+ * Addie, answering Q-033: "Yes anyone can report a move but when we requote the person
+ * that didn't pay for last year still can't be scheduled until they pay there balance."
+ *
+ * ⚠ THIS IS THE HALF THAT LOOKS LIKE AN OVERSIGHT AND IS A RULING. portalSave refuses
+ * every section but `cancel` while last season is unpaid, so a future session reading
+ * only these two functions would see the move door as the one that forgot its hold and
+ * "fix" it — which is the opposite of what she asked for. Asserted as code so that goes
+ * red instead of shipping.
+ *
+ * ⚠ THE SECOND HALF OF HER SENTENCE IS ENFORCED ELSEWHERE, ON PURPOSE, and is NOT
+ * re-checked here (§9.1 — one claim, one place): `houseOwesFromLastSeason` inside
+ * `isOutForSeason` keeps a debtor off the routes even after they approve a re-quote,
+ * and arrears-hold.test.js §4d already runs the real `seasonYesUpdates` into the real
+ * `isOutForSeason` to prove it. What this file owns is the DOOR being open. */
+step('arrears-open', runMove(
+  { token: 'goodtoken', street: '9 Oak St', city: 'Springville' },
+  { record: { name: 'Owes Money', phone: '8015550111', address: '1 Elm St, Lehi',
+              seasonStatus: 'confirmed' } }
+), (r) => {
+  check('a customer who owes for last season can still report a move',
+    r.ok && !!(r.wrote.updates || {}).pendingAddress,
+    'refused, the record keeps an address they have left and nobody is told the house ' +
+    'is wrong — and a crew standing at the wrong door is the one mistake with no undo. ' +
+    'Addie: "Yes anyone can report a move"');
+});
+/* ⚠ AND THE REFUSAL IS NOT SMUGGLED IN AS A SILENT NO-OP EITHER. A hold added later as
+   an early return would leave every check above passing (they use a clear record) while
+   a debtor's move vanished with no error — so the callable is asserted not to consult
+   the arrears rule at all. Comments stripped: the explanation above the guard NAMES
+   arrearsHoldBlocks to say why it is absent. */
+check('and the move door does not consult the arrears hold at all',
+  !/arrearsHoldBlocks|arrearsHoldError/.test(stripComments(moveSrc)),
+  'portalSave holds every other section, so this reads like the one that forgot — it ' +
+  'is Addie\'s exception (QT-36) and removing it silently drops a debtor\'s move');
+
 /* ---- bounded ------------------------------------------------------------- */
 step('bounds', runMove({
   token: 'goodtoken', street: 'S'.repeat(400), city: 'C'.repeat(200),

@@ -2196,7 +2196,7 @@ and not built.
 
 ---
 
-## Q-033 · intent · OPEN · raised 2026-09-10
+## Q-033 · intent · ANSWERED · raised and answered 2026-09-10
 Should a customer who owes for last season be able to tell us they have moved?
 
 Moving house got its own door on 2026-09-10 (QT-35): `portalChangeAddress` records a
@@ -2240,5 +2240,30 @@ buying, which is the argument for treating it the same way.
 question, and switching it later is a two-line change with a check already written
 around it.
 
-**Resulting map change.** QT-35 records the door as it shipped; whichever way this is
-answered goes there, marked `Superseded → #QT-XX` if it reverses.
+**ANSWERED 2026-09-10 — option 1, which is what shipped.** Addie: *"Yes anyone can
+report a move but when we requote the person that didn't pay for last year still can't be
+scheduled until they pay there balance."*
+
+⭐ **HER ANSWER SPLITS THE QUESTION IN TWO, AND THE SPLIT IS THE INSIGHT** — the one this
+entry did not make when it was raised. It framed the choice as *hold the door or don't*,
+when the real distinction is between TELLING US and BEING SCHEDULED. Reporting a move is
+information and is never held; being put on a crew day is the thing the money gates. Once
+put that way there is no tension with Dax's *"before anything goes into the system"* at all:
+a pending address grants nothing.
+
+⚠ **AND THE SECOND HALF NEEDED NOTHING BUILT.** It was already true and already pinned:
+`houseOwesFromLastSeason` sits inside `isOutForSeason` AHEAD of the rsvpStatus and Confirmed
+branches, `placeUnscheduledOnNextDay` refuses anybody it holds, and `arrears-hold.test.js`
+§4d already ran the real `seasonYesUpdates` into the real `isOutForSeason` for the email
+approval — which is the same `quoteRespond` path a move re-quote takes. Checked before
+writing anything, rather than assumed either way.
+
+⚠ **WHAT WAS ADDED IS ONLY THE ENFORCEMENT OF THE FIRST HALF.** The exemption looked like
+an oversight next to `portalSave`, so it is now asserted as code — including against a hold
+smuggled in as a silent early return, which would have left every other check green while a
+debtor's move vanished with no error.
+
+**Resulting map change.** **QT-36**, which records the exemption as hers, names where the
+scheduling half is enforced, and is what goes red if somebody "tidies" the door to match
+`portalSave`. QT-35 still describes the door itself and is unchanged — this narrows nothing
+in it, so it is not superseded.
