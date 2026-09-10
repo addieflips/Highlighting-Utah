@@ -2434,8 +2434,9 @@
             <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
               <button type="button" class="btn btn-outline" id="editCustRecycleStayBtn">Recycle Their Old Set</button>
               <button type="button" class="btn btn-outline" id="editCustBuildStayBtn">Build Them A New Set</button>
+              <button type="button" class="btn btn-outline" id="editCustColorChangeBtn">Color Change</button>
             </div>
-            <p style="font-size:12px; color:var(--slate); margin:0 0 14px;">They stay a customer either way, and keep their number. <strong>Recycle</strong> puts their old set on the warehouse recycle list. <strong>Build</strong> puts them on the needs-to-be-built list. Somebody who has MOVED needs both &mdash; press one, then the other.</p>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 14px;">They stay a customer either way, and keep their number. <strong>Recycle</strong> puts their old set on the warehouse recycle list. <strong>Build</strong> puts them on the needs-to-be-built list. Somebody who has MOVED needs both &mdash; press one, then the other. <strong>Color Change</strong> sends the colours already saved on their record to the warehouse colour-change list &mdash; it does not charge them and does not alter their colours. Changing the colour boxes above and saving puts them on that list by itself, so this button is for sending a set over again without changing anything.</p>
             <button type="button" class="btn btn-outline" id="editCustDeleteBtn" style="color:var(--ember); border-color:#f0b3ac;">Delete This Customer</button>
             <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Removes them and their invoice. Their customer number goes back into the available pool so the bin can be reused. Money already collected stays on the Dashboard.</p>
           </div>
@@ -4437,6 +4438,7 @@
       <div class="route-tabs" id="whSectionTabs" style="margin-bottom:20px;">
         <button class="route-tab-btn active" data-whtab="build" draggable="true">Build</button>
         <button class="route-tab-btn" data-whtab="recycle" draggable="true">Recycle</button>
+        <button class="route-tab-btn" data-whtab="colorchange" draggable="true">Color Change</button>
         <button class="route-tab-btn" data-whtab="tools" draggable="true">Tools</button>
       </div>
       <div class="gen-subtab-panel active" id="whtab-build">
@@ -4501,6 +4503,18 @@
           <button type="button" class="btn btn-outline btn-sm" id="whPrintRecycleBtn" style="flex:0 0 auto;">Print Recycle Sheet</button>
         </div>
         <div id="warehouseRecycleQueueList" class="row-list"><div class="empty-note">Loading&hellip;</div></div>
+      </div>
+      <!-- ⭐ THE THIRD QUEUE (added 2026-09-10). Dax: "we have build and recycle in
+           warehouse can you build a spot for color change to". Build is a set nobody has
+           yet, Recycle is a set coming back, and this is the one in between — a house
+           that already has lights up and asked for different ones. It was riding the
+           build list with nothing saying why, so the warehouse could not tell a new
+           house from a house whose colours moved. -->
+      <div class="gen-subtab-panel" id="whtab-colorchange">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+          <p class="form-note" style="margin:0;">Customers who asked for different colours &mdash; their new set needs making up. Anybody whose colours change lands here on their own, whether they did it in the Member Portal or the office typed it in; the button at the bottom of a customer's record sends one over by hand.</p>
+        </div>
+        <div id="warehouseColorChangeQueueList" class="row-list"><div class="empty-note">Loading&hellip;</div></div>
       </div>
       <div class="gen-subtab-panel" id="whtab-tools">
         <div class="card" style="margin-bottom:20px;">
@@ -8043,6 +8057,13 @@ const CUSTOMER_FIELD_QUIET = {
   scheduleHeldReason: 'says WHY the hold above exists; it moves only when that does',
   lightsQueuedAt: 'the build line is the event; this is its date',
   lightsRecycleRequestedAt: 'the recycle line is the event; this is its date',
+  /* ⚠ ALL THREE ARE CONSEQUENCES OF THE COLOUR CHANGE, not edits anybody made. The
+     colour line above them is the event and it is already labelled; a second history
+     line saying the warehouse was told would report the same thing twice. Same
+     reasoning as lightsChangedAt and lightsLockedUntil. */
+  needsColorChange: 'the colour line above it is the event',
+  colorChangeColors: 'a copy of the colour line above it, kept for the warehouse',
+  colorChangeRequestedAt: 'the colour line is the event; this is its date',
   needsDayAssignedAt: 'the booking line is the event; this is its date',
   requoteAppliedAt: 'the re-quote line is the event; this is its date',
   maybeNextYearAt: 'the Back Next Year line is the event; this is its date',
@@ -42788,6 +42809,7 @@ function renderJobAddressPanels(){
     });
     safeRender('warehouseQueue', typeof renderWarehouseQueue === 'function' ? renderWarehouseQueue : null);
     safeRender('warehouseRecycleQueue', typeof renderWarehouseRecycleQueue === 'function' ? renderWarehouseRecycleQueue : null);
+    safeRender('warehouseColorChangeQueue', typeof renderWarehouseColorChangeQueue === 'function' ? renderWarehouseColorChangeQueue : null);
     safeRender('customerNumbers', typeof renderCustomerNumbersPanel === 'function' ? renderCustomerNumbersPanel : null);
     safeRender('dashRsvp', typeof renderDashRsvpPanel === 'function' ? renderDashRsvpPanel : null);
     safeRender('etMemberSelect', typeof etPopulateMemberSelect === 'function' ? etPopulateMemberSelect : null);
@@ -45154,6 +45176,121 @@ function whBuildStatusText(name, st){
     ', so nothing is being built for them.';
   if(st.state === 'notqueued') return who + ' is NOT on the build list \u2014 nothing has queued a build for them. Open their record and press \u201cBuild Them A New Set\u201d.';
   return who + ' is queued to build but is not showing in any group. That should not happen \u2014 tell somebody.';
+}
+/* ⭐ THE THIRD WAREHOUSE QUEUE: COLOUR CHANGES (added 2026-09-10). Dax: "we have
+   build and recycle in warehouse can you build a spot for color change to and then in
+   customer profiles at the bottom have a button for color change where it just takes
+   the light colors currently marks and puts it in color change with the name and #CU",
+   then: "also make sure anyone who gets a color change is directed there."
+
+   ⚠ SO THERE ARE FOUR WAYS IN, NOT ONE, and the button is the least of them. The flag
+   is set wherever a colour change is already recognised — the Edit Customer save, both
+   portal write paths on the server — plus the button for sending a set over again by
+   hand. Hanging this on the button alone would have meant a queue that was only ever
+   right when somebody remembered to press it, which is the same as not having one.
+
+   ⚠ THE COLOURS ARE SNAPSHOTTED, NOT READ LIVE, and that is the one way this list is
+   unlike the other two. Build and Recycle both call houseLightsText(d) every time they
+   draw, which is right for them: they describe what the house HAS. This is a work
+   order for a set somebody asked to have made up, so it has to keep saying what was
+   asked for even after the record moves again. Read live, a second change would
+   silently rewrite a job the warehouse had already started.
+
+   ⚠ AND THE FLAG IS NOT lightsChangedAt, though they are set side by side. That field
+   is the FEE and the Excel sheet — it is what sweeps somebody onto the workbook's
+   Color Changes tab and what applyLightChange scores a $30 charge from. This one is
+   the shop floor's own list and is cleared by Mark Done; lightsChangedAt is history
+   and is never cleared. Reading one for the other is how twelve ordinary new customers
+   ended up on the Color Changes sheet once already. */
+function whColorChangeHouses(){
+  const houses = [];
+  (jobAddresses || []).forEach(function(item){
+    if(!(item.data || {}).needsColorChange) return;
+    houses.push(item);
+  });
+  /* Same order as the recycle list, and for the same reason — nobody is grouping by
+     pattern here, they are looking a name up. */
+  houses.sort(function(a, b){
+    return String((a.data||{}).name||'').localeCompare(String((b.data||{}).name||''));
+  });
+  return houses;
+}
+/* Where the change came from, in the warehouse's words. Same three sources the build
+   badges already name, read off the same field, so the two screens cannot start
+   saying different things about one house. */
+function whColorChangeVia(d){
+  const via = String((d || {}).lightsChangedVia || '').trim();
+  if(via === 'portal') return 'Member Portal';
+  if(via === 'office') return 'Request';
+  return '';
+}
+function renderWarehouseColorChangeQueue(){
+  const list = document.getElementById('warehouseColorChangeQueueList');
+  if(!list) return;
+  const houses = whColorChangeHouses();
+  if(!houses.length){
+    list.innerHTML = '<div class="empty-note">No colour changes waiting right now.</div>';
+    return;
+  }
+  let html = '<div class="row-item" style="display:block;">'+
+    '<div><strong style="font-size:15px;">'+houses.length+' colour change'+(houses.length===1?'':'s')+' to make up</strong>'+
+      '<div style="font-size:12.5px; color:var(--slate);">The colours are the ones on their record when the change was made.</div></div>'+
+    '<div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--line);">';
+  houses.forEach(function(h){
+    const d = h.data || {};
+    const asked = String(d.colorChangeColors || '').trim();
+    const via = whColorChangeVia(d);
+    html += '<div style="display:flex; justify-content:space-between; align-items:flex-start; padding:7px 0; gap:10px;">'+
+      '<span style="font-size:13.5px;">'+
+        '<strong>'+esc(d.name||'(no name)')+'</strong>'+custNumChip(d)+propLabelChip(d)+
+        '<span style="display:block; font-size:12.5px; color:var(--slate);">'+
+          esc(asked || 'No colours were on their record')+
+          (via ? ' <span style="opacity:.75;">\u2014 '+esc(via)+'</span>' : '')+
+        '</span>'+
+      '</span>'+
+      '<span style="display:flex; gap:6px; flex:0 0 auto; align-items:center;">'+
+        '<button type="button" class="btn btn-outline btn-sm" data-whccedit="'+h.id+'">Edit</button>'+
+        '<button type="button" class="btn btn-outline btn-sm" data-whccdone="'+h.id+'">Mark Done</button>'+
+      '</span>'+
+    '</div>';
+  });
+  html += '</div></div>';
+  list.innerHTML = html;
+  list.querySelectorAll('[data-whccedit]').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      openEditCustomerModal(btn.dataset.whccedit);
+    });
+  });
+  /* ⚠ MARK DONE CLEARS THE FLAG AND KEEPS THE COLOURS. colorChangeColors is left on
+     the record on purpose: it is the only note of what was actually made up for them,
+     and the next change overwrites it anyway. Wiping it would mean a finished job
+     leaves nothing behind saying what the job was. */
+  list.querySelectorAll('[data-whccdone]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const custId = btn.dataset.whccdone;
+      const item = (jobAddresses || []).find(function(a){ return a.id === custId; });
+      const who = ((item && item.data) || {}).name || 'That house';
+      btn.disabled = true;
+      try{
+        await updateDoc(doc(db,'jobAddresses', custId), {
+          needsColorChange: false,
+          colorChangeDoneAt: serverTimestamp()
+        });
+        if(item && item.data){
+          Object.assign(item.data, {needsColorChange: false, colorChangeDoneAt: new Date()});
+        }
+        toast(who + ' \u2014 colour change done');
+        logActivity('Marked the colour change done for ' + who, 'customers', custId);
+        renderWarehouseColorChangeQueue();
+      }catch(err){
+        btn.disabled = false;
+        console.error('Could not mark the colour change done:', err);
+        toast('Could not save that \u2014 check your connection and try again.');
+      }
+    });
+  });
 }
 function renderWarehouseQueue(){
   const list = document.getElementById('warehouseQueueList');
@@ -48566,6 +48703,15 @@ function openEditCustomerModal(id){
   document.getElementById('editCustLayoutMapFile').value = '';
   renderEditCustLayoutMapThumb();
   document.getElementById('editCustStatus').textContent = '';
+  /* ⚠ AND THE THREE BUTTONS AT THE BOTTOM ARE PUT BACK. Each disables itself when
+     pressed so it cannot be double-pressed, and NOTHING ever re-enabled them — so
+     queueing a build for one customer left Build Them A New Set greyed out for every
+     customer opened afterwards, until the page was reloaded. Found while adding the
+     third button, which would have inherited the same bug. */
+  ['editCustRecycleStayBtn','editCustBuildStayBtn','editCustColorChangeBtn'].forEach(function(bid){
+    const b = document.getElementById(bid);
+    if(b) b.disabled = false;
+  });
   /* ⚠ ORDER MATTERS, AND ONLY IN ONE DIRECTION: the dirty baseline is taken LAST,
      after every field above has been filled. Taken any earlier it records a
      half-filled form, and the tab would open already showing unsaved changes and
@@ -49105,6 +49251,70 @@ document.getElementById('editCustBuildStayBtn').addEventListener('click', async 
     if(statusEl) statusEl.textContent = 'Could not do that: ' + ((err && err.message) || err);
   }
 });
+/* ⭐ AND THE THIRD BUTTON: SEND THEIR COLOURS TO THE WAREHOUSE (added 2026-09-10).
+   Dax: "in customer profiles at the bottom have a button for color change where it just
+   takes the light colors currently marks and puts it in color change with the name
+   and #CU."
+
+   ⚠ THIS IS THE MANUAL DOOR, NOT THE ONLY ONE. Saving different colours already puts
+   somebody on that list by itself (see the setLightsChangedAt block in the save
+   handler) — that is Dax's "anyone who gets a color change is directed there". This
+   button is for the case where nothing about the record is changing and the warehouse
+   simply needs the set again: a bundle went missing, or was made up wrong.
+
+   ⚠ IT SNAPSHOTS WHAT IS ON THE RECORD, NOT WHAT IS TICKED IN THE FORM ABOVE IT. The
+   boxes may be half-edited and unsaved, and handing the warehouse a set the customer's
+   own record does not agree with is how two screens start disagreeing about one house.
+   Save Changes is what writes colours; this reads what that wrote. With nothing on the
+   record it says so rather than queueing an empty job — the same answer the build
+   queue's "Waiting on light colours" block gives, said at the point of asking.
+
+   ⚠ NO FEE, NO 48-HOUR LOCK, NO lightsChangedAt. This is not applyLightChange and must
+   never grow into it: that path charges $30 and is reached by editing the colour boxes
+   and pressing Save Changes. A warehouse button that quietly billed somebody would be
+   found by the customer, not by us. */
+document.getElementById('editCustColorChangeBtn').addEventListener('click', async function(){
+  if(!editCustomerId) return;
+  const item = jobAddresses.find(function(it){ return it.id === editCustomerId; });
+  if(!item) return;
+  const d = item.data || {};
+  const statusEl = document.getElementById('editCustStatus');
+  const colours = String(houseLightsText(d) || '').trim();
+  if(!colours){
+    if(statusEl) statusEl.textContent = 'They have no light colours on their record yet \u2014 ' +
+      'tick their colours above, press Save Changes, then send the colour change.';
+    return;
+  }
+  if(!confirm('Send ' + (d.name || 'this customer') + ' to the warehouse colour-change list?' +
+    '\n\nColours: ' + colours +
+    (d.customerNumber ? '\nNumber: #' + d.customerNumber : '') +
+    '\n\nThis does NOT charge them and does NOT change their colours \u2014 it only tells the ' +
+    'warehouse to make this set up.')) return;
+  const btn = document.getElementById('editCustColorChangeBtn');
+  if(btn) btn.disabled = true;
+  if(statusEl) statusEl.textContent = 'Sending their colours to the warehouse\u2026';
+  try{
+    await updateDoc(doc(db,'jobAddresses', editCustomerId), {
+      needsColorChange: true,
+      colorChangeColors: colours,
+      colorChangeRequestedAt: serverTimestamp()
+    });
+    /* The panel repaints from this cache rather than from Firestore, and a
+       serverTimestamp() sentinel is not a date until it comes back — so the mirror
+       carries a real one. Same reason as the build button above. */
+    Object.assign(item.data, {needsColorChange: true, colorChangeColors: colours,
+      colorChangeRequestedAt: new Date()});
+    if(statusEl) statusEl.textContent = 'Done \u2014 they are on the warehouse colour-change list.';
+    toast((d.name || 'They') + ' \u2014 on the colour-change list');
+    logActivity('Sent a colour change to the warehouse for ' + (d.name || editCustomerId) +
+      ' (' + colours + ')', 'customers', editCustomerId);
+    if(typeof renderWarehouseColorChangeQueue === 'function') renderWarehouseColorChangeQueue();
+  }catch(err){
+    if(btn) btn.disabled = false;
+    console.error('Could not queue the colour change:', err);
+    if(statusEl) statusEl.textContent = 'Could not do that: ' + ((err && err.message) || err);
+  }
+});
 document.getElementById('editCustDeleteBtn').addEventListener('click', async function(){
   if(!editCustomerId) return;
   const item = jobAddresses.find(function(it){ return it.id === editCustomerId; });
@@ -49593,6 +49803,17 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
          "Request": a change we made on their behalf because they asked some other way.
          functions/index.js stamps 'portal' on the two portal writes. */
       addrUpdates.lightsChangedVia = 'office';
+      /* ⭐ AND STRAIGHT ONTO THE WAREHOUSE COLOUR-CHANGE LIST (added 2026-09-10).
+         Dax: "also make sure anyone who gets a color change is directed there."
+         Set HERE, inside setLightsChangedAt, so it cannot drift away from what counts
+         as a colour change: applyLightChange already refuses a first-time colour and a
+         cleared one, and this inherits both without restating either. The two portal
+         write paths in functions/index.js do the same beside their own stamp.
+         ⚠ THE COLOURS ARE COPIED, NOT POINTED AT — see renderWarehouseColorChangeQueue.
+         A second change must not rewrite a job the warehouse has already started. */
+      addrUpdates.needsColorChange = true;
+      addrUpdates.colorChangeColors = newLightsDescription;
+      addrUpdates.colorChangeRequestedAt = serverTimestamp();
     }
     /* ⚠ THE LOCK IS SET EVEN WHEN THE FEE IS WAIVED. It is about the crew, not the
        money — their pattern may still move, so they must not be routed either way. */
