@@ -181,6 +181,23 @@ const CLEAR_SITES = [
      buttons have collapsed into one and the distinction is gone. */
   { file: 'admin.html', fn: 'renderWarehouseQueue', stamps: false,
     why: 'taken off the list because nothing needed building. Not a build, so no date.' },
+  /* ⭐ ADDED 2026-09-09 — "Only needed a timer" ([[WH-27]]), the third way off this list and
+     the second that is not a build. Addie found five houses parked in Waiting on light
+     colours that had only ever asked for a timer: `outletTimer` is one of the three
+     WAREHOUSE_BUILD_FIELDS, so changing it alone queued a bundle nobody wanted, and with no
+     colours on file the row could never clear — the office was sent to chase an answer that
+     did not exist.
+     ⚠ NEITHER MAY STAMP, for the same reason "Not needed" may not: no bundle was made, so
+     dating one would put a false answer on the field that says when this house's lights were
+     built. The house keeps its timer job (`needsTimerOnly`) and appears on the Timers list.
+     ⚠ AND IT IS TWO ENTRIES, NOT ONE, deliberately — the write and the local mirror that
+     keeps the tab from springing back before it lands, exactly as `setCustomerSeason` is
+     carried as two below. Folding them into one would make this census stop counting what
+     it actually matches. */
+  { file: 'admin.html', fn: 'renderWarehouseQueue', stamps: false,
+    why: 'the local copy, so the row does not spring back before the write lands. Not a build.' },
+  { file: 'admin.html', fn: 'renderWarehouseQueue', stamps: false,
+    why: 'the office saying this house only ever needed a timer. Nothing was built, so no date.' },
   { file: 'admin.html', fn: 'renderWarehouseQueue', stamps: true,
     why: 'a whole colour group marked finished — bundles were made' },
   { file: 'admin.html', fn: 'editCustSaveBtn handler', stamps: false,

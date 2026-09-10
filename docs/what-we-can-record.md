@@ -129,7 +129,7 @@ Whether they want the bill posted rather than emailed.
 
 How many bins their lights fill. Worked out from the feet, never asked.
 
-- **Asked at:** derived — one bin per 260 ft
+- **Asked at:** derived — one bin per 320 ft
 - **Sets the price:** No
 - **Has to reach:** Customer record · Warehouse pull list · Routes · Schedule
 

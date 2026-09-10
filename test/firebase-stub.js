@@ -355,6 +355,49 @@ const FAKE_FUNCTIONS_MODULE = `
       if (hit.record) hit.record.gateCode = gateCode;
       return { ok: true, gateCode: gateCode };
     },
+    /* Mirrors portalChangeAddress (2026-09-10, QT-35): the token is the credential,
+       both the street and the town are required, and an unknown token THROWS
+       not-found like every other portal callable.
+
+       ⚠ NOTE THIS WHOLE BLOCK LIVES INSIDE THE FAKE_FUNCTIONS_MODULE TEMPLATE
+       LITERAL, so no backtick and no dollar-brace may appear anywhere in it — the
+       first backtick closes the template and everything after it becomes code. The
+       first draft of this comment quoted a field name in backticks and turned the
+       rest of the stub into a syntax error.
+
+       ⚠ IT WRITES THE PENDING FIELDS AND LEAVES the live address ALONE, exactly as
+       one does — and that is the half a spec has to be able to see. A stub that
+       helpfully applied the new address would make the page look right while proving
+       the opposite of the rule: the record keeps the old house until the office
+       applies it, which is why the portal shows a banner rather than the new address. */
+    portalChangeAddress: function (payload) {
+      const token = String((payload && payload.token) || '').trim();
+      const street = String((payload && payload.street) || '').trim().slice(0, 200);
+      const city = String((payload && payload.city) || '').trim().slice(0, 60);
+      const zip = String((payload && payload.zip) || '').trim().slice(0, 20);
+      const moveDate = String((payload && payload.moveDate) || '').trim().slice(0, 40);
+      if (token === 'forcemovefail') {
+        const e = new Error('boom'); e.code = 'functions/internal'; throw e;
+      }
+      if (!street || !city) {
+        const e = new Error('Street and town are both needed.');
+        e.code = 'functions/invalid-argument'; throw e;
+      }
+      let hit = null;
+      Object.keys(F.customers || {}).forEach(function (k) {
+        if (F.customers[k].token === token) hit = F.customers[k];
+      });
+      if (!hit) { const e = new Error('Account not found.'); e.code = 'functions/not-found'; throw e; }
+      const pendingAddress = street + ', ' + city + (zip ? ' ' + zip : '');
+      if (hit.record) {
+        hit.record.pendingAddress = pendingAddress;
+        hit.record.pendingCity = city;
+        hit.record.pendingZip = zip;
+        hit.record.pendingMoveDate = moveDate;
+        hit.record.seasonStatus = 'address_changed';
+      }
+      return { ok: true, pendingAddress: pendingAddress };
+    },
     portalSave:        () => ({ ok: true, saved: true }),
     publicQuoteLookup: publicQuoteLookup,
 

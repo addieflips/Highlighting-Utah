@@ -45,14 +45,20 @@ function liftConst(n){
 const NAMES = ['MSG_TYPE_MEMBER','SYSTEM_NOTICE_TOPICS','MSG_CATEGORIES','MSG_TOPIC_CATEGORIES',
   'MSG_TEXT_CATEGORIES','MSG_STATUS','MSG_STATUS_LABEL','MSG_PRIORITY','MSG_PRIORITY_LABEL',
   'MSG_SEVERITY_LABEL','COMM_ACTIVITY_TOPICS'];
+/* ⚠ commRowMatches CALLS BOTH OF THESE NOW ([[MSG-15]]) — lifted, never stubbed. A stub for
+   commSectionByKey would decide for itself which sections exist, which is exactly the thing
+   under test; and the suite dies with a bare ReferenceError rather than skipping, which is
+   the extraction-list trap CLAUDE.md describes working as intended. */
 const SRC = NAMES.map(liftConst).join('') +
   liftFn('msgTypeOf') + liftFn('msgCategories') + liftFn('msgStatusOf') +
   liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
-  liftFn('commRowMatches');
+  liftFn('commFilterMatches') + liftFn('commSectionByKey') + liftFn('commRowMatches');
 const sb = {};
-new Function('MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', SRC +
-  'this.facets = msgFacets; this.matches = commRowMatches;')
-  .call(sb, 'Member Error', 'Admin Error');
+new Function('MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'commSections',
+  'let __cs = commSections;' + SRC.replace(/\bcommSections\b(?!\s*[,)])/g, '__cs') +
+  'this.facets = msgFacets; this.matches = commRowMatches; this.filter = commFilterMatches;' +
+  'this.setSections = function(v){ __cs = v; };')
+  .call(sb, 'Member Error', 'Admin Error', {custom: [], hidden: []});
 
 console.log('');
 console.log('--- what kind of thing is this ---');
@@ -207,6 +213,552 @@ check('the inbox no longer offers the same choice twice',
 check('and employee messages are gone entirely, loader included',
   !/function loadEmployeeNotes/.test(admin) && !/employeeNotesList/.test(admin) &&
   !/function renderEmployeeNotesTab/.test(admin));
+
+/* =============================================================================
+ * ⭐ THE CONTACT DETAILS UNDER THE NAME ([[MSG-14]])
+ * Addie: "on inbox can you show email and phone number under name so I can communicate
+ * with them?"
+ *
+ * ⚠ EVERY CLAIM HERE IS ABOUT WHAT THE ROW SAYS, so every check RUNS the renderer and
+ * reads the HTML back. A regex proving the words exist in the source is the failure this
+ * repo has shipped three times — most memorably the ledger message that was built and
+ * then overwritten by a default on the line below it.
+ * ============================================================================= */
+console.log('');
+console.log('--- the contact line under the name ---');
+
+const CONTACT_SRC =
+  liftConst('MSG_TYPE_MEMBER') + liftConst('SYSTEM_NOTICE_TOPICS') +
+  liftFn('esc') + liftFn('fmtPhone') + liftFn('msgTypeOf') +
+  liftFn('msgErrorTokenTail') + liftFn('msgErrorWhoIs') +
+  liftFn('msgContactCustomer') + liftFn('msgContactFor') +
+  liftFn('msgContactPreference') + liftFn('msgContactLineHtml');
+const cb = {};
+new Function('MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'jobAddresses',
+  CONTACT_SRC + 'this.line = msgContactLineHtml; this.contact = msgContactFor;')
+  .call(cb, 'Member Error', 'Admin Error', []);
+
+/* Rebuild the sandbox against a given book, because jobAddresses is what every fallback
+   reads and each of these checks needs a different one. */
+function withBook(book){
+  const o = {};
+  new Function('MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'jobAddresses',
+    CONTACT_SRC + 'this.line = msgContactLineHtml; this.contact = msgContactFor;')
+    .call(o, 'Member Error', 'Admin Error', book);
+  return o;
+}
+
+const DANA  = {id:'c1', data:{name:'Dana Reed',  phone:'(801) 555-0111', email:'dana@example.com',
+                              portalToken:'AAAAAAw5o9tx'}};
+const KYLE  = {id:'c2', data:{name:'Kyle Reed',  phone:'(801) 555-0111', email:'kyle@example.com'}};
+const SOLO  = {id:'c3', data:{name:'Ada Frost',  phone:'8015550999',     email:'ada@example.com'}};
+
+/* 1 — the ordinary case. What they typed is what she rings. */
+{
+  const html = withBook([SOLO]).line({topic:'General Question', name:'Ada Frost',
+    phone:'8015550999', email:'ada@example.com', message:'hello'});
+  /* ⚠ REPOINTED 2026-09-10, NOT WEAKENED ([[MSG-16]]). These asserted `tel:` and `mailto:`
+     links, which Addie has since reversed: "I want to be able to copy and paste phone number
+     and email but not a link." R-024 — the newer answer wins. What must still be true is that
+     BOTH details reach the row and can be taken off it. */
+  check('a message that carries both shows both, as text you can take',
+    /row-contact-val">\(801\) 555-0999</.test(html) &&
+    /row-contact-val">ada@example\.com</.test(html),
+    html);
+  check('and neither is a link',
+    !/href="tel:/.test(html) && !/href="mailto:/.test(html) && !/<a /.test(html),
+    'a link is what stops a drag-to-select, which is the thing she actually does with these');
+  check('and each has a Copy button carrying exactly what is shown',
+    /data-copyval="\(801\) 555-0999"/.test(html) && /data-copyval="ada@example\.com"/.test(html),
+    'what you see is what you paste is the only rule nobody has to be told');
+  check('and it does not claim they came from the record',
+    !/from their record/.test(html), html);
+  check('the number is shown the way the office writes it, not as ten bare digits',
+    />\(801\) 555-0999</.test(html), html);
+}
+
+/* 2 — the half-filled case, which is most portal-raised messages. */
+{
+  const html = withBook([SOLO]).line({topic:'Light Color Change', name:'Ada Frost',
+    phone:'8015550999', message:'red and green please'});
+  check('an email missing from the message is filled in from their record',
+    /ada@example\.com/.test(html), html);
+  check('and the row says that is where it came from',
+    /from their record/.test(html),
+    'the office should be able to tell their own answer from one we worked out');
+}
+
+/* 3 — THE SAFETY CHECK. Seventeen numbers in the real book are shared and fourteen of
+   those are two different households. */
+{
+  const o = withBook([DANA, KYLE]);
+  const c = o.contact({topic:'General Question', phone:'(801) 555-0111', message:'x'});
+  check('a phone shared by two households resolves to nobody, rather than to one of them',
+    c.email === '',
+    'got ' + JSON.stringify(c) + ' — mailing the wrong half of a household is worse than mailing neither');
+  check('but the number they actually gave us is still offered',
+    /\(801\) 555-0111/.test(o.line({topic:'General Question', phone:'(801) 555-0111', message:'x'})),
+    'refusing the lookup must not throw away what the message itself carried');
+}
+{
+  /* ⚠ AND THE SAME REFUSAL ON A SHARED ADDRESS. One inbox between a couple, or a
+     landlord's address on two tenants, is as ordinary as one phone between them —
+     and the red-check is what said this had no fixture at all. */
+  const a = {id:'e1', data:{name:'One Reed',  phone:'8015551001', email:'reeds@example.com'}};
+  const b = {id:'e2', data:{name:'Two Reed',  phone:'8015551002', email:'reeds@example.com'}};
+  const c = withBook([a, b]).contact({topic:'General Question',
+    email:'reeds@example.com', message:'x'});
+  check('an email shared by two records resolves to nobody either',
+    c.phone === '',
+    'got ' + JSON.stringify(c) + ' — ringing one of two people on one address is a guess');
+}
+
+/* 4 — the row that most needs this. A Member Error carries no name and no contact at
+   all; the only thing identifying anybody is the redacted token on the link they hit. */
+{
+  const html = withBook([DANA]).line({topic:'Member Error',
+    message:'RSVP failed at /#/?token=' + '…' + 'w5o9tx&rsvp=back'});
+  check('a Member Error with no contact of its own is reached through their link',
+    /\(801\) 555-0111/.test(html) && /dana@example\.com/.test(html),
+    'this is the row you most want to ring, and it offered no way to: ' + html);
+}
+{
+  /* ⚠ AND IT KEEPS THE SAME REFUSAL. Two customers whose tokens end the same way is
+     not a weaker match, it is no match — msgErrorWhoIs's own rule. */
+  const twin = {id:'c9', data:{name:'Other Person', phone:'8015552222',
+                               email:'other@example.com', portalToken:'ZZZZZZw5o9tx'}};
+  const html = withBook([DANA, twin]).line({topic:'Member Error',
+    message:'RSVP failed at /#/?token=' + '…' + 'w5o9tx&rsvp=back'});
+  check('two customers behind one link resolves to neither',
+    !/@example\.com/.test(html), html);
+}
+
+/* 5 — a route sweep has no customer behind it, so it gets no line. */
+{
+  const html = withBook([SOLO]).line({topic:'Routes Kept Up To Date', folder:'System',
+    message:'29 moved, 29 removed'});
+  check('a System notice gets no contact line at all',
+    html === '',
+    '"no phone or email" under every route sweep is noise on the rows that need none');
+}
+
+/* 6 — and on a row that SHOULD have one, empty is said rather than left blank. */
+{
+  const html = withBook([]).line({topic:'General Question', name:'Nobody Known', message:'x'});
+  check('a member message with nothing to go on says so rather than rendering blank',
+    /row-contact none/.test(html) && /No phone or email/.test(html),
+    'blank reads as nothing-to-do on a row sitting in the Inbox because somebody is waiting');
+}
+
+/* 7 — their own answer wins. Somebody writing in from a new address wants the reply
+   there, not at the old one still on file. */
+{
+  /* ⚠ THE FIXTURE HAS TO REACH THE LINE. The first version gave the message BOTH details,
+     so msgContactFor returned at its early guard and never ran the merge at all —
+     the red-check is what said so. This one carries an email that FINDS the record and a
+     phone that DISAGREES with it, which is the only shape that can tell the two apart. */
+  const c = withBook([DANA]).contact({topic:'Member Error', phone:'8015551111',
+    message:'RSVP failed at /#/?token=' + '\u2026' + 'w5o9tx&rsvp=back'});
+  check('a phone they typed is not quietly replaced by the one on file',
+    c.phone === '8015551111',
+    'got ' + c.phone + ' — the record must only ever fill a GAP');
+  /* ⚠ AND THE EMAIL SIDE NEEDS THE RECORD FOUND SOME OTHER WAY, or the fixture cannot
+     tell an override from a match: found BY the email, the two are the same string.
+     The token is the one route in that does not go through either field. */
+  const c2 = withBook([DANA]).contact({topic:'Member Error', email:'typed@example.com',
+    message:'RSVP failed at /#/?token=' + '\u2026' + 'w5o9tx&rsvp=back'});
+  check('nor is an address they wrote in from',
+    c2.email === 'typed@example.com',
+    'somebody writing from a new address wants the reply there: ' + JSON.stringify(c2));
+  check('and the phone still comes across from the record they were matched to',
+    c2.phone === '(801) 555-0111' && c2.fromRecord === true, JSON.stringify(c2));
+}
+
+/* 8 — the links have to be pressable, which means the dialler gets digits. */
+{
+  const html = withBook([]).line({topic:'General Question', phone:'+1 (801) 555-0999 ext 4',
+    message:'x'});
+  /* ⚠ THE TRAP THESE TWO GUARDED IS GONE WITH THE LINK, and that is recorded rather than
+     left as two checks that can no longer fail. The old pair proved a `tel:` href was built
+     from the digits without welding "ext 4" onto the end — a number that dialled perfectly
+     and reached a stranger. There is no href now ([[MSG-16]]), so there is nothing to build
+     wrongly; what is left to hold is that the number reaches the row EXACTLY as stored,
+     notes and all, because that is what somebody is about to copy. */
+  check('a number with an extension is shown exactly as it was typed',
+    /\+1 \(801\) 555-0999 ext 4/.test(html), html);
+  check('and it is copied exactly as it is shown, extension included',
+    /data-copyval="\+1 \(801\) 555-0999 ext 4"/.test(html),
+    'pasting a number without its extension is the same wrong call by another route');
+}
+{
+  const html = withBook([]).line({topic:'General Question', phone:'801-55', message:'x'});
+  check('a half-typed number is still shown, and is still copyable',
+    /801-55/.test(html) && /data-copyval="801-55"/.test(html),
+    'it is what the office has: ' + html);
+}
+
+/* 9 — a contact detail is text somebody typed, so it is escaped where it is written into
+   the page. An unescaped quote ends the href early and the link goes nowhere. */
+{
+  const html = withBook([]).line({topic:'General Question',
+    email: 'a"b<script>@example.com', message:'x'});
+  /* ⚠ THE ATTRIBUTE IT COULD BREAK OUT OF IS NOW data-copyval, NOT href. The risk did not
+     go away with the link — it moved — and an unescaped quote there ends the attribute and
+     puts the rest of the address into the markup as code. */
+  check('a quote in an address cannot break out of the copy attribute',
+    html.indexOf('data-copyval="a"b') === -1 && /a&quot;b/.test(html), html);
+  check('and it cannot inject markup either',
+    html.indexOf('<script>') === -1, html);
+}
+
+/* ⭐ HOW THEY ASKED TO BE REACHED ([[MSG-16]], 2026-09-10)
+   Addie: "we can no longer see how someone prefers to be contacted. Can you make sure that
+   is still shown in there request?"
+   ⚠ IT WAS NEVER REMOVED AND SHE IS STILL RIGHT — [[MSG-14]] left it behind in the small
+   grey meta line with the date while the contact details moved up, so the line she had
+   learned to scan no longer had any contact on it and the preference went with the part she
+   stopped reading. Rendered is not the same as seen. It sits ON the contact line now,
+   against the detail it is an instruction about. */
+{
+  const book = [SOLO];
+  const line = function(pref){
+    return withBook(book).line({topic:'General Question', name:'Ada Frost',
+      phone:'8015550999', email:'ada@example.com', contactMethod:pref, message:'x'});
+  };
+  check('a texting preference is shown, beside the phone',
+    /Text them/.test(line('Text')), line('Text'));
+  /* ⚠ CALL AND TEXT BOTH POINT AT THE PHONE AND ARE NOT THE SAME INSTRUCTION. Ringing
+     somebody who asked to be texted is the mistake this exists to stop, so the WORDS have
+     to travel — a highlight on the right detail cannot tell the two apart. */
+  check('and a calling preference says something different',
+    /Call them/.test(line('Call')) && !/Text them/.test(line('Call')));
+  check('an email preference is shown too',
+    /Email them/.test(line('Email')));
+  /* ⚠ IT IS ON THE CONTACT LINE, NOT IN THE META LINE WITH THE DATE. That is the whole of
+     what she reported: the words were there and she could not see them. */
+  check('the preference is on the contact line, not by the date',
+    /row-contact[^>]*>[^<]*(<[^>]+>[^<]*)*Text them/.test(line('Text')) ||
+    line('Text').indexOf('Text them') < line('Text').indexOf('row-contact-src') ||
+    /row-contact-pref/.test(line('Text')),
+    'beside the date it was trivia; beside the number it is an instruction');
+  /* ⚠ COMMENTS STRIPPED, AND SCOPED TO THE ROW. The first version searched all of admin.html
+     and matched [[MSG-14]]'s own explanatory paragraph — the one describing the `rmeta` line
+     that used to run "Prefers text" together with the date. It read the explanation as the
+     code and failed on a file that is right: the trap Suites 58, 274, 275, 300 and the
+     duplicate-prefix gate have each already learned. */
+  const rowSrc = (function(){
+    const a = admin.indexOf('function renderMessagesList(');
+    const b = admin.indexOf("'<div class=\"rtext\">'", a);
+    return admin.slice(a, b).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
+  })();
+  check('and it is not also left in the meta line',
+    /rmeta/.test(rowSrc) && !/rmeta[\s\S]{0,120}Prefers/.test(rowSrc),
+    'two copies of one fact is how they start disagreeing, and the grey one wins');
+
+  /* ⚠ ANYTHING WE DO NOT RECOGNISE IS KEPT VERBATIM, never guessed at. The field is free
+     text on an imported record; reading "do not ring before 6" as a phone preference is how
+     somebody gets rung who asked for anything but. */
+  const odd = line('do not ring before 6');
+  check('an answer nobody anticipated is shown exactly as written',
+    /do not ring before 6/.test(odd), odd);
+  check('and is not guessed onto the phone or the email',
+    !/Call them|Text them|Email them/.test(odd),
+    'a guess here is a wrong call, which is the one thing this field exists to prevent');
+
+  /* ⭐ AND A PREFERENCE WE CANNOT ACT ON IS THE ONE MOST WORTH SAYING. Somebody who asked to
+     be emailed and left no email currently reads as an ordinary row with a phone number on
+     it, and nothing anywhere says they did not want it used. */
+  const stranded = withBook([]).line({topic:'General Question', name:'No Email',
+    phone:'8015550999', contactMethod:'Email', message:'x'});
+  check('asking for an email we do not have is said out loud',
+    /row-contact-warn/.test(stranded) && /no email/.test(stranded), stranded);
+  check('and a preference we CAN act on raises no warning',
+    !/row-contact-warn/.test(line('Text')));
+
+  check('no preference on the message says nothing at all',
+    !/row-contact-pref/.test(line('')) && !/row-contact-warn/.test(line('')),
+    'most portal-raised messages carry none, and a label on every one of them is noise');
+}
+
+/* 10 — ⚠ THE WIRING IS ASSERTED SEPARATELY FROM THE MECHANISM, because this suite calls
+   the renderer from its own harness: delete the call from renderMessagesList and every
+   check above still passes while the line never appears on the real page. That exact
+   sabotage went green across a 5,162-check suite once ([[MSG-11]]'s tab strip). */
+{
+  const a = admin.indexOf('function renderMessagesList(');
+  const rowStart = admin.indexOf('esc(msgErrorWhoLabel(d))', a);
+  const rowEnd = admin.indexOf("'<div class=\"rtext\">'", rowStart);
+  const row = admin.slice(rowStart, rowEnd);
+  check('renderMessagesList actually draws the contact line',
+    /msgContactLineHtml\(d\)/.test(row),
+    'the mechanism can be perfect and still never reach the screen');
+  check('and it draws it under the name, above the address',
+    row.indexOf('msgContactLineHtml(d)') < row.indexOf('row-phone-line'),
+    'the address is context; the phone and the email are what she opened the row to do');
+  check('the meta line no longer repeats the phone and email',
+    !/rmeta">'\+esc\(d\.phone\)/.test(row),
+    'shown twice, the small grey copy is the one that keeps being read');
+}
+
+/* 11 — this block's own standing rule: what you can read, you can find. */
+{
+  const a = admin.indexOf('function renderMessagesList(');
+  const searchBlock = admin.slice(admin.indexOf('const msgDigits', a),
+                                  admin.indexOf('const unreadCount', a));
+  check('the search box reaches the contact the row actually shows',
+    /msgContactFor\(d\)/.test(searchBlock) && !/String\(d\.phone\|\|''\)\.replace/.test(searchBlock),
+    'a number printed on screen that the search cannot match is worse than one never shown');
+}
+
+/* =============================================================================
+ * ⭐ SECTIONS SHE BUILDS HERSELF ([[MSG-15]])
+ * Addie: "for inbox I have no way of adding anything deleting anything or adding a whole
+ * new section with subtabs? Can we get that added so I can make it like this?"
+ *
+ * ⛔ THE LINE THIS MUST NOT CROSS is [[MSG-12]]: folders are not coming back. A section is
+ * a SAVED FILTER over the same derived facets, so nothing is moved, a message appears
+ * wherever it matches, and deleting a section cannot lose one. These checks are what hold
+ * that — they RUN the matcher, because every claim here is about which rows a tab holds.
+ * ============================================================================= */
+console.log('');
+console.log('--- sections she builds herself ---');
+
+const MINE = {
+  custom: [{
+    key: 'c-1', icon: '\u{1F4CC}', label: 'Gate codes',
+    filter: {types: ['member'], categories: [], statuses: [], priorities: [], severities: [], search: ''},
+    tabs: [
+      {key: 't-a', label: 'Unread', filter: {types: [], categories: [], statuses: ['unread'],
+                                             priorities: [], severities: [], search: ''}},
+      {key: 't-b', label: 'Colours', filter: {types: [], categories: ['Lights / Colors'],
+                                              statuses: [], priorities: [], severities: [], search: ''}}
+    ]
+  }],
+  hidden: []
+};
+sb.setSections(MINE);
+
+const aMemberUnread = {topic: 'General Question', read: false, message: 'what is the gate code'};
+const aColourRead   = {topic: 'Change My Light Colors', read: true, responded: true, message: 'red and green'};
+const aNotice       = {topic: 'Routes Kept Up To Date', folder: 'System', read: true, message: '29 moved'};
+
+check('a custom section holds what its own filter says',
+  sb.matches(aMemberUnread, 'c-1', 'all') === true &&
+  sb.matches(aNotice, 'c-1', 'all') === false,
+  'the section filter is Member Messages, so a route sweep is not in it');
+check('and a subtab narrows the section rather than replacing it',
+  sb.matches(aMemberUnread, 'c-1', 't-a') === true &&
+  sb.matches(aColourRead, 'c-1', 't-a') === false,
+  'the Unread subtab must still be inside Member Messages, not across everything');
+check('a second subtab picks a different slice of the same section',
+  sb.matches(aColourRead, 'c-1', 't-b') === true &&
+  sb.matches(aMemberUnread, 'c-1', 't-b') === false);
+
+/* ⚠ THE SECTION FILTER IS AN AND, NOT A STARTING POINT. A subtab that matched on its own
+   would quietly widen the section — a Payments subtab under a Member section would start
+   showing system payment notices, which is the folder-shaped confusion this replaced. */
+{
+  const wide = {custom: [{key: 'c-2', label: 'X', icon: '\u{1F4CC}',
+    filter: {types: ['member'], categories: [], statuses: [], priorities: [], severities: [], search: ''},
+    tabs: [{key: 't-x', label: 'Errors', filter: {types: ['error'], categories: [], statuses: [],
+                                                  priorities: [], severities: [], search: ''}}]}], hidden: []};
+  sb.setSections(wide);
+  const anErr = {topic: 'Member Error', read: false, message: 'RSVP failed'};
+  check('a subtab can never reach outside its section',
+    sb.matches(anErr, 'c-2', 't-x') === false,
+    'both filters have to pass — a subtab is a narrowing, never a second opinion');
+  sb.setSections(MINE);
+}
+
+/* ⚠ AN EMPTY LIST MEANS "DO NOT CARE", NOT "MATCH NOTHING". Read the other way a
+   half-built section shows zero and reads as broken rather than as unnarrowed. */
+check('a filter with nothing ticked matches everything',
+  sb.filter(aNotice, {types: [], categories: [], statuses: [], priorities: [], severities: [], search: ''}) === true &&
+  sb.filter(aMemberUnread, {}) === true);
+/* ⚠ AND TICKS ACROSS TWO ROWS HAVE TO BOTH MATCH — "a colour question that is still
+   unread" is the shape somebody actually wants, and it is what the built-ins already do. */
+check('ticks in different rows are ANDed',
+  sb.filter(aColourRead, {categories: ['Lights / Colors'], statuses: ['unread']}) === false &&
+  sb.filter(aColourRead, {categories: ['Lights / Colors'], statuses: ['resolved']}) === true);
+check('ticks in the same row are ORed',
+  sb.filter(aColourRead, {categories: ['Payment', 'Lights / Colors']}) === true);
+check('the words filter reads the topic, the message and the name',
+  sb.filter(aMemberUnread, {search: 'gate code'}) === true &&
+  sb.filter(aMemberUnread, {search: 'invoice'}) === false);
+
+/* ⚠ A TAB SHE HAS JUST DELETED SHOWS THE SECTION, NOT AN EMPTY LIST. She can delete a
+   subtab while standing on it, and zero rows there reads as the section being broken. */
+check('a subtab that no longer exists falls back to the section',
+  sb.matches(aMemberUnread, 'c-1', 't-gone') === true);
+
+/* ⚠ AND AN UNKNOWN SECTION IS NOT A CUSTOM ONE. `commSectionByKey` returning null must
+   drop through to the built-in branches, or hiding a section would break every view. */
+check('the built-in sections still work with custom ones present',
+  sb.matches(aNotice, 'system', 'all') === true &&
+  sb.matches(aMemberUnread, 'member', 'questions') === true);
+
+/* ⭐ AND THE LINE THAT MUST NOT BE CROSSED, asserted as code rather than left as a note:
+   a section is a filter, so nothing about it can WRITE to a message. If a future change
+   gives sections a membership list, this is what should go red. */
+/* ⚠ SCOPED TO THE SECTION CODE, NOT THE FILE. The first version searched all of admin.html
+   for `filedByHand` and failed on correct code: that field is LEGACY filing which [[MSG-12]]
+   deliberately still reads, so a message somebody filed before the folders went is still
+   found. What must be true is narrower — nothing in the section machinery writes to a
+   message at all. */
+const sectionCode = (liftFn('commEditSection') + liftFn('saveCommSections') +
+                     liftFn('commFilterMatches') + liftFn('commSectionByKey') +
+                     liftFn('commAllSections'))
+  .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
+check('a section stores a filter, never a list of messages',
+  !/messageIds|filedByHand/.test(sectionCode),
+  'that would be folders again ([[MSG-12]]) — a message would then live in exactly one ' +
+  'place and deleting a section could lose it');
+check('and nothing in the section machinery writes to a message',
+  !/doc\(db,\s*'messages'/.test(sectionCode) && !/msgBulkApply/.test(sectionCode),
+  'a saved filter that edited rows would be filing wearing a different name');
+check('deleting a section only ever rewrites the settings document',
+  /saveCommSections/.test(liftFn('commEditSection')) &&
+  /setDoc\(doc\(db, 'settings', 'commSections'\)/.test(liftFn('saveCommSections')),
+  'it must not touch the messages collection at all');
+
+/* =============================================================================
+ * ⭐ AND THE EDITOR IS DRIVEN, NOT READ ([[MSG-15]])
+ * ~250 lines of new UI that has never been executed is exactly what this repo has been
+ * caught by four times — a message that is in the source is not a message on the screen.
+ * These RUN commEditSection against jsdom and read the markup back.
+ * ⚠ THE TWO SIDE EFFECTS ARE STUBBED (the Firestore write and the toast) and nothing else:
+ * stubbing the filter or the counter would be stubbing the thing under test.
+ * ============================================================================= */
+console.log('');
+console.log('--- the section editor, driven ---');
+let JSDOM = null;
+try { ({ JSDOM } = require('jsdom')); } catch (e) { /* reported below, never silently skipped */ }
+if(!JSDOM){
+  check('jsdom is installed so the editor can be driven', false,
+    'run npm install — without it this whole block is skipped, which is the silent pass ' +
+    'CLAUDE.md warns about by name');
+} else {
+  const dom = new JSDOM('<!doctype html><body></body>');
+  const win = dom.window, docu = win.document;
+  const ED = liftConst('MSG_TYPE_MEMBER') + liftConst('MSG_CATEGORIES') + liftConst('MSG_STATUS') +
+    liftConst('MSG_STATUS_LABEL') + liftConst('MSG_PRIORITY') + liftConst('MSG_PRIORITY_LABEL') +
+    liftConst('SYSTEM_NOTICE_TOPICS') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
+    liftFn('esc') + liftFn('msgTypeOf') + liftFn('msgCategories') + liftFn('msgStatusOf') +
+    liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
+    liftFn('commFilterMatches') + liftFn('commEditSection');
+  const ed = {};
+  new Function('document', 'allMessages', 'commSections', 'saveCommSections', 'toast',
+    'confirm', 'alert', 'MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC',
+    ED + 'this.open = commEditSection;')
+    .call(ed, docu,
+      [{id: 'm1', data: {topic: 'General Question', read: false, message: 'gate code?'}},
+       {id: 'm2', data: {topic: 'Routes Kept Up To Date', folder: 'System', read: true, message: 'x'}}],
+      {custom: [], hidden: []},
+      async function(){ /* the write is not what is under test */ },
+      function(){ /* toast */ }, function(){ return true; }, function(){ /* alert */ },
+      'Member Error', 'Admin Error');
+
+  ed.open(null);
+  const card = docu.querySelector('.comm-editor');
+  check('the editor actually renders', !!card,
+    'a popup that produces no markup is the failure four other checks in this repo exist for');
+  check('it offers a name and an icon',
+    !!docu.getElementById('commEdLabel') && !!docu.getElementById('commEdIcon'));
+  check('it offers every facet as a row of choices',
+    docu.querySelectorAll('[data-f="types"]').length > 0 &&
+    docu.querySelectorAll('[data-f="categories"]').length === (new Function(liftConst('MSG_CATEGORIES') + 'return MSG_CATEGORIES.length;')()) &&
+    docu.querySelectorAll('[data-f="statuses"]').length > 0 &&
+    docu.querySelectorAll('[data-f="priorities"]').length > 0 &&
+    !!docu.querySelector('[data-f="search"]'),
+    'found ' + docu.querySelectorAll('[data-f="categories"]').length + ' category boxes');
+  /* ⚠ THE LIVE COUNT IS THE HALF THAT MAKES IT USABLE, so it is checked as a number on
+     screen rather than as a call in the source. A new section starts on Member Messages,
+     and the fixture holds exactly one member message and one system notice. */
+  const sectionTab = docu.querySelector('[data-edtab="section"]');
+  check('and a live count of what the section would hold',
+    !!sectionTab && /\b1\b/.test(sectionTab.textContent),
+    'got "' + (sectionTab ? sectionTab.textContent.trim() : 'no tab') + '" — the fixture has ' +
+    'one member message and one system notice, and a new section starts on Member Messages');
+  check('a new section does not start matching everything',
+    !!sectionTab && !/\b2\b/.test(sectionTab.textContent),
+    'an empty filter would show the route sweeps too, which reads as broken rather than as unnarrowed');
+
+  /* ⭐ AND THE SUBTAB BUTTON IS PRESSED, because "add a whole new section with subtabs" is
+     the request and a button that renders but does nothing is the exact bug the recycle
+     "bin says" box shipped with. */
+  const before = docu.querySelectorAll('[data-edtab]').length;
+  docu.getElementById('commEdAddTab').dispatchEvent(new win.MouseEvent('click', {bubbles: true}));
+  const after = docu.querySelectorAll('[data-edtab]').length;
+  check('pressing ＋ Subtab really adds one',
+    after === before + 1, 'went from ' + before + ' to ' + after);
+  check('and the new subtab can be named and filtered',
+    !!docu.getElementById('commEdTabName') && !!docu.querySelector('.comm-filter [data-f="categories"]'));
+  check('and deleted again',
+    !!docu.getElementById('commEdDelTab'));
+  docu.getElementById('commEdDelTab').dispatchEvent(new win.MouseEvent('click', {bubbles: true}));
+  check('deleting the subtab takes it off the row',
+    docu.querySelectorAll('[data-edtab]').length === before,
+    'a delete that renders and does nothing is worse than not offering one');
+
+  /* ⚠ AND TYPING SURVIVES A REDRAW. The popup is rebuilt wholesale on every change so the
+     counts move, which destroys the inputs — without readAll() first, anything typed is
+     silently gone and it reads as the field not saving. */
+  docu.getElementById('commEdLabel').value = 'Gate codes';
+  docu.querySelector('[data-f="categories"]').dispatchEvent(new win.Event('change', {bubbles: true}));
+  check('a name typed before a redraw is still there afterwards',
+    docu.getElementById('commEdLabel').value === 'Gate codes',
+    'the popup redraws on every tick; anything not read back first is simply lost');
+}
+
+/* ⭐ AND THE CONTROLS REACH THE SIDEBAR ([[MSG-15]]) — asserted separately from the editor,
+   because the editor passing proves nothing about anybody being able to open it. That exact
+   gap went green across a 5,162-check suite once (the Edit Customer tab strip). */
+if(JSDOM){
+  const dom2 = new JSDOM('<!doctype html><body><div id="commCentreNav"></div></body>');
+  const d2 = dom2.window.document;
+  const NAV = liftConst('MSG_TYPE_MEMBER') + liftConst('SYSTEM_NOTICE_TOPICS') +
+    liftConst('MSG_CATEGORIES') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
+    liftConst('MSG_STATUS') + liftConst('MSG_STATUS_LABEL') + liftConst('MSG_PRIORITY') +
+    liftConst('MSG_PRIORITY_LABEL') + liftConst('MSG_SEVERITY_LABEL') + liftConst('COMM_ACTIVITY_TOPICS') +
+    liftConst('COMM_SECTIONS') +
+    liftFn('esc') + liftFn('msgTypeOf') + liftFn('msgCategories') + liftFn('msgStatusOf') +
+    liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
+    liftFn('commFilterMatches') + liftFn('commSectionByKey') + liftFn('commAllSections') +
+    liftFn('commRowMatches') + liftFn('commRows') + liftFn('commCount') + liftFn('renderCommNav');
+  const nav = {};
+  new Function('document', 'allMessages', 'commSections', 'commView', 'renderCommDash',
+    'renderMessagesList', 'commEditSection', 'saveCommSections', 'confirm', 'toast',
+    'MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC',
+    NAV + 'this.draw = renderCommNav;')
+    .call(nav, d2, [{id: 'm1', data: {topic: 'General Question', read: false, message: 'x'}}],
+      {custom: [{key: 'c-9', icon: '\u{1F4CC}', label: 'Gate codes',
+                 filter: {types: ['member']}, tabs: [{key: 't-1', label: 'Unread',
+                 filter: {statuses: ['unread']}}]}], hidden: ['system']},
+      {section: 'inbox', tab: 'all'},
+      function(){}, function(){}, function(){}, async function(){},
+      function(){ return true; }, function(){}, 'Member Error', 'Admin Error');
+  nav.draw();
+  const host = d2.getElementById('commCentreNav');
+  check('the sidebar offers a way to add a section',
+    !!d2.getElementById('commAddSection'),
+    'the editor is unreachable without it');
+  check('her own section is drawn, with its subtabs',
+    /Gate codes/.test(host.innerHTML) && /Unread/.test(host.innerHTML));
+  check('and its All tab is added rather than stored',
+    host.querySelectorAll('[data-commsec="c-9"][data-commtab="all"]').length === 1,
+    'a section with one subtab must still have an All that agrees with it');
+  check('her section carries an edit control and a built-in does not',
+    !!host.querySelector('[data-commedit="c-9"]') && !host.querySelector('[data-commedit="inbox"]'),
+    'Delete on a built-in would break the dashboard tiles pointing at it');
+  check('a built-in carries a hide control instead',
+    !!host.querySelector('[data-commhide="inbox"]'));
+  /* ⚠ A HIDDEN SECTION IS NAMED, NOT FORGOTTEN. "Where did System Messages go" is a
+     question the screen should answer itself. */
+  check('a hidden section is still listed, with a way back',
+    !!host.querySelector('[data-commshow="system"]') &&
+    !host.querySelector('[data-commsec="system"]'),
+    'hidden with no route back is a feature lost rather than tidied');
+}
 
 console.log('');
 console.log('=== The communication centre ===');

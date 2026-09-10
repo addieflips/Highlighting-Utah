@@ -747,6 +747,19 @@ const PORTAL_READ_FIELDS = [
      would therefore have been put to customers who had already answered it.
      Caught by portal-fields.test.js, which exists for exactly this shape. */
   'rsvpRespondedAt',
+  /* ⭐ THE PENDING MOVE (2026-09-10). A whitelist is the whole of what reaches
+     the browser, so without these the portal cannot tell a customer who has
+     already sent a new address that it is with the office — they would open
+     the tab, see the old address still on file and send it again. The live
+     `address` above is deliberately still the OLD one until the office
+     applies the move.
+     ⚠ TWO OF THE FIVE, NOT ALL FIVE. `pendingCity` and `pendingZip` are already
+     inside the one-line `pendingAddress` the banner prints, and nothing shows
+     the customer WHEN they asked — so sending pendingAddressAt as well would be
+     three more fields in every customer's browser that no line of the page ever
+     looks at. portal-fields.test.js is what said so, which is the whole reason
+     that census exists. The office reads all five; only the portal is narrowed. */
+  'pendingAddress', 'pendingMoveDate',
   /* ⭐ REFER A FRIEND (2026-09-03). Two fields, and the portal cannot draw that tab
      without either of them — a whitelist is the whole of what reaches the browser, so a
      field left out here is simply undefined on the customer's screen with nothing
@@ -1585,6 +1598,24 @@ exports.portalLookup = onCall({ cors: true }, async (request) => {
  * ⚠ ONE RULE, TWO COPIES, ASSERTED IDENTICAL — the browser cannot run the
  * server's. run-all.js runs both over the same table of cases and fails if they
  * ever disagree, the money-parity pattern. */
+/* ⭐ WHAT COLOURS A HOUSE ACTUALLY HAS — BOTH FIELDS ([[WH-28]], 2026-09-10).
+ * The twin of `houseLightsText` in admin.html; run-all.js compares the two.
+ *
+ * ⚠ AN ORDINARY HOUSE KEEPS ITS COLOURS IN `lightColors` AND ITS DESCRIPTION IS EMPTY.
+ * `rbDetectColorsAndPattern`, which the master-sheet sync writes through, only fills
+ * lightsDescription when a colour REPEATS — a repeat is an alternating pattern where the
+ * order matters. Reading the description alone therefore reports every ordinary house as
+ * having no colours, which is what let a member change theirs for free: applyLightChange's
+ * own rule is that filling colours in for the FIRST time is not a change and is not charged.
+ *
+ * ⚠ THE DESCRIPTION WINS WHERE THERE IS ONE, because it carries the ORDER and the list
+ * does not. Same precedence as the admin copy, and the tests hold them together. */
+function houseLightsTextServer(d) {
+  const c = d || {};
+  const desc = String(c.lightsDescription || '').trim();
+  if (desc) return desc;
+  return (Array.isArray(c.lightColors) ? c.lightColors.filter(Boolean).join(', ') : '');
+}
 const WAREHOUSE_BUILD_FIELDS = ['lightsDescription', 'wireColor', 'outletTimer'];
 /* ⭐ THE SERVER HALF OF "WHEN WAS THIS SENT TO THE WAREHOUSE" (added 2026-08-28).
    Change this and change `stampBuildQueued` in admin.html, in the same push — the
@@ -1814,7 +1845,27 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
   if (section === 'info') {
     addressChanged = !!(oldData.address && updates.address &&
                         updates.address !== oldData.address);
-    updates.seasonStatus = addressChanged ? 'address_changed' : 'needs_changes';
+    /* ⭐ AN INFO SAVE NO LONGER WRITES seasonStatus AT ALL (Addie, 2026-09-10:
+       "changing gate code or phone number should not notify us").
+
+       This line used to write the re-quote state on EVERY save of this tab:
+       'address_changed' when the address string differed, 'needs_changes'
+       otherwise. Both are states resolved by answering a quote, and no quote
+       exists for a corrected phone number or a gate code — so fixing a typo
+       parked a customer in Needs Changes for ever. That is the same trap
+       portalSetGateCode was split out of portalSave to avoid (see the note
+       above it); this closes it for the tab itself.
+
+       ⚠ MOVING HOUSE IS NOT THIS PATH ANY MORE. It has its own door —
+       portalChangeAddress below — because the two are not the same event and
+       the string differing cannot tell them apart: adding an apartment number
+       and moving to Springville both just change the text. A move now writes
+       PENDING fields and leaves the live address alone until the office
+       applies it, so the pin, the town and any frozen route stop can never
+       disagree with the address on the screen.
+
+       addressChanged is still computed: it is returned to the browser below
+       and read by nothing that writes. */
   }
 
   /* ⭐ CHANGING WHICH SIDES CHANGES THE PRICE.
@@ -2041,7 +2092,10 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
         const inv = (invSnap && invSnap.exists) ? invSnap.data() : {};
 
         const d = applyLightChangeServer({
-          oldLights: oldData.lightsDescription,
+          /* ⚠ BOTH FIELDS ([[WH-28]]). The description alone reads as "no colours on file" for
+             every ordinary house, and a first-time fill is deliberately free — so the fee was
+             never charged for exactly the customers the sync had imported. */
+          oldLights: houseLightsTextServer(oldData),
           newLights: updates.lightsDescription,
           lockedUntil: toMillis(cust.lightsLockedUntil),
           invoiceSent: !!cust.invoiceEmailSent,
@@ -2527,13 +2581,22 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
  * catch a wrong gate code before a crew is standing at a locked gate.
  *
  * ⚠ WHY THIS IS NOT portalSave. `gateCode` is already in PORTAL_WRITE_FIELDS
- * under the `info` section, so reusing it looks like the obvious move and is
- * WRONG: that section ends with
+ * under the `info` section, so reusing it looks like the obvious move. The
+ * reason it was wrong is now HISTORY and is kept because it is what this
+ * function is for: that section used to end with
  *     updates.seasonStatus = addressChanged ? 'address_changed' : 'needs_changes';
- * which is the RE-QUOTE state. It is resolved by answering a quote, and no
- * quote exists here — so every customer who typed a gate code during their
- * RSVP would be parked in Needs Changes for ever, waiting on a question
- * nobody asked. A gate code is not a change to the job.
+ * which is the RE-QUOTE state, resolved by answering a quote. No quote exists
+ * here, so every customer who typed a gate code during their RSVP would have
+ * been parked in Needs Changes for ever, waiting on a question nobody asked.
+ *
+ * ⭐ THAT LINE IS GONE (2026-09-10) — an info save no longer writes seasonStatus
+ * at all, for exactly the reason this function was carved out, applied to the
+ * whole tab. So the trap is closed on both sides now. This callable is STILL
+ * the right shape and must not be folded back in: it is reached from the RSVP
+ * confirmation with no sign-in, it writes exactly one field so the whitelist
+ * IS the update call (gate-code.test.js holds that), and a gate code is a
+ * different moment from somebody editing their contact details. Folding it
+ * into portalSave would widen an unauthenticated write for no gain.
  *
  * ⚠ SAME TRUST MODEL AS portalRsvp: a valid portalToken IS the credential,
  * there is no separate login, and the token is looked up the same way. It
@@ -2565,6 +2628,134 @@ exports.portalSetGateCode = onCall({ cors: true }, async (request) => {
   });
 
   return { ok: true, gateCode: gateCode };
+});
+
+/* --- portalChangeAddress --------------------------------------------------
+ * Input: { token, street, city, zip, moveDate }
+ *
+ * ⭐ MOVING HOUSE HAS ITS OWN DOOR (2026-09-10). A customer who has moved
+ * inside Utah does not need to cancel — they need re-quoting, and until now
+ * the only way to tell us was to edit the address on My Info, which could not
+ * tell a move from a corrected typo.
+ *
+ * ⚠ IT DOES NOT WRITE `address`, `city`, `lat` OR `lng`. That is the whole
+ * point of it. There is no geocoder on this server — the Maps key lives in
+ * admin.html and index.html only — and the town is what the season plan groups
+ * a crew-day by, so writing the new address here would leave the customer
+ * sitting at their new address with the old house's pin, on the old town's
+ * day, and with the new address already pushed onto a frozen route stop the
+ * crew is holding. The office APPLYING the move is what commits it, through
+ * the ordinary Edit Customer save, which re-geocodes and re-syncs upcoming
+ * stops in the same press.
+ *
+ * ⚠ IT RAISES NO QUOTE EITHER (Addie, 2026-09-10: "you should have to apply
+ * changes in order for it to go to requote"). The re-quote is raised by that
+ * same admin save, so there is exactly one path that creates one and it is the
+ * one that already carries the old address and the recycle-and-build default
+ * for a mover. What this writes is a REQUEST, not a change.
+ *
+ * ⚠ SAME TRUST MODEL AS portalRsvp AND portalSetGateCode: a valid portalToken
+ * IS the credential, there is no separate login, and every value is bounded
+ * server-side before it reaches the record.
+ */
+exports.portalChangeAddress = onCall({ cors: true }, async (request) => {
+  const body = request.data || {};
+  const token = body.token ? String(body.token).trim() : '';
+  /* The same 200/60 ceilings the office form and quoteSaveDetails use, so the
+     two cannot disagree about what fits. */
+  const street = String(body.street || '').trim().slice(0, 200);
+  const city = String(body.city || '').trim().slice(0, 60);
+  const zip = String(body.zip || '').trim().slice(0, 20);
+  const moveDate = String(body.moveDate || '').trim().slice(0, 40);
+
+  if (!token) throw new HttpsError('invalid-argument', 'Missing portal token.');
+  /* ⚠ BOTH, NOT EITHER. The town is what a crew-day is grouped by, so a street
+     with no town is a move the season planner cannot place; and a town with no
+     street is not an address at all. Refusing here is what stops a half-filled
+     form becoming a pending move nobody can act on. */
+  if (!street || !city) {
+    throw new HttpsError('invalid-argument', 'Street and town are both needed.');
+  }
+
+  const match = await findByToken(token);
+  if (!match) throw new HttpsError('not-found', 'Account not found.');
+
+  /* ⭐ DELIBERATELY NOT BEHIND THE ARREARS HOLD — RULED ON, NOT LEFT OPEN (2026-09-10,
+     QT-36). Addie, answering Q-033 directly: "Yes anyone can report a move but when we
+     requote the person that didn't pay for last year still can't be scheduled until
+     they pay there balance." So do not "fix" this to match portalSave, which refuses
+     every section but `cancel` while last season is unpaid (Dax: "before anything goes
+     into the system"). A move is the exception, and it is hers.
+
+     ⚠ WHAT MAKES IT SAFE IS THE SECOND HALF OF HER SENTENCE, and it is enforced
+     somewhere else entirely: `houseOwesFromLastSeason` inside `isOutForSeason`, tested
+     AHEAD of the rsvpStatus and Confirmed branches. So a debtor may tell us they moved,
+     the office may apply it and re-quote them, and they may APPROVE that re-quote — and
+     they are still off the routes, out of the build queue and off the schedule until
+     the balance is paid. arrears-hold.test.js §4d runs the real `seasonYesUpdates` into
+     the real `isOutForSeason` to prove exactly that, and pins the placer's own guard.
+
+     ⚠ AND THE ASYMMETRY IS WHY SHE RULED THIS WAY. Where somebody lives is a FACT we
+     need whether or not they have paid: refused, the record keeps an address they have
+     left, and the one thing nobody can undo is a crew standing at the wrong house.
+     Accepting it grants nothing — the hold still bars every other change, and the badge
+     only asks the office to look.
+     ⚠ CANCELLING IS EXEMPT FOR THE SAME SHAPE OF REASON: somebody trying to leave must
+     not be told to pay first, or they stop replying and Addie never learns why. */
+  const oldData = match.data || {};
+  const oldAddress = oldData.address || '';
+  const pendingAddress = street + ', ' + city + (zip ? ' ' + zip : '');
+
+  const updates = {
+    pendingAddress: pendingAddress,
+    pendingCity: city,
+    pendingZip: zip,
+    pendingMoveDate: moveDate,
+    pendingAddressAt: admin.firestore.FieldValue.serverTimestamp(),
+    /* The one status this path does write, and the reason it is safe to: it is
+       a real re-quote state, it is the badge on the customer row and the filter
+       the office works from, and it clears when the re-quote raised on Apply is
+       answered (QUOTE_RAISED_STATUSES_SERVER). An info save no longer writes
+       it, so this is now the only way it arrives from the portal. */
+    seasonStatus: 'address_changed'
+  };
+  /* ⚠ THE FOURTH WRITER OF seasonStatus, AND THE STAMP IS WHY THAT HELPER EXISTS.
+     Its own note says a stamp beside any ONE branch would miss the others — so a
+     new writer that sets the status by hand and skips this is the exact hole it
+     was built to close. It is also what puts this on the customer's history:
+     `seasonStatusAt` is a step on the journey and historySeasonWords already
+     reads address_changed as "They told us their address changed", so going
+     through here means the move shows up with no new wording anywhere. */
+  stampSeasonStatusServer(updates, oldData.seasonStatus);
+  await db.collection('jobAddresses').doc(match.id).update(updates);
+
+  /* The office is told through the Inbox, not email. This topic is already
+     routed to the Member Portal folder by messageFolderOf in admin.html
+     (MSG-07), so it files itself alongside the other portal notices instead of
+     landing in the main pile.
+
+     ⚠ BEST EFFORT. The write above is already safely done, and a failed note
+     must never roll it back — the customer has told us they moved either way.
+     The pending fields and the badge are what the office actually works from;
+     this is the nudge that gets them looking. */
+  try {
+    await db.collection('messages').add({
+      topic: 'Existing Customer - Address Changed',
+      folder: 'Member Portal',
+      name: oldData.name || '', phone: oldData.phone || '', email: oldData.email || '',
+      contactMethod: '',
+      message: (oldData.name || 'A customer') + ' has moved from "' +
+               (oldAddress || 'no address on file') + '" to "' + pendingAddress + '"' +
+               (moveDate ? ', in by ' + moveDate : '') + '. Their record still holds the ' +
+               'old address on purpose — nothing has been re-quoted and no pin has moved. ' +
+               'Open them in Customers and press Apply on the move to put the new address ' +
+               'on the record, which re-quotes the new house and re-points their route.',
+      autoQueuedToWarehouse: false, needsReassign: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+  } catch (e) { console.error('[HU] address-change note failed:', e); }
+
+  return { ok: true, pendingAddress: pendingAddress };
 });
 
 /* The one place that strips a customer out of any route a crew has already

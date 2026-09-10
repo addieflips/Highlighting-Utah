@@ -449,6 +449,44 @@
   .comm-tab.on .comm-badge{background:rgba(255,255,255,.24); color:#fff;}
   .comm-yours{font-size:11px; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
     color:var(--slate); margin:10px 0 4px 10px;}
+  /* ⭐ HER OWN SECTIONS ([[MSG-15]]). The edit/hide control shares the section's row so it
+     cannot push the label around, and it stays faint until the row is hovered — it is a
+     housekeeping control on a list somebody reads all day, not something to look at. */
+  .comm-sec-row{display:flex; align-items:center; gap:2px;}
+  .comm-sec-row .comm-sec-head{flex:1; min-width:0;}
+  .comm-sec-edit{flex:0 0 auto; background:none; border:0; cursor:pointer; padding:6px 7px;
+    border-radius:7px; font-size:12px; color:var(--slate); opacity:0; transition:opacity .12s;}
+  .comm-sec-row:hover .comm-sec-edit{opacity:1;}
+  .comm-sec-edit:hover{background:var(--line); color:var(--ink);}
+  .comm-add{width:100%; text-align:left; background:none; border:1px dashed var(--line);
+    border-radius:8px; padding:7px 10px; cursor:pointer; font-size:12.5px; font-weight:700;
+    color:var(--slate); margin-top:4px;}
+  .comm-add:hover{border-color:var(--ink); color:var(--ink);}
+  .comm-hidden-note{font-size:11.5px; color:var(--slate); margin:8px 0 0 2px;}
+  .comm-unhide{background:none; border:0; cursor:pointer; padding:2px 5px; border-radius:6px;
+    font-size:11.5px; color:var(--emerald); font-weight:700;}
+  .comm-unhide:hover{background:var(--snow);}
+  /* The editor. Wide enough for the checkbox rows to sit two or three across rather than
+     one per line, which is what makes it readable as a set of choices. */
+  .comm-editor{max-width:620px;}
+  .comm-ed-row{display:flex; gap:10px; align-items:flex-start;}
+  .comm-ed-tabs{display:flex; flex-wrap:wrap; gap:6px; margin:12px 0 10px;}
+  .comm-ed-tab{display:flex; align-items:center; gap:6px; background:var(--snow);
+    border:1px solid var(--line); border-radius:999px; padding:5px 11px; cursor:pointer;
+    font-size:12.5px; font-weight:700; color:var(--slate);}
+  .comm-ed-tab.on{background:var(--ink); color:#fff; border-color:var(--ink);}
+  .comm-ed-tab.on .comm-badge{background:rgba(255,255,255,.24); color:#fff;}
+  .comm-ed-tab.add{border-style:dashed; font-weight:700;}
+  .comm-filter{border:1px solid var(--line); border-radius:11px; padding:11px 13px; background:var(--snow);}
+  .comm-flabel{font-size:11px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--slate); margin:8px 0 4px;}
+  .comm-flabel:first-child{margin-top:0;}
+  .comm-fset{display:flex; flex-wrap:wrap; gap:4px 14px;}
+  .comm-chk{display:flex; align-items:center; gap:5px; font-size:12.5px; font-weight:600;
+    color:var(--ink); cursor:pointer;}
+  .comm-chk input{width:15px; height:15px;}
+  .comm-filter input[type=text]{width:100%; margin-top:2px;}
+  .comm-fnote{font-size:11.5px; color:var(--slate); margin-top:9px; line-height:1.5;}
   .comm-dash{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; align-items:stretch;}
   .comm-tile{display:flex; flex-direction:column; gap:1px; min-width:86px; padding:9px 13px;
     border:1px solid var(--line); border-radius:11px; background:var(--snow); cursor:pointer; text-align:left;}
@@ -740,6 +778,29 @@
   .address-link-btn:hover{ color:var(--ink); }
   .row-name-line{ font-weight:700; font-size:14.5px; color:var(--ink); margin-bottom:2px; }
   .row-phone-line{ font-size:12.5px; color:var(--slate); margin-top:2px; }
+  /* ⭐ The contact line sits under the name and is the one thing on the row you press.
+     Set slightly larger and darker than .rmeta on purpose: it used to share that line's
+     grey with the date, which is the piece of it nobody ever needs ([[MSG-14]]). */
+  .row-contact{ font-size:13px; color:var(--ink); margin-top:3px; font-weight:600; }
+  /* ⭐ SELECTABLE, NOT A LINK ([[MSG-16]]). `user-select` is spelled out rather than left to
+     inherit: the row is draggable (that is how a message is filed), and a draggable ancestor
+     is what stops a drag-to-select inside it in WebKit — so the detail would look like plain
+     text and still refuse to be highlighted. */
+  .row-contact-val{ user-select:text; -webkit-user-select:text; cursor:text; }
+  .row-contact-copy{ background:none; border:1px solid var(--line); border-radius:6px;
+    padding:0 6px; margin-left:2px; font-size:10.5px; font-weight:700; color:var(--slate);
+    cursor:pointer; vertical-align:1px; }
+  .row-contact-copy:hover{ border-color:var(--ink); color:var(--ink); }
+  .row-contact-copy.done{ border-color:var(--emerald); color:var(--emerald); }
+  /* The instruction about WHICH one to use, beside the one it is about. */
+  .row-contact-pref{ font-size:11px; font-weight:800; letter-spacing:.02em; color:var(--emerald);
+    background:rgba(62,122,91,.10); border-radius:999px; padding:1px 7px; margin-left:2px; }
+  /* A preference we cannot act on is a problem, so it is drawn as one. */
+  .row-contact-warn{ font-size:12px; font-weight:600; color:var(--ember); margin-top:2px; }
+  /* Not an error, so not drawn as one — it is just the honest answer. */
+  .row-contact.none{ color:var(--slate); font-weight:500; font-style:italic; }
+  /* Small and plain: a caveat on the detail beside it, never a heading of its own. */
+  .row-contact-src{ font-size:11px; color:var(--slate); font-weight:500; }
   @media (max-width:900px){
     .list-with-map{ flex-direction:column; }
     .list-with-map-panel{ position:static; width:100%; }
@@ -1618,7 +1679,7 @@
             <div class="form-row" style="max-width:180px; margin-top:12px;"><label>Number of Bins</label><input type="number" id="addCustBins" min="1" step="1" value="1"></div>
             <div class="form-row" style="max-width:220px; margin-top:12px;"><label>Customer # (optional)</label><input type="text" id="addCustNumber" placeholder="Assigned automatically"></div>
             <div id="addCustNumberPreview" style="font-size:12.5px; font-weight:600; margin-top:4px;"></div>
-            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Leave it blank and you can assign the next available one from Customer Numbers. Normally left blank &mdash; the number is picked for you from Measured Feet. Over 260 feet means 2 bins and the next free 5000-series number; anything up to 260 means 1 bin and the next free regular number. Without Measured Feet no number is given.</p>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Leave it blank and you can assign the next available one from Customer Numbers. Normally left blank &mdash; the number is picked for you from Measured Feet. Over 320 feet means 2 bins and the next free 5000-series number; anything up to 320 means 1 bin and the next free regular number. Without Measured Feet no number is given.</p>
             <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:12px;"><input type="checkbox" id="addCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
           </div>
           <!-- Filled in by showAddCustMissing() when Add Customer is pressed with
@@ -1846,7 +1907,7 @@
               <div class="form-row">
                 <label>Measured Feet (optional) <span class="bulk-count" id="rbCountFeet">0 rows</span></label>
                 <textarea id="rbFeetArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="230&#10;490&#10;(blank = leave as is)"></textarea>
-                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">The <strong>#&nbsp;Feet</strong> column off the master sheet. This is the one that drives everything else &mdash; how many bins the house needs, how many bundles the warehouse builds, and the per-foot price. Filling it in also sets <strong>Number of Bins</strong> to match: one bin up to 260&nbsp;ft, another for every 260&nbsp;ft after that. Blank leaves both alone.</p>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">The <strong>#&nbsp;Feet</strong> column off the master sheet. This is the one that drives everything else &mdash; how many bins the house needs, how many bundles the warehouse builds, and the per-foot price. Filling it in also sets <strong>Number of Bins</strong> to match: one bin up to 320&nbsp;ft, another for every 320&nbsp;ft after that. Blank leaves both alone.</p>
               </div>
               <div class="form-row">
                 <label>Crew Notes (optional) <span class="bulk-count" id="rbCountNotes">0 rows</span></label>
@@ -2085,6 +2146,16 @@
             <div class="form-row"><label>Secondary Email</label><input type="email" id="editCustEmail2"></div>
             <div class="form-row"><label>Enrolled Date</label><input type="date" id="editCustEnrolled"></div>
           </div>
+          <!-- ⭐ THE MOVE THEY TOLD THE PORTAL ABOUT (2026-09-10). portalChangeAddress
+               writes the new address to pendingAddress and leaves the live one alone, so
+               this banner is the only thing on any screen that shows it. Without it those
+               five fields are written and read by nobody — §1's own failure.
+               ⚠ APPLY FILLS THE BOXES, IT DOES NOT SAVE. The Save button below is the
+               authoritative writer: it re-geocodes the new house, raises the re-quote with
+               existingCustomerId so the card reads as an old house, and re-syncs any
+               upcoming route stop. A write of its own here would be the copy that quietly
+               falls behind, and it would move a pin nobody had looked at. -->
+          <div id="editCustPendingMove" style="display:none;"></div>
           <div class="form-row"><label>Address</label><input type="text" id="editCustAddress"></div>
           <div class="form-row"><label>Town</label><input type="text" id="editCustCity" list="editCustCityList">
             <datalist id="editCustCityList"></datalist>
@@ -3240,6 +3311,43 @@
         </div>
         <div id="rsvpWholeStatus" style="font-size:13px; color:var(--slate); margin:0 0 8px;"></div>
         <div id="rsvpWholeBreakdown" style="font-size:13px;"></div>
+        <!-- ⭐ EM-10. The per-person half of EM-06. That button is all-or-nothing, which
+             is right when the WHOLE book was asked outside the app and wrong for every
+             other case — Addie is resending from EmailJS's individual error emails, one
+             customer at a time, so what she needs is to tick off the one she just sent.
+             Searchable because that is how the job actually arrives: an error email
+             names ONE address, and finding it in a list of hundreds is the work.
+             ⚠ THE UNDO IS THE SAFETY HERE, not a typed word. A wrong stamp means that
+             customer is never asked again this season and no crew is sent to their
+             house — but this writes ONE record she is looking at, so a visible Undo
+             beats a confirm she would clear hundreds of times and stop reading. -->
+        <div id="rsvpMarkOneBlock" style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
+          <h4 style="margin:0 0 4px; font-size:14px;">Mark one person as asked</h4>
+          <p class="form-note" style="margin:0 0 8px;">For a customer you emailed <b>outside this app</b> &mdash; a resend from EmailJS&rsquo;s error emails. Search the address the error email names, then tick them off. <b>Send the whole RSVP</b> will skip whoever is marked. Nothing here sends anything.</p>
+          <input type="search" id="rsvpMarkOneFilter" placeholder="Search a name or email address" style="width:100%; max-width:340px; margin-bottom:8px;">
+          <div id="rsvpMarkOneStatus" style="font-size:13px; color:var(--slate); margin:0 0 6px;"></div>
+          <div id="rsvpMarkOneList" style="font-size:13px;"></div>
+        </div>
+        <!-- ⭐ EM-11. The list-sized half of EM-10. Addie pasted her own send log —
+             name, date sent, times sent, and an empty "Ticked off in app?" column — and
+             asked who is not ticked. Nothing here could fill that column: the button
+             above stamps EVERYBODY the planner would write to, and the search box finds
+             ONE person at a time, which is nine hundred searches for a list this long.
+             ⚠ IT REPORTS. The only writing it offers is the per-row button, which is the
+             SAME one write as above, with the same Undo — because a press that stamped
+             every pasted name at once would be the all-or-nothing mistake wearing a
+             list, and a wrong stamp is a house no crew is sent to. -->
+        <div id="rsvpCheckListBlock" style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
+          <h4 style="margin:0 0 4px; font-size:14px;">Check a whole list you sent outside this app</h4>
+          <p class="form-note" style="margin:0 0 8px;">Paste your own send log &mdash; one person per line, <b>the name first</b>. Anything after the name on the line is ignored, so a copy straight out of a spreadsheet works as it is. This <b>sends nothing and saves nothing</b>: it tells you which of those people the app already has recorded as asked, and which it does not.</p>
+          <textarea id="rsvpCheckListPaste" rows="5" placeholder="Aaron Marvel,Sep 8,1,&#10;Aaron Price,Sep 8,1,&#10;Abby McLennan,Sep 8,1," style="width:100%; font-family:ui-monospace,monospace; font-size:12px;"></textarea>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:8px 0;">
+            <button type="button" class="btn btn-outline btn-sm" id="rsvpCheckListBtn">Check this list</button>
+            <button type="button" class="btn btn-outline btn-sm" id="rsvpCheckListClearBtn">Clear</button>
+          </div>
+          <div id="rsvpCheckListStatus" style="font-size:13px; color:var(--slate); margin:0 0 6px;"></div>
+          <div id="rsvpCheckListReport" style="font-size:13px;"></div>
+        </div>
       </div>
       <!-- Hidden until a send actually loses somebody. A permanent empty card about
            failures is one nobody reads, and this one has to be noticed on the day it
@@ -5786,7 +5894,7 @@
                    gold one got pressed, the price landed and estimatedFeet was
                    left empty. Nothing errors on that: quoteFeetOrEstimate turns
                    the price back into feet with a 5% margin, and THAT figure
-                   sizes the bins at 260 ft, picks the 5000-series number and
+                   sizes the bins, picks the 5000-series number and
                    counts the bundles at 40 ft. Owner: "I need no guessing I need
                    feet to be correct."
                    ⚠ THE SHELL IS STATIC AND ONLY ITS TEXT IS UPDATED. Three
@@ -8030,6 +8138,10 @@ const CUSTOMER_FIELD_LABELS = {
      reports fields the save actually carries. */
   cancellationReason: {label: 'Why they are cancelling', kind: 'text'},
   needsLightBuild: {label: 'Waiting to be built', kind: 'yesno'},
+  /* [[WH-27]] — its own queue, so it reads as its own line: "Waiting to be built: No" beside
+     "Waiting for a timer: Yes" is the whole distinction, and the history is where somebody
+     later asks why a house was never built. */
+  needsTimerOnly: {label: 'Waiting for a timer', kind: 'yesno'},
   needsLightRecycle: {label: 'Old set to come back', kind: 'yesno'},
   recycleKeepingCustomer: {label: 'Keeping them as a customer', kind: 'yesno'},
   buildTopUpFromFeet: {label: 'Feet already in their bin', kind: 'number'},
@@ -8043,6 +8155,17 @@ const CUSTOMER_FIELD_LABELS = {
    list of field names, and the census cannot tell them apart either. */
 const CUSTOMER_FIELD_QUIET = {
   updatedAt: 'the entry carries its own time',
+  /* ⚠ ALL FIVE ARE THE OFFICE RETIRING A REQUEST, IN THE SAME SAVE THAT GRANTS IT. The
+     customer told the portal they had moved; applying it writes the new `address`, which
+     IS labelled and is the line the history shows. These clear alongside it so the banner
+     cannot go sticky — five more rows reading "Pending address: 123 Main St → (blank)"
+     would report one event six times, and in the record's own words rather than the
+     office's. Same reasoning as lightsChangedAt directly below. */
+  pendingAddress: 'the address line is the event; this is the request it came from',
+  pendingCity: 'cleared with the pending address above, in the save that applies it',
+  pendingZip: 'cleared with the pending address above, in the save that applies it',
+  pendingMoveDate: 'cleared with the pending address above, in the save that applies it',
+  pendingAddressAt: 'the address line is the event; this is when they asked for it',
   createdAt: 'set once, when the record is made',
   lastEditedBy: 'the entry already records who',
   lat: 'moves only because the address did, which has its own line',
@@ -11136,6 +11259,10 @@ function initData(){
   loadEmailTemplates();
   loadCustomCodes();
   loadMessages();
+  /* ⚠ EAGER, beside loadMessages and for the same reason: the Inbox nav is the frame the
+     badge and every count are drawn in, so it cannot wait for the panel to be opened.
+     It is one small settings document, not a collection. */
+  loadCommSections();
   loadInvoices();
   /* ⭐ The Recycle queue lists people who have already been removed as customers, so
      it needs the archive as well as the book. Only the ones still waiting are watched —
@@ -14960,11 +15087,13 @@ function renderQuoteRows(filtered){
             (d.changed.what === 'feet'
               ? '<div style="margin-top:4px;">Feet changed <strong>'+d.changed.oldFeet+' ft &rarr; '+d.changed.newFeet+' ft</strong>'+
                 (d.changed.oldPrice ? '. They were paying '+fmtMoney(d.changed.oldPrice)+'.' : '.')+
-                /* ⚠ 260, READ FROM THE BIN MATHS, not the 200 that was typed here.
-                   The two had disagreed since CN_DOUBLE_BIN_FEET was settled at 260,
-                   so a house going 210 -> 250 ft was told in red that it needed a
+                /* ⚠ READ FROM THE BIN MATHS, never a number typed here. This line
+                   held a literal 200 while CN_DOUBLE_BIN_FEET said 260, so at that
+                   time a house going 210 -> 250 ft was told in red that it needed a
                    second bin it does not need, and one going 190 -> 265 was told
-                   nothing at all. And the old number does NOT go back to the pool -
+                   nothing at all. The cutoff has moved again since - 320 as of
+                   2026-09-10 - which is exactly why nothing here spells it out.
+                   And the old number does NOT go back to the pool -
                    the customer still holds it until somebody reassigns them. */
                 ((cnBinsForFeet(Number(d.changed.newFeet)) >= 2 && cnBinsForFeet(Number(d.changed.oldFeet)) < 2)
                   ? '<div style="margin-top:4px; color:#B91C1C; font-weight:700;">Now over '+CN_DOUBLE_BIN_FEET+' ft \u2014 needs '+cnBinsForFeet(Number(d.changed.newFeet))+' bins and a 5000-series number.</div>' : '')+
@@ -14983,8 +15112,10 @@ function renderQuoteRows(filtered){
                    isnt a new quote so we dont accidentally build the house
                    again but hold everything as long as they stay below 260
                    feet", and "if they go above 260 feet hold what you can".
-                   260ft is the line: below it their existing bin and number
-                   still fit, so nothing needs rebuilding or renumbering. */
+                   CN_DOUBLE_BIN_FEET is the line, READ and never typed here:
+                   below it their existing bin and number still fit, so nothing
+                   needs rebuilding or renumbering. (It was 260 when she said
+                   that, and is 320 since 2026-09-10.) */
                 '<div style="margin-top:8px; background:#FFF8E9; border:1px solid var(--gold-dim); border-radius:8px; padding:8px 10px;">'+
                   '<strong>⚠ They are already built &mdash; do not build this house again.</strong>'+
                   '<div style="margin-top:3px;">'+
@@ -19328,7 +19459,8 @@ function rsvpWholeTemplates(){
    its send loop already share a renderer for. */
 function rsvpWholePlan(){
   const out = { standard: [], arrears: [], noEmail: [], optedOut: [], alreadyEmailed: [],
-                answered: 0, newThisYear: 0, ready: false, why: '' };
+                answered: 0, newThisYear: 0, answeredList: [], newThisYearList: [],
+                ready: false, why: '' };
   if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)){
     out.why = 'The customer list has not loaded yet.'; return out;
   }
@@ -19344,9 +19476,13 @@ function rsvpWholePlan(){
     if(typeof isTestRecordData === 'function' && isTestRecordData(d)) return;
     /* Never asks somebody about lights they have never had — the same predicate the
        RSVP audience filter uses, so the two cannot drift (RS-20). */
-    if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)){ out.newThisYear++; return; }
+    if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)){
+      out.newThisYear++; out.newThisYearList.push(item); return;
+    }
     /* Somebody who has already answered is not asked again. */
-    if(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus(d)){ out.answered++; return; }
+    if(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus(d)){
+      out.answered++; out.answeredList.push(item); return;
+    }
     if(typeof etNoAutomationEmails === 'function' && etNoAutomationEmails(d)){ out.optedOut.push(item); return; }
     if(!String(d.email || '').trim()){ out.noEmail.push(item); return; }
     /* ⭐ ALREADY ASKED IS NOT ASKED AGAIN (2026-09-09, EM-04). Addie: "the people that
@@ -19406,6 +19542,14 @@ function rsvpWholeRenderBreakdown(plan){
     row('Already answered', plan.answered, 'not asked again') +
     row('New this year', plan.newThisYear, 'never had lights \u2014 never asked') +
     '<p class="form-note" style="margin:10px 0 0;">Nobody appears in more than one line above.</p>';
+  /* \u2b50 EM-10. The per-person list reads the SAME plan, so the count on the "Ordinary
+     RSVP" line and the number of people offered a tick can never disagree \u2014 the one-rule
+     argument `commRowMatches` makes about tab counts, applied here. Refreshed with the
+     breakdown rather than on its own, so pressing Check first brings both up to date. */
+  if(typeof rsvpMarkOneRender === 'function') rsvpMarkOneRender();
+  /* EM-11. Same plan object, so the counts in the pasted report and the breakdown
+     above it are the same numbers rather than two readings taken a moment apart. */
+  if(typeof rsvpCheckListRefresh === 'function') rsvpCheckListRefresh(plan);
 }
 document.getElementById('rsvpWholeCheckBtn')?.addEventListener('click', function(){
   const st = document.getElementById('rsvpWholeStatus');
@@ -20106,7 +20250,14 @@ function loadMessageFolders(){
       try{ await seedErrorFolders(messageFolders); }
       catch(err){ console.error('Could not create the Errors folders:', err); }
     }
-    renderFolderSidebar();
+    /* ⭐ renderCommNav, NOT renderFolderSidebar (2026-09-09). The Communication Centre
+       replaced the folder sidebar and took its renderer with it; these two calls were
+       left pointing at a function that no longer exists, so BOTH threw on every page
+       load — `Uncaught ReferenceError: renderFolderSidebar is not defined`, straight
+       into the Admin Errors folder, twice. `renderCommNav` is what draws that sidebar
+       now (it writes the nav and the "Your folders" heading into the same host), so it
+       is the same intent: redraw the sidebar once the folders have loaded. */
+    renderCommNav();
     renderMessagesList();
   });
 }
@@ -20241,6 +20392,158 @@ function openContextMenu(x, y, messageId){
   });
 }
 document.addEventListener('click', function(){ contextMenuEl.classList.remove('open'); });
+/* ⭐ THE CONTACT DETAILS BELONG UNDER THE NAME (2026-09-09, [[MSG-14]]). Addie: "on
+   inbox can you show email and phone number under name so I can communicate with them?"
+
+   ⚠ THEY WERE ON THE ROW ALREADY, AND THAT IS NOT THE SAME THING. The phone and email
+   sat in the small grey `rmeta` line, run together with "Prefers text" and the date —
+   so the one thing on the row you have to ACT on was set in the same type as the one
+   thing you never do. They are their own line under the name now, and they are links:
+   `tel:` and `mailto:`, because "so I can communicate with them" is the whole request
+   and a number you have to copy out by hand is not that.
+
+   ⭐ AND THE MESSAGE IS NOT THE ONLY PLACE TO LOOK. A message carries whatever the
+   sender typed, so a portal-raised one often has a phone and no email, and a Member
+   Error has neither — the row named the customer (matched by their link, [[MSG-10]])
+   and then offered no way to ring them, which is exactly the row you most want to ring.
+   `msgContactFor` falls back to the customer record.
+
+   ⚠ IT REFUSES AN AMBIGUOUS MATCH RATHER THAN PICKING ONE. Seventeen phone numbers in
+   the real book are shared and fourteen of those are two genuinely different households,
+   a parent paying for a child’s house — so a phone that matches twice resolves to
+   NOBODY. Handing back the wrong person’s email on a screen whose purpose is to send
+   them something is worse than handing back nothing.
+
+   ⚠ AND A DETAIL TAKEN FROM THE RECORD SAYS SO. The same rule `msgErrorWhoLabel`
+   already follows: the office should be able to tell what the sender actually gave us
+   from what we worked out on their behalf, because only one of those is their own
+   answer. */
+function msgContactCustomer(d){
+  d = d || {};
+  const list = (typeof jobAddresses !== 'undefined' && jobAddresses) ? jobAddresses : [];
+  const digits = String(d.phone || '').replace(/\D/g, '');
+  if(digits){
+    const byPhone = list.filter(function(a){
+      return String((a.data || {}).phone || '').replace(/\D/g, '') === digits;
+    });
+    if(byPhone.length === 1) return byPhone[0];
+    if(byPhone.length > 1) return null;   /* shared household — see above */
+  }
+  const email = String(d.email || '').trim().toLowerCase();
+  if(email){
+    const byEmail = list.filter(function(a){
+      return String((a.data || {}).email || '').trim().toLowerCase() === email;
+    });
+    if(byEmail.length === 1) return byEmail[0];
+    if(byEmail.length > 1) return null;
+  }
+  /* Last resort, and the one that rescues a Member Error: the redacted portal token on
+     the link they hit. Already refuses on more than one match. */
+  const found = (typeof msgErrorWhoIs === 'function') ? msgErrorWhoIs(d) : null;
+  return (found && found.cust) ? found.cust : null;
+}
+/* What the sender gave us wins; the record only ever fills a GAP. Their own answer is
+   the one to reply to — somebody who wrote in from a new address wants the reply
+   there, not at the old one still on file. */
+function msgContactFor(d){
+  d = d || {};
+  const ownPhone = String(d.phone || '').trim();
+  const ownEmail = String(d.email || '').trim();
+  if(ownPhone && ownEmail) return { phone: ownPhone, email: ownEmail, fromRecord: false };
+  const cust = msgContactCustomer(d);
+  const c = (cust && cust.data) ? cust.data : {};
+  const phone = ownPhone || String(c.phone || '').trim();
+  const email = ownEmail || String(c.email || '').trim();
+  return {
+    phone: phone,
+    email: email,
+    fromRecord: (!ownPhone && !!phone) || (!ownEmail && !!email)
+  };
+}
+/* ⭐ WHICH OF THE TWO THEY ASKED US TO USE ([[MSG-16]], 2026-09-10). Addie: "we can no
+ * longer see how someone prefers to be contacted. Can you make sure that is still shown in
+ * there request?"
+ *
+ * ⚠ IT WAS NEVER REMOVED, AND SHE IS STILL RIGHT. [[MSG-14]] moved the phone and the email
+ * up to their own line and left "Prefers Text" behind in the small grey meta line with the
+ * date — so the one line she had learned to scan for contact details no longer had any, and
+ * the preference went with the part she stopped reading. Rendered is not the same as seen.
+ *
+ * ⭐ AND IT BELONGS ON THE CONTACT LINE ANYWAY, because it is not a fact about the customer,
+ * it is an instruction about WHICH of the two links to press. Beside the date it was trivia.
+ *
+ * ⚠ CALL AND TEXT ARE NOT THE SAME INSTRUCTION even though both point at the phone —
+ * ringing somebody who asked to be texted is exactly the mistake this exists to stop — so
+ * the WORDS travel, never merely a highlight on the right detail.
+ *
+ * ⚠ AND ANYTHING WE DO NOT RECOGNISE IS KEPT VERBATIM, never guessed at. The field is free
+ * text on an imported record, and reading "do not ring before 6" as a phone preference is
+ * how somebody gets rung who asked for anything but. */
+function msgContactPreference(d){
+  const raw = String((d && d.contactMethod) || '').trim();
+  if(!raw) return null;
+  const low = raw.toLowerCase();
+  if(/\btext\b|\bsms\b/.test(low))            return {route:'phone', words:'Text them'};
+  if(/\bcall\b|\bphone\b|\bvoice\b/.test(low)) return {route:'phone', words:'Call them'};
+  if(/e-?mail/.test(low))                       return {route:'email', words:'Email them'};
+  return {route:'', words:'Prefers: ' + raw};
+}
+/* ⚠ A SYSTEM NOTICE GETS NO LINE AT ALL. There is no customer behind a route sweep, so
+   "no phone or email" under every one of them is noise on the rows that need none — and
+   noise is how a line stops being read on the rows that do.
+   ⚠ AND ON A ROW THAT SHOULD HAVE ONE, EMPTY IS SAID RATHER THAN LEFT BLANK. A blank
+   reads as nothing-to-do-here on a message that is sitting in the Inbox precisely because
+   somebody is waiting. Same rule as the fix sheet’s "?". */
+function msgContactLineHtml(d){
+  if(typeof msgTypeOf === 'function' && msgTypeOf(d) === MSG_TYPE_SYSTEM) return '';
+  const c = msgContactFor(d);
+  const pref = msgContactPreference(d);
+  const tag = function(where){
+    return (pref && pref.route === where)
+      ? ' <span class="row-contact-pref">' + esc(pref.words) + '</span>' : '';
+  };
+  const bits = [];
+  /* ⭐ PLAIN TEXT YOU CAN SELECT, WITH A COPY BUTTON — NOT A LINK ([[MSG-16]], 2026-09-10).
+     Addie: "I want to be able to copy and paste phone number and email but not a link."
+     ⚠ THIS REVERSES THE tel:/mailto: HALF OF [[MSG-14]], and R-024 applies — her newer
+     answer wins and it is said out loud rather than applied quietly. The older reasoning is
+     kept because it was sound: "so I can communicate with them" read as tap-to-dial, and on
+     a phone that is genuinely one press. What it cost is the thing she actually does, which
+     is paste a number into something else — dragging to select inside an anchor starts a
+     drag or follows the link instead, so the detail was readable and not takeable.
+     ⚠ IT COPIES WHAT IS ON SCREEN, not a normalised form. What you see is what you paste is
+     the only rule nobody has to be told, and "(801) 555-0111" pastes into a phone, a text
+     and a document alike. */
+  const copyBtn = function(value){
+    return ' <button type="button" class="row-contact-copy" data-copyval="' + esc(value) +
+      '" title="Copy">Copy</button>';
+  };
+  if(c.phone){
+    const shown = (typeof fmtPhone === 'function') ? fmtPhone(c.phone) : c.phone;
+    bits.push('\u{1F4DE} <span class="row-contact-val">' + esc(shown) + '</span>' +
+      tag('phone') + copyBtn(shown));
+  }
+  if(c.email){
+    bits.push('\u{2709}\u{FE0F} <span class="row-contact-val">' + esc(c.email) + '</span>' +
+      tag('email') + copyBtn(c.email));
+  }
+  /* ⚠ A PREFERENCE WE CANNOT ACT ON IS THE ONE MOST WORTH SAYING. Somebody who asked to be
+     emailed and left no email is currently invisible: the row shows a phone number and
+     nothing says they did not want it used. That is a real answer, not a gap. */
+  const stranded = pref && pref.route && !c[pref.route];
+  const extra = (pref && !pref.route) ? ' <span class="row-contact-pref">' + esc(pref.words) + '</span>' : '';
+  const strandedLine = stranded
+    ? '<div class="row-contact-warn">' + esc(pref.words) +
+      ' &mdash; and there is no ' + (pref.route === 'email' ? 'email' : 'phone number') +
+      ' on this message or on their record.</div>'
+    : '';
+  if(!bits.length){
+    return '<div class="row-contact none">No phone or email on this message, and no record matches it' +
+      (pref ? ' &mdash; they asked for: ' + esc(pref.words.replace(/^Prefers: /, '')) : '') + '</div>' + strandedLine;
+  }
+  return '<div class="row-contact">' + bits.join(' &middot; ') + extra +
+    (c.fromRecord ? ' <span class="row-contact-src">from their record</span>' : '') + '</div>' + strandedLine;
+}
 function messageAddressLookup(d){
   const phoneDigits = (d.phone||'').replace(/\D/g,'');
   if(!phoneDigits) return '';
@@ -20626,6 +20929,32 @@ function msgErrorWhoLabel(d){
    is derived from it, so the nav and the list can never disagree about what is being
    shown. [[MSG-11]] */
 let commView = {section:'inbox', tab:'all'};
+/* ⭐ THE NAV IS HERS TO SHAPE ([[MSG-15]], 2026-09-09). Addie: "for inbox I have no way of
+ * adding anything deleting anything or adding a whole new section with subtabs? Can we get
+ * that added so I can make it like this?" — pointing at Member Messages and its five subtabs.
+ *
+ * ⛔ THIS IS NOT THE FOLDERS COMING BACK, and the distinction is the whole design. [[MSG-12]]
+ * removed FILING — a message put in one place by hand, which is then the only place it is.
+ * A section here is a SAVED FILTER over the same derived facets everything else already
+ * reads: nothing is moved, a message shows up wherever it matches, and deleting a section
+ * cannot lose one. That is [[MSG-11]]'s own rule ("less folder hunting → more filtering")
+ * given a UI rather than reversed.
+ *
+ * ⚠ ONE RULE STILL DECIDES. A custom tab is evaluated by `commRowMatches` like every built-in
+ * one, so the list and the count beside the tab cannot disagree — the bug the folder badge
+ * already had once.
+ *
+ * ⚠ STORED IN `settings/commSections`, NOT A COLLECTION OF ITS OWN. `settings/{id}` is already
+ * open to signed-in staff in firestore.rules; a new collection would be denied by default and
+ * fail SILENTLY in a listener, and that file is not deployed by CI — it needs a hand-run.
+ * A whole feature that looks saved and is not is a worse trade than the one cost here, which
+ * is that two people editing sections at the same moment overwrite each other. Same trade
+ * `settings/scheduling` already makes, on something that changes about as often. */
+let commSections = {custom: [], hidden: []};
+/* Built-in sections are the spine: every dashboard tile, and the classification itself, is
+   written in terms of them. They can be HIDDEN — which is what "deleting anything" means for
+   a list you did not create — and never deleted, because deleting one would leave the tiles
+   pointing at a view that does not exist. */
 const COMM_SECTIONS = [
   {key:'inbox',  icon:'\u{1F4E5}', label:'Inbox',
    tabs:[['all','All'],['unread','Unread'],['needs_reply','Needs Reply'],
@@ -20640,10 +20969,94 @@ const COMM_SECTIONS = [
    tabs:[['all','All Errors'],['critical','Critical'],['warnings','Warnings'],
          ['review','Needs Review'],['resolved','Resolved']]}
 ];
+/* Every section on screen, in order: the built-ins she has not hidden, then hers. ONE list,
+   so the nav, the counts, the list and the heading cannot disagree about what exists. */
+/* ⚠ A LIVE LISTENER, NOT A ONE-OFF READ. Two people are in admin every day and the nav is
+   the frame everything else is drawn in — a stale copy means one machine filing against a
+   section the other has deleted. ⚠ AND A FAILED READ LEAVES THE BUILT-INS STANDING rather
+   than blanking the nav: an Inbox with no sections at all is indistinguishable from a broken
+   page, and every built-in view still works with no settings document at all. */
+function loadCommSections(){
+  onSnapshot(doc(db, 'settings', 'commSections'), function(snap){
+    const d = snap.exists() ? (snap.data() || {}) : {};
+    commSections = {custom: Array.isArray(d.custom) ? d.custom : [],
+                    hidden: Array.isArray(d.hidden) ? d.hidden : []};
+    /* If she is looking at a section that has just gone, put her somewhere real. */
+    if(!commAllSections().some(function(x){ return x.key === commView.section; })){
+      commView = {section: 'inbox', tab: 'all'};
+    }
+    if(typeof renderMessagesList === 'function') renderMessagesList();
+  }, function(err){
+    console.error('Could not read the Inbox sections:', err);
+    toast('Could not load your Inbox sections \u2014 showing the built-in ones.');
+  });
+}
+async function saveCommSections(next){
+  /* Written whole rather than merged: `custom` is an ARRAY, and a merge on an array replaces
+     it anyway, so a partial write here would be a lie about what it does. */
+  await setDoc(doc(db, 'settings', 'commSections'),
+    {custom: next.custom || [], hidden: next.hidden || []}, {merge: true});
+}
+function commAllSections(){
+  const hidden = (commSections && Array.isArray(commSections.hidden)) ? commSections.hidden : [];
+  const mine = (commSections && Array.isArray(commSections.custom)) ? commSections.custom : [];
+  return COMM_SECTIONS.filter(function(s){ return hidden.indexOf(s.key) === -1; })
+    .concat(mine.map(function(sec){
+      /* ⚠ THE All TAB IS ADDED HERE, NEVER STORED. It is the section's own filter with no
+         narrowing — exactly what `all` means on every built-in — so a section with one tab
+         cannot be saved in a state where All disagrees with it. */
+      return {key: sec.key, icon: sec.icon || '\u{1F4CC}', label: sec.label || 'Untitled',
+              custom: true, filter: sec.filter,
+              tabs: [['all', 'All']].concat((sec.tabs || []).map(function(t){ return [t.key, t.label]; }))};
+    }));
+}
+function commSectionByKey(key){
+  const mine = (commSections && Array.isArray(commSections.custom)) ? commSections.custom : [];
+  return mine.find(function(s){ return s.key === key; }) || null;
+}
+/* ⭐ ONE FILTER EVALUATOR, over the SAME facets the built-in tabs are written in terms of.
+   ⚠ EVERY LIST IS AN OR WITHIN ITSELF AND AN AND BETWEEN THEM — "a Payment question that is
+   still unread" is the shape somebody actually wants, and it is what the built-ins already do.
+   ⚠ AN EMPTY LIST MEANS "DO NOT CARE", NOT "MATCH NOTHING". The other reading makes a
+   half-built section show zero and read as broken; this way it shows everything, which is
+   visibly a filter nobody has narrowed yet. The editor says so and shows a live count. */
+function commFilterMatches(d, filter){
+  if(!filter) return true;
+  const f = msgFacets(d);
+  const any = function(list, value){ return !list || !list.length || list.indexOf(value) !== -1; };
+  if(!any(filter.types, f.type)) return false;
+  if(!any(filter.statuses, f.status)) return false;
+  if(!any(filter.priorities, f.priority)) return false;
+  if(!any(filter.severities, f.severity)) return false;
+  if(filter.categories && filter.categories.length &&
+     !filter.categories.some(function(c){ return f.categories.indexOf(c) !== -1; })) return false;
+  const term = String(filter.search || '').trim().toLowerCase();
+  if(term){
+    /* The same three fields the search box reads, so what she can find by typing she can
+       also pin to a tab. Never the contact details: those are resolved from the record and
+       a tab keyed on one would silently change membership when a record is edited. */
+    const hay = (String(d.topic||'') + ' ' + String(d.message||'') + ' ' + String(d.name||'')).toLowerCase();
+    if(hay.indexOf(term) === -1) return false;
+  }
+  return true;
+}
 /* ⚠ ONE RULE FOR "IS THIS ROW IN THIS VIEW", asked by the list AND by every count beside
    a tab. Two implementations is how a tab reads 5 and shows 4 — the bug the folder badge
    already had once, when the sidebar counted everything and the nav counted unread. */
 function commRowMatches(d, section, tab){
+  /* ⭐ HER OWN SECTIONS GO THROUGH THIS SAME FUNCTION ([[MSG-15]]). A second evaluator for
+     custom tabs is how a tab reads 5 and shows 4 — the exact failure this function's own
+     note above exists to prevent, so the new kind of view must not get one. */
+  const mine = commSectionByKey(section);
+  if(mine){
+    if(!commFilterMatches(d, mine.filter)) return false;
+    if(!tab || tab === 'all') return true;
+    const t = (mine.tabs || []).find(function(x){ return x.key === tab; });
+    /* ⚠ A TAB THAT NO LONGER EXISTS SHOWS THE SECTION, not nothing. She can delete a tab
+       while looking at it, and an empty list there reads as the section being broken. */
+    if(!t) return true;
+    return commFilterMatches(d, t.filter);
+  }
   const f = msgFacets(d);
   if(section === 'errors'){
     if(f.type !== MSG_TYPE_ERROR) return false;
@@ -20739,25 +21152,48 @@ function commViewLabel(){
 function renderCommNav(){
   const host = document.getElementById('commCentreNav');
   if(!host) return;
+  const sections = commAllSections();
   let html = '<div class="comm-nav">';
-  COMM_SECTIONS.forEach(function(sec){
+  sections.forEach(function(sec){
     const open = commView.section === sec.key;
     html += '<div class="comm-sec' + (open ? ' open' : '') + '">' +
-      '<button type="button" class="comm-sec-head" data-commsec="' + sec.key + '">' +
-        '<span class="comm-sec-icon">' + sec.icon + '</span>' + esc(sec.label) + '</button>' +
+      '<div class="comm-sec-row">' +
+        '<button type="button" class="comm-sec-head" data-commsec="' + esc(sec.key) + '">' +
+          '<span class="comm-sec-icon">' + esc(sec.icon) + '</span>' + esc(sec.label) + '</button>' +
+        /* ⭐ HER OWN SECTIONS ARE EDITABLE; THE BUILT-INS CAN BE PUT AWAY ([[MSG-15]]).
+           "Deleting anything" means two different things for the two kinds, and offering
+           Delete on a built-in would be a button that either breaks the dashboard tiles
+           pointing at it or quietly does nothing. */
+        (sec.custom
+          ? '<button type="button" class="comm-sec-edit" data-commedit="' + esc(sec.key) + '" title="Edit this section">\u270E</button>'
+          : '<button type="button" class="comm-sec-edit" data-commhide="' + esc(sec.key) + '" title="Hide this section">\u2715</button>') +
+      '</div>' +
       '<div class="comm-tabs"' + (open ? '' : ' hidden') + '>';
     sec.tabs.forEach(function(t){
       const n = commCount(sec.key, t[0]);
       const on = open && commView.tab === t[0];
       html += '<button type="button" class="comm-tab' + (on ? ' on' : '') + '" ' +
-        'data-commsec="' + sec.key + '" data-commtab="' + t[0] + '">' + esc(t[1]) +
+        'data-commsec="' + esc(sec.key) + '" data-commtab="' + esc(t[0]) + '">' + esc(t[1]) +
         /* A nought is drawn as nothing at all — a column of zeroes reads as a broken
            counter, which is half of why the old total count was ignored. */
         (n ? '<span class="comm-badge">' + n + '</span>' : '') + '</button>';
     });
     html += '</div></div>';
   });
-  html += '</div><div class="comm-yours">Your folders</div>';
+  html += '</div>';
+  html += '<button type="button" class="comm-add" id="commAddSection">\uFF0B New section</button>';
+  /* ⚠ THE PUT-AWAY ONES ARE NAMED, NOT FORGOTTEN. A hidden section with no way back is a
+     feature she has lost rather than tidied, and "where did System Messages go" is a
+     question the screen should answer itself. */
+  const hidden = (commSections.hidden || []).filter(function(k){
+    return COMM_SECTIONS.some(function(s){ return s.key === k; }); });
+  if(hidden.length){
+    html += '<div class="comm-hidden-note">Hidden: ' + hidden.map(function(k){
+      const s0 = COMM_SECTIONS.find(function(x){ return x.key === k; });
+      return '<button type="button" class="comm-unhide" data-commshow="' + esc(k) + '">' +
+        esc(s0 ? s0.label : k) + ' \u21A9</button>';
+    }).join(' ') + '</div>';
+  }
   host.innerHTML = html;
   host.querySelectorAll('[data-commtab]').forEach(function(b){
     b.addEventListener('click', function(){
@@ -20771,6 +21207,235 @@ function renderCommNav(){
       renderCommNav(); renderCommDash(); renderMessagesList();
     });
   });
+  host.querySelectorAll('[data-commedit]').forEach(function(b){
+    b.addEventListener('click', function(e){
+      e.stopPropagation();   /* the row underneath opens the section; this must not */
+      commEditSection(commSectionByKey(b.dataset.commedit));
+    });
+  });
+  host.querySelectorAll('[data-commhide]').forEach(function(b){
+    b.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const key = b.dataset.commhide;
+      const sec = COMM_SECTIONS.find(function(x){ return x.key === key; });
+      if(!confirm('Hide "' + (sec ? sec.label : key) + '" from the sidebar?\n\n' +
+        'No messages are deleted or moved — they still show in the other views, and you can ' +
+        'put this section back from the bottom of the sidebar.')) return;
+      const next = {custom: commSections.custom || [],
+                    hidden: (commSections.hidden || []).concat([key])};
+      try{ await saveCommSections(next); }
+      catch(err){ console.error('Could not hide the section:', err);
+                  alert('Could not save that: ' + (err && err.message ? err.message : err)); }
+    });
+  });
+  host.querySelectorAll('[data-commshow]').forEach(function(b){
+    b.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const key = b.dataset.commshow;
+      const next = {custom: commSections.custom || [],
+                    hidden: (commSections.hidden || []).filter(function(k){ return k !== key; })};
+      try{ await saveCommSections(next); }
+      catch(err){ console.error('Could not show the section:', err);
+                  alert('Could not save that: ' + (err && err.message ? err.message : err)); }
+    });
+  });
+  const addBtn = document.getElementById('commAddSection');
+  if(addBtn) addBtn.addEventListener('click', function(){ commEditSection(null); });
+}
+/* ⭐ THE EDITOR ([[MSG-15]]). One popup for the whole section: its name, its icon, what
+   belongs in it at all, and its subtabs. A popup rather than a `confirm()` for the reason
+   every other builder here is one — there are several fields and one of them is a list.
+
+   ⚠ IT SHOWS A LIVE COUNT BESIDE EVERY FILTER, and that is the half that makes it usable
+   rather than a form. A filter nobody can see the effect of is a filter somebody sets once,
+   gets wrong, and never opens again — and an empty list here means "do not care", which
+   without a number on screen reads as a rule that did not save.
+
+   ⚠ NOTHING IS WRITTEN UNTIL Save. Cancel leaves the stored sections untouched, so a
+   half-built section cannot appear in the sidebar for anybody else mid-edit. */
+function commEditSection(existing){
+  const isNew = !existing;
+  /* A deep copy: editing must not mutate what is on screen behind the popup, or Cancel
+     has already half-applied by the time it is pressed. */
+  const draft = existing
+    ? JSON.parse(JSON.stringify(existing))
+    : {key: 'c-' + Date.now().toString(36), icon: '\u{1F4CC}', label: '',
+       /* ⚠ A NEW SECTION STARTS ON MEMBER MESSAGES, not on nothing. An empty filter matches
+          every row including the route sweeps, and a brand-new section showing 900 system
+          notices reads as broken rather than as unnarrowed. */
+       filter: {types: [MSG_TYPE_MEMBER], categories: [], statuses: [], priorities: [], severities: [], search: ''},
+       tabs: []};
+  draft.tabs = draft.tabs || [];
+
+  const overlay = document.createElement('div');
+  overlay.className = 'needsfix-popup-overlay';
+  overlay.innerHTML = '<div class="needsfix-popup comm-editor"></div>';
+  const card = overlay.querySelector('.comm-editor');
+
+  /* How many messages a filter would hold right now. Counted through the SAME rule the
+     nav and the list use, never a second scan — a preview that disagreed with the tab it
+     is previewing would be worse than no preview. */
+  const countFor = function(filter){
+    return allMessages.filter(function(m){
+      return commFilterMatches(m.data, draft.filter) &&
+             (filter === draft.filter ? true : commFilterMatches(m.data, filter));
+    }).length;
+  };
+
+  const boxes = function(name, list, labels, chosen){
+    return '<div class="comm-fset">' + list.map(function(v){
+      const lab = labels ? (labels[v] || v) : v;
+      return '<label class="comm-chk"><input type="checkbox" data-f="' + esc(name) + '" value="' +
+        esc(v) + '"' + (chosen.indexOf(v) !== -1 ? ' checked' : '') + '> ' + esc(lab) + '</label>';
+    }).join('') + '</div>';
+  };
+
+  const filterUi = function(filter, name) {
+    return '<div class="comm-filter" data-for="' + esc(name) + '">' +
+      '<div class="comm-flabel">Type</div>' +
+        boxes('types', [MSG_TYPE_MEMBER, MSG_TYPE_SYSTEM, MSG_TYPE_ERROR],
+              {member: 'Member Messages', system: 'System', error: 'Errors'}, filter.types || []) +
+      '<div class="comm-flabel">Category</div>' + boxes('categories', MSG_CATEGORIES, null, filter.categories || []) +
+      '<div class="comm-flabel">Status</div>' + boxes('statuses', MSG_STATUS, MSG_STATUS_LABEL, filter.statuses || []) +
+      '<div class="comm-flabel">Priority</div>' + boxes('priorities', MSG_PRIORITY, MSG_PRIORITY_LABEL, filter.priorities || []) +
+      '<div class="comm-flabel">Contains these words (optional)</div>' +
+        '<input type="text" data-f="search" value="' + esc(filter.search || '') + '" placeholder="e.g. gate code">' +
+      '<div class="comm-fnote">Nothing ticked in a row means <strong>any</strong>. Ticks across ' +
+        'different rows have to <strong>all</strong> match.</div>' +
+    '</div>';
+  };
+
+  let editingTab = null;   /* null = editing the section itself */
+
+  const draw = function(){
+    const target = editingTab === null ? draft.filter : draft.tabs[editingTab].filter;
+    card.innerHTML =
+      '<h3 style="color:var(--dusk);">' + (isNew ? 'New section' : 'Edit section') + '</h3>' +
+      '<div class="comm-ed-row">' +
+        '<div class="form-row" style="flex:0 0 80px;"><label>Icon</label>' +
+          '<input type="text" id="commEdIcon" maxlength="4" value="' + esc(draft.icon) + '"></div>' +
+        '<div class="form-row" style="flex:1;"><label>Name</label>' +
+          '<input type="text" id="commEdLabel" placeholder="e.g. Gate codes" value="' + esc(draft.label) + '"></div>' +
+      '</div>' +
+      '<div class="comm-ed-tabs">' +
+        '<button type="button" class="comm-ed-tab' + (editingTab === null ? ' on' : '') + '" data-edtab="section">' +
+          'What belongs in this section <span class="comm-badge">' + countFor(draft.filter) + '</span></button>' +
+        draft.tabs.map(function(t, i){
+          return '<button type="button" class="comm-ed-tab' + (editingTab === i ? ' on' : '') +
+            '" data-edtab="' + i + '">' + esc(t.label || 'Untitled') +
+            '<span class="comm-badge">' + countFor(t.filter) + '</span></button>';
+        }).join('') +
+        '<button type="button" class="comm-ed-tab add" id="commEdAddTab">＋ Subtab</button>' +
+      '</div>' +
+      (editingTab === null
+        ? '<div class="comm-fnote" style="margin-bottom:6px;">Every subtab below narrows this. ' +
+          'The section’s own <strong>All</strong> tab shows exactly what is set here.</div>'
+        : '<div class="comm-ed-row">' +
+            '<div class="form-row" style="flex:1;"><label>Subtab name</label>' +
+              '<input type="text" id="commEdTabName" value="' + esc(draft.tabs[editingTab].label || '') + '"></div>' +
+            '<button type="button" class="btn btn-outline btn-sm" id="commEdDelTab" style="align-self:flex-end;">Delete subtab</button>' +
+          '</div>') +
+      filterUi(target, editingTab === null ? 'section' : String(editingTab)) +
+      '<div class="foot" style="display:flex; justify-content:space-between; gap:8px; margin-top:14px;">' +
+        (isNew ? '<span></span>'
+               : '<button type="button" class="btn btn-outline btn-sm" id="commEdDelete" style="color:var(--ember);">Delete section</button>') +
+        '<span style="display:flex; gap:8px;">' +
+          '<button type="button" class="btn btn-outline" id="commEdCancel">Cancel</button>' +
+          '<button type="button" class="btn btn-gold" id="commEdSave">Save</button>' +
+        '</span>' +
+      '</div>';
+    wire();
+  };
+
+  const readInto = function(filter){
+    card.querySelectorAll('.comm-filter [data-f]').forEach(function(el){
+      const key = el.dataset.f;
+      if(key === 'search'){ filter.search = el.value.trim(); return; }
+      if(!Array.isArray(filter[key])) filter[key] = [];
+      const at = filter[key].indexOf(el.value);
+      if(el.checked && at === -1) filter[key].push(el.value);
+      if(!el.checked && at !== -1) filter[key].splice(at, 1);
+    });
+  };
+  /* ⚠ READ BEFORE EVERY REDRAW. The popup is rebuilt wholesale on each change so the live
+     counts move, which destroys the inputs — anything typed and not read back first is
+     simply gone, and it would look like the field not saving. */
+  const readAll = function(){
+    const el = card.querySelector('#commEdIcon'); if(el) draft.icon = el.value.trim() || '\u{1F4CC}';
+    const lb = card.querySelector('#commEdLabel'); if(lb) draft.label = lb.value.trim();
+    const tn = card.querySelector('#commEdTabName');
+    if(tn && editingTab !== null) draft.tabs[editingTab].label = tn.value.trim();
+    readInto(editingTab === null ? draft.filter : draft.tabs[editingTab].filter);
+  };
+
+  function wire(){
+    card.querySelectorAll('.comm-filter [data-f]').forEach(function(el){
+      el.addEventListener('change', function(){ readAll(); draw(); });
+    });
+    card.querySelectorAll('[data-edtab]').forEach(function(b){
+      b.addEventListener('click', function(){
+        readAll();
+        editingTab = b.dataset.edtab === 'section' ? null : Number(b.dataset.edtab);
+        draw();
+      });
+    });
+    const add = card.querySelector('#commEdAddTab');
+    if(add) add.addEventListener('click', function(){
+      readAll();
+      /* A new subtab starts as a copy of nothing — no narrowing — so it shows the section
+         and she narrows from there. Starting it empty of everything would show zero. */
+      draft.tabs.push({key: 't-' + Date.now().toString(36) + '-' + draft.tabs.length,
+                       label: 'New subtab',
+                       filter: {types: [], categories: [], statuses: [], priorities: [], severities: [], search: ''}});
+      editingTab = draft.tabs.length - 1;
+      draw();
+    });
+    const del = card.querySelector('#commEdDelTab');
+    if(del) del.addEventListener('click', function(){
+      readAll();
+      draft.tabs.splice(editingTab, 1);
+      editingTab = null;
+      draw();
+    });
+    const cancel = card.querySelector('#commEdCancel');
+    if(cancel) cancel.addEventListener('click', function(){ overlay.remove(); });
+    const delSec = card.querySelector('#commEdDelete');
+    if(delSec) delSec.addEventListener('click', async function(){
+      if(!confirm('Delete the section "' + (draft.label || 'Untitled') + '"?\n\n' +
+        'No messages are deleted. A section is only a saved filter, so everything in it ' +
+        'still shows in the Inbox and in every other view.')) return;
+      const next = {custom: (commSections.custom || []).filter(function(x){ return x.key !== draft.key; }),
+                    hidden: commSections.hidden || []};
+      try{ await saveCommSections(next); overlay.remove(); toast('Section deleted.'); }
+      catch(err){ console.error('Could not delete the section:', err);
+                  alert('Could not save that: ' + (err && err.message ? err.message : err)); }
+    });
+    const save = card.querySelector('#commEdSave');
+    if(save) save.addEventListener('click', async function(){
+      readAll();
+      if(!draft.label){ alert('Give the section a name.'); return; }
+      save.disabled = true;
+      const list = (commSections.custom || []).slice();
+      const at = list.findIndex(function(x){ return x.key === draft.key; });
+      if(at === -1) list.push(draft); else list[at] = draft;
+      try{
+        await saveCommSections({custom: list, hidden: commSections.hidden || []});
+        overlay.remove();
+        commView = {section: draft.key, tab: 'all'};
+        toast('Saved "' + draft.label + '".');
+      }catch(err){
+        save.disabled = false;
+        console.error('Could not save the section:', err);
+        alert('Could not save that: ' + (err && err.message ? err.message : err));
+      }
+    });
+  }
+
+  document.body.appendChild(overlay);
+  draw();
+  /* Clicking the dark surround closes it, like every other popup here — but only the
+     surround, never a click that started inside the card. */
+  overlay.addEventListener('click', function(e){ if(e.target === overlay) overlay.remove(); });
 }
 /* ⭐ THE DASHBOARD AND THE HEALTH LINE. Every tile is a button, because a number the
    office cannot click is a number that sends them folder-hunting again. */
@@ -20839,12 +21504,18 @@ function renderMessagesList(){
     const msgDigits = msgTerm.replace(/\D/g,'');
     filtered = filtered.filter(function(m){
       const d = m.data || {};
+      /* ⚠ THE RESOLVED CONTACT, NOT ONLY THE ONE ON THE MESSAGE. The row can now show
+         a phone or an email taken from the customer record, and this block's own rule is
+         that what you can read you can find — a number printed on screen that the search
+         box cannot match is worse than one that was never shown. */
+      const c = msgContactFor(d);
+      const cDigits = String(c.phone||'').replace(/\D/g,'');
       return String(d.name||'').toLowerCase().indexOf(msgTerm) !== -1 ||
-        String(d.email||'').toLowerCase().indexOf(msgTerm) !== -1 ||
+        String(c.email||'').toLowerCase().indexOf(msgTerm) !== -1 ||
         String(d.message||'').toLowerCase().indexOf(msgTerm) !== -1 ||
         String(d.topic||'').toLowerCase().indexOf(msgTerm) !== -1 ||
         String(messageAddressLookup(d)||'').toLowerCase().indexOf(msgTerm) !== -1 ||
-        (!!msgDigits && String(d.phone||'').replace(/\D/g,'').indexOf(msgDigits) !== -1);
+        (!!msgDigits && cDigits.indexOf(msgDigits) !== -1);
     });
   }
   /* Counts what somebody actually has to look at: every unread customer message,
@@ -20882,8 +21553,14 @@ function renderMessagesList(){
            reads on the one folder that exists to be acted on. */
         commChipsHtml(d)+
         '<h4>'+(esc(d.name) || esc(msgErrorWhoLabel(d)))+(d.topic ? ' <span class="status-pill status-new">'+esc(d.topic)+'</span>' : '')+' <span class="status-pill '+(isResponded?'status-paid':'status-due')+'">'+(isResponded?'Responded':'Awaiting Response')+'</span></h4>'+
+                /* ⭐ DIRECTLY UNDER THE NAME, ABOVE THE ADDRESS. The address is context;
+           the phone and the email are what she opened the row to DO. */
+        msgContactLineHtml(d)+
         (address ? '<div class="row-phone-line">'+esc(address)+'</div>' : '')+
-        '<div class="rmeta">'+esc(d.phone)+(d.email ? ' &middot; '+esc(d.email) : '')+(d.contactMethod ? ' &middot; Prefers '+esc(d.contactMethod) : '')+' &middot; '+fmtDate(d.createdAt)+'</div>'+
+        /* ⚠ THE PREFERENCE HAS MOVED ONTO THE CONTACT LINE ([[MSG-16]]), so this is the date
+           alone. Shown in both places the small grey copy is the one that keeps being read,
+           and two copies of one fact is how they start disagreeing. */
+        '<div class="rmeta">'+fmtDate(d.createdAt)+'</div>'+
         '<div class="rtext">'+esc(d.message)+'</div>'+
         (d.colors && d.colors.length ? '<div class="rtext" style="margin-top:4px;"><strong>Colors requested:</strong> '+d.colors.map(esc).join(', ')+'</div>' : '')+
         (feetEstimate ? '<div class="rtext" style="margin-top:4px; font-weight:600; color:var(--dusk);">'+esc(feetEstimate)+'</div>' : '')+
@@ -20909,6 +21586,46 @@ function renderMessagesList(){
   Array.from(pickedMsgIds).forEach(function(id){ if(!shown.has(id)) pickedMsgIds.delete(id); });
   msgPickShown = filtered.map(m => m.id);
   refreshMsgToolbar();
+  /* ⭐ ONE PRESS TO COPY ([[MSG-16]]). ⚠ IT NEVER FAILS QUIETLY — the Clipboard API is
+     refused outright on an insecure origin and by some browser settings, and a Copy button
+     that does nothing is indistinguishable from one that worked, so the office pastes the
+     last thing they copied into a customer's email. The old execCommand path is the fallback
+     and a refusal says so. */
+  list.querySelectorAll('[data-copyval]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const value = btn.dataset.copyval;
+      const done = function(){
+        const was = btn.textContent;
+        btn.textContent = 'Copied';
+        btn.classList.add('done');
+        setTimeout(function(){ btn.textContent = was; btn.classList.remove('done'); }, 1400);
+      };
+      try{
+        await navigator.clipboard.writeText(value);
+        done();
+      }catch(err){
+        /* Older browsers, and any page not served over https, refuse the API above. */
+        try{
+          const ta = document.createElement('textarea');
+          ta.value = value;
+          ta.setAttribute('readonly', '');
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          const ok = document.execCommand('copy');
+          ta.remove();
+          if(!ok) throw new Error('the browser refused');
+          done();
+        }catch(err2){
+          console.error('Could not copy:', err, err2);
+          alert('This browser would not let the page copy that. It is selectable \u2014 ' +
+            'highlight it and press Ctrl+C (or Cmd+C).');
+        }
+      }
+    });
+  });
   list.querySelectorAll('[data-pickmsg]').forEach(function(box){
     box.addEventListener('click', function(e){ e.stopPropagation(); });
     box.addEventListener('change', function(){
@@ -21125,7 +21842,8 @@ function loadMessages(){
       renderMessagesList();
     }
     renderSystemMessagesTab();
-    renderFolderSidebar();
+    /* Same repoint as above — the sidebar is renderCommNav's now. */
+    renderCommNav();
     /* Last: the repeat check reads allMessages, so anything held while this was loading can
        only be decided now. */
     flushAdminErrors();
@@ -22571,7 +23289,7 @@ const RM_TYPES = {
    thing she has fixed. The history of this dial is 2.9 -> 1.45 -> 1.3 -> 1.15.
 
    ⚠ AND IT IS NOT ONLY A PRICE. This figure is SAVED as the customer's footage,
-   so it also sizes the bins at 260 ft, picks the number series and counts the
+   so it also sizes the bins, picks the number series and counts the
    bundles at 40 ft - see the note in system-map.md. Lowering it to 1.15 narrows
    that distortion; it does not remove it. */
 const RM_FEET_MULTIPLIER = 1.15;
@@ -28594,7 +29312,7 @@ function rmRenderCommit(){
   document.getElementById('rmCommitPr').textContent = price ? fmtMoney(price) : '—';
 
   /* ⚠ THE SAME TWO FUNCTIONS THE REST OF THE APP USES. Re-deriving the bin
-     rule here would put a second copy of 260 in the file, and the last time two
+     rule here would put a second copy of the bin cutoff in the file, and the last time two
      screens each held their own copy of that number one of them said 200. */
   const bins = cnBinsForFeet(feet);
   document.getElementById('rmChipBins').textContent    = bins;
@@ -31381,11 +32099,49 @@ function openRoofMeasure(quoteId){
       btn.disabled = false;
     }
   }
+  /* ⭐ AND A PRESS CAN NEVER END IN SILENCE (2026-09-09). Dax, on Attach to Quote:
+     "it thinks for a quarter second then stops and doesnt do or say anything."
+
+     ⚠ rmAttachShots ALREADY CLAIMED THIS AND DID NOT HAVE IT. Its own note says
+     "EVERY WAY OUT OF THIS SAYS SOMETHING", and every deliberate way out does — but
+     it is an ASYNC function with two awaits sitting outside any try (rmCapture, and
+     rmMarkTallyText's tally beneath it). A throw in either REJECTS THE PROMISE, and
+     nothing was awaiting it: no message, no toast, the button left disabled, and the
+     whole press indistinguishable from a click that never registered. That is the
+     dead button this tool has now been reported for three times.
+
+     ⭐ SO THE GUARD IS AT THE DOOR, NOT INSIDE. Wrapping the body would mean
+     re-indenting 150 lines and repointing every check that lifts that function by
+     name; catching at the call turns EVERY rejection into a sentence, including the
+     ones somebody adds later, and touches nothing that already works.
+
+     ⚠ IT NAMES THE FAULT RATHER THAN APOLOGISING FOR IT. "Something went wrong" is
+     the message that cost this repo a day on the Edit Customer save handler, whose
+     own note records it: five grey words, nothing saved, and nothing to diagnose
+     over the phone. The error's own words go on the line beside the button.
+
+     ⚠ AND IT GOES TO console.error, which is wired to the Admin Errors folder — so
+     the next one is filed whether or not anybody is looking at the screen. */
+  function rmAttachSafely(btn, thenMarkUp){
+    Promise.resolve()
+      .then(function(){ return rmAttachShots(btn, thenMarkUp); })
+      .catch(function(err){
+        const why = (err && err.message) || String(err);
+        console.error('Attach: the press stopped partway —', why);
+        const status = document.getElementById('rmStatus');
+        if(status) status.textContent = 'Attach stopped partway — ' + why +
+          '. Nothing was saved onto the quote; your capture is still here, so Attach can be pressed again.';
+        /* ⚠ THE BUTTON GOES BACK, ALWAYS. rmAttachShots disables it on the way in and
+           every deliberate exit re-enables it; a throw skipped that, so the one thing
+           left on screen was a dead gold button. */
+        if(btn) btn.disabled = false;
+      });
+  }
   document.getElementById('rmAttachBtn').addEventListener('click', function(){
-    rmAttachShots(this, false);
+    rmAttachSafely(this, false);
   });
   document.getElementById('rmAttachMarkBtn').addEventListener('click', function(){
-    rmAttachShots(this, true);
+    rmAttachSafely(this, true);
   });
   /* KEYBOARD. ⚠ Every one of these is a SECOND way to reach a button that is
      already on screen, never the only way - a shortcut nobody can discover is
@@ -34640,8 +35396,9 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     )) return;
   }
   /* Feet decide the bins, and the bins decide which sequence the number comes from.
-     A house needs another bin every 260 feet — up to 260 is 1 bin on a regular
-     number, over that is 2 or more bins on a 5000 number. With no feet measured
+     A house needs another bin every CN_DOUBLE_BIN_FEET — one bin up to that, 2 or
+     more bins on a 5000 number over it. The cutoff is READ, never typed here: it
+     was 200, then 260, and has been 320 since 2026-09-10. With no feet measured
      yet there's nothing to decide from, so the customer is saved without a
      number. */
   let customerNumber = document.getElementById('addCustNumber').value.trim();
@@ -40795,7 +41552,7 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
            The line above sets one bin for any number under 5000, which is a
            stand-in for when nobody has measured the house. Once the feet are
            known they are the real answer — a 600 ft house needs three bins
-           whatever its number is (cnBinsForFeet, one per 260 ft). Written the
+           whatever its number is (cnBinsForFeet, one per CN_DOUBLE_BIN_FEET). Written the
            other way round, pasting the sheet's # Feet column would set the feet
            and then immediately contradict them. */
         if(feetVal){
@@ -42688,6 +43445,7 @@ const RENDER_PANEL = {
   whCustomerList: 'warehouse',
   customerNumbers: 'customer-numbers',
   dashRsvp: 'dashboard',
+  rsvpCheckList: 'automation',
   etMemberSelect: 'automation',
   etRecipients: 'automation',
   invRecipients: 'automation',
@@ -42839,6 +43597,11 @@ function renderJobAddressPanels(){
       if(currentRouteStops.length && typeof renderRouteOrderedList === 'function') renderRouteOrderedList(currentRouteStops);
     });
     safeRender('warehouseQueue', typeof renderWarehouseQueue === 'function' ? renderWarehouseQueue : null);
+    /* EM-13. Quiet: it may correct the list under her, never the line telling her
+       what the last press did. A no-op until a list has actually been checked. */
+    safeRender('rsvpCheckList', function(){
+      if(typeof rsvpCheckListRefresh === 'function') rsvpCheckListRefresh(null, {quiet: true});
+    });
     safeRender('warehouseRecycleQueue', typeof renderWarehouseRecycleQueue === 'function' ? renderWarehouseRecycleQueue : null);
     safeRender('warehouseColorChangeQueue', typeof renderWarehouseColorChangeQueue === 'function' ? renderWarehouseColorChangeQueue : null);
     safeRender('customerNumbers', typeof renderCustomerNumbersPanel === 'function' ? renderCustomerNumbersPanel : null);
@@ -44372,6 +45135,571 @@ document.getElementById('rsvpMarkAllAskedBtn')?.addEventListener('click', functi
     if(st) st.textContent = 'Something went wrong — ' + (err && err.message ? err.message : 'nothing was recorded') + '.';
   });
 });
+/* ⭐ ONE CUSTOMER AT A TIME (added 2026-09-10, EM-10). Addie, asked what she can get out
+   of EmailJS for the resends: individual error emails only — no list anywhere. So the
+   paste box that was offered is useless (nothing to paste) and `rsvpMarkAllAsked` is
+   wrong (it stamps everybody the planner would write to, and she has emailed SOME).
+   Marking the whole list when only some were sent is the one mistake here with a real
+   cost: those customers are never asked again this season, and because only people who
+   have answered are scheduled, that is a house no crew is sent to.
+
+   ⚠ THE SEARCH IS THE FEATURE, not a convenience. What arrives is ONE address in an
+   error email; finding that person among hundreds is the entire job. Matching the EMAIL
+   is what makes it exact — the name in an error email is ours, the address is theirs.
+
+   ⚠ AND IT MARKS ONLY WHO THE SEND WOULD GO TO — `rsvpWholePlan`, never `jobAddresses`
+   directly, the same rule the bulk button follows. Offering to stamp somebody opted out
+   or with no email records that we wrote to a person we cannot write to. */
+const rsvpMarkOneRecent = new Set();
+const RSVP_MARK_ONE_SHOWN = 50;
+/* ⚠ A ROW MARKED IN THIS SESSION IS KEPT ON SCREEN, and this is the whole reason the set
+   above exists. The moment the stamp lands that customer leaves `plan.standard` for
+   `plan.alreadyEmailed`, so a plain redraw drops the row — taking the Undo with it, one
+   frame after the press that might have been a mistake. They stay, greyed, until the
+   page is reloaded. Same trap as the section editor rebuilding its own inputs (MSG-15). */
+function rsvpMarkOneRows(){
+  const plan = (typeof rsvpWholePlan === 'function') ? rsvpWholePlan() : null;
+  if(!plan || !plan.ready) return { ready: false, why: (plan && plan.why) || 'The customer list has not loaded yet.', rows: [] };
+  const waiting = plan.standard.concat(plan.arrears);
+  const seen = new Set(waiting.map(function(i){ return i.id; }));
+  const rows = waiting.map(function(i){ return { item: i, marked: false }; });
+  /* The just-marked ones are pulled back out of alreadyEmailed by id. Read from the plan
+     rather than from a copy kept here, or an undo that failed would still show as done. */
+  plan.alreadyEmailed.forEach(function(i){
+    if(rsvpMarkOneRecent.has(i.id) && !seen.has(i.id)) rows.push({ item: i, marked: true });
+  });
+  return { ready: true, why: '', rows: rows };
+}
+function rsvpMarkOneRender(){
+  const box = document.getElementById('rsvpMarkOneList');
+  if(!box) return;
+  const st = document.getElementById('rsvpMarkOneStatus');
+  const got = rsvpMarkOneRows();
+  if(!got.ready){
+    box.innerHTML = '';
+    if(st) st.textContent = got.why;
+    return;
+  }
+  const input = document.getElementById('rsvpMarkOneFilter');
+  const q = String((input && input.value) || '').trim().toLowerCase();
+  const match = q ? got.rows.filter(function(r){
+    const d = r.item.data || {};
+    return String(d.name || '').toLowerCase().indexOf(q) !== -1
+        || String(d.email || '').toLowerCase().indexOf(q) !== -1;
+  }) : got.rows;
+  match.sort(function(a, b){
+    return String((a.item.data || {}).name || '').localeCompare(String((b.item.data || {}).name || ''));
+  });
+  if(!match.length){
+    box.innerHTML = '';
+    if(st) st.textContent = q
+      ? 'Nobody waiting to be asked matches “' + q + '”. They may have answered already, or already be marked — press Check first to see the counts.'
+      : 'Nobody is waiting to be asked.';
+    return;
+  }
+  const shown = match.slice(0, RSVP_MARK_ONE_SHOWN);
+  if(st){
+    st.textContent = match.length + ' waiting to be asked'
+      + (q ? ' matching “' + q + '”' : '')
+      + (match.length > shown.length ? ' — showing the first ' + shown.length + ', keep typing to narrow it' : '');
+  }
+  box.innerHTML = shown.map(function(r){
+    const d = r.item.data || {};
+    const who = esc(d.name || '(no name)');
+    const mail = esc(d.email || '');
+    return '<div style="display:flex; justify-content:space-between; gap:12px; align-items:center; padding:6px 0; border-bottom:1px solid var(--line);'
+      + (r.marked ? ' opacity:0.6;' : '') + '">'
+      + '<span><b>' + who + '</b>'
+      + (mail ? ' <span style="color:var(--slate); font-size:12px;">' + mail + '</span>' : '')
+      + (r.marked ? ' <span style="color:var(--slate); font-size:12px;">— marked as asked</span>' : '')
+      + '</span>'
+      + '<button type="button" class="btn btn-outline btn-sm" data-rsvpmarkone="' + esc(r.item.id) + '" data-rsvpmarkoneon="'
+      + (r.marked ? '0' : '1') + '">' + (r.marked ? 'Undo' : 'Mark as asked') + '</button>'
+      + '</div>';
+  }).join('');
+}
+/* ⚠ ONE WRITE, AND THE MIRROR ONLY AFTER IT LANDS. Mirroring first shows her a customer
+   marked as asked that was never written — the failure mode `rsvpMarkAllAsked` already
+   guards against, for the same reason.
+   ⚠ `null`, NOT a deleted field, because that is what Start New Season writes and what
+   `rsvpWholePlan` tests for. Two spellings of "not asked" is how one of them stops
+   counting. */
+async function rsvpMarkOneAsked(id, asked){
+  const st = document.getElementById('rsvpMarkOneStatus');
+  const rec = (jobAddresses || []).find(function(a){ return a && a.id === id; });
+  const who = (rec && rec.data && rec.data.name) || 'that customer';
+  try{
+    await updateDoc(doc(db,'jobAddresses', id), { rsvpEmailedAt: asked ? serverTimestamp() : null });
+    if(rec && rec.data) rec.data.rsvpEmailedAt = asked ? new Date() : null;
+    if(asked) rsvpMarkOneRecent.add(id); else rsvpMarkOneRecent.delete(id);
+    rsvpMarkOneRender();
+    if(typeof rsvpWholeRenderBreakdown === 'function') rsvpWholeRenderBreakdown(rsvpWholePlan());
+    if(st){
+      st.textContent = asked
+        ? who + ' is marked as asked — Send the whole RSVP will skip them. Press Undo if that was wrong.'
+        : who + ' is back on the list to be asked.';
+    }
+  }catch(err){
+    console.error('[HU] could not record that ' + id + ' was asked:', err);
+    if(st) st.textContent = 'Nothing was saved for ' + who + ' — ' + ((err && err.message) || 'something went wrong') + '. Try again.';
+  }
+}
+/* Delegated, because the rows are rebuilt on every mark. A listener bound per button
+   would be re-bound on each redraw and the old ones left on detached nodes. */
+document.getElementById('rsvpMarkOneList')?.addEventListener('click', function(e){
+  const btn = e.target && e.target.closest ? e.target.closest('[data-rsvpmarkone]') : null;
+  if(!btn) return;
+  btn.disabled = true;
+  rsvpMarkOneAsked(btn.getAttribute('data-rsvpmarkone'), btn.getAttribute('data-rsvpmarkoneon') === '1')
+    .catch(function(err){ console.error('[HU] mark-one-asked:', err); })
+    .then(function(){ btn.disabled = false; });
+});
+/* ⚠ ONLY THE LIST IS REDRAWN, never the block, so the search box node survives and what
+   she has typed is still there after a mark. Rebuilding the wrapper would clear the
+   field mid-job and read as the search resetting itself. */
+document.getElementById('rsvpMarkOneFilter')?.addEventListener('input', function(){
+  rsvpMarkOneRender();
+});
+/* ⭐ THE LIST SHE ALREADY HAS, CHECKED AGAINST THE APP (2026-09-10, EM-11). Addie pasted
+   her own send log — name, date sent, times sent, and an empty "Ticked off in app?"
+   column — and asked who is not ticked off. That column IS the question, and nothing in
+   the app could fill it: `rsvpMarkAllAsked` stamps everybody the planner would write to,
+   and `rsvpMarkOneAsked`'s search box answers for one person at a time.
+   ⚠ IT REVERSES THE "nothing to paste" REASONING OF THE SAME MORNING, and that reasoning
+   is KEPT rather than deleted because it was right about what it refused: EmailJS hands
+   her individual error emails and no list at all, so a box fed from EmailJS would have
+   stayed empty. What changed is the PREMISE — she is keeping the log herself, outside
+   EmailJS, and pasted nine hundred lines of it. A paste box is useless only while there
+   is nothing to put in it.
+   ⚠ IT REPORTS; IT NEVER BULK-WRITES. A wrong stamp means that customer is never asked
+   again this season, and `SEASON_ELIGIBILITY` is `confirmed-only`, so never answering
+   means no route, no bundle and no crew at that house. One press that stamped every
+   pasted name would be `rsvpMarkAllAsked`'s own mistake wearing a list — so each row
+   that needs ticking carries its own button, through the ONE write `rsvpMarkOneAsked`
+   already owns, with the Undo that write already gives.
+   ⚠ AND A NAME THAT MATCHES TWO CUSTOMERS MATCHES NOBODY. Six names in the real book
+   belong to two rows; naming the wrong customer as already asked is worse than naming
+   none, because the one it names is then believed and the other is never chased.
+   Ambiguous and unmatched names are LISTED, never counted away — a row that quietly
+   disappears is the one row she cannot check. */
+const RSVP_CHECK_LIST_SHOWN = 200;
+/* Pure, and its own function so a test can RUN it rather than match its source — the
+   same reason `rmCommitPayload` is one. Takes the text before the first comma or tab,
+   because a spreadsheet copy carries the date and the times-sent count after the name
+   and neither of those is part of it; a line with neither separator is all name. */
+function rsvpCheckListNames(text){
+  const out = [], seen = new Set();
+  let repeats = 0, headers = 0;
+  String(text == null ? '' : text).split(/\r?\n/).forEach(function(line){
+    let raw = String(line == null ? '' : line);
+    const cut = raw.search(/[,\t]/);
+    if(cut !== -1) raw = raw.slice(0, cut);
+    raw = raw.trim();
+    if(!raw) return;
+    /* ⚠ KEYED THE WAY `dupNormName` KEYS A NAME — words SORTED — so the master sheet's
+       "Meier Larna" and the website's "Larna Meier" are one key. That is Addie's own rule
+       that two names are duplicates only when one of them is surname-first, and borrowing
+       it here is what stops this report calling half her book unmatched. */
+    const key = (typeof dupNormName === 'function') ? dupNormName(raw) : raw.toLowerCase();
+    if(!key) return;
+    /* A pasted spreadsheet usually brings its own heading row. Dropped by the KEY so the
+       case does not matter, and COUNTED rather than silently eaten. */
+    if(key === 'name'){ headers++; return; }
+    if(seen.has(key)){ repeats++; return; }
+    seen.add(key);
+    out.push({ raw: raw, key: key });
+  });
+  return { names: out, repeats: repeats, headers: headers };
+}
+/* Every customer keyed the same way, as an ARRAY per key — the point of this index is to
+   SEE a collision rather than quietly resolve one.
+   ⚠ TEST ROWS ARE SKIPPED BECAUSE `rsvpWholePlan` SKIPS THEM. An index holding one would
+   match a pasted name to a customer the plan has no bucket for, and the report would
+   call a test row "not ticked" at the top of the list she is working through. */
+function rsvpCheckListIndex(){
+  const map = new Map();
+  const book = (typeof jobAddresses !== 'undefined' && Array.isArray(jobAddresses)) ? jobAddresses : [];
+  book.forEach(function(item){
+    const d = (item && item.data) || null;
+    if(!d) return;
+    if(typeof isTestRecordData === 'function' && isTestRecordData(d)) return;
+    const key = (typeof dupNormName === 'function') ? dupNormName(d.name || '') : String(d.name || '').toLowerCase();
+    if(!key) return;
+    if(!map.has(key)) map.set(key, []);
+    map.get(key).push(item);
+  });
+  return map;
+}
+/* ⚠ IT ASKS THE PLAN WHICH LIST HOLDS THEM; IT RE-RUNS NO PREDICATE OF ITS OWN. A second
+   reading of "has this person been asked" is how this report and the breakdown above it
+   would start disagreeing about one customer — the one-rule argument `commRowMatches`
+   makes about tab counts. It is also why `rsvpWholePlan` now carries `answeredList` and
+   `newThisYearList` beside its two counts: those were counts ONLY, so a pasted name in
+   either was indistinguishable from a name the plan had never seen, and somebody who had
+   already answered would have been reported as still needing a tick.
+   ⚠ FILED IN THE PLAN'S OWN ORDER, first bucket wins, so this cannot contradict the
+   plan about a customer who somehow reached two of its lists. */
+function rsvpCheckListCompare(parsed, plan, index){
+  const out = { ticked: [], answered: [], waiting: [], noEmail: [], optedOut: [],
+                newThisYear: [], elsewhere: [], ambiguous: [], unknown: [],
+                repeats: parsed.repeats, headers: parsed.headers, total: parsed.names.length };
+  const where = new Map();
+  const file = function(list, bucket){
+    (list || []).forEach(function(i){
+      if(i && i.id != null && !where.has(i.id)) where.set(i.id, bucket);
+    });
+  };
+  file(plan.alreadyEmailed, 'ticked');
+  file(plan.answeredList, 'answered');
+  file(plan.standard, 'waiting');
+  file(plan.arrears, 'waiting');
+  file(plan.noEmail, 'noEmail');
+  file(plan.optedOut, 'optedOut');
+  file(plan.newThisYearList, 'newThisYear');
+  parsed.names.forEach(function(n){
+    const hits = index.get(n.key) || [];
+    if(!hits.length){ out.unknown.push({ raw: n.raw }); return; }
+    /* ⚠ NAMED, NEVER RESOLVED. Carrying the candidates is not the same as picking one:
+       the report can now say WHICH two people share the name, with the addresses that
+       tell them apart, and she decides. Before this it reported a problem and handed
+       her nothing to act on — five of them on her real book. */
+    if(hits.length > 1){
+      out.ambiguous.push({ raw: n.raw, count: hits.length, who: hits.map(function(h){
+        const hd = (h && h.data) || {};
+        return { id: h.id, name: hd.name || '', email: hd.email || '', address: hd.address || hd.street || '' };
+      }) });
+      return;
+    }
+    const item = hits[0];
+    /* `elsewhere` should be unreachable — the plan walks the whole book and this index is
+       built from it with the same exclusion. It exists so a customer the plan stops
+       bucketing is REPORTED rather than dropped out of the totals. */
+    const bucket = where.get(item.id) || 'elsewhere';
+    out[bucket].push({ raw: n.raw, item: item });
+  });
+  return out;
+}
+/* The paste is held rather than the result, so a mark re-derives from live data instead
+   of editing a cached bucket — the `oneManDays()` argument: a stored answer is right on
+   the press and wrong every render after. */
+let rsvpCheckListText = '';
+/* ⭐ WHAT THE LAST TICK-ALL WROTE, SO IT CAN BE TAKEN BACK (2026-09-10, EM-14).
+   `rsvpMarkOneRecent` — the Undo behind the one-at-a-time button — is only ever added to
+   by that button, so a Tick-all of 495 had NO undo anywhere: those customers left every
+   waiting list at once and the only way back was editing records one by one, having first
+   worked out which ones. That is the wrong way round. The single tick's whole safety
+   argument is that a visible Undo beats a confirm nobody reads; the bulk had the confirm
+   and not the Undo, on a press five hundred times the size.
+   ⚠ UNDOING NEEDS NO TYPED WORD, and that asymmetry is deliberate rather than sloppy:
+   ticking wrongly means somebody is never asked again this season and no crew is sent to
+   their house, while un-ticking wrongly costs one duplicate email. The lock belongs on the
+   dangerous direction only.
+   ⚠ IT HOLDS THE IDS THAT WERE ACTUALLY WRITTEN, never the targets it set out with — a
+   batch that failed left those customers ticked-off-nothing, and offering to un-tick them
+   would write null over a stamp somebody else's send had put there.
+   ⚠ AND IT IS SESSION-ONLY, exactly like `rsvpMarkOneRecent`. A reload clears it; the
+   button says so rather than leaving her to find out. */
+let rsvpCheckListLastTick = null;
+function rsvpCheckListRun(text){
+  rsvpCheckListText = String(text == null ? '' : text);
+  rsvpCheckListRefresh();
+}
+/* ⭐ A QUIET REFRESH IS HOW THE REPORT STOPS LYING AFTER A TICK (2026-09-10, EM-13).
+   Addie ticked 495 off, the result line said "Ticked off 495 of 495", and the list
+   underneath still read 495 NOT ticked — so it looked as though nothing had saved. It
+   HAD: pressing Check this list again showed 495 recorded, 170 already answered, 0 not
+   ticked. The report was simply drawn once and never again.
+   ⚠ THE CAUSE IS THAT `jobAddresses` IS REBUILT WHOLESALE by its own listener — new
+   objects every snapshot — so the optimistic mirror the tick writes is thrown away, and
+   `rsvpWholeRenderBreakdown` (the only thing that redraws this report) is wired to
+   BUTTONS, not to customer data. Between those two the screen could sit stale
+   indefinitely with no way to tell it from a failed write.
+   ⚠ QUIET MEANS THE STATUS LINE IS LEFT ALONE, and that is the whole reason the flag
+   exists rather than just calling the refresh: this same function writes its own count
+   into that line, so an automatic redraw firing a moment after a tick would wipe
+   "Ticked off 495 of 495" — the exact bug fixed one commit earlier, arriving from a new
+   direction. A person pressing a button still gets the count.
+   ⚠ AND A QUIET REDRAW NEVER BLANKS A REPORT SHE IS READING. If the plan is not ready
+   it returns and changes nothing, rather than clearing the box on a transient — a
+   button press still says why. */
+function rsvpCheckListRefresh(plan, opts){
+  const quiet = !!(opts && opts.quiet);
+  const box = document.getElementById('rsvpCheckListReport');
+  const st = document.getElementById('rsvpCheckListStatus');
+  if(!box) return;
+  const say = function(t){ if(!quiet && st) st.textContent = t; };
+  if(!String(rsvpCheckListText).trim()){
+    if(quiet) return;
+    box.innerHTML = '';
+    say('');
+    return;
+  }
+  const p = plan || ((typeof rsvpWholePlan === 'function') ? rsvpWholePlan() : null);
+  if(!p || !p.ready){
+    if(quiet) return;
+    box.innerHTML = '';
+    say((p && p.why) || 'The customer list has not loaded yet.');
+    return;
+  }
+  const parsed = rsvpCheckListNames(rsvpCheckListText);
+  if(!parsed.names.length){
+    if(quiet) return;
+    box.innerHTML = '';
+    say('No names found in that paste — one person per line, the name first.');
+    return;
+  }
+  const res = rsvpCheckListCompare(parsed, p, rsvpCheckListIndex());
+  {
+    say(res.total + (res.total === 1 ? ' name read' : ' names read')
+      + (res.repeats ? ' (' + res.repeats + ' repeated, counted once)' : '')
+      + (res.headers ? ' (heading row ignored)' : '')
+      + ' — ' + res.waiting.length + ' of them NOT ticked off in the app.');
+  }
+  rsvpCheckListRenderReport(box, res);
+}
+/* ⚠ THE TWO NOTHING-TO-DO BUCKETS ARE COUNTED AND NOT LISTED, deliberately. On her real
+   log that is ~900 rows carrying no action, and burying the handful that need one under
+   them is the cries-wolf failure in a new place. Every bucket that needs a human IS
+   listed by name. */
+function rsvpCheckListRenderReport(box, res){
+  const row = function(label, n, note){
+    return '<div style="display:flex; justify-content:space-between; gap:12px; padding:5px 0; border-bottom:1px solid var(--line);">'
+      + '<span>' + esc(label) + '</span><span><b>' + n + '</b>'
+      + (note ? ' <span style="color:var(--slate); font-size:12px;">' + esc(note) + '</span>' : '')
+      + '</span></div>';
+  };
+  /* ⚠ `showAll` IS A SAFETY SETTING, NOT A DISPLAY ONE, and only the waiting block asks
+     for it. The Tick-all button acts on every waiting row, so capping that one list would
+     act on names she never saw — which is the bug the sheet ledger shipped once, where
+     everything past the 400 drawn rode on the default. The informational buckets stay
+     capped: nothing presses a button on those. */
+  const block = function(title, list, note, opts){
+    const o = opts || {};
+    if(!list.length) return '';
+    const shown = o.showAll ? list : list.slice(0, RSVP_CHECK_LIST_SHOWN);
+    return '<div style="margin-top:12px;">'
+      + '<div style="font-weight:600; font-size:13px;">' + esc(title) + ' (' + list.length + ')</div>'
+      + (note ? '<p class="form-note" style="margin:2px 0 4px;">' + esc(note) + '</p>' : '')
+      + (list.length > shown.length
+          ? '<p class="form-note" style="margin:2px 0 4px;">Showing the first ' + shown.length + '.</p>' : '')
+      + (o.bulk
+          ? '<div style="margin:6px 0 8px;"><button type="button" class="btn btn-outline btn-sm" data-rsvpchecklistmarkall="1">'
+            + 'Tick all ' + list.length + ' off as asked</button>'
+            + '<span class="form-note" style="margin-left:8px;">Only these ' + list.length
+            + ' — it asks you to type ASKED first.</span></div>'
+          : '')
+      + shown.map(function(x){
+          const d = (x.item && x.item.data) || {};
+          return '<div style="display:flex; justify-content:space-between; gap:12px; align-items:center; padding:5px 0; border-bottom:1px solid var(--line);">'
+            + '<span><b>' + esc(x.raw) + '</b>'
+            + (d.email ? ' <span style="color:var(--slate); font-size:12px;">' + esc(d.email) + '</span>' : '')
+            + (x.count ? ' <span style="color:var(--slate); font-size:12px;">matches ' + x.count + ' customers — not resolved</span>' : '')
+            + ((x.who && x.who.length)
+                ? '<div style="color:var(--slate); font-size:12px; margin-top:2px;">'
+                  + x.who.map(function(c){
+                      return esc(c.name) + (c.address ? ' — ' + esc(c.address) : '')
+                        + (c.email ? ' — ' + esc(c.email) : '');
+                    }).join('<br>')
+                  + '</div>'
+                : '')
+            + '</span>'
+            + (o.mark && x.item
+                ? '<button type="button" class="btn btn-outline btn-sm" data-rsvpmarkone="' + esc(x.item.id) + '" data-rsvpmarkoneon="1">Mark as asked</button>'
+                : '')
+            + '</div>';
+        }).join('')
+      + '</div>';
+  };
+  /* Offered at the TOP, because it is about what just happened rather than about the list
+     below it, and because a press she wants to take back is one she wants to take back now. */
+  const undoBar = (rsvpCheckListLastTick && rsvpCheckListLastTick.ids.length)
+    ? '<div style="margin:0 0 10px; padding:8px; background:var(--paper); border:1px solid var(--line); border-radius:6px;">'
+      + '<button type="button" class="btn btn-outline btn-sm" data-rsvpchecklistundo="1">Undo that \u2014 put those '
+      + rsvpCheckListLastTick.ids.length + ' back</button>'
+      + '<span class="form-note" style="margin-left:8px;">Only until you reload the page.</span></div>'
+    : '';
+  box.innerHTML = undoBar
+    + row('Already recorded as asked', res.ticked.length, 'nothing to do')
+    + row('Already answered', res.answered.length, 'nothing to do — they replied')
+    + row('NOT recorded as asked', res.waiting.length, 'these are the ones to tick')
+    + row('No email on file', res.noEmail.length, 'the app could not have emailed them')
+    + row('Left out, do-not-send', res.optedOut.length, 'they asked not to be mailed')
+    + row('New this year', res.newThisYear.length, 'never had lights — never asked')
+    + row('Could not be matched', res.unknown.length + res.ambiguous.length, 'named below')
+    + (res.elsewhere.length ? row('Unaccounted for', res.elsewhere.length, 'named below — report this') : '')
+    + block('Not ticked off in the app', res.waiting, 'Send the whole RSVP would email these people. Tick them off if your log is right that they were already emailed.', { mark: true, showAll: true, bulk: true })
+    + block('No email on file', res.noEmail, 'Your log says these were sent, but the app holds no address for them — worth checking which is right.', {})
+    + block('Left out, do-not-send', res.optedOut, 'Your log says these were sent, and the app is told never to mail them.', {})
+    + block('New this year', res.newThisYear, 'Never had lights, so the RSVP deliberately skips them.', {})
+    + block('Two customers share this name', res.ambiguous, 'Not resolved on purpose — naming the wrong one is worse than naming none. Use the search box above.', {})
+    + block('Not found in the customer list', res.unknown, 'Spelled differently here than on the record, or not a customer any more.', {})
+    + block('Unaccounted for', res.elsewhere, 'The app has no answer for these — please report it.', {})
+    + (res.waiting.length
+        ? '<div style="margin-top:12px;"><div style="font-weight:600; font-size:13px; margin-bottom:4px;">The not-ticked names, to paste back into your sheet</div>'
+          + '<textarea readonly rows="6" style="width:100%; font-family:ui-monospace,monospace; font-size:12px;">'
+          + esc(res.waiting.map(function(x){ return x.raw; }).join('\n')) + '</textarea></div>'
+        : '')
+    + '<p class="form-note" style="margin:10px 0 0;">Nobody appears in more than one count above.</p>';
+}
+/* ⭐ AND IT CAN TICK THE WHOLE LIST AT ONCE (2026-09-10, EM-12). Addie, reading EM-11:
+   *"will this tick all the people that are not ticked?"* It did not — it offered one button
+   per row, which is the nine-hundred-searches problem EM-10 named, moved up one level and
+   no better. A report she has to act on three hundred times is a report she stops using.
+   ⚠ IT IS THE SAME RISK CLASS AS `rsvpMarkAllAsked` AND CARRIES THE SAME LOCK — a confirm
+   naming the count, then the word ASKED typed out — because a wrong stamp is still a house
+   no crew is sent to. What makes it SAFER than that button rather than merely equal is the
+   evidence: that one stamps everybody the planner would write to, sight unseen, while this
+   one can only ever stamp names SHE pasted from her own send log, every one of them drawn
+   on screen above the button first.
+   ⚠ THE WAITING BUCKET AND NOTHING ELSE. A no-email row records that we emailed somebody
+   we hold no address for; a do-not-send row records that we wrote to somebody we are
+   forbidden to write to; a new-this-year row records an RSVP we deliberately never send;
+   an ambiguous row would name the wrong customer. Each of those is a different way to
+   write down something untrue about a real person, which is why the scope is its own
+   function a test can RUN rather than a filter buried in the handler. */
+function rsvpCheckListBulkTargets(res){
+  const list = (res && res.waiting) ? res.waiting : [];
+  return list.map(function(x){ return x && x.item; })
+             .filter(function(i){ return i && i.id != null; });
+}
+/* ⚠ THE LIST IS RE-DERIVED AT THE PRESS, never read off the last render. The report is
+   drawn from this same computation, so the two cannot disagree — and a stamp acting on a
+   list that went stale while the popup was open is the one failure no confirm can catch. */
+async function rsvpCheckListMarkAll(){
+  const st = document.getElementById('rsvpCheckListStatus');
+  const plan = (typeof rsvpWholePlan === 'function') ? rsvpWholePlan() : null;
+  if(!plan || !plan.ready){
+    if(st) st.textContent = (plan && plan.why) || 'The customer list has not loaded yet.';
+    return;
+  }
+  const parsed = rsvpCheckListNames(rsvpCheckListText);
+  const res = rsvpCheckListCompare(parsed, plan, rsvpCheckListIndex());
+  const targets = rsvpCheckListBulkTargets(res);
+  if(!targets.length){
+    if(st) st.textContent = 'Nothing in that list is waiting to be asked — there is nothing to record.';
+    return;
+  }
+  const sample = targets.slice(0, 5).map(function(t){ return (t.data && t.data.name) || '(no name)'; }).join(', ');
+  const held = res.noEmail.length + res.optedOut.length + res.newThisYear.length
+             + res.ambiguous.length + res.unknown.length;
+  if(!confirm('Record that all ' + targets.length + ' of these customers have already been asked?\n\n'
+    + sample + (targets.length > 5 ? ', and ' + (targets.length - 5) + ' more' : '') + '\n\n'
+    + 'These are the ones your pasted list names that the app has NOT recorded as asked.'
+    + (held ? '\n\nThe other ' + held + ' in your list are left alone — no email on file, '
+              + 'do-not-send, new this year, or the name could not be matched.' : '')
+    + '\n\nUse this ONLY where your list is right that they really were emailed. Send the '
+    + 'whole RSVP will then skip them.\n\n'
+    + 'Anybody marked wrongly is never asked again this season, and nobody who has not '
+    + 'answered is scheduled.')) return;
+  const typed = prompt('Type ASKED to confirm.');
+  if(String(typed || '').trim().toUpperCase() !== 'ASKED'){
+    if(st) st.textContent = 'Cancelled — nothing was recorded.';
+    return;
+  }
+  let done = 0, failed = 0;
+  const written = [];
+  for(const chunk of ssnChunk(targets, 400)){
+    const batch = writeBatch(db);
+    chunk.forEach(function(a){ batch.update(doc(db,'jobAddresses', a.id), { rsvpEmailedAt: serverTimestamp() }); });
+    try{
+      await batch.commit();
+      /* Mirrored only AFTER the commit lands — the other way round shows her a list
+         marked asked that was never written. Same order as `rsvpMarkAllAsked`. */
+      chunk.forEach(function(a){ a.data.rsvpEmailedAt = new Date(); });
+      /* Only what the server took. See the note on rsvpCheckListLastTick. */
+      chunk.forEach(function(a){ written.push(a.id); });
+      done += chunk.length;
+    }catch(err){
+      console.error('[HU] could not tick the pasted list off as asked:', err);
+      failed += chunk.length;
+    }
+    if(st) st.textContent = 'Recording… ' + done + ' of ' + targets.length;
+  }
+  /* ⚠ THE REDRAW COMES FIRST AND THE RESULT LINE LAST, and that order is the whole of
+     it being reported at all: `rsvpCheckListRefresh` writes its own count into this same
+     status line, so setting the result before it destroys the result. Written the other
+     way round the press looked identical whether it saved 300 records or none — the
+     failure the gate below caught, and exactly the quiet failure this repo forbids. */
+  rsvpCheckListLastTick = written.length ? { ids: written } : null;
+  rsvpCheckListRefresh();
+  if(typeof rsvpWholeRenderBreakdown === 'function') rsvpWholeRenderBreakdown(rsvpWholePlan());
+  /* ⚠ WHAT FAILED IS NAMED, not swallowed. A half-written batch leaves those customers
+     still waiting, which is the safe direction, but she has to be told so she can press
+     it again. */
+  if(st) st.textContent = 'Ticked off ' + done + ' of ' + targets.length
+    + (failed ? ' — ' + failed + ' could not be saved, press it again' : '')
+    + '. Send the whole RSVP will now skip them.';
+}
+/* ⚠ IT WRITES `null`, NOT A DELETED FIELD — the same spelling Start New Season uses and the
+   same one the single Undo writes. Two spellings of "not asked" is how one of them stops
+   counting, which `rsvpWholePlan` would never report; it would simply keep skipping them. */
+async function rsvpCheckListUndoTick(){
+  const st = document.getElementById('rsvpCheckListStatus');
+  const last = rsvpCheckListLastTick;
+  if(!last || !last.ids.length){
+    if(st) st.textContent = 'There is nothing to undo.';
+    return;
+  }
+  const items = (jobAddresses || []).filter(function(a){ return last.ids.indexOf(a.id) !== -1; });
+  let back = 0, failed = 0;
+  for(const chunk of ssnChunk(items, 400)){
+    const batch = writeBatch(db);
+    chunk.forEach(function(a){ batch.update(doc(db,'jobAddresses', a.id), { rsvpEmailedAt: null }); });
+    try{
+      await batch.commit();
+      chunk.forEach(function(a){ a.data.rsvpEmailedAt = null; });
+      back += chunk.length;
+    }catch(err){
+      console.error('[HU] could not undo the tick:', err);
+      failed += chunk.length;
+    }
+  }
+  /* Only cleared where every one came back, or a second press would silently skip the
+     remainder — the half-undone state is the one worth being able to retry. */
+  if(!failed) rsvpCheckListLastTick = null;
+  rsvpCheckListRefresh();
+  if(typeof rsvpWholeRenderBreakdown === 'function') rsvpWholeRenderBreakdown(rsvpWholePlan());
+  if(st) st.textContent = 'Put ' + back + ' back on the list to be asked'
+    + (failed ? ' — ' + failed + ' could not be undone, press it again' : '')
+    + '. Send the whole RSVP will include them again.';
+}
+document.getElementById('rsvpCheckListBtn')?.addEventListener('click', function(){
+  const ta = document.getElementById('rsvpCheckListPaste');
+  rsvpCheckListRun(ta ? ta.value : '');
+});
+document.getElementById('rsvpCheckListClearBtn')?.addEventListener('click', function(){
+  const ta = document.getElementById('rsvpCheckListPaste');
+  if(ta) ta.value = '';
+  rsvpCheckListRun('');
+});
+/* Delegated for the same reason the list above is: the rows are rebuilt on every mark, so
+   a listener bound per button would be re-bound each redraw and the old ones left on
+   detached nodes. It calls the SAME `rsvpMarkOneAsked` — a second write here is how this
+   report and that button would start recording "asked" two different ways. */
+document.getElementById('rsvpCheckListReport')?.addEventListener('click', function(e){
+  const undo = e.target && e.target.closest ? e.target.closest('[data-rsvpchecklistundo]') : null;
+  if(undo){
+    undo.disabled = true;
+    rsvpCheckListUndoTick()
+      .catch(function(err){ console.error('[HU] check-list undo:', err); })
+      .then(function(){ undo.disabled = false; });
+    return;
+  }
+  const all = e.target && e.target.closest ? e.target.closest('[data-rsvpchecklistmarkall]') : null;
+  if(all){
+    all.disabled = true;
+    rsvpCheckListMarkAll()
+      .catch(function(err){ console.error('[HU] check-list mark-all:', err); })
+      .then(function(){ all.disabled = false; });
+    return;
+  }
+  const btn = e.target && e.target.closest ? e.target.closest('[data-rsvpmarkone]') : null;
+  if(!btn) return;
+  btn.disabled = true;
+  rsvpMarkOneAsked(btn.getAttribute('data-rsvpmarkone'), btn.getAttribute('data-rsvpmarkoneon') === '1')
+    .catch(function(err){ console.error('[HU] check-list mark-one:', err); })
+    .then(function(){ btn.disabled = false; });
+});
 /* Read once at login. Not a listener: this changes about once a season, and a live
    listener on settings/season would be an open connection for a single date. */
 async function loadRsvpSentMark(){
@@ -44868,6 +46196,34 @@ function whNormalizeLights(text){
  * ⚠ ONE RULE, TWO COPIES, ASSERTED IDENTICAL — the browser cannot run the
  * server's. run-all.js runs both over the same table of cases and fails if they
  * ever disagree, the money-parity pattern. */
+/* ⭐ IS THIS SAVE A TIMER AND NOTHING ELSE? ([[WH-27]], 2026-09-09)
+ *
+ * ⚠ ITS OWN FUNCTION SO A TEST CAN RUN IT. Written inline in the ~36,000-character Edit
+ * Customer save handler the only thing a suite could do was match its text, which this repo
+ * has already been burned by three times (`rmCommitPayload`, `carriedPaymentOnBillToChange`).
+ *
+ * All four conditions are load-bearing:
+ *   - the timer is the ONLY warehouse-relevant field that moved — a wire change is a real
+ *     rebuild and always was (holes C and D are not reversed);
+ *   - it ends up **Yes**. Turning a timer OFF keeps today's behaviour, because `timerHouses`
+ *     only ever collects Yes and routing it here would drop it off every screen silently;
+ *   - no build is already being queued by this same save;
+ *   - the house has NO colours on file. A house that HAS colours is in a real build group
+ *     and always was — only the case Addie reported is moved.
+ *
+ * ⚠ IT ONLY EVER ADDS A SEPARATE FLAG. It cannot clear or suppress `needsLightBuild`, so the
+ * worst a wrong answer here can do is put one extra row on the timer list. The opposite
+ * design — a marker that switches the build flag off — would, the first time one of the seven
+ * places that queue a build forgot to clear it, leave a house nobody builds. */
+function whTimerOnlyQueue(oldData, updates, changedFields, newLightsDescription){
+  const u = updates || {}, o = oldData || {};
+  if(!Array.isArray(changedFields) || changedFields.length !== 1) return false;
+  if(changedFields[0] !== 'outletTimer') return false;
+  if(u.needsLightBuild) return false;
+  if(newLightsDescription) return false;
+  const timer = Object.prototype.hasOwnProperty.call(u, 'outletTimer') ? u.outletTimer : o.outletTimer;
+  return String(timer == null ? '' : timer).trim() === 'Yes';
+}
 const WAREHOUSE_BUILD_FIELDS = ['lightsDescription', 'wireColor', 'outletTimer'];
 function warehouseRebuildFields(oldData, newData) {
   const o = oldData || {}, n = newData || {};
@@ -45089,7 +46445,12 @@ function whBuildQueueGroups(){
        building for them and recycling them at the same time is two jobs cancelling
        out. Somebody who MOVED is not out (recycleKeepingCustomer), so they still
        build — which is the whole reason those two buttons were split. */
-    if(!d.needsLightBuild || (typeof isOutForSeason === 'function' && isOutForSeason(d))) return;
+    /* ⭐ EITHER QUEUE PUTS A HOUSE ON THIS TAB ([[WH-27]]). `needsTimerOnly` says the
+       warehouse has something to do for this house and it is NOT a bundle. Read as an OR so
+       a house carrying both is simply a build, which is what it is. */
+    const wantsBuild = !!d.needsLightBuild;
+    const timerOnly = !wantsBuild && !!d.needsTimerOnly;
+    if((!wantsBuild && !timerOnly) || (typeof isOutForSeason === 'function' && isOutForSeason(d))) return;
     /* ⚠ BOTH FIELDS. Testing lightsDescription alone put every ordinary house the
        master-sheet sync added into the blocked block with its colours sitting on the
        record — see houseLightsText. */
@@ -45109,6 +46470,10 @@ function whBuildQueueGroups(){
        out to be, so there is nothing to wait for — which is her own rule in as many
        words. Collected first; the blocked branch still blocks the BUILD. */
     if(String(d.outletTimer || '').trim() === 'Yes') timerHouses.push(item);
+    /* ⛔ AND A TIMER-ONLY HOUSE IS NEVER BLOCKED. Nothing is being built for them, so there
+       are no colours to wait for — the whole point of [[WH-27]]. It has already been pushed
+       to `timerHouses` above, which is the one thing that house actually needs. */
+    if(timerOnly) return;
     if(!lights){ blocked.push(item); return; }
     const key = whGroupKey(lights, d.wireColor);
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
@@ -45192,6 +46557,10 @@ function whHouseBuildStatus(item){
     const bny = !!d.maybeNextYear || String(d.rsvpStatus || '').toLowerCase() === 'backnextyear';
     return {state: 'nextyear', why: bny ? 'Back Next Year' : ''};
   }
+  /* ⭐ [[WH-27]] — queued for a timer and nothing else. Answered BEFORE 'notqueued', which
+     would otherwise send the office to press Build Them A New Set on a house that is on this
+     tab and needs no bundle. */
+  if(!d.needsLightBuild && d.needsTimerOnly) return {state: 'timeronly'};
   if(!d.needsLightBuild) return {state: 'notqueued'};
   return {state: 'unknown'};
 }
@@ -45201,6 +46570,7 @@ function whBuildStatusText(name, st){
   if(st.state === 'building') return who + ' IS on the build list \u2014 under \u201c' + st.where + '\u201d. Open that heading to see them.';
   if(st.state === 'extra') return who + ' is on the list as an extra request \u2014 under \u201c' + st.where + '\u201d.';
   if(st.state === 'blocked') return who + ' is queued to build but has NO LIGHT COLOURS on file, so they are in \u201cWaiting on light colours\u201d at the top. Add their colours and they join a build group.';
+  if(st.state === 'timeronly') return who + ' only needs a TIMER \u2014 they are on the Timers list, not the build list. Nothing is being made up for them and no colours are needed. Press \u201cBuild Them A New Set\u201d on their record if they do need a bundle.';
   if(st.state === 'nextyear') return who + (st.why === 'Back Next Year'
     ? ' is marked Back Next Year'
     : ' is out for this season — their lights are queued to be recycled') +
@@ -45349,13 +46719,29 @@ function renderWarehouseQueue(){
                  timer, that half needs nothing and can go in today. Said on the row itself,
                  because the timer list is a different sheet and the person reading this one
                  is the person who would otherwise leave the whole house alone. */
-              (String(item.data.outletTimer || '').trim() === 'Yes'
+              /* ⚠ `h`, NOT `item` (2026-09-09). This block is inside blocked.map(function(h)),
+                 and the timer line arrived carrying the loop variable from somewhere else —
+                 `Uncaught ReferenceError: item is not defined`, thrown while DRAWING the
+                 Waiting-on-light-colours block, which is the one part of that tab nobody in
+                 the warehouse can act on and so the one most likely to go unnoticed. */
+              (String(h.data.outletTimer || '').trim() === 'Yes'
                 ? '<span style="display:block; font-size:12px; color:var(--emerald); margin-top:2px; font-weight:600;">Timer can go in their bin now &mdash; that part is not waiting on the colours</span>'
                 : '')+
               '<span style="display:block; margin-top:4px; line-height:1.9;">'+whHouseFactsHtml(h.data)+'</span>'+
             '</span>'+
             '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
               '<button type="button" class="btn btn-gold btn-sm" data-wheditcust="'+h.id+'">Add colours</button>'+
+              /* ⭐ AND THE WAY OUT FOR A HOUSE ALREADY PARKED HERE ([[WH-27]]). The write-site
+                 fix stops the NEXT one; it cannot reach the houses already sitting on this
+                 list, and this repo's own rule is that a fix which cannot reach the case that
+                 prompted it is not finished. Only offered where the record says a timer was
+                 actually asked for — on a house with no timer it would be a button that means
+                 nothing. ⚠ It is a PERSON answering, never a guess: nothing on the record can
+                 tell a house queued by a timer change from one converted with its colours
+                 still to come, which is the same wall `lightsChangedVia` hit. */
+              (String(h.data.outletTimer || '').trim() === 'Yes'
+                ? '<button type="button" class="btn btn-outline btn-sm" data-whtimeronly="'+h.id+'">Only needed a timer</button>'
+                : '')+
             '</span>'+
           '</div>';
         }).join('')+
@@ -45379,13 +46765,23 @@ function renderWarehouseQueue(){
           /* Still no Mark Done here on purpose (see the note above), but the
              timer answer itself is wrong often enough to need fixing from the
              screen that shows it — that is the customer record. */
+          /* ⭐ A TIMER-ONLY HOUSE IS THE ONE ROW HERE THAT NEEDS ITS OWN Done ([[WH-27]]).
+             The note above is right that a timer is finished by marking its colour group
+             done — but a house queued for a timer ALONE is in no colour group, so with no
+             control of its own it would sit on this list for ever. That is the same rule,
+             not an exception to it: the Done goes where the work is. */
+          const isTimerOnlyRow = !h.data.needsLightBuild && !!h.data.needsTimerOnly;
           return '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:6px 0; font-size:13.5px;">'+
             '<span>'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+
-              (h.data.customerNumber ? custNumChip(h.data) : '')+'</span>'+
-            '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'" style="flex:0 0 auto;">Edit</button>'+
+              (h.data.customerNumber ? custNumChip(h.data) : '')+
+              (isTimerOnlyRow ? ' <span class="status-pill status-new" style="font-size:10.5px;">Timer only</span>' : '')+'</span>'+
+            '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
+              (isTimerOnlyRow ? '<button type="button" class="btn btn-gold btn-sm" data-whtimerdone="'+h.id+'">Timer in the bin</button>' : '')+
+              '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'">Edit</button>'+
+            '</span>'+
           '</div>';
         }).join('')+
-        '<div style="font-size:12px; color:var(--slate); margin-top:8px;">These are already listed in their colour groups below &mdash; marking a house done there covers its timer too.</div>'+
+        '<div style="font-size:12px; color:var(--slate); margin-top:8px;">Most of these are listed in their colour groups below &mdash; marking a house done there covers its timer too. A row badged <strong>Timer only</strong> is in no group and has nothing being built, so it is finished from here.</div>'+
       '</div>'+
     '</div>';
   }
@@ -45600,6 +46996,62 @@ function renderWarehouseQueue(){
     btn.addEventListener('click', function(e){
       e.stopPropagation();
       openEditCustomerModal(btn.dataset.wheditcust);
+    });
+  });
+  /* ⭐ [[WH-27]] — the office saying this house never needed a bundle. It clears the build
+     and queues the timer instead, so the row leaves Waiting on light colours and joins the
+     Timers list, which is the one thing that house does need.
+     ⚠ IT MIRRORS INTO `jobAddresses` BEFORE THE WRITE IS AWAITED, like every other optimistic
+     tick in this file — the tab repaints from the cache, so without it the row visibly springs
+     back and somebody presses it twice.
+     ⚠ AND IT IS REVERSIBLE BY THE BUTTON THAT ALREADY EXISTS: Build Them A New Set puts
+     `needsLightBuild` back, and it wins on its own (see the queue loop's OR). */
+  list.querySelectorAll('[data-whtimeronly]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const id = btn.dataset.whtimeronly;
+      const rec = jobAddresses.find(function(a){ return a.id === id; });
+      if(!rec) return;
+      if(!confirm('Take ' + (rec.data.name || 'this house') + ' off the build list?\n\n' +
+        'Nothing will be made up for them. They stay on the Timers list, so a timer still goes' +
+        ' in their bin.\n\nPress Build Them A New Set on their record to undo this.')) return;
+      btn.disabled = true;
+      /* ⚠ THE WRITE GOES FIRST, THEN THE CACHE. Nothing repaints between the two — the render
+         is the line after — so there is no optimistic paint to protect, and doing it this way
+         round means there is no rollback to get wrong if the write throws. A rollback holding
+         the old value in a variable also reads to queue-date.test.js's census as a NEW place
+         that queues a build, which it is not. */
+      try{
+        await updateDoc(doc(db, 'jobAddresses', id), {needsLightBuild: false, needsTimerOnly: true});
+        rec.data.needsLightBuild = false;
+        rec.data.needsTimerOnly = true;
+        toast((rec.data.name || 'That house') + ' \u2014 timer only. They are off the build list.');
+        renderWarehouseQueue();
+      }catch(err){
+        btn.disabled = false;
+        console.error('Could not mark timer-only:', err);
+        alert('Could not save that: ' + (err && err.message ? err.message : err));
+      }
+    });
+  });
+  list.querySelectorAll('[data-whtimerdone]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const id = btn.dataset.whtimerdone;
+      const rec = jobAddresses.find(function(a){ return a.id === id; });
+      if(!rec) return;
+      btn.disabled = true;
+      try{
+        /* Write, then cache, then paint — same order and same reason as the button above. */
+        await updateDoc(doc(db, 'jobAddresses', id), {needsTimerOnly: false});
+        rec.data.needsTimerOnly = false;
+        toast('Timer done for ' + (rec.data.name || 'that house') + '.');
+        renderWarehouseQueue();
+      }catch(err){
+        btn.disabled = false;
+        console.error('Could not clear the timer queue:', err);
+        alert('Could not save that: ' + (err && err.message ? err.message : err));
+      }
     });
   });
   list.querySelectorAll('[data-wheditextra]').forEach(function(btn){
@@ -48486,6 +49938,58 @@ function editCustFormTouched(e){
 document.addEventListener('click', editCustTabsClick, true);
 document.addEventListener('input', editCustFormTouched, true);
 document.addEventListener('change', editCustFormTouched, true);
+/* ⭐ THE PENDING MOVE, AND THE ONE BUTTON THAT ACTS ON IT (2026-09-10).
+ * Addie: "you should have to apply changes in order for it to go to requote."
+ *
+ * ⚠ IT SHOWS BOTH ADDRESSES. "They moved" with only the new one gives the office no
+ * way to tell a real move from a corrected flat number, which is the judgement the
+ * whole door exists to put in front of a person rather than guess at.
+ *
+ * ⚠ AND IT NEVER WRITES. Apply fills the two boxes and says to press Save; the save
+ * is what re-geocodes, raises the re-quote and re-points the route. See the markup.
+ */
+function editCustPendingMoveOf(d){
+  const at = (d && d.pendingAddress) ? String(d.pendingAddress).trim() : '';
+  return at ? {
+    address: at,
+    city: String((d && d.pendingCity) || '').trim(),
+    when: String((d && d.pendingMoveDate) || '').trim(),
+    from: String((d && d.address) || '').trim()
+  } : null;
+}
+function renderEditCustPendingMove(d){
+  const box = document.getElementById('editCustPendingMove');
+  if(!box) return;
+  const move = editCustPendingMoveOf(d);
+  if(!move){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.innerHTML =
+    '<div style="background:#FDF3E0; border:1px solid var(--gold); border-radius:10px; padding:12px 14px; margin:0 0 14px;">' +
+      '<div style="font-weight:700; color:#1E3B2C;">They told us they have moved</div>' +
+      '<div style="font-size:13px; margin-top:6px; line-height:1.6;">' +
+        'From <strong>' + esc(move.from || 'no address on file') + '</strong><br>' +
+        'To <strong>' + esc(move.address) + '</strong>' +
+        (move.when ? '<br>They are in by ' + esc(move.when) : '') +
+      '</div>' +
+      '<div style="font-size:12px; color:var(--slate); margin-top:8px; line-height:1.55;">' +
+        'Nothing has been re-quoted and no pin has moved — the boxes below still hold ' +
+        'the old house on purpose. Apply fills them in; pressing Save is what prices ' +
+        'the new place and re-points their route.' +
+      '</div>' +
+      '<button type="button" class="btn btn-gold" id="editCustApplyMove" style="margin-top:10px;">Apply this move</button>' +
+    '</div>';
+  /* ⚠ BOUND HERE, NOT DELEGATED FROM THE DOCUMENT. The box is rebuilt on every
+     repoint, so a document-wide binding would stack a listener per tab click — the
+     2815-write folder-sidebar leak, in a smaller place. */
+  const btn = document.getElementById('editCustApplyMove');
+  if(btn) btn.addEventListener('click', function(){
+    document.getElementById('editCustAddress').value = move.address;
+    /* ⚠ THE TOWN ONLY IF THEY GAVE ONE. It is what a crew-day is grouped by, and
+       blanking it would send the season planner to derive a town out of the address
+       line — right often enough to be trusted and wrong on a street called Provo. */
+    if(move.city) document.getElementById('editCustCity').value = move.city;
+    toast('New address filled in — press Save Changes to price it and re-point their route.');
+  });
+}
 function openEditCustomerModal(id){
   const item = jobAddresses.find(a => a.id === id);
   if(!item) return;
@@ -48512,6 +50016,12 @@ function openEditCustomerModal(id){
      is no longer in the box. emailTypoWatch binds once and is safe to call again. */
   emailTypoWatchAll();
   document.getElementById('editCustAddress').value = d.address || '';
+  /* ⚠ THE CALL IS THE HALF THAT IS EASY TO LOSE — every behavioural check on the
+     banner can pass while nothing reaches the screen if this line goes. Suite 276
+     proved exactly that about the house tabs, and the recycle "bin says" box shipped
+     as a control with no listener. Here, not in a render, because Edit Customer is
+     repointed by openEditCustomerModal and a tab click is that call plus a repaint. */
+  renderEditCustPendingMove(d);
   document.getElementById('editCustCity').value = d.city || '';
   /* Offer the towns already in use, so a corrected town matches the others
      rather than becoming a town of one through a typo or "Amercian Fork". */
@@ -49834,7 +51344,20 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     addrUpdates.oneTimeNote = newOneTimeNote;
     addrUpdates.chargeNewMemberFee = newChargeNewMemberFee;
     addrUpdates.referralCount = newReferralCount;
-    const oldLightsForBuild = item.data.lightsDescription || '';
+  /* ⭐ WHAT THEY HAD IS BOTH FIELDS, NOT ONE ([[WH-28]], 2026-09-10). Addie: "there are member
+     that did light changes but are not showing 30 dollar fee on there account."
+     ⚠ THIS IS THE SAME FAULT `warehouse-colours.test.js` WAS BUILT FOR, in a place that costs
+     MONEY rather than bundles. `rbDetectColorsAndPattern` — which the master-sheet sync writes
+     through — only fills `lightsDescription` when a colour REPEATS, so an ordinary house keeps
+     its colours in `lightColors` with the description EMPTY. Reading the description alone
+     made those houses look as though they had no colours at all, and
+     `applyLightChange`'s own rule is that filling colours in for the FIRST time is not a
+     change and is not charged. So every ordinary house changed its colours for free.
+     ⚠ THE RULE ITSELF IS UNTOUCHED — it is a pure comparison and money-parity sweeps it. What
+     was wrong is what the caller handed it. `houseLightsText` is the one answer, the same one
+     the build queue, the colour totals, the pending count, the recycle queue and the printed
+     sheet were all brought to on 2026-08-24. This is the sixth reader. */
+    const oldLightsForBuild = houseLightsText(item.data);
     /* ⭐ THE SAME COLOUR-CHANGE RULE THE PORTAL RUNS (added 2026-08-21).
        Owner: an office change now charges, locks and notifies exactly as a member's
        own change does. Until today this path wrote lightsChangedAt and needsLightBuild
@@ -49938,7 +51461,41 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        rule that blank colours mean the build cannot be DONE yet rather than not
        owed, and overwriting it would bring back the bug where saving a customer
        with no colours silently cleared their build. */
-    if(warehouseRebuildFields(item.data, addrUpdates).length) addrUpdates.needsLightBuild = true;
+    /* ⭐ A TIMER ON ITS OWN IS NOT A LIGHT BUILD (2026-09-09, [[WH-27]]). Addie, on five
+       houses parked in Waiting on light colours: "check to see if these guys just wanted
+       there timer updated. Cause if so we don't need to worry about lights just about
+       getting a timer in there bin", then "can you fix those."
+
+       ⚠ `outletTimer` IS ONE OF THE THREE WAREHOUSE_BUILD_FIELDS, so changing a timer and
+       nothing else set `needsLightBuild` — and a house with no colours on file then landed
+       in the blocked block, under a heading reading "Nothing can be made up until somebody
+       fills them in". That sentence is FALSE for those houses: nobody is waiting on any
+       colours, because nobody asked for lights. So the office is sent to chase an answer
+       that does not exist, and the row never clears.
+
+       ⭐ `needsTimerOnly` IS THE TIMER'S OWN QUEUE. The warehouse still hears about it
+       (`whBuildQueueGroups` reads either flag), the house still reaches `timerHouses`, and
+       nothing is being built — so there is nothing to block on and nothing to chase.
+
+       ⚠ IT FAILS TOWARDS THE BUILD, deliberately, and that is why it is a SEPARATE flag
+       rather than a marker on the existing one. This never clears or suppresses
+       `needsLightBuild`: a real build queued before, after or at the same time wins on its
+       own and is untouched. The worst a stale `needsTimerOnly` can do is put one extra row
+       on the timer list; a marker that could switch the build flag off would, if any of the
+       seven places that queue a build ever forgot to clear it, leave a house nobody builds.
+
+       ⚠ SCOPED TO A TIMER THAT ENDS UP **Yes**. Turning a timer OFF keeps today's exact
+       behaviour (a rebuild is queued), because the warehouse has to be told to take one out
+       and `timerHouses` only ever collects Yes — routing it here instead would drop it off
+       every screen silently, which is worse than the untidiness this fixes. Flagged to
+       Addie rather than guessed at.
+
+       ⚠ AND HOLES C AND D ARE NOT REVERSED. A WIRE change still re-queues the build, and so
+       does a timer change on a house that has colours — that house is in a real build group
+       and always was. Only the case she reported is moved. */
+    const whChanged = warehouseRebuildFields(item.data, addrUpdates);
+    if(whTimerOnlyQueue(item.data, addrUpdates, whChanged, newLightsDescription)) addrUpdates.needsTimerOnly = true;
+    else if(whChanged.length) addrUpdates.needsLightBuild = true;
     /* "They said no" is a lasting fact; "their lights need pulling back into
        stock" is a job that gets finished. This used to be re-derived from the
        dropdown on EVERY save, so opening a recycled customer's record months
@@ -50267,6 +51824,29 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        the ReQuotes wording instead of the new-customer one. */
     const feetChanged = Number(d.measuredFeet || 0) !== Number(newMeasuredFeet || 0);
     const addressChanged = String(d.address || '').trim().toLowerCase() !== String(newAddress || '').trim().toLowerCase();
+    /* ⭐ THE PENDING MOVE IS CLEARED BY THE SAVE THAT ACTS ON IT (2026-09-10).
+
+       ⚠ ONE WRITER, AND THAT IS THE WHOLE SAFETY ARGUMENT. A flag with a way in and
+       no way out is the sticky-field bug this repo has already shipped once —
+       maybeNextYear, set freely and cleared by exactly one thing — so the same save
+       that applies a move is the thing that retires the request.
+
+       ⚠ ON THE ADDRESS HAVING CHANGED, NOT ON IT MATCHING pendingAddress. Matching
+       looks stricter and is worse: the office routinely tidies what a customer typed
+       (a missing apartment number, "St" for "Street"), and on an exact test the
+       banner would then sit there for ever advertising a move that is already done —
+       and the next person would apply it a second time over the corrected address.
+
+       ⚠ AND seasonStatus IS DELIBERATELY LEFT ALONE. The re-quote raised below is
+       what answers it, through QUOTE_RAISED_STATUSES; clearing the badge here would
+       drop the customer off the office filter while the question is still open. */
+    if(addressChanged && (d.pendingAddress || '')){
+      addrUpdates.pendingAddress = '';
+      addrUpdates.pendingCity = '';
+      addrUpdates.pendingZip = '';
+      addrUpdates.pendingMoveDate = '';
+      addrUpdates.pendingAddressAt = null;
+    }
     /* ⭐ AND A PRICE CHANGE ASKS. Owner, 2026-08-21: "we need to set up for price change
        so when you go to edit customer and change the price it gives you the option if you
        want to requote or not requote."
@@ -50924,7 +52504,22 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        Running this handler against a fake page and a fake Firestore showed it doing all
        three things correctly, which is what proved the fault was a runtime error being
        hidden rather than the logic being wrong. */
-    console.error('Edit Customer save failed:', err);
+    /* ⭐ AND IT SAYS WHERE (2026-09-10, from the Errors folder). Two of these reached the Errors
+       folder on 2026-09-09 — "null is not an object (evaluating 's.indexOf')" on Safari
+       and "Cannot read properties of null (reading 'indexOf')" on Chrome, the same fault
+       worded by two browsers. Nothing in either row said WHERE in a 1,400-line handler
+       it happened, and the four candidates that could be read off the message were all
+       checked and all correctly guarded, so the report named no fixable thing.
+       ⚠ `s` IS NOT A VARIABLE IN THIS FILE — the only `s.indexOf` in admin.html builds
+       its own string first. A single-letter name is minified third-party code, which
+       means the throw is inside the Firebase SDK and the likeliest cause is a document
+       id reaching `doc()` as null. WHICH id is exactly what the stack would name.
+       ⚠ TWO FRAMES, NOT THE WHOLE STACK. `messages` is capped at 5,000 characters on
+       create by firestore.rules, and a refused write is how this reporter would go
+       silent — the failure §5 records as reading like an auth fault for weeks. */
+    const where = String((err && err.stack) || '').split('\n').slice(1, 3)
+      .map(function(l){ return l.trim(); }).filter(Boolean).join(' <- ').slice(0, 300);
+    console.error('Edit Customer save failed:', err, where ? ('at ' + where) : '');
     const detail = (err && err.message) ? String(err.message) : String(err);
     statusEl.textContent = 'Nothing was saved \u2014 ' + detail;
     statusEl.style.color = 'var(--ember)';
@@ -51054,6 +52649,87 @@ function twoOptImprove(ordered, startPoint, endPoint){
   }
   return ordered;
 }
+/* ⭐ AND ONE STOP IN THE WRONG PLACE CAN BE MOVED (added 2026-09-10). Dax, looking
+   at a route: *"1 2 3 4 5 6 7 can make sense but the you get to 11 and youre way far
+   out and then 12 is back where 2 was, so it shouldve just been knocked out when you
+   were there."*
+
+   He is describing a move 2-opt cannot make. 2-opt only ever REVERSES a run of stops,
+   so it can straighten a crossing, but a single house dropped in the wrong part of the
+   day stays there for ever — taking it out and putting it back somewhere better is a
+   different move, and nothing in the orderer could make it. That move is or-opt: lift 1
+   to 3 consecutive stops out, close the gap, and try them at every other position, both
+   ways round.
+
+   ⚠ MEASURED, on 8 simulated books of 810 houses each with the customers scattered
+   across their towns rather than dropped into tidy pockets (scratchpad/route-cand.js):
+   113 miles a season off 10,167, about 1.1%, and no day made longer. On the tidy
+   fixture it is worth 18 miles, which is the honest reason the first measurement of
+   this said it was worthless — a book where every house sits in a 0.8-mile pocket makes
+   almost any order a good order, and it is not the book the office has.
+
+   ⚠ IT RUNS ALTERNATELY WITH 2-OPT, NOT INSTEAD OF IT. Each unlocks moves for the
+   other, and either alone leaves miles on the table. */
+function orOptImprove(ordered, startPoint, endPoint){
+  const EPS = 0.0005;
+  if(ordered.length < 3) return ordered;
+  function dist(a, b){ return haversine(a.lat, a.lng, b.lat, b.lng); }
+  let improved = true;
+  let iterations = 0;
+  while(improved && iterations < 25){
+    improved = false;
+    iterations++;
+    for(let len = 1; len <= 3; len++){
+      if(len >= ordered.length) break;
+      for(let i = 0; i + len <= ordered.length; i++){
+        const before = i === 0 ? startPoint : ordered[i-1];
+        if(!before) continue; // no fixed start point and this is the anchor stop
+        /* The leg home is a real leg, the same as it is in twoOptImprove: without it
+           the last stop is priced as though the crew stopped there and went nowhere. */
+        const after = (i + len < ordered.length) ? ordered[i+len] : (endPoint || null);
+        const seg = ordered.slice(i, i + len);
+        const removed = dist(before, seg[0]) +
+          (after ? dist(seg[len-1], after) - dist(before, after) : 0);
+        if(!(removed > EPS)) continue;
+        const rest = ordered.slice(0, i).concat(ordered.slice(i + len));
+        let bestGain = EPS, bestAt = -1, bestSeg = null;
+        for(let k = 0; k <= rest.length; k++){
+          if(k === i) continue; // where it already is
+          const p = k === 0 ? startPoint : rest[k-1];
+          if(!p) continue;
+          const q = k < rest.length ? rest[k] : (endPoint || null);
+          const bridge = q ? dist(p, q) : 0;
+          /* Both ways round, because a run of houses read backwards can be the
+             cheaper way to drive it once it has moved. */
+          const tries = len === 1 ? [seg] : [seg, seg.slice().reverse()];
+          for(let t = 0; t < tries.length; t++){
+            const s = tries[t];
+            const added = dist(p, s[0]) + (q ? dist(s[len-1], q) : 0) - bridge;
+            if(removed - added > bestGain){ bestGain = removed - added; bestAt = k; bestSeg = s; }
+          }
+        }
+        if(bestAt >= 0){
+          rest.splice(bestAt, 0, ...bestSeg);
+          ordered.length = 0;
+          for(let z = 0; z < rest.length; z++) ordered.push(rest[z]);
+          improved = true;
+        }
+      }
+    }
+  }
+  return ordered;
+}
+/* How long a tour actually is, given where it starts and where it finishes. Named
+   because three separate places were about to work it out inline and disagree. */
+function tourMiles(ordered, startPoint, endPoint){
+  let t = 0, prev = startPoint || null;
+  (ordered || []).forEach(function(p){
+    if(prev && p) t += haversine(prev.lat, prev.lng, p.lat, p.lng);
+    prev = p;
+  });
+  if(endPoint && prev) t += haversine(prev.lat, prev.lng, endPoint.lat, endPoint.lng);
+  return t;
+}
 function reorderFlatStops(flatStops, startPoint, endPoint){
   /* Two ways an unorderable list gets here, both from the reconcile sweep:
        - a day whose LAST stop has just come off (recycled, deleted, or a town
@@ -51111,7 +52787,18 @@ function reorderFlatStops(flatStops, startPoint, endPoint){
     ordered.push(next);
     current = {lat:next.lat, lng:next.lng};
   }
-  return twoOptImprove(ordered, startPoint, endPoint).concat(unpinned);
+  /* Alternating, until neither can find anything — see orOptImprove. The cap is
+     belt and braces: both passes only ever accept a strictly shorter tour, so this
+     cannot cycle, but a length that stops falling ends it either way. */
+  let lastMiles = Infinity;
+  for(let pass = 0; pass < 6; pass++){
+    twoOptImprove(ordered, startPoint, endPoint);
+    orOptImprove(ordered, startPoint, endPoint);
+    const now = tourMiles(ordered, startPoint, endPoint);
+    if(now > lastMiles - 0.0005) break;
+    lastMiles = now;
+  }
+  return ordered.concat(unpinned);
 }
 function nearestNeighborOrder(selectedAddresses, startPoint){
   const flat = selectedAddresses.map(function(item){ return {id:item.id, address:item.data.address, name:item.data.name||'', phone:item.data.phone||'', difficulty:item.data.difficulty, lat:item.data.lat, lng:item.data.lng, gateCode:item.data.gateCode||'', specificOutlet:item.data.specificOutlet||'', specificOutletNotes:item.data.specificOutletNotes||'', customerNumber:item.data.customerNumber||''}; });
@@ -52390,6 +54077,19 @@ function forecastHighFor(town, dateStr){
   const v = row && row[dateStr];
   return typeof v === 'number' && isFinite(v) ? v : null;
 }
+/* ⭐ THE LAST DATE ANYBODY HAS AN OPINION ABOUT (added 2026-09-10, [[SCH-70]]).
+   Read off the table itself rather than worked out from FORECAST_DAYS and a clock: the
+   answer that matters is what was actually fetched, and the two differ the moment the
+   service trims its range or the fetch is an hour old. Empty string when there is
+   nothing at all, which is a different thing from a date in the past. */
+function forecastReachesTo(){
+  let last = "";
+  const byTown = SEASON_FORECAST.byTown || {};
+  Object.keys(byTown).forEach(function(t){
+    Object.keys(byTown[t] || {}).forEach(function(d){ if(d > last) last = d; });
+  });
+  return last;
+}
 /* Is this town at or below the cutoff on this date? FALSE when there is no forecast:
    see the note on COLD_DAY_MAX_F — an unknown day is never a cold day. */
 function forecastIsCold(town, dateStr){
@@ -52560,22 +54260,39 @@ function seasonAreasFor(waiting, cap){
   (plan.blocks || []).forEach(function(b){
     (b.ids || []).forEach(function(id){ areaOf[id] = "g:" + b.id; });
   });
-  /* ⛔ AN OUTLIER IS DELIBERATELY LEFT UNSTAMPED, so it falls back to its TOWN and is
-     handled exactly as it was before any of this. Two other answers were tried and
-     measured on an 810-house book:
-       an area of one each ..... one-man days 1 -> 3. An area of one IS a one-man day,
-                                 and Dax: "what we want to minimize the most is one man
-                                 days". Building them on purpose is the wrong direction.
-       dropped from the season .. what grid.js itself argues for, and what Addie said in
-                                 2026-08-22 — "if they are a real outlier they arent in
-                                 the grid at all... its for my dad to do". That predates
-                                 One Man Installs, which is main’s own answer to the
-                                 same problem and which she has used since; dropping a
-                                 customer off the season with nothing on screen saying
-                                 so is not something to do as a side effect of a
-                                 container change.
-     Falling back to the town keeps Levan exactly where it is today: its own thin day,
-     visible on the One Man Installs tab, which is the thing she asked for it. */
+  /* ⭐ AN OUTLIER GETS AN AREA OF ITS OWN, WHICH IS A ONE-MAN DAY, AND THAT IS THE
+     POINT ([[SCH-69]], 2026-09-10). Dax: "if someone is way out of the way as an
+     outlier they should fall into a one man day so a full crew isnt being paid to go
+     that far out."
+
+     ⛔ THIS REVERSES THE CALL I MADE ON 2026-09-09 AND THE OLD REASONING IS KEPT,
+     because it is a good argument that was pointed at the wrong cost. It read: an area
+     of one IS a one-man day, measured at one-man days going 1 -> 3 on an 810-house
+     book, and Dax had said "what we want to minimize the most is one man days" — so
+     building them on purpose looked like the wrong direction, and outliers were left
+     unstamped to fall back to their town.
+
+     ⚠ WHAT THAT MISSED IS WHOSE MONEY IT IS. Minimising one-man days is about not
+     sending ONE person where a crew could work a full day; it was never an argument for
+     sending FOUR people forty miles to hang one house. His older ruling says the same
+     thing from the other side and I had it in front of me: "high milage is better for a
+     one man than a one crew or two crew." A crew-day is four wages; the miles are the
+     smaller half of that bill, and no measurement in this file was ever counting it.
+
+     ⚠ SO THE COST IS REAL AND IS ACCEPTED, NOT HIDDEN: on the same 810-house book this
+     takes one-man days from 1 to 3. Those three are Levan and the far south, which is
+     exactly who it is meant to catch.
+
+     ⚠ AND IT IS STILL NOT "DROPPED FROM THE SEASON", which is what grid.js argues for
+     and what Addie said in 2026-08-22 — "if they are a real outlier they arent in the
+     grid at all... its for my dad to do". A house nobody is scheduled for is invisible;
+     an outlier on the One Man Installs tab is a decision somebody can see and act on.
+     ⛔ AND NOTHING HERE MAY LEAVE THEM OFF A CREW SHEET — [[SCH-67]] is absolute, and a
+     one-man day is a sheet with one person’s name on it, not an absence. */
+  (plan.outliers || []).forEach(function(o){
+    const h = o && o.house;
+    if(h && h.id) areaOf[h.id] = "x:" + h.id;
+  });
   let n = 0;
   (waiting || []).forEach(function(w){
     if(w && areaOf[w.id]){ w.area = areaOf[w.id]; n++; }
@@ -52766,6 +54483,23 @@ function planNewCrewDays(waiting, taken, opts){
     const cb = bandOf(c.temp), pb = bandOf(p.temp);
     if(cb !== null && pb !== null && cb !== pb) return cb > pb;
     if(c.n !== p.n) return c.n > p.n;
+    /* ⛔ SENDING THE CREW TO THE NEAREST AREA WAS TRIED HERE AND MEASURED AT ZERO. Do
+       not re-add it. Dax, 2026-09-09: "more days generally is more gas because you need
+       to include drive time from the house" — which is true, and it is why the season
+       was measured properly (scratchpad/measure-gas.js). The block container costs 44
+       miles more over a season than towns did: 104 fewer between stops, 148 more
+       driving out and back.
+       ⚠ BUT A TIEBREAK CANNOT RECOVER ANY OF IT, and the reason is worth keeping. Every
+       area is worked exactly once over a season, so the total drive-out-and-back is
+       fixed by HOW MANY crew-days there are and where the areas sit — not by the order
+       they are taken in. Preferring the nearest one changes which day each area lands
+       on and nothing else; measured, it moved the season total by two miles, which is
+       noise. The alphabetical answer below is kept because it is stable, which is what
+       makes a plan reproducible.
+       ⚠ AND THE 44 MILES ARE WORTH PAYING, WHICH IS THE ACTUAL RULING ([[SCH-66]]). At
+       15 mpg that is about ten dollars a season. What it buys is 104 miles taken OUT of
+       the working day and put on the freeway: roughly two hours less driving, and a
+       worst crew-day 10 miles wide instead of 28.7. */
     return c.city < p.city;
   };
   const maxDays = o.maxDays == null ? 40 : o.maxDays;
@@ -61051,7 +62785,8 @@ function dayForecastChips(day){
   if(!ds) return '';
   const cold = (typeof COLD_DAY_MAX_F === 'number') ? COLD_DAY_MAX_F : 35;
   const bits = [];
-  dayAreas(day).forEach(function(t){
+  const towns = dayAreas(day);
+  towns.forEach(function(t){
     const v = forecastHighFor(t, ds);
     if(typeof v !== 'number' || !isFinite(v)) return;
     const freezing = v <= cold;
@@ -61062,7 +62797,39 @@ function dayForecastChips(day){
       (freezing ? 'background:#e7f0fb;color:#1d4e89' : 'background:#f0efe6;color:#6b776f') +
       '">' + esc(t) + ' ' + Math.round(v) + '°' + (freezing ? ' ❄' : '') + '</span>');
   });
-  return bits.join('');
+  if(bits.length) return bits.join('');
+  /* ⭐ AND AN EMPTY STRIP SAYS WHY IT IS EMPTY ([[SCH-70]], 2026-09-10). Dax, looking
+     at the two route maps: "the only issue is I cant see the forecast."
+     ⚠ NOTHING WAS WRONG. The free service answers about sixteen days and on 10
+     September the season opens on 1 October, twenty-one days out — so no day in the
+     plan had a forecast and every chip was correctly absent. ⛔ BUT ABSENT IS NOT AN
+     ANSWER. "No forecast yet" and "the forecast is broken" looked identical, which is
+     the failure this file names in a dozen other places, and it cost him a bug report
+     to find out which one he was looking at.
+     ⚠ THREE DIFFERENT REASONS, THREE DIFFERENT SENTENCES. Beyond the horizon is a
+     WAIT and says when it will arrive; a failed fetch is a FAULT and says so; a town
+     with no located house is a DATA gap the office can actually fix. Collapsing them
+     into one "no forecast" line would be the same silence wearing words. */
+  const note = function(txt){
+    return '<span style="display:inline-block;margin-left:8px;font-weight:600;' +
+      'font-size:11.5px;color:#6b776f">' + esc(txt) + '</span>';
+  };
+  if(SEASON_FORECAST.error) return note('No forecast — ' + SEASON_FORECAST.error);
+  const reach = (typeof forecastReachesTo === 'function') ? forecastReachesTo() : '';
+  if(!reach) return note('Forecast not loaded yet.');
+  if(ds > reach){
+    /* said as a date rather than "16 days", because the useful question is when to
+       look again, not how long the service’s range is */
+    let when = reach;
+    try{ const l = dlabel(new Date(reach + 'T00:00:00')); when = l.full; }
+    catch(err){ /* an unparseable date still reads fine as the iso string */ }
+    return note('No forecast this far ahead — it reaches to ' + when + '.');
+  }
+  /* in range, and still nothing: the towns on this day have no located house, so
+     there is nowhere to ask about. That is a data fault and the office can fix it. */
+  return note(towns.length
+    ? 'No forecast for ' + towns.join(', ') + ' — no house there is on the map yet.'
+    : 'No forecast — this day has no town on it.');
 }
 /* ---------- crews ----------
    Two crews, each working one city, each with a name the office can change.
@@ -61433,10 +63200,26 @@ function crewCap(){
 function dayCrewHouses(day){
   const out=CREWS.map(function(){ return []; });
   if(!day||!day.houses) return out;
+  /* ⚠ EXACTLY ONE CREW EACH, WHICH IS THE OTHER HALF OF [[SCH-67]]. Each crew used to
+     filter the whole day independently, so a town two crews both hold put its houses on
+     BOTH sheets — two trucks to one driveway, and the customer visited twice.
+     ⚠ IT CANNOT HAPPEN THROUGH dayCrewTowns, which marks a town `taken` as it hands it
+     out, and that is exactly why it was worth closing here rather than relying on it:
+     the guarantee then belongs to this function whatever it is handed — a hand-built
+     day, an imported plan, two crews the office pinned to the same city. Dax asked for
+     the system not to make the fault possible, and a house on nobody's sheet and a
+     house on two are the same fault pointing opposite ways.
+     ⚠ FOUND BY THE PROPERTY CHECK IN SUITE 320, not by anybody thinking of it. */
+  const claimed = new Set();
   crewIndexes().forEach(function(i){
     const towns=crewTownsFor(i,day);
     out[i]=towns.length
-      ? day.houses.filter(h=>towns.some(function(t){return sameCity(cityOf(h),t);}))
+      ? day.houses.filter(function(h){
+          if(claimed.has(h)) return false;
+          if(!towns.some(function(t){ return sameCity(cityOf(h),t); })) return false;
+          claimed.add(h);
+          return true;
+        })
       : [];
   });
   /* ⭐ A ONE-CREW DAY IS ONE SHEET. Owner: "any days with under 20 houses but over
@@ -61475,6 +63258,86 @@ function dayCrewHouses(day){
     for(let i = 0; i < out.length; i++) out[i] = [];
     out[Math.min(solo, out.length - 1)] = all;
     return out;
+  }
+  /* ⛔ AND NOW NOBODY IS LEFT OFF A SHEET. EVER. Dax, 2026-09-10, reading ten stops
+     under "Not on either crew's route" after a rebuild: "it is off limits to have
+     anyone scheduled in a day not on either crews routes, save that as a rule and dont
+     design the system so its even possible." [[SCH-67]].
+
+     ⚠ WHAT PUT THEM THERE, so the same door is not left open again. The split above
+     counts TOWN NAMES and gives each crew at most MAX_TOWNS_PER_CREW of them, so two
+     crews can hold four towns and no more. That was a sound cap while a crew-day WAS a
+     town — and [[SCH-63]] made a crew-day a block of adjacent houses instead, which on
+     the Wasatch Front routinely spans eight or ten town lines within a few streets. His
+     1 October held thirty-three houses across ten towns; four towns got sheets and the
+     other ten stops fell out of the bottom.
+
+     ⭐ SO THE LAST STEP IS TOTAL BY CONSTRUCTION. Whatever the towns did or did not
+     manage, every house on the day now belongs to exactly one crew when this returns.
+     That is the difference between rescuing a stranded house — which [[SCH-50]] already
+     tried, and which this bug walked straight around — and making stranding
+     unrepresentable: there is no path out of this function that drops anybody.
+
+     ⚠ TO THE CREW WITH THE NEAREST HOUSE, not the emptiest one. These are houses the
+     town rule could not place, so the only honest question left is who is already
+     driving closest to them. Falls back to the least-loaded crew when there is nothing
+     to measure — an unpinned house, or a crew holding nothing yet.
+
+     ⚠ AND IT RUNS BEFORE THE HAND-BACK, so a crew that ends up over the cap because of
+     it still gives its overflow back exactly as it always has.
+
+     ⛔ THIS OVERRULES THE OLDER COMMENT ABOVE, which said a house in neither crew's
+     town "stays unassigned ON PURPOSE ... rather than being quietly loaded onto a crew
+     that cannot drive it". That reasoning is kept where it stands because it is still
+     right about the HARM — a crew must not be handed a fifty-mile detour — but the
+     place to prevent that is the BUILDER, which decides who shares a day, not here,
+     which only decides who carries what is already on it. Leaving a real customer on a
+     day with nobody holding their sheet was never the safer failure. */
+  {
+    const held = new Set();
+    out.forEach(function(list){ list.forEach(function(h){ held.add(h); }); });
+    const orphans = (day.houses || []).filter(function(h){ return !held.has(h); });
+    if(orphans.length){
+      /* ⚠ THE WHOLE CHAIN, NOT JUST THE FRONT OF IT. houseStopPoint reaches
+         customerForHouse and houseGeoPoint, so testing only the first name throws a
+         bare ReferenceError inside a sandbox that lifted one and not the others — which
+         is what happened the first time this was written, and it took a whole suite
+         down with it.
+         ⭐ AND THE GUARANTEE DOES NOT DEPEND ON ANY OF THEM. Where the geometry is not
+         available the fallback below still puts every orphan on a crew; all that
+         degrades is WHICH crew, from "nearest" to "carrying least". That is the
+         difference between a guard that quietly switches a rule off and one that
+         quietly switches a tiebreak off. */
+      const canMeasure = typeof houseStopPoint === 'function' &&
+                         typeof customerForHouse === 'function' &&
+                         typeof houseGeoPoint === 'function' &&
+                         typeof haversine === 'function';
+      const pointOf = function(h){
+        const p = canMeasure ? houseStopPoint(h) : null;
+        return (p && typeof p.lat === 'number' && typeof p.lng === 'number' &&
+                isFinite(p.lat) && isFinite(p.lng)) ? p : null;
+      };
+      orphans.forEach(function(h){
+        const hp = pointOf(h);
+        let best = -1, bestD = Infinity;
+        if(hp){
+          out.forEach(function(list, i){
+            list.forEach(function(other){
+              const op = pointOf(other);
+              if(!op) return;
+              const d = haversine(hp.lat, hp.lng, op.lat, op.lng);
+              if(d < bestD){ bestD = d; best = i; }
+            });
+          });
+        }
+        if(best === -1){
+          /* nothing to measure against: the crew carrying least */
+          best = 0;
+          for(let i = 1; i < out.length; i++) if(out[i].length < out[best].length) best = i;
+        }
+        out[best].push(h);
+      });
+    }
   }
   /* ⚠ THE HAND-BACK IS THE SAME RULE OVER N CREWS, not a new one: the fullest crew
      that is over the cap gives its last stop to the emptiest crew that is under it and
@@ -61531,10 +63394,43 @@ function nextDayInCity(day,city){
 }
 /* Houses in neither crew's city. Shown rather than silently swallowed — a
    stop nobody is holding a sheet for is a stop nobody drives to. */
+/* ⛔ THIS SHOULD NOW ALWAYS BE EMPTY, AND IT IS KEPT AS THE TRIPWIRE THAT SAYS SO
+   ([[SCH-67]], 2026-09-10). dayCrewHouses assigns every house on a day to exactly one
+   crew, so there is nothing left for this to find — but a function that answers "who is
+   holding nobody's sheet" is worth keeping precisely while the answer is nobody, and
+   the panel still renders whatever it returns.
+   ⚠ DERIVED FROM THE SPLIT, NOT FROM THE TOWNS. It used to ask crewTownsFor itself and
+   re-decide the question, so the panel and the split were two rules answering one
+   question — and when they disagreed the panel was right and the sheets were wrong.
+   That is the bug Dax reported on 2026-09-10 in its reporting half.
+   ⚠ AND IT COUNTED CREWS 0 AND 1 BY HAND, so on a three-crew day the third crew's
+   houses read as unassigned on a screen while they were on a real sheet. */
+/* ⭐ AND THIS IS THE OTHER QUESTION, WHICH IS STILL A REAL ONE ([[SCH-67]]).
+   "Is anybody on this day on nobody's sheet?" is now always answered NO, by
+   construction. "Is anybody on this day OUTSIDE THE TOWNS ITS CREWS WORK?" is a
+   different question and still has a real answer — it is how rehomeMovedHouses knows
+   that a customer who moved from Lehi to Provo is sitting on a Lehi day and should be
+   moved to a Provo one rather than merely carried.
+   ⚠ COLLAPSING THE TWO WOULD HAVE SILENTLY SWITCHED THAT OFF. rehomeMovedHouses tests
+   `adrift.indexOf(h) === -1` and treats a miss as "the crews already go there", so an
+   always-empty list means it never moves anybody again — a customer who moved house
+   would keep their old day for the rest of the season and every screen would look
+   right. That is exactly the shape of failure this whole area keeps producing. */
+function housesOutsideCrewTowns(day){
+  if(!day || !day.houses) return [];
+  const mine=crewIndexes().reduce(function(a,i){ return a.concat(crewTownsFor(i,day)); }, []);
+  return day.houses.filter(function(h){
+    const c=cityOf(h);
+    return !mine.some(function(t){ return t && sameCity(c,t); });
+  });
+}
 function unassignedHousesFor(day){
-  if(!day) return [];
-  const mine=crewTownsFor(0,day).concat(crewTownsFor(1,day));
-  return day.houses.filter(h=>{const c=cityOf(h);return !mine.some(function(t){return t&&sameCity(c,t);});});
+  if(!day || !day.houses) return [];
+  const held = new Set();
+  (typeof dayCrewHouses === 'function' ? dayCrewHouses(day) : []).forEach(function(list){
+    (list || []).forEach(function(h){ held.add(h); });
+  });
+  return day.houses.filter(function(h){ return !held.has(h); });
 }
 /* ---------- the route generator ----------
    ⭐ THE PRINTED SHEET IS A DRIVING ORDER, NOT A LIST OF NAMES.
@@ -61668,6 +63564,12 @@ function routeHomePoint(){
 const OUTLIER_MIN_MILES = 2.5;    /* below this it is not "a long drive" at all */
 const OUTLIER_FACTOR = 2.5;       /* ...and it must be this much worse than normal */
 const OUTLIER_MAX_SHARE = 1 / 3;  /* more than this and the day is just spread out */
+/* How much cheaper the day has to be before the far houses are done FIRST instead of
+   last. Below this, Addie’s standing rule wins — see the outlier branch of
+   orderHousesForDriving. Half a mile is about a minute of driving: enough to be worth
+   contradicting an instruction over, small enough that a real out-and-back still
+   qualifies (the worst day measured saved 4.1). */
+const FAR_FIRST_MARGIN_MILES = 0.5;
 
 function stopHasPin(p){
   return !!p && typeof p.lat === 'number' && typeof p.lng === 'number' &&
@@ -61788,14 +63690,46 @@ function orderHousesForDriving(list, opts){
       const start = missedStopStart(points, aim) || home;
       ordered = reorderFlatStops(points, start, aim);
     } else {
+      /* ⭐ THE FAR HOUSES GO LAST IF THAT IS ON THE WAY HOME, AND FIRST IF IT IS NOT
+         (added 2026-09-10). Addie, 2026-08-21, is the reason this branch exists at all:
+         the far house belongs at the end of the day, on the drive home, not buried in
+         the middle of it. ⛔ WHAT WAS MISSING WAS "ON THE WAY HOME" — nobody was asking
+         whether it was.
+
+         outlyingStops measures every stop against the DAY’S CENTRE. So a knot of
+         houses sitting a mile from the yard, on a day whose weight is six miles away,
+         is "far" — and got held back to the end. The crew drove past them in the
+         morning, worked the far side, drove all the way back for them, and went home.
+         Dax, looking at exactly that: *"you get to 11 and youre way far out and then 12
+         is back where 2 was, so it shouldve just been knocked out when you were there."*
+
+         So both shapes are built and the shorter one is driven. ⚠ AND HER RULE KEEPS
+         THE TIE. On a round trip the two are often within yards of each other — it is
+         nearly the same loop driven backwards — so a bare `<` would flip the answer on
+         rounding and the far house would land first for no reason anybody could see.
+         Going first has to be worth REAL miles, and below that margin the standing
+         instruction wins. ⚠ MEASURED: 33 miles a season, worst day 4.1, no day longer.
+
+         ⛔ AND NOT SPLITTING AT ALL WAS TRIED AND REFUSED. A third shape — one plain
+         tour, no outlier held back — is worth another 85 miles a season, and it TRIPLED
+         the number of days with a long leg buried mid-day (8 to 24 on the tidy book).
+         That is the thing her rule exists to prevent, so it is not ours to take on
+         mileage alone. It is written down in [[SCH-71]] as a question for her. */
+      const toward = stopsCentre(split.out);
+      const outward = stopsCentre(split.core);
+      const runFrom = function(first, second, aimAt){
+        const head = reorderFlatStops(first, home, aimAt);
+        const seam = head.length ? head[head.length - 1] : null;
+        return head.concat(reorderFlatStops(second,
+          seam ? {lat: seam.lat, lng: seam.lng} : home, home));
+      };
       /* The cluster is aimed at the far houses so it finishes on that side,
          rather than finishing wherever and then crossing back over itself. */
-      const toward = stopsCentre(split.out);
-      const core = reorderFlatStops(split.core, home, toward);
-      const last = core.length ? core[core.length - 1] : null;
-      const tail = reorderFlatStops(split.out,
-        last ? {lat: last.lat, lng: last.lng} : home, home);
-      ordered = core.concat(tail, bare);
+      const farLast = runFrom(split.core, split.out, toward);
+      const farFirst = runFrom(split.out, split.core, outward);
+      ordered = (tourMiles(farFirst, home, home) <
+                 tourMiles(farLast, home, home) - FAR_FIRST_MARGIN_MILES
+        ? farFirst : farLast).concat(bare);
     }
   }
   catch(err){ console.error('Route order failed:', err); return houses; }
@@ -62544,8 +64478,15 @@ function renderPanelInto(elId,day){
            holding a sheet for, and it has to stay on screen saying so. */
         h+='<div class="routehead spare">Not on either crew\u2019s route<span>'+g.houses.length+' stop'+(g.houses.length===1?'':'s')+' · nobody is holding a sheet for '+(g.houses.length===1?'it':'them')+'</span></div>';
       } else {
+        /* ⭐ A RUN ONE PERSON SHOULD BE DOING SAYS SO HERE ([[SCH-69]]). This heading is
+           what the office reads when it decides who is going out, so a run of one house
+           beside a run of twenty has to be visibly different — otherwise four people are
+           rostered for it and Dax is paying a crew to drive sixty miles for one house. */
+        const solo=(typeof crewIsOneMan==='function') && crewIsOneMan(day, g.crew||0);
         h+='<div class="routehead">Route '+((g.crew||0)+1)+' · '+esc(g.label)+
-           '<span>'+esc(crewCityFor(g.crew||0,day)||'no town')+' · '+g.houses.length+' stop'+(g.houses.length===1?'':'s')+'</span></div>';
+           (solo?'<span class="newbadge">1 MAN</span>':'')+
+           '<span>'+esc(crewCityFor(g.crew||0,day)||'no town')+' · '+g.houses.length+' stop'+(g.houses.length===1?'':'s')+
+           (solo?' · one person, not a crew':'')+'</span></div>';
       }
       h+=g.houses.map(function(x,k){ return stopHTML(x,k+1,day.id); }).join('');
     });
@@ -62952,9 +64893,40 @@ function renderOneMan(){
       ((d.houses || []).length === 1 ? '' : 's') + '</b> \u00b7 ' +
       esc(towns.join(' \u00b7 ') || 'no town') + '</div></div></div>' + who;
   }).join('');
+  /* ⭐ AND THE THIN RUNS HIDING BESIDE FULL ONES ([[SCH-69]], 2026-09-10). Dax: "if
+     someone is way out of the way as an outlier they should fall into a one man day so
+     a full crew isnt being paid to go that far out."
+     ⚠ THIS TAB LISTED WHOLE DATES ONLY, which is why Levan never reached it: one house
+     sixty miles south, sharing its date with a twenty-house run, so the DATE holds
+     twenty-one and reads as ordinary work. The run is what one person does, and it is
+     what has to be visible here — otherwise the office rosters a crew for it and this
+     tab, the one place that exists to stop exactly that, says nothing.
+     ⚠ SEPARATE FROM THE DAYS ABOVE, not merged into them: those are dates where nobody
+     else is working, and these are dates where somebody is. They are rostered
+     differently and reading them as one list would hide that. */
+  const runs = (typeof oneManCrewRuns === 'function') ? oneManCrewRuns() : [];
+  let runRows = '';
+  if(runs.length){
+    runRows = '<div class="grouph">On a day somebody else is also working</div>' +
+      '<div class="traynote">These are not whole days — another crew is out that date.' +
+      ' Each one is a run small enough for one person, so it needs one person rostered' +
+      ' rather than a crew.</div>' +
+      runs.map(function(r){
+        const dt = dayDate(r.day), lab = dlabel(dt);
+        const towns = [...new Set(r.houses.map(cityOf).filter(Boolean))];
+        return '<div class="newrow"><div class="who">' + esc(lab.wd + ' ' + lab.full) +
+          '<span class="newbadge">1 MAN</span></div><div class="meta"><b>' +
+          r.houses.length + ' house' + (r.houses.length === 1 ? '' : 's') + '</b> \u00b7 ' +
+          esc(towns.join(' \u00b7 ') || 'no town') + ' \u00b7 ' +
+          esc(crewName(r.crew)) + '</div></div>';
+      }).join('');
+  }
+  const runHouses = runs.reduce(function(a, r){ return a + r.houses.length; }, 0);
   el.innerHTML = lead + '<h3>' + days.length + ' day' + (days.length === 1 ? '' : 's') +
     ' \u00b7 ' + total + ' house' + (total === 1 ? '' : 's') +
-    ' <span class="cnt">' + days.length + '</span></h3>' + rows;
+    (runs.length ? ' \u00b7 and ' + runs.length + ' run' + (runs.length === 1 ? '' : 's') +
+      ' beside other work (' + runHouses + ' house' + (runHouses === 1 ? '' : 's') + ')' : '') +
+    ' <span class="cnt">' + (days.length + runs.length) + '</span></h3>' + rows + runRows;
 }
 function renderCrewBar(){
   const bar=RT.getElementById('crewBar'); if(!bar) return;
@@ -64624,6 +66596,48 @@ function isOneManDay(day){
   if(dayLimitFor(day) === 'man') return true;
   return n <= oneManMaxHouses();
 }
+/* ⭐ AND ONE PERSON IS A PROPERTY OF A CREW’S RUN, NOT ONLY OF A DATE ([[SCH-69]],
+   2026-09-10). Dax: "if someone is way out of the way as an outlier they should fall
+   into a one man day so a full crew isnt being paid to go that far out."
+
+   ⚠ isOneManDay ASKS ABOUT THE WHOLE DATE, and that is the hole he was pointing at.
+   Levan comes out as a crew-day of ONE house — but it shares its date with a full
+   twenty-house run somewhere else, so the DATE holds twenty-one, isOneManDay is false,
+   and the office rosters two full crews. One of them drives sixty miles to hang one
+   house. The date is not the thing being paid for; the crew is.
+
+   ⚠ IT DOES NOT REPLACE THE DAY RULE, IT COMPLETES IT. A date that is wholly one-man
+   is still one-man for every purpose it always was — dayCrewCount, the badge, the tab.
+   This only answers the narrower question the sheets need: is THIS run one person?
+
+   ⚠ AND IT PREDATES THE GRID. A thin crew-day riding alongside a full one is what the
+   town container did with Levan too; [[SCH-63]] did not cause it and [[SCH-69]] is not
+   a repair of it. */
+function crewIsOneMan(day, i){
+  if(!day || day.isFixRoute || day.isTakedown) return false;
+  if(typeof isOneManDay === 'function' && isOneManDay(day)) return true;
+  if(typeof crewHousesFor !== 'function') return false;
+  const n = (crewHousesFor(i, day) || []).length;
+  /* an empty run is nobody’s day, not one person’s */
+  return n > 0 && n <= oneManMaxHouses();
+}
+/* Every crew-run this season that one person should be doing, as {day, crew, houses}.
+   Worked out at render time like oneManDays, never stored — a run that fills up leaves
+   the list on the next draw and one that empties joins it. */
+function oneManCrewRuns(){
+  if(typeof installDays !== 'function') return [];
+  const out = [];
+  installDays().forEach(function(day){
+    /* a wholly one-man DAY is already listed as itself; this is for the thin run
+       hiding beside a full one */
+    if(typeof isOneManDay === 'function' && isOneManDay(day)) return;
+    crewIndexes().forEach(function(i){
+      const mine = (typeof crewHousesFor === 'function') ? (crewHousesFor(i, day) || []) : [];
+      if(mine.length && mine.length <= oneManMaxHouses()) out.push({day: day, crew: i, houses: mine});
+    });
+  });
+  return out;
+}
 function oneManDays(){
   if(typeof installDays !== 'function') return [];
   return installDays().filter(isOneManDay);
@@ -64908,7 +66922,11 @@ function rehomeMovedHouses(ids){
   SEASON.filter(function(d){ return !d.isFixRoute && !d.isTakedown && dayStr(d); })
         .forEach(function(day){
     const here = dayStr(day);
-    const adrift = unassignedHousesFor(day);
+    /* ⚠ THE TOWN QUESTION, NOT THE SHEET ONE. Since [[SCH-67]] every house on a day is
+       on some crew's sheet, so unassignedHousesFor is always empty and asking it here
+       would mean never re-homing anybody again. What this needs to know is whether the
+       day's crews actually work the town the customer has moved TO. */
+    const adrift = housesOutsideCrewTowns(day);
     (day.houses || []).slice().forEach(function(h){
       if(!want['' + h.id]) return;
       if(h.isFix || h.isTakedown || h.done) return;
@@ -66182,10 +68200,13 @@ function printNeedsBuildList(){
                  how many bins on there", then, shown where that breaks: "just put how
                  many bins will be needed if it is more than 2 bins."
 
-                 ⚠ THE SHORTHAND IS RIGHT UNTIL 520 FT. A 5000-series number means TWO
-                 OR MORE bins, not exactly two — cnBinsForFeet adds one per 260 ft — so
-                 521 ft is three bins on a 5000 number and 781 ft is four. Everything up
-                 to 520 reads correctly off the customer number, which is why this says
+                 ⚠ THE SHORTHAND IS RIGHT UNTIL TWO BINS’ WORTH OF FEET, AND THAT FIGURE
+                 MOVES. A 5000-series number means TWO OR MORE bins, not exactly two —
+                 cnBinsForFeet adds one per CN_DOUBLE_BIN_FEET — so a house a foot past
+                 two bins is three on a 5000 number, and one past three bins is four.
+                 Everything below that reads correctly off the customer number, and no
+                 number is written out here because the cutoff has moved twice already
+                 (200, then 260, then 320 on 2026-09-10). That is why this says
                  nothing on the ordinary rows: a column that repeats what the number
                  already tells them is a column that stops being read.
 

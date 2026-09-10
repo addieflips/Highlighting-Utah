@@ -22,6 +22,10 @@ const path = require('path');
 
 const admin = fs.readFileSync(path.join(__dirname, 'admin.html'), 'utf8');
 const emp = fs.readFileSync(path.join(__dirname, 'employee.html'), 'utf8');
+/* The server and the public page, for [[WH-28]]: the $30 fee is decided in three files and
+   all three had to be brought to the same rule about where a house's colours live. */
+const fns = fs.readFileSync(path.join(__dirname, 'functions', 'index.js'), 'utf8');
+const idx = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -118,6 +122,53 @@ check('and a house with genuinely nothing still has nothing',
 /* ⚠ AND THE READERS MUST ASK IT. A helper nothing calls fixed nothing — these four are
    the ones that were wrong, and the colour totals are the expensive one because those
    totals are what gets ORDERED. */
+/* ⭐ AND THE SIXTH READER IS THE $30 FEE ([[WH-28]], 2026-09-10). Addie: "there are member
+   that did light changes but are not showing 30 dollar fee on there account."
+   ⚠ SAME FAULT AS THE FIVE BELOW, IN THE ONE PLACE THAT COSTS MONEY. `oldLightsForBuild` read
+   `lightsDescription` alone, so every ordinary house — colours in `lightColors`, description
+   empty, which is what the master-sheet sync writes — looked as though it had NO colours. And
+   `applyLightChange`'s own rule is that filling colours in for the first time is not a change
+   and is not charged. So the whole imported book could change its lights for free.
+   ⚠ THE RULE ITSELF IS UNTOUCHED and money-parity still sweeps it: what was wrong is what the
+   caller handed it. */
+check('the $30 light-change fee reads both colour fields',
+  /const oldLightsForBuild = houseLightsText\(item\.data\)/.test(admin),
+  'reading lightsDescription alone let every ordinary house change colours for free');
+check('and the server side of the same fee does too',
+  /oldLights: houseLightsTextServer\(oldData\)/.test(fns),
+  'the portal is where a member actually changes them, so this is the half that was live');
+/* ⚠ AND THE TWO COPIES HAVE TO AGREE, or the office and the portal charge different people.
+   Compared as CODE with the comments stripped — the twin of the parity rule for the maths. */
+{
+  /* ⚠ SPACING AROUND PUNCTUATION IS NORMALISED, WORDS ARE NOT. The two files keep different
+     brace styles on purpose (`if(desc)` here, `if (desc)` there), and the claim being made is
+     that they DECIDE the same thing, not that they are typed the same. Space between two word
+     characters is left alone, so `return desc` can never collapse into something else. */
+  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '')
+                        .replace(/\s+/g, ' ')
+                        .replace(/\s*([^\w$\s])\s*/g, '$1').trim();
+  const A = strip(fn('houseLightsText'));
+  const B = strip((function(){
+    const i = fns.indexOf('function houseLightsTextServer(');
+    let j = fns.indexOf('{', i), d = 0;
+    for(; j < fns.length; j++){
+      if(fns[j] === '{') d++;
+      else if(fns[j] === '}'){ d--; if(!d) return fns.slice(i, j + 1); }
+    }
+    return '';
+  })()).replace('houseLightsTextServer', 'houseLightsText');
+  check('the browser and server copies of "what colours has this house" agree',
+    !!A && !!B && A === B,
+    'they decide the same $30:\n    admin : ' + A + '\n    server: ' + B);
+}
+/* ⚠ AND THE PORTAL'S OWN PICKER READS BOTH, which is what makes charging for it FAIR. It
+   filled from the description alone, so a customer with colours opened it showing nothing
+   selected — charging them for "filling in a blank" would have been the same bug wearing a
+   bill. */
+check('the portal colour picker falls back to the colour list',
+  /if\(!parsedColors\.length\)\{[\s\S]{0,400}lightColors/.test(idx),
+  'they must be able to see what they already have before they are charged for changing it');
+
 [['whBuildQueueGroups', 'the build queue'],
  ['computeColorDemand', 'the colour totals — this is what gets ORDERED'],
  ['computePendingHouseCount', 'the pending count'],
@@ -392,6 +443,104 @@ console.log('  ' + w('value', 26) + w('import reads', 28) + 'warehouse groups as
   check('a timer change still queues the house, which is what puts it on the list',
     /WAREHOUSE_BUILD_FIELDS = \['lightsDescription', 'wireColor', 'outletTimer'\]/.test(admin),
     'drop outletTimer there and a timer added after the bundle is built reaches nobody');
+
+  /* -----------------------------------------------------------------------
+   * ⭐ AND A TIMER ON ITS OWN IS NOT A BUILD AT ALL ([[WH-27]], 2026-09-09)
+   * Addie, shown that those five houses were queued by a timer change: "can you fix
+   * those." The half above stopped the timer being LOST. This half stops the house
+   * being parked: nothing is being made up for them, so there are no colours to wait
+   * for, and "Nothing can be made up until somebody fills them in" was simply false
+   * about them — it sent the office to chase an answer that does not exist.
+   * --------------------------------------------------------------------- */
+  {
+    const only = runQueue([
+      {id:'t', data:{name:'Timer Only', needsTimerOnly:true, outletTimer:'Yes', wireColor:'White'}}
+    ]);
+    check('a house queued for a timer alone still reaches the timer list',
+      (only.timerHouses || []).map(i => i.data.name).indexOf('Timer Only') !== -1,
+      'the timer is the whole of what that house needs');
+    check('and is NOT waiting on light colours',
+      (only.blocked || []).length === 0,
+      'nobody is waiting on any colours, because nobody asked for lights: ' +
+      (only.blocked || []).map(i => i.data.name).join(', '));
+    check('and nothing is built for them',
+      only.keys.length === 0, 'a timer is not a bundle');
+
+    /* ⚠ THE EXPENSIVE DIRECTION, asserted on its own. A real build must never be
+       suppressed by the timer flag — the flags are an OR and the build wins. A stale
+       needsTimerOnly costs one extra row on a list; a build silently dropped costs a
+       crew standing at a house with nothing for it. */
+    const both = runQueue([
+      {id:'b', data:{name:'Both', needsLightBuild:true, needsTimerOnly:true,
+                     outletTimer:'Yes', wireColor:'White'}}
+    ]);
+    check('a house carrying BOTH flags is a build, not a timer job',
+      (both.blocked || []).map(i => i.data.name).indexOf('Both') !== -1,
+      'the build flag wins on its own: ' + JSON.stringify(both.keys));
+
+    /* ⚠ AND THE FLAG CANNOT DRAG SOMEBODY BACK INTO THE SEASON. isOutForSeason is asked
+       before either queue, so a house sitting the season out is on no list whatever it
+       carries — the same rule the build flag has followed since 2026-08-22. */
+    const outQ = (() => {
+      const sb = {};
+      new Function('jobAddresses', 'warehouseExtras', 'isOutForSeason', 'houseLightsText',
+        'whGroupKey', 'houseBundleNeed', 'whBinsForHouse', 'whBuildReasonKey', 'cnBinsForFeet',
+        fn('whBuildQueueGroups') + 'this.run = whBuildQueueGroups;')
+        .call(sb, [{id:'o', data:{name:'Gone', needsTimerOnly:true, outletTimer:'Yes'}}], [],
+          () => true, (d) => d.lightsDescription || '', (l, w) => l + '|' + w,
+          () => 0, () => 1, () => '', () => 1);
+      return sb.run();
+    })();
+    check('a timer-only house sitting the season out is on no list',
+      (outQ.timerHouses || []).length === 0 && (outQ.blocked || []).length === 0,
+      'nothing gets built OR fitted for somebody who is not having lights this year');
+
+    /* ⚠ AND THE WAY OUT OF THE LIST EXISTS. A timer-only house is in no colour group, so
+       the group's Mark Done can never reach it — without a control of its own it would
+       sit there for ever, which is the shape of bug this whole entry is about. */
+    check('a timer-only row can be finished from the timer list',
+      /data-whtimerdone=/.test(admin) && /needsTimerOnly: false/.test(admin),
+      'no colour group means no Mark Done — it needs one of its own');
+    /* ⚠ AND THE HOUSES ALREADY PARKED CAN BE MOVED. The write-site fix only reaches the
+       NEXT one; a fix that cannot reach the case that prompted it is not finished. */
+    check('an already-parked house can be marked timer-only from the blocked row',
+      /data-whtimeronly=/.test(admin),
+      'the five she was looking at carry no flag and would stay blocked for ever');
+
+    /* ⚠ AND THE WRITE-SIDE RULE IS RUN, NOT READ. It is its own function precisely so it
+       can be: written inline in the ~36,000-character save handler the only thing a suite
+       could do was match its text, which this repo has been burned by three times. */
+    const timerOnly = new Function('return ' + fn('whTimerOnlyQueue') + ';whTimerOnlyQueue')();
+    const OLD = {outletTimer:'No'};
+    check('a timer switched on, alone, on a colourless house is a timer job',
+      timerOnly(OLD, {outletTimer:'Yes'}, ['outletTimer'], '') === true);
+    check('a WIRE change is still a build',
+      timerOnly(OLD, {wireColor:'Green'}, ['wireColor'], '') === false,
+      'holes C and D are not reversed — a wire change genuinely needs the bundle remade');
+    /* ⚠ AND THE FIXTURE THAT ACTUALLY BITES. The one above passes whether the field is
+       tested or not, because its record has no timer — so the timer-value test answers
+       first and the check proves nothing about the field name. It takes a house whose
+       timer is ALREADY Yes, having its wire changed: exactly the shape where dropping the
+       field test would route a real rebuild into the timer queue and no bundle would ever
+       be made. Found by the red-check reporting this sabotage as MISSED. */
+    check('a wire change on a house that already has a timer is still a build',
+      timerOnly({outletTimer:'Yes', wireColor:'White'}, {wireColor:'Green'}, ['wireColor'], '') === false,
+      'the field that changed decides, not the value the timer happens to hold');
+    check('a timer change alongside anything else is still a build',
+      timerOnly(OLD, {outletTimer:'Yes', wireColor:'Green'}, ['outletTimer','wireColor'], '') === false);
+    check('a timer change on a house that HAS colours is still a build',
+      timerOnly(OLD, {outletTimer:'Yes'}, ['outletTimer'], 'Red, Warm White') === false,
+      'that house is in a real build group and always was; only the case she reported moves');
+    /* ⚠ TURNING A TIMER OFF KEEPS TODAY'S BEHAVIOUR, deliberately. `timerHouses` only ever
+       collects Yes, so routing a removal here would drop it off every screen silently —
+       worse than the untidiness this fixes. Flagged to Addie rather than guessed at. */
+    check('turning a timer OFF is left exactly as it was',
+      timerOnly({outletTimer:'Yes'}, {outletTimer:'No'}, ['outletTimer'], '') === false,
+      'the warehouse still has to be told to take one out, and only the build queue says so');
+    check('and it never fires when a build is already being queued by the same save',
+      timerOnly(OLD, {outletTimer:'Yes', needsLightBuild:true}, ['outletTimer'], '') === false,
+      'a build owed for another reason wins — the flags are an OR and the build is the safe side');
+  }
 }
 
 console.log('');

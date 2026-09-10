@@ -114,6 +114,17 @@ jobs:
       - name: The gate code reaches the record (server side)
         run: npm run test:gatecode
 
+      # Addie, 2026-09-10: "changing gate code or phone number should not notify
+      # us", and "you should have to apply changes in order for it to go to
+      # requote." The claim that actually needs a named failure is a NEGATIVE —
+      # the move door writes NO address, town or map pin, because there is no
+      # geocoder on the server and the town is what a crew-day is grouped by.
+      # Applied here, a customer sits at the new house with the old house's pin,
+      # on the old town's day, with a frozen route stop rewritten underneath the
+      # crew. Buried in npm test that reads as a generic failure.
+      - name: Moving house is recorded, never applied
+        run: npm run test:move
+
       # Addie, 2026-09-01: "turn everyone that hasn't paid from last year or is
       # 60 days over there payment as red for there card." A card that reddens
       # too early is one the office learns to scroll past, so the thresholds

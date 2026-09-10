@@ -1283,6 +1283,16 @@ check('the path still has every step in it',
       'the × — our own bookkeeping about a line on a bill, and nothing that happened to ' +
       'either customer',
 
+    /* ⚠ THE STAGE IS REAL AND IS ALREADY ON THE PATH UNDER ANOTHER NAME. portalChangeAddress
+       writes this in the SAME update as seasonStatus going to 'address_changed', and that
+       goes through stampSeasonStatusServer — so `seasonStatusAt` dates this very moment,
+       is a step above, and historySeasonWords already reads it as "They told us their
+       address changed". Listing both would put two rows on the history for one event, and
+       the second would carry no words of its own. */
+    pendingAddressAt: 'the moment a customer tells the portal they have moved — the same ' +
+      'update sets seasonStatus to address_changed, so seasonStatusAt is the step and the ' +
+      'history already names it; this is the bookkeeping date on the pending request',
+
     /* --- the crew portal, dormant this season --- */
     fixFlaggedAt: 'the crew portal raising a fault; fixRaisedAt is the step, and the portal ' +
       'is not in use this season',

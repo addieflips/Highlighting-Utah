@@ -1152,31 +1152,44 @@ check('logic', 'statusClass maps each status to a pill colour',
   statusClass('Partial Payment') === 'status-partial' &&
   statusClass('Unpaid') === 'status-due');
 
-check('logic', 'the bin cutoff is 260 feet, not 200',
-  CN_DOUBLE_BIN_FEET === 260,
-  'some UI text and older notes say 200 — the code has always used 260');
-check('logic', '260 feet is still one bin',
-  cnBinsForFeet(260) === 1, 'the cutoff is "over 260", so 260 itself stays single-bin');
-check('logic', '261 feet needs two bins', cnBinsForFeet(261) === 2);
+/* ⭐ 320 SINCE 2026-09-10 ([[WH-29]]). Addie: "lets change feet to 320 feet in order to have
+   two bins." It was 260 before that and 200 in older notes, so the exact value is asserted
+   here and NOWHERE typed out for itself in the app — every screen and every warning reads
+   CN_DOUBLE_BIN_FEET, which is the only reason a change like this is one line.
+   ⚠ THE BOUNDARY CASES ARE WRITTEN OUT ON PURPOSE, not derived from the constant. Derived,
+   they would pass whatever the constant said and prove nothing about the rule; these are the
+   arithmetic somebody would check by hand against a real roofline. */
+check('logic', 'the bin cutoff is 320 feet',
+  CN_DOUBLE_BIN_FEET === 320,
+  'it was 260 until 2026-09-10 and 200 in older notes — if this fails, say which it is now');
+check('logic', '320 feet is still one bin',
+  cnBinsForFeet(320) === 1, 'the cutoff is "over 320", so 320 itself stays single-bin');
+check('logic', '321 feet needs two bins', cnBinsForFeet(321) === 2);
 check('logic', 'blank or junk feet does not become a two-bin house',
   cnBinsForFeet(0) === 1 && cnBinsForFeet('') === 1 &&
   cnBinsForFeet(null) === 1 && cnBinsForFeet('abc') === 1);
-/* Bins go up in 260s now instead of stopping at two — a house needs another bin
-   for every 260 feet. The boundary has NOT moved (260 is still one bin, 261 is
-   still two), so nobody already on the books changes bin count or customer
-   number; the only houses that come out differently are the ones over 520 feet,
-   which used to be capped at 2 bins no matter how big they were. Those get the
-   bins they actually need. */
-check('logic', '520 feet is still two bins',
-  cnBinsForFeet(520) === 2, 'the second bin covers up to 520 — two lots of 260');
-check('logic', '521 feet needs three bins',
-  cnBinsForFeet(521) === 3,
-  'a house past 520 ft used to be capped at 2 bins, so the warehouse built short');
-check('logic', '780 feet is three bins and 781 is four',
-  cnBinsForFeet(780) === 3 && cnBinsForFeet(781) === 4);
-check('logic', 'bins never exceed one per 260 feet',
-  [1, 259, 260, 261, 400, 520, 521, 900, 1500].every(f => cnBinsForFeet(f) === Math.max(1, Math.ceil(f / 260))),
+/* Bins go up in 320s — a house needs another bin for every 320 feet.
+   ⚠ THE HOUSES ALREADY ON THE BOOKS DO NOT MOVE. `numberOfBins` is STORED, written by
+   cnBinsForFeet at the moment a footage is saved, so raising the cutoff re-counts nobody —
+   and it must not, because their bins are physically labelled and their numbers painted on.
+   A house between 261 and 320 ft is stored as 2 bins on a 5000-series number and would now
+   work out as 1 on a regular one; it keeps what it has until somebody re-saves its footage
+   deliberately. That is a decision about real boxes on real shelves. */
+check('logic', '640 feet is two bins',
+  cnBinsForFeet(640) === 2, 'the second bin covers up to 640 — two lots of 320');
+check('logic', '641 feet needs three bins',
+  cnBinsForFeet(641) === 3,
+  'a house past the second bin used to be capped at 2, so the warehouse built short');
+check('logic', '960 feet is three bins and 961 is four',
+  cnBinsForFeet(960) === 3 && cnBinsForFeet(961) === 4);
+check('logic', 'bins never exceed one per 320 feet',
+  [1, 319, 320, 321, 400, 640, 641, 900, 1500].every(f => cnBinsForFeet(f) === Math.max(1, Math.ceil(f / 320))),
   'the bin count and the warehouse bundle count would disagree about the same house');
+/* ⚠ AND THE OLD BOUNDARY IS NOW INSIDE ONE BIN, which is the whole point of the change and
+   the thing most likely to be "fixed" back by somebody reading an old note. */
+check('logic', '261 feet is one bin now, not two',
+  cnBinsForFeet(261) === 1,
+  'this is what changed on 2026-09-10 — it was the first two-bin house under the 260 rule');
 check('logic', 'a huge measurement does not produce a silly bin count',
   cnBinsForFeet(-50) === 1, 'negative feet is a typo, not a zero-bin house');
 
@@ -1850,7 +1863,7 @@ check('logic', 'footage estimate then bundles up',
  * everyday values and the one that used to be wrong. */
 check('logic', 'bins: 200 ft is 1 bin (real cnBinsForFeet, not a local copy)',
   cnBinsForFeet(200) === 1);
-check('logic', 'bins: 201 ft is STILL 1 bin — the cutoff is 260, not 200',
+check('logic', 'bins: 201 ft is STILL 1 bin — the cutoff has never been 200',
   cnBinsForFeet(201) === 1,
   'if this fails the bin cutoff moved back to 200 — check CN_DOUBLE_BIN_FEET in js/money.js');
 check('logic', 'bins: 400 ft is 2 bins', cnBinsForFeet(400) === 2);
@@ -1981,8 +1994,11 @@ if (JSDOM) {
   // "this customer has been deleted since", which is the fall-through case; the
   // re-quote checks below fill it in for the case that actually matters.
   global.jobAddresses = [];
-  global.CN_DOUBLE_BIN_FEET = 260;
-  global.cnBinsForFeet = f => (Number(f) > 0 ? Math.ceil(Number(f) / 260) : 0);
+  global.CN_DOUBLE_BIN_FEET = CN_DOUBLE_BIN_FEET;
+  /* ⚠ DERIVED FROM THE REAL CONSTANT, never typed. Two copies of the bin cutoff is how a
+     sandbox goes on passing against a rule the app no longer has — it sat at 260 for a day
+     after the app moved to 320 ([[WH-29]]). */
+  global.cnBinsForFeet = f => (Number(f) > 0 ? Math.ceil(Number(f) / CN_DOUBLE_BIN_FEET) : 0);
   global.requoteBeingConverted = null;
   /* ⚠ THE HELPERS quoteChargesSetupFee NOW REACHES FOR (added 2026-08-24). The join-fee
      rule started asking whether the house is already on the books, and this sandbox
@@ -2382,15 +2398,15 @@ if (JSDOM) {
         popup().textContent.includes('$480.00') && popup().textContent.includes('$615.00'),
         'a price change nobody can see before pressing the button is a price change nobody checks');
 
-      /* ⚠ THE 260 LINE, SAID BEFORE THE FORM OPENS. Owner: "hold everything as
-         long as they stay below 260 feet", "if they go above 260 feet hold what you
-         can". #541 is a regular number; 300 ft is 2 bins, which is the 5000 series
+      /* ⚠ THE BIN LINE, SAID BEFORE THE FORM OPENS. Owner: "hold everything as
+         long as they stay below [the cutoff] feet", "if they go above ... hold what you
+         can". #541 is a regular number; 400 ft is 2 bins, which is the 5000 series
          — so the number is the one thing that cannot be held, and that is worth
          knowing before the form is filled in rather than as a confirm box halfway
          through saving. */
       closePopup();
       showConvertQuoteChoice('q-re2', Object.assign({}, full, {
-        existingCustomerId: 'cust1', chargeSetupFee: undefined, estimatedFeet: 300
+        existingCustomerId: 'cust1', chargeSetupFee: undefined, estimatedFeet: 400
       }));
       check('render', 'and warns when the new footage outgrows their number',
         popup().textContent.includes('no longer matches') &&
@@ -8626,12 +8642,28 @@ suite('15. The printed schedule sheet');
     check('schedule', 'a city pinned to a crew wins over Auto',
       crew.city(0, dayA) === 'Alpine' && crew.city(1, dayA) === 'Lehi',
       'a business that always works the same two towns should be able to say so once');
-    check('schedule', 'each crew only gets their own city\'s stops',
-      crew.houses(0, dayA).length === 1 && crew.houses(1, dayA).length === 2,
-      'a crew sheet with somebody else\'s houses on it sends two trucks to one street');
-    check('schedule', 'stops in neither crew\'s city are counted, not dropped',
-      crew.left(dayA).map(h => h.name).join() === 'Four',
-      'a stop nobody holds a sheet for is a stop nobody drives to');
+    /* ⚠ REPOINTED 2026-09-10 BY [[SCH-67]], and the old assertions are written out here
+       so the reversal is legible rather than reading as a weakened test. They were:
+         "each crew only gets their own city’s stops"
+           crew.houses(0, dayA).length === 1 && crew.houses(1, dayA).length === 2
+         "stops in neither crew’s city are counted, not dropped"
+           crew.left(dayA).map(h => h.name).join() === "Four"
+       Dax, reading ten stops under "Not on either crew’s route" after a rebuild: "it is
+       off limits to have anyone scheduled in a day not on either crews routes ... dont
+       design the system so its even possible." A house in neither crew’s town is no
+       longer LEFT anywhere, so what is worth pinning is that it lands on exactly one
+       sheet and that the towns still decide everything else. */
+    check('schedule', "each crew still gets their own city's stops",
+      crew.houses(0, dayA).some(h => h.city === 'Alpine') &&
+      crew.houses(1, dayA).filter(h => h.city === 'Lehi').length === 2,
+      'a crew sheet missing its own town is the split having stopped working');
+    check('schedule', 'and the stop in neither city is carried by one of them, not left out',
+      crew.houses(0, dayA).concat(crew.houses(1, dayA))
+        .filter(h => h.name === 'Four').length === 1,
+      "exactly one sheet, never none and never both");
+    check('schedule', "so nobody on the day is on nobody's sheet",
+      crew.left(dayA).length === 0,
+      'this bucket used to hold the strays; it is the tripwire now and must stay empty');
 
     const rows = crew.rows(dayA, 1);
     check('schedule', 'a crew sheet renumbers the stops from 1 for that crew',
@@ -8640,9 +8672,16 @@ suite('15. The printed schedule sheet');
     check('schedule', 'a crew sheet holds only that crew\'s houses',
       rows.every(r => r.city === 'Lehi'));
     crew.set([{ name: 'A', city: 'Nowhere' }, { name: 'B', city: 'Lehi' }]);
-    check('schedule', 'a crew pinned to a city with nothing in it prints nothing, not everything',
-      crew.rows(dayA, 0).length === 0,
-      'falling back to the whole day would hand them a sheet that is not theirs');
+    /* ⚠ REPOINTED BY [[SCH-67]]. It read:
+         "a crew pinned to a city with nothing in it prints nothing, not everything"
+           crew.rows(dayA, 0).length === 0
+       A crew pinned to a town the day does not hold now carries the houses nobody
+       else’s town covers, because somebody has to. What that was really protecting is
+       that it does NOT fall back to the whole day, and that is still true. */
+    check('schedule', 'a crew pinned to a city with nothing in it does not get the whole day',
+      crew.rows(dayA, 0).length < dayA.houses.length &&
+      crew.rows(dayA, 0).every(r => r.city !== 'Lehi'),
+      "falling back to the whole day would hand them a sheet that is not theirs, and the other crew's own town is the part that must never move");
     crew.set(null);
   }
 }
@@ -9130,6 +9169,12 @@ suite('17. A new customer lands on the next day in their city');
                   'normInstallPref','prefSpecificDate','prefNamedFloor',
                   'formatDateNice','routeCityOf','findNextRouteDayInCity','customerToStop',
                   'haversine','twoOptImprove','reorderFlatStops','nextDayStr',
+                  /* ⚠ THE ORDERER GREW A SECOND PASS (2026-09-10). reorderFlatStops now
+                     alternates 2-opt with OR-OPT and prices the tour with tourMiles, so a
+                     sandbox holding only the old two names dies on a bare ReferenceError
+                     inside the sweep — which is caught, so the whole reconcile pass just
+                     stops, exactly the failure Suite 24 exists to prevent. */
+                  'orOptImprove','tourMiles',
                   /* isOutForSeason lives up with the install-timing helpers, far
                      above the sweep, so it has to be lifted in by name. The REAL
                      one, not a stub — who the fill is allowed to schedule is the
@@ -12052,7 +12097,14 @@ suite('Suite 24. A day with nothing left in it does not abort the sweep');
     const sandbox = {};
     new Function(
       'function haversine(a,b,c,d){ return Math.abs((a||0)-(c||0)) + Math.abs((b||0)-(d||0)); }\n' +
-      'function twoOptImprove(o){ return o; }\n' + body +
+      'function twoOptImprove(o){ return o; }\n' +
+      /* ⚠ OR-OPT IS THE REAL ONE, NOT A THIRD STUB (2026-09-10). twoOptImprove is stubbed
+         on purpose — this suite is about what reorderFlatStops does with a hole and with a
+         house that has no map pin, and the fake haversine above says as much. But or-opt
+         is the pass that now REBUILDS the array in place, so if it ever mishandled the
+         un-pinned tail an identity stub would hide it. It only needs haversine, which is
+         right there. */
+      extractFn(admin, 'orOptImprove') + '\n' + extractFn(admin, 'tourMiles') + '\n' + body +
       '\nthis.reorderFlatStops = reorderFlatStops;'
     ).call(sandbox);
     const reorder = sandbox.reorderFlatStops;
@@ -22709,15 +22761,23 @@ suite('Suite 93. Two crews, two towns, twenty each');
       'got ' + sizes(tightOut) + ' — on an overloaded day the crew that was ' +
       'already over stays the one that is over');
 
-    /* ⚠ A HOUSE IN NEITHER CREW'S TOWN STAYS IN NEITHER. */
+    /* ⚠ REPOINTED 2026-09-10 BY [[SCH-67]]. This read:
+         "a house in a town neither crew works is left unassigned"
+           strayOut.reduce((n, x) => n + x.length, 0) === 5
+       — five of seven placed, the two in Nowhere left for the panel to report. Dax: "it
+       is off limits to have anyone scheduled in a day not on either crews routes." All
+       seven are carried now, and what is worth pinning instead is that carrying them
+       did not disturb the five the towns had already placed. */
     const stray = dayOf(
       Array.from({length: 5}, (_, i) => house('L' + i, 'Lehi')),
       [house('X1', 'Nowhere'), house('X2', 'Nowhere')]);
     const strayOut = run(stray, towns, 20);
-    check('S93', 'a house in a town neither crew works is left unassigned',
-      strayOut.reduce((n, x) => n + x.length, 0) === 5,
-      'it has to stay visible as nobody' + String.fromCharCode(8217) + 's, rather than being ' +
-      'quietly absorbed onto a sheet');
+    check('S93', 'a house in a town neither crew works is still carried by somebody',
+      strayOut.reduce((n, x) => n + x.length, 0) === 7,
+      'got ' + strayOut.reduce((n, x) => n + x.length, 0) + ' of 7 — a customer on a day with nobody holding their sheet is the fault this closed');
+    check('S93', 'and the five the towns placed are still where the towns put them',
+      strayOut[0].filter(h => h.city === 'Lehi').length === 5,
+      'the catch-all must add to the split, never reshuffle it');
 
     /* ⚠ ONE CREW ONLY: nothing to hand anything to. */
     const solo = run(dayOf(Array.from({length: 25}, (_, i) => house('L' + i, 'Lehi')), []),
@@ -24109,8 +24169,8 @@ suite('Suite 104. The Printing tab');
       )();
 
       check('S104', 'the bin count is the real bin rule, not a second one',
-        sb.b({ measuredFeet: 260 }) === '1' && sb.b({ measuredFeet: 261 }) === '2' &&
-        sb.b({ measuredFeet: 521 }) === '3',
+        sb.b({ measuredFeet: 320 }) === '1' && sb.b({ measuredFeet: 321 }) === '2' &&
+        sb.b({ measuredFeet: 641 }) === '3',
         'the crew loading two bins for a house the warehouse built one for is a van ' +
         'that leaves without half the lights');
       /* ⚠ BLANK, NEVER "1". cnBinsForFeet floors at 1, so an unmeasured house would
@@ -24119,17 +24179,19 @@ suite('Suite 104. The Printing tab');
       check('S104', 'a house nobody has measured prints nothing, not a confident 1',
         sb.b({}) === '' && sb.b({ measuredFeet: 0 }) === '',
         'got ' + JSON.stringify(sb.b({})));
+      /* ⚠ 400 FT, NOT 300 ([[WH-29]]). 300 was two bins under the 260 rule and is one under
+         320, so the fixture would have gone on passing while testing a single-bin house. */
       check('S104', 'a moved bin label is named beside the count',
-        sb.b({ measuredFeet: 300, customerNumber: '5051', binLabelNumber: '894' })
+        sb.b({ measuredFeet: 400, customerNumber: '5051', binLabelNumber: '894' })
           .indexOf('bin says #894') !== -1,
         'the Cust # column is exactly the number that will not be found');
       /* ⚠ AND ONLY WHEN IT REALLY MOVED. Stamping every row with a bin number the
          crew can already read off the Cust # column is noise, and noise in a column
          is how the one row that matters stops being noticed. */
       check('S104', 'and stays quiet when it did not move',
-        sb.b({ measuredFeet: 300, customerNumber: '894', binLabelNumber: '894' }) === '2' &&
-        sb.b({ measuredFeet: 300, customerNumber: '894' }) === '2',
-        'got ' + JSON.stringify(sb.b({ measuredFeet: 300, customerNumber: '894',
+        sb.b({ measuredFeet: 400, customerNumber: '894', binLabelNumber: '894' }) === '2' &&
+        sb.b({ measuredFeet: 400, customerNumber: '894' }) === '2',
+        'got ' + JSON.stringify(sb.b({ measuredFeet: 400, customerNumber: '894',
           binLabelNumber: '894' })));
 
       check('S104', 'a gate code reaches the printed sheet',
@@ -24549,7 +24611,7 @@ suite('Suite 104. The Printing tab');
       useEaves: true, outletTimer: 'Yes', notes: 'gate 4321'}},
     {crew: 0, id: 'h2', cust: {customerNumber: '12', name: 'B', street: '2 St'}},
     {crew: 1, id: 'h3', cust: {customerNumber: '21', name: 'C', street: '3 St', outletTimer: 'Yes',
-      gateCode: '4412', houseSides: 3, measuredFeet: 300,
+      gateCode: '4412', houseSides: 3, measuredFeet: 400,
       specificOutletNotes: 'lower outlet by door',
       oneTimeNote: 'ring the bell', notes: 'dog in the back'}},
     /* ⚠ THE BIN THAT WEARS THE OLD NUMBER. This customer moved from #894 to the
@@ -24558,9 +24620,12 @@ suite('Suite 104. The Printing tab');
        not be found in the warehouse. Same crew as h3 so it lands on the printed
        sheet under test. */
     {crew: 1, id: 'h5', cust: {customerNumber: '5051', name: 'E', street: '5 St',
-      measuredFeet: 300, binLabelNumber: '894'}}],
+      measuredFeet: 400, binLabelNumber: '894'}}],
     spare: [{id: 'h4', city: 'Levan', cust: {customerNumber: '31', name: 'D',
-      outletTimer: 'Yes', gateCode: '7788', measuredFeet: 600}}]};
+      /* ⚠ 700 FT, NOT 600 ([[WH-29]]). 600 was three bins under the 260 rule and is two under
+         320; the assertion below is on the number 3, so the fixture has to stay a three-bin
+         house or it proves the column is filled with something else. */
+      outletTimer: 'Yes', gateCode: '7788', measuredFeet: 700}}]};
 
   const crewOut = runSheet('crew', aDay);
   const crewBody = ((crewOut[0] || {}).pages || [{}])[0].body || '';
@@ -24682,7 +24747,7 @@ suite('Suite 104. The Printing tab');
       const blk = at === -1 ? '' : dayBody.slice(at);
       return /<td>Yes<\/td>/.test(blk) &&      /* timer  */
              blk.indexOf('<td>7788</td>') !== -1 &&   /* gate   */
-             blk.indexOf('<td>3</td>') !== -1 &&      /* bins — 600 ft */
+             blk.indexOf('<td>3</td>') !== -1 &&      /* bins — 700 ft */
              blk.indexOf('<td>1</td>') !== -1;        /* sides  */
     })(),
     'a column added to the crew builder and not to this one prints a header with ' +
@@ -25304,7 +25369,9 @@ suite('Suite 107. Pricing a re-quote from the popup');
       document: dom.document,
       esc: (x) => String(x == null ? '' : x),
       fmtMoney: (n) => '$' + Number(n || 0).toFixed(2),
-      cnBinsForFeet: (f) => (Number(f) >= 260 ? 2 : 1),
+      /* ⚠ DERIVED FROM THE REAL CUTOFF ([[WH-29]]). Typed out, this stub went on
+         answering the 260 rule after the app moved to 320. */
+      cnBinsForFeet: (f) => (Number(f) > CN_DOUBLE_BIN_FEET ? 2 : 1),
       CN_DOUBLE_BIN_FEET: 260,
       perFootRate: rate,
       openEditCustomerModal: (id) => { opened = id; },
@@ -25979,13 +26046,16 @@ suite('Suite 107. Pricing a re-quote from the popup');
       'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
       /* Lifted with the row builder they belong to: the Bin # column is a COUNT now
          and the customer number rides beside the name. */
-      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= 260 ? 1 : Math.ceil(f / 260); }' +
+      /* ⚠ THE REAL CUTOFF, INTERPOLATED — a second copy of this number is how a sandbox
+         keeps passing against a rule the app no longer has ([[WH-29]]). */
+      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= ' + CN_DOUBLE_BIN_FEET +
+        ' ? 1 : Math.ceil(f / ' + CN_DOUBLE_BIN_FEET + '); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
       extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const rows = sheet([{id: 'a894', data: {name: 'Ashley Wray', customerNumber: '894',
                                             address: '9873 N Sunnybank Pl',
-                                            needsLightBuild: true, measuredFeet: 300}}],
+                                            needsLightBuild: true, measuredFeet: 400}}],
       [], (p, w) => p + '|' + (w || ''), (d) => ({feet: 0, bundles: 1}),
       (w) => String(w || 'white'), () => '', []).rows;
     const blockedRow = rows.filter(function(r){ return r.type === 'Blocked'; });
@@ -25998,13 +26068,13 @@ suite('Suite 107. Pricing a re-quote from the popup');
     /* ⭐ THE CUSTOMER NUMBER MOVED (2026-08-21). Owner: "Bin # is how many bins were
        making for them but costumer # should also show next to costumers name." So the
        identifier is in the Customer column now, and `bins` is a quantity — for a
-       300 ft house, two. */
+       400 ft house, two. */
     check('S107', 'and it still carries the customer number, so somebody can find them',
       blockedRow[0] && /#894/.test(blockedRow[0].what),
       'got ' + JSON.stringify(blockedRow[0] && blockedRow[0].what));
     check('S107', 'and the Bins column is a count, not that number',
       blockedRow[0] && blockedRow[0].bins === '2',
-      '300 ft is two bins - got ' + JSON.stringify(blockedRow[0] && blockedRow[0].bins));
+      '400 ft is two bins - got ' + JSON.stringify(blockedRow[0] && blockedRow[0].bins));
   }
 
   /* ⭐ AND APPLYING A RE-QUOTE IS TWO STEPS, THE SECOND OF WHICH WAS SILENT. Owner:
@@ -27496,7 +27566,10 @@ suite('Suite 112. The number on the bin');
   {
     const rows = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
-      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= 260 ? 1 : Math.ceil(f / 260); }' +
+      /* ⚠ THE REAL CUTOFF, INTERPOLATED — a second copy of this number is how a sandbox
+         keeps passing against a rule the app no longer has ([[WH-29]]). */
+      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= ' + CN_DOUBLE_BIN_FEET +
+        ' ? 1 : Math.ceil(f / ' + CN_DOUBLE_BIN_FEET + '); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
       extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
@@ -27733,7 +27806,10 @@ suite('Suite 108. The Edit Customer save, actually run');
     const o = opts || {};
     const FIELDS = {editCustName: 'Ashley Wray', editCustPhone: '8016160714',
       editCustEmail: 'wraynash@gmail.com', editCustAddress: '9991 Red Cedar Ln, Highland, UT',
-      editCustHousePrice: '600', editCustFeet: '300', editCustNumber: '894',
+      /* ⚠ 400 FT, NOT 300 ([[WH-29]]). This fixture exists to prove the save MOVES them onto
+         the 5000 series, and 300 stopped being two bins when the cutoff went to 320 — it would
+         have gone on passing while proving the opposite. */
+      editCustHousePrice: '600', editCustFeet: '400', editCustNumber: '894',
       editCustRsvp: 'yes'};
     const els = {};
     const elm = (id) => els[id] || (els[id] = {id: id,
@@ -27798,7 +27874,9 @@ suite('Suite 108. The Edit Customer save, actually run');
       console: {error: (a, b) => errs.push(String(a) + ' ' + String(b && b.message || b)),
                 log: () => {}, warn: () => {}},
       logActivity: () => {}, paymentLedgerUser: () => 'test',
-      cnBinsForFeet: (f) => (Number(f) >= 260 ? 2 : 1),
+      /* ⚠ DERIVED FROM THE REAL CUTOFF ([[WH-29]]). Typed out, this stub went on
+         answering the 260 rule after the app moved to 320. */
+      cnBinsForFeet: (f) => (Number(f) > CN_DOUBLE_BIN_FEET ? 2 : 1),
       cnNextAvailable: () => ({number: '5001', fromPool: false}),
       compileLightsDescription: () => (o.lights || ''), computeInvoiceStatus: () => 'Unpaid',
       custInvoiceKey: (d) => String(d.phone || '').replace(/[^0-9]/g, ''),
@@ -27833,6 +27911,23 @@ suite('Suite 108. The Edit Customer save, actually run');
       warehouseRebuildFields: new Function('WAREHOUSE_BUILD_FIELDS',
         'return ' + extractFn(admin, 'warehouseRebuildFields') + ';warehouseRebuildFields')(
         ['lightsDescription', 'wireColor', 'outletTimer']),
+      /* ⚠ THE REAL TIMER-ONLY RULE, LIFTED — not a stub. Joined this list 2026-09-09,
+         in the same commit that made the save handler call it ([[WH-27]]): the
+         extraction-list trap CLAUDE.md describes, hit a FOURTH time and caught a fourth
+         time by this suite failing loudly rather than skipping — 28 failures across the
+         re-quote and colour-wipe checks, none of them about the thing that was missing.
+         A stub would decide for itself which saves are timer-only, which is exactly the
+         question under test. */
+      whTimerOnlyQueue: new Function('return ' + extractFn(admin, 'whTimerOnlyQueue') +
+        ';whTimerOnlyQueue')(),
+      /* ⚠ THE REAL COLOUR READER, LIFTED — not a stub. Joined this list 2026-09-10, in the
+         same commit that made the fee path ask it ([[WH-28]]): the extraction-list trap
+         CLAUDE.md describes, hit a SIXTH time and caught a sixth time by this suite failing
+         loudly rather than skipping — 28 failures across the re-quote and colour-wipe checks,
+         none of them naming the missing function. A stub would decide for itself what colours
+         a house already had, which is the exact question the $30 turns on. */
+      houseLightsText: new Function('return ' + extractFn(admin, 'houseLightsText') +
+        ';houseLightsText')(),
       lightsLockMillis: new Function('return ' + extractFn(admin, 'lightsLockMillis') +
         ';lightsLockMillis')(),
       /* ⚠ THE REAL SEASON-YES RULE, LIFTED — not a stub. Joined this list 2026-08-24,
@@ -28062,7 +28157,7 @@ suite('Suite 108. The Edit Customer save, actually run');
   if (handlerSrc) pendingAsync.push((async () => {
     const ok = await runSave({});
     check('S108', 'an ordinary re-quote save writes the customer',
-      !!ok.cust && ok.cust.payload.measuredFeet === 300,
+      !!ok.cust && ok.cust.payload.measuredFeet === 400,
       'the whole flow depends on this one write');
     check('S108', 'and closes the re-quote card',
       !!ok.quote && ok.quote.payload.status === 'closed',
@@ -28073,7 +28168,7 @@ suite('Suite 108. The Edit Customer save, actually run');
       'owner: "warehouse isnt being updated"');
     check('S108', 'and moves them onto the number series the footage needs',
       !!ok.cust && ok.cust.payload.customerNumber === '5001',
-      '300 ft is 2 bins, which is a 5000-series bin');
+      '400 ft is 2 bins, which is a 5000-series bin');
 
     /* ⚠ AND ONE FAILING WRITE TO THE NUMBER POOL USED TO LOSE ALL OF IT. Those two
        pool writes run BEFORE the customer is written and the first was unguarded, so a
@@ -28082,7 +28177,7 @@ suite('Suite 108. The Edit Customer save, actually run');
        reported, and saying nothing at all. */
     const broke = await runSave({breakPool: true});
     check('S108', 'the customer is still saved when the number pool write fails',
-      !!broke.cust && broke.cust.payload.measuredFeet === 300,
+      !!broke.cust && broke.cust.payload.measuredFeet === 400,
       'the pool is recoverable by hand from the Customer Numbers panel; a lost save ' +
       'is not, and this is the exact shape of what the owner was seeing');
     check('S108', 'and the re-quote still closes',
@@ -31810,14 +31905,24 @@ suite('77. Schedule route generator');
     check('S77', 'nothing is dropped by re-ordering',
       d2.houses.length === 8 && before.every(h => d2.houses.indexOf(h) > -1),
       'a lost stop is a customer nobody visits, and it is invisible on a printed sheet');
-    /* ⚠ ASSERTS THE WHOLE ORDER, not just that the spare is last. It arrives
-       last in the fixture too, so "is it on the end" is true before the code
-       runs — and dropping the concat that carries it makes the day come back a
-       different length, which the guard turns into "leave the day alone". Only
-       the full order tells those two apart. */
-    check('S77', 'a house in neither crew\'s town is kept, on the end, and the day is still ordered',
-      d2.houses.map(h => h.name).join() === 'L1,L3,L4,L2,A1,A3,A2,Nowhere',
-      'it still has to be driven to — got [' + d2.houses.map(h => h.name).join() + ']');
+    /* ⚠ ASSERTS THE WHOLE ORDER, not just where the spare lands. It arrived last in
+       the fixture too, so "is it on the end" was true before the code ran — and
+       dropping the concat that carries it makes the day come back a different length,
+       which the guard turns into "leave the day alone". Only the full order tells
+       those two apart, and that is still why this asserts all eight.
+       ⚠ REPOINTED 2026-09-10 BY [[SCH-67]]. It read:
+         "a house in neither crew’s town is kept, on the end, and the day is still
+          ordered"
+           d2.houses.map(h => h.name).join() === "L1,L3,L4,L2,A1,A3,A2,Nowhere"
+       ON THE END was the old behaviour and was the symptom: the house belonged to no
+       crew, so generateDayRoutes tacked it on after both runs. It is carried by the
+       Lehi crew now and driven inside THEIR run — L1,L3,L4,L2,Nowhere then A1,A3,A2 —
+       which is the difference between a stop somebody drives to and a stop printed
+       underneath everybody. */
+    check('S77', "a house in neither crew's town is driven inside a crew's run",
+      d2.houses.map(h => h.name).join() === 'L1,L3,L4,L2,Nowhere,A1,A3,A2',
+      'it still has to be driven to, and by somebody in particular — got [' +
+      d2.houses.map(h => h.name).join() + ']');
 
     /* A plan imported today has no coordinates on anything. It must come back
        whole rather than throwing or emptying the day. */
@@ -32038,9 +32143,15 @@ suite('77. Schedule route generator');
     check('S77', 'each route on screen counts from 1',
       html.indexOf('<stop>L1#1</stop>') > -1 && html.indexOf('<stop>A1#1</stop>') > -1,
       'the crew counting down the screen and the crew counting down the sheet must agree');
-    check('S77', 'a house in neither town is still drawn, and says so',
-      /routehead spare/.test(html) && html.indexOf('<stop>N1#1</stop>') > -1,
-      'a stop nobody holds a sheet for is a stop nobody drives to');
+    /* ⚠ REPOINTED 2026-09-10 BY [[SCH-67]]. It read:
+         "a house in neither town is still drawn, and says so"
+           /routehead spare/.test(html) && html.indexOf("<stop>N1#1</stop>") > -1
+       The spare block was the panel being honest about a house on nobody’s sheet.
+       There are none now, so the block is gone and the house is drawn under the crew
+       that carries it. Still drawn, which was always the point. */
+    check('S77', 'a house in neither town is drawn under the crew that carries it',
+      html.indexOf('<stop>N1#') > -1 && !/routehead spare/.test(html),
+      "it must appear on a crew's route rather than in a bucket of its own");
     panel.setCrews(null);
   }
 }
@@ -32239,11 +32350,16 @@ suite('Suite 117. The colour-change fee, actually charged');
 
   const ruleSrc = extractFn(fns, 'applyLightChangeServer');
   const toMillisSrc = extractFn(fns, 'toMillis');
-  check('S117', 'and the rule and the timestamp reader are both findable',
-    !!ruleSrc && !!toMillisSrc,
+  /* ⚠ THE BLOCK CALLS THIS NOW ([[WH-28]]) — lifted, never stubbed. It decides what counts as
+     the colours a house ALREADY had, which is the whole question the fee turns on: a stub
+     would answer it for itself and the suite would prove nothing. The extraction-list trap,
+     hit a fifth time and caught a fifth time by the suite failing loudly. */
+  const lightsTextSrc = extractFn(fns, 'houseLightsTextServer');
+  check('S117', 'and the rule, the timestamp reader and the colour reader are all findable',
+    !!ruleSrc && !!toMillisSrc && !!lightsTextSrc,
     'extracted rather than stubbed on purpose: a stub would agree with itself');
 
-  if (a !== -1 && b > a && ruleSrc && toMillisSrc) {
+  if (a !== -1 && b > a && ruleSrc && toMillisSrc && lightsTextSrc) {
     const blockSrc = fns.slice(a, b);
 
     /* A fake Firestore that records what was written. Deliberately small, and
@@ -32327,7 +32443,7 @@ suite('Suite 117. The colour-change fee, actually charged');
       const updates = { lightsDescription: newLights };
       return new Function('db', 'admin', 'toMillis', 'section', 'updates', 'oldData',
         'oldKey', 'match', 'console',
-        ruleSrc + '\nconst LIGHT_CHANGE_FEE = 30;\nconst LIGHT_WINDOW_MS = 48*60*60*1000;\n' +
+        ruleSrc + '\n' + lightsTextSrc + '\nconst LIGHT_CHANGE_FEE = 30;\nconst LIGHT_WINDOW_MS = 48*60*60*1000;\n' +
         'return (async function(){\n' + blockSrc + '\nreturn lightFeeInfo;\n})();')
         (db, fakeAdmin, new Function('return ' + toMillisSrc + ';toMillis')(),
          'lights', updates, cust, inv ? '8015550100' : '', { id: 'c1' }, console)
@@ -32841,8 +32957,15 @@ suite('122. Out of the yard and back, and a picture of it');
     /const aim = \(opts && opts\.aim && stopHasPin\(opts\.aim\)\) \? opts\.aim : home;/.test(ord) &&
     /reorderFlatStops\(points, start, aim\)/.test(ord),
     'without the fallback every caller that names no aim silently loses its end point');
+  /* ⛔ REPOINTED 2026-09-10 BY [[SCH-71]], AND THE GUARANTEE IS UNCHANGED. It read:
+       /reorderFlatStops\(split\.out,[\s\S]{0,120}home\);/
+     which named split.out because the far houses were always the SECOND pass. They are
+     not any more — the branch builds the day both ways round and drives the shorter
+     one, so on a day where the "far" group is really a knot near the yard they go
+     first. What Addie's rule actually asks for is that whichever pass runs second ends
+     at the yard, and that is what this now says. */
   check('S122', 'and the far-houses pass finishes at the yard too',
-    /reorderFlatStops\(split\.out,[\s\S]{0,120}home\);/.test(ord),
+    /return head\.concat\(reorderFlatStops\(second,[\s\S]{0,120}home\)\);/.test(ord),
     'owner: "still remembering 209 s 850 w is the end point"');
 
   /* ---- the picture ---- */
@@ -33016,6 +33139,25 @@ suite('123. The two crew maps, actually rendered');
       global.isoOf = real('isoOf');
       global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
       global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
+      /* ⚠ THE FORECAST TABLE, because renderDayMaps draws the chips into its own
+         caption and since [[SCH-70]] those chips read SEASON_FORECAST to work out WHY
+         they are empty. Empty here on purpose — this suite is about the maps, and an
+         empty table is the state most of the season is really in. Without it the whole
+         suite died on a bare ReferenceError, which is what the jsdom run is for.
+         ⚠ AND forecastReachesTo IS LIFTED rather than stubbed: it reads this table, so
+         a stub would answer a horizon the table does not have. */
+      global.SEASON_FORECAST = { at: 0, byTown: {}, towns: 0, days: 0, error: '', pending: null };
+      global.forecastReachesTo = eval(extractFn(admin, 'forecastReachesTo') +
+        LF_ + 'forecastReachesTo');
+      /* ⚠ THE REAL ONES, NOT FAKES WEARING THEIR NAMES — the reliability gate refuses
+         that, rightly: a sandbox that later forgets to supply one would silently get
+         the stub and grade against it. Both are small and read only what is above. */
+      global.extractCleanCity = real('extractCleanCity');
+      global.forecastHighFor = eval(extractFn(admin, 'forecastHighFor') +
+        LF_ + 'forecastHighFor');
+      global.COLD_DAY_MAX_F = 31;
+      global.cityOf = real('cityOf');
+      global.dayAreas = real('dayAreas');
 
       const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(crewStart, crewEnd) +
         LF_ + admin.slice(mapStart, mapEnd) + LF_ +
@@ -36716,15 +36858,28 @@ suite('Suite 133. A wire or timer change reaches the warehouse');
   }
 
   /* ---- 3. and the office side does too -------------------------------- */
+  /* ⚠ REPOINTED 2026-09-09, NOT WEAKENED. Both of these matched the literal
+     `if(warehouseRebuildFields(item.data, addrUpdates).length) ...` — where the rule
+     happened to SIT, not what has to be true — so they failed on correct code the moment
+     [[WH-27]] gave a timer-only change its own branch. Same slow-fuse shape as S82, S129
+     and the folder-names suite. */
+  const admStripped = stripComments(admin);
   check('S133', 'the office save asks the same question',
-    /if\(warehouseRebuildFields\(item\.data, addrUpdates\)\.length\) addrUpdates\.needsLightBuild = true;/
-      .test(stripComments(admin)),
+    /warehouseRebuildFields\(item\.data, addrUpdates\)/.test(admStripped) &&
+    /whChanged\.length\)\s*addrUpdates\.needsLightBuild = true;/.test(admStripped),
     'a member can change their wire in the portal and the office can change it ' +
     'on their record — both have to reach the same queue');
+  /* ⭐ AND THE ONE CASE THAT IS DELIBERATELY NOT A BUILD ([[WH-27]]). Addie: "we don't
+     need to worry about lights just about getting a timer in there bin." A timer alone on
+     a house with no colours goes to its own queue instead — asserted here so the carve-out
+     cannot be widened into "a wire change is not a build either", which it is not. */
+  check('S133', 'and a timer alone on a colourless house goes to its own queue',
+    /whTimerOnlyQueue\(item\.data, addrUpdates, whChanged, newLightsDescription\)/.test(admStripped) &&
+    /addrUpdates\.needsTimerOnly = true;/.test(admStripped),
+    'it queued a bundle nobody wanted, and with no colours the row could never clear');
   /* ⚠ AFTER the existing lights expression, never before or instead of it. */
-  const admStripped = stripComments(admin);
   const iLights = admStripped.indexOf('addrUpdates.needsLightBuild = newLightsDescription');
-  const iWire = admStripped.indexOf('if(warehouseRebuildFields(item.data, addrUpdates).length)');
+  const iWire = admStripped.indexOf('warehouseRebuildFields(item.data, addrUpdates)');
   check('S133', 'and does it after the colour rule, not instead of it',
     iLights !== -1 && iWire > iLights,
     'that expression is what keeps a build OWED for a customer with no colours ' +
@@ -43912,10 +44067,66 @@ suite('265. Measure Roof - the captured picture is clean, and can be marked up')
     'the tool existed; reaching it took three navigations from where you already were');
   /* ⚠ ONE ATTACH, TWO DOORS. A second copy of the upload loop is a second place
      for the photo list to be written back stale. */
+  /* ⚠ REPOINTED, NOT WEAKENED (2026-09-09). This matched the literal `rmAttachShots(this,
+     false)` — that is, the exact text of the call rather than the guarantee. Both buttons
+     now go through rmAttachSafely, which is the ONE door, so the old match failed on code
+     that is right. The claim is unchanged and is asserted one step further along: two
+     buttons, one entry point, one attach. Same slow-fuse shape as S82 and S129. */
   check('S265', 'both buttons run the SAME attach, differing only in what follows',
     !!extractFn(admin, 'rmAttachShots') &&
-    /rmAttachShots\(this, false\)/.test(admin) && /rmAttachShots\(this, true\)/.test(admin),
+    /rmAttachSafely\(this, false\)/.test(admin) && /rmAttachSafely\(this, true\)/.test(admin) &&
+    /rmAttachShots\(btn, thenMarkUp\)/.test(extractFn(admin, 'rmAttachSafely') || ''),
     'two upload loops is two places for the photo list to be written back stale');
+
+  /* ---- and a press can never end in silence ------------------------- */
+  /* ⭐ 2026-09-09. Dax, on Attach to Quote: "it thinks for a quarter second then stops and
+     doesnt do or say anything." rmAttachShots already CLAIMED this — its own note says
+     "EVERY WAY OUT OF THIS SAYS SOMETHING" — and every deliberate way out does. But it is
+     an async function with two awaits outside any try (rmCapture, and rmMarkTallyText
+     under it), so a throw in either REJECTS THE PROMISE with nothing awaiting it: no
+     message, no toast, the button left disabled, and the press indistinguishable from a
+     click that never registered. */
+  {
+    const safe = extractFn(admin, 'rmAttachSafely') || '';
+    check('S265', 'the door catches what the attach throws',
+      !!safe && /\.catch\(/.test(safe),
+      'an async rejection nobody awaits is a silent no-op — the dead button being reported');
+    check('S265', 'and the button goes back so it can be pressed again',
+      /btn\.disabled = false/.test(safe),
+      'rmAttachShots disables on the way in; a throw skips every path that re-enables it');
+    check('S265', 'and it is filed, not only shown',
+      /console\.error\(/.test(safe),
+      'console.error is wired to the Admin Errors folder — the next one is recorded whether or not anybody is watching');
+
+    /* RUN it. The claim is about what ends up ON SCREEN after a throw, which a text match
+       cannot see — and "the message is in the source" has been green over a message that
+       could never reach the page three times in this repo. */
+    const el = { textContent: '' };
+    const btn = { disabled: true };
+    const logged = [];
+    const deps = {
+      document: { getElementById: (id) => (id === 'rmStatus' ? el : null) },
+      console: { error: (...a) => logged.push(a.join(' ')) },
+      rmAttachShots: async () => { throw new Error('Cannot read properties of null'); }
+    };
+    const names = Object.keys(deps);
+    const run = new Function(...names, safe + '; return rmAttachSafely;')(...names.map(k => deps[k]));
+    run(btn, false);
+    pendingAsync.push(Promise.resolve().then(() => Promise.resolve()).then(() => {
+      check('S265', 'a throw reaches the line beside the button, in words',
+        /Cannot read properties of null/.test(el.textContent),
+        'the error\'s own words are what makes it diagnosable; "something went wrong" cost this repo a day once');
+      check('S265', 'and says nothing was saved, so the press can be repeated',
+        /again/i.test(el.textContent),
+        'a message with no next step sends somebody looking for a bug in the upload code');
+      check('S265', 'and the button is pressable again after a throw',
+        btn.disabled === false,
+        'a dead gold button is the thing being reported, whatever the reason for it');
+      check('S265', 'and the reason was filed to the Admin Errors folder',
+        logged.some(l => /Cannot read properties of null/.test(l)),
+        'a message only on screen is gone on the next reload');
+    }));
+  }
   const attach = extractFn(admin, 'rmAttachShots') || '';
   /* ⚠ THE INDEX IS TAKEN BEFORE THE WRITE, and the markup opened AFTER it.
      openQuoteMarkup indexes into the photo list off quotesCache — opening it
@@ -44432,7 +44643,7 @@ suite('268. Measure Roof - the feet and the price are one press');
      pressed, quotedPrice landed, and estimatedFeet was left empty.
      Nothing errors on that state, which is the problem: quoteFeetOrEstimate
      turns the price back into feet with a 5% safety margin, and THAT figure is
-     what sizes the bins at 260 ft, chooses between a regular and a 5000-series
+     what sizes the bins, chooses between a regular and a 5000-series
      customer number, and counts the bundles at 40 ft. The warehouse then builds
      to a number nobody measured. Owner: "I need no guessing I need feet to be
      correct."
@@ -55150,7 +55361,24 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
   const need314 = ['bestCrewTowns', 'dayCrewTowns', 'dayCrewHouses', 'dayCrewCount',
                    'dayAssignedHouses', 'crewTownsFor', 'crewIndexes', 'crewCap',
                    'dayTownList', 'oneCrewMaxHouses', 'daySoloCrew',
-                   'oneManMaxHouses', 'planCities', 'extractCleanCity', 'isOneManDay'];
+                   'oneManMaxHouses', 'planCities', 'extractCleanCity', 'isOneManDay',
+                   /* ⭐ dayCrewHouses reaches these since [[SCH-67]]: the step that puts
+                      every house on a sheet picks the crew with the NEAREST house, so
+                      it has to be able to measure. Lifted, not stubbed — a stub would
+                      let this suite grade "nobody is left off a sheet" against
+                      arithmetic it made up itself. */
+                   'haversine', 'houseStopPoint', 'customerForHouse', 'houseGeoPoint'];
+  /* ⛔ estimatedPinFromAddress IS STUBBED HERE ON PURPOSE, the one thing in this
+     sandbox that is. houseGeoPoint falls back to it for a house with no coordinates on
+     its customer record, and lifting the real one drags TOWN_GRIDS, the Utah address
+     parser and a least-squares fit into a sandbox about splitting a day between crews
+     — it crashed outright when tried.
+     ⚠ SAFE BECAUSE OF WHAT THE FIXTURES ARE, not because the estimate does not matter.
+     Every house here is given real coordinates, so the fallback is never reached; a
+     null from it would only ever mean "this house cannot be measured", which the
+     catch-all already handles by falling back to the crew carrying least. If a fixture
+     in this suite ever stops carrying coordinates, lift the real one or this is
+     grading against a stub. */
   const lifted314 = {};
   need314.forEach(function (n) { lifted314[n] = extractFn(admin, n); });
   const missing314 = need314.filter(function (n) { return !lifted314[n]; });
@@ -55189,6 +55417,18 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
       /* planCities only answers for a NULL day, which no fixture here passes; it
          still has to be defined, and its own dependency has to exist with it. */
       'function allHouses(){ return []; }' +
+      /* ⛔ THE ONE DELIBERATE STUB HERE, and it is deliberate rather than an oversight.
+         Since [[SCH-67]] dayCrewHouses measures distances to decide which crew carries a
+         house no town covers, so it reaches houseStopPoint -> houseGeoPoint -> this.
+         Lifting the real one drags TOWN_GRIDS, the Utah address parser and a
+         least-squares fit into a sandbox about splitting a day between crews, and it
+         crashed outright when tried.
+         ⚠ SAFE BECAUSE OF WHAT THE FIXTURES ARE. Every house in this suite is given
+         real coordinates, so the estimate is never reached; null only ever means "this
+         house cannot be measured", which the catch-all already handles by falling back
+         to the crew carrying least. If a fixture here ever stops carrying coordinates,
+         lift the real one — otherwise this suite is grading against a stub. */
+      'function estimatedPinFromAddress(){ return null; }' +
       'const NEIGH = ' + JSON.stringify(NEIGH314) + ';' +
       'function townsAreNeighbours(a,b){ if(sameCity(a,b)) return true;' +
       ' return NEIGH.some(function(p){ return (sameCity(p[0],a)&&sameCity(p[1],b))||' +
@@ -55198,7 +55438,7 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
     assertSandbox('S314', 'dayCrewTowns', body314, admin,
       ['MAX_TOWNS_PER_CREW', 'MAX_STOPS_PER_ROUTE', 'ONE_MAN_MAX_HOUSES', 'CREWS',
        'crewCount', 'crewName', 'sameCity', 'cityOf', 'dayLimitFor', 'NEIGH',
-       'townsAreNeighbours', 'allHouses'].concat(need314));
+       'townsAreNeighbours', 'allHouses', 'estimatedPinFromAddress'].concat(need314));
 
     const sb314 = {};
     new Function(body314 +
@@ -55283,10 +55523,16 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
       }),
       'got ' + JSON.stringify(spreadTowns) + ' — "the second city being a neighboring ' +
       'city is mandatory not a priority" (2026-08-20)');
-    check('S314', 'and a day nobody can cover still reports what it cannot hold',
-      strandedCount(spread) > 0,
-      'the honest empty bucket has to survive — rebuildSeasonDays moves those houses ' +
-      'to a day that can hold them, and it can only do that if it is told');
+    /* ⚠ REPOINTED 2026-09-10 BY [[SCH-67]]. It read:
+         "and a day nobody can cover still reports what it cannot hold"
+           strandedCount(spread) > 0
+       ⭐ AND ITS REASON WAS RIGHT, WHICH IS WHY THE QUESTION SURVIVED UNDER A SECOND
+       NAME. rehomeMovedHouses really does need to know when a day’s crews do not work
+       a house’s town — collapsing that into one always-empty list would have stopped it
+       moving anybody ever again, silently. housesOutsideCrewTowns is that question. */
+    check('S314', 'a day nobody can cover carries everybody anyway',
+      strandedCount(spread) === 0,
+      'got ' + strandedCount(spread) + ' still on nobody\'s sheet');
 
     /* ---- houses, not towns ------------------------------------------------- */
     /* ⚠ THE TWO SCORES HAVE TO GIVE DIFFERENT ANSWERS OR THIS PROVES NOTHING, and
@@ -55360,8 +55606,13 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
        is two crews by the town count. What is actually worth pinning is that a
        crew-sized day is NOT absorbed, so that is what this says now. */
     const oneCrew = dayOf({ 'Provo': 6, 'Cedar Hills': 4, 'Moab': 1, 'Logan': 1 });
-    check('S314', 'but a crew-sized day is not absorbed, and still shows what it cannot drive',
-      sb314.count(oneCrew) === 2 && strandedCount(oneCrew) === 2,
+    /* ⚠ REPOINTED 2026-09-10 BY [[SCH-67]]. It read:
+         sb314.count(oneCrew) === 2 && strandedCount(oneCrew) === 2
+       The two stranded towns are carried now. What this check exists for is the other
+       half — that a crew-sized day is not collapsed onto one sheet by the one-man rule
+       — and that is untouched. */
+    check('S314', 'but a crew-sized day is not absorbed onto one sheet',
+      sb314.count(oneCrew) === 2 && strandedCount(oneCrew) === 0,
       'got ' + sb314.count(oneCrew) + ' crew(s), ' + strandedCount(oneCrew) + ' stranded — ' +
       'twelve houses is a crew, and the town rule is exactly about them');
 
@@ -55376,8 +55627,17 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
         !!chipsSrc, 'repoint this lift rather than stubbing it');
       if (!chipsSrc) return;
       const FC = { 'Lehi': { '2026-10-01': 54 }, 'Levan': { '2026-10-01': 31 } };
-      const chips = new Function('esc', 'dayAreas', 'isoOf', 'dayDate',
-        'forecastHighFor', 'COLD_DAY_MAX_F',
+      /* ⚠ ONE TABLE, BOTH READERS. forecastHighFor is stubbed from FC and
+         SEASON_FORECAST is built from the same object, so the chips and the "how far
+         does it reach" answer cannot disagree inside this fixture — two tables here
+         would let a check pass against a horizon no lookup agrees with.
+         ⚠ forecastReachesTo IS LIFTED, NOT STUBBED: it is the thing deciding which
+         sentence an empty strip gets, so a stub would make this suite agree with
+         itself. dlabel IS stubbed, deliberately — it is date formatting and these
+         checks are about WHICH sentence appears. */
+      const mkChips = (fc, err) => new Function('esc', 'dayAreas', 'isoOf', 'dayDate',
+        'forecastHighFor', 'COLD_DAY_MAX_F', 'SEASON_FORECAST', 'dlabel',
+        extractFn(admin, 'forecastReachesTo') + '\n' +
         chipsSrc + '\nreturn dayForecastChips;')(
         function (s) { return String(s); },
         function (d) {
@@ -55386,8 +55646,11 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
         },
         function () { return '2026-10-01'; },
         function () { return new Date(2026, 9, 1); },
-        function (t, ds) { const r = FC[t]; const v = r && r[ds]; return typeof v === 'number' ? v : null; },
-        35);
+        function (t, ds) { const r = fc[t]; const v = r && r[ds]; return typeof v === 'number' ? v : null; },
+        35,
+        { error: err || '', byTown: fc },
+        function (d) { return { wd: 'Thu', full: 'Oct 1' }; });
+      const chips = mkChips(FC);
       const warm = chips({ houses: [{ city: 'Lehi' }, { city: 'Lehi' }] });
       check('S314', 'a town with a forecast shows its high beside the map',
         /Lehi/.test(warm) && /54/.test(warm),
@@ -55397,19 +55660,51 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
         /31/.test(cold) && cold.indexOf(String.fromCharCode(10052)) !== -1,
         'got ' + JSON.stringify(cold) + ' — the cutoff is what vetoes a town, so the ' +
         'screen has to show the number the plan was built on');
-      /* ⚠ THE ONE THAT MATTERS. Open-Meteo answers ~16 days and the season runs into
-         December, so MOST dates have no number at all. A dash, a zero or an "unknown"
-         on every one of them is a strip of noise that teaches the office to stop
-         reading the row on the days it does say something — and "no forecast is not a
-         cold forecast" is the builder's own rule. */
+      /* ⚠ NO PLACEHOLDER PER TOWN, AND THIS HALF IS UNCHANGED. Open-Meteo answers ~16
+         days and the season runs into December, so most dates have no number. A dash,
+         a zero or an "unknown" against every town is a strip of noise that teaches the
+         office to stop reading the row on the days it does say something — and "no
+         forecast is not a cold forecast" is the builder's own rule. */
+      const mixed = chips({ houses: [{ city: 'Lehi' }, { city: 'Moab' }] });
+      check('S314', 'a town with no forecast gets no chip of its own',
+        /54/.test(mixed) && !/Moab/.test(mixed),
+        'got ' + JSON.stringify(mixed) + ' — a placeholder beside every unknown town is a row nobody reads');
+      /* ⛔ REPOINTED 2026-09-10 BY [[SCH-70]]. These two read:
+           "and a town with no forecast is silent, not a dash or a zero"
+             unknown === ''
+           "and a day with no forecast anywhere draws no strip at all"
+             chips({houses:[{city:'Moab'},{city:'Provo'}]}) === ''
+         Silence was right about the per-town placeholder above and wrong about the
+         WHOLE STRIP. Dax, looking at two route maps on 10 September: "the only issue is
+         I cant see the forecast." Nothing was broken — the season opens 21 days out and
+         the service answers 16 — but "not yet" and "broken" looked identical, and it
+         cost him a bug report to find out which. */
       const unknown = chips({ houses: [{ city: 'Moab' }] });
-      check('S314', 'and a town with no forecast is silent, not a dash or a zero',
-        unknown === '',
-        'got ' + JSON.stringify(unknown) + ' — no forecast is not a cold forecast, and ' +
-        'a placeholder on every December day is a row nobody reads');
-      check('S314', 'and a day with no forecast anywhere draws no strip at all',
-        chips({ houses: [{ city: 'Moab' }, { city: 'Provo' }] }) === '',
-        'an empty strip is the honest answer for most of the season');
+      check('S314', 'a day with nothing to show says why, instead of showing nothing',
+        unknown !== '' && /No forecast/.test(unknown),
+        'got ' + JSON.stringify(unknown) + ' — an empty strip and a broken one looked the same, which is what he reported');
+      check('S314', 'and names the towns it could not answer for, because that is fixable',
+        /Moab/.test(unknown) && /on the map/.test(unknown),
+        "in range and still nothing means no house there is geocoded, which the office " +
+        "can act on");
+      /* ⚠ AND THE COMMONEST CASE OF ALL GETS ITS OWN SENTENCE: the day is simply
+         further out than the service will answer. It says WHEN, because the useful
+         question is when to look again. */
+      {
+        const far = mkChips({ 'Lehi': { '2026-09-20': 70 } });
+        const out = far({ houses: [{ city: 'Lehi' }] });
+        check('S314', 'a day beyond the forecast says how far it reaches',
+          /this far ahead/.test(out) && /Oct 1|2026-09-20/.test(out),
+          'got ' + JSON.stringify(out) + ' — on 10 September every day of the season is past the horizon, so this is what he was actually looking at');
+      }
+      /* a fetch that failed is a FAULT, not a wait, and must not read as one */
+      {
+        const broke = mkChips({}, 'the weather service did not answer');
+        const out = broke({ houses: [{ city: 'Lehi' }] });
+        check('S314', 'and a failed fetch says so rather than "not yet"',
+          /did not answer/.test(out),
+          'got ' + JSON.stringify(out) + ' — telling somebody to wait for a forecast that is never coming is worse than saying nothing');
+      }
     })();
 
     /* ---- and it is stable -------------------------------------------------- */
@@ -55958,8 +56253,14 @@ suite('Suite 317. The day finishes pointing at where the crews go next');
       order.forEach(h => { sum += api.hav(prev.lat, prev.lng, h._cust.lat, h._cust.lng); prev = h._cust; });
       return sum + api.hav(prev.lat, prev.lng, YARD.lat, YARD.lng);
     };
+    /* ⛔ THE BOUND WAS 2 UNTIL 2026-09-10, when or-opt landed and this fixture went to
+       2.70. It is not the trade going bad: or-opt AIMS BETTER, so the aimed day now
+       really does finish beside tomorrow's work, and finishing there is further from the
+       yard. Re-measured over 8 simulated seasons with or-opt in (scratchpad/route-aim.js)
+       the aim still costs 13 miles across all eight — 0.18%, worst single day 1.0 — the
+       same as before, so the reasoning is intact and only this one fixture moved. */
     check('S317', 'and it costs a mile or so on the day, not a detour of its own',
-      tour(aimed) - tour(plain) < 2,
+      tour(aimed) - tour(plain) < 3,
       'cost ' + (tour(aimed) - tour(plain)).toFixed(2) + ' mi'); 
 
     /* ---- where the season goes after each day ---- */
@@ -56201,20 +56502,46 @@ suite('Suite 318. A crew-day is a patch of map, not a town');
           'at 20 degrees it is below COLD_DAY_MAX_F and must not be offered the first day while warmer work is waiting');
       }
 
-      /* ---- an outlier keeps its town ---- */
+      /* ---- an outlier gets a day of its own, and one person on it ---- */
       {
-        /* one house on its own, far from everybody: grid.js calls it an outlier, and
-           an area of one IS a one-man day. Dax: "what we want to minimize the most is
-           one man days", so it falls back to its town instead. */
+        /* ⛔ REPOINTED 2026-09-10 BY [[SCH-69]], REVERSING WHAT I DECIDED THE DAY
+           BEFORE. It read:
+             "a house too far from everybody is left in its town, not given a block"
+               !out.area
+           on the argument that an area of one IS a one-man day and Dax had said "what
+           we want to minimize the most is one man days". He corrected it: "if someone
+           is way out of the way as an outlier they should fall into a one man day so a
+           full crew isnt being paid to go that far out." Minimising one-man days was
+           never an argument for sending FOUR people forty miles to hang one house — a
+           crew-day is four wages, and no measurement in this repo was counting them.
+           His own earlier ruling says it from the other side: "high milage is better
+           for a one man than a one crew or two crew." */
         const lonely = houses.map(w => Object.assign({}, w));
         lonely.push({ id: 'levan0', city: 'Levan', priority: 30, townPriority: 30,
           named: false, from: '2026-10-01', missed: 0,
           stop: { id: 'levan0', lat: 39.5540, lng: -111.8620, name: 'levan0' } });
         A.areas(lonely, 20);
         const out = lonely.filter(w => w.id === 'levan0')[0];
-        check('S318', 'a house too far from everybody is left in its town, not given a block',
-          !out.area,
-          'got ' + out.area + ' — an area of one is a one-man day built on purpose');
+        check('S318', 'a house too far from everybody gets an area of its own',
+          !!out.area && /^x:/.test(out.area),
+          'got ' + out.area + ' — an area of one is a one-man day, which is the point: a full crew must not be paid to drive that far for one house');
+        /* ⚠ AND EACH OUTLIER GETS ITS OWN, WHICH TAKES TWO OF THEM IN THE FIXTURE.
+           With one, "shares with nobody" is true however the areas are handed out — a
+           red-check that gave every outlier the SAME area walked straight through it.
+           Two, far apart, is what tells "an area of its own" from "an outlier area",
+           and one shared area would send a van from Levan to St George. */
+        check('S318', 'and shares that area with nobody',
+          lonely.filter(w => w.area === out.area).length === 1,
+          'an outlier bundled in with other houses is a crew-day wearing a one-man label');
+        lonely.push({ id: 'stgeorge0', city: 'St George', priority: 30, townPriority: 30,
+          named: false, from: '2026-10-01', missed: 0,
+          stop: { id: 'stgeorge0', lat: 37.0965, lng: -113.5684, name: 'stgeorge0' } });
+        A.areas(lonely, 20);
+        const out2 = lonely.filter(w => w.id === 'stgeorge0')[0];
+        const out1 = lonely.filter(w => w.id === 'levan0')[0];
+        check('S318', 'and two outliers get an area each, not one between them',
+          !!out1.area && !!out2.area && out1.area !== out2.area,
+          'got ' + out1.area + ' and ' + out2.area + ' — one shared area is a crew-day wearing a one-man label');
       }
 
       /* ---- the fallback, which is what keeps every older fixture honest ---- */
@@ -56406,5 +56733,475 @@ suite('Suite 319. Priority moves an area up, once the area can carry a day');
         first.indexOf('Zulu') !== -1,
         'got ' + JSON.stringify(first) + ' — a new member out of time (5) outranks somebody who rang up this morning (10), and betterTown already knew that');
     }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite 320. Nobody is on a day with nobody holding their sheet. Ever.
+ *
+ * Dax, 2026-09-10, reading ten stops under "Not on either crew's route" after a
+ * rebuild: "it is off limits to have anyone scheduled in a day not on either
+ * crews routes, save that as a rule and dont design the system so its even
+ * possible."
+ *
+ * ⭐ THE SECOND HALF IS WHY THIS SUITE IS SHAPED THE WAY IT IS. [[SCH-50]] already
+ * fixed the cases anybody had thought of — bestCrewTowns rescues a day the greedy
+ * split stranded, and Suite 314 pins the examples. Then [[SCH-63]] made a crew-day
+ * a block of adjacent houses, days began spanning ten town lines, the town cap of
+ * two-per-crew could only cover four of them, and it came straight back. Fixing
+ * examples is what let that happen.
+ *
+ * So this asserts the PROPERTY over days nobody designed: random towns, random
+ * sizes, random crew counts, pinned crews and unpinned, coordinates and none. It
+ * is allowed to be boring. It is not allowed to be about a case.
+ *
+ * ⚠ AND IT WOULD HAVE CAUGHT THE BUG IT WAS WRITTEN FOR: a day of thirty-three
+ * houses across ten towns is one draw of this generator.
+ */
+suite('Suite 320. Nobody is on a day with nobody holding their sheet');
+{
+  const src = extractFn(admin, 'dayCrewHouses');
+  if (!src) {
+    check('S320', 'the crew split is findable', false, 'renamed — repoint this');
+  } else {
+    /* Lifted, with only the crew-town map stubbed: this is about what dayCrewHouses
+       does with whatever the towns handed it, so the towns are the input. */
+    const run = new Function('day', 'townsByCrew', 'MAX_STOPS_PER_ROUTE', 'coords',
+      'const cityOf = function(h){ return (h.city || "").trim(); };' +
+      'const sameCity = function(a, b){ return String(a).trim().toLowerCase() === ' +
+      '  String(b).trim().toLowerCase(); };' +
+      'const crewTownsFor = function(i){ return townsByCrew[i] || []; };' +
+      'const CREWS = Array.from({length: Math.max(1, Object.keys(townsByCrew).length)},' +
+      '  function(_, i){ return {name: "Crew " + (i+1), city: ""}; });' +
+      'const customerForHouse = function(h){ return coords[h.id] ? {data: coords[h.id]} : null; };' +
+      'const houseGeoPoint = function(h, d){ return {lat: d && d.lat, lng: d && d.lng}; };' +
+      extractFn(admin, 'houseStopPoint') +
+      extractFn(admin, 'haversine') +
+      extractFn(admin, 'crewIndexes') +
+      extractFn(admin, 'crewCap') + src + 'return dayCrewHouses(day);');
+
+    let seed = 20260910;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const TOWNS = ['Lehi', 'American Fork', 'Highland', 'Alpine', 'Cedar Hills',
+                   'Lindon', 'Orem', 'Provo', 'Vineyard', 'Draper', 'Nowhere']; 
+
+    let worst = null, drawn = 0, everyoneHeld = true, noDuplicates = true;
+    for (let t = 0; t < 400; t++) {
+      const crews = 1 + Math.floor(rnd() * 3);
+      const houses = [], coords = {};
+      const n = 1 + Math.floor(rnd() * 40);
+      for (let i = 0; i < n; i++) {
+        const id = 'h' + t + '_' + i;
+        const town = TOWNS[Math.floor(rnd() * TOWNS.length)];
+        houses.push({ id: id, city: town, name: id });
+        /* a third of the book has no pin, exactly as the real one does */
+        if (rnd() > 0.33) coords[id] = { lat: 40.2 + rnd() * 0.5, lng: -112.1 + rnd() * 0.5 };
+      }
+      /* the towns the crews were given: sometimes fewer than the day holds, sometimes
+         none at all, which is the shape that used to strand everybody */
+      const townsByCrew = {};
+      for (let c = 0; c < crews; c++) {
+        const take = Math.floor(rnd() * 3);
+        const list = [];
+        for (let k = 0; k < take; k++) list.push(TOWNS[Math.floor(rnd() * TOWNS.length)]);
+        townsByCrew[c] = list;
+      }
+      const day = { houses: houses };
+      const out = run(day, townsByCrew, 20, coords);
+      drawn++;
+      const seen = new Map();
+      out.forEach(function (list, i) {
+        (list || []).forEach(function (h) { seen.set(h, (seen.get(h) || 0) + 1); });
+      });
+      const missed = houses.filter(function (h) { return !seen.has(h); });
+      const twice = houses.filter(function (h) { return (seen.get(h) || 0) > 1; });
+      if (missed.length && !worst) {
+        worst = { n: n, crews: crews, missed: missed.length,
+                  towns: Object.keys(townsByCrew).map(k => townsByCrew[k].join("/")).join(" | ") };
+      }
+      if (missed.length) everyoneHeld = false;
+      if (twice.length) noDuplicates = false;
+    }
+
+    check('S320', 'the generator really did draw something', drawn === 400,
+      'got ' + drawn + ' days');
+    check('S320', "over 400 unplanned days, every house is on exactly one crew's sheet",
+      everyoneHeld,
+      worst ? ('a day of ' + worst.n + ' houses across ' + worst.crews + ' crew(s) left ' +
+        worst.missed + ' with nobody holding their sheet — crew towns were [' +
+        worst.towns + ']') : '');
+    check('S320', 'and never on two sheets at once', noDuplicates,
+      'two crews driving to one house is the same fault pointing the other way — one of them wastes the trip and the customer is visited twice');
+
+    /* ⭐ AND IT GOES TO THE CREW ALREADY DRIVING NEAREST, which the sweep above cannot
+       see: it only asks whether everybody was carried, so handing every orphan to crew
+       0 passes it. A red-check proved exactly that. Two crews far apart, one orphan
+       sitting next to the second crew’s houses: crew 0 is listed first and is the
+       emptier of the two, so both of the other plausible rules would pick it. */
+    {
+      const houses = [], coords = {};
+      const put = (id, town, lat, lng) => {
+        houses.push({ id: id, city: town, name: id });
+        coords[id] = { lat: lat, lng: lng };
+      };
+      /* crew 0: two houses in the far north. crew 1: five in the south. */
+      put('n1', 'Lehi', 41.00, -111.90); put('n2', 'Lehi', 41.01, -111.90);
+      for (let i = 0; i < 5; i++) put('s' + i, 'Provo', 40.00 + i * 0.01, -111.70);
+      /* the orphan is a street nobody holds, and it is in the SOUTH */
+      put('orphan', 'Nowhere', 40.02, -111.70);
+      const out = run({ houses: houses }, { 0: ['Lehi'], 1: ['Provo'] }, 20, coords);
+      const who = out.findIndex(l => (l || []).some(h => h.id === 'orphan'));
+      check('S320', 'a house no town covers goes to the crew already driving nearest',
+        who === 1,
+        'went to crew ' + who + ' — crew 0 is listed first AND is carrying less, so both of the lazy answers pick it; only distance picks crew 1');
+    }
+
+    /* ⚠ AND THE HARD CASE ON ITS OWN, because a random sweep can be lucky. This is
+       Dax’s 1 October: thirty-three houses across ten towns, two crews, the town
+       split able to cover four of them. */
+    {
+      const houses = [], coords = {};
+      TOWNS.slice(0, 10).forEach(function (town, ti) {
+        for (let i = 0; i < 3 + (ti === 0 ? 3 : 0); i++) {
+          const id = 'oct' + ti + '_' + i;
+          houses.push({ id: id, city: town, name: id });
+          coords[id] = { lat: 40.3 + ti * 0.02, lng: -111.9 + i * 0.01 };
+        }
+      });
+      const out = run({ houses: houses }, { 0: ['Lehi', 'American Fork'], 1: ['Highland', 'Alpine'] }, 20, coords);
+      const held = new Set();
+      out.forEach(function (l) { (l || []).forEach(function (h) { held.add(h); }); });
+      /* ⛔ AND RE-HOMING STILL ASKS THE TOWN QUESTION, NOT THE SHEET ONE. This is a
+       WIRING assertion and it is here because a red-check proved nothing else holds it:
+       pointing rehomeMovedHouses back at unassignedHousesFor left the whole suite green
+       while it would never move anybody again. It tests `adrift.indexOf(h) === -1` and
+       reads a miss as "the crews already go there", so an always-empty list means a
+       customer who moves house keeps their old day for the rest of the season — and
+       every screen looks right, which is what makes it the expensive kind of quiet. */
+    {
+      const rh = stripComments(extractFn(admin, 'rehomeMovedHouses'));
+      check('S320', 'a customer who moved is still found by the town question',
+        /housesOutsideCrewTowns\(day\)/.test(rh) && !/unassignedHousesFor/.test(rh),
+        "since every house is on a sheet now, asking unassignedHousesFor here means " +
+        "never re-homing anybody again");
+    }
+
+    check('S320', 'and the day Dax reported carries all of its houses',
+        held.size === houses.length,
+        'got ' + held.size + ' of ' + houses.length + ' — this is the exact shape he was looking at: ten towns, four of them covered by the crew towns');
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite 321. One person goes to the outlier, not a crew.
+ *
+ * Dax, 2026-09-10: "if someone is way out of the way as an outlier they should
+ * fall into a one man day so a full crew isnt being paid to go that far out."
+ *
+ * ⛔ THIS REVERSES A CALL MADE THE DAY BEFORE, in [[SCH-63]]: outliers were left
+ * in their town precisely BECAUSE an area of one becomes a one-man day, on the
+ * argument that he had asked for fewer of those. He had — but that was never an
+ * argument for sending four people forty miles to hang one house. A crew-day is
+ * four wages and nothing in this repo was counting them.
+ *
+ * ⚠ AND THE FIRST HALF ALONE WOULD HAVE MADE THINGS WORSE. Giving the outlier its
+ * own area produces a crew-day of one house — which then shares its DATE with a
+ * full run, so isOneManDay (a property of the date) is false and the office
+ * rosters two full crews. That is the very thing he asked to stop, arriving one
+ * step later. crewIsOneMan is the half that closes it.
+ */
+suite('Suite 321. One person goes to the outlier, not a crew');
+{
+  const oneManSrc = extractFn(admin, 'isOneManDay');
+  const crewSrc = extractFn(admin, 'crewIsOneMan');
+  const runsSrc = extractFn(admin, 'oneManCrewRuns');
+  if (!oneManSrc || !crewSrc || !runsSrc) {
+    check('S321', 'the one-man rules are findable', false,
+      'renamed — repoint this rather than stubbing one');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    /* crewHousesFor is the input here — this is about what the RULES make of a
+       split, not about how the split was arrived at. */
+    const api = new Function('byCrew', 'CAP',
+      'function oneManMaxHouses(){ return CAP; }' + LF_ +
+      'function dayLimitFor(){ return null; }' + LF_ +
+      'function crewIndexes(){ return byCrew.map(function(_, i){ return i; }); }' + LF_ +
+      'function crewHousesFor(i){ return byCrew[i] || []; }' + LF_ +
+      'function installDays(){ return [DAY]; }' + LF_ +
+      'function cityOf(h){ return h.city; }' + LF_ +
+      'const DAY = {houses: byCrew.reduce(function(a, b){ return a.concat(b); }, [])};' + LF_ +
+      oneManSrc + LF_ + crewSrc + LF_ + runsSrc + LF_ +
+      'return {day: DAY, isDay: isOneManDay(DAY), ' +
+      'solo: function(i){ return crewIsOneMan(DAY, i); }, runs: oneManCrewRuns()};');
+
+    const house = (n, town) => ({ id: n, city: town || 'Lehi', name: n });
+    const many = (n, town) => Array.from({length: n}, (_, i) => house(town + i, town));
+
+    /* ⚠ THE FIXTURE IS THE WHOLE POINT: a full run and a run of one, on ONE date.
+       That is Levan beside Lehi, and it is the case the day-level rule cannot see. */
+    const mixed = api([many(20, 'Lehi'), [house('levan', 'Levan')]], 8);
+    check('S321', 'a date holding a full run and a single house is NOT a one-man date',
+      mixed.isDay === false,
+      'twenty-one houses is not one person\u2019s day, and pretending otherwise would put the full run on one pair of hands');
+    check('S321', 'but the run of one IS one person',
+      mixed.solo(1) === true,
+      'this is the ruling: the date is not what is being paid for, the crew is');
+    check('S321', 'and the full run beside it is not',
+      mixed.solo(0) === false,
+      'if every run read as one-man the badge would mean nothing');
+
+    /* ⚠ AND IT REACHES THE TAB, which is the only place the office would see it.
+       A rule nobody is shown rosters nobody differently. */
+    check('S321', 'the thin run is listed for the office to roster',
+      mixed.runs.length === 1 && mixed.runs[0].crew === 1 &&
+      mixed.runs[0].houses.length === 1,
+      'got ' + JSON.stringify(mixed.runs.map(r => ({crew: r.crew, n: r.houses.length}))));
+
+    /* ⛔ AND THE TAB ACTUALLY SHOWS THEM. Suite 321 calls oneManCrewRuns itself, so
+       gutting renderOneMan leaves every check above green while the office is shown
+       nothing — a red-check proved exactly that, and a rule nobody is shown rosters
+       nobody differently. A WIRING assertion, deliberately apart from the mechanism. */
+    {
+      const tab = stripComments(extractFn(admin, 'renderOneMan'));
+      check('S321', 'the One Man tab asks for the thin runs and renders them',
+        /oneManCrewRuns\(\)/.test(tab) && /innerHTML[^;]*runRows/.test(tab),
+        "asking for them and not rendering them is the same as not asking");
+      check('S321', 'and counts them in the heading, so the tab is not quietly short',
+        /days\.length \+ runs\.length/.test(tab),
+        "a tab headed 2 while listing 5 is how somebody stops trusting it");
+    }
+
+    /* a date that is wholly one person is already listed as a DAY, and must not be
+       listed a second time as a run — the office would read two jobs where there is one */
+    const wholly = api([[house('a'), house('b')], []], 8);
+    check('S321', 'a wholly one-man date is still a one-man date',
+      wholly.isDay === true && wholly.solo(0) === true,
+      'the day rule is completed by the crew rule, not replaced by it');
+    check('S321', 'and is not listed twice',
+      wholly.runs.length === 0,
+      'it is already on the tab as a day; a second row is two jobs where there is one');
+
+    /* an empty run is nobody\u2019s day */
+    const empty = api([many(20, 'Lehi'), []], 8);
+    check('S321', 'a crew with nothing to do is not "one person"',
+      empty.solo(1) === false && empty.runs.length === 0,
+      'rostering somebody for an empty run is a job on the board with nobody on it');
+
+    /* the boundary is the same number the rest of the app uses */
+    const atCap = api([many(20, 'Lehi'), many(8, 'Payson')], 8);
+    const overCap = api([many(20, 'Lehi'), many(9, 'Payson')], 8);
+    check('S321', 'eight is one person and nine is a crew, the same as everywhere else',
+      atCap.solo(1) === true && overCap.solo(1) === false,
+      'a second opinion about how big a one-man day is would put the tab and the badge in disagreement with the day list');
+  }
+}
+
+/*
+ * Suite 322. A stop in the wrong place gets moved, and the far houses are only last
+ * if last is on the way home.
+ *
+ * Dax, 2026-09-10, reading a crew route off the map: "1 2 3 4 5 6 7 can make sense but
+ * the you get to 11 and youre way far out and then 12 is back where 2 was, so it
+ * shouldve just been knocked out when you were there."
+ *
+ * Two separate faults met in that one sentence, and both are checked here.
+ *
+ * ⭐ THE ORDERER COULD NOT MOVE A STOP. 2-opt reverses a run; it cannot lift one house
+ * out and put it back somewhere better. So a house the nearest-neighbour walk grabbed at
+ * the wrong moment stayed where it was, for ever, and that is precisely "it shouldve
+ * just been knocked out when you were there". orOptImprove makes that move.
+ *
+ * ⭐ AND "FAR" WAS BEING MEASURED FROM THE WRONG PLACE. outlyingStops asks how far each
+ * house is from the DAY’S CENTRE, and Suite 124 then holds the far ones back to the end
+ * on Addie’s rule. On a day whose weight is out north, a couple of houses south-west of
+ * the yard are "far from the centre" — and the crew drove past them at eight in the
+ * morning, worked the north all day, and came five miles back for them. Her rule says
+ * "at the end of the day on their way back home"; whether last WAS on the way home was
+ * the half nobody was asking.
+ *
+ * ⚠ EVERY FIXTURE HERE WAS SEARCHED FOR, NOT INVENTED (scratchpad/find-fixtures.js,
+ * find-fix2.js). The first hand-built attempt at the second one saved 0.21 miles, under
+ * the margin, so it would have gone green with the fix reverted — a round trip driven
+ * backwards is nearly the same round trip, and a fixture has to make the two shapes
+ * really differ before it proves anything.
+ */
+suite('322. A stop in the wrong place gets moved, and far is measured from the road home');
+{
+  const geoStart = admin.indexOf('function twoOptImprove(');
+  const geoEnd = admin.indexOf('function nearestNeighborOrder(', geoStart);
+  const crewStart = admin.indexOf('function cityOf(h)');
+  const crewEnd = admin.indexOf('/* ---------- build from imported rows', crewStart);
+  if (geoStart === -1 || crewStart === -1 || crewEnd < crewStart) {
+    check('S322', 'the route orderer is findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    const HOME = { lat: 40.3866, lng: -111.8616 };        // 209 S 850 W, Lehi
+    global.dayDate = d => d._date;
+    global.isoOf = real('isoOf');
+    global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
+    global.esc = real('esc');
+    global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
+
+    const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(geoStart, geoEnd) +
+      LF_ + admin.slice(crewStart, crewEnd) + LF_ +
+      ';({order: orderHousesForDriving, plain: reorderFlatStops, two: twoOptImprove,  or: orOptImprove, miles: tourMiles, hav: haversine, split: outlyingStops,  point: houseStopPoint, margin: FAR_FIRST_MARGIN_MILES})');
+
+    const mk = (name, lat, lng) => ({ name, city: 'Lehi', _cust: { lat, lng } });
+    const pts = day => day.map(api.point);
+    const ids = order => order.map(h => h.name).join(' ');
+
+    /* ── the move 2-opt cannot make ── */
+    /* The orderer as it was before or-opt: the same nearest-neighbour walk, then 2-opt
+       and nothing else. Written out rather than lifted because the old shape no longer
+       exists in admin.html — that is the point of the suite. */
+    const oldWay = (list) => {
+      let remaining = pts(list).slice(), ordered = [], cur = HOME;
+      while (remaining.length) {
+        let bi = 0, bd = Infinity;
+        remaining.forEach((p, i) => {
+          const d = api.hav(cur.lat, cur.lng, p.lat, p.lng);
+          if (d < bd) { bd = d; bi = i; }
+        });
+        const nx = remaining.splice(bi, 1)[0];
+        ordered.push(nx); cur = { lat: nx.lat, lng: nx.lng };
+      }
+      return api.two(ordered, HOME, HOME);
+    };
+    const scatter = [
+      mk('s0', 40.392, -111.888), mk('s1', 40.404, -111.896), mk('s2', 40.404, -111.881),
+      mk('s3', 40.419, -111.871), mk('s4', 40.382, -111.872), mk('s5', 40.412, -111.852),
+      mk('s6', 40.404, -111.867), mk('s7', 40.418, -111.845), mk('s8', 40.404, -111.854),
+      mk('s9', 40.403, -111.875),
+    ];
+    const before = oldWay(scatter);
+    const beforeMi = api.miles(before, HOME, HOME);
+    /* ⚠ THE FIXTURE IS ONLY WORTH ANYTHING IF 2-OPT REALLY IS STUCK. Run it again on
+       its own answer: if it can still find something, this proves nothing about or-opt. */
+    check('S322', '2-opt has run itself out on this day and can find nothing more',
+      api.miles(api.two(before.slice(), HOME, HOME), HOME, HOME) >= beforeMi - 0.0005,
+      'the fixture must corner 2-opt, or the next check passes with or-opt ripped out');
+    const after = api.plain(pts(scatter).slice(), HOME, HOME);
+    const afterMi = api.miles(after, HOME, HOME);
+    check('S322', 'and the stop that was in the wrong place gets moved',
+      afterMi < beforeMi - 0.3,
+      'was ' + beforeMi.toFixed(2) + ' mi, now ' + afterMi.toFixed(2) + ' mi — reversing runs was the only move the orderer had');
+    /* and it really is a RELOCATION, not a reversal wearing a different hat: a reversed
+       run leaves every stop with the same neighbours, read backwards. */
+    const neighbours = order => {
+      const set = new Set();
+      for (let i = 1; i < order.length; i++) {
+        const a = order[i-1].ref.name, b = order[i].ref.name;
+        set.add(a < b ? a + '|' + b : b + '|' + a);
+      }
+      return set;
+    };
+    const kept = [...neighbours(after)].filter(p => neighbours(before).has(p)).length;
+    check('S322', 'the day is genuinely re-cut, not the same run read backwards',
+      kept < neighbours(after).size,
+      'every pair survived, which is what a reversal looks like');
+    check('S322', 'and nobody is dropped or visited twice by moving them',
+      after.length === scatter.length &&
+      new Set(after.map(p => p.ref.name)).size === scatter.length,
+      'an ordering that loses a stop is a customer nobody visits');
+
+
+    /* ── and the three things or-opt can do that a single-stop move cannot ── */
+    /* ⚠ THESE THREE WERE ADDED AFTER THE RED CHECK MISSED THEM. Crippling or-opt to
+       move one stop at a time, or to refuse to turn a run round, or to run once instead
+       of alternating with 2-opt, left the whole suite green: the fixture above only
+       needs a single house picked up and put down. Each of these is a capability the
+       code claims and nothing was asking for. All three days were searched for
+       (scratchpad/find-fix3.js) by running the shipped orderer against a deliberately
+       crippled copy of itself and keeping the day where they disagreed most.
+       ⚠ THEY ARE MILEAGE BOUNDS, and the number each crippled version produces is
+       written down beside them — a bound with no failing value named is a bound nobody
+       can tell has stopped meaning anything. */
+    const runDay = [
+      mk('r0', 40.448, -111.922), mk('r1', 40.387, -111.852), mk('r2', 40.419, -111.857),
+      mk('r3', 40.368, -111.843), mk('r4', 40.402, -111.898), mk('r5', 40.390, -111.899),
+      mk('r6', 40.373, -111.881), mk('r7', 40.379, -111.880), mk('r8', 40.443, -111.868),
+      mk('r9', 40.380, -111.923), mk('r10', 40.381, -111.851),
+    ];
+    const runMi = api.miles(api.plain(pts(runDay).slice(), HOME, HOME), HOME, HOME);
+    check('S322', 'a run of houses moves together, and turns round when it lands',
+      runMi < 20,
+      'got ' + runMi.toFixed(2) + ' mi — 19.19 shipped; 21.17 if or-opt may only lift one stop at a time, and 21.17 again if it may not drive a moved run backwards');
+
+    /* Twenty-six stops, which is a real crew day. On days this size one round of 2-opt
+       then or-opt is not enough: each pass opens moves for the other, and the loop is
+       worth 1.64 miles here. Nothing smaller than about fifteen stops showed it at all,
+       which is why the fixture is this big. */
+    const bigDay = [
+      mk('b0', 40.431, -111.938), mk('b1', 40.363, -111.869), mk('b2', 40.365, -111.948),
+      mk('b3', 40.414, -111.893), mk('b4', 40.433, -111.910), mk('b5', 40.369, -111.896),
+      mk('b6', 40.444, -111.915), mk('b7', 40.402, -111.872), mk('b8', 40.378, -111.850),
+      mk('b9', 40.380, -111.831), mk('b10', 40.369, -111.855), mk('b11', 40.391, -111.910),
+      mk('b12', 40.442, -111.917), mk('b13', 40.392, -111.865), mk('b14', 40.431, -111.941),
+      mk('b15', 40.448, -111.864), mk('b16', 40.373, -111.831), mk('b17', 40.390, -111.898),
+      mk('b18', 40.418, -111.945), mk('b19', 40.436, -111.860), mk('b20', 40.442, -111.875),
+      mk('b21', 40.409, -111.890), mk('b22', 40.428, -111.950), mk('b23', 40.431, -111.879),
+      mk('b24', 40.432, -111.850), mk('b25', 40.402, -111.848),
+    ];
+    const bigMi = api.miles(api.plain(pts(bigDay).slice(), HOME, HOME), HOME, HOME);
+    check('S322', 'and the two passes keep handing work back to each other', bigMi < 30,
+      'got ' + bigMi.toFixed(2) + ' mi — 29.22 shipped, 30.86 if the passes run once each instead of alternating');
+    /* ── far, measured from the road home ── */
+    /* Twelve houses, ten of them out north; h3 and h7 sit south-west, nearer the yard
+       than the average of the rest but a long way from the middle of the day, so
+       outlyingStops calls them the far ones. Doing them last means driving past them in
+       the morning and coming back in the afternoon. */
+    const lopsided = [
+      mk('h0', 40.411, -111.875), mk('h1', 40.477, -111.939), mk('h2', 40.487, -111.898),
+      mk('h3', 40.384, -111.969), mk('h4', 40.497, -111.892), mk('h5', 40.456, -111.788),
+      mk('h6', 40.487, -111.825), mk('h7', 40.379, -111.920), mk('h8', 40.465, -111.923),
+      mk('h9', 40.477, -111.888), mk('h10', 40.468, -111.862), mk('h11', 40.477, -111.928),
+    ];
+    const far = api.split(pts(lopsided));
+    const farNames = new Set(far.out.map(p => p.ref.name));
+    /* ⚠ THE FIXTURE HAS TO REACH THE BRANCH AT ALL, and it has to reach it with the
+       houses this suite is about — otherwise the checks below are about some other day. */
+    check('S322', 'this day really does have a far group, and it is h3 and h7',
+      farNames.size === 2 && farNames.has('h3') && farNames.has('h7'),
+      'held back: ' + [...farNames].join(',') + ' — the fixture has stopped exercising the branch');
+    const nearer = p => api.hav(HOME.lat, HOME.lng, p.lat, p.lng);
+    const coreAvg = far.core.reduce((t, p) => t + nearer(p), 0) / far.core.length;
+    check('S322', 'and they are NEARER the yard than the rest of the day, not further',
+      far.out.every(p => nearer(p) < coreAvg),
+      'that is the whole shape of the fault: far from the middle of the day, close to the road out');
+    const driven = api.order(lopsided.slice());
+    check('S322', 'so the crew does them on the way out, not on the way back',
+      farNames.has(driven[0].name) && farNames.has(driven[1].name),
+      'got ' + ids(driven) + ' — he watched a crew drive past a house in the morning and return for it in the afternoon');
+    check('S322', 'and the day is shorter for it',
+      api.miles(pts(driven), HOME, HOME) < 33,
+      'measured at 33.94 mi with the far group last and 31.56 with it first');
+    check('S322', 'nothing is dropped by choosing the other shape',
+      driven.length === lopsided.length &&
+      new Set(driven.map(h => h.name)).size === lopsided.length);
+
+    /* ── and the standing rule keeps every tie ── */
+    /* Four houses in a knot 0.4 mi from the yard, fourteen out at Herriman. Doing the
+       knot first is worth 0.21 miles — real, and far too little to overturn an
+       instruction on. This is the hand-built fixture that was too weak to prove the
+       check above, kept because it is exactly strong enough to prove this one. */
+    const tie = [];
+    for (let i = 0; i < 14; i++) tie.push(mk('bulk' + i, 40.4650 + (i % 5) * 0.004, -111.9400 + Math.floor(i / 5) * 0.005));
+    ['near0,40.3925,-111.8600', 'near1,40.3930,-111.8580', 'near2,40.3921,-111.8565', 'near3,40.3936,-111.8592'].forEach(r => {
+      const [n2, la, ln] = r.split(',');
+      tie.push(mk(n2, Number(la), Number(ln)));
+    });
+    const tieSplit = api.split(pts(tie));
+    check('S322', 'the near-the-yard knot is held back on this day too',
+      tieSplit.out.length === 4 && tieSplit.out.every(p => p.ref.name.indexOf('near') === 0),
+      'held back: ' + tieSplit.out.map(p => p.ref.name).join(','));
+    const tieDriven = api.order(tie.slice());
+    check('S322', 'but a saving smaller than the margin does not overturn her rule',
+      tieDriven[tieDriven.length - 1].name.indexOf('near') === 0,
+      'got ' + ids(tieDriven) + ' — going first saves 0.21 mi here, and Addie’s "at the end of the day on their way back home" is not worth giving up for that');
+    check('S322', 'and the margin is a named number, not a bare comparison',
+      typeof api.margin === 'number' && api.margin > 0.05 && api.margin < 2,
+      'without a margin the two shapes trade places on rounding, and the far house lands first for no reason anybody can see');
   }
 }

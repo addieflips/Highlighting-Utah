@@ -331,7 +331,7 @@ repo. The real vocabulary is `measuredFeet`, `lightsDescription` /
 `numberOfBins`, `gateCode`, `oneTimeNote`, `notes`, `difficulty`,
 `installPreference`. The placeholder also encodes business rules that are wrong
 here — a C9 bundle every 25 ft, where the shipped rule is `ceil(feet / 40)` for
-bundles and one bin per 260 ft (`CN_DOUBLE_BIN_FEET`).
+bundles and one bin per 320 ft (`CN_DOUBLE_BIN_FEET`, 260 until 2026-09-10).
 
 There is already a partial, load-bearing registry to derive from rather than
 starting blank: `PORTAL_WRITE_FIELDS` and `PORTAL_READ_FIELDS` in
@@ -2193,3 +2193,77 @@ blocks only the banner.
 
 **Resulting map change.** Named in REF-37, which records the banner ruling as decided
 and not built.
+
+---
+
+## Q-033 · intent · ANSWERED · raised and answered 2026-09-10
+Should a customer who owes for last season be able to tell us they have moved?
+
+Moving house got its own door on 2026-09-10 (QT-35): `portalChangeAddress` records a
+new address as **pending** and applies nothing, and the office commits it from Edit
+Customer. It is **not** behind the arrears hold, and that needs her ruling rather than
+my assumption.
+
+**Why it is a real question.** `portalSave` refuses every section but `cancel` while
+last season is unpaid — Dax, 2026-09-02: *"make sure it forces them to pay for their
+last year lights before they can do anything and before anything goes into the
+system."* A pending move **does** go into the system, and applying one raises a
+re-quote, so on the letter of that ruling it belongs behind the hold.
+
+**Why it shipped open.** The two failure directions are not symmetric:
+
+- **Refused**, the record keeps an address they have left. Nobody is told the house is
+  wrong, and the one mistake with no undo is a crew standing at the wrong door.
+- **Accepted**, nothing is actually granted. The hold still bars every other change,
+  the badge only asks the office to look, no pin moves, no quote is raised, and
+  `isOutForSeason` keeps a debtor off the routes and out of the build queue anyway —
+  so this cannot get them scheduled.
+
+⚠ **AND `cancel` IS ALREADY EXEMPT FOR THE SAME SHAPE OF REASON** — somebody trying to
+leave must not be told to pay first, or they stop replying and Addie never learns why.
+An address is a fact about where they live rather than a change to what they are
+buying, which is the argument for treating it the same way.
+
+**Three answers:**
+
+1. **Leave it open** (what shipped). A debtor can tell us they moved; nothing else about
+   their account moves. Cheapest, and safest for the crew.
+2. **Hold it like the other sections.** Consistent with Dax's wording, and it means a
+   debtor who moves has no way to say so until they pay — the office finds out when a
+   crew reports an empty house, if at all.
+3. **Accept it but do not badge it** until they have paid, so the information is kept
+   and the office is not asked to act on a customer who is held anyway. Splits the
+   difference; costs a second state nobody has asked for, which is usually how a rule
+   becomes unexplainable.
+
+⚠ **NOTHING ELSE WAITS ON THIS.** The door works either way; only the hold is in
+question, and switching it later is a two-line change with a check already written
+around it.
+
+**ANSWERED 2026-09-10 — option 1, which is what shipped.** Addie: *"Yes anyone can
+report a move but when we requote the person that didn't pay for last year still can't be
+scheduled until they pay there balance."*
+
+⭐ **HER ANSWER SPLITS THE QUESTION IN TWO, AND THE SPLIT IS THE INSIGHT** — the one this
+entry did not make when it was raised. It framed the choice as *hold the door or don't*,
+when the real distinction is between TELLING US and BEING SCHEDULED. Reporting a move is
+information and is never held; being put on a crew day is the thing the money gates. Once
+put that way there is no tension with Dax's *"before anything goes into the system"* at all:
+a pending address grants nothing.
+
+⚠ **AND THE SECOND HALF NEEDED NOTHING BUILT.** It was already true and already pinned:
+`houseOwesFromLastSeason` sits inside `isOutForSeason` AHEAD of the rsvpStatus and Confirmed
+branches, `placeUnscheduledOnNextDay` refuses anybody it holds, and `arrears-hold.test.js`
+§4d already ran the real `seasonYesUpdates` into the real `isOutForSeason` for the email
+approval — which is the same `quoteRespond` path a move re-quote takes. Checked before
+writing anything, rather than assumed either way.
+
+⚠ **WHAT WAS ADDED IS ONLY THE ENFORCEMENT OF THE FIRST HALF.** The exemption looked like
+an oversight next to `portalSave`, so it is now asserted as code — including against a hold
+smuggled in as a silent early return, which would have left every other check green while a
+debtor's move vanished with no error.
+
+**Resulting map change.** **QT-36**, which records the exemption as hers, names where the
+scheduling half is enforced, and is what goes red if somebody "tidies" the door to match
+`portalSave`. QT-35 still describes the door itself and is unchanged — this narrows nothing
+in it, so it is not superseded.
