@@ -331,7 +331,7 @@ repo. The real vocabulary is `measuredFeet`, `lightsDescription` /
 `numberOfBins`, `gateCode`, `oneTimeNote`, `notes`, `difficulty`,
 `installPreference`. The placeholder also encodes business rules that are wrong
 here — a C9 bundle every 25 ft, where the shipped rule is `ceil(feet / 40)` for
-bundles and one bin per 260 ft (`CN_DOUBLE_BIN_FEET`).
+bundles and one bin per 320 ft (`CN_DOUBLE_BIN_FEET`, 260 until 2026-09-10).
 
 There is already a partial, load-bearing registry to derive from rather than
 starting blank: `PORTAL_WRITE_FIELDS` and `PORTAL_READ_FIELDS` in

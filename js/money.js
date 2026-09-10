@@ -20,17 +20,27 @@
  * about what someone owes.
  */
 
-/* How many feet fit in one bin. A house needs another bin for every 260 feet:
- * up to 260 is 1 bin, 261-520 is 2, 521-780 is 3, and so on. More than one bin
+/* How many feet fit in one bin. A house needs another bin for every 320 feet:
+ * up to 320 is 1 bin, 321-640 is 2, 641-960 is 3, and so on. More than one bin
  * also means a 5000-series customer number instead of a regular one.
- * Note: some older training notes and UI text say "the 200 ft rule" — 260 is
- * the number the app actually uses.
- * The name is historic — it used to be a single over/under cutoff between one
- * bin and two, because two was as high as it went. The cutoff itself has not
- * moved, so a house on the books keeps the bin count and the number it already
- * has; only houses over 520 feet, which used to be capped at 2 bins, come out
- * differently now. */
-export const CN_DOUBLE_BIN_FEET = 260;
+ *
+ * ⭐ 320 SINCE 2026-09-10, Addie: "lets change feet to 320 feet in order to have two
+ * bins." It was 260 before that, and 200 in some older training notes and UI text —
+ * which is why NOTHING may type this number out for itself. Every screen, every
+ * warning and every test reads it from here; the one place that hard-coded 200 sat
+ * there contradicting the maths for weeks before anybody noticed.
+ *
+ * ⚠ THE BIN COUNT ON A RECORD IS STORED, NOT DERIVED. `numberOfBins` is written by
+ * `cnBinsForFeet` at the moment a footage is saved, so raising this does NOT re-count
+ * the houses already on the books — and it must not, because their bins are physically
+ * labelled and their customer numbers are painted on. A house between 261 and 320 feet
+ * is stored as 2 bins on a 5000-series number and would now be worked out as 1 on a
+ * regular one; it keeps what it has until somebody re-saves its footage deliberately.
+ * That is a decision about real boxes on real shelves, so it is the owner's to make.
+ *
+ * The NAME is historic — it used to be a single over/under cutoff between one bin and
+ * two, because two was as high as it went. */
+export const CN_DOUBLE_BIN_FEET = 320;
 
 /* How many bins a house needs, from its measured feet. Never fewer than 1 —
  * a house with no feet measured yet still gets somewhere to put its lights. */

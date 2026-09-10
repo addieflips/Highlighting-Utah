@@ -36,7 +36,7 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
 
    Both copy the same details (name, phone, colors, wire color, install timing, gate code, outlet timer, specific outlet, notes, wants-mailed-invoice, photo, contact method, the $30 set-up fee decision, and the *approved* price — never a recalculated one) and both create the `jobAddresses` document through the **same** Add Customer submit handler: automatic fills the form and submits it rather than writing its own record, so the customer number, invoice, warehouse build flag and auto-scheduling cannot drift apart from the manual path. The quote is marked `status: 'closed'` with `convertedToCustomerAt` set.
 
-   *The light colours decide WHICH build group a house lands in, not whether it is queued at all.* Conversion still falls back to the quote's own wording when no colour boxes were ticked, so a pattern typed as free text is not lost. ⚠ **Corrected 2026-08-26:** this used to say `needsLightBuild` was set FROM `lightsDescription`. It is not, and has not been since 2026-08-21 — every new house is flagged, colours or no colours (questions map WH-17, WH-20). A house with no colours goes to the warehouse's own "Waiting on light colours" block, which is visible and has an Add colours button; leaving it unflagged made those houses invisible instead, which was the bug. ⛔ **And its TIMER is not waiting on any of that** (2026-09-09, [[WH-26]]). Changing a timer alone queues a build — `outletTimer` is one of the three `WAREHOUSE_BUILD_FIELDS` — so a house with no colours that asked only for a timer landed in this block. The damage was that `whBuildQueueGroups` collected timers AFTER the blocked branch returned, so such a house never reached the timer list at all: the one thing it actually needed was the one thing no sheet asked for. Timers are collected first now, the house stays blocked for the BUILD, and the row says the timer can go in today. ⚠ Do not "fix" this by dropping `outletTimer` from that field list — the timer list is derived from the build queue, so a house that stopped being queued would stop getting a timer at all.
+   *The light colours decide WHICH build group a house lands in, not whether it is queued at all.* Conversion still falls back to the quote's own wording when no colour boxes were ticked, so a pattern typed as free text is not lost. ⚠ **Corrected 2026-08-26:** this used to say `needsLightBuild` was set FROM `lightsDescription`. It is not, and has not been since 2026-08-21 — every new house is flagged, colours or no colours (questions map WH-17, WH-20). A house with no colours goes to the warehouse's own "Waiting on light colours" block, which is visible and has an Add colours button; leaving it unflagged made those houses invisible instead, which was the bug. ⛔ **And its TIMER is not waiting on any of that** (2026-09-09, [[WH-26]]). Changing a timer alone queues a build — `outletTimer` is one of the three `WAREHOUSE_BUILD_FIELDS` — so a house with no colours that asked only for a timer landed in this block. The damage was that `whBuildQueueGroups` collected timers AFTER the blocked branch returned, so such a house never reached the timer list at all: the one thing it actually needed was the one thing no sheet asked for. Timers are collected first now, the house stays blocked for the BUILD, and the row says the timer can go in today. ⭐ **And then the house stopped being parked at all** (2026-09-09, [[WH-27]]) — Addie, shown the cause: *"can you fix those."* A timer change on its own now sets **`needsTimerOnly`**, the timer's own queue, instead of `needsLightBuild`. Those houses appear on the **Timers** list badged *Timer only*, with a **Timer in the bin** button to finish them, and they are **not** on the Waiting-on-light-colours list — because nothing is being made up for them, so there are no colours to wait for and nothing for the office to chase. ⚠ It never switches the build flag off: a real build queued for any other reason wins on its own, which is why it is a separate flag rather than a marker on the existing one. ⚠ Turning a timer **off** still queues a rebuild, deliberately — the timer list only ever collects Yes, so a removal routed there would vanish off every screen. ⚠ And a wire change, or a timer change on a house that **has** colours, is still a build exactly as before. **The five houses already sitting on that list carry no flag**, so each blocked row that has a timer on file now offers **Only needed a timer** — one press moves that house across, and *Build Them A New Set* on their record undoes it. Only a person can make that call: nothing on the record can tell a house queued by a timer change from one converted with its colours still to come. ⚠ Do not "fix" this by dropping `outletTimer` from that field list — the timer list is derived from the build queue, so a house that stopped being queued would stop getting a timer at all.
 5. **Measured Feet drives everything** — see §2, it's the single highest-leverage field in the app.
 6. **Warehouse builds it** — `needsLightBuild: true` queues the house into the warehouse build list (grouped by colour pattern, bundle count from feet). It is set for **every** newly created house, by all six routes that create one — Add a Customer, quote conversion, the sheet sync, both bulk importers and the test-record builders. A house with no colours yet is queued too, and shown in the blocked "Waiting on light colours" block rather than dropped.
 
@@ -366,7 +366,7 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
 ## 2. Fields that drive more than one thing
 
 **Measured Feet** (`measuredFeet` on `jobAddresses`) is the single highest-leverage field in the app. One number drives:
-- **Bin count**: a house needs another bin for every **260 ft**. Up to 260 → 1 bin; 261–520 → 2; 521–780 → 3; and so on. More than one bin means a **5000-series** customer number instead of a regular one — there are only two series, so a 3-bin and a 4-bin house both get a 5000 number, while the bin count saved on the customer is the real 3 or 4 so the warehouse builds the right amount. *(Note: some older docs and the Health Check UI call this "the 200 ft rule" — the cutoff in code is 260 ft, `cnBinsForFeet` / `CN_DOUBLE_BIN_FEET` in js/money.js. The 260 boundary has not moved; before 2026-08-15 the count simply stopped at 2, so a 900 ft house was built two bins short.)*
+- **Bin count**: a house needs another bin for every **320 ft** (⭐ **320 since 2026-09-10** — Addie: *"lets change feet to 320 feet in order to have two bins"*; it was 260 before that). Up to 320 → 1 bin; 321–640 → 2; 641–960 → 3; and so on. More than one bin means a **5000-series** customer number instead of a regular one — there are only two series, so a 3-bin and a 4-bin house both get a 5000 number, while the bin count saved on the customer is the real 3 or 4 so the warehouse builds the right amount. *(Note: older docs call this "the 200 ft rule" and it was 260 until 2026-09-10 — the cutoff in code is `cnBinsForFeet` / `CN_DOUBLE_BIN_FEET` in js/money.js, and nothing anywhere should type the number out for itself.)* ⛔ **Raising it does NOT re-count the houses already on the books, and must not.** `numberOfBins` is **stored**, worked out at the moment a footage is saved. A house between **261 and 320 ft** is stored as 2 bins on a 5000-series number and would now work out as 1 bin on a regular one — it keeps what it has until somebody re-saves its footage on purpose. Their bins are labelled and their numbers painted on, so changing them silently would send the warehouse to shelves that do not match the screen.
 - **Warehouse bundle count**: `ceil(feet / 40)`.
 - **Auto-priced estimate**: `price ≈ feet × perFootRate`, padded ~5% upward, never down.
 
@@ -3270,6 +3270,50 @@ that the customer may ring. An admin row names who was signed in and, for emails
 did not go out and what the mail service said — a count the status line showed and then
 threw away the moment she clicked anything else.
 
+#### What the folder has already caught (2026-09-10)
+
+The first real read of these rows found three faults and one data problem. Recorded here
+because the folder earning its keep within two days is the argument for it.
+
+- ⭐ **The preferences form crashed for anybody who never ticked the outlet radios.**
+  Neither `changes_outlet_timer` nor `changes_specific_outlet` carries `checked` in the
+  markup, and both were read as `document.querySelector('…:checked').value` — which is
+  `null.value` when nothing is ticked, so the whole save died before a single field was
+  read. Now falls back to what the record already holds, else `'No'`.
+  - ⚠ **The fallback is `'No'` to match the change test below it**, which reads a missing
+    timer as `'No'`. Anything else makes an untouched radio look CHANGED, and
+    `outletTimer` is one of the three `WAREHOUSE_BUILD_FIELDS` — that would queue a
+    bundle rebuild for a house nobody touched.
+  - ⚠ **The crash was the small half.** It arrived on a page opened from an RSVP link
+    (`&rsvp=yes`), so the customer's answer went down with it. Only people who have
+    answered are scheduled, so that is a house no crew is sent to — while the apology
+    tells them to ring us and to them it looks like they already replied.
+  - Covered by SCENARIO 7 of `portal-repro.test.js`, which runs the real lines out of
+    `index.html` against the real page's DOM. 4 sabotages red-checked.
+- ⭐ **Edit Customer save was failing outright, twice, and the report named nothing
+  fixable.** "null is not an object (evaluating `s.indexOf`)" on Safari and "Cannot read
+  properties of null (reading 'indexOf')" on Chrome — one fault, two wordings.
+  - ⚠ **NOT DIAGNOSED, AND DELIBERATELY NOT GUESSED AT.** All four `.indexOf` call sites
+    reachable from that handler were checked and every one is correctly guarded
+    (`Array.isArray` on both colour comparisons, `String(x||'')` in
+    `rsvpTemplateHasReferral`, `custInvoiceKey` can only return a string). `s` is not a
+    variable in `admin.html` at all — a single letter means minified third-party code, so
+    the throw is inside the Firebase SDK and the likeliest cause is a document id
+    reaching `doc()` as null. **Which** id is the part nothing recorded.
+  - So the catch now reports the first two stack frames. The next occurrence names its
+    own function instead of costing another read of a 1,400-line handler. Two frames, not
+    the whole stack: `messages` is capped at 5,000 characters on create by
+    `firestore.rules`, and a refused write is how this reporter goes silent.
+- ⚠ **An "Unhandled promise: Missing or insufficient permissions" row is not necessarily
+  an auth fault** — §5 records that the same wording is what Firestore returns when a
+  `messages` write breaks the 5,000-character cap. Check the rule's CONTENT conditions
+  before its auth ones.
+- ⛔ **And six customers' RSVP answers were lost** — `internal` and `deadline-exceeded`
+  out of `portalRsvp`, meaning the Cloud Function threw or timed out. Those are people who
+  opened the email, pressed the button, and were not recorded. They read as non-repliers,
+  so `isOutForSeason` drops them. **The rows are the only record that they answered at
+  all**, which is the whole reason this folder exists.
+
 ### The Communication Centre — type, status, category, priority
 
 Added 2026-09-09 ([[MSG-11]]). Addie's blueprint: *"Do NOT simply create more folders.
@@ -3337,6 +3381,77 @@ there having been clicked once would be the panel lying.
 
 *Where it's proved*: `comm-centre.test.js` (`npm run test:comm`) RUNS the classifier over
 real message shapes, including her worked example, rather than matching its source.
+
+**The sidebar is yours to shape** ([[MSG-15]], 2026-09-09). Addie: *"for inbox I have no way
+of adding anything deleting anything or adding a whole new section with subtabs? Can we get
+that added so I can make it like this?"* **＋ New section** at the bottom of the sidebar
+builds one: a name, an icon, what belongs in it, and as many subtabs as you like — the same
+shape as Member Messages and its five.
+
+⛔ **A section is a saved filter, not a folder.** This is not the folders coming back. Nothing
+is *moved* into a section: a message shows up in every view it matches, so it can be in two
+sections at once, and **deleting a section can never lose a message**. That is why there is
+no "put this message here" anywhere in it — the whole point of [[MSG-12]] was that filing a
+message in one place is how it goes missing.
+
+**What a filter is made of:** message type, category, status, priority, and optionally words
+that must appear. Nothing ticked in a row means *any*; ticks in different rows must **all**
+match. A subtab **narrows** its section and can never reach outside it, so a Payments subtab
+under a Member section shows member payment questions, never system payment notices.
+
+**Every filter shows a live count while you build it**, so you can see what a tab will hold
+before saving. Nothing is written until **Save** — Cancel leaves everything as it was.
+
+**The four built-in sections can be hidden, not deleted.** They are the spine the dashboard
+tiles are built on, so deleting one would leave those tiles pointing at nothing. Hidden ones
+are listed at the bottom of the sidebar with a one-click way back.
+
+⚠ Sections live in `settings/commSections`, one small document. If two people edit sections
+at the same moment, the last save wins — they change rarely enough that this is the right
+trade, and it is the same one the scheduling settings already make.
+
+**Why some light changes never showed a $30 fee** ([[WH-28]], 2026-09-10). Addie: *"there are
+member that did light changes but are not showing 30 dollar fee on there account."*
+
+A house's colours live in **two** fields. The master-sheet sync only fills `lightsDescription`
+when a colour *repeats* (an alternating pattern, where the order matters); an ordinary house
+keeps its colours in `lightColors` and its description is empty. The fee was reading the
+description alone — so those houses looked as though they had **no colours at all**, and the
+rule that filling colours in for the first time is free (correctly) charged nothing. In
+practice that was most of the imported book.
+
+⭐ **The portal picker had the same hole, and that is the half that made it unfair.** It filled
+from the description alone too, so a customer who already had colours opened the page with
+**nothing selected**, picked some, was warned about $30 — and then was not charged. The
+warning and the charge disagreed. Fixing the money without fixing the picker would have
+charged people for filling in what looked like a blank.
+
+⚠ The rule that decides the fee was never wrong, and the parity test between the office and
+the server copies has been passing correctly the whole time. What was wrong is what the caller
+handed it. `houseLightsText` is the one answer to *"what colours does this house have"*, and
+the fee is the sixth reader brought to it.
+
+**And how they asked to be reached** ([[MSG-16]], 2026-09-10). Addie: *"we can no longer see how
+someone prefers to be contacted."* It had not been removed — it was sitting in the small grey
+line with the date, which is the line that stopped carrying anything you needed once the phone
+and email moved up. It is now **on the contact line**, against the detail it is about:
+*Text them* beside the number, *Email them* beside the address.
+
+⚠ Call and text are shown as **different instructions**, never as a highlight on the same
+number — ringing somebody who asked to be texted is the whole thing this prevents. Anything
+that isn't one of the three is shown **exactly as written** rather than guessed at.
+
+⚠ **If they asked for something we do not have** — an email preference with no email on file —
+the row says so in red. That used to be invisible: it looked like an ordinary row with a phone
+number on it and nothing saying they had not wanted it used.
+
+⭐ **The phone and email are plain text with a Copy button, not links** — Addie: *"I want to be
+able to copy and paste phone number and email but not a link."* This reverses half of
+[[MSG-14]], which made them `tel:`/`mailto:`; the older reasoning was sound (on a phone a link
+is one press) but it cost the thing she actually does, because dragging to select inside a link
+follows the link instead. **Copy takes exactly what is on screen** — the number with its
+punctuation and extension, the address as typed. If the browser refuses to copy, it says so
+and tells you to select and press Ctrl+C; it never just does nothing.
 
 **How to reach them** ([[MSG-14]], 2026-09-09). Addie: *"on inbox can you show email and
 phone number under name so I can communicate with them?"* The phone and the email now sit on
@@ -3427,7 +3542,7 @@ a fake Firestore rather than reading their source; 16 sabotages red-checked.
 
 ## 6. Customer Numbers
 
-- **260 ft cutoff** (see §2) decides regular-series (1 bin) vs 5000-series (2 or more bins). Only two series exist, so the test is "more than one bin", not "exactly two".
+- **The bin cutoff** (320 ft — see §2) decides regular-series (1 bin) vs 5000-series (2 or more bins). Only two series exist, so the test is "more than one bin", not "exactly two".
 - **Pool**: `availableCustomerNumbers`, one doc per free number, `{type, releasedAt, releasedFrom}`.
 - **Assign**: lowest free pooled number of the right type wins; if the pool is empty, the next number above the current highest is used.
 - **Release**: freeing a number (edit, removal, recycle) drops it back into the pool.
@@ -3671,6 +3786,31 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
         ⚠ It marks the **planner's** list, never the whole book, and takes a dry run then
         a typed word — a customer wrongly marked as asked is never asked again this
         season, while a missing stamp only ever costs a duplicate.
+      - ⭐ **AND ONE PERSON AT A TIME, WHICH IS HOW THE JOB ACTUALLY ARRIVES** ([[EM-10]],
+        2026-09-10). Asked what she can get out of EmailJS for those resends, Addie's
+        answer was **individual error emails only** — no list anywhere. That rules out
+        both of the things that existed: a paste box has nothing to paste, and
+        `rsvpMarkAllAsked` is *wrong* when only SOME have been emailed, because it stamps
+        the whole planner list. **Mark one person as asked**, on the same card, is the
+        per-person half: a search box, and a tick beside each customer still waiting.
+        - **Search by the address, not just the name.** An error email names ONE address;
+          the name in it is ours and may be spelled any number of ways, the address is
+          the customer's own. Matching either, ignoring case.
+        - ⚠ **The Undo is the safety here, not a typed word.** The bulk button writes ~950
+          records and earns its `ASKED` prompt; this writes one record she is looking at,
+          so a visible Undo beats a confirm she would clear hundreds of times and stop
+          reading. Undo writes `null`, the same spelling Start New Season uses.
+        - ⚠ **A row marked in this session stays on screen, greyed.** The stamp moves that
+          customer out of `plan.standard` the instant it lands, so a plain redraw would
+          drop the row and take the Undo with it one frame after the press — the MSG-15
+          trap. They stay until the page is reloaded.
+        - ⚠ **It reads `rsvpWholePlan`, never `jobAddresses`.** A second definition of
+          "waiting to be asked" is how this list and the Ordinary RSVP count above it
+          start disagreeing about the same customers.
+        - `rsvp-mark-one.test.js` runs all of it against a fake DOM and Firestore rather
+          than matching source; 12 sabotages red-checked, including one the first draft
+          MISSED — a text check for the refresh call survived the guard around it being
+          changed to `if(false)`, so it is a spy on the real renderer now.
     - Each row carries its own reason rather than the run's last one, so the next occurrence
       names itself. 10 sabotages red-checked across the two passes.
   - ⚠ **The `{{quote_` prefix inside it is built with `String.fromCharCode(123,123)`.** Suites
@@ -5054,12 +5194,14 @@ are the two copies of the rule — change one, change the other, in the same pus
 - **An invoice's balance/status looks wrong** → check whether `changeFees` is actually being included in that particular screen's math. This was the P0 bug for this pass; the formula is documented in §3 so any *new* code touching balances can be checked against it.
 - **A route change (address, gate code, name) isn't reaching the crew** → check whether the route is *upcoming* — both resync paths deliberately skip past/history routes. Also remember only `id, address, name, phone, difficulty, lat, lng, gateCode, specificOutlet, specificOutletNotes, customerNumber` are ever frozen into a stop; other fields are supposed to be looked up live, so if one of *those* isn't updating, the live-lookup code itself is the place to check, not the resync.
 - **Firestore is throwing `failed-precondition`** → almost always a missing composite index. The index (or rules) file being correct in the repo means nothing until `firebase deploy --only firestore:indexes` (or `:rules`) actually runs — Netlify never touches Firebase, and a correct file sitting undeployed looks identical to a wrong one from the app's point of view.
-- **A customer's bin/number logic looks off at exactly 200 ft** → the actual cutoff in code is 260 ft, not 200 (see §2). Check `cnBinsForFeet` / `CN_DOUBLE_BIN_FEET` in js/money.js (they moved out of admin.html) before assuming a bug.
-- **A big house shows fewer bins than it needs** → check whether the code doing the deciding tests `numberOfBins === 2`. Bins go up in 260s now, so a 900 ft house is 4 bins; `=== 2` reads that as "not a double" and hands it a regular customer number.
+- **A customer's bin/number logic looks off at exactly 200 or 260 ft** → the cutoff in code is **320 ft** since 2026-09-10, and was 260 before that (see §2). Check `cnBinsForFeet` / `CN_DOUBLE_BIN_FEET` in js/money.js (they moved out of admin.html) before assuming a bug.
+- **A big house shows fewer bins than it needs** → check whether the code doing the deciding tests `numberOfBins === 2`. Bins go up in 320s, so a 900 ft house is 3 bins; `=== 2` reads that as "not a double" and hands it a regular customer number.
 - **The same System notice arrives twice, word for word, minutes apart** → treat it as a sweep loop, not as noise. A sweep doing real work finds *less* to do next pass; a byte-for-byte identical notice (same counts, same names in every list) is the signature of one pass undoing another. Check that eviction and the cap/top-up are asking the same question about the same day — `routeDayTowns` is the single answer, and `stopProblem` and `evenOutDays`/`fillDays` must all read it (§5).
 - **A button on a generated page does nothing at all, with no error** → look at what is being written into the button, not at the handler. On 2026-08-27 not one of the 181 blocks in the Rules view would open, because a rule name Addie wrote carries a double quote (`Is a pooled number somebody still holds "available"?`) and it was being pasted straight into the button's hidden label — the quote ends the label early, the button hands back a chopped-off name, the lookup finds nothing and the click quietly does nothing. Anything taken from `claude/questions-map.md`, from `connections/manifest.js`, or from a customer record is prose somebody typed, so it must be escaped at every point it is written into the page — and never at the source, because the real text is what every lookup is keyed on.
 - **A crew-day appears for a town nobody recognises** → look at that customer's `city` field on the record, not at the scheduler. `extractCleanCity` only strips zips and `UT`/`Utah` and drops any part containing a digit, so a *street* typed into the town field (`S Summit Crest Ln`) survives cleaning and reads as a town. Since 2026-08-31 the builder **refuses to seed a crew-day from one** (`townIsPhantom`), so those houses are left unplaced and named in the "Routes Kept Up To Date" notice under *these houses have a street in the town box*, with the bad value quoted. That line **is** the fix: correct the town on the record, and the customer sync carries it across. Before this, the invented town got a crew-day of its own, borrowed real houses from a neighbour to fill it, and `stopProblem` evicted those borrowed houses again on the next pass — the eviction/replacement loop behind twenty identical System notices a day.
+- **The console names a function that is not defined anywhere** (`renderFolderSidebar is not defined`) → a feature was removed and a CALLER was left behind. Search the file for the name: if it appears only at call sites and never as a declaration, that is the whole fault. Do not re-create the function — find what REPLACED it (the Communication Centre's `renderCommNav` replaced the folder sidebar on 2026-09-09) and point the callers there. ⚠ **And a `<name> is not defined` for an ORDINARY word like `item` is the opposite case** — a scope slip, not a deletion. That name is defined plenty of places, just not the one it is used in; look at the enclosing `forEach`/`map` and check its parameter is the name being read. Both shapes PARSE, so no gate here catches either.
 - **Most of the admin page does not work, and the console says `X is not defined` followed by `Cannot access 'Y' before initialization`** → that is ONE fault, not two, and the first line names it. Something threw at the module's TOP LEVEL, so evaluation stopped there and everything declared below it never initialised — the second error is the wreckage. Read the line number in the FIRST error and look at that line. On 2026-09-09 it was `admin:20204`, a bare `async` left standing when a commit deleted `async function addMessageFolder(){` and cut the line in half. ⚠ **It PARSED**, so `npm run verify` was green and both required CI checks passed — a lone keyword is a legal identifier expression, and nothing in the suite evaluates admin.html's module top level. `silent-failures.test.js` now catches that shape (a modifier keyword alone on a line) and names the file and line. ⚠ **If the first error is something the gate does not cover**, the same reasoning still applies: find the top-level throw, not the TDZ complaint underneath it.
 - **A house was re-measured but the route card, the crew sheet or the customer record still shows the old picture** → check WHEN it was measured. Until 2026-09-09 **Attach to Quote wrote the photograph to the quote and stopped there**. A quote's photographs live in `quotePhotos`; a customer's live in `housePhotos`, and the only thing that had ever carried one across was CONVERSION (`fillAddCustFromQuote`) — so on an already-converted customer, which is every re-measure, the picture never reached the record the crew reads. `rmPushPhotosToCustomer` now runs in the same press as the feet and the price ([[MR-40]], finishing [[MR-25]]). **It APPENDS**: a customer who already had a photograph keeps it as their main one and gains the measured picture beside it, so an old main photo staying put is correct, not a failure — the new one is on the record, further along the strip. Anything attached BEFORE that date is on the quote only and has to be added to the record by hand.
+- **Attach to Quote thinks for a moment and then says nothing at all** → that is a THROW, not a refusal. Every deliberate way out of `rmAttachShots` prints a line; a rejected promise printed nothing, left the gold button disabled and looked exactly like a click that never registered. Since 2026-09-09 both buttons go through `rmAttachSafely`, which catches anything the attach throws, puts the error's own words on the line beside the button, re-enables it, and files the reason to **Inbox → Admin Errors**. ⚠ **So a silent Attach now means something else** — the page failed to load at all, or the click is not reaching the button. Check the red error badge first.
 - **Measure Roof's Attach to Quote says "Nothing uploaded"** → read the rest of that line, and believe it over the button. Since 2026-09-09 the message carries the picture service's own words, because for one afternoon it said only *"Nothing uploaded — try again."* while Cloudinary was answering every request `401 cloud_name highlighting-utah is disabled` — the whole account switched off, so retrying could not work at any hour of any day and the office was sent to the one action guaranteed to fail. **A disabled account is a billing problem at Cloudinary, not a bug in Attach**, and it takes down every photograph already on a quote as well as new uploads (delivery from `res.cloudinary.com` 401s too), so the symptom to expect alongside it is blank pictures across the whole app. Check it in one line from any machine: `curl -s -D - -o /dev/null https://res.cloudinary.com/highlighting-utah/image/upload/sample.jpg` — the `X-Cld-Error` header names the fault. `uploadFailAdvice` is what turns the message into an instruction; it never replaces the service's words, only leads them.
 - **Firestore's "Fetch failed" / long-poll `Listen`/`channel` message in the console** → normal reconnection noise, not a bug.

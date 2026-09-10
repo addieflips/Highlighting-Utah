@@ -3716,7 +3716,35 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
     document.getElementById('changesSpecificOutletNotesWrap').style.display = loadedSpecificOutlet === 'Yes' ? 'block' : 'none';
     document.getElementById('changesSpecificOutletNotes').value = addrDoc.specificOutletNotes || '';
     document.getElementById('changesNotes').value = addrDoc.notes || '';
-    var parsedColors = parseSequenceFromLightsDescription(addrDoc.lightsDescription || (currentLookupRecord && currentLookupRecord.lightsDescription) || '');
+    /* ⭐ BOTH COLOUR FIELDS ([[WH-28]], 2026-09-10). The quote-details form eleven hundred
+       lines up already reads both and says why; this picker was never brought to the same
+       rule, and it is the half that made the missing $30 fee unfair as well as wrong.
+       ⚠ AN ORDINARY HOUSE KEEPS ITS COLOURS IN `lightColors` WITH AN EMPTY DESCRIPTION —
+       `rbDetectColorsAndPattern` only fills the description when a colour REPEATS. So this
+       picker opened showing NOTHING SELECTED for a customer who has colours, they picked
+       some, and the server read that as filling them in for the first time: free, and
+       recorded as no change at all. Charging for that without showing them what they had
+       would have been the same bug wearing a bill. */
+    var rcLoadedText = addrDoc.lightsDescription ||
+      (currentLookupRecord && currentLookupRecord.lightsDescription) || '';
+    var parsedColors = parseSequenceFromLightsDescription(rcLoadedText);
+    if(!parsedColors.length){
+      var listColors = (Array.isArray(addrDoc.lightColors) && addrDoc.lightColors.length)
+        ? addrDoc.lightColors
+        : ((currentLookupRecord && Array.isArray(currentLookupRecord.lightColors)) ? currentLookupRecord.lightColors : []);
+      if(listColors.length){
+        parsedColors = [];
+        listColors.forEach(function(c){
+          var key = canonicalColor(c);
+          if(key) parsedColors.push(key);
+        });
+        /* ⚠ THE BASELINE MOVES WITH IT. rcRememberLoadedState is what decides whether a Save
+           changed anything; left on the empty description it would call every save a change
+           and warn about $30 on a customer who only opened the page. It is serialised from
+           the picker below in exactly the shape a Save produces. */
+        rcLoadedText = parsedColors.join(', ');
+      }
+    }
     var hasRepeats = new Set(parsedColors).size !== parsedColors.length;
     var patternToggle = document.getElementById('rcSpecificPatternToggle');
     if(hasRepeats){
@@ -3737,7 +3765,7 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
        Save that changes nothing can be recognised as changing nothing — see
        rcRememberLoadedState. This must run AFTER both branches above, because
        it serialises whichever one was used. */
-    rcRememberLoadedState(addrDoc.lightsDescription || (currentLookupRecord && currentLookupRecord.lightsDescription) || '');
+    rcRememberLoadedState(rcLoadedText);
 
     var photoUrl = addrDoc.housePhotoUrl;
     var highlights = addrDoc.houseHighlights || [];
@@ -6443,7 +6471,14 @@ async function saveLightsPattern(){
     newLightsDescription = newLightsDescription + ' ' + rcDroppedDetail;
   }
 
-  var previousLights = (currentJobAddressData && currentJobAddressData.lightsDescription) ||
+  /* ⚠ THE SAME TWO FIELDS AS THE PICKER ([[WH-28]]). Reading the description alone here made
+     the dialog warn about $30 for a house whose colours live in `lightColors` — and then the
+     server charged nothing, because to it the customer was filling colours in for the first
+     time. The warning and the charge disagreed, and the charge was the one that was wrong.
+     `rcLoadedDescription` is what the picker was actually populated from, so it already
+     carries whichever field the colours came out of. */
+  var previousLights = rcLoadedDescription ||
+                       (currentJobAddressData && currentJobAddressData.lightsDescription) ||
                        (currentLookupRecord && currentLookupRecord.lightsDescription) || '';
   var lightsActuallyChanged = newLightsDescription !== previousLights;
 
@@ -7391,8 +7426,29 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
   if(!currentLookupRecord && !currentJobAddressId){ statusEl.textContent = 'Please look up your invoice first.'; return; }
   var newPref = document.getElementById('schedSelect').value;
   var newWireColor = document.getElementById('wireColorSelect').value;
-  var newOutletTimer = document.querySelector('input[name="changes_outlet_timer"]:checked').value;
-  var newSpecificOutlet = document.querySelector('input[name="changes_specific_outlet"]:checked').value;
+  /* ⭐ NEITHER RADIO HAS A DEFAULT, SO NEITHER IS ALWAYS ANSWERED (2026-09-10, from the Errors folder).
+     `querySelector(':checked')` returns null when nothing is ticked, and `.value` on that
+     throws — which took the whole save down before a single field was read. Found in the
+     Errors folder: a real customer on an iPhone, "null is not an object (evaluating
+     'document.querySelector('input[name="changes_outlet_timer"]:checked').value')".
+     ⚠ THE CRASH WAS THE SMALL HALF. It happened on a page opened from an RSVP link
+     (`&rsvp=yes`), so the answer went down with it — and the apology tells them to ring
+     us while `portalCallFailedText` files it under Member Errors. To that customer it
+     looks like they already replied, and because only people who have answered are
+     scheduled, nobody is sent to their house.
+     ⚠ FALLS BACK TO WHAT THE RECORD ALREADY HOLDS, never to a fresh answer. A blank
+     never wipes what is on file — the rule the sheet sync, the bulk importer and the
+     schedule sync all already follow.
+     ⚠ AND THE FALLBACK IS `'No'` TO MATCH THE COMPARISON BELOW, which reads a missing
+     timer as 'No' (`(currentJobAddressData.outletTimer || 'No')`). Anything else makes an
+     untouched radio read as a CHANGE — and `outletTimer` is one of the three
+     WAREHOUSE_BUILD_FIELDS, so that would queue a rebuild for a house nobody touched. */
+  var outletTimerEl = document.querySelector('input[name="changes_outlet_timer"]:checked');
+  var newOutletTimer = outletTimerEl ? outletTimerEl.value
+    : ((currentJobAddressData && currentJobAddressData.outletTimer) || 'No');
+  var specificOutletEl = document.querySelector('input[name="changes_specific_outlet"]:checked');
+  var newSpecificOutlet = specificOutletEl ? specificOutletEl.value
+    : ((currentJobAddressData && currentJobAddressData.specificOutlet) || 'No');
   var newSpecificOutletNotes = newSpecificOutlet === 'Yes' ? document.getElementById('changesSpecificOutletNotes').value.trim() : '';
   var newNotes = document.getElementById('changesNotes').value.trim();
   btn.disabled = true;

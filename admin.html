@@ -449,6 +449,44 @@
   .comm-tab.on .comm-badge{background:rgba(255,255,255,.24); color:#fff;}
   .comm-yours{font-size:11px; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
     color:var(--slate); margin:10px 0 4px 10px;}
+  /* ⭐ HER OWN SECTIONS ([[MSG-15]]). The edit/hide control shares the section's row so it
+     cannot push the label around, and it stays faint until the row is hovered — it is a
+     housekeeping control on a list somebody reads all day, not something to look at. */
+  .comm-sec-row{display:flex; align-items:center; gap:2px;}
+  .comm-sec-row .comm-sec-head{flex:1; min-width:0;}
+  .comm-sec-edit{flex:0 0 auto; background:none; border:0; cursor:pointer; padding:6px 7px;
+    border-radius:7px; font-size:12px; color:var(--slate); opacity:0; transition:opacity .12s;}
+  .comm-sec-row:hover .comm-sec-edit{opacity:1;}
+  .comm-sec-edit:hover{background:var(--line); color:var(--ink);}
+  .comm-add{width:100%; text-align:left; background:none; border:1px dashed var(--line);
+    border-radius:8px; padding:7px 10px; cursor:pointer; font-size:12.5px; font-weight:700;
+    color:var(--slate); margin-top:4px;}
+  .comm-add:hover{border-color:var(--ink); color:var(--ink);}
+  .comm-hidden-note{font-size:11.5px; color:var(--slate); margin:8px 0 0 2px;}
+  .comm-unhide{background:none; border:0; cursor:pointer; padding:2px 5px; border-radius:6px;
+    font-size:11.5px; color:var(--emerald); font-weight:700;}
+  .comm-unhide:hover{background:var(--snow);}
+  /* The editor. Wide enough for the checkbox rows to sit two or three across rather than
+     one per line, which is what makes it readable as a set of choices. */
+  .comm-editor{max-width:620px;}
+  .comm-ed-row{display:flex; gap:10px; align-items:flex-start;}
+  .comm-ed-tabs{display:flex; flex-wrap:wrap; gap:6px; margin:12px 0 10px;}
+  .comm-ed-tab{display:flex; align-items:center; gap:6px; background:var(--snow);
+    border:1px solid var(--line); border-radius:999px; padding:5px 11px; cursor:pointer;
+    font-size:12.5px; font-weight:700; color:var(--slate);}
+  .comm-ed-tab.on{background:var(--ink); color:#fff; border-color:var(--ink);}
+  .comm-ed-tab.on .comm-badge{background:rgba(255,255,255,.24); color:#fff;}
+  .comm-ed-tab.add{border-style:dashed; font-weight:700;}
+  .comm-filter{border:1px solid var(--line); border-radius:11px; padding:11px 13px; background:var(--snow);}
+  .comm-flabel{font-size:11px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--slate); margin:8px 0 4px;}
+  .comm-flabel:first-child{margin-top:0;}
+  .comm-fset{display:flex; flex-wrap:wrap; gap:4px 14px;}
+  .comm-chk{display:flex; align-items:center; gap:5px; font-size:12.5px; font-weight:600;
+    color:var(--ink); cursor:pointer;}
+  .comm-chk input{width:15px; height:15px;}
+  .comm-filter input[type=text]{width:100%; margin-top:2px;}
+  .comm-fnote{font-size:11.5px; color:var(--slate); margin-top:9px; line-height:1.5;}
   .comm-dash{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; align-items:stretch;}
   .comm-tile{display:flex; flex-direction:column; gap:1px; min-width:86px; padding:9px 13px;
     border:1px solid var(--line); border-radius:11px; background:var(--snow); cursor:pointer; text-align:left;}
@@ -744,8 +782,21 @@
      Set slightly larger and darker than .rmeta on purpose: it used to share that line's
      grey with the date, which is the piece of it nobody ever needs ([[MSG-14]]). */
   .row-contact{ font-size:13px; color:var(--ink); margin-top:3px; font-weight:600; }
-  .row-contact a{ color:var(--emerald); text-decoration:none; border-bottom:1px solid rgba(0,0,0,.15); }
-  .row-contact a:hover{ text-decoration:none; border-bottom-color:currentColor; }
+  /* ⭐ SELECTABLE, NOT A LINK ([[MSG-16]]). `user-select` is spelled out rather than left to
+     inherit: the row is draggable (that is how a message is filed), and a draggable ancestor
+     is what stops a drag-to-select inside it in WebKit — so the detail would look like plain
+     text and still refuse to be highlighted. */
+  .row-contact-val{ user-select:text; -webkit-user-select:text; cursor:text; }
+  .row-contact-copy{ background:none; border:1px solid var(--line); border-radius:6px;
+    padding:0 6px; margin-left:2px; font-size:10.5px; font-weight:700; color:var(--slate);
+    cursor:pointer; vertical-align:1px; }
+  .row-contact-copy:hover{ border-color:var(--ink); color:var(--ink); }
+  .row-contact-copy.done{ border-color:var(--emerald); color:var(--emerald); }
+  /* The instruction about WHICH one to use, beside the one it is about. */
+  .row-contact-pref{ font-size:11px; font-weight:800; letter-spacing:.02em; color:var(--emerald);
+    background:rgba(62,122,91,.10); border-radius:999px; padding:1px 7px; margin-left:2px; }
+  /* A preference we cannot act on is a problem, so it is drawn as one. */
+  .row-contact-warn{ font-size:12px; font-weight:600; color:var(--ember); margin-top:2px; }
   /* Not an error, so not drawn as one — it is just the honest answer. */
   .row-contact.none{ color:var(--slate); font-weight:500; font-style:italic; }
   /* Small and plain: a caveat on the detail beside it, never a heading of its own. */
@@ -1628,7 +1679,7 @@
             <div class="form-row" style="max-width:180px; margin-top:12px;"><label>Number of Bins</label><input type="number" id="addCustBins" min="1" step="1" value="1"></div>
             <div class="form-row" style="max-width:220px; margin-top:12px;"><label>Customer # (optional)</label><input type="text" id="addCustNumber" placeholder="Assigned automatically"></div>
             <div id="addCustNumberPreview" style="font-size:12.5px; font-weight:600; margin-top:4px;"></div>
-            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Leave it blank and you can assign the next available one from Customer Numbers. Normally left blank &mdash; the number is picked for you from Measured Feet. Over 260 feet means 2 bins and the next free 5000-series number; anything up to 260 means 1 bin and the next free regular number. Without Measured Feet no number is given.</p>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">The permanent bin number. Leave it blank and you can assign the next available one from Customer Numbers. Normally left blank &mdash; the number is picked for you from Measured Feet. Over 320 feet means 2 bins and the next free 5000-series number; anything up to 320 means 1 bin and the next free regular number. Without Measured Feet no number is given.</p>
             <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-top:12px;"><input type="checkbox" id="addCustWantsMailed" style="width:auto;"> Also wants their invoice mailed (postal mail)</label>
           </div>
           <!-- Filled in by showAddCustMissing() when Add Customer is pressed with
@@ -1856,7 +1907,7 @@
               <div class="form-row">
                 <label>Measured Feet (optional) <span class="bulk-count" id="rbCountFeet">0 rows</span></label>
                 <textarea id="rbFeetArea" rows="4" style="width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--snow); color:var(--ink); font-family:monospace; font-size:12.5px;" placeholder="230&#10;490&#10;(blank = leave as is)"></textarea>
-                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">The <strong>#&nbsp;Feet</strong> column off the master sheet. This is the one that drives everything else &mdash; how many bins the house needs, how many bundles the warehouse builds, and the per-foot price. Filling it in also sets <strong>Number of Bins</strong> to match: one bin up to 260&nbsp;ft, another for every 260&nbsp;ft after that. Blank leaves both alone.</p>
+                <p style="font-size:11.5px; color:var(--slate); margin:4px 0 0;">The <strong>#&nbsp;Feet</strong> column off the master sheet. This is the one that drives everything else &mdash; how many bins the house needs, how many bundles the warehouse builds, and the per-foot price. Filling it in also sets <strong>Number of Bins</strong> to match: one bin up to 320&nbsp;ft, another for every 320&nbsp;ft after that. Blank leaves both alone.</p>
               </div>
               <div class="form-row">
                 <label>Crew Notes (optional) <span class="bulk-count" id="rbCountNotes">0 rows</span></label>
@@ -3249,6 +3300,23 @@
         </div>
         <div id="rsvpWholeStatus" style="font-size:13px; color:var(--slate); margin:0 0 8px;"></div>
         <div id="rsvpWholeBreakdown" style="font-size:13px;"></div>
+        <!-- ⭐ EM-10. The per-person half of EM-06. That button is all-or-nothing, which
+             is right when the WHOLE book was asked outside the app and wrong for every
+             other case — Addie is resending from EmailJS's individual error emails, one
+             customer at a time, so what she needs is to tick off the one she just sent.
+             Searchable because that is how the job actually arrives: an error email
+             names ONE address, and finding it in a list of hundreds is the work.
+             ⚠ THE UNDO IS THE SAFETY HERE, not a typed word. A wrong stamp means that
+             customer is never asked again this season and no crew is sent to their
+             house — but this writes ONE record she is looking at, so a visible Undo
+             beats a confirm she would clear hundreds of times and stop reading. -->
+        <div id="rsvpMarkOneBlock" style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
+          <h4 style="margin:0 0 4px; font-size:14px;">Mark one person as asked</h4>
+          <p class="form-note" style="margin:0 0 8px;">For a customer you emailed <b>outside this app</b> &mdash; a resend from EmailJS&rsquo;s error emails. Search the address the error email names, then tick them off. <b>Send the whole RSVP</b> will skip whoever is marked. Nothing here sends anything.</p>
+          <input type="search" id="rsvpMarkOneFilter" placeholder="Search a name or email address" style="width:100%; max-width:340px; margin-bottom:8px;">
+          <div id="rsvpMarkOneStatus" style="font-size:13px; color:var(--slate); margin:0 0 6px;"></div>
+          <div id="rsvpMarkOneList" style="font-size:13px;"></div>
+        </div>
       </div>
       <!-- Hidden until a send actually loses somebody. A permanent empty card about
            failures is one nobody reads, and this one has to be noticed on the day it
@@ -8025,6 +8093,10 @@ const CUSTOMER_FIELD_LABELS = {
      reports fields the save actually carries. */
   cancellationReason: {label: 'Why they are cancelling', kind: 'text'},
   needsLightBuild: {label: 'Waiting to be built', kind: 'yesno'},
+  /* [[WH-27]] — its own queue, so it reads as its own line: "Waiting to be built: No" beside
+     "Waiting for a timer: Yes" is the whole distinction, and the history is where somebody
+     later asks why a house was never built. */
+  needsTimerOnly: {label: 'Waiting for a timer', kind: 'yesno'},
   needsLightRecycle: {label: 'Old set to come back', kind: 'yesno'},
   recycleKeepingCustomer: {label: 'Keeping them as a customer', kind: 'yesno'},
   buildTopUpFromFeet: {label: 'Feet already in their bin', kind: 'number'},
@@ -11124,6 +11196,10 @@ function initData(){
   loadEmailTemplates();
   loadCustomCodes();
   loadMessages();
+  /* ⚠ EAGER, beside loadMessages and for the same reason: the Inbox nav is the frame the
+     badge and every count are drawn in, so it cannot wait for the panel to be opened.
+     It is one small settings document, not a collection. */
+  loadCommSections();
   loadInvoices();
   /* ⭐ The Recycle queue lists people who have already been removed as customers, so
      it needs the archive as well as the book. Only the ones still waiting are watched —
@@ -19394,6 +19470,11 @@ function rsvpWholeRenderBreakdown(plan){
     row('Already answered', plan.answered, 'not asked again') +
     row('New this year', plan.newThisYear, 'never had lights \u2014 never asked') +
     '<p class="form-note" style="margin:10px 0 0;">Nobody appears in more than one line above.</p>';
+  /* \u2b50 EM-10. The per-person list reads the SAME plan, so the count on the "Ordinary
+     RSVP" line and the number of people offered a tick can never disagree \u2014 the one-rule
+     argument `commRowMatches` makes about tab counts, applied here. Refreshed with the
+     breakdown rather than on its own, so pressing Check first brings both up to date. */
+  if(typeof rsvpMarkOneRender === 'function') rsvpMarkOneRender();
 }
 document.getElementById('rsvpWholeCheckBtn')?.addEventListener('click', function(){
   const st = document.getElementById('rsvpWholeStatus');
@@ -20094,7 +20175,14 @@ function loadMessageFolders(){
       try{ await seedErrorFolders(messageFolders); }
       catch(err){ console.error('Could not create the Errors folders:', err); }
     }
-    renderFolderSidebar();
+    /* ⭐ renderCommNav, NOT renderFolderSidebar (2026-09-09). The Communication Centre
+       replaced the folder sidebar and took its renderer with it; these two calls were
+       left pointing at a function that no longer exists, so BOTH threw on every page
+       load — `Uncaught ReferenceError: renderFolderSidebar is not defined`, straight
+       into the Admin Errors folder, twice. `renderCommNav` is what draws that sidebar
+       now (it writes the nav and the "Your folders" heading into the same host), so it
+       is the same intent: redraw the sidebar once the folders have loaded. */
+    renderCommNav();
     renderMessagesList();
   });
 }
@@ -20297,6 +20385,34 @@ function msgContactFor(d){
     fromRecord: (!ownPhone && !!phone) || (!ownEmail && !!email)
   };
 }
+/* ⭐ WHICH OF THE TWO THEY ASKED US TO USE ([[MSG-16]], 2026-09-10). Addie: "we can no
+ * longer see how someone prefers to be contacted. Can you make sure that is still shown in
+ * there request?"
+ *
+ * ⚠ IT WAS NEVER REMOVED, AND SHE IS STILL RIGHT. [[MSG-14]] moved the phone and the email
+ * up to their own line and left "Prefers Text" behind in the small grey meta line with the
+ * date — so the one line she had learned to scan for contact details no longer had any, and
+ * the preference went with the part she stopped reading. Rendered is not the same as seen.
+ *
+ * ⭐ AND IT BELONGS ON THE CONTACT LINE ANYWAY, because it is not a fact about the customer,
+ * it is an instruction about WHICH of the two links to press. Beside the date it was trivia.
+ *
+ * ⚠ CALL AND TEXT ARE NOT THE SAME INSTRUCTION even though both point at the phone —
+ * ringing somebody who asked to be texted is exactly the mistake this exists to stop — so
+ * the WORDS travel, never merely a highlight on the right detail.
+ *
+ * ⚠ AND ANYTHING WE DO NOT RECOGNISE IS KEPT VERBATIM, never guessed at. The field is free
+ * text on an imported record, and reading "do not ring before 6" as a phone preference is
+ * how somebody gets rung who asked for anything but. */
+function msgContactPreference(d){
+  const raw = String((d && d.contactMethod) || '').trim();
+  if(!raw) return null;
+  const low = raw.toLowerCase();
+  if(/\btext\b|\bsms\b/.test(low))            return {route:'phone', words:'Text them'};
+  if(/\bcall\b|\bphone\b|\bvoice\b/.test(low)) return {route:'phone', words:'Call them'};
+  if(/e-?mail/.test(low))                       return {route:'email', words:'Email them'};
+  return {route:'', words:'Prefers: ' + raw};
+}
 /* ⚠ A SYSTEM NOTICE GETS NO LINE AT ALL. There is no customer behind a route sweep, so
    "no phone or email" under every one of them is noise on the rows that need none — and
    noise is how a line stops being read on the rows that do.
@@ -20306,30 +20422,52 @@ function msgContactFor(d){
 function msgContactLineHtml(d){
   if(typeof msgTypeOf === 'function' && msgTypeOf(d) === MSG_TYPE_SYSTEM) return '';
   const c = msgContactFor(d);
+  const pref = msgContactPreference(d);
+  const tag = function(where){
+    return (pref && pref.route === where)
+      ? ' <span class="row-contact-pref">' + esc(pref.words) + '</span>' : '';
+  };
   const bits = [];
+  /* ⭐ PLAIN TEXT YOU CAN SELECT, WITH A COPY BUTTON — NOT A LINK ([[MSG-16]], 2026-09-10).
+     Addie: "I want to be able to copy and paste phone number and email but not a link."
+     ⚠ THIS REVERSES THE tel:/mailto: HALF OF [[MSG-14]], and R-024 applies — her newer
+     answer wins and it is said out loud rather than applied quietly. The older reasoning is
+     kept because it was sound: "so I can communicate with them" read as tap-to-dial, and on
+     a phone that is genuinely one press. What it cost is the thing she actually does, which
+     is paste a number into something else — dragging to select inside an anchor starts a
+     drag or follows the link instead, so the detail was readable and not takeable.
+     ⚠ IT COPIES WHAT IS ON SCREEN, not a normalised form. What you see is what you paste is
+     the only rule nobody has to be told, and "(801) 555-0111" pastes into a phone, a text
+     and a document alike. */
+  const copyBtn = function(value){
+    return ' <button type="button" class="row-contact-copy" data-copyval="' + esc(value) +
+      '" title="Copy">Copy</button>';
+  };
   if(c.phone){
-    /* Keep + for an international number; strip the punctuation a dialler chokes on.
-       ⚠ AND CUT AT THE FIRST LETTER. "(801) 555-0999 ext 4" with only the punctuation
-       taken out becomes 80155509994 — eleven digits, perfectly dialable, and somebody
-       else's phone. Anything from the first letter onwards is a note ABOUT the number,
-       never part of it. Caught by its own check rather than reasoned about. */
-    const dial = c.phone.split(/[A-Za-z]/)[0].replace(/[^\d+]/g, '');
     const shown = (typeof fmtPhone === 'function') ? fmtPhone(c.phone) : c.phone;
-    /* ⚠ TOO SHORT TO RING IS SHOWN, NOT LINKED. A half-typed number is still worth
-       reading — it is what the office has — but a link that dials four digits is a
-       wrong call somebody makes by accident. */
-    bits.push('\u{1F4DE} ' + (dial.replace(/\D/g, '').length >= 7
-      ? '<a href="tel:' + esc(dial) + '">' + esc(shown) + '</a>'
-      : esc(shown)));
+    bits.push('\u{1F4DE} <span class="row-contact-val">' + esc(shown) + '</span>' +
+      tag('phone') + copyBtn(shown));
   }
   if(c.email){
-    bits.push('\u{2709}\u{FE0F} <a href="mailto:' + esc(c.email) + '">' + esc(c.email) + '</a>');
+    bits.push('\u{2709}\u{FE0F} <span class="row-contact-val">' + esc(c.email) + '</span>' +
+      tag('email') + copyBtn(c.email));
   }
+  /* ⚠ A PREFERENCE WE CANNOT ACT ON IS THE ONE MOST WORTH SAYING. Somebody who asked to be
+     emailed and left no email is currently invisible: the row shows a phone number and
+     nothing says they did not want it used. That is a real answer, not a gap. */
+  const stranded = pref && pref.route && !c[pref.route];
+  const extra = (pref && !pref.route) ? ' <span class="row-contact-pref">' + esc(pref.words) + '</span>' : '';
+  const strandedLine = stranded
+    ? '<div class="row-contact-warn">' + esc(pref.words) +
+      ' &mdash; and there is no ' + (pref.route === 'email' ? 'email' : 'phone number') +
+      ' on this message or on their record.</div>'
+    : '';
   if(!bits.length){
-    return '<div class="row-contact none">No phone or email on this message, and no record matches it</div>';
+    return '<div class="row-contact none">No phone or email on this message, and no record matches it' +
+      (pref ? ' &mdash; they asked for: ' + esc(pref.words.replace(/^Prefers: /, '')) : '') + '</div>' + strandedLine;
   }
-  return '<div class="row-contact">' + bits.join(' &middot; ') +
-    (c.fromRecord ? ' <span class="row-contact-src">from their record</span>' : '') + '</div>';
+  return '<div class="row-contact">' + bits.join(' &middot; ') + extra +
+    (c.fromRecord ? ' <span class="row-contact-src">from their record</span>' : '') + '</div>' + strandedLine;
 }
 function messageAddressLookup(d){
   const phoneDigits = (d.phone||'').replace(/\D/g,'');
@@ -20716,6 +20854,32 @@ function msgErrorWhoLabel(d){
    is derived from it, so the nav and the list can never disagree about what is being
    shown. [[MSG-11]] */
 let commView = {section:'inbox', tab:'all'};
+/* ⭐ THE NAV IS HERS TO SHAPE ([[MSG-15]], 2026-09-09). Addie: "for inbox I have no way of
+ * adding anything deleting anything or adding a whole new section with subtabs? Can we get
+ * that added so I can make it like this?" — pointing at Member Messages and its five subtabs.
+ *
+ * ⛔ THIS IS NOT THE FOLDERS COMING BACK, and the distinction is the whole design. [[MSG-12]]
+ * removed FILING — a message put in one place by hand, which is then the only place it is.
+ * A section here is a SAVED FILTER over the same derived facets everything else already
+ * reads: nothing is moved, a message shows up wherever it matches, and deleting a section
+ * cannot lose one. That is [[MSG-11]]'s own rule ("less folder hunting → more filtering")
+ * given a UI rather than reversed.
+ *
+ * ⚠ ONE RULE STILL DECIDES. A custom tab is evaluated by `commRowMatches` like every built-in
+ * one, so the list and the count beside the tab cannot disagree — the bug the folder badge
+ * already had once.
+ *
+ * ⚠ STORED IN `settings/commSections`, NOT A COLLECTION OF ITS OWN. `settings/{id}` is already
+ * open to signed-in staff in firestore.rules; a new collection would be denied by default and
+ * fail SILENTLY in a listener, and that file is not deployed by CI — it needs a hand-run.
+ * A whole feature that looks saved and is not is a worse trade than the one cost here, which
+ * is that two people editing sections at the same moment overwrite each other. Same trade
+ * `settings/scheduling` already makes, on something that changes about as often. */
+let commSections = {custom: [], hidden: []};
+/* Built-in sections are the spine: every dashboard tile, and the classification itself, is
+   written in terms of them. They can be HIDDEN — which is what "deleting anything" means for
+   a list you did not create — and never deleted, because deleting one would leave the tiles
+   pointing at a view that does not exist. */
 const COMM_SECTIONS = [
   {key:'inbox',  icon:'\u{1F4E5}', label:'Inbox',
    tabs:[['all','All'],['unread','Unread'],['needs_reply','Needs Reply'],
@@ -20730,10 +20894,94 @@ const COMM_SECTIONS = [
    tabs:[['all','All Errors'],['critical','Critical'],['warnings','Warnings'],
          ['review','Needs Review'],['resolved','Resolved']]}
 ];
+/* Every section on screen, in order: the built-ins she has not hidden, then hers. ONE list,
+   so the nav, the counts, the list and the heading cannot disagree about what exists. */
+/* ⚠ A LIVE LISTENER, NOT A ONE-OFF READ. Two people are in admin every day and the nav is
+   the frame everything else is drawn in — a stale copy means one machine filing against a
+   section the other has deleted. ⚠ AND A FAILED READ LEAVES THE BUILT-INS STANDING rather
+   than blanking the nav: an Inbox with no sections at all is indistinguishable from a broken
+   page, and every built-in view still works with no settings document at all. */
+function loadCommSections(){
+  onSnapshot(doc(db, 'settings', 'commSections'), function(snap){
+    const d = snap.exists() ? (snap.data() || {}) : {};
+    commSections = {custom: Array.isArray(d.custom) ? d.custom : [],
+                    hidden: Array.isArray(d.hidden) ? d.hidden : []};
+    /* If she is looking at a section that has just gone, put her somewhere real. */
+    if(!commAllSections().some(function(x){ return x.key === commView.section; })){
+      commView = {section: 'inbox', tab: 'all'};
+    }
+    if(typeof renderMessagesList === 'function') renderMessagesList();
+  }, function(err){
+    console.error('Could not read the Inbox sections:', err);
+    toast('Could not load your Inbox sections \u2014 showing the built-in ones.');
+  });
+}
+async function saveCommSections(next){
+  /* Written whole rather than merged: `custom` is an ARRAY, and a merge on an array replaces
+     it anyway, so a partial write here would be a lie about what it does. */
+  await setDoc(doc(db, 'settings', 'commSections'),
+    {custom: next.custom || [], hidden: next.hidden || []}, {merge: true});
+}
+function commAllSections(){
+  const hidden = (commSections && Array.isArray(commSections.hidden)) ? commSections.hidden : [];
+  const mine = (commSections && Array.isArray(commSections.custom)) ? commSections.custom : [];
+  return COMM_SECTIONS.filter(function(s){ return hidden.indexOf(s.key) === -1; })
+    .concat(mine.map(function(sec){
+      /* ⚠ THE All TAB IS ADDED HERE, NEVER STORED. It is the section's own filter with no
+         narrowing — exactly what `all` means on every built-in — so a section with one tab
+         cannot be saved in a state where All disagrees with it. */
+      return {key: sec.key, icon: sec.icon || '\u{1F4CC}', label: sec.label || 'Untitled',
+              custom: true, filter: sec.filter,
+              tabs: [['all', 'All']].concat((sec.tabs || []).map(function(t){ return [t.key, t.label]; }))};
+    }));
+}
+function commSectionByKey(key){
+  const mine = (commSections && Array.isArray(commSections.custom)) ? commSections.custom : [];
+  return mine.find(function(s){ return s.key === key; }) || null;
+}
+/* ⭐ ONE FILTER EVALUATOR, over the SAME facets the built-in tabs are written in terms of.
+   ⚠ EVERY LIST IS AN OR WITHIN ITSELF AND AN AND BETWEEN THEM — "a Payment question that is
+   still unread" is the shape somebody actually wants, and it is what the built-ins already do.
+   ⚠ AN EMPTY LIST MEANS "DO NOT CARE", NOT "MATCH NOTHING". The other reading makes a
+   half-built section show zero and read as broken; this way it shows everything, which is
+   visibly a filter nobody has narrowed yet. The editor says so and shows a live count. */
+function commFilterMatches(d, filter){
+  if(!filter) return true;
+  const f = msgFacets(d);
+  const any = function(list, value){ return !list || !list.length || list.indexOf(value) !== -1; };
+  if(!any(filter.types, f.type)) return false;
+  if(!any(filter.statuses, f.status)) return false;
+  if(!any(filter.priorities, f.priority)) return false;
+  if(!any(filter.severities, f.severity)) return false;
+  if(filter.categories && filter.categories.length &&
+     !filter.categories.some(function(c){ return f.categories.indexOf(c) !== -1; })) return false;
+  const term = String(filter.search || '').trim().toLowerCase();
+  if(term){
+    /* The same three fields the search box reads, so what she can find by typing she can
+       also pin to a tab. Never the contact details: those are resolved from the record and
+       a tab keyed on one would silently change membership when a record is edited. */
+    const hay = (String(d.topic||'') + ' ' + String(d.message||'') + ' ' + String(d.name||'')).toLowerCase();
+    if(hay.indexOf(term) === -1) return false;
+  }
+  return true;
+}
 /* ⚠ ONE RULE FOR "IS THIS ROW IN THIS VIEW", asked by the list AND by every count beside
    a tab. Two implementations is how a tab reads 5 and shows 4 — the bug the folder badge
    already had once, when the sidebar counted everything and the nav counted unread. */
 function commRowMatches(d, section, tab){
+  /* ⭐ HER OWN SECTIONS GO THROUGH THIS SAME FUNCTION ([[MSG-15]]). A second evaluator for
+     custom tabs is how a tab reads 5 and shows 4 — the exact failure this function's own
+     note above exists to prevent, so the new kind of view must not get one. */
+  const mine = commSectionByKey(section);
+  if(mine){
+    if(!commFilterMatches(d, mine.filter)) return false;
+    if(!tab || tab === 'all') return true;
+    const t = (mine.tabs || []).find(function(x){ return x.key === tab; });
+    /* ⚠ A TAB THAT NO LONGER EXISTS SHOWS THE SECTION, not nothing. She can delete a tab
+       while looking at it, and an empty list there reads as the section being broken. */
+    if(!t) return true;
+    return commFilterMatches(d, t.filter);
+  }
   const f = msgFacets(d);
   if(section === 'errors'){
     if(f.type !== MSG_TYPE_ERROR) return false;
@@ -20829,25 +21077,48 @@ function commViewLabel(){
 function renderCommNav(){
   const host = document.getElementById('commCentreNav');
   if(!host) return;
+  const sections = commAllSections();
   let html = '<div class="comm-nav">';
-  COMM_SECTIONS.forEach(function(sec){
+  sections.forEach(function(sec){
     const open = commView.section === sec.key;
     html += '<div class="comm-sec' + (open ? ' open' : '') + '">' +
-      '<button type="button" class="comm-sec-head" data-commsec="' + sec.key + '">' +
-        '<span class="comm-sec-icon">' + sec.icon + '</span>' + esc(sec.label) + '</button>' +
+      '<div class="comm-sec-row">' +
+        '<button type="button" class="comm-sec-head" data-commsec="' + esc(sec.key) + '">' +
+          '<span class="comm-sec-icon">' + esc(sec.icon) + '</span>' + esc(sec.label) + '</button>' +
+        /* ⭐ HER OWN SECTIONS ARE EDITABLE; THE BUILT-INS CAN BE PUT AWAY ([[MSG-15]]).
+           "Deleting anything" means two different things for the two kinds, and offering
+           Delete on a built-in would be a button that either breaks the dashboard tiles
+           pointing at it or quietly does nothing. */
+        (sec.custom
+          ? '<button type="button" class="comm-sec-edit" data-commedit="' + esc(sec.key) + '" title="Edit this section">\u270E</button>'
+          : '<button type="button" class="comm-sec-edit" data-commhide="' + esc(sec.key) + '" title="Hide this section">\u2715</button>') +
+      '</div>' +
       '<div class="comm-tabs"' + (open ? '' : ' hidden') + '>';
     sec.tabs.forEach(function(t){
       const n = commCount(sec.key, t[0]);
       const on = open && commView.tab === t[0];
       html += '<button type="button" class="comm-tab' + (on ? ' on' : '') + '" ' +
-        'data-commsec="' + sec.key + '" data-commtab="' + t[0] + '">' + esc(t[1]) +
+        'data-commsec="' + esc(sec.key) + '" data-commtab="' + esc(t[0]) + '">' + esc(t[1]) +
         /* A nought is drawn as nothing at all — a column of zeroes reads as a broken
            counter, which is half of why the old total count was ignored. */
         (n ? '<span class="comm-badge">' + n + '</span>' : '') + '</button>';
     });
     html += '</div></div>';
   });
-  html += '</div><div class="comm-yours">Your folders</div>';
+  html += '</div>';
+  html += '<button type="button" class="comm-add" id="commAddSection">\uFF0B New section</button>';
+  /* ⚠ THE PUT-AWAY ONES ARE NAMED, NOT FORGOTTEN. A hidden section with no way back is a
+     feature she has lost rather than tidied, and "where did System Messages go" is a
+     question the screen should answer itself. */
+  const hidden = (commSections.hidden || []).filter(function(k){
+    return COMM_SECTIONS.some(function(s){ return s.key === k; }); });
+  if(hidden.length){
+    html += '<div class="comm-hidden-note">Hidden: ' + hidden.map(function(k){
+      const s0 = COMM_SECTIONS.find(function(x){ return x.key === k; });
+      return '<button type="button" class="comm-unhide" data-commshow="' + esc(k) + '">' +
+        esc(s0 ? s0.label : k) + ' \u21A9</button>';
+    }).join(' ') + '</div>';
+  }
   host.innerHTML = html;
   host.querySelectorAll('[data-commtab]').forEach(function(b){
     b.addEventListener('click', function(){
@@ -20861,6 +21132,235 @@ function renderCommNav(){
       renderCommNav(); renderCommDash(); renderMessagesList();
     });
   });
+  host.querySelectorAll('[data-commedit]').forEach(function(b){
+    b.addEventListener('click', function(e){
+      e.stopPropagation();   /* the row underneath opens the section; this must not */
+      commEditSection(commSectionByKey(b.dataset.commedit));
+    });
+  });
+  host.querySelectorAll('[data-commhide]').forEach(function(b){
+    b.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const key = b.dataset.commhide;
+      const sec = COMM_SECTIONS.find(function(x){ return x.key === key; });
+      if(!confirm('Hide "' + (sec ? sec.label : key) + '" from the sidebar?\n\n' +
+        'No messages are deleted or moved — they still show in the other views, and you can ' +
+        'put this section back from the bottom of the sidebar.')) return;
+      const next = {custom: commSections.custom || [],
+                    hidden: (commSections.hidden || []).concat([key])};
+      try{ await saveCommSections(next); }
+      catch(err){ console.error('Could not hide the section:', err);
+                  alert('Could not save that: ' + (err && err.message ? err.message : err)); }
+    });
+  });
+  host.querySelectorAll('[data-commshow]').forEach(function(b){
+    b.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const key = b.dataset.commshow;
+      const next = {custom: commSections.custom || [],
+                    hidden: (commSections.hidden || []).filter(function(k){ return k !== key; })};
+      try{ await saveCommSections(next); }
+      catch(err){ console.error('Could not show the section:', err);
+                  alert('Could not save that: ' + (err && err.message ? err.message : err)); }
+    });
+  });
+  const addBtn = document.getElementById('commAddSection');
+  if(addBtn) addBtn.addEventListener('click', function(){ commEditSection(null); });
+}
+/* ⭐ THE EDITOR ([[MSG-15]]). One popup for the whole section: its name, its icon, what
+   belongs in it at all, and its subtabs. A popup rather than a `confirm()` for the reason
+   every other builder here is one — there are several fields and one of them is a list.
+
+   ⚠ IT SHOWS A LIVE COUNT BESIDE EVERY FILTER, and that is the half that makes it usable
+   rather than a form. A filter nobody can see the effect of is a filter somebody sets once,
+   gets wrong, and never opens again — and an empty list here means "do not care", which
+   without a number on screen reads as a rule that did not save.
+
+   ⚠ NOTHING IS WRITTEN UNTIL Save. Cancel leaves the stored sections untouched, so a
+   half-built section cannot appear in the sidebar for anybody else mid-edit. */
+function commEditSection(existing){
+  const isNew = !existing;
+  /* A deep copy: editing must not mutate what is on screen behind the popup, or Cancel
+     has already half-applied by the time it is pressed. */
+  const draft = existing
+    ? JSON.parse(JSON.stringify(existing))
+    : {key: 'c-' + Date.now().toString(36), icon: '\u{1F4CC}', label: '',
+       /* ⚠ A NEW SECTION STARTS ON MEMBER MESSAGES, not on nothing. An empty filter matches
+          every row including the route sweeps, and a brand-new section showing 900 system
+          notices reads as broken rather than as unnarrowed. */
+       filter: {types: [MSG_TYPE_MEMBER], categories: [], statuses: [], priorities: [], severities: [], search: ''},
+       tabs: []};
+  draft.tabs = draft.tabs || [];
+
+  const overlay = document.createElement('div');
+  overlay.className = 'needsfix-popup-overlay';
+  overlay.innerHTML = '<div class="needsfix-popup comm-editor"></div>';
+  const card = overlay.querySelector('.comm-editor');
+
+  /* How many messages a filter would hold right now. Counted through the SAME rule the
+     nav and the list use, never a second scan — a preview that disagreed with the tab it
+     is previewing would be worse than no preview. */
+  const countFor = function(filter){
+    return allMessages.filter(function(m){
+      return commFilterMatches(m.data, draft.filter) &&
+             (filter === draft.filter ? true : commFilterMatches(m.data, filter));
+    }).length;
+  };
+
+  const boxes = function(name, list, labels, chosen){
+    return '<div class="comm-fset">' + list.map(function(v){
+      const lab = labels ? (labels[v] || v) : v;
+      return '<label class="comm-chk"><input type="checkbox" data-f="' + esc(name) + '" value="' +
+        esc(v) + '"' + (chosen.indexOf(v) !== -1 ? ' checked' : '') + '> ' + esc(lab) + '</label>';
+    }).join('') + '</div>';
+  };
+
+  const filterUi = function(filter, name) {
+    return '<div class="comm-filter" data-for="' + esc(name) + '">' +
+      '<div class="comm-flabel">Type</div>' +
+        boxes('types', [MSG_TYPE_MEMBER, MSG_TYPE_SYSTEM, MSG_TYPE_ERROR],
+              {member: 'Member Messages', system: 'System', error: 'Errors'}, filter.types || []) +
+      '<div class="comm-flabel">Category</div>' + boxes('categories', MSG_CATEGORIES, null, filter.categories || []) +
+      '<div class="comm-flabel">Status</div>' + boxes('statuses', MSG_STATUS, MSG_STATUS_LABEL, filter.statuses || []) +
+      '<div class="comm-flabel">Priority</div>' + boxes('priorities', MSG_PRIORITY, MSG_PRIORITY_LABEL, filter.priorities || []) +
+      '<div class="comm-flabel">Contains these words (optional)</div>' +
+        '<input type="text" data-f="search" value="' + esc(filter.search || '') + '" placeholder="e.g. gate code">' +
+      '<div class="comm-fnote">Nothing ticked in a row means <strong>any</strong>. Ticks across ' +
+        'different rows have to <strong>all</strong> match.</div>' +
+    '</div>';
+  };
+
+  let editingTab = null;   /* null = editing the section itself */
+
+  const draw = function(){
+    const target = editingTab === null ? draft.filter : draft.tabs[editingTab].filter;
+    card.innerHTML =
+      '<h3 style="color:var(--dusk);">' + (isNew ? 'New section' : 'Edit section') + '</h3>' +
+      '<div class="comm-ed-row">' +
+        '<div class="form-row" style="flex:0 0 80px;"><label>Icon</label>' +
+          '<input type="text" id="commEdIcon" maxlength="4" value="' + esc(draft.icon) + '"></div>' +
+        '<div class="form-row" style="flex:1;"><label>Name</label>' +
+          '<input type="text" id="commEdLabel" placeholder="e.g. Gate codes" value="' + esc(draft.label) + '"></div>' +
+      '</div>' +
+      '<div class="comm-ed-tabs">' +
+        '<button type="button" class="comm-ed-tab' + (editingTab === null ? ' on' : '') + '" data-edtab="section">' +
+          'What belongs in this section <span class="comm-badge">' + countFor(draft.filter) + '</span></button>' +
+        draft.tabs.map(function(t, i){
+          return '<button type="button" class="comm-ed-tab' + (editingTab === i ? ' on' : '') +
+            '" data-edtab="' + i + '">' + esc(t.label || 'Untitled') +
+            '<span class="comm-badge">' + countFor(t.filter) + '</span></button>';
+        }).join('') +
+        '<button type="button" class="comm-ed-tab add" id="commEdAddTab">＋ Subtab</button>' +
+      '</div>' +
+      (editingTab === null
+        ? '<div class="comm-fnote" style="margin-bottom:6px;">Every subtab below narrows this. ' +
+          'The section’s own <strong>All</strong> tab shows exactly what is set here.</div>'
+        : '<div class="comm-ed-row">' +
+            '<div class="form-row" style="flex:1;"><label>Subtab name</label>' +
+              '<input type="text" id="commEdTabName" value="' + esc(draft.tabs[editingTab].label || '') + '"></div>' +
+            '<button type="button" class="btn btn-outline btn-sm" id="commEdDelTab" style="align-self:flex-end;">Delete subtab</button>' +
+          '</div>') +
+      filterUi(target, editingTab === null ? 'section' : String(editingTab)) +
+      '<div class="foot" style="display:flex; justify-content:space-between; gap:8px; margin-top:14px;">' +
+        (isNew ? '<span></span>'
+               : '<button type="button" class="btn btn-outline btn-sm" id="commEdDelete" style="color:var(--ember);">Delete section</button>') +
+        '<span style="display:flex; gap:8px;">' +
+          '<button type="button" class="btn btn-outline" id="commEdCancel">Cancel</button>' +
+          '<button type="button" class="btn btn-gold" id="commEdSave">Save</button>' +
+        '</span>' +
+      '</div>';
+    wire();
+  };
+
+  const readInto = function(filter){
+    card.querySelectorAll('.comm-filter [data-f]').forEach(function(el){
+      const key = el.dataset.f;
+      if(key === 'search'){ filter.search = el.value.trim(); return; }
+      if(!Array.isArray(filter[key])) filter[key] = [];
+      const at = filter[key].indexOf(el.value);
+      if(el.checked && at === -1) filter[key].push(el.value);
+      if(!el.checked && at !== -1) filter[key].splice(at, 1);
+    });
+  };
+  /* ⚠ READ BEFORE EVERY REDRAW. The popup is rebuilt wholesale on each change so the live
+     counts move, which destroys the inputs — anything typed and not read back first is
+     simply gone, and it would look like the field not saving. */
+  const readAll = function(){
+    const el = card.querySelector('#commEdIcon'); if(el) draft.icon = el.value.trim() || '\u{1F4CC}';
+    const lb = card.querySelector('#commEdLabel'); if(lb) draft.label = lb.value.trim();
+    const tn = card.querySelector('#commEdTabName');
+    if(tn && editingTab !== null) draft.tabs[editingTab].label = tn.value.trim();
+    readInto(editingTab === null ? draft.filter : draft.tabs[editingTab].filter);
+  };
+
+  function wire(){
+    card.querySelectorAll('.comm-filter [data-f]').forEach(function(el){
+      el.addEventListener('change', function(){ readAll(); draw(); });
+    });
+    card.querySelectorAll('[data-edtab]').forEach(function(b){
+      b.addEventListener('click', function(){
+        readAll();
+        editingTab = b.dataset.edtab === 'section' ? null : Number(b.dataset.edtab);
+        draw();
+      });
+    });
+    const add = card.querySelector('#commEdAddTab');
+    if(add) add.addEventListener('click', function(){
+      readAll();
+      /* A new subtab starts as a copy of nothing — no narrowing — so it shows the section
+         and she narrows from there. Starting it empty of everything would show zero. */
+      draft.tabs.push({key: 't-' + Date.now().toString(36) + '-' + draft.tabs.length,
+                       label: 'New subtab',
+                       filter: {types: [], categories: [], statuses: [], priorities: [], severities: [], search: ''}});
+      editingTab = draft.tabs.length - 1;
+      draw();
+    });
+    const del = card.querySelector('#commEdDelTab');
+    if(del) del.addEventListener('click', function(){
+      readAll();
+      draft.tabs.splice(editingTab, 1);
+      editingTab = null;
+      draw();
+    });
+    const cancel = card.querySelector('#commEdCancel');
+    if(cancel) cancel.addEventListener('click', function(){ overlay.remove(); });
+    const delSec = card.querySelector('#commEdDelete');
+    if(delSec) delSec.addEventListener('click', async function(){
+      if(!confirm('Delete the section "' + (draft.label || 'Untitled') + '"?\n\n' +
+        'No messages are deleted. A section is only a saved filter, so everything in it ' +
+        'still shows in the Inbox and in every other view.')) return;
+      const next = {custom: (commSections.custom || []).filter(function(x){ return x.key !== draft.key; }),
+                    hidden: commSections.hidden || []};
+      try{ await saveCommSections(next); overlay.remove(); toast('Section deleted.'); }
+      catch(err){ console.error('Could not delete the section:', err);
+                  alert('Could not save that: ' + (err && err.message ? err.message : err)); }
+    });
+    const save = card.querySelector('#commEdSave');
+    if(save) save.addEventListener('click', async function(){
+      readAll();
+      if(!draft.label){ alert('Give the section a name.'); return; }
+      save.disabled = true;
+      const list = (commSections.custom || []).slice();
+      const at = list.findIndex(function(x){ return x.key === draft.key; });
+      if(at === -1) list.push(draft); else list[at] = draft;
+      try{
+        await saveCommSections({custom: list, hidden: commSections.hidden || []});
+        overlay.remove();
+        commView = {section: draft.key, tab: 'all'};
+        toast('Saved "' + draft.label + '".');
+      }catch(err){
+        save.disabled = false;
+        console.error('Could not save the section:', err);
+        alert('Could not save that: ' + (err && err.message ? err.message : err));
+      }
+    });
+  }
+
+  document.body.appendChild(overlay);
+  draw();
+  /* Clicking the dark surround closes it, like every other popup here — but only the
+     surround, never a click that started inside the card. */
+  overlay.addEventListener('click', function(e){ if(e.target === overlay) overlay.remove(); });
 }
 /* ⭐ THE DASHBOARD AND THE HEALTH LINE. Every tile is a button, because a number the
    office cannot click is a number that sends them folder-hunting again. */
@@ -20982,9 +21482,10 @@ function renderMessagesList(){
            the phone and the email are what she opened the row to DO. */
         msgContactLineHtml(d)+
         (address ? '<div class="row-phone-line">'+esc(address)+'</div>' : '')+
-        /* Phone and email have moved up to their own line, so what is left here is
-           how they would rather be reached, and when they wrote. */
-        '<div class="rmeta">'+(d.contactMethod ? 'Prefers '+esc(d.contactMethod)+' &middot; ' : '')+fmtDate(d.createdAt)+'</div>'+
+        /* ⚠ THE PREFERENCE HAS MOVED ONTO THE CONTACT LINE ([[MSG-16]]), so this is the date
+           alone. Shown in both places the small grey copy is the one that keeps being read,
+           and two copies of one fact is how they start disagreeing. */
+        '<div class="rmeta">'+fmtDate(d.createdAt)+'</div>'+
         '<div class="rtext">'+esc(d.message)+'</div>'+
         (d.colors && d.colors.length ? '<div class="rtext" style="margin-top:4px;"><strong>Colors requested:</strong> '+d.colors.map(esc).join(', ')+'</div>' : '')+
         (feetEstimate ? '<div class="rtext" style="margin-top:4px; font-weight:600; color:var(--dusk);">'+esc(feetEstimate)+'</div>' : '')+
@@ -21010,6 +21511,46 @@ function renderMessagesList(){
   Array.from(pickedMsgIds).forEach(function(id){ if(!shown.has(id)) pickedMsgIds.delete(id); });
   msgPickShown = filtered.map(m => m.id);
   refreshMsgToolbar();
+  /* ⭐ ONE PRESS TO COPY ([[MSG-16]]). ⚠ IT NEVER FAILS QUIETLY — the Clipboard API is
+     refused outright on an insecure origin and by some browser settings, and a Copy button
+     that does nothing is indistinguishable from one that worked, so the office pastes the
+     last thing they copied into a customer's email. The old execCommand path is the fallback
+     and a refusal says so. */
+  list.querySelectorAll('[data-copyval]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const value = btn.dataset.copyval;
+      const done = function(){
+        const was = btn.textContent;
+        btn.textContent = 'Copied';
+        btn.classList.add('done');
+        setTimeout(function(){ btn.textContent = was; btn.classList.remove('done'); }, 1400);
+      };
+      try{
+        await navigator.clipboard.writeText(value);
+        done();
+      }catch(err){
+        /* Older browsers, and any page not served over https, refuse the API above. */
+        try{
+          const ta = document.createElement('textarea');
+          ta.value = value;
+          ta.setAttribute('readonly', '');
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          const ok = document.execCommand('copy');
+          ta.remove();
+          if(!ok) throw new Error('the browser refused');
+          done();
+        }catch(err2){
+          console.error('Could not copy:', err, err2);
+          alert('This browser would not let the page copy that. It is selectable \u2014 ' +
+            'highlight it and press Ctrl+C (or Cmd+C).');
+        }
+      }
+    });
+  });
   list.querySelectorAll('[data-pickmsg]').forEach(function(box){
     box.addEventListener('click', function(e){ e.stopPropagation(); });
     box.addEventListener('change', function(){
@@ -21226,7 +21767,8 @@ function loadMessages(){
       renderMessagesList();
     }
     renderSystemMessagesTab();
-    renderFolderSidebar();
+    /* Same repoint as above — the sidebar is renderCommNav's now. */
+    renderCommNav();
     /* Last: the repeat check reads allMessages, so anything held while this was loading can
        only be decided now. */
     flushAdminErrors();
@@ -31482,11 +32024,49 @@ function openRoofMeasure(quoteId){
       btn.disabled = false;
     }
   }
+  /* ⭐ AND A PRESS CAN NEVER END IN SILENCE (2026-09-09). Dax, on Attach to Quote:
+     "it thinks for a quarter second then stops and doesnt do or say anything."
+
+     ⚠ rmAttachShots ALREADY CLAIMED THIS AND DID NOT HAVE IT. Its own note says
+     "EVERY WAY OUT OF THIS SAYS SOMETHING", and every deliberate way out does — but
+     it is an ASYNC function with two awaits sitting outside any try (rmCapture, and
+     rmMarkTallyText's tally beneath it). A throw in either REJECTS THE PROMISE, and
+     nothing was awaiting it: no message, no toast, the button left disabled, and the
+     whole press indistinguishable from a click that never registered. That is the
+     dead button this tool has now been reported for three times.
+
+     ⭐ SO THE GUARD IS AT THE DOOR, NOT INSIDE. Wrapping the body would mean
+     re-indenting 150 lines and repointing every check that lifts that function by
+     name; catching at the call turns EVERY rejection into a sentence, including the
+     ones somebody adds later, and touches nothing that already works.
+
+     ⚠ IT NAMES THE FAULT RATHER THAN APOLOGISING FOR IT. "Something went wrong" is
+     the message that cost this repo a day on the Edit Customer save handler, whose
+     own note records it: five grey words, nothing saved, and nothing to diagnose
+     over the phone. The error's own words go on the line beside the button.
+
+     ⚠ AND IT GOES TO console.error, which is wired to the Admin Errors folder — so
+     the next one is filed whether or not anybody is looking at the screen. */
+  function rmAttachSafely(btn, thenMarkUp){
+    Promise.resolve()
+      .then(function(){ return rmAttachShots(btn, thenMarkUp); })
+      .catch(function(err){
+        const why = (err && err.message) || String(err);
+        console.error('Attach: the press stopped partway —', why);
+        const status = document.getElementById('rmStatus');
+        if(status) status.textContent = 'Attach stopped partway — ' + why +
+          '. Nothing was saved onto the quote; your capture is still here, so Attach can be pressed again.';
+        /* ⚠ THE BUTTON GOES BACK, ALWAYS. rmAttachShots disables it on the way in and
+           every deliberate exit re-enables it; a throw skipped that, so the one thing
+           left on screen was a dead gold button. */
+        if(btn) btn.disabled = false;
+      });
+  }
   document.getElementById('rmAttachBtn').addEventListener('click', function(){
-    rmAttachShots(this, false);
+    rmAttachSafely(this, false);
   });
   document.getElementById('rmAttachMarkBtn').addEventListener('click', function(){
-    rmAttachShots(this, true);
+    rmAttachSafely(this, true);
   });
   /* KEYBOARD. ⚠ Every one of these is a SECOND way to reach a button that is
      already on screen, never the only way - a shortcut nobody can discover is
@@ -44442,6 +45022,131 @@ document.getElementById('rsvpMarkAllAskedBtn')?.addEventListener('click', functi
     if(st) st.textContent = 'Something went wrong — ' + (err && err.message ? err.message : 'nothing was recorded') + '.';
   });
 });
+/* ⭐ ONE CUSTOMER AT A TIME (added 2026-09-10, EM-10). Addie, asked what she can get out
+   of EmailJS for the resends: individual error emails only — no list anywhere. So the
+   paste box that was offered is useless (nothing to paste) and `rsvpMarkAllAsked` is
+   wrong (it stamps everybody the planner would write to, and she has emailed SOME).
+   Marking the whole list when only some were sent is the one mistake here with a real
+   cost: those customers are never asked again this season, and because only people who
+   have answered are scheduled, that is a house no crew is sent to.
+
+   ⚠ THE SEARCH IS THE FEATURE, not a convenience. What arrives is ONE address in an
+   error email; finding that person among hundreds is the entire job. Matching the EMAIL
+   is what makes it exact — the name in an error email is ours, the address is theirs.
+
+   ⚠ AND IT MARKS ONLY WHO THE SEND WOULD GO TO — `rsvpWholePlan`, never `jobAddresses`
+   directly, the same rule the bulk button follows. Offering to stamp somebody opted out
+   or with no email records that we wrote to a person we cannot write to. */
+const rsvpMarkOneRecent = new Set();
+const RSVP_MARK_ONE_SHOWN = 50;
+/* ⚠ A ROW MARKED IN THIS SESSION IS KEPT ON SCREEN, and this is the whole reason the set
+   above exists. The moment the stamp lands that customer leaves `plan.standard` for
+   `plan.alreadyEmailed`, so a plain redraw drops the row — taking the Undo with it, one
+   frame after the press that might have been a mistake. They stay, greyed, until the
+   page is reloaded. Same trap as the section editor rebuilding its own inputs (MSG-15). */
+function rsvpMarkOneRows(){
+  const plan = (typeof rsvpWholePlan === 'function') ? rsvpWholePlan() : null;
+  if(!plan || !plan.ready) return { ready: false, why: (plan && plan.why) || 'The customer list has not loaded yet.', rows: [] };
+  const waiting = plan.standard.concat(plan.arrears);
+  const seen = new Set(waiting.map(function(i){ return i.id; }));
+  const rows = waiting.map(function(i){ return { item: i, marked: false }; });
+  /* The just-marked ones are pulled back out of alreadyEmailed by id. Read from the plan
+     rather than from a copy kept here, or an undo that failed would still show as done. */
+  plan.alreadyEmailed.forEach(function(i){
+    if(rsvpMarkOneRecent.has(i.id) && !seen.has(i.id)) rows.push({ item: i, marked: true });
+  });
+  return { ready: true, why: '', rows: rows };
+}
+function rsvpMarkOneRender(){
+  const box = document.getElementById('rsvpMarkOneList');
+  if(!box) return;
+  const st = document.getElementById('rsvpMarkOneStatus');
+  const got = rsvpMarkOneRows();
+  if(!got.ready){
+    box.innerHTML = '';
+    if(st) st.textContent = got.why;
+    return;
+  }
+  const input = document.getElementById('rsvpMarkOneFilter');
+  const q = String((input && input.value) || '').trim().toLowerCase();
+  const match = q ? got.rows.filter(function(r){
+    const d = r.item.data || {};
+    return String(d.name || '').toLowerCase().indexOf(q) !== -1
+        || String(d.email || '').toLowerCase().indexOf(q) !== -1;
+  }) : got.rows;
+  match.sort(function(a, b){
+    return String((a.item.data || {}).name || '').localeCompare(String((b.item.data || {}).name || ''));
+  });
+  if(!match.length){
+    box.innerHTML = '';
+    if(st) st.textContent = q
+      ? 'Nobody waiting to be asked matches “' + q + '”. They may have answered already, or already be marked — press Check first to see the counts.'
+      : 'Nobody is waiting to be asked.';
+    return;
+  }
+  const shown = match.slice(0, RSVP_MARK_ONE_SHOWN);
+  if(st){
+    st.textContent = match.length + ' waiting to be asked'
+      + (q ? ' matching “' + q + '”' : '')
+      + (match.length > shown.length ? ' — showing the first ' + shown.length + ', keep typing to narrow it' : '');
+  }
+  box.innerHTML = shown.map(function(r){
+    const d = r.item.data || {};
+    const who = esc(d.name || '(no name)');
+    const mail = esc(d.email || '');
+    return '<div style="display:flex; justify-content:space-between; gap:12px; align-items:center; padding:6px 0; border-bottom:1px solid var(--line);'
+      + (r.marked ? ' opacity:0.6;' : '') + '">'
+      + '<span><b>' + who + '</b>'
+      + (mail ? ' <span style="color:var(--slate); font-size:12px;">' + mail + '</span>' : '')
+      + (r.marked ? ' <span style="color:var(--slate); font-size:12px;">— marked as asked</span>' : '')
+      + '</span>'
+      + '<button type="button" class="btn btn-outline btn-sm" data-rsvpmarkone="' + esc(r.item.id) + '" data-rsvpmarkoneon="'
+      + (r.marked ? '0' : '1') + '">' + (r.marked ? 'Undo' : 'Mark as asked') + '</button>'
+      + '</div>';
+  }).join('');
+}
+/* ⚠ ONE WRITE, AND THE MIRROR ONLY AFTER IT LANDS. Mirroring first shows her a customer
+   marked as asked that was never written — the failure mode `rsvpMarkAllAsked` already
+   guards against, for the same reason.
+   ⚠ `null`, NOT a deleted field, because that is what Start New Season writes and what
+   `rsvpWholePlan` tests for. Two spellings of "not asked" is how one of them stops
+   counting. */
+async function rsvpMarkOneAsked(id, asked){
+  const st = document.getElementById('rsvpMarkOneStatus');
+  const rec = (jobAddresses || []).find(function(a){ return a && a.id === id; });
+  const who = (rec && rec.data && rec.data.name) || 'that customer';
+  try{
+    await updateDoc(doc(db,'jobAddresses', id), { rsvpEmailedAt: asked ? serverTimestamp() : null });
+    if(rec && rec.data) rec.data.rsvpEmailedAt = asked ? new Date() : null;
+    if(asked) rsvpMarkOneRecent.add(id); else rsvpMarkOneRecent.delete(id);
+    rsvpMarkOneRender();
+    if(typeof rsvpWholeRenderBreakdown === 'function') rsvpWholeRenderBreakdown(rsvpWholePlan());
+    if(st){
+      st.textContent = asked
+        ? who + ' is marked as asked — Send the whole RSVP will skip them. Press Undo if that was wrong.'
+        : who + ' is back on the list to be asked.';
+    }
+  }catch(err){
+    console.error('[HU] could not record that ' + id + ' was asked:', err);
+    if(st) st.textContent = 'Nothing was saved for ' + who + ' — ' + ((err && err.message) || 'something went wrong') + '. Try again.';
+  }
+}
+/* Delegated, because the rows are rebuilt on every mark. A listener bound per button
+   would be re-bound on each redraw and the old ones left on detached nodes. */
+document.getElementById('rsvpMarkOneList')?.addEventListener('click', function(e){
+  const btn = e.target && e.target.closest ? e.target.closest('[data-rsvpmarkone]') : null;
+  if(!btn) return;
+  btn.disabled = true;
+  rsvpMarkOneAsked(btn.getAttribute('data-rsvpmarkone'), btn.getAttribute('data-rsvpmarkoneon') === '1')
+    .catch(function(err){ console.error('[HU] mark-one-asked:', err); })
+    .then(function(){ btn.disabled = false; });
+});
+/* ⚠ ONLY THE LIST IS REDRAWN, never the block, so the search box node survives and what
+   she has typed is still there after a mark. Rebuilding the wrapper would clear the
+   field mid-job and read as the search resetting itself. */
+document.getElementById('rsvpMarkOneFilter')?.addEventListener('input', function(){
+  rsvpMarkOneRender();
+});
 /* Read once at login. Not a listener: this changes about once a season, and a live
    listener on settings/season would be an open connection for a single date. */
 async function loadRsvpSentMark(){
@@ -44938,6 +45643,34 @@ function whNormalizeLights(text){
  * ⚠ ONE RULE, TWO COPIES, ASSERTED IDENTICAL — the browser cannot run the
  * server's. run-all.js runs both over the same table of cases and fails if they
  * ever disagree, the money-parity pattern. */
+/* ⭐ IS THIS SAVE A TIMER AND NOTHING ELSE? ([[WH-27]], 2026-09-09)
+ *
+ * ⚠ ITS OWN FUNCTION SO A TEST CAN RUN IT. Written inline in the ~36,000-character Edit
+ * Customer save handler the only thing a suite could do was match its text, which this repo
+ * has already been burned by three times (`rmCommitPayload`, `carriedPaymentOnBillToChange`).
+ *
+ * All four conditions are load-bearing:
+ *   - the timer is the ONLY warehouse-relevant field that moved — a wire change is a real
+ *     rebuild and always was (holes C and D are not reversed);
+ *   - it ends up **Yes**. Turning a timer OFF keeps today's behaviour, because `timerHouses`
+ *     only ever collects Yes and routing it here would drop it off every screen silently;
+ *   - no build is already being queued by this same save;
+ *   - the house has NO colours on file. A house that HAS colours is in a real build group
+ *     and always was — only the case Addie reported is moved.
+ *
+ * ⚠ IT ONLY EVER ADDS A SEPARATE FLAG. It cannot clear or suppress `needsLightBuild`, so the
+ * worst a wrong answer here can do is put one extra row on the timer list. The opposite
+ * design — a marker that switches the build flag off — would, the first time one of the seven
+ * places that queue a build forgot to clear it, leave a house nobody builds. */
+function whTimerOnlyQueue(oldData, updates, changedFields, newLightsDescription){
+  const u = updates || {}, o = oldData || {};
+  if(!Array.isArray(changedFields) || changedFields.length !== 1) return false;
+  if(changedFields[0] !== 'outletTimer') return false;
+  if(u.needsLightBuild) return false;
+  if(newLightsDescription) return false;
+  const timer = Object.prototype.hasOwnProperty.call(u, 'outletTimer') ? u.outletTimer : o.outletTimer;
+  return String(timer == null ? '' : timer).trim() === 'Yes';
+}
 const WAREHOUSE_BUILD_FIELDS = ['lightsDescription', 'wireColor', 'outletTimer'];
 function warehouseRebuildFields(oldData, newData) {
   const o = oldData || {}, n = newData || {};
@@ -45159,7 +45892,12 @@ function whBuildQueueGroups(){
        building for them and recycling them at the same time is two jobs cancelling
        out. Somebody who MOVED is not out (recycleKeepingCustomer), so they still
        build — which is the whole reason those two buttons were split. */
-    if(!d.needsLightBuild || (typeof isOutForSeason === 'function' && isOutForSeason(d))) return;
+    /* ⭐ EITHER QUEUE PUTS A HOUSE ON THIS TAB ([[WH-27]]). `needsTimerOnly` says the
+       warehouse has something to do for this house and it is NOT a bundle. Read as an OR so
+       a house carrying both is simply a build, which is what it is. */
+    const wantsBuild = !!d.needsLightBuild;
+    const timerOnly = !wantsBuild && !!d.needsTimerOnly;
+    if((!wantsBuild && !timerOnly) || (typeof isOutForSeason === 'function' && isOutForSeason(d))) return;
     /* ⚠ BOTH FIELDS. Testing lightsDescription alone put every ordinary house the
        master-sheet sync added into the blocked block with its colours sitting on the
        record — see houseLightsText. */
@@ -45179,6 +45917,10 @@ function whBuildQueueGroups(){
        out to be, so there is nothing to wait for — which is her own rule in as many
        words. Collected first; the blocked branch still blocks the BUILD. */
     if(String(d.outletTimer || '').trim() === 'Yes') timerHouses.push(item);
+    /* ⛔ AND A TIMER-ONLY HOUSE IS NEVER BLOCKED. Nothing is being built for them, so there
+       are no colours to wait for — the whole point of [[WH-27]]. It has already been pushed
+       to `timerHouses` above, which is the one thing that house actually needs. */
+    if(timerOnly) return;
     if(!lights){ blocked.push(item); return; }
     const key = whGroupKey(lights, d.wireColor);
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
@@ -45262,6 +46004,10 @@ function whHouseBuildStatus(item){
     const bny = !!d.maybeNextYear || String(d.rsvpStatus || '').toLowerCase() === 'backnextyear';
     return {state: 'nextyear', why: bny ? 'Back Next Year' : ''};
   }
+  /* ⭐ [[WH-27]] — queued for a timer and nothing else. Answered BEFORE 'notqueued', which
+     would otherwise send the office to press Build Them A New Set on a house that is on this
+     tab and needs no bundle. */
+  if(!d.needsLightBuild && d.needsTimerOnly) return {state: 'timeronly'};
   if(!d.needsLightBuild) return {state: 'notqueued'};
   return {state: 'unknown'};
 }
@@ -45271,6 +46017,7 @@ function whBuildStatusText(name, st){
   if(st.state === 'building') return who + ' IS on the build list \u2014 under \u201c' + st.where + '\u201d. Open that heading to see them.';
   if(st.state === 'extra') return who + ' is on the list as an extra request \u2014 under \u201c' + st.where + '\u201d.';
   if(st.state === 'blocked') return who + ' is queued to build but has NO LIGHT COLOURS on file, so they are in \u201cWaiting on light colours\u201d at the top. Add their colours and they join a build group.';
+  if(st.state === 'timeronly') return who + ' only needs a TIMER \u2014 they are on the Timers list, not the build list. Nothing is being made up for them and no colours are needed. Press \u201cBuild Them A New Set\u201d on their record if they do need a bundle.';
   if(st.state === 'nextyear') return who + (st.why === 'Back Next Year'
     ? ' is marked Back Next Year'
     : ' is out for this season — their lights are queued to be recycled') +
@@ -45304,13 +46051,29 @@ function renderWarehouseQueue(){
                  timer, that half needs nothing and can go in today. Said on the row itself,
                  because the timer list is a different sheet and the person reading this one
                  is the person who would otherwise leave the whole house alone. */
-              (String(item.data.outletTimer || '').trim() === 'Yes'
+              /* ⚠ `h`, NOT `item` (2026-09-09). This block is inside blocked.map(function(h)),
+                 and the timer line arrived carrying the loop variable from somewhere else —
+                 `Uncaught ReferenceError: item is not defined`, thrown while DRAWING the
+                 Waiting-on-light-colours block, which is the one part of that tab nobody in
+                 the warehouse can act on and so the one most likely to go unnoticed. */
+              (String(h.data.outletTimer || '').trim() === 'Yes'
                 ? '<span style="display:block; font-size:12px; color:var(--emerald); margin-top:2px; font-weight:600;">Timer can go in their bin now &mdash; that part is not waiting on the colours</span>'
                 : '')+
               '<span style="display:block; margin-top:4px; line-height:1.9;">'+whHouseFactsHtml(h.data)+'</span>'+
             '</span>'+
             '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
               '<button type="button" class="btn btn-gold btn-sm" data-wheditcust="'+h.id+'">Add colours</button>'+
+              /* ⭐ AND THE WAY OUT FOR A HOUSE ALREADY PARKED HERE ([[WH-27]]). The write-site
+                 fix stops the NEXT one; it cannot reach the houses already sitting on this
+                 list, and this repo's own rule is that a fix which cannot reach the case that
+                 prompted it is not finished. Only offered where the record says a timer was
+                 actually asked for — on a house with no timer it would be a button that means
+                 nothing. ⚠ It is a PERSON answering, never a guess: nothing on the record can
+                 tell a house queued by a timer change from one converted with its colours
+                 still to come, which is the same wall `lightsChangedVia` hit. */
+              (String(h.data.outletTimer || '').trim() === 'Yes'
+                ? '<button type="button" class="btn btn-outline btn-sm" data-whtimeronly="'+h.id+'">Only needed a timer</button>'
+                : '')+
             '</span>'+
           '</div>';
         }).join('')+
@@ -45334,13 +46097,23 @@ function renderWarehouseQueue(){
           /* Still no Mark Done here on purpose (see the note above), but the
              timer answer itself is wrong often enough to need fixing from the
              screen that shows it — that is the customer record. */
+          /* ⭐ A TIMER-ONLY HOUSE IS THE ONE ROW HERE THAT NEEDS ITS OWN Done ([[WH-27]]).
+             The note above is right that a timer is finished by marking its colour group
+             done — but a house queued for a timer ALONE is in no colour group, so with no
+             control of its own it would sit on this list for ever. That is the same rule,
+             not an exception to it: the Done goes where the work is. */
+          const isTimerOnlyRow = !h.data.needsLightBuild && !!h.data.needsTimerOnly;
           return '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:6px 0; font-size:13.5px;">'+
             '<span>'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+
-              (h.data.customerNumber ? custNumChip(h.data) : '')+'</span>'+
-            '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'" style="flex:0 0 auto;">Edit</button>'+
+              (h.data.customerNumber ? custNumChip(h.data) : '')+
+              (isTimerOnlyRow ? ' <span class="status-pill status-new" style="font-size:10.5px;">Timer only</span>' : '')+'</span>'+
+            '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
+              (isTimerOnlyRow ? '<button type="button" class="btn btn-gold btn-sm" data-whtimerdone="'+h.id+'">Timer in the bin</button>' : '')+
+              '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'">Edit</button>'+
+            '</span>'+
           '</div>';
         }).join('')+
-        '<div style="font-size:12px; color:var(--slate); margin-top:8px;">These are already listed in their colour groups below &mdash; marking a house done there covers its timer too.</div>'+
+        '<div style="font-size:12px; color:var(--slate); margin-top:8px;">Most of these are listed in their colour groups below &mdash; marking a house done there covers its timer too. A row badged <strong>Timer only</strong> is in no group and has nothing being built, so it is finished from here.</div>'+
       '</div>'+
     '</div>';
   }
@@ -45555,6 +46328,62 @@ function renderWarehouseQueue(){
     btn.addEventListener('click', function(e){
       e.stopPropagation();
       openEditCustomerModal(btn.dataset.wheditcust);
+    });
+  });
+  /* ⭐ [[WH-27]] — the office saying this house never needed a bundle. It clears the build
+     and queues the timer instead, so the row leaves Waiting on light colours and joins the
+     Timers list, which is the one thing that house does need.
+     ⚠ IT MIRRORS INTO `jobAddresses` BEFORE THE WRITE IS AWAITED, like every other optimistic
+     tick in this file — the tab repaints from the cache, so without it the row visibly springs
+     back and somebody presses it twice.
+     ⚠ AND IT IS REVERSIBLE BY THE BUTTON THAT ALREADY EXISTS: Build Them A New Set puts
+     `needsLightBuild` back, and it wins on its own (see the queue loop's OR). */
+  list.querySelectorAll('[data-whtimeronly]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const id = btn.dataset.whtimeronly;
+      const rec = jobAddresses.find(function(a){ return a.id === id; });
+      if(!rec) return;
+      if(!confirm('Take ' + (rec.data.name || 'this house') + ' off the build list?\n\n' +
+        'Nothing will be made up for them. They stay on the Timers list, so a timer still goes' +
+        ' in their bin.\n\nPress Build Them A New Set on their record to undo this.')) return;
+      btn.disabled = true;
+      /* ⚠ THE WRITE GOES FIRST, THEN THE CACHE. Nothing repaints between the two — the render
+         is the line after — so there is no optimistic paint to protect, and doing it this way
+         round means there is no rollback to get wrong if the write throws. A rollback holding
+         the old value in a variable also reads to queue-date.test.js's census as a NEW place
+         that queues a build, which it is not. */
+      try{
+        await updateDoc(doc(db, 'jobAddresses', id), {needsLightBuild: false, needsTimerOnly: true});
+        rec.data.needsLightBuild = false;
+        rec.data.needsTimerOnly = true;
+        toast((rec.data.name || 'That house') + ' \u2014 timer only. They are off the build list.');
+        renderWarehouseQueue();
+      }catch(err){
+        btn.disabled = false;
+        console.error('Could not mark timer-only:', err);
+        alert('Could not save that: ' + (err && err.message ? err.message : err));
+      }
+    });
+  });
+  list.querySelectorAll('[data-whtimerdone]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const id = btn.dataset.whtimerdone;
+      const rec = jobAddresses.find(function(a){ return a.id === id; });
+      if(!rec) return;
+      btn.disabled = true;
+      try{
+        /* Write, then cache, then paint — same order and same reason as the button above. */
+        await updateDoc(doc(db, 'jobAddresses', id), {needsTimerOnly: false});
+        rec.data.needsTimerOnly = false;
+        toast('Timer done for ' + (rec.data.name || 'that house') + '.');
+        renderWarehouseQueue();
+      }catch(err){
+        btn.disabled = false;
+        console.error('Could not clear the timer queue:', err);
+        alert('Could not save that: ' + (err && err.message ? err.message : err));
+      }
     });
   });
   list.querySelectorAll('[data-wheditextra]').forEach(function(btn){
@@ -49663,7 +50492,20 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     addrUpdates.oneTimeNote = newOneTimeNote;
     addrUpdates.chargeNewMemberFee = newChargeNewMemberFee;
     addrUpdates.referralCount = newReferralCount;
-    const oldLightsForBuild = item.data.lightsDescription || '';
+  /* ⭐ WHAT THEY HAD IS BOTH FIELDS, NOT ONE ([[WH-28]], 2026-09-10). Addie: "there are member
+     that did light changes but are not showing 30 dollar fee on there account."
+     ⚠ THIS IS THE SAME FAULT `warehouse-colours.test.js` WAS BUILT FOR, in a place that costs
+     MONEY rather than bundles. `rbDetectColorsAndPattern` — which the master-sheet sync writes
+     through — only fills `lightsDescription` when a colour REPEATS, so an ordinary house keeps
+     its colours in `lightColors` with the description EMPTY. Reading the description alone
+     made those houses look as though they had no colours at all, and
+     `applyLightChange`'s own rule is that filling colours in for the FIRST time is not a
+     change and is not charged. So every ordinary house changed its colours for free.
+     ⚠ THE RULE ITSELF IS UNTOUCHED — it is a pure comparison and money-parity sweeps it. What
+     was wrong is what the caller handed it. `houseLightsText` is the one answer, the same one
+     the build queue, the colour totals, the pending count, the recycle queue and the printed
+     sheet were all brought to on 2026-08-24. This is the sixth reader. */
+    const oldLightsForBuild = houseLightsText(item.data);
     /* ⭐ THE SAME COLOUR-CHANGE RULE THE PORTAL RUNS (added 2026-08-21).
        Owner: an office change now charges, locks and notifies exactly as a member's
        own change does. Until today this path wrote lightsChangedAt and needsLightBuild
@@ -49756,7 +50598,41 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        rule that blank colours mean the build cannot be DONE yet rather than not
        owed, and overwriting it would bring back the bug where saving a customer
        with no colours silently cleared their build. */
-    if(warehouseRebuildFields(item.data, addrUpdates).length) addrUpdates.needsLightBuild = true;
+    /* ⭐ A TIMER ON ITS OWN IS NOT A LIGHT BUILD (2026-09-09, [[WH-27]]). Addie, on five
+       houses parked in Waiting on light colours: "check to see if these guys just wanted
+       there timer updated. Cause if so we don't need to worry about lights just about
+       getting a timer in there bin", then "can you fix those."
+
+       ⚠ `outletTimer` IS ONE OF THE THREE WAREHOUSE_BUILD_FIELDS, so changing a timer and
+       nothing else set `needsLightBuild` — and a house with no colours on file then landed
+       in the blocked block, under a heading reading "Nothing can be made up until somebody
+       fills them in". That sentence is FALSE for those houses: nobody is waiting on any
+       colours, because nobody asked for lights. So the office is sent to chase an answer
+       that does not exist, and the row never clears.
+
+       ⭐ `needsTimerOnly` IS THE TIMER'S OWN QUEUE. The warehouse still hears about it
+       (`whBuildQueueGroups` reads either flag), the house still reaches `timerHouses`, and
+       nothing is being built — so there is nothing to block on and nothing to chase.
+
+       ⚠ IT FAILS TOWARDS THE BUILD, deliberately, and that is why it is a SEPARATE flag
+       rather than a marker on the existing one. This never clears or suppresses
+       `needsLightBuild`: a real build queued before, after or at the same time wins on its
+       own and is untouched. The worst a stale `needsTimerOnly` can do is put one extra row
+       on the timer list; a marker that could switch the build flag off would, if any of the
+       seven places that queue a build ever forgot to clear it, leave a house nobody builds.
+
+       ⚠ SCOPED TO A TIMER THAT ENDS UP **Yes**. Turning a timer OFF keeps today's exact
+       behaviour (a rebuild is queued), because the warehouse has to be told to take one out
+       and `timerHouses` only ever collects Yes — routing it here instead would drop it off
+       every screen silently, which is worse than the untidiness this fixes. Flagged to
+       Addie rather than guessed at.
+
+       ⚠ AND HOLES C AND D ARE NOT REVERSED. A WIRE change still re-queues the build, and so
+       does a timer change on a house that has colours — that house is in a real build group
+       and always was. Only the case she reported is moved. */
+    const whChanged = warehouseRebuildFields(item.data, addrUpdates);
+    if(whTimerOnlyQueue(item.data, addrUpdates, whChanged, newLightsDescription)) addrUpdates.needsTimerOnly = true;
+    else if(whChanged.length) addrUpdates.needsLightBuild = true;
     /* "They said no" is a lasting fact; "their lights need pulling back into
        stock" is a job that gets finished. This used to be re-derived from the
        dropdown on EVERY save, so opening a recycled customer's record months
@@ -50742,7 +51618,22 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        Running this handler against a fake page and a fake Firestore showed it doing all
        three things correctly, which is what proved the fault was a runtime error being
        hidden rather than the logic being wrong. */
-    console.error('Edit Customer save failed:', err);
+    /* ⭐ AND IT SAYS WHERE (2026-09-10, from the Errors folder). Two of these reached the Errors
+       folder on 2026-09-09 — "null is not an object (evaluating 's.indexOf')" on Safari
+       and "Cannot read properties of null (reading 'indexOf')" on Chrome, the same fault
+       worded by two browsers. Nothing in either row said WHERE in a 1,400-line handler
+       it happened, and the four candidates that could be read off the message were all
+       checked and all correctly guarded, so the report named no fixable thing.
+       ⚠ `s` IS NOT A VARIABLE IN THIS FILE — the only `s.indexOf` in admin.html builds
+       its own string first. A single-letter name is minified third-party code, which
+       means the throw is inside the Firebase SDK and the likeliest cause is a document
+       id reaching `doc()` as null. WHICH id is exactly what the stack would name.
+       ⚠ TWO FRAMES, NOT THE WHOLE STACK. `messages` is capped at 5,000 characters on
+       create by firestore.rules, and a refused write is how this reporter would go
+       silent — the failure §5 records as reading like an auth fault for weeks. */
+    const where = String((err && err.stack) || '').split('\n').slice(1, 3)
+      .map(function(l){ return l.trim(); }).filter(Boolean).join(' <- ').slice(0, 300);
+    console.error('Edit Customer save failed:', err, where ? ('at ' + where) : '');
     const detail = (err && err.message) ? String(err.message) : String(err);
     statusEl.textContent = 'Nothing was saved \u2014 ' + detail;
     statusEl.style.color = 'var(--ember)';
