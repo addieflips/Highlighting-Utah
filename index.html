@@ -7370,6 +7370,13 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
           what: 'sides',
           oldSides: portalSidesWords(beforeList, beforeCount),
           newSides: portalSidesWords(pickedList, pickedCount),
+          /* ⭐ THE COUNTS AS NUMBERS TOO (2026-09-10, [[OPT-05]]). The office quote card
+             labels a sides re-quote New side or Fewer sides, and it reads THESE — the two
+             lines above are a sentence built for a person ("Front, Left (2 sides)"), and
+             comparing sentences would call a Left-for-Right swap an addition. Written on
+             both routes into a sides re-quote so one card renderer covers both. */
+          oldSideCount: beforeCount,
+          newSideCount: pickedCount,
           oldPrice: (currentJobAddressData && Number(currentJobAddressData.housePrice)) || 0
         },
         notes: 'Existing Customer - Sides Changed',

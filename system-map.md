@@ -1934,6 +1934,50 @@ wrong," it is a second, narrower question the first one never claimed to answer.
   member portal," and those three sit over records nobody has been asked, where a
   default or an invented list is exactly the mistake 2026-08-19 was written to
   avoid.
+- ⭐ **AND THEN THE OFFICE GOT THE SAME FOUR BOXES** (2026-09-10, OPT-05). Addie: *"in
+  costumers it says sides of house 1234 which we can keep but can we also choose which
+  sides like front,left side, right side, back in costumers?"*, then *"Then sides will
+  automatically choose based on how many sides we chose"*, then *"if I choose a new side
+  on someones house which should be multiple choose then it will send the house to
+  requote indicating New Side."* **This supersedes the bullet above** — Add Customer and
+  Edit Customer now write `houseSidesList`, and Edit Customer's read-only "From their
+  Member Portal" line is gone, replaced by four tick boxes. The old reasoning is kept
+  because it is still the guard: nothing is filled in by OPENING a record, so a phone
+  number corrected on a house nobody has been asked about still saves with no list.
+  - **The count and the four names are one answer.** Picking a count ticks the sides
+    that count means; ticking boxes moves the count to match. The count is what drives
+    the price and the re-quote flag, so it can never be left saying something the ticks
+    contradict — the state that shows a customer an identical Now/New line in their own
+    portal and then files a re-quote nobody asked for. Unticking everything leaves the
+    count alone: nought is not a house, and an empty list is the form saying *which*
+    sides are not on file, not how many there are.
+  - **The fill order is Addie's own, from 2026-08-18**: *"3 sides then front of house,
+    right side of house and left side of house is all checked."* Front, then right, then
+    left, then back — the same order `rbSidesFromNote` already reads her sheet in
+    (`RB_SIDE_ORDER`). ⚠ The boxes are DRAWN in that order rather than in the canonical
+    storage order, because a fill that visibly skips the second box reads as a bug. What
+    is STORED is still canonical `Front/Left/Right/Back`, the order the portal and the
+    server both sanitize to.
+  - ⚠ **An auto-fill is not the guess 2026-08-19 refused, and the difference is that a
+    person can see it.** A count picked in the office moves four boxes on screen in front
+    of whoever picked it, and they can change any of them before saving. What that
+    ruling refused was a list invented for records nobody had been asked about — which
+    is why opening a record still fills in nothing.
+  - **Adding or removing a side raises a re-quote from the office**, labelled **New
+    side** (or **Fewer sides**) on the quote card, and the card says *the office changed
+    this — they have not been told*, because Edit Customer tells the customer nothing
+    while the portal warns them. ⚠ **A same-count swap does not** — OPT-04 stands, and
+    the office condition is the count, exactly the condition the server applies to the
+    portal's own sides save, so the two routes into a re-quote cannot disagree about
+    which changes cost money.
+  - ⚠ **A stored list that does not fit the count is not shown and is cleared on save.**
+    That state was reachable before this form could write the list. The count wins here
+    and the list wins on the server, and both are right: each defers to whichever answer
+    was given most recently.
+  - Proved by Suite 313 (the four boxes, the fill order, the wiring and the open-modal
+    read, all *run* against jsdom holding the page's own markup) and Suite 108 (the save
+    handler, *run*: the list is written, a new side raises a re-quote carrying both
+    counts and `by: 'office'`, a swap does not, and an untouched form writes nothing).
 - Proved by Suite 63 (repointed for the checkbox UI and the count-vs-list save
   logic) and the new Suite 309 (the server-side sanitize step, *run*, not regexed:
   canonical ordering, dedup, the list overriding a mismatched count, and the
