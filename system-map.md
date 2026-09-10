@@ -349,7 +349,8 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    - ⚠ **This line used to say it also ASKED anybody without a code, and that half is gone.** Dax: *"make it so the gate code question after they accept gate code only applys to people that already have a gate code in the system so not everyone is seeing it."* It narrows RS-29 rather than reversing it — the value was always in catching a code that went stale over the summer, and asking the majority, who have no gate at all, a question whose honest answer is *no* was a toll on the way into their own portal. ⚠ **Nothing is lost for the people who now skip it**: gate code is on My Info and on the office record, so somebody who fits a gate later can still tell us. ⚠ **And the early return still hands on to `thenFn`** — that is what raises the arrears pop-up behind it, so skipping the question must never skip what follows it.
    - ⚠ **Only on a yes.** Somebody sitting the season out is never asked — no crew is coming, so it is a question with nothing behind it.
    - ⚠ **It fails open, every way out.** Missing markup, a refused save, a thrown call: all of them move on to the portal (the changes question until 2026-09-01 — see RS-33). The RSVP answer is already recorded by then, so nothing here can cost them their reply, and the same field is reachable any time under My Info.
-   - ⚠ **It is NOT `portalSave`, and that is the trap.** `gateCode` is in `portalSave`'s `info` whitelist, so reusing it looks clean — but that section ends `updates.seasonStatus = 'needs_changes'`, the **re-quote state**, resolved by answering a quote. No quote exists here, so every customer who typed a gate code would sit in Needs Changes for ever. `portalSetGateCode` writes one field and nothing else.
+   - ⚠ **It is NOT `portalSave`, and that WAS the trap.** `gateCode` is in `portalSave`'s `info` whitelist, so reusing it looks clean — and that section used to end `updates.seasonStatus = 'needs_changes'`, the **re-quote state**, resolved by answering a quote. No quote exists here, so every customer who typed a gate code would have sat in Needs Changes for ever. `portalSetGateCode` writes one field and nothing else.
+   - ⭐ **That line is gone as of 2026-09-10 (QT-35)** — an info save writes no `seasonStatus` at all now, which is this same argument applied to the whole tab rather than carved around. So the trap is closed on both sides. **The separate callable still stands and must not be folded back in**: it is reached with no sign-in, and it writes exactly one field, so the update call IS the whitelist (`gate-code.test.js` holds that). Folding it into `portalSave` would widen an unauthenticated write for nothing.
    - ⚠ **The browser specs cannot see the server half.** `test/rsvp-gate-code.spec.js` drives the page against a fake Firebase; `gate-code.test.js` holds `functions/index.js`. A red-check proved the split was needed — breaking the real server's return left all ten browser specs green.
 
    ⚠ **A member is never re-asked for details they already gave.** That rule is the same one behind "an existing member does not get the form" in step 3 above; this was that rule leaking through a different door.
@@ -2524,6 +2525,116 @@ the hand-back is still a hand-back rather than a leveller.
 re-asserted beside the three-crew ones, because the expensive failure is not "three does
 not work", it is "three works and two quietly changed".*
 
+### Why the forecast beside the map can be blank
+
+Added 2026-09-10. Dax, looking at a day's two route maps: *"the only issue is I cant see
+the forecast."*
+
+**Nothing was broken.** Open-Meteo answers about sixteen days ahead. On 10 September the
+season opens on 1 October — twenty-one days out — so no day in the plan had a forecast,
+and every chip was correctly absent. ⛔ **But absent is not an answer**: "no forecast
+yet" and "the forecast is broken" looked identical, and it took a bug report to find out
+which.
+
+An empty strip now says why, and the three reasons get three different sentences:
+
+| why it is empty | what it says |
+|---|---|
+| the day is further out than the service answers | *"No forecast this far ahead — it reaches to Sep 25."* |
+| the fetch failed | *"No forecast — "* and the error |
+| in range, but no house in those towns is on the map | *"No forecast for Levan — no house there is on the map yet."* |
+
+The first is a **wait** and says when to look again; the second is a **fault**, because
+telling somebody to wait for a forecast that is never coming is worse than silence; the
+third is a **data gap** the office can fix.
+
+⚠ **The old rule survives where it was right.** A town with no number still gets **no
+chip of its own** — a dash beside every unknown town is a row nobody reads. Silence per
+town, an explanation per day, and the sentence appears only when the whole strip would
+otherwise be blank.
+
+⚠ **And the horizon is read off the table that was actually fetched**, never from
+`FORECAST_DAYS` and a clock — those differ the moment the service trims its range or the
+fetch is an hour old, and a promise about when the forecast arrives is worth nothing if
+it is computed from a constant.
+
+*Where it is proved*: run-all.js **Suite 314**. 6 sabotages red-checked.
+*Rulings*: [[SCH-70]] in `claude/questions-map.md`.
+
+### Who goes to the house that is miles from anywhere
+
+Added 2026-09-10. Dax: *"if someone is way out of the way as an outlier they should fall
+into a one man day so a full crew isnt being paid to go that far out."*
+
+An outlier — a house with fewer than eight others within ten miles — now gets an **area
+of its own**, which makes it a crew-day of one house. ⛔ **This reverses the call made
+the day before**, which left outliers in their town precisely *because* an area of one
+becomes a one-man day (measured: one-man days 1 → 3). That argument was sound about the
+wrong cost. Minimising one-man days was never a reason to send **four people** forty
+miles to hang one house — and his own earlier ruling says so: *"high milage is better for
+a one man than a one crew or two crew."* A crew-day is four wages; every mileage figure
+in this document prices fuel and none of them price people.
+
+⭐ **The first half alone would have made it worse**, and this is the part worth knowing.
+A crew-day of one house still *shares its date* with a full run — so the date holds 21
+houses, `isOneManDay` (a property of the **date**) is false, and the office rosters two
+full crews. One of them drives sixty miles for one house, which is exactly what he asked
+to stop. So being one person became a property of a **crew's run**: `crewIsOneMan`.
+
+It shows up in the two places the rostering is actually read — the route heading on the
+day panel badges the run **1 MAN**, and the One Man Installs tab now lists thin runs
+beside the whole days, under *"On a day somebody else is also working"*.
+
+⚠ **It completes the day rule rather than replacing it.** A date that is wholly one
+person is still one-man for everything it always was, and is deliberately not listed
+twice. ⚠ **And it predates the grid** — a thin crew-day beside a full one is what the
+town container did with Levan too.
+
+*Where it is proved*: run-all.js **Suites 318 and 321**. 7 sabotages red-checked; two
+were misses on the first pass — a fixture with only ONE outlier cannot tell "its own
+area" from "one shared outlier area", and nothing asserted that the tab actually renders
+the runs it asks for.
+*Rulings*: [[SCH-69]] in `claude/questions-map.md`.
+
+### Nobody is on a day with nobody holding their sheet
+
+Added 2026-09-10. Dax, reading ten stops under *"Not on either crew's route"* after a
+rebuild: *"it is off limits to have anyone scheduled in a day not on either crews
+routes, save that as a rule and dont design the system so its even possible."*
+
+**What put them there.** The crew split counts TOWN NAMES and gives each crew at most
+two of them, so two crews can cover four towns and no more. That was a sound cap while a
+crew-day *was* a town — and the grid made a crew-day a block of adjacent houses, which
+on the Wasatch Front routinely spans eight or ten town lines within a few streets. His
+1 October held thirty-three houses across ten towns: four towns got sheets and the other
+ten stops fell out of the bottom.
+
+⭐ **`dayCrewHouses` is total now.** Whatever the towns managed, every house on a day
+belongs to exactly one crew when it returns — a house no town covers goes to the crew
+already driving nearest to it. There is no path out of that function that drops
+anybody, which is the difference between *rescuing* a stranded house and making
+stranding unrepresentable.
+
+⚠ **And exactly one crew, which is the same fault pointing the other way** — a house on
+two sheets is two trucks in one driveway. That could not arise through `dayCrewTowns`,
+which marks a town taken as it hands it out; closing it here means the guarantee belongs
+to the function whatever it is handed. It was found by a property check over 400
+unplanned days, not by anybody thinking of it.
+
+⛔ **The town question survived under its own name.** `housesOutsideCrewTowns` answers
+*"is this house outside the towns its day's crews work"*, which is a different question
+and still has a real answer: it is how `rehomeMovedHouses` knows a customer who moved
+from Lehi to Provo is sitting on a Lehi day. Collapsing the two into one always-empty
+list would have stopped it moving anybody again, silently, with every screen looking
+right. `unassignedHousesFor` is kept as the tripwire that should now always be empty.
+
+*Where it is proved*: run-all.js **Suite 320** asserts the PROPERTY over 400 days nobody
+designed — random towns, sizes, crew counts, pinned and unpinned crews, coordinates and
+none — because fixing examples is exactly what let this fault come back. 7 sabotages
+red-checked; two were misses on the first pass, one of them the wiring that keeps
+re-homing alive.
+*Rulings*: [[SCH-67]] in `claude/questions-map.md`.
+
 ### What a crew-day is made of: a patch of map, not a town
 
 Added 2026-09-09, closing Q-023, which had been open since 27 August. Addie, asked
@@ -2581,7 +2692,15 @@ properly ([[SCH-66]]):
 So the grid costs **44 miles a season, about $10** — and buys about **two hours of
 driving back**, because those miles move off residential streets and onto the freeway.
 The break-even is a between-stops average of 31.6 mph; a crew stopping at every driveway
-is well under it. ⛔ **A "send them to the nearest area" tiebreak was tried and measured
+is well under it. ⛔ **And doing FEWER houses in a day does not save miles either** ([[SCH-68]]). Asked
+whether the builder should leave a day short when that comes out cheaper overall, it was
+measured: never topping a short day up costs **1108 miles and 24 working days** against
+**1067 and 22.3** as it ships. Every crew-day costs a drive out and back whatever it
+holds, so fewer, fuller days is the cheaper shape. The borrow radius was swept from 0 to
+20 miles across eight books: everything between 2 and 12 lands within **0.5%**, and one
+book alone made 5 miles look like a 1.4% winner. Nothing changed.
+
+⛔ **A "send them to the nearest area" tiebreak was tried and measured
 at two miles** — every area is worked once a season, so the total drive-out-and-back is
 fixed by how many crew-days there are, not by their order. `betterTown` carries that
 note so it is not re-attempted.
@@ -3562,7 +3681,15 @@ a fake Firestore rather than reading their source; 16 sabotages red-checked.
     - ⚠ **The total above the button reads `portalPayableNow()`, not the whole balance.** It was `currentServiceDue = totalDue` and had never been repointed when the button started charging only the arrears — so the panel printed **Total Payment $1,146.00** directly above a button that would take **$200**. Addie saw it and reported it; the specs at the time proved the notice and the button and never looked at the total between them.
     - ⭐ **There is also a way to clear the whole account**, for somebody who does not want to pay in two goes.
     - ⚠ **A tip goes to the crew, not onto the bill.** `paypalCaptureOrder` used to call everything above the balance due a tip (`serviceAmount = min(captured, balanceDue)`), which was right while the button charged the whole bill and **wrong from the moment it stopped** — so while only last season was being charged, a tip landed on the bill instead of reaching the crew. Live from the day the split shipped, and invisible from the screen.
-- **Cloud Functions it calls**: `portalLookup` (the one entry point for all lookups — token or phone/email+lastname, rate-limited), `portalSave` (whitelisted writes per section, mirrors changes onto the invoice, resyncs upcoming routes), `portalRsvp`, `portalInvoice` (sanitized invoice read), `quoteRespond`, `publicQuoteLookup`, `paypalCreateOrder`/`paypalCaptureOrder`, `publicConfig` (public-safe EmailJS keys for the contact form).
+  - ⭐ **Moving house has its own button, and it applies nothing** (2026-09-10, QT-35). Addie: *"changing gate code or phone number should not notify us"*, and *"you should have to apply changes in order for it to go to requote."* The address box on **My Info** is still editable — that is how a typo or a missing apartment number gets fixed, and neither is a move — but **Moved house?** opens its own small form and calls `portalChangeAddress`.
+    - ⚠ **What was wrong**: `portalSave`'s `info` section decided somebody had MOVED from nothing but the address STRING having changed, and wrote a re-quote state on **every** save of that tab (`address_changed` if the string differed, `needs_changes` otherwise). index.html raised the quote card itself in the same breath and emailed the office. So correcting a spelling produced a card somebody had to answer; correcting a phone number parked them in Needs Changes with no card at all, for ever. No comparison of two typed strings can tell a correction from a move — which is why this is a button.
+    - ⭐ **The move is RECORDED, never applied.** It writes `pendingAddress`/`pendingCity`/`pendingZip`/`pendingMoveDate`/`pendingAddressAt` and leaves the live `address`, the town and the map pin exactly as they were. ⚠ **There is no geocoder on the server** and the **town is what a crew-day is grouped by**, so applying it there leaves the customer at the new house with the OLD house's pin, on the OLD town's day, with the new address already pushed onto a frozen route stop the crew is holding.
+    - ⭐ **The office's own Save is the one writer.** Edit Customer shows a banner with both addresses and the move date; **Apply fills the boxes and writes nothing**, and pressing Save re-geocodes, raises the re-quote with `existingCustomerId` and re-syncs upcoming stops — the path that already does all three, rather than a second writer that would do one.
+    - ⚠ **The badge is the half that was kept**: `seasonStatus: 'address_changed'` is the pill on the customer row and the filter the office works from, and it clears when the re-quote is answered (`QUOTE_RAISED_STATUSES`). Written through `stampSeasonStatusServer`, not by hand — that helper exists because a stamp beside any ONE branch misses the others, and this is its fourth writer; it is also what puts the move on the customer's **history**, where `historySeasonWords` already reads `address_changed`.
+    - ⚠ **The portal is told its request landed.** The live address stays the old one on purpose, so without a banner the tab looks like it lost the form and they send it again. Only `pendingAddress` and `pendingMoveDate` are on the read whitelist; the other three are deliberately not, because no line of the page looks at them (`portal-fields.test.js` is what said so).
+    - ⚠ **And the request is retired by the save that grants it** — on the address having **changed**, not on it matching what the customer typed. The office routinely tidies a street name, and an exact test would leave the banner advertising a move already applied for the next person to apply twice: the sticky-field bug this repo shipped once as `maybeNextYear`.
+    - Gated by `address-move.test.js`, which RUNS the callable against a fake Firestore and reads the update object back — the central claim is a NEGATIVE (no address, no town, no pin) and a source search cannot see one. 12 sabotages red-checked.
+- **Cloud Functions it calls**: `portalLookup` (the one entry point for all lookups — token or phone/email+lastname, rate-limited), `portalSave` (whitelisted writes per section, mirrors changes onto the invoice, resyncs upcoming routes), `portalRsvp`, `portalSetGateCode`, `portalChangeAddress` (records a move as PENDING; applies nothing), `portalInvoice` (sanitized invoice read), `quoteRespond`, `publicQuoteLookup`, `paypalCreateOrder`/`paypalCaptureOrder`, `publicConfig` (public-safe EmailJS keys for the contact form).
 
 ### Admin dashboard (`admin.html`)
 Customers · Quote Requests · Customer Messages · Routes · Responsibilities (staff/crew/timecards) · Warehouse · Customer Numbers · Dashboard (Finance: Invoices, Business Credit Cards, Financial Overview) · Per Foot Pricing · Time Logs · Import Center / Member Export · Health Check · Automation (Email/SMS/nightly invoicing) · Reviews/Gallery/Hero Images/FAQ/Site Settings · Project To-Do / Test Checklist.

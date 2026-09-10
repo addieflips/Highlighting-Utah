@@ -2193,3 +2193,52 @@ blocks only the banner.
 
 **Resulting map change.** Named in REF-37, which records the banner ruling as decided
 and not built.
+
+---
+
+## Q-033 · intent · OPEN · raised 2026-09-10
+Should a customer who owes for last season be able to tell us they have moved?
+
+Moving house got its own door on 2026-09-10 (QT-35): `portalChangeAddress` records a
+new address as **pending** and applies nothing, and the office commits it from Edit
+Customer. It is **not** behind the arrears hold, and that needs her ruling rather than
+my assumption.
+
+**Why it is a real question.** `portalSave` refuses every section but `cancel` while
+last season is unpaid — Dax, 2026-09-02: *"make sure it forces them to pay for their
+last year lights before they can do anything and before anything goes into the
+system."* A pending move **does** go into the system, and applying one raises a
+re-quote, so on the letter of that ruling it belongs behind the hold.
+
+**Why it shipped open.** The two failure directions are not symmetric:
+
+- **Refused**, the record keeps an address they have left. Nobody is told the house is
+  wrong, and the one mistake with no undo is a crew standing at the wrong door.
+- **Accepted**, nothing is actually granted. The hold still bars every other change,
+  the badge only asks the office to look, no pin moves, no quote is raised, and
+  `isOutForSeason` keeps a debtor off the routes and out of the build queue anyway —
+  so this cannot get them scheduled.
+
+⚠ **AND `cancel` IS ALREADY EXEMPT FOR THE SAME SHAPE OF REASON** — somebody trying to
+leave must not be told to pay first, or they stop replying and Addie never learns why.
+An address is a fact about where they live rather than a change to what they are
+buying, which is the argument for treating it the same way.
+
+**Three answers:**
+
+1. **Leave it open** (what shipped). A debtor can tell us they moved; nothing else about
+   their account moves. Cheapest, and safest for the crew.
+2. **Hold it like the other sections.** Consistent with Dax's wording, and it means a
+   debtor who moves has no way to say so until they pay — the office finds out when a
+   crew reports an empty house, if at all.
+3. **Accept it but do not badge it** until they have paid, so the information is kept
+   and the office is not asked to act on a customer who is held anyway. Splits the
+   difference; costs a second state nobody has asked for, which is usually how a rule
+   becomes unexplainable.
+
+⚠ **NOTHING ELSE WAITS ON THIS.** The door works either way; only the hold is in
+question, and switching it later is a two-line change with a check already written
+around it.
+
+**Resulting map change.** QT-35 records the door as it shipped; whichever way this is
+answered goes there, marked `Superseded → #QT-XX` if it reverses.
