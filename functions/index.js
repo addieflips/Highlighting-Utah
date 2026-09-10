@@ -5461,7 +5461,14 @@ async function runArrearsRsvpBatch(source) {
        admin.html's isTestRecordData uses. */
     if (d.isTestRecord === true) { out.skipped++; continue; }
     if (digitsOnly(d.phone) === '3853912235' && String(d.name || '').trim().toLowerCase() === 'test') { out.skipped++; continue; }
-    if (d.arrearsRsvpEmailAt) { out.skipped++; continue; }
+    /* ⚠ EITHER STAMP, NOT JUST THIS BATCH'S OWN (2026-09-10, EM-16). This read
+       `arrearsRsvpEmailAt` alone, so anybody the office's own send or the daily RSVP
+       drip had already asked would get the Not Paid email on top of the one they had
+       — a second, differently-worded message about the same season, to the people
+       carrying a balance. That is the harassment this block's own header warns about,
+       arriving from the one direction it was not guarding. `rsvpWholePlan` in
+       admin.html has always read both stamps for exactly this reason. */
+    if (d.arrearsRsvpEmailAt || d.rsvpEmailedAt) { out.skipped++; continue; }
     const answered = String(d.rsvpStatus || '').trim();
     if (answered) { out.skipped++; continue; }
     const email = String(d.email || '').trim();
@@ -5471,81 +5478,7 @@ async function runArrearsRsvpBatch(source) {
     if (!(owed.outstanding > 0)) { out.skipped++; continue; }
 
     try {
-      const token = await ensureToken(docSnap.id, d);
-      const base = 'https://highlightingutah.com/#/payment' + (token ? ('?token=' + token) : '');
-      const yesUrl = base + (token ? '&rsvp=yes' : '');
-      const noUrl = base + (token ? '&rsvp=no' : '');
-      const backUrl = 'https://highlightingutah.com/#/' + (token ? ('?token=' + token + '&rsvp=back') : '');
-      /* ⚠ THE SAME THREE BUTTONS admin.html builds, in the same colours and the
-         same order. A chase that looked different from the RSVP email it follows
-         would read as a different question. */
-      const btn = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
-      let body = templateBody;
-      body = body.split('{{name}}').join(properNameServer(d.name) || 'there');
-      body = body.split('{{rsvp_yes_link}}').join(yesUrl);
-      body = body.split('{{rsvp_no_link}}').join(noUrl);
-      body = body.split('{{rsvp_back_link}}').join(backUrl);
-      body = body.split('{{rsvp_yes_button}}').join('<a href="' + yesUrl + '" style="' + btn + ' background:#2E6B3E; color:#ffffff;">Yes</a>');
-      body = body.split('{{rsvp_no_button}}').join('<a href="' + noUrl + '" style="' + btn + ' background:#8A8F9C; color:#ffffff;">No</a>');
-      body = body.split('{{rsvp_back_button}}').join('<a href="' + backUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>');
-      /* ⭐ AND THEIR REFERRAL LINK, RENDERED HERE TOO (2026-09-04, REF-07). The Not Paid
-         RSVP template carries {{referral_button}}, and THIS is the renderer that sends
-         it — so a token resolved only in admin.html would put a literal
-         "{{referral_button}}" in a real customer's inbox. That is the {{photo}} failure
-         this repo already records by name: two renderers, one template, change both in
-         the same push. resolveLinkTokens in admin.html is the other copy.
-         ⚠ THE SAME ADDRESS, CHARACTER FOR CHARACTER, as referralLinkForCustomer and the
-         portal's own portalReferralLink. Two spellings is two ways for a referral to
-         arrive uncounted, and the only symptom would be somebody's $25 never appearing.
-         ⚠ AND $25 OFF IS WORTH MOST TO EXACTLY THE PEOPLE THIS BATCH WRITES TO — they
-         are the ones carrying a balance. */
-      /* ⭐ THE BUTTON GOES TO THE SHARE PAGE, THE BARE LINK STAYS THE FRIEND'S
-         (2026-09-05, REF-13). Dax tapped this button in an RSVP and landed on the free
-         quote form: /r/<token> is the address the FRIEND opens, and sending the customer
-         there puts them on the one screen their own link is not for. /s/<token> is their
-         share page, where the phone's share sheet hands the /r/ link to whoever they pick.
-         ⚠ BOTH SPELLINGS MATCH admin.html's referralLinkFromToken and
-         referralShareLinkFromToken character for character. This is the {{photo}} pairing
-         again: two renderers, one template, changed in the same push. */
-      const referToken = await ensureReferralToken(docSnap.id, d);
-      const referUrl = 'https://highlightingutah.com/r/' + encodeURIComponent(referToken);
-      const hadReferralToken =
-        body.indexOf('{{referral_button}}') !== -1 || body.indexOf('{{referral_link}}') !== -1;
-      const referShareUrl = 'https://highlightingutah.com/s/' + encodeURIComponent(referToken);
-      body = body.split('{{referral_link}}').join(referUrl);
-      /* ⚠ THE SAME BOX admin.html's resolveLinkTokens sends, byte for byte — the two
-         builders are handed the same pair of addresses and a test RUNS both and compares
-         what comes out. Until 2026-09-05 the two spelled one button's words differently
-         ("$25 Off" here, "$25 off your bill" there), so which words a customer read
-         depended on which renderer happened to send; a shared shape removes the question
-         rather than policing it. REF-19 is why it is a box and no longer a button. */
-      body = body.split('{{referral_button}}').join(
-        referralShareBoxHtmlServer(referUrl, referShareUrl));
-      body = body.replace(/\n/g, '<br>');
-      /* ⚠ AND IF THE SAVED TEMPLATE PLACES NEITHER TOKEN, THE OFFER IS APPENDED
-         (2026-09-07, REF-15). MON-24 means a template already written in Firestore is
-         never rewritten, so the built-in body's {{referral_button}} does not reach the
-         one that is actually stored — and the send silently carries no offer at all.
-         ⚠ THE MIRROR OF referralEmailBlock IN admin.html, and it appends on the SAME
-         test: token present, nothing added; token absent, the block goes on the end.
-         Two renderers, one template — the rule this whole comment block already states.
-         ⚠ AFTER the newline replacement on purpose: this block is already HTML, and
-         running it through that replace would double the breaks it writes itself. */
-      /* ⚠ AND IT POINTS AT THE SHARE PAGE, NOT THE /r/ LINK. Merged 2026-09-07 with the
-         refer-share-sheet work: /r/ is the address the FRIEND opens, so a button carrying
-         it lands the referrer on the free quote form — the bug Dax reported. The appended
-         block is the one path that only appears when the saved template places no token,
-         so it is also the path least likely to be noticed pointing at the wrong page.
-         Same URL and same words as the {{referral_button}} above it, character for
-         character: two spellings of one button is one of them going wrong for whichever
-         half of the book this renderer happens to send. */
-      if (!hadReferralToken) {
-        body += '<br><br>—<br><br>Know somebody who wants lights? Send them your own link '
-          + 'and we take $25 off this season’s bill when they sign up — as many times as '
-          + 'you like.<br><br>'
-          + referralShareBoxHtmlServer(referUrl, referShareUrl);
-      }
-
+      const body = await rsvpEmailBodyServer(docSnap.id, d, templateBody);
       const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -5575,6 +5508,402 @@ async function runArrearsRsvpBatch(source) {
   }
   return out;
 }
+
+/* ---------------------------------------------------------------------------
+ * ⭐ THE RSVP EMAIL BODY, BUILT ONCE (2026-09-10, EM-16)
+ *
+ * Lifted out of runArrearsRsvpBatch unchanged, so the daily drip below does not
+ * become a THIRD copy of it. The repo already records what two copies of one
+ * renderer cost — the {{photo}} block and {{link:her own words}} each had to be
+ * paired across this file and admin.html, and Suites 33 and 279 exist because of
+ * it. A third would be a third.
+ *
+ * ⚠ IT IS CHARACTER FOR CHARACTER admin.html's resolveLinkTokens for these
+ * tokens: the same /#/payment base, the same three button colours, the same
+ * words. That was already true of the arrears renderer; extracting it keeps the
+ * claim checkable in one place instead of two.
+ *
+ * ⚠ THE TEMPLATE DECIDES THE WORDS, NEVER THIS. It takes the stored body and
+ * fills tokens; it does not know whether it is building the ordinary RSVP or the
+ * Not Paid one, which is exactly why it can be shared.
+ * ------------------------------------------------------------------------- */
+async function rsvpEmailBodyServer(custId, d, templateBody) {
+  const token = await ensureToken(custId, d);
+  const base = 'https://highlightingutah.com/#/payment' + (token ? ('?token=' + token) : '');
+  const yesUrl = base + (token ? '&rsvp=yes' : '');
+  const noUrl = base + (token ? '&rsvp=no' : '');
+  const backUrl = 'https://highlightingutah.com/#/' + (token ? ('?token=' + token + '&rsvp=back') : '');
+  /* ⚠ THE SAME THREE BUTTONS admin.html builds, in the same colours and the
+     same order. A chase that looked different from the RSVP email it follows
+     would read as a different question. */
+  const btn = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
+  let body = templateBody;
+  body = body.split('{{name}}').join(properNameServer(d.name) || 'there');
+  body = body.split('{{rsvp_yes_link}}').join(yesUrl);
+  body = body.split('{{rsvp_no_link}}').join(noUrl);
+  body = body.split('{{rsvp_back_link}}').join(backUrl);
+  body = body.split('{{rsvp_yes_button}}').join('<a href="' + yesUrl + '" style="' + btn + ' background:#2E6B3E; color:#ffffff;">Yes</a>');
+  body = body.split('{{rsvp_no_button}}').join('<a href="' + noUrl + '" style="' + btn + ' background:#8A8F9C; color:#ffffff;">No</a>');
+  body = body.split('{{rsvp_back_button}}').join('<a href="' + backUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>');
+  /* ⭐ AND THEIR REFERRAL LINK, RENDERED HERE TOO (2026-09-04, REF-07). Both RSVP
+     templates carry {{referral_button}}, and THIS is the renderer that sends them —
+     so a token resolved only in admin.html would put a literal "{{referral_button}}"
+     in a real customer's inbox. That is the {{photo}} failure this repo already
+     records by name: two renderers, one template, change both in the same push.
+     resolveLinkTokens in admin.html is the other copy.
+     ⚠ THE SAME ADDRESS, CHARACTER FOR CHARACTER, as referralLinkForCustomer and the
+     portal's own portalReferralLink. Two spellings is two ways for a referral to
+     arrive uncounted, and the only symptom would be somebody's $25 never appearing.
+     ⚠ AND $25 OFF IS WORTH MOST TO EXACTLY THE PEOPLE THE NOT PAID HALF WRITES TO —
+     they are the ones carrying a balance. */
+  /* ⭐ THE BUTTON GOES TO THE SHARE PAGE, THE BARE LINK STAYS THE FRIEND'S
+     (2026-09-05, REF-13). Dax tapped this button in an RSVP and landed on the free
+     quote form: /r/<token> is the address the FRIEND opens, and sending the customer
+     there puts them on the one screen their own link is not for. /s/<token> is their
+     share page, where the phone's share sheet hands the /r/ link to whoever they pick.
+     ⚠ BOTH SPELLINGS MATCH admin.html's referralLinkFromToken and
+     referralShareLinkFromToken character for character. This is the {{photo}} pairing
+     again: two renderers, one template, changed in the same push. */
+  const referToken = await ensureReferralToken(custId, d);
+  const referUrl = 'https://highlightingutah.com/r/' + encodeURIComponent(referToken);
+  const hadReferralToken =
+    body.indexOf('{{referral_button}}') !== -1 || body.indexOf('{{referral_link}}') !== -1;
+  const referShareUrl = 'https://highlightingutah.com/s/' + encodeURIComponent(referToken);
+  body = body.split('{{referral_link}}').join(referUrl);
+  /* ⚠ THE SAME BOX admin.html's resolveLinkTokens sends, byte for byte — the two
+     builders are handed the same pair of addresses and a test RUNS both and compares
+     what comes out. Until 2026-09-05 the two spelled one button's words differently
+     ("$25 Off" here, "$25 off your bill" there), so which words a customer read
+     depended on which renderer happened to send; a shared shape removes the question
+     rather than policing it. REF-19 is why it is a box and no longer a button. */
+  body = body.split('{{referral_button}}').join(
+    referralShareBoxHtmlServer(referUrl, referShareUrl));
+  body = body.replace(/\n/g, '<br>');
+  /* ⚠ AND IF THE SAVED TEMPLATE PLACES NEITHER TOKEN, THE OFFER IS APPENDED
+     (2026-09-07, REF-15). MON-24 means a template already written in Firestore is
+     never rewritten, so the built-in body's {{referral_button}} does not reach the
+     one that is actually stored — and the send silently carries no offer at all.
+     ⚠ THE MIRROR OF referralEmailBlock IN admin.html, and it appends on the SAME
+     test: token present, nothing added; token absent, the block goes on the end.
+     Two renderers, one template — the rule this whole comment block already states.
+     ⚠ AFTER the newline replacement on purpose: this block is already HTML, and
+     running it through that replace would double the breaks it writes itself. */
+  /* ⚠ AND IT POINTS AT THE SHARE PAGE, NOT THE /r/ LINK. Merged 2026-09-07 with the
+     refer-share-sheet work: /r/ is the address the FRIEND opens, so a button carrying
+     it lands the referrer on the free quote form — the bug Dax reported. The appended
+     block is the one path that only appears when the saved template places no token,
+     so it is also the path least likely to be noticed pointing at the wrong page.
+     Same URL and same words as the {{referral_button}} above it, character for
+     character: two spellings of one button is one of them going wrong for whichever
+     half of the book this renderer happens to send. */
+  if (!hadReferralToken) {
+    body += '<br><br>—<br><br>Know somebody who wants lights? Send them your own link '
+      + 'and we take $25 off this season’s bill when they sign up — as many times as '
+      + 'you like.<br><br>'
+      + referralShareBoxHtmlServer(referUrl, referShareUrl);
+  }
+  return body;
+}
+
+/* ---------------------------------------------------------------------------
+ * ⭐ THE RSVP GOES OUT 200 A DAY UNTIL IT IS ALL SENT (2026-09-10, EM-16)
+ *
+ * Addie, after a send of ~950 that Gmail cut off partway and that took a pasted
+ * spreadsheet of 673 names to reconcile: "we need to make sure we don't run into
+ * this situation in the future. Can we make a calendar for RSVP emails that will
+ * only send 200 emails a day until we send them all out?"
+ *
+ * ⛔ THIS DOES NOT DECIDE WHO GETS ASKED, AND THAT IS THE WHOLE DESIGN.
+ * `rsvpSendSkipReason` in admin.html is the one rule, and the seven answers it
+ * gives rest on `audienceNeverAsked`, `audienceQuoteJoinYear`, `isRequote`,
+ * `enrollmentYearOf` and `effectiveRsvpStatus` — none of which exist here. Copying
+ * five rules onto the server to make a drip autonomous would put five new drift
+ * surfaces on the one send that has to reach everybody exactly once, and the
+ * server's copy is always the one nobody looks at. So the browser decides ONCE,
+ * writes the decided queue to `settings/rsvpSendPlan`, and this is a pipe that
+ * sends the names it was handed, in the order it was handed them.
+ *
+ * ⚠ THE QUEUE NAMES THE TEMPLATE PER PERSON, because the ordinary RSVP and the Not
+ * Paid one are chosen by who owes from last season — and that needs the invoices,
+ * which the browser holds in a cache and this would have to read one document at a
+ * time. Deciding it up there is also what lets her SEE the split before a single
+ * email goes, which is what "Check first" already exists for.
+ *
+ * ⚠ NOTHING RECORDS WHICH NAMES ARE DONE. `rsvpEmailedAt` on the customer is the
+ * one record, exactly as it is for the office's own send — a second list in the plan
+ * document would be the derivedDoneFor argument all over again, and the copy that
+ * went stale would either re-mail somebody or skip them for the season.
+ *
+ * ⚠ SO A QUEUE THAT IS ALREADY STAMPED COSTS NOTHING. The plan is walked in order
+ * and stamped names are passed over, which means the same plan can sit there all
+ * season: every morning it skips yesterday's and sends the next 200.
+ *
+ * ⚠ IT SHIPS OFF. `settings/rsvpSendPlan` has no `enabled` until somebody builds a
+ * plan and turns it on, and an absent document sends nothing — the same shape as
+ * the nightly invoice run and the unpaid chase beside it.
+ *
+ * ⚠ AND IT RUNS AT 9 AM, NOT 10. The unpaid chase and the quote nudges are both on
+ * 10:00, and three batches hitting one Gmail account at the same minute is the rate
+ * limit this whole feature exists to stay under.
+ * ------------------------------------------------------------------------- */
+/* ⚠ ONE CONSTANT. Nothing anywhere types 200 out for itself — the cap, the plan
+   document's default, the admin card's arithmetic and the finish date all come from
+   here, which is the rule CN_DOUBLE_BIN_FEET earned the hard way when two screens
+   each held their own copy of a number and one of them moved. */
+const RSVP_DAILY_CAP = 200;
+
+/* ⭐ THE SECOND GATE, APPLIED JUST BEFORE EACH SEND — AND IT CAN ONLY EVER REMOVE.
+ *
+ * A plan can be days old. Somebody on it may have answered since, been marked asked
+ * by hand, had their email removed, or been put on the do-not-send list, and every
+ * one of those means this email must not go. So the queue is a list of CANDIDATES
+ * and this is the refusal.
+ *
+ * ⚠ IT IS NOT A COPY OF `rsvpSendSkipReason`, and must never be read as one. It
+ * tests only plain stored fields — no quote history, no enrolment year — so the one
+ * reason it cannot see is `new`, and it does not need to: somebody who joined after
+ * the plan was built is not on the plan at all. rsvp-daily-send.test.js asserts the
+ * DIRECTION (everything the browser rule refuses for a reason visible here is refused
+ * here too, and nothing the browser rule would send to is refused here) rather than
+ * claiming the two are equal.
+ *
+ * ⚠ THE BARE-YES RULE IS MIRRORED, and it is the one subtle line. `rsvpStatus: 'yes'`
+ * with no `rsvpRespondedAt` is what an imported or hand-edited record looks like, and
+ * admin.html's `effectiveRsvpStatus` deliberately reads it as NOT an answer. Testing
+ * the status alone here would refuse every one of those people — put on the plan and
+ * then silently never sent, which is the exact silence this feature was built to end.
+ *
+ * ⚠ AND THE ORDER MATCHES THE BROWSER'S, so the reason written into the run record is
+ * the same word the office reads on screen for the same customer.
+ */
+function rsvpStillOwedServer(d) {
+  const rec = d || {};
+  /* ⚠ THE TEST RECORD CARRIES ADDIE'S OWN PHONE, so this is not housekeeping — it is
+     the difference between a drip and mailing the owner her own RSVP every morning.
+     The same two conditions admin.html's isTestRecordData uses. */
+  if (rec.isTestRecord === true) return 'test';
+  if (digitsOnly(rec.phone) === '3853912235' && String(rec.name || '').trim().toLowerCase() === 'test') return 'test';
+  let said = String(rec.rsvpStatus || '').trim().toLowerCase();
+  if (said === 'yes' && !rec.rsvpRespondedAt) said = '';
+  if (said || rec.maybeNextYear === true) return 'answered';
+  if (rec.noAutomationEmails === true) return 'optedout';
+  if (!String(rec.email || '').trim()) return 'noemail';
+  if (rec.rsvpEmailedAt || rec.arrearsRsvpEmailAt) return 'emailed';
+  return '';
+}
+
+async function runRsvpDailyBatch(source) {
+  const out = { sent: 0, skipped: 0, errors: [], source: source, stopped: '',
+                cap: RSVP_DAILY_CAP, remaining: 0, standard: 0, arrears: 0 };
+
+  const planSnap = await db.collection('settings').doc('rsvpSendPlan').get();
+  const plan = planSnap.exists ? (planSnap.data() || {}) : null;
+  if (!plan || !Array.isArray(plan.queue) || !plan.queue.length) {
+    out.stopped = 'There is no RSVP send plan. Build one from Automation Emails > Send the RSVP 200 a day.';
+    return out;
+  }
+  /* ⚠ A PLAN FROM LAST SEASON SENDS NOTHING. Start New Season clears every
+     `rsvpEmailedAt`, so a plan left behind would read the whole book as unstamped and
+     re-send last year's RSVP to everybody on it, using last year's split between who
+     owed money and who did not. The year is written when the plan is built and must
+     match; a plan with no year at all is refused rather than assumed to be current. */
+  const thisYear = new Date().getFullYear();
+  if (Number(plan.season) !== thisYear) {
+    out.stopped = 'The saved RSVP plan is for ' + (plan.season || 'an unknown season')
+      + ' and this is ' + thisYear + '. Build it again so it uses this season’s customers.';
+    return out;
+  }
+
+  const cfgSnap = await db.collection('settings').doc('emailjs').get();
+  const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+  if (!cfg.serviceId || !cfg.templateId || !cfg.privateKey) {
+    out.stopped = 'EmailJS is not set up on the server (Automation Emails > EmailJS Setup). '
+      + 'The private key is the one the server needs and the browser does not, so a send that '
+      + 'works from the Send the whole RSVP button can still leave this empty.';
+    return out;
+  }
+
+  /* ⭐ THE PLAN NAMES THE TEMPLATES BY ID, AND THAT IS NOT A CONVENIENCE (2026-09-10).
+     The first version looked them up here by the names "RSVP Email" and "Not Paid RSVP" —
+     a SECOND opinion about which of her emails is which, and one that disagrees with the
+     screen. admin.html's `rsvpWholeTemplates` finds an RSVP template by its CONTENT (any
+     {{rsvp_yes_button}} / {{rsvp_no_link}} token) or by sitting in a folder called RSVP,
+     and then picks the ordinary one by name with an explicit fallback to "any RSVP that is
+     not the Not Paid one". So a template the office has renamed is still found up there and
+     was NOT found down here: the card would show a plan of several hundred and this would
+     refuse every single morning with "missing a template". A calendar that is switched on
+     and silently sends nothing is the exact failure the whole feature exists to prevent.
+     ⚠ SO THE IDS ARE RESOLVED ONCE, ON THE SCREEN THAT CAN SHOW HER WHICH TWO IT PICKED,
+     and stored on the plan. This loads them and nothing else.
+     ⚠ A PLAN FROM BEFORE THE IDS EXISTED IS REFUSED RATHER THAN GUESSED AT. Falling back
+     to the old name lookup here would quietly restore the disagreement for exactly the
+     plans most likely to have it, and the fix is one press of Build the plan. */
+  const tplIds = { standard: String(plan.standardTemplateId || ''), arrears: String(plan.arrearsTemplateId || '') };
+  if (!tplIds.standard || !tplIds.arrears) {
+    out.stopped = 'This plan does not say which of your RSVP emails to send. Press Build '
+      + 'the plan again — it records the two templates by name and id so this run sends '
+      + 'exactly the ones the card shows you.';
+    return out;
+  }
+  const tpls = {};
+  for (const kind of ['standard', 'arrears']) {
+    const snap = await db.collection('emailTemplates').doc(tplIds[kind]).get();
+    /* ⚠ BOTH TEMPLATES OR NEITHER — the same rule the office's own button has, and the
+       argument is stronger here: that button at least leaves a line on screen saying half
+       the book was not asked, whereas nobody is watching a 9 AM schedule. */
+    if (!snap.exists) {
+      out.stopped = 'The ' + (kind === 'arrears' ? '"Not Paid"' : 'ordinary')
+        + ' RSVP email on this plan has been deleted or renamed since the plan was built, '
+        + 'so nothing was sent. Press Build the plan again.';
+      return out;
+    }
+    tpls[kind] = snap.data() || {};
+  }
+  const subjects = {
+    standard: templateSubjectOr(tpls.standard, 'Your Christmas lights this year'),
+    arrears: templateSubjectOr(tpls.arrears, 'Your Christmas lights this year — and last season’s balance')
+  };
+
+  const perDay = Math.max(1, Number(plan.perDay) || RSVP_DAILY_CAP);
+  out.cap = perDay;
+
+  for (const row of plan.queue) {
+    const id = row && row.id;
+    if (!id) { out.skipped++; continue; }
+    /* ⚠ THE CAP IS COUNTED IN SENDS, NEVER IN ROWS WALKED. Counting rows would make a
+       plan whose first 200 names are already stamped send NOTHING on day two, and the
+       drip would stall with no error anywhere — it would simply report 0 sent, which
+       reads as "everybody has been asked". */
+    if (out.sent >= perDay) { out.remaining++; continue; }
+
+    let snap;
+    try {
+      snap = await db.collection('jobAddresses').doc(id).get();
+    } catch (err) {
+      out.errors.push(id + ': could not be read — ' + ((err && err.message) || err));
+      continue;
+    }
+    /* A customer deleted since the plan was built is a skip, not an error: the plan is
+       a list of candidates and somebody leaving the book is an ordinary answer to it. */
+    if (!snap.exists) { out.skipped++; continue; }
+    const d = snap.data() || {};
+    if (rsvpStillOwedServer(d)) { out.skipped++; continue; }
+
+    const kind = (row.t === 'arrears') ? 'arrears' : 'standard';
+    try {
+      const body = await rsvpEmailBodyServer(id, d, tpls[kind].body || '');
+      const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          service_id: cfg.serviceId,
+          template_id: cfg.templateId,
+          user_id: cfg.publicKey || '',
+          accessToken: cfg.privateKey,
+          template_params: {
+            to_email: String(d.email || '').trim(), to_name: d.name || '',
+            subject: String(subjects[kind]).split('{{name}}').join(properNameServer(d.name) || 'there'),
+            body: body, message: body
+          }
+        })
+      });
+      if (!res.ok) {
+        const text = (await res.text()).slice(0, 200);
+        out.errors.push((d.name || id) + ': ' + text);
+        /* ⭐ A REFUSAL STOPS THE RUN RATHER THAN BURNING THE CAP (EM-02's lesson, on a
+           schedule this time). Gmail's limit is on the ACCOUNT, so once it says no the
+           next 199 attempts fail too — and every one of them is a real customer on a
+           real error list somebody then has to read. Nothing is stamped, so tomorrow
+           picks up exactly where this stopped.
+           ⚠ IT STOPS ON ANY REFUSAL, not only on one that names a rate limit. The
+           alternative is matching the wording of somebody else's error message, and the
+           cost of being wrong is 200 failures instead of one. */
+        out.stopped = 'The mail service refused a send, so the rest of today’s batch was '
+          + 'held back — nobody was stamped, and tomorrow carries on from here. Reason: ' + text;
+        break;
+      }
+      /* ⚠ STAMPED ONLY AFTER THE SEND SUCCEEDS. Stamping first loses the customer for
+         the whole season on one bad response from the mail service. */
+      const stamp = { rsvpEmailedAt: admin.firestore.FieldValue.serverTimestamp() };
+      /* ⚠ THE ARREARS HALF IS STAMPED TWICE, ON PURPOSE. `runArrearsRsvpBatch` is a
+         separate schedule reading `arrearsRsvpEmailAt`, and somebody who has just had
+         the Not Paid RSVP from here must not get the identical email from there an hour
+         later. Writing both stamps says "this person has had the Not Paid email" in the
+         one field that chase reads. */
+      if (kind === 'arrears') stamp.arrearsRsvpEmailAt = admin.firestore.FieldValue.serverTimestamp();
+      await snap.ref.update(stamp);
+      out.sent++;
+      out[kind]++;
+    } catch (err) {
+      out.errors.push((d.name || id) + ': ' + ((err && err.message) || err));
+    }
+  }
+
+  /* ⭐ WHAT THE RUN DID, WRITTEN WHERE THE CARD READS IT. A schedule nobody watches has
+     to leave a record, or the only way to know whether it ran is that emails arrived —
+     and the failure worth catching is the one where it ran and sent nothing. */
+  try {
+    await planSnap.ref.set({
+      lastRunAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastRunSource: source,
+      lastSent: out.sent,
+      lastSkipped: out.skipped,
+      lastErrors: out.errors.slice(0, 5),
+      lastStopped: out.stopped || ''
+    }, { merge: true });
+  } catch (err) {
+    /* Logged rather than swallowed (Addie, 2026-08-25: "nothing should fail quietly").
+       The emails have gone; a failure to write a note about them must never be reported
+       as the send failing. */
+    console.error('[HU] could not record the RSVP drip run:', err);
+  }
+
+  /* ⭐ AND THE SEASON IS MARKED THE FIRST TIME ANYTHING ACTUALLY GOES OUT. `rsvpSentAt`
+     is the difference between "they have not replied" and "we have not asked them",
+     which is what makes Schedule > Waiting on RSVP a list of calls rather than a screen
+     full of nothing. The per-customer truth is `rsvpEmailedAt` and always was; this is
+     the season-level fact, and the drip starting IS the RSVP having gone out.
+     ⚠ ONLY WHEN IT IS ABSENT, and only when at least one email left. A send that failed
+     for everybody has asked nobody, and overwriting an existing mark would move the date
+     every morning for however many days the drip runs. */
+  if (out.sent > 0) {
+    try {
+      const seasonRef = db.collection('settings').doc('season');
+      const seasonSnap = await seasonRef.get();
+      if (!seasonSnap.exists || !seasonSnap.data().rsvpSentAt) {
+        await seasonRef.set({
+          rsvpSentAt: admin.firestore.FieldValue.serverTimestamp(),
+          rsvpSentCount: out.sent,
+          rsvpSentBy: 'the daily RSVP drip'
+        }, { merge: true });
+      }
+    } catch (err) {
+      console.error('[HU] could not record that the RSVP has gone out:', err);
+    }
+  }
+  return out;
+}
+
+exports.sendRsvpDaily = onSchedule(
+  /* 9 AM, an hour clear of the unpaid chase and the quote nudges — see the note above. */
+  { schedule: '0 9 * * *', timeZone: 'America/Denver', memory: '512MiB', timeoutSeconds: 540 },
+  async () => {
+    const planSnap = await db.collection('settings').doc('rsvpSendPlan').get();
+    if (!planSnap.exists || !planSnap.data().enabled) {
+      return; // off — and off is the shipped state. See the block above.
+    }
+    const res = await runRsvpDailyBatch('schedule');
+    if (res.stopped) console.warn('[HU] RSVP drip stopped: ' + res.stopped);
+  }
+);
+
+/* The same run, on demand, whether the switch is on or off — so the office can send
+   today's batch by hand without turning the schedule on, and so the very first batch
+   can be watched rather than waited for. */
+exports.runRsvpDailyNow = onCall({ memory: '512MiB', timeoutSeconds: 540 }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required.');
+  return await runRsvpDailyBatch('manual');
+});
 
 exports.sendArrearsRsvpEmails = onSchedule(
   { schedule: '0 10 * * *', timeZone: 'America/Denver', memory: '512MiB' },

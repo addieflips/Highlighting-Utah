@@ -203,6 +203,14 @@ jobs:
       # like a good week.
       - name: Errors reach the Inbox (member and admin)
         run: npm run test:errors
+      # ⭐ THE RSVP, A FEW HUNDRED A MORNING. Named separately because the failure it
+      # guards is silence of exactly the same shape: the drip runs at 9 AM with nobody
+      # watching, and the two ways it can go wrong — refusing every morning because it
+      # cannot find a template, or stamping somebody who was never emailed — both look
+      # from outside like a season where people simply did not reply. A customer wrongly
+      # stamped is dropped from the routes, the build queue and the schedule.
+      - name: The RSVP goes out a few hundred a morning
+        run: npm run test:rsvp-daily
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 

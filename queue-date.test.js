@@ -1279,6 +1279,23 @@ check('the path still has every step in it',
       'update sets seasonStatus to address_changed, so seasonStatusAt is the step and the ' +
       'history already names it; this is the bookkeeping date on the pending request',
 
+    /* ⚠ NEITHER OF THESE IS ON A CUSTOMER AT ALL, which is the cleanest reason to be off
+       the path: both live in the `settings` collection. `builtAt` dates the office
+       assembling the RSVP drip's queue (settings/rsvpSendPlan) and `rsvpSentAt` dates the
+       season's RSVP having started to go out (settings/season). The per-customer facts they
+       sit beside ARE on the path — a customer's own RSVP answer is rsvpRespondedAt, and
+       whether they were emailed is rsvpEmailedAt, which the Inbox and the drip both read.
+       ⚠ AND rsvpSentAt IS DELIBERATELY NOT A STEP EVEN THOUGH IT LOOKS LIKE ONE. It is one
+       date for the whole book, so drawn on a path it would put the identical row on every
+       customer's history — including the several hundred the drip has not reached yet,
+       which is precisely the difference the card under Automation Emails exists to show. */
+    builtAt: 'when the office assembled the RSVP drip queue, on settings/rsvpSendPlan — a ' +
+      'document about the send, not about any customer; the per-customer date is ' +
+      'rsvpEmailedAt when their own email actually goes',
+    rsvpSentAt: 'when the season\'s RSVP started going out, on settings/season — one date ' +
+      'for the whole book, so on a path it would stamp the same row on every customer ' +
+      'including everybody not yet emailed',
+
     /* --- the crew portal, dormant this season --- */
     fixFlaggedAt: 'the crew portal raising a fault; fixRaisedAt is the step, and the portal ' +
       'is not in use this season',

@@ -64,6 +64,30 @@ const AUTOMATION = [
       'that stops appearing on the history.'
   },
   {
+    id: 'sendRsvpDaily',
+    title: 'The RSVP, 200 a day',
+    where: 'Cloud Function, on a cron',
+    when: 'every morning at 9 AM Mountain — but only if somebody has built a plan and '
+      + 'switched it on',
+    does: 'Works down the saved RSVP queue in settings/rsvpSendPlan and sends the next '
+      + '200, each person getting the ordinary RSVP or the Not Paid one exactly as the '
+      + 'plan says. It decides nothing itself: the browser worked out who gets what, and '
+      + 'this only refuses anybody who has since answered, been marked asked, or lost '
+      + 'their email address.',
+    touches: ['jobAddresses', 'emailTemplates', 'settings/rsvpSendPlan', 'settings/emailjs',
+      'settings/season'],
+    /* ⛔ IT SHIPS OFF, like the chase below it. No plan document means no plan, and an
+       absent document is off. The reason it exists at all is that one press trying to
+       send ~950 emails is what Gmail cuts off partway, which then takes a pasted
+       spreadsheet of names to reconcile — 9 AM is also an hour clear of the two 10 AM
+       runs, because three batches on one Gmail account is that same limit. */
+    watched: false,
+    ifItStopped: 'The RSVP would stop part-sent, and the damage is that it would look '
+      + 'finished: everybody already stamped reads as asked and everybody behind them '
+      + 'reads as never replying. The card under Automation Emails shows how many are '
+      + 'left and when the last batch ran, which is the only place that difference shows.'
+  },
+  {
     id: 'sendArrearsRsvpEmails',
     title: 'The unpaid-last-season chase',
     where: 'Cloud Function, on a cron',
