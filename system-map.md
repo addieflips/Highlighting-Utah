@@ -2524,6 +2524,45 @@ the hand-back is still a hand-back rather than a leveller.
 re-asserted beside the three-crew ones, because the expensive failure is not "three does
 not work", it is "three works and two quietly changed".*
 
+### Nobody is on a day with nobody holding their sheet
+
+Added 2026-09-10. Dax, reading ten stops under *"Not on either crew's route"* after a
+rebuild: *"it is off limits to have anyone scheduled in a day not on either crews
+routes, save that as a rule and dont design the system so its even possible."*
+
+**What put them there.** The crew split counts TOWN NAMES and gives each crew at most
+two of them, so two crews can cover four towns and no more. That was a sound cap while a
+crew-day *was* a town — and the grid made a crew-day a block of adjacent houses, which
+on the Wasatch Front routinely spans eight or ten town lines within a few streets. His
+1 October held thirty-three houses across ten towns: four towns got sheets and the other
+ten stops fell out of the bottom.
+
+⭐ **`dayCrewHouses` is total now.** Whatever the towns managed, every house on a day
+belongs to exactly one crew when it returns — a house no town covers goes to the crew
+already driving nearest to it. There is no path out of that function that drops
+anybody, which is the difference between *rescuing* a stranded house and making
+stranding unrepresentable.
+
+⚠ **And exactly one crew, which is the same fault pointing the other way** — a house on
+two sheets is two trucks in one driveway. That could not arise through `dayCrewTowns`,
+which marks a town taken as it hands it out; closing it here means the guarantee belongs
+to the function whatever it is handed. It was found by a property check over 400
+unplanned days, not by anybody thinking of it.
+
+⛔ **The town question survived under its own name.** `housesOutsideCrewTowns` answers
+*"is this house outside the towns its day's crews work"*, which is a different question
+and still has a real answer: it is how `rehomeMovedHouses` knows a customer who moved
+from Lehi to Provo is sitting on a Lehi day. Collapsing the two into one always-empty
+list would have stopped it moving anybody again, silently, with every screen looking
+right. `unassignedHousesFor` is kept as the tripwire that should now always be empty.
+
+*Where it is proved*: run-all.js **Suite 320** asserts the PROPERTY over 400 days nobody
+designed — random towns, sizes, crew counts, pinned and unpinned crews, coordinates and
+none — because fixing examples is exactly what let this fault come back. 7 sabotages
+red-checked; two were misses on the first pass, one of them the wiring that keeps
+re-homing alive.
+*Rulings*: [[SCH-67]] in `claude/questions-map.md`.
+
 ### What a crew-day is made of: a patch of map, not a town
 
 Added 2026-09-09, closing Q-023, which had been open since 27 August. Addie, asked
