@@ -2567,6 +2567,23 @@ of 47 span more than one town** — every one of those was impossible before. Th
 one more working day and two more one-man days, both top-up remnants; the tail packer
 runs after the builder in a real rebuild and is not in those figures.
 
+⚠ **And that table left the commute out entirely**, which Dax spotted: *"more days
+generally is more gas because you need to include drive time from the house."* Counted
+properly ([[SCH-66]]):
+
+| | out and back | between stops | total | fuel |
+|---|---|---|---|---|
+| town container | 735 mi | 300 mi | **1035 mi** | $242 |
+| grid container | 883 mi | 196 mi | **1079 mi** | $252 |
+
+So the grid costs **44 miles a season, about $10** — and buys about **two hours of
+driving back**, because those miles move off residential streets and onto the freeway.
+The break-even is a between-stops average of 31.6 mph; a crew stopping at every driveway
+is well under it. ⛔ **A "send them to the nearest area" tiebreak was tried and measured
+at two miles** — every area is worked once a season, so the total drive-out-and-back is
+fixed by how many crew-days there are, not by their order. `betterTown` carries that
+note so it is not re-attempted.
+
 
 ⭐ **And this is what acts on the two-mile rule.** Dax, 2026-09-09: *"everyone in a route
 should never be more than a like two miles between houses."* Which two houses that meant
