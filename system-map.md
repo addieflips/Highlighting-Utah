@@ -3813,6 +3813,40 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
           than matching source; 12 sabotages red-checked, including one the first draft
           MISSED — a text check for the refresh call survived the guard around it being
           changed to `if(false)`, so it is a spy on the real renderer now.
+      - ⭐ **AND A WHOLE PASTED LIST, BECAUSE SHE IS KEEPING ONE** ([[EM-11]], 2026-09-10).
+        Addie: *"Can you check whos not ticked off in the admin portal for RSVP?"* — and under
+        it her own send log, ~900 lines of `Name,Sent,Times sent,Ticked off in app?` with that
+        last column empty. **Check a whole list you sent outside this app**, on the same card,
+        is what fills it. Paste it, press **Check this list**, and every pasted name is sorted
+        into a bucket: already recorded as asked, already answered, **not recorded**, no email
+        on file, do-not-send, new this year, or could-not-be-matched.
+        ⚠ **This revises EM-10's "a paste box has nothing to paste" on its PREMISE, not its
+        logic.** EmailJS still hands her no list; she turned out to be keeping one herself,
+        outside it. A paste box is useless only while there is nothing to put in it.
+        - **It reports. It never bulk-writes.** Each not-ticked row carries the SAME
+          `rsvpMarkOneAsked` button as the list above, with the same Undo. One press that
+          stamped every pasted name would be the bulk button's all-or-nothing mistake wearing
+          a list, with no typed word in front of it.
+        - **Names are keyed the way `dupNormName` keys them — words sorted** — so the sheet's
+          "Meier Larna" and the app's "Larna Meier" are one person, which is her own rule that
+          two names match only when one of them is surname-first. An apostrophe does not split
+          a name; a typo is not a match.
+        - ⚠ **A name held by two customers resolves to NEITHER, and is named.** Six names in
+          the real book belong to two rows; ticking the wrong one is worse than ticking neither,
+          because the one named is then believed and the other is never chased.
+        - ⚠ **Every bucket that needs a human is listed by name; the two that do not are
+          counted.** On her real log ~900 rows carry no action, and burying the handful that
+          matter underneath them is the cries-wolf failure in a new place. The not-ticked names
+          are also offered back as pasteable text, because the question was a spreadsheet column.
+        - ⚠ **`rsvpWholePlan` gained `answeredList` and `newThisYearList` beside its two
+          counts.** They were counts ONLY, so a pasted name in either was indistinguishable from
+          a name the plan had never seen — and somebody who had already REPLIED would have been
+          reported as still needing a tick. The counts and the lists are asserted equal, because
+          they are written a line apart.
+        - The comparison re-runs no predicate of its own: it asks which of the plan's own lists
+          holds that customer, filed in the plan's order, first bucket wins. 13 further sabotages
+          red-checked; the only one not caught by the check written for it was caught by three
+          siblings.
     - Each row carries its own reason rather than the run's last one, so the next occurrence
       names itself. 10 sabotages red-checked across the two passes.
   - ⚠ **The `{{quote_` prefix inside it is built with `String.fromCharCode(123,123)`.** Suites

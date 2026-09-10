@@ -3317,6 +3317,26 @@
           <div id="rsvpMarkOneStatus" style="font-size:13px; color:var(--slate); margin:0 0 6px;"></div>
           <div id="rsvpMarkOneList" style="font-size:13px;"></div>
         </div>
+        <!-- ⭐ EM-11. The list-sized half of EM-10. Addie pasted her own send log —
+             name, date sent, times sent, and an empty "Ticked off in app?" column — and
+             asked who is not ticked. Nothing here could fill that column: the button
+             above stamps EVERYBODY the planner would write to, and the search box finds
+             ONE person at a time, which is nine hundred searches for a list this long.
+             ⚠ IT REPORTS. The only writing it offers is the per-row button, which is the
+             SAME one write as above, with the same Undo — because a press that stamped
+             every pasted name at once would be the all-or-nothing mistake wearing a
+             list, and a wrong stamp is a house no crew is sent to. -->
+        <div id="rsvpCheckListBlock" style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
+          <h4 style="margin:0 0 4px; font-size:14px;">Check a whole list you sent outside this app</h4>
+          <p class="form-note" style="margin:0 0 8px;">Paste your own send log &mdash; one person per line, <b>the name first</b>. Anything after the name on the line is ignored, so a copy straight out of a spreadsheet works as it is. This <b>sends nothing and saves nothing</b>: it tells you which of those people the app already has recorded as asked, and which it does not.</p>
+          <textarea id="rsvpCheckListPaste" rows="5" placeholder="Aaron Marvel,Sep 8,1,&#10;Aaron Price,Sep 8,1,&#10;Abby McLennan,Sep 8,1," style="width:100%; font-family:ui-monospace,monospace; font-size:12px;"></textarea>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:8px 0;">
+            <button type="button" class="btn btn-outline btn-sm" id="rsvpCheckListBtn">Check this list</button>
+            <button type="button" class="btn btn-outline btn-sm" id="rsvpCheckListClearBtn">Clear</button>
+          </div>
+          <div id="rsvpCheckListStatus" style="font-size:13px; color:var(--slate); margin:0 0 6px;"></div>
+          <div id="rsvpCheckListReport" style="font-size:13px;"></div>
+        </div>
       </div>
       <!-- Hidden until a send actually loses somebody. A permanent empty card about
            failures is one nobody reads, and this one has to be noticed on the day it
@@ -19396,7 +19416,8 @@ function rsvpWholeTemplates(){
    its send loop already share a renderer for. */
 function rsvpWholePlan(){
   const out = { standard: [], arrears: [], noEmail: [], optedOut: [], alreadyEmailed: [],
-                answered: 0, newThisYear: 0, ready: false, why: '' };
+                answered: 0, newThisYear: 0, answeredList: [], newThisYearList: [],
+                ready: false, why: '' };
   if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)){
     out.why = 'The customer list has not loaded yet.'; return out;
   }
@@ -19412,9 +19433,13 @@ function rsvpWholePlan(){
     if(typeof isTestRecordData === 'function' && isTestRecordData(d)) return;
     /* Never asks somebody about lights they have never had — the same predicate the
        RSVP audience filter uses, so the two cannot drift (RS-20). */
-    if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)){ out.newThisYear++; return; }
+    if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)){
+      out.newThisYear++; out.newThisYearList.push(item); return;
+    }
     /* Somebody who has already answered is not asked again. */
-    if(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus(d)){ out.answered++; return; }
+    if(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus(d)){
+      out.answered++; out.answeredList.push(item); return;
+    }
     if(typeof etNoAutomationEmails === 'function' && etNoAutomationEmails(d)){ out.optedOut.push(item); return; }
     if(!String(d.email || '').trim()){ out.noEmail.push(item); return; }
     /* ⭐ ALREADY ASKED IS NOT ASKED AGAIN (2026-09-09, EM-04). Addie: "the people that
@@ -19479,6 +19504,9 @@ function rsvpWholeRenderBreakdown(plan){
      argument `commRowMatches` makes about tab counts, applied here. Refreshed with the
      breakdown rather than on its own, so pressing Check first brings both up to date. */
   if(typeof rsvpMarkOneRender === 'function') rsvpMarkOneRender();
+  /* EM-11. Same plan object, so the counts in the pasted report and the breakdown
+     above it are the same numbers rather than two readings taken a moment apart. */
+  if(typeof rsvpCheckListRefresh === 'function') rsvpCheckListRefresh(plan);
 }
 document.getElementById('rsvpWholeCheckBtn')?.addEventListener('click', function(){
   const st = document.getElementById('rsvpWholeStatus');
@@ -45151,6 +45179,230 @@ document.getElementById('rsvpMarkOneList')?.addEventListener('click', function(e
    field mid-job and read as the search resetting itself. */
 document.getElementById('rsvpMarkOneFilter')?.addEventListener('input', function(){
   rsvpMarkOneRender();
+});
+/* ⭐ THE LIST SHE ALREADY HAS, CHECKED AGAINST THE APP (2026-09-10, EM-11). Addie pasted
+   her own send log — name, date sent, times sent, and an empty "Ticked off in app?"
+   column — and asked who is not ticked off. That column IS the question, and nothing in
+   the app could fill it: `rsvpMarkAllAsked` stamps everybody the planner would write to,
+   and `rsvpMarkOneAsked`'s search box answers for one person at a time.
+   ⚠ IT REVERSES THE "nothing to paste" REASONING OF THE SAME MORNING, and that reasoning
+   is KEPT rather than deleted because it was right about what it refused: EmailJS hands
+   her individual error emails and no list at all, so a box fed from EmailJS would have
+   stayed empty. What changed is the PREMISE — she is keeping the log herself, outside
+   EmailJS, and pasted nine hundred lines of it. A paste box is useless only while there
+   is nothing to put in it.
+   ⚠ IT REPORTS; IT NEVER BULK-WRITES. A wrong stamp means that customer is never asked
+   again this season, and `SEASON_ELIGIBILITY` is `confirmed-only`, so never answering
+   means no route, no bundle and no crew at that house. One press that stamped every
+   pasted name would be `rsvpMarkAllAsked`'s own mistake wearing a list — so each row
+   that needs ticking carries its own button, through the ONE write `rsvpMarkOneAsked`
+   already owns, with the Undo that write already gives.
+   ⚠ AND A NAME THAT MATCHES TWO CUSTOMERS MATCHES NOBODY. Six names in the real book
+   belong to two rows; naming the wrong customer as already asked is worse than naming
+   none, because the one it names is then believed and the other is never chased.
+   Ambiguous and unmatched names are LISTED, never counted away — a row that quietly
+   disappears is the one row she cannot check. */
+const RSVP_CHECK_LIST_SHOWN = 200;
+/* Pure, and its own function so a test can RUN it rather than match its source — the
+   same reason `rmCommitPayload` is one. Takes the text before the first comma or tab,
+   because a spreadsheet copy carries the date and the times-sent count after the name
+   and neither of those is part of it; a line with neither separator is all name. */
+function rsvpCheckListNames(text){
+  const out = [], seen = new Set();
+  let repeats = 0, headers = 0;
+  String(text == null ? '' : text).split(/\r?\n/).forEach(function(line){
+    let raw = String(line == null ? '' : line);
+    const cut = raw.search(/[,\t]/);
+    if(cut !== -1) raw = raw.slice(0, cut);
+    raw = raw.trim();
+    if(!raw) return;
+    /* ⚠ KEYED THE WAY `dupNormName` KEYS A NAME — words SORTED — so the master sheet's
+       "Meier Larna" and the website's "Larna Meier" are one key. That is Addie's own rule
+       that two names are duplicates only when one of them is surname-first, and borrowing
+       it here is what stops this report calling half her book unmatched. */
+    const key = (typeof dupNormName === 'function') ? dupNormName(raw) : raw.toLowerCase();
+    if(!key) return;
+    /* A pasted spreadsheet usually brings its own heading row. Dropped by the KEY so the
+       case does not matter, and COUNTED rather than silently eaten. */
+    if(key === 'name'){ headers++; return; }
+    if(seen.has(key)){ repeats++; return; }
+    seen.add(key);
+    out.push({ raw: raw, key: key });
+  });
+  return { names: out, repeats: repeats, headers: headers };
+}
+/* Every customer keyed the same way, as an ARRAY per key — the point of this index is to
+   SEE a collision rather than quietly resolve one.
+   ⚠ TEST ROWS ARE SKIPPED BECAUSE `rsvpWholePlan` SKIPS THEM. An index holding one would
+   match a pasted name to a customer the plan has no bucket for, and the report would
+   call a test row "not ticked" at the top of the list she is working through. */
+function rsvpCheckListIndex(){
+  const map = new Map();
+  const book = (typeof jobAddresses !== 'undefined' && Array.isArray(jobAddresses)) ? jobAddresses : [];
+  book.forEach(function(item){
+    const d = (item && item.data) || null;
+    if(!d) return;
+    if(typeof isTestRecordData === 'function' && isTestRecordData(d)) return;
+    const key = (typeof dupNormName === 'function') ? dupNormName(d.name || '') : String(d.name || '').toLowerCase();
+    if(!key) return;
+    if(!map.has(key)) map.set(key, []);
+    map.get(key).push(item);
+  });
+  return map;
+}
+/* ⚠ IT ASKS THE PLAN WHICH LIST HOLDS THEM; IT RE-RUNS NO PREDICATE OF ITS OWN. A second
+   reading of "has this person been asked" is how this report and the breakdown above it
+   would start disagreeing about one customer — the one-rule argument `commRowMatches`
+   makes about tab counts. It is also why `rsvpWholePlan` now carries `answeredList` and
+   `newThisYearList` beside its two counts: those were counts ONLY, so a pasted name in
+   either was indistinguishable from a name the plan had never seen, and somebody who had
+   already answered would have been reported as still needing a tick.
+   ⚠ FILED IN THE PLAN'S OWN ORDER, first bucket wins, so this cannot contradict the
+   plan about a customer who somehow reached two of its lists. */
+function rsvpCheckListCompare(parsed, plan, index){
+  const out = { ticked: [], answered: [], waiting: [], noEmail: [], optedOut: [],
+                newThisYear: [], elsewhere: [], ambiguous: [], unknown: [],
+                repeats: parsed.repeats, headers: parsed.headers, total: parsed.names.length };
+  const where = new Map();
+  const file = function(list, bucket){
+    (list || []).forEach(function(i){
+      if(i && i.id != null && !where.has(i.id)) where.set(i.id, bucket);
+    });
+  };
+  file(plan.alreadyEmailed, 'ticked');
+  file(plan.answeredList, 'answered');
+  file(plan.standard, 'waiting');
+  file(plan.arrears, 'waiting');
+  file(plan.noEmail, 'noEmail');
+  file(plan.optedOut, 'optedOut');
+  file(plan.newThisYearList, 'newThisYear');
+  parsed.names.forEach(function(n){
+    const hits = index.get(n.key) || [];
+    if(!hits.length){ out.unknown.push({ raw: n.raw }); return; }
+    if(hits.length > 1){ out.ambiguous.push({ raw: n.raw, count: hits.length }); return; }
+    const item = hits[0];
+    /* `elsewhere` should be unreachable — the plan walks the whole book and this index is
+       built from it with the same exclusion. It exists so a customer the plan stops
+       bucketing is REPORTED rather than dropped out of the totals. */
+    const bucket = where.get(item.id) || 'elsewhere';
+    out[bucket].push({ raw: n.raw, item: item });
+  });
+  return out;
+}
+/* The paste is held rather than the result, so a mark re-derives from live data instead
+   of editing a cached bucket — the `oneManDays()` argument: a stored answer is right on
+   the press and wrong every render after. */
+let rsvpCheckListText = '';
+function rsvpCheckListRun(text){
+  rsvpCheckListText = String(text == null ? '' : text);
+  rsvpCheckListRefresh();
+}
+function rsvpCheckListRefresh(plan){
+  const box = document.getElementById('rsvpCheckListReport');
+  const st = document.getElementById('rsvpCheckListStatus');
+  if(!box) return;
+  if(!String(rsvpCheckListText).trim()){
+    box.innerHTML = '';
+    if(st) st.textContent = '';
+    return;
+  }
+  const p = plan || ((typeof rsvpWholePlan === 'function') ? rsvpWholePlan() : null);
+  if(!p || !p.ready){
+    box.innerHTML = '';
+    if(st) st.textContent = (p && p.why) || 'The customer list has not loaded yet.';
+    return;
+  }
+  const parsed = rsvpCheckListNames(rsvpCheckListText);
+  if(!parsed.names.length){
+    box.innerHTML = '';
+    if(st) st.textContent = 'No names found in that paste — one person per line, the name first.';
+    return;
+  }
+  const res = rsvpCheckListCompare(parsed, p, rsvpCheckListIndex());
+  if(st){
+    st.textContent = res.total + (res.total === 1 ? ' name read' : ' names read')
+      + (res.repeats ? ' (' + res.repeats + ' repeated, counted once)' : '')
+      + (res.headers ? ' (heading row ignored)' : '')
+      + ' — ' + res.waiting.length + ' of them NOT ticked off in the app.';
+  }
+  rsvpCheckListRenderReport(box, res);
+}
+/* ⚠ THE TWO NOTHING-TO-DO BUCKETS ARE COUNTED AND NOT LISTED, deliberately. On her real
+   log that is ~900 rows carrying no action, and burying the handful that need one under
+   them is the cries-wolf failure in a new place. Every bucket that needs a human IS
+   listed by name. */
+function rsvpCheckListRenderReport(box, res){
+  const row = function(label, n, note){
+    return '<div style="display:flex; justify-content:space-between; gap:12px; padding:5px 0; border-bottom:1px solid var(--line);">'
+      + '<span>' + esc(label) + '</span><span><b>' + n + '</b>'
+      + (note ? ' <span style="color:var(--slate); font-size:12px;">' + esc(note) + '</span>' : '')
+      + '</span></div>';
+  };
+  const block = function(title, list, note, withMark){
+    if(!list.length) return '';
+    const shown = list.slice(0, RSVP_CHECK_LIST_SHOWN);
+    return '<div style="margin-top:12px;">'
+      + '<div style="font-weight:600; font-size:13px;">' + esc(title) + ' (' + list.length + ')</div>'
+      + (note ? '<p class="form-note" style="margin:2px 0 4px;">' + esc(note) + '</p>' : '')
+      + (list.length > shown.length
+          ? '<p class="form-note" style="margin:2px 0 4px;">Showing the first ' + shown.length + '.</p>' : '')
+      + shown.map(function(x){
+          const d = (x.item && x.item.data) || {};
+          return '<div style="display:flex; justify-content:space-between; gap:12px; align-items:center; padding:5px 0; border-bottom:1px solid var(--line);">'
+            + '<span><b>' + esc(x.raw) + '</b>'
+            + (d.email ? ' <span style="color:var(--slate); font-size:12px;">' + esc(d.email) + '</span>' : '')
+            + (x.count ? ' <span style="color:var(--slate); font-size:12px;">matches ' + x.count + ' customers — not resolved</span>' : '')
+            + '</span>'
+            + (withMark && x.item
+                ? '<button type="button" class="btn btn-outline btn-sm" data-rsvpmarkone="' + esc(x.item.id) + '" data-rsvpmarkoneon="1">Mark as asked</button>'
+                : '')
+            + '</div>';
+        }).join('')
+      + '</div>';
+  };
+  box.innerHTML =
+      row('Already recorded as asked', res.ticked.length, 'nothing to do')
+    + row('Already answered', res.answered.length, 'nothing to do — they replied')
+    + row('NOT recorded as asked', res.waiting.length, 'these are the ones to tick')
+    + row('No email on file', res.noEmail.length, 'the app could not have emailed them')
+    + row('Left out, do-not-send', res.optedOut.length, 'they asked not to be mailed')
+    + row('New this year', res.newThisYear.length, 'never had lights — never asked')
+    + row('Could not be matched', res.unknown.length + res.ambiguous.length, 'named below')
+    + (res.elsewhere.length ? row('Unaccounted for', res.elsewhere.length, 'named below — report this') : '')
+    + block('Not ticked off in the app', res.waiting, 'Send the whole RSVP would email these people. Tick anyone you have already emailed yourself.', true)
+    + block('No email on file', res.noEmail, 'Your log says these were sent, but the app holds no address for them — worth checking which is right.', false)
+    + block('Left out, do-not-send', res.optedOut, 'Your log says these were sent, and the app is told never to mail them.', false)
+    + block('New this year', res.newThisYear, 'Never had lights, so the RSVP deliberately skips them.', false)
+    + block('Two customers share this name', res.ambiguous, 'Not resolved on purpose — naming the wrong one is worse than naming none. Use the search box above.', false)
+    + block('Not found in the customer list', res.unknown, 'Spelled differently here than on the record, or not a customer any more.', false)
+    + block('Unaccounted for', res.elsewhere, 'The app has no answer for these — please report it.', false)
+    + (res.waiting.length
+        ? '<div style="margin-top:12px;"><div style="font-weight:600; font-size:13px; margin-bottom:4px;">The not-ticked names, to paste back into your sheet</div>'
+          + '<textarea readonly rows="6" style="width:100%; font-family:ui-monospace,monospace; font-size:12px;">'
+          + esc(res.waiting.map(function(x){ return x.raw; }).join('\n')) + '</textarea></div>'
+        : '')
+    + '<p class="form-note" style="margin:10px 0 0;">Nobody appears in more than one count above.</p>';
+}
+document.getElementById('rsvpCheckListBtn')?.addEventListener('click', function(){
+  const ta = document.getElementById('rsvpCheckListPaste');
+  rsvpCheckListRun(ta ? ta.value : '');
+});
+document.getElementById('rsvpCheckListClearBtn')?.addEventListener('click', function(){
+  const ta = document.getElementById('rsvpCheckListPaste');
+  if(ta) ta.value = '';
+  rsvpCheckListRun('');
+});
+/* Delegated for the same reason the list above is: the rows are rebuilt on every mark, so
+   a listener bound per button would be re-bound each redraw and the old ones left on
+   detached nodes. It calls the SAME `rsvpMarkOneAsked` — a second write here is how this
+   report and that button would start recording "asked" two different ways. */
+document.getElementById('rsvpCheckListReport')?.addEventListener('click', function(e){
+  const btn = e.target && e.target.closest ? e.target.closest('[data-rsvpmarkone]') : null;
+  if(!btn) return;
+  btn.disabled = true;
+  rsvpMarkOneAsked(btn.getAttribute('data-rsvpmarkone'), btn.getAttribute('data-rsvpmarkoneon') === '1')
+    .catch(function(err){ console.error('[HU] check-list mark-one:', err); })
+    .then(function(){ btn.disabled = false; });
 });
 /* Read once at login. Not a listener: this changes about once a season, and a live
    listener on settings/season would be an open connection for a single date. */
