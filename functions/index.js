@@ -2663,6 +2663,20 @@ exports.portalChangeAddress = onCall({ cors: true }, async (request) => {
   const match = await findByToken(token);
   if (!match) throw new HttpsError('not-found', 'Account not found.');
 
+  /* ⚠ DELIBERATELY NOT BEHIND THE ARREARS HOLD, and this is a decision rather than
+     an omission — do not "fix" it without asking. portalSave refuses every section
+     but `cancel` while last season is unpaid (Dax: "before anything goes into the
+     system"), and by that reading a move belongs behind it too, since applying one
+     raises a re-quote.
+     It is left open because the failure directions are not symmetrical. Where they
+     live is a FACT we need whether or not they have paid: refused, the record keeps
+     an address they have left, and the one thing nobody can undo is a crew standing
+     at the wrong house. Accepting it costs nothing — the hold still bars every other
+     change, the badge only asks the office to look, and a debtor is held out of the
+     season by isOutForSeason regardless, so nothing here gets them scheduled.
+     ⚠ CANCELLING IS EXEMPT FOR THE SAME SHAPE OF REASON: somebody trying to leave
+     must not be told to pay first, or they stop replying and Addie never learns why.
+     Raised as an open question rather than settled quietly. */
   const oldData = match.data || {};
   const oldAddress = oldData.address || '';
   const pendingAddress = street + ', ' + city + (zip ? ' ' + zip : '');

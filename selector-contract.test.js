@@ -52,6 +52,7 @@ const SPEC_TARGETS = {
   'rsvp-record.spec.js': 'index.html',
   'rsvp-unpaid-this-year.spec.js': 'index.html',
   'referral-token.spec.js': 'index.html',
+  'address-move.spec.js': 'index.html',
   'public.spec.js': 'index.html',
   'admin.spec.js': 'admin.html',
   'crew.spec.js': 'employee.html'

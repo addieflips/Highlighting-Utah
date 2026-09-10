@@ -2178,6 +2178,17 @@
 
             <div id="tabPanel-cancel" style="display:none;">
               <p class="form-note" style="margin-top:0;">This will end your Christmas lights service for the season.</p>
+              <!-- ⭐ THE SECOND DOOR TO THE MOVE FORM (2026-09-10). Somebody who has moved
+                   inside Utah does not need to cancel — they need re-quoting — and this is
+                   the tab they land on looking for the way out. A mover who cancels is a
+                   customer lost who did not need to be, and the office only finds out from
+                   a free-text reason nobody can filter on.
+                   ⚠ IT OFFERS, IT NEVER DIVERTS. The Cancel button below is untouched and
+                   is still one press away: portalSave exempts `section === 'cancel'` from
+                   the arrears hold by name for the same reason — somebody trying to LEAVE
+                   must never be told to do something else first, or they stop replying and
+                   Addie never learns why. -->
+              <p class="form-note" style="margin:-8px 0 18px; padding:10px 12px; background:#F1F5EB; border-radius:10px;">Moving rather than stopping? <a href="#" id="cancelMovedLink" style="color:var(--gold-dim); font-weight:bold;">Send us your new address instead</a> &mdash; we'll re-quote the new place and you keep your account.</p>
               <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Mind telling us why? (optional)</label>
               <textarea id="cancelReasonInput" rows="4" placeholder="Let us know what happened..." style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin-bottom:14px; box-sizing:border-box;"></textarea>
               <button type="button" class="btn btn-ember btn-block" id="cancelFinalBtn">Cancel My Lights</button>
@@ -7447,13 +7458,38 @@ document.getElementById('infoSaveBtn').addEventListener('click', async function(
 
 /* ⭐ TELLING US YOU HAVE MOVED (2026-09-10) — the door the info save used to guess at.
    Opens the form; the link stays visible so it can be folded away again. */
+function portalOpenMovedForm(){
+  var form = document.getElementById('infoMovedForm');
+  if(!form) return;
+  form.style.display = 'block';
+  var street = document.getElementById('movedStreet');
+  if(street) street.focus();
+}
 document.getElementById('infoMovedLink').addEventListener('click', function(e){
   e.preventDefault();
   var form = document.getElementById('infoMovedForm');
-  var open = form.style.display !== 'none';
-  form.style.display = open ? 'none' : 'block';
-  if(!open) document.getElementById('movedStreet').focus();
+  /* A toggle from its own link, so somebody who opened it by accident can fold it
+     away — but the Cancel-tab route below only ever OPENS it, because arriving on a
+     tab to find the thing you were sent for already closed reads as a broken link. */
+  if(form.style.display !== 'none'){ form.style.display = 'none'; return; }
+  portalOpenMovedForm();
 });
+/* ⚠ THE CANCEL TAB'S OFFER LANDS ON THE FORM, OPEN. Switching to Information and
+   leaving it folded shut puts the customer on a tab of contact details with no sign
+   of what they clicked for, which is the same "rendered is not seen" complaint
+   MSG-16 was raised about. It offers and never diverts: the Cancel button is
+   untouched and still one press away. */
+(function(){
+  var link = document.getElementById('cancelMovedLink');
+  if(!link) return;
+  link.addEventListener('click', function(e){
+    e.preventDefault();
+    activatePortalTab('info');
+    portalOpenMovedForm();
+    var form = document.getElementById('infoMovedForm');
+    if(form && form.scrollIntoView) form.scrollIntoView({behavior:'smooth', block:'center'});
+  });
+})();
 
 /* ⚠ WHAT IS ALREADY WITH THE OFFICE. Drawn from `pendingAddress`, which is on the
    portal's read whitelist for exactly this: the live address stays the OLD one until
