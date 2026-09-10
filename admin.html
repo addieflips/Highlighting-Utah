@@ -37833,6 +37833,44 @@ function houseSidesListFromValue(v){
 function houseSidesAutoFill(n){
   return houseSidesListFromValue(HOUSE_SIDE_FILL_ORDER.slice(0, houseSideCount(n)));
 }
+/* ⭐ WHAT COUNTS AS A CHANGE TO THE SIDES (2026-09-10, [[OPT-06]]). Addie, asked
+   whether swapping Left for Right at the same count should re-quote: "A swap will be a
+   requote cause we need to remark it."
+
+   ⭐ THIS REVERSES [[OPT-04]], which said a swap is not a re-quote because "For left
+   and right side of the house on quoting those should usually be the same". R-024
+   applies and this note is the "say so out loud" half of it. The old reasoning was
+   about the PRICE and it is still true — two sides of one house are near enough the
+   same length — but she is answering a different question with the same words: a swap
+   changes which roofline the crew hangs, so somebody has to be told, and a re-quote is
+   the only thing in this system that tells them. "We need to remark it" is that, in
+   her own words.
+
+   ⚠ FILLING IN A BLANK IS NOT A CHANGE, AND THAT CLAUSE IS LOAD-BEARING. A house with
+   a count and no names on file is most of the book; the first time anybody names its
+   sides — the office opening a record, or the customer opening their Sides tab — that
+   is an answer arriving where there was none, not a decision being reversed. Without
+   this clause the auto-fill of [[OPT-05]] would raise a re-quote for every customer
+   whose record is opened and saved: ~956 quote cards nobody asked for, with no price
+   to change on any of them. It is also exactly the rule [[OPT-02]] already settled for
+   the portal's own first save.
+
+   ⚠ AND IT NEEDS BOTH LISTS ALREADY CANONICAL. It compares them as joined strings, so
+   a caller handing it a raw stored array would read Back,Front as different from
+   Front,Back. Every caller goes through houseSidesListFromValue first.
+
+   ⚠ THREE COPIES, ONE RULE: this, `portalSidesChanged` in index.html and
+   `houseSidesChangedServer` in functions/index.js. It decides whether somebody is
+   re-quoted, so the three are swept against each other in run-all.js Suite 313 the way
+   money-parity sweeps the invoice maths. Change one and change the other two, in the
+   same push. */
+function houseSidesChanged(beforeList, beforeCount, afterList, afterCount){
+  if(Number(beforeCount) !== Number(afterCount)) return true;
+  const was = (beforeList || []).join(',');
+  const now = (afterList || []).join(',');
+  if(!was || !now) return false;
+  return was !== now;
+}
 /* The office copy of portalSidesWords — the SAME sentence the customer was shown
    in their own portal when they made this change, so the Now/New lines on the
    quote card and the ones in the confirm they agreed to cannot read differently
@@ -50855,24 +50893,42 @@ function openEditCustomerModal(id){
     });
   }
   houseSidesShowCount('editcust', n);
-    /* ⭐ THE BOXES SHOW WHAT IS ON FILE AND FILL NOTHING IN (2026-09-10, [[OPT-05]]).
-       This runs on every open, including a house-tab click that repoints the form at a
-       sibling — so auto-filling here would invent an answer for every record somebody
-       opened to correct a phone number, which is precisely the guess the count-only
-       design was written to refuse. The fill happens on a COUNT CHANGE, which is a
-       person deciding. Sanitized on the way in, the same way portalSave sanitizes it
-       server-side, so a stray value on an old or hand-edited record cannot tick a box
-       nobody offers any more.
+    /* ⭐ THE BOXES OPEN FILLED IN (2026-09-10, [[OPT-07]]). Addie, shown that opening a
+       record ticked nothing: "can you fix record fills nothing in?" So a house with no
+       names on file opens showing the sides its COUNT means, front first, exactly as if
+       somebody had just picked that count.
 
-       ⚠ AND A STORED LIST THAT DOES NOT FIT THE COUNT IS NOT SHOWN AT ALL. Two names
-       under a count of three is a claim that cannot be true — a state records could
-       already be in before this form could write the list — and THE COUNT WINS HERE,
-       which is the opposite of portalSave's "the list wins the count" and right for the
-       same reason: each defers to whichever answer was given most recently, and here
-       the count is what the office set. Nothing is ticked, so the save clears it. A
-       list trimmed to fit would be an answer nobody gave. */
+       ⚠ THIS REVERSES WHAT SHIPPED HOURS EARLIER, and the reasoning it reverses is kept
+       because it names the real cost: this form is opened dozens of times a day for
+       reasons that have nothing to do with lights, and a fill on open means a saved
+       record now carries a front-first GUESS unless somebody corrects it. Two things
+       make that affordable and neither is optional. (1) `houseSidesChanged` does not
+       count filling in a blank as a change, so none of this raises a re-quote — without
+       that clause this alone would post ~956 quote cards. (2) The line under the boxes
+       SAYS it is a fill rather than something anybody said, so nobody reads a guess as
+       an answer. Take either away and this becomes the guess [[OPT-01]] refused.
+
+       ⚠ SANITIZED ON THE WAY IN, the same way portalSave sanitizes it server-side, so a
+       stray value on an old or hand-edited record cannot tick a box nobody offers.
+
+       ⚠ AND A STORED LIST THAT DOES NOT FIT THE COUNT IS REPLACED BY THE FILL, NOT
+       SHOWN. Two names under a count of three is a claim that cannot be true — a state
+       records could already be in before this form could write the list — and THE COUNT
+       WINS HERE, which is the opposite of portalSave's "the list wins the count" and
+       right for the same reason: each defers to whichever answer was given most
+       recently, and here the count is what the office set. A list trimmed to fit would
+       be an answer nobody gave. */
     const onFileSides = houseSidesListFromValue(d.houseSidesList);
-    houseSidesShowList('editcust', onFileSides.length === n ? onFileSides : []);
+    const sidesOnFile = onFileSides.length === n;
+    houseSidesShowList('editcust', sidesOnFile ? onFileSides : houseSidesAutoFill(n));
+    /* ⚠ AND IT SAYS WHICH IT IS. A guess that looks identical to an answer is how a
+       crew ends up hanging the wrong side of a house on our say-so. */
+    const sidesNote = document.getElementById('editCustSidesListNote');
+    if(sidesNote){
+      sidesNote.textContent = sidesOnFile
+        ? 'This is what is on file for them. Left and right are as you stand on the street facing the house.'
+        : 'Nobody has said which sides \u2014 these follow the number above, front first. Correct them if you know better. Left and right are as you stand on the street facing the house.';
+    }
   }
   document.getElementById('editCustInstallPref').value = d.installPreference || 'Normal Schedule';
   /* ⭐ Moved up by hand — see the note beside the box. Read through isRushInstall so
@@ -52337,19 +52393,20 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        choose a new side on someones house which should be multiple choose then it will
        send the house to requote indicating New Side."
 
-       ⚠ THE COUNT DECIDES, NOT THE NAMES, AND THAT IS [[OPT-04]] BEING HONOURED RATHER
-       THAN A NARROWING OF WHAT SHE ASKED FOR. She has already ruled on the swap case —
-       "For left and right side of the house on quoting those should usually be the
-       same" — so trading Left for Right at the same count is not more roofline and is
-       not a new price. Adding one is. This is also exactly the condition the server
-       applies to the portal's own sides save (functions/index.js, section 'sides'), so
-       the two routes into a re-quote cannot start disagreeing about which changes cost
-       money.
+       ⚠ A SWAP COUNTS TOO SINCE [[OPT-06]] (2026-09-10) — "A swap will be a requote
+       cause we need to remark it" — so this is no longer the count alone. What counts
+       as a change lives entirely in `houseSidesChanged`, including the clause that
+       keeps FILLING IN A BLANK from raising one; read that function for why each half
+       is there. The portal and the server hold the same rule and all three are swept
+       against each other, so the routes into a re-quote cannot start disagreeing about
+       which changes cost money.
 
        ⚠ AND houseSideCount READS BOTH SHAPES on the left-hand side: every customer saved
-       before 2026-08-19 holds an ARRAY here, and Number() of an array is NaN. Comparing
+       before 2026-08-19 holds an ARRAY there, and Number() of an array is NaN. Comparing
        the raw field would raise a re-quote for all of them on the first save. */
-    const sidesChanged = houseSideCount(d.houseSides) !== newHouseSides;
+    const sidesChanged = houseSidesChanged(
+      houseSidesListFromValue(d.houseSidesList), houseSideCount(d.houseSides),
+      houseSidesListFromValue(addrUpdates.houseSidesList), newHouseSides);
     const addressChanged = String(d.address || '').trim().toLowerCase() !== String(newAddress || '').trim().toLowerCase();
     /* ⭐ THE PENDING MOVE IS CLEARED BY THE SAVE THAT ACTS ON IT (2026-09-10).
 

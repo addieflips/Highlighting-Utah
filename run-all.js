@@ -20455,10 +20455,24 @@ suite('Suite 63. Changing your sides in the Member Portal');
     check('S63', 'there is no separate needs-requote flag',
       !/needsRequote/.test(body),
       'the quote is the record — a flag beside it is a second truth to maintain');
-    /* ⚠ Only on a real change — otherwise every portal visit flags them. */
+    /* ⚠ Only on a real change — otherwise every portal visit flags them.
+       ⚠ REPOINTED 2026-09-10 ([[OPT-06]]), NOT WEAKENED. This matched the literal
+       `updates.houseSides !== before`, which is where the rule happened to SIT rather
+       than what has to be true — so it failed on correct code the moment a swap became
+       a re-quote as well and the comparison moved behind a name. What must be true is
+       that the flag is decided by the shared rule and not written unconditionally. */
     check('S63', 'a save that changes nothing does not flag anyone',
-      /if \(updates\.houseSides !== before\) \{/.test(body),
+      /if \(houseSidesChangedServer\(/.test(body) &&
+      /const houseSidesChangedServer = function/.test(body),
       'flagging on every save would fill the office list with people who changed nothing');
+    /* ⭐ AND A SWAP DOES FLAG THEM NOW, which is the ruling itself ([[OPT-06]]): "A swap
+       will be a requote cause we need to remark it." The rule is RUN against all three
+       copies further down this file; what is asserted here is that the server's own
+       branch reads the named list and not the count alone. */
+    check('S63', 'and the flag reads the named sides, not only how many',
+      /canonical\(oldData\.houseSidesList\)/.test(body),
+      'a swap hangs the same number of strands on a different roofline, and a rule ' +
+      'that only counts them cannot see it');
     /* ⚠ AND BOTH SIDES OF THAT COMPARISON GO THROUGH THE SAME READER. The old note
        here was about sorting two lists; a count needs no sorting, but it does need the
        stored value read the same way as the incoming one — otherwise a member whose
@@ -20543,6 +20557,111 @@ suite('Suite 313. Which sides, by name — sanitized server-side, and the list w
     'the list is what a person actually ticked box by box');
   check('S313', 'an empty result after sanitizing deletes the list rather than storing junk',
     /delete updates\.houseSidesList;/.test(body));
+
+  /* ⭐ ONE RULE FOR WHAT COUNTS AS A CHANGE, THREE COPIES, SWEPT (2026-09-10,
+     [[OPT-06]]). Addie: "A swap will be a requote cause we need to remark it."
+
+     This decides whether somebody is re-quoted, so it gets the money-parity treatment:
+     the three copies are lifted out of the three files and RUN side by side over every
+     combination, and the sweep asserts they are RIGHT as well as equal — two copies
+     wrong in the same way agree perfectly.
+
+     ⚠ THE TWO CLAUSES PULL OPPOSITE WAYS AND BOTH ARE HERS. A swap at the same count IS
+     a change ([[OPT-06]]); naming sides for a count that was already right is NOT
+     ([[OPT-02]], and the clause that keeps [[OPT-07]]'s auto-fill from posting ~956
+     quote cards). A copy that got either backwards would pass a check written about the
+     other, which is why the sweep runs both directions rather than sampling. */
+  {
+    const idxSrc = read('index.html');
+    const fnsSrc = read('functions/index.js');
+    const adminSrc = read('admin.html').replace(/\r/g, '');
+
+    const copies = {};
+    copies.admin = new Function('return ' + extractFn(adminSrc, 'houseSidesChanged') +
+      ';houseSidesChanged')();
+    copies.portal = new Function('return ' + extractFn(idxSrc, 'portalSidesChanged') +
+      ';portalSidesChanged')();
+    /* ⚠ THE SERVER COPY IS A `const` ARROW-FREE FUNCTION EXPRESSION INSIDE the sides
+       branch, so extractFn (which looks for `function NAME(`) cannot see it — it is
+       sliced by name instead. Stubbing it here would make this whole sweep decorative. */
+    copies.server = (function () {
+      const s = fnsSrc.indexOf('const houseSidesChangedServer = function (');
+      const e = s > 0 ? fnsSrc.indexOf('\n    };', s) : -1;
+      return s > 0 && e > s
+        ? new Function(fnsSrc.slice(s, e + '\n    };'.length) + '\nreturn houseSidesChangedServer;')()
+        : null;
+    })();
+    check('S313', 'all three copies of the sides-change rule were found',
+      typeof copies.admin === 'function' && typeof copies.portal === 'function' &&
+      typeof copies.server === 'function',
+      'a missing copy read as a stub would make this sweep decorative');
+
+    if (copies.admin && copies.portal && copies.server) {
+      const LISTS = [[], ['Front'], ['Front', 'Right'], ['Front', 'Left'],
+        ['Front', 'Left', 'Right'], ['Front', 'Left', 'Right', 'Back']];
+      let disagreed = 0, cases = 0;
+      for (const a of LISTS) for (const b of LISTS) {
+        for (const ac of [1, 2, 3, 4]) for (const bc of [1, 2, 3, 4]) {
+          cases++;
+          const r = [copies.admin(a, ac, b, bc), copies.portal(a, ac, b, bc),
+            copies.server(a, ac, b, bc)];
+          if (r[0] !== r[1] || r[1] !== r[2]) disagreed++;
+        }
+      }
+      check('S313', 'the office, the portal and the server agree on every combination',
+        disagreed === 0 && cases === 576,   // 6 lists x 6 lists x 4 counts x 4 counts
+        'they decide whether a customer is re-quoted; two of them disagreeing means ' +
+        'the portal warns somebody the office never flags, or the reverse');
+
+      /* ⚠ AND THAT THEY ARE RIGHT, not merely equal. */
+      const rule = copies.admin;
+      check('S313', 'a swap at the same count is a change',
+        rule(['Front', 'Left'], 2, ['Front', 'Right'], 2) === true,
+        'Addie, reversing OPT-04: "A swap will be a requote cause we need to remark it"');
+      check('S313', 'naming the sides of a house that had none is not',
+        rule([], 2, ['Front', 'Right'], 2) === false,
+        'an answer arriving where there was none is not a decision reversed — and ' +
+        'without this clause the office auto-fill posts a quote card for the whole book');
+      check('S313', 'and neither is losing them, so a blanked list raises nothing either',
+        rule(['Front', 'Right'], 2, [], 2) === false,
+        'the same asymmetry pointing the other way: an answer going missing is not a ' +
+        'customer changing their mind');
+      check('S313', 'a count change is a change whatever the names say',
+        rule(['Front'], 1, ['Front', 'Right'], 2) === true &&
+        rule([], 1, [], 3) === true,
+        'this is the original OPT-01 rule and it must survive the reversal on top of it');
+      check('S313', 'and the identical answer twice is not a change',
+        rule(['Front', 'Left'], 2, ['Front', 'Left'], 2) === false,
+        'flagging on every save fills the office list with people who changed nothing');
+    }
+  }
+
+  /* ⭐ AND WHAT THE OFFICE WRITES REACHES THE MEMBER PORTAL, BOTH WAYS (2026-09-10,
+     [[OPT-08]]). Addie: "any changes to what side on member portal should go to requote
+     and update in costumer. And vice versa any changes in costumer should show in member
+     portal."
+
+     ⚠ THE PORTAL DIRECTION IS A WHITELIST, AND A WHITELIST IS THE WHOLE OF WHAT REACHES
+     THE BROWSER. `houseSidesList` dropping out of PORTAL_READ_FIELDS would not throw
+     anywhere: the Sides tab would simply open with nothing ticked for every customer,
+     which reads exactly like a customer who has never answered — so the office would
+     set the sides, the customer would see none, and both would think the other was
+     wrong. That is the shape portal-fields.test.js exists for, asserted here for this
+     one field because it is the half of her ruling with no other reader. */
+  {
+    const fnsSrc = read('functions/index.js');
+    check('S313', 'the office\u2019s sides reach the customer\u2019s own portal',
+      /'houseSides', 'houseSidesList',/.test(fnsSrc),
+      'without it the Sides tab opens blank for everybody and the two screens ' +
+      'silently disagree about one house');
+    check('S313', 'and the portal writes back to the same field the office reads',
+      /sides:\s+\['houseSides', 'houseSidesList'\],/.test(fnsSrc),
+      'one field both ways is what makes "and vice versa" true without a sync step');
+    const adminSrc = read('admin.html').replace(/\r/g, '');
+    check('S313', 'and Edit Customer reads that field rather than a copy of its own',
+      /houseSidesListFromValue\(d\.houseSidesList\)/.test(adminSrc),
+      'a second field for the office would be two answers about one roofline');
+  }
 
   /* ⭐ AND THE PORTAL WRITES THE TWO COUNTS THE OFFICE CARD READS (2026-09-10,
      [[OPT-05]]). quoteKindLabel says New side or Fewer sides off `oldSideCount` /
@@ -20647,10 +20766,11 @@ suite('Suite 313. Which sides, by name — sanitized server-side, and the list w
       /HOUSE_SIDES_DEFAULT/.test(sidesConsts));
     const sidesSrc = sidesConsts + '\n' +
       ['houseSideCount', 'houseSidesListFromValue', 'houseSidesAutoFill',
-      'houseSidesPickedList', 'houseSidesShowList', 'houseSidesShowCount', 'houseSidesWords']
+      'houseSidesPickedList', 'houseSidesShowList', 'houseSidesShowCount', 'houseSidesWords',
+      'houseSidesChanged']
       .map(function (n) { return extractFn(admin, n); }).join('\n');
-    check('S313', 'the seven office-side sides helpers were found',
-      sidesSrc.split('function ').length - 1 === 7);
+    check('S313', 'the eight office-side sides helpers were found',
+      sidesSrc.split('function ').length - 1 === 8);
 
     const at = admin.indexOf('const storedSidesList =');
     /* ⚠ THE END ANCHOR IS THE WRITE, NOT THE BRANCH AROUND IT. Anchored on the whole
@@ -20812,10 +20932,17 @@ suite('Suite 313. Which sides, by name — sanitized server-side, and the list w
          invented an answer for every record somebody opened to fix a phone number, and
          nothing anywhere would have said so. Asserted separately from the mechanism,
          the same reason the house-tab strip's four calls had to be. */
+      /* ⚠ THE SLICE REACHES THE NOTE, not just the ticks. Ending it at the
+         houseSidesShowList line cut the block in half and the note checks below failed
+         on code that is right — the block is one decision (what to show and what to say
+         about it) and testing half of it proves half of it. */
       const openSides = (function () {
         const s = admin.indexOf('const onFileSides = houseSidesListFromValue(d.houseSidesList);');
-        const e = s > 0 ? admin.indexOf('\n', admin.indexOf('houseSidesShowList(\'editcust\'', s)) : -1;
-        return s > 0 && e > s ? admin.slice(s, e) : '';
+        if (s < 0) return '';
+        const marker = admin.indexOf('sidesNote.textContent = sidesOnFile', s);
+        if (marker < 0) return '';
+        const e = admin.indexOf('\n    }', marker);
+        return e > s ? admin.slice(s, e + '\n    }'.length) : '';
       })();
       check('S313', 'the open-modal sides block was found to run', !!openSides);
 
@@ -20825,16 +20952,46 @@ suite('Suite 313. Which sides, by name — sanitized server-side, and the list w
           sidesSrc + '\n' + openSides + '\n' +
           "return houseSidesPickedList('editcust').join(',');")(dom.window.document, record, n);
       }
-      check('S313', 'opening a record with no list on file ticks nothing',
-        onOpen({}, 3) === '',
-        'opening a record to fix a phone number must not invent an answer to a ' +
-        'question nobody was asked — that is the guess the count-only design refused');
-      check('S313', 'opening one with a list that fits the count shows it',
-        onOpen({houseSidesList: ['Back', 'Front']}, 2) === 'Front,Back');
-      check('S313', 'and a stored list that does not fit the count is not shown',
-        onOpen({houseSidesList: ['Front', 'Left']}, 3) === '',
+      /* ⚠ REWRITTEN 2026-09-10 ([[OPT-07]]), NOT WEAKENED. These asserted that opening
+         a record ticked NOTHING, which was right for the few hours that was the design
+         and is now describing something Addie replaced: "can you fix record fills
+         nothing in?" What is asserted instead is the pair that makes a fill affordable —
+         it follows the count, and the line under the boxes says it is a fill rather
+         than something anybody said. */
+      check('S313', 'opening a record with no list on file fills the boxes from the count',
+        onOpen({}, 3) === 'Front,Left,Right',
+        'Addie: "can you fix record fills nothing in?"');
+      check('S313', 'opening one with a list that fits the count shows what they said',
+        onOpen({houseSidesList: ['Back', 'Front']}, 2) === 'Front,Back',
+        'a real answer must never be overwritten by the fill');
+      check('S313', 'and a stored list that does not fit the count is replaced by the fill',
+        onOpen({houseSidesList: ['Front', 'Left']}, 3) === 'Front,Left,Right',
         'two names under a count of three is a claim that cannot be true, and the ' +
         'count is the answer the office gave most recently');
+      /* ⚠ AND THE NOTE IS THE OTHER HALF OF THE TRADE. A guess that looks identical to
+         an answer is how a crew hangs the wrong side of a house on our say-so — so this
+         is asserted as hard as the ticks are, and it is RUN, because a check that the
+         words exist in the source proves only that they exist. */
+      function openNote(record, n) {
+        const dom = new JSDOM('<div>' + countRow + boxRow +
+          '<p id="editCustSidesListNote"></p></div>');
+        return new Function('document', 'd', 'n',
+          sidesSrc + '\n' + openSides + '\n' +
+          "return document.getElementById('editCustSidesListNote').textContent;")(
+            dom.window.document, record, n);
+      }
+      check('S313', 'a filled-in record says nobody has said which sides',
+        /Nobody has said which sides/.test(openNote({}, 3)),
+        'without this the fill is exactly the guess OPT-01 refused, wearing the words ' +
+        'of an answer');
+      check('S313', 'and a record with a real answer says it is what is on file',
+        /what is on file/.test(openNote({houseSidesList: ['Front', 'Back']}, 2)) &&
+        !/Nobody has said/.test(openNote({houseSidesList: ['Front', 'Back']}, 2)),
+        'calling their own answer a guess is the same fault pointing the other way');
+      check('S313', 'and both say which way round left and right are read',
+        /street/.test(openNote({}, 3)) &&
+        /street/.test(openNote({houseSidesList: ['Front', 'Left']}, 2)),
+        'OPT-03: Left here and Left in the portal must not be opposite sides of one house');
     }
   }
 }
@@ -28127,7 +28284,7 @@ suite('Suite 108. The Edit Customer save, actually run');
       ...(function () {
         const consts = (admin.match(/^const HOUSE_SIDES?_[A-Z_]+ = .*$/gm) || []).join('\n');
         const names = ['houseSideCount', 'houseSidesListFromValue', 'houseSidesPickedList',
-          'houseSidesWords'];
+          'houseSidesWords', 'houseSidesChanged'];
         const made = new Function('document',
           consts + '\n' + names.map(n => extractFn(admin, n)).join('\n') +
           '\nreturn {' + names.join(',') + '};');
@@ -28458,31 +28615,55 @@ suite('Suite 108. The Edit Customer save, actually run');
       new Function('d', extractFn(admin, 'quoteKindLabel') + 'return quoteKindLabel(d);')(
         addedSide.raised ? addedSide.raised.payload : {}) === 'New side');
 
-    /* ⚠ AND A STRAIGHT SWAP IS NOT A RE-QUOTE — [[OPT-04]], her own ruling: "For left
-       and right side of the house on quoting those should usually be the same." Same
-       count, same roofline, same price. This is also exactly what the server decides
-       for the portal's own sides save, so the two routes in cannot disagree about
-       which changes cost money. */
+    /* ⭐ AND A STRAIGHT SWAP IS A RE-QUOTE TOO (2026-09-10, [[OPT-06]]). Addie: "A swap
+       will be a requote cause we need to remark it."
+       ⚠ THIS CHECK PREVIOUSLY ASSERTED THE OPPOSITE, on [[OPT-04]] — "For left and
+       right side of the house on quoting those should usually be the same" — and it was
+       REWRITTEN rather than deleted, because the pair below is what the reversal
+       actually turns on: a swap is a re-quote, and filling in a blank still is not. The
+       old ruling was about the PRICE and is still true; hers is about the crew needing
+       to be told, which no price rule can carry. */
     const swapped = await runSave({noRequote: true,
       cust: {measuredFeet: 400, houseSides: 2, houseSidesList: ['Front', 'Left']},
       sides: ['Front', 'Right']});
-    check('S108', 'swapping left for right at the same count is not a re-quote',
-      !swapped.raised,
-      'OPT-04: those are usually the same house, so there is nothing to re-price');
-    check('S108', 'but the swap is still saved',
+    check('S108', 'swapping left for right at the same count raises a re-quote',
+      !!swapped.raised && swapped.raised.payload.changed.what === 'sides',
+      'Addie: "A swap will be a requote cause we need to remark it" — the crew hangs a ' +
+      'different roofline and a re-quote is the only thing here that tells them');
+    check('S108', 'and the swap is saved',
       !!swapped.cust && swapped.cust.payload.houseSidesList.join(',') === 'Front,Right',
-      'not re-pricing it is not the same as not recording it — the crew reads this ' +
-      'to find the right side of the house');
+      'the crew reads this to find the right side of the house');
+    /* ⚠ THE PILL SAYS NEITHER New side NOR Fewer sides on a swap, because neither is
+       true — the counts match. It falls back to her own 2026-08-18 wording. */
+    check('S108', 'and a swap is not labelled New side, because nothing was added',
+      new Function('d', extractFn(admin, 'quoteKindLabel') + 'return quoteKindLabel(d);')(
+        swapped.raised ? swapped.raised.payload : {}) === 'House addition',
+      'a pill claiming a side was added over a card showing two sides both ways is the ' +
+      'label contradicting the card underneath it');
 
-    /* ⚠ AND AN UNTOUCHED FORM ON A CUSTOMER WITH NO LIST WRITES NOTHING AT ALL. Most
-       of the book has never been asked; a null over nothing is a change-log row about
-       a change that did not happen. */
+    /* ⭐ AND FILLING IN A BLANK IS NOT A CHANGE — the clause that makes [[OPT-07]]'s
+       auto-fill affordable. Without it, opening and saving a record would raise a
+       re-quote for every one of the ~956 houses nobody has ever been asked, with no
+       price to change on any of them. */
+    const named = await runSave({noRequote: true,
+      cust: {measuredFeet: 400, houseSides: 2},
+      sides: ['Front', 'Right']});
+    check('S108', 'naming the sides of a house that had none raises no re-quote',
+      !named.raised,
+      'an answer arriving where there was none is not a decision being reversed — and ' +
+      'this is the commonest save in the book');
+    check('S108', 'but the names are still written',
+      !!named.cust && named.cust.payload.houseSidesList.join(',') === 'Front,Right',
+      'not re-quoting it is not the same as not recording it');
+
+    /* ⚠ AND AN UNTOUCHED FORM STILL WRITES NOTHING. The auto-fill happens when a record
+       is OPENED, which this sandbox does not do — it runs the save handler alone — so a
+       fixture with no ticks is a form nobody filled in, and that must stay silent. */
     const untouched = await runSave({noRequote: true, cust: {measuredFeet: 400}});
-    check('S108', 'a save that never touches the sides leaves the field absent',
+    check('S108', 'a save with no sides ticked at all leaves the field absent',
       !!untouched.cust &&
       !Object.prototype.hasOwnProperty.call(untouched.cust.payload, 'houseSidesList'),
-      'opening a record to fix a phone number must not invent an answer to a question ' +
-      'nobody was asked');
+      'a null written over nothing is a change-log row about a change that did not happen');
     check('S108', 'and raises no re-quote', !untouched.raised);
 
     /* ⚠ AND ONE FAILING WRITE TO THE NUMBER POOL USED TO LOSE ALL OF IT. Those two
