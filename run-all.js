@@ -34405,10 +34405,34 @@ suite('Suite 128. The do-not-send list — automation emails only');
      customer has stopped being invoiced without anyone deciding that. */
   {
     const fns = read('functions/index.js');
-    check('S128', 'the server has never heard of noAutomationEmails',
-      fns.indexOf('noAutomationEmails') === -1,
-      'nightly invoicing, the quote nudge and the SMS path all live here — a ' +
-      'refusal to be marketed at is not a refusal to be told what you owe');
+    /* ⚠ REPOINTED 2026-09-10, NOT WEAKENED — and the repointing makes it stricter.
+       This was `fns.indexOf('noAutomationEmails') === -1` across the WHOLE file, which
+       held only because nothing on the server had ever needed the field. EM-16's RSVP drip
+       does need it and correctly: an RSVP is an automation email, `rsvpWholePlan` has
+       always honoured the list on the browser side, and a drip that ignored it would mail
+       somebody who asked us not to. A file-wide absence is the §7 slow-fuse shape — pinned
+       to where a string happens to sit rather than to what must be true — so the claim is
+       now made about the paths it was always ABOUT: the money, the nudge and the texts.
+       ⚠ AND THE ONE READER IS NAMED. Asserting three functions are clean would pass if a
+       fourth sender started reading it, so the check also requires every mention on the
+       server to be inside `rsvpStillOwedServer`. That is what the old one-line version was
+       really buying, stated directly. */
+    const dripGate = sectionFrom(fns, fns.indexOf('function rsvpStillOwedServer'));
+    check('S128', 'the drip\'s own gate is findable',
+      dripGate.length > 200 && dripGate.indexOf('noAutomationEmails') !== -1,
+      'renamed — repoint this rather than dropping it; it is what scopes the money guard');
+    check('S128', 'and it is the ONLY thing on the server that reads the list',
+      fns.split('noAutomationEmails').length - 1 ===
+        dripGate.split('noAutomationEmails').length - 1,
+      'a second server reader of the do-not-send list — check it is not a billing or a ' +
+      'text path before allowing it');
+    ['runInvoiceBatch', 'runQuoteNudgeBatch', 'twilioSendRaw'].forEach(function(fn){
+      const body = sectionFrom(fns, fns.indexOf('function ' + fn));
+      check('S128', fn + ' has never heard of noAutomationEmails',
+        body.length > 100 && body.indexOf('noAutomationEmails') === -1,
+        'nightly invoicing, the quote nudge and the SMS path all live here — a ' +
+        'refusal to be marketed at is not a refusal to be told what you owe');
+    });
     /* The invoice the customer is actually shown and emailed. Anchored on a
        function that really exists, so this cannot pass by slicing nothing. */
     const invDoc = sectionFrom(admin, admin.indexOf('function buildInvoiceDocHtml'));
@@ -48561,10 +48585,24 @@ suite('287. The routine route sweep does not bury the notice that matters');
      `async` keyword — so it is put back, or every await inside is a syntax
      error. §7's rule about anchors, in its smallest form. */
   const batchBody = extractFn(fnsSrcChase, 'runArrearsRsvpBatch');
-  const batchSrc = batchBody ? 'async ' + batchBody : null;
+  /* ⚠ AND THE BODY BUILDER COMES WITH IT, LIFTED AND NEVER STUBBED (2026-09-10, EM-16).
+     The renderer moved out of this batch into `rsvpEmailBodyServer` so the daily RSVP drip
+     would not become a third copy of it — and the moment it did, five checks here failed
+     with the renderer simply absent. That is the right failure: "all three RSVP buttons
+     carry that customer's own token" is a claim about what the RENDERER produces, so a
+     stub of it would leave every one of those checks green while a real customer got an
+     email full of unresolved tokens. Its own dependencies (ensureToken, properNameServer,
+     ensureReferralToken, referralShareBoxHtmlServer) are already in the sandbox below. */
+  const bodyBody = extractFn(fnsSrcChase, 'rsvpEmailBodyServer');
+  const batchSrc = (batchBody && bodyBody)
+    ? ('async ' + bodyBody + String.fromCharCode(10) + 'async ' + batchBody)
+    : null;
 
   check('S288', 'runArrearsRsvpBatch could be lifted out of functions/index.js',
     !!batchSrc, 'the suite below proves nothing if the function it runs is not the shipped one');
+  check('S288', 'and so could the body builder it now shares with the RSVP drip',
+    !!bodyBody, 'renamed or inlined again — a third copy of this renderer is what EM-16 ' +
+    'extracted it to prevent');
 
   if (batchSrc) {
     /* One fake book, rebuilt for each run so a stamp written by one check cannot
@@ -55018,8 +55056,15 @@ suite('Suite 310. The whole RSVP, in one press');
 
 {
   const planSrc = extractFn(admin, 'rsvpWholePlan');
+  /* ⚠ LIFTED, NOT STUBBED, and the line between this and the predicates below it is the
+     point. The predicates are fixture-driven on purpose (see the note above) because this
+     suite proves ROUTING, not the arrears rule. `rsvpSendSkipReason` is the rule that
+     ORDERS those predicates, and a stub of it would make every check here pass while the
+     real page counted an opted-out customer as already-emailed. rsvp-daily-send.test.js
+     sweeps it against the server copy; this sandbox has to RUN the shipped one. */
+  const skipSrc = extractFn(admin, 'rsvpSendSkipReason');
   check('S310', 'the planner is findable',
-    !!planSrc,
+    !!planSrc && !!skipSrc,
     'renamed or removed — repoint this suite rather than deleting it');
 
   if (planSrc) {
@@ -55031,6 +55076,7 @@ suite('Suite 310. The whole RSVP, in one press');
         'function effectiveRsvpStatus(d){ return d.answered ? "yes" : ""; }' +
         'function etNoAutomationEmails(d){ return d.noAutomationEmails === true; }' +
         'function houseOwesFromLastSeason(d){ return d.owes === true; }' +
+        skipSrc +
         planSrc +
         'return rsvpWholePlan();');
       return env(book, loaded);
