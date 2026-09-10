@@ -19738,7 +19738,12 @@ function rsvpDripRender(){
       + line('On a plan', 0, 'nothing is scheduled')
       + '<p class="form-note" style="margin:10px 0 0;">Press <b>Build the plan</b> and '
       + (owedNow ? ('these ' + owedNow + ' are laid out ' + per + ' a morning &mdash; '
-          + esc(rsvpDripFinishWords(owedNow, per, new Date())) + '. Nothing is sent until you switch it on or press <b>Send today&rsquo;s batch now</b>.')
+          /* ⚠ IT DOES NOT NAME THE SEND BUTTON HERE. With no plan that button is REFUSED
+             ("There is no plan to send"), so offering it as one of two next steps sends her to
+             a press that cannot work — the shape of a message that is on screen and cannot be
+             true. The only next step without a plan is building one. */
+          + esc(rsvpDripFinishWords(owedNow, per, new Date())) + '. Nothing is sent until you '
+          + 'switch it on or send a batch by hand — both of which need the plan first.')
          : 'there is nobody waiting, so it would send nothing.')
       + '</p>';
     return;

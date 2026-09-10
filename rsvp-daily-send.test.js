@@ -393,6 +393,24 @@ if (queueState) {
     queueState({ standard: [], arrears: [] }, [{ id: 'a', t: 'standard' }]).queued === 0,
     'counting it would promise a send that will correctly be skipped, and the finish ' +
     'date would be a day late for the rest of the run');
+  /* ⚠ THE NO-PLAN STATE MUST NOT OFFER A PRESS THAT IS REFUSED. With no plan, Send today's
+     batch answers "There is no plan to send" — so naming it there as one of two next steps
+     sends her to a button that cannot work, which is this repo's "a message that is on screen
+     and cannot be true" failure. The only next step without a plan is building one. */
+  {
+    /* ⚠ ITS OWN `stripComments(admin)`, because §8's `plain` is scoped to that block — the
+       first draft reached for it here and died on a bare ReferenceError before a single check
+       scored. A gate that crashes names nothing. */
+    const noPlanSrc = stripComments(admin);
+    const noPlanStart = noPlanSrc.indexOf("line('On a plan', 0,");
+    const noPlanEnd = noPlanSrc.indexOf('return;', noPlanStart);
+    check('the no-plan state could be sliced out', noPlanStart !== -1 && noPlanEnd > noPlanStart);
+    const noPlan = noPlanSrc.slice(noPlanStart, noPlanEnd);
+    check('and it does not send her to a button that would refuse',
+      noPlan.indexOf('Build the plan') !== -1 &&
+      !/Send today&rsquo;s batch now<\/b>/.test(noPlan),
+      'the send button is refused until a plan exists, so offering it here is a dead end');
+  }
   check('nothing missing and nothing stale reports both as nought',
     (function () {
       const s = queueState({ standard: [{ id: 'a' }], arrears: [] }, [{ id: 'a', t: 'standard' }]);
