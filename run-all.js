@@ -44557,7 +44557,7 @@ suite('268. Measure Roof - the feet and the price are one press');
      pressed, quotedPrice landed, and estimatedFeet was left empty.
      Nothing errors on that state, which is the problem: quoteFeetOrEstimate
      turns the price back into feet with a 5% safety margin, and THAT figure is
-     what sizes the bins at 260 ft, chooses between a regular and a 5000-series
+     what sizes the bins, chooses between a regular and a 5000-series
      customer number, and counts the bundles at 40 ft. The warehouse then builds
      to a number nobody measured. Owner: "I need no guessing I need feet to be
      correct."
