@@ -3725,6 +3725,31 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
         ⚠ It marks the **planner's** list, never the whole book, and takes a dry run then
         a typed word — a customer wrongly marked as asked is never asked again this
         season, while a missing stamp only ever costs a duplicate.
+      - ⭐ **AND ONE PERSON AT A TIME, WHICH IS HOW THE JOB ACTUALLY ARRIVES** ([[EM-10]],
+        2026-09-10). Asked what she can get out of EmailJS for those resends, Addie's
+        answer was **individual error emails only** — no list anywhere. That rules out
+        both of the things that existed: a paste box has nothing to paste, and
+        `rsvpMarkAllAsked` is *wrong* when only SOME have been emailed, because it stamps
+        the whole planner list. **Mark one person as asked**, on the same card, is the
+        per-person half: a search box, and a tick beside each customer still waiting.
+        - **Search by the address, not just the name.** An error email names ONE address;
+          the name in it is ours and may be spelled any number of ways, the address is
+          the customer's own. Matching either, ignoring case.
+        - ⚠ **The Undo is the safety here, not a typed word.** The bulk button writes ~950
+          records and earns its `ASKED` prompt; this writes one record she is looking at,
+          so a visible Undo beats a confirm she would clear hundreds of times and stop
+          reading. Undo writes `null`, the same spelling Start New Season uses.
+        - ⚠ **A row marked in this session stays on screen, greyed.** The stamp moves that
+          customer out of `plan.standard` the instant it lands, so a plain redraw would
+          drop the row and take the Undo with it one frame after the press — the MSG-15
+          trap. They stay until the page is reloaded.
+        - ⚠ **It reads `rsvpWholePlan`, never `jobAddresses`.** A second definition of
+          "waiting to be asked" is how this list and the Ordinary RSVP count above it
+          start disagreeing about the same customers.
+        - `rsvp-mark-one.test.js` runs all of it against a fake DOM and Firestore rather
+          than matching source; 12 sabotages red-checked, including one the first draft
+          MISSED — a text check for the refresh call survived the guard around it being
+          changed to `if(false)`, so it is a spy on the real renderer now.
     - Each row carries its own reason rather than the run's last one, so the next occurrence
       names itself. 10 sabotages red-checked across the two passes.
   - ⚠ **The `{{quote_` prefix inside it is built with `String.fromCharCode(123,123)`.** Suites

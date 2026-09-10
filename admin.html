@@ -3300,6 +3300,23 @@
         </div>
         <div id="rsvpWholeStatus" style="font-size:13px; color:var(--slate); margin:0 0 8px;"></div>
         <div id="rsvpWholeBreakdown" style="font-size:13px;"></div>
+        <!-- ⭐ EM-10. The per-person half of EM-06. That button is all-or-nothing, which
+             is right when the WHOLE book was asked outside the app and wrong for every
+             other case — Addie is resending from EmailJS's individual error emails, one
+             customer at a time, so what she needs is to tick off the one she just sent.
+             Searchable because that is how the job actually arrives: an error email
+             names ONE address, and finding it in a list of hundreds is the work.
+             ⚠ THE UNDO IS THE SAFETY HERE, not a typed word. A wrong stamp means that
+             customer is never asked again this season and no crew is sent to their
+             house — but this writes ONE record she is looking at, so a visible Undo
+             beats a confirm she would clear hundreds of times and stop reading. -->
+        <div id="rsvpMarkOneBlock" style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
+          <h4 style="margin:0 0 4px; font-size:14px;">Mark one person as asked</h4>
+          <p class="form-note" style="margin:0 0 8px;">For a customer you emailed <b>outside this app</b> &mdash; a resend from EmailJS&rsquo;s error emails. Search the address the error email names, then tick them off. <b>Send the whole RSVP</b> will skip whoever is marked. Nothing here sends anything.</p>
+          <input type="search" id="rsvpMarkOneFilter" placeholder="Search a name or email address" style="width:100%; max-width:340px; margin-bottom:8px;">
+          <div id="rsvpMarkOneStatus" style="font-size:13px; color:var(--slate); margin:0 0 6px;"></div>
+          <div id="rsvpMarkOneList" style="font-size:13px;"></div>
+        </div>
       </div>
       <!-- Hidden until a send actually loses somebody. A permanent empty card about
            failures is one nobody reads, and this one has to be noticed on the day it
@@ -19453,6 +19470,11 @@ function rsvpWholeRenderBreakdown(plan){
     row('Already answered', plan.answered, 'not asked again') +
     row('New this year', plan.newThisYear, 'never had lights \u2014 never asked') +
     '<p class="form-note" style="margin:10px 0 0;">Nobody appears in more than one line above.</p>';
+  /* \u2b50 EM-10. The per-person list reads the SAME plan, so the count on the "Ordinary
+     RSVP" line and the number of people offered a tick can never disagree \u2014 the one-rule
+     argument `commRowMatches` makes about tab counts, applied here. Refreshed with the
+     breakdown rather than on its own, so pressing Check first brings both up to date. */
+  if(typeof rsvpMarkOneRender === 'function') rsvpMarkOneRender();
 }
 document.getElementById('rsvpWholeCheckBtn')?.addEventListener('click', function(){
   const st = document.getElementById('rsvpWholeStatus');
@@ -44999,6 +45021,131 @@ document.getElementById('rsvpMarkAllAskedBtn')?.addEventListener('click', functi
     const st = document.getElementById('rsvpWholeStatus');
     if(st) st.textContent = 'Something went wrong — ' + (err && err.message ? err.message : 'nothing was recorded') + '.';
   });
+});
+/* ⭐ ONE CUSTOMER AT A TIME (added 2026-09-10, EM-10). Addie, asked what she can get out
+   of EmailJS for the resends: individual error emails only — no list anywhere. So the
+   paste box that was offered is useless (nothing to paste) and `rsvpMarkAllAsked` is
+   wrong (it stamps everybody the planner would write to, and she has emailed SOME).
+   Marking the whole list when only some were sent is the one mistake here with a real
+   cost: those customers are never asked again this season, and because only people who
+   have answered are scheduled, that is a house no crew is sent to.
+
+   ⚠ THE SEARCH IS THE FEATURE, not a convenience. What arrives is ONE address in an
+   error email; finding that person among hundreds is the entire job. Matching the EMAIL
+   is what makes it exact — the name in an error email is ours, the address is theirs.
+
+   ⚠ AND IT MARKS ONLY WHO THE SEND WOULD GO TO — `rsvpWholePlan`, never `jobAddresses`
+   directly, the same rule the bulk button follows. Offering to stamp somebody opted out
+   or with no email records that we wrote to a person we cannot write to. */
+const rsvpMarkOneRecent = new Set();
+const RSVP_MARK_ONE_SHOWN = 50;
+/* ⚠ A ROW MARKED IN THIS SESSION IS KEPT ON SCREEN, and this is the whole reason the set
+   above exists. The moment the stamp lands that customer leaves `plan.standard` for
+   `plan.alreadyEmailed`, so a plain redraw drops the row — taking the Undo with it, one
+   frame after the press that might have been a mistake. They stay, greyed, until the
+   page is reloaded. Same trap as the section editor rebuilding its own inputs (MSG-15). */
+function rsvpMarkOneRows(){
+  const plan = (typeof rsvpWholePlan === 'function') ? rsvpWholePlan() : null;
+  if(!plan || !plan.ready) return { ready: false, why: (plan && plan.why) || 'The customer list has not loaded yet.', rows: [] };
+  const waiting = plan.standard.concat(plan.arrears);
+  const seen = new Set(waiting.map(function(i){ return i.id; }));
+  const rows = waiting.map(function(i){ return { item: i, marked: false }; });
+  /* The just-marked ones are pulled back out of alreadyEmailed by id. Read from the plan
+     rather than from a copy kept here, or an undo that failed would still show as done. */
+  plan.alreadyEmailed.forEach(function(i){
+    if(rsvpMarkOneRecent.has(i.id) && !seen.has(i.id)) rows.push({ item: i, marked: true });
+  });
+  return { ready: true, why: '', rows: rows };
+}
+function rsvpMarkOneRender(){
+  const box = document.getElementById('rsvpMarkOneList');
+  if(!box) return;
+  const st = document.getElementById('rsvpMarkOneStatus');
+  const got = rsvpMarkOneRows();
+  if(!got.ready){
+    box.innerHTML = '';
+    if(st) st.textContent = got.why;
+    return;
+  }
+  const input = document.getElementById('rsvpMarkOneFilter');
+  const q = String((input && input.value) || '').trim().toLowerCase();
+  const match = q ? got.rows.filter(function(r){
+    const d = r.item.data || {};
+    return String(d.name || '').toLowerCase().indexOf(q) !== -1
+        || String(d.email || '').toLowerCase().indexOf(q) !== -1;
+  }) : got.rows;
+  match.sort(function(a, b){
+    return String((a.item.data || {}).name || '').localeCompare(String((b.item.data || {}).name || ''));
+  });
+  if(!match.length){
+    box.innerHTML = '';
+    if(st) st.textContent = q
+      ? 'Nobody waiting to be asked matches “' + q + '”. They may have answered already, or already be marked — press Check first to see the counts.'
+      : 'Nobody is waiting to be asked.';
+    return;
+  }
+  const shown = match.slice(0, RSVP_MARK_ONE_SHOWN);
+  if(st){
+    st.textContent = match.length + ' waiting to be asked'
+      + (q ? ' matching “' + q + '”' : '')
+      + (match.length > shown.length ? ' — showing the first ' + shown.length + ', keep typing to narrow it' : '');
+  }
+  box.innerHTML = shown.map(function(r){
+    const d = r.item.data || {};
+    const who = esc(d.name || '(no name)');
+    const mail = esc(d.email || '');
+    return '<div style="display:flex; justify-content:space-between; gap:12px; align-items:center; padding:6px 0; border-bottom:1px solid var(--line);'
+      + (r.marked ? ' opacity:0.6;' : '') + '">'
+      + '<span><b>' + who + '</b>'
+      + (mail ? ' <span style="color:var(--slate); font-size:12px;">' + mail + '</span>' : '')
+      + (r.marked ? ' <span style="color:var(--slate); font-size:12px;">— marked as asked</span>' : '')
+      + '</span>'
+      + '<button type="button" class="btn btn-outline btn-sm" data-rsvpmarkone="' + esc(r.item.id) + '" data-rsvpmarkoneon="'
+      + (r.marked ? '0' : '1') + '">' + (r.marked ? 'Undo' : 'Mark as asked') + '</button>'
+      + '</div>';
+  }).join('');
+}
+/* ⚠ ONE WRITE, AND THE MIRROR ONLY AFTER IT LANDS. Mirroring first shows her a customer
+   marked as asked that was never written — the failure mode `rsvpMarkAllAsked` already
+   guards against, for the same reason.
+   ⚠ `null`, NOT a deleted field, because that is what Start New Season writes and what
+   `rsvpWholePlan` tests for. Two spellings of "not asked" is how one of them stops
+   counting. */
+async function rsvpMarkOneAsked(id, asked){
+  const st = document.getElementById('rsvpMarkOneStatus');
+  const rec = (jobAddresses || []).find(function(a){ return a && a.id === id; });
+  const who = (rec && rec.data && rec.data.name) || 'that customer';
+  try{
+    await updateDoc(doc(db,'jobAddresses', id), { rsvpEmailedAt: asked ? serverTimestamp() : null });
+    if(rec && rec.data) rec.data.rsvpEmailedAt = asked ? new Date() : null;
+    if(asked) rsvpMarkOneRecent.add(id); else rsvpMarkOneRecent.delete(id);
+    rsvpMarkOneRender();
+    if(typeof rsvpWholeRenderBreakdown === 'function') rsvpWholeRenderBreakdown(rsvpWholePlan());
+    if(st){
+      st.textContent = asked
+        ? who + ' is marked as asked — Send the whole RSVP will skip them. Press Undo if that was wrong.'
+        : who + ' is back on the list to be asked.';
+    }
+  }catch(err){
+    console.error('[HU] could not record that ' + id + ' was asked:', err);
+    if(st) st.textContent = 'Nothing was saved for ' + who + ' — ' + ((err && err.message) || 'something went wrong') + '. Try again.';
+  }
+}
+/* Delegated, because the rows are rebuilt on every mark. A listener bound per button
+   would be re-bound on each redraw and the old ones left on detached nodes. */
+document.getElementById('rsvpMarkOneList')?.addEventListener('click', function(e){
+  const btn = e.target && e.target.closest ? e.target.closest('[data-rsvpmarkone]') : null;
+  if(!btn) return;
+  btn.disabled = true;
+  rsvpMarkOneAsked(btn.getAttribute('data-rsvpmarkone'), btn.getAttribute('data-rsvpmarkoneon') === '1')
+    .catch(function(err){ console.error('[HU] mark-one-asked:', err); })
+    .then(function(){ btn.disabled = false; });
+});
+/* ⚠ ONLY THE LIST IS REDRAWN, never the block, so the search box node survives and what
+   she has typed is still there after a mark. Rebuilding the wrapper would clear the
+   field mid-job and read as the search resetting itself. */
+document.getElementById('rsvpMarkOneFilter')?.addEventListener('input', function(){
+  rsvpMarkOneRender();
 });
 /* Read once at login. Not a listener: this changes about once a season, and a live
    listener on settings/season would be an open connection for a single date. */
