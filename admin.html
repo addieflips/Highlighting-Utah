@@ -53475,6 +53475,23 @@ function planNewCrewDays(waiting, taken, opts){
     const cb = bandOf(c.temp), pb = bandOf(p.temp);
     if(cb !== null && pb !== null && cb !== pb) return cb > pb;
     if(c.n !== p.n) return c.n > p.n;
+    /* ⛔ SENDING THE CREW TO THE NEAREST AREA WAS TRIED HERE AND MEASURED AT ZERO. Do
+       not re-add it. Dax, 2026-09-09: "more days generally is more gas because you need
+       to include drive time from the house" — which is true, and it is why the season
+       was measured properly (scratchpad/measure-gas.js). The block container costs 44
+       miles more over a season than towns did: 104 fewer between stops, 148 more
+       driving out and back.
+       ⚠ BUT A TIEBREAK CANNOT RECOVER ANY OF IT, and the reason is worth keeping. Every
+       area is worked exactly once over a season, so the total drive-out-and-back is
+       fixed by HOW MANY crew-days there are and where the areas sit — not by the order
+       they are taken in. Preferring the nearest one changes which day each area lands
+       on and nothing else; measured, it moved the season total by two miles, which is
+       noise. The alphabetical answer below is kept because it is stable, which is what
+       makes a plan reproducible.
+       ⚠ AND THE 44 MILES ARE WORTH PAYING, WHICH IS THE ACTUAL RULING ([[SCH-66]]). At
+       15 mpg that is about ten dollars a season. What it buys is 104 miles taken OUT of
+       the working day and put on the freeway: roughly two hours less driving, and a
+       worst crew-day 10 miles wide instead of 28.7. */
     return c.city < p.city;
   };
   const maxDays = o.maxDays == null ? 40 : o.maxDays;
