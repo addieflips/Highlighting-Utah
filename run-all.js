@@ -8642,12 +8642,28 @@ suite('15. The printed schedule sheet');
     check('schedule', 'a city pinned to a crew wins over Auto',
       crew.city(0, dayA) === 'Alpine' && crew.city(1, dayA) === 'Lehi',
       'a business that always works the same two towns should be able to say so once');
-    check('schedule', 'each crew only gets their own city\'s stops',
-      crew.houses(0, dayA).length === 1 && crew.houses(1, dayA).length === 2,
-      'a crew sheet with somebody else\'s houses on it sends two trucks to one street');
-    check('schedule', 'stops in neither crew\'s city are counted, not dropped',
-      crew.left(dayA).map(h => h.name).join() === 'Four',
-      'a stop nobody holds a sheet for is a stop nobody drives to');
+    /* ⚠ REPOINTED 2026-09-10 BY [[SCH-67]], and the old assertions are written out here
+       so the reversal is legible rather than reading as a weakened test. They were:
+         "each crew only gets their own city’s stops"
+           crew.houses(0, dayA).length === 1 && crew.houses(1, dayA).length === 2
+         "stops in neither crew’s city are counted, not dropped"
+           crew.left(dayA).map(h => h.name).join() === "Four"
+       Dax, reading ten stops under "Not on either crew’s route" after a rebuild: "it is
+       off limits to have anyone scheduled in a day not on either crews routes ... dont
+       design the system so its even possible." A house in neither crew’s town is no
+       longer LEFT anywhere, so what is worth pinning is that it lands on exactly one
+       sheet and that the towns still decide everything else. */
+    check('schedule', "each crew still gets their own city's stops",
+      crew.houses(0, dayA).some(h => h.city === 'Alpine') &&
+      crew.houses(1, dayA).filter(h => h.city === 'Lehi').length === 2,
+      'a crew sheet missing its own town is the split having stopped working');
+    check('schedule', 'and the stop in neither city is carried by one of them, not left out',
+      crew.houses(0, dayA).concat(crew.houses(1, dayA))
+        .filter(h => h.name === 'Four').length === 1,
+      "exactly one sheet, never none and never both");
+    check('schedule', "so nobody on the day is on nobody's sheet",
+      crew.left(dayA).length === 0,
+      'this bucket used to hold the strays; it is the tripwire now and must stay empty');
 
     const rows = crew.rows(dayA, 1);
     check('schedule', 'a crew sheet renumbers the stops from 1 for that crew',
@@ -8656,9 +8672,16 @@ suite('15. The printed schedule sheet');
     check('schedule', 'a crew sheet holds only that crew\'s houses',
       rows.every(r => r.city === 'Lehi'));
     crew.set([{ name: 'A', city: 'Nowhere' }, { name: 'B', city: 'Lehi' }]);
-    check('schedule', 'a crew pinned to a city with nothing in it prints nothing, not everything',
-      crew.rows(dayA, 0).length === 0,
-      'falling back to the whole day would hand them a sheet that is not theirs');
+    /* ⚠ REPOINTED BY [[SCH-67]]. It read:
+         "a crew pinned to a city with nothing in it prints nothing, not everything"
+           crew.rows(dayA, 0).length === 0
+       A crew pinned to a town the day does not hold now carries the houses nobody
+       else’s town covers, because somebody has to. What that was really protecting is
+       that it does NOT fall back to the whole day, and that is still true. */
+    check('schedule', 'a crew pinned to a city with nothing in it does not get the whole day',
+      crew.rows(dayA, 0).length < dayA.houses.length &&
+      crew.rows(dayA, 0).every(r => r.city !== 'Lehi'),
+      "falling back to the whole day would hand them a sheet that is not theirs, and the other crew's own town is the part that must never move");
     crew.set(null);
   }
 }
@@ -22725,15 +22748,23 @@ suite('Suite 93. Two crews, two towns, twenty each');
       'got ' + sizes(tightOut) + ' — on an overloaded day the crew that was ' +
       'already over stays the one that is over');
 
-    /* ⚠ A HOUSE IN NEITHER CREW'S TOWN STAYS IN NEITHER. */
+    /* ⚠ REPOINTED 2026-09-10 BY [[SCH-67]]. This read:
+         "a house in a town neither crew works is left unassigned"
+           strayOut.reduce((n, x) => n + x.length, 0) === 5
+       — five of seven placed, the two in Nowhere left for the panel to report. Dax: "it
+       is off limits to have anyone scheduled in a day not on either crews routes." All
+       seven are carried now, and what is worth pinning instead is that carrying them
+       did not disturb the five the towns had already placed. */
     const stray = dayOf(
       Array.from({length: 5}, (_, i) => house('L' + i, 'Lehi')),
       [house('X1', 'Nowhere'), house('X2', 'Nowhere')]);
     const strayOut = run(stray, towns, 20);
-    check('S93', 'a house in a town neither crew works is left unassigned',
-      strayOut.reduce((n, x) => n + x.length, 0) === 5,
-      'it has to stay visible as nobody' + String.fromCharCode(8217) + 's, rather than being ' +
-      'quietly absorbed onto a sheet');
+    check('S93', 'a house in a town neither crew works is still carried by somebody',
+      strayOut.reduce((n, x) => n + x.length, 0) === 7,
+      'got ' + strayOut.reduce((n, x) => n + x.length, 0) + ' of 7 — a customer on a day with nobody holding their sheet is the fault this closed');
+    check('S93', 'and the five the towns placed are still where the towns put them',
+      strayOut[0].filter(h => h.city === 'Lehi').length === 5,
+      'the catch-all must add to the split, never reshuffle it');
 
     /* ⚠ ONE CREW ONLY: nothing to hand anything to. */
     const solo = run(dayOf(Array.from({length: 25}, (_, i) => house('L' + i, 'Lehi')), []),
@@ -31861,14 +31892,24 @@ suite('77. Schedule route generator');
     check('S77', 'nothing is dropped by re-ordering',
       d2.houses.length === 8 && before.every(h => d2.houses.indexOf(h) > -1),
       'a lost stop is a customer nobody visits, and it is invisible on a printed sheet');
-    /* ⚠ ASSERTS THE WHOLE ORDER, not just that the spare is last. It arrives
-       last in the fixture too, so "is it on the end" is true before the code
-       runs — and dropping the concat that carries it makes the day come back a
-       different length, which the guard turns into "leave the day alone". Only
-       the full order tells those two apart. */
-    check('S77', 'a house in neither crew\'s town is kept, on the end, and the day is still ordered',
-      d2.houses.map(h => h.name).join() === 'L1,L3,L4,L2,A1,A3,A2,Nowhere',
-      'it still has to be driven to — got [' + d2.houses.map(h => h.name).join() + ']');
+    /* ⚠ ASSERTS THE WHOLE ORDER, not just where the spare lands. It arrived last in
+       the fixture too, so "is it on the end" was true before the code ran — and
+       dropping the concat that carries it makes the day come back a different length,
+       which the guard turns into "leave the day alone". Only the full order tells
+       those two apart, and that is still why this asserts all eight.
+       ⚠ REPOINTED 2026-09-10 BY [[SCH-67]]. It read:
+         "a house in neither crew’s town is kept, on the end, and the day is still
+          ordered"
+           d2.houses.map(h => h.name).join() === "L1,L3,L4,L2,A1,A3,A2,Nowhere"
+       ON THE END was the old behaviour and was the symptom: the house belonged to no
+       crew, so generateDayRoutes tacked it on after both runs. It is carried by the
+       Lehi crew now and driven inside THEIR run — L1,L3,L4,L2,Nowhere then A1,A3,A2 —
+       which is the difference between a stop somebody drives to and a stop printed
+       underneath everybody. */
+    check('S77', "a house in neither crew's town is driven inside a crew's run",
+      d2.houses.map(h => h.name).join() === 'L1,L3,L4,L2,Nowhere,A1,A3,A2',
+      'it still has to be driven to, and by somebody in particular — got [' +
+      d2.houses.map(h => h.name).join() + ']');
 
     /* A plan imported today has no coordinates on anything. It must come back
        whole rather than throwing or emptying the day. */
@@ -32089,9 +32130,15 @@ suite('77. Schedule route generator');
     check('S77', 'each route on screen counts from 1',
       html.indexOf('<stop>L1#1</stop>') > -1 && html.indexOf('<stop>A1#1</stop>') > -1,
       'the crew counting down the screen and the crew counting down the sheet must agree');
-    check('S77', 'a house in neither town is still drawn, and says so',
-      /routehead spare/.test(html) && html.indexOf('<stop>N1#1</stop>') > -1,
-      'a stop nobody holds a sheet for is a stop nobody drives to');
+    /* ⚠ REPOINTED 2026-09-10 BY [[SCH-67]]. It read:
+         "a house in neither town is still drawn, and says so"
+           /routehead spare/.test(html) && html.indexOf("<stop>N1#1</stop>") > -1
+       The spare block was the panel being honest about a house on nobody’s sheet.
+       There are none now, so the block is gone and the house is drawn under the crew
+       that carries it. Still drawn, which was always the point. */
+    check('S77', 'a house in neither town is drawn under the crew that carries it',
+      html.indexOf('<stop>N1#') > -1 && !/routehead spare/.test(html),
+      "it must appear on a crew's route rather than in a bucket of its own");
     panel.setCrews(null);
   }
 }
@@ -55275,7 +55322,24 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
   const need314 = ['bestCrewTowns', 'dayCrewTowns', 'dayCrewHouses', 'dayCrewCount',
                    'dayAssignedHouses', 'crewTownsFor', 'crewIndexes', 'crewCap',
                    'dayTownList', 'oneCrewMaxHouses', 'daySoloCrew',
-                   'oneManMaxHouses', 'planCities', 'extractCleanCity', 'isOneManDay'];
+                   'oneManMaxHouses', 'planCities', 'extractCleanCity', 'isOneManDay',
+                   /* ⭐ dayCrewHouses reaches these since [[SCH-67]]: the step that puts
+                      every house on a sheet picks the crew with the NEAREST house, so
+                      it has to be able to measure. Lifted, not stubbed — a stub would
+                      let this suite grade "nobody is left off a sheet" against
+                      arithmetic it made up itself. */
+                   'haversine', 'houseStopPoint', 'customerForHouse', 'houseGeoPoint'];
+  /* ⛔ estimatedPinFromAddress IS STUBBED HERE ON PURPOSE, the one thing in this
+     sandbox that is. houseGeoPoint falls back to it for a house with no coordinates on
+     its customer record, and lifting the real one drags TOWN_GRIDS, the Utah address
+     parser and a least-squares fit into a sandbox about splitting a day between crews
+     — it crashed outright when tried.
+     ⚠ SAFE BECAUSE OF WHAT THE FIXTURES ARE, not because the estimate does not matter.
+     Every house here is given real coordinates, so the fallback is never reached; a
+     null from it would only ever mean "this house cannot be measured", which the
+     catch-all already handles by falling back to the crew carrying least. If a fixture
+     in this suite ever stops carrying coordinates, lift the real one or this is
+     grading against a stub. */
   const lifted314 = {};
   need314.forEach(function (n) { lifted314[n] = extractFn(admin, n); });
   const missing314 = need314.filter(function (n) { return !lifted314[n]; });
@@ -55314,6 +55378,18 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
       /* planCities only answers for a NULL day, which no fixture here passes; it
          still has to be defined, and its own dependency has to exist with it. */
       'function allHouses(){ return []; }' +
+      /* ⛔ THE ONE DELIBERATE STUB HERE, and it is deliberate rather than an oversight.
+         Since [[SCH-67]] dayCrewHouses measures distances to decide which crew carries a
+         house no town covers, so it reaches houseStopPoint -> houseGeoPoint -> this.
+         Lifting the real one drags TOWN_GRIDS, the Utah address parser and a
+         least-squares fit into a sandbox about splitting a day between crews, and it
+         crashed outright when tried.
+         ⚠ SAFE BECAUSE OF WHAT THE FIXTURES ARE. Every house in this suite is given
+         real coordinates, so the estimate is never reached; null only ever means "this
+         house cannot be measured", which the catch-all already handles by falling back
+         to the crew carrying least. If a fixture here ever stops carrying coordinates,
+         lift the real one — otherwise this suite is grading against a stub. */
+      'function estimatedPinFromAddress(){ return null; }' +
       'const NEIGH = ' + JSON.stringify(NEIGH314) + ';' +
       'function townsAreNeighbours(a,b){ if(sameCity(a,b)) return true;' +
       ' return NEIGH.some(function(p){ return (sameCity(p[0],a)&&sameCity(p[1],b))||' +
@@ -55323,7 +55399,7 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
     assertSandbox('S314', 'dayCrewTowns', body314, admin,
       ['MAX_TOWNS_PER_CREW', 'MAX_STOPS_PER_ROUTE', 'ONE_MAN_MAX_HOUSES', 'CREWS',
        'crewCount', 'crewName', 'sameCity', 'cityOf', 'dayLimitFor', 'NEIGH',
-       'townsAreNeighbours', 'allHouses'].concat(need314));
+       'townsAreNeighbours', 'allHouses', 'estimatedPinFromAddress'].concat(need314));
 
     const sb314 = {};
     new Function(body314 +
@@ -55408,10 +55484,16 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
       }),
       'got ' + JSON.stringify(spreadTowns) + ' — "the second city being a neighboring ' +
       'city is mandatory not a priority" (2026-08-20)');
-    check('S314', 'and a day nobody can cover still reports what it cannot hold',
-      strandedCount(spread) > 0,
-      'the honest empty bucket has to survive — rebuildSeasonDays moves those houses ' +
-      'to a day that can hold them, and it can only do that if it is told');
+    /* ⚠ REPOINTED 2026-09-10 BY [[SCH-67]]. It read:
+         "and a day nobody can cover still reports what it cannot hold"
+           strandedCount(spread) > 0
+       ⭐ AND ITS REASON WAS RIGHT, WHICH IS WHY THE QUESTION SURVIVED UNDER A SECOND
+       NAME. rehomeMovedHouses really does need to know when a day’s crews do not work
+       a house’s town — collapsing that into one always-empty list would have stopped it
+       moving anybody ever again, silently. housesOutsideCrewTowns is that question. */
+    check('S314', 'a day nobody can cover carries everybody anyway',
+      strandedCount(spread) === 0,
+      'got ' + strandedCount(spread) + ' still on nobody\'s sheet');
 
     /* ---- houses, not towns ------------------------------------------------- */
     /* ⚠ THE TWO SCORES HAVE TO GIVE DIFFERENT ANSWERS OR THIS PROVES NOTHING, and
@@ -55485,8 +55567,13 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
        is two crews by the town count. What is actually worth pinning is that a
        crew-sized day is NOT absorbed, so that is what this says now. */
     const oneCrew = dayOf({ 'Provo': 6, 'Cedar Hills': 4, 'Moab': 1, 'Logan': 1 });
-    check('S314', 'but a crew-sized day is not absorbed, and still shows what it cannot drive',
-      sb314.count(oneCrew) === 2 && strandedCount(oneCrew) === 2,
+    /* ⚠ REPOINTED 2026-09-10 BY [[SCH-67]]. It read:
+         sb314.count(oneCrew) === 2 && strandedCount(oneCrew) === 2
+       The two stranded towns are carried now. What this check exists for is the other
+       half — that a crew-sized day is not collapsed onto one sheet by the one-man rule
+       — and that is untouched. */
+    check('S314', 'but a crew-sized day is not absorbed onto one sheet',
+      sb314.count(oneCrew) === 2 && strandedCount(oneCrew) === 0,
       'got ' + sb314.count(oneCrew) + ' crew(s), ' + strandedCount(oneCrew) + ' stranded — ' +
       'twelve houses is a crew, and the town rule is exactly about them');
 
@@ -56530,6 +56617,163 @@ suite('Suite 319. Priority moves an area up, once the area can carry a day');
       check('S319', 'and something more urgent than a phone call still goes first',
         first.indexOf('Zulu') !== -1,
         'got ' + JSON.stringify(first) + ' — a new member out of time (5) outranks somebody who rang up this morning (10), and betterTown already knew that');
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite 320. Nobody is on a day with nobody holding their sheet. Ever.
+ *
+ * Dax, 2026-09-10, reading ten stops under "Not on either crew's route" after a
+ * rebuild: "it is off limits to have anyone scheduled in a day not on either
+ * crews routes, save that as a rule and dont design the system so its even
+ * possible."
+ *
+ * ⭐ THE SECOND HALF IS WHY THIS SUITE IS SHAPED THE WAY IT IS. [[SCH-50]] already
+ * fixed the cases anybody had thought of — bestCrewTowns rescues a day the greedy
+ * split stranded, and Suite 314 pins the examples. Then [[SCH-63]] made a crew-day
+ * a block of adjacent houses, days began spanning ten town lines, the town cap of
+ * two-per-crew could only cover four of them, and it came straight back. Fixing
+ * examples is what let that happen.
+ *
+ * So this asserts the PROPERTY over days nobody designed: random towns, random
+ * sizes, random crew counts, pinned crews and unpinned, coordinates and none. It
+ * is allowed to be boring. It is not allowed to be about a case.
+ *
+ * ⚠ AND IT WOULD HAVE CAUGHT THE BUG IT WAS WRITTEN FOR: a day of thirty-three
+ * houses across ten towns is one draw of this generator.
+ */
+suite('Suite 320. Nobody is on a day with nobody holding their sheet');
+{
+  const src = extractFn(admin, 'dayCrewHouses');
+  if (!src) {
+    check('S320', 'the crew split is findable', false, 'renamed — repoint this');
+  } else {
+    /* Lifted, with only the crew-town map stubbed: this is about what dayCrewHouses
+       does with whatever the towns handed it, so the towns are the input. */
+    const run = new Function('day', 'townsByCrew', 'MAX_STOPS_PER_ROUTE', 'coords',
+      'const cityOf = function(h){ return (h.city || "").trim(); };' +
+      'const sameCity = function(a, b){ return String(a).trim().toLowerCase() === ' +
+      '  String(b).trim().toLowerCase(); };' +
+      'const crewTownsFor = function(i){ return townsByCrew[i] || []; };' +
+      'const CREWS = Array.from({length: Math.max(1, Object.keys(townsByCrew).length)},' +
+      '  function(_, i){ return {name: "Crew " + (i+1), city: ""}; });' +
+      'const customerForHouse = function(h){ return coords[h.id] ? {data: coords[h.id]} : null; };' +
+      'const houseGeoPoint = function(h, d){ return {lat: d && d.lat, lng: d && d.lng}; };' +
+      extractFn(admin, 'houseStopPoint') +
+      extractFn(admin, 'haversine') +
+      extractFn(admin, 'crewIndexes') +
+      extractFn(admin, 'crewCap') + src + 'return dayCrewHouses(day);');
+
+    let seed = 20260910;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const TOWNS = ['Lehi', 'American Fork', 'Highland', 'Alpine', 'Cedar Hills',
+                   'Lindon', 'Orem', 'Provo', 'Vineyard', 'Draper', 'Nowhere']; 
+
+    let worst = null, drawn = 0, everyoneHeld = true, noDuplicates = true;
+    for (let t = 0; t < 400; t++) {
+      const crews = 1 + Math.floor(rnd() * 3);
+      const houses = [], coords = {};
+      const n = 1 + Math.floor(rnd() * 40);
+      for (let i = 0; i < n; i++) {
+        const id = 'h' + t + '_' + i;
+        const town = TOWNS[Math.floor(rnd() * TOWNS.length)];
+        houses.push({ id: id, city: town, name: id });
+        /* a third of the book has no pin, exactly as the real one does */
+        if (rnd() > 0.33) coords[id] = { lat: 40.2 + rnd() * 0.5, lng: -112.1 + rnd() * 0.5 };
+      }
+      /* the towns the crews were given: sometimes fewer than the day holds, sometimes
+         none at all, which is the shape that used to strand everybody */
+      const townsByCrew = {};
+      for (let c = 0; c < crews; c++) {
+        const take = Math.floor(rnd() * 3);
+        const list = [];
+        for (let k = 0; k < take; k++) list.push(TOWNS[Math.floor(rnd() * TOWNS.length)]);
+        townsByCrew[c] = list;
+      }
+      const day = { houses: houses };
+      const out = run(day, townsByCrew, 20, coords);
+      drawn++;
+      const seen = new Map();
+      out.forEach(function (list, i) {
+        (list || []).forEach(function (h) { seen.set(h, (seen.get(h) || 0) + 1); });
+      });
+      const missed = houses.filter(function (h) { return !seen.has(h); });
+      const twice = houses.filter(function (h) { return (seen.get(h) || 0) > 1; });
+      if (missed.length && !worst) {
+        worst = { n: n, crews: crews, missed: missed.length,
+                  towns: Object.keys(townsByCrew).map(k => townsByCrew[k].join("/")).join(" | ") };
+      }
+      if (missed.length) everyoneHeld = false;
+      if (twice.length) noDuplicates = false;
+    }
+
+    check('S320', 'the generator really did draw something', drawn === 400,
+      'got ' + drawn + ' days');
+    check('S320', "over 400 unplanned days, every house is on exactly one crew's sheet",
+      everyoneHeld,
+      worst ? ('a day of ' + worst.n + ' houses across ' + worst.crews + ' crew(s) left ' +
+        worst.missed + ' with nobody holding their sheet — crew towns were [' +
+        worst.towns + ']') : '');
+    check('S320', 'and never on two sheets at once', noDuplicates,
+      'two crews driving to one house is the same fault pointing the other way — one of them wastes the trip and the customer is visited twice');
+
+    /* ⭐ AND IT GOES TO THE CREW ALREADY DRIVING NEAREST, which the sweep above cannot
+       see: it only asks whether everybody was carried, so handing every orphan to crew
+       0 passes it. A red-check proved exactly that. Two crews far apart, one orphan
+       sitting next to the second crew’s houses: crew 0 is listed first and is the
+       emptier of the two, so both of the other plausible rules would pick it. */
+    {
+      const houses = [], coords = {};
+      const put = (id, town, lat, lng) => {
+        houses.push({ id: id, city: town, name: id });
+        coords[id] = { lat: lat, lng: lng };
+      };
+      /* crew 0: two houses in the far north. crew 1: five in the south. */
+      put('n1', 'Lehi', 41.00, -111.90); put('n2', 'Lehi', 41.01, -111.90);
+      for (let i = 0; i < 5; i++) put('s' + i, 'Provo', 40.00 + i * 0.01, -111.70);
+      /* the orphan is a street nobody holds, and it is in the SOUTH */
+      put('orphan', 'Nowhere', 40.02, -111.70);
+      const out = run({ houses: houses }, { 0: ['Lehi'], 1: ['Provo'] }, 20, coords);
+      const who = out.findIndex(l => (l || []).some(h => h.id === 'orphan'));
+      check('S320', 'a house no town covers goes to the crew already driving nearest',
+        who === 1,
+        'went to crew ' + who + ' — crew 0 is listed first AND is carrying less, so both of the lazy answers pick it; only distance picks crew 1');
+    }
+
+    /* ⚠ AND THE HARD CASE ON ITS OWN, because a random sweep can be lucky. This is
+       Dax’s 1 October: thirty-three houses across ten towns, two crews, the town
+       split able to cover four of them. */
+    {
+      const houses = [], coords = {};
+      TOWNS.slice(0, 10).forEach(function (town, ti) {
+        for (let i = 0; i < 3 + (ti === 0 ? 3 : 0); i++) {
+          const id = 'oct' + ti + '_' + i;
+          houses.push({ id: id, city: town, name: id });
+          coords[id] = { lat: 40.3 + ti * 0.02, lng: -111.9 + i * 0.01 };
+        }
+      });
+      const out = run({ houses: houses }, { 0: ['Lehi', 'American Fork'], 1: ['Highland', 'Alpine'] }, 20, coords);
+      const held = new Set();
+      out.forEach(function (l) { (l || []).forEach(function (h) { held.add(h); }); });
+      /* ⛔ AND RE-HOMING STILL ASKS THE TOWN QUESTION, NOT THE SHEET ONE. This is a
+       WIRING assertion and it is here because a red-check proved nothing else holds it:
+       pointing rehomeMovedHouses back at unassignedHousesFor left the whole suite green
+       while it would never move anybody again. It tests `adrift.indexOf(h) === -1` and
+       reads a miss as "the crews already go there", so an always-empty list means a
+       customer who moves house keeps their old day for the rest of the season — and
+       every screen looks right, which is what makes it the expensive kind of quiet. */
+    {
+      const rh = stripComments(extractFn(admin, 'rehomeMovedHouses'));
+      check('S320', 'a customer who moved is still found by the town question',
+        /housesOutsideCrewTowns\(day\)/.test(rh) && !/unassignedHousesFor/.test(rh),
+        "since every house is on a sheet now, asking unassignedHousesFor here means " +
+        "never re-homing anybody again");
+    }
+
+    check('S320', 'and the day Dax reported carries all of its houses',
+        held.size === houses.length,
+        'got ' + held.size + ' of ' + houses.length + ' — this is the exact shape he was looking at: ten towns, four of them covered by the crew towns');
     }
   }
 }
