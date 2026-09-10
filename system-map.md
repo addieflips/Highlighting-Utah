@@ -2525,6 +2525,42 @@ the hand-back is still a hand-back rather than a leveller.
 re-asserted beside the three-crew ones, because the expensive failure is not "three does
 not work", it is "three works and two quietly changed".*
 
+### Why the forecast beside the map can be blank
+
+Added 2026-09-10. Dax, looking at a day's two route maps: *"the only issue is I cant see
+the forecast."*
+
+**Nothing was broken.** Open-Meteo answers about sixteen days ahead. On 10 September the
+season opens on 1 October — twenty-one days out — so no day in the plan had a forecast,
+and every chip was correctly absent. ⛔ **But absent is not an answer**: "no forecast
+yet" and "the forecast is broken" looked identical, and it took a bug report to find out
+which.
+
+An empty strip now says why, and the three reasons get three different sentences:
+
+| why it is empty | what it says |
+|---|---|
+| the day is further out than the service answers | *"No forecast this far ahead — it reaches to Sep 25."* |
+| the fetch failed | *"No forecast — "* and the error |
+| in range, but no house in those towns is on the map | *"No forecast for Levan — no house there is on the map yet."* |
+
+The first is a **wait** and says when to look again; the second is a **fault**, because
+telling somebody to wait for a forecast that is never coming is worse than silence; the
+third is a **data gap** the office can fix.
+
+⚠ **The old rule survives where it was right.** A town with no number still gets **no
+chip of its own** — a dash beside every unknown town is a row nobody reads. Silence per
+town, an explanation per day, and the sentence appears only when the whole strip would
+otherwise be blank.
+
+⚠ **And the horizon is read off the table that was actually fetched**, never from
+`FORECAST_DAYS` and a clock — those differ the moment the service trims its range or the
+fetch is an hour old, and a promise about when the forecast arrives is worth nothing if
+it is computed from a constant.
+
+*Where it is proved*: run-all.js **Suite 314**. 6 sabotages red-checked.
+*Rulings*: [[SCH-70]] in `claude/questions-map.md`.
+
 ### Who goes to the house that is miles from anywhere
 
 Added 2026-09-10. Dax: *"if someone is way out of the way as an outlier they should fall

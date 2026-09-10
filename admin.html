@@ -53206,6 +53206,19 @@ function forecastHighFor(town, dateStr){
   const v = row && row[dateStr];
   return typeof v === 'number' && isFinite(v) ? v : null;
 }
+/* ⭐ THE LAST DATE ANYBODY HAS AN OPINION ABOUT (added 2026-09-10, [[SCH-70]]).
+   Read off the table itself rather than worked out from FORECAST_DAYS and a clock: the
+   answer that matters is what was actually fetched, and the two differ the moment the
+   service trims its range or the fetch is an hour old. Empty string when there is
+   nothing at all, which is a different thing from a date in the past. */
+function forecastReachesTo(){
+  let last = "";
+  const byTown = SEASON_FORECAST.byTown || {};
+  Object.keys(byTown).forEach(function(t){
+    Object.keys(byTown[t] || {}).forEach(function(d){ if(d > last) last = d; });
+  });
+  return last;
+}
 /* Is this town at or below the cutoff on this date? FALSE when there is no forecast:
    see the note on COLD_DAY_MAX_F — an unknown day is never a cold day. */
 function forecastIsCold(town, dateStr){
@@ -61901,7 +61914,8 @@ function dayForecastChips(day){
   if(!ds) return '';
   const cold = (typeof COLD_DAY_MAX_F === 'number') ? COLD_DAY_MAX_F : 35;
   const bits = [];
-  dayAreas(day).forEach(function(t){
+  const towns = dayAreas(day);
+  towns.forEach(function(t){
     const v = forecastHighFor(t, ds);
     if(typeof v !== 'number' || !isFinite(v)) return;
     const freezing = v <= cold;
@@ -61912,7 +61926,39 @@ function dayForecastChips(day){
       (freezing ? 'background:#e7f0fb;color:#1d4e89' : 'background:#f0efe6;color:#6b776f') +
       '">' + esc(t) + ' ' + Math.round(v) + '°' + (freezing ? ' ❄' : '') + '</span>');
   });
-  return bits.join('');
+  if(bits.length) return bits.join('');
+  /* ⭐ AND AN EMPTY STRIP SAYS WHY IT IS EMPTY ([[SCH-70]], 2026-09-10). Dax, looking
+     at the two route maps: "the only issue is I cant see the forecast."
+     ⚠ NOTHING WAS WRONG. The free service answers about sixteen days and on 10
+     September the season opens on 1 October, twenty-one days out — so no day in the
+     plan had a forecast and every chip was correctly absent. ⛔ BUT ABSENT IS NOT AN
+     ANSWER. "No forecast yet" and "the forecast is broken" looked identical, which is
+     the failure this file names in a dozen other places, and it cost him a bug report
+     to find out which one he was looking at.
+     ⚠ THREE DIFFERENT REASONS, THREE DIFFERENT SENTENCES. Beyond the horizon is a
+     WAIT and says when it will arrive; a failed fetch is a FAULT and says so; a town
+     with no located house is a DATA gap the office can actually fix. Collapsing them
+     into one "no forecast" line would be the same silence wearing words. */
+  const note = function(txt){
+    return '<span style="display:inline-block;margin-left:8px;font-weight:600;' +
+      'font-size:11.5px;color:#6b776f">' + esc(txt) + '</span>';
+  };
+  if(SEASON_FORECAST.error) return note('No forecast — ' + SEASON_FORECAST.error);
+  const reach = (typeof forecastReachesTo === 'function') ? forecastReachesTo() : '';
+  if(!reach) return note('Forecast not loaded yet.');
+  if(ds > reach){
+    /* said as a date rather than "16 days", because the useful question is when to
+       look again, not how long the service’s range is */
+    let when = reach;
+    try{ const l = dlabel(new Date(reach + 'T00:00:00')); when = l.full; }
+    catch(err){ /* an unparseable date still reads fine as the iso string */ }
+    return note('No forecast this far ahead — it reaches to ' + when + '.');
+  }
+  /* in range, and still nothing: the towns on this day have no located house, so
+     there is nowhere to ask about. That is a data fault and the office can fix it. */
+  return note(towns.length
+    ? 'No forecast for ' + towns.join(', ') + ' — no house there is on the map yet.'
+    : 'No forecast — this day has no town on it.');
 }
 /* ---------- crews ----------
    Two crews, each working one city, each with a name the office can change.

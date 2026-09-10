@@ -33119,6 +33119,25 @@ suite('123. The two crew maps, actually rendered');
       global.isoOf = real('isoOf');
       global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
       global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
+      /* ⚠ THE FORECAST TABLE, because renderDayMaps draws the chips into its own
+         caption and since [[SCH-70]] those chips read SEASON_FORECAST to work out WHY
+         they are empty. Empty here on purpose — this suite is about the maps, and an
+         empty table is the state most of the season is really in. Without it the whole
+         suite died on a bare ReferenceError, which is what the jsdom run is for.
+         ⚠ AND forecastReachesTo IS LIFTED rather than stubbed: it reads this table, so
+         a stub would answer a horizon the table does not have. */
+      global.SEASON_FORECAST = { at: 0, byTown: {}, towns: 0, days: 0, error: '', pending: null };
+      global.forecastReachesTo = eval(extractFn(admin, 'forecastReachesTo') +
+        LF_ + 'forecastReachesTo');
+      /* ⚠ THE REAL ONES, NOT FAKES WEARING THEIR NAMES — the reliability gate refuses
+         that, rightly: a sandbox that later forgets to supply one would silently get
+         the stub and grade against it. Both are small and read only what is above. */
+      global.extractCleanCity = real('extractCleanCity');
+      global.forecastHighFor = eval(extractFn(admin, 'forecastHighFor') +
+        LF_ + 'forecastHighFor');
+      global.COLD_DAY_MAX_F = 31;
+      global.cityOf = real('cityOf');
+      global.dayAreas = real('dayAreas');
 
       const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(crewStart, crewEnd) +
         LF_ + admin.slice(mapStart, mapEnd) + LF_ +
@@ -55588,8 +55607,17 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
         !!chipsSrc, 'repoint this lift rather than stubbing it');
       if (!chipsSrc) return;
       const FC = { 'Lehi': { '2026-10-01': 54 }, 'Levan': { '2026-10-01': 31 } };
-      const chips = new Function('esc', 'dayAreas', 'isoOf', 'dayDate',
-        'forecastHighFor', 'COLD_DAY_MAX_F',
+      /* ⚠ ONE TABLE, BOTH READERS. forecastHighFor is stubbed from FC and
+         SEASON_FORECAST is built from the same object, so the chips and the "how far
+         does it reach" answer cannot disagree inside this fixture — two tables here
+         would let a check pass against a horizon no lookup agrees with.
+         ⚠ forecastReachesTo IS LIFTED, NOT STUBBED: it is the thing deciding which
+         sentence an empty strip gets, so a stub would make this suite agree with
+         itself. dlabel IS stubbed, deliberately — it is date formatting and these
+         checks are about WHICH sentence appears. */
+      const mkChips = (fc, err) => new Function('esc', 'dayAreas', 'isoOf', 'dayDate',
+        'forecastHighFor', 'COLD_DAY_MAX_F', 'SEASON_FORECAST', 'dlabel',
+        extractFn(admin, 'forecastReachesTo') + '\n' +
         chipsSrc + '\nreturn dayForecastChips;')(
         function (s) { return String(s); },
         function (d) {
@@ -55598,8 +55626,11 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
         },
         function () { return '2026-10-01'; },
         function () { return new Date(2026, 9, 1); },
-        function (t, ds) { const r = FC[t]; const v = r && r[ds]; return typeof v === 'number' ? v : null; },
-        35);
+        function (t, ds) { const r = fc[t]; const v = r && r[ds]; return typeof v === 'number' ? v : null; },
+        35,
+        { error: err || '', byTown: fc },
+        function (d) { return { wd: 'Thu', full: 'Oct 1' }; });
+      const chips = mkChips(FC);
       const warm = chips({ houses: [{ city: 'Lehi' }, { city: 'Lehi' }] });
       check('S314', 'a town with a forecast shows its high beside the map',
         /Lehi/.test(warm) && /54/.test(warm),
@@ -55609,19 +55640,51 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
         /31/.test(cold) && cold.indexOf(String.fromCharCode(10052)) !== -1,
         'got ' + JSON.stringify(cold) + ' — the cutoff is what vetoes a town, so the ' +
         'screen has to show the number the plan was built on');
-      /* ⚠ THE ONE THAT MATTERS. Open-Meteo answers ~16 days and the season runs into
-         December, so MOST dates have no number at all. A dash, a zero or an "unknown"
-         on every one of them is a strip of noise that teaches the office to stop
-         reading the row on the days it does say something — and "no forecast is not a
-         cold forecast" is the builder's own rule. */
+      /* ⚠ NO PLACEHOLDER PER TOWN, AND THIS HALF IS UNCHANGED. Open-Meteo answers ~16
+         days and the season runs into December, so most dates have no number. A dash,
+         a zero or an "unknown" against every town is a strip of noise that teaches the
+         office to stop reading the row on the days it does say something — and "no
+         forecast is not a cold forecast" is the builder's own rule. */
+      const mixed = chips({ houses: [{ city: 'Lehi' }, { city: 'Moab' }] });
+      check('S314', 'a town with no forecast gets no chip of its own',
+        /54/.test(mixed) && !/Moab/.test(mixed),
+        'got ' + JSON.stringify(mixed) + ' — a placeholder beside every unknown town is a row nobody reads');
+      /* ⛔ REPOINTED 2026-09-10 BY [[SCH-70]]. These two read:
+           "and a town with no forecast is silent, not a dash or a zero"
+             unknown === ''
+           "and a day with no forecast anywhere draws no strip at all"
+             chips({houses:[{city:'Moab'},{city:'Provo'}]}) === ''
+         Silence was right about the per-town placeholder above and wrong about the
+         WHOLE STRIP. Dax, looking at two route maps on 10 September: "the only issue is
+         I cant see the forecast." Nothing was broken — the season opens 21 days out and
+         the service answers 16 — but "not yet" and "broken" looked identical, and it
+         cost him a bug report to find out which. */
       const unknown = chips({ houses: [{ city: 'Moab' }] });
-      check('S314', 'and a town with no forecast is silent, not a dash or a zero',
-        unknown === '',
-        'got ' + JSON.stringify(unknown) + ' — no forecast is not a cold forecast, and ' +
-        'a placeholder on every December day is a row nobody reads');
-      check('S314', 'and a day with no forecast anywhere draws no strip at all',
-        chips({ houses: [{ city: 'Moab' }, { city: 'Provo' }] }) === '',
-        'an empty strip is the honest answer for most of the season');
+      check('S314', 'a day with nothing to show says why, instead of showing nothing',
+        unknown !== '' && /No forecast/.test(unknown),
+        'got ' + JSON.stringify(unknown) + ' — an empty strip and a broken one looked the same, which is what he reported');
+      check('S314', 'and names the towns it could not answer for, because that is fixable',
+        /Moab/.test(unknown) && /on the map/.test(unknown),
+        "in range and still nothing means no house there is geocoded, which the office " +
+        "can act on");
+      /* ⚠ AND THE COMMONEST CASE OF ALL GETS ITS OWN SENTENCE: the day is simply
+         further out than the service will answer. It says WHEN, because the useful
+         question is when to look again. */
+      {
+        const far = mkChips({ 'Lehi': { '2026-09-20': 70 } });
+        const out = far({ houses: [{ city: 'Lehi' }] });
+        check('S314', 'a day beyond the forecast says how far it reaches',
+          /this far ahead/.test(out) && /Oct 1|2026-09-20/.test(out),
+          'got ' + JSON.stringify(out) + ' — on 10 September every day of the season is past the horizon, so this is what he was actually looking at');
+      }
+      /* a fetch that failed is a FAULT, not a wait, and must not read as one */
+      {
+        const broke = mkChips({}, 'the weather service did not answer');
+        const out = broke({ houses: [{ city: 'Lehi' }] });
+        check('S314', 'and a failed fetch says so rather than "not yet"',
+          /did not answer/.test(out),
+          'got ' + JSON.stringify(out) + ' — telling somebody to wait for a forecast that is never coming is worse than saying nothing');
+      }
     })();
 
     /* ---- and it is stable -------------------------------------------------- */
