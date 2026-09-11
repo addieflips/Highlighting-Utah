@@ -163,6 +163,12 @@ check('and no reserved entry describes something that changed',
  * empty. CLAUDE.md names it as the first thing to check when a list comes up blank.
  * ------------------------------------------------------------------------- */
 const SERVER_ONLY = {
+  inboundTexts:
+    'Written only by inboundText through the Admin SDK, which bypasses rules entirely. ' +
+    'NO rule is the correct state: it is a de-duplication ledger of raw inbound texts, ' +
+    'and nothing in the browser has any reason to read one. What the office sees is the ' +
+    'note raised in `messages`, which has its own rule. Named in the map\'s ' +
+    'Cloud-Functions table.',
   portalRateLimits:
     'Written only by Cloud Functions through the Admin SDK, which bypasses rules ' +
     'entirely. Having NO rule is the correct state here: no browser should ever reach ' +

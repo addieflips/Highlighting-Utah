@@ -598,6 +598,185 @@ exports.paypalCaptureOrder = onCall(
  * deals with it". Anything that needs to reach a phone has to be sent by a person.
  */
 
+/* ⭐ INBOUND TEXTS — THE HALF OF GOOGLE VOICE THAT CAN BE AUTOMATED (added 2026-09-11).
+ *
+ * Nothing here sends; see the block above. But Google Voice will forward every inbound
+ * text to email — Settings → Messages → "Forward messages to email" — which is a
+ * supported setting rather than a workaround, and an Apps Script on that mailbox posts
+ * them here. `tools/google-voice-inbound.gs` is that script.
+ *
+ * ⚠ THE PARSING DELIBERATELY LIVES IN THE SCRIPT, NOT HERE. The shape of a forwarded
+ * Google Voice email is Google's to change without telling anybody, so the brittle part
+ * sits where it can be fixed and re-run in a minute, and this function is handed a
+ * number and a body it can trust. Everything below is testable without an email at all.
+ *
+ * ⚠ AND THIS IS WHAT MAKES STOP WORK AGAIN. Twilio used to refuse an opted-out number
+ * with 21610 and the quote screen recorded that; with Twilio gone, a STOP reply is an
+ * ordinary message somebody has to notice. Nobody was watching. This watches.
+ *
+ * Setup (once):
+ *   firebase functions:secrets:set INBOUND_TEXT_TOKEN     (any long random string)
+ *   firebase deploy --only functions:inboundText
+ *   put the printed URL and the same token into the Apps Script's Script Properties.
+ */
+const INBOUND_TEXT_TOKEN = defineSecret('INBOUND_TEXT_TOKEN');
+
+/* ⛔ THE WHOLE MESSAGE, NEVER A SUBSTRING, AND THIS IS THE IMPORTANT LINE IN THE FILE.
+   "stop by tomorrow and see the lights" is a customer making a plan; "please stop
+   texting me about this" is a complaint we must READ, not act on blindly. Matching a
+   substring would opt both of them out silently, and an opt-out is close to
+   irreversible in practice — nobody ever tells you they stopped hearing from you.
+   These are the standard carrier keywords and nothing else. */
+const SMS_STOP_WORDS = ['stop', 'stopall', 'stop all', 'unsubscribe', 'cancel', 'end', 'quit', 'optout', 'opt out'];
+/* The mirror. Deliberately NOT "yes" — a customer answering a quote says yes constantly,
+   and that must never be read as asking to be put back on a list. */
+const SMS_START_WORDS = ['start', 'unstop', 'subscribe'];
+function normaliseKeyword(text) {
+  return String(text || '').trim().toLowerCase().replace(/[.!,]+$/, '').replace(/\s+/g, ' ');
+}
+function isStopMessage(text) {
+  return SMS_STOP_WORDS.indexOf(normaliseKeyword(text)) !== -1;
+}
+function isStartMessage(text) {
+  return SMS_START_WORDS.indexOf(normaliseKeyword(text)) !== -1;
+}
+
+/* A quote from somebody who is not a customer yet still gets to say STOP. findByPhone
+   only covers jobAddresses, so this is the other half.
+   ⚠ THE INDEXED QUERY IS TRIED FIRST AND IS NOT TRUSTED ALONE: stored phones are not
+   all digits-only — the office types "(801) 555-0123" and the import keeps it, which is
+   the caveat written up by houseBillingRow. For an ordinary reply a miss costs nothing,
+   because the note is raised either way. For a STOP a miss costs a customer, so that
+   path pays for a scan rather than guessing. */
+async function findQuoteByPhone(phoneDigits, thorough) {
+  if (!phoneDigits) return null;
+  try {
+    const snap = await db.collection('quotes').where('phone', '==', phoneDigits).limit(1).get();
+    if (!snap.empty) return { id: snap.docs[0].id, data: snap.docs[0].data() };
+  } catch (err) {
+    console.error('[HU] indexed quote phone lookup failed', err);
+  }
+  if (!thorough) return null;
+  const all = await db.collection('quotes').get();
+  let found = null;
+  all.forEach(function (d) {
+    if (found) return;
+    if (digitsOnly(d.data().phone) === phoneDigits) found = { id: d.id, data: d.data() };
+  });
+  return found;
+}
+
+exports.inboundText = onRequest(
+  { secrets: [INBOUND_TEXT_TOKEN] },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') { res.status(405).send('POST only'); return; }
+      const expected = INBOUND_TEXT_TOKEN.value() || '';
+      const given = String(req.headers['x-hu-token'] || '');
+      /* ⚠ LENGTH IS CHECKED FIRST BECAUSE timingSafeEqual THROWS on a length mismatch
+         rather than returning false. Left to the catch, every wrong-length token would
+         come back 500 — which reads as "the endpoint is broken" and would have somebody
+         redeploying a function that is working perfectly and refusing them correctly. */
+      const ok = expected.length > 0 && given.length === expected.length &&
+        crypto.timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+      if (!ok) { res.status(401).send('no'); return; }
+
+      const body = req.body || {};
+      const messageId = String(body.messageId || '').trim();
+      const fromDigits = digitsOnly(body.fromNumber);
+      const text = String(body.text || '');
+      if (!messageId || !fromDigits) {
+        res.status(400).send('messageId and fromNumber are required');
+        return;
+      }
+
+      /* ⚠ ONE ROW PER MESSAGE, KEYED ON THE MESSAGE'S OWN ID. The script retries on any
+         non-200, so without this a slow write would post a second note for the same
+         text. create() fails if the id is taken, which is the guard — a get-then-write
+         would still race two retries against each other. */
+      const seenRef = db.collection('inboundTexts')
+        .doc(messageId.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 200));
+      try {
+        await seenRef.create({
+          fromNumber: fromDigits,
+          text: text.slice(0, 2000),
+          receivedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      } catch (dupErr) {
+        res.status(200).json({ ok: true, duplicate: true });
+        return;
+      }
+
+      const stopping = isStopMessage(text);
+      const customer = await findByPhone(fromDigits);
+      /* A STOP pays for the thorough lookup; an ordinary reply does not. */
+      const quote = await findQuoteByPhone(fromDigits, stopping);
+      const who = (customer && customer.data.name) || (quote && quote.data.name) || '';
+      const shown = text.trim().slice(0, 300) || '(an empty message)';
+      let topic = 'Text Reply';
+      let note = '';
+
+      if (stopping) {
+        const reason = 'They replied "' + normaliseKeyword(text) + '" to a text';
+        const stamp = {
+          smsOptedOut: true,
+          smsOptedOutAt: admin.firestore.FieldValue.serverTimestamp(),
+          smsOptedOutReason: reason
+        };
+        if (customer) await db.collection('jobAddresses').doc(customer.id).update(stamp);
+        if (quote) await db.collection('quotes').doc(quote.id).update(stamp);
+        topic = 'Do Not Text — They Replied STOP';
+        note = (who || fromDigits) + ' replied "' + normaliseKeyword(text) + '", so this number must not be ' +
+          'texted again. ' +
+          (customer || quote
+            ? 'They are marked "Opted out of texts" and the text buttons will refuse them. '
+            : '⚠ NOBODY ON FILE MATCHES THIS NUMBER, so nothing could be ticked automatically — ' +
+              'find them and tick "Don\'t text this customer" by hand, or they will be texted again. ') +
+          'This stops TEXTS only: they still get their invoice and account emails.';
+      } else if ((customer && customer.data.smsOptedOut) || (quote && quote.data.smsOptedOut)) {
+        if (isStartMessage(text)) {
+          const undo = { smsOptedOut: false, smsOptedOutReason: '' };
+          if (customer) await db.collection('jobAddresses').doc(customer.id).update(undo);
+          if (quote) await db.collection('quotes').doc(quote.id).update(undo);
+          topic = 'They Asked To Be Texted Again';
+          note = (who || fromDigits) + ' replied "' + normaliseKeyword(text) + '", so the opt-out has been ' +
+            'lifted and they can be texted again.';
+        } else {
+          /* ⚠ A REPLY DOES NOT CANCEL A STOP. Somebody who has asked not to be texted
+             may still answer a question; reading that as permission to start again is
+             how a withdrawn consent gets quietly overturned by the customer being
+             polite. Only the words above lift it. */
+          topic = 'Text Reply (from somebody who has opted out)';
+          note = (who || fromDigits) + ' texted: "' + shown + '"\n\nThey have asked not to be texted, and ' +
+            'this reply does NOT change that — answer them by email or phone unless they say START.';
+        }
+      } else {
+        note = (who || 'Somebody on ' + fromDigits) + ' texted back: "' + shown + '"\n\n' +
+          (who ? '' : '⚠ No customer or quote on file matches this number. ') +
+          'Texts are not read anywhere in this app — reply in Google Voice.';
+      }
+
+      await db.collection('messages').add({
+        topic: topic, folder: 'System',
+        name: who, phone: fromDigits, email: '', contactMethod: 'text',
+        ref: 'gv-' + messageId.slice(0, 80),
+        message: note,
+        autoQueuedToWarehouse: false, needsReassign: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      res.status(200).json({
+        ok: true, matched: !!(customer || quote), stopped: stopping, topic: topic
+      });
+    } catch (err) {
+      console.error('[HU] inboundText failed:', err);
+      /* 500 on purpose: the script retries on any non-200, and a text that was dropped
+         because of a transient Firestore error is a STOP nobody ever sees. */
+      res.status(500).send('failed');
+    }
+  }
+);
+
 // capture (e.g. the customer closed the tab right after paying). Verifies the
 // signature before trusting anything, and never double-counts a payment that
 // the browser-side call already recorded.

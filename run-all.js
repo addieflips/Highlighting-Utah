@@ -58578,3 +58578,191 @@ suite('327. Every screen that texts hands off to Google Voice, and none of them 
     'five call sites plus the definition — a screen that copies straight to the clipboard ' +
     'is one that never opens Google Voice, which is exactly how they drifted apart before');
 }
+
+suite('328. Inbound texts, and the STOP nobody was watching for');
+{
+  /* Block-scoped in every suite that reads it, by this file's own convention. */
+  const fns = read('functions/index.js');
+  /* ⚠ THIS IS THE ONLY THING ENFORCING STOP NOW. Twilio refused an opted-out number
+     with 21610 and the quote screen recorded it; Twilio is gone, and from Google Voice
+     a STOP is an ordinary message somebody has to notice. inboundText is what notices.
+
+     ⚠ THE PARSING OF THE EMAIL IS NOT TESTED HERE AND MUST NOT BE. It lives in
+     tools/google-voice-inbound.gs because the format is Googles to change; this
+     function is handed a number and a body, which is exactly what makes it gradable
+     without an inbox. What is graded here is what it DOES with them. */
+  const tokStart = fns.indexOf('const INBOUND_TEXT_TOKEN');
+  const expStart = fns.indexOf('exports.inboundText = onRequest(');
+  check('S328', 'the inbound endpoint is findable',
+    tokStart > -1 && expStart > tokStart,
+    'renamed — repoint this rather than dropping it; it is the only thing that reads a STOP');
+  /* ⚠ sectionFrom OVER-SLICES AN `exports.x = onRequest(...)` CONSTRUCT — it ran on past
+     the closing paren and swept paypalWebhook in with it, so the sandbox died on a bare
+     "PAYPAL_CLIENT_ID is not defined" attributed to whichever suite happened to be
+     current when the async settled. An explicit end anchor instead, asserted, so a
+     reorder fails here by name rather than dragging in the next function silently. */
+  const afterInbound = fns.indexOf('// capture (e.g. the customer closed the tab right after paying)');
+  check('S328', 'the end of the inbound endpoint is findable',
+    afterInbound > expStart,
+    'the anchor that bounds the lift has moved — repoint it, or the sandbox quietly swallows the next function');
+  const inboundSrc = fns.slice(tokStart, afterInbound);
+
+  /* ── the keyword rules, which are the whole safety of the feature ── */
+  const kw = new Function(
+    fns.slice(fns.indexOf('const SMS_STOP_WORDS'), fns.indexOf('async function findQuoteByPhone')) +
+    'return {stop: isStopMessage, start: isStartMessage};')();
+
+  ['STOP', 'stop', ' Stop. ', 'STOPALL', 'stop all', 'unsubscribe', 'CANCEL', 'quit', 'end', 'opt out']
+    .forEach(function(w){
+      check('S328', '"' + w + '" is an opt-out', kw.stop(w) === true,
+        'a standard carrier keyword that did not register — the customer believes they have opted out');
+    });
+
+  /* ⛔ THE SUBSTRING TRAP, AND THE REASON THE WHOLE MESSAGE IS MATCHED. Each of these
+     contains the word "stop" and none of them is an opt-out. Matching a substring
+     would silently stop texting a customer who never asked — and an opt-out is close
+     to irreversible in practice, because nobody ever tells you they stopped hearing
+     from you. The third is the cruellest: it is a complaint that must be READ. */
+  [
+    'stop by tomorrow and see the lights',
+    'Can you stop at the corner house too?',
+    'please stop texting me about this and call me instead',
+    'we will be at the bus stop',
+    'do not stop the install, we are home'
+  ].forEach(function(w){
+    check('S328', '"' + w.slice(0, 34) + '..." is NOT an opt-out', kw.stop(w) === false,
+      'a substring match here silently stops texting somebody who never asked to be left alone');
+  });
+
+  check('S328', 'START and UNSTOP lift an opt-out',
+    kw.start('START') === true && kw.start('unstop') === true,
+    'the mirror of STOP has to work or an opt-out can never be undone by the customer');
+  /* ⛔ AND "yes" IS NOT ONE, DELIBERATELY. A customer answering a quote says yes all
+     day; reading that as "put me back on the texting list" overturns a withdrawn
+     consent using the customer's own politeness. */
+  check('S328', '"yes" does not lift an opt-out',
+    kw.start('yes') === false && kw.start('ok') === false,
+    'answering a question is not asking to be texted again');
+
+  /* ── and what the endpoint does with them ── */
+  const TOKEN = 'a-long-test-token-value';
+  function runInbound(opts){
+    const o = opts || {};
+    const added = [];
+    const updates = [];
+    const seen = o.seen || {};
+    const sent = {code: 0, body: null};
+    const ctx = {
+      exports: {},
+      onRequest: (cfg, handler) => handler,
+      defineSecret: () => ({value: () => TOKEN}),
+      admin: { firestore: { FieldValue: { serverTimestamp: () => '__ts__' } } },
+      crypto: require('crypto'),
+      Buffer: Buffer,
+      digitsOnly: (r) => String(r || '').replace(/\D/g, ''),
+      findByPhone: async () => (o.customer ? {id: 'h1', data: o.customer} : null),
+      db: {
+        collection: (name) => ({
+          doc: (id) => ({
+            create: async (d) => {
+              if (seen[name + '/' + id]) throw new Error('already exists');
+              seen[name + '/' + id] = d;
+            },
+            update: async (u) => { updates.push(Object.assign({__col: name}, u)); }
+          }),
+          add: async (m) => { added.push(Object.assign({__col: name}, m)); },
+          where: () => ({ limit: () => ({ get: async () => ({
+            empty: !o.quote,
+            docs: o.quote ? [{id: 'q1', data: () => o.quote}] : []
+          }) }) }),
+          get: async () => ({ forEach: function(cb){
+            if (o.quote) cb({id: 'q1', data: () => o.quote});
+          } })
+        })
+      },
+      console: {error: function(){}, warn: function(){}, log: function(){}}
+    };
+    const names = Object.keys(ctx);
+    new Function(...names, inboundSrc)(...names.map(n => ctx[n]));
+    const res = {
+      status: function(c){ sent.code = c; return res; },
+      send: function(b){ if(!sent.body) sent.body = b; return res; },
+      json: function(b){ if(!sent.body) sent.body = b; return res; }
+    };
+    return ctx.exports.inboundText({
+      method: o.method || 'POST',
+      headers: {'x-hu-token': o.token === undefined ? TOKEN : o.token},
+      body: {messageId: o.messageId || 'm1', fromNumber: o.from || '8015551234', text: o.text}
+    }, res).then(() => ({sent: sent, added: added, updates: updates, seen: seen}));
+  }
+
+  assertSandbox('S328', 'inboundText', inboundSrc, inboundSrc,
+    ['onRequest', 'defineSecret', 'exports', 'db', 'admin', 'crypto', 'Buffer',
+     'digitsOnly', 'findByPhone', 'console', 'String', 'Number', 'Boolean', 'Object',
+     'Array', 'Date', 'Math', 'JSON', 'Set', 'Map', 'Promise', 'require']);
+
+  pendingAsync.push((async () => {
+    const bad = await runInbound({token: 'nope', text: 'hello'});
+    check('S328', 'a wrong token is refused and writes nothing',
+      bad.sent.code === 401 && bad.added.length === 0 && bad.updates.length === 0,
+      'got ' + bad.sent.code + ' — this endpoint is open to the internet');
+
+    /* ⚠ timingSafeEqual THROWS on a length mismatch rather than returning false, so a
+       wrong-LENGTH token would come back 500 if the length were not checked first —
+       and a 500 reads as "the endpoint is broken", which sends somebody redeploying a
+       function that is refusing them exactly as it should. */
+    const short = await runInbound({token: 'x', text: 'hello'});
+    check('S328', 'a wrong-length token is refused as 401, not crashed as 500',
+      short.sent.code === 401,
+      'got ' + short.sent.code + ' — a 500 here reads as a broken endpoint rather than a refused caller');
+
+    const plain = await runInbound({customer: {name: 'Dana Holt'}, text: 'sounds good, thanks!'});
+    check('S328', 'an ordinary reply raises a note and opts nobody out',
+      plain.sent.code === 200 && plain.added.length === 1 &&
+      plain.added[0].__col === 'messages' && plain.added[0].folder === 'System' &&
+      plain.updates.length === 0 &&
+      plain.added[0].message.indexOf('sounds good') !== -1,
+      'got ' + JSON.stringify({code: plain.sent.code, added: plain.added.length, updates: plain.updates.length}));
+
+    const stopped = await runInbound({customer: {name: 'Dana Holt'}, text: 'STOP'});
+    const optOut = stopped.updates.filter(u => u.smsOptedOut === true);
+    check('S328', 'a STOP is written onto the customer, with the date and the reason',
+      optOut.length >= 1 && optOut[0].smsOptedOutAt === '__ts__' &&
+      /replied/.test(optOut[0].smsOptedOutReason || ''),
+      'got ' + JSON.stringify(stopped.updates) + ' — with Twilio gone this is the only thing that records a STOP');
+    check('S328', 'and the office is told about it',
+      stopped.added.length === 1 && /STOP/.test(stopped.added[0].topic),
+      'a flag flipped silently is one nobody can check or undo');
+
+    /* ⛔ AN UNMATCHED STOP IS THE DANGEROUS ONE. Nothing can be ticked, so if the note
+       does not SAY that plainly, the office reads "they opted out" and assumes it was
+       handled — and the next send texts them again. */
+    const orphan = await runInbound({text: 'stop', from: '8019990000'});
+    check('S328', 'a STOP from a number nobody matches says out loud that nothing was ticked',
+      orphan.added.length === 1 &&
+      /NOBODY ON FILE|by hand/.test(orphan.added[0].message),
+      'got ' + JSON.stringify((orphan.added[0] || {}).message || '').slice(0, 160));
+
+    /* One row per message: the script retries on any non-200. */
+    const shared = {};
+    const first = await runInbound({customer: {name: 'Dana'}, text: 'hello', messageId: 'dup1', seen: shared});
+    const again = await runInbound({customer: {name: 'Dana'}, text: 'hello', messageId: 'dup1', seen: shared});
+    check('S328', 'the same message posted twice raises one note, not two',
+      first.added.length === 1 && again.added.length === 0 && again.sent.code === 200,
+      'the Apps Script retries on any non-200, so without this a slow write doubles every note');
+
+    /* ⛔ A REPLY DOES NOT CANCEL A STOP. Somebody who asked not to be texted may still
+       answer a question, and reading that as permission is how a withdrawn consent gets
+       overturned by the customer being polite. */
+    const polite = await runInbound({customer: {name: 'Dana', smsOptedOut: true}, text: 'thanks, looks great'});
+    check('S328', 'a friendly reply from somebody opted out does NOT put them back on',
+      polite.updates.filter(u => u.smsOptedOut === false).length === 0 &&
+      /opted out/i.test(polite.added[0].topic + ' ' + polite.added[0].message),
+      'got ' + JSON.stringify(polite.updates) + ' — only START lifts it');
+
+    const back = await runInbound({customer: {name: 'Dana', smsOptedOut: true}, text: 'START'});
+    check('S328', 'but START does',
+      back.updates.filter(u => u.smsOptedOut === false).length >= 1,
+      'got ' + JSON.stringify(back.updates));
+  })());
+}

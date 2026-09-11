@@ -1317,6 +1317,14 @@ check('the path still has every step in it',
        date for the whole book, so drawn on a path it would put the identical row on every
        customer's history — including the several hundred the drip has not reached yet,
        which is precisely the difference the card under Automation Emails exists to show. */
+    /* ⚠ THE TEXT ITSELF IS NOT A JOURNEY STEP EITHER, AND THAT IS THE DECISION HERE.
+       A customer texting us back is worth telling the office about — it raises a note
+       in the Inbox, which carries its own createdAt — but it is not a stage of the
+       work. The one inbound text that DOES change the record is a STOP, and that
+       writes smsOptedOutAt, which is already accounted for above. */
+    receivedAt: 'when a forwarded Google Voice email reached inboundText, on the ' +
+      'inboundTexts ledger — a row about one email, kept only so a retried post cannot ' +
+      'raise the same note twice, and about no customer at all',
     builtAt: 'when the office assembled the RSVP drip queue, on settings/rsvpSendPlan — a ' +
       'document about the send, not about any customer; the per-customer date is ' +
       'rsvpEmailedAt when their own email actually goes',
