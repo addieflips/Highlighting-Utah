@@ -2606,6 +2606,50 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
     removedFrom = await removeCustomerFromUpcomingRoutes(match.id);
   }
 
+  /* ⭐ AND SOMEBODY IS TOLD ([[RS-57]], 2026-09-11). Addie: "can we have no emails be there
+     own section and it will go in the folder with the response they choose", then "I mean No
+     RSVPs."
+     ⛔ NOTHING WAS WRITTEN TO THE INBOX AT ALL when somebody declined. The record changed,
+     they came off every upcoming route, their lights were queued for recycling and their
+     referral was taken back — and the one list the office reads every morning said nothing.
+     A customer saying no is the single most consequential answer in the season and it was the
+     quietest thing that could happen.
+     ⚠ THE TOPIC IS THE ANSWER THEY CHOSE, because the Inbox files it into the folder of that
+     name — her "it will go in the folder with the response they choose". Not This Year and
+     Back Next Year are different decisions with different consequences (a recycle and a
+     number back in the pool, against staying on the books for the season after), so one
+     folder for both would hide the difference on the screen where it is acted on.
+     ⚠ ON THE TRANSITION ONLY, the same shape as the recycle flag and the referral clawback
+     above: re-answering the same way must not raise the note again every time somebody
+     re-opens their link, which is how a folder fills with duplicates of one decision.
+     ⚠ AND IT IS BEST EFFORT, guarded on its own. A failed note must never undo an answer
+     that has already been recorded — their RSVP is the thing that matters and it is already
+     written by this line. */
+  if ((response === 'no' || response === 'backnextyear') &&
+      String(oldData.rsvpStatus || '') !== response) {
+    try {
+      await db.collection('messages').add({
+        topic: response === 'no' ? 'RSVP — Not This Year' : 'RSVP — Back Next Year',
+        folder: 'System',
+        name: oldData.name || '', phone: oldData.phone || '', email: oldData.email || '',
+        contactMethod: '',
+        message: (oldData.name || 'A customer') +
+          (response === 'no'
+            ? ' answered NO to this season\'s RSVP. They are off every upcoming route' +
+              (removedFrom ? ' (' + removedFrom + ' removed)' : '') +
+              ', their lights are queued to be recycled, and their customer number goes back ' +
+              'to the pool once the warehouse has them.'
+            : ' answered BACK NEXT YEAR. They are off every upcoming route' +
+              (removedFrom ? ' (' + removedFrom + ' removed)' : '') +
+              ' and nothing is being built for them this season, but they are still on the ' +
+              'books — they have not cancelled.'),
+        autoQueuedToWarehouse: false,
+        needsReassign: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (e) { console.error('[HU] RSVP decline note failed:', e); }
+  }
+
   /* ⚠ THE GATE CODE RIDES BACK ON THE RSVP ANSWER, and only here. It is in
      PORTAL_READ_FIELDS already, but this screen is reached with no sign-in —
      so it is returned as the value for THIS token, which the write above has

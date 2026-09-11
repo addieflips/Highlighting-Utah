@@ -47,7 +47,9 @@ function liftConst(n){
   if(!m) throw new Error('could not find const ' + n);
   return m[0];
 }
-const NAMES = ['MSG_TYPE_MEMBER','SYSTEM_NOTICE_TOPICS','MSG_CATEGORIES','MSG_TOPIC_CATEGORIES',
+/* ⚠ AND THE TWO RSVP DECLINE TOPICS ([[RS-57]]) — SYSTEM_NOTICE_TOPICS names them, so
+   lifting that table without them dies on a bare ReferenceError while it is being built. */
+const NAMES = ['RSVP_NO_TOPIC','RSVP_BNY_TOPIC','MSG_TYPE_MEMBER','SYSTEM_NOTICE_TOPICS','MSG_CATEGORIES','MSG_TOPIC_CATEGORIES',
   'MSG_TEXT_CATEGORIES','MSG_STATUS','MSG_STATUS_LABEL','MSG_PRIORITY','MSG_PRIORITY_LABEL',
   'MSG_SEVERITY_LABEL','COMM_ACTIVITY_TOPICS'];
 /* ⚠ commRowMatches CALLS BOTH OF THESE NOW ([[MSG-15]]) — lifted, never stubbed. A stub for
@@ -246,6 +248,9 @@ console.log('');
 console.log('--- the contact line under the name ---');
 
 const CONTACT_SRC =
+  /* ⚠ SYSTEM_NOTICE_TOPICS NAMES THE TWO RSVP DECLINE TOPICS ([[RS-57]]), so lifting that
+     table without them dies on a bare ReferenceError while it is being built. */
+  liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
   liftConst('MSG_TYPE_MEMBER') + liftConst('SYSTEM_NOTICE_TOPICS') +
   liftFn('esc') + liftFn('fmtPhone') + liftFn('msgTypeOf') +
   liftFn('msgErrorTokenTail') + liftFn('msgErrorWhoIs') +
@@ -616,6 +621,82 @@ check('the built-in sections still work with custom ones present',
   sb.matches(aMemberUnread, 'member', 'questions') === true);
 
 /* =============================================================================
+ * ⭐ THE NOs GET THEIR OWN SECTION ([[RS-57]], 2026-09-11)
+ *
+ * Addie: "can we have no emails be there own section and it will go in the folder with the
+ * response they choose", then "I mean No RSVPs."
+ *
+ * ⛔ NOTHING WAS WRITTEN TO THE INBOX AT ALL when somebody declined. The record changed, they
+ * came off every upcoming route, their lights were queued for recycling and their referral was
+ * taken back — and the one list the office reads every morning said nothing. So there was no
+ * message for a section to hold, and the section is only half of this: functions/index.js
+ * raises the note, and that half is checked in run-all.js where the server lives.
+ * ============================================================================= */
+console.log('');
+console.log('--- the No RSVPs section ---');
+{
+  const noRow  = {topic:'RSVP — Not This Year', folder:'System', read:false, message:'x'};
+  const bnyRow = {topic:'RSVP — Back Next Year', folder:'System', read:false, message:'y'};
+  const other  = {topic:'Routes Kept Up To Date', folder:'System', read:true, message:'z'};
+
+  check('both answers reach the No RSVPs section',
+    sb.matches(noRow, 'rsvpno', 'all') === true &&
+    sb.matches(bnyRow, 'rsvpno', 'all') === true);
+  check('and nothing else does',
+    sb.matches(other, 'rsvpno', 'all') === false &&
+    sb.matches({topic:'General Question', read:false, message:'q'}, 'rsvpno', 'all') === false);
+  /* ⭐ "IT WILL GO IN THE FOLDER WITH THE RESPONSE THEY CHOOSE" — her words, and the two are
+     genuinely different decisions: Not This Year queues a recycle and puts the customer
+     number back in the pool, Back Next Year keeps them on the books for the season after. One
+     folder for both hides that on the screen where it is acted on. */
+  check('Not This Year and Back Next Year are separate folders',
+    sb.matches(noRow,  'rsvpno', 'no') === true &&
+    sb.matches(bnyRow, 'rsvpno', 'no') === false &&
+    sb.matches(bnyRow, 'rsvpno', 'backnextyear') === true &&
+    sb.matches(noRow,  'rsvpno', 'backnextyear') === false);
+  /* ⛔ AND NEITHER READS AS A MEMBER MESSAGE NEEDING A REPLY. These are the app reporting
+     what a customer DID, not the customer writing to us — and on a send of ~960 they will
+     outnumber real questions. Burying the reply queue under them is the complaint the whole
+     Communication Centre exists to fix. */
+  /* ⚠ THE FIXTURE HAS TO DROP `folder: 'System'`, or this proves nothing about the topic
+     list: msgTypeOf answers off that folder first, so a row carrying it is a system notice
+     whatever the topics say. The red-check reported the sabotage that removed both names
+     from SYSTEM_NOTICE_TOPICS as MISSED, which is exactly what it is for. */
+  check('a declined RSVP is a system notice, not a member message',
+    sb.facets({topic:'RSVP — Not This Year', read:false, message:'x'}).type === 'system' &&
+    sb.facets({topic:'RSVP — Back Next Year', read:false, message:'y'}).type === 'system',
+    'got ' + sb.facets({topic:'RSVP — Not This Year', read:false, message:'x'}).type +
+    ' — the TOPIC has to classify it, because a message written without the System folder ' +
+    'would otherwise land in the reply queue');
+  check('and never lands in the Inbox reply queue',
+    sb.matches(noRow, 'inbox', 'all') === false &&
+    sb.matches(noRow, 'inbox', 'needs_reply') === false,
+    'they would outnumber the real questions and bury them');
+  check('but the System Messages section still holds them',
+    sb.matches(noRow, 'system', 'all') === true,
+    'a notice that is in no system view either is one nobody can audit');
+  /* ⚠ READ OFF THE TOPIC, never off the customer's current rsvpStatus. A message is a record
+     of what somebody said on a day; re-deciding it from the record would move old notes
+     between folders every time a customer changed their mind. */
+  /* ⛔ AND THE SECTION EXISTS IN THE SIDEBAR. Every check above drives commRowMatches,
+     which answers for the key whether or not anything offers it — so renaming the section
+     out of COMM_SECTIONS left them all green while there was nowhere on screen to read
+     these notes. That gap went green across a 5,162-check suite once already (the Edit
+     Customer tab strip), and the red-check caught it here. */
+  const rsvpSec = new Function(liftConst('COMM_SECTIONS') + 'return COMM_SECTIONS;')()
+    .find(function(x){ return x.key === 'rsvpno'; });
+  check('the No RSVPs section is offered in the sidebar',
+    !!rsvpSec, 'the rule answers for a section nobody can open');
+  check('and it carries a folder for each answer',
+    !!rsvpSec && rsvpSec.tabs.some(function(t){ return t[0] === 'no'; }) &&
+    rsvpSec.tabs.some(function(t){ return t[0] === 'backnextyear'; }),
+    'her words: "it will go in the folder with the response they choose"');
+  check('the folder is decided by what they answered, not by where they are now',
+    sb.matches(Object.assign({}, noRow, {rsvpStatus: 'yes'}), 'rsvpno', 'no') === true,
+    'somebody who said no in October and yes in November has two records, not one that moves');
+}
+
+/* =============================================================================
  * ⭐ THE NAV IS HERS — NAMED SECTIONS AND FOLDERS SHE FILLS ([[MSG-17]], 2026-09-11)
  *
  * Addie, in five messages: "on inbox we need to be able to add a folder to each section not
@@ -774,6 +855,7 @@ if(!JSDOM){
   const win = dom.window, docu = win.document;
   const ED = liftConst('MSG_TYPE_MEMBER') + liftConst('MSG_CATEGORIES') + liftConst('MSG_STATUS') +
     liftConst('MSG_STATUS_LABEL') + liftConst('MSG_PRIORITY') + liftConst('MSG_PRIORITY_LABEL') +
+    liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
     liftConst('SYSTEM_NOTICE_TOPICS') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
     liftFn('esc') + liftFn('msgTypeOf') + liftFn('msgCategories') + liftFn('msgStatusOf') +
     liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
@@ -892,7 +974,8 @@ if(!JSDOM){
 if(JSDOM){
   const dom2 = new JSDOM('<!doctype html><body><div id="commCentreNav"></div></body>');
   const d2 = dom2.window.document;
-  const NAV = liftConst('MSG_TYPE_MEMBER') + liftConst('SYSTEM_NOTICE_TOPICS') +
+  const NAV = liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
+    liftConst('MSG_TYPE_MEMBER') + liftConst('SYSTEM_NOTICE_TOPICS') +
     liftConst('MSG_CATEGORIES') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
     liftConst('MSG_STATUS') + liftConst('MSG_STATUS_LABEL') + liftConst('MSG_PRIORITY') +
     liftConst('MSG_PRIORITY_LABEL') + liftConst('MSG_SEVERITY_LABEL') + liftConst('COMM_ACTIVITY_TOPICS') +
@@ -1018,6 +1101,7 @@ if(JSDOM){
   const wrote = [];
   const DEL = liftConst('MSG_TYPE_MEMBER') + liftConst('MSG_CATEGORIES') + liftConst('MSG_STATUS') +
     liftConst('MSG_STATUS_LABEL') + liftConst('MSG_PRIORITY') + liftConst('MSG_PRIORITY_LABEL') +
+    liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
     liftConst('SYSTEM_NOTICE_TOPICS') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
     liftConst('ERROR_FOLDER_MEMBER') + liftConst('ERROR_FOLDER_ADMIN') +
     liftConst('MESSAGE_HOME_FOLDER') + liftConst('COMM_SECTIONS') +

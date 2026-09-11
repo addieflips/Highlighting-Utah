@@ -57833,3 +57833,80 @@ suite('322. A stop in the wrong place gets moved, and far is measured from the r
       'without a margin the two shapes trade places on rounding, and the far house lands first for no reason anybody can see');
   }
 }
+
+/* =====================================================================
+ * Suite 323. A declined RSVP tells somebody ([[RS-57]], 2026-09-11)
+ *
+ * Addie: "can we have no emails be there own section and it will go in the folder
+ * with the response they choose", then "I mean No RSVPs."
+ *
+ * ⛔ NOTHING WAS WRITTEN TO THE INBOX AT ALL. portalRsvp recorded the answer, pulled
+ * them off every upcoming route, queued their lights for recycling and took their
+ * referral back — and said nothing anywhere a person looks. A customer saying no is
+ * the most consequential answer in the season and it was the quietest thing that
+ * could happen. The section holding these notes is checked in comm-centre.test.js;
+ * this is the half that makes one exist.
+ *
+ * ⚠ NUMBERED 323, NOT 322. The suite above already uses S322 as its check prefix
+ * while calling itself Suite 321 — the exact collision CLAUDE.md's structure gate
+ * describes, and the prefix is the half that matters because it is what NAMES a
+ * failure. Taking 322 here would have made a red line ambiguous between two suites.
+ * ===================================================================== */
+suite('Suite 323. A declined RSVP tells somebody');
+{
+  /* ⚠ `fnsSrc`, the file-level read — `fns` is a local inside another suite and this
+     block died on a bare ReferenceError reaching for it. ⚠ AND NORMALISED, because
+     functions/index.js is stored with CRLF: a multi-line anchor written with \n matches
+     nothing, indexOf returns -1, and the check fails on code that never moved (§7). */
+  const src = fnsSrc.replace(/\r\n/g, '\n');
+  const at = src.indexOf("if ((response === 'no' || response === 'backnextyear') &&");
+  check('S323', 'portalRsvp raises a note when somebody declines', at !== -1,
+    'the record changed, they came off every route, and the Inbox said nothing');
+  if (at !== -1) {
+    const blkSrc = src.slice(at, src.indexOf('\n  }', at) + 4);
+    /* ⭐ THE TOPIC IS THE ANSWER THEY CHOSE — her "it will go in the folder with the
+       response they choose". The Inbox files on the topic, so this string IS the folder. */
+    check('S323', 'and the topic is the answer they gave, so it lands in that folder',
+      /RSVP — Not This Year/.test(blkSrc) && /RSVP — Back Next Year/.test(blkSrc),
+      'one topic for both would put a recycle and a stay-on-the-books in one pile');
+    /* ⚠ A SYSTEM NOTICE, NOT A MEMBER MESSAGE. On a send of ~960 these outnumber real
+       questions; read as member mail they bury the reply queue, which is the complaint
+       the Communication Centre exists to fix. */
+    check('S323', 'and it is filed as a system notice',
+      /folder: 'System'/.test(blkSrc),
+      'a member message reads as NEEDS REPLY and there will be hundreds of these');
+    /* ⛔ ON THE TRANSITION ONLY. Re-answering the same way must not raise the note
+       again — the same shape the recycle flag and the referral clawback above use, and
+       without it one decision fills a folder with duplicates every time somebody
+       re-opens their link. */
+    check('S323', 'and only when the answer actually changed',
+      /String\(oldData\.rsvpStatus \|\| ''\) !== response/.test(blkSrc),
+      're-opening the link would raise the same note again, for ever');
+    /* ⚠ BEST EFFORT, GUARDED ON ITS OWN. Their answer is already written by this line;
+       a failed note must never undo it. */
+    check('S323', 'and a failed note never undoes the answer',
+      /try \{/.test(blkSrc) && /catch \(e\)/.test(blkSrc),
+      'the RSVP is the thing that matters and it is already recorded');
+    /* ⚠ AND IT SAYS WHAT HAPPENS NEXT, differently for the two. The office does
+       different things with a recycle and with somebody staying on the books, and a
+       note that does not say which is a row nobody can act on. */
+    check('S323', 'and the two notes say different things about what happens next',
+      /queued to be recycled/.test(blkSrc) && /they are still on the/.test(blkSrc),
+      'one wording for both answers is a folder split that tells you nothing');
+    /* ⛔ AFTER the routes are pulled, so the count it quotes is real. */
+    check('S323', 'and it is raised after the routes are pulled, so its count is true',
+      src.indexOf('removedFrom = await removeCustomerFromUpcomingRoutes') < at,
+      'quoting a number taken before the work is a note that is confidently wrong');
+    /* ⛔ AND THE TWO TOPIC STRINGS MATCH THE BROWSER'S CONSTANTS EXACTLY. They are the
+       folder names: one character apart and the note is written into a section that
+       shows nothing, with nothing anywhere going red. */
+    ['RSVP_NO_TOPIC', 'RSVP_BNY_TOPIC'].forEach(function(n){
+      const m = new RegExp('const ' + n + " = '([^']*)';").exec(admin);
+      const want = m ? m[1].replace(/\\u2014/g, '\u2014') : '';
+      check('S323', 'the server spells ' + n + ' exactly as the browser does',
+        !!want && blkSrc.indexOf(want) !== -1,
+        'the topic IS the folder name — one character apart and the note lands in a ' +
+        'section that shows nothing, silently');
+    });
+  }
+}

@@ -3663,6 +3663,31 @@ that added so I can make it like this?"* **＋ New section** at the bottom of th
 builds one: a name, an icon, what belongs in it, and as many subtabs as you like — the same
 shape as Member Messages and its five.
 
+⭐ **THE RSVP NOs HAVE THEIR OWN SECTION** ([[RS-57]], 2026-09-11). Addie: *"can we have no
+emails be there own section and it will go in the folder with the response they choose"*, then
+*"I mean No RSVPs."*
+
+⛔ **Nothing was written to the Inbox at all when somebody declined.** `portalRsvp` recorded the
+answer, pulled them off every upcoming route, queued their lights for recycling and took their
+referral back — and the one list the office reads every morning said nothing. A customer saying
+no is the most consequential answer in the season and it was the quietest thing that could
+happen, so the note had to be invented before a section could hold one.
+
+**The topic IS the folder**, which is her rule said literally: **RSVP — Not This Year** and
+**RSVP — Back Next Year**, two topics rather than one with a field, because the two are
+different decisions — one queues a recycle and puts their customer number back in the pool, the
+other keeps them on the books for the season after — and the two notes say different things
+about what happens next. ⚠ **They are system notices, never member messages**: on a send of
+~960 they outnumber real questions, and read as member mail they bury the reply queue.
+⚠ **Raised on the transition only**, so re-opening the link does not fill the folder with
+duplicates, and **best effort**, so a failed note never undoes an answer already recorded.
+⛔ **The office's own "no" raises nothing**, deliberately — somebody in admin setting a customer
+to No already knows, and a note telling them what they just typed is noise.
+
+⚠ **An RSVP decline has no optional reason picker** — it is a single button, and the only place
+a reason is collected anywhere is the separate Cancellation Request flow in the member portal.
+Adding choices there would change what ~960 customers see and has not been built.
+
 ⭐ **AND THEN SHE NAMED THE WHOLE THING** ([[MSG-17]], 2026-09-11). Addie, across five
 messages: *"on inbox we need to be able to add a folder to each section not just a new
 section"*; *"in what type does this belong to we should have a spot for nothing so we can just

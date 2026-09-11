@@ -21468,12 +21468,27 @@ function msgTypeOf(d){
 /* Every topic this app writes for ITSELF rather than on behalf of a customer. Listed
    rather than pattern-matched: a customer is free to type any subject they like, and a
    guess here files somebody's question where nobody answers it. */
+/* ⭐ THE TWO WAYS OF SAYING NO, AND THEY ARE DIFFERENT ANSWERS ([[RS-57]]). "Not this year"
+   sends their lights to the recycle queue and takes their number back; "back next year" keeps
+   them on the books for the season after. The office does different things with each, which is
+   why they are two topics and two folders rather than one with a field — "it will go in the
+   folder with the response they choose" is her own rule, and the folder IS the answer. */
+const RSVP_NO_TOPIC = 'RSVP \u2014 Not This Year';
+const RSVP_BNY_TOPIC = 'RSVP \u2014 Back Next Year';
 const SYSTEM_NOTICE_TOPICS = [
   'Routes Kept Up To Date', 'Moved To Another Day', 'A Route Sheet Is Out Of Date',
   'Lights Changed After Assignment', 'Rejoined After Recycling', 'Customer Number Needs Fixing',
   'A Background Check Has Stopped', 'Carried Debt Written Off', 'Add-On Declined',
   'Cannot Be Billed', 'Maybe Next Year — New Record', 'Payment With No Bill',
-  'Re-quote Declined', 'Referral Taken Back'
+  'Re-quote Declined', 'Referral Taken Back',
+  /* ⭐ SOMEBODY ANSWERING THE RSVP WITH A NO ([[RS-57]], 2026-09-11). Addie: "can we have
+     no emails be there own section and it will go in the folder with the response they
+     choose", then "I mean No RSVPs."
+     ⚠ SYSTEM NOTICES, NOT MEMBER MESSAGES, and the distinction is load-bearing: these are
+     the APP reporting what a customer did, not the customer writing to us. A member
+     message reads as NEEDS REPLY and these outnumber real questions — burying the reply
+     queue under them is the complaint the whole Communication Centre exists to fix. */
+  RSVP_NO_TOPIC, RSVP_BNY_TOPIC
 ];
 
 /* ⭐ CATEGORIES ARE TAGS, NOT FOLDERS, WHICH IS THE POINT OF THE WHOLE BLUEPRINT.
@@ -21756,7 +21771,20 @@ const COMM_SECTIONS = [
          ['scheduling','Scheduling'],['notifications','Notifications']]},
   {key:'errors', icon:'\u{1F6A8}', label:'System Errors',
    tabs:[['all','All Errors'],['critical','Critical'],['warnings','Warnings'],
-         ['review','Needs Review'],['resolved','Resolved']]}
+         ['review','Needs Review'],['resolved','Resolved']]},
+  /* ⭐ THE NOs GET THEIR OWN SECTION ([[RS-57]], 2026-09-11). Addie: "can we have no emails
+     be there own section and it will go in the folder with the response they choose", then
+     "I mean No RSVPs."
+     ⚠ AND THE FOLDER IS THE ANSWER THEY GAVE, which is what she asked for in as many words.
+     The two are not the same decision: Not This Year sends a bundle to the recycle queue and
+     puts their number back in the pool, Back Next Year keeps them on the books for the season
+     after — so the office does different things with each, and a single No folder would hide
+     that difference on the one screen where it is acted on.
+     ⚠ IT IS A BUILT-IN, so she can rename it, re-icon it, hide it or add folders to it
+     ([[MSG-17]]) — but what lands in it is code, because a declined RSVP has to reach it
+     whatever anybody has renamed. */
+  {key:'rsvpno', icon:'\u{1F6AB}', label:'No RSVPs',
+   tabs:[['all','All'],['no','Not This Year'],['backnextyear','Back Next Year']]}
 ];
 /* Every section on screen, in order: the built-ins she has not hidden, then hers. ONE list,
    so the nav, the counts, the list and the heading cannot disagree about what exists. */
@@ -21952,6 +21980,17 @@ function commRowMatches(d, section, tab){
     return commFilterMatches(d, hersOnBuiltIn.filter);
   }
   const f = msgFacets(d);
+  /* ⭐ [[RS-57]] — the declined RSVPs, split by the answer they chose. Read off the TOPIC,
+     which is what the two writers stamp, rather than off the customer's `rsvpStatus`: a
+     message is a record of what somebody said on a day, and re-deciding it from the record
+     would move old notes between folders every time a customer changed their mind. */
+  if(section === 'rsvpno'){
+    const t = String(d.topic || '');
+    if(t !== RSVP_NO_TOPIC && t !== RSVP_BNY_TOPIC) return false;
+    if(tab === 'no') return t === RSVP_NO_TOPIC;
+    if(tab === 'backnextyear') return t === RSVP_BNY_TOPIC;
+    return true;
+  }
   if(section === 'errors'){
     if(f.type !== MSG_TYPE_ERROR) return false;
     if(tab === 'critical') return f.severity === 'critical';
