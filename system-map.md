@@ -3706,6 +3706,19 @@ that the customer may ring. An admin row names who was signed in and, for emails
 did not go out and what the mail service said — a count the status line showed and then
 threw away the moment she clicked anything else.
 
+⚠ **"Names who was signed in" was true of the BODY and not of the ROW, until 2026-09-11.**
+Addie, shown two Admin Error rows: *"can you update this?"* Both carried the line **"No phone
+or email on this message, and no record matches it"** — the contact line ([[MSG-14]]) doing a
+customer lookup on a message the office's own browser had written. `reportAdminError` hardcodes
+`name`, `phone` and `email` empty, so that branch was the only one an admin error could ever
+reach; it was not a lookup that failed, it was a lookup with nothing to look for. And the
+heading above it renders blank on these rows, because `msgErrorWhoLabel` returns nothing
+without a portal link to match — so the one line that could have named somebody named nobody,
+while the address sat in the row's own body two lines down. The row now reads **Signed in as
+&lt;address&gt;**, or **"Nobody was signed in when this happened"**, which is the signature of a
+timer still running after a sign-out. Member errors keep their contact line — a customer really
+did hit one of those, and ringing them is the point. [[MSG-20]], `msgStaffSignedInAs`.
+
 #### What the folder has already caught (2026-09-10)
 
 The first real read of these rows found three faults and one data problem. Recorded here
