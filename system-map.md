@@ -4403,6 +4403,37 @@ a fake Firestore rather than reading their source; 16 sabotages red-checked.
       - ⭐ **One rule per side**: `quoteAnswerMayClearStatusServer` (both server sites) and `quoteAnswerMayClearStatus` (the office delete). It asks about **`pendingAddress`** — the same field the banner reads and the same field the Save clears once the address has moved — and deliberately **not about the status word**: there is only one `seasonStatus` field, so a move can be outstanding while the pill shows `needs_changes` because something else wrote last.
       - ⭐ **The hold is bounded, which is the whole argument for it.** The hole the clearing closed is a customer sitting in Needs Changes for ever with nothing anywhere to clear it; here there IS something left — the move, which the office applies, and that save clears `pendingAddress` and raises the re-quote that answers the badge properly. **It reports nothing and flags nothing**: the badge still reading Needs Changes is the honest answer while a move is outstanding, and a follow-up raised for correct behaviour is how the office learns to click past the ones that matter.
       - ⚠ **All three sites, not the one that prompted it** — "a fix in one direction is half a fix". Proved where each half can be: the **behaviour** in run-all.js Suites 137 and 138, which already drive both decline paths against a fake Firestore (the status survives, and an `address_changed` with **no** pending move still clears); the **agreement** in §5 of `address-move.test.js`, which RUNS the two copies side by side over every shape a record can be in, money-parity's argument applied to a badge. 6 sabotages red-checked.
+- ⭐ **STAYING SIGNED IN, AND STILL BEING ABLE TO LEAVE** (2026-09-11, [[MEM-01]]). Addie:
+  *"make sure when someone logs into member portal they stay logged in but they can still go
+  back to home page with a go back button or something in top right corner."*
+  - **The way back is top right, beside Log Out** (`portalBackToSiteLink`), and it reads
+    BEFORE Log Out — the one neighbour that cannot be undone. It MOVED from the left rather
+    than being added: two controls making the same promise is a coin toss.
+  - ⚠ **The sign-in half was already true**, and was driven in a browser before anything was
+    written: the way back keeps the token, and the header's Member Portal button walks
+    straight back in with no second sign-in.
+  - ⛔ **What was actually wrong is the other half.** A remembered login redirects the bare
+    site to `#/payment` at start-up, so a customer who had just asked for the home page was
+    put back into their account by the next reload — and a refresh, a bookmark and tapping
+    the logo are all reloads. Pressing the way back now leaves a per-tab note
+    (`sessionStorage`, `huPortalStayOnSite`) that stands the redirect down; asking for the
+    portal again takes it back, in the router rather than on the five links that point there.
+  - ⛔ **The redirect is not removed and must not be.** Its own comment names who it is for:
+    somebody arriving from an email who wants to land on their pending item. This defers only
+    to a person who has SAID otherwise, in the tab they said it in.
+  - ⚠ **It suppresses the redirect away from the site and nothing else.** A refresh INSIDE
+    the account still comes back signed in; a flag written over both branches of that test
+    would log them out there, and a red-check caught exactly that sabotage passing, because
+    walking back into the portal clears the note and no click path can reach the state. That
+    invariant is staged by hand in its own test for precisely that reason.
+  - ⚠ **The storage key is written out in all three helpers, never held in a constant.** They
+    sit below the start-up block that calls them, and in one ES module a `function` hoists
+    while a `var` beside it hoists as **undefined** — a named key would read
+    `getItem(undefined)` at the only moment that matters and the feature would never work,
+    silently, with every source check green.
+  - Gated by `test/portal-stay-signed-in.spec.js` — seven tests, all RUN, because every claim
+    is about a control on the screen or about what survives a **reload**, and a `goto` that
+    only changes the hash never re-runs the start-up block. 5 sabotages red-checked.
 - **Cloud Functions it calls**: `portalLookup` (the one entry point for all lookups — token or phone/email+lastname, rate-limited), `portalSave` (whitelisted writes per section, mirrors changes onto the invoice, resyncs upcoming routes), `portalRsvp`, `portalSetGateCode`, `portalChangeAddress` (records a move as PENDING; applies nothing), `portalInvoice` (sanitized invoice read), `quoteRespond`, `publicQuoteLookup`, `paypalCreateOrder`/`paypalCaptureOrder`, `publicConfig` (public-safe EmailJS keys for the contact form).
 
 ### Admin dashboard (`admin.html`)
