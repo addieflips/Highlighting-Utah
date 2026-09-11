@@ -425,7 +425,11 @@ function check(label, ok, detail) {
           outletTimer:    /timer: printYesNo\(d\.outletTimer\)/,
           useEaves:       /eaves: printYesNo\(d\.useEaves\)/,
           gateCode:       /gate: printGateCode\(d\)/,
-          houseSides:     /sides: printSideCount\(d\)/,
+          /* ⚠ RENAMED, NOT DROPPED ([[OPT-09]], 2026-09-11). The cell now prints the
+             sides a customer actually named and falls back to the count, so the
+             function is printSidesCell — houseSides still reaches the crew sheet
+             through it, which is what this map is asserting. */
+          houseSides:     /sides: printSidesCell\(d\)/,
           /* ⚠ FOLDED INTO THE NOTES COLUMN, AND MATCHED WITH THEIR GUARD. Matching the
              prefix alone let `if(false) bits.push('TODAY: ' + once)` pass — every word
              in place, nothing on the sheet. The condition is part of what is asserted. */

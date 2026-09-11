@@ -2103,6 +2103,42 @@
                   <button type="button" class="btn btn-outline-dark btn-sm" data-portalrsvp="no">Not this season</button>
                 </div>
                 <p class="form-note" id="portalRsvpStatus" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
+                <!-- ⭐ AND WHY, IF THEY WANT TO SAY ([[RS-60]], 2026-09-11). Addie: "okay i
+                     need it to be optional choice", then the wording: "Should be Moved,
+                     Finances, etc.", then "There should also be an option for other and if
+                     they put other than a note section will show up that they can put in
+                     there reason."
+
+                     ⛔ IT LIVES HERE, IN THE PORTAL, AND THAT COVERS BOTH DOORS. A no from
+                     the RSVP email link lands in this portal (RS-31, "can no go straight to
+                     member portal"), and the buttons above are the other way in — so one
+                     block asked from one place serves both, rather than two pickers that
+                     eventually disagree about the list.
+
+                     ⚠ THE ANSWER IS ALREADY SAVED BEFORE THIS IS EVER DRAWN. It is only
+                     shown to somebody whose record already says no, which is what makes it
+                     genuinely optional: closing the tab here loses a reason, never an
+                     answer. -->
+                <div id="portalRsvpReasonHostChanges"></div>
+                <div id="portalRsvpReason" style="display:none; margin-top:12px; padding-top:12px; border-top:1px dashed var(--line);">
+                  <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Can we ask why? <span style="font-weight:400; color:var(--slate);">(optional)</span></label>
+                  <div id="portalRsvpReasonBtns" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+                  <!-- ⚠ THE NOTE IS FREE TEXT AND NEVER BECOMES A FOLDER NAME. The reason
+                       picked decides the folder; this is stored beside it as words. -->
+                  <div id="portalRsvpReasonNote" style="display:none; margin-top:10px;">
+                    <textarea id="portalRsvpReasonText" rows="2" placeholder="Tell us in your own words…" style="width:100%; padding:10px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea>
+                    <button type="button" class="btn btn-gold btn-sm" id="portalRsvpReasonSend" style="margin-top:8px;">Send</button>
+                  </div>
+                  <!-- ⭐ MOVED IS THE ONE ANSWER THAT CAN UNDO ITSELF (Addie: "Moved should
+                       also give option change address which will keep them and confrim them
+                       for that year along with send them to requotes"). It is offered, never
+                       assumed — somebody who moved away out of the area is still a no. -->
+                  <div id="portalRsvpMoved" style="display:none; margin-top:10px;">
+                    <p class="form-note" style="margin:0 0 8px;">Staying with us at the new place? Send us the address and we&rsquo;ll re-quote it and keep you on for this season.</p>
+                    <button type="button" class="btn btn-gold btn-sm" id="portalRsvpMovedBtn">Give Us The New Address</button>
+                  </div>
+                  <p class="form-note" id="portalRsvpReasonStatus" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
+                </div>
               </div>
               <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Wire Color</label>
               <select id="wireColorSelect" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;">
@@ -2200,6 +2236,22 @@
                    must never be told to do something else first, or they stop replying and
                    Addie never learns why. -->
               <p class="form-note" style="margin:-8px 0 18px; padding:10px 12px; background:#F1F5EB; border-radius:10px;">Moving rather than stopping? <a href="#" id="cancelMovedLink" style="color:var(--gold-dim); font-weight:bold;">Send us your new address instead</a> &mdash; we'll re-quote the new place and you keep your account.</p>
+              <!-- ⭐ THE SECOND HOST FOR THE DECLINE PICKER ([[RS-60]]). There is ONE picker
+                   block and it is MOVED here, never copied: an RSVP "no" from the email lands
+                   on this tab (RS-31, activateTab: 'cancel') while the in-portal Yes/No buttons
+                   live on Changes, so a block nailed to either one is invisible to half the
+                   people it is for. That was not theoretical — it was built on Changes first
+                   and the browser spec found every decliner landing here and never seeing it.
+                   ⚠ MOVED, NOT DUPLICATED. Two blocks means two sets of buttons, two listeners
+                   and eventually two different lists of reasons — and the list is a FOLDER NAME
+                   in three files already. -->
+              <div id="portalRsvpReasonHostCancel"></div>
+              <!-- ⚠ AND THE BOX BELOW IS A DIFFERENT QUESTION, kept as it is. This one is the
+                   CANCELLATION reason and is only saved when Cancel My Lights is pressed; the
+                   picker above is about the RSVP answer they have already given. The comment on
+                   the move link above already names the cost of free text — "the office only
+                   finds out from a free-text reason nobody can filter on" — which is exactly
+                   what the picker fixes, for the answer it covers. -->
               <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:6px;">Mind telling us why? (optional)</label>
               <textarea id="cancelReasonInput" rows="4" placeholder="Let us know what happened..." style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px; margin-bottom:14px; box-sizing:border-box;"></textarea>
               <button type="button" class="btn btn-ember btn-block" id="cancelFinalBtn">Cancel My Lights</button>
@@ -4654,6 +4706,44 @@ function renderLastPaymentNote(record){
  * or answered "no" in October and changed their mind in November, had to ring
  * the office so a person could do something the app already does. Three
  * buttons on the Changes tab, using the same callable and the same token. */
+/* ⭐ WHY SOMEBODY IS NOT HAVING LIGHTS ([[RS-60]], 2026-09-11). Addie: "Should be Moved,
+ * Finances, etc."
+ * ⚠ THREE COPIES OF THIS LIST — here, functions/index.js and admin.html — because each
+ * one needs it for a different half: the picker draws it, the server refuses anything
+ * not on it, and the Inbox builds a folder per entry. run-all.js Suite 323 compares all
+ * three as lists, IN ORDER, so a typo or a reordering cannot ship: these strings are
+ * FOLDER NAMES, and one character apart files a real answer where nobody is looking.
+ * ⚠ AND `Other` IS THE ONLY ONE WITH A NOTE BEHIND IT. The note is free text and is
+ * stored as words beside the reason — it never becomes a folder name, or a folder would
+ * be named by whatever anybody typed. */
+var RSVP_DECLINE_REASONS = [
+  'Moved',
+  'Finances',
+  'Doing it ourselves',
+  'Another company',
+  'Not decorating',
+  'Other'
+];
+/* ⭐ THE ANSWER THIS VISIT RECORDED ([[RS-60]], 2026-09-11), and it exists because the
+   block above was telling people the opposite of what they had just said.
+   ⛔ ON THE EMAIL-LINK ROUTE THERE IS NO rsvpStatus TO READ. `handleRsvpLink` records the
+   answer and then opens the portal, and on that route `currentJobAddressData` is never
+   set — the page renders from `currentLookupRecord`, which is the INVOICE record
+   (INVOICE_READ_FIELDS, thirteen fields, no RSVP among them). So `renderPortalRsvp` read
+   a blank and drew "You haven't told us yet." to somebody who had answered a second
+   earlier, and the reason picker, which keys off the same value, never appeared at all
+   for the customers it was built for.
+   ⚠ FOUND BY DRIVING A BROWSER, and by nothing else. Every source check passed, the
+   server wrote the answer correctly the whole time, and `test/rsvp-record.spec.js` proves
+   the RECORD — this is only ever wrong on the screen. The oldest lesson in this repo.
+   ⚠ IT IS AN ANSWER, NEVER A GUESS: set only where portalRsvp has come back ok, on both
+   doors, so it cannot invent a status for somebody who has not replied. And it wins over
+   the record precisely because it is newer than anything read before it. */
+var portalRsvpAnswerThisVisit = '';
+var portalRsvpReasonThisVisit = '';
+function portalRsvpStatusOf(rec){
+  return portalRsvpAnswerThisVisit || String((rec || {}).rsvpStatus || '');
+}
 function portalRsvpLabel(status){
   if(status === 'yes') return "You're confirmed for this season. 🎄";
   if(status === 'no') return "You've told us you're not having lights this season.";
@@ -4665,13 +4755,162 @@ function renderPortalRsvp(){
   if(!block) return;
   var rec = currentJobAddressData || currentLookupRecord || {};
   var cur = document.getElementById('portalRsvpCurrent');
-  if(cur) cur.textContent = portalRsvpLabel(String(rec.rsvpStatus || ''));
+  var status = portalRsvpStatusOf(rec);
+  if(cur) cur.textContent = portalRsvpLabel(status);
   block.querySelectorAll('[data-portalrsvp]').forEach(function(btn){
-    var isCurrent = btn.dataset.portalrsvp === String(rec.rsvpStatus || '');
+    var isCurrent = btn.dataset.portalrsvp === status;
     btn.disabled = isCurrent;
     btn.style.opacity = isCurrent ? '.5' : '';
   });
+  renderPortalRsvpReason();
 }
+/* ⭐ THE OPTIONAL REASON ([[RS-60]]). Drawn only for somebody whose record ALREADY says
+   they are not having lights — which is what makes it optional rather than a step: the
+   answer is saved, and this is one more thing they may tell us or may not.
+   ⚠ AND ONLY WHILE THEY HAVE NOT ANSWERED IT. Asking again after they have told us
+   reads as the first answer not having saved, which is the complaint half this file's
+   history is about. */
+function portalRsvpReasonNeeded(rec){
+  var st = portalRsvpStatusOf(rec);
+  if(st !== 'no' && st !== 'backnextyear') return false;
+  /* ⚠ AND THE REASON IS READ THE SAME WAY, for the same reason: on the link route the
+     record being rendered cannot carry one either, so reading it alone would re-offer the
+     picker to somebody who had just used it — which reads as the answer not saving. */
+  return !String(portalRsvpReasonThisVisit || (rec || {}).rsvpDeclineReason || '').trim();
+}
+/* ⭐ THE ONE BLOCK, MOVED TO WHERE THEY ARE ([[RS-60]]). A decline arrives on two
+   different tabs — the email link lands on Cancel (RS-31), the in-portal buttons live on
+   Changes — so the picker is mounted into whichever of the two panels is on screen.
+   ⚠ MOVED, NEVER COPIED: `appendChild` on a node already in the document takes it out of
+   its old parent, so there is only ever one set of buttons, one listener and one list.
+   Two blocks would eventually be two different lists of reasons, and the list is a FOLDER
+   NAME in three files. ⚠ AND IT FALLS BACK TO WHERE IT ALREADY IS rather than hiding: a
+   picker nobody can find is the failure this function exists to fix. */
+function portalRsvpReasonHost(){
+  var hosts = [document.getElementById('portalRsvpReasonHostCancel'),
+               document.getElementById('portalRsvpReasonHostChanges')];
+  for(var i = 0; i < hosts.length; i++){
+    var h = hosts[i];
+    if(!h) continue;
+    var panel = h.closest ? h.closest('[id^="tabPanel-"]') : null;
+    if(panel && panel.style.display !== 'none') return h;
+  }
+  return null;
+}
+function renderPortalRsvpReason(){
+  var wrap = document.getElementById('portalRsvpReason');
+  if(!wrap) return;
+  var rec = currentJobAddressData || currentLookupRecord || {};
+  if(!portalRsvpReasonNeeded(rec)){ wrap.style.display = 'none'; return; }
+  var host = portalRsvpReasonHost();
+  if(host && wrap.parentNode !== host) host.appendChild(wrap);
+  wrap.style.display = 'block';
+  var btns = document.getElementById('portalRsvpReasonBtns');
+  /* ⚠ REBUILT FROM THE LIST EVERY TIME, never written out in the markup: the list is
+     shared with the server and the Inbox, and a hand-typed button would be a fourth
+     copy that nothing compares. */
+  if(btns && !btns.dataset.built){
+    btns.innerHTML = RSVP_DECLINE_REASONS.map(function(r){
+      return '<button type="button" class="btn btn-outline-dark btn-sm" data-rsvpreason="' +
+        r.replace(/"/g, '&quot;') + '">' + r + '</button>';
+    }).join('');
+    btns.dataset.built = '1';
+  }
+}
+/* Sends the reason, and the note where there is one. ⚠ THE REASON IS ALWAYS ONE OF THE
+   LIST — the note rides beside it and is never the thing that names a folder. */
+function sendRsvpDeclineReason(reason, note){
+  var statusEl = document.getElementById('portalRsvpReasonStatus');
+  var token = getActivePortalToken();
+  if(!token){
+    if(statusEl) statusEl.textContent = "Please sign in again first, or call us at (801) 901-0011.";
+    return Promise.resolve(false);
+  }
+  var rec = currentJobAddressData || currentLookupRecord || {};
+  if(statusEl) statusEl.textContent = 'Saving…';
+  /* ⚠ `response` IS SENT BACK UNCHANGED and the server writes no answer from it — it is
+     there because the callable validates the shape of every call. What must never
+     happen is this follow-up re-deciding the RSVP. */
+  return callPortalFn('portalRsvp', {
+    token: token,
+    response: String(rec.rsvpStatus || 'no'),
+    declineReason: reason,
+    declineNote: note || ''
+  }).then(function(){
+    if(currentJobAddressData) currentJobAddressData.rsvpDeclineReason = reason;
+    if(currentLookupRecord) currentLookupRecord.rsvpDeclineReason = reason;
+    portalRsvpReasonThisVisit = reason;
+    if(statusEl) statusEl.textContent = 'Thank you — that helps.';
+    return true;
+  }).catch(function(err){
+    if(statusEl) statusEl.textContent = portalCallFailedText(err, 'account', 'Telling us why you are not having lights');
+    return false;
+  });
+}
+document.addEventListener('click', function(e){
+  var btn = e.target.closest && e.target.closest('[data-rsvpreason]');
+  if(!btn) return;
+  var reason = btn.dataset.rsvpreason;
+  var noteWrap = document.getElementById('portalRsvpReasonNote');
+  var movedWrap = document.getElementById('portalRsvpMoved');
+  var btns = document.getElementById('portalRsvpReasonBtns');
+  if(btns) btns.querySelectorAll('[data-rsvpreason]').forEach(function(b){
+    b.style.opacity = (b === btn) ? '' : '.45';
+  });
+  /* ⭐ OTHER OPENS A BOX AND SENDS NOTHING YET (Addie: "if they put other than a note
+     section will show up that they can put in there reason"). Every other answer is one
+     tap and is sent on the spot — making them press a second button to confirm a word
+     they have just chosen is the tap this whole block is trying not to cost. */
+  if(reason === 'Other'){
+    if(movedWrap) movedWrap.style.display = 'none';
+    if(noteWrap) noteWrap.style.display = 'block';
+    var ta = document.getElementById('portalRsvpReasonText');
+    if(ta) ta.focus();
+    return;
+  }
+  if(noteWrap) noteWrap.style.display = 'none';
+  sendRsvpDeclineReason(reason, '').then(function(ok){
+    /* ⭐ AND MOVED OFFERS THE WAY BACK (Addie: "Moved should also give option change
+       address which will keep them and confrim them for that year along with send them
+       to requotes"). Offered AFTER the reason is recorded, so somebody who ignores it
+       has still told us why — and offered rather than assumed, because moving away is
+       just as often a real no. */
+    if(movedWrap) movedWrap.style.display = (ok && reason === 'Moved') ? 'block' : 'none';
+  });
+});
+(function wireRsvpReasonNote(){
+  var send = document.getElementById('portalRsvpReasonSend');
+  if(send) send.addEventListener('click', function(){
+    var ta = document.getElementById('portalRsvpReasonText');
+    sendRsvpDeclineReason('Other', ta ? ta.value : '').then(function(ok){
+      if(ok){
+        var noteWrap = document.getElementById('portalRsvpReasonNote');
+        if(noteWrap) noteWrap.style.display = 'none';
+      }
+    });
+  });
+  /* ⭐ THE MOVE GOES THROUGH THE DOOR THAT ALREADY EXISTS (portalChangeAddress, QT-35),
+     never a second address writer: that one records the address as PENDING, badges the
+     office and leaves the town and the map pin alone, because there is no geocoder on
+     the server. `portalMoveConfirmsSeason` is what tells it this one came from a
+     decline, which is the only case that puts them back in the season. */
+  var movedBtn = document.getElementById('portalRsvpMovedBtn');
+  if(movedBtn) movedBtn.addEventListener('click', function(){
+    portalMoveConfirmsSeason = true;
+    /* ⚠ `activatePortalTab`, THE REAL NAME. The first draft called a `switchPortalTab`
+       that does not exist, behind a `typeof` guard — so the button would have moved
+       nobody to the form and said nothing about it, which is this file's own
+       most-repeated failure. */
+    activatePortalTab('info');
+    portalOpenMovedForm();
+    var st = document.getElementById('movedSaveStatus');
+    if(st) st.textContent = 'Give us the new address and we will keep you on for this season.';
+  });
+})();
+/* ⚠ SET BY THE Moved BRANCH ALONE and read once by the address save. A module-level
+   flag rather than a parameter because the two are different screens on different tabs;
+   it is cleared the moment it is used, so it can never colour a later ordinary move. */
+var portalMoveConfirmsSeason = false;
 document.addEventListener('click', function(e){
   var btn = e.target.closest && e.target.closest('[data-portalrsvp]');
   if(!btn) return;
@@ -4693,6 +4932,14 @@ document.addEventListener('click', function(e){
     }
     if(currentJobAddressData) currentJobAddressData.rsvpStatus = answer;
     if(currentLookupRecord) currentLookupRecord.rsvpStatus = answer;
+    /* ⚠ AND THE SAME ON THIS DOOR ([[RS-60]]). The mirrors above are enough while these
+       two objects survive, and a later portalLookup replaces them — so the answer is
+       remembered separately as well, rather than relying on which of the two the next
+       render happens to read. ⚠ AND A NEW ANSWER CLEARS THE OLD REASON, or somebody who
+       said no, gave a reason and then said yes would carry that reason into a season they
+       are in. */
+    portalRsvpAnswerThisVisit = answer;
+    portalRsvpReasonThisVisit = '';
     /* ⚠ AND THE STAMP, NOT ONLY THE WORD. portalHasRealRsvpAnswer refuses a bare
        'yes' with nothing behind it, so without this the question would reopen on the
        next render of a customer who had just answered it. */
@@ -5202,6 +5449,17 @@ function handleRsvpLink(token, rsvpValue){
   /* savePortalLogin is INSIDE the tap too: a bare open must leave no trace at all. */
   savePortalLogin(token);
   callPortalRsvp({token: token, response: rsvpValue === 'yes' ? 'yes' : 'no'}).then(function(res){
+    /* ⭐ REMEMBERED FOR THE RENDER ([[RS-60]]). The portal this route opens draws from the
+       invoice record, which carries no rsvpStatus — see portalRsvpStatusOf. Set here, on
+       the answer the server has just accepted, so the block says what they said and the
+       reason picker is offered to the people it is for. */
+    if(res && res.ok){
+      portalRsvpAnswerThisVisit = (rsvpValue === 'yes' ? 'yes' : 'no');
+      /* ⚠ AND WHETHER THEY HAVE ALREADY SAID WHY. Without it the picker is offered again
+         on every visit to somebody who has used it — which reads as their answer not
+         having saved, the complaint half this portal's history is about. */
+      portalRsvpReasonThisVisit = String(res.declineReason || '');
+    }
     /* ⚠ UNREACHABLE THROUGH TODAY'S SERVER, AND KEPT. portalRsvp reports a
        miss by THROWING, so a failure rejects the callable and lands in the
        catch below — this branch is the correct handling if it is ever changed
@@ -7324,6 +7582,13 @@ function activatePortalTab(tabName){
     var panel = document.getElementById('tabPanel-'+name);
     if(panel) panel.style.display = name === tabName ? 'block' : 'none';
   });
+  /* ⭐ AND THE DECLINE PICKER FOLLOWS THEM ([[RS-60]]). It is one block mounted into
+     whichever panel is open, so the tab having just changed is exactly when it has to be
+     re-mounted — without this it stays on the tab it was last drawn on, which for every
+     customer arriving from an RSVP "no" link is the one they are not looking at.
+     ⚠ AFTER the panels are shown, not before: portalRsvpReasonHost reads which panel is
+     visible, so running it first reads the OLD tab and mounts it back where it was. */
+  if(typeof renderPortalRsvpReason === 'function') renderPortalRsvpReason();
 }
 document.querySelectorAll('.portal-tab-btn').forEach(function(btn){
   btn.addEventListener('click', function(){ activatePortalTab(btn.dataset.tab); });
@@ -7745,10 +8010,30 @@ document.getElementById('movedSaveBtn').addEventListener('click', async function
   if(!street || !city){ statusEl.textContent = 'Please give us both the street and the town.'; return; }
   statusEl.textContent = 'Sending…';
   try{
+    /* ⭐ AND A MOVE REPORTED FROM THE DECLINE PICKER PUTS THEM BACK IN ([[RS-60]]).
+       Addie: "Moved should also give option change address which will keep them and
+       confrim them for that year along with send them to requotes."
+       ⚠ THE FLAG IS CLEARED THE MOMENT IT IS READ, so it can only ever colour the one
+       save it was set for — an ordinary move made later in the same visit must not
+       quietly confirm somebody for a season they never agreed to.
+       ⚠ AND THE SERVER STILL DECIDES. It confirms only a customer whose record actually
+       says they declined; a flag from a browser cannot confirm anybody on its own. */
+    var cameFromDecline = portalMoveConfirmsSeason;
+    portalMoveConfirmsSeason = false;
     var res = await callPortalFn('portalChangeAddress', {
       token: getActivePortalToken(),
-      street: street, city: city, zip: zip, moveDate: when
+      street: street, city: city, zip: zip, moveDate: when,
+      fromDecline: cameFromDecline
     });
+    /* ⚠ MIRRORED so the RSVP block above redraws as confirmed rather than still
+       offering the reason picker to somebody who has just been put back in. */
+    if(cameFromDecline && res && res.seasonConfirmed){
+      if(currentJobAddressData) currentJobAddressData.rsvpStatus = 'yes';
+      if(currentLookupRecord) currentLookupRecord.rsvpStatus = 'yes';
+      portalRsvpAnswerThisVisit = 'yes';
+      portalRsvpReasonThisVisit = '';
+      if(typeof renderPortalRsvp === 'function') renderPortalRsvp();
+    }
     /* ⚠ MIRRORED ONTO THE LOCAL RECORD so the banner below can draw immediately.
        Without it the form clears, nothing appears, and the obvious read is that
        pressing the button did nothing — see MSG-14's own note about a renderer that

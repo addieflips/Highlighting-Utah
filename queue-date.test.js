@@ -1278,6 +1278,22 @@ check('the path still has every step in it',
     colorChangeDoneAt: 'when somebody in the warehouse pressed Mark Done on that work ' +
       'order — a thing WE did, on a day nothing happened to the customer. The bundle ' +
       'reaching them is the install, which is already on the path',
+    /* ⭐ [[WH-34]], and it is colorChangeDoneAt's shape exactly. The customer-side event —
+       them saying they no longer want a timer — is a preferences change and is already
+       recorded in their history through the change log; this dates somebody walking to a
+       shelf afterwards. */
+    timerRemovedAt: 'when somebody in the warehouse pressed Timer taken out — a thing WE ' +
+      'did on a day nothing happened to the customer. Them asking to be rid of the timer ' +
+      'is the customer-side event, and the change log already carries it',
+    /* ⭐ [[RS-60]]. The customer-side EVENT is the RSVP answer itself, and that is
+       already a step (`rsvpRespondedAt`). This dates a detail added to that answer a
+       moment later — they have not moved along the path, they are exactly where the
+       no put them, and drawing it would put a second milestone on the picture for one
+       decision. Same shape as gateCodeUpdatedAt below. */
+    rsvpDeclineReasonAt: 'when they told us WHY they are not having lights — the answer ' +
+      'itself is the step and is already on the path as rsvpRespondedAt. This exists so ' +
+      'the portal can tell a reason already given from one never asked for, and stop ' +
+      'putting the question again to somebody who has answered it',
     gateCodeUpdatedAt: 'a DETAIL being corrected, not a stage anybody passes through. A customer confirming or fixing their gate code during the RSVP has not moved along the path — they are wherever they already were, and drawing it as a step would put a milestone on the picture for a four-digit correction. It exists so the office can tell a code confirmed this season from one sitting on the record since an import',
 
     /* ⚠ BOTH LIVE INSIDE referralCredits[], AND THEY ARE ABOUT SOMEBODY ELSE. A step on

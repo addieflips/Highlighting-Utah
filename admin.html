@@ -1569,8 +1569,8 @@
                  from a quote carries the same field as one edited later. -->
             <div class="pill-check-row" id="addCustHouseSideNames" style="margin-top:10px;">
               <label class="pill-check"><input type="checkbox" class="addcust-side-name" value="Front"> Front</label>
-              <label class="pill-check"><input type="checkbox" class="addcust-side-name" value="Right"> Right side</label>
-              <label class="pill-check"><input type="checkbox" class="addcust-side-name" value="Left"> Left side</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-side-name" value="Right"> Right side (from the street)</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-side-name" value="Left"> Left side (from the street)</label>
               <label class="pill-check"><input type="checkbox" class="addcust-side-name" value="Back"> Back</label>
             </div>
             <p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">Picking a number above ticks them front first, then right, then left, then back &mdash; change any of them. Left and right are as you stand on the street facing the house.</p>
@@ -2310,8 +2310,8 @@
                  appears to skip a box. The stored list is canonical either way. -->
             <div class="pill-check-row" id="editCustHouseSideNames" style="margin-top:10px;">
               <label class="pill-check"><input type="checkbox" class="editcust-side-name" value="Front"> Front</label>
-              <label class="pill-check"><input type="checkbox" class="editcust-side-name" value="Right"> Right side</label>
-              <label class="pill-check"><input type="checkbox" class="editcust-side-name" value="Left"> Left side</label>
+              <label class="pill-check"><input type="checkbox" class="editcust-side-name" value="Right"> Right side (from the street)</label>
+              <label class="pill-check"><input type="checkbox" class="editcust-side-name" value="Left"> Left side (from the street)</label>
               <label class="pill-check"><input type="checkbox" class="editcust-side-name" value="Back"> Back</label>
             </div>
             <p id="editCustSidesListNote" style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">Picking a number above ticks them front first, then right, then left, then back &mdash; change any of them. Left and right are as you stand on the street facing the house. Leave them all blank if nobody has said.</p>
@@ -7889,6 +7889,69 @@ function ledgerWaiveUpdates(inv, ledger, key){
   return { ledger: ledger, updates: updates, removed: removed };
 }
 function feeWaiveUpdates(inv, key){ return ledgerWaiveUpdates(inv, 'fee', key); }
+/* ⭐ WHERE A $30 LIGHT-CHANGE FEE IS ACTUALLY WRITTEN — ONE WRITER ([[MON-78]], 2026-09-11).
+ * Addie: "anyone that does a light change or ends up in warehouse because of a light change
+ * besides requotes and quotes will need to be charged 30 dollars unless waived", then, asked
+ * which doors she meant: "Yes either light change made in member portal or in costumer admin
+ * portal."
+ *
+ * ⛔ THE OFFICE HAD TWO DOORS AND ONLY ONE OF THEM CHARGED. Edit Customer asks and charges;
+ * the All Customers row panel has its own lights picker, queued the warehouse colour change,
+ * wrote the new colours to the record AND to the invoice — and deliberately charged nothing,
+ * with a comment saying the $30 "belongs to the Edit Customer save". That was a decision, and
+ * she has now overruled it: a colour change typed in the office is a colour change whichever
+ * box it was typed into, and the customer cannot tell which screen somebody used.
+ *
+ * ⚠ EXTRACTED RATHER THAN COPIED, and that is the point of it being a function. This is the
+ * third place that would otherwise hold the same ~25 lines of money write, and two copies of
+ * a fee write is how one screen starts charging what another does not — the exact failure
+ * `money-parity.test.js` exists for, one level up.
+ *
+ * ⚠ IT RE-READS THE INVOICE IMMEDIATELY BEFORE WRITING. The browser has no transaction —
+ * portalSave wraps its own decision in `db.runTransaction` and there is no equivalent here,
+ * and two people are in admin every day — so a stale read taken at the top of a long save
+ * must never be the basis of an addition.
+ *
+ * ⚠ AND IT REPORTS RATHER THAN THROWS. A failed fee must not undo a save that already
+ * worked: the customer record is written by the time this runs, and the office is told to add
+ * it by hand. */
+async function addLightChangeFeeToInvoice(feeKey, change){
+  if(!feeKey || !change || !(change.feeAmount > 0)) return false;
+  const fSnap = await getDoc(doc(db,'invoices', feeKey));
+  const fData = fSnap.exists() ? fSnap.data() : {};
+  const feeNotes = (Array.isArray(fData.changeFeeNotes) ? fData.changeFeeNotes : [])
+    .concat([{amount: change.feeAmount, reason: change.feeReason,
+              date: new Date().toISOString()}]);
+  const feeTotal = (Number(fData.changeFees) || 0) + change.feeAmount;
+  /* setDoc+merge rather than updateDoc: the invoice document may not exist yet, and
+     updateDoc throws on one that does not. */
+  await setDoc(doc(db,'invoices', feeKey), {
+    changeFees: feeTotal, changeFeeNotes: feeNotes,
+    lastLightChangeFeeAt: new Date(),
+    status: computeInvoiceStatus(fData.install || 0, fData.removal || 0,
+      fData.deposit || 0, fData.credits || 0, feeTotal),
+    updatedAt: serverTimestamp()
+  }, {merge:true});
+  return true;
+}
+/* ⭐ AND THE OTHER HALF: a fee that has missed this season's bill. Their invoice has already
+ * gone out, and nothing re-opens a sent one — `invoiceEmailSent` is cleared only by Start New
+ * Season — so a fee parked on the invoice would sit there and never be posted to anybody.
+ * It rides on the CUSTOMER instead, which Start New Season does not wipe, and the nightly run
+ * collects it next season.
+ * ⚠ PURE, AND IT RETURNS FIELDS RATHER THAN WRITING THEM, so the caller can put them in the
+ * SAME write as the rest of the customer record — a separate write can half-succeed, and the
+ * half that survives would be a colour change nobody was charged for. */
+function lightChangeCarryoverUpdates(prev, change){
+  const p = prev || {};
+  return {
+    carryoverCharge: (Number(p.carryoverCharge) || 0) + change.feeAmount,
+    carryoverChargeNotes:
+      (Array.isArray(p.carryoverChargeNotes) ? p.carryoverChargeNotes : [])
+        .concat([{amount: change.feeAmount, reason: change.feeReason,
+                  date: new Date().toISOString()}])
+  };
+}
 /* One row per line, with a × on the ones that may go. Shared by the Invoices panel
    and both boxes in Edit Customer so no two screens can describe one bill
    differently. */
@@ -8323,6 +8386,9 @@ const CUSTOMER_FIELD_LABELS = {
      "Waiting for a timer: Yes" is the whole distinction, and the history is where somebody
      later asks why a house was never built. */
   needsTimerOnly: {label: 'Waiting for a timer', kind: 'yesno'},
+  /* ⚠ "Timer to come out", never "Timer" — the two flags are one word apart and opposite
+     instructions, and this line is what somebody reads back in a history months later. */
+  needsTimerRemoved: {label: 'Timer to come out', kind: 'yesno'},
   needsLightRecycle: {label: 'Old set to come back', kind: 'yesno'},
   recycleKeepingCustomer: {label: 'Keeping them as a customer', kind: 'yesno'},
   buildTopUpFromFeet: {label: 'Feet already in their bin', kind: 'number'},
@@ -21719,12 +21785,45 @@ const FIX_NOTICE_TOPIC = 'A Fix Was Raised';
 /* Every topic this app writes for ITSELF rather than on behalf of a customer. Listed
    rather than pattern-matched: a customer is free to type any subject they like, and a
    guess here files somebody's question where nobody answers it. */
+/* ⭐ THE TWO WAYS OF SAYING NO, AND THEY ARE DIFFERENT ANSWERS ([[RS-59]]). "Not this year"
+   sends their lights to the recycle queue and takes their number back; "back next year" keeps
+   them on the books for the season after. The office does different things with each, which is
+   why they are two topics and two folders rather than one with a field — "it will go in the
+   folder with the response they choose" is her own rule, and the folder IS the answer. */
+const RSVP_NO_TOPIC = 'RSVP \u2014 Not This Year';
+const RSVP_BNY_TOPIC = 'RSVP \u2014 Back Next Year';
+/* ⭐ AND WHY THEY SAID IT ([[RS-60]], 2026-09-11). Addie: "okay i need it to be optional
+   choice", then the wording — "Should be Moved, Finances, etc." — and then "There should
+   also be an option for other and if they put other than a note section will show up that
+   they can put in there reason."
+   ⚠ THE THIRD COPY OF THIS LIST. index.html draws the picker, functions/index.js refuses
+   anything not on it, and these are the FOLDERS the notes are filed into — so run-all.js
+   Suite 323 compares all three as lists, in order. One character apart and a real answer
+   sits in a folder nobody opens.
+   ⚠ AND THE WORDING IS HERS. Changing a word here means changing it in the other two in
+   the SAME push; it is read by a customer and it names a folder. */
+const RSVP_DECLINE_REASONS = [
+  'Moved',
+  'Finances',
+  'Doing it ourselves',
+  'Another company',
+  'Not decorating',
+  'Other'
+];
 const SYSTEM_NOTICE_TOPICS = [
   'Routes Kept Up To Date', 'Moved To Another Day', 'A Route Sheet Is Out Of Date',
   'Lights Changed After Assignment', 'Rejoined After Recycling', 'Customer Number Needs Fixing',
   'A Background Check Has Stopped', 'Carried Debt Written Off', 'Add-On Declined',
   'Cannot Be Billed', 'Maybe Next Year — New Record', 'Payment With No Bill',
-  'Re-quote Declined', 'Referral Taken Back', FIX_NOTICE_TOPIC
+  'Re-quote Declined', 'Referral Taken Back', FIX_NOTICE_TOPIC,
+  /* ⭐ SOMEBODY ANSWERING THE RSVP WITH A NO ([[RS-59]], 2026-09-11). Addie: "can we have
+     no emails be there own section and it will go in the folder with the response they
+     choose", then "I mean No RSVPs."
+     ⚠ SYSTEM NOTICES, NOT MEMBER MESSAGES, and the distinction is load-bearing: these are
+     the APP reporting what a customer did, not the customer writing to us. A member
+     message reads as NEEDS REPLY and these outnumber real questions — burying the reply
+     queue under them is the complaint the whole Communication Centre exists to fix. */
+  RSVP_NO_TOPIC, RSVP_BNY_TOPIC
 ];
 
 /* ⭐ CATEGORIES ARE TAGS, NOT FOLDERS, WHICH IS THE POINT OF THE WHOLE BLUEPRINT.
@@ -21955,7 +22054,45 @@ let commView = {section:'inbox', tab:'all'};
  * A whole feature that looks saved and is not is a worse trade than the one cost here, which
  * is that two people editing sections at the same moment overwrite each other. Same trade
  * `settings/scheduling` already makes, on something that changes about as often. */
-let commSections = {custom: [], hidden: []};
+/* ⭐ AND THEN SHE NAMED THE WHOLE THING ([[MSG-19]], 2026-09-11). Addie, in five messages:
+ * "on inbox we need to be able to add a folder to each section not just a new section";
+ * "in what type does this belong to we should have a spot for nothing so we can just move
+ * emails into it for my completed folder"; "I also don't like the filters you set for me we
+ * can just put everything in inbox and we can choose what section they go in from there.
+ * Then put them in completed afterward. In other words I can choose what all sections are
+ * called and all folders are called"; "And I need to be able to put emails in the folders as
+ * well like drag and drop."
+ *
+ * ⛔ THIS REVERSES [[MSG-15]]'s "a section is a saved filter, never filing", WHICH WAS ALSO
+ * HERS. R-024 applies — her most recent answer is the one to trust — and this comment is the
+ * "say so when you apply it" half of that rule. The MSG-15 row is marked Superseded rather
+ * than deleted, because the thing it was protecting is still true and is still enforced
+ * below: deleting a view must never lose a message.
+ *
+ * ⭐ WHAT MAKES THAT SAFE IS THAT THE FILING ALREADY EXISTED AND NEVER WENT AWAY. A message
+ * carries its own `folder` and `filedByHand`, `messageFolderOf` reads them, and the drag, the
+ * right-click and the Move to… toolbar all write them. So a hand-filled view is still a
+ * QUESTION ASKED OF THE MESSAGE — "which folder are you in" — rather than a list of ids kept
+ * beside the view. That is why `commFilterMatches` can answer it, why two views can never
+ * disagree about one message, and why deleting a section cannot strand one: the message says
+ * where it is, the section does not say what it holds. The asserted rule in
+ * comm-centre.test.js ("a section stores a filter, never a list of messages") is still true
+ * to the letter and is deliberately left in place.
+ *
+ * ⚠ AND DELETING A HAND-FILLED SECTION OFFERS TO PUT ITS MESSAGES BACK IN THE INBOX. That is
+ * the concrete answer to MSG-15's worry rather than a refusal of the feature: with the Inbox
+ * now showing the UNFILED pile, a section deleted with mail still in it would otherwise leave
+ * those messages reachable only by search.
+ *
+ * ⚠ THE FOLDER NAME IS THE LABEL, AND THE `messageFolders` DOCUMENT IS CREATED WITH IT, so
+ * there is ONE vocabulary: the thing she names in the sidebar is the thing Move to… offers
+ * and the thing a drag drops into. Two lists of names would be two things to keep in step,
+ * and the one nobody looks at is the one that goes stale. */
+/* ⚠ `builtIn` IS HER CHANGES TO THE FOUR SPINE SECTIONS — a renamed label, a different icon,
+   folders she added underneath. Stored SEPARATELY from `custom` rather than by copying the
+   built-in into it: every dashboard tile and the classification itself are written in terms
+   of those four keys, so they have to stay the same sections, wearing whatever she calls them. */
+let commSections = {custom: [], hidden: [], builtIn: {}};
 /* Built-in sections are the spine: every dashboard tile, and the classification itself, is
    written in terms of them. They can be HIDDEN — which is what "deleting anything" means for
    a list you did not create — and never deleted, because deleting one would leave the tiles
@@ -21972,7 +22109,25 @@ const COMM_SECTIONS = [
          ['scheduling','Scheduling'],['notifications','Notifications']]},
   {key:'errors', icon:'\u{1F6A8}', label:'System Errors',
    tabs:[['all','All Errors'],['critical','Critical'],['warnings','Warnings'],
-         ['review','Needs Review'],['resolved','Resolved']]}
+         ['review','Needs Review'],['resolved','Resolved']]},
+  /* ⭐ THE NOs GET THEIR OWN SECTION ([[RS-59]], 2026-09-11). Addie: "can we have no emails
+     be there own section and it will go in the folder with the response they choose", then
+     "I mean No RSVPs."
+     ⚠ AND THE FOLDER IS THE ANSWER THEY GAVE, which is what she asked for in as many words.
+     The two are not the same decision: Not This Year sends a bundle to the recycle queue and
+     puts their number back in the pool, Back Next Year keeps them on the books for the season
+     after — so the office does different things with each, and a single No folder would hide
+     that difference on the one screen where it is acted on.
+     ⚠ IT IS A BUILT-IN, so she can rename it, re-icon it, hide it or add folders to it
+     ([[MSG-19]]) — but what lands in it is code, because a declined RSVP has to reach it
+     whatever anybody has renamed. */
+  /* ⚠ THE TWO ANSWERS FIRST, THEN A FOLDER PER REASON ([[RS-60]]) — her "it will go in
+     the folder with the response they choose", with the reasons built from the shared
+     list rather than typed out, so the tabs cannot drift from what the picker offers or
+     from what the server files them under. */
+  {key:'rsvpno', icon:'\u{1F6AB}', label:'No RSVPs',
+   tabs:[['all','All'],['no','Not This Year'],['backnextyear','Back Next Year']]
+     .concat(RSVP_DECLINE_REASONS.map(function(r){ return ['why:' + r, r]; }))}
 ];
 /* Every section on screen, in order: the built-ins she has not hidden, then hers. ONE list,
    so the nav, the counts, the list and the heading cannot disagree about what exists. */
@@ -21985,7 +22140,11 @@ function loadCommSections(){
   onSnapshot(doc(db, 'settings', 'commSections'), function(snap){
     const d = snap.exists() ? (snap.data() || {}) : {};
     commSections = {custom: Array.isArray(d.custom) ? d.custom : [],
-                    hidden: Array.isArray(d.hidden) ? d.hidden : []};
+                    hidden: Array.isArray(d.hidden) ? d.hidden : [],
+                    /* ⚠ A PLAIN OBJECT OR NOTHING. A malformed value here would make
+                       commBuiltInExtras hand back whatever it found, and the sidebar would
+                       try to read .tabs off it on every render. */
+                    builtIn: (d.builtIn && typeof d.builtIn === 'object') ? d.builtIn : {}};
     /* If she is looking at a section that has just gone, put her somewhere real. */
     if(!commAllSections().some(function(x){ return x.key === commView.section; })){
       commView = {section: 'inbox', tab: 'all'};
@@ -22000,20 +22159,77 @@ async function saveCommSections(next){
   /* Written whole rather than merged: `custom` is an ARRAY, and a merge on an array replaces
      it anyway, so a partial write here would be a lie about what it does. */
   await setDoc(doc(db, 'settings', 'commSections'),
-    {custom: next.custom || [], hidden: next.hidden || []}, {merge: true});
+    {custom: next.custom || [], hidden: next.hidden || [],
+     /* ⚠ NAMED HERE OR IT IS NOT WRITTEN. A merge only carries the keys it is given, so a
+        caller that forgets this one saves her sections and silently drops her folders. */
+     builtIn: next.builtIn || (commSections.builtIn || {})}, {merge: true});
+}
+/* Her changes to one of the four built-ins: a new name, a new icon, folders she added. */
+function commBuiltInExtras(key){
+  const b = (commSections && commSections.builtIn) ? commSections.builtIn[key] : null;
+  return b && typeof b === 'object' ? b : {};
 }
 function commAllSections(){
   const hidden = (commSections && Array.isArray(commSections.hidden)) ? commSections.hidden : [];
   const mine = (commSections && Array.isArray(commSections.custom)) ? commSections.custom : [];
+  /* ⚠ ONE SHAPE OUT, whichever kind went in. Everything downstream — the sidebar, the
+     counts, the editor, Move to… — reads this list and nothing else, so a built-in she has
+     renamed and a section she built from scratch cannot start behaving differently. */
+  const asTabs = function(list){
+    return (list || []).map(function(t){ return [t.key, t.label, t]; });
+  };
   return COMM_SECTIONS.filter(function(s){ return hidden.indexOf(s.key) === -1; })
+    .map(function(s){
+      const extra = commBuiltInExtras(s.key);
+      return {key: s.key, icon: extra.icon || s.icon,
+              /* ⭐ "I can choose what all sections are called" — including these four. The KEY
+                 never moves, because every dashboard tile is written in terms of it; only the
+                 word on the button does. */
+              label: extra.label || s.label,
+              renamed: !!extra.label, builtIn: true,
+              /* ⚠ HERS GO AFTER THE SPINE, never interleaved: the built-in tabs are the ones
+                 every tile links to, and a folder she added is a place she puts things. */
+              tabs: s.tabs.concat(asTabs(extra.tabs))};
+    })
     .concat(mine.map(function(sec){
       /* ⚠ THE All TAB IS ADDED HERE, NEVER STORED. It is the section's own filter with no
          narrowing — exactly what `all` means on every built-in — so a section with one tab
          cannot be saved in a state where All disagrees with it. */
       return {key: sec.key, icon: sec.icon || '\u{1F4CC}', label: sec.label || 'Untitled',
               custom: true, filter: sec.filter,
-              tabs: [['all', 'All']].concat((sec.tabs || []).map(function(t){ return [t.key, t.label]; }))};
+              tabs: [['all', 'All']].concat(asTabs(sec.tabs))};
     }));
+}
+/* ⭐ WHICH FOLDER A VIEW IS, if it is one at all ([[MSG-19]]). A section or a subtab she
+   fills by hand IS a message folder — the same folder Move to… offers and a drag drops into —
+   so this is the one place that turns a view into a folder name. Returns '' for a view that
+   fills itself by rule, which is what keeps the two kinds apart everywhere else. */
+function commViewFolder(section, tab){
+  const secs = commAllSections();
+  const sec = secs.find(function(s){ return s.key === section; });
+  if(!sec) return '';
+  if(tab && tab !== 'all'){
+    const t = (sec.tabs || []).find(function(x){ return x[0] === tab; });
+    const f = t && t[2] && t[2].filter;
+    return (f && f.fill === 'hand') ? String(f.folder || '').trim() : '';
+  }
+  return (sec.filter && sec.filter.fill === 'hand') ? String(sec.filter.folder || '').trim() : '';
+}
+/* Every folder she has made out of a section or a subtab, for Move to… and for the drop
+   targets. ⚠ Names, deduped — two views may legitimately point at one folder. */
+function commHandFolders(){
+  const out = [];
+  commAllSections().forEach(function(sec){
+    const add = function(name){
+      const n = String(name || '').trim();
+      if(n && out.indexOf(n) === -1) out.push(n);
+    };
+    if(sec.filter && sec.filter.fill === 'hand') add(sec.filter.folder);
+    (sec.tabs || []).forEach(function(t){
+      if(t[2] && t[2].filter && t[2].filter.fill === 'hand') add(t[2].filter.folder);
+    });
+  });
+  return out;
 }
 function commSectionByKey(key){
   const mine = (commSections && Array.isArray(commSections.custom)) ? commSections.custom : [];
@@ -22027,6 +22243,18 @@ function commSectionByKey(key){
    visibly a filter nobody has narrowed yet. The editor says so and shows a live count. */
 function commFilterMatches(d, filter){
   if(!filter) return true;
+  /* ⭐ "A SPOT FOR NOTHING SO WE CAN JUST MOVE EMAILS INTO IT" ([[MSG-19]]). A view that
+     fills by hand asks the message ONE question — which folder are you in — and asks it of
+     the message's own field, exactly as the folder sidebar always did. It is still a filter
+     in the sense that matters: nothing is stored against the view, two views cannot disagree
+     about one message, and deleting the view strands nothing.
+     ⚠ A HAND-FILLED VIEW WITH NO FOLDER NAME HOLDS NOTHING, and that is the safe direction:
+     the other reading — "no folder set, so match everything" — would empty the whole Inbox
+     into a half-built section the moment she typed a name into the box. */
+  if(filter.fill === 'hand'){
+    const want = String(filter.folder || '').trim();
+    return !!want && messageFolderOf(d) === want;
+  }
   const f = msgFacets(d);
   const any = function(list, value){ return !list || !list.length || list.indexOf(value) !== -1; };
   if(!any(filter.types, f.type)) return false;
@@ -22045,6 +22273,18 @@ function commFilterMatches(d, filter){
   }
   return true;
 }
+/* ⭐ HAS A PERSON PUT THIS SOMEWHERE? ([[MSG-19]]) The one test that empties a row out of the
+   Inbox, kept as its own named rule because three things ask it: the Inbox branch below, the
+   "Your folders" fallback in the sidebar, and the count beside it.
+   ⚠ `filedByHand` AND NOT MERELY A FOLDER. A message can carry a folder it was never moved
+   into — MESSAGE_HOME_FOLDER files errors and cancellations off the topic — and those are
+   still unfiled work somebody has to look at. ⚠ AND Inbox ITSELF IS NOT BEING FILED: moving
+   something back is how a mistake is undone, so it has to return to the pile. */
+function msgIsFiledAway(d){
+  if(!d || !d.filedByHand) return false;
+  const where = messageFolderOf(d);
+  return !!where && where !== 'Inbox';
+}
 /* ⚠ ONE RULE FOR "IS THIS ROW IN THIS VIEW", asked by the list AND by every count beside
    a tab. Two implementations is how a tab reads 5 and shows 4 — the bug the folder badge
    already had once, when the sidebar counted everything and the nav counted unread. */
@@ -22052,6 +22292,14 @@ function commRowMatches(d, section, tab){
   /* ⭐ HER OWN SECTIONS GO THROUGH THIS SAME FUNCTION ([[MSG-15]]). A second evaluator for
      custom tabs is how a tab reads 5 and shows 4 — the exact failure this function's own
      note above exists to prevent, so the new kind of view must not get one. */
+  /* ⭐ A BARE FOLDER, opened from the "Your folders" line ([[MSG-19]]). Not a section and
+     deliberately not turned into one: these are folders nobody has given a place in the nav,
+     including everything filed before any of this existed, and inventing a section for each
+     would fill her sidebar with names she never chose. One prefix, one rule, still answered
+     by asking the MESSAGE where it is. */
+  if(String(section || '').indexOf('folder:') === 0){
+    return messageFolderOf(d) === section.slice(7);
+  }
   const mine = commSectionByKey(section);
   if(mine){
     if(!commFilterMatches(d, mine.filter)) return false;
@@ -22062,7 +22310,38 @@ function commRowMatches(d, section, tab){
     if(!t) return true;
     return commFilterMatches(d, t.filter);
   }
+  /* ⭐ A FOLDER SHE ADDED TO ONE OF THE FOUR BUILT-IN SECTIONS ([[MSG-19]]). Addie: "on inbox
+     we need to be able to add a folder to each section not just a new section."
+     ⚠ IT STILL HAS TO PASS THE SECTION ITSELF, exactly as a custom section's subtabs do — a
+     subtab that matched on its own would quietly widen its section, which is the
+     folder-shaped confusion all of this replaced. Asked with tab 'all', which is the
+     section's own rule and can never find this branch again. */
+  const hersOnBuiltIn = (commBuiltInExtras(section).tabs || [])
+    .find(function(t){ return t && t.key === tab; });
+  if(hersOnBuiltIn){
+    if(!commRowMatches(d, section, 'all')) return false;
+    return commFilterMatches(d, hersOnBuiltIn.filter);
+  }
   const f = msgFacets(d);
+  /* ⭐ [[RS-59]] — the declined RSVPs, split by the answer they chose. Read off the TOPIC,
+     which is what the two writers stamp, rather than off the customer's `rsvpStatus`: a
+     message is a record of what somebody said on a day, and re-deciding it from the record
+     would move old notes between folders every time a customer changed their mind. */
+  if(section === 'rsvpno'){
+    const t = String(d.topic || '');
+    if(t !== RSVP_NO_TOPIC && t !== RSVP_BNY_TOPIC) return false;
+    if(tab === 'no') return t === RSVP_NO_TOPIC;
+    if(tab === 'backnextyear') return t === RSVP_BNY_TOPIC;
+    /* ⭐ A FOLDER PER REASON ([[RS-60]]). Read off the message's own `rsvpDeclineReason`,
+       which the server writes beside the folder when they answer — never off the
+       customer record, for the same reason the two topics are: a message is what
+       somebody said on a day, and re-deriving it would move old notes about whenever
+       that customer answered something new. */
+    if(String(tab || '').indexOf('why:') === 0){
+      return String(d.rsvpDeclineReason || '') === tab.slice(4);
+    }
+    return true;
+  }
   if(section === 'errors'){
     if(f.type !== MSG_TYPE_ERROR) return false;
     if(tab === 'critical') return f.severity === 'critical';
@@ -22094,6 +22373,19 @@ function commRowMatches(d, section, tab){
   /* Inbox — everything that is somebody's problem. ⚠ SYSTEM NOTICES ARE NOT MIXED IN
      unless she asks for All: "System messages should generally not appear mixed into the
      main member conversation list unless the admin chooses All." */
+  /* ⭐ AND THE INBOX IS THE PILE NOBODY HAS FILED YET ([[MSG-19]]). Addie: "we can just put
+     everything in inbox and we can choose what section they go in from there. Then put them
+     in completed afterward." Moving something has to MOVE it — a message that stays in the
+     Inbox for ever after being filed means the Inbox never shrinks and the filing buys her
+     nothing, which is the whole point of what she asked for.
+     ⚠ HAND FILING ONLY, NEVER AN AUTOMATIC HOME FOLDER. `messageFolderOf` also answers
+     Cancellations, Member Portal and the two error folders off the TOPIC, for messages
+     nobody has touched — dropping those out of the Inbox would hide a cancellation request
+     from the one list the office reads every morning. `filedByHand` is a person having
+     decided, which is the only thing that should empty a row out of here.
+     ⚠ AND NOTHING IS STRANDED BY IT: renderCommNav lists any folder holding filed mail that
+     no section claims, under "Your folders", so a message can always be got back to. */
+  if(msgIsFiledAway(d)) return false;
   if(tab === 'unread')      return f.status === 'unread';
   if(tab === 'needs_reply') return f.status === 'needs_reply';
   if(tab === 'waiting')     return f.status === 'waiting' || f.status === 'in_progress';
@@ -22163,21 +22455,39 @@ function renderCommNav(){
     const open = commView.section === sec.key;
     html += '<div class="comm-sec' + (open ? ' open' : '') + '">' +
       '<div class="comm-sec-row">' +
-        '<button type="button" class="comm-sec-head" data-commsec="' + esc(sec.key) + '">' +
+        /* ⭐ A SECTION SHE FILLS BY HAND IS A DROP TARGET ([[MSG-19]]). Addie: "I need to
+           be able to put emails in the folders as well like drag and drop." A section that
+           fills itself by rule is deliberately NOT one — dropping a message on "System
+           Messages" could only lie about it or do nothing. */
+        '<button type="button" class="comm-sec-head" data-commsec="' + esc(sec.key) + '"' +
+          ((sec.filter && sec.filter.fill === 'hand' && String(sec.filter.folder || '').trim())
+            ? ' data-commdrop="' + esc(String(sec.filter.folder).trim()) + '"' : '') + '>' +
           '<span class="comm-sec-icon">' + esc(sec.icon) + '</span>' + esc(sec.label) + '</button>' +
         /* ⭐ HER OWN SECTIONS ARE EDITABLE; THE BUILT-INS CAN BE PUT AWAY ([[MSG-15]]).
            "Deleting anything" means two different things for the two kinds, and offering
            Delete on a built-in would be a button that either breaks the dashboard tiles
            pointing at it or quietly does nothing. */
-        (sec.custom
-          ? '<button type="button" class="comm-sec-edit" data-commedit="' + esc(sec.key) + '" title="Edit this section">\u270E</button>'
+        /* ⭐ EVERY SECTION IS EDITABLE NOW ([[MSG-19]]). Addie: "on inbox we need to be
+           able to add a folder to each section not just a new section", and "I can choose
+           what all sections are called". The pencil opens the same editor for both kinds;
+           what differs is what it OFFERS, not whether it opens. A built-in still cannot be
+           DELETED — every dashboard tile is written in terms of its key — so it keeps the
+           × beside the pencil, which is what "deleting" means for a list she did not make. */
+        '<button type="button" class="comm-sec-edit" data-commedit="' + esc(sec.key) + '" title="Rename this section, or add a folder to it">\u270E</button>' +
+        (sec.custom ? ''
           : '<button type="button" class="comm-sec-edit" data-commhide="' + esc(sec.key) + '" title="Hide this section">\u2715</button>') +
       '</div>' +
       '<div class="comm-tabs"' + (open ? '' : ' hidden') + '>';
     sec.tabs.forEach(function(t){
       const n = commCount(sec.key, t[0]);
       const on = open && commView.tab === t[0];
+      /* ⭐ AND SO IS A FOLDER UNDER IT. Marking every tab droppable would offer to file a
+         message into "Unread", which is not a place — it is a question about the message,
+         and a drop there could only ever lie or do nothing. */
+      const intoFolder = (t[2] && t[2].filter && t[2].filter.fill === 'hand')
+        ? String(t[2].filter.folder || '').trim() : '';
       html += '<button type="button" class="comm-tab' + (on ? ' on' : '') + '" ' +
+        (intoFolder ? 'data-commdrop="' + esc(intoFolder) + '" ' : '') +
         'data-commsec="' + esc(sec.key) + '" data-commtab="' + esc(t[0]) + '">' + esc(t[1]) +
         /* A nought is drawn as nothing at all — a column of zeroes reads as a broken
            counter, which is half of why the old total count was ignored. */
@@ -22192,6 +22502,32 @@ function renderCommNav(){
      question the screen should answer itself. */
   const hidden = (commSections.hidden || []).filter(function(k){
     return COMM_SECTIONS.some(function(s){ return s.key === k; }); });
+  /* ⭐ NOTHING SHE HAS FILED CAN BECOME UNREACHABLE ([[MSG-19]]). The Inbox now shows the
+     UNFILED pile, so a message in a folder that no section points at would be findable only
+     by search — including everything filed before any of this existed. Every such folder is
+     listed here with its unread count and is a drop target like any other.
+     ⚠ THIS IS ALSO A REAL BUG FIXED IN PASSING: the comment on renderCommNav's two callers
+     has claimed since 2026-09-09 that this function "writes the nav and the Your folders
+     heading into the same host", and it did not — the heading went with the old folder
+     sidebar and nobody noticed, because the Inbox was showing those messages anyway. */
+  {
+    const claimed = commHandFolders();
+    const spare = [];
+    (allMessages || []).forEach(function(m){
+      if(!msgIsFiledAway(m.data)) return;
+      const where = messageFolderOf(m.data);
+      if(claimed.indexOf(where) !== -1 || spare.indexOf(where) !== -1) return;
+      spare.push(where);
+    });
+    if(spare.length){
+      html += '<div class="comm-hidden-note">Your folders: ' + spare.sort().map(function(name){
+        const n = folderUnread(name);
+        return '<button type="button" class="comm-unhide" data-commfolder="' + esc(name) + '"' +
+          ' data-commdrop="' + esc(name) + '">' + esc(name) +
+          (n ? ' <span class="comm-badge">' + n + '</span>' : '') + '</button>';
+      }).join(' ') + '</div>';
+    }
+  }
   if(hidden.length){
     html += '<div class="comm-hidden-note">Hidden: ' + hidden.map(function(k){
       const s0 = COMM_SECTIONS.find(function(x){ return x.key === k; });
@@ -22215,7 +22551,8 @@ function renderCommNav(){
   host.querySelectorAll('[data-commedit]').forEach(function(b){
     b.addEventListener('click', function(e){
       e.stopPropagation();   /* the row underneath opens the section; this must not */
-      commEditSection(commSectionByKey(b.dataset.commedit));
+      /* A custom section is edited as its stored record; a built-in as its key. */
+      commEditSection(commSectionByKey(b.dataset.commedit) || b.dataset.commedit);
     });
   });
   host.querySelectorAll('[data-commhide]').forEach(function(b){
@@ -22246,6 +22583,38 @@ function renderCommNav(){
   });
   const addBtn = document.getElementById('commAddSection');
   if(addBtn) addBtn.addEventListener('click', function(){ commEditSection(null); });
+  /* ⭐ DRAG A MESSAGE ONTO A FOLDER ([[MSG-19]]). Addie: "I need to be able to put emails in
+     the folders as well like drag and drop." The message rows have set `text/plain` to their
+     own id on dragstart since the folder sidebar existed, so this is the other half of a
+     mechanism that was already there rather than a new one.
+     ⚠ IT WRITES THE SAME TWO FIELDS AS Move to… (`folder` + `filedByHand`) through the SAME
+     `msgBulkApply`, so a drag and a pick cannot start meaning different things — and the
+     failure reporting, the retry-keeps-the-tick rule and the redraw all come with it.
+     ⚠ AND THE LISTENERS ARE BOUND TO ROWS THIS RENDER CREATED, never with a document-wide
+     query: that is what put 2815 Firestore writes behind one drop in 2026-08-25, because the
+     host is rebuilt wholesale and a document-wide bind reaches rows it did not make. */
+  host.querySelectorAll('[data-commfolder]').forEach(function(b){
+    b.addEventListener('click', function(){
+      commView = {section: 'folder:' + b.dataset.commfolder, tab: 'all'};
+      renderCommNav(); renderCommDash(); renderMessagesList();
+    });
+  });
+  host.querySelectorAll('[data-commdrop]').forEach(function(el){
+    el.addEventListener('dragover', function(e){ e.preventDefault(); el.classList.add('drag-over'); });
+    el.addEventListener('dragleave', function(){ el.classList.remove('drag-over'); });
+    el.addEventListener('drop', async function(e){
+      e.preventDefault();
+      el.classList.remove('drag-over');
+      const id = e.dataTransfer ? e.dataTransfer.getData('text/plain') : '';
+      if(!id) return;
+      const folder = el.dataset.commdrop;
+      /* ⚠ A DROP MOVES THE ONE MESSAGE THAT WAS DRAGGED, never the ticked ones. Dragging a
+         row nobody ticked and watching nine others move with it is the shape of mistake
+         that has no undo here. */
+      await msgBulkApply([id], {folder: folder, filedByHand: true},
+        'moved to \u201C' + folder + '\u201D');
+    });
+  });
 }
 /* ⭐ THE EDITOR ([[MSG-15]]). One popup for the whole section: its name, its icon, what
    belongs in it at all, and its subtabs. A popup rather than a `confirm()` for the reason
@@ -22258,17 +22627,40 @@ function renderCommNav(){
 
    ⚠ NOTHING IS WRITTEN UNTIL Save. Cancel leaves the stored sections untouched, so a
    half-built section cannot appear in the sidebar for anybody else mid-edit. */
+/* ⭐ ONE EDITOR, BOTH KINDS ([[MSG-19]]). `existing` is a stored custom section, or a plain
+   built-in KEY string, or null for a new one. A second editor for built-ins would be a second
+   place the folder shape is decided, and the one nobody opens is the one that goes stale. */
 function commEditSection(existing){
+  /* A built-in is edited through a small overlay record — her label, her icon, her folders —
+     and the four spine tabs are never touched, because every dashboard tile links to them. */
+  const builtInKey = (typeof existing === 'string') ? existing : '';
+  const builtIn = builtInKey ? COMM_SECTIONS.find(function(x){ return x.key === builtInKey; }) : null;
+  if(builtInKey && !builtIn) return;
+  if(builtIn){
+    const extra = commBuiltInExtras(builtInKey);
+    existing = {key: builtInKey, icon: extra.icon || builtIn.icon,
+                label: extra.label || builtIn.label,
+                /* ⚠ NO SECTION-LEVEL FILTER. A built-in's own rule is code — "is this a
+                   system notice" — and it is what every tile counts. She can rename it and
+                   add folders under it; she cannot redefine what belongs in it. */
+                tabs: JSON.parse(JSON.stringify(extra.tabs || []))};
+  }
   const isNew = !existing;
   /* A deep copy: editing must not mutate what is on screen behind the popup, or Cancel
      has already half-applied by the time it is pressed. */
   const draft = existing
     ? JSON.parse(JSON.stringify(existing))
     : {key: 'c-' + Date.now().toString(36), icon: '\u{1F4CC}', label: '',
-       /* ⚠ A NEW SECTION STARTS ON MEMBER MESSAGES, not on nothing. An empty filter matches
-          every row including the route sweeps, and a brand-new section showing 900 system
-          notices reads as broken rather than as unnarrowed. */
-       filter: {types: [MSG_TYPE_MEMBER], categories: [], statuses: [], priorities: [], severities: [], search: ''},
+       /* ⭐ A NEW SECTION IS NOW A FOLDER SHE FILLS HERSELF ([[MSG-19]]). Addie: "I also
+          don't like the filters you set for me we can just put everything in inbox and we
+          can choose what section they go in from there."
+          ⚠ THIS USED TO DEFAULT TO A MEMBER-MESSAGES FILTER, and the reasoning is kept
+          because it is still why the OTHER default is wrong: "an empty filter matches every
+          row including the route sweeps, and a brand-new section showing 900 system notices
+          reads as broken rather than as unnarrowed". A hand-filled section starts EMPTY,
+          which is neither of those things — it is a folder waiting to be filled, and the
+          note under it says so. By rule is still one click away. */
+       filter: {fill: 'hand', folder: '', types: [], categories: [], statuses: [], priorities: [], severities: [], search: ''},
        tabs: []};
   draft.tabs = draft.tabs || [];
 
@@ -22280,9 +22672,16 @@ function commEditSection(existing){
   /* How many messages a filter would hold right now. Counted through the SAME rule the
      nav and the list use, never a second scan — a preview that disagreed with the tab it
      is previewing would be worse than no preview. */
+  /* ⚠ A BUILT-IN'S OWN RULE IS CODE, not a stored filter, so the live count for one has to
+     ask `commRowMatches` — the same rule the sidebar badge and the list use. Counting a
+     built-in through `draft.filter` (which is undefined for one) would match every message
+     in the book and show her a folder preview of ~900. */
+  const inSection = function(d){
+    return builtIn ? commRowMatches(d, builtInKey, 'all') : commFilterMatches(d, draft.filter);
+  };
   const countFor = function(filter){
     return allMessages.filter(function(m){
-      return commFilterMatches(m.data, draft.filter) &&
+      return inSection(m.data) &&
              (filter === draft.filter ? true : commFilterMatches(m.data, filter));
     }).length;
   };
@@ -22296,7 +22695,32 @@ function commEditSection(existing){
   };
 
   const filterUi = function(filter, name) {
+    const byHand = filter.fill === 'hand';
     return '<div class="comm-filter" data-for="' + esc(name) + '">' +
+      /* ⭐ "A SPOT FOR NOTHING" ([[MSG-19]]). Addie asked for it inside the Type list; it is
+         a row of its own instead, because it is not one more kind of message — it is the
+         answer to a different question, and a Type tick that meant "ignore every other tick
+         on this form" would be the most confusing box on the screen. */
+      '<div class="comm-flabel">What goes in here?</div>' +
+      '<div class="comm-fset">' +
+        '<label class="comm-chk"><input type="radio" name="commfill-' + esc(name) + '" data-f="fill" value="hand"' +
+          (byHand ? ' checked' : '') + '> Nothing \u2014 I move messages in myself</label>' +
+        '<label class="comm-chk"><input type="radio" name="commfill-' + esc(name) + '" data-f="fill" value="rule"' +
+          (byHand ? '' : ' checked') + '> Anything matching the ticks below</label>' +
+      '</div>' +
+      (byHand
+        ? '<div class="comm-flabel">Folder name</div>' +
+          '<input type="text" data-f="folder" value="' + esc(filter.folder || '') + '" placeholder="e.g. Completed">' +
+          '<div class="comm-fnote">Nothing lands here by itself. <strong>Drag a message onto it</strong>, or ' +
+            'tick rows and use <strong>Move to\u2026</strong>. A message you move leaves the Inbox and stays ' +
+            'here until you move it again \u2014 nothing is deleted, and it still turns up in a search.</div>'
+        : filterUi.rules(filter)) +
+    '</div>';
+  };
+  /* The by-rule half, unchanged — split out only so the two modes read as two answers to one
+     question rather than one long form with half of it inert. */
+  filterUi.rules = function(filter) {
+    return '' +
       '<div class="comm-flabel">Type</div>' +
         boxes('types', [MSG_TYPE_MEMBER, MSG_TYPE_SYSTEM, MSG_TYPE_ERROR],
               {member: 'Member Messages', system: 'System', error: 'Errors'}, filter.types || []) +
@@ -22306,8 +22730,7 @@ function commEditSection(existing){
       '<div class="comm-flabel">Contains these words (optional)</div>' +
         '<input type="text" data-f="search" value="' + esc(filter.search || '') + '" placeholder="e.g. gate code">' +
       '<div class="comm-fnote">Nothing ticked in a row means <strong>any</strong>. Ticks across ' +
-        'different rows have to <strong>all</strong> match.</div>' +
-    '</div>';
+        'different rows have to <strong>all</strong> match.</div>';
   };
 
   let editingTab = null;   /* null = editing the section itself */
@@ -22315,7 +22738,7 @@ function commEditSection(existing){
   const draw = function(){
     const target = editingTab === null ? draft.filter : draft.tabs[editingTab].filter;
     card.innerHTML =
-      '<h3 style="color:var(--dusk);">' + (isNew ? 'New section' : 'Edit section') + '</h3>' +
+      '<h3 style="color:var(--dusk);">' + (isNew ? 'New section' : (builtIn ? 'Edit ' + esc(builtIn.label) : 'Edit section')) + '</h3>' +
       '<div class="comm-ed-row">' +
         '<div class="form-row" style="flex:0 0 80px;"><label>Icon</label>' +
           '<input type="text" id="commEdIcon" maxlength="4" value="' + esc(draft.icon) + '"></div>' +
@@ -22324,7 +22747,8 @@ function commEditSection(existing){
       '</div>' +
       '<div class="comm-ed-tabs">' +
         '<button type="button" class="comm-ed-tab' + (editingTab === null ? ' on' : '') + '" data-edtab="section">' +
-          'What belongs in this section <span class="comm-badge">' + countFor(draft.filter) + '</span></button>' +
+          (builtIn ? 'This section' : 'What belongs in this section') +
+          ' <span class="comm-badge">' + countFor(draft.filter) + '</span></button>' +
         draft.tabs.map(function(t, i){
           return '<button type="button" class="comm-ed-tab' + (editingTab === i ? ' on' : '') +
             '" data-edtab="' + i + '">' + esc(t.label || 'Untitled') +
@@ -22333,16 +22757,26 @@ function commEditSection(existing){
         '<button type="button" class="comm-ed-tab add" id="commEdAddTab">＋ Subtab</button>' +
       '</div>' +
       (editingTab === null
-        ? '<div class="comm-fnote" style="margin-bottom:6px;">Every subtab below narrows this. ' +
-          'The section’s own <strong>All</strong> tab shows exactly what is set here.</div>'
+        ? '<div class="comm-fnote" style="margin-bottom:6px;">' +
+          (builtIn
+            /* ⚠ SHE CAN RENAME IT AND ADD FOLDERS TO IT; SHE CANNOT REDEFINE IT. What belongs
+               in one of the four spine sections is code, and every dashboard tile counts it —
+               offering a filter here would be a box that either breaks those tiles or quietly
+               does nothing. Said on screen rather than left as a missing control. */
+            ? 'Rename it, give it a different icon, and add as many folders as you like with ' +
+              '<strong>＋ Subtab</strong>. What lands in this section to begin with is built in ' +
+              'and cannot be changed — the dashboard tiles count it.'
+            : 'Every subtab below narrows this. ' +
+              'The section’s own <strong>All</strong> tab shows exactly what is set here.') + '</div>'
         : '<div class="comm-ed-row">' +
             '<div class="form-row" style="flex:1;"><label>Subtab name</label>' +
               '<input type="text" id="commEdTabName" value="' + esc(draft.tabs[editingTab].label || '') + '"></div>' +
             '<button type="button" class="btn btn-outline btn-sm" id="commEdDelTab" style="align-self:flex-end;">Delete subtab</button>' +
           '</div>') +
-      filterUi(target, editingTab === null ? 'section' : String(editingTab)) +
+      ((builtIn && editingTab === null) ? '' :
+        filterUi(target, editingTab === null ? 'section' : String(editingTab))) +
       '<div class="foot" style="display:flex; justify-content:space-between; gap:8px; margin-top:14px;">' +
-        (isNew ? '<span></span>'
+        ((isNew || builtIn) ? '<span></span>'
                : '<button type="button" class="btn btn-outline btn-sm" id="commEdDelete" style="color:var(--ember);">Delete section</button>') +
         '<span style="display:flex; gap:8px;">' +
           '<button type="button" class="btn btn-outline" id="commEdCancel">Cancel</button>' +
@@ -22356,6 +22790,11 @@ function commEditSection(existing){
     card.querySelectorAll('.comm-filter [data-f]').forEach(function(el){
       const key = el.dataset.f;
       if(key === 'search'){ filter.search = el.value.trim(); return; }
+      /* ⚠ NEITHER OF THESE IS A TICK LIST, and falling through to the array branch below
+         would push the word "hand" into filter.fill as an array — which is truthy, is not
+         'hand', and would silently leave the view filling by rule. */
+      if(key === 'folder'){ filter.folder = el.value.trim(); return; }
+      if(key === 'fill'){ if(el.checked) filter.fill = (el.value === 'hand') ? 'hand' : ''; return; }
       if(!Array.isArray(filter[key])) filter[key] = [];
       const at = filter[key].indexOf(el.value);
       if(el.checked && at === -1) filter[key].push(el.value);
@@ -22370,6 +22809,10 @@ function commEditSection(existing){
     const lb = card.querySelector('#commEdLabel'); if(lb) draft.label = lb.value.trim();
     const tn = card.querySelector('#commEdTabName');
     if(tn && editingTab !== null) draft.tabs[editingTab].label = tn.value.trim();
+    /* ⚠ NOTHING TO READ when a built-in's section pane is open — there is no filter drawn,
+       and `draft.filter` is undefined for one. readInto would then build an object on it and
+       the save would store a filter the section does not have. */
+    if(builtIn && editingTab === null) return;
     readInto(editingTab === null ? draft.filter : draft.tabs[editingTab].filter);
   };
 
@@ -22387,11 +22830,15 @@ function commEditSection(existing){
     const add = card.querySelector('#commEdAddTab');
     if(add) add.addEventListener('click', function(){
       readAll();
-      /* A new subtab starts as a copy of nothing — no narrowing — so it shows the section
-         and she narrows from there. Starting it empty of everything would show zero. */
+      /* ⭐ A NEW SUBTAB IS A FOLDER SHE FILLS ([[MSG-19]]), for the same reason a new section
+         is: "we can just put everything in inbox and we can choose what section they go in
+         from there. Then put them in completed afterward."
+         ⚠ THE OLD DEFAULT — no narrowing, so it showed the whole section — is kept as the
+         other radio and is still one click away. It was right while a subtab could only ever
+         be a filter; as a default it now makes a folder-shaped thing that is not a folder. */
       draft.tabs.push({key: 't-' + Date.now().toString(36) + '-' + draft.tabs.length,
-                       label: 'New subtab',
-                       filter: {types: [], categories: [], statuses: [], priorities: [], severities: [], search: ''}});
+                       label: 'New folder',
+                       filter: {fill: 'hand', folder: '', types: [], categories: [], statuses: [], priorities: [], severities: [], search: ''}});
       editingTab = draft.tabs.length - 1;
       draw();
     });
@@ -22406,12 +22853,42 @@ function commEditSection(existing){
     if(cancel) cancel.addEventListener('click', function(){ overlay.remove(); });
     const delSec = card.querySelector('#commEdDelete');
     if(delSec) delSec.addEventListener('click', async function(){
+      /* ⭐ DELETING A FOLDER MUST NOT STRAND WHAT IS IN IT ([[MSG-19]]). This is the concrete
+         answer to the worry [[MSG-15]] refused the whole feature over — "a message would then
+         live in exactly one place and deleting a section could lose it" — rather than a
+         reason not to give her what she asked for.
+         ⚠ IT MATTERS NOW IN A WAY IT DID NOT BEFORE, because the Inbox shows the UNFILED
+         pile: a message left in a deleted folder would be reachable only by search. So the
+         messages come back to the Inbox first, and only then is the section removed.
+         ⚠ A SECTION THAT FILLS BY RULE STILL LOSES NOTHING and says the old sentence, which
+         was true of it then and is true of it now. */
+      const folders = [];
+      if(draft.filter && draft.filter.fill === 'hand' && String(draft.filter.folder||'').trim()) folders.push(draft.filter.folder.trim());
+      (draft.tabs || []).forEach(function(t){
+        if(t.filter && t.filter.fill === 'hand' && String(t.filter.folder||'').trim() &&
+           folders.indexOf(t.filter.folder.trim()) === -1) folders.push(t.filter.folder.trim());
+      });
+      const held = (allMessages || []).filter(function(m){
+        return msgIsFiledAway(m.data) && folders.indexOf(messageFolderOf(m.data)) !== -1;
+      });
       if(!confirm('Delete the section "' + (draft.label || 'Untitled') + '"?\n\n' +
-        'No messages are deleted. A section is only a saved filter, so everything in it ' +
-        'still shows in the Inbox and in every other view.')) return;
+        (held.length
+          ? ('The ' + held.length + ' message' + (held.length === 1 ? '' : 's') +
+             ' in it will be put back in your Inbox so nothing is lost. Nothing is deleted.')
+          : 'No messages are deleted. Everything still shows in the Inbox and in every other view.'))) return;
+      try{
+        /* ⚠ THE MESSAGES MOVE FIRST. The other order leaves them in a folder no section
+           points at if this throws, which is the exact stranding being prevented. */
+        for(const m of held){
+          try{ await updateDoc(doc(db,'messages', m.id), {folder: 'Inbox', filedByHand: false}); }
+          catch(err){ console.error('Could not put a message back in the Inbox:', err); }
+        }
+      }catch(err){ console.error('Could not empty the folder:', err); }
       const next = {custom: (commSections.custom || []).filter(function(x){ return x.key !== draft.key; }),
-                    hidden: commSections.hidden || []};
-      try{ await saveCommSections(next); overlay.remove(); toast('Section deleted.'); }
+                    hidden: commSections.hidden || [], builtIn: commSections.builtIn || {}};
+      try{ await saveCommSections(next); overlay.remove();
+           toast('Section deleted' + (held.length ? ' \u2014 ' + held.length + ' message' +
+             (held.length === 1 ? '' : 's') + ' put back in your Inbox' : '') + '.'); }
       catch(err){ console.error('Could not delete the section:', err);
                   alert('Could not save that: ' + (err && err.message ? err.message : err)); }
     });
@@ -22419,12 +22896,55 @@ function commEditSection(existing){
     if(save) save.addEventListener('click', async function(){
       readAll();
       if(!draft.label){ alert('Give the section a name.'); return; }
+      /* ⭐ A FOLDER WITH NO NAME HOLDS NOTHING, so it is refused rather than saved empty
+         ([[MSG-19]]). `commFilterMatches` answers false for one — the safe direction, since
+         the other reading would empty the Inbox into it — but an empty folder she cannot
+         drop anything into reads exactly like the feature not working.
+         ⚠ THE LABEL IS THE FALLBACK, not an error: naming a folder Completed and being
+         asked for its name a second time is a form asking twice for one answer. */
+      const needFolder = [];
+      if(draft.filter && draft.filter.fill === 'hand'){
+        if(!String(draft.filter.folder || '').trim()) draft.filter.folder = draft.label;
+        needFolder.push(draft.filter.folder);
+      }
+      (draft.tabs || []).forEach(function(t){
+        if(t.filter && t.filter.fill === 'hand'){
+          if(!String(t.filter.folder || '').trim()) t.filter.folder = t.label || draft.label;
+          needFolder.push(t.filter.folder);
+        }
+      });
       save.disabled = true;
-      const list = (commSections.custom || []).slice();
-      const at = list.findIndex(function(x){ return x.key === draft.key; });
-      if(at === -1) list.push(draft); else list[at] = draft;
       try{
-        await saveCommSections({custom: list, hidden: commSections.hidden || []});
+        /* ⭐ ONE VOCABULARY ([[MSG-19]]). The folder she names in the sidebar is created as a
+           real `messageFolders` document, so Move to… offers it, a drag drops into it, and
+           the right-click menu knows it — all of which already existed and none of which can
+           see a name that lives only in a settings document. ⚠ A FAILURE HERE DOES NOT FAIL
+           THE SAVE: the view works off the message's own folder field either way, and the
+           name can be created again next time. */
+        for(const name of needFolder){
+          const want = String(name || '').trim();
+          if(!want) continue;
+          if(messageFolders.some(function(f){ return f.name === want; })) continue;
+          try{ await addDoc(collection(db,'messageFolders'), {name: want, parentId: null, createdAt: serverTimestamp()}); }
+          catch(err){ console.error('Could not create the folder ' + want + ':', err); }
+        }
+        if(builtIn){
+          /* ⚠ HER OVERLAY ONLY. The section keeps its key and its built-in rule; what is
+             stored is the name she gave it, the icon and the folders underneath. */
+          const nextBuiltIn = Object.assign({}, commSections.builtIn || {});
+          nextBuiltIn[builtInKey] = {label: draft.label, icon: draft.icon, tabs: draft.tabs};
+          await saveCommSections({custom: commSections.custom || [],
+                                  hidden: commSections.hidden || [], builtIn: nextBuiltIn});
+          overlay.remove();
+          commView = {section: builtInKey, tab: 'all'};
+          toast('Saved "' + draft.label + '".');
+          return;
+        }
+        const list = (commSections.custom || []).slice();
+        const at = list.findIndex(function(x){ return x.key === draft.key; });
+        if(at === -1) list.push(draft); else list[at] = draft;
+        await saveCommSections({custom: list, hidden: commSections.hidden || [],
+                                builtIn: commSections.builtIn || {}});
         overlay.remove();
         commView = {section: draft.key, tab: 'all'};
         toast('Saved "' + draft.label + '".');
@@ -44299,21 +44819,91 @@ function attachAddressRowHandlers(container){
            their own colours in for the first time — which is how twelve ordinary new
            customers reached the Color Changes sheet once already.
 
-           ⚠ AND NO FEE IS WRITTEN HERE, deliberately. This panel has never charged for a
-           colour change and this is not the change that starts it: the $30 belongs to the
-           Edit Customer save, which asks the office first. Only `isChange` is read off the
-           result — feeAmount, the 48-hour lock and feeDestination are all ignored. */
+           ⭐ AND IT CHARGES THE $30 NOW ([[MON-78]], 2026-09-11). Addie: "anyone that does a
+           light change or ends up in warehouse because of a light change besides requotes
+           and quotes will need to be charged 30 dollars unless waived", then "Yes either
+           light change made in member portal or in costumer admin portal."
+
+           ⛔ THIS PARAGRAPH USED TO SAY THE OPPOSITE — "no fee is written here, deliberately
+           ... the $30 belongs to the Edit Customer save" — and that was a real decision,
+           kept here because it is what she overruled. The office had two doors onto the same
+           change and only one of them charged, so what a customer paid depended on which box
+           somebody happened to type into. They cannot tell the difference and neither can
+           their bill.
+
+           ⚠ THE THREE HARD-CODED ARGUMENTS WERE A BUG WAITING FOR THIS. `lockedUntil: 0,
+           invoiceSent: false` were safe only while the answer was thrown away: with the fee
+           live they would charge somebody inside their own free 48-hour window and post the
+           charge to a bill that has already gone out. They read the record now, exactly as
+           the Edit Customer save does.
+
+           ⚠ AND IT ASKS BEFORE IT WRITES ANYTHING, so Cancel still means nothing is saved —
+           the same order and the same three answers as Edit Customer, through the same
+           `askLightChangeFee`. A fee nobody can refuse at the point of saving is one the
+           office finds out about afterwards, and nobody goes back to undo one. */
         const hdChange = applyLightChange({
-          oldLights: existingCust.lightsDescription || '',
+          /* ⚠ BOTH FIELDS, via houseLightsText ([[WH-28]]). Reading `lightsDescription`
+             alone made every ordinary house — colours in `lightColors`, description empty —
+             look as though it had none, and a first-time colour is not a change and is not
+             charged. That is the fault that let the whole imported book re-colour for free,
+             and this caller had the same hole. */
+          oldLights: houseLightsText(existingCust),
           newLights: newLights,
-          lockedUntil: 0, invoiceSent: false, scheduled: false, nowMs: Date.now()
+          lockedUntil: lightsLockMillis(existingCust),
+          invoiceSent: !!existingCust.invoiceEmailSent,
+          scheduled: !!existingCust.scheduled, nowMs: Date.now()
         });
+        let hdWaived = false;
+        if(hdChange.feeAmount > 0){
+          const answer = await askLightChangeFee(existingCust.name || 'This customer',
+            houseLightsText(existingCust), newLights, hdChange.feeDestination);
+          if(answer === 'cancel'){ toast('Nothing was saved — the light change was cancelled.'); return; }
+          hdWaived = (answer === 'waive');
+        }
+        /* ⚠ STAMPED HERE TOO, and it was missing entirely. `lightsChangedAt` is what the
+           $30 path, the workbook's Color Changes tab and the warehouse badge all read, so a
+           change made through this panel was invisible to every one of them. 'office' is the
+           same source the Edit Customer save stamps — somebody in admin typed it.
+           ⚠ ABOVE the queue fields, matching the Edit Customer save's own order: the
+           colour-change census reads the code AFTER each stamp looking for the queue beside
+           it, and a door that stamps in one order and queues in the other reads to that
+           sweep as a door that never queues at all. */
+        if(hdChange.setLightsChangedAt){
+          updates.lightsChangedAt = serverTimestamp();
+          updates.lightsChangedVia = 'office';
+        }
+        /* ⚠ ON `isChange`, WHICH IS NARROWER THAN THE STAMP ABOVE, and deliberately so: that
+           rule already refuses a FIRST-TIME colour and a cleared one, and getting it wrong
+           queues a colour change for somebody filling their own colours in — which swept
+           twelve ordinary new customers onto the Color Changes sheet once already. */
         if(hdChange.isChange){
           updates.needsColorChange = true;
           updates.colorChangeColors = newLights;
           updates.colorChangeRequestedAt = serverTimestamp();
         }
+        /* ⚠ THE LOCK IS SET EVEN WHEN THE FEE IS WAIVED. It is about the crew, not the
+           money — their pattern may still move, so they must not be routed either way. */
+        if(hdChange.lightsLockedUntil){
+          updates.lightsLockedUntil = new Date(hdChange.lightsLockedUntil);
+        }
+        if(hdChange.feeAmount > 0 && !hdWaived && hdChange.feeDestination === 'nextSeason'){
+          const hdCarried = lightChangeCarryoverUpdates(existingCust, hdChange);
+          /* By name, for the tracer — see the same assignment in the Edit Customer save. */
+          updates.carryoverCharge = hdCarried.carryoverCharge;
+          updates.carryoverChargeNotes = hdCarried.carryoverChargeNotes;
+        }
         await updateDoc(doc(db,'jobAddresses',id), updates);
+        /* ⚠ AFTER the customer write, and guarded on its own: a failed fee must not undo a
+           save that already worked. The office is told to add it by hand rather than the
+           save reporting success about something that did not happen. */
+        if(hdChange.feeAmount > 0 && !hdWaived && hdChange.feeDestination === 'invoice'){
+          try{
+            await addLightChangeFeeToInvoice(custInvoiceKey(Object.assign({}, existingCust, updates)), hdChange);
+          }catch(e){
+            console.error('Light-change fee could not be added to the invoice', e);
+            toast('Saved — but the $30 light-change fee could not be added to their invoice. Add it by hand.');
+          }
+        }
         if(currentPhotoUrl){
         }
         // Sync these fields to the matching invoice record (invoice doc ID =
@@ -47673,6 +48263,56 @@ function whTimerOnlyQueue(oldData, updates, changedFields, newLightsDescription)
   const timer = Object.prototype.hasOwnProperty.call(u, 'outletTimer') ? u.outletTimer : o.outletTimer;
   return String(timer == null ? '' : timer).trim() === 'Yes';
 }
+/* ⭐ AND THE OTHER DIRECTION — A TIMER THAT IS COMING OUT ([[WH-34]], 2026-09-11). Addie:
+ * "For people who don't want a timer anymore we need to put that in warehouse as Remove
+ * Timer."
+ *
+ * ⚠ THIS IS THE HALF [[WH-27]] LEFT OPEN ON PURPOSE, and its own note says why it could not
+ * be closed then: "routing a removal here would drop it off every screen silently, because
+ * `timerHouses` only ever collects Yes". That was true — there was nowhere for a removal to
+ * go. There is now. So this ANSWERS a question that was flagged to her rather than reversing
+ * one she had settled, and WH-27's scoping note stands exactly as written for the add side.
+ *
+ * ⛔ AND IT HAS TO BE A STAMP, WHICH THE ADD SIDE DOES NOT. That asymmetry is the whole
+ * reason this needs a field at all. "Wants a timer" is readable off the record for ever
+ * (`outletTimer === 'Yes'`), so the Timers list is DERIVED and a missed flag costs nothing —
+ * the next render finds them again. "USED TO WANT ONE" IS READABLE OFF NOTHING: the instant
+ * the field is saved as No that house is indistinguishable from the ~900 that never had one.
+ * If this save does not write it down, nobody is ever told to go and take the timer out, and
+ * it stays in their bin for the rest of the season.
+ *
+ * ⚠ THE OLD VALUE IS TESTED AS WELL AS `changedFields`, though `warehouseRebuildFields`
+ * already implies it (outletTimer can only be in that list if the two sides normalise
+ * differently, so a new value of No means the old one was Yes). Implied is not the same as
+ * checked: a caller handing in a list it built itself would otherwise turn every save of a
+ * timerless house into a removal, and this is the field that puts a row in front of somebody
+ * holding a clipboard. One line, and the function can be RUN on its own. */
+function whTimerCameOff(oldData, updates, changedFields){
+  const u = updates || {}, o = oldData || {};
+  if(!Array.isArray(changedFields) || changedFields.indexOf('outletTimer') === -1) return false;
+  /* ⚠ A BLANK TIMER IS "NO", exactly as everywhere else — so only a stored Yes can come off. */
+  if(String(o.outletTimer == null ? '' : o.outletTimer).trim() !== 'Yes') return false;
+  const now = Object.prototype.hasOwnProperty.call(u, 'outletTimer') ? u.outletTimer : o.outletTimer;
+  return String(now == null ? '' : now).trim() !== 'Yes';
+}
+/* ⭐ AND WHETHER TAKING IT OUT IS THE WHOLE JOB — the mirror of `whTimerOnlyQueue`, condition
+ * for condition, so the two directions cannot drift apart. Same reasoning in reverse: a house
+ * with NO colours whose only warehouse change was the timer has nothing being made up for it,
+ * so parking it under "Nothing can be made up until somebody fills them in" sends the office
+ * to chase an answer that does not exist and the row never clears. That is [[WH-27]]'s own
+ * complaint, and it is just as false about a removal as about an addition.
+ *
+ * ⚠ HOLES C AND D ARE STILL NOT REVERSED. A WIRE change is a real rebuild, and so is a timer
+ * change on a house that HAS colours — that house is in a real build group and always was.
+ * It still gets its Remove Timer row, because the bundle and the bin are two different jobs
+ * done by two different pairs of hands. */
+function whTimerRemovalQueue(oldData, updates, changedFields, newLightsDescription){
+  if(!Array.isArray(changedFields) || changedFields.length !== 1) return false;
+  if(!whTimerCameOff(oldData, updates, changedFields)) return false;
+  if((updates || {}).needsLightBuild) return false;
+  if(newLightsDescription) return false;
+  return true;
+}
 const WAREHOUSE_BUILD_FIELDS = ['lightsDescription', 'wireColor', 'outletTimer'];
 function warehouseRebuildFields(oldData, newData) {
   const o = oldData || {}, n = newData || {};
@@ -47867,6 +48507,11 @@ function whHouseFactsHtml(d){
 function whBuildQueueGroups(){
   const groups = {};
   const timerHouses = [];
+  /* ⭐ AND THE HOUSES A TIMER HAS TO COME OUT OF ([[WH-34]]). Its own list rather than a
+     marker on `timerHouses`: that one is "put one in" and this one is "take one out", and a
+     single list somebody reads at speed while carrying a bin is how a timer gets put back
+     into the house that just asked to be rid of it. */
+  const timerRemovals = [];
   /* ⭐ AND THE ONES THAT CANNOT BE BUILT YET ARE NOT DROPPED ON THE FLOOR. Owner,
      2026-08-20, having converted Ashley Wray: "i converted her but shes not in the build
      section."
@@ -47899,7 +48544,11 @@ function whBuildQueueGroups(){
        a house carrying both is simply a build, which is what it is. */
     const wantsBuild = !!d.needsLightBuild;
     const timerOnly = !wantsBuild && !!d.needsTimerOnly;
-    if((!wantsBuild && !timerOnly) || (typeof isOutForSeason === 'function' && isOutForSeason(d))) return;
+    /* ⭐ AND A TIMER COMING OUT IS A THIRD WAY ONTO THIS TAB ([[WH-34]]). Read alongside the
+       build rather than instead of it: a house having a new bundle made AND an old timer
+       pulled is both of those things, and it has to reach both lists. */
+    const timerRemoval = !!d.needsTimerRemoved;
+    if((!wantsBuild && !timerOnly && !timerRemoval) || (typeof isOutForSeason === 'function' && isOutForSeason(d))) return;
     /* ⚠ BOTH FIELDS. Testing lightsDescription alone put every ordinary house the
        master-sheet sync added into the blocked block with its colours sitting on the
        record — see houseLightsText. */
@@ -47919,10 +48568,19 @@ function whBuildQueueGroups(){
        out to be, so there is nothing to wait for — which is her own rule in as many
        words. Collected first; the blocked branch still blocks the BUILD. */
     if(String(d.outletTimer || '').trim() === 'Yes') timerHouses.push(item);
+    /* ⛔ COLLECTED IN THE SAME BREATH, AND FOR THE SAME REASON ([[WH-34]]). Pulling a timer
+       out does not wait on any colours either, so it is taken before the blocked branch —
+       that early `return` is exactly what hid the timer job under [[WH-26]]. */
+    if(timerRemoval) timerRemovals.push(item);
     /* ⛔ AND A TIMER-ONLY HOUSE IS NEVER BLOCKED. Nothing is being built for them, so there
        are no colours to wait for — the whole point of [[WH-27]]. It has already been pushed
        to `timerHouses` above, which is the one thing that house actually needs. */
     if(timerOnly) return;
+    /* ⛔ NOR IS A HOUSE THAT IS ONLY HAVING A TIMER TAKEN OUT ([[WH-34]]). Past the two lines
+       above, no build means this house is here for the removal alone: it belongs in no colour
+       group, and blocking it would put "waiting on light colours" against somebody who never
+       asked for any. Same rule as the line above, pointing the other way. */
+    if(!wantsBuild) return;
     if(!lights){ blocked.push(item); return; }
     const key = whGroupKey(lights, d.wireColor);
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
@@ -47965,7 +48623,8 @@ function whBuildQueueGroups(){
     const totalB = groups[b].houses.reduce(function(s,h){ return s+houseBundleNeed(h.data).bundles; },0) + groups[b].extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); },0);
     return totalB - totalA;
   });
-  return {groups: groups, keys: keys, timerHouses: timerHouses, blocked: blocked};
+  return {groups: groups, keys: keys, timerHouses: timerHouses,
+          timerRemovals: timerRemovals, blocked: blocked};
 }
 /* ⭐ WHY IS THIS HOUSE NOT ON THE BUILD LIST. Owner, 2026-08-21, having pressed Build
    Them A New Set on Ashley Wray: "i clicked build ashley wray but shes not here."
@@ -48010,6 +48669,10 @@ function whHouseBuildStatus(item){
      would otherwise send the office to press Build Them A New Set on a house that is on this
      tab and needs no bundle. */
   if(!d.needsLightBuild && d.needsTimerOnly) return {state: 'timeronly'};
+  /* ⭐ [[WH-34]] — on the tab for a timer coming OUT and nothing else. Answered before
+     'notqueued' for the same reason as the line above: that sentence sends the office to
+     press Build Them A New Set on a house that is already on this tab and needs no bundle. */
+  if(!d.needsLightBuild && d.needsTimerRemoved) return {state: 'timerremoval'};
   if(!d.needsLightBuild) return {state: 'notqueued'};
   return {state: 'unknown'};
 }
@@ -48020,6 +48683,7 @@ function whBuildStatusText(name, st){
   if(st.state === 'extra') return who + ' is on the list as an extra request \u2014 under \u201c' + st.where + '\u201d.';
   if(st.state === 'blocked') return who + ' is queued to build but has NO LIGHT COLOURS on file, so they are in \u201cWaiting on light colours\u201d at the top. Add their colours and they join a build group.';
   if(st.state === 'timeronly') return who + ' only needs a TIMER \u2014 they are on the Timers list, not the build list. Nothing is being made up for them and no colours are needed. Press \u201cBuild Them A New Set\u201d on their record if they do need a bundle.';
+  if(st.state === 'timerremoval') return who + ' is having their TIMER TAKEN OUT \u2014 they are on the Remove Timer list, not the build list. Nothing is being made up for them and no colours are needed. Press \u201cBuild Them A New Set\u201d on their record if they do need a bundle.';
   if(st.state === 'nextyear') return who + (st.why === 'Back Next Year'
     ? ' is marked Back Next Year'
     : ' is out for this season — their lights are queued to be recycled') +
@@ -48147,6 +48811,7 @@ function renderWarehouseQueue(){
   if(!list) return;
   const built = whBuildQueueGroups();
   const groups = built.groups, keys = built.keys, timerHouses = built.timerHouses;
+  const timerRemovals = built.timerRemovals || [];
   const blocked = built.blocked || [];
   if(!keys.length && !blocked.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be built right now.</div>'; return; }
   let html = '';
@@ -48231,6 +48896,51 @@ function renderWarehouseQueue(){
           '</div>';
         }).join('')+
         '<div style="font-size:12px; color:var(--slate); margin-top:8px;">Most of these are listed in their colour groups below &mdash; marking a house done there covers its timer too. A row badged <strong>Timer only</strong> is in no group and has nothing being built, so it is finished from here.</div>'+
+      '</div>'+
+    '</div>';
+  }
+  /* ⭐ REMOVE TIMER ([[WH-34]], 2026-09-11). Addie: "For people who don't want a timer
+     anymore we need to put that in warehouse as Remove Timer."
+
+     ⚠ ITS OWN BLOCK, DIRECTLY UNDER Timers AND NEVER FOLDED INTO IT. The two lists are
+     one walk round the same shelves and opposite instructions at the end of it, so they
+     belong next to each other and must never share a heading — a row read off the wrong
+     list puts a timer back into the bin of the person who just asked to be rid of it.
+
+     ⭐ AND EVERY ROW HAS ITS OWN Done, unlike Timers. That block deliberately has none
+     because putting a timer IN is part of the bundle, so the group's Mark Done covers it.
+     Taking one OUT is not part of anything: the bin already exists, it may well be the
+     only job at that house, and marking a colour group done can never mean somebody
+     walked to a shelf and pulled a timer. The Done goes where the work is — the same rule
+     the Timer only row is written under, not an exception to it. */
+  if(timerRemovals.length){
+    html += '<div class="row-item" style="display:block;">'+
+      '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; cursor:pointer;" data-whtoggle="whtimersout">'+
+        '<div><strong style="font-size:15px;">Remove Timer</strong><div style="font-size:12.5px; color:var(--slate);">'+
+          timerRemovals.length+' house'+(timerRemovals.length===1?'':'s')+' no longer want'+(timerRemovals.length===1?'s':'')+' a timer &mdash; take it out of their bin</div></div>'+
+        whToggleBtn('whtoggle', 'whtimersout', 'Show '+timerRemovals.length+' house'+(timerRemovals.length===1?'':'s'))+
+      '</div>'+
+      '<div id="whtimersout" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">'+
+        timerRemovals.map(function(h){
+          /* ⚠ THE BIN NUMBER IS `whBinNumberFor`, NOT THE NUMBER ON THE RECORD. Somebody
+             sent to find a bin needs the number PAINTED ON IT, which is not always the
+             customer's current one — the recycle list has already been corrected for
+             exactly this once, and this is the same walk to the same shelf. */
+          const binNum = (typeof whBinNumberFor === 'function' ? whBinNumberFor(h.data) : (h.data.customerNumber || ''));
+          /* A house that is ALSO having a bundle made is listed below as well, and saying
+             so here is what stops somebody ticking this and assuming the house is finished. */
+          const alsoBuilding = !!h.data.needsLightBuild;
+          return '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:6px 0; font-size:13.5px;">'+
+            '<span>'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+
+              (binNum ? ' <span style="display:inline-block; background:var(--snow); color:var(--slate); border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">bin #'+esc(String(binNum))+'</span>' : '')+
+              (alsoBuilding ? ' <span class="status-pill status-new" style="font-size:10.5px;">also having a set built</span>' : '')+'</span>'+
+            '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
+              '<button type="button" class="btn btn-gold btn-sm" data-whtimerout="'+h.id+'">Timer taken out</button>'+
+              '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'">Edit</button>'+
+            '</span>'+
+          '</div>';
+        }).join('')+
+        '<div style="font-size:12px; color:var(--slate); margin-top:8px;">These asked to have their timer taken out. The bundle is untouched &mdash; a row marked <strong>also having a set built</strong> is in a colour group below as well, and needs both.</div>'+
       '</div>'+
     '</div>';
   }
@@ -48499,6 +49209,36 @@ function renderWarehouseQueue(){
       }catch(err){
         btn.disabled = false;
         console.error('Could not clear the timer queue:', err);
+        alert('Could not save that: ' + (err && err.message ? err.message : err));
+      }
+    });
+  });
+  /* ⭐ [[WH-34]] — the timer is out of the bin. Write, then cache, then paint: same order
+     and the same reason as the two buttons above.
+     ⚠ IT CLEARS THE REMOVAL AND NOTHING ELSE. `needsLightBuild` is deliberately untouched,
+     so a house having a set made as well stays in its colour group and is still built —
+     one button finishing somebody else's job is how a bundle goes missing.
+     ⚠ AND IT STAMPS NOTHING. `lightsMarkedBuiltAt` answers "when was this bundle made" and
+     nothing here made one; that is [[WH-25]]'s rule, and dating a build from this button
+     would put a date the warehouse audit box reads back as fact against a house with no
+     bundle. */
+  list.querySelectorAll('[data-whtimerout]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const id = btn.dataset.whtimerout;
+      const rec = jobAddresses.find(function(a){ return a.id === id; });
+      if(!rec) return;
+      btn.disabled = true;
+      try{
+        await updateDoc(doc(db, 'jobAddresses', id), {needsTimerRemoved: false, timerRemovedAt: serverTimestamp()});
+        rec.data.needsTimerRemoved = false;
+        rec.data.timerRemovedAt = new Date();
+        toast('Timer taken out for ' + (rec.data.name || 'that house') + '.');
+        logActivity('Marked the timer taken out for ' + (rec.data.name || 'that house'), 'customers', id);
+        renderWarehouseQueue();
+      }catch(err){
+        btn.disabled = false;
+        console.error('Could not clear the timer removal:', err);
         alert('Could not save that: ' + (err && err.message ? err.message : err));
       }
     });
@@ -48921,6 +49661,59 @@ function whSheetRowsForBuild(){
       timer: String(d.outletTimer || '').trim() === 'Yes' ? 'YES' : '',
       putInto: '',
       notes: 'NO LIGHT COLOURS ON FILE ' + String.fromCharCode(8212) + ' cannot be built yet'
+    });
+  });
+  /* ⭐ THE TIMER JOBS GO ON THE PAPER TOO ([[WH-34]], 2026-09-11). Both of them, and the
+     reason is the one already written at the top of this function: a sheet that quietly
+     leaves work off is a sheet that says the day is finished when it is not.
+
+     ⚠ REMOVALS ARE EMITTED FOR EVERY HOUSE, ADDITIONS ONLY FOR THE TIMER-ONLY ONES, and
+     that is not an oversight in either direction. A house in a colour group already has a
+     row whose Timer column reads YES, so a second row for it would be the same instruction
+     twice. A REMOVAL has no such column — `outletTimer` is No by then, so that row reads
+     blank — which means the one thing nobody would ever be told from this sheet is the one
+     thing this feature exists to say.
+
+     ⚠ AND A TIMER-ONLY HOUSE WAS ON NO SHEET AT ALL until now. It is in no group and is not
+     blocked, so it fell through both loops — [[WH-27]] put it on the screen and nothing put
+     it on paper, which is this repo's own "the two build sheets list the same people" rule
+     broken in the quietest possible way. Closed here rather than left as a matching hole. */
+  (built.timerRemovals || []).forEach(function(item){
+    const d = item.data;
+    rows.push({
+      group: 'Remove timer',
+      wire: '',
+      type: 'REMOVE TIMER',
+      reason: whBuildReasonLabel(d),
+      what: whWhoLabel(d),
+      address: d.address || '',
+      bins: whBinsForHouse(d),
+      bundles: '',
+      /* ⚠ NOT 'YES'. That column means "a timer goes in", and this row is the opposite
+         instruction — printing YES here is how one comes back out of the van. */
+      timer: 'TAKE OUT',
+      putInto: whPutIntoLabel(d),
+      notes: 'THEY DO NOT WANT A TIMER ' + String.fromCharCode(8212) + ' take it out of their bin' +
+             (d.needsLightBuild ? ' (they are also having a set built)' : '') +
+             (d.notes ? ' ' + String.fromCharCode(8212) + ' ' + String(d.notes).trim() : '')
+    });
+  });
+  (built.timerHouses || []).forEach(function(item){
+    const d = item.data;
+    if(d.needsLightBuild || !d.needsTimerOnly) return;
+    rows.push({
+      group: 'Timer only',
+      wire: '',
+      type: 'TIMER ONLY',
+      reason: whBuildReasonLabel(d),
+      what: whWhoLabel(d),
+      address: d.address || '',
+      bins: whBinsForHouse(d),
+      bundles: '',
+      timer: 'YES',
+      putInto: whPutIntoLabel(d),
+      notes: 'TIMER ONLY ' + String.fromCharCode(8212) + ' nothing to build, just a timer in their bin' +
+             (d.notes ? ' ' + String.fromCharCode(8212) + ' ' + String(d.notes).trim() : '')
     });
   });
   built.keys.forEach(function(key){
@@ -52978,11 +53771,16 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        collected by the nightly run next season. Written here with the rest of the
        customer record rather than as a separate write, so it cannot half-happen. */
     if(lightChange.feeAmount > 0 && !lightFeeWaived && lightChange.feeDestination === 'nextSeason'){
-      addrUpdates.carryoverCharge = (Number(item.data.carryoverCharge) || 0) + lightChange.feeAmount;
-      addrUpdates.carryoverChargeNotes =
-        (Array.isArray(item.data.carryoverChargeNotes) ? item.data.carryoverChargeNotes : [])
-          .concat([{amount: lightChange.feeAmount, reason: lightChange.feeReason,
-                    date: new Date().toISOString()}]);
+      /* ⭐ ONE WRITER, shared with the All Customers panel ([[MON-78]]). It returns the two
+         fields rather than writing them, so they ride in the same write as the rest of the
+         customer record — see lightChangeCarryoverUpdates. */
+      /* ⚠ ASSIGNED BY NAME, never Object.assign'd in. This file's own ledger helpers carry
+         the reason a few thousand lines up: "a computed key is invisible to everything that
+         traces who writes `carryoverCharge`" — and connections/manifest.js is exactly such a
+         tracer. It went red on the first version of this extraction, correctly. */
+      const carried = lightChangeCarryoverUpdates(item.data, lightChange);
+      addrUpdates.carryoverCharge = carried.carryoverCharge;
+      addrUpdates.carryoverChargeNotes = carried.carryoverChargeNotes;
     }
     /* ⭐ A BUILD THAT IS OWED IS NOT CANCELLED BY THE COLOURS BEING BLANK. Owner,
        2026-08-21, having converted Ashley Wray: "big problem, she went to the recycle
@@ -53039,8 +53837,30 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        ⚠ AND HOLES C AND D ARE NOT REVERSED. A WIRE change still re-queues the build, and so
        does a timer change on a house that has colours — that house is in a real build group
        and always was. Only the case she reported is moved. */
+    /* ⭐ AND A TIMER COMING OUT IS ITS OWN JOB ([[WH-34]], 2026-09-11). Addie: "For people
+       who don't want a timer anymore we need to put that in warehouse as Remove Timer."
+
+       ⛔ THE FLAG IS WRITTEN FOR EVERY HOUSE, NOT ONLY THE ONES ROUTED AWAY FROM THE BUILD,
+       and that is the load-bearing half. A timer that is ON can be re-derived off the record
+       for ever, so the Timers list does not need a flag at all; a timer that WAS on leaves
+       no trace whatsoever the moment this save lands. If it is not written down here it can
+       never be written down at all, and the timer stays in that bin all season.
+
+       ⚠ AND IT IS TAKEN BACK IF THEY CHANGE THEIR MIND before anybody has been. Nothing has
+       been pulled while the flag is still up, so a timer switched back on cancels the
+       removal — the same shape as a pending recycle being cancelled when somebody moves off
+       "no", and for the same reason: the job has not happened yet. Once the warehouse has
+       pressed Timer taken out the flag is already down and this cannot reach it. */
     const whChanged = warehouseRebuildFields(item.data, addrUpdates);
+    const timerCameOff = whTimerCameOff(item.data, addrUpdates, whChanged);
+    if(timerCameOff) addrUpdates.needsTimerRemoved = true;
+    else if(whChanged.indexOf('outletTimer') !== -1 && item.data.needsTimerRemoved) addrUpdates.needsTimerRemoved = false;
     if(whTimerOnlyQueue(item.data, addrUpdates, whChanged, newLightsDescription)) addrUpdates.needsTimerOnly = true;
+    /* ⭐ AND THE MIRROR OF THE LINE ABOVE: a removal that is the whole job queues no build.
+       Written as its own branch rather than folded into the one above, because the two
+       questions have different answers for a house that HAS colours — that one still
+       rebuilds, and still lands on the Remove Timer list through the flag set above. */
+    else if(whTimerRemovalQueue(item.data, addrUpdates, whChanged, newLightsDescription)) addrUpdates.needsTimerRemoved = true;
     else if(whChanged.length) addrUpdates.needsLightBuild = true;
     /* "They said no" is a lasting fact; "their lights need pulling back into
        stock" is a job that gets finished. This used to be re-derived from the
@@ -53995,24 +54815,10 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        a failed fee is reported and nothing else is lost. */
     if(lightChange.feeAmount > 0 && !lightFeeWaived && lightChange.feeDestination === 'invoice'){
       try{
-        const feeKey = custInvoiceKey(Object.assign({}, item.data, addrUpdates));
-        if(feeKey){
-          const fSnap = await getDoc(doc(db,'invoices', feeKey));
-          const fData = fSnap.exists() ? fSnap.data() : {};
-          const feeNotes = (Array.isArray(fData.changeFeeNotes) ? fData.changeFeeNotes : [])
-            .concat([{amount: lightChange.feeAmount, reason: lightChange.feeReason,
-                      date: new Date().toISOString()}]);
-          const feeTotal = (Number(fData.changeFees) || 0) + lightChange.feeAmount;
-          /* setDoc+merge for the same reason the fee migration above uses it: the
-             invoice document may not exist yet, and updateDoc would throw. */
-          await setDoc(doc(db,'invoices', feeKey), {
-            changeFees: feeTotal, changeFeeNotes: feeNotes,
-            lastLightChangeFeeAt: new Date(),
-            status: computeInvoiceStatus(fData.install || 0, fData.removal || 0,
-              fData.deposit || 0, fData.credits || 0, feeTotal),
-            updatedAt: serverTimestamp()
-          }, {merge:true});
-        }
+        /* ⭐ ONE WRITER, shared with the All Customers panel ([[MON-78]]). It re-reads the
+           invoice itself, for the no-transaction reason spelled out above. */
+        await addLightChangeFeeToInvoice(
+          custInvoiceKey(Object.assign({}, item.data, addrUpdates)), lightChange);
       }catch(e){
         console.error('Light-change fee could not be added to the invoice', e);
         toast('Saved — but the $30 light-change fee could not be added to their invoice. Add it by hand.');
@@ -69670,10 +70476,39 @@ function printGateCode(d){
   const g = ('' + ((d && d.gateCode) || '')).trim();
   return g || '\u2014';
 }
-/* Always 1-4, never blank — houseSideCount defaults an unrecorded count to 1, and
-   the printed sheet must not disagree with the schedule about it. */
-function printSideCount(d){
-  return String(houseSideCount(d && d.houseSides));
+/* ⭐ WHICH SIDES, NOT ONLY HOW MANY (2026-09-11, [[OPT-09]]). Addie: "for sides can
+   you mention which side they want looking from there street?"
+
+   ⚠ THE CREW WAS ONLY EVER TOLD A NUMBER, which is the gap [[OPT-02]] named in her own
+   words — "how are we supposed to know which sides they want if it just says how many" —
+   and which was then answered on every screen and on no sheet. This season the printed
+   sheet is the ONLY thing the crew sees ("were not using the employee portal this year"),
+   so a house that said Front, Left and Back arrived at the kerb as the number 3 and
+   somebody guessed. The names are on the record already; this is the one place that was
+   still dropping them.
+
+   ⛔ IT NEVER PRINTS A LIST THAT DOES NOT FIT THE COUNT. Two names under a count of
+   three is a claim that cannot be true — a state records really can be in, since the
+   count has existed far longer than the list — and the honest answer there is the
+   number, which is what this sheet has always said. The same rule Edit Customer follows
+   on open, pointing the same way: the count wins, and a list trimmed to fit would be an
+   answer nobody gave. A guess that looks identical to an answer is how a crew lights the
+   wrong half of a roof.
+
+   ⚠ AND LEFT AND RIGHT ARE FROM THE STREET ([[OPT-03]]) — the COLUMN says so, because
+   the two readings are mirror images and the word on its own names no viewpoint at all.
+
+   ⚠ RENAMED FROM printSideCount, deliberately: it no longer answers how many, and a
+   name that lies is how the next session gets it wrong. Every extraction list and gate
+   that named it moved in the same commit.
+
+   ⚠ Still always 1-4 and never blank in the fallback: houseSideCount defaults an
+   unrecorded count to 1, and the printed sheet must not disagree with the schedule
+   about it. */
+function printSidesCell(d){
+  const n = houseSideCount(d && d.houseSides);
+  const named = houseSidesListFromValue(d && d.houseSidesList);
+  return named.length === n ? named.join(', ') : String(n);
 }
 /* How many bins this house's lights come in, so the van is loaded right.
    ⚠ THE SAME ANSWER AS THE WAREHOUSE SHEET, NOT A SECOND ONE. whBinsForHouse is the
@@ -69709,7 +70544,7 @@ function printCrewRow(h){
   return {number: d.customerNumber || h.cu || '', name: d.name || h.name || '',
           bins: printBinCount(d),
           address: d.street || h.address || '', city: h.city || d.city || '',
-          gate: printGateCode(d), sides: printSideCount(d),
+          gate: printGateCode(d), sides: printSidesCell(d),
           eaves: printYesNo(d.useEaves), timer: printYesNo(d.outletTimer),
           fix: printFixReason(d),
           notes: printCrewNotes(d, h)};
@@ -69920,7 +70755,7 @@ const PRINT_COLUMNS = {
   crew:      [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
               {k: 'bins', label: 'Bins'},
               {k: 'address', label: 'Address'}, {k: 'city', label: 'City'},
-              {k: 'gate', label: 'Gate'}, {k: 'sides', label: 'Sides'},
+              {k: 'gate', label: 'Gate'}, {k: 'sides', label: 'Sides (from street)'},
               {k: 'eaves', label: 'Plugs / eaves'}, {k: 'timer', label: 'Timer'},
               {k: 'notes', label: 'Notes'}]
 };

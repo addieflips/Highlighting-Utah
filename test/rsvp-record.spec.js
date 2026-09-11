@@ -81,15 +81,55 @@ async function pressAndRead(page, url) {
 
 test.describe('What a pressed RSVP button leaves on the record', () => {
 
-  /* ⭐ HER REPORT, AS A TEST. No note, no Cancel pressed — the button alone. */
-  test('No records the no and queues the recycle, with nothing else pressed', async ({ page }) => {
+  /* ⭐ HER REPORT, AS A TEST. No note, no Cancel pressed — the button alone.
+     ⛔ AND THE RECYCLE HALF OF THIS TEST IS REVERSED, OUT LOUD (R-024). It used to be
+     titled "No records the no and queues the recycle" and asserted
+     `needsLightRecycle === true`. That was right when it was written and stopped being
+     right under [[RS-51]] — Dax: a no moves them to Maybe Next Year, and only going
+     through the cancellation in the member portal archives them. Addie confirmed it
+     herself on 2026-09-11: "they will only be a real no if they cancelled member portal."
+     ⚠ IT SURVIVED THE RULING BECAUSE THE FAKE AGREED WITH IT. `test/firebase-stub.js` went
+     on writing the field the server had stopped writing, so this spec passed against a
+     rule the app no longer had — the stub-lying failure §9.14 already records three times.
+     The stub is fixed and this assertion is repointed rather than deleted: the half about
+     the answer, the date and the badge is untouched and is what she reported. */
+  test('No records the no and leaves their lights alone, with nothing else pressed', async ({ page }) => {
     const { stub, record } = await pressAndRead(page, `/index.html#/payment?token=${TOKEN}&rsvp=no`);
 
     expect(record.rsvpStatus).toBe('no');
-    expect(record.needsLightRecycle, 'a no must queue their lights to come back').toBe(true);
+    /* ⛔ NOT QUEUED. One tap in an email must not take a bundle apart and hand the
+       customer number back to the pool — that is Cancel My Lights, in the portal. */
+    expect(record.needsLightRecycle, 'a no must NOT queue their lights: only cancelling in the portal does').toBeFalsy();
     expect(record.rsvpRespondedAt, 'a real reply must be dated, or it reads as an assumed answer').toBeTruthy();
     expect(record.maybeNextYear, 'a no is not a back next year').toBe(false);
 
+    stub.assertNoRealCalls();
+  });
+
+  /* ⚠ AND AN OWED RECYCLE SURVIVES A NO, which is the other half of the same rule and the
+     one a blanket "never writes it" could still get wrong. Somebody who cancelled properly
+     and then answers the RSVP again must keep the collection the warehouse is queued for:
+     writing `false` here would silently cancel it. Hole G, pointing the other way. */
+  test('and a recycle already owed is not cleared by answering no', async ({ page }) => {
+    const already = JSON.parse(JSON.stringify(CUSTOMERS));
+    already.standard.record.needsLightRecycle = true;
+    const stub = await installFirebaseStub(page, { customers: already });
+    const url = `/index.html#/payment?token=${TOKEN}&rsvp=no`;
+    await page.goto(url);
+    /* ⭐ The link no longer answers on open — one tap confirms it ([[RS-57]]). This test
+       builds its own stub for the owed recycle, so it cannot go through pressAndRead and
+       has to tap for itself. */
+    await tapRsvpConfirm(page, url);
+    await expect.poll(async () => {
+      const calls = await stub.calls();
+      return calls.some(c => c.name === 'portalRsvp');
+    }, { timeout: 8000 }).toBe(true);
+    const record = await page.evaluate((tok) => {
+      const c = window.__HU_FIXTURES__.byToken(tok);
+      return c ? JSON.parse(JSON.stringify(c.record)) : null;
+    }, TOKEN);
+    expect(record.rsvpStatus).toBe('no');
+    expect(record.needsLightRecycle, 'their bin is on the collection list and must stay there').toBe(true);
     stub.assertNoRealCalls();
   });
 
