@@ -16020,12 +16020,49 @@ suite('Suite 44. The plan keeps up with the customer list');
   }
 
   /* ---- the wiring ---- */
+  /* ⚠ REPOINTED 2026-09-11 ([[SCH-76]]), NOT WEAKENED. Both of these were pinned to
+     where the wiring happened to sit — one to the literal panel name `'schedule'`, one to
+     a local variable called `__navSync` inside a fixed 200-character window (the shape §7
+     bans by name). The Schedule became a TAB of Routes, so both failed on code that is
+     right. What must be TRUE is unchanged and is asserted directly below. */
   check('S44', 'a customer change drives the sync',
-    /safeRender\('scheduleSync'/.test(admin) && /scheduleSync: 'schedule'/.test(admin),
-    'and through safeRender, so it waits for the tab to be open like everything else');
+    /safeRender\('scheduleSync'/.test(admin) &&
+    /scheduleSync: '([a-z-]+)'/.test(admin) &&
+    new RegExp('data-panel="' + /scheduleSync: '([a-z-]+)'/.exec(admin)[1] + '"').test(admin),
+    'and through safeRender, so it waits for the tab to be open like everything else — ' +
+    'and the panel it names has to be a panel that exists, or the deferral silently ' +
+    'stops deferring');
 
-  check('S44', 'opening the Schedule tab re-checks',
-    /__navSync[\s\S]{0,200}?scheduleSyncFromCustomers/.test(admin));
+  /* ⛔ THE SELECTOR HAS TO MATCH SOMETHING, which is the whole failure this guards. A
+     querySelector that finds nothing throws nothing and logs nothing: the widget simply
+     never starts and the tab is blank for ever. That is precisely what this block would
+     have become when the Schedule nav item was deleted. */
+  check('S44', 'opening the Schedule re-checks, from both doors',
+    (function(){
+      const sel = admin.match(/querySelector\('([^']*data-(?:panel|routetab)="[^"]+"[^']*)'\)/g) || [];
+      const nav = /querySelector\('\.nav-item\[data-panel="([a-z-]+)"\]'\)[\s\S]*?scheduleSyncFromCustomers/.test(admin);
+      const tab = /\[data-routetab="schedule"\]/.test(admin) &&
+                  /data-routetab="schedule"/.test(admin);
+      return sel.length > 0 && nav && tab;
+    })(),
+    'she can open Routes, read the address list, and come back to the Schedule tab ' +
+    'without touching the nav again — wiring only the nav gives a blank pane on that path');
+
+  /* ⚠ AND EVERY SELECTOR THE WIDGET USES POINTS AT REAL MARKUP. Asserted by NAME rather
+     than by counting, so a new one added later is checked too. */
+  check('S44', 'and every panel/tab the widget looks up actually exists in the page',
+    (function(){
+      const names = [];
+      let m, re = /querySelector\('[^']*data-panel="([a-z-]+)"[^']*'\)/g;
+      while((m = re.exec(admin))) names.push(['data-panel', m[1]]);
+      re = /querySelector\('[^']*data-routetab="([a-z-]+)"[^']*'\)/g;
+      while((m = re.exec(admin))) names.push(['data-routetab', m[1]]);
+      return names.length > 0 && names.every(function(pair){
+        return new RegExp(pair[0] + '="' + pair[1] + '"').test(admin);
+      });
+    })(),
+    'a querySelector that matches nothing fails silently — no error, no widget, an ' +
+    'empty tab, and every source check still green');
 
   check('S44', 'and there is a periodic backstop',
     admin.indexOf('__syncTimer=setInterval(') > 0 && /5\*60\*1000/.test(admin),
