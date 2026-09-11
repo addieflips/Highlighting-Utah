@@ -597,6 +597,10 @@
   .et-folder-act:hover{ background:var(--paper); color:var(--ink); }
   .et-folder-act.del:hover{ color:var(--ember); }
   .row-item[draggable="true"]{ cursor:grab; }
+  /* ⭐ WHILE A MESSAGE IS BEING DRAGGED, WHAT WILL TAKE IT IS OUTLINED ([[MSG-20]]).
+     Keyed off `data-commdrop`, which renderCommNav already writes on exactly the rows that
+     accept a drop — so there is no second opinion about which those are. */
+  #commCentreNav.drop-hint [data-commdrop]{ outline:2px dashed var(--gold-dim); outline-offset:2px; border-radius:6px; }
   .row-item.dragging{ opacity:.4; }
   .context-menu{
     display:none; position:fixed; z-index:500; background:#fff; border:1px solid var(--line);
@@ -21462,9 +21466,14 @@ function renderFolderNode(node, depth){
   if(!collapsed) node.children.forEach(function(child){ html += renderFolderNode(child, depth+1); });
   return html;
 }
-/* The folder list, depth-first and indented, used by BOTH the "Inside" picker and
-   the Move to… control. ⚠ One builder, because two lists of the same folders that
-   are built separately are two lists that eventually disagree. */
+/* The folder list, depth-first and indented. ⚠ NOTHING CALLS THIS ANY MORE, and that is
+   said here rather than left to be rediscovered ([[MSG-20]], 2026-09-11). The "Inside"
+   picker went with the folder sidebar and Move to… now reads `msgFileableFolders`, which
+   answers for her own sections as well — this one only ever knew `messageFolders`, the
+   collection [[MSG-12]] emptied. It is left in place rather than deleted because
+   `buildFolderTree` under it feeds `renderFolderNode` / `folderRowHtml`, which run-all
+   still RUNS; untangling that chain is its own change and buys nothing today. Do not
+   wire this back into a menu — it would be the second list all over again. */
 function flatFolderList(){
   const flat = [];
   (function walk(nodes, depth){
@@ -21477,8 +21486,14 @@ function flatFolderList(){
 function populateMoveToSelect(){
   const sel = document.getElementById('msgMoveTo');
   if(!sel) return;
-  sel.innerHTML = '<option value="">Move to&hellip;</option><option value="Inbox">Inbox</option>' +
-    flatFolderList().map(f => '<option value="'+esc(f.name)+'">'+esc(new Array(f.depth+1).join('\u2014 ') + f.name)+'</option>').join('');
+  /* ⚠ ONE LIST, THREE ROUTES ([[MSG-20]]). This built itself from `messageFolders` — the
+     collection [[MSG-12]] emptied — so a folder she had just made was a drop target and
+     was in neither menu. `msgFileableFolders` is the one answer; it leads with Inbox, so
+     the separate Inbox option that used to be written out here is gone rather than
+     doubled. The nesting dashes went with `flatFolderList`: her own folders are a flat
+     list by construction, and drawing a tree that cannot have branches is a lie. */
+  sel.innerHTML = '<option value="">Move to&hellip;</option>' +
+    msgFileableFolders().map(f => '<option value="'+esc(f)+'">'+esc(f)+'</option>').join('');
   sel.value = '';
 }
 /* ⭐ ADD FOLDER ANSWERS, WHATEVER HAPPENS (2026-08-25). Owner: "the add folder is
@@ -21492,9 +21507,11 @@ function populateMoveToSelect(){
 /* ---------------- RIGHT-CLICK MOVE MENU ---------------- */
 const contextMenuEl = document.getElementById('msgContextMenu');
 function openContextMenu(x, y, messageId){
-  const folders = [{name:'Inbox'}].concat(messageFolders);
-  contextMenuEl.innerHTML = '<div class="context-menu-label">Move to&hellip;</div>' + folders.map(function(f){
-    return '<button type="button" class="context-menu-item" data-movefolder="'+esc(f.name)+'">'+esc(f.name)+'</button>';
+  /* ⚠ THE SAME ONE LIST ([[MSG-20]]) — this read `messageFolders` too, so the two menus
+     and the drag agreed with each other only while no folder existed. */
+  const folders = msgFileableFolders();
+  contextMenuEl.innerHTML = '<div class="context-menu-label">Move to&hellip;</div>' + folders.map(function(name){
+    return '<button type="button" class="context-menu-item" data-movefolder="'+esc(name)+'">'+esc(name)+'</button>';
   }).join('');
   contextMenuEl.style.left = x + 'px';
   contextMenuEl.style.top = y + 'px';
@@ -22336,6 +22353,38 @@ function commHandFolders(){
   });
   return out;
 }
+/* ⭐ WHERE A MESSAGE CAN BE FILED — ONE ANSWER (2026-09-11, [[MSG-20]]). Addie: "I still
+   can't drag and drop emails."
+
+   ⚠ THE DRAG WAS NEVER BROKEN AND THAT IS THE WHOLE DIAGNOSIS. Measured by RUNNING the
+   real sidebar renderer against an ordinary season: **30 rows drawn, 0 of them accept a
+   drop.** Only a section or subtab she filled by hand takes one, and the five built-ins
+   are saved filters — a message dropped on a derived view could not stay there, which is
+   why they are excluded and that exclusion is right.
+
+   ⛔ BUT THE OTHER TWO WAYS OF FILING WERE READING A DIFFERENT LIST. `populateMoveToSelect`
+   and the right-click menu both walked `messageFolders`, the OLD folder collection that
+   [[MSG-12]] emptied — so a folder she had just made appeared as a drop target and in
+   NEITHER menu. Three routes to one place, two of them answering from a list nobody
+   writes to any more. That is the shape this file warns about by name, and it is why
+   "I can't file anything" was true however she tried.
+
+   ⚠ THE LEGACY NAMES ARE KEPT, NOT DROPPED. Anything already sitting in an old folder is
+   still reachable — the Inbox shows unfiled post, so a message in a folder no menu offered
+   would be findable by search alone. Her own folders come FIRST because they are the ones
+   she made.
+   ⚠ AND Inbox LEADS, because it is where things come back to and it is not a folder
+   document at all: leaving it out makes filing a one-way trip. */
+function msgFileableFolders(){
+  const out = ['Inbox'];
+  const add = function(name){
+    const n = String(name || '').trim();
+    if(n && out.indexOf(n) === -1) out.push(n);
+  };
+  (typeof commHandFolders === 'function' ? commHandFolders() : []).forEach(add);
+  (messageFolders || []).forEach(function(f){ add(f && f.name); });
+  return out;
+}
 function commSectionByKey(key){
   const mine = (commSections && Array.isArray(commSections.custom)) ? commSections.custom : [];
   return mine.find(function(s){ return s.key === key; }) || null;
@@ -22632,6 +22681,17 @@ function renderCommNav(){
           (n ? ' <span class="comm-badge">' + n + '</span>' : '') + '</button>';
       }).join(' ') + '</div>';
     }
+  }
+  /* ⭐ AND IT SAYS SO WHEN NOTHING CAN TAKE A DROP ([[MSG-20]]). Measured on an ordinary
+     season: thirty rows drawn and not one of them droppable, because the built-ins are
+     saved filters and she had made nothing of her own yet. Dragging then does nothing and
+     says nothing, which is her own standing rule broken — "nothing should fail quietly".
+     ⚠ IT NAMES THE WAY OUT rather than only the problem: the button beside it is the one
+     that makes a section, which is the thing that creates somewhere to drop. */
+  if(!commHandFolders().length){
+    html += '<div class="comm-hidden-note">Nothing here takes a dropped message yet &mdash; ' +
+      'the sections above are filters, so a message cannot be parked in one. ' +
+      'Make a section or a folder of your own and it becomes a drop target.</div>';
   }
   if(hidden.length){
     html += '<div class="comm-hidden-note">Hidden: ' + hidden.map(function(k){
@@ -23293,11 +23353,22 @@ function renderMessagesList(){
     });
   });
   list.querySelectorAll('.row-item').forEach(function(row){
+    /* ⭐ A DRAG SHOWS WHERE IT CAN LAND ([[MSG-20]]). Without this the only feedback is the
+       row lifting: every sidebar row looks equally willing, most of them refuse, and a drop
+       on one of those does nothing at all. The class goes on the NAV, and the CSS outlines
+       whatever is droppable — so the rule stays in one place (`data-commdrop`, written by
+       renderCommNav) instead of being restated here. */
     row.addEventListener('dragstart', function(e){
       e.dataTransfer.setData('text/plain', row.dataset.msgid);
       row.classList.add('dragging');
+      const nav = document.getElementById('commCentreNav');
+      if(nav) nav.classList.add('drop-hint');
     });
-    row.addEventListener('dragend', function(){ row.classList.remove('dragging'); });
+    row.addEventListener('dragend', function(){
+      row.classList.remove('dragging');
+      const nav = document.getElementById('commCentreNav');
+      if(nav) nav.classList.remove('drop-hint');
+    });
     row.addEventListener('contextmenu', function(e){
       e.preventDefault();
       e.stopPropagation();

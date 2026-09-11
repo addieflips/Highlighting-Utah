@@ -3717,7 +3717,7 @@ without a portal link to match — so the one line that could have named somebod
 while the address sat in the row's own body two lines down. The row now reads **Signed in as
 &lt;address&gt;**, or **"Nobody was signed in when this happened"**, which is the signature of a
 timer still running after a sign-out. Member errors keep their contact line — a customer really
-did hit one of those, and ringing them is the point. [[MSG-20]], `msgStaffSignedInAs`.
+did hit one of those, and ringing them is the point. [[MSG-21]], `msgStaffSignedInAs`.
 
 #### What the folder has already caught (2026-09-10)
 
@@ -4070,6 +4070,32 @@ note server-side and cannot send mail, so the nudge is raised in the browser onc
 returns `{ok:true}`. The ordinary My Info save is deliberately silent ([[QT-35]]) — a
 corrected street spelling is not a move — so do not move this call up into it.
 
+⭐ **WHERE A MESSAGE CAN BE FILED — ONE ANSWER** (2026-09-11, [[MSG-20]]). Addie: *"I still
+can't drag and drop emails."*
+
+- ⭐ **The drag was never broken.** Measured by RUNNING the real sidebar renderer against an
+  ordinary season: **thirty rows drawn, none of them droppable.** Only a section or subtab she
+  filled by hand takes a message; the five built-ins are saved filters, so a message dropped
+  on one could not stay there. That exclusion is right and is kept.
+- ⛔ **The other two ways of filing were reading a different list.** `populateMoveToSelect`
+  and the right-click menu both walked `messageFolders` — the collection [[MSG-12]] emptied —
+  so a folder she had just made was a drop target and in **neither menu**. Three routes to one
+  place, two answering from a list nobody writes to any more.
+- ⭐ **`msgFileableFolders` is the one answer**: Inbox first (it is not a folder document, and
+  leaving it out makes filing a one-way trip), then her own folders, then any legacy name not
+  already listed, never twice. The legacy names are kept — anything already filed would
+  otherwise be reachable by search alone.
+- ⭐ **And a drag now shows where it can land.** The nav takes a class for the duration and the
+  CSS outlines whatever carries `data-commdrop`, so which rows accept a drop is stated once.
+  When nothing can take one, the sidebar **says so** and names the way out — "nothing should
+  fail quietly", applied to a gesture.
+- ⚠ **One existing check was repointed, not weakened.** S273 matched the literal
+  `<option value="Inbox">` — where that option happened to sit — so it failed on correct code
+  the moment the list moved behind a name. It RUNS the rule now. 6 sabotages red-checked.
+- ⚠ **`flatFolderList` no longer has a caller** and is left in place with a note saying so:
+  `buildFolderTree` under it feeds `renderFolderNode` / `folderRowHtml`, which run-all still
+  RUNS. Do not wire it back into a menu — that would be the second list all over again.
+
 ⛔ **The folders are gone** ([[MSG-12]], the same day). Once the system was in, Addie asked
 *"can we just get rid of your folders altogether if the system is made?"* — and they had
 become a second way of saying the same thing: every one of the eight the app created maps
@@ -4416,6 +4442,37 @@ a fake Firestore rather than reading their source; 16 sabotages red-checked.
       - ⭐ **One rule per side**: `quoteAnswerMayClearStatusServer` (both server sites) and `quoteAnswerMayClearStatus` (the office delete). It asks about **`pendingAddress`** — the same field the banner reads and the same field the Save clears once the address has moved — and deliberately **not about the status word**: there is only one `seasonStatus` field, so a move can be outstanding while the pill shows `needs_changes` because something else wrote last.
       - ⭐ **The hold is bounded, which is the whole argument for it.** The hole the clearing closed is a customer sitting in Needs Changes for ever with nothing anywhere to clear it; here there IS something left — the move, which the office applies, and that save clears `pendingAddress` and raises the re-quote that answers the badge properly. **It reports nothing and flags nothing**: the badge still reading Needs Changes is the honest answer while a move is outstanding, and a follow-up raised for correct behaviour is how the office learns to click past the ones that matter.
       - ⚠ **All three sites, not the one that prompted it** — "a fix in one direction is half a fix". Proved where each half can be: the **behaviour** in run-all.js Suites 137 and 138, which already drive both decline paths against a fake Firestore (the status survives, and an `address_changed` with **no** pending move still clears); the **agreement** in §5 of `address-move.test.js`, which RUNS the two copies side by side over every shape a record can be in, money-parity's argument applied to a badge. 6 sabotages red-checked.
+- ⭐ **STAYING SIGNED IN, AND STILL BEING ABLE TO LEAVE** (2026-09-11, [[MEM-01]]). Addie:
+  *"make sure when someone logs into member portal they stay logged in but they can still go
+  back to home page with a go back button or something in top right corner."*
+  - **The way back is top right, beside Log Out** (`portalBackToSiteLink`), and it reads
+    BEFORE Log Out — the one neighbour that cannot be undone. It MOVED from the left rather
+    than being added: two controls making the same promise is a coin toss.
+  - ⚠ **The sign-in half was already true**, and was driven in a browser before anything was
+    written: the way back keeps the token, and the header's Member Portal button walks
+    straight back in with no second sign-in.
+  - ⛔ **What was actually wrong is the other half.** A remembered login redirects the bare
+    site to `#/payment` at start-up, so a customer who had just asked for the home page was
+    put back into their account by the next reload — and a refresh, a bookmark and tapping
+    the logo are all reloads. Pressing the way back now leaves a per-tab note
+    (`sessionStorage`, `huPortalStayOnSite`) that stands the redirect down; asking for the
+    portal again takes it back, in the router rather than on the five links that point there.
+  - ⛔ **The redirect is not removed and must not be.** Its own comment names who it is for:
+    somebody arriving from an email who wants to land on their pending item. This defers only
+    to a person who has SAID otherwise, in the tab they said it in.
+  - ⚠ **It suppresses the redirect away from the site and nothing else.** A refresh INSIDE
+    the account still comes back signed in; a flag written over both branches of that test
+    would log them out there, and a red-check caught exactly that sabotage passing, because
+    walking back into the portal clears the note and no click path can reach the state. That
+    invariant is staged by hand in its own test for precisely that reason.
+  - ⚠ **The storage key is written out in all three helpers, never held in a constant.** They
+    sit below the start-up block that calls them, and in one ES module a `function` hoists
+    while a `var` beside it hoists as **undefined** — a named key would read
+    `getItem(undefined)` at the only moment that matters and the feature would never work,
+    silently, with every source check green.
+  - Gated by `test/portal-stay-signed-in.spec.js` — seven tests, all RUN, because every claim
+    is about a control on the screen or about what survives a **reload**, and a `goto` that
+    only changes the hash never re-runs the start-up block. 5 sabotages red-checked.
 - **Cloud Functions it calls**: `portalLookup` (the one entry point for all lookups — token or phone/email+lastname, rate-limited), `portalSave` (whitelisted writes per section, mirrors changes onto the invoice, resyncs upcoming routes), `portalRsvp`, `portalSetGateCode`, `portalChangeAddress` (records a move as PENDING; applies nothing), `portalInvoice` (sanitized invoice read), `quoteRespond`, `publicQuoteLookup`, `paypalCreateOrder`/`paypalCaptureOrder`, `publicConfig` (public-safe EmailJS keys for the contact form).
 
 ### Admin dashboard (`admin.html`)

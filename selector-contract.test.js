@@ -54,6 +54,7 @@ const SPEC_TARGETS = {
   'referral-token.spec.js': 'index.html',
   'address-move.spec.js': 'index.html',
   'rsvp-decline-reason.spec.js': 'index.html',
+  'portal-stay-signed-in.spec.js': 'index.html',
   'public.spec.js': 'index.html',
   'admin.spec.js': 'admin.html',
   'crew.spec.js': 'employee.html'

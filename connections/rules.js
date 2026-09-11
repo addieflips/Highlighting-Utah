@@ -25,6 +25,10 @@ const AREAS = {
   CN: 'Customer numbers', DUP: 'Duplicates', MSG: 'Messages',
   PR: 'Printing', HC: 'Health Check', FIX: 'Fixes', OPT: 'Options',
   MR: 'Measure Roof', REF: 'Referrals',
+  /* ⚠ NOT `PR`. That family is the printed sheet — ink on paper for a crew. This one is
+     the MEMBER PORTAL: signing in, staying signed in, and getting back out to the site.
+     Nothing a customer sees on their phone belongs under Printing. */
+  MEM: 'The member portal',
   /* ⚠ NOT `MSG`. That family is the Inbox — post arriving. This one is mail going OUT:
      who a send reached, who it did not, and getting to the second group. They fail in
      opposite directions and filing them together would hide both. */
