@@ -2110,6 +2110,37 @@ wrong," it is a second, narrower question the first one never claimed to answer.
   canonical ordering, dedup, the list overriding a mismatched count, and the
   empty-list fallback).
 
+⭐ **AND THE CREW IS FINALLY TOLD WHICH ONES** (2026-09-11, [[OPT-09]]). Addie: *"for
+sides can you mention which side they want looking from there street? so is it left side
+from looking at your house from the street kind of thing."*
+
+- **What was wrong.** Every screen above learned the names and the printed sheet never
+  did. Its Sides column called `printSideCount`, which returns the COUNT — so a house
+  that had said Front, Left and Back reached the kerb as the number **3**, and this is
+  the season the crew works off paper alone. That is [[OPT-02]]'s own question — *"how
+  are we supposed to know which sides they want if it just says how many"* — still
+  unanswered in the one place it is asked.
+- **`printSidesCell`** (renamed from `printSideCount`, because the old name no longer
+  described what it returns) prints the names when `houseSidesList` holds exactly as
+  many as the count, and the number otherwise. ⛔ **It never prints a list that does not
+  fit the count** — two names under a count of three is a claim that cannot be true, and
+  records really can be in that state because the count is far older than the list. The
+  count wins, the same way round as [[OPT-07]]; a list trimmed to fit would be an answer
+  nobody gave.
+- **The viewpoint is on the column and on the labels**, not in a note beside them. The
+  heading reads **Sides (from street)**, and Add and Edit Customer's tick boxes read
+  *Left side (from the street)* / *Right side (from the street)*. [[OPT-03]] settled that
+  left and right are read from the street and the portal says so in a sentence; the
+  office's boxes said it only in grey text underneath, and paper carries no note at all.
+  The two readings are mirror images, so the word alone decides which half of a roof gets
+  lit by a coin toss.
+- ⚠ **Nothing about the stored values changed** — the four names, the count, the
+  re-quote rules and every gate on them are untouched. This is what is SAID, not what is
+  kept.
+- Proved by Suite 104, *run* against the real helpers (the names on the sheet, the
+  fallback to the number, a mismatched list, a value nobody offers, and the heading), with
+  the crew-sheet fixture given a list so the check cannot pass on the old behaviour.
+
 ⭐ **THE PORTAL SAYS WHEN A BALANCE IS ACTUALLY DUE** (added 2026-09-02, MON-57). Addie:
 *"I want to make it clear to the member that this is there payment however they do not need
 to pay until after they get an invoice from us."* The payment card said **Current Balance**

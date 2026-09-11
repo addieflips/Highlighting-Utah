@@ -1569,8 +1569,8 @@
                  from a quote carries the same field as one edited later. -->
             <div class="pill-check-row" id="addCustHouseSideNames" style="margin-top:10px;">
               <label class="pill-check"><input type="checkbox" class="addcust-side-name" value="Front"> Front</label>
-              <label class="pill-check"><input type="checkbox" class="addcust-side-name" value="Right"> Right side</label>
-              <label class="pill-check"><input type="checkbox" class="addcust-side-name" value="Left"> Left side</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-side-name" value="Right"> Right side (from the street)</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-side-name" value="Left"> Left side (from the street)</label>
               <label class="pill-check"><input type="checkbox" class="addcust-side-name" value="Back"> Back</label>
             </div>
             <p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">Picking a number above ticks them front first, then right, then left, then back &mdash; change any of them. Left and right are as you stand on the street facing the house.</p>
@@ -2310,8 +2310,8 @@
                  appears to skip a box. The stored list is canonical either way. -->
             <div class="pill-check-row" id="editCustHouseSideNames" style="margin-top:10px;">
               <label class="pill-check"><input type="checkbox" class="editcust-side-name" value="Front"> Front</label>
-              <label class="pill-check"><input type="checkbox" class="editcust-side-name" value="Right"> Right side</label>
-              <label class="pill-check"><input type="checkbox" class="editcust-side-name" value="Left"> Left side</label>
+              <label class="pill-check"><input type="checkbox" class="editcust-side-name" value="Right"> Right side (from the street)</label>
+              <label class="pill-check"><input type="checkbox" class="editcust-side-name" value="Left"> Left side (from the street)</label>
               <label class="pill-check"><input type="checkbox" class="editcust-side-name" value="Back"> Back</label>
             </div>
             <p id="editCustSidesListNote" style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">Picking a number above ticks them front first, then right, then left, then back &mdash; change any of them. Left and right are as you stand on the street facing the house. Leave them all blank if nobody has said.</p>
@@ -70476,10 +70476,39 @@ function printGateCode(d){
   const g = ('' + ((d && d.gateCode) || '')).trim();
   return g || '\u2014';
 }
-/* Always 1-4, never blank — houseSideCount defaults an unrecorded count to 1, and
-   the printed sheet must not disagree with the schedule about it. */
-function printSideCount(d){
-  return String(houseSideCount(d && d.houseSides));
+/* ⭐ WHICH SIDES, NOT ONLY HOW MANY (2026-09-11, [[OPT-09]]). Addie: "for sides can
+   you mention which side they want looking from there street?"
+
+   ⚠ THE CREW WAS ONLY EVER TOLD A NUMBER, which is the gap [[OPT-02]] named in her own
+   words — "how are we supposed to know which sides they want if it just says how many" —
+   and which was then answered on every screen and on no sheet. This season the printed
+   sheet is the ONLY thing the crew sees ("were not using the employee portal this year"),
+   so a house that said Front, Left and Back arrived at the kerb as the number 3 and
+   somebody guessed. The names are on the record already; this is the one place that was
+   still dropping them.
+
+   ⛔ IT NEVER PRINTS A LIST THAT DOES NOT FIT THE COUNT. Two names under a count of
+   three is a claim that cannot be true — a state records really can be in, since the
+   count has existed far longer than the list — and the honest answer there is the
+   number, which is what this sheet has always said. The same rule Edit Customer follows
+   on open, pointing the same way: the count wins, and a list trimmed to fit would be an
+   answer nobody gave. A guess that looks identical to an answer is how a crew lights the
+   wrong half of a roof.
+
+   ⚠ AND LEFT AND RIGHT ARE FROM THE STREET ([[OPT-03]]) — the COLUMN says so, because
+   the two readings are mirror images and the word on its own names no viewpoint at all.
+
+   ⚠ RENAMED FROM printSideCount, deliberately: it no longer answers how many, and a
+   name that lies is how the next session gets it wrong. Every extraction list and gate
+   that named it moved in the same commit.
+
+   ⚠ Still always 1-4 and never blank in the fallback: houseSideCount defaults an
+   unrecorded count to 1, and the printed sheet must not disagree with the schedule
+   about it. */
+function printSidesCell(d){
+  const n = houseSideCount(d && d.houseSides);
+  const named = houseSidesListFromValue(d && d.houseSidesList);
+  return named.length === n ? named.join(', ') : String(n);
 }
 /* How many bins this house's lights come in, so the van is loaded right.
    ⚠ THE SAME ANSWER AS THE WAREHOUSE SHEET, NOT A SECOND ONE. whBinsForHouse is the
@@ -70515,7 +70544,7 @@ function printCrewRow(h){
   return {number: d.customerNumber || h.cu || '', name: d.name || h.name || '',
           bins: printBinCount(d),
           address: d.street || h.address || '', city: h.city || d.city || '',
-          gate: printGateCode(d), sides: printSideCount(d),
+          gate: printGateCode(d), sides: printSidesCell(d),
           eaves: printYesNo(d.useEaves), timer: printYesNo(d.outletTimer),
           fix: printFixReason(d),
           notes: printCrewNotes(d, h)};
@@ -70726,7 +70755,7 @@ const PRINT_COLUMNS = {
   crew:      [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
               {k: 'bins', label: 'Bins'},
               {k: 'address', label: 'Address'}, {k: 'city', label: 'City'},
-              {k: 'gate', label: 'Gate'}, {k: 'sides', label: 'Sides'},
+              {k: 'gate', label: 'Gate'}, {k: 'sides', label: 'Sides (from street)'},
               {k: 'eaves', label: 'Plugs / eaves'}, {k: 'timer', label: 'Timer'},
               {k: 'notes', label: 'Notes'}]
 };

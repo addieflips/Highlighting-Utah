@@ -21137,6 +21137,24 @@ suite('Suite 313. Which sides, by name — sanitized server-side, and the list w
       boxRow.indexOf('value="Right"') < boxRow.indexOf('value="Left"') &&
       boxRow.indexOf('value="Left"') < boxRow.indexOf('value="Back"'),
       'a fill that visibly skips the second box reads as a bug and gets reported as one');
+    /* ⭐ AND THE TWO THAT NEED A VIEWPOINT SAY IT ON THE LABEL ([[OPT-09]], 2026-09-11).
+       Addie: "is it left side from looking at your house from the street kind of thing."
+       [[OPT-03]] settled that it is read from the street; the boxes said so only in the
+       grey line underneath, which is not where somebody ticking a box is looking. Front
+       and Back need nothing — they are the same side whichever way you face. */
+    const addBoxRow = (function () {
+      const s2 = admin.indexOf('<div class="pill-check-row" id="addCustHouseSideNames"');
+      const e2 = s2 > 0 ? admin.indexOf('</div>', s2) : -1;
+      return s2 > 0 && e2 > s2 ? admin.slice(s2, e2 + 6) : '';
+    })();
+    check('S313', 'left and right name their viewpoint on the box itself, in both forms',
+      [boxRow, addBoxRow].every(function (row) {
+        return /value="Left">\s*Left side \(from the street\)/.test(row) &&
+               /value="Right">\s*Right side \(from the street\)/.test(row);
+      }),
+      'from the door your left is the OTHER half of the roof, so the word alone is a ' +
+      'coin toss about which side a crew lights — and Add Customer is the form a new ' +
+      'member is first recorded in');
 
     /* ⚠ GATED ON THE MODULE-LEVEL JSDOM, which Suite 5 sets once — and a run without
        it already refuses to say it is safe to push, so these do not degrade to a note
@@ -24838,7 +24856,7 @@ suite('Suite 104. The Printing tab');
 
   /* ---- the crew row builder, RUN rather than read ---- */
   {
-    const need = ['printGateCode', 'printSideCount', 'printCrewNotes', 'printBinCount'];
+    const need = ['printGateCode', 'printSidesCell', 'printCrewNotes', 'printBinCount'];
     const srcs = need.map(n => extractFn(admin, n));
     check('S104', 'the crew-sheet helpers are all there', srcs.every(Boolean),
       need.filter((n, i) => !srcs[i]).join(', ') + ' missing');
@@ -24855,7 +24873,18 @@ suite('Suite 104. The Printing tab');
            agree with itself and prove nothing. */
         cnDoubleBinFeetSrc + cnBinsForFeetSrc + extractFn(admin, 'whBinsForHouse') +
         extractFn(admin, 'whBinNumberFor') + extractFn(admin, 'whBinNumberMoved') +
-        srcs.join('') + 'return {g: printGateCode, s: printSideCount, ' +
+        /* ⚠ AND THE REAL SANITIZER ([[OPT-09]]), lifted not stubbed for the same reason
+           houseSideCount is: printSidesCell only prints names it has put through
+           houseSidesListFromValue, so a stub that returned the raw array would let a
+           stray value onto a crew sheet here and report green. */
+        /* ⚠ THE CONSTANT IS LIFTED OUT OF THE PAGE, NEVER TYPED HERE. It is the STORED
+           order (Front, Left, Right, Back) and admin.html also holds a FILL order that
+           differs (Front, Right, Left, Back) — a hand-typed copy that picked the wrong
+           one would print the sides in an order the real sheet never uses, and agree
+           with itself while doing it. */
+        (admin.match(/const HOUSE_SIDE_NAMES = \[[^\]]*\];/) || [''])[0] +
+        extractFn(admin, 'houseSidesListFromValue') +
+        srcs.join('') + 'return {g: printGateCode, s: printSidesCell, ' +
         'n: printCrewNotes, b: printBinCount};'
       )();
 
@@ -24894,10 +24923,46 @@ suite('Suite 104. The Printing tab');
         sb.g({}) === '\u2014' && sb.g({ gateCode: '  ' }) === '\u2014',
         'got ' + JSON.stringify(sb.g({})));
 
-      check('S104', 'the side count always prints, and matches houseSideCount',
+      /* ⚠ THE FALLBACK IS UNCHANGED AND IS STILL ASSERTED. A house with no names on
+         file prints the number exactly as it always has, including the old array shape
+         of the count field — the sheet disagreeing with the schedule about how many
+         sides a house has is two answers for one house. */
+      check('S104', 'a house with no names on file still prints the count',
         sb.s({ houseSides: 3 }) === '3' && sb.s({}) === '1' &&
         sb.s({ houseSides: ['front', 'left'] }) === '2',
-        'the sheet disagreeing with the schedule about sides is two answers for one house');
+        'got ' + JSON.stringify([sb.s({ houseSides: 3 }), sb.s({}),
+          sb.s({ houseSides: ['front', 'left'] })]));
+      /* ⭐ AND THE NAMES REACH THE KERB ([[OPT-09]], 2026-09-11). Addie: "for sides can
+         you mention which side they want looking from there street?" The crew sheet is
+         the only thing they see this season, and it printed the number 3 for a house
+         that had said which three. RUN, because the claim is about what is in the cell. */
+      check('S104', 'the sides a customer actually named are printed, not just how many',
+        sb.s({ houseSides: 3, houseSidesList: ['Front', 'Left', 'Back'] }) === 'Front, Left, Back',
+        'got ' + JSON.stringify(sb.s({ houseSides: 3, houseSidesList: ['Front', 'Left', 'Back'] })) +
+        ' — the crew arriving at the kerb with a number has to guess which half of the roof');
+      /* ⛔ AND A LIST THAT DOES NOT FIT THE COUNT IS NOT PRINTED. Two names under a count
+         of three is a claim that cannot be true, and records really can be in that state:
+         the count has existed far longer than the list. The number is the honest answer,
+         and a list trimmed to fit would be an answer nobody gave. */
+      check('S104', 'a list that does not fit the count falls back to the number',
+        sb.s({ houseSides: 3, houseSidesList: ['Front', 'Left'] }) === '3' &&
+        sb.s({ houseSides: 2, houseSidesList: ['Front', 'Left', 'Back'] }) === '2',
+        'got ' + JSON.stringify([sb.s({ houseSides: 3, houseSidesList: ['Front', 'Left'] }),
+          sb.s({ houseSides: 2, houseSidesList: ['Front', 'Left', 'Back'] })]));
+      /* ⚠ AND A STRAY VALUE CANNOT REACH A CREW SHEET. houseSidesListFromValue drops
+         anything nobody offers and de-duplicates, so 'Roof' leaves two names under a
+         count of three and the cell falls back to the number rather than printing it. */
+      check('S104', 'a value nobody offers never reaches the sheet',
+        sb.s({ houseSides: 3, houseSidesList: ['Front', 'Roof', 'Left'] }) === '3' &&
+        sb.s({ houseSides: 4, houseSidesList: ['Front', 'Front', 'Left', 'Back'] }) === '4',
+        'got ' + JSON.stringify(sb.s({ houseSides: 3, houseSidesList: ['Front', 'Roof', 'Left'] })));
+      /* ⚠ AND LEFT AND RIGHT NAME THEIR VIEWPOINT ([[OPT-03]]), on the COLUMN rather than
+         in a note beside the sheet. The two readings are mirror images — from the door
+         your left is the other half of the roof — so the word alone is a coin toss, and
+         paper carries no note to explain it. */
+      check('S104', 'the Sides column says which way round left and right are',
+        /\{k: 'sides', label: 'Sides \(from street\)'\}/.test(admin),
+        'a bare "Left" on a printed sheet names no viewpoint at all');
 
       const full = sb.n({ specificOutletNotes: 'lower outlet by door',
                           oneTimeNote: 'ring the bell', notes: 'dog in the back' }, {});
@@ -25264,8 +25329,12 @@ suite('Suite 104. The Printing tab');
       /* ⚠ LIFTED, NOT STUBBED (2026-08-21). printCrewDayList now fills Gate, Sides
          and a folded Notes, and a stub of those is a stub of the fix that put the
          gate code on paper at all. houseSideCount comes with them because
-         printSideCount reads it. */
-      extractFn(admin, 'printGateCode') + extractFn(admin, 'printSideCount') +
+         printSidesCell reads it, and houseSidesListFromValue with its stored-name
+         constant because printSidesCell prints nothing it has not sanitized
+         ([[OPT-09]]). */
+      extractFn(admin, 'printGateCode') +
+      (admin.match(/const HOUSE_SIDE_NAMES = \[[^\]]*\];/) || [''])[0] +
+      extractFn(admin, 'houseSidesListFromValue') + extractFn(admin, 'printSidesCell') +
       extractFn(admin, 'printCrewNotes') +
       /* ⚠ AND THE BIN COUNT, ALL THE WAY DOWN TO cnBinsForFeet OUT OF js/money.js.
          A stubbed whBinsForHouse would prove the column renders and nothing about
@@ -25302,7 +25371,11 @@ suite('Suite 104. The Printing tab');
       useEaves: true, outletTimer: 'Yes', notes: 'gate 4321'}},
     {crew: 0, id: 'h2', cust: {customerNumber: '12', name: 'B', street: '2 St'}},
     {crew: 1, id: 'h3', cust: {customerNumber: '21', name: 'C', street: '3 St', outletTimer: 'Yes',
-      gateCode: '4412', houseSides: 3, measuredFeet: 400,
+      /* ⚠ AND WHICH THREE ([[OPT-09]]). Without a list on the fixture the cell falls
+         back to the number and the check below passes on the old behaviour — the
+         vacuous-fixture trap this repo keeps re-learning. */
+      gateCode: '4412', houseSides: 3, houseSidesList: ['Front', 'Left', 'Back'],
+      measuredFeet: 400,
       specificOutletNotes: 'lower outlet by door',
       oneTimeNote: 'ring the bell', notes: 'dog in the back'}},
     /* ⚠ THE BIN THAT WEARS THE OLD NUMBER. This customer moved from #894 to the
@@ -25386,9 +25459,15 @@ suite('Suite 104. The Printing tab');
   check('S104', 'the Gate column is actually filled in, not just present',
     /<th>Gate<\/th>/.test(crewBody) && /<td>4412<\/td>/.test(crewBody),
     'a Gate header with nothing under it is the crew still stuck at the gate');
-  check('S104', 'the Sides column is actually filled in',
-    /<th>Sides<\/th>/.test(crewBody) && /<td>3<\/td>/.test(crewBody),
-    'got a Sides header with nothing under it');
+  /* ⭐ THE NAMES, ON THE PAPER ([[OPT-09]]). The header used to read Sides and the cell
+     under it a bare 3 — the crew at the kerb with a number and three ways to be wrong.
+     Both halves are asserted: the heading names the viewpoint, because left and right
+     read from the door are the mirror image of left and right read from the street, and
+     the cell carries what the customer said. */
+  check('S104', 'the Sides column is filled in with the sides they named',
+    /<th>Sides \(from street\)<\/th>/.test(crewBody) &&
+    /<td>Front, Left, Back<\/td>/.test(crewBody),
+    'got a Sides header with a bare count under it, or none at all');
   /* ⚠ SAME TRAP AGAIN: a header with nothing under it. The fixture's house is 300 ft,
      which is over CN_DOUBLE_BIN_FEET, so the honest answer is 2 — and a van loaded off
      a blank column leaves with half the lights. */
