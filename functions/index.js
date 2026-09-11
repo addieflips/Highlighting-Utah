@@ -1318,15 +1318,50 @@ function referralShareBoxHtmlServer(friendUrl, shareUrl){
     + '<a href="' + share + '" style="' + SHARE_ICON_BUTTON_STYLE_SERVER + '" title="Share">\u2191</a>'
     + '</td></tr></table>';
 }
+/* ⚠ A TOKEN THAT WAS NOT SAVED MUST NOT GO OUT IN AN EMAIL (2026-09-11).
+
+   This used to swallow the write failure and return the freshly minted token anyway, under
+   the comment "worst case they get a fresh one next visit". That is not the worst case and
+   there is no next visit. The token is the whole of the link in the email — findByToken
+   looks for exactly this string in jobAddresses — so a token that never reached Firestore
+   is a link that can NEVER work, for as long as that email sits in their inbox. The
+   customer taps Yes, gets "we couldn't find your account", and their answer is lost.
+
+   ⚠ AND IT WAS INVISIBLE BY CONSTRUCTION. The catch logged nothing at all, so the one
+   failure that silently poisons an outgoing email left no trace anywhere to find it by.
+   That is why the logging below is an error and not a warning.
+
+   ⚠ THE RE-READ IS NOT BELT AND BRACES. The commonest reason this write loses is a race:
+   the nightly batch and a portalLookup can both reach a token-less record within a second
+   of each other, and the loser of that race must send the WINNER's token, not its own. A
+   re-read answers that exactly, and it is also the only way to tell a genuinely failed
+   write from one that landed under a different value.
+
+   ⚠ EMPTY IS A REAL ANSWER AND EVERY CALLER ALREADY HANDLES IT. All three spell their
+   link `(token ? ('?token=' + token) : '')`, so nothing here throws into the middle of the
+   nightly invoice run or the RSVP batch — the customer gets an email whose button lands on
+   the ordinary sign-in page instead of one that lands on an apology. A link that asks them
+   to sign in is a worse email; a link that cannot work is a lost customer answer. */
 async function ensureToken(id, data) {
   if (data.portalToken) return data.portalToken;
   const token = generatePortalToken();
   try {
     await db.collection('jobAddresses').doc(id).update({ portalToken: token });
+    return token;
   } catch (err) {
-    // Use the token anyway — worst case they get a fresh one next visit.
+    console.error('[HU] could not save a portal token for ' + id, err);
   }
-  return token;
+  /* Somebody else may have minted one in the meantime — theirs is the one that is stored,
+     so theirs is the one the email has to carry. */
+  try {
+    const fresh = await db.collection('jobAddresses').doc(id).get();
+    const saved = fresh.exists ? (fresh.data() || {}).portalToken : '';
+    if (saved) return String(saved);
+  } catch (err) {
+    console.error('[HU] could not re-read the portal token for ' + id, err);
+  }
+  console.error('[HU] sending ' + id + ' a link with NO token rather than one that cannot work');
+  return '';
 }
 
 /* --- Who a bill is actually for -------------------------------------------
