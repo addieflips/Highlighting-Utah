@@ -2708,6 +2708,58 @@ it is computed from a constant.
 *Where it is proved*: run-all.js **Suite 314**. 6 sabotages red-checked.
 *Rulings*: [[SCH-70]] in `claude/questions-map.md`.
 
+### What the strip shows when there is no forecast
+
+Added 2026-09-10. Dax, looking at a day in October on the tenth of September: *"I dont
+see the forecast down here"* — with the strip correctly reading *"No forecast this far
+ahead — it reaches to Sep 25."*
+
+⛔ **[[SCH-70]] was right and still left him with nothing.** Teaching the blank strip to
+explain itself was the correct answer to "is it broken or just early", and by the time
+he read it he had stopped asking that. The season opens three weeks out and the free
+service reaches sixteen days — so for **most of the season there is no forecast at
+all**, and a strip that only ever shows forecasts is blank for most of the season no
+matter how well it explains itself.
+
+So past the horizon it shows what the weather usually does, from ten years of recorded
+highs out of the same service’s archive:
+
+| date | Lehi | Herriman |
+|---|---|---|
+| 1 Oct | ~71° | ~69° |
+| 10 Nov | ~53° | ~52° |
+| 15 Dec | ~39° | ~39° |
+
+⛔ **A typical high is not a forecast, and the whole design turns on that.** It never
+reaches `forecastHighFor`, `forecastIsCold` or the warmth band, so it cannot veto a
+town, move a house, or count towards the cold-day tally. This repo has said since
+`COLD_DAY_MAX_F` that *"no forecast is not a cold forecast"*; letting a ten-year average
+refuse somebody a date would be that same mistake in a new costume — and it would do it
+**quietly**, because every screen would still look right.
+
+It is drawn so the two cannot be mistaken for each other: a tilde on the number, a
+dotted outline, **no snowflake even at freezing**, and one footnote per strip saying
+*"typical for the time of year, not a forecast"*.
+
+⚠ **The curve is smoothed, and that is not a detail.** Measured at Lehi over ten years:
+a single date averaged across all ten still swings **28°** between its warmest and
+coldest year, and 15 November reads 56° raw against a seasonal trend of 50° — six
+degrees of one warm autumn. A fortnight either side gives 150 samples a date, and
+dropping half the years then moves the curve by at most **3.3°**. The smoothed number is
+a season; the raw one is noise wearing a decimal point.
+
+⚠ **Fetched once a day, and only for the panel.** Ten years of past weather does not
+change between elevenses and lunch, and making Recalculate everything wait on ten
+requests for numbers that change nothing about the plan would be pure delay in front of
+the office. The forecast belongs in that gate; this does not.
+
+*Where it is proved*: run-all.js **Suites 326 and 314**. 13 sabotages red-checked — and
+the first pass caught only 11. Taking the tilde off the chip went green because the
+footnote carries one of its own, and widening the window to 400 days went green because
+the suite was reading the constant with a regex that never matched and silently grading
+against a hard-coded 7.
+*Rulings*: [[SCH-72]] in `claude/questions-map.md`.
+
 ### Why a route went far out at stop 11 and came back beside stop 2
 
 Added 2026-09-10. Dax, reading a crew route off the map: *"1 2 3 4 5 6 7 can make
