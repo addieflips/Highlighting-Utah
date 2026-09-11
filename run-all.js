@@ -49582,7 +49582,13 @@ suite('286. A record stops claiming a day it no longer has');
        many round trips it takes, 286 asks WHO gets cleared and who must not.
        ⚠ AND THE ROUTES ARE SWEPT ONCE FOR EVERYBODY, so the route stub takes a LIST.
        Pushing each id keeps the per-customer checks below reading exactly as they did. */
-    const mk = (book) => {
+    /* ⚠ THE ROUTES CACHE IS A PARAMETER SINCE [[SCH-74]], and it DEFAULTS TO NOT-LOADED
+       on purpose. scheduledDayIsReal answers null until the first snapshot lands, so every
+       fixture written before the orphan rule existed behaves exactly as it did — a default
+       of "loaded, and empty" would make all five of them orphans and the suite would be
+       asserting the new rule everywhere by accident. A fixture that wants the orphan branch
+       has to ASK for it, the same way seasonRuleLiveSrc makes strictness opt-in. */
+    const mk = (book, routes) => {
       const writes = [], routeCalls = [], commits = [];
       const batchStub = () => {
         const ops = [];
@@ -49594,13 +49600,17 @@ suite('286. A record stops claiming a day it no longer has');
         };
       };
       const fn = new Function('updateDoc', 'doc', 'db', 'removeCustomersFromUpcomingRoutes',
-        'writeBatch', 'jobAddresses', 'console',
+        'writeBatch', 'jobAddresses', 'console', 'scheduledRoutesLoaded', 'scheduledRoutesCache',
         'let clearStaleBookingsInFlight = null;' + NL286 +
         seasonRuleLiveSrc() +
         'function audienceNeverAsked(d){ return d && d.chargeNewMemberFee === true; }' + NL286 +
         'function houseOwesFromLastSeason(){ return false; }' + NL286 +
         extractFn(admin, 'isOutForSeason') + NL286 +
         extractFn(admin, 'freeUpFieldForType') + NL286 +
+        /* ⚠ LIFTED, NEVER STUBBED. "Is this day real" is the rule that decides whether a
+           booking is cancelled; a stub here would keep this suite green through a change
+           to who keeps their crew, which is the one thing it exists to protect. */
+        extractFn(admin, 'scheduledDayIsReal') + NL286 +
         sweepLift('clearStaleInstallBookingsRun') + NL286 +
         sweepSrc + NL286 + 'return clearStaleInstallBookings;');
       const run = fn(
@@ -49608,7 +49618,8 @@ suite('286. A record stops claiming a day it no longer has');
         (d, col, id) => ({ col: col, id: id }), {},
         async (ids) => { (ids || []).forEach(id => routeCalls.push(id)); return {removed: (ids||[]).length, routes: 1}; },
         batchStub,
-        book, { error: function(){} });
+        book, { error: function(){} },
+        !!(routes && routes.loaded), (routes && routes.byDate) || {});
       return { writes, routeCalls, commits, go: () => run() };
     };
     const replied = { rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' };
@@ -49669,6 +49680,54 @@ suite('286. A record stops claiming a day it no longer has');
       }
     }));
 
+    /* ---- A DAY NO CREW ROUTE HOLDS THEM ON ([[SCH-74]], 2026-09-11) --------
+       Addie, told the red pill only NAMED the problem: "I can't check every day to look
+       at which date everyone was assigned and if it's legitamite or not I need it to
+       correctly place them." So the stamp is cleared and the next sweep re-homes them.
+       ⚠ RUN, NOT MATCHED. The whole claim is which of three answers reaches a WRITE, and
+       the dangerous one is the middle answer: null must never clear anything, because at
+       that moment every booked customer in the book looks orphaned. */
+    {
+      const inSeason = { rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' };
+      const onOct20 = { scheduled: true, scheduledDate: '2026-10-20', assignedCrew: 'Crew 1' };
+      const orphanBook = () => ([
+        { id: 'orphan', data: Object.assign({ name: 'Darlene Price' }, inSeason, onOct20) },
+        { id: 'driven', data: Object.assign({ name: 'Really on a route' }, inSeason, onOct20) }
+      ]);
+      /* ⚠ THE FIXTURE HAS TO HOLD ONE OF EACH ON THE SAME DATE. A book where the only
+         booked house is the orphan passes whether the rule reads the stops or merely
+         asks whether the DATE has any route on it at all — which is a different and
+         much weaker rule, and the one a tired refactor would leave behind. */
+      const routes = { loaded: true, byDate: { '2026-10-20': [
+        { id: 'r1', stops: [{ id: 'driven' }, { id: 'somebody-else' }] }
+      ] } };
+
+      const o = mk(orphanBook(), routes);
+      pendingAsync.push(o.go().then(function(n){
+        const w = o.writes.find(x => x.id === 'orphan');
+        check('S286', 'a day no crew route holds them on is cleared, not merely reported',
+          n === 1 && !!w && w.payload.scheduled === false && w.payload.scheduledDate === null,
+          'wrote ' + JSON.stringify(o.writes) + ' — [[SCH-73]] named this on the row and ' +
+          'left it there, and a report on one row out of ~950 is HC-03 all over again');
+        check('S286', 'and somebody a crew really is driving to keeps their day',
+          !o.writes.some(x => x.id === 'driven'),
+          'cancelling a real booking is the far worse mistake of the two, and it is the ' +
+          'one a rule that only checked the DATE would make on every shared day');
+      }));
+
+      /* ⛔ THE GUARD THAT MATTERS MOST. scheduledRoutesLoaded is set after the FIRST
+         snapshot, so before it every stamped customer reads as orphaned — a version
+         testing `!== true` rather than `=== false` would cancel the entire season's
+         bookings in one press of Recalculate everything. */
+      const loading = mk(orphanBook(), { loaded: false, byDate: {} });
+      pendingAsync.push(loading.go().then(function(n){
+        check('S286', 'and while the routes are still loading it cancels nobody',
+          n === 0 && loading.writes.length === 0,
+          'wrote ' + JSON.stringify(loading.writes) + ' — "cannot tell yet" reaching a ' +
+          'write is ~950 real bookings cancelled by a page that had not finished opening');
+      }));
+    }
+
     /* ⚠ AND AN UNLOADED BOOK MEANS NOTHING IS ASSUMED, the same guard the rebuild
        itself carries: jobAddresses is empty for a moment after login. */
     const empty = mk([]);
@@ -49679,6 +49738,65 @@ suite('286. A record stops claiming a day it no longer has');
     }));
   }
 }
+
+/* ⭐ THE SWEEP PLANS BY THE WEATHER TOO ([[SCH-74]], 2026-09-11). Addie: "we still need
+   to dictate the schedule by the weather. If an area is snowed in or a house is covered
+   in frost/ice we cannot do it."
+   ⛔ IT WAS THE ONE PLANNER WITH NO WEATHER IN IT. rebuildSeasonDays has passed the cold
+   veto, the chilly preference and the warmth band since the rule was built; this call
+   passed maxDays alone, so planNewCrewDays used its own "no opinion" default and the veto
+   could never fire — and the days THIS builds are what stamp scheduledDate on a customer,
+   so they are the dates the office reads off a row.
+   ⚠ CHECKED AS A PAIR, not as a list of words: the claim is that the two planners are
+   handed the same rules, so the check reads what each call site passes and compares. A
+   check naming the four options would pass while one side quietly used a different
+   constant, which is the money-parity shape applied to the weather. */
+check('S286', 'the background sweep is handed the same weather rules as the season builder',
+  (function(){
+    const src = admin.replace(/\/\*[\s\S]*?\*\//g, '');
+    /* ⚠ READ TO THE CALL'S OWN CLOSING BRACKET, never a character count. §7 bans a
+       fixed window by name and the structure gate enforces it — a 900-character window
+       here would be right today and would start failing on correct code the first time
+       somebody added a fifth option. This walks the parentheses instead. */
+    const callArgs = function(near){
+      const i = src.indexOf(near);
+      if(i === -1) return '';
+      /* ⚠ START ON THE CALL'S OWN BRACKET, not after it. Starting past it made the
+         first NESTED close — `coldBelow:(typeof ... ? ... : 31)` — read as the end of
+         the call, so the last two options were cut off and the check failed on code
+         that was right. The §7 slow fuse in a paren walk rather than a character count. */
+      let depth = 0;
+      for(let j = i + near.indexOf('('); j < src.length; j++){
+        const ch = src[j];
+        if(ch === '(') depth++;
+        else if(ch === ')'){ depth--; if(depth <= 0) return src.slice(i, j + 1); }
+      }
+      return '';
+    };
+    const opt = function(near, name){
+      const m = new RegExp(name + '\\s*:\\s*([^,}]+)').exec(callArgs(near));
+      return m ? m[1].replace(/\s+/g, '') : null;
+    };
+    /* ⚠ ANCHORED ON THE OPENING BRACE OF THE OPTIONS, because `planNewCrewDays(waiting,
+       taken,` ALSO matches the function's own DECLARATION — which sits earlier in the
+       file, so indexOf found that and the check failed on correct code, reporting an
+       argument list reading `(waiting, taken, opts)`. rsvp-daily-send.test.js was caught
+       by the identical shape; a declaration is not a call site. */
+    const SWEEP = 'planNewCrewDays(waiting, taken, {';
+    const SEASON = 'planNewCrewDays(placeable,';
+    /* tempFor is compared only for PRESENCE: each side names its own local (tempFor
+       against sweepTempFor) and both are assigned from forecastHighFor a line above. The
+       three CONSTANTS are compared for equality, which is the money-parity shape — two
+       planners reading different cutoffs would send crews out on different days and
+       nothing would go red. */
+    if(!opt(SWEEP, 'tempFor') || !opt(SEASON, 'tempFor')) return false;
+    return ['coldBelow', 'chillyBelow', 'warmBand'].every(function(k){
+      const a = opt(SWEEP, k), b = opt(SEASON, k);
+      return !!a && a === b;
+    });
+  })(),
+  'the sweep builds crew-days AND stamps the date on the customer, so a planner here ' +
+  'with no cold rule sends a crew to a town at 20 degrees and writes that date on a row');
 
 suite('287. The routine route sweep does not bury the notice that matters');
 {

@@ -5141,9 +5141,25 @@ reconcile sweep's stranded pass only re-homes a date already in the PAST. Step 1
 sweep walks **routes** and corrects the records on them, so a customer on no route is never
 looked at.
 
-⛔ **IT REPORTS, IT NEVER REPAIRS.** Clearing the stamp from a render would be a write made
-on a derived judgement, and the one time it is wrong it cancels a real booking. Naming it
-is what sends the office to **⚙ Recalculate everything**, which is the thing that fixes it.
+⛔ **THE PILL REPORTS; THE REPAIR HAPPENS ON RECALCULATE EVERYTHING** (2026-09-11, [[SCH-74]]).
+Addie: *"I can't check every day to look at which date everyone was assigned and if it's
+legitamite or not I need it to correctly place them."* She is right — a warning on one row
+out of ~950 is a report. `clearStaleInstallBookingsRun` now clears an orphaned stamp as well
+as an out-for-the-season one, so the next sweep re-homes them and the date comes right on its
+own. The pill stays as the thing that says so on screen; it still never writes.
+
+⭐ **AND THE CAUSE IS THAT THERE ARE TWO PLANNERS.** The **Schedule** tab builds
+`routeSchedule` — the day list, Recalculate everything, both crew print sheets, the Printing
+tab. The **reconcile sweep** builds its own crew-days in `scheduledRoutes` every fifteen
+minutes, and that is what stamps `scheduled` / `scheduledDate` / `assignedCrew` on the
+customer. The row was reporting the planner the office does not look at.
+
+⭐ **THE SWEEP NOW PLANS BY THE WEATHER TOO.** `rebuildSeasonDays` has always passed the cold
+veto, the chilly preference and the warmth band; the sweep passed `maxDays` alone, so its
+forecast lookup defaulted to "no opinion" and the cold rule **could never fire there** — it
+would send a crew to a town at 20° and write that date onto a row. Both now pass the same
+four options. ⚠ It is still a TEMPERATURE rule only: 38° and snowing passes it, and frost on
+one roof is a morning call no forecast can make.
 ⚠ And it answers **three** ways, not two: until `scheduledRoutesLoaded` is set every stamped
 customer looks orphaned, so before that it says "cannot tell" and the pill is exactly what
 it was before.
