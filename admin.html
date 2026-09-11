@@ -6307,6 +6307,38 @@ function detachAllListeners(){
   }
   return n;
 }
+/* ⭐ AND A TIMER MUST NOT OUTLIVE THE SESSION (2026-09-11, from the Errors folder).
+   detachAllListeners above stops every snapshot listener, and the guard inside onSnapshot
+   forgives the denial that races it — but NEITHER of them reaches a setInterval. The four
+   long-lived timers went on ticking after a sign-out and after a token expiry alike, and
+   every tick is a one-shot getDoc/getDocs that Firestore then refuses.
+
+   ⚠ THAT IS WHAT "Signed in as: nobody" IN THE ERRORS FOLDER IS. Two arrived within a
+   minute of each other on 2026-09-10 — "[HU] activity log read failed" and "[HU] could not
+   read nightly billing health", both Missing or insufficient permissions, both with nobody
+   signed in. Neither names a fault in the thing it was reading: they are the ten-minute
+   beat running against a session that had already ended. A folder that fills up with
+   denials nobody can act on is the folder she stops reading, which is the whole argument
+   behind every cap and dedupe in error-inbox.test.js.
+
+   ⚠ A GUARD, NOT A clearInterval, AND THE REASON IS `initialized`. That flag is set once
+   inside initData and is never put back, so signing in again without a reload does not
+   re-run it — a cleared timer would stay cleared for the rest of the session, and the
+   restart guards (`if(hcAutoTimer) return;`) would hold it there. A tick that returns on
+   its first line costs nothing and starts working again the moment HU_SIGNED_OUT goes back
+   to false, which is the one thing signing in DOES do (see onAuthStateChanged).
+
+   ⚠ AND IT WRAPS THE CALLBACK, NEVER setInterval ITSELF. connections.test.js finds a
+   long-lived timer by the variable it is assigned to (`x = setInterval(`) and refuses an
+   anonymous one outright; a helper that took the interval over and handed back the id
+   would make all four invisible to the page whose whole job is saying what runs by
+   itself. */
+function whileSignedIn(fn){
+  return function(){
+    if(HU_SIGNED_OUT) return;
+    return fn.apply(this, arguments);
+  };
+}
 /* Stop a slow write tool being started twice.
  *
  * Add Customer, both bulk pasters and the payment import each await a long
@@ -10808,7 +10840,7 @@ document.getElementById('sendBulkUpdateEmailBtn')?.addEventListener('click', asy
     }
   }
   statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.' + sendStoppedNote(rateStop);
-  reportEmailSendFailures(failed, sent);
+  reportEmailSendFailures(failed, sent, failedRecipients);
   /* ⭐ SAVED SO THE CARD CAN NAME THEM (EM-09). `resend: false` because this send's
      body comes from a box on this tab rather than a saved template, so there is
      nothing for the Send-again button to re-render — they are listed to be SEEN and
@@ -10932,7 +10964,7 @@ document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async fun
     }
   }
   statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.' + sendStoppedNote(rateStop);
-  reportEmailSendFailures(failed, sent);
+  reportEmailSendFailures(failed, sent, failedRecipients);
   /* ⭐ SAVED SO THE CARD CAN NAME THEM (EM-09). `resend: false` because this send's
      body comes from a box on this tab rather than a saved template, so there is
      nothing for the Send-again button to re-render — they are listed to be SEEN and
@@ -11147,7 +11179,7 @@ document.getElementById('pibSendUnpaidBtn')?.addEventListener('click', async fun
     }
   }
   statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.' + sendStoppedNote(rateStop);
-  reportEmailSendFailures(failed, sent);
+  reportEmailSendFailures(failed, sent, failedRecipients);
   /* ⭐ SAVED SO THE CARD CAN NAME THEM (EM-09). `resend: false` because this send's
      body comes from a box on this tab rather than a saved template, so there is
      nothing for the Send-again button to re-render — they are listed to be SEEN and
@@ -11234,7 +11266,7 @@ document.getElementById('pibSendPaidBtn')?.addEventListener('click', async funct
     }
   }
   statusEl.textContent = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.' + sendStoppedNote(rateStop);
-  reportEmailSendFailures(failed, sent);
+  reportEmailSendFailures(failed, sent, failedRecipients);
   /* ⭐ SAVED SO THE CARD CAN NAME THEM (EM-09). `resend: false` because this send's
      body comes from a box on this tab rather than a saved template, so there is
      nothing for the Send-again button to re-render — they are listed to be SEEN and
@@ -11389,7 +11421,7 @@ function initData(){
      invisible to the list that exists to say what runs by itself. Naming it is what makes
      it findable; `connections.test.js` now refuses an anonymous long-lived timer for
      exactly this reason. */
-  nightlyHealthTimer = setInterval(function(){ loadNightlyHealth().catch(function(){ /* quiet on purpose: see above — the next tick re-reads it. */ }); }, 10 * 60 * 1000);
+  nightlyHealthTimer = setInterval(whileSignedIn(function(){ loadNightlyHealth().catch(function(){ /* quiet on purpose: see above — the next tick re-reads it. */ }); }), 10 * 60 * 1000);
   /* ⚠ EAGER, WITH THE OTHER BADGE LOADERS. The Health badge counts findings and a
      denied one must not be in that count, so the answers have to be in hand before the
      first render — a badge that is only right once you open the panel is not a badge.
@@ -19484,7 +19516,7 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
       }
     }
   }
-  reportEmailSendFailures(failed, sent);
+  reportEmailSendFailures(failed, sent, failedRecipients);
   return { sent: sent, failed: failed, optedOut: optedOut,
            noReferral: noReferral, noReferralNames: noReferralNames,
            failedRecipients: failedRecipients, rateLimitedUntil: rateLimitedUntil };
@@ -20906,15 +20938,43 @@ let lastEmailSendError = null;
    and put them on a status line — but the REASON was thrown away in the catch, and the
    line itself is gone the moment she clicks anything else. Nobody was ever told which
    customers had not heard from us, or why. */
-function reportEmailSendFailures(failed, sent){
+/* ⭐ AND IT NAMES THEM (2026-09-11, from the Errors folder). On 2026-09-10 this raised
+   "Emails did not send: 1 of 258 failed — The recipients address is corrupted", and there
+   was no way to tell from the row WHICH of the 258 never heard from us. One customer out
+   of a send that size is the worst possible shape: too small to notice, and under
+   confirmed-only a customer who was never asked is a customer nobody is sent to.
+   ⚠ THE ANSWER WAS ALREADY BEING COLLECTED. Every one of the five senders already builds
+   `failedRecipients` and hands it to saveEmailSendFailures (EM-09), which draws the
+   "Some emails did not go out" card with a Send again button on it. Only this report
+   never got the list — so the fix is to pass what is already in hand, not to gather it.
+   ⚠ AND IT POINTED AT THE WRONG SCREEN. "Email Setup" is where the keys live, which is
+   right for a broken account and useless for a bad address on one record; the card that
+   names the person and can resend to them alone is the place to send her.
+   ⚠ FIVE NAMES, THEN A COUNT. A send that fails wholesale would otherwise put hundreds of
+   addresses into a row that firestore.rules caps at 5,000 characters on create — and a
+   refused write is how this reporter goes silent, which §5 records as reading like an
+   auth fault for weeks. The card holds the full list either way. */
+function reportEmailSendFailures(failed, sent, people){
   const err = lastEmailSendError;
   lastEmailSendError = null;
   if(!failed) return;
   const why = (err && (err.text || err.message || err.status)) || 'no reason was given';
+  const list = (people || []).filter(Boolean);
+  const named = list.slice(0, 5).map(function(r){
+    const who = (r && r.name) || '(no name on the record)';
+    return r && r.email ? (who + ' — ' + r.email) : who;
+  });
+  const whoFailed = named.length
+    ? (String.fromCharCode(10,10) + 'Who did not get it:' + String.fromCharCode(10) +
+       named.join(String.fromCharCode(10)) +
+       (list.length > named.length ? String.fromCharCode(10) + '…and ' + (list.length - named.length) + ' more.' : ''))
+    : '';
   reportAdminError('Emails did not send: ' + failed + ' of ' + (Number(failed) + Number(sent || 0)) +
-    ' failed. The email service said: ' + String(why).slice(0, 300) + String.fromCharCode(10,10) +
-    'Those customers have NOT been emailed and do not know anything is wrong. Check ' +
-    'Automation Emails → Email Setup, then send to them again.');
+    ' failed. The email service said: ' + String(why).slice(0, 300) + whoFailed +
+    String.fromCharCode(10,10) +
+    'Those customers have NOT been emailed and do not know anything is wrong. Open ' +
+    'Automation Emails — the “Some emails did not go out” card at the top names every one ' +
+    'of them, and “Send again to the ones it missed” reaches only those people.');
 }
 function loadMessageFolders(){
   onSnapshot(collection(db,'messageFolders'), async function(snap){
@@ -22720,6 +22780,35 @@ async function noticeArrearsPaidNotApproved(){
          again — the same optimistic mirror the rest of admin uses. */
       d.arrearsPaidNoticeAt = new Date();
     }catch(err){
+      /* ⭐ already-exists MEANS THE NOTE IS ALREADY THERE (2026-09-11, from the Errors
+         folder). On 2026-09-09 this raised "could not raise the paid-but-not-approved note
+         for Suzette Robins — Document already exists: …/messages/0HcE7pW1ZaAuPdaNi5iQ".
+         addDoc mints its own random id, so that is not a collision: it is the SDK
+         retrying a write whose acknowledgement was lost — the long-poll reconnection
+         noise §7 already names — after the first attempt had landed.
+         ⚠ SO THE NOTE WAS RAISED AND THE STAMP WAS NOT. The throw skipped the updateDoc
+         below it, the session marker was cleared here, and the next sweep raised the
+         whole thing again — a fresh id every time, so it would succeed and she would get
+         a duplicate note about the same customer for as long as they stayed unanswered.
+         Crying wolf on a row whose only job is to prompt one phone call is how the row
+         stops being read, which is the argument this file makes in four other places.
+         ⚠ THE STAMP STILL GETS ITS OWN FAILURE PATH, and the ORDER of the two is
+         unchanged and deliberate: a raised note with no stamp costs a duplicate, which is
+         visible; a stamp with no note costs the phone call, which is not. If the stamp
+         cannot be written we go back to retrying, exactly as before. */
+      const noteLanded = !!err && (err.code === 'already-exists' ||
+        /already exists/i.test(String((err && err.message) || '')));
+      if(noteLanded){
+        try{
+          await updateDoc(doc(db,'jobAddresses', item.id), {arrearsPaidNoticeAt: serverTimestamp()});
+          d.arrearsPaidNoticeAt = new Date();
+          continue;
+        }catch(stampErr){
+          /* Fall through to the retry below — the note is there, but nothing records
+             that, so raising it again is the safe half of the trade above. */
+          err = stampErr;
+        }
+      }
       /* ⚠ RETRIED, NOT SWALLOWED. Addie, 2026-08-25: "nothing should fail quietly." A
          note that was never raised is invisible, and this one is the only prompt to make
          a phone call that is now the last thing between them and their lights. */
@@ -57210,15 +57299,15 @@ function runReconcileAuto(){
        watching this happen and a season that takes an hour to appear looks
        broken. It settles back to the ordinary beat as soon as a pass has
        nothing left to do. */
-    if(report.moreToDo) setTimeout(runReconcileAuto, 20000);
+    if(report.moreToDo) setTimeout(whileSignedIn(runReconcileAuto), 20000);
   }).catch(function(err){
     console.error('[HU] route reconcile failed', err);
   }).then(function(){ reconcileRunning = false; });
 }
 function startReconcileAuto(){
   if(reconcileTimer) return;
-  setTimeout(runReconcileAuto, 20000);
-  reconcileTimer = setInterval(runReconcileAuto, RECONCILE_INTERVAL_MS);
+  setTimeout(whileSignedIn(runReconcileAuto), 20000);
+  reconcileTimer = setInterval(whileSignedIn(runReconcileAuto), RECONCILE_INTERVAL_MS);
 }
 /* ⭐ AND WHEN THEY WERE PUT ON A CREW'S SHEET (added 2026-08-28). `scheduledDate` is the
    day they are booked FOR; nothing said when the booking was MADE. That is the gap
@@ -62314,8 +62403,8 @@ function startHealthCheckAuto(){
   /* A few seconds after login, then every ten minutes. The first attempt waits
      for the listeners; if the data is not in yet it simply tries again on the
      interval rather than reporting on nothing. */
-  setTimeout(runHealthCheckAuto, 6000);
-  hcAutoTimer = setInterval(runHealthCheckAuto, HC_AUTO_INTERVAL_MS);
+  setTimeout(whileSignedIn(runHealthCheckAuto), 6000);
+  hcAutoTimer = setInterval(whileSignedIn(runHealthCheckAuto), HC_AUTO_INTERVAL_MS);
 }
 (function(){
   const btn = document.getElementById('runHealthCheckBtn');
@@ -69616,14 +69705,14 @@ function exportCSV(){
      while the plan is loaded, which means only after somebody opened the tab. */
   function __startSyncTimer(){
     if(__syncTimer) return;
-    __syncTimer=setInterval(function(){
+    __syncTimer=setInterval(whileSignedIn(function(){
       try{ window.scheduleSyncFromCustomers({quiet:false}); }
       catch(e){ /* The timer must survive a bad tick — killing it would stop the plan
                    following the customers for the rest of the session, silently. But it
                    is SAID: a sync that throws every five minutes is a real fault, and
                    swallowing it whole is how the schedule drifts with nobody knowing. */
         console.error('[HU] periodic schedule sync failed', e); }
-    }, 5*60*1000);
+    }), 5*60*1000);
   }
   /* The New Members panel was the only thing this redrew, and that tab is gone. The
      stats count refreshes with the next render, and the five-minute customer sync

@@ -3589,6 +3589,60 @@ because the folder earning its keep within two days is the argument for it.
   so `isOutForSeason` drops them. **The rows are the only record that they answered at
   all**, which is the whole reason this folder exists.
 
+#### And what the second read found (2026-09-11)
+
+- ⭐ **Three of the four admin rows were one bug: a timer ticking after sign-out.**
+  `detachAllListeners` stops every snapshot listener, and the guard inside `onSnapshot`
+  forgives the permission denial that races it — but **neither of them reaches a
+  `setInterval`**. All four of admin's long-lived timers went on running after a sign-out
+  and after a token expiry alike, and each tick is a one-shot `getDoc`/`getDocs` that
+  Firestore then refuses.
+  - That is what a row reading **"Signed in as: nobody"** is. Two arrived within a minute
+    of each other — *"[HU] activity log read failed"* and *"[HU] could not read nightly
+    billing health"* — and neither names a fault in the thing it was reading.
+  - ⭐ Every timer callback now goes through **`whileSignedIn`**, which returns on its
+    first line while `HU_SIGNED_OUT` is set. ⚠ **A guard, not a `clearInterval`, and the
+    reason is `initialized`** — that flag is set once inside `initData` and never put back,
+    so signing in again without a reload does not re-run it. A cleared timer would stay
+    cleared for the rest of the session and the restart guards (`if(hcAutoTimer) return;`)
+    would hold it there. A tick that returns immediately costs nothing and starts working
+    again the moment `HU_SIGNED_OUT` goes back to false.
+  - ⚠ **It wraps the callback, never `setInterval` itself.** `connections.test.js` finds a
+    long-lived timer by the variable it is assigned to and refuses an anonymous one, so a
+    helper that took the interval over would make all four invisible to the page whose job
+    is saying what runs by itself. That suite now sweeps the guard off the same inventory,
+    so a timer added later cannot have the name without the guard.
+  - ⚠ **And the two timer sweeps now strip comments first.** The explanatory comment on
+    the new guard quotes `x = setInterval(` as the shape the sweep looks for, and the sweep
+    read its own explanation as a sixth timer called `x`. Suites 58, 274, 275 and 300 each
+    learned this from the other direction.
+- ⭐ **"1 of 258 failed" now says which one.** The row carried the mail service's reason
+  (*"The recipients address is corrupted"*) and no name, so there was no way to tell which
+  of the 258 never heard from us — and under `confirmed-only` a customer who was never
+  asked is a house no crew is sent to.
+  - ⚠ **The answer was already being collected.** All five bulk senders build
+    `failedRecipients` and hand it to `saveEmailSendFailures` ([[EM-01]]); only this report
+    never got the list. It names up to five and counts the rest — `messages` is capped at
+    5,000 characters on create, and a refused write is how this reporter goes silent.
+  - ⚠ **And it pointed at the wrong screen.** *Email Setup* is where the keys live, which is
+    right for a broken account and useless for one bad address on one record. It now points
+    at **⚠ Some emails did not go out**, the card that names them and can resend to only
+    those people.
+- ⭐ **The paid-but-not-approved note was raising itself twice.** *"could not raise the
+  paid-but-not-approved note for Suzette Robins — Document already exists:
+  …/messages/0HcE7pW1ZaAuPdaNi5iQ"*. `addDoc` mints its own random id, so that is not a
+  collision: it is the SDK retrying a write whose acknowledgement was lost — the long-poll
+  reconnection noise §7 already names — after the first attempt had landed.
+  - The throw then skipped the `arrearsPaidNoticeAt` stamp below it, so **the note existed
+    and nothing recorded that** — and the next sweep raised the whole thing again, with a
+    fresh id, for as long as the customer stayed unanswered. A duplicate note about one
+    customer on every sweep is how the row stops being read.
+  - ⚠ **The order of the two writes is unchanged and deliberate.** A raised note with no
+    stamp costs a duplicate, which is visible; a stamp with no note costs the phone call,
+    which is not. If the stamp cannot be written it goes back to retrying, exactly as
+    before. `arrears-hold.test.js` **runs** the sweep twice over a stub for this, because
+    the claim is about what a second pass does and a regex cannot see that.
+
 ### The Communication Centre — type, status, category, priority
 
 Added 2026-09-09 ([[MSG-11]]). Addie's blueprint: *"Do NOT simply create more folders.

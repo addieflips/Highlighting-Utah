@@ -6083,8 +6083,14 @@ suite('11. Reliability pass');
   check('reliability', 'the automatic run waits for the customer list to load',
     /function hcCachesReady/.test(admin) && /if\(!hcCachesReady\(\)\) return;/.test(admin),
     'running against an empty cache reports a serene "everything lines up" a second after login');
+  /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. The callback is now wrapped in
+     whileSignedIn so a tick after a sign-out does not fire a read Firestore will refuse
+     — see the Errors folder's "Signed in as: nobody" rows. This matched the bare name and
+     so failed on code that is right; the guarantee it holds has not moved, and the wrapper
+     is optional in the match so neither spelling can quietly drop the other. Same
+     slow-fuse shape as S82, S129 and the folder-names suite. */
   check('reliability', 'the automatic run repeats, not just once',
-    /setInterval\(runHealthCheckAuto/.test(admin),
+    /setInterval\((?:whileSignedIn\()?runHealthCheckAuto/.test(admin),
     'a check that runs once at login misses everything that happens during the day');
   check('reliability', 'a failing background check cannot break the page',
     /function runHealthCheckAuto\(\)\{[\s\S]{0,400}try\{[\s\S]{0,300}catch/.test(admin.replace(/\r/g,'')),
@@ -9705,8 +9711,15 @@ suite('17. A new customer lands on the next day in their city');
 }
 
 // ---- 18.4 How it is wired in -------------------------------------------
+  /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. The callback is now wrapped in
+   whileSignedIn so a tick after a sign-out does not fire a read Firestore will refuse
+   — see the Errors folder's "Signed in as: nobody" rows. This matched the bare name and
+   so failed on code that is right; the guarantee it holds has not moved, and the wrapper
+   is optional in the match so neither spelling can quietly drop the other. Same
+   slow-fuse shape as S82, S129 and the folder-names suite. */
 check('reconcile', 'the sweep starts itself, like the health check does',
-  /startReconcileAuto\(\);/.test(admin) && /setInterval\(runReconcileAuto, RECONCILE_INTERVAL_MS\)/.test(admin),
+  /startReconcileAuto\(\);/.test(admin) &&
+  /setInterval\((?:whileSignedIn\()?runReconcileAuto\)?, RECONCILE_INTERVAL_MS\)/.test(admin),
   'a reconciler nobody runs is a reconciler that does nothing');
 /* Read out of the FUNCTION, not out of a 600-character window after the call.
    The window version broke the moment runReconcileAuto grew a few lines, which
@@ -11540,8 +11553,14 @@ check('build', 'the flag is set inside the snapshot, so an empty result still co
     return i !== -1 && blk.indexOf('scheduledRoutesLoaded = true;') !== -1;
   })(),
   'setting it anywhere else means either never running, or running too early');
+  /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. The callback is now wrapped in
+   whileSignedIn so a tick after a sign-out does not fire a read Firestore will refuse
+   — see the Errors folder's "Signed in as: nobody" rows. This matched the bare name and
+   so failed on code that is right; the guarantee it holds has not moved, and the wrapper
+   is optional in the match so neither spelling can quietly drop the other. Same
+   slow-fuse shape as S82, S129 and the folder-names suite. */
 check('build', 'a bounded pass comes straight back rather than waiting the full interval',
-  /if\(report\.moreToDo\) setTimeout\(runReconcileAuto, \d+\);/.test(admin),
+  /if\(report\.moreToDo\) setTimeout\((?:whileSignedIn\()?runReconcileAuto\)?, \d+\);/.test(admin),
   'the first run of a season is deliberately bounded — leaving the rest for ' +
   'fifteen minutes makes a season take an hour to appear, which looks broken');
 check('build', 'the sweep actually builds the days it plans',
