@@ -46517,9 +46517,41 @@ suite('273. Inbox - the count is unread, and a message can be filed without a mo
   check('S273', 'messages can be filed by ticking rows and picking a folder',
     /id="msgMoveTo"/.test(admin) && /id="msgPickAll"/.test(admin) && /data-pickmsg=/.test(admin),
     'drag and right-click both need a mouse; on a tablet there was no way to move anything at all');
-  check('S273', 'Move to… offers Inbox as well as the folders',
-    /populateMoveToSelect/.test(admin) && /<option value="Inbox">Inbox<\/option>/.test(admin),
-    'Inbox is not in messageFolders, so leaving it out makes filing a one-way trip');
+  /* ⚠ REPOINTED, NOT WEAKENED ([[MSG-20]], 2026-09-11). This matched the literal
+     `<option value="Inbox">Inbox</option>` — that is, WHERE that option happened to be
+     written — so it failed on correct code the moment the list moved behind a named rule.
+     The guarantee is unchanged and is now RUN: whatever `msgFileableFolders` answers leads
+     with Inbox, and Move to… is built from it. Same slow-fuse shape as S82 and S129.
+     ⚠ ITS TWO INPUTS ARE STUBBED AND THAT IS THE POINT HERE: the claim is about this
+     function's own composition — Inbox first, her own folders next, the legacy names after,
+     no repeats — so the inputs are what the check varies. */
+  {
+    const fileable = new Function('commHandFolders', 'messageFolders',
+      extractFn(admin, 'msgFileableFolders') + 'return msgFileableFolders;')(
+        function(){ return ['Gate codes', 'Completed']; },
+        [{name: 'Completed'}, {name: 'Old folder'}]);
+    const got = fileable();
+    check('S273', 'Move to… still offers Inbox, and offers it first',
+      got[0] === 'Inbox',
+      'Inbox is not a folder document, so leaving it out makes filing a one-way trip — got ' +
+      JSON.stringify(got));
+    check('S273', 'and it offers the folders she made herself',
+      got.indexOf('Gate codes') !== -1,
+      'a folder she just made was a drop target and in neither menu, because both menus ' +
+      'read messageFolders — the collection MSG-12 emptied: ' + JSON.stringify(got));
+    check('S273', 'and still offers a legacy folder, once',
+      got.indexOf('Old folder') !== -1 &&
+      got.filter(function(x){ return x === 'Completed'; }).length === 1,
+      'anything already filed must stay reachable, and a name in both lists must not ' +
+      'appear twice: ' + JSON.stringify(got));
+    check('S273', 'and Move to… is built from that one rule',
+      /msgFileableFolders\(\)/.test(stripComments(extractFn(admin, 'populateMoveToSelect') || '')),
+      'three routes to one place, and two of them reading a different list, is how ' +
+      '"I still cannot file anything" was true however she tried');
+    check('S273', 'and so is the right-click menu',
+      /msgFileableFolders\(\)/.test(stripComments(extractFn(admin, 'openContextMenu') || '')),
+      'the drag and the two menus agreed only while no folder existed');
+  }
   check('S273', 'right-click move still works',
     /openContextMenu\(e\.clientX, e\.clientY, row\.dataset\.msgid\)/.test(admin),
     'same reason — the toolbar is a third route in, not a replacement');

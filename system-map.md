@@ -4057,6 +4057,32 @@ note server-side and cannot send mail, so the nudge is raised in the browser onc
 returns `{ok:true}`. The ordinary My Info save is deliberately silent ([[QT-35]]) — a
 corrected street spelling is not a move — so do not move this call up into it.
 
+⭐ **WHERE A MESSAGE CAN BE FILED — ONE ANSWER** (2026-09-11, [[MSG-20]]). Addie: *"I still
+can't drag and drop emails."*
+
+- ⭐ **The drag was never broken.** Measured by RUNNING the real sidebar renderer against an
+  ordinary season: **thirty rows drawn, none of them droppable.** Only a section or subtab she
+  filled by hand takes a message; the five built-ins are saved filters, so a message dropped
+  on one could not stay there. That exclusion is right and is kept.
+- ⛔ **The other two ways of filing were reading a different list.** `populateMoveToSelect`
+  and the right-click menu both walked `messageFolders` — the collection [[MSG-12]] emptied —
+  so a folder she had just made was a drop target and in **neither menu**. Three routes to one
+  place, two answering from a list nobody writes to any more.
+- ⭐ **`msgFileableFolders` is the one answer**: Inbox first (it is not a folder document, and
+  leaving it out makes filing a one-way trip), then her own folders, then any legacy name not
+  already listed, never twice. The legacy names are kept — anything already filed would
+  otherwise be reachable by search alone.
+- ⭐ **And a drag now shows where it can land.** The nav takes a class for the duration and the
+  CSS outlines whatever carries `data-commdrop`, so which rows accept a drop is stated once.
+  When nothing can take one, the sidebar **says so** and names the way out — "nothing should
+  fail quietly", applied to a gesture.
+- ⚠ **One existing check was repointed, not weakened.** S273 matched the literal
+  `<option value="Inbox">` — where that option happened to sit — so it failed on correct code
+  the moment the list moved behind a name. It RUNS the rule now. 6 sabotages red-checked.
+- ⚠ **`flatFolderList` no longer has a caller** and is left in place with a note saying so:
+  `buildFolderTree` under it feeds `renderFolderNode` / `folderRowHtml`, which run-all still
+  RUNS. Do not wire it back into a menu — that would be the second list all over again.
+
 ⛔ **The folders are gone** ([[MSG-12]], the same day). Once the system was in, Addie asked
 *"can we just get rid of your folders altogether if the system is made?"* — and they had
 become a second way of saying the same thing: every one of the eight the app created maps
