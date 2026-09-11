@@ -930,6 +930,10 @@
       <div style="font-size:38px; margin-bottom:10px;">🎄</div>
       <div id="backNextYearConfirmTitle" style="display:none; font-size:14px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); margin-bottom:8px;">Thanks &mdash; that&rsquo;s recorded</div>
       <div id="backNextYearConfirmMsg" style="font-size:20px; font-weight:700; color:var(--ink);">One moment&hellip;</div>
+      <!-- ⭐ ONE TAP BEFORE THE ANSWER IS RECORDED — see rsvpAwaitConfirmTap. -->
+      <div id="backTapRow" style="display:none; justify-content:center; margin-top:18px;">
+        <button type="button" class="btn btn-gold" id="backTapConfirmBtn"></button>
+      </div>
     </div>
   </div>
 
@@ -1658,6 +1662,13 @@
 
         <div class="invoice-empty" id="rsvpConfirmCard" style="display:none; text-align:center;">
           <div id="rsvpConfirmMsg" style="font-size:16px; font-weight:600; margin-bottom:14px;"></div>
+          <!-- ⭐ ONE TAP BEFORE THE ANSWER IS RECORDED — see rsvpAwaitConfirmTap. Its own
+               row rather than a third button inside #rsvpConfirmBtnRow, because that row is
+               reused AFTER the answer for the portal buttons and the two must never be on
+               screen together. -->
+          <div id="rsvpTapRow" style="display:none; justify-content:center; margin-bottom:6px;">
+            <button type="button" class="btn btn-gold" id="rsvpTapConfirmBtn"></button>
+          </div>
           <div id="rsvpConfirmBtnRow" style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
             <button type="button" class="btn btn-gold" id="rsvpOpenPortalBtn" style="display:none;">Yes, Take Me to My Portal</button>
             <button type="button" class="btn btn-outline-dark" id="rsvpNoChangesBtn" style="display:none;">No, I'm All Set</button>
@@ -5088,6 +5099,74 @@ function showRsvpGateCodeStep(token, existingGateCode, thenFn){
     }).catch(saveFailed);
   };
 }
+/* ⭐ ONE TAP BEFORE AN RSVP IS RECORDED (2026-09-11, RS-xx — Addie: "lets do a
+   confirming step").
+
+   ⚠ THE LINK USED TO BE THE ANSWER. Opening `#/payment?token=…&rsvp=yes` called
+   portalRsvp before anything was drawn, so the ANSWER was whatever fetched the URL —
+   and plenty of things fetch a URL that are not the customer. Corporate mail gateways
+   open every link in an incoming message to check it is safe, which on an RSVP email
+   means opening all three answers.
+
+   ⚠ IT HAS ALREADY HAPPENED HERE, and that is why this exists rather than being a
+   precaution. Eric Kling (#474, a work address) had `rsvp=no` fetched at 3:42am and
+   `rsvp=back` at 4:07am from `X11; Linux x86_64 … Chrome/124` — a server browser, at an
+   hour no customer is answering email. Dayna Giles (#340, also a work address) the same.
+   Both of those attempts FAILED for an unrelated reason, which is the only thing that
+   saved them: a landed `no` would have moved a confirmed, paying customer to Maybe Next
+   Year, and NOTHING anywhere records who submitted an RSVP, so no audit could ever have
+   said it was not them.
+
+   ⭐ A SCANNER CAN OPEN A PAGE. IT CANNOT TAP A BUTTON. That is the whole mechanism.
+
+   ⚠ AND IT COSTS SOMETHING REAL, which was put to Addie before it was built: the old
+   comment here read "the RSVP is recorded on the server FIRST, before any UI is shown,
+   so a No is saved even if the customer closes the page immediately after", and that
+   guarantee is GONE. Somebody who taps the email link and closes the tab before
+   confirming is now not recorded. That is the trade she accepted. Do not restore the
+   old ordering without asking her again — it is the bug, not a simplification.
+
+   ⚠ ONE GATE, BOTH DOORS. handleRsvpLink and handleBackNextYear each call it; a second
+   copy is how one of the three answers quietly goes back to recording on open, which is
+   the "one reader left behind" shape this file already records three times over.
+
+   ⚠ IT FAILS TOWARDS NOT RECORDING. With the button missing it says so and stops,
+   rather than proceeding — proceeding would silently restore the exact behaviour this
+   was written to remove, and a customer who cannot answer rings us, which is visible.
+   selector-contract.test.js is what keeps the ids honest. */
+function rsvpAwaitConfirmTap(answer, msgEl, rowEl, btnEl, proceed){
+  /* ⚠ THE TABLE LIVES IN HERE, AND THAT IS NOT TIDINESS. Written as a module-level
+     `var` beside this function it was HOISTED AS undefined and read before its own
+     assignment line had run: navigate() is called some 2,500 lines above this point and
+     reaches handleRsvpLink through `typeof handleRsvpLink === 'function'`, which a
+     hoisted FUNCTION declaration satisfies while a `var` is still undefined. The result
+     was "TypeError: Cannot read properties of undefined (reading 'yes')" thrown before
+     anything was drawn — so the confirm row stayed hidden, no answer could be given at
+     all, and every source check passed. Only driving the real page found it. Same shape
+     as the rmSaveGrade scope error and the nightlyHealthTimer TDZ note. */
+  var words = ({
+    yes: "Yes \u2014 I'm in for this year",
+    no: "No \u2014 not this season",
+    backnextyear: "I'll be back next year"
+  })[answer] || "Yes \u2014 I'm in for this year";
+  if(!rowEl || !btnEl){
+    console.error('[HU] the RSVP confirm button is missing, so nothing was recorded');
+    if(msgEl) msgEl.textContent = "Sorry \u2014 something is wrong with this page. " +
+      "Please call or text us at (801) 901-0011 and we'll take your answer down.";
+    return;
+  }
+  if(msgEl) msgEl.textContent = 'Just to be sure \u2014 tap to confirm:';
+  btnEl.textContent = words;
+  rowEl.style.display = 'flex';
+  /* ⚠ onclick, NOT addEventListener. This card is reused by all three answers and by a
+     second link opened in the same tab, and a listener added per open would stack — the
+     answer would be sent once per visit. Assigning replaces. */
+  btnEl.onclick = function(){
+    rowEl.style.display = 'none';
+    btnEl.onclick = null;
+    proceed();
+  };
+}
 function handleRsvpLink(token, rsvpValue){
   var lookupFormWrap = document.getElementById('lookupFormWrap');
   var confirmCard = document.getElementById('rsvpConfirmCard');
@@ -5113,9 +5192,14 @@ function handleRsvpLink(token, rsvpValue){
   if(confirmBtnRow) confirmBtnRow.style.display = 'flex';
   if(openPortalBtn) openPortalBtn.style.display = 'none';
   if(noChangesBtn) noChangesBtn.style.display = 'none';
+  /* ⚠ NOTHING REACHES THE SERVER UNTIL THE TAP — see rsvpAwaitConfirmTap for why, and
+     for what that costs. The block below is unchanged and deliberately NOT re-indented,
+     so this stays reviewable: only its first line and its last are new. */
+  rsvpAwaitConfirmTap(rsvpValue === 'yes' ? 'yes' : 'no', confirmMsg,
+    document.getElementById('rsvpTapRow'), document.getElementById('rsvpTapConfirmBtn'),
+    function(){
   confirmMsg.textContent = 'One moment\u2026';
-  // The RSVP is recorded on the server FIRST, before any UI is shown, so a
-  // "No" is saved even if the customer closes the page immediately after.
+  /* savePortalLogin is INSIDE the tap too: a bare open must leave no trace at all. */
   savePortalLogin(token);
   callPortalFn('portalRsvp', {token: token, response: rsvpValue === 'yes' ? 'yes' : 'no'}).then(function(res){
     /* ⚠ UNREACHABLE THROUGH TODAY'S SERVER, AND KEPT. portalRsvp reports a
@@ -5231,6 +5315,7 @@ function handleRsvpLink(token, rsvpValue){
       }
     }
   }).catch(rsvpLinkFailed);
+  });
 
   /* ⭐ WHAT THE CUSTOMER IS TOLD WHEN AN RSVP LINK FAILS (fixed 2026-08-31).
      Addie: "Approve and Decline don't seem to be working."
@@ -5376,6 +5461,10 @@ function handleBackNextYear(token){
   var title = document.getElementById('backNextYearConfirmTitle');
   if(wrap) wrap.style.display = 'block';
   if(title) title.style.display = 'none';
+  /* ⚠ NOTHING REACHES THE SERVER UNTIL THE TAP — see rsvpAwaitConfirmTap. */
+  rsvpAwaitConfirmTap('backnextyear', msg,
+    document.getElementById('backTapRow'), document.getElementById('backTapConfirmBtn'),
+    function(){
   if(msg) msg.textContent = 'One moment\u2026';
   // "Back Next Year" gets its own status and never triggers light recycling.
   callPortalFn('portalRsvp', {token: token, response: 'backnextyear'}).then(function(res){
@@ -5387,6 +5476,7 @@ function handleBackNextYear(token){
     if(msg) msg.textContent = 'We look forward to seeing you next year!';
   }).catch(function(err){
     if(msg) msg.textContent = portalCallFailedText(err, 'account', 'Answering Back Next Year from the RSVP email');
+  });
   });
 }
 /* ⭐ WHAT A CUSTOMER IS TOLD WHEN THEIR LINK FAILS (fixed 2026-08-31). Addie,

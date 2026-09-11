@@ -25,7 +25,7 @@
  */
 
 const { test, expect } = require('@playwright/test');
-const { installFirebaseStub } = require('./firebase-stub');
+const { installFirebaseStub, tapRsvpConfirm } = require('./firebase-stub');
 const { CUSTOMERS } = require('./fixtures');
 
 async function open(page, path) {
@@ -43,6 +43,9 @@ async function open(page, path) {
   page.on('pageerror', e => thrown.push(String(e)));
   page.on('console', m => { if (m.type() === 'error') consoleNoise.push(m.text()); });
   await page.goto(path);
+  /* ⭐ An RSVP link no longer answers on open — one tap confirms it. No-ops on any
+     other link. See tapRsvpConfirm. */
+  await tapRsvpConfirm(page, path);
   stub.thrown = thrown;
   stub.consoleNoise = consoleNoise;
   return stub;
@@ -55,6 +58,105 @@ async function expectNotTheQuoteForm(page) {
   await expect(page.locator('#page-quote-details')).toBeHidden();
   await expect(page.locator('#quoteDetailForm')).toBeHidden();
 }
+
+/* ===========================================================================
+ * OPENING A LINK IS NOT ANSWERING IT (2026-09-11)
+ *
+ * Addie: "lets do a confirming step."
+ *
+ * ⚠ THE LINK USED TO BE THE ANSWER. handleRsvpLink called portalRsvp before it drew
+ * anything, so whatever FETCHED the URL is what answered — and a corporate mail
+ * gateway opens every link in an incoming message to check it is safe, which on an
+ * RSVP email means opening all three.
+ *
+ * ⚠ IT ALREADY HAPPENED. Eric Kling (#474, a work address) had `rsvp=no` fetched at
+ * 3:42am and `rsvp=back` at 4:07am from `X11; Linux x86_64 … Chrome/124`. Both failed
+ * for an unrelated reason, which is the only thing that saved him: a landed `no` moves
+ * a confirmed customer to Maybe Next Year, and nothing records who submitted an RSVP.
+ *
+ * ⚠ THESE RUN THE REAL PAGE, because the claim is that a call does NOT happen — the
+ * one thing a text check over index.html cannot see at all.
+ * ========================================================================= */
+test.describe('An RSVP link does not answer until it is tapped', () => {
+
+  /* ⚠ NOT `open()` — that helper taps, which is exactly what must not happen here. */
+  async function openWithoutTapping(page, path) {
+    const stub = await installFirebaseStub(page);
+    await page.goto(path);
+    return stub;
+  }
+
+  for (const [answer, path] of [
+    ['yes',  `#/payment?token=${CUSTOMERS.standard.token}&rsvp=yes`],
+    ['no',   `#/payment?token=${CUSTOMERS.standard.token}&rsvp=no`],
+    ['back', `#/?token=${CUSTOMERS.standard.token}&rsvp=back`]
+  ]) {
+    test(`${answer} — opening it sends nothing`, async ({ page }) => {
+      const stub = await openWithoutTapping(page, '/index.html' + path);
+      const row = answer === 'back' ? '#backTapRow' : '#rsvpTapRow';
+      await expect(page.locator(row)).toBeVisible();
+
+      /* ⚠ THE WAIT IS THE CHECK. Asserting "no call yet" the instant the page loads
+         passes even on the old code, which sent on load but had not come back — the
+         vacuous shape this repo keeps re-learning. Give it a second of real time. */
+      await page.waitForTimeout(1000);
+      const calls = await stub.calls();
+      expect(calls.filter(c => c.name === 'portalRsvp')).toHaveLength(0);
+    });
+  }
+
+  test('and the tap is what sends it', async ({ page }) => {
+    const stub = await openWithoutTapping(page,
+      `/index.html#/payment?token=${CUSTOMERS.standard.token}&rsvp=no`);
+    await page.locator('#rsvpTapConfirmBtn').click();
+    await expect.poll(async () => {
+      const calls = await stub.calls();
+      const rsvp = calls.filter(c => c.name === 'portalRsvp');
+      return rsvp.length ? rsvp[rsvp.length - 1].payload.response : null;
+    }).toBe('no');
+  });
+
+  test('the button says which answer it is confirming', async ({ page }) => {
+    /* ⚠ A BARE "Confirm" IS THE ONE WORDING THIS MUST NOT HAVE. The customer arrived
+       by tapping a coloured button in an email and may not remember which; a button
+       that does not name the answer turns a safety step into a coin toss. */
+    await openWithoutTapping(page, `/index.html#/payment?token=${CUSTOMERS.standard.token}&rsvp=no`);
+    await expect(page.locator('#rsvpTapConfirmBtn')).toContainText(/not this season/i);
+    await openWithoutTapping(page, `/index.html#/payment?token=${CUSTOMERS.standard.token}&rsvp=yes`);
+    await expect(page.locator('#rsvpTapConfirmBtn')).toContainText(/I'm in/i);
+    await openWithoutTapping(page, `/index.html#/?token=${CUSTOMERS.standard.token}&rsvp=back`);
+    await expect(page.locator('#backTapConfirmBtn')).toContainText(/back next year/i);
+  });
+
+  test('a second link in the same tab does not double the answer', async ({ page }) => {
+    /* ⭐ WHY rsvpAwaitConfirmTap ASSIGNS onclick RATHER THAN addEventListener. The card
+       is reused by all three answers, and both URLs here differ only by their hash — so
+       the second one is a hashchange in the SAME document and the gate runs again on the
+       same button. With addEventListener the handlers would STACK, and the single tap
+       below would send the answer twice.
+
+       ⚠ THE FIRST LINK IS DELIBERATELY NOT TAPPED. Tapping it would send an answer and
+       open the gate-code modal, whose backdrop then swallows the second tap — and a
+       fresh page between the two would reset the listeners and make this vacuous, which
+       is the whole thing it is trying to catch. */
+    const stub = await openWithoutTapping(page,
+      `/index.html#/payment?token=${CUSTOMERS.standard.token}&rsvp=yes`);
+    await expect(page.locator('#rsvpTapConfirmBtn')).toContainText(/I'm in/i);
+
+    await page.goto(`/index.html#/payment?token=${CUSTOMERS.standard.token}&rsvp=no`);
+    await expect(page.locator('#rsvpTapConfirmBtn')).toContainText(/not this season/i);
+
+    await page.locator('#rsvpTapConfirmBtn').click();
+    await expect.poll(async () =>
+      (await stub.calls()).filter(c => c.name === 'portalRsvp').length).toBe(1);
+
+    /* Give a stacked second handler time to fire before declaring there was only one. */
+    await page.waitForTimeout(800);
+    const sent = (await stub.calls()).filter(c => c.name === 'portalRsvp');
+    expect(sent).toHaveLength(1);
+    expect(sent[0].payload.response).toBe('no');
+  });
+});
 
 test.describe('RSVP email links', () => {
 
@@ -125,12 +227,23 @@ test.describe('RSVP email links', () => {
     }).toBe('no');
 
     /* ⚠ THE ORDER IS THE GUARANTEE, so it is asserted as an order and not merely as
-       "both happened": portalRsvp must be the FIRST call, ahead of everything the
-       portal itself fetches. Reversed, a customer who closes the tab while the
-       account is loading has said no and we never heard it. */
+       "both happened": portalRsvp must land before anything the PORTAL fetches.
+       Reversed, a customer who closes the tab while the account is loading has said
+       no and we never heard it.
+
+       ⚠ REPOINTED 2026-09-11, NOT WEAKENED. This asserted portalRsvp was call [0] of
+       ANY kind, which was true only because the answer used to be sent during
+       navigate() — before the page-load `publicConfig` read had come back. The answer
+       now waits for a tap (rsvpAwaitConfirmTap), so publicConfig lands first and this
+       failed on code that is right. The guarantee has not moved: it is about the
+       PORTAL's calls, and it is those that are named. */
     const names = (await stub.calls()).map(c => c.name);
-    expect(names[0], 'the answer must reach the server before the portal is opened')
-      .toBe('portalRsvp');
+    const saidNoAt = names.indexOf('portalRsvp');
+    const portalAt = names.findIndex(n => n === 'portalLookup' || n === 'portalInvoice');
+    expect(saidNoAt, 'the no never reached the server at all').toBeGreaterThan(-1);
+    expect(portalAt, 'the portal was never opened, so this proves nothing').toBeGreaterThan(-1);
+    expect(saidNoAt, 'the answer must reach the server before the portal is opened')
+      .toBeLessThan(portalAt);
 
     await expect(page.locator('#portalTabsLayout')).toBeVisible({ timeout: 8000 });
     await expectNotTheQuoteForm(page);
@@ -290,6 +403,13 @@ test.describe('One answer shows one card, and nothing else', () => {
      and what a customer stares at for ever when the wrong card is revealed. */
   test('and neither one leaves a stray "One moment" on screen', async ({ page }) => {
     for (const answer of ['yes', 'no']) {
+      /* ⚠ A REAL RELOAD BETWEEN THE TWO, and it is needed now that the answers are
+         TAPPED. Both URLs differ only by their hash, so the second goto is a
+         hashchange in the SAME document — and the gate-code modal the first answer
+         opened is still up, with its backdrop over the page, so the second tap never
+         lands. Nothing about that is new; it only became visible once this test had
+         to click something. */
+      await page.goto('about:blank');
       const stub = await open(page, `/index.html#/payment?token=${TOKEN}&rsvp=${answer}`);
       /* Both answers carry on into the portal now — a yes with the gate-code
          question over it (2026-09-02), a no straight through (RS-33). Waiting on the

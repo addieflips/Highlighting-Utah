@@ -3589,6 +3589,67 @@ because the folder earning its keep within two days is the argument for it.
   so `isOutForSeason` drops them. **The rows are the only record that they answered at
   all**, which is the whole reason this folder exists.
 
+#### Opening an RSVP link is no longer answering it (2026-09-11, [[RS-57]])
+
+Addie: *"lets do a confimring step."*
+
+**What it used to do.** `handleRsvpLink` called `portalRsvp` before it drew anything, and the
+comment said why in as many words — *"the RSVP is recorded on the server FIRST, before any UI
+is shown, so a No is saved even if the customer closes the page immediately after."* That is a
+real guarantee and it was deliberate. Its cost is that **whatever FETCHED the link is what
+answered**, and plenty of things fetch a URL that are not the customer.
+
+⛔ **It had already happened.** Eric Kling (#474, a work address) had `rsvp=no` fetched at
+3:42am and `rsvp=back` at 4:07am from `X11; Linux x86_64 … Chrome/124` — a server browser, at
+an hour nobody is answering email. Dayna Giles (#340, also a work address) the same. Corporate
+mail gateways open every link in an incoming message to check it is safe, and an RSVP email
+carries all three answers.
+
+⭐ **Both attempts failed for an unrelated reason, and that is the only thing that saved
+them.** A landed `no` moves a confirmed, paying customer to Maybe Next Year, and **nothing
+anywhere records who submitted an RSVP** — so no audit could ever have said it was not him.
+⚠ **So the failures are not the safety net.** Fixing `portalRsvp` without this would turn a
+silent near-miss into a silent loss.
+
+⭐ **A scanner can open a page. It cannot tap a button.** The link now draws the answer in
+words — *"Yes — I'm in for this year"*, *"No — not this season"*, *"I'll be back next year"* —
+with one gold button under it, and nothing reaches the server until it is tapped.
+
+- ⚠ **The button names the answer, never a bare "Confirm."** They arrived by tapping a coloured
+  button in an email and may not remember which one.
+- ⚠ **One gate, both doors.** `handleRsvpLink` and `handleBackNextYear` each call
+  `rsvpAwaitConfirmTap`; a second copy is how one of the three answers quietly goes back to
+  recording on open.
+- ⚠ **It fails towards NOT recording.** With the button missing it says so and stops. Proceeding
+  would silently restore the exact behaviour this removes; a customer who cannot answer rings us,
+  which is visible. `selector-contract.test.js` keeps the ids honest.
+- ⚠ **`savePortalLogin` moved inside the tap too** — a bare open must leave no trace at all.
+- ⚠ **And the answer table lives INSIDE the function, which is not tidiness.** Written as a
+  module-level `var` beside it, it was hoisted as `undefined` and read before its own assignment
+  line had run: `navigate()` is called some 2,500 lines above and reaches `handleRsvpLink`
+  through `typeof handleRsvpLink === 'function'`, which a hoisted **function** declaration
+  satisfies while a `var` is still undefined. The throw happened before anything was drawn, so
+  the confirm row stayed hidden and no answer could be given at all — and **every source check
+  passed.** Only driving the real page found it. Same shape as the `rmSaveGrade` scope error.
+
+**What it costs, taken knowingly.** The old guarantee is gone: somebody who taps the email link
+and closes the tab before confirming is now **not** recorded. That was put to Addie before it
+was built. Do not restore the old ordering as a simplification — it is the bug.
+
+⚠ **Every RSVP spec now taps.** Eleven spec files open RSVP links; they all go through
+`tapRsvpConfirm` in `test/firebase-stub.js`, which reads the URL and no-ops on anything that is
+not an RSVP link, so it can be called after every `goto` without the caller knowing which is
+which. Eleven copies of a selector is how one of them keeps passing against a renamed button.
+
+⚠ **And two existing checks were repointed, not weakened.** One asserted `portalRsvp` was call
+`[0]` of any kind — true only because the answer used to go out during `navigate()`, before the
+page-load `publicConfig` read came back; it names the PORTAL's own calls now, which is the
+guarantee it was always about. The other looped two answers in one page and had to gain a real
+reload between them: both URLs differ only by their hash, so the second `goto` is a hashchange
+in the same document and the gate-code modal the first answer opened is still up, with its
+backdrop over the page. Nothing about that is new — it only became visible once the test had to
+click something.
+
 #### And what the second read found (2026-09-11)
 
 - ⭐ **Three of the four admin rows were one bug: a timer ticking after sign-out.**

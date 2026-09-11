@@ -26,7 +26,7 @@
  */
 
 const { test, expect } = require('@playwright/test');
-const { installFirebaseStub } = require('./firebase-stub');
+const { installFirebaseStub, tapRsvpConfirm } = require('./firebase-stub');
 const { CUSTOMERS, INVOICES } = require('./fixtures');
 
 const BLOCKED_RESOURCE = /Failed to load resource|net::ERR_|ERR_TUNNEL|ERR_CONNECTION/;
@@ -89,7 +89,8 @@ test.describe('Buttons on the light cards can actually be seen', () => {
     const c = JSON.parse(JSON.stringify(CUSTOMERS.standard));
     const stub = await installFirebaseStub(page, { customers: { standard: c } });
     await page.goto(`/index.html#/payment?token=${c.token}&rsvp=yes`);
-
+    /* ⭐ An RSVP link no longer answers on open — one tap confirms it. */
+    await tapRsvpConfirm(page, `/index.html#/payment?token=${c.token}&rsvp=yes`);
     await expect(page.locator('#rsvpGateCodeYesBtn')).toBeVisible();
     await expect(page.locator('#rsvpGateCodeNoBtn')).toBeVisible();
     await expectReadable(page, 'rsvpGateCodeYesBtn');
@@ -158,6 +159,8 @@ test.describe('The RSVP card is centred, not shoved to one side', () => {
       if (m.type() === 'error' && !BLOCKED_RESOURCE.test(t) && !/portal call failed/.test(t)) thrown.push(t);
     });
     await page.goto('/index.html#/payment?token=forceinternal&rsvp=yes');
+    /* ⭐ An RSVP link no longer answers on open — one tap confirms it. */
+    await tapRsvpConfirm(page, '/index.html#/payment?token=forceinternal&rsvp=yes');
     await expect(page.locator('#rsvpConfirmCard')).toBeVisible();
 
     const box = await page.locator('#rsvpConfirmCard').boundingBox();
@@ -179,6 +182,8 @@ test.describe('The RSVP card is centred, not shoved to one side', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const stub = await installFirebaseStub(page, {});
     await page.goto(`/index.html#/payment?token=${CUSTOMERS.standard.token}&rsvp=yes`);
+    /* ⭐ An RSVP link no longer answers on open — one tap confirms it. */
+    await tapRsvpConfirm(page, `/index.html#/payment?token=${CUSTOMERS.standard.token}&rsvp=yes`);
     await expect(page.locator('#rsvpGateCodeStep')).toBeVisible();
 
     const box = await page.locator('#rsvpGateCodeStep').boundingBox();
