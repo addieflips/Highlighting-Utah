@@ -47896,9 +47896,14 @@ suite('281. The short quote link');
     'it was written out four times identically; the fifth copy is the one that drifts');
   /* ⚠ FIVE SINCE 2026-08-30 — ensureQuoteToken is the fifth, and the count is
      deliberately exact rather than a floor: a new site is welcome to exist, but
-     it has to come past this line and say so. */
-  check('S281', 'and all five sites go through it',
-    (admin.match(/= newQuoteToken\(\);/g) || []).length === 5,
+     it has to come past this line and say so.
+     ⭐ SIX SINCE 2026-09-11, and this line is the gate doing its job — the sixth
+     is resolveLinkTokens, which renders the quote buttons into an email and used
+     to give up when the quote had no token, sending the customer the words
+     "(quote token not found)" three times over. Coming past this line is how it
+     says so. */
+  check('S281', 'and all six sites go through it',
+    (admin.match(/= newQuoteToken\(\);/g) || []).length === 6,
     'a site left behind keeps minting the 28-character shape and its links stay long');
 
   if (genSrc && alpha) {
@@ -56039,7 +56044,15 @@ suite('Suite 311. The referral offer, RUN rather than read');
        referralSeasonNow. Left out, every fixture that reaches the minting branch died
        with a bare ReferenceError attributed to whichever suite happened to be running
        — the exact unattributable crash assertSandbox exists to name (§3). */
-    'referralSeasonNow'];
+    'referralSeasonNow',
+    /* ⚠ THE QUOTE-BUTTON BRANCH OF THE SAME RENDERER (added 2026-09-11). It was
+       never exercised here, so a customer could be emailed three copies of the
+       words "(quote token not found)" with every check green. LIFTED, NOT
+       STUBBED — quoteForButtons is the rule that decides WHICH quote a live
+       email's Approve button answers, and a stub would keep this suite green
+       through it choosing one that was closed weeks ago. */
+    'quoteForButtons', 'newQuoteToken', 'quotePortalParam', 'quoteButtonLabels',
+    'quoteIsAddOn', 'quoteExistingCustomer', 'quoteMatchAddress'];
   const lifted311 = {};
   needed311.forEach(function (n) { lifted311[n] = extractFn(admin, n); });
   const missing311 = needed311.filter(function (n) { return !lifted311[n]; });
@@ -56059,24 +56072,31 @@ suite('Suite 311. The referral offer, RUN rather than read');
     }).join(NL311);
 
     const styles311 = ['SHARE_ICON_BUTTON_STYLE', 'QUOTE_LINK_BUTTON_STYLE',
-      'QUOTE_LINK_BUTTON_DEFAULT', 'REFERRAL_TOKEN_ALPHABET'].map(function (n) {
+      'QUOTE_LINK_BUTTON_DEFAULT', 'REFERRAL_TOKEN_ALPHABET',
+      /* ⚠ newQuoteToken READS THIS, and leaving it out cost a debugging round:
+         the mint threw ReferenceError inside the renderer's own try/catch, so the
+         email fell back to the not-found words and the failure read as "the fix
+         does not work" rather than "the sandbox is short a constant". */
+      'QUOTE_TOKEN_ALPHABET'].map(function (n) {
       const m = admin.match(new RegExp('const ' + n + " = '[^']*';"));
       return m ? m[0] : '';
     });
-    check('S311', 'the four styles and alphabets are lifted too',
+    check('S311', 'the five styles and alphabets are lifted too',
       styles311.every(Boolean),
       'a missing one is a ReferenceError inside the sandbox, reported as an unrelated crash');
 
     /* Everything the referral path does NOT use is stubbed to nothing on purpose: the
        fixtures place only the referral token, so no other branch of the renderer runs.
        The writes array is the fake Firestore — referralTokenFor mints through it. */
-    const env311 = new Function('BOOK', [
+    const env311 = new Function('BOOK', 'QUOTES', [
       'let jobAddresses = BOOK, custById = new Map();',
       'BOOK.forEach(function(a){ if(a && a.id) custById.set(a.id, a); });',
-      'let allInvoicesCache = [], quotesCache = [], customCodes = [], perFootRate = 3;',
-      'const writes = [];',
-      'function doc(){ return {}; } function collection(){ return {}; }',
-      'async function updateDoc(_r, patch){ writes.push(patch); } const db = {};',
+      'let allInvoicesCache = [], quotesCache = QUOTES || [], customCodes = [], perFootRate = 3;',
+      'const writes = [], refs = [];',
+      /* ⚠ doc() RECORDS WHAT IT WAS ASKED FOR, so a check can say WHICH quote was
+         written to rather than merely that something was. */
+      'function doc(_db, coll, id){ return {coll: coll, id: id}; } function collection(){ return {}; }',
+      'async function updateDoc(_r, patch){ writes.push(patch); refs.push(_r); } const db = {};',
       'function esc(s){ return String(s == null ? "" : s); }',
       'function fmtMoney(n){ return "$" + Number(n || 0).toFixed(2); }',
       'function niceDate(d){ return String(d); } function addDays(d){ return d; }',
@@ -56091,7 +56111,8 @@ suite('Suite 311. The referral offer, RUN rather than read');
       resolveSrc,
       'return {resolveLinkTokens: resolveLinkTokens, referralOfferFor: referralOfferFor,',
       '        referralEmailBlock: referralEmailBlock, referralMissingNote: referralMissingNote,',
-      '        referralOfferPlacement: referralOfferPlacement, writes: writes};'
+      '        referralOfferPlacement: referralOfferPlacement, writes: writes, refs: refs,',
+      '        quoteForButtons: quoteForButtons};'
     ].join(NL311));
 
     const withTok = { id: 'c1', data: { name: 'Brian Petersen', phone: '8015550111',
@@ -56171,6 +56192,62 @@ suite('Suite 311. The referral offer, RUN rather than read');
     })());
 
     /* ---- what the office is told, before and after ------------------------- */
+    /* ---- the quote buttons, which is what went out broken ------------------- */
+    /* ⭐ REPORTED 2026-09-11, in an email the office was looking at:
+           {{quote_yes_button}} {{quote_maybe_button}} {{quote_decline_button}}
+           (quote token not found) (quote token not found) (quote token not found)
+       Two separate faults, and the fixtures below are the two real records that
+       carried them — Miko Johnson's portal re-quote, minted with no token at
+       all, and a phone holding five CLOSED quotes, which is Addie's own number
+       in the live book. */
+    const PHONE_Q = '8015550444';
+    const qOpenNoTok = { id: 'q1', data: { name: 'Miko Johnson', phone: PHONE_Q,
+      status: 'new', existingCustomerId: 'c9', createdAt: '2026-09-10T00:00:00Z' } };
+    const qClosedOld = { id: 'q2', data: { name: 'Miko Johnson', phone: PHONE_Q,
+      status: 'closed', quoteToken: 'closedtok', createdAt: '2026-08-01T00:00:00Z' } };
+    const qOpenNewer = { id: 'q3', data: { name: 'Miko Johnson', phone: PHONE_Q,
+      status: 'new', quoteToken: 'newertok', createdAt: '2026-09-11T00:00:00Z' } };
+    const BTNS = '{{quote_yes_button}} {{quote_maybe_button}} {{quote_decline_button}}';
+    const NOTFOUND = '(quote token not found)';
+
+    pendingAsync.push((async function () {
+    const eq1 = env311([withTok], [qOpenNoTok]);
+    const oq1 = await eq1.resolveLinkTokens(BTNS, PHONE_Q, 0, { name: 'Miko Johnson' });
+    check('S311', 'a quote with no token is given one rather than emailed the words "not found"',
+      oq1.indexOf(NOTFOUND) === -1 && oq1.indexOf('action=approve') !== -1 &&
+      eq1.writes.some(function (w) { return !!w.quoteToken; }),
+      'got: ' + oq1.slice(0, 120) + ' — this is the reported bug: the portal raised the ' +
+      're-quote and never minted a token, so the customer was sent the developer text');
+    check('S311', 'and the token is written to THAT quote, not to some other record',
+      eq1.refs.some(function (r) { return r && r.coll === 'quotes' && r.id === 'q1'; }),
+      'a token minted onto the wrong document leaves the buttons pointing nowhere ' +
+      'while the suite reads green');
+
+    const eq2 = env311([withTok], [qClosedOld]);
+    const oq2 = await eq2.resolveLinkTokens(BTNS, PHONE_Q, 0, { name: 'Miko Johnson' });
+    check('S311', 'a CLOSED quote never supplies the buttons',
+      oq2.indexOf('closedtok') === -1 && oq2.indexOf(NOTFOUND) !== -1 &&
+      !eq2.writes.some(function (w) { return !!w.quoteToken; }),
+      'five closed quotes share one number in the real book; answering one of those ' +
+      're-answers history on a card nobody is waiting on');
+
+    /* ⚠ THE CLOSED ONE IS FIRST IN THE CACHE ON PURPOSE. The old code took the
+       first match in cache order, so a fixture listing the open one first would
+       pass whether the rule is there or not. */
+    const eq3 = env311([withTok], [qClosedOld, qOpenNoTok, qOpenNewer]);
+    const oq3 = await eq3.resolveLinkTokens(BTNS, PHONE_Q, 0, { name: 'Miko Johnson' });
+    check('S311', 'the newest OPEN quote wins over an older open one and over a closed one',
+      oq3.indexOf('token=newertok') !== -1 && oq3.indexOf('closedtok') === -1,
+      'got: ' + (oq3.match(/token=[a-z0-9]+/) || ['none'])[0] + ' — a re-quote supersedes ' +
+      'the quote it was raised against, so the newest open one is the one being asked about');
+
+    const eq4 = env311([withTok], []);
+    const oq4 = await eq4.resolveLinkTokens(BTNS, PHONE_Q, 0, { name: 'Nobody' });
+    check('S311', 'and somebody with no open quote still gets the honest fallback',
+      oq4.indexOf(NOTFOUND) !== -1,
+      'silently emitting nothing would hide a template pointed at the wrong audience');
+    })());
+
     const e6 = env311([withTok]);
     check('S311', 'a clean send says nothing about referral links',
       e6.referralMissingNote({ noReferral: 0, noReferralNames: [] }) === '',

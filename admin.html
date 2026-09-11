@@ -9489,6 +9489,40 @@ function quoteLinkLabelPlain(text){
       return (words == null ? '' : String(words)).trim() || QUOTE_LINK_BUTTON_DEFAULT;
     });
 }
+/* ⭐ WHICH QUOTE AN EMAIL'S BUTTONS BELONG TO (2026-09-11).
+ *
+ * ⚠ IT USED TO BE THE FIRST ONE SHARING A PHONE NUMBER, IN CACHE ORDER, and
+ * that is a real wrong-answer rather than an untidiness. Addie's own number
+ * carries FIVE quotes and every one of them is CLOSED; Ashley Wray's carries
+ * several. So `.find()` could hand a live email the token of a quote answered
+ * weeks ago — the customer presses Approve and re-answers history, on a card
+ * nobody is waiting on, while the quote actually in front of them is untouched.
+ *
+ * The rule is the one the convert path (`quoteAwaitsCustomer`'s neighbour at
+ * the Add-Customer-from-quote site) already uses: a quote that is CLOSED or
+ * ARCHIVED is not the one being asked about. Among what is left the NEWEST
+ * wins, because a re-quote supersedes the quote it was raised against.
+ *
+ * ⚠ AND NO OPEN QUOTE RETURNS null RATHER THAN THE NEWEST CLOSED ONE. Buttons
+ * pointing at an answered quote are worse than no buttons: they invite the
+ * customer to do something that cannot be right. */
+function quoteForButtons(phone){
+  const digits = String(phone || '').replace(/\D/g, '');
+  if(!digits) return null;
+  const when = function(q){
+    const t = q.data && q.data.createdAt;
+    if(t && typeof t.toDate === 'function'){ try{ return t.toDate().getTime(); }catch(err){ /* a broken stamp is not a date; fall through to 0 */ } }
+    const n = Date.parse(t || '');
+    return isNaN(n) ? 0 : n;
+  };
+  const open = quotesCache.filter(function(q){
+    if(String(q.data.phone || '').replace(/\D/g, '') !== digits) return false;
+    if(q.data.quoteArchived) return false;
+    return (q.data.status || 'new') !== 'closed';
+  });
+  if(!open.length) return null;
+  return open.slice().sort(function(a, b){ return when(b) - when(a); })[0];
+}
 async function resolveLinkTokens(text, phone, amount, opts){
   opts = opts || {};
   let out = text;
@@ -9697,8 +9731,30 @@ async function resolveLinkTokens(text, phone, amount, opts){
     out = out.split('{{rsvp_back_button}}').join('<a href="'+rsvpBackUrl+'" style="'+btnStyle+' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>');
   }
   if(out.indexOf('{{quote_yes_button}}') !== -1 || out.indexOf('{{quote_decline_button}}') !== -1 || out.indexOf('{{quote_maybe_button}}') !== -1){
-    const phoneDigits = (phone||'').replace(/\D/g,'');
-    const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
+    const quote = quoteForButtons(phone);
+    /* ⚠ A QUOTE WITH NO TOKEN IS NOT A QUOTE WITH NO BUTTONS (2026-09-11). The
+       portal raises a re-quote when a member changes their sides or their
+       address, and that create never wrote a quoteToken — a token is minted in
+       the visitor's OWN browser on the public form, and the portal path simply
+       did not do it. So Miko Johnson's re-quote reached the email renderer with
+       nothing to link to and the customer was sent three copies of the words
+       "(quote token not found)" where the buttons should have been.
+
+       Five other places in this file already mint one on demand for exactly
+       this reason; this was the sixth that needed to and did not. The create is
+       fixed too, in index.html — but minting here is what rescues every quote
+       already sitting in the book without one. */
+    if(quote && !quote.data.quoteToken){
+      try{
+        const fresh = newQuoteToken();
+        await updateDoc(doc(db,'quotes', quote.id), {quoteToken: fresh});
+        quote.data.quoteToken = fresh;
+      }catch(err){
+        /* Left without a token the block below writes the not-found words, which
+           is the honest outcome — a button that goes nowhere is worse. */
+        console.error('[HU] quote button token write failed', err);
+      }
+    }
     if(quote && quote.data.quoteToken){
       const quoteToken = quote.data.quoteToken;
       /* ⭐ AN EXISTING MEMBER'S QUOTE EMAIL ALSO CARRIES THEIR OWN PORTAL LINK,
