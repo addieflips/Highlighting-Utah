@@ -63,6 +63,15 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
 
     ⚠ **AND HALF AN OWNER RULING IS REVERSED HERE, out loud.** Addie asked for the back-next-year-then-no sequence and was answered *"they belong on the recycle list, and NOT on Contact 2027 as well"*. The Contact 2027 half stands — a no still clears `maybeNextYear`. The recycle half is Dax's later call (R-024).
 
+    ⭐ **AND SOMEBODY IS TOLD, AND THEN ASKED WHY** (2026-09-11, RS-57 and RS-58). A decline used to write **nothing to the Inbox at all** — the record changed, they came off every route and their referral was clawed back, in silence, on the most consequential answer in the season. `portalRsvp` now raises a note under **RSVP — Not This Year** or **RSVP — Back Next Year**, and those two strings are the folders the Inbox files them into, under a **No RSVPs** section of its own. On the TRANSITION only, and best-effort: their answer is already written by that line.
+
+    ⭐ **THE REASON IS OPTIONAL AND IT PICKS THE FOLDER.** Addie: *"okay i need it to be optional choice"*, then *"Should be Moved, Finances, etc."* The portal offers **Moved · Finances · Doing it ourselves · Another company · Not decorating · Other** — one list (`RSVP_DECLINE_REASONS`) held identically in `index.html`, `functions/index.js` and `admin.html`, because these strings are **folder names** and one character apart files a real answer where nobody is looking.
+    - ⛔ **The answer is recorded FIRST and the reason asked afterwards.** It is a second call for exactly that reason and it writes no `rsvpStatus` of its own — somebody who closes the tab on the picker has still declined, and a stale retry cannot overwrite a newer decision.
+    - ⛔ **`Other` carries their own words, and those words never name a folder.** The reason picked is held to the list and names the folder; the typed note is stored beside it and appended to the note the office reads. This is a public callable: a folder named by whatever a stranger typed is both a mess and a way in.
+    - ⭐ **`Moved` can undo the no.** Addie: *"Moved should also give option change address which will keep them and confrim them for that year along with send them to requotes."* The button opens the existing move form (QT-35); the move it sends is marked `fromDecline`, and the server puts them back in the season through `seasonYesUpdates` — never a hand-written yes, which would leave them confirmed AND queued for recycling. ⛔ **Both conditions**: the browser says where the request came from, but the RECORD has to say they actually declined, or a flag from a public callable would confirm anybody.
+    - ⚠ **Where it appears.** One block, MOVED into whichever panel is open — a decline from the email link lands on **Cancel** (RS-33) while the in-portal Yes/No buttons are on **Changes**. Built on one of them it was invisible to half the people it is for, and a browser is the only thing that found that.
+    - ⚠ **And the block above it had been lying.** The portal opened from an RSVP link renders from the **invoice** record, which carries no `rsvpStatus`, so *"Are you having lights this season?"* answered *"You haven't told us yet."* to somebody who had answered a second earlier. The answer this visit recorded is remembered and wins; `portalRsvp` also returns any reason already on file, so a later visit is not asked again.
+
    ⭐ **WHERE THE THREE RSVP EMAIL BUTTONS LAND** (corrected 2026-08-31). The buttons are built by `applyEmailTokens` in `admin.html` — `{{rsvp_yes_button}}`, `{{rsvp_no_button}}`, `{{rsvp_back_button}}` — and each one carries the customer's own portal token:
 
    | Button | Link | Answer saved | What the customer sees |
@@ -122,6 +131,15 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    - ⚠ **And minimal mode ends there by design.** `openPortalAfterYes` removes `rsvp-minimal`/`rsvp-back`,
      exactly as the old *Take Me to My Portal* button did — a receipt is right for a card, wrong for an
      account page. The no and back-next-year paths still end on the receipt.
+   - ⭐ **AND A NO IS ASKED WHY, ONCE IT IS IN** (2026-09-11, [[RS-58]]). The optional reason picker is
+     drawn only for a record that already says no or back next year and has not answered it — which is
+     what makes it optional rather than a step. ⚠ **It follows them between tabs**: a decline from the
+     email link lands on **Cancel**, the in-portal Yes/No buttons are on **Changes**, and there is ONE
+     block moved into whichever panel is open rather than a copy on each. ⚠ **And the RSVP block reads
+     the answer this visit recorded** (`portalRsvpStatusOf`), because on the link route the page renders
+     from the INVOICE record — thirteen fields, no RSVP among them — so it had been saying *"You haven't
+     told us yet."* to somebody who had answered a second earlier, and the picker keyed off the same
+     blank. Every source check passed the whole time; a browser is what found it.
 
    ⭐ **AND SOMEBODY WHO OWES FOR LAST SEASON IS HELD BEFORE ANY OF IT** (2026-09-02, RS-36). Dax:
    *"make sure it forces them to pay for their last year lights before they can do anything and before
@@ -3684,9 +3702,22 @@ duplicates, and **best effort**, so a failed note never undoes an answer already
 ⛔ **The office's own "no" raises nothing**, deliberately — somebody in admin setting a customer
 to No already knows, and a note telling them what they just typed is noise.
 
-⚠ **An RSVP decline has no optional reason picker** — it is a single button, and the only place
-a reason is collected anywhere is the separate Cancellation Request flow in the member portal.
-Adding choices there would change what ~960 customers see and has not been built.
+⭐ **AND A FOLDER PER REASON** ([[RS-58]], the same day). This line used to read *"an RSVP
+decline has no optional reason picker — it is a single button"*, which is what she was told, and
+her answer was *"okay i need it to be optional choice"*, then *"Should be Moved, Finances, etc."*
+The section now carries a tab per reason under the two answer tabs, built from the shared
+`RSVP_DECLINE_REASONS` list rather than typed out, so the folders cannot drift from what the
+customer is offered or from what the server files them under.
+
+⚠ **The `why:` tab reads the reason off the MESSAGE**, never off the customer record — the same
+rule as the two answer tabs. A message is what somebody said on a day; re-deriving it from the
+record would shuffle old notes between folders every time a customer changed their mind.
+⚠ **A decline with no reason is in no reason folder and still in its answer folder** — the
+reason is optional, so that is the ordinary case, and treating a blank as a match would put
+every silent decline into whichever folder sorts first.
+⚠ **And a reason never drags a note out of its answer.** What they said and why are different
+questions, so a Moved back-next-year is in **Back Next Year** and in **Moved**, never in Not
+This Year.
 
 ⭐ **AND THEN SHE NAMED THE WHOLE THING** ([[MSG-17]], 2026-09-11). Addie, across five
 messages: *"on inbox we need to be able to add a folder to each section not just a new

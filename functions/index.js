@@ -760,6 +760,15 @@ const PORTAL_READ_FIELDS = [
      looks at. portal-fields.test.js is what said so, which is the whole reason
      that census exists. The office reads all five; only the portal is narrowed. */
   'pendingAddress', 'pendingMoveDate',
+  /* ⭐ WHETHER THEY HAVE ALREADY SAID WHY ([[RS-58]], 2026-09-11). The picker is drawn
+     only for somebody who has NOT answered it, and a whitelist is the whole of what
+     reaches the browser — so without this the field reads undefined for everybody and
+     the question is put again to every customer who has already answered it, on every
+     visit. That is the complaint half this file's history is about.
+     ⚠ THE NOTE ITSELF IS NOT SENT. `rsvpDeclineNote` is what they typed and nothing on
+     the page ever draws it back; sending it would be a field in every browser that no
+     line of the page reads, which is what portal-fields.test.js exists to catch. */
+  'rsvpDeclineReason',
   /* ⭐ REFER A FRIEND (2026-09-03). Two fields, and the portal cannot draw that tab
      without either of them — a whitelist is the whole of what reaches the browser, so a
      field left out here is simply undefined on the customer's screen with nothing
@@ -2465,6 +2474,26 @@ function seasonYesUpdates(oldData, ts) {
   }
   return updates;
 }
+/* ⭐ THE TWO DECLINE TOPICS AND THE REASONS SOMEBODY MAY GIVE ([[RS-57]]/[[RS-58]]).
+ * ⚠ THE TOPICS ARE THE FOLDER NAMES the Inbox files on, and the REASONS become folder
+ * names too — so all three are spelled identically in admin.html and run-all.js Suite
+ * 323 compares them character for character. One character apart and a note lands in a
+ * section that shows nothing, silently.
+ * ⭐ THE WORDING IS HERS, NOT A PLACEHOLDER. Addie named them: "Should be Moved,
+ * Finances, etc." and "There should also be an option for other". Every one is read by
+ * a customer AND names a folder, so changing a word here means changing it in
+ * admin.html and index.html in the SAME push. */
+const RSVP_NO_TOPIC = 'RSVP \u2014 Not This Year';
+const RSVP_BNY_TOPIC = 'RSVP \u2014 Back Next Year';
+const RSVP_DECLINE_REASONS = [
+  'Moved',
+  'Finances',
+  'Doing it ourselves',
+  'Another company',
+  'Not decorating',
+  'Other'
+];
+
 exports.portalRsvp = onCall({ cors: true }, async (request) => {
   const body = request.data || {};
   const token = body.token ? String(body.token).trim() : '';
@@ -2477,6 +2506,73 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
 
   const match = await findByToken(token);
   if (!match) throw new HttpsError('not-found', 'Account not found.');
+
+  /* ⭐ AND WHY, IF THEY WANT TO SAY ([[RS-58]], 2026-09-11). Addie: "okay i need it to
+     be optional choice", after being told a decline had no reason picker at all.
+
+     ⛔ THE ANSWER IS RECORDED FIRST AND THE REASON ASKED AFTERWARDS, which is the whole
+     shape of this and the reason it is a SECOND call rather than one. A customer who
+     closes the tab on the reason screen has still declined, and their no is already
+     written — asking first would trade a recorded answer for an optional one, on the
+     send that decides who gets a crew.
+     ⚠ SO THIS BRANCH SITS BEFORE EVERYTHING ELSE AND RETURNS. The transition work — the
+     routes pull, the referral clawback, the recycle flag, the note — has already run on
+     the first call and every part of it is guarded on the status actually changing, so
+     falling through would be a second no-op pass at best.
+     ⚠ AND IT NEVER CHANGES THE ANSWER. `response` is still required and validated above
+     so the shape of the call is unchanged, but nothing here writes `rsvpStatus`: a
+     follow-up that could re-answer would let a stale retry overwrite a newer decision.
+     ⚠ THE NOTE IS FOUND BY `custId`, NEVER BY AN ID FROM THE CALLER. This is a public
+     callable, so a message id supplied by the browser is a message id anybody can
+     supply — and moving an arbitrary message into a folder is not something a customer
+     should be able to do. The token proves who they are; the topic keeps it to one of
+     the two decline notes. */
+  if (Object.prototype.hasOwnProperty.call(body, 'declineReason')) {
+    const reason = String(body.declineReason || '').trim().slice(0, 60);
+    /* ⚠ FROM THE LIST, OR NOTHING AT ALL. A free-text reason would become a folder
+       name, and a folder named by whatever a stranger typed is both a mess and a way
+       to write arbitrary strings into the office's sidebar. */
+    if (RSVP_DECLINE_REASONS.indexOf(reason) === -1) {
+      throw new HttpsError('invalid-argument', 'Unknown reason.');
+    }
+    /* ⭐ AND `Other` CARRIES THEIR OWN WORDS ([[RS-58]]). Addie: "There should also be
+       an option for other and if they put other than a note section will show up that
+       they can put in there reason."
+       ⛔ THE NOTE IS NEVER A FOLDER NAME. The reason picked names the folder and is held
+       to the list above; this is free text and is stored as words beside it. Letting it
+       name a folder would let anybody who can reach a public callable write whatever
+       they liked into the office's own sidebar. */
+    const note = String(body.declineNote || '').trim().slice(0, 500);
+    const reasonUpdates = {
+      rsvpDeclineReason: reason,
+      rsvpDeclineReasonAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    /* ⚠ ONLY WRITTEN WHEN THERE IS ONE. A blank stored where an answer goes reads as an
+       answer — the same rule `requoteKind` already follows. */
+    if (note) reasonUpdates.rsvpDeclineNote = note;
+    await db.collection('jobAddresses').doc(match.id).update(reasonUpdates);
+    /* ⭐ AND THE NOTE MOVES INTO THE FOLDER OF THAT REASON — Addie's own words from the
+       day before, "it will go in the folder with the response they choose". The Inbox
+       files on `folder`, so this string IS the folder.
+       ⚠ BEST EFFORT. The reason is already on the customer by this line, which is the
+       part the office can filter and report on; a failed move must not fail the call
+       and lose it. */
+    try {
+      const notes = await db.collection('messages')
+        .where('custId', '==', match.id)
+        .where('topic', 'in', [RSVP_NO_TOPIC, RSVP_BNY_TOPIC])
+        .get();
+      for (const n of notes.docs) {
+        const patch = { folder: reason, rsvpDeclineReason: reason };
+        /* ⚠ APPENDED TO THE NOTE'S OWN WORDS rather than replacing them: the sentence
+           already there says what happens next to this customer, which is what the
+           office acts on. */
+        if (note) patch.message = String(n.data().message || '') + '\n\nThey said why: ' + note;
+        await n.ref.update(patch);
+      }
+    } catch (e) { console.error('[HU] could not file the decline note under its reason:', e); }
+    return { ok: true, reasonSaved: true };
+  }
 
   const oldData = match.data || {};
   /* ⚠ THROUGH THE SHARED RULE (2026-09-03). A clear flag is not proof the bundle was
@@ -2629,8 +2725,12 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
       String(oldData.rsvpStatus || '') !== response) {
     try {
       await db.collection('messages').add({
-        topic: response === 'no' ? 'RSVP — Not This Year' : 'RSVP — Back Next Year',
+        topic: response === 'no' ? RSVP_NO_TOPIC : RSVP_BNY_TOPIC,
         folder: 'System',
+        /* ⭐ WHOSE NOTE THIS IS ([[RS-58]]). The reason arrives in a SECOND call a moment
+           later and has to find this row to file it under the reason chosen — by the
+           customer the token proves, never by an id the browser supplies. */
+        custId: match.id,
         name: oldData.name || '', phone: oldData.phone || '', email: oldData.email || '',
         contactMethod: '',
         message: (oldData.name || 'A customer') +
@@ -2678,11 +2778,17 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
      office still has Schedule › Owes from last year either way. */
   const owed = response === 'yes' ? await arrearsForCustomer(oldData) : { outstanding: 0, season: '' };
 
+  /* ⭐ AND WHETHER THEY HAVE ALREADY SAID WHY ([[RS-58]]). The portal opened from an RSVP
+     email link renders from the INVOICE record, which carries no RSVP fields at all — so
+     without this the reason picker is offered again on every visit to somebody who has
+     already used it, which reads as their answer not having saved. The server is the only
+     thing on this path that knows. */
   return { ok: true, rsvpStatus: response,
            rejoinedAfterRecycle: rejoinedAfterRecycle,
            removedFromRoutes: removedFrom,
            arrearsOutstanding: owed.outstanding,
            arrearsSeason: owed.season,
+           declineReason: String(oldData.rsvpDeclineReason || ''),
            gateCode: String(oldData.gateCode || '') };
 });
 
@@ -2830,6 +2936,37 @@ exports.portalChangeAddress = onCall({ cors: true }, async (request) => {
        it, so this is now the only way it arrives from the portal. */
     seasonStatus: 'address_changed'
   };
+  /* ⭐ A MOVE REPORTED FROM THE DECLINE PICKER PUTS THEM BACK IN ([[RS-58]], 2026-09-11).
+     Addie: "Moved should also give option change address which will keep them and confrim
+     them for that year along with send them to requotes." The re-quote half was already
+     true — `seasonStatus: 'address_changed'` above is what raises one when the office
+     applies it — so what is added here is the keeping and the confirming.
+
+     ⛔ BOTH CONDITIONS, AND THE RECORD IS THE ONE THAT MATTERS. The browser says this came
+     from the decline picker; the RECORD has to actually say they declined. A flag from a
+     public callable cannot confirm anybody on its own, and an ordinary move by somebody who
+     has never answered must not invent a yes for them — inventing an answer nobody gave is
+     the one thing this file refuses everywhere else.
+
+     ⛔ AND IT GOES THROUGH `seasonYesUpdates`, THE ONE RULE FOR WHAT A YES MEANS. A no sets
+     `needsLightRecycle`, so writing `rsvpStatus: 'yes'` by hand here would leave somebody
+     confirmed for the season AND queued to have their lights pulled apart. That rule cancels
+     the recycle, re-queues the build only where the recycle actually happened, clears
+     `maybeNextYear` and stamps the reply — all of which this needs and none of which is
+     worth a second copy. */
+  const declinedNow = ['no', 'backnextyear'].indexOf(String(oldData.rsvpStatus || '').trim().toLowerCase()) !== -1;
+  const seasonConfirmed = !!body.fromDecline && declinedNow;
+  if (seasonConfirmed) {
+    Object.assign(updates, seasonYesUpdates(oldData, () => admin.firestore.FieldValue.serverTimestamp()));
+    /* ⚠ RE-APPLIED AFTER the yes rule, and it is BELT-AND-BRACES TODAY rather than
+       load-bearing: `seasonYesUpdates` writes no `seasonStatus` of its own, so the value
+       set above already survives. Said plainly because the red-check proved it — deleting
+       this line changed no outcome and was correctly reported as a no-op. It is kept
+       because `address_changed` is the whole point of this call (the re-quote she asked
+       for), and the day that rule learns to write a season status it would silently take
+       this one with it. */
+    updates.seasonStatus = 'address_changed';
+  }
   /* ⚠ THE FOURTH WRITER OF seasonStatus, AND THE STAMP IS WHY THAT HELPER EXISTS.
      Its own note says a stamp beside any ONE branch would miss the others — so a
      new writer that sets the status by hand and skips this is the exact hole it
@@ -2866,7 +3003,10 @@ exports.portalChangeAddress = onCall({ cors: true }, async (request) => {
     });
   } catch (e) { console.error('[HU] address-change note failed:', e); }
 
-  return { ok: true, pendingAddress: pendingAddress };
+  /* ⚠ `seasonConfirmed` IS REPORTED BACK so the portal can redraw as confirmed rather
+     than going on offering the reason picker to somebody it has just put back in. The
+     browser is told what happened; it never decides it. */
+  return { ok: true, pendingAddress: pendingAddress, seasonConfirmed: seasonConfirmed };
 });
 
 /* The one place that strips a customer out of any route a crew has already

@@ -132,6 +132,34 @@ check('portalChangeAddress exists', /exports\.portalChangeAddress\s*=/.test(fns)
    already reads address_changed — so a stub here would keep this file green
    through the stamp being dropped, which is the one thing it is checking. */
 const stampSrc = lift(fns, 'stampSeasonStatusServer');
+/* ⭐ AND THE ONE RULE FOR WHAT A YES MEANS ([[RS-58]], 2026-09-11). A move reported from
+   the RSVP decline picker puts the customer back in the season, and it does it through
+   `seasonYesUpdates` rather than writing `rsvpStatus: 'yes'` by hand — a no sets
+   `needsLightRecycle`, so a hand-written yes leaves somebody confirmed for the season AND
+   queued to have their lights pulled apart.
+   ⚠ LIFTED, NOT STUBBED (§3), and this harness had the extraction trap armed and waiting:
+   `runMove` turns a throw into `{ok:false}`, so a missing helper would not crash — every
+   decline-move would read as a REFUSAL and the checks would report the season not being
+   confirmed, which is a plausible-looking failure with a cause nowhere near it. */
+const seasonYesSrc = lift(fns, 'seasonYesUpdates');
+/* ⚠ AND THE HELPER IT ASKS IN TURN. `seasonYesUpdates` calls `rejoinNeedsBuildServer` to
+   decide whether a bundle was actually pulled apart, so lifting the rule alone leaves it
+   throwing on its first line — and the trap above fired exactly as described: FIVE checks
+   went red with messages about the season not being confirmed, nowhere near the cause.
+   ⚠ LIFTED, NOT STUBBED. A stub would decide whether a returning customer's lights get
+   rebuilt, which is a crew arriving to a house with nothing for it. */
+const rejoinSrc = lift(fns, 'rejoinNeedsBuildServer');
+/* ⚠ AND THE THIRD, which the trap surfaced only once the second was supplied — one name
+   at a time, each presenting as the same five plausible failures. `seasonYesUpdates`
+   stamps `lightsQueuedAt` through `stampBuildQueuedServer` when it re-queues a build, and
+   that stamp is what the 72-hour schedule hold is measured from ([[SCH-52]]) — so a stub
+   here would hold a rejoining customer off the crew routes for ever, or not at all. */
+const stampBuildSrc = lift(fns, 'stampBuildQueuedServer');
+check('the yes rule the move calls was found, and the two helpers it asks',
+  /function seasonYesUpdates/.test(seasonYesSrc) && /function rejoinNeedsBuildServer/.test(rejoinSrc) &&
+  /function stampBuildQueuedServer/.test(stampBuildSrc),
+  'without them every decline-move is caught as a refusal and reads as the feature ' +
+  'not working, rather than as one name missing from a list');
 
 function runMove(data, opts) {
   const o = opts || {};
@@ -169,6 +197,9 @@ function runMove(data, opts) {
   const body =
     'const { db, HttpsError, findByToken, admin, console } = __sb;\n' +
     stampSrc + '\n' +
+    rejoinSrc + '\n' +
+    stampBuildSrc + '\n' +
+    seasonYesSrc + '\n' +
     'let __captured = null;\n' +
     'const onCall = (opts, fn) => { __captured = fn; return fn; };\n' +
     'const exports = {};\n' +
@@ -440,6 +471,95 @@ check('the badge is left for the re-quote to answer',
   !/seasonStatus/.test(clearBlock.slice(0, clearBlock.indexOf('\n    }'))),
   'clearing address_changed here drops the customer off the office filter while ' +
   'the re-quote it raised is still unanswered');
+
+// ==========================================================================
+// 3. A MOVE REPORTED FROM THE DECLINE PICKER PUTS THEM BACK IN ([[RS-58]])
+// ==========================================================================
+
+/* Addie: "Moved should also give option change address which will keep them and confrim
+   them for that year along with send them to requotes."
+
+   ⭐ THE RE-QUOTE HALF WAS ALREADY TRUE — `seasonStatus: 'address_changed'` is what raises
+   one when the office applies the move — so what is new here is the KEEPING and the
+   CONFIRMING, and every claim below is about what gets WRITTEN, so none of it is a text
+   match. */
+console.log('\n--- a move reported from the RSVP decline picker ---\n');
+
+const declinedRec = { name: 'Gone', phone: '8015550222', email: 'g@example.com',
+                      address: '1 Elm St, Lehi 84043', seasonStatus: 'confirmed',
+                      rsvpStatus: 'no', needsLightRecycle: true, lightsRecycledAt: 'THEN',
+                      maybeNextYear: true };
+
+step('decline move confirms', runMove(
+  { token: 'goodtoken', street: '9 Oak St', city: 'Lehi', fromDecline: true },
+  { record: declinedRec }), (r) => {
+  check('a move reported from the decline picker confirms them for the season',
+    r.ok && r.wrote.updates && r.wrote.updates.rsvpStatus === 'yes' && r.res.seasonConfirmed === true,
+    'she asked for it to "keep them and confrim them for that year"');
+  /* ⛔ THROUGH THE SHARED RULE, WHICH IS WHY THE RECYCLE IS CANCELLED. Writing
+     `rsvpStatus: 'yes'` by hand would leave somebody in the season and still queued to
+     have their bundle pulled apart. */
+  check('and it goes through the one rule for what a yes means',
+    r.ok && r.wrote.updates.needsLightRecycle === false && r.wrote.updates.maybeNextYear === false,
+    'a hand-written yes leaves them confirmed AND queued for recycling');
+  /* ⚠ AND THE RE-QUOTE SURVIVES ALL OF IT — "along with send them to requotes", the half
+     she asked for by name. This asserts the OUTCOME rather than which line produces it,
+     deliberately: the re-application after `seasonYesUpdates` is belt-and-braces today
+     (that rule writes no season status of its own, so deleting it changes nothing and the
+     red-check said so), and what must stay true is the value a move ends up carrying,
+     whichever line ends up setting it. */
+  check('and the move still raises a re-quote',
+    r.ok && r.wrote.updates.seasonStatus === 'address_changed',
+    'the office filter and the re-quote both key off it');
+  /* ⚠ AND THE ADDRESS IS STILL ONLY PENDING. Confirming them does not apply the move:
+     there is no geocoder on the server, so the pin and the town stay untouched until the
+     office presses Apply. */
+  /* ⚠ `pendingAddress` CARRIES THE TOWN — it is built as "street, town", which is why
+     this reads the start of it rather than the street alone. Written as an equality on
+     the bare street it failed on code that is right, which is the §7 shape. */
+  check('and the new address is still only pending',
+    r.ok && String(r.wrote.updates.pendingAddress || '').indexOf('9 Oak St') === 0 &&
+    r.wrote.updates.address === undefined && r.wrote.updates.city === undefined,
+    'confirming the season must not quietly apply a move with no pin behind it');
+});
+
+/* ⛔ BOTH CONDITIONS, AND THE RECORD IS THE ONE THAT MATTERS. `fromDecline` arrives from a
+   PUBLIC callable, so on its own it would let anybody confirm anybody for the season — and
+   an ordinary move by somebody who has never answered must not have a yes invented for
+   them, which is the thing this file refuses everywhere else. */
+step('flag alone', runMove(
+  { token: 'goodtoken', street: '9 Oak St', city: 'Lehi', fromDecline: true },
+  { record: { name: 'Never Asked', phone: '8015550333', address: '1 Elm St, Lehi 84043',
+              seasonStatus: 'confirmed' } }), (r) => {
+  check('the flag alone confirms nobody',
+    r.ok && r.wrote.updates.rsvpStatus === undefined && r.res.seasonConfirmed === false,
+    'a flag from a public callable would otherwise answer the RSVP for anybody');
+  check('and an ordinary move is untouched by any of it',
+    r.ok && r.wrote.updates.seasonStatus === 'address_changed' &&
+    r.wrote.updates.needsLightRecycle === undefined,
+    'the move door has worked for weeks and must go on working exactly as it did');
+});
+
+/* ⚠ AND A DECLINED CUSTOMER WHO MOVES WITHOUT THE PICKER IS NOT CONFIRMED EITHER. They
+   told us no and then told us where they went; reading that as a yes invents an answer. */
+step('declined no flag', runMove(
+  { token: 'goodtoken', street: '9 Oak St', city: 'Lehi' },
+  { record: declinedRec }), (r) => {
+  check('a declined customer moving on their own is not confirmed',
+    r.ok && r.wrote.updates.rsvpStatus === undefined && r.res.seasonConfirmed === false,
+    'they said no and then said where they went — that is not a yes');
+});
+
+/* ⚠ BACK NEXT YEAR COUNTS AS DECLINED HERE, because the picker is offered for both
+   answers — a customer shown the reason list and told us they moved has to be able to
+   come back from either one. */
+step('bny move', runMove(
+  { token: 'goodtoken', street: '9 Oak St', city: 'Lehi', fromDecline: true },
+  { record: Object.assign({}, declinedRec, { rsvpStatus: 'backnextyear' }) }), (r) => {
+  check('a back-next-year customer can come back the same way',
+    r.ok && r.wrote.updates.rsvpStatus === 'yes' && r.res.seasonConfirmed === true,
+    'the picker is offered for both answers, so both need a way back');
+});
 
 // ==========================================================================
 Promise.all(results.map(r => r.promise.then(v => r.assertFn(v)))).then(() => {

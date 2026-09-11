@@ -21475,6 +21475,24 @@ function msgTypeOf(d){
    folder with the response they choose" is her own rule, and the folder IS the answer. */
 const RSVP_NO_TOPIC = 'RSVP \u2014 Not This Year';
 const RSVP_BNY_TOPIC = 'RSVP \u2014 Back Next Year';
+/* ⭐ AND WHY THEY SAID IT ([[RS-58]], 2026-09-11). Addie: "okay i need it to be optional
+   choice", then the wording — "Should be Moved, Finances, etc." — and then "There should
+   also be an option for other and if they put other than a note section will show up that
+   they can put in there reason."
+   ⚠ THE THIRD COPY OF THIS LIST. index.html draws the picker, functions/index.js refuses
+   anything not on it, and these are the FOLDERS the notes are filed into — so run-all.js
+   Suite 323 compares all three as lists, in order. One character apart and a real answer
+   sits in a folder nobody opens.
+   ⚠ AND THE WORDING IS HERS. Changing a word here means changing it in the other two in
+   the SAME push; it is read by a customer and it names a folder. */
+const RSVP_DECLINE_REASONS = [
+  'Moved',
+  'Finances',
+  'Doing it ourselves',
+  'Another company',
+  'Not decorating',
+  'Other'
+];
 const SYSTEM_NOTICE_TOPICS = [
   'Routes Kept Up To Date', 'Moved To Another Day', 'A Route Sheet Is Out Of Date',
   'Lights Changed After Assignment', 'Rejoined After Recycling', 'Customer Number Needs Fixing',
@@ -21783,8 +21801,13 @@ const COMM_SECTIONS = [
      ⚠ IT IS A BUILT-IN, so she can rename it, re-icon it, hide it or add folders to it
      ([[MSG-17]]) — but what lands in it is code, because a declined RSVP has to reach it
      whatever anybody has renamed. */
+  /* ⚠ THE TWO ANSWERS FIRST, THEN A FOLDER PER REASON ([[RS-58]]) — her "it will go in
+     the folder with the response they choose", with the reasons built from the shared
+     list rather than typed out, so the tabs cannot drift from what the picker offers or
+     from what the server files them under. */
   {key:'rsvpno', icon:'\u{1F6AB}', label:'No RSVPs',
-   tabs:[['all','All'],['no','Not This Year'],['backnextyear','Back Next Year']]}
+   tabs:[['all','All'],['no','Not This Year'],['backnextyear','Back Next Year']]
+     .concat(RSVP_DECLINE_REASONS.map(function(r){ return ['why:' + r, r]; }))}
 ];
 /* Every section on screen, in order: the built-ins she has not hidden, then hers. ONE list,
    so the nav, the counts, the list and the heading cannot disagree about what exists. */
@@ -21989,6 +22012,14 @@ function commRowMatches(d, section, tab){
     if(t !== RSVP_NO_TOPIC && t !== RSVP_BNY_TOPIC) return false;
     if(tab === 'no') return t === RSVP_NO_TOPIC;
     if(tab === 'backnextyear') return t === RSVP_BNY_TOPIC;
+    /* ⭐ A FOLDER PER REASON ([[RS-58]]). Read off the message's own `rsvpDeclineReason`,
+       which the server writes beside the folder when they answer — never off the
+       customer record, for the same reason the two topics are: a message is what
+       somebody said on a day, and re-deriving it would move old notes about whenever
+       that customer answered something new. */
+    if(String(tab || '').indexOf('why:') === 0){
+      return String(d.rsvpDeclineReason || '') === tab.slice(4);
+    }
     return true;
   }
   if(section === 'errors'){

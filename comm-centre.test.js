@@ -47,6 +47,16 @@ function liftConst(n){
   if(!m) throw new Error('could not find const ' + n);
   return m[0];
 }
+/* ⭐ COMM_SECTIONS NO LONGER STANDS ALONE ([[RS-58]]). The No RSVPs section builds a
+   folder per decline reason from `RSVP_DECLINE_REASONS` rather than typing the tabs out,
+   so every lift of the sections table needs that list in front of it — lift the table by
+   itself and the file dies on a bare ReferenceError, which is the extraction-list trap
+   working exactly as documented. It bit FOUR sandboxes here at once, so it is one helper
+   rather than four places to remember.
+   ⚠ LIFTED, NEVER STUBBED: a stubbed list would let this gate stay green while the tabs
+   and the customer's picker offered different folders — and these strings ARE the folder
+   names. */
+const commSectionsSrc = () => liftConst('RSVP_DECLINE_REASONS') + liftConst('COMM_SECTIONS');
 /* ⚠ AND THE TWO RSVP DECLINE TOPICS ([[RS-57]]) — SYSTEM_NOTICE_TOPICS names them, so
    lifting that table without them dies on a bare ReferenceError while it is being built. */
 const NAMES = ['RSVP_NO_TOPIC','RSVP_BNY_TOPIC','MSG_TYPE_MEMBER','SYSTEM_NOTICE_TOPICS','MSG_CATEGORIES','MSG_TOPIC_CATEGORIES',
@@ -683,7 +693,13 @@ console.log('--- the No RSVPs section ---');
      out of COMM_SECTIONS left them all green while there was nowhere on screen to read
      these notes. That gap went green across a 5,162-check suite once already (the Edit
      Customer tab strip), and the red-check caught it here. */
-  const rsvpSec = new Function(liftConst('COMM_SECTIONS') + 'return COMM_SECTIONS;')()
+  /* ⚠ AND `RSVP_DECLINE_REASONS` COMES WITH IT ([[RS-58]]). The No RSVPs section now
+     builds a folder per reason from that list rather than typing the tabs out, so lifting
+     COMM_SECTIONS alone dies on a bare ReferenceError and takes the whole file with it —
+     the extraction-list trap, working exactly as documented. Lifted, never stubbed: a
+     stubbed list would let this gate stay green while the tabs and the picker offered
+     different folders. */
+  const rsvpSec = new Function(commSectionsSrc() + 'return COMM_SECTIONS;')()
     .find(function(x){ return x.key === 'rsvpno'; });
   check('the No RSVPs section is offered in the sidebar',
     !!rsvpSec, 'the rule answers for a section nobody can open');
@@ -694,6 +710,61 @@ console.log('--- the No RSVPs section ---');
   check('the folder is decided by what they answered, not by where they are now',
     sb.matches(Object.assign({}, noRow, {rsvpStatus: 'yes'}), 'rsvpno', 'no') === true,
     'somebody who said no in October and yes in November has two records, not one that moves');
+
+  /* =========================================================================
+     ⭐ AND A FOLDER PER REASON ([[RS-58]], 2026-09-11). Addie: "okay i need it to be
+     optional choice", and her words the day before — "it will go in the folder with the
+     response they choose" — are what this finishes: the answer picks the section, the
+     reason picks the folder inside it.
+     ⚠ THE WHOLE BRANCH WENT UNTESTED UNTIL THE RED-CHECK SAID SO. Replacing it with a
+     bare `return true` passed the entire file: every check above drives the two ANSWER
+     tabs, and nothing anywhere drove a `why:` one. A tab that matches everything reads as
+     a working folder holding the whole season's declines.
+     ========================================================================= */
+  {
+    const because = (reason) => Object.assign({}, noRow, {rsvpDeclineReason: reason});
+    const moved = because('Moved'), broke = because('Finances'), silent = noRow;
+
+    check('a reason files the note into that reason\'s folder',
+      sb.matches(moved, 'rsvpno', 'why:Moved') === true &&
+      sb.matches(broke, 'rsvpno', 'why:Finances') === true,
+      'her words: "it will go in the folder with the response they choose"');
+    /* ⛔ AND NOT INTO ANY OTHER. A tab that matches everything is the sabotage above. */
+    check('and into no other reason\'s folder',
+      sb.matches(moved, 'rsvpno', 'why:Finances') === false &&
+      sb.matches(broke, 'rsvpno', 'why:Moved') === false,
+      'a folder holding every decline answers nothing the All tab does not');
+    /* ⚠ SOMEBODY WHO NEVER SAID WHY IS IN NO REASON FOLDER. The reason is optional, so
+       this is the ordinary case rather than an edge one — and treating a blank as a match
+       would put every silent decline in whichever folder sorts first. */
+    check('and somebody who never said why is in none of them',
+      sb.matches(silent, 'rsvpno', 'why:Moved') === false &&
+      sb.matches(silent, 'rsvpno', 'why:Finances') === false,
+      'the reason is optional; a blank must not read as an answer');
+    /* ⚠ BUT THEY ARE STILL IN THE SECTION. A decline with no reason is still a decline,
+       and dropping it off All would hide the very people the office wants to ring. */
+    check('but they are still in the section, and in their answer\'s folder',
+      sb.matches(silent, 'rsvpno', 'all') === true &&
+      sb.matches(silent, 'rsvpno', 'no') === true,
+      'a decline with no reason is still a decline');
+    /* ⛔ AND A REASON NEVER DRAGS A NOTE OUT OF ITS ANSWER. The two are different
+       questions — what they said, and why — so a Moved back-next-year is in the Back Next
+       Year folder AND in Moved, never in Not This Year. */
+    check('a reason does not move a note out of its answer folder',
+      sb.matches(Object.assign({}, bnyRow, {rsvpDeclineReason: 'Moved'}), 'rsvpno', 'backnextyear') === true &&
+      sb.matches(Object.assign({}, bnyRow, {rsvpDeclineReason: 'Moved'}), 'rsvpno', 'why:Moved') === true &&
+      sb.matches(Object.assign({}, bnyRow, {rsvpDeclineReason: 'Moved'}), 'rsvpno', 'no') === false,
+      'the answer and the reason are different questions and both are asked');
+    /* ⚠ AND THE TABS OFFERED MATCH THE LIST THE PICKER DRAWS, read out of the page rather
+       than typed here — these strings are folder names in three files, and a tab naming a
+       reason the customer is never offered is a folder that can only ever be empty. */
+    const reasons = new Function(liftConst('RSVP_DECLINE_REASONS') + 'return RSVP_DECLINE_REASONS;')();
+    check('every reason the picker offers has a folder to land in',
+      !!rsvpSec && reasons.every(function(r){
+        return rsvpSec.tabs.some(function(t){ return t[0] === 'why:' + r; });
+      }) && reasons.length > 1,
+      'a reason with no folder files a real answer where nobody is looking');
+  }
 }
 
 /* =============================================================================
@@ -860,7 +931,7 @@ if(!JSDOM){
     liftFn('esc') + liftFn('msgTypeOf') + liftFn('msgCategories') + liftFn('msgStatusOf') +
     liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
     liftConst('ERROR_FOLDER_MEMBER') + liftConst('ERROR_FOLDER_ADMIN') +
-    liftConst('MESSAGE_HOME_FOLDER') + liftConst('COMM_SECTIONS') +
+    liftConst('MESSAGE_HOME_FOLDER') + commSectionsSrc() +
     /* ⚠ [[MSG-17]]'s four, lifted not stubbed — the editor opens for a BUILT-IN now, so it
        asks which folders she has already added to one and what that section holds. */
     liftFn('messageFolderOf') + liftFn('msgIsFiledAway') + liftFn('commBuiltInExtras') +
@@ -979,7 +1050,7 @@ if(JSDOM){
     liftConst('MSG_CATEGORIES') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
     liftConst('MSG_STATUS') + liftConst('MSG_STATUS_LABEL') + liftConst('MSG_PRIORITY') +
     liftConst('MSG_PRIORITY_LABEL') + liftConst('MSG_SEVERITY_LABEL') + liftConst('COMM_ACTIVITY_TOPICS') +
-    liftConst('COMM_SECTIONS') +
+    commSectionsSrc() +
     liftFn('esc') + liftFn('msgTypeOf') + liftFn('msgCategories') + liftFn('msgStatusOf') +
     liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
     liftConst('ERROR_FOLDER_MEMBER') + liftConst('ERROR_FOLDER_ADMIN') +
@@ -1104,7 +1175,7 @@ if(JSDOM){
     liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
     liftConst('SYSTEM_NOTICE_TOPICS') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
     liftConst('ERROR_FOLDER_MEMBER') + liftConst('ERROR_FOLDER_ADMIN') +
-    liftConst('MESSAGE_HOME_FOLDER') + liftConst('COMM_SECTIONS') +
+    liftConst('MESSAGE_HOME_FOLDER') + commSectionsSrc() +
     liftFn('esc') + liftFn('msgTypeOf') + liftFn('msgCategories') + liftFn('msgStatusOf') +
     liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
     liftFn('messageFolderOf') + liftFn('msgIsFiledAway') + liftFn('commBuiltInExtras') +

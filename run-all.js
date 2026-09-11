@@ -3654,7 +3654,20 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     referralSrcs.every(Boolean),
     'renamed or removed — a missing one leaves every decline throwing a bare ' +
     'ReferenceError, which reads as "an async suite crashed"');
-  const fullSrc = [todayStrSrc, stampSrcs, arrearsSrcs.filter(Boolean).join('\n'),
+  /* ⚠ AND THE THREE [[RS-57]]/[[RS-58]] CONSTANTS, LIFTED — not stubbed. portalRsvp
+     names them when it raises the decline note and again when it files a reason, and
+     the note write is wrapped in a best-effort try/catch — so without them the sandbox
+     does NOT fail, it quietly logs "[HU] RSVP decline note failed: RSVP_NO_TOPIC is not
+     defined" and every check about that note passes against a note that was never
+     written. A green run for the worst possible reason, which is why they are here. */
+  const rsvpConstSrc = (fnSrc.match(/const RSVP_NO_TOPIC = '[^']*';/) || [''])[0] + '\n' +
+                       (fnSrc.match(/const RSVP_BNY_TOPIC = '[^']*';/) || [''])[0] + '\n' +
+                       (fnSrc.match(/const RSVP_DECLINE_REASONS = \[[\s\S]*?\];/) || [''])[0];
+  check('flow', 'the RSVP decline constants were found for the sandbox',
+    /RSVP_NO_TOPIC/.test(rsvpConstSrc) && /RSVP_DECLINE_REASONS/.test(rsvpConstSrc),
+    'without them the note write throws into its own catch and every check about it ' +
+    'passes against a note that was never raised');
+  const fullSrc = [todayStrSrc, rsvpConstSrc, stampSrcs, arrearsSrcs.filter(Boolean).join('\n'),
                    referralSrcs.filter(Boolean).join('\n'),
                    seasonYesSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
     .filter(Boolean).join('\n');
@@ -3672,10 +3685,14 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
   // written; add() records Inbox notes with the collection they landed in;
   // get() backs removeCustomerFromUpcomingRoutes's own route scan — empty on
   // purpose, since no test here needs a real route to already exist.
-  function runRsvp(record, response, routes) {
+  /* ⚠ `opts` CARRIES THE FOLLOW-UP ([[RS-58]]): `opts.body` adds fields to the call so
+     the reason branch can be RUN rather than read, and `opts.notes` is what the messages
+     query finds, since that branch re-opens a note an EARLIER call wrote. */
+  function runRsvp(record, response, routes, opts) {
     const written = {};
     const added = [];
     const routeWrites = [];
+    const noteWrites = [];
     const ctx = {
       exports: {},
       onCall: (opts, handler) => handler,
@@ -3693,30 +3710,44 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
         if (d.email2 !== undefined) out.email2Lower = String(d.email2 || '').toLowerCase().trim();
         return out;
       },
-      /* portalRsvp does TWO things now, from two different sessions' work
-         merged together: it raises the rejoined-after-recycle note, AND it
-         sweeps a declining customer off any route a crew has already been
-         handed. This suite is about the first; the second has its own suite.
-         Stubbed rather than left out, because leaving it out made the whole
-         async suite die on a ReferenceError, which reads as "everything here
-         is broken" instead of "one helper is missing". */
-      removeCustomerFromUpcomingRoutes: async (id) => { sweptFromRoutes.push(id); return 0; },
+      /* ⚠ THERE IS NO ROUTE-SWEEP STUB HERE, AND THERE MUST NOT BE. A stub used to sit
+         at this line, and it was DEAD: `fullSrc` lifts the real
+         `removeCustomerFromUpcomingRoutes` out of functions/index.js, and a function
+         DECLARATION inside the sandbox shadows the parameter of the same name for the
+         whole body — so the stub could never run. It was proved dead by accident: its
+         body pushed to an undeclared `sweptFromRoutes`, which would have thrown a
+         ReferenceError out of every decline in this suite, and every decline passed.
+         ⚠ SO A CHECK HERE MUST READ `routeWrites`, which the real sweep fills through
+         the fake db, and never a list the stub was supposed to keep. */
       db: {
-        collection: (name) => ({
-          doc: () => ({ update: async (u) => { Object.assign(written, u); } }),
-          add: async (m) => { added.push(Object.assign({ __col: name }, m)); },
-          get: async () => ({ docs: (routes || []).map(r => ({
-            data: () => r,
-            ref: { update: async (u) => { routeWrites.push({ id: r.id, stops: u.stops }); } }
-          })) })
-        })
+        collection: (name) => {
+          /* ⚠ `where()` RETURNS THE SAME OBJECT so a two-clause query chains, and the
+             messages collection answers with the notes this call is meant to find —
+             the route sweep and the decline-note move both end in `.get()` and want
+             different rows. */
+          const q = {
+            doc: () => ({ update: async (u) => { Object.assign(written, u); } }),
+            add: async (m) => { added.push(Object.assign({ __col: name }, m)); },
+            where: () => q,
+            get: async () => (name === 'messages'
+              ? { docs: ((opts && opts.notes) || []).map(n => ({
+                  data: () => n,
+                  ref: { update: async (u) => { noteWrites.push(Object.assign({}, n, u)); } }
+                })) }
+              : { docs: (routes || []).map(r => ({
+                  data: () => r,
+                  ref: { update: async (u) => { routeWrites.push({ id: r.id, stops: u.stops }); } }
+                })) })
+          };
+          return q;
+        }
       },
       console
     };
     const names = Object.keys(ctx);
     new Function(...names, fullSrc)(...names.map(n => ctx[n]));
-    return ctx.exports.portalRsvp({ data: { token: 't', response } })
-      .then(res => ({ res, written, added, routeWrites }));
+    return ctx.exports.portalRsvp({ data: Object.assign({ token: 't', response }, (opts && opts.body) || {}) })
+      .then(res => ({ res, written, added, routeWrites, noteWrites }));
   }
 
   const notes = a => a.filter(m => m.__col === 'messages' && m.topic === 'Rejoined After Recycling');
@@ -3838,6 +3869,104 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     const plain = await runRsvp({ name: 'Normal', rsvpStatus: '', needsLightRecycle: false }, 'yes');
     check('flow', 'a first-time yes does not look like a rejoin',
       plain.written.needsLightBuild === undefined && notes(plain.added).length === 0);
+
+    /* =======================================================================
+       ⭐ THE OPTIONAL REASON, RUN ([[RS-58]], 2026-09-11). Addie: "okay i need it to
+       be optional choice." Everything below is about what is WRITTEN and WHERE, so
+       none of it can be a text match — the checks beside this suite that read the
+       source prove the branch is placed correctly; these prove it does the right
+       thing when it runs.
+       ======================================================================= */
+    const declineNote = { id: 'm1', topic: 'RSVP \u2014 Not This Year', folder: 'System',
+                          custId: 'h1', message: 'Somebody said no. Here is what happens next.' };
+    const declined = { name: 'Gone', rsvpStatus: 'no', needsLightRecycle: true };
+
+    const why = await runRsvp(declined, 'no', [],
+      { body: { declineReason: 'Finances' }, notes: [declineNote] });
+    check('flow', 'a reason is written onto the customer',
+      why.written.rsvpDeclineReason === 'Finances' && why.written.rsvpDeclineReasonAt === '__ts__',
+      'the office filters and reports on the field, not on the folder');
+    /* ⛔ THE ANSWER WAS RECORDED ON THE FIRST CALL AND THIS ONE MUST NOT TOUCH IT. A
+       retry arriving after somebody changed their mind would otherwise put the old
+       answer back — on the field that decides who gets a crew. */
+    check('flow', 'and the follow-up writes no RSVP answer at all',
+      why.written.rsvpStatus === undefined && why.written.rsvpRespondedAt === undefined,
+      'a stale retry could overwrite a newer decision');
+    /* ⚠ AND IT DOES NONE OF THE TRANSITION WORK A SECOND TIME. */
+    check('flow', 'and it does not re-run the decline',
+      why.written.needsLightRecycle === undefined && why.routeWrites.length === 0 &&
+      why.added.length === 0,
+      'the routes pull, the recycle flag and the note all ran on the first call');
+    /* ⭐ "IT WILL GO IN THE FOLDER WITH THE RESPONSE THEY CHOOSE" — her words. The
+       Inbox files on `folder`, so the reason IS the folder. */
+    check('flow', 'and the note moves into the folder of that reason',
+      why.noteWrites.length === 1 && why.noteWrites[0].folder === 'Finances',
+      'got ' + JSON.stringify(why.noteWrites.map(n => n.folder)));
+    /* ⛔ AND THE ROW CARRIES THE REASON AS A FIELD TOO. commRowMatches' `why:` tab
+       reads `rsvpDeclineReason` off the MESSAGE — the folder alone is renameable by
+       hand ([[MSG-17]]), and a renamed folder would empty the tab. */
+    check('flow', 'and the row carries the reason for the folder tab to read',
+      why.noteWrites[0].rsvpDeclineReason === 'Finances',
+      'the tab reads the field; a hand-renamed folder must not empty it');
+    check('flow', 'and the note keeps the sentence it already had',
+      String(why.noteWrites[0].message || '').indexOf('what happens next') !== -1,
+      'that sentence is what the office acts on');
+
+    /* ⭐ `Other` CARRIES THEIR OWN WORDS. Addie: "if they put other than a note
+       section will show up that they can put in there reason." */
+    const other = await runRsvp(declined, 'no', [],
+      { body: { declineReason: 'Other', declineNote: 'Selling the house in November' },
+        notes: [declineNote] });
+    check('flow', 'an Other note is stored beside the reason',
+      other.written.rsvpDeclineNote === 'Selling the house in November' &&
+      other.written.rsvpDeclineReason === 'Other');
+    /* ⛔ AND THE TYPED WORDS NEVER NAME A FOLDER. This is a PUBLIC callable: a folder
+       named by whatever a stranger typed would let anybody write arbitrary strings
+       into the office's own sidebar, and would make a folder per customer. */
+    check('flow', 'but the typed words never become the folder',
+      other.noteWrites[0].folder === 'Other' &&
+      other.noteWrites[0].rsvpDeclineReason === 'Other',
+      'got folder ' + JSON.stringify(other.noteWrites[0].folder));
+    check('flow', 'and their words are added to the note the office reads',
+      String(other.noteWrites[0].message || '').indexOf('Selling the house in November') !== -1,
+      'stored on the record and nowhere anybody looks is half a feature');
+    /* ⚠ A BLANK IS NOT AN ANSWER — the same rule `requoteKind` follows. Stored, it
+       reads as somebody having typed nothing on purpose. */
+    const noNote = await runRsvp(declined, 'no', [],
+      { body: { declineReason: 'Other', declineNote: '   ' }, notes: [declineNote] });
+    check('flow', 'and an empty note is not stored at all',
+      !('rsvpDeclineNote' in noNote.written),
+      'a blank where an answer goes reads as an answer');
+
+    /* ⛔ OFF THE LIST IS REFUSED, RUN rather than read. */
+    let refused = null;
+    try {
+      await runRsvp(declined, 'no', [],
+        { body: { declineReason: '<script>hi</script>' }, notes: [declineNote] });
+    } catch (e) { refused = e; }
+    check('flow', 'a reason that is not on the list is refused',
+      !!refused && refused.code === 'invalid-argument',
+      'the reason names a folder, so free text here is a way into the sidebar');
+
+    /* ⚠ AND A REFUSAL WRITES NOTHING. Refusing after the customer write would leave
+       the record holding a reason the office can never see a folder for. */
+    const before = await (async () => {
+      let caught = null, out = null;
+      try { out = await runRsvp(declined, 'no', [],
+        { body: { declineReason: 'Nope' }, notes: [declineNote] }); } catch (e) { caught = e; }
+      return { caught, out };
+    })();
+    check('flow', 'and the refusal happens before anything is written',
+      !!before.caught,
+      'a reason on the record with no folder anywhere is worse than no reason');
+
+    /* ⚠ A FAILED MOVE NEVER LOSES THE REASON. The customer write is the half the
+       office filters on; the folder is the nudge. */
+    const noNotes = await runRsvp(declined, 'no', [],
+      { body: { declineReason: 'Moved' }, notes: [] });
+    check('flow', 'a reason with no note to move still saves',
+      noNotes.written.rsvpDeclineReason === 'Moved' && noNotes.res.reasonSaved === true,
+      'the note is best effort; the field is not');
   })());
 })();
 
@@ -57859,15 +57988,21 @@ suite('Suite 323. A declined RSVP tells somebody');
      functions/index.js is stored with CRLF: a multi-line anchor written with \n matches
      nothing, indexOf returns -1, and the check fails on code that never moved (§7). */
   const src = fnsSrc.replace(/\r\n/g, '\n');
+  const idx = read('index.html');
   const at = src.indexOf("if ((response === 'no' || response === 'backnextyear') &&");
   check('S323', 'portalRsvp raises a note when somebody declines', at !== -1,
     'the record changed, they came off every route, and the Inbox said nothing');
   if (at !== -1) {
     const blkSrc = src.slice(at, src.indexOf('\n  }', at) + 4);
     /* ⭐ THE TOPIC IS THE ANSWER THEY CHOSE — her "it will go in the folder with the
-       response they choose". The Inbox files on the topic, so this string IS the folder. */
+       response they choose". The Inbox files on the topic, so this string IS the folder.
+       ⚠ REPOINTED 2026-09-11: this matched the two literal strings inside the note, so
+       it failed on correct code the moment [[RS-58]] moved them behind named constants.
+       What has to be true is that the two answers are told apart, and the constants
+       themselves are compared against the browser's below. */
     check('S323', 'and the topic is the answer they gave, so it lands in that folder',
-      /RSVP — Not This Year/.test(blkSrc) && /RSVP — Back Next Year/.test(blkSrc),
+      /RSVP_NO_TOPIC/.test(blkSrc) && /RSVP_BNY_TOPIC/.test(blkSrc) &&
+      /response === 'no' \?/.test(blkSrc),
       'one topic for both would put a recycle and a stay-on-the-books in one pile');
     /* ⚠ A SYSTEM NOTICE, NOT A MEMBER MESSAGE. On a send of ~960 these outnumber real
        questions; read as member mail they bury the reply queue, which is the complaint
@@ -57900,13 +58035,116 @@ suite('Suite 323. A declined RSVP tells somebody');
     /* ⛔ AND THE TWO TOPIC STRINGS MATCH THE BROWSER'S CONSTANTS EXACTLY. They are the
        folder names: one character apart and the note is written into a section that
        shows nothing, with nothing anywhere going red. */
+    /* ⚠ COMPARED AS CONSTANTS, in both files, rather than hunted for inside the note.
+       These strings ARE folder names: one character apart and a note lands in a section
+       that shows nothing, with nothing anywhere going red. */
+    const constOf = (src, n) => {
+      const m = new RegExp('const ' + n + " = '([^']*)';").exec(src);
+      return m ? m[1].replace(/\\u2014/g, '\u2014') : '';
+    };
     ['RSVP_NO_TOPIC', 'RSVP_BNY_TOPIC'].forEach(function(n){
-      const m = new RegExp('const ' + n + " = '([^']*)';").exec(admin);
-      const want = m ? m[1].replace(/\\u2014/g, '\u2014') : '';
+      const a = constOf(admin, n), b = constOf(src, n);
       check('S323', 'the server spells ' + n + ' exactly as the browser does',
-        !!want && blkSrc.indexOf(want) !== -1,
-        'the topic IS the folder name — one character apart and the note lands in a ' +
-        'section that shows nothing, silently');
+        !!a && a === b, 'browser ' + JSON.stringify(a) + ' vs server ' + JSON.stringify(b));
     });
+    /* ⭐ AND THE REASONS, WHICH ARE ALSO FOLDER NAMES ([[RS-58]]). Addie: "okay i need
+       it to be optional choice." The customer picks one in index.html, the server
+       refuses anything not on its own list, and the Inbox files the note under it — so
+       three files hold the same words and a single typo puts a real answer in a folder
+       nobody is looking at. ⚠ THE ORDER IS COMPARED TOO: the picker draws them in this
+       order and the section's folders are built from it, so a reordered copy silently
+       renames every tab. */
+    const listOf = (srcTxt) => {
+      /* ⚠ `var` IN index.html, `const` IN THE OTHER TWO — index.html's portal script is
+         the old-style one. A regex that only knew `const` read the picker's list as
+         EMPTY and reported a mismatch against code that was right. */
+      const m = /(?:const|var) RSVP_DECLINE_REASONS = \[([\s\S]*?)\];/.exec(srcTxt);
+      return m ? (m[1].match(/'([^']+)'/g) || []).map(x => x.slice(1, -1)) : [];
+    };
+    const svrReasons = listOf(src), admReasons = listOf(admin), idxReasons = listOf(idx);
+    check('S323', 'the three copies of the decline reasons are the same list',
+      svrReasons.length > 1 &&
+      JSON.stringify(svrReasons) === JSON.stringify(admReasons) &&
+      JSON.stringify(svrReasons) === JSON.stringify(idxReasons),
+      'server ' + JSON.stringify(svrReasons) + '\n        admin ' + JSON.stringify(admReasons) +
+      '\n        index ' + JSON.stringify(idxReasons));
+    /* ⛔ AND THE SERVER REFUSES ANYTHING NOT ON IT. The reason becomes a FOLDER NAME, so
+       free text here would let anybody who can reach a public callable write arbitrary
+       strings into the office's own sidebar. */
+    check('S323', 'and the server refuses a reason that is not on the list',
+      /RSVP_DECLINE_REASONS\.indexOf\(reason\) === -1/.test(src) &&
+      /throw new HttpsError\('invalid-argument', 'Unknown reason\.'\)/.test(src),
+      'a folder named by whatever a stranger typed is both a mess and a way in');
+    /* ⛔ THE ANSWER IS RECORDED FIRST AND THE REASON ASKED AFTER. A customer who closes
+       the tab on the reason screen has still declined — asking first trades a recorded
+       answer for an optional one, on the send that decides who gets a crew. */
+    /* ⚠ SCOPED TO portalRsvp, NOT THE FILE. `const oldData = match.data` appears three
+       times in functions/index.js and the FIRST is in another function entirely, so a
+       file-wide indexOf compares against the wrong anchor and fails on correct code —
+       which is exactly what it did on the first pass. */
+    const fnAt = src.indexOf('exports.portalRsvp = onCall(');
+    const rsvpFn = src.slice(fnAt, src.indexOf('\nexports.', fnAt + 10));
+    check('S323', 'the reason is a follow-up that never re-answers the RSVP',
+      /hasOwnProperty\.call\(body, 'declineReason'\)/.test(rsvpFn) &&
+      rsvpFn.indexOf("hasOwnProperty.call(body, 'declineReason')") < rsvpFn.indexOf('const oldData = match.data'),
+      'it must return before the transition work, and must not write rsvpStatus');
+    {
+      const rsn = rsvpFn.slice(rsvpFn.indexOf("hasOwnProperty.call(body, 'declineReason')"),
+                               rsvpFn.indexOf('const oldData = match.data'));
+      check('S323', 'and the follow-up writes no RSVP answer of its own',
+        !/rsvpStatus/.test(rsn),
+        'a retry could otherwise overwrite a newer decision with a stale one');
+      /* ⛔ AND IT FINDS THE NOTE BY THE CUSTOMER THE TOKEN PROVES, never by an id the
+         browser supplied — moving an arbitrary message is not a customer's to do. */
+      check('S323', 'and finds the note by custId, not by an id from the caller',
+        /where\('custId', '==', match\.id\)/.test(rsn) && !/body\.noteId|body\.messageId/.test(rsn),
+        'a message id from a public callable is a message id anybody can supply');
+    }
+    check('S323', 'and the note carries the customer it belongs to',
+      /custId: match\.id/.test(blkSrc),
+      'without it the reason arriving a moment later has no way to find this row');
+
+    /* =====================================================================
+       ⭐ THE PICKER'S OWN STATE, IN index.html ([[RS-58]]). Everything about what
+       APPEARS is driven in a real browser by test/rsvp-decline-reason.spec.js —
+       these are the two claims about a module variable, which a browser cannot see.
+       ===================================================================== */
+    const idxNoComments = stripComments(idx);
+    /* ⛔ THE MOVE FLAG IS READ ONCE AND CLEARED IN THE SAME BREATH. Left set, every
+       later ordinary move would ask to be confirmed for a season nobody answered
+       about — the sticky-field bug this repo already shipped once as maybeNextYear.
+       ⚠ THE BROWSER SPEC CANNOT COVER THIS: the move offer folds itself away after
+       one submission, so there is no second move to drive through the page. */
+    {
+      /* ⚠ SLICED TO A REAL ANCHOR, never a character count — §7 bans fixed-length
+         extraction windows and the structure gate enforces it, which is what caught the
+         first draft of this check. The anchor is the call itself: the flag has to be
+         cleared between being read and being sent. */
+      const at = idxNoComments.indexOf('var cameFromDecline = portalMoveConfirmsSeason');
+      const callAt = at === -1 ? -1 : idxNoComments.indexOf("callPortalFn('portalChangeAddress'", at);
+      const between = (at === -1 || callAt === -1) ? '' : idxNoComments.slice(at, callAt);
+      check('S323', 'the decline-move flag is spent the moment it is read',
+        at !== -1 && callAt !== -1 && /portalMoveConfirmsSeason = false/.test(between),
+        'cleared after the call, a failed send leaves it set and the NEXT ordinary move ' +
+        'asks to be confirmed for a season nobody answered about');
+    }
+    /* ⛔ AND THE PICKER IS ONE BLOCK, MOVED — never a second copy. Two blocks means two
+       sets of buttons and eventually two different lists of reasons, and the list is a
+       FOLDER NAME in three files already. */
+    check('S323', 'there is exactly one reason picker in the page',
+      (idxNoComments.match(/id="portalRsvpReason"/g) || []).length === 1 &&
+      (idxNoComments.match(/id="portalRsvpReasonBtns"/g) || []).length === 1,
+      'a second copy is a second list of folder names waiting to disagree');
+    /* ⚠ AND IT IS RE-MOUNTED AFTER THE PANELS ARE SWITCHED, not before: the host is
+       chosen by which panel is VISIBLE, so running it first reads the old tab and
+       leaves the picker on the one the customer is not looking at. */
+    {
+      const fnAt2 = idxNoComments.indexOf('function activatePortalTab(');
+      const body = fnAt2 === -1 ? '' : idxNoComments.slice(fnAt2, idxNoComments.indexOf('\n}', fnAt2));
+      check('S323', 'the picker is re-mounted after the tab is switched, not before',
+        /renderPortalRsvpReason\(\)/.test(body) &&
+        body.indexOf('renderPortalRsvpReason()') > body.indexOf("panel.style.display = name === tabName"),
+        'mounted first it reads the OLD tab and stays where the customer is not looking');
+    }
   }
 }
