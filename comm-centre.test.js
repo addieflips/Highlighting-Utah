@@ -1429,6 +1429,61 @@ console.log('--- a counted message is a reachable message ---');
 }
 
 
+/* =========================================================================
+   ⛔ NO CONTROL IN HERE IS HOVER-ONLY ([[MSG-23]], 2026-09-11)
+
+   Addie: "not able to add to each section and delete from each section." Both buttons were
+   there the whole time — `✎` to rename a section or add a folder to it, `✕` to hide one —
+   sitting at `opacity:0` and lifted only by `.comm-sec-row:hover`. SHE WORKS ON A TABLET.
+   There is no hover on a tablet, so there was no way to reveal either, ever.
+
+   ⚠ THE THIRD TIME THIS SHAPE HAS SHIPPED HERE, which is why it is a gate and not just a
+   fix: the Inbox drag was mouse-only ([[MSG-05]] — "we still cannot move things around"),
+   and the Schedule's reschedule control was hidden behind a tick box. Each had a tidy
+   reason; each was invisible to the one person who needed it.
+
+   ⚠ IT READS THE STYLESHEET, WITH COMMENTS STRIPPED — the note recording this fix quotes
+   `opacity:0` by name, so unstripped the check would fail on the very file that fixed it.
+   Suites 58, 274, 275 and 300 each learned that; so did the leak check in this file.
+   ========================================================================= */
+console.log('');
+console.log('--- nothing here hides until you hover ---');
+{
+  const css = admin.replace(/\/\*[\s\S]*?\*\//g, '');
+  /* Every rule whose selector names a comm-* class. Split on '}' rather than parsed: these
+     are flat rules with no nesting, and a CSS parser here would be a dependency to keep in
+     step for no extra truth. */
+  const rules = css.split('}').filter(function(r){ return /\.comm-[a-z-]+/.test(r); });
+  /* ⚠ THE SELECTOR IS WHAT SITS BEFORE THE `{`, not the last line of the chunk. The first
+     version took `slice(lastIndexOf('\n') + 1)` — which on a rule written over two lines is
+     the DECLARATIONS, never the selector — so it matched nothing and a red-check putting
+     `opacity:0` straight back sailed through. A check that cannot fail is not a check. */
+  const hidden = rules.filter(function(r){
+    const sel = r.slice(0, r.indexOf('{') === -1 ? r.length : r.indexOf('{'));
+    return /opacity\s*:\s*0\s*[;}]/.test(r) && /\.comm-/.test(sel);
+  });
+  check('no Communication Centre control starts invisible',
+    hidden.length === 0,
+    'a control at opacity:0 that only a :hover can lift does not exist on a tablet, and ' +
+    'that is what she uses — found: ' + hidden.map(function(r){ return r.trim().slice(0, 90); }).join(' | '));
+
+  /* ⛔ AND THE TWO SHE NAMED ARE RENDERED AT ALL. The rule above would stay green if
+     somebody deleted the buttons outright, which is the opposite failure and just as
+     silent — she still could not add or delete a section. */
+  check('and the section rename/add-a-folder control is drawn',
+    /data-commedit=/.test(admin),
+    'her words: "not able to add to each section"');
+  check('and the hide-a-section control is drawn',
+    /data-commhide=/.test(admin),
+    'her words: "and delete from each section"');
+  /* ⚠ DRAWN IS NOT WIRED. A rendered button with no listener looks identical to a working
+     one — this repo shipped exactly that with the recycle "bin says" box. */
+  check('and both are actually listened to',
+    /\[data-commedit\]/.test(admin) && /\[data-commhide\]/.test(admin),
+    'a button with no handler is indistinguishable from one that works, until it is pressed');
+}
+
+
 Promise.all(pendingChecks).then(function(){
   console.log('');
   console.log('=== The communication centre ===');

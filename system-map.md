@@ -3713,6 +3713,20 @@ folder files its derived residents into Inbox for the same reason. ⚠ **And `fo
 field decides which *tab* a message is on, not which folder, and a topic must never be able
 to move a notice between them.
 
+⭐ **THE SECTION CONTROLS ARE ALWAYS VISIBLE NOW** (2026-09-11, [[MSG-23]]). Addie: *"not
+able to add to each section and delete from each section."* Both buttons — `✎` to rename a
+section or add a folder to it, `✕` to hide one — were rendered and wired the whole time, at
+`opacity:0` and lifted only by `:hover`. **She works on a tablet, which has no hover**, so
+there was no way to reveal either. They sit at `opacity:.55` permanently now. ⚠ Third time
+this shape has shipped here (the Inbox drag was mouse-only; the Schedule's reschedule button
+was behind a tick box) — `comm-centre.test.js` now fails on any `.comm-*` rule that starts a
+control at `opacity:0`.
+
+⚠ **The search bar is NOT a missing feature.** `#msgSearchInput` is in the filter row above
+the list and nothing toggles the pane holding it, so it is on screen. Left alone deliberately
+rather than guess-fixed — a blind layout change is how a working control moves somewhere
+worse.
+
 ⭐ **THE NAV BADGE USED TO COUNT MESSAGES ITS OWN LIST REFUSED TO DRAW — FIXED 2026-09-11**
 ([[MSG-22]]). Addie: *"inbox it shows the number notification. But that should go away when
 we mark responded."*
@@ -5226,6 +5240,15 @@ legitamite or not I need it to correctly place them."* She is right — a warnin
 out of ~950 is a report. `clearStaleInstallBookingsRun` now clears an orphaned stamp as well
 as an out-for-the-season one, so the next sweep re-homes them and the date comes right on its
 own. The pill stays as the thing that says so on screen; it still never writes.
+
+⭐ **AND SCHEDULE IS NOW A TAB OF ROUTES** (2026-09-11, [[SCH-76]]). Addie: *"Can we
+organize this better so schedule can be a part of routes?"* It leads the Routes tab bar,
+ahead of List View / Generate Route / Calendar / Map View / Take Downs. **Nothing was
+removed** — her *"I need everything to stay as it is"* is the later and narrower instruction,
+so Generate Route and the Calendar are still there, now sitting beside the thing that
+duplicates them. ⚠ The widget starts from **two** doors — the Routes nav item and the
+Schedule tab itself — because she can read the address list and come back to the Schedule tab
+without touching the nav again, and wiring only the nav gives a blank pane on that path.
 
 ⭐ **AND THE CAUSE IS THAT THERE ARE TWO PLANNERS.** The **Schedule** tab builds
 `routeSchedule` — the day list, Recalculate everything, both crew print sheets, the Printing
