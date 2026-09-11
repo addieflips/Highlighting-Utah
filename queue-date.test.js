@@ -1246,6 +1246,20 @@ check('the path still has every step in it',
       'the RSVP answer, which is already a step. It exists because nothing recorded who ' +
       'the send had reached, so 392 customers Gmail refused could not be told apart from ' +
       'the ones who got it (EM-04)',
+    /* ⚠ THE CHARGE IS ALREADY IN THE HISTORY, AND NOT THROUGH THIS FIELD. The 1 April
+       batch writes the fee as a `changeFeeNotes` entry with kind 'late', so
+       historyNoteRows renders it as "Late fee $25.00 — Unpaid after 28 February" against
+       the note's own date, and the × in Edit Customer can waive it. This date is the
+       once-per-invoice guard that stops the batch charging the same customer twice on a
+       re-run — the arrearsRsvpEmailAt shape exactly: our bookkeeping about a thing WE
+       did. Drawn as a step it would put a second milestone on the picture for one charge,
+       and it could not be read anyway: it lives on the INVOICE, not on jobAddresses. */
+    lateFeeAt: 'the once-per-invoice guard on the 1 April late-fee run — the charge ' +
+      'itself is a kind-tagged fee line and is already in the history and waivable; ' +
+      'this only records that the batch has been through, and it is on the invoice',
+    doneAt: 'not on a customer at all — it is on settings/lateChaseTexts, where the ' +
+      'office records that it has sent the 1 February reminder texts, so the pop-up ' +
+      'stops asking for the rest of that season. Whose bill it was is not in it',
     archivedAt: 'on the archivedCustomers document, written as the customer is removed — ' +
       'the customer-side event is the recycle, and a step here could never be read because ' +
       'the jobAddresses record no longer exists',

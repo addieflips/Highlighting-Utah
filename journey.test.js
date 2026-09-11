@@ -293,12 +293,34 @@ if (strangers.length) note('the page names ' + strangers.length + ' field(s) the
  * 4. A step that is not built says so.
  * ------------------------------------------------------------------------- */
 /* ⚠ THE ONE THING THAT WOULD MAKE THIS PAGE WORSE THAN NOTHING is drawing a step that
-   does not exist as though it ran. The two payment chases are Addie's spec and neither is
-   built; the page's whole value is that it is true. */
+   does not exist as though it ran. The page's whole value is that it is true.
+
+   ⚠ THIS COUNTED UNBUILT STEPS (`>= 2`) UNTIL 2026-09-11, pinned to the two payment
+   chases being a spec — so when they were actually BUILT it failed on a page that had
+   just become more true, which is the §7 slow-fuse shape this file already warns about
+   four lines down. The count proved nothing anyway: it would have passed just as well
+   with two unrelated steps unbuilt. What must be true is that the marker matches the
+   CODE, so it is checked against the code. */
 const unbuilt = STEPS.filter(s => s.built === false);
-check('the steps that are not built are marked as not built', unbuilt.length >= 2,
-  'the two payment chases are a spec, not code — nothing chases an unpaid bill on a ' +
-  'timer today, and a page that draws them as running is a wish rather than a map');
+{
+  const fns = require('fs').readFileSync(
+    require('path').join(__dirname, 'functions', 'index.js'), 'utf8');
+  /* Each pair is a step and the thing in the source that would have to exist for it to
+     be honestly drawn as built. Add a row when a step starts claiming to run. */
+  const claims = [
+    ['chase1', /function maybeShowTextChaseReminder|textChaseRecipients/,
+      require('fs').readFileSync(require('path').join(__dirname, 'admin.html'), 'utf8')],
+    ['chase2', /async function runLateFeeBatch\(/, fns],
+    ['chase2', /exports\.sendLateFeeEmails = onSchedule/, fns]
+  ];
+  const lying = claims.filter(([id, re, src]) => {
+    const step = STEPS.find(s => s.id === id);
+    return step && step.built !== false && !re.test(src);
+  });
+  check('a step drawn as built really does exist in the code', lying.length === 0,
+    'drawn as running but nothing runs it: ' + lying.map(c => c[0]).join(', ') +
+    ' — a page that says a chase happens, when it does not, is a wish rather than a map');
+}
 /* ⚠ THIS MATCHED A LIST OF PHRASES, which is the trap this repo records again and again:
    a check pinned to where a string happens to sit rather than to what must be true. It
    failed on a correct new step whose words were fine and simply different. What must be
