@@ -25,7 +25,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
-const { installFirebaseStub } = require('./firebase-stub');
+const { installFirebaseStub, tapRsvpConfirm } = require('./firebase-stub');
 const { CUSTOMERS } = require('./fixtures');
 
 const TOKEN = CUSTOMERS.standard.token;
@@ -63,6 +63,9 @@ function officeRsvpLabel(record) {
 async function pressAndRead(page, url) {
   const stub = await installFirebaseStub(page, {});
   await page.goto(url);
+  /* ⭐ An RSVP link no longer answers on open — one tap confirms it. No-ops on any
+     other link. See tapRsvpConfirm. */
+  await tapRsvpConfirm(page, url);
   /* Wait on the write itself rather than on a timer: the answer is what is being
      asserted, and a sleep would make this flaky on a slow machine. */
   await expect.poll(async () => {

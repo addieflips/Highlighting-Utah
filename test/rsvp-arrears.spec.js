@@ -28,7 +28,7 @@
  */
 
 const { test, expect } = require('@playwright/test');
-const { installFirebaseStub } = require('./firebase-stub');
+const { installFirebaseStub, tapRsvpConfirm } = require('./firebase-stub');
 const { CUSTOMERS, INVOICES } = require('./fixtures');
 
 const BLOCKED_RESOURCE = /Failed to load resource|net::ERR_|ERR_TUNNEL|ERR_CONNECTION/;
@@ -66,6 +66,8 @@ async function openRsvpYes(page, overrides) {
     if (m.type() === 'error' && !BLOCKED_RESOURCE.test(m.text())) thrown.push('console: ' + m.text());
   });
   await page.goto(`/index.html#/payment?token=${CUST.token}&rsvp=yes`);
+  /* ⭐ An RSVP link no longer answers on open — one tap confirms it. */
+  await tapRsvpConfirm(page, `/index.html#/payment?token=${CUST.token}&rsvp=yes`);
   /* Gate code is asked first (Addie's ordering), so every test here confirms
      the code we already hold and lands in the member portal. */
   await page.locator('#rsvpGateCodeYesBtn').click();

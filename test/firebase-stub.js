@@ -266,7 +266,10 @@ const FAKE_FUNCTIONS_MODULE = `
        and the whole stub fails to parse -- which reads as "no tests found",
        not as a syntax error in a comment. */
     portalRsvp: function (payload) {
-      const token = String((payload && payload.token) || '').trim();
+      /* let, NOT const -- and no backticks, see the rule directly above: the
+         fail-once sentinel below swaps itself for a real customer's token once it
+         has thrown its one failure. */
+      let token = String((payload && payload.token) || '').trim();
       const response = String((payload && payload.response) || '').trim();
       if (['yes', 'no', 'backnextyear'].indexOf(response) === -1) {
         throw new Error('Unknown RSVP response: ' + response);
@@ -275,6 +278,18 @@ const FAKE_FUNCTIONS_MODULE = `
          a genuine outage still reads as one rather than as a stale link. */
       if (token === 'forceinternal') {
         const e = new Error('boom'); e.code = 'functions/internal'; throw e;
+      }
+      /* ⭐ FAILS ONCE, THEN WORKS — the shape the Errors folder actually showed
+         (2026-09-11). portalRsvp writes the answer FIRST and only then does its slow
+         work, so a timeout or an internal error means the RESPONSE was lost and the write
+         landed. The browser retries for exactly that reason, and a stub that failed
+         every time could not tell a working retry from a broken one. */
+      if (token === 'failoncethenok') {
+        F.__rsvpAttempts = (F.__rsvpAttempts || 0) + 1;
+        if (F.__rsvpAttempts === 1) {
+          const e = new Error('deadline exceeded'); e.code = 'functions/deadline-exceeded'; throw e;
+        }
+        token = (F.customers.standard || {}).token;
       }
       let hit = null;
       Object.keys(F.customers || {}).forEach(function (k) {
@@ -665,4 +680,33 @@ async function installFirebaseStub(page, overrides = {}) {
   };
 }
 
-module.exports = { installFirebaseStub, FORBIDDEN_HOSTS };
+/* ⭐ THE TAP EVERY RSVP LINK NOW NEEDS (2026-09-11). Opening an RSVP link no longer
+   records the answer — a mail-security scanner can open a URL and that used to BE the
+   answer, which is how a confirmed customer nearly got moved to Maybe Next Year (see
+   rsvpAwaitConfirmTap in index.html). A person taps once; a scanner cannot.
+
+   ⚠ SO EVERY SPEC THAT OPENS AN RSVP LINK HAS TO TAP, and they call this rather than
+   each rolling their own — eleven copies of a selector is how one of them keeps passing
+   against a button that has been renamed.
+
+   ⚠ IT WAITS FOR THE BUTTON RATHER THAN ASSUMING IT. The card is drawn by navigate(),
+   which runs on hashchange, so a bare click with no wait is a race that passes on a fast
+   machine and fails in CI.
+
+   ⚠ AND IT IS DELIBERATELY NOT FOLDED INTO installFirebaseStub. That runs BEFORE
+   page.goto; this has to run after. Two steps, because they happen at two times. */
+async function tapRsvpConfirm(page, url) {
+  /* ⚠ IT READS THE URL AND NO-OPS ON ANYTHING THAT IS NOT AN RSVP LINK, so it can be
+     called after every goto in a file without the caller having to know which is which.
+     A helper that had to be applied selectively is one that gets missed. */
+  const m = /[?&]rsvp=([a-z]+)/i.exec(String(url || ''));
+  if (!m) return false;
+  const back = m[1].toLowerCase() === 'back';
+  const row = back ? '#backTapRow' : '#rsvpTapRow';
+  const btn = back ? '#backTapConfirmBtn' : '#rsvpTapConfirmBtn';
+  await page.waitForSelector(row, { state: 'visible', timeout: 15000 });
+  await page.locator(btn).click();
+  return true;
+}
+
+module.exports = { installFirebaseStub, FORBIDDEN_HOSTS, tapRsvpConfirm };
