@@ -15048,15 +15048,26 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
       '</label>'+
       '<label style="display:flex; gap:8px; align-items:flex-start; font-size:12.5px; cursor:pointer; padding:6px 0;">'+
         /* The default whenever the house itself changed. A price-only re-quote picks
-           Nothing above; the add-on is never a default because its footage is typed. */
-        '<input type="radio" name="requoteBuild" value="recycle" id="requoteBuildRecycle"'+(priceOnly ? '' : ' checked')+' style="width:auto; margin-top:3px;">'+
+           Nothing above; the add-on is never a default because its footage is typed.
+           ⚠ AND AN ADDITION PICKS NOTHING AT ALL (2026-09-11). Dax: "dont build the
+           entire house again because we only need the added on part to be build then
+           just thrown into the bin." A re-quote RAISED AS AN ADDITION had the full
+           rebuild pre-selected, so the answer that throws a working set back into
+           stock and makes up the whole house again was one Enter away — on the one
+           kind of re-quote where it is almost never right.
+           ⚠ THE ADD-ON IS STILL NOT PRE-PICKED EITHER, because [[QT-07]] is unchanged:
+           its footage is TYPED, and selecting it for her and then refusing the button
+           until she fills the box in is a worse start. So an addition arrives with no
+           answer chosen and the press below says so — the office makes the choice
+           rather than inheriting one. */
+        '<input type="radio" name="requoteBuild" value="recycle" id="requoteBuildRecycle"'+(priceOnly || statedKind === 'addition' ? '' : ' checked')+' style="width:auto; margin-top:3px;">'+
         '<span><strong>Recycle their old set and build the new one.</strong> Their old lights come back into stock and a full '+(newFeet ? newFeet+' ft' : 'new')+' set is made up.'+
           (movedHouse
             ? (statedKind === 'address'
               ? ' <span style="color:#8A6100;">This re-quote was raised as a change of address, so this is the one.</span>'
               : ' <span style="color:#8A6100;">Their address changed, so this is almost certainly the one.</span>')
             : (statedKind === 'addition'
-              ? ' <span style="color:var(--slate);">Raised as an addition to the same house.</span>'
+              ? ' <span style="color:#8A6100;">Raised as an addition, so this is NOT pre-picked — it would rebuild the whole house. Pick this only if their old set is coming back too.</span>'
               : ''))+'</span>'+
       '</label>'+
       '<label style="display:flex; gap:8px; align-items:flex-start; font-size:12.5px; cursor:pointer; padding:6px 0;">'+
@@ -15161,8 +15172,19 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
        would be a second answer to the same question. */
     const topUpEl = document.getElementById('requoteBuildTopUp');
     const noneEl = document.getElementById('requoteBuildNone');
+    const recycleEl = document.getElementById('requoteBuildRecycle');
     const wantsNothing = !!(noneEl && noneEl.checked);
     const wantsTopUp = !wantsNothing && !!(topUpEl && topUpEl.checked);
+    /* ⚠ NOTHING CHOSEN MUST NOT MEAN RECYCLE (2026-09-11). Recycle was the FALLBACK as
+       well as the default — anything that was not Nothing and not the add-on fell
+       through to it — so an addition, which now arrives with no answer pre-picked,
+       would silently have thrown a working set back into stock and rebuilt the whole
+       house. The expensive answer is never the one a press inherits. */
+    if(!wantsNothing && !wantsTopUp && !(recycleEl && recycleEl.checked)){
+      toast('Say what the warehouse does first — build only the add-on, recycle and build new, or nothing.');
+      if(topUpEl) topUpEl.focus();
+      return;
+    }
     /* ⚠ THE ADD-ON IS WHATEVER IS IN THE BOX, not the suggestion it was pre-filled with.
        An office that types over a wrong sum and then watches the wrong sum get used has
        been given a box that does nothing. */

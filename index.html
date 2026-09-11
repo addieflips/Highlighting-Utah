@@ -7834,6 +7834,20 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
            the public form knows one — which is the whole reason quoteRespond
            never trades it for a portal session. */
         quoteToken: generatePortalToken(),
+        /* ⭐ ADDING A SIDE IS AN ADDITION, AND SAYING SO IS WHAT STOPS THE WHOLE
+           HOUSE BEING REBUILT (2026-09-11). `requoteKind` was written only by the
+           office's own re-quote flow, so a re-quote the CUSTOMER raised from their
+           portal arrived with no kind at all — and the apply popup pre-selects
+           "recycle their old set and build the new one" for anything whose kind it
+           does not know. Dax: "dont build the entire house again because we only
+           need the added on part to be build then just thrown into the bin."
+           ⚠ ONLY WHEN THE COUNT WENT UP. Sides can come DOWN, and that is not an
+           add-on — there is nothing extra to make and their old set genuinely does
+           come back. A blind 'addition' would put the wrong answer in front of the
+           office for exactly the customers who are having lights REMOVED, which is
+           this fix pointing the other way. A reduction leaves the kind unset and
+           the office decides, which is what happens today. */
+        requoteKind: (Number(pickedCount) > Number(beforeCount)) ? 'addition' : null,
         existingCustomerId: currentJobAddressId || null,
         /* ⭐ EVERYTHING THE OLD RECORD KNEW, CARRIED ON THE QUOTE.
            Owner, 2026-08-18: "we should be able to find what their old # was no

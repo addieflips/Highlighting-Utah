@@ -26373,6 +26373,44 @@ suite('Suite 107. Pricing a re-quote from the popup');
       r.choice().haveFeet === 180,
       'one field and one subtraction, so correcting the footage later still corrects ' +
       'the build');
+
+    /* ⭐ AN ADDITION DOES NOT ARRIVE WITH THE FULL REBUILD PRE-PICKED (2026-09-11).
+       Dax: "dont build the entire house again because we only need the added on part
+       to be build then just thrown into the bin." Recycle was BOTH the default and
+       the fallback, so on a re-quote raised as an addition the answer that throws a
+       working set back into stock was one Enter away.
+       ⚠ [[QT-07]] IS UNCHANGED and these checks assert that too: the add-on is still
+       not pre-picked either, because its footage is typed. An addition simply arrives
+       with NO answer chosen. */
+    const addQ = {name: 'Added A Side', estimatedFeet: 300, quotedPrice: 600,
+                  address: '12 Same St, Lehi, UT', requoteKind: 'addition'};
+    const ra = run(addQ, grew, 2);
+    check('S107', 'an addition pre-picks neither the rebuild nor the add-on',
+      ra.el('requoteBuildRecycle').checked === false &&
+      ra.el('requoteBuildTopUp').checked === false &&
+      ra.el('requoteBuildNone').checked === false,
+      'recycling a working set and rebuilding the whole house is never the answer a ' +
+      'press should inherit on a quote raised because somebody ADDED to their house');
+    check('S107', 'and it says why the rebuild is not the pre-picked one',
+      /NOT pre-picked/.test(ra.html()),
+      'an option that stopped being the default with no word said reads as a bug');
+
+    /* ⚠ AND THE FALLBACK IS CLOSED. Anything that was not Nothing and not the add-on
+       used to fall through to recycle, so "no answer" meant the expensive answer. */
+    ra.el('applyRequoteBtn').fire('click');
+    check('S107', 'pressing Apply with no answer chosen is refused, not recycled',
+      ra.choice() === null && ra.opened() === null &&
+      ra.toasts.some(function(t){ return /what the warehouse does/i.test(t); }),
+      'nothing parked and nothing opened — a silent recycle here pulls a working set ' +
+      'off a house nobody asked to strip');
+
+    /* ⚠ AND A STATED ADDITION STILL LETS HER CHOOSE THE REBUILD, because an addition
+       and a move can arrive together. Not pre-picked is not forbidden. */
+    ra.el('requoteBuildRecycle').checked = true;
+    ra.el('applyRequoteBtn').fire('click');
+    check('S107', 'and the rebuild is still available when she picks it herself',
+      !!ra.choice() && ra.choice().mode === 'recycle',
+      'the guard is about what a press INHERITS, never about removing an answer');
     check('S107', 'and the re-quote is still marked as being converted',
       r.converting() === 'q1');
   }
@@ -27031,8 +27069,15 @@ suite('Suite 107. Pricing a re-quote from the popup');
       /Build only the add-on/.test(addition.html()),
       'Ln against Lane is a typing difference, not a house move, and the guess ' +
       'could not tell');
+    /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. This matched the sentence
+       "Raised as an addition to the same house" — that is, it was pinned to the exact
+       words that happened to be there rather than to what must be true. The line was
+       rewritten when the rebuild stopped being pre-picked for an addition, so the old
+       match failed on code that is right: the §7 slow-fuse shape, the same one S82,
+       S129 and the folder-names suite each hit. It asserts the CLAIM now — the popup
+       says this was raised as an addition — wherever that sentence goes next. */
     check('S114', 'and says it was raised as an addition',
-      /Raised as an addition to the same house/.test(addition.html()));
+      /Raised as an addition/.test(addition.html()));
 
     /* Older re-quotes carry no kind, so the address comparison still decides. */
     const legacy = run({name: 'Old One', estimatedFeet: 300, quotedPrice: 600,
