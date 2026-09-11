@@ -2708,6 +2708,58 @@ it is computed from a constant.
 *Where it is proved*: run-all.js **Suite 314**. 6 sabotages red-checked.
 *Rulings*: [[SCH-70]] in `claude/questions-map.md`.
 
+### What the strip shows when there is no forecast
+
+Added 2026-09-10. Dax, looking at a day in October on the tenth of September: *"I dont
+see the forecast down here"* — with the strip correctly reading *"No forecast this far
+ahead — it reaches to Sep 25."*
+
+⛔ **[[SCH-70]] was right and still left him with nothing.** Teaching the blank strip to
+explain itself was the correct answer to "is it broken or just early", and by the time
+he read it he had stopped asking that. The season opens three weeks out and the free
+service reaches sixteen days — so for **most of the season there is no forecast at
+all**, and a strip that only ever shows forecasts is blank for most of the season no
+matter how well it explains itself.
+
+So past the horizon it shows what the weather usually does, from ten years of recorded
+highs out of the same service’s archive:
+
+| date | Lehi | Herriman |
+|---|---|---|
+| 1 Oct | ~71° | ~69° |
+| 10 Nov | ~53° | ~52° |
+| 15 Dec | ~39° | ~39° |
+
+⛔ **A typical high is not a forecast, and the whole design turns on that.** It never
+reaches `forecastHighFor`, `forecastIsCold` or the warmth band, so it cannot veto a
+town, move a house, or count towards the cold-day tally. This repo has said since
+`COLD_DAY_MAX_F` that *"no forecast is not a cold forecast"*; letting a ten-year average
+refuse somebody a date would be that same mistake in a new costume — and it would do it
+**quietly**, because every screen would still look right.
+
+It is drawn so the two cannot be mistaken for each other: a tilde on the number, a
+dotted outline, **no snowflake even at freezing**, and one footnote per strip saying
+*"typical for the time of year, not a forecast"*.
+
+⚠ **The curve is smoothed, and that is not a detail.** Measured at Lehi over ten years:
+a single date averaged across all ten still swings **28°** between its warmest and
+coldest year, and 15 November reads 56° raw against a seasonal trend of 50° — six
+degrees of one warm autumn. A fortnight either side gives 150 samples a date, and
+dropping half the years then moves the curve by at most **3.3°**. The smoothed number is
+a season; the raw one is noise wearing a decimal point.
+
+⚠ **Fetched once a day, and only for the panel.** Ten years of past weather does not
+change between elevenses and lunch, and making Recalculate everything wait on ten
+requests for numbers that change nothing about the plan would be pure delay in front of
+the office. The forecast belongs in that gate; this does not.
+
+*Where it is proved*: run-all.js **Suites 326 and 314**. 13 sabotages red-checked — and
+the first pass caught only 11. Taking the tilde off the chip went green because the
+footnote carries one of its own, and widening the window to 400 days went green because
+the suite was reading the constant with a regex that never matched and silently grading
+against a hard-coded 7.
+*Rulings*: [[SCH-72]] in `claude/questions-map.md`.
+
 ### Why a route went far out at stop 11 and came back beside stop 2
 
 Added 2026-09-10. Dax, reading a crew route off the map: *"1 2 3 4 5 6 7 can make
@@ -5723,6 +5775,76 @@ now censuses every place that writes the flag: each is either a door that must g
 `HLX_DONE_KINDS.fix`, or is named with the reason it is not one. Two are deliberately not doors
 — `buildAddressRowHtml` reads the flag into markup, and `planTickCustomer` mirrors it into the
 local cache before the write is awaited so the derived tick does not spring back.
+
+### A new fault tells the office, and the notice goes away when it is mended
+
+Added 2026-09-11 ([[FIX-02]]). Until then **raising a fix was completely silent.** All four
+doors did was tick `needsFix`. The house then appeared on the fix list and on a Fixer Route
+sheet — both of which somebody has to go and *look* at — so a fault reported on the phone on
+a Tuesday sat unseen until whoever raised it happened to open the right tab. Given the point
+above, that is a bill held open with nobody told.
+
+Marking Needs Fix now writes a **System notice** — filed under *Schedule & Routes*, tagged
+*Repair / Issue*, carrying an **Open their card** button that opens Edit Customer straight
+from the Inbox. Marking the fix done **deletes that notice**, which is Addie's own wording
+("the note disappears when it's done"). Nothing is lost by the deletion: `fixRaisedAt` and
+`fixDoneAt` stay on the customer record and are the permanent trace of how long the customer
+waited.
+
+⚠ **Raised in the one door, not at the four callers.** That is the lesson of the section
+above stated forwards: anything bolted onto a caller reaches some of them and reads as
+working. Both halves sit in `hlxMarkJobDone`, so a fifth door added later announces itself
+without anybody remembering to wire it.
+
+⚠ **The notice's document id is derived from the customer** (`fix-<id>`) rather than
+auto-generated. That buys both halves of the ruling at once: raising twice writes the same
+document, so toggling the box off and on cannot stack four notices about one house; and the
+clear is a plain delete needing neither the messages cache nor a composite index. Finding it
+by topic-plus-customer would need a composite index, and `firestore.indexes.json` is **not**
+deployed by CI — so that query would fail silently in production while passing every check.
+
+⚠ **It never re-marks a notice she has already read.** A bare write would reset `read` on
+every toggle, which is the cries-wolf failure this repo names in four other places.
+
+⚠ **The fix photo is destroyed on the spot, not parked** ([[FIX-06]]). FIX-02 originally
+asked for park-then-destroy with an undo; Addie reversed it on 2026-08-21 — "we want the
+picture destroyed on the spot" — and R-024 applies. What makes a no-undo destroy safe is the
+order and the condition: the record is written first, only `done === true` destroys anything,
+the field is cleared only if the picture really went, and a failed destroy keeps the URL so
+the next Mark Done retries rather than orphaning a public Cloudinary asset. The house photo,
+which prints on the new-hang crew sheets, is never touched.
+
+⚠ **A comment in `admin.html` claimed this was unbuilt for three weeks** — it said the fix
+kind "does not retire the fix photo yet" while the call sat twenty lines below it. Corrected
+in the same change.
+
+### Everything about the season RSVP is on the RSVP tab
+
+Moved 2026-09-11. Addie: "at the top we got a lot going on. We can probably move emails that
+didn't get sent out over to RSVP in it's own sub tab. And Text the RSVP can go in it's own
+sub tab as well in RSVP."
+
+Two cards used to sit on **Templates**, above the templates themselves — a tab somebody
+opens to *edit an email*, carrying two cards about the state of a send. The RSVP tab now has
+three sub-tabs: **Daily send** (the paced 200-a-morning plan), **Did not send** (the people a
+send lost), and **Text the RSVP** (the people with no email on file). `Send the whole RSVP`
+deliberately stays on Templates — it is one press beside the templates it sends, and moving
+it would break the one route the office already knows.
+
+⚠ **The sub-tabs do not use `route-tab-btn` / `route-tab-panel`, and that is load-bearing.**
+The Automation tab handler clears `active` from *every* element with those classes under
+`#panel-automation` — a panel-wide sweep. Reusing the names would leave the RSVP tab opening
+with no sub-panel active at all: a blank tab, which reads as the feature being broken rather
+than as a naming collision. The obvious future tidy-up is to rename them to match, so
+`rsvp-subtabs.test.js` fails if anybody does. `rsvpSubtabShow` is the one place the state is
+set, called both by the sub-tab clicks and by the Automation handler when the tab opens.
+
+⚠ **The failure count moved onto the tab.** That card used to hide itself until a send lost
+somebody, and its own note says why: it has to be *noticed on the day it appears*, because
+until those people are emailed they cannot RSVP and an unanswered customer is out of the
+season. Behind a sub-tab, hiding it would be worse than before — it would be behind a tab
+nobody had a reason to open. The tab wears the number instead, and the empty sub-tab says
+plainly that nothing has failed.
 
 ### Are the rules still accurate?
 
