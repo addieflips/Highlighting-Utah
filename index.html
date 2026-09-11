@@ -7822,6 +7822,18 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
         address: (currentJobAddressData && currentJobAddressData.address) || '',
         houseSides: pickedCount,
         houseSidesList: pickedList,
+        /* ⭐ A RE-QUOTE NEEDS A TOKEN LIKE ANY OTHER QUOTE (2026-09-11). The
+           public quote form has always minted one here (generatePortalToken,
+           in the visitor's own browser) and this path never did — so the quote
+           email's Approve / Maybe / Decline buttons had nothing to link to and
+           rendered as the words "(quote token not found)" three times over, in
+           an email to a customer. Miko Johnson's is the one that reached the
+           office that way.
+           ⚠ SAME MINT AS THE PUBLIC FORM, deliberately: a token generated in
+           the visitor's browser is not a credential — anybody able to submit
+           the public form knows one — which is the whole reason quoteRespond
+           never trades it for a portal session. */
+        quoteToken: generatePortalToken(),
         existingCustomerId: currentJobAddressId || null,
         /* ⭐ EVERYTHING THE OLD RECORD KNEW, CARRIED ON THE QUOTE.
            Owner, 2026-08-18: "we should be able to find what their old # was no
