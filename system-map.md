@@ -2208,6 +2208,44 @@ made. This clears the flag and the queue date, stamps nothing, asks first, and w
 reason to the activity log. It leaves `buildTopUpFromFeet` and `binLabelNumber` alone —
 those describe a bundle actually made or a bin actually labelled.
 
+
+⭐ **AN ADD-ON IS NOT A REBUILD, AND NEITHER ANSWER IS PRE-PICKED NOW** (2026-09-11,
+[[QT-38]]). Dax: *"if they approve also, it should go into build for just how many feet
+the system measured dont build the entire house again because we only need the added on
+part to be build then just thrown into the bin"*, and *"it should be set up the same as
+the other quotes"* — so a re-quote the customer raised still travels the ordinary quote
+path (they approve, the office applies it), and what changes is only what the warehouse
+is told to make at the end of it.
+  - ⚠ **THE PORTAL NEVER SAID WHICH KIND IT WAS.** `requoteKind` was written only by
+    the office’s own `askRequoteKind`, so a re-quote raised from the portal’s own sides
+    picker arrived carrying no kind at all — and the apply popup pre-selects **recycle
+    their old set and build a new one** for anything whose kind it does not know. Approve
+    one added side and the warehouse was told to rebuild the whole house, which is the
+    sentence above written as code.
+  - ⭐ **`requoteKind: 'addition'` IS WRITTEN AT THE PORTAL’S OWN CREATE, AND ONLY WHEN
+    THE COUNT WENT UP.** Sides can come DOWN, and that is not an add-on: nothing extra is
+    made and their old set genuinely does come back. A blind `addition` would put the
+    wrong answer in front of the office for exactly the customers having lights REMOVED,
+    which is this fix pointing the other way. A reduction leaves the kind unset and the
+    office decides, which is what happens today.
+  - ⛔ **AND AN ADDITION PRE-PICKS NOTHING AT ALL.** [[QT-07]] is NOT reversed — the
+    add-on’s footage is still TYPED rather than calculated, so pre-selecting the add-on
+    would tick a radio whose box is empty and then refuse the button, which is a worse
+    start than no answer. What changed is that the REBUILD is no longer pre-picked
+    either, and the note beside it says why: *"Raised as an addition, so this is NOT
+    pre-picked — it would rebuild the whole house."* It stays one click away for the
+    office that knows their old set is coming back too.
+  - ⛔ **PRESSING APPLY WITH NO ANSWER CHOSEN IS REFUSED, NEVER SILENTLY RECYCLED.** With
+    neither radio pre-picked, the old fall-through would have recycled and rebuilt by
+    default — the one outcome this change exists to stop, reached by nobody deciding
+    anything. It names the three answers and puts the cursor in the add-on box.
+  - ⚠ **NOTHING ELSE MOVED.** A price-only re-quote still pre-picks Nothing, a move still
+    pre-picks recycle-and-rebuild, and `askRequoteKind` is untouched. Suite S107 RUNS the
+    popup against a fake DOM rather than matching its source, because every claim here is
+    about which radio is ticked on screen; S114 was REPOINTED, not weakened — it was
+    pinned to the exact sentence *"Raised as an addition to the same house"*, which this
+    change rewrites, so it reads `/Raised as an addition/` now. The §7 slow-fuse shape
+    again. 2 sabotages red-checked, each proving admin.html came back byte-for-byte.
 **Last season's unpaid bill is carried, not written off** (2026-08-31, MON-31/MON-32).
 Start New Season used to write `install: newInstall, deposit: 0` over every invoice, so a
 customer who never paid opened the new season owing this year's charge and nothing else —
