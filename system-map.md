@@ -3918,6 +3918,37 @@ any of it urgent, what is already handled.
 answer is still right about what it was protecting — a tree is how you file something you
 will look for later — but filing turned out to be the wrong FIRST question.
 
+### Which of these also email the office (2026-09-11, [[MSG-17]] / [[MSG-18]])
+
+A message landing in the Inbox and the office being TOLD about it are two different things,
+and only the first is decided here. The nudge is one function, `notifyBusinessOfMessage` in
+index.html, and the rule is **who acted**, not which folder the message lands in.
+
+- **A member typed or did something → the Gmail hears about it.** All thirteen call sites:
+  the site contact form and quick-message form, the portal's Contact Us form, a cancellation,
+  a note added, a light-colour change, a wire-colour change, an outlet-timer change, a sides
+  change, the three quote buttons (approve / maybe / decline), and — since 2026-09-11 — a
+  **move**.
+- **The app talking about itself → the Inbox only.** Nothing in `functions/index.js` or
+  `admin.html` calls that function at all, so route-sweep notices, reconcile notes, member
+  error reports and admin error reports reach the office screen and email nobody. That was
+  already true and is now the stated rule rather than an accident.
+
+⚠ **Three portal actions write `folder: 'System'` and still email** — light colour, wire
+colour and outlet timer. They are filed as notices because the app wrote the sentence; they
+are member ACTIONS, which is what decides this. Do not "tidy" them out of the alert by
+reading the folder.
+
+⚠ **The recipient address is not in this repo.** The params carry name, phone, email, topic
+and message and no destination, so the *To Email* lives on the EmailJS template named by
+`settings/emailjs.notifyTemplateId` (Admin → Automation Emails → Notify Template ID).
+Nothing here can see it, and no test can prove where the mail went.
+
+⚠ **The move alert hangs off the move button only.** `portalChangeAddress` writes its Inbox
+note server-side and cannot send mail, so the nudge is raised in the browser once that call
+returns `{ok:true}`. The ordinary My Info save is deliberately silent ([[QT-35]]) — a
+corrected street spelling is not a move — so do not move this call up into it.
+
 ⛔ **The folders are gone** ([[MSG-12]], the same day). Once the system was in, Addie asked
 *"can we just get rid of your folders altogether if the system is made?"* — and they had
 become a second way of saying the same thing: every one of the eight the app created maps
