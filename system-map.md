@@ -3876,6 +3876,33 @@ because the folder earning its keep within two days is the argument for it.
   - ⭐ **STILL NOT DIAGNOSED, AND STILL NOT GUESSED AT.** The crash has not recurred since
     the instrument landed — both reports predate it — so there is nothing new to read.
     The fix above is to the instrument, not to the fault.
+- ⭐ **AN UPLOAD THAT CANNOT WORK NOW SAYS SO AT EVERY DOOR** (2026-09-11).
+  `uploadFailAdvice` was written on 2026-09-09 for the Attach button, after the picture
+  account was switched off and the office was told *"Nothing uploaded — try again"* — an
+  instruction that could not work at any hour of any day, and that reads as a glitch
+  worth waiting out rather than a bill somebody has to settle. It was wired into that one
+  button. **Seventeen places in `admin.html` upload a picture and two of them said why.**
+  The Gallery, the Hero images, How It Works, Areas We Serve, an expense receipt and a
+  fix-note photo all answered a disabled account with "Upload failed", "Upload failed —
+  try again." or "check your Cloudinary settings". `uploadFailText` pairs the advice with
+  the service's own words — advice first, because the advice is a GUESS made from the
+  message and the message is the FACT — and every one of those doors now calls it.
+  A structural check counts the callers, so an upload added later cannot quietly skip it.
+  - ⚠ **THE ACCOUNT ITSELF WAS BACK BEFORE THIS SHIPPED.** Probed 2026-09-11: the cloud
+    answers `400 Upload preset not found` rather than `401 cloud_name is disabled`, and
+    delivery returns 200. This is the wording for the next time, not a fix for that
+    outage — which was settled on the billing account, exactly as the advice says.
+- ⭐ **AND "Twilio send failed: Authentication Error — invalid username" STOPPED SENDING
+  ANYBODY TO FIND THE ACCOUNT** (2026-09-11). [[QT-38]], Dax: *"we doont use twillo we use
+  google voice."* The raw wording reads as a key that has gone stale, which is a
+  ten-minute job — so whoever reads the row goes looking for a Twilio account, and there
+  is none to find. The fix is not a credential and cannot be re-pointed: Google Voice has
+  no send API to move it to. The quote card now says texting is not wired up, that
+  nothing was sent, and what to do instead (email, or Google Voice by hand), keeping the
+  service's words in brackets on the end.
+  - ⚠ **THE BUTTON IS LEFT WHERE IT IS.** Removing it is a decision about what the office
+    is offered; QT-38 recorded the ruling without taking it, and this says what is true
+    and changes nothing else.
 - ⚠ **An "Unhandled promise: Missing or insufficient permissions" row is not necessarily
   an auth fault** — §5 records that the same wording is what Firestore returns when a
   `messages` write breaks the 5,000-character cap. Check the rule's CONTENT conditions
