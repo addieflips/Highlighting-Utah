@@ -55335,6 +55335,153 @@ function forecastReachesTo(){
   });
   return last;
 }
+/* ⭐ AND PAST THE HORIZON, WHAT THE WEATHER IS USUALLY LIKE (added 2026-09-10,
+   [[SCH-72]]). Dax, looking at a day in October on the tenth of September: *"I dont see
+   the forecast down here"* — with the strip correctly reading "No forecast this far
+   ahead — it reaches to Sep 25."
+
+   [[SCH-70]] made the blank strip explain itself, and the explanation was true and
+   useless: the season opens three weeks out, the service answers sixteen days, so for
+   most of the season there is nothing and saying so more clearly does not help anybody
+   plan. What the office is actually asking is "what is it like out there in November",
+   and that question HAS an answer — just not a forecast.
+
+   ⛔ A TYPICAL HIGH IS NOT A FORECAST, AND THE WHOLE DESIGN TURNS ON THAT. It never
+   reaches forecastHighFor, forecastIsCold or the warmth band, so it can never veto a
+   town, move a house, or count towards the cold-day tally. It is shown and nothing
+   more. The rule this file has repeated since COLD_DAY_MAX_F — "no forecast is not a
+   cold forecast" — would be broken in a new costume if a ten-year average could refuse
+   somebody a date.
+
+   ⚠ SMOOTHED, AND THAT IS NOT A DETAIL. MEASURED at Lehi over ten years
+   (scratchpad/normals-probe): a single date averaged across ten years still swings 28°
+   between the warmest and coldest of those years, and on 15 November the raw average
+   reads 56° against a seasonal trend of 50° — six degrees of one warm year. Averaging a
+   fortnight either side gives 150 samples a date, and dropping half the years then
+   moves the curve by at most 3.3°. The smoothed number is a season; the raw one is
+   noise wearing a decimal point.
+
+   ⚠ AND IT IS FETCHED ONCE A DAY, not every half hour. Ten years of past weather does
+   not change between elevenses and lunch, and the forecast’s own half-hour freshness
+   would mean ten requests an hour for numbers that are identical every time. */
+const NORMALS_YEARS = 10;              // how many past years are averaged
+const NORMALS_SMOOTH_DAYS = 7;         // ...and how far either side of the date
+const NORMALS_FRESH_MS = 24 * 60 * 60 * 1000;
+/* The season runs October into December. September is included because the window
+   reaches back a fortnight from 1 October, and nothing past 31 December is asked for. */
+const NORMALS_FROM = "09-01";
+const NORMALS_TO = "12-31";
+let SEASON_NORMALS = {at: 0, byTown: {}, towns: 0, years: 0, error: "", pending: null};
+/* The typical high in `town` around `dateStr`, or null. Keyed by month and day, because
+   that is what a normal IS — the same answer for 1 October every year. */
+function normalHighFor(town, dateStr){
+  const t = extractCleanCity(town);
+  const row = t && SEASON_NORMALS.byTown[t];
+  const v = row && row[String(dateStr || "").slice(5)];
+  return typeof v === "number" && isFinite(v) ? v : null;
+}
+/* Turn one year’s daily readings into per-month-day buckets. Separated out so the
+   smoothing below is a pure function of the buckets and can be read on its own. */
+function normalsAddYear(buckets, daily){
+  if(!daily || !Array.isArray(daily.time) || !Array.isArray(daily.temperature_2m_max)) return;
+  daily.time.forEach(function(ds, k){
+    const v = daily.temperature_2m_max[k];
+    if(typeof v !== "number" || !isFinite(v)) return;
+    const md = String(ds).slice(5);
+    (buckets[md] = buckets[md] || []).push(v);
+  });
+}
+/* The seasonal curve: every date averaged together with the fortnight either side of
+   it. ⚠ THE WINDOW WALKS THE CALENDAR, not the array — the buckets are sorted month-day
+   strings, so neighbouring entries really are neighbouring dates, and a gap in the
+   middle (a year the service has no reading for) simply contributes fewer samples
+   rather than dragging a date a fortnight away into the average. */
+function normalsSmooth(buckets){
+  const keys = Object.keys(buckets).sort();
+  const at = {};
+  keys.forEach(function(k, i){ at[k] = i; });
+  const out = {};
+  keys.forEach(function(md){
+    const i = at[md];
+    let sum = 0, n = 0;
+    for(let j = Math.max(0, i - NORMALS_SMOOTH_DAYS);
+            j <= Math.min(keys.length - 1, i + NORMALS_SMOOTH_DAYS); j++){
+      const near = buckets[keys[j]] || [];
+      for(let z = 0; z < near.length; z++){ sum += near[z]; n++; }
+    }
+    if(n) out[md] = sum / n;
+  });
+  return out;
+}
+/* Fetch what the weather usually does, at most once a day. Like loadSeasonForecast this
+   ALWAYS resolves — never rejects — and every failure path ends in an empty table,
+   which every reader treats as "no opinion".
+   ⚠ ONE YEAR PER REQUEST, IN SEQUENCE. The archive service takes a single date range,
+   so ten Octobers cannot be asked for at once; and ten requests fired together at a
+   free service is how a burst limit is discovered in front of the office. Sequential
+   costs about two seconds, once a day.
+   ⚠ AND A YEAR THAT FAILS DOES NOT LOSE THE OTHER NINE. Nine years of samples is still
+   a seasonal curve; the whole point of the smoothing is that it does not depend on any
+   particular year being there. */
+function loadSeasonNormals(force){
+  const fresh = !force && SEASON_NORMALS.at &&
+    (Date.now() - SEASON_NORMALS.at) < NORMALS_FRESH_MS && SEASON_NORMALS.towns > 0;
+  if(fresh) return Promise.resolve(SEASON_NORMALS);
+  if(SEASON_NORMALS.pending) return SEASON_NORMALS.pending;
+  const centres = forecastTownCentres();
+  const towns = Object.keys(centres).sort();
+  if(!towns.length){
+    SEASON_NORMALS = {at: Date.now(), byTown: {}, towns: 0, years: 0,
+      error: "No customer has a map position yet, so there is nothing to look up.",
+      pending: null};
+    return Promise.resolve(SEASON_NORMALS);
+  }
+  const lat = towns.map(function(t){ return centres[t].lat.toFixed(4); }).join(",");
+  const lng = towns.map(function(t){ return centres[t].lng.toFixed(4); }).join(",");
+  /* Complete years only. The archive lags a few days behind live weather, so the year
+     we are standing in has no December in it and would tilt the curve warm. */
+  const thisYear = new Date().getFullYear();
+  const years = [];
+  for(let y = thisYear - NORMALS_YEARS; y < thisYear; y++) years.push(y);
+  const buckets = {};
+  let got = 0;
+  const flight = years.reduce(function(chain, y){
+    return chain.then(function(){
+      const url = "https://archive-api.open-meteo.com/v1/archive" +
+        "?latitude=" + lat + "&longitude=" + lng +
+        "&start_date=" + y + "-" + NORMALS_FROM + "&end_date=" + y + "-" + NORMALS_TO +
+        "&daily=temperature_2m_max&temperature_unit=fahrenheit" +
+        "&timezone=America%2FDenver";
+      return fetch(url).then(function(res){
+        if(!res.ok) throw new Error("normals HTTP " + res.status);
+        return res.json();
+      }).then(function(data){
+        const rows = Array.isArray(data) ? data : [data];
+        towns.forEach(function(t, i){
+          normalsAddYear(buckets[t] = buckets[t] || {}, rows[i] && rows[i].daily);
+        });
+        got++;
+      })["catch"](function(err){
+        /* Named in the console and then stepped over — see the note above. */
+        console.error("[HU] no normals for " + y, err);
+      });
+    });
+  }, Promise.resolve()).then(function(){
+    const byTown = {};
+    towns.forEach(function(t){
+      const curve = normalsSmooth(buckets[t] || {});
+      if(Object.keys(curve).length) byTown[t] = curve;
+    });
+    const n = Object.keys(byTown).length;
+    SEASON_NORMALS = {at: Date.now(), byTown: byTown, towns: n, years: got,
+      error: n ? "" : "Past weather could not be reached, so there is nothing to " +
+                      "show for dates beyond the forecast.",
+      pending: null};
+    return SEASON_NORMALS;
+  });
+  SEASON_NORMALS.pending = flight;
+  return flight;
+}
 /* Is this town at or below the cutoff on this date? FALSE when there is no forecast:
    see the note on COLD_DAY_MAX_F — an unknown day is never a cold day. */
 function forecastIsCold(town, dateStr){
@@ -64031,9 +64178,30 @@ function dayForecastChips(day){
   const cold = (typeof COLD_DAY_MAX_F === 'number') ? COLD_DAY_MAX_F : 35;
   const bits = [];
   const towns = dayAreas(day);
+  /* ⭐ A TOWN WITH NO FORECAST FALLS BACK TO WHAT THE WEATHER USUALLY DOES
+     ([[SCH-72]], 2026-09-10). Dax, on a day in October seen on 10 September: "I dont
+     see the forecast down here" — with the strip correctly explaining that the
+     service only reaches to 25 September. [[SCH-70]] made that silence speak; it
+     still left him with no idea what November looks like, which is the thing he was
+     actually asking.
+     ⛔ AND IT IS DRAWN SO THE TWO CANNOT BE CONFUSED: a tilde, a dotted outline, no
+     snowflake even at freezing, and the word "typical" in the tooltip. A forecast is a
+     promise about Tuesday; a normal is a pattern across ten Novembers, and a strip
+     that made them look alike would be worse than the blank one it replaces. */
+  let typicals = 0;
   towns.forEach(function(t){
     const v = forecastHighFor(t, ds);
-    if(typeof v !== 'number' || !isFinite(v)) return;
+    if(typeof v !== 'number' || !isFinite(v)){
+      const u = (typeof normalHighFor === 'function') ? normalHighFor(t, ds) : null;
+      if(typeof u !== 'number' || !isFinite(u)) return;
+      typicals++;
+      bits.push('<span title="' + esc(t) + ' — typical high around this date, averaged ' +
+        'over the last ' + (SEASON_NORMALS.years || 0) + ' years. Not a forecast." ' +
+        'style="display:inline-block;padding:0 6px;border-radius:999px;font-weight:600;' +
+        'font-size:11.5px;margin-left:6px;color:#6b776f;border:1px dotted #b9c2bb">' +
+        esc(t) + ' ~' + Math.round(u) + '°</span>');
+      return;
+    }
     const freezing = v <= cold;
     bits.push('<span title="' + esc(t) + ' — forecast high for this day' +
       (freezing ? ', at or below the ' + cold + '° cutoff' : '') + '" ' +
@@ -64042,7 +64210,13 @@ function dayForecastChips(day){
       (freezing ? 'background:#e7f0fb;color:#1d4e89' : 'background:#f0efe6;color:#6b776f') +
       '">' + esc(t) + ' ' + Math.round(v) + '°' + (freezing ? ' ❄' : '') + '</span>');
   });
-  if(bits.length) return bits.join('');
+  if(bits.length){
+    /* Said once for the whole strip rather than on every chip — the same reason a town
+       with nothing to say gets no chip of its own ([[SCH-70]]). */
+    return bits.join('') + (typicals ?
+      '<span style="display:inline-block;margin-left:8px;font-size:11.5px;' +
+      'color:#8a938c">~ typical for the time of year, not a forecast</span>' : '');
+  }
   /* ⭐ AND AN EMPTY STRIP SAYS WHY IT IS EMPTY ([[SCH-70]], 2026-09-10). Dax, looking
      at the two route maps: "the only issue is I cant see the forecast."
      ⚠ NOTHING WAS WRONG. The free service answers about sixteen days and on 10
@@ -64068,7 +64242,16 @@ function dayForecastChips(day){
     let when = reach;
     try{ const l = dlabel(new Date(reach + 'T00:00:00')); when = l.full; }
     catch(err){ /* an unparseable date still reads fine as the iso string */ }
-    return note('No forecast this far ahead — it reaches to ' + when + '.');
+    /* ⚠ AND THIS SENTENCE NOW MEANS SOMETHING NARROWER THAN IT DID. Past the horizon
+       the strip normally shows typical highs instead, so reaching here means those are
+       missing too — and the office should be told that rather than only being told the
+       forecast is far off, which it can already see from the date. */
+    const why = (typeof SEASON_NORMALS === 'object' && SEASON_NORMALS.error)
+      ? ' ' + SEASON_NORMALS.error
+      : (SEASON_NORMALS && SEASON_NORMALS.towns
+          ? ' Past weather has nothing for this date either.'
+          : ' Still looking up what it is usually like.');
+    return note('No forecast this far ahead — it reaches to ' + when + '.' + why);
   }
   /* in range, and still nothing: the towns on this day have no located house, so
      there is nowhere to ask about. That is a data fault and the office can fix it. */
@@ -65576,7 +65759,20 @@ function ensureForecastForPanel(){
   if(forecastAskedForPanel) return;
   if(typeof loadSeasonForecast!=='function') return;
   forecastAskedForPanel=true;
-  loadSeasonForecast().then(function(){
+  /* ⭐ AND THE TYPICAL HIGHS ALONGSIDE IT ([[SCH-72]], 2026-09-10), because most of the
+     season is past the sixteen days the forecast reaches and the strip would otherwise
+     have nothing to say for any of it.
+     ⚠ LOADED HERE AND NOWHERE ELSE. Normals are shown and never acted on — they cannot
+     veto a town or move a house — so making Recalculate everything wait on ten requests
+     for numbers that change nothing about the plan would be pure delay in front of the
+     office. The forecast belongs in that gate; this does not.
+     ⚠ BOTH ARE AWAITED, AND NEITHER CAN SINK THE OTHER. allSettled, not all: a failed
+     normals fetch must still let the forecast’s own chips draw, and vice versa. */
+  const jobs = [loadSeasonForecast()];
+  if(typeof loadSeasonNormals==='function') jobs.push(loadSeasonNormals());
+  const settled = Promise.allSettled ? Promise.allSettled(jobs)
+    : Promise.all(jobs.map(function(p){ return p['catch'](function(){ return null; }); }));
+  settled.then(function(){
     try{ if(lastMappedDay) renderDayMaps(lastMappedDay); }
     catch(err){ /* the panel has moved on; the chips arrive on the next draw */ }
   });
