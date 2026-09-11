@@ -55253,8 +55253,44 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        ⚠ TWO FRAMES, NOT THE WHOLE STACK. `messages` is capped at 5,000 characters on
        create by firestore.rules, and a refused write is how this reporter would go
        silent — the failure §5 records as reading like an auth fault for weeks. */
-    const where = String((err && err.stack) || '').split('\n').slice(1, 3)
-      .map(function(l){ return l.trim(); }).filter(Boolean).join(' <- ').slice(0, 300);
+    /* ⚠ SAFARI'S STACK HAS NO HEADER LINE, AND THE SLICE WAS DROPPING THE ONE FRAME
+       THAT MATTERS (2026-09-11). The read above took `.slice(1, 3)` — correct on V8,
+       whose `stack` opens with a "TypeError: ..." header that has to be skipped, and
+       WRONG on WebKit and Firefox, which write no header at all. There the first line
+       IS the throwing frame, so skipping it reported the two frames ABOVE the fault.
+
+       ⚠ THAT IS NOT A CORNER CASE HERE. One of the two reports this instrument was
+       built for was Safari, so half of them would have been misreported — and
+       misreported confidently, which is worse than the blank it replaced: it sends
+       whoever reads it into a function that never threw.
+
+       ⚠ SO FRAMES ARE RECOGNISED, NOT COUNTED. A V8 frame trims to "at fn (file:line)";
+       a WebKit or Firefox frame is "fn@file:line". A header line is neither, so it drops
+       out by not looking like a frame rather than by being assumed to sit at index 0.
+
+       ⚠ DECLARED IN HERE, NOT AT THE TOP OF THE FILE, AND THAT IS DELIBERATE. Five
+       harnesses in run-all.js run this handler by slicing it out of admin.html from
+       `editCustSaveBtn').addEventListener` onwards. A helper factored out above that
+       point is not in the slice, so the first fixture to reach this catch dies on
+       `errorTopFrames is not defined` — which is the suite crashing rather than
+       failing, and it takes every suite after it down unscored. Kept here, every
+       harness that can reach the catch already has it.
+
+       ⚠ TWO FRAMES, AND THE CAP STAYS. `messages` is capped at 5,000 characters on
+       create by firestore.rules, and a refused write is how this reporter goes silent. */
+    function errorTopFrames(e){
+      const looksLikeFrame = function(l){
+        return l.indexOf('at ') === 0 || l.indexOf('@') !== -1;
+      };
+      return String((e && e.stack) || '').split('\n')
+        .map(function(l){ return l.trim(); })
+        .filter(Boolean)
+        .filter(looksLikeFrame)
+        .slice(0, 2)
+        .join(' <- ')
+        .slice(0, 300);
+    }
+    const where = errorTopFrames(err);
     console.error('Edit Customer save failed:', err, where ? ('at ' + where) : '');
     const detail = (err && err.message) ? String(err.message) : String(err);
     statusEl.textContent = 'Nothing was saved \u2014 ' + detail;
