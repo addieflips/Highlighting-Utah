@@ -2815,6 +2815,68 @@ the suite was reading the constant with a regex that never matched and silently 
 against a hard-coded 7.
 *Rulings*: [[SCH-72]] in `claude/questions-map.md`.
 
+### Why the crew goes back to an area it has already worked
+
+Measured 2026-09-11, and **nothing was changed as a result**. Dax, looking at a route:
+*"i can visualize how we couldve done them first while we were in that area so we didnt
+have to go back."*
+
+He is right that it happens. Over 8 simulated seasons the plan visits each grid area
+**2.80 times**. ⛔ **But the floor is 2.21, and it is made of promises**: an area holding
+an October customer, a November customer and an after-Thanksgiving customer needs three
+trips however the day is built.
+
+The mix was read off the **real 2026 client list**, not guessed — 1056 rows:
+
+| asked for | rows |
+|---|---|
+| October | 218 |
+| November | 255 |
+| Thanksgiving or a specific date | 18 |
+| "ANY", or nothing at all | 549 |
+
+So 48% are genuinely constrained, and only about **0.6 visits an area** is avoidable —
+a fifth of what it looks like on the map. ⚠ That avoidable part is real and located:
+**196 groups** of houses sharing both an area and an earliest date are still split
+across dates, and none of them is too big for a crew to have swallowed whole.
+
+⛔ **Six rules and one redesign were built and measured. Every one was rejected.**
+
+| what was tried | miles/season | visits/area | crew-days |
+|---|---|---|---|
+| as it ships | 15,369 | 2.80 | 420 |
+| finishable first | 15,301 | 2.75 | 412 |
+| leave no tail under 8 | 15,842 | 2.71 | 427 |
+| never skim a neighbour | 15,865 | **2.34** | **475** |
+
+*Never skim* nearly reaches the floor and **loses 16 books out of 16** — 77 miles and
+**7.7 crew-days a season** — because it buys tightness by leaving seats empty. That is
+against Addie’s *"a day of 12 should fill up to 40"* and Dax’s own *"more days
+generally is more gas"*.
+
+⚠ *Finishable first* looked free on the averages and is a **coin flip: 8 books better,
+8 worse, worst book +56 miles**. An average across books hides that completely, and
+shipping it would have been shipping noise with a plausible story attached.
+
+⛔ **And the redesign that would actually dissolve the problem is worse still.** Cutting
+the day’s block from the houses *available today*, rather than filtering a grid built
+once, drives **14% further** (17,697 against 15,527): the houses free on any one date
+are sprinkled across the whole valley, so clustering them gives a loose day. The
+pre-cut grid keeps days tight at the price of revisits, and that price is the cheaper
+one.
+
+⚠ **The first run of that measurement said the redesign won handsomely — because it had
+silently left 1,559 people unscheduled.** `planBlocks` returns outliers wrapped as
+`{house: {...}}`; the harness read `.id` straight off the wrapper, got `undefined`,
+never removed them from the pool, and scored a season that skipped a third of the book.
+**A cheaper season is only cheaper if the same people got their lights**, and a
+measurement harness needs that assertion as much as the app does.
+
+*Where it is proved*: nowhere in run-all.js — there is no behaviour change to pin.
+The scripts are `scratchpad/revisit.js`, `borrow-measure.js`, `borrow-sig.js` and
+`reblock.js`.
+*Rulings*: [[SCH-75]] in `claude/questions-map.md`.
+
 ### Why a route went far out at stop 11 and came back beside stop 2
 
 Added 2026-09-10. Dax, reading a crew route off the map: *"1 2 3 4 5 6 7 can make
