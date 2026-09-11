@@ -372,19 +372,11 @@ async function recordUnmatchedPayment(phone, { captureId, tip, serviceAmount }) 
   } catch (e) {
     console.error('[HU] unmatched-payment inbox note failed:', e);
   }
-  // The alert is best-effort and must never throw back into the payment path.
-  try {
-    const cfgSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();
-    const alertPhone = cfgSnap.exists ? (cfgSnap.data().alertPhone || '') : '';
-    if (alertPhone) {
-      await twilioSendRaw(alertPhone,
-        'Highlighting Utah: a PayPal payment of $' + (Number(serviceAmount) || 0).toFixed(2) +
-        ' from ' + phone + ' was charged but has no invoice to apply it to. ' +
-        'It is saved under Unmatched Payments — please check.');
-    }
-  } catch (e) {
-    console.error('[HU] unmatched-payment alert SMS failed:', e);
-  }
+  /* ⛔ THE TEXT THAT USED TO SIT HERE IS GONE (2026-09-11), AND NOTHING REPLACES IT.
+     It read alertPhone off settings/nightlyInvoiceAutomation and handed it to
+     twilioSendRaw, on an account that has never existed — so it has never arrived, and
+     the note above is what has actually been telling the office all along. The note is
+     raised BEFORE this point on purpose and is the alert; see the comment on it. */
 }
 
 /* ⭐ LAST SEASON'S CARRIED BALANCE — SERVER COPY (added 2026-09-01).
@@ -586,67 +578,26 @@ exports.paypalCaptureOrder = onCall(
   }
 );
 
-/**
- * Twilio integration: sends a single SMS through a Cloud Function so the
- * Account SID and Auth Token never touch the browser. Called from
- * admin.html's Automation > Text Automation tab.
+/* ⛔ THERE IS NO SMS ON THIS SERVER, AND ADDING ONE BACK IS NOT A SMALL CHANGE.
  *
- * Setup (run once from the project root, after `firebase login`):
- *   firebase functions:secrets:set TWILIO_ACCOUNT_SID
- *   firebase functions:secrets:set TWILIO_AUTH_TOKEN
- *   firebase functions:secrets:set TWILIO_PHONE_NUMBER   (your Twilio number, e.g. +18015551234)
+ * A `sendSms` callable and a `twilioSendRaw` helper used to live here, both posting
+ * to api.twilio.com against TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER.
+ * Highlighting Utah has never had a Twilio account, so every call came back 20003
+ * "Authentication Error - invalid username" — the customer-facing one loudly, in front
+ * of the office, and the two owner alerts silently, because the helper swallowed it.
+ * Removed 2026-09-11. Dax: "we dont want twillo we want to use google voice".
  *
- * Then deploy with:
- *   firebase deploy --only functions
+ * ⚠ GOOGLE VOICE HAS NO SEND API. This is not a missing integration to be filled in
+ * later: there is no supported way for a Cloud Function to put a text on the wire
+ * through it. The office texts from a real signed-in Google Voice session, and the
+ * admin panel hands messages to it rather than sending them (see showQuoteTextBox).
+ *
+ * ⚠ SO AN ALERT FROM THE SERVER IS A NOTE, NOT A TEXT. Both owner alerts now raise a
+ * System note in `messages`, which recordUnmatchedPayment had already chosen on its
+ * own reasoning: "a text is gone the moment you look away; a note keeps until somebody
+ * deals with it". Anything that needs to reach a phone has to be sent by a person.
  */
 
-const TWILIO_ACCOUNT_SID = defineSecret('TWILIO_ACCOUNT_SID');
-const TWILIO_AUTH_TOKEN = defineSecret('TWILIO_AUTH_TOKEN');
-const TWILIO_PHONE_NUMBER = defineSecret('TWILIO_PHONE_NUMBER');
-
-function toE164(raw) {
-  const digits = String(raw || '').replace(/\D/g, '');
-  if (digits.length === 10) return '+1' + digits;
-  if (digits.length === 11 && digits.startsWith('1')) return '+' + digits;
-  return null;
-}
-
-// Called from admin.html only — sends one text to one recipient.
-// The admin panel loops over selected recipients and calls this once each.
-exports.sendSms = onCall(
-  { secrets: [TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER] },
-  async (request) => {
-    if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in.');
-    const { to, body } = request.data || {};
-    if (!to || !body) throw new HttpsError('invalid-argument', 'Missing to or body.');
-    const toNumber = toE164(to);
-    if (!toNumber) throw new HttpsError('invalid-argument', 'That phone number doesn\'t look valid.');
-
-    const sid = TWILIO_ACCOUNT_SID.value();
-    const authToken = TWILIO_AUTH_TOKEN.value();
-    const from = TWILIO_PHONE_NUMBER.value();
-    const basicAuth = Buffer.from(sid + ':' + authToken).toString('base64');
-
-    const params = new URLSearchParams();
-    params.append('To', toNumber);
-    params.append('From', from);
-    params.append('Body', body);
-
-    const res = await fetch('https://api.twilio.com/2010-04-01/Accounts/' + sid + '/Messages.json', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Basic ' + basicAuth,
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: params.toString()
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new HttpsError('internal', 'Twilio send failed: ' + (data.message || JSON.stringify(data)));
-    }
-    return { success: true, sid: data.sid, status: data.status };
-  }
-);
 // capture (e.g. the customer closed the tab right after paying). Verifies the
 // signature before trusting anything, and never double-counts a payment that
 // the browser-side call already recorded.
@@ -4468,49 +4419,34 @@ function todayStrInDenver() {
   return get('year') + '-' + get('month') + '-' + get('day');
 }
 
-// Sends one text through Twilio. Used by the nightly alert. Only works inside a
-// function that declares the TWILIO secrets. Never throws — returns {ok}.
-async function twilioSendRaw(to, body) {
-  const toNumber = toE164(to);
-  if (!toNumber) return { ok: false };
-  try {
-    const sid = TWILIO_ACCOUNT_SID.value();
-    const authToken = TWILIO_AUTH_TOKEN.value();
-    const from = TWILIO_PHONE_NUMBER.value();
-    const basicAuth = Buffer.from(sid + ':' + authToken).toString('base64');
-    const params = new URLSearchParams();
-    params.append('To', toNumber);
-    params.append('From', from);
-    params.append('Body', body);
-    const res = await fetch('https://api.twilio.com/2010-04-01/Accounts/' + sid + '/Messages.json', {
-      method: 'POST',
-      headers: { 'Authorization': 'Basic ' + basicAuth, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString()
-    });
-    return { ok: res.ok };
-  } catch (e) {
-    return { ok: false, error: String((e && e.message) || e) };
-  }
-}
 async function logNightlyInvoiceRun(data) {
   await db.collection('nightlyInvoiceLog').add(Object.assign(
     { runAt: admin.firestore.FieldValue.serverTimestamp() },
     data
   ));
-  // Text the owner a one-line summary so a missed or failed run can't slip by.
-  // Twilio is separate from EmailJS, so this still reaches you on the night
-  // email is the thing that's broken. An alert failure must never break the run.
+  /* ⛔ THIS USED TO TEXT THE OWNER A SUMMARY AND NEVER ONCE DID (fixed 2026-09-11).
+     twilioSendRaw returned {ok:false} and never threw, so a run that failed reported
+     itself to nobody — and the screen said the text was the channel that survives
+     email breaking. Nothing on this server can text; see the header comment.
+
+     ⚠ AND IT ONLY SPEAKS UP WHEN A PERSON IS NEEDED. The old text went out after every
+     run, including "23 sent, 0 errors" — a note on a clean run trains the eye to clear
+     the Inbox without reading it, which is how the one that matters gets cleared too.
+     A clean run is already on the "Last 10 nightly runs" card, and Health Check raises
+     a run that has not fired for 36 hours, which is the failure the text was for.
+
+     ⚠ BEST-EFFORT, LIKE THE TEXT IT REPLACES. A note that fails must never break the
+     billing run it is reporting on. */
   try {
-    const cfgSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();
-    const alertPhone = cfgSnap.exists ? (cfgSnap.data().alertPhone || '') : '';
-    if (alertPhone) {
+    const needsSomebody = (data.errorCount || 0) > 0 || (data.skippedNoEmail || 0) > 0 ||
+      (data.skippedNeedsFix || 0) > 0;
+    if (needsSomebody) {
       const parts = [(data.sentCount || 0) + ' sent'];
       if (data.skippedNeedsFix) parts.push(data.skippedNeedsFix + ' need fix');
       if (data.skippedNotDone) parts.push(data.skippedNotDone + ' skipped');
-      // Called out by name, not folded into the generic skip count — an
-      // uninvoiceable customer is a bill that will never be sent, not a bill
-      // that is waiting.
-      /* ⚠ THE WORDING CHANGED WITH THE BEHAVIOUR (2026-08-30). It read "cannot be
+      /* Called out by name, not folded into the generic skip count — an uninvoiceable
+         customer is a bill that will never be sent, not a bill that is waiting.
+         ⚠ THE WORDING CHANGED WITH THE BEHAVIOUR (2026-08-30). It read "cannot be
          billed", which was true while a payer with no email got no invoice document at
          all. They are billed now — the invoice is raised and waiting in their member
          portal, which they reach with their phone — and the only thing missing is
@@ -4519,16 +4455,27 @@ async function logNightlyInvoiceRun(data) {
          that is impossible rather than work that is hers. */
       if (data.skippedNoEmail) parts.push(data.skippedNoEmail + ' BILLED, SEND BY HAND (no email)');
       parts.push((data.errorCount || 0) + ' error' + (data.errorCount === 1 ? '' : 's'));
-      let body = 'Highlighting Utah billing (' + (data.triggeredBy || 'run') + '): ' + parts.join(', ') + '.';
+      let body = 'The 7pm billing run (' + (data.triggeredBy || 'run') + ') needs somebody: ' +
+        parts.join(', ') + '.';
       if (data.skippedNoEmail && data.noEmailNames && data.noEmailNames.length) {
         body += ' Send by hand: ' + data.noEmailNames.slice(0, 3).join(', ') +
           (data.noEmailNames.length > 3 ? ' +' + (data.noEmailNames.length - 3) + ' more' : '') + '.';
       }
-      if (data.errorCount && data.errors && data.errors.length) body += ' First issue: ' + String(data.errors[0]).slice(0, 90);
-      await twilioSendRaw(alertPhone, body);
+      if (data.errorCount && data.errors && data.errors.length) {
+        body += ' First issue: ' + String(data.errors[0]).slice(0, 90);
+      }
+      body += ' The full run is under Automation → Last 10 nightly runs.';
+      await db.collection('messages').add({
+        topic: 'Nightly Billing Needs You', folder: 'System',
+        name: '', phone: '', email: '', contactMethod: '',
+        ref: 'nightly-' + new Date().toISOString().slice(0, 10),
+        message: body,
+        autoQueuedToWarehouse: false, needsReassign: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
     }
   } catch (e) {
-    console.error('[HU] nightly alert SMS failed:', e);
+    console.error('[HU] nightly billing note failed:', e);
   }
 }
 
@@ -6338,7 +6285,7 @@ exports.runQuoteNudgesNow = onCall({ memory: '512MiB', timeoutSeconds: 300 }, as
 });
 
 exports.sendNightlyInvoices = onSchedule(
-  { schedule: '0 19 * * *', timeZone: 'America/Denver', memory: '512MiB', secrets: [TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER] },
+  { schedule: '0 19 * * *', timeZone: 'America/Denver', memory: '512MiB' },
   async () => {
     const autoSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();
     if (!autoSnap.exists || !autoSnap.data().enabled) {
@@ -6355,7 +6302,7 @@ exports.sendNightlyInvoices = onSchedule(
  * invoices out on a night the automation is turned off. Requires the caller
  * to be signed in (same Firebase Auth already used across admin.html).
  * ------------------------------------------------------------------------- */
-exports.sendInvoicesNow = onCall({ memory: '512MiB', timeoutSeconds: 300, secrets: [TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER] }, async (request) => {
+exports.sendInvoicesNow = onCall({ memory: '512MiB', timeoutSeconds: 300 }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Sign in required.');
   }

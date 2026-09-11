@@ -3244,14 +3244,16 @@
               </div>
               <div id="lateFeeReport" style="font-size:12.5px; margin-top:8px;"></div>
             </div>
+            <!-- ⛔ THE NIGHTLY ALERT PHONE IS GONE (2026-09-11). It fed twilioSendRaw on a
+                 Twilio account Highlighting Utah has never had, so the text it promised —
+                 "sent by text (not email), so it reaches you even when email is the
+                 problem" — has never once arrived. We text from Google Voice, which has no
+                 send API, so no server here can text at all. Do not add the field back
+                 without a sender behind it. A run that needs a person now raises a System
+                 note in the Inbox, and Health Check still flags a run that has stopped. -->
             <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
-              <label style="font-weight:600; font-size:13px; display:block; margin-bottom:4px;">Text a nightly billing summary to this number</label>
-              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                <input type="tel" id="nightlyAlertPhone" placeholder="e.g. 801-555-1234 (your Google Voice number)" style="max-width:320px;">
-                <button type="button" class="btn btn-outline btn-sm" id="nightlyAlertSaveBtn">Save</button>
-              </div>
-              <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">After each run you&rsquo;ll get a text like &ldquo;23 sent, 0 errors.&rdquo; If it stops arriving, the run didn&rsquo;t fire. It&rsquo;s sent by text (not email), so it reaches you even when email is the problem. Leave blank to turn it off. Send yourself a test with &ldquo;Send Invoices Now&rdquo; below to confirm it lands.</p>
-              <span id="nightlyAlertStatus" style="font-size:12px; color:var(--slate); display:block; margin-top:4px;"></span>
+              <label style="font-weight:600; font-size:13px; display:block; margin-bottom:4px;">How you find out about a run that needs you</label>
+              <p style="font-size:12px; color:var(--slate); margin:0;">A run that hits an error, or that bills somebody with no email on file, posts a <strong>Nightly Billing Needs You</strong> note to the System folder of your Inbox. A clean run stays quiet &mdash; it is on the list below. If billing stops firing altogether, Health Check says so after 36 hours.</p>
             </div>
             <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
               <button type="button" class="btn btn-gold" id="sendInvoicesNowBtn">Send Invoices Now</button>
@@ -9912,12 +9914,11 @@ async function loadEmailjsSettings(){
  * Health Check runs itself every ten minutes and lights the sidebar badge, so
  * the warning belongs there as well. Cached here rather than re-read by the
  * checks, which are synchronous and must stay free. */
-let nightlyHealthCache = { loaded: false, enabled: false, alertPhone: '', newestRunAt: null, hasRuns: false };
+let nightlyHealthCache = { loaded: false, enabled: false, newestRunAt: null, hasRuns: false };
 async function loadNightlyHealth(){
   try{
     const snap = await getDoc(doc(db,'settings','nightlyInvoiceAutomation'));
     nightlyHealthCache.enabled = snap.exists() ? !!snap.data().enabled : false;
-    nightlyHealthCache.alertPhone = (snap.exists() && snap.data().alertPhone) ? String(snap.data().alertPhone) : '';
     const logSnap = await getDocs(query(collection(db,'nightlyInvoiceLog'), orderBy('runAt','desc'), limit(1)));
     nightlyHealthCache.hasRuns = !logSnap.empty;
     const newest = logSnap.empty ? null : logSnap.docs[0].data();
@@ -10042,8 +10043,6 @@ async function loadNightlyInvoiceSettings(){
   try{
     const snap = await getDoc(doc(db,'settings','nightlyInvoiceAutomation'));
     document.getElementById('nightlyInvoiceEnabled').checked = snap.exists() ? !!snap.data().enabled : false;
-    const ap = document.getElementById('nightlyAlertPhone');
-    if(ap) ap.value = (snap.exists() && snap.data().alertPhone) ? snap.data().alertPhone : '';
   } catch(err){ /* not saved yet, fine */ }
   /* ⚠ ITS OWN READ, ITS OWN try. The late-fee switch lives in a different settings
      document, and sharing the block above would mean a failed read of one leaving
@@ -10058,18 +10057,6 @@ async function loadNightlyInvoiceSettings(){
     if(st){ st.textContent = lateFeeSay(on); st.style.color = on ? 'var(--emerald)' : 'var(--slate)'; }
   } catch(err){ /* never saved, so off — which is the shipped state anyway */ }
 }
-document.getElementById('nightlyAlertSaveBtn')?.addEventListener('click', async function(){
-  const val = document.getElementById('nightlyAlertPhone').value.trim();
-  const st = document.getElementById('nightlyAlertStatus');
-  try{
-    await setDoc(doc(db,'settings','nightlyInvoiceAutomation'), {alertPhone: val}, {merge:true});
-    st.textContent = val ? '✓ Saved — a summary text will go to that number after each run.' : 'Saved — nightly alert texts are off.';
-    st.style.color = 'var(--emerald)';
-  } catch(err){
-    st.textContent = '✗ Couldn\'t save — try again';
-    st.style.color = 'var(--ember)';
-  }
-});
 document.getElementById('nightlyInvoiceEnabled')?.addEventListener('change', async function(){
   const statusEl = document.getElementById('nightlyInvoiceStatus');
   try{
@@ -62615,10 +62602,11 @@ function hcRunChecks(){
             '. Every house finished since then is waiting to be invoiced. Check Cloud Functions and Firebase billing.'});
       }
     }
-    if(!nightlyHealthCache.alertPhone){
-      nightlyRows.push({label: 'No phone number set for the nightly billing text',
-        detail: 'That text is what tells you the run happened at all. With it blank, a run that stops firing is invisible until someone notices a customer was never billed.'});
-    }
+    /* ⛔ A ROW DEMANDING A PHONE NUMBER USED TO SIT HERE, for a text that has never been
+       sent (see the note beside the removed field). It said the text "is what tells you
+       the run happened at all" — so it was sending somebody to fix the one signal that
+       could not work, and competing for attention with the 36-hour check directly above,
+       which does work and needs nothing set up. */
   }
   checks.push({
     id: 'nightlyBilling',

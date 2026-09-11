@@ -699,14 +699,17 @@ module.exports = [
        delivery receipt, and an HTTP response (`res.status` in the measure tool).
 
        The record-aware filter catches the ones whose function names another collection.
-       It cannot catch the rest — a fetch names no collection, and neither does Twilio —
+       It cannot catch the rest — a fetch names no collection —
        so those stay hand-written, which is exactly what `ignore` is for. */
     ignore: [
       /* An INVOICE's status, not a quote's. Every one of these writes
          `status: computeInvoiceStatus(...)`. */
       '^(ssnRunBtn handler|fixMissingInvoicesBtn handler|rbImportBtn handler|ibImportBtn handler)$',
-      /* Not a record at all: an HTTP response and an SMS delivery receipt. */
-      '^(rmFetchStatic|rmCapture|sendSms)$',
+      /* Not a record at all: an HTTP response. sendSms was the third name here — an SMS
+         delivery receipt's status — and went with Twilio on 2026-09-11. Dropped rather
+         than left in place: a standing ignore for a function that no longer exists is
+         how the next thing called sendSms gets excused without anybody deciding to. */
+      '^(rmFetchStatic|rmCapture)$',
       /* Other records entirely — cards and time-off requests. */
       '^(cc[A-Z]|atoAddBtn handler|approveTimeOffRequest|loadTimecardApprovalsAdmin|loadEmployeeRequestsAdmin)',
       /* Test records, as everywhere else. */

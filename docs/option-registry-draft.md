@@ -94,8 +94,11 @@ for RSVP emails."*
 
 ⚠ **Plan §4.2 is wrong on both counts.** It says *"Send `confirmationText(customer)`
 via the existing Twilio path, N days before the scheduled install date."* The
-Twilio code exists (`sendSms`, `twilioSendRaw`) but the service is not in use, and
-the confirmation is not a separate pre-install message — it is the RSVP email
+Twilio code existed (`sendSms`, `twilioSendRaw`) and the service was not in use — **and
+that gap sat here unclosed for three weeks**, until the dead path surfaced as an error in
+front of the office on 2026-09-11 and the code was removed (see QT-38). Noting it in a
+draft is not the same as taking it out. The confirmation is also not a separate
+pre-install message — it is the RSVP email
 that already goes out at the start of the season through Automation Emails.
 
 Two consequences, both good:

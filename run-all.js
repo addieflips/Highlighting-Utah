@@ -4317,11 +4317,17 @@ console.log('\n=== 7. Health check engine ===');
     get(hc.run(), 'nightlyBilling').rows.length === 0,
     'a nightly job legitimately runs once a day — warning every morning is noise');
 
-  hc.setNightly({ loaded:true, enabled:true, alertPhone:'',
-                  hasRuns:true, newestRunAt:new Date(Date.now() - 3600000) });
-  check('health', 'a missing alert phone is caught on its own',
+  /* ⛔ A BLANK ALERT PHONE USED TO BE A ROW OF ITS OWN, removed 2026-09-11 with the
+     field itself: it fed twilioSendRaw on an account that never existed, so the panel
+     was sending somebody to fix the one signal that could not work. What it was really
+     buying is that a HEALTHY, REACHABLE run reports nothing — which is asserted above —
+     and that a stopped one still reports without anything having to be set up first.
+     That second half had no test at all while the phone row existed to cover for it. */
+  hc.setNightly({ loaded:true, enabled:true,
+                  hasRuns:true, newestRunAt:new Date(Date.now() - 40 * 3600000) });
+  check('health', 'a stopped run is caught with nothing configured',
     get(hc.run(), 'nightlyBilling').rows.length === 1,
-    'that text is the only thing that reports the run happened — blank, a stopped run is invisible');
+    'the 36-hour check is now the only thing that reports a dead billing run, so it can never depend on a setting somebody has to fill in');
 
   hc.setNightly({ loaded:true, enabled:false, alertPhone:'', hasRuns:false, newestRunAt:null });
   check('health', 'billing that is switched OFF is not reported as broken',
@@ -7282,9 +7288,17 @@ suite('9. Portal sign-in security');
      Inbox note pushed twilioSendRaw past the end of the window and it failed on correct
      code. It clips to the end of the real function now. */
   const unmatchedFn = sectionFrom(fns, fns.indexOf('async function recordUnmatchedPayment'));
+  /* ⚠ REPOINTED AGAIN 2026-09-11, AND THE FIRST SYMPTOM WAS A FALSE GREEN. This read
+     /twilioSendRaw/ on the function body, so when Twilio was deleted the check went on
+     passing — satisfied by the COMMENT left behind explaining the removal. A check that
+     a word appears cannot tell code from a note about code. It asserts the note is
+     written now, which is the thing that actually tells anybody. */
   check('money', 'an unmatched payment raises an alert',
-    /twilioSendRaw/.test(unmatchedFn),
+    /db\.collection\('messages'\)\.add\(/.test(unmatchedFn),
     'a record nobody is told about is a record nobody reads');
+  check('money', 'and the alert is not a text, because nothing here can send one',
+    !/twilioSendRaw\(|sendSms\(|api\.twilio\.com/.test(unmatchedFn),
+    'Google Voice has no send API — a text from this path silently reaches nobody, which is exactly what it did for the life of this check');
   /* ⭐ AND IT REACHES THE SYSTEM INBOX (2026-08-30). Addie: "we need unmatched invoice to
      come up in system inbox before we send it out." A text is gone the moment you look
      away; a note keeps until somebody deals with it, and the money is real. */
@@ -35120,11 +35134,14 @@ suite('Suite 128. The do-not-send list — automation emails only');
         dripGate.split('noAutomationEmails').length - 1,
       'a second server reader of the do-not-send list — check it is not a billing or a ' +
       'text path before allowing it');
-    ['runInvoiceBatch', 'runQuoteNudgeBatch', 'twilioSendRaw'].forEach(function(fn){
+    /* ⚠ twilioSendRaw WAS THE THIRD NAME HERE and was removed with Twilio itself
+       (2026-09-11). There is no SMS path on the server at all now, so the "text path"
+       half of the reason below is history rather than a live guard. */
+    ['runInvoiceBatch', 'runQuoteNudgeBatch'].forEach(function(fn){
       const body = sectionFrom(fns, fns.indexOf('function ' + fn));
       check('S128', fn + ' has never heard of noAutomationEmails',
         body.length > 100 && body.indexOf('noAutomationEmails') === -1,
-        'nightly invoicing, the quote nudge and the SMS path all live here — a ' +
+        'nightly invoicing and the quote nudge both live here — a ' +
         'refusal to be marketed at is not a refusal to be told what you owe');
     });
     /* The invoice the customer is actually shown and emailed. Anchored on a
