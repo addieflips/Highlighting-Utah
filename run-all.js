@@ -1525,6 +1525,7 @@ const RETIRED_CHECKLIST_TERMS = [
       219,  // the Overdue list read against the real book, after the invoice-date fix
       220,  // the house tabs on a real shared bill - layout, and real record shapes
       221,  // whether a flagged email is REALLY wrong for that customer, in the live book
+      222   // a real charge to real customers, and only she knows if they paid
     ];
     const have = SEED_ROWS.map(function (r) { return r[0]; });
     const missing = MANUAL_ONLY_IDS.filter(function (id) { return !have.includes(id); });
@@ -6365,43 +6366,93 @@ suite('11. Reliability pass');
       const toJsDate = (v) => (v && typeof v.toDate === 'function') ? v.toDate()
         : (v instanceof Date ? v : null);
       const issuedAt = new Function('toJsDate', 'return ' + issuedSrc + ';invoiceIssuedAt')(toJsDate);
-      const overdue = new Function('computeInvoiceStatus', 'OVERDUE_DAYS', 'invoiceIssuedAt',
+      /* ⚠ LIFTED, NEVER STUBBED (§3). The Overdue flag stopped counting days on
+         2026-09-11 and now asks invoiceDueDate — the same rule the printed invoice
+         and the {{due_date}} on the email read. A stub of it here would keep this
+         suite green through a change to WHEN a customer is chased, which is the one
+         thing these checks exist to hold. This sandbox died with a bare
+         ReferenceError the moment the rule moved, exactly as sandboxDeps intends. */
+      const dueSrc = extractFn(money, 'invoiceDueDate');
+      const seasonSrc = extractFn(money, 'invoiceSeasonYear');
+      const eofSrc = extractFn(money, 'endOfFebruary');
+      check('reliability', 'the February due-date rule was found to lift',
+        !!dueSrc && !!seasonSrc && !!eofSrc);
+      /* ⚠ THE `return` GOES LAST, NOT IN FRONT. The one-function sandboxes above read
+         `'return ' + src + ';name'`, which works only because the whole slice is a
+         single function expression; with three declarations a leading return hands
+         back the FIRST of them, and the failure is a TypeError about getMonth several
+         lines later rather than anything naming the shape. */
+      const invoiceDueDate = new Function(
+        [seasonSrc, eofSrc, dueSrc].join('\n') + '\nreturn invoiceDueDate;')();
+      const overdue = new Function('computeInvoiceStatus', 'invoiceDueDate', 'invoiceIssuedAt',
         'return ' + overdueSrc + ';isInvoiceOverdue'
-      )(computeInvoiceStatus, 30, issuedAt);
+      )(computeInvoiceStatus, invoiceDueDate, issuedAt);
+
+      /* ⭐ THE TERMS THEMSELVES, RUN (2026-09-11). Addie: "they have until february
+         to get them paid." These are about WHICH DAY, so they are asserted on the
+         rule directly rather than through the flag — the flag can only ever say
+         "before now" or "after now", and that cannot tell a February rule from a
+         thirty-day one. */
+      const feb = (d) => { const x = invoiceDueDate(d); return x.getMonth() + '/' + x.getDate() + '/' + x.getFullYear(); };
+      check('reliability', 'an autumn bill is due the last day of the NEXT February',
+        feb(new Date(2026, 9, 15)) === '1/28/2027',
+        'a house done in October 2026 pays by 28 Feb 2027, not 30 days later');
+      check('reliability', 'and a January bill belongs to the season just gone',
+        feb(new Date(2027, 0, 10)) === '1/28/2027',
+        'reading the issue YEAR alone would give this house until Feb 2028 — fourteen ' +
+        'months — because its invoice happens to carry a different year on it');
+      check('reliability', 'the last day of February is measured, not typed as 28',
+        feb(new Date(2027, 9, 15)) === '1/29/2028',
+        '2028 is a leap year; writing 28 out would quietly shorten one season in four');
+      check('reliability', 'a due date is never already in the past when it is printed',
+        invoiceDueDate(new Date(2027, 4, 1)).getTime() > new Date(2027, 4, 1).getTime(),
+        'a bill issued after its own season\'s February must roll forward rather than ' +
+        'hand the customer a due date that has already gone by');
 
       /* ⚠ ONE INSTANT, NOT ONE PER CALL. This read Date.now() inside toDate(), so
          the last check below compared two separately-computed "40 days ago" and
          failed whenever the two landed a millisecond apart — a real flake, caught
          on 2026-08-26. §9.7: a flaky test trains you to dismiss failures. */
-      const NOW = Date.now();
-      const ago = (n) => { const d = new Date(NOW - n * 86400000); return { toDate: () => d }; };
+      /* ⚠ FIXED DATES, NOT "N DAYS AGO". The flag reads Date.now() itself, so a
+         fixture pinned to an offset would mean whether it is overdue depends on the
+         month the suite is run in — a February rule makes "40 days ago" sometimes
+         late and sometimes not. A bill from 2000 is past its February whenever this
+         runs, and one from 2090 is not: both answers hold every day of the year.
+         (The old offsets also produced a real flake, caught 2026-08-26, by computing
+         "40 days ago" twice a millisecond apart. §9.7.) */
+      const at = (y, m, d) => { const x = new Date(y, m, d); return { toDate: () => x }; };
+      const LONG_PAST = at(2000, 9, 15);   // Oct 2000, due Feb 2001
+      const FAR_OFF   = at(2090, 9, 15);   // Oct 2090, due Feb 2091
+      const YESTERDAY = { toDate: () => new Date(Date.now() - 86400000) };
       const owing = { install: 400, removal: 0, deposit: 0, credits: 0, changeFees: 0 };
 
-      check('reliability', 'a bill issued 40 days ago is overdue',
-        overdue(Object.assign({}, owing, { invoicedAt: ago(40), updatedAt: ago(40) })) === true);
-      /* THE BUG, stated as the case that produced it. */
+      check('reliability', 'a bill past its February is overdue',
+        overdue(Object.assign({}, owing, { invoicedAt: LONG_PAST, updatedAt: LONG_PAST })) === true);
+      /* THE BUG, stated as the case that produced it. Still the whole reason
+         invoiceIssuedAt exists, and the terms moving does not retire it. */
       check('reliability', 'and editing it yesterday does NOT reset the clock',
-        overdue(Object.assign({}, owing, { invoicedAt: ago(40), updatedAt: ago(1) })) === true,
-        'correcting a spelling used to push the due date another 30 days out and take ' +
-        'a genuinely overdue bill off the list, while the customer\'s copy still said ' +
-        'the original date');
-      check('reliability', 'a bill issued 10 days ago is not overdue',
-        overdue(Object.assign({}, owing, { invoicedAt: ago(10), updatedAt: ago(10) })) === false);
+        overdue(Object.assign({}, owing, { invoicedAt: LONG_PAST, updatedAt: YESTERDAY })) === true,
+        'correcting a spelling used to push the due date out and take a genuinely ' +
+        'overdue bill off the list, while the customer\'s copy still said the original date');
+      check('reliability', 'a bill whose February has not come yet is not overdue',
+        overdue(Object.assign({}, owing, { invoicedAt: FAR_OFF, updatedAt: FAR_OFF })) === false,
+        'under the old 30-day terms an October house read Overdue in November — three ' +
+        'months before the date printed on its own invoice');
       check('reliability', 'and a bill paid in full never is, however old',
         overdue({ install: 400, removal: 0, deposit: 400, credits: 0, changeFees: 0,
-                  invoicedAt: ago(400), updatedAt: ago(400) }) === false);
+                  invoicedAt: LONG_PAST, updatedAt: LONG_PAST }) === false);
       /* ⚠ The fallback is not the bug and must survive: an invoice that has never been
          through the nightly run has no invoicedAt, and dropping the fallback would
          make every one of those un-datable rather than merely un-billed. */
       check('reliability', 'an invoice never issued still dates from its own write',
-        overdue(Object.assign({}, owing, { updatedAt: ago(40) })) === true &&
-        overdue(Object.assign({}, owing, { updatedAt: ago(10) })) === false);
+        overdue(Object.assign({}, owing, { updatedAt: LONG_PAST })) === true &&
+        overdue(Object.assign({}, owing, { updatedAt: FAR_OFF })) === false);
       check('reliability', 'and no date at all is not overdue, rather than overdue since the epoch',
         overdue(Object.assign({}, owing)) === false,
         'an invoice that was never issued has not been billed; chasing it is chasing nobody');
       check('reliability', 'the printed due date reads the same rule as the flag',
-        issuedAt({ invoicedAt: ago(40), updatedAt: ago(1) }).getTime() ===
-        ago(40).toDate().getTime(),
+        issuedAt({ invoicedAt: LONG_PAST, updatedAt: YESTERDAY }).getTime() ===
+        LONG_PAST.toDate().getTime(),
         'the whole point is that the paper and the screen cannot disagree');
     }
     /* ⚠ AND NO FIFTH COPY. This bug was one reader left behind when three were
@@ -8087,11 +8138,19 @@ if (!JSDOM) {
         'return ' + extractFn(admin, 'invoiceIssuedAt') + ';invoiceIssuedAt'
       )(v => (v instanceof Date ? v : null)),
       addDays: (d, n) => new Date((d instanceof Date ? d.getTime() : Date.now()) + n * 86400000),
+      /* ⭐ AND THE DUE-DATE RULE ITSELF, LIFTED FOR THE SAME REASON (2026-09-11).
+         `PAYMENT_TERMS_DAYS: 14` stood here — a deliberately WRONG number, so that a
+         printed date agreeing with the real 30 would have been suspicious. The terms
+         are a calendar now and there is no number to get wrong, so the rule is lifted
+         whole out of js/money.js instead. Stubbing it would let the printed invoice
+         start naming a different February from the one the Overdue flag chases. */
+      invoiceDueDate: new Function(
+        [extractFn(money, 'invoiceSeasonYear'), extractFn(money, 'endOfFebruary'),
+         extractFn(money, 'invoiceDueDate')].join('\n') + '\nreturn invoiceDueDate;')(),
       niceDate: () => 'Nov 20, 2026',
       invoiceNumberFor: () => 'INV-0001',
       PORTAL_ADDRESS: 'highlightingutah.com/#/payment',
-      VENMO_HANDLE: 'HighLightingUtah',
-      PAYMENT_TERMS_DAYS: 14
+      VENMO_HANDLE: 'HighLightingUtah'
     };
     const names = Object.keys(ctx);
     const fn = new Function(...names,
@@ -28464,7 +28523,7 @@ suite('Suite 108. The Edit Customer save, actually run');
         ';return ' + extractFn(admin, 'whTimerRemovalQueue') + ';')(),
       /* ⚠ AND THE TWO FEE WRITERS, LIFTED — not stubs. Joined this list 2026-09-11, in
          the same commit that extracted them so the All Customers panel could charge the
-         same $30 ([[MON-70]]): the extraction-list trap CLAUDE.md describes, hit an
+         same $30 ([[MON-78]]): the extraction-list trap CLAUDE.md describes, hit an
          EIGHTH time. A stub for either would decide for itself what lands on a bill,
          which is the whole of what these four checks measure.
          ⚠ addLightChangeFeeToInvoice CLOSES OVER getDoc/doc/setDoc/db/serverTimestamp
@@ -28595,7 +28654,7 @@ suite('Suite 108. The Edit Customer save, actually run');
       'document',
       'return ' + extractFn(admin, 'editCustReadBuildings') + ';editCustReadBuildings'
     )({ getElementById: function(){ return null; } });
-    /* ⭐ THE REAL INVOICE FEE WRITER, LIFTED — not a stub ([[MON-70]], 2026-09-11). It
+    /* ⭐ THE REAL INVOICE FEE WRITER, LIFTED — not a stub ([[MON-78]], 2026-09-11). It
        was inline in this handler until today; the All Customers panel now charges the
        same $30, so it is one named function and both callers ask it. Four checks below
        read what it wrote, so a stub would answer the question they exist to measure.
@@ -38374,8 +38433,18 @@ suite('Suite 140. A finished fix takes its photo with it');
     doneSrc.indexOf("updateDoc(doc(db, 'jobAddresses', id), fields)") <
     doneSrc.indexOf('hlxRetireFixPhoto'),
     'the done state is what matters; the photo is cleaned up behind it');
+  /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. This proved the gating by asserting that NO
+     bare `kind === 'fix')` appeared anywhere in the function — that is, by pinning to a
+     string's absence rather than to what must be true. [[FIX-02]] added a second fix
+     branch that legitimately runs on BOTH sides (the System notice is raised when a
+     fault is reported and cleared when it is mended), so the old form began failing on
+     code that is right. It now asks the real question: the branch the DESTROY sits in
+     is gated on `done`. Same slow-fuse shape as S82, S129 and the folder-names suite. */
+  const destroyAt = doneSrc.indexOf('hlxRetireFixPhoto');
+  const guardBefore = doneSrc.lastIndexOf("kind === 'fix'", destroyAt);
   check('S140', 'only when marking done, never when unticking',
-    /kind === 'fix' && done\b/.test(doneSrc) && !/kind === 'fix'\s*\)/.test(doneSrc),
+    destroyAt > 0 && guardBefore > 0 &&
+    /^kind === 'fix' && done\b/.test(doneSrc.slice(guardBefore)),
     'unticking a fix must not destroy the photo the office is about to look at');
   check('S140', 'and the field is cleared only if the picture really went',
     /if \(gone\.cleared\) \{/.test(doneSrc),
@@ -50141,17 +50210,25 @@ suite('292. Cancellations, the member portal, and folders in the System tab');
   const homeMap = (admin.match(/const MESSAGE_HOME_FOLDER = \{[\s\S]*?\};/) || [])[0];
   /* Lifted for the same reason as in Suite 273 above — see the note there. */
   const errConsts292 = (admin.match(/const ERROR_FOLDER = [\s\S]*?const ADMIN_ERROR_TOPIC = '[^']*';/) || [])[0];
+  /* ⚠ LIFTED, NEVER STUBBED — the extraction-list trap for the seventh time, and the
+     same shape as MESSAGE_HOME_FOLDER's two keys in Suite 273: SYSTEM_NOTICE_SECTION_OF
+     stopped being a table of plain strings when [[FIX-02]] added a computed key, so
+     lifting the table alone died on a bare ReferenceError and took the whole suite with
+     it. A stub would let this suite stay green through a change to where a fix notice
+     lands, which is the one thing it exists to protect. */
+  const fixTopic292 = (admin.match(/const FIX_NOTICE_TOPIC = '[^']*';/) || [])[0];
   const folderOf = extractFn(admin, 'messageFolderOf');
   const sectionOf = extractFn(admin, 'systemNoticeSection');
   const secMap = (admin.match(/const SYSTEM_NOTICE_SECTION_OF = \{[\s\S]*?\};/) || [])[0];
   const secList = (admin.match(/const SYSTEM_NOTICE_SECTIONS = \[[\s\S]*?\];/) || [])[0];
   check('S292', 'the two tables and the two rules were all found',
-    !!homeMap && !!folderOf && !!sectionOf && !!secMap && !!secList && !!errConsts292,
+    !!homeMap && !!folderOf && !!sectionOf && !!secMap && !!secList && !!errConsts292 &&
+    !!fixTopic292,
     'renamed? update this suite rather than deleting it');
 
   if (homeMap && folderOf && sectionOf && secMap && secList) {
     const api = new Function(
-      (errConsts292 || '') + NL292 +
+      (errConsts292 || '') + NL292 + (fixTopic292 || '') + NL292 +
       homeMap + NL292 + folderOf + NL292 + secMap + NL292 + secList + NL292 + sectionOf + NL292 +
       'return {folderOf: messageFolderOf, sectionOf: systemNoticeSection,' +
       ' sections: SYSTEM_NOTICE_SECTIONS, home: MESSAGE_HOME_FOLDER};')();
@@ -56392,8 +56469,17 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
          sentence an empty strip gets, so a stub would make this suite agree with
          itself. dlabel IS stubbed, deliberately — it is date formatting and these
          checks are about WHICH sentence appears. */
-      const mkChips = (fc, err) => new Function('esc', 'dayAreas', 'isoOf', 'dayDate',
-        'forecastHighFor', 'COLD_DAY_MAX_F', 'SEASON_FORECAST', 'dlabel',
+      /* ⚠ AND THE NORMALS TABLE, because since [[SCH-72]] a town with no forecast
+         falls back to what the weather usually does. Keyed by MONTH-DAY, which is what
+         a normal is — the same answer for 1 October every year.
+         ⚠ normalHighFor AND extractCleanCity ARE LIFTED, NOT STUBBED. The first is the
+         thing being tested; the second is what turns 'Lehi, UT' into 'Lehi' on both
+         sides of the lookup, and a stub that skipped it would let a check pass against
+         a key the real app would never build. */
+      const mkChips = (fc, err, nm, nerr) => new Function('esc', 'dayAreas', 'isoOf', 'dayDate',
+        'forecastHighFor', 'COLD_DAY_MAX_F', 'SEASON_FORECAST', 'dlabel', 'SEASON_NORMALS',
+        extractFn(admin, 'extractCleanCity') + '\n' +
+        extractFn(admin, 'normalHighFor') + '\n' +
         extractFn(admin, 'forecastReachesTo') + '\n' +
         chipsSrc + '\nreturn dayForecastChips;')(
         function (s) { return String(s); },
@@ -56406,7 +56492,8 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
         function (t, ds) { const r = fc[t]; const v = r && r[ds]; return typeof v === 'number' ? v : null; },
         35,
         { error: err || '', byTown: fc },
-        function (d) { return { wd: 'Thu', full: 'Oct 1' }; });
+        function (d) { return { wd: 'Thu', full: 'Oct 1' }; },
+        { error: nerr || '', byTown: nm || {}, towns: Object.keys(nm || {}).length, years: 10 });
       const chips = mkChips(FC);
       const warm = chips({ houses: [{ city: 'Lehi' }, { city: 'Lehi' }] });
       check('S314', 'a town with a forecast shows its high beside the map',
@@ -56453,6 +56540,56 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
         check('S314', 'a day beyond the forecast says how far it reaches',
           /this far ahead/.test(out) && /Oct 1|2026-09-20/.test(out),
           'got ' + JSON.stringify(out) + ' — on 10 September every day of the season is past the horizon, so this is what he was actually looking at');
+      }
+      /* ── past the horizon, what the weather usually does ── */
+      /* ⭐ [[SCH-72]], 2026-09-10. Dax, on a day in October seen on 10 September: "I
+         dont see the forecast down here" — with the strip correctly reading "No
+         forecast this far ahead — it reaches to Sep 25." [[SCH-70]] made the silence
+         speak and it was still no use to him: knowing WHY there is no number for
+         November does not tell anybody what November is like. */
+      {
+        const far = mkChips({ 'Lehi': { '2026-09-20': 70 } }, '', { 'Lehi': { '10-01': 71.3 } });
+        const out = far({ houses: [{ city: 'Lehi' }] });
+        check('S314', 'a day past the forecast shows what the weather usually does',
+          /71/.test(out),
+          'got ' + JSON.stringify(out) + ' — most of the season is past the sixteen days the service answers, so this is the strip he is looking at nearly all the time');
+        /* ⛔ AND IT MUST NOT BE MISTAKEABLE FOR A FORECAST. A forecast is a promise
+           about Tuesday; a normal is a pattern across ten Novembers, and this file has
+           said since COLD_DAY_MAX_F that a number nobody promised must not be dressed
+           as one. */
+        /* ⛔ ASKED OF THE CHIP, NOT OF THE STRIP. The first version tested /~/ against
+           the whole strip and went green with the tilde taken off the chip — because
+           the footnote says "~ typical for the time of year" and carries one of its
+           own. The red check caught it. A number beside a town is what somebody reads
+           at a glance; the footnote is what they read once. */
+        check('S314', 'and it is marked as typical rather than dressed as a forecast',
+          /~\d+°/.test(out) && /not a forecast/.test(out),
+          'got ' + JSON.stringify(out) + ' — the tilde has to be on the number itself');
+        check('S314', 'and a freezing typical high carries no snowflake',
+          !/\u2744/.test(far({ houses: [{ city: 'Lehi' }] })),
+          'the snowflake means the cutoff refused somebody that date, and a ten-year average is never allowed to refuse anybody');
+      }
+      /* ⚠ A REAL FORECAST STILL WINS. The fallback fires only where there is nothing,
+         or an in-range day would quietly start showing an average beside the map. */
+      {
+        const both = mkChips(FC, '', { 'Lehi': { '10-01': 99 } });
+        const out = both({ houses: [{ city: 'Lehi' }] });
+        /* ⚠ ASKED ON THE TILDE, NOT ON THE NUMBER. The first version of this looked for
+           the absence of "99" and failed against a forecast chip that says 54 — because
+           `border-radius:999px` is in the chip’s own style. Every typical chip carries a
+           tilde and no forecast chip ever does, so that is the honest thing to ask, and
+           it cannot be fooled by a stylesheet. */
+        check('S314', 'a town WITH a forecast shows that, not the ten-year average',
+          /54/.test(out) && !/~/.test(out),
+          'got ' + JSON.stringify(out));
+      }
+      /* and with neither, the sentence says which of the two is missing */
+      {
+        const none = mkChips({ 'Lehi': { '2026-09-20': 70 } }, '', {}, 'past weather could not be reached');
+        const out = none({ houses: [{ city: 'Lehi' }] });
+        check('S314', 'and with no typical either, it says so rather than only naming the horizon',
+          /this far ahead/.test(out) && /could not be reached/.test(out),
+          'got ' + JSON.stringify(out) + ' — "the forecast is far off" is something he can already see from the date; which of the two is missing is not');
       }
       /* a fetch that failed is a FAULT, not a wait, and must not read as one */
       {
@@ -57963,8 +58100,345 @@ suite('322. A stop in the wrong place gets moved, and far is measured from the r
   }
 }
 
+suite('323. Who the 1 February text goes to');
+/* ⭐ ADDIE, SETTING THE NEW INVOICE TERMS (2026-09-11): "they have until february to
+   get them paid. We will give them one text reminder at the end of February than if
+   they don't respond by end of March than they will get a fee email at beginning of
+   April" — and then, on the text itself: "Feb 1 is when we will send out Text messages
+   and need to be reminded on Feb 1st to send those out to everyone that hasn't paid as
+   a pop up on admin portal on feb 1st."
+
+   ⚠ THE OFFICE SENDS THE TEXTS AND THIS ONLY BUILDS THE LIST, which is her own choice
+   twice over — 2026-08-29 ("The text should notify us when we need to send that") and
+   again when asked directly in 2026-09-11. So the claim under test is WHO IS ON THE
+   LIST, and nothing here should ever reach Twilio.
+
+   ⚠ RUN, NOT MATCHED. Every claim is about which customers come back, and a regex over
+   the source cannot see a comparison reading the wrong side of a date. */
+{
+  const src = extractFn(admin, 'textChaseRecipients');
+  check('S323', 'the recipient rule was found to lift', !!src);
+  if (src) {
+    const money323 = read('js/money.js');
+    /* ⚠ LIFTED, NEVER STUBBED (§3). The calendar decides which side of February a
+       customer falls on, which is the whole question here. */
+    const fn = new Function('computeInvoiceStatus', 'invoiceIssuedAt',
+      [extractFn(money323, 'invoiceSeasonYear'), extractFn(money323, 'endOfFebruary'),
+       extractFn(money323, 'invoiceDueDate'), extractFn(money323, 'invoiceTextChaseDate'),
+       extractFn(money323, 'invoiceFeeChaseDate'), src].join('\n') +
+      '\nreturn textChaseRecipients;'
+    )(computeInvoiceStatus, (d) => (d && d.invoicedAt) || null);
+
+    const inv = (id, o) => ({ id: id, data: Object.assign(
+      { name: id, phone: '801555' + id, install: 400, removal: 0, deposit: 0,
+        credits: 0, changeFees: 0, invoicedAt: new Date(2026, 9, 15) }, o) });
+    /* Between the 1 February text day and the 1 April fee day for an Oct-2026 bill. */
+    const IN_WINDOW = new Date(2027, 1, 10).getTime();
+    const names = (list) => list.map(r => r.id).sort().join(',');
+
+    check('S323', 'somebody who has not paid is on the list',
+      names(fn([inv('a')], IN_WINDOW)) === 'a');
+    check('S323', 'somebody who has paid in full is not',
+      names(fn([inv('a', { deposit: 400 })], IN_WINDOW)) === '',
+      'texting a settled customer to chase them is the fastest way to be ignored next time');
+    check('S323', 'but a PART payment still is',
+      names(fn([inv('a', { deposit: 100 })], IN_WINDOW)) === 'a',
+      'Addie, 2026-08-29: "they didn\'t pay or only partial pay"');
+
+    /* ⚠ THE TWO EDGES ARE THE RULE. Before 1 February nobody is chased at all — the
+       bill is not even due yet, and a text in December would be chasing somebody who
+       is not late. After 1 April the fee email has taken over, and a customer getting
+       both is being contacted twice about one debt on the same morning. */
+    check('S323', 'nobody is texted before 1 February',
+      names(fn([inv('a')], new Date(2027, 0, 31).getTime())) === '',
+      'the bill is not due until the end of February — a December text chases nobody');
+    check('S323', 'the list opens exactly on 1 February',
+      names(fn([inv('a')], new Date(2027, 1, 1).getTime())) === 'a');
+    check('S323', 'and closes when the fee email takes over on 1 April',
+      names(fn([inv('a')], new Date(2027, 3, 1).getTime())) === '',
+      'the same customer told twice on one morning about one debt');
+
+    check('S323', 'a bill that was never issued is not chased',
+      names(fn([inv('a', { invoicedAt: null })], IN_WINDOW)) === '',
+      'an invoice that never went out has not been billed; chasing it is chasing nobody');
+    /* ⚠ THE TEST RECORD CARRIES ADDIE'S OWN PHONE — the difference between a list and
+       texting the owner a chase for a debt she does not have. */
+    check('S323', 'the test record is left off',
+      names(fn([inv('a'), inv('t', { isTestRecord: true })], IN_WINDOW)) === 'a');
+
+    check('S323', 'the amount shown is what they still owe, fees and credits included',
+      fn([inv('a', { deposit: 100, changeFees: 30, credits: 10 })], IN_WINDOW)[0].owed === 320,
+      '400 + 30 − 10 − 100; a figure that disagrees with their invoice makes the ' +
+      'call harder rather than easier');
+
+    /* Sorted so the same book gives the same list every time it is drawn — a pop-up
+       whose order moves under her while she works down it is one rows get missed in. */
+    check('S323', 'the list is in name order',
+      names(fn([inv('c'), inv('a'), inv('b')], IN_WINDOW)) === 'a,b,c' &&
+      fn([inv('c'), inv('a'), inv('b')], IN_WINDOW).map(r => r.name).join(',') === 'a,b,c');
+
+    /* ⚠ A JANUARY BILL IS THE SAME SEASON and must be on the same list — the case that
+       would be silently wrong if the season split read the issue year alone. */
+    check('S323', 'a January bill is chased with the autumn ones, not a year later',
+      names(fn([inv('j', { invoicedAt: new Date(2027, 0, 10) })], IN_WINDOW)) === 'j');
+  }
+
+  /* ⚠ THE WIRING IS ASSERTED SEPARATELY FROM THE RULE, because the suite calls the
+     rule from its own harness: delete the call from loadInvoices and every check above
+     still passes while nothing ever reaches the screen. This repo has shipped that
+     exact shape before (the recycle "bin says" box). */
+  check('S323', 'the invoice listener actually raises the reminder',
+    /maybeShowTextChaseReminder\(\)\.catch\(/.test(admin) &&
+    /function maybeShowTextChaseReminder/.test(admin),
+    'a pop-up nothing calls appears to nobody');
+  check('S323', 'and it is marked done against a SEASON, not a bare flag',
+    /doneForSeason/.test(admin),
+    'a flag would have to be cleared by hand every January, and the year it was ' +
+    'cleared for would be nobody\'s business to remember');
+  /* ⚠ NOTHING HERE TEXTS ANYBODY. Twilio is wired in this app for two things and both
+     of them text the OFFICE. Addie chose "Office sends it, system flags the list"; a
+     later change that quietly started sending would be a few hundred real texts. */
+  {
+    const fnStart = admin.indexOf('function showTextChaseReminder');
+    const fnEnd = admin.indexOf('\nfunction ', fnStart + 10);
+    const block = fnStart === -1 ? '' : admin.slice(fnStart, fnEnd === -1 ? admin.length : fnEnd);
+    check('S323', 'the pop-up sends no texts itself',
+      !!block && !/sendSms|twilio/i.test(block),
+      'she asked to be TOLD when to send them, not for the system to send them');
+  }
+}
+
+suite('324. The February reminder is filed against the right season');
+/* ⚠ THE ROWS ARE SORTED BY NAME, so `list[0]` is whoever is alphabetically first — and
+   with a stale unpaid invoice from an earlier season still on the books that could be
+   either year. Filing "done" against the wrong one either silences this season's
+   reminder before she has sent a thing, or leaves it showing for ever. */
+{
+  const src = extractFn(admin, 'maybeShowTextChaseReminder');
+  check('S324', 'the reminder function was found', !!src);
+  if (src) {
+    check('S324', 'the season is the latest on the list, not the first row',
+      /reduce\(/.test(src) && !/list\[0\]\.season/.test(src),
+      'sorted by name, the first row is an accident of the alphabet');
+    /* RUN the reduce itself, because "takes the largest" is arithmetic and a regex
+       cannot see it reading the wrong way round. */
+    const pick = new Function('list', 'return ' +
+      (src.match(/list\.reduce\(function\(max, r\)\{[\s\S]*?\}, null\)/) || ['null'])[0] + ';');
+    check('S324', 'and it really picks the later year',
+      pick([{ season: 2025 }, { season: 2026 }]) === 2026 &&
+      pick([{ season: 2026 }, { season: 2025 }]) === 2026,
+      'whichever order the rows arrive in');
+    check('S324', 'a list with no season at all shows nothing rather than filing under null',
+      pick([{ season: null }]) === null && /if\(season == null\) return;/.test(src),
+      'a reminder filed under "null" is one that can never be marked done');
+  }
+}
+
+suite('325. The late-fee guard is released each season');
+/* ⭐ FOUND AFTER THE MERGE, 2026-09-11, and it is the `chargeNewMemberFee` bug pointing
+   the other way. `lateFeeAt` is what stops runLateFeeBatch charging one invoice twice —
+   and invoice documents are REUSED season to season, keyed by the payer. Nothing cleared
+   it, so it stopped being a once-a-season guard and became a once-for-ever one: charged
+   in April 2027, silently skipped every April after that, for that customer, permanently.
+
+   ⚠ IT FAILS QUIET, WHICH IS WHY IT NEEDS A CHECK RATHER THAN A COMMENT. Nobody ever
+   rings up to say they were not charged, and the only symptom is a number that does not
+   appear. The $30 join fee's version of this ran for a whole season before anybody saw
+   it, and that one at least over-charged, which somebody notices. */
+{
+  const stamped = /lateFeeAt: admin\.firestore\.FieldValue\.serverTimestamp\(\)/.test(fnsSrc);
+  const guarded = /if \(inv\.lateFeeAt\) \{ out\.skipped\+\+; continue; \}/.test(fnsSrc);
+  check('S325', 'the batch still stamps the guard and reads it', stamped && guarded,
+    'without both, a re-run charges the same customer twice');
+
+  /* ⚠ SCOPED TO THE SEASON RESET'S OWN INVOICE WRITE, not the whole file — a file-wide
+     search finds the batch's own stamp and passes while the reset never clears it. */
+  const resetAt = admin.indexOf('UNPAID BILL IS CARRIED, NOT ERASED');
+  const block = resetAt === -1 ? '' : admin.slice(resetAt, admin.indexOf('priceReviewed: true', resetAt));
+  check('S325', 'the season reset was found', !!block,
+    'anchored on the arrears-carry note, which is inside the same write');
+  check('S325', 'Start New Season releases the guard', /lateFeeAt: null/.test(block),
+    'left set, that customer is never charged a late fee again as long as the invoice ' +
+    'document lives — the chargeNewMemberFee failure with its sign flipped');
+  check('S325', 'and clears the amount beside it', /lateFeeAmount: null/.test(block),
+    'a stale amount on a fresh season reads as a fee that was charged this year');
+
+  /* ⚠ IT IS CLEARED IN THE SAME WRITE AS THE REST, never as a follow-up. A separate
+     write can fail on its own and leave exactly the half-state this closes — the
+     argument Start New Season already makes for chargeNewMemberFee. */
+  /* ⚠ NOT A CHARACTER WINDOW — §7 bans those by name, and the first draft of this
+     check was one. "Same write" means no SECOND write opens between the guard being
+     cleared and the end of this object literal; `block` already ends at the last field
+     of it, so that is what to assert. */
+  const afterGuard = block.slice(block.indexOf('lateFeeAt: null'));
+  check('S325', 'cleared in the same write as the rest of the reset',
+    block.indexOf('lateFeeAt: null') !== -1 && !/updateDoc\(|setDoc\(/.test(afterGuard),
+    'a second write can fail alone and leave the guard set on a reset invoice — the ' +
+    'argument Start New Season already makes for chargeNewMemberFee');
+}
+
+/*
+ * Suite 326. What the weather usually does, and the wall between that and a forecast.
+ *
+ * Dax, 2026-09-10, looking at a day in October: "I dont see the forecast down here" —
+ * with the strip correctly reading "No forecast this far ahead — it reaches to Sep 25."
+ *
+ * [[SCH-70]] taught the blank strip to explain itself. The explanation was true and no
+ * use: the season opens three weeks out and the service answers sixteen days, so for
+ * most of the season there is nothing, and saying so more clearly still does not tell
+ * anybody what November is like. [[SCH-72]] answers the question he was actually
+ * asking, out of ten years of recorded weather.
+ *
+ * ⛔ AND THE WHOLE THING TURNS ON ONE WALL. A typical high is NOT a forecast. It is
+ * shown and never acted on — it cannot veto a town, move a house, or count towards the
+ * cold-day tally. This file has said since COLD_DAY_MAX_F that "no forecast is not a
+ * cold forecast"; letting a ten-year average refuse somebody a date would be that same
+ * mistake in a new costume, and most of this suite is about the wall rather than the
+ * numbers.
+ *
+ * ⚠ AND THE SMOOTHING IS NOT DECORATION. Measured at Lehi over ten years: a single
+ * date averaged across all ten still swings 28° between its warmest and coldest year,
+ * and 15 November reads 56° raw against a seasonal trend of 50° — six degrees of one
+ * warm autumn. A fortnight either side gives 150 samples a date, and dropping half the
+ * years then moves the curve by at most 3.3°.
+ */
+suite('326. What the weather usually does, and the wall between that and a forecast');
+{
+  const LF_ = String.fromCharCode(10);
+  const smoothWidthSrc = (admin.split('const NORMALS_SMOOTH_DAYS')[1] || '').split(';')[0];
+  check('S326', 'the smoothing width is findable, so this suite grades the real one',
+    /^ = \d+$/.test(smoothWidthSrc),
+    'got ' + JSON.stringify(smoothWidthSrc) + ' — a suite that cannot read the constant quietly grades against its own guess');
+  const smoothWidth = 'const NORMALS_SMOOTH_DAYS' + smoothWidthSrc + ';';
+  const api = eval('(function(){' + LF_ +
+    extractFn(admin, 'extractCleanCity') + LF_ +
+    /* ⛔ THE REAL CONSTANT, LIFTED. This read the width off admin.html with a regex
+       that never matched — the backslash did not survive being written into this file
+       — so it silently fell back to a hard-coded 7 and the suite graded every run
+       against a width the app might not have. The red check found it: widening the
+       window to 400 days, which flattens the whole season into one number, left the
+       suite green. Lift the line, do not re-describe it. */
+    smoothWidth + LF_ +
+    extractFn(admin, 'normalsAddYear') + LF_ +
+    extractFn(admin, 'normalsSmooth') + LF_ +
+    'let SEASON_NORMALS = {at:0, byTown:{}, towns:0, years:0, error:"", pending:null};' + LF_ +
+    extractFn(admin, 'normalHighFor') + LF_ +
+    'return {add: normalsAddYear, smooth: normalsSmooth, look: normalHighFor,' +
+    '  set(t){ SEASON_NORMALS.byTown = t; }, days: NORMALS_SMOOTH_DAYS};})()');
+
+  /* ── a year of readings becomes month-day buckets ── */
+  const buckets = {};
+  api.add(buckets, {
+    time: ['2024-10-01', '2024-10-02', '2024-10-03'],
+    temperature_2m_max: [70, 72, 68],
+  });
+  api.add(buckets, {
+    time: ['2023-10-01', '2023-10-02', '2023-10-03'],
+    temperature_2m_max: [60, 62, 58],
+  });
+  check('S326', 'the same date in different years lands in one bucket',
+    buckets['10-01'] && buckets['10-01'].length === 2 &&
+    buckets['10-01'].indexOf(70) > -1 && buckets['10-01'].indexOf(60) > -1,
+    'a normal is the same answer for 1 October every year, so the year has to fall away');
+  /* ⚠ A GAP IS A GAP, NOT A ZERO. The service returns null for a date it has no
+     reading for, and a null averaged as 0 would drag a whole fortnight towards
+     freezing — which, on a strip about cold weather, is the worst direction to be
+     wrong in. */
+  const holey = {};
+  api.add(holey, { time: ['2024-11-01', '2024-11-02'], temperature_2m_max: [null, 50] });
+  check('S326', 'a date the service had no reading for is skipped, not counted as zero',
+    !holey['11-01'] && holey['11-02'] && holey['11-02'][0] === 50,
+    'got ' + JSON.stringify(holey));
+
+  /* ── the smoothing ── */
+  /* A fortnight of ordinary 50° days with one 90° freak in the middle: that is the
+     shape the raw average gets wrong, and the reason the curve is smoothed at all. */
+  const spike = {};
+  for (let d = 1; d <= 29; d++) {
+    const md = '11-' + String(d).padStart(2, '0');
+    spike[md] = [d === 15 ? 90 : 50];
+  }
+  const curve = api.smooth(spike);
+  check('S326', 'a single freak day does not become that date\u2019s answer',
+    curve['11-15'] < 60 && curve['11-15'] > 50,
+    'got ' + (curve['11-15'] || 0).toFixed(1) + '° against a raw 90 — one warm autumn put 15 November six degrees above its own trend in the real data');
+  check('S326', 'and its neighbours feel it, because they are the same week of weather',
+    curve['11-14'] > 50 && curve['11-16'] > 50,
+    'a window that only ever looked at one date would not be a window');
+  check('S326', 'a date a fortnight away is untouched by it',
+    Math.abs(curve['11-01'] - 50) < 0.001,
+    'got ' + (curve['11-01'] || 0).toFixed(2) + ' — the window has to stop somewhere or every date gets the same answer');
+  /* ⚠ AND THE CURVE MUST STILL SLOPE. A window wide enough to flatten October into
+     December would be smooth and useless: the whole value of the strip is that a day in
+     December reads colder than a day in October. */
+  const slope = {};
+  ['10', '11', '12'].forEach(function (mo, i) {
+    for (let d = 1; d <= 28; d++) {
+      slope[mo + '-' + String(d).padStart(2, '0')] = [70 - i * 15];
+    }
+  });
+  const sloped = api.smooth(slope);
+  check('S326', 'and a whole season still slopes from October to December',
+    sloped['10-14'] - sloped['12-14'] > 25,
+    'got ' + (sloped['10-14'] - sloped['12-14']).toFixed(1) + '° of fall across the season — a window wide enough to flatten that would be smooth and useless');
+
+  /* ── the lookup ── */
+  api.set({ 'Lehi': { '10-01': 71.3 } });
+  check('S326', 'a date is looked up by month and day, whatever the year',
+    api.look('Lehi', '2026-10-01') === 71.3 && api.look('Lehi', '2031-10-01') === 71.3,
+    'a normal that only answered for one year would go blank every January');
+  check('S326', 'a town spelled with its state still finds its row',
+    api.look('Lehi, UT', '2026-10-01') === 71.3,
+    'the office types towns both ways, and the fetch keys them the cleaned way');
+  check('S326', 'and a town nobody has numbers for says nothing',
+    api.look('Moab', '2026-10-01') === null && api.look('Lehi', '2026-07-04') === null,
+    'null is the answer every reader is built to cope with');
+
+  /* ── ⛔ THE WALL ── */
+  /* This is the half of the suite that matters. A typical high is shown and never
+     acted on. If it ever reaches the cold rule, a ten-year average starts refusing
+     real people real dates — and it would do it quietly, because every screen would
+     still look right. */
+  const coldSrc = extractFn(admin, 'forecastIsCold') + extractFn(admin, 'forecastHighFor');
+  check('S326', 'the cold rule does not consult the normals at all',
+    !/SEASON_NORMALS|normalHighFor/.test(coldSrc),
+    'a number nobody promised must not be allowed to refuse anybody a date');
+  /* and the same thing asked of the running code rather than of the text */
+  const cold = eval('(function(){' + LF_ +
+    extractFn(admin, 'extractCleanCity') + LF_ +
+    'const COLD_DAY_MAX_F = 31;' + LF_ +
+    'let SEASON_FORECAST = {byTown:{}};' + LF_ +
+    'let SEASON_NORMALS = {byTown:{"Lehi":{"12-15":20}}, towns:1, years:10};' + LF_ +
+    extractFn(admin, 'forecastHighFor') + LF_ +
+    extractFn(admin, 'forecastIsCold') + LF_ +
+    'return forecastIsCold;})()');
+  check('S326', 'a freezing ten-year average is still not a cold day',
+    cold('Lehi', '2026-12-15') === false,
+    'twenty degrees typical for mid-December, no forecast — and the answer has to stay no, or the average starts vetoing towns the forecast never spoke about');
+
+  /* ── and the fetch survives a bad year ── */
+  const loadSrc = extractFn(admin, 'loadSeasonNormals');
+  check('S326', 'a year that fails is stepped over rather than sinking the other nine',
+    /\[.catch.\]\(function\(err\)\{/.test(loadSrc.replace(/\s+/g, '')) ||
+    /catch/.test(loadSrc),
+    'nine years of samples is still a seasonal curve — the smoothing is what makes that true, so no single year may be load-bearing');
+  check('S326', 'and only complete years are asked for',
+    /thisYear - NORMALS_YEARS/.test(loadSrc) && /y < thisYear/.test(loadSrc),
+    'the archive lags a few days behind live weather, so the year we are standing in has no December in it and would tilt the whole curve warm');
+  check('S326', 'the normals are fetched once a day, not every half hour',
+    /NORMALS_FRESH_MS/.test(loadSrc) &&
+    /const NORMALS_FRESH_MS = 24 \* 60 \* 60 \* 1000;/.test(admin),
+    'ten years of past weather does not change between elevenses and lunch');
+}
+
+/* ⚠ THIS SUITE WAS NUMBERED 323 AND IS NOW 327 (merge, 2026-09-11). A parallel branch
+ * appended its own 323 on the same day — the append-at-the-end collision CLAUDE.md
+ * records, for the second time in a week. The rule is that the suite which reached main
+ * FIRST keeps the number, so main's "Who the 1 February text goes to" is 323 and this one
+ * moved. Every check('S323') in it moved with it: the PREFIX is the half that matters,
+ * because it is what NAMES a failure in the log. */
 /* =====================================================================
- * Suite 323. A declined RSVP tells somebody ([[RS-57]], 2026-09-11)
+ * Suite 327. A declined RSVP tells somebody ([[RS-57]], 2026-09-11)
  *
  * Addie: "can we have no emails be there own section and it will go in the folder
  * with the response they choose", then "I mean No RSVPs."
@@ -57981,7 +58455,7 @@ suite('322. A stop in the wrong place gets moved, and far is measured from the r
  * describes, and the prefix is the half that matters because it is what NAMES a
  * failure. Taking 322 here would have made a red line ambiguous between two suites.
  * ===================================================================== */
-suite('Suite 323. A declined RSVP tells somebody');
+suite('Suite 327. A declined RSVP tells somebody');
 {
   /* ⚠ `fnsSrc`, the file-level read — `fns` is a local inside another suite and this
      block died on a bare ReferenceError reaching for it. ⚠ AND NORMALISED, because
@@ -57990,7 +58464,7 @@ suite('Suite 323. A declined RSVP tells somebody');
   const src = fnsSrc.replace(/\r\n/g, '\n');
   const idx = read('index.html');
   const at = src.indexOf("if ((response === 'no' || response === 'backnextyear') &&");
-  check('S323', 'portalRsvp raises a note when somebody declines', at !== -1,
+  check('S327', 'portalRsvp raises a note when somebody declines', at !== -1,
     'the record changed, they came off every route, and the Inbox said nothing');
   if (at !== -1) {
     const blkSrc = src.slice(at, src.indexOf('\n  }', at) + 4);
@@ -58000,36 +58474,36 @@ suite('Suite 323. A declined RSVP tells somebody');
        it failed on correct code the moment [[RS-58]] moved them behind named constants.
        What has to be true is that the two answers are told apart, and the constants
        themselves are compared against the browser's below. */
-    check('S323', 'and the topic is the answer they gave, so it lands in that folder',
+    check('S327', 'and the topic is the answer they gave, so it lands in that folder',
       /RSVP_NO_TOPIC/.test(blkSrc) && /RSVP_BNY_TOPIC/.test(blkSrc) &&
       /response === 'no' \?/.test(blkSrc),
       'one topic for both would put a recycle and a stay-on-the-books in one pile');
     /* ⚠ A SYSTEM NOTICE, NOT A MEMBER MESSAGE. On a send of ~960 these outnumber real
        questions; read as member mail they bury the reply queue, which is the complaint
        the Communication Centre exists to fix. */
-    check('S323', 'and it is filed as a system notice',
+    check('S327', 'and it is filed as a system notice',
       /folder: 'System'/.test(blkSrc),
       'a member message reads as NEEDS REPLY and there will be hundreds of these');
     /* ⛔ ON THE TRANSITION ONLY. Re-answering the same way must not raise the note
        again — the same shape the recycle flag and the referral clawback above use, and
        without it one decision fills a folder with duplicates every time somebody
        re-opens their link. */
-    check('S323', 'and only when the answer actually changed',
+    check('S327', 'and only when the answer actually changed',
       /String\(oldData\.rsvpStatus \|\| ''\) !== response/.test(blkSrc),
       're-opening the link would raise the same note again, for ever');
     /* ⚠ BEST EFFORT, GUARDED ON ITS OWN. Their answer is already written by this line;
        a failed note must never undo it. */
-    check('S323', 'and a failed note never undoes the answer',
+    check('S327', 'and a failed note never undoes the answer',
       /try \{/.test(blkSrc) && /catch \(e\)/.test(blkSrc),
       'the RSVP is the thing that matters and it is already recorded');
     /* ⚠ AND IT SAYS WHAT HAPPENS NEXT, differently for the two. The office does
        different things with a recycle and with somebody staying on the books, and a
        note that does not say which is a row nobody can act on. */
-    check('S323', 'and the two notes say different things about what happens next',
+    check('S327', 'and the two notes say different things about what happens next',
       /queued to be recycled/.test(blkSrc) && /they are still on the/.test(blkSrc),
       'one wording for both answers is a folder split that tells you nothing');
     /* ⛔ AFTER the routes are pulled, so the count it quotes is real. */
-    check('S323', 'and it is raised after the routes are pulled, so its count is true',
+    check('S327', 'and it is raised after the routes are pulled, so its count is true',
       src.indexOf('removedFrom = await removeCustomerFromUpcomingRoutes') < at,
       'quoting a number taken before the work is a note that is confidently wrong');
     /* ⛔ AND THE TWO TOPIC STRINGS MATCH THE BROWSER'S CONSTANTS EXACTLY. They are the
@@ -58044,7 +58518,7 @@ suite('Suite 323. A declined RSVP tells somebody');
     };
     ['RSVP_NO_TOPIC', 'RSVP_BNY_TOPIC'].forEach(function(n){
       const a = constOf(admin, n), b = constOf(src, n);
-      check('S323', 'the server spells ' + n + ' exactly as the browser does',
+      check('S327', 'the server spells ' + n + ' exactly as the browser does',
         !!a && a === b, 'browser ' + JSON.stringify(a) + ' vs server ' + JSON.stringify(b));
     });
     /* ⭐ AND THE REASONS, WHICH ARE ALSO FOLDER NAMES ([[RS-58]]). Addie: "okay i need
@@ -58062,7 +58536,7 @@ suite('Suite 323. A declined RSVP tells somebody');
       return m ? (m[1].match(/'([^']+)'/g) || []).map(x => x.slice(1, -1)) : [];
     };
     const svrReasons = listOf(src), admReasons = listOf(admin), idxReasons = listOf(idx);
-    check('S323', 'the three copies of the decline reasons are the same list',
+    check('S327', 'the three copies of the decline reasons are the same list',
       svrReasons.length > 1 &&
       JSON.stringify(svrReasons) === JSON.stringify(admReasons) &&
       JSON.stringify(svrReasons) === JSON.stringify(idxReasons),
@@ -58071,7 +58545,7 @@ suite('Suite 323. A declined RSVP tells somebody');
     /* ⛔ AND THE SERVER REFUSES ANYTHING NOT ON IT. The reason becomes a FOLDER NAME, so
        free text here would let anybody who can reach a public callable write arbitrary
        strings into the office's own sidebar. */
-    check('S323', 'and the server refuses a reason that is not on the list',
+    check('S327', 'and the server refuses a reason that is not on the list',
       /RSVP_DECLINE_REASONS\.indexOf\(reason\) === -1/.test(src) &&
       /throw new HttpsError\('invalid-argument', 'Unknown reason\.'\)/.test(src),
       'a folder named by whatever a stranger typed is both a mess and a way in');
@@ -58084,23 +58558,23 @@ suite('Suite 323. A declined RSVP tells somebody');
        which is exactly what it did on the first pass. */
     const fnAt = src.indexOf('exports.portalRsvp = onCall(');
     const rsvpFn = src.slice(fnAt, src.indexOf('\nexports.', fnAt + 10));
-    check('S323', 'the reason is a follow-up that never re-answers the RSVP',
+    check('S327', 'the reason is a follow-up that never re-answers the RSVP',
       /hasOwnProperty\.call\(body, 'declineReason'\)/.test(rsvpFn) &&
       rsvpFn.indexOf("hasOwnProperty.call(body, 'declineReason')") < rsvpFn.indexOf('const oldData = match.data'),
       'it must return before the transition work, and must not write rsvpStatus');
     {
       const rsn = rsvpFn.slice(rsvpFn.indexOf("hasOwnProperty.call(body, 'declineReason')"),
                                rsvpFn.indexOf('const oldData = match.data'));
-      check('S323', 'and the follow-up writes no RSVP answer of its own',
+      check('S327', 'and the follow-up writes no RSVP answer of its own',
         !/rsvpStatus/.test(rsn),
         'a retry could otherwise overwrite a newer decision with a stale one');
       /* ⛔ AND IT FINDS THE NOTE BY THE CUSTOMER THE TOKEN PROVES, never by an id the
          browser supplied — moving an arbitrary message is not a customer's to do. */
-      check('S323', 'and finds the note by custId, not by an id from the caller',
+      check('S327', 'and finds the note by custId, not by an id from the caller',
         /where\('custId', '==', match\.id\)/.test(rsn) && !/body\.noteId|body\.messageId/.test(rsn),
         'a message id from a public callable is a message id anybody can supply');
     }
-    check('S323', 'and the note carries the customer it belongs to',
+    check('S327', 'and the note carries the customer it belongs to',
       /custId: match\.id/.test(blkSrc),
       'without it the reason arriving a moment later has no way to find this row');
 
@@ -58123,7 +58597,7 @@ suite('Suite 323. A declined RSVP tells somebody');
       const at = idxNoComments.indexOf('var cameFromDecline = portalMoveConfirmsSeason');
       const callAt = at === -1 ? -1 : idxNoComments.indexOf("callPortalFn('portalChangeAddress'", at);
       const between = (at === -1 || callAt === -1) ? '' : idxNoComments.slice(at, callAt);
-      check('S323', 'the decline-move flag is spent the moment it is read',
+      check('S327', 'the decline-move flag is spent the moment it is read',
         at !== -1 && callAt !== -1 && /portalMoveConfirmsSeason = false/.test(between),
         'cleared after the call, a failed send leaves it set and the NEXT ordinary move ' +
         'asks to be confirmed for a season nobody answered about');
@@ -58131,7 +58605,7 @@ suite('Suite 323. A declined RSVP tells somebody');
     /* ⛔ AND THE PICKER IS ONE BLOCK, MOVED — never a second copy. Two blocks means two
        sets of buttons and eventually two different lists of reasons, and the list is a
        FOLDER NAME in three files already. */
-    check('S323', 'there is exactly one reason picker in the page',
+    check('S327', 'there is exactly one reason picker in the page',
       (idxNoComments.match(/id="portalRsvpReason"/g) || []).length === 1 &&
       (idxNoComments.match(/id="portalRsvpReasonBtns"/g) || []).length === 1,
       'a second copy is a second list of folder names waiting to disagree');
@@ -58141,7 +58615,7 @@ suite('Suite 323. A declined RSVP tells somebody');
     {
       const fnAt2 = idxNoComments.indexOf('function activatePortalTab(');
       const body = fnAt2 === -1 ? '' : idxNoComments.slice(fnAt2, idxNoComments.indexOf('\n}', fnAt2));
-      check('S323', 'the picker is re-mounted after the tab is switched, not before',
+      check('S327', 'the picker is re-mounted after the tab is switched, not before',
         /renderPortalRsvpReason\(\)/.test(body) &&
         body.indexOf('renderPortalRsvpReason()') > body.indexOf("panel.style.display = name === tabName"),
         'mounted first it reads the OLD tab and stays where the customer is not looking');

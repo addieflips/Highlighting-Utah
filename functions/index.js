@@ -4746,6 +4746,60 @@ const NEW_MEMBER_FEE = 30;
 const LIGHT_CHANGE_FEE = 30;
 const LIGHT_WINDOW_MS = 48 * 60 * 60 * 1000;
 
+/* ⭐ THE INVOICE CALENDAR — THE SERVER'S COPY (2026-09-11). js/money.js holds the
+   other one and money-parity.test.js sweeps the two over a range of issue dates.
+   Addie moved payment terms off a rolling 30-day clock and onto fixed dates:
+   due the last day of February, the office texts on 1 February, the late-fee
+   email sends itself on 1 April.
+
+   ⚠ THE SERVER NEEDS ALL THREE, not just the due date. The nightly run stamps
+   the {{due_date}} the customer actually reads, and the April batch has to decide
+   who is late with no browser anywhere near it — so a browser-only rule would
+   leave the one send that CHARGES money guessing. The full argument for each
+   date, and for why July splits the seasons, is in js/money.js; it is not
+   repeated here, because two copies of the reasoning drift exactly the way two
+   copies of the rule would. */
+function invoiceSeasonYearServer(issued) {
+  if (!issued) return null;
+  const y = issued.getFullYear();
+  return issued.getMonth() >= 6 ? y : y - 1;
+}
+function endOfFebruaryServer(year) {
+  return new Date(year, 2, 0, 23, 59, 59, 999);
+}
+function invoiceDueDateServer(issued) {
+  if (!issued) return null;
+  const season = invoiceSeasonYearServer(issued);
+  if (season === null) return null;
+  let due = endOfFebruaryServer(season + 1);
+  if (due.getTime() < issued.getTime()) due = endOfFebruaryServer(season + 2);
+  return due;
+}
+function invoiceTextChaseDateServer(issued) {
+  const due = invoiceDueDateServer(issued);
+  return due ? new Date(due.getFullYear(), 1, 1, 0, 0, 0, 0) : null;
+}
+function invoiceFeeChaseDateServer(issued) {
+  const due = invoiceDueDateServer(issued);
+  return due ? new Date(due.getFullYear(), 3, 1, 0, 0, 0, 0) : null;
+}
+
+/* ⭐ THE LATE FEE (PROC-32). $25 if they have paid something, $40 if nothing.
+   ⚠ `deposit` ALONE IS "PAID SOMETHING" — a credit is the office deciding money
+   is not owed rather than the customer sending any, so counting one here would
+   let an office discount buy somebody the cheaper fee. The browser's copy in
+   js/money.js makes the same choice and parity holds them to it. */
+const LATE_FEE_KIND = 'late';
+const LATE_FEE_PAID_SOMETHING = 25;
+const LATE_FEE_PAID_NOTHING = 40;
+function lateFeeAmountServer(inv) {
+  /* ⚠ centsOf, not a third copy of its expression. This file already has the helper
+     and js/money.js has the matching one; spelling the arithmetic out here would have
+     been a rounding rule in three places, two of them invisible to the parity sweep. */
+  const paid = centsOf((inv && inv.deposit) || 0);
+  return paid > 0 ? LATE_FEE_PAID_SOMETHING : LATE_FEE_PAID_NOTHING;
+}
+
 function applyLightChangeServer(o) {
   const opts = o || {};
   const now = Number(opts.nowMs) || 0;
@@ -5252,13 +5306,12 @@ async function runInvoiceBatch(triggeredBy) {
         body = body.split('{{new_member_fee_line}}').join(newMemberLine);
         body = body.split('{{credit_lines}}').join(creditLines);
         body = body.split('{{fee_lines}}').join(feeLines);
-        // Same 30-day rule the printed invoice and the Overdue flag use, worked
-        // out from the invoice's own timestamp so all three always agree.
-        const PAYMENT_TERMS_DAYS = 30;
+        // The same calendar the printed invoice and the Overdue flag read, worked
+        // out from the invoice's own timestamp so all three always agree. This is
+        // the date the CUSTOMER is told, so it is the one that matters most.
         const issuedOn = (inv.invoicedAt && inv.invoicedAt.toDate) ? inv.invoicedAt.toDate()
                        : ((inv.updatedAt && inv.updatedAt.toDate) ? inv.updatedAt.toDate() : new Date());
-        const dueOn = new Date(issuedOn.getTime());
-        dueOn.setDate(dueOn.getDate() + PAYMENT_TERMS_DAYS);
+        const dueOn = invoiceDueDateServer(issuedOn);
         body = body.split('{{due_date}}').join(dueOn.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
         body = body.split('{{amount_due}}').join('$' + amountDue.toFixed(2));
         body = body.split('{{amount_paid}}').join('$' + paid.toFixed(2));
@@ -6159,6 +6212,246 @@ async function runRsvpDailyBatch(source) {
   }
   return out;
 }
+
+/* ⭐ THE LATE-FEE EMAIL — 1 APRIL, BY ITSELF (added 2026-09-11) --------------
+ * Addie, setting the new invoice terms: "they have until february to get them
+ * paid. We will give them one text reminder at the end of February than if they
+ * don't respond by end of March than they will get a fee email at beginning of
+ * April", and on 2026-08-29, on this send specifically: "The last email with a
+ * fee should automatically send with new invoice."
+ *
+ * ⭐ THIS IS THE ONLY THING IN THE APP THAT CHARGES A CUSTOMER WITHOUT A PERSON
+ * PRESSING ANYTHING, which is why nearly every line below is a refusal. The $30
+ * fees both have a human or a customer's own action behind them; this one fires
+ * on a date, over the whole book, with nobody watching. Every guard here is
+ * about the same failure: charging somebody twice, or charging somebody who
+ * should not have been charged at all.
+ *
+ * ⚠ "IF THEY DON'T RESPOND" MEANS THEY HAVE NOT PAID IN FULL. Asked directly
+ * whether a customer who replies to the February text but sends no money should
+ * escape the fee, Addie chose "They haven't PAID in full" — the same reading as
+ * her 2026-08-29 wording, "they didn't pay or only partial pay". So there is no
+ * "they answered" flag anywhere in this and there must not be one: a reply is
+ * not a payment, and the only thing this reads is the balance.
+ *
+ * ⚠ STAMPED ONCE, AND THE STAMP IS CHECKED BEFORE THE MONEY MOVES. `lateFeeAt`
+ * on the invoice is what makes this safe to re-run — by hand, or because the
+ * scheduler retried, or because somebody presses Run It Now in April and again
+ * in May. A batch that charged on every pass would quietly add $40 a month to
+ * the customers least able to pay it, and nothing on any screen would say why
+ * their balance kept climbing.
+ *
+ * ⚠ AND THE FEE IS WRITTEN BEFORE THE EMAIL IS SENT, DELIBERATELY, which is the
+ * opposite order to every other send in this file. Those stamp after a
+ * successful send so a bad response from the mail service cannot lose a customer
+ * for the season. Here the stamp guards MONEY: send-then-write means a send that
+ * succeeds and a write that fails leaves the customer told about a fee that is
+ * not on their bill, and the next run charges it again. Write-then-send fails
+ * the other way — the fee is on the bill and the email did not arrive — which is
+ * visible on the invoice, fixable with the × the office already has, and does
+ * not double-charge anybody. The failed send is counted and reported.
+ *
+ * ⚠ THE ARREARS LINE IS NOT A LATE FEE AND MUST NOT BE ONE. Last season's
+ * carried debt already sits in this same ledger, and it reached this bill by
+ * being unpaid — so a rule that charged for an unpaid balance without looking at
+ * WHY would fine somebody in April for a debt this bill was created to carry,
+ * every year, for ever. This charges against THIS season's bill only: an invoice
+ * whose whole outstanding amount is carried arrears is skipped.
+ *
+ * ⚠ IT NEVER RUNS BEFORE ITS OWN DATE. The gate is each invoice's own
+ * `invoiceFeeChaseDateServer`, not "is it April" — a bill issued late enough to
+ * roll into the following February (see js/money.js) has its own later April,
+ * and a calendar check would charge it eleven months early.
+ * ------------------------------------------------------------------------- */
+async function runLateFeeBatch(source, opts) {
+  const o = opts || {};
+  const dryRun = o.dryRun === true;
+  const nowMs = Number(o.nowMs) || Date.now();
+  const out = { charged: 0, wouldCharge: 0, skipped: 0, amount: 0, errors: [],
+                names: [], source: source, dryRun: dryRun, stopped: '' };
+
+  const cfgSnap = await db.collection('settings').doc('emailjs').get();
+  const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+  if (!dryRun && (!cfg.serviceId || !cfg.templateId || !cfg.privateKey)) {
+    out.stopped = 'EmailJS is not set up on the server (Automation Emails > EmailJS Setup).';
+    return out;
+  }
+
+  const tplSnap = await findTemplateSnapByName('Late Fee Notice');
+  const tplData = tplSnap.empty ? null : tplSnap.docs[0].data();
+  /* ⚠ A MISSING TEMPLATE DOES NOT STOP THE RUN, and does not go quiet either.
+     The arrears batch stops dead without its template because nothing is lost by
+     waiting — nobody has been charged. Here the fee is a decision that is due
+     today, so the email goes out from a built-in body and the missing template
+     is reported, rather than the whole book silently going uncharged for a year
+     because somebody renamed a row under Templates. */
+  if (tplSnap.empty) {
+    out.errors.push('There is no email template called "Late Fee Notice" (Automation Emails > Templates > Billing), so a plain built-in wording was used.');
+  }
+  const templateBody = (tplData && tplData.body)
+    || 'Hi {{name}},<br><br>Your Christmas lights invoice was due on {{due_date}} and we have not received payment.<br><br>A late fee of {{late_fee}} has been added to your account, so the amount now due is {{amount_due}}.<br><br>{{pay_button}} {{venmo_button}}<br><br>If you have already paid, or if something is wrong here, please let us know: {{message_link}}<br><br>&mdash; Highlighting Utah';
+  const subject = templateSubjectOr(tplData, 'Your Highlighting Utah invoice is past due');
+
+  const snap = await db.collection('invoices').get();
+  for (const docSnap of snap.docs) {
+    const inv = docSnap.data() || {};
+
+    /* Already charged this season. The one guard that makes a re-run safe. */
+    if (inv.lateFeeAt) { out.skipped++; continue; }
+
+    /* Nothing owing. computeInvoiceStatusServer is the one rule for this — a
+       hand-rolled `total > paid` here is how a screen and a charge start
+       disagreeing about who is settled. */
+    const status = computeInvoiceStatusServer(
+      inv.install, inv.removal || 0, inv.deposit || 0, inv.credits || 0, inv.changeFees || 0);
+    if (status === 'Paid in Full') { out.skipped++; continue; }
+
+    /* Never billed at all — there is no due date to be past. */
+    const issued = (inv.invoicedAt && inv.invoicedAt.toDate) ? inv.invoicedAt.toDate()
+                 : ((inv.updatedAt && inv.updatedAt.toDate) ? inv.updatedAt.toDate() : null);
+    if (!issued) { out.skipped++; continue; }
+    const feeDay = invoiceFeeChaseDateServer(issued);
+    if (!feeDay || nowMs < feeDay.getTime()) { out.skipped++; continue; }
+
+    /* ⚠ AN INVOICE THAT IS ONLY LAST SEASON'S DEBT IS NOT LATE FOR THIS ONE.
+       See the header: charging here would fine the same customer every April for
+       the same carried balance. */
+    const owedNow = Math.max(0,
+      (Number(inv.install) || 0) + (Number(inv.removal) || 0) + (Number(inv.changeFees) || 0)
+      - (Number(inv.credits) || 0) - (Number(inv.deposit) || 0));
+    const carried = arrearsOutstandingServer(inv);
+    /* ⚠ WHOLE CENTS, the same discipline computeInvoiceStatus and arrearsSettled use.
+       Compared as floats, a customer whose only remaining balance is carried debt can
+       come out a fraction above zero and be charged a $40 late fee for last season —
+       exactly what the line below is here to prevent. */
+    if (centsOf(owedNow) - centsOf(carried) <= 0) { out.skipped++; continue; }
+
+    /* ⚠ THE TEST RECORD CARRIES ADDIE'S OWN DETAILS, so skipping it is not
+       housekeeping — it is the difference between a dry run and charging the
+       owner a late fee on a debt she does not have. */
+    if (inv.isTestRecord === true) { out.skipped++; continue; }
+    if (digitsOnly(inv.phone) === '3853912235' && String(inv.name || '').trim().toLowerCase() === 'test') { out.skipped++; continue; }
+
+    const fee = lateFeeAmountServer(inv);
+    const newDue = owedNow + fee;
+
+    if (dryRun) {
+      out.wouldCharge++;
+      out.amount += fee;
+      if (out.names.length < 40) out.names.push((inv.name || docSnap.id) + ' — $' + fee.toFixed(2));
+      continue;
+    }
+
+    try {
+      /* ⚠ THE LEDGER IS THE TOTAL. `changeFees` is a stored sum of
+         `changeFeeNotes`, and the × in Edit Customer rebuilds one from the other
+         — so a fee added to the total without its note cannot be waived, and a
+         note without the total does not reach the bill. Both, in one write. */
+      const notes = Array.isArray(inv.changeFeeNotes) ? inv.changeFeeNotes.slice() : [];
+      notes.push({
+        amount: fee,
+        kind: LATE_FEE_KIND,
+        reason: 'Late fee — invoice unpaid after ' +
+          invoiceDueDateServer(issued).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+        date: new Date().toISOString()
+      });
+      await docSnap.ref.update({
+        changeFeeNotes: notes,
+        changeFees: (Number(inv.changeFees) || 0) + fee,
+        lateFeeAt: admin.firestore.FieldValue.serverTimestamp(),
+        lateFeeAmount: fee,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      out.charged++;
+      out.amount += fee;
+      if (out.names.length < 40) out.names.push((inv.name || docSnap.id) + ' — $' + fee.toFixed(2));
+    } catch (err) {
+      out.errors.push('Could not add the fee for ' + (inv.name || docSnap.id) + ': ' + ((err && err.message) || err));
+      continue;
+    }
+
+    /* The email. A failure here leaves the fee on the bill and is REPORTED —
+       see the header for why that is the right way round. */
+    const email = String(inv.email || '').trim();
+    if (!email) {
+      out.errors.push((inv.name || docSnap.id) + ': the fee was added but there is no email address to tell them about it.');
+      continue;
+    }
+    try {
+      const portalUrl = 'https://highlightingutah.com/#/payment'
+        + (inv.portalToken ? ('?token=' + inv.portalToken) : '');
+      const venmoUrl = 'https://venmo.com/HighLightingUtah?txn=pay&amount='
+        + newDue.toFixed(2) + '&note=' + encodeURIComponent('Christmas Lights');
+      const messagesUrl = 'https://highlightingutah.com/#/contact';
+      const btnStyleGold = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
+
+      let body = templateBody;
+      body = body.split('{{name}}').join(properNameServer(inv.name) || 'there');
+      body = body.split('{{late_fee}}').join('$' + fee.toFixed(2));
+      body = body.split('{{amount_due}}').join('$' + newDue.toFixed(2));
+      body = body.split('{{amount_paid}}').join('$' + (Number(inv.deposit) || 0).toFixed(2));
+      body = body.split('{{due_date}}').join(
+        invoiceDueDateServer(issued).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
+      body = body.split('{{portal_link}}').join(portalUrl);
+      body = body.split('{{portal_button}}').join('<a href="' + portalUrl + '" style="' + btnStyleGold + '">Log Into Your Portal</a>');
+      body = body.split('{{pay_button}}').join('<a href="' + portalUrl + '" style="' + btnStyleGold + '">Pay Your Invoice</a>');
+      body = body.split('{{venmo_link}}').join(venmoUrl);
+      body = body.split('{{venmo_button}}').join('<a href="' + venmoUrl + '" style="' + btnStyleGold + '">Pay with Venmo</a>');
+      body = body.split('{{message_link}}').join(messagesUrl);
+      body = body.split('{{messages_link}}').join(messagesUrl);
+      body = body.replace(/\n/g, '<br>');
+
+      const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          service_id: cfg.serviceId,
+          template_id: cfg.templateId,
+          user_id: cfg.publicKey || '',
+          accessToken: cfg.privateKey,
+          template_params: {
+            to_email: email, to_name: inv.name || '',
+            subject: String(subject).split('{{name}}').join(properNameServer(inv.name) || 'there'),
+            body: body, message: body
+          }
+        })
+      });
+      if (!res.ok) {
+        out.errors.push((inv.name || docSnap.id) + ': the fee was added but the email failed — ' + (await res.text()).slice(0, 120));
+      }
+    } catch (err) {
+      out.errors.push((inv.name || docSnap.id) + ': the fee was added but the email failed — ' + ((err && err.message) || err));
+    }
+  }
+  return out;
+}
+
+/* 1 April, 10 AM Mountain. ⚠ AN HOUR CLEAR OF NOTHING ELSE THAT DAY — the RSVP
+   drip is 9 AM and the arrears/nudge batches are 10 AM, but those only run in
+   the autumn, so April has this hour to itself on one Gmail account. */
+exports.sendLateFeeEmails = onSchedule(
+  { schedule: '0 10 1 4 *', timeZone: 'America/Denver', memory: '512MiB', timeoutSeconds: 540 },
+  async () => {
+    const autoSnap = await db.collection('settings').doc('lateFeeAutomation').get();
+    /* ⚠ DEFAULTS TO OFF, AND THAT IS DELIBERATE FOR THE FIRST SEASON. This is
+       the only automatic charge in the app and it first fires in April 2027;
+       Addie turns it on from Invoices > Nightly Automation once she has seen the
+       dry run. Defaulting ON would mean the first anybody knew of a bug in it was
+       a few hundred customers being charged. */
+    if (!autoSnap.exists || !autoSnap.data().enabled) return;
+    await runLateFeeBatch('schedule');
+  }
+);
+
+/* Preview and manual run, from Invoices. The preview writes nothing. */
+exports.previewLateFees = onCall({ memory: '512MiB', timeoutSeconds: 300 }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required.');
+  return await runLateFeeBatch('preview', { dryRun: true });
+});
+exports.runLateFeesNow = onCall({ memory: '512MiB', timeoutSeconds: 540 }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required.');
+  return await runLateFeeBatch('manual');
+});
 
 exports.sendRsvpDaily = onSchedule(
   /* 9 AM, an hour clear of the unpaid chase and the quote nudges — see the note above. */

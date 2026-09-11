@@ -357,9 +357,21 @@ const FAKE_FUNCTIONS_MODULE = `
           hit.record.maybeNextYear = false;
           hit.record.maybeNextYearAt = null;
         }
-        /* Only a no. A back next year must NOT clear a recycle that was already owed
-           -- that is Hole G, written up in the real function. */
-        if (response === 'no') hit.record.needsLightRecycle = true;
+        /* ⛔ NEITHER ANSWER TOUCHES THEIR LIGHTS, AND THIS FAKE USED TO ([[RS-51]], and
+           confirmed by Addie on 2026-09-11: "they will only be a real no if they cancelled
+           member portal"). A line reading   if (response === 'no') hit.record.needsLightRecycle
+           = true;   sat here long after the real portalRsvp stopped doing it — so this fake
+           was writing a field the server does not write, on the one answer ~960 customers
+           will give, and a spec asserting it passed against a rule the app no longer has.
+           ⚠ THE REAL DOOR IS portalSave's own cancel section — Cancel My Lights, in the
+           member portal — and nothing else. That is the step which takes the bundle apart
+           and hands the customer number back to the pool, and Dax's whole argument for
+           moving it there was that one tap in an email must not set off a destructive,
+           physical act with no confirmation in front of it.
+           ⚠ WHAT THE OLD COMMENT WAS RIGHT ABOUT IS KEPT: a back next year must never
+           CLEAR a recycle that was already owed (Hole G). Neither answer writing the field
+           at all satisfies that too — an owed recycle survives both, which is what the
+           server does and what season-state.test.js holds. */
       }
       let arrearsOutstanding = 0;
       let arrearsSeason = '';

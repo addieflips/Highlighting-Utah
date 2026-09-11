@@ -78,7 +78,7 @@ function flagNear(src, at) {
 const officeSites = stampSites(admin, 'office');
 const portalSites = stampSites(funcs, 'portal');
 
-/* ⚠ TWO OFFICE DOORS SINCE [[MON-70]] (2026-09-11), not one. Addie: "either light change
+/* ⚠ TWO OFFICE DOORS SINCE [[MON-78]] (2026-09-11), not one. Addie: "either light change
    made in member portal or in costumer admin portal" — the All Customers row panel now
    stamps the source and charges the $30 exactly as the Edit Customer save does, so it has
    a `lightsChangedVia = 'office'` of its own. The census is what made that visible; the
@@ -187,7 +187,7 @@ if (btn) {
 });
 
 /* ── 1b. The fourth door: the All Customers row panel ────────────────────────
-   ⚠ IT IS COUNTED BY THE STAMP SWEEP ABOVE SINCE [[MON-70]] (2026-09-11) — it stamps
+   ⚠ IT IS COUNTED BY THE STAMP SWEEP ABOVE SINCE [[MON-78]] (2026-09-11) — it stamps
    lightsChangedVia, charges and locks exactly as the Edit Customer save does. This
    paragraph used to say the opposite, and it is kept because the reason for a separate
    gate is unchanged: questions map
@@ -224,7 +224,7 @@ if (panel) {
     'a hand-rolled string comparison here would queue a colour change for somebody ' +
     'filling their colours in for the FIRST time — which swept twelve ordinary new ' +
     'customers onto the Color Changes sheet once already');
-  /* ⛔ REVERSED BY [[MON-70]] (2026-09-11), and said out loud per R-024. This check used to
+  /* ⛔ REVERSED BY [[MON-78]] (2026-09-11), and said out loud per R-024. This check used to
      assert the OPPOSITE — "and it does not charge anybody" — which was a real decision and
      is why the reversal is recorded rather than quietly applied. Addie: "anyone that does a
      light change or ends up in warehouse because of a light change besides requotes and
@@ -343,7 +343,7 @@ check('#CU on this sheet is the number on the record, not the bin label',
 
 
 /* ── 7. The two shared fee writers, RUN ──────────────────────────────────────
-   ⭐ [[MON-70]] extracted these so the All Customers panel could charge the same $30 as
+   ⭐ [[MON-78]] extracted these so the All Customers panel could charge the same $30 as
    the Edit Customer save, rather than a third copy of the same ~25 lines. Two copies of a
    money write is how one screen starts charging what another does not.
    ⛔ RUN, NOT MATCHED. A red-check that made the running total stop adding, and one that

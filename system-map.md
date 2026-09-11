@@ -63,6 +63,8 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
 
     ⚠ **AND HALF AN OWNER RULING IS REVERSED HERE, out loud.** Addie asked for the back-next-year-then-no sequence and was answered *"they belong on the recycle list, and NOT on Contact 2027 as well"*. The Contact 2027 half stands — a no still clears `maybeNextYear`. The recycle half is Dax's later call (R-024).
 
+    ⭐ **AND IT IS ADDIE'S RULE NOW TOO** (2026-09-11, [[RS-59]]). She said it in her own words: *"they will only be a real no if they cancelled member portal."* Nothing about the rule changes — what changes is that it no longer rests on one person's call, which [[RS-55]] had flagged as unsettled. ⚠ **WHAT PROMPTED IT WAS A TEST FAKE THAT AGREED WITH THE OLD RULE:** `test/firebase-stub.js` went on writing `needsLightRecycle` on a No for eight days after the server stopped, so a browser spec asserted the reversed rule and passed. A stub that has drifted from the server is a spec proving the opposite of what the app does, and nothing goes red. ⚠ **AND AN OWED RECYCLE STILL SURVIVES A No** — somebody who cancelled properly and then answers the RSVP again keeps the collection the warehouse is queued for. Both halves now have a browser test.
+
     ⭐ **AND SOMEBODY IS TOLD, AND THEN ASKED WHY** (2026-09-11, RS-57 and RS-58). A decline used to write **nothing to the Inbox at all** — the record changed, they came off every route and their referral was clawed back, in silence, on the most consequential answer in the season. `portalRsvp` now raises a note under **RSVP — Not This Year** or **RSVP — Back Next Year**, and those two strings are the folders the Inbox files them into, under a **No RSVPs** section of its own. On the TRANSITION only, and best-effort: their answer is already written by that line.
 
     ⭐ **THE REASON IS OPTIONAL AND IT PICKS THE FOLDER.** Addie: *"okay i need it to be optional choice"*, then *"Should be Moved, Finances, etc."* The portal offers **Moved · Finances · Doing it ourselves · Another company · Not decorating · Other** — one list (`RSVP_DECLINE_REASONS`) held identically in `index.html`, `functions/index.js` and `admin.html`, because these strings are **folder names** and one character apart files a real answer where nobody is looking.
@@ -1001,6 +1003,60 @@ is what a roofline doubling back on itself needs.
 ---
 
 ## 3. The money model
+
+⭐ **WHEN A BILL IS DUE, AND WHAT HAPPENS IF IT IS NOT PAID** (changed 2026-09-11).
+Addie: *"everyone still receives there invoice after they get installed but now they have
+until february to get them paid. We will give them one text reminder at the end of
+February than if they don't respond by end of March than they will get a fee email at
+beginning of April"*, and on the text: *"Feb 1 is when we will send out Text messages and
+need to be reminded on Feb 1st to send those out to everyone that hasn't paid as a pop up
+on admin portal on feb 1st."*
+
+Four dates, and they belong to the **season**, not to the house:
+
+| | When | What happens | Who does it |
+|---|---|---|---|
+| **Invoice** | the night their lights go up | emailed automatically, 7 PM | the system |
+| **Due** | **last day of February** | printed on the invoice and on the email | — |
+| **Text** | **1 February** | a pop-up lists everybody who has not paid, with their phone numbers | **the office texts them** |
+| **Fee** | **1 April** | $25 if they have paid something, $40 if nothing, added to the bill and emailed with it | the system, *if switched on* |
+
+⭐ **THIS REPLACED A ROLLING 30-DAY CLOCK, and that is the whole of the change.** Terms
+used to run 30 days from the invoice date, so every house had its own private due date and
+its own private chase days: a house done on 3 October was chased in November while its
+neighbour done on 20 December was chased in January. The office now has two days in the
+year to think about rather than nine hundred.
+
+- ⚠ **The text comes BEFORE the due date, on purpose.** Asked whether the paper should say
+  1 February to match the text, Addie chose *Feb 28 on paper, text Feb 1* — so the text is
+  a reminder that the month to pay has started, not a chase for a bill already late.
+- ⚠ **"If they don't respond" means they have not PAID.** Asked directly, she chose *they
+  haven't paid in full* over *they never replied*. There is no "they answered" flag
+  anywhere in it and there must not be one: a reply is not a payment.
+- ⚠ **Which February is decided by the SEASON, not the year on the invoice.** A bill issued
+  in January belongs to the autumn just gone and is due weeks later — reading the issue
+  year alone would give that house fourteen months. July is the split.
+- ⚠ **Overdue now means past the date on their own invoice**, and the red card waits until
+  1 April. Both used to count days from the invoice, which under February terms would have
+  flagged the whole book in November and reddened it in December while nobody was late.
+- ⚠ **One rule, two copies**, `invoiceDueDate` in `js/money.js` and `invoiceDueDateServer`
+  in `functions/index.js`, swept by `money-parity.test.js` over 144 issue dates — the
+  server's is what stamps the date the customer actually reads.
+- ⛔ **The April send is the only thing in the app that charges a customer with nobody
+  pressing anything, and it ships switched OFF.** `settings/lateFeeAutomation`, with a
+  *Check first* dry run beside the switch in Invoices > Nightly Automation, and checklist
+  row 222 to read that list against the real book before it is ever turned on. It skips
+  anybody already charged, anybody paid in full, and anybody whose only outstanding amount
+  is a balance carried from an earlier season (**Q-034**, open — that last one is a default
+  rather than her ruling).
+- ⚠ **"Anybody already charged" means already charged THIS season, and Start New Season is
+  what makes that true.** The marker (`lateFeeAt`) lives on the invoice, and invoices are
+  reused season to season rather than recreated — so the season reset clears it along with
+  the deposit, the credits and the issue date. Left standing it would stop being a
+  once-a-season guard and become a once-for-ever one: charged in April 2027, then silently
+  skipped every April after that, for that customer, permanently. That is the
+  `chargeNewMemberFee` failure with its sign flipped, and the quiet direction of it —
+  nobody ever rings up to say they were *not* charged. Suite 325 holds it.
 
 **The one correct formula, everywhere:**
 ```
@@ -2134,8 +2190,8 @@ invoice, and already reaches the customer's portal.
 
 ⭐ **A CARD GOES RED WHEN SOMEBODY IS SERIOUSLY BEHIND** (added 2026-09-01). Addie: *"turn everyone that hasn't paid from last year or is 60 days over there payment as red for there card."* In **All Customers**, a row gets a red left bar and a pink tint when either is true:
   - they **owe from an earlier season** (`houseOwesFromLastSeason` — the same rule that holds them out of the season, so the card and the hold can never name different people), or
-  - their bill **went out 60 days ago** and is still not settled. Terms are 30 days, so a card reddens 30 days after the payment was actually due. (Asked directly: *"no 60 days after invoice goes out"* — an earlier draft counted from the due date and reddened at 90.)
-  - ⚠ **Its own threshold** (`RED_CARD_DAYS_FROM_INVOICE`), not `OVERDUE_DAYS`. That one is 30 and drives the ordinary Overdue flag; sharing it would turn most of the book red in November and say nothing.
+  - their bill is **past 1 April** and is still not settled — the morning the late fee lands. (⚠ **Changed 2026-09-11 with the payment terms.** It used to be 60 days after the invoice, which under 30-day terms meant "a month past due" — the shape she asked for when she said *"no 60 days after invoice goes out"*. Moving payment to February kept the shape and broke the arithmetic: sixty days after an October invoice is December, so the whole book would have gone red over Christmas while nobody was late at all.)
+  - ⚠ **It is not the Overdue flag.** That one turns on the day after the invoice's own due date at the end of February; this one waits the further month Addie gives them before a fee. Reddening everybody on 1 March would say nothing the Overdue column does not already say.
   - ⚠ **Paid in full is never red**, whatever the dates say, and neither is a bill that was **never issued** — that has not gone out, so there is nothing to be late for.
   - ⚠ **A bar and a tint, not red text.** The row already uses colour for the RSVP and invoice pills; recolouring those makes an overdue customer's answers unreadable.
 
@@ -2671,6 +2727,58 @@ it is computed from a constant.
 
 *Where it is proved*: run-all.js **Suite 314**. 6 sabotages red-checked.
 *Rulings*: [[SCH-70]] in `claude/questions-map.md`.
+
+### What the strip shows when there is no forecast
+
+Added 2026-09-10. Dax, looking at a day in October on the tenth of September: *"I dont
+see the forecast down here"* — with the strip correctly reading *"No forecast this far
+ahead — it reaches to Sep 25."*
+
+⛔ **[[SCH-70]] was right and still left him with nothing.** Teaching the blank strip to
+explain itself was the correct answer to "is it broken or just early", and by the time
+he read it he had stopped asking that. The season opens three weeks out and the free
+service reaches sixteen days — so for **most of the season there is no forecast at
+all**, and a strip that only ever shows forecasts is blank for most of the season no
+matter how well it explains itself.
+
+So past the horizon it shows what the weather usually does, from ten years of recorded
+highs out of the same service’s archive:
+
+| date | Lehi | Herriman |
+|---|---|---|
+| 1 Oct | ~71° | ~69° |
+| 10 Nov | ~53° | ~52° |
+| 15 Dec | ~39° | ~39° |
+
+⛔ **A typical high is not a forecast, and the whole design turns on that.** It never
+reaches `forecastHighFor`, `forecastIsCold` or the warmth band, so it cannot veto a
+town, move a house, or count towards the cold-day tally. This repo has said since
+`COLD_DAY_MAX_F` that *"no forecast is not a cold forecast"*; letting a ten-year average
+refuse somebody a date would be that same mistake in a new costume — and it would do it
+**quietly**, because every screen would still look right.
+
+It is drawn so the two cannot be mistaken for each other: a tilde on the number, a
+dotted outline, **no snowflake even at freezing**, and one footnote per strip saying
+*"typical for the time of year, not a forecast"*.
+
+⚠ **The curve is smoothed, and that is not a detail.** Measured at Lehi over ten years:
+a single date averaged across all ten still swings **28°** between its warmest and
+coldest year, and 15 November reads 56° raw against a seasonal trend of 50° — six
+degrees of one warm autumn. A fortnight either side gives 150 samples a date, and
+dropping half the years then moves the curve by at most **3.3°**. The smoothed number is
+a season; the raw one is noise wearing a decimal point.
+
+⚠ **Fetched once a day, and only for the panel.** Ten years of past weather does not
+change between elevenses and lunch, and making Recalculate everything wait on ten
+requests for numbers that change nothing about the plan would be pure delay in front of
+the office. The forecast belongs in that gate; this does not.
+
+*Where it is proved*: run-all.js **Suites 326 and 314**. 13 sabotages red-checked — and
+the first pass caught only 11. Taking the tilde off the chip went green because the
+footnote carries one of its own, and widening the window to 400 days went green because
+the suite was reading the constant with a regex that never matched and silently grading
+against a hard-coded 7.
+*Rulings*: [[SCH-72]] in `claude/questions-map.md`.
 
 ### Why a route went far out at stop 11 and came back beside stop 2
 
@@ -3776,7 +3884,7 @@ for a list she did not make.
 at the same moment, the last save wins — they change rarely enough that this is the right
 trade, and it is the same one the scheduling settings already make.
 
-**Every light change is charged $30, whichever screen it was typed into** ([[MON-70]],
+**Every light change is charged $30, whichever screen it was typed into** ([[MON-78]],
 2026-09-11). Addie: *"anyone that does a light change or ends up in warehouse because of a
 light change besides requotes and quotes will need to be charged 30 dollars unless waived"*,
 then *"Yes either light change made in member portal or in costumer admin portal."*
@@ -4510,12 +4618,15 @@ the trail rather than adding to it.
 it, and clicking one lands on that field's row on *Where things go* — the same one level in
 it always was. What changed is that you arrive there through the journey.
 
-⚠ **A step that is not built says so, and looks different.** The two payment chases are
-Addie's own spec and neither runs today: a text at 30 days that the system tells the office
-to send, and an automatic email at 60 days carrying a fee and a new invoice. The fee rule was
-already written down in the page — **$25 if they have paid something, $40 if they have paid
-nothing** — marked *preview only, not built*. Drawn as working, this page would be a wish
-rather than a map, and its whole value is that it is true.
+⚠ **A step that is not built says so, and looks different.** ⭐ **Both payment chases are now
+built (2026-09-11) and the dates moved with the terms** — a text the office sends on **1
+February**, and an automatic email on **1 April** carrying the fee and the updated bill. The
+fee rule is the one that was already written down in the page, unchanged: **$25 if they have
+paid something, $40 if they have paid nothing**. ⚠ **The April send is the only thing in the
+app that charges a customer with nobody pressing anything, and it ships switched OFF** —
+`settings/lateFeeAutomation`, with a *Check first* dry run beside the switch in Invoices >
+Nightly Automation. Drawn as working while it is off, this page would be a wish rather than a
+map, and its whole value is that it is true.
 
 ⚠ **`connections/journey.js` is hand-written, like the manifest, and for the same reason** —
 the code can say what it does, never what order it was meant to happen in. What is checked
@@ -5665,6 +5776,76 @@ now censuses every place that writes the flag: each is either a door that must g
 `HLX_DONE_KINDS.fix`, or is named with the reason it is not one. Two are deliberately not doors
 — `buildAddressRowHtml` reads the flag into markup, and `planTickCustomer` mirrors it into the
 local cache before the write is awaited so the derived tick does not spring back.
+
+### A new fault tells the office, and the notice goes away when it is mended
+
+Added 2026-09-11 ([[FIX-02]]). Until then **raising a fix was completely silent.** All four
+doors did was tick `needsFix`. The house then appeared on the fix list and on a Fixer Route
+sheet — both of which somebody has to go and *look* at — so a fault reported on the phone on
+a Tuesday sat unseen until whoever raised it happened to open the right tab. Given the point
+above, that is a bill held open with nobody told.
+
+Marking Needs Fix now writes a **System notice** — filed under *Schedule & Routes*, tagged
+*Repair / Issue*, carrying an **Open their card** button that opens Edit Customer straight
+from the Inbox. Marking the fix done **deletes that notice**, which is Addie's own wording
+("the note disappears when it's done"). Nothing is lost by the deletion: `fixRaisedAt` and
+`fixDoneAt` stay on the customer record and are the permanent trace of how long the customer
+waited.
+
+⚠ **Raised in the one door, not at the four callers.** That is the lesson of the section
+above stated forwards: anything bolted onto a caller reaches some of them and reads as
+working. Both halves sit in `hlxMarkJobDone`, so a fifth door added later announces itself
+without anybody remembering to wire it.
+
+⚠ **The notice's document id is derived from the customer** (`fix-<id>`) rather than
+auto-generated. That buys both halves of the ruling at once: raising twice writes the same
+document, so toggling the box off and on cannot stack four notices about one house; and the
+clear is a plain delete needing neither the messages cache nor a composite index. Finding it
+by topic-plus-customer would need a composite index, and `firestore.indexes.json` is **not**
+deployed by CI — so that query would fail silently in production while passing every check.
+
+⚠ **It never re-marks a notice she has already read.** A bare write would reset `read` on
+every toggle, which is the cries-wolf failure this repo names in four other places.
+
+⚠ **The fix photo is destroyed on the spot, not parked** ([[FIX-06]]). FIX-02 originally
+asked for park-then-destroy with an undo; Addie reversed it on 2026-08-21 — "we want the
+picture destroyed on the spot" — and R-024 applies. What makes a no-undo destroy safe is the
+order and the condition: the record is written first, only `done === true` destroys anything,
+the field is cleared only if the picture really went, and a failed destroy keeps the URL so
+the next Mark Done retries rather than orphaning a public Cloudinary asset. The house photo,
+which prints on the new-hang crew sheets, is never touched.
+
+⚠ **A comment in `admin.html` claimed this was unbuilt for three weeks** — it said the fix
+kind "does not retire the fix photo yet" while the call sat twenty lines below it. Corrected
+in the same change.
+
+### Everything about the season RSVP is on the RSVP tab
+
+Moved 2026-09-11. Addie: "at the top we got a lot going on. We can probably move emails that
+didn't get sent out over to RSVP in it's own sub tab. And Text the RSVP can go in it's own
+sub tab as well in RSVP."
+
+Two cards used to sit on **Templates**, above the templates themselves — a tab somebody
+opens to *edit an email*, carrying two cards about the state of a send. The RSVP tab now has
+three sub-tabs: **Daily send** (the paced 200-a-morning plan), **Did not send** (the people a
+send lost), and **Text the RSVP** (the people with no email on file). `Send the whole RSVP`
+deliberately stays on Templates — it is one press beside the templates it sends, and moving
+it would break the one route the office already knows.
+
+⚠ **The sub-tabs do not use `route-tab-btn` / `route-tab-panel`, and that is load-bearing.**
+The Automation tab handler clears `active` from *every* element with those classes under
+`#panel-automation` — a panel-wide sweep. Reusing the names would leave the RSVP tab opening
+with no sub-panel active at all: a blank tab, which reads as the feature being broken rather
+than as a naming collision. The obvious future tidy-up is to rename them to match, so
+`rsvp-subtabs.test.js` fails if anybody does. `rsvpSubtabShow` is the one place the state is
+set, called both by the sub-tab clicks and by the Automation handler when the tab opens.
+
+⚠ **The failure count moved onto the tab.** That card used to hide itself until a send lost
+somebody, and its own note says why: it has to be *noticed on the day it appears*, because
+until those people are emailed they cannot RSVP and an unanswered customer is out of the
+season. Behind a sub-tab, hiding it would be worse than before — it would be behind a tab
+nobody had a reason to open. The tab wears the number instead, and the empty sub-tab says
+plainly that nothing has failed.
 
 ### Are the rules still accurate?
 

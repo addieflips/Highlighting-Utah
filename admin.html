@@ -367,6 +367,16 @@
   .route-tab-btn.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
   .route-tab-panel{ display:none; }
   .route-tab-panel.active{ display:block; }
+  /* ⭐ The RSVP tab's own sub-tabs ([[FIX/RSVP]] 2026-09-11). Same look as a route tab,
+     one size down, and DELIBERATELY NOT the same class names — see the markup's own note:
+     the Automation handler's panel-wide query would clear these too. Visibility is the
+     `hidden` attribute rather than an `active` class, so a panel cannot be left showing
+     by a stylesheet that did not load. */
+  .rsvp-subtab-btn{
+    background:#fff; border:1px solid var(--line); color:var(--slate); border-radius:999px;
+    padding:7px 14px; font-size:12.5px; font-weight:600; cursor:pointer;
+  }
+  .rsvp-subtab-btn.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
   .gen-subtab-panel{ display:none; }
   .gen-subtab-panel.active{ display:block; }
   .route-tabs .route-tab-btn{ cursor:grab; }
@@ -3191,12 +3201,12 @@
             <div id="fcScenarios" style="margin-top:14px;"></div>
           </div>
           <div class="card">
-            <h3 style="margin-top:0;">Late fee &mdash; preview only, not built</h3>
-            <p style="font-size:13px; margin:0 0 12px;">This is the Phase 5 rule, shown so the numbers can be checked before anything is built. Nothing below is live: no late fee is ever charged today.</p>
+            <h3 style="margin-top:0;">Late fee &mdash; what it would cost</h3>
+            <p style="font-size:13px; margin:0 0 12px;">The rule, so the numbers can be checked against one customer. The automatic send that charges it lives under <strong>Nightly Automation</strong> on the next tab, and is off until you turn it on.</p>
             <div class="form-grid-2">
-              <div class="form-row"><label>Paid anything before the 3rd contact?</label>
+              <div class="form-row"><label>Paid anything by the end of March?</label>
                 <select id="fcPaidSomething"><option value="no">No &mdash; nothing at all</option><option value="yes">Yes &mdash; some of it</option></select></div>
-              <div class="form-row"><label>Fee that would apply</label><input type="text" id="fcLateFee" readonly style="background:var(--paper); font-weight:700;"></div>
+              <div class="form-row"><label>Fee that applies</label><input type="text" id="fcLateFee" readonly style="background:var(--paper); font-weight:700;"></div>
             </div>
             <div id="fcLatePreview" style="font-size:13px; color:var(--slate);"></div>
           </div>
@@ -3212,6 +3222,28 @@
               Send nightly invoice emails automatically
             </label>
             <span id="nightlyInvoiceStatus" style="font-size:13px; color:var(--slate); margin-top:8px; display:block;"></span>
+            <!-- ⭐ THE 1 APRIL LATE-FEE SEND (added 2026-09-11). Addie: "if they don't
+                 respond by end of March than they will get a fee email at beginning of
+                 April", and 2026-08-29: "The last email with a fee should automatically
+                 send with new invoice."
+                 ⛔ IT DEFAULTS OFF AND THE BANNER SAYS SO. This is the only thing in the
+                 app that charges a customer with nobody pressing anything, so the first
+                 anybody hears of a mistake in it must not be a few hundred real charges.
+                 Check first shows exactly who and how much, and writes nothing. -->
+            <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
+              <label style="font-weight:600; font-size:13px; display:block; margin-bottom:4px;">Late fees &mdash; 1 April</label>
+              <p style="font-size:12.5px; color:var(--slate); margin:0 0 8px;">On 1 April, anybody who still has not paid their February invoice is charged a late fee &mdash; <strong>$25</strong> if they have paid something, <strong>$40</strong> if they have paid nothing &mdash; and emailed their updated bill. Each customer is only ever charged once. Last season's carried debt is never charged a late fee.</p>
+              <label style="display:flex; align-items:center; gap:8px; font-weight:600; cursor:pointer; font-size:13px;">
+                <input type="checkbox" id="lateFeeEnabled" style="width:18px; height:18px;">
+                Add late fees and email them automatically on 1 April
+              </label>
+              <span id="lateFeeStatus" style="font-size:13px; color:var(--slate); margin-top:6px; display:block;"></span>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+                <button type="button" class="btn btn-outline btn-sm" id="lateFeeCheckBtn">Check first &mdash; who would be charged</button>
+                <button type="button" class="btn btn-outline btn-sm" id="lateFeeRunBtn" style="color:var(--ember);">Run it now</button>
+              </div>
+              <div id="lateFeeReport" style="font-size:12.5px; margin-top:8px;"></div>
+            </div>
             <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
               <label style="font-weight:600; font-size:13px; display:block; margin-bottom:4px;">Text a nightly billing summary to this number</label>
               <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
@@ -3322,9 +3354,11 @@
       </div>
       <!-- ===== TEMPLATES TAB ===== -->
       <div class="route-tab-panel active" id="automationtab-templates">
-      <!-- ⭐ Owner, 2026-09-02: "make an rsvp text link for everyone that doesnt have
-           an email on file." The RSVP goes out by email; these are the people it can
-           never reach, and without this they are simply never asked. -->
+      <!-- ⚠ THE TEXT LIST AND THE FAILURE CARD MOVED TO THE RSVP TAB (2026-09-11), into
+           sub-tabs of their own — Addie: "at the top we got a lot going on". This comment
+           introduced them and is kept, pointing there, rather than deleted: "make an rsvp
+           text link for everyone that doesnt have an email on file" (2026-09-02) is still
+           the reason that list exists at all. -->
       <!-- ⭐ Dax, 2026-09-07: "We want one button for the entire rsvp", and "we need
            everyone to get the right email and hve it sent to the right spot." The season
            RSVP was three screens — the standard email here, the Not Paid one under
@@ -3333,7 +3367,7 @@
            order. This is those three, in one press, with the breakdown shown first. -->
       <div class="card" id="rsvpWholeCard" style="margin-bottom:22px; border-color:var(--gold);">
         <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#127876; Send the whole RSVP</h3>
-        <p class="form-note" style="margin:0 0 12px;">One press sends both RSVP emails: the ordinary one to everybody who is straight, and the <b>Not Paid RSVP</b> to everybody who owes from last season &mdash; so each customer gets the one that fits them, and nobody gets both. Anyone with no email on file is listed underneath for texting instead. <b>Check first</b> shows exactly who would get what without sending anything.</p>
+        <p class="form-note" style="margin:0 0 12px;">One press sends both RSVP emails: the ordinary one to everybody who is straight, and the <b>Not Paid RSVP</b> to everybody who owes from last season &mdash; so each customer gets the one that fits them, and nobody gets both. Anyone with no email on file is listed under <b>RSVP &rarr; Text the RSVP</b> for texting instead. <b>Check first</b> shows exactly who would get what without sending anything.</p>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
           <button type="button" class="btn btn-outline btn-sm" id="rsvpWholeCheckBtn">Check first &mdash; who gets what</button>
           <button type="button" class="btn btn-gold" id="rsvpWholeSendBtn">Send the whole RSVP</button>
@@ -3383,30 +3417,6 @@
           <div id="rsvpCheckListStatus" style="font-size:13px; color:var(--slate); margin:0 0 6px;"></div>
           <div id="rsvpCheckListReport" style="font-size:13px;"></div>
         </div>
-      </div>
-      <!-- Hidden until a send actually loses somebody. A permanent empty card about
-           failures is one nobody reads, and this one has to be noticed on the day it
-           appears: until these people are emailed they cannot RSVP, and a customer who
-           has not answered is OUT of the season — no route, no bundle, no crew. -->
-      <div class="card" id="sendFailureCard" hidden style="margin-bottom:22px; border-color:#c0392b;">
-        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#9888; Some emails did not go out</h3>
-        <p class="form-note" style="margin:0 0 12px;">These customers were <strong>not</strong> emailed and do not know anything is wrong &mdash; and because nobody who has not answered the RSVP is scheduled, they are currently out of the season. Sending again reaches <strong>only these people</strong>; nobody who already got the email is sent a second copy. Each one is sent the same template it was meant to get the first time.</p>
-        <div id="sendFailureBody" style="font-size:13px; margin-bottom:10px;"></div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
-          <button type="button" class="btn btn-gold" id="sendFailureRetryBtn">Send again to the ones it missed</button>
-        </div>
-        <div id="sendFailureStatus" style="font-size:13px; color:var(--slate);"></div>
-      </div>
-      <div class="card" id="rsvpTextCard" style="margin-bottom:22px; border-color:var(--gold-dim);">
-        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128241; Text the RSVP &mdash; no email on file</h3>
-        <p class="form-note" style="margin:0 0 12px;">The RSVP email cannot reach these customers, so they are never asked. Each link signs that person into their own portal, where the first thing on the page is <strong>&ldquo;Are you having lights this season?&rdquo;</strong> with Yes, Back next year and Not this season &mdash; so one short link is the whole RSVP. Nobody who has already answered is listed, and nobody in their first year, for the same reason the email skips them.</p>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
-          <button type="button" class="btn btn-outline btn-sm" id="rsvpTextFindBtn">Find who has no email</button>
-          <button type="button" class="btn btn-gold btn-sm" id="rsvpTextCopyAllBtn" style="display:none;">Copy them all for texting</button>
-          <span id="rsvpTextCount" style="font-size:12.5px; color:var(--slate);"></span>
-        </div>
-        <div id="rsvpTextStatus" class="form-note" style="margin:0 0 10px;"></div>
-        <div id="rsvpTextList"></div>
       </div>
       <!-- Main Templates View -->
       <div style="display:grid; grid-template-columns:200px minmax(0,1fr); gap:20px; margin-bottom:30px;">
@@ -3679,6 +3689,32 @@
       <!-- ===== INVOICES TAB ===== -->
       <!-- ===== RSVP DRIP TAB ===== -->
       <div class="route-tab-panel" id="automationtab-rsvpdrip">
+      <!-- ⭐ THREE SUB-TABS UNDER RSVP (2026-09-11). Addie: "at the top we got a lot going
+           on. We can probably move emails that didn't get sent out over to RSVP in it's own
+           sub tab. And Text the RSVP can go in it's own sub tab as well in RSVP."
+           Both cards used to sit on the TEMPLATES tab, above the templates themselves — a
+           tab somebody opens to EDIT an email, carrying two cards about the state of a send.
+           Everything about the season RSVP is in one place now.
+           ⚠ THE CLASSES ARE NOT `route-tab-btn` / `route-tab-panel`, DELIBERATELY. The
+           Automation tab handler clears `active` from EVERY `.route-tab-btn` and
+           `.route-tab-panel` under `#panel-automation` — a panel-wide query — so reusing
+           those names here would leave the RSVP tab opening with no sub-panel active at all,
+           which reads as a blank tab rather than as a bug. Own names, own handler.
+           ⚠ AND `rsvpSubtabShow` IS THE ONE PLACE THE STATE IS SET, called by the sub-tab
+           clicks AND by the Automation handler when the RSVP tab is opened — so it survives
+           that blanket clear by construction rather than by luck. -->
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px;">
+        <button type="button" class="rsvp-subtab-btn active" data-rsvptab="daily">Daily send</button>
+        <!-- ⚠ THE COUNT IS THE HALF THAT MATTERS. The failure card used to be `hidden` until
+             a send lost somebody, and its own note says why: it has to be NOTICED on the day
+             it appears, because until those people are emailed they cannot RSVP and an
+             unanswered customer is out of the season. Inside a sub-tab, hiding it would be
+             WORSE than before — it would be behind a tab nobody had a reason to open. So the
+             tab is always there and wears the number instead. -->
+        <button type="button" class="rsvp-subtab-btn" data-rsvptab="failed">Did not send <span id="rsvpSubtabFailedCount" class="status-pill status-due" hidden></span></button>
+        <button type="button" class="rsvp-subtab-btn" data-rsvptab="text">Text the RSVP</button>
+      </div>
+      <div class="rsvp-subtab-panel" id="rsvpsub-daily">
       <!-- ⭐ EM-16. Addie, after a send of ~950 that Gmail cut off partway and that took a
            pasted spreadsheet of 673 names to reconcile: "we need to make sure we don't run
            into this situation in the future. Can we make a calendar for RSVP emails that
@@ -3712,6 +3748,36 @@
           <input type="number" id="rsvpDripPerDay" min="1" max="2000" step="10" style="width:90px; margin-left:6px;">
         </label>
         <div id="rsvpDripStatus" style="font-size:13px; color:var(--slate);"></div>
+      </div>
+      </div>
+      <div class="rsvp-subtab-panel" id="rsvpsub-failed" hidden>
+      <!-- Hidden until a send actually loses somebody. A permanent empty card about
+           failures is one nobody reads, and this one has to be noticed on the day it
+           appears: until these people are emailed they cannot RSVP, and a customer who
+           has not answered is OUT of the season — no route, no bundle, no crew. -->
+      <div class="card" id="sendFailureCard" hidden style="margin-bottom:22px; border-color:#c0392b;">
+        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#9888; Some emails did not go out</h3>
+        <p class="form-note" style="margin:0 0 12px;">These customers were <strong>not</strong> emailed and do not know anything is wrong &mdash; and because nobody who has not answered the RSVP is scheduled, they are currently out of the season. Sending again reaches <strong>only these people</strong>; nobody who already got the email is sent a second copy. Each one is sent the same template it was meant to get the first time.</p>
+        <div id="sendFailureBody" style="font-size:13px; margin-bottom:10px;"></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+          <button type="button" class="btn btn-gold" id="sendFailureRetryBtn">Send again to the ones it missed</button>
+        </div>
+        <div id="sendFailureStatus" style="font-size:13px; color:var(--slate);"></div>
+      </div>
+        <div id="rsvpNoFailuresNote" class="empty-note">No email has failed to send. If a send ever loses somebody they are listed here, and the tab carries a count so it is noticed on the day it happens.</div>
+      </div>
+      <div class="rsvp-subtab-panel" id="rsvpsub-text" hidden>
+      <div class="card" id="rsvpTextCard" style="margin-bottom:22px; border-color:var(--gold-dim);">
+        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128241; Text the RSVP &mdash; no email on file</h3>
+        <p class="form-note" style="margin:0 0 12px;">The RSVP email cannot reach these customers, so they are never asked. Each link signs that person into their own portal, where the first thing on the page is <strong>&ldquo;Are you having lights this season?&rdquo;</strong> with Yes, Back next year and Not this season &mdash; so one short link is the whole RSVP. Nobody who has already answered is listed, and nobody in their first year, for the same reason the email skips them.</p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+          <button type="button" class="btn btn-outline btn-sm" id="rsvpTextFindBtn">Find who has no email</button>
+          <button type="button" class="btn btn-gold btn-sm" id="rsvpTextCopyAllBtn" style="display:none;">Copy them all for texting</button>
+          <span id="rsvpTextCount" style="font-size:12.5px; color:var(--slate);"></span>
+        </div>
+        <div id="rsvpTextStatus" class="form-note" style="margin:0 0 10px;"></div>
+        <div id="rsvpTextList"></div>
+      </div>
       </div>
       </div>
       <div class="route-tab-panel" id="automationtab-invoices">
@@ -6232,6 +6298,14 @@ import {
      a second copy of a money rule is precisely what this repo forbids: the next
      change to the rule would have moved one of them. */
   arrearsOutstanding,
+  /* ⭐ THE INVOICE CALENDAR (2026-09-11). Due the last day of February, texted
+     on 1 February, fee email on 1 April — four dates that belong to the SEASON
+     rather than to each house, replacing the rolling 30-day clock. The server
+     carries a twin of each and money-parity.test.js sweeps them, because the
+     nightly run stamps the {{due_date}} on the email the customer receives. */
+  invoiceDueDate, invoiceTextChaseDate, invoiceFeeChaseDate, invoiceSeasonYear,
+  /* The late fee PROC-32 settled on 2026-08-29 and nothing charged until now. */
+  LATE_FEE_KIND, LATE_FEE_PAID_SOMETHING, LATE_FEE_PAID_NOTHING, lateFeeAmount,
   /* The set-up fee. One number, shared with the server through
      money-parity.test.js — see its note in js/money.js. */
   NEW_MEMBER_FEE
@@ -7783,7 +7857,7 @@ function ledgerWaiveUpdates(inv, ledger, key){
   return { ledger: ledger, updates: updates, removed: removed };
 }
 function feeWaiveUpdates(inv, key){ return ledgerWaiveUpdates(inv, 'fee', key); }
-/* ⭐ WHERE A $30 LIGHT-CHANGE FEE IS ACTUALLY WRITTEN — ONE WRITER ([[MON-70]], 2026-09-11).
+/* ⭐ WHERE A $30 LIGHT-CHANGE FEE IS ACTUALLY WRITTEN — ONE WRITER ([[MON-78]], 2026-09-11).
  * Addie: "anyone that does a light change or ends up in warehouse because of a light change
  * besides requotes and quotes will need to be charged 30 dollars unless waived", then, asked
  * which doors she meant: "Yes either light change made in member portal or in costumer admin
@@ -9479,12 +9553,13 @@ async function resolveLinkTokens(text, phone, amount, opts){
   }
   /* The due date the customer is told must be the same one the Invoice List
      chases them by, so it is worked out from the invoice's own timestamp using
-     PAYMENT_TERMS_DAYS - the single constant the printed invoice uses too. */
+     invoiceDueDate - the single rule the printed invoice and the Overdue flag
+     both read too. */
   if(out.indexOf('{{due_date}}') !== -1){
     const dueKey = (String(phone||'').replace(/\D/g,'')) || String(phone||'').toLowerCase().trim();
     const dueInv = allInvoicesCache.find(i => i.id === dueKey);
     const issued = (dueInv && invoiceIssuedAt(dueInv.data)) || new Date();
-    out = out.split('{{due_date}}').join(niceDate(addDays(issued, PAYMENT_TERMS_DAYS)));
+    out = out.split('{{due_date}}').join(niceDate(invoiceDueDate(issued)));
   }
   if(out.indexOf('{{feet_line}}') !== -1 || out.indexOf('{{new_member_fee_line}}') !== -1 || out.indexOf('{{amount_due}}') !== -1 || out.indexOf('{{amount_paid}}') !== -1){
     const phoneDigits = (phone||'').replace(/\D/g,'');
@@ -9796,7 +9871,44 @@ document.querySelectorAll('[data-automationtab]').forEach(function(btn){
        counts here are the ones the office acts on. */
     if(tab === 'rsvpdrip'){
       if(typeof rsvpDripRender === 'function') rsvpDripRender();
+      /* ⚠ RE-ASSERTED HERE, and this line is the whole reason the sub-tabs work. The two
+         queries above clear `active` from every `.route-tab-btn` and `.route-tab-panel`
+         under #panel-automation — a panel-wide sweep — and then only the RSVP panel itself
+         is switched back on. The sub-tabs use their own class names so that sweep cannot
+         reach them, and this call puts the sub-tab state back where it was rather than
+         leaving whichever one happened to be showing. */
+      if(typeof rsvpSubtabShow === 'function') rsvpSubtabShow(rsvpSubtab);
     }
+  });
+});
+/* ⭐ THE RSVP TAB'S SUB-TABS (2026-09-11). Addie: "at the top we got a lot going on. We can
+   probably move emails that didn't get sent out over to RSVP in it's own sub tab. And Text
+   the RSVP can go in it's own sub tab as well in RSVP."
+
+   ⚠ ONE PLACE SETS THE STATE. Two — a click handler and an open handler each doing their
+   own showing — is how a tab ends up highlighted with the wrong panel under it, which is
+   the shape the Inbox folder badge already had once. */
+let rsvpSubtab = 'daily';
+function rsvpSubtabShow(name){
+  const which = ['daily','failed','text'].indexOf(name) === -1 ? 'daily' : name;
+  rsvpSubtab = which;
+  document.querySelectorAll('.rsvp-subtab-btn').forEach(function(b){
+    b.classList.toggle('active', b.getAttribute('data-rsvptab') === which);
+  });
+  /* ⚠ `hidden`, not a display style — the repo's own rule, and it means a panel cannot be
+     left showing by a stylesheet that did not load. */
+  ['daily','failed','text'].forEach(function(k){
+    const el = document.getElementById('rsvpsub-' + k);
+    if(el) el.hidden = (k !== which);
+  });
+  /* ⚠ DRAWN ON OPEN, for the same reason the Automation tabs above are: the failure list is
+     rendered by a listener that has usually already fired, so a sub-tab opened later would
+     show whatever it last drew — or nothing at all on a first visit. */
+  if(which === 'failed' && typeof renderSendFailureCard === 'function') renderSendFailureCard();
+}
+document.querySelectorAll('[data-rsvptab]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    rsvpSubtabShow(this.getAttribute('data-rsvptab'));
   });
 });
 async function loadEmailjsSettings(){
@@ -9954,6 +10066,18 @@ async function loadNightlyInvoiceSettings(){
     const ap = document.getElementById('nightlyAlertPhone');
     if(ap) ap.value = (snap.exists() && snap.data().alertPhone) ? snap.data().alertPhone : '';
   } catch(err){ /* not saved yet, fine */ }
+  /* ⚠ ITS OWN READ, ITS OWN try. The late-fee switch lives in a different settings
+     document, and sharing the block above would mean a failed read of one leaving
+     the other showing OFF — which on this particular switch is the reading that
+     matters, because it is the one that charges people. */
+  try{
+    const lfSnap = await getDoc(doc(db,'settings','lateFeeAutomation'));
+    const on = lfSnap.exists() ? !!lfSnap.data().enabled : false;
+    const box = document.getElementById('lateFeeEnabled');
+    if(box) box.checked = on;
+    const st = document.getElementById('lateFeeStatus');
+    if(st){ st.textContent = lateFeeSay(on); st.style.color = on ? 'var(--emerald)' : 'var(--slate)'; }
+  } catch(err){ /* never saved, so off — which is the shipped state anyway */ }
 }
 document.getElementById('nightlyAlertSaveBtn')?.addEventListener('click', async function(){
   const val = document.getElementById('nightlyAlertPhone').value.trim();
@@ -9978,6 +10102,91 @@ document.getElementById('nightlyInvoiceEnabled')?.addEventListener('change', asy
     statusEl.style.color = 'var(--ember)';
     this.checked = !this.checked;
   }
+});
+
+/* ---- Late fees on 1 April: the switch, the dry run, and the one-off run -----
+   ⛔ NOTHING HERE DEFAULTS ON. The box reads settings/lateFeeAutomation and an
+   ABSENT document is off, which is the shipped state — see the banner on the card
+   and the header on runLateFeeBatch. This is the only automatic CHARGE in the app.
+
+   ⚠ CHECK FIRST IS A REAL DRY RUN, not a different estimate written here. It calls
+   the same `runLateFeeBatch` with dryRun set, so what it reports is what the real
+   run would do — a second opinion computed in the browser would eventually disagree
+   with the thing that actually takes the money, and the disagreement would only show
+   up after somebody had been charged. */
+function lateFeeSay(on){
+  return on ? '✓ On — late fees are added and emailed on 1 April'
+            : 'Off — nothing is charged automatically';
+}
+document.getElementById('lateFeeEnabled')?.addEventListener('change', async function(){
+  const statusEl = document.getElementById('lateFeeStatus');
+  try{
+    await setDoc(doc(db,'settings','lateFeeAutomation'), {enabled: this.checked}, {merge:true});
+    statusEl.textContent = lateFeeSay(this.checked);
+    statusEl.style.color = this.checked ? 'var(--emerald)' : 'var(--slate)';
+  } catch(err){
+    /* ⚠ THE BOX IS PUT BACK. A tick that looks saved and is not would have her
+       believing the April send is armed when it is off — or worse, off when it is on. */
+    console.error('[HU] could not save the late-fee switch', err);
+    statusEl.textContent = '✗ Couldn\'t save — ' + ((err && err.message) || err);
+    statusEl.style.color = 'var(--ember)';
+    this.checked = !this.checked;
+  }
+});
+function lateFeeRenderReport(res, wasDry){
+  const el = document.getElementById('lateFeeReport');
+  if(!el) return;
+  if(res.stopped){
+    el.innerHTML = '<div style="color:var(--ember); font-weight:600;">Stopped: '+esc(res.stopped)+'</div>';
+    return;
+  }
+  const n = wasDry ? (res.wouldCharge||0) : (res.charged||0);
+  const head = wasDry
+    ? (n ? n+' customer'+(n===1?'':'s')+' would be charged, '+fmtMoney(res.amount||0)+' in total. Nothing has been written.'
+         : 'Nobody would be charged today.')
+    : (n ? n+' customer'+(n===1?'':'s')+' charged, '+fmtMoney(res.amount||0)+' added, and their updated invoices emailed.'
+         : 'Nobody was charged.');
+  el.innerHTML = '<div style="font-weight:600; color:'+(wasDry ? 'var(--ink)' : 'var(--emerald)')+';">'+esc(head)+'</div>'+
+    ((res.names && res.names.length)
+      ? '<div style="margin-top:6px; max-height:180px; overflow:auto; color:var(--slate);">'+
+          res.names.map(function(s){ return esc(s); }).join('<br>')+
+          (n > res.names.length ? '<br><em>&hellip; and '+(n - res.names.length)+' more</em>' : '')+'</div>'
+      : '')+
+    ((res.errors && res.errors.length)
+      ? '<div style="margin-top:8px; color:var(--ember);"><strong>'+res.errors.length+' problem'+(res.errors.length===1?'':'s')+':</strong><br>'+
+          res.errors.map(function(s){ return esc(s); }).join('<br>')+'</div>'
+      : '');
+}
+document.getElementById('lateFeeCheckBtn')?.addEventListener('click', async function(){
+  const el = document.getElementById('lateFeeReport');
+  this.disabled = true;
+  el.innerHTML = 'Checking…';
+  try{
+    const res = await httpsCallable(fbFunctions,'previewLateFees')();
+    lateFeeRenderReport(res.data || {}, true);
+  }catch(err){
+    console.error('[HU] late fee dry run failed', err);
+    el.innerHTML = '<span style="color:var(--ember);">Could not check — '+esc((err && err.message) || String(err))+'</span>';
+  }
+  this.disabled = false;
+});
+document.getElementById('lateFeeRunBtn')?.addEventListener('click', async function(){
+  /* ⚠ TYPED CONFIRMATION, like every other mass write in this app, because this
+     one takes money rather than moving a record. The dry run above is free; this
+     is not undoable except by pressing × on each fee afterwards. */
+  const answer = prompt('This adds a late fee to every unpaid invoice past its due date and emails each of them.\n\nRun the check first if you have not.\n\nType CHARGE to go ahead.');
+  if(String(answer||'').trim().toUpperCase() !== 'CHARGE') return;
+  const el = document.getElementById('lateFeeReport');
+  this.disabled = true;
+  el.innerHTML = 'Running…';
+  try{
+    const res = await httpsCallable(fbFunctions,'runLateFeesNow')();
+    lateFeeRenderReport(res.data || {}, false);
+  }catch(err){
+    console.error('[HU] late fee run failed', err);
+    el.innerHTML = '<span style="color:var(--ember);">Could not run — '+esc((err && err.message) || String(err))+'</span>';
+  }
+  this.disabled = false;
 });
 
 /* ---- Unpaid Last Season: the switch, and the one-off run --------------------
@@ -10364,6 +10573,23 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              very hard to notice once they have gone wrong. */
           receiptSentForDeposit: null,
           importedPayments: [],
+          /* ⭐ AND THE 1 APRIL LATE-FEE GUARD, WHICH IS ABOUT LAST SEASON TOO
+             (2026-09-11). `lateFeeAt` is what stops `runLateFeeBatch` charging the
+             same invoice twice, and invoice documents are REUSED season to season —
+             so left standing it stops being a once-a-season guard and becomes a
+             once-for-ever one: charged in April 2027, silently skipped every April
+             after that, for that customer, permanently.
+             ⚠ THIS IS THE `chargeNewMemberFee` BUG POINTING THE OTHER WAY. That one
+             was a flag nothing cleared while its guard was released each season, so
+             the $30 was charged every year; this is a guard nothing releases, so the
+             fee is charged once and never again. Same shape, opposite sign, and the
+             quiet direction — nobody complains about not being charged, so the only
+             thing that would ever have found it is this line.
+             ⚠ AND THE FEE ITSELF IS NOT LOST BY BEING CLEARED HERE. If it was still
+             unpaid it is already inside `x.arrears` above, carried as the arrears
+             note; what goes is only the marker saying this invoice has had its turn. */
+          lateFeeAt: null,
+          lateFeeAmount: null,
           status: computeInvoiceStatus(x.newInstall, x.removal, 0, 0, x.arrears),
           priceReviewed: true, updatedAt: serverTimestamp()
         });
@@ -16964,6 +17190,12 @@ const ET_PREBUILT_TEMPLATES = [
   {name:'Post-Install Invoice', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out \u2014 your lights are up! Your balance for this season is {{amount}}. You can pay through your portal or Venmo using the links below.\n\n{{portal_link}}{{venmo_button}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'venmo_button', style:'button'}]},
   {name:'Already Paid - Say Thanks', folderName:'Billing', body:'Hi {{name}},\n\nYour lights are up! Just confirming we received your payment of {{amount}} for this season \u2014 you\'re all set.\n\n{{message_link}}', linkedTokens:[{code:'message_link', style:'link'}]},
   {name:'Nightly Auto-Invoice \u2014 Unpaid', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out today \u2014 your lights are up!\n\n{{feet_line}}\n{{new_member_fee_line}}\n{{credit_lines}}\n\nAmount due: {{amount_due}}\nPlease pay by {{due_date}}.\n\nPay your invoice here:\n\n{{pay_button}}{{venmo_button}}', linkedTokens:[{code:'pay_button', style:'button'},{code:'venmo_button', style:'button'}]},
+  /* ⭐ THE 1 APRIL LATE-FEE EMAIL (2026-09-11). Sent by `runLateFeeBatch` in
+     functions/index.js to anybody still unpaid at the end of March, with the fee
+     already added to their bill. ⚠ THE NAME IS LOOKED UP EXACTLY — the server
+     asks findTemplateSnapByName('Late Fee Notice'), so renaming this row means
+     the send falls back to a plain built-in wording and says so in its report. */
+  {name:'Late Fee Notice', folderName:'Billing', body:'Hi {{name}},\n\nYour Christmas lights invoice was due on {{due_date}} and we have not received payment.\n\nA late fee of {{late_fee}} has been added to your account, so the amount now due is {{amount_due}}.\n\nYou can pay online any time:\n\n{{pay_button}}{{venmo_button}}\n\nIf you have already paid, or if something here is wrong, please let us know and we will sort it out: {{message_link}}\n\n— Highlighting Utah', linkedTokens:[{code:'pay_button', style:'button'},{code:'venmo_button', style:'button'},{code:'message_link', style:'link'}]},
   {name:'Nightly Auto-Invoice \u2014 Paid Receipt', folderName:'Billing', body:'Hi {{name}},\n\nYour lights are up! This confirms we\'ve already received your payment in full for this season \u2014 you\'re all set, nothing more to do.\n\n{{feet_line}}\n{{new_member_fee_line}}\n{{credit_lines}}\n\nAmount paid: {{amount_paid}}\n\nThank you for choosing Highlighting Utah!\n\n{{view_portal_button}}{{message_link}}', linkedTokens:[{code:'view_portal_button', style:'button'},{code:'message_link', style:'link'}]},
   {name:'Payment Received \u2014 Balance Remaining', folderName:'Billing', body:'Hi {{name}},\n\nThanks \u2014 we\'ve received your payment of {{payment_amount}}.\n\nInvoice total: {{amount_total}}\nPaid so far: {{amount_paid}}\nAmount still due: {{amount_due}}\n\nYou can finish paying any time using the button below.\n\n{{pay_button}}{{venmo_button}}\n\n{{message_link}}', linkedTokens:[{code:'pay_button', style:'button'},{code:'venmo_button', style:'button'},{code:'message_link', style:'link'}]},
   {name:'Quick Announcement', folderName:'Announcements', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Tap below to update your info, check your balance, or send us a message anytime.\n\n{{portal_link}}{{message_link}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'message_link', style:'link'}]},
@@ -18564,7 +18796,12 @@ document.getElementById('etPreviewMemberSelect').addEventListener('change', etUp
 let siteContentCache = {};
 const VENMO_HANDLE = 'HighLightingUtah';
 const PORTAL_ADDRESS = 'highlightingutah.com';
-const PAYMENT_TERMS_DAYS = 30;
+/* ⚠ `PAYMENT_TERMS_DAYS` STOOD HERE AND IS DELIBERATELY GONE (2026-09-11), not
+   retuned to some other number of days. Payment terms are a CALENDAR now — the
+   last day of February, whatever day the bill went out — so any constant here
+   counting days from the invoice would be a second, wrong answer sitting beside
+   `invoiceDueDate` in js/money.js and reading like the real one. Four places
+   used it and all four ask that rule instead. */
 /* A short, stable, human-readable invoice number. Invoices are keyed by payer
    phone (or lowercase email), so the last four of the key gives a number that
    is the same every time the document is printed without exposing anything
@@ -18740,7 +18977,7 @@ function buildInvoiceDocHtml(member){
      read invoicedAt, and the Overdue flag was the only thing still counting from
      updatedAt — so the two it promised could never disagree, did. */
   const invoiceDate = (inv && invoiceIssuedAt(inv)) || new Date();
-  const dueDate = addDays(invoiceDate, PAYMENT_TERMS_DAYS);
+  const dueDate = invoiceDueDate(invoiceDate);
   const paidDate = inv ? (toJsDate(inv.lastPaymentAt) || toJsDate(inv.updatedAt)) : null;
   const season = invoiceDate.getFullYear();
   const invoiceNo = invoiceNumberFor(invoiceKey, season);
@@ -19096,7 +19333,7 @@ async function invTestSend(){
     body = body.split('{{amount_due}}').join(fmtMoney(amountDue));
     body = body.split('{{amount_paid}}').join(fmtMoney(deposit));
     const issuedOn = invoiceIssuedAt(inv) || new Date();
-    body = body.split('{{due_date}}').join(niceDate(addDays(issuedOn, PAYMENT_TERMS_DAYS)));
+    body = body.split('{{due_date}}').join(niceDate(invoiceDueDate(issuedOn)));
     body = await resolveLinkTokens(body.replace(/\{\{name\}\}/g, d.name || 'there'), d.phone || key, amountDue);
     body = body.replace(/\n/g, '<br>');
     body = '<div style="background:#FFF8E9; border:1px solid #D89F3D; border-radius:8px; padding:10px 12px; font-family:Arial,sans-serif; font-size:13px; margin-bottom:16px;">'+
@@ -20524,7 +20761,8 @@ const IC_CODES = {
     {token:'{{amount}}', label:'Amount (billing)'},
     {token:'{{portal_link}}', label:'Portal link (plain URL)'},
     {token:'{{portal_button}}', label:'Portal link (button)'},
-    {token:'{{due_date}}', label:'Payment due date (30 days from the invoice)'},
+    {token:'{{due_date}}', label:'Payment due date (the last day of February)'},
+    {token:'{{late_fee}}', label:'Late fee added on 1 April ($25 / $40)'},
     {token:'{{pay_button}}', label:'Pay Your Invoice (button)'},
     {token:'{{view_portal_button}}', label:'View Your Portal (button)'},
     {token:'{{messages_link}}', label:'Send-us-a-message link (plain URL)'},
@@ -21465,6 +21703,25 @@ function msgTypeOf(d){
   if(SYSTEM_NOTICE_TOPICS.indexOf(topic) !== -1) return MSG_TYPE_SYSTEM;
   return MSG_TYPE_MEMBER;
 }
+/* ⭐ A NEW FAULT ANNOUNCES ITSELF ([[FIX-02]], 2026-09-11). Addie, asked how a new fix
+   should surface: a System inbox note with a link to the customer card, and the note
+   disappears when the fix is done.
+
+   ⚠ RAISING A FIX USED TO BE COMPLETELY SILENT. Four doors set `needsFix` (the customer
+   row, the Routes stop toggle, Schedule, and the crew tick — see [[FIX-05]]), and every
+   one of them only ticked a box. The house then appeared on the fix list and on a Fixer
+   Route sheet, both of which somebody has to go and LOOK at — so a fault reported on the
+   phone on a Tuesday sat unseen until whoever raised it happened to open the right tab.
+   ⚠ AND IT IS MONEY, NOT ONLY TIDINESS, the same argument [[FIX-05]] makes: a fault on a
+   completed house stops that payer's WHOLE group being invoiced. A fix nobody notices is
+   a bill nobody sends.
+
+   ⚠ THE TOPIC IS DECLARED IN FOUR PLACES AND ALL FOUR ARE HERE OR JUST BELOW — this
+   list (so it types as a system notice), `SYSTEM_NOTICE_SECTION_OF` (which section of
+   the System tab it lands in), `MSG_TOPIC_CATEGORIES` (its Communication Centre tag),
+   and `fixNoticeId` (the document it is written to). A topic missing from the section
+   map falls through to "Everything else" silently, which is exactly where nobody looks. */
+const FIX_NOTICE_TOPIC = 'A Fix Was Raised';
 /* Every topic this app writes for ITSELF rather than on behalf of a customer. Listed
    rather than pattern-matched: a customer is free to type any subject they like, and a
    guess here files somebody's question where nobody answers it. */
@@ -21498,7 +21755,7 @@ const SYSTEM_NOTICE_TOPICS = [
   'Lights Changed After Assignment', 'Rejoined After Recycling', 'Customer Number Needs Fixing',
   'A Background Check Has Stopped', 'Carried Debt Written Off', 'Add-On Declined',
   'Cannot Be Billed', 'Maybe Next Year — New Record', 'Payment With No Bill',
-  'Re-quote Declined', 'Referral Taken Back',
+  'Re-quote Declined', 'Referral Taken Back', FIX_NOTICE_TOPIC,
   /* ⭐ SOMEBODY ANSWERING THE RSVP WITH A NO ([[RS-57]], 2026-09-11). Addie: "can we have
      no emails be there own section and it will go in the folder with the response they
      choose", then "I mean No RSVPs."
@@ -21535,7 +21792,10 @@ const MSG_TOPIC_CATEGORIES = {
   'Routes Kept Up To Date': ['Scheduling'],
   'A Route Sheet Is Out Of Date': ['Scheduling'],
   'Lights Changed After Assignment': ['Lights / Colors'],
-  'Rejoined After Recycling': ['Account']
+  'Rejoined After Recycling': ['Account'],
+  /* The same tag a customer's own "Report an Issue" gets, deliberately: the Repair /
+     Issue tab should hold the fault whether the customer reported it or we did. */
+  [FIX_NOTICE_TOPIC]: ['Repair / Issue']
 };
 /* ⚠ WHOLE WORDS, AND DELIBERATELY FEW. A loose scan tags everything and a tag on every
    row carries no information at all — the same argument the email-typo list turns on
@@ -23117,11 +23377,21 @@ let allInvoicesCache = [];
 let invoiceById = new Map();
 let activeInvFilters = { unpaid:false, partial:false, paid:false, overdue:false };
 let invoiceSearchTerm = '';
-/* Payment terms are 30 days from the invoice date (Addie, 2026-08-11). This
-   constant is what flags a row Overdue and what the Overdue filter uses, so
-   it has to match the due date printed on the invoice - otherwise the paper
-   tells a customer they have 30 days while the list chases them at 14. */
-const OVERDUE_DAYS = 30;
+/* ⭐ OVERDUE MEANS PAST THE DATE ON THEIR INVOICE (changed 2026-09-11).
+   Payment ran 30 days from the invoice date until Addie moved the terms to a
+   fixed calendar — "they have until february to get them paid" — so this no
+   longer counts days at all. It asks `invoiceDueDate`, the one rule the printed
+   invoice and the {{due_date}} on the email both read, for exactly the reason
+   the 30-day version gave: the flag has to match the date printed on the paper,
+   or the office chases somebody the invoice says is not yet late.
+
+   ⚠ THE OLD CONSTANT HAD TO GO, NOT JUST BE RETUNED. Under the new terms an
+   October house was 30 days old in November — Overdue on this screen, three
+   months before its own due date, with the customer's copy in their hand saying
+   February. That is the same paper-versus-screen split `invoiceIssuedAt` was
+   written to close, arriving from the other direction: not a clock counting from
+   the wrong field, but the right field measured against a rule nobody uses any
+   more. There is no threshold here to tune now, which is the point. */
 function isInvoiceOverdue(d){
   const status = computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees);
   if(status === 'Paid in Full') return false;
@@ -23134,8 +23404,9 @@ function isInvoiceOverdue(d){
      never been issued has not been billed, and chasing it would be chasing nobody. */
   const issued = invoiceIssuedAt(d);
   if(!issued) return false;
-  const days = (Date.now() - issued.getTime()) / 86400000;
-  return days >= OVERDUE_DAYS;
+  const due = invoiceDueDate(issued);
+  if(!due) return false;
+  return Date.now() > due.getTime();
 }
 /* ⭐ THEY PAID LAST SEASON'S BILL BUT HAVE NOT SAID YES (added 2026-09-01). Addie:
    "if someone pays that didn't pay last year, but also didn't approve email than that
@@ -23296,6 +23567,172 @@ function loadInvoices(){
         console.error('[HU] paid-but-not-approved sweep failed', err);
       });
     }
+    /* ⚠ AFTER the caches are rebuilt, for the same reason as the sweep above —
+       it reads allInvoicesCache to work out who has not paid. Not awaited, and
+       it can never throw into this listener. */
+    if(typeof maybeShowTextChaseReminder === 'function'){
+      maybeShowTextChaseReminder().catch(function(err){
+        console.error('[HU] February text reminder failed', err);
+      });
+    }
+  });
+}
+
+/* ⭐ THE 1 FEBRUARY REMINDER TO TEXT EVERYBODY WHO HAS NOT PAID (added
+   2026-09-11). Addie, setting the new invoice terms: "Feb 1 is when we will send
+   out Text messages and need to be reminded on Feb 1st to send those out to
+   everyone that hasn't paid as a pop up on admin portal on feb 1st."
+
+   ⭐ THE OFFICE SENDS THE TEXTS; THIS ONLY REMEMBERS THE DAY AND BUILDS THE LIST.
+   Asked directly whether the system should text customers itself, she chose
+   "Office sends it, system flags the list" — which is also her own 2026-08-29
+   ruling, "The text should notify us when we need to send that." So nothing here
+   reaches Twilio. Twilio is wired in this app for exactly two things and both of
+   them text the OFFICE (the nightly alert and the unmatched-payment alert); there
+   is no customer-facing SMS anywhere, and this does not add one.
+
+   ⚠ IT IS NOT A ONE-DAY POP-UP, WHICH IS THE WHOLE OF WHAT MAKES IT USEFUL.
+   Something that appeared only on 1 February would be missed by anyone not at the
+   desk that morning — a Sunday, a day off — and the season's one chase would go
+   out never, with the pop-up having technically worked. It shows from 1 February
+   until the day the fee lands, or until she says the texts are done.
+
+   ⚠ AND IT IS DISMISSED BY SAYING THE JOB IS DONE, NOT BY CLOSING IT. "Later"
+   silences it for the rest of the day only. A × that killed it for the season
+   would be one stray click between her and the texts, and nothing would ever
+   mention them again.
+
+   ⚠ EVERY DATE COMES FROM invoiceTextChaseDate, never from `new Date().getMonth()
+   === 1`. A bill issued late enough to roll into the following February has its
+   own later chase day (see js/money.js), and a bare calendar check would put it
+   on this year's list eleven months early. */
+const TEXT_CHASE_DONE_DOC = 'lateChaseTexts';
+let textChaseReminderShown = false;
+
+/* Who the February text goes to: everybody carrying a balance whose chase day has
+   arrived and whose fee day has not. Its own function so a test can RUN it. */
+function textChaseRecipients(invoices, nowMs){
+  const now = Number(nowMs) || Date.now();
+  const out = [];
+  (invoices || []).forEach(function(item){
+    const d = item && item.data;
+    if(!d) return;
+    if(d.isTestRecord === true) return;
+    if(computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees) === 'Paid in Full') return;
+    const issued = invoiceIssuedAt(d);
+    if(!issued) return;
+    const textDay = invoiceTextChaseDate(issued);
+    const feeDay = invoiceFeeChaseDate(issued);
+    if(!textDay || !feeDay) return;
+    if(now < textDay.getTime() || now >= feeDay.getTime()) return;
+    const owed = Math.max(0,
+      (Number(d.install)||0) + (Number(d.removal)||0) + (Number(d.changeFees)||0)
+      - (Number(d.credits)||0) - (Number(d.deposit)||0));
+    out.push({ id: item.id, name: d.name || '(no name)', phone: d.phone || '', owed: owed,
+               season: invoiceSeasonYear(issued) });
+  });
+  out.sort(function(a,b){ return String(a.name).localeCompare(String(b.name)); });
+  return out;
+}
+
+async function maybeShowTextChaseReminder(){
+  if(textChaseReminderShown) return;
+  const list = textChaseRecipients(allInvoicesCache, Date.now());
+  if(!list.length) return;
+  /* The season the chase belongs to, so "done" is recorded against a year rather
+     than being a flag that has to be cleared by hand every January.
+     ⚠ THE LATEST SEASON ON THE LIST, NEVER `list[0]`. The rows are sorted by NAME,
+     so the first of them is whoever is alphabetically first — and if a stale unpaid
+     invoice from an earlier season is still on the books, that could be either year.
+     Recording "done" against the wrong one leaves this season's reminder showing for
+     ever, or silences it before she has sent a thing. */
+  const season = list.reduce(function(max, r){
+    return (r.season != null && (max == null || r.season > max)) ? r.season : max;
+  }, null);
+  if(season == null) return;
+  const snap = await getDoc(doc(db,'settings',TEXT_CHASE_DONE_DOC));
+  const saved = snap.exists() ? (snap.data() || {}) : {};
+  if(String(saved.doneForSeason || '') === String(season)) return;
+  /* "Later" is for today only — see the note above. */
+  const today = new Date().toISOString().slice(0,10);
+  try{ if(sessionStorage.getItem('hu.textChase.later') === today) return; }
+  catch(e){ /* private browsing: the reminder simply shows again, which is the safe way round */ }
+  textChaseReminderShown = true;
+  showTextChaseReminder(list, season);
+}
+
+function showTextChaseReminder(list, season){
+  const total = list.reduce(function(s,r){ return s + r.owed; }, 0);
+  const rows = list.map(function(r){
+    return '<tr style="border-bottom:1px solid var(--line);">'+
+      '<td style="padding:6px 8px; font-size:13px;">'+esc(r.name)+'</td>'+
+      '<td style="padding:6px 8px; font-size:13px;">'+(r.phone ? '<a href="tel:'+esc(String(r.phone).replace(/[^0-9+]/g,''))+'">'+esc(r.phone)+'</a>' : '<span style="color:var(--slate);">no number</span>')+'</td>'+
+      '<td style="padding:6px 8px; font-size:13px; text-align:right; font-weight:600;">'+esc(fmtMoney(r.owed))+'</td></tr>';
+  }).join('');
+  const overlay = document.createElement('div');
+  overlay.className = 'needsfix-popup-overlay';
+  overlay.innerHTML = '<div class="needsfix-popup" style="max-width:620px;">'+
+    '<h3 style="color:var(--dusk); margin-top:0;">Time to text the people who have not paid</h3>'+
+    '<p style="font-size:13px;">It is 1 February or later. These <strong>'+list.length+'</strong> '+
+      (list.length === 1 ? 'customer has' : 'customers have')+' not paid their '+esc(String(season))+
+      ' invoice &mdash; '+esc(fmtMoney(total))+' outstanding in total. This is the one text reminder they get; '+
+      'if they still have not paid by the end of March, the late-fee email goes out on 1 April.</p>'+
+    '<div style="max-height:300px; overflow:auto; border:1px solid var(--line); border-radius:9px;">'+
+      '<table style="width:100%; border-collapse:collapse;">'+
+        '<thead><tr style="background:var(--paper);">'+
+          '<th style="padding:6px 8px; font-size:11.5px; text-align:left; color:var(--slate);">Name</th>'+
+          '<th style="padding:6px 8px; font-size:11.5px; text-align:left; color:var(--slate);">Phone</th>'+
+          '<th style="padding:6px 8px; font-size:11.5px; text-align:right; color:var(--slate);">Owes</th>'+
+        '</tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<div id="textChaseStatus" style="font-size:12.5px; color:var(--slate); margin-top:8px;"></div>'+
+    '<div style="display:flex; gap:9px; margin-top:12px; flex-wrap:wrap;">'+
+      '<button type="button" class="btn btn-gold" id="textChaseDone" style="flex:1 1 200px;">I have sent the texts</button>'+
+      '<button type="button" class="btn btn-outline" id="textChaseCopy" style="flex:0 1 auto;">Copy the numbers</button>'+
+      '<button type="button" class="btn btn-outline" id="textChaseLater" style="flex:0 1 auto; color:var(--slate);">Later today</button>'+
+    '</div>'+
+    '<p style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">&ldquo;I have sent the texts&rdquo; puts this away for the whole '+
+      esc(String(season))+' season. &ldquo;Later today&rdquo; brings it back tomorrow.</p>'+
+  '</div>';
+  document.body.appendChild(overlay);
+  const statusEl = overlay.querySelector('#textChaseStatus');
+  /* ⚠ NO CLICK-THE-BACKDROP TO CLOSE, deliberately, and no ×. Every other popup
+     in this file has one because backing out of them costs nothing; backing out of
+     this one silently costs the season's only chase. The two ways out are both
+     buttons that say what they do. */
+  overlay.querySelector('#textChaseCopy').addEventListener('click', function(){
+    const text = list.map(function(r){ return r.name + '\t' + r.phone + '\t' + fmtMoney(r.owed); }).join('\n');
+    navigator.clipboard.writeText(text).then(function(){
+      statusEl.textContent = 'Copied ' + list.length + ' rows — paste them anywhere.';
+    }).catch(function(){
+      statusEl.textContent = 'Could not copy automatically. The list is on screen above.';
+    });
+  });
+  overlay.querySelector('#textChaseLater').addEventListener('click', function(){
+    try{ sessionStorage.setItem('hu.textChase.later', new Date().toISOString().slice(0,10)); }
+    catch(e){ /* private browsing: it reappears on the next load, which is the harmless direction */ }
+    overlay.remove();
+  });
+  overlay.querySelector('#textChaseDone').addEventListener('click', async function(){
+    const btn = this;
+    btn.disabled = true;
+    statusEl.textContent = 'Saving…';
+    try{
+      await setDoc(doc(db,'settings',TEXT_CHASE_DONE_DOC), {
+        doneForSeason: String(season),
+        doneAt: serverTimestamp(),
+        doneBy: (auth.currentUser && auth.currentUser.email) || '',
+        countAtTheTime: list.length
+      }, {merge:true});
+      overlay.remove();
+      toast('Noted — the February texts are marked done for ' + season + '.');
+    }catch(err){
+      /* ⚠ NOT SILENT. A failed write here means the reminder comes back tomorrow,
+         which is recoverable — but telling her it saved when it did not is how the
+         same pop-up starts looking broken. */
+      console.error('[HU] could not record the February texts as done', err);
+      btn.disabled = false;
+      statusEl.textContent = 'That did not save — ' + ((err && err.message) || err) + '. Try again, or press Later today.';
+    }
   });
 }
 /* Phone digits -> customer, built once whenever the customer list changes.
@@ -23428,12 +23865,17 @@ function fcRender(){
       '<div style="display:flex; justify-content:space-between; padding:10px 0 0; margin-top:6px; border-top:1px solid var(--line); font-size:18px; font-weight:700;"><span>Balance</span><span>'+fmtMoney(bal)+'</span></div>'+
       '<div style="margin-top:10px; font-weight:700; color:'+colour+';">'+status+'</div>'+
     '</div>' + oddity;
-  const fee = document.getElementById('fcPaidSomething').value === 'yes' ? 25 : 40;
+  /* ⚠ THE TWO NUMBERS COME FROM js/money.js, NEVER TYPED HERE. They sat in this
+     function as the literals 25 and 40 while the fee was a preview; now that
+     `runLateFeeBatch` actually charges it, a second copy on this screen is a card
+     that can quietly start quoting a fee nobody is charged. */
+  const fee = document.getElementById('fcPaidSomething').value === 'yes'
+    ? LATE_FEE_PAID_SOMETHING : LATE_FEE_PAID_NOTHING;
   document.getElementById('fcLateFee').value = fmtMoney(fee);
   document.getElementById('fcLatePreview').innerHTML =
-    'If this customer reached the third contact unpaid, their balance would become <strong>'+
-    fmtMoney(bal + fee)+'</strong> &mdash; '+fmtMoney(bal)+' plus the '+fmtMoney(fee)+' fee. '+
-    '<em>Not built. Nothing charges this today.</em>';
+    'If this customer is still unpaid at the end of March, their balance becomes <strong>'+
+    fmtMoney(bal + fee)+'</strong> &mdash; '+fmtMoney(bal)+' plus the '+fmtMoney(fee)+' fee, '+
+    'added and emailed on 1 April.';
 }
 function fcRunScenarios(){
   const wrap = document.getElementById('fcScenarios');
@@ -43591,22 +44033,26 @@ function populateCityDropdowns(){
    1. THEY OWE FROM AN EARLIER SEASON — houseOwesFromLastSeason, the same rule
       that holds them out of the season, so the red card and the hold can never
       disagree about who is behind.
-   2. THEIR BILL WENT OUT 60 DAYS AGO and is still not settled.
+   2. THEIR BILL IS PAST THE DAY THE LATE FEE LANDS and is still not settled.
 
-   ⚠ SIXTY DAYS FROM THE INVOICE, NOT FROM THE DUE DATE. Asked directly, Addie:
-   "no 60 days after invoice goes out." The first version counted from the due
-   date — 30 days of terms plus 60 — which reddened a card at 90 days and is
-   NOT what she asked for. Since terms are 30 days, a card now goes red 30 days
-   after the payment was actually due.
+   ⚠ IT MOVED FROM SIXTY DAYS TO A DATE (2026-09-11), with the terms. Asked in
+   2026-09-01 whether to count from the invoice or the due date, Addie said "no
+   60 days after invoice goes out" — and under 30-day terms that landed a card
+   red 30 days after payment was actually due, which is the shape she wanted.
+   Moving payment to February kept the shape and broke the arithmetic: sixty days
+   after an October invoice is December, so the whole book would have gone red
+   over Christmas while nobody was late at all. It is now 1 April — the morning
+   the late-fee email sends itself — which is again "past due and the grace month
+   has gone", said as a date instead of a count.
 
-   ⚠ IT IS NOT OVERDUE_DAYS. That one is 30 and drives the ordinary Overdue
-   flag; reusing it would turn most of the book red in November and say nothing.
-   Two thresholds, two purposes.
+   ⚠ IT IS NOT THE OVERDUE FLAG. That one turns on the day after the invoice's
+   own due date, at the end of February; this one waits the further month Addie
+   gives them before a fee. Two moments, two purposes — reddening everybody on
+   1 March would say nothing that the Overdue column does not already say.
 
    ⚠ AND IT READS invoiceIssuedAt, never updatedAt — a corrected spelling or a
    payer re-sync would otherwise push the clock out and quietly un-redden a card
    that really is months late. */
-const RED_CARD_DAYS_FROM_INVOICE = 60;
 function houseCardIsRed(d, inv){
   if(!d) return false;
   /* Paid in full is never red, whatever the dates say. */
@@ -43616,8 +44062,9 @@ function houseCardIsRed(d, inv){
   const issued = invoiceIssuedAt(inv);
   /* No issue date means never billed, so there is nothing to be late for. */
   if(!issued) return false;
-  const days = (Date.now() - issued.getTime()) / 86400000;
-  return days >= RED_CARD_DAYS_FROM_INVOICE;
+  const feeDay = invoiceFeeChaseDate(issued);
+  if(!feeDay) return false;
+  return Date.now() >= feeDay.getTime();
 }
 function buildAddressRowHtml(item){
   const d = item.data;
@@ -44246,7 +44693,7 @@ function attachAddressRowHandlers(container){
            their own colours in for the first time — which is how twelve ordinary new
            customers reached the Color Changes sheet once already.
 
-           ⭐ AND IT CHARGES THE $30 NOW ([[MON-70]], 2026-09-11). Addie: "anyone that does a
+           ⭐ AND IT CHARGES THE $30 NOW ([[MON-78]], 2026-09-11). Addie: "anyone that does a
            light change or ends up in warehouse because of a light change besides requotes
            and quotes will need to be charged 30 dollars unless waived", then "Yes either
            light change made in member portal or in costumer admin portal."
@@ -46423,9 +46870,23 @@ function renderSendFailureCard(){
   const card = document.getElementById('sendFailureCard');
   if(!card) return;
   const passes = (emailSendFailuresCache && emailSendFailuresCache.passes) || [];
+  /* ⭐ THE COUNT ON THE SUB-TAB (2026-09-11). This card moved out of Templates and into
+     the RSVP tab's Did-not-send sub-tab, and that move costs it the one thing it was
+     built for: its own note says it has to be NOTICED on the day it appears, because
+     until these people are emailed they cannot RSVP and an unanswered customer is out
+     of the season. Behind a sub-tab, a hidden card is one nobody will ever open. So the
+     tab carries the number instead — the card still hides itself when there is nothing,
+     and the empty note takes its place so the tab never looks broken.
+     ⚠ WRITTEN HERE, in the one renderer, rather than wherever the cache is filled: every
+     path that changes the failures already ends up here. */
+  const badge = document.getElementById('rsvpSubtabFailedCount');
+  const note  = document.getElementById('rsvpNoFailuresNote');
+  const nTotal = sendFailureTotal();
+  if(badge){ badge.hidden = !passes.length; badge.textContent = String(nTotal); }
+  if(note) note.hidden = !!passes.length;
   if(!passes.length){ card.hidden = true; return; }
   card.hidden = false;
-  const total = sendFailureTotal();
+  const total = nTotal;
   const body = document.getElementById('sendFailureBody');
   if(!body) return;
   /* ⚠ NAMES AND THE REASON, not a bare number — that is the whole complaint this
@@ -52201,10 +52662,13 @@ document.getElementById('editCustLayoutMapFile').addEventListener('change', asyn
  * "say this to them once" note the route editor and the crew portal both read and
  * clear on completion; carrying it into next season repeats a one-off instruction.
  *
- * ⚠ THE FIX KIND DOES NOT RETIRE THE FIX PHOTO YET. That is Job 4 (park-then-destroy),
- * which has not been built and needs a decision first. Marking a fix done here clears
- * the flag, the schedule marker and the note, and deliberately leaves fixPhotoUrl
- * alone rather than destroying an asset with no undo behind it.
+ * ⚠ CORRECTED 2026-09-11 — THIS SAID THE FIX PHOTO WAS NOT RETIRED YET, and it had not
+ * been true for three weeks: `hlxRetireFixPhoto` is twenty lines below and is CALLED at
+ * the bottom of hlxMarkJobDone. A fix marked done destroys its photo on the spot.
+ * ⚠ AND IT IS DESTROY, NOT THE PARK-THEN-DESTROY-WITH-AN-UNDO [[FIX-02]] ORIGINALLY
+ * ASKED FOR. Addie changed her mind on 2026-08-21 and gave the reason: "we want the
+ * picture destroyed on the spot. There is no need for it after we fix the house."
+ * R-024 — the later answer wins. See [[FIX-06]]; do not rebuild the parking.
  *
  * ⚠ AND IT NEVER TOUCHES THE HOUSE PHOTO. housePhotos / housePhotoUrl /
  * housePhotoOriginal / housePhotoMarkup are what print on the new-hang crew sheets,
@@ -52267,6 +52731,76 @@ async function hlxRetireFixPhoto(url){
     return {cleared: false, destroyed: false, result: 'error'};
   }
 }
+/* ⭐ THE FIX NOTE'S DOCUMENT ID IS DERIVED FROM THE CUSTOMER ([[FIX-02]]).
+   Its own function so a test can RUN it, and so the raise and the clear cannot drift
+   apart — two spellings of this is a note that is written and never found again.
+
+   ⚠ A CHOSEN ID RATHER THAN addDoc, AND THAT IS THE DESIGN RATHER THAN A SHORTCUT. It
+   buys both halves of the ruling at once: raising twice writes the same document, so
+   toggling Needs Fix off and on cannot stack up four notes about one house, and the
+   clear is a plain delete that needs neither the messages cache nor a composite index.
+   Finding it by topic+customer would need `where('topic','==',…).where('customerId',…)`,
+   which is a composite index — and firestore.indexes.json is NOT deployed by CI, so the
+   query would fail silently in production while passing every check here. */
+function fixNoticeId(custId){
+  const id = String(custId || '').trim();
+  return id ? 'fix-' + id : '';
+}
+/* Raised when a fault is reported, cleared when it is mended. Both are BEST EFFORT and
+   neither throws: they run after the write that actually matters, and losing a notice
+   must never cost the flag that takes a house off a crew sheet. */
+async function raiseFixNotice(custId, d){
+  const noteId = fixNoticeId(custId);
+  if(!noteId) return {ok: false, why: 'no customer'};
+  const c = d || {};
+  try{
+    /* ⚠ ONLY IF THERE IS NOT ONE THERE ALREADY. A bare setDoc would rewrite `read:false`
+       over a notice the office has already read, every time anybody re-ticked the box —
+       the cries-wolf failure this repo names in four other places. A single getDoc by id
+       needs no index. ⚠ AND A FAILED READ WRITES NOTHING: a missing notice is a nuisance,
+       one that re-marks itself unread on every toggle is what teaches her to ignore them. */
+    const already = await getDoc(doc(db,'messages', noteId));
+    if(already.exists()) return {ok: true, already: true};
+    await setDoc(doc(db,'messages', noteId), {
+      topic: FIX_NOTICE_TOPIC, folder: 'System',
+      name: c.name || '', phone: c.phone || '', email: c.email || '',
+      contactMethod: '',
+      /* ⚠ THE NOTICE IS THE ALERT, THE CARD IS THE DETAIL. What is actually wrong lives in
+         `fixNote`, which is typed separately and can be filled in after the box is ticked —
+         so copying it in here would freeze whatever was known at this instant, usually
+         nothing. Addie asked for "a link to the customer card" for exactly this reason. */
+      message: (c.name || 'A customer') + ' at ' + (c.address || 'their house') +
+        ' has been marked as needing a fix. Open their card for what is wrong and to add ' +
+        'the note and the photo. They will appear on the fix list and can be put on a Fixer ' +
+        'Route. This notice disappears by itself when the fix is marked done.',
+      /* What the Open their card button reads. */
+      customerId: String(custId),
+      read: false, responded: false,
+      autoQueuedToWarehouse: false,
+      needsReassign: false,
+      createdAt: serverTimestamp()
+    });
+    return {ok: true, already: false};
+  }catch(err){
+    console.error('[HU] could not raise the fix notice for ' + custId, err);
+    return {ok: false, why: (err && err.message) || 'the write was refused'};
+  }
+}
+/* ⚠ "THE NOTE DISAPPEARS WHEN IT'S DONE" IS HER WORDING, so this really does delete it.
+   Nothing is lost by that: `fixRaisedAt` and `fixDoneAt` stay on the customer record and
+   are the permanent record that a fault happened and how long it took ([[FIX-05]]). The
+   notice is a thing to act on, and one that survives the acting is clutter. */
+async function clearFixNotice(custId){
+  const noteId = fixNoticeId(custId);
+  if(!noteId) return {ok: false, why: 'no customer'};
+  try{
+    await deleteDoc(doc(db,'messages', noteId));
+    return {ok: true};
+  }catch(err){
+    console.error('[HU] could not clear the fix notice for ' + custId, err);
+    return {ok: false, why: (err && err.message) || 'the delete was refused'};
+  }
+}
 async function hlxMarkJobDone(target, kind, done, opts) {
   const o = opts || {};
   const spec = HLX_DONE_KINDS[kind];
@@ -52316,6 +52850,21 @@ async function hlxMarkJobDone(target, kind, done, opts) {
         catch (e) { /* no toast on this screen */ }
       }
     }
+  }
+  /* ⭐ AND THE OFFICE IS TOLD, BOTH WAYS ([[FIX-02]], 2026-09-11).
+     ⚠ HERE, IN THE ONE DOOR, RATHER THAN AT THE FOUR CALLERS. [[FIX-05]] is the whole
+     argument: `needsFix` used to be written bare by two of the four things that raise a
+     fault, so anything bolted onto a caller reaches some of them and reads as working.
+     Every door goes through hlxMarkJobDone now, so a fifth added later announces itself
+     without anybody remembering to wire it.
+     ⚠ AFTER THE WRITE, AND BEST EFFORT. The flag is what takes a house on and off a crew
+     sheet; a refused notice must not cost it, so neither call is awaited into the result. */
+  if (kind === 'fix') {
+    const cust = (target && target.data) ? target.data
+      : ((typeof jobAddresses !== 'undefined' &&
+         (jobAddresses.find(function(a){ return a.id === id; }) || {}).data) || {});
+    if (done) await clearFixNotice(id);
+    else await raiseFixNotice(id, cust);
   }
   /* Best-effort, and last. With the crew portal out of use everything is done by two
      people in one admin panel, so "who marked this done and when" has no other
@@ -53096,7 +53645,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        collected by the nightly run next season. Written here with the rest of the
        customer record rather than as a separate write, so it cannot half-happen. */
     if(lightChange.feeAmount > 0 && !lightFeeWaived && lightChange.feeDestination === 'nextSeason'){
-      /* ⭐ ONE WRITER, shared with the All Customers panel ([[MON-70]]). It returns the two
+      /* ⭐ ONE WRITER, shared with the All Customers panel ([[MON-78]]). It returns the two
          fields rather than writing them, so they ride in the same write as the rest of the
          customer record — see lightChangeCarryoverUpdates. */
       /* ⚠ ASSIGNED BY NAME, never Object.assign'd in. This file's own ledger helpers carry
@@ -54140,7 +54689,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        a failed fee is reported and nothing else is lost. */
     if(lightChange.feeAmount > 0 && !lightFeeWaived && lightChange.feeDestination === 'invoice'){
       try{
-        /* ⭐ ONE WRITER, shared with the All Customers panel ([[MON-70]]). It re-reads the
+        /* ⭐ ONE WRITER, shared with the All Customers panel ([[MON-78]]). It re-reads the
            invoice itself, for the no-transaction reason spelled out above. */
         await addLightChangeFeeToInvoice(
           custInvoiceKey(Object.assign({}, item.data, addrUpdates)), lightChange);
@@ -55796,6 +56345,153 @@ function forecastReachesTo(){
     Object.keys(byTown[t] || {}).forEach(function(d){ if(d > last) last = d; });
   });
   return last;
+}
+/* ⭐ AND PAST THE HORIZON, WHAT THE WEATHER IS USUALLY LIKE (added 2026-09-10,
+   [[SCH-72]]). Dax, looking at a day in October on the tenth of September: *"I dont see
+   the forecast down here"* — with the strip correctly reading "No forecast this far
+   ahead — it reaches to Sep 25."
+
+   [[SCH-70]] made the blank strip explain itself, and the explanation was true and
+   useless: the season opens three weeks out, the service answers sixteen days, so for
+   most of the season there is nothing and saying so more clearly does not help anybody
+   plan. What the office is actually asking is "what is it like out there in November",
+   and that question HAS an answer — just not a forecast.
+
+   ⛔ A TYPICAL HIGH IS NOT A FORECAST, AND THE WHOLE DESIGN TURNS ON THAT. It never
+   reaches forecastHighFor, forecastIsCold or the warmth band, so it can never veto a
+   town, move a house, or count towards the cold-day tally. It is shown and nothing
+   more. The rule this file has repeated since COLD_DAY_MAX_F — "no forecast is not a
+   cold forecast" — would be broken in a new costume if a ten-year average could refuse
+   somebody a date.
+
+   ⚠ SMOOTHED, AND THAT IS NOT A DETAIL. MEASURED at Lehi over ten years
+   (scratchpad/normals-probe): a single date averaged across ten years still swings 28°
+   between the warmest and coldest of those years, and on 15 November the raw average
+   reads 56° against a seasonal trend of 50° — six degrees of one warm year. Averaging a
+   fortnight either side gives 150 samples a date, and dropping half the years then
+   moves the curve by at most 3.3°. The smoothed number is a season; the raw one is
+   noise wearing a decimal point.
+
+   ⚠ AND IT IS FETCHED ONCE A DAY, not every half hour. Ten years of past weather does
+   not change between elevenses and lunch, and the forecast’s own half-hour freshness
+   would mean ten requests an hour for numbers that are identical every time. */
+const NORMALS_YEARS = 10;              // how many past years are averaged
+const NORMALS_SMOOTH_DAYS = 7;         // ...and how far either side of the date
+const NORMALS_FRESH_MS = 24 * 60 * 60 * 1000;
+/* The season runs October into December. September is included because the window
+   reaches back a fortnight from 1 October, and nothing past 31 December is asked for. */
+const NORMALS_FROM = "09-01";
+const NORMALS_TO = "12-31";
+let SEASON_NORMALS = {at: 0, byTown: {}, towns: 0, years: 0, error: "", pending: null};
+/* The typical high in `town` around `dateStr`, or null. Keyed by month and day, because
+   that is what a normal IS — the same answer for 1 October every year. */
+function normalHighFor(town, dateStr){
+  const t = extractCleanCity(town);
+  const row = t && SEASON_NORMALS.byTown[t];
+  const v = row && row[String(dateStr || "").slice(5)];
+  return typeof v === "number" && isFinite(v) ? v : null;
+}
+/* Turn one year’s daily readings into per-month-day buckets. Separated out so the
+   smoothing below is a pure function of the buckets and can be read on its own. */
+function normalsAddYear(buckets, daily){
+  if(!daily || !Array.isArray(daily.time) || !Array.isArray(daily.temperature_2m_max)) return;
+  daily.time.forEach(function(ds, k){
+    const v = daily.temperature_2m_max[k];
+    if(typeof v !== "number" || !isFinite(v)) return;
+    const md = String(ds).slice(5);
+    (buckets[md] = buckets[md] || []).push(v);
+  });
+}
+/* The seasonal curve: every date averaged together with the fortnight either side of
+   it. ⚠ THE WINDOW WALKS THE CALENDAR, not the array — the buckets are sorted month-day
+   strings, so neighbouring entries really are neighbouring dates, and a gap in the
+   middle (a year the service has no reading for) simply contributes fewer samples
+   rather than dragging a date a fortnight away into the average. */
+function normalsSmooth(buckets){
+  const keys = Object.keys(buckets).sort();
+  const at = {};
+  keys.forEach(function(k, i){ at[k] = i; });
+  const out = {};
+  keys.forEach(function(md){
+    const i = at[md];
+    let sum = 0, n = 0;
+    for(let j = Math.max(0, i - NORMALS_SMOOTH_DAYS);
+            j <= Math.min(keys.length - 1, i + NORMALS_SMOOTH_DAYS); j++){
+      const near = buckets[keys[j]] || [];
+      for(let z = 0; z < near.length; z++){ sum += near[z]; n++; }
+    }
+    if(n) out[md] = sum / n;
+  });
+  return out;
+}
+/* Fetch what the weather usually does, at most once a day. Like loadSeasonForecast this
+   ALWAYS resolves — never rejects — and every failure path ends in an empty table,
+   which every reader treats as "no opinion".
+   ⚠ ONE YEAR PER REQUEST, IN SEQUENCE. The archive service takes a single date range,
+   so ten Octobers cannot be asked for at once; and ten requests fired together at a
+   free service is how a burst limit is discovered in front of the office. Sequential
+   costs about two seconds, once a day.
+   ⚠ AND A YEAR THAT FAILS DOES NOT LOSE THE OTHER NINE. Nine years of samples is still
+   a seasonal curve; the whole point of the smoothing is that it does not depend on any
+   particular year being there. */
+function loadSeasonNormals(force){
+  const fresh = !force && SEASON_NORMALS.at &&
+    (Date.now() - SEASON_NORMALS.at) < NORMALS_FRESH_MS && SEASON_NORMALS.towns > 0;
+  if(fresh) return Promise.resolve(SEASON_NORMALS);
+  if(SEASON_NORMALS.pending) return SEASON_NORMALS.pending;
+  const centres = forecastTownCentres();
+  const towns = Object.keys(centres).sort();
+  if(!towns.length){
+    SEASON_NORMALS = {at: Date.now(), byTown: {}, towns: 0, years: 0,
+      error: "No customer has a map position yet, so there is nothing to look up.",
+      pending: null};
+    return Promise.resolve(SEASON_NORMALS);
+  }
+  const lat = towns.map(function(t){ return centres[t].lat.toFixed(4); }).join(",");
+  const lng = towns.map(function(t){ return centres[t].lng.toFixed(4); }).join(",");
+  /* Complete years only. The archive lags a few days behind live weather, so the year
+     we are standing in has no December in it and would tilt the curve warm. */
+  const thisYear = new Date().getFullYear();
+  const years = [];
+  for(let y = thisYear - NORMALS_YEARS; y < thisYear; y++) years.push(y);
+  const buckets = {};
+  let got = 0;
+  const flight = years.reduce(function(chain, y){
+    return chain.then(function(){
+      const url = "https://archive-api.open-meteo.com/v1/archive" +
+        "?latitude=" + lat + "&longitude=" + lng +
+        "&start_date=" + y + "-" + NORMALS_FROM + "&end_date=" + y + "-" + NORMALS_TO +
+        "&daily=temperature_2m_max&temperature_unit=fahrenheit" +
+        "&timezone=America%2FDenver";
+      return fetch(url).then(function(res){
+        if(!res.ok) throw new Error("normals HTTP " + res.status);
+        return res.json();
+      }).then(function(data){
+        const rows = Array.isArray(data) ? data : [data];
+        towns.forEach(function(t, i){
+          normalsAddYear(buckets[t] = buckets[t] || {}, rows[i] && rows[i].daily);
+        });
+        got++;
+      })["catch"](function(err){
+        /* Named in the console and then stepped over — see the note above. */
+        console.error("[HU] no normals for " + y, err);
+      });
+    });
+  }, Promise.resolve()).then(function(){
+    const byTown = {};
+    towns.forEach(function(t){
+      const curve = normalsSmooth(buckets[t] || {});
+      if(Object.keys(curve).length) byTown[t] = curve;
+    });
+    const n = Object.keys(byTown).length;
+    SEASON_NORMALS = {at: Date.now(), byTown: byTown, towns: n, years: got,
+      error: n ? "" : "Past weather could not be reached, so there is nothing to " +
+                      "show for dates beyond the forecast.",
+      pending: null};
+    return SEASON_NORMALS;
+  });
+  SEASON_NORMALS.pending = flight;
+  return flight;
 }
 /* Is this town at or below the cutoff on this date? FALSE when there is no forecast:
    see the note on COLD_DAY_MAX_F — an unknown day is never a cold day. */
@@ -60638,6 +61334,9 @@ const SYSTEM_NOTICE_SECTION_OF = {
   'Routes Kept Up To Date': 'schedule',
   'Moved To Another Day': 'schedule',
   'A Route Sheet Is Out Of Date': 'schedule',
+  /* A fault is crew work — it is fixed by a van going back out, and the Fixer Route is
+     built on this tab. Filing it under the crews is where somebody looks for it. */
+  [FIX_NOTICE_TOPIC]: 'schedule',
   'Quote Approved': 'quotes',
   'Quote Declined': 'quotes',
   'Quote - Maybe Next Year': 'quotes',
@@ -60738,6 +61437,10 @@ function systemNoticeRow(item){
           : d.addedToWarehouseAt
             ? '<div class="rtext" style="margin-top:6px; font-weight:600; color:var(--moss);">&#10003; Sent to the Warehouse</div>'
             : '<button type="button" class="btn btn-outline btn-sm" data-sendtowh="'+item.id+'" style="margin-top:6px;">Send to Warehouse</button>') : '')+
+        /* ⭐ THE LINK TO THE CUSTOMER CARD ([[FIX-02]]). Offered on any notice carrying a
+           `customerId`, not only a fix one — the field is the contract, so a notice added
+           later gets the button by writing that one field. Nothing else writes it today. */
+        (d.customerId ? '<button type="button" class="btn btn-outline btn-sm" data-noticecust="'+esc(d.customerId)+'" style="margin-top:6px;">Open their card</button>' : '')+
       '</div>'+
       '<div class="row-actions" style="align-items:center;">'+
         '<button class="icon-btn" data-sysread="'+item.id+'" data-current="'+(d.read?1:0)+'" title="'+(isUnread?'Mark as read':'Mark as unread')+'">'+(isUnread ? mailIcon() : mailOpenIcon())+'</button>'+
@@ -60751,6 +61454,23 @@ function systemNoticeWireRows(list){
   list.querySelectorAll('[data-sysread]').forEach(function(btn){
     btn.addEventListener('click', function(){
       updateDoc(doc(db,'messages',btn.dataset.sysread), {read: btn.dataset.current !== '1'});
+    });
+  });
+  /* ⭐ Opens Edit Customer straight from the notice ([[FIX-02]]). The popup is a fixed
+     overlay, so it works from the Messages panel without changing tab first.
+     ⚠ IT SAYS SO WHEN THERE IS NOBODY THERE. openEditCustomerModal returns silently for
+     an id it cannot find, and a customer really can have been removed or recycled since
+     the notice was written — so on its own this would be a button that does nothing,
+     which is the exact class of bug Addie has asked about by name ("make sure that if i
+     click a button the function that is supposed to happen actually does"). */
+  list.querySelectorAll('[data-noticecust]').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      const cid = btn.dataset.noticecust;
+      const found = (typeof jobAddresses !== 'undefined')
+        ? jobAddresses.find(function(a){ return a.id === cid; }) : null;
+      if(!found){ toast('That customer is no longer on file — they may have been removed or recycled.'); return; }
+      openEditCustomerModal(cid);
     });
   });
   list.querySelectorAll('[data-sendtowh]').forEach(function(btn){
@@ -64493,9 +65213,30 @@ function dayForecastChips(day){
   const cold = (typeof COLD_DAY_MAX_F === 'number') ? COLD_DAY_MAX_F : 35;
   const bits = [];
   const towns = dayAreas(day);
+  /* ⭐ A TOWN WITH NO FORECAST FALLS BACK TO WHAT THE WEATHER USUALLY DOES
+     ([[SCH-72]], 2026-09-10). Dax, on a day in October seen on 10 September: "I dont
+     see the forecast down here" — with the strip correctly explaining that the
+     service only reaches to 25 September. [[SCH-70]] made that silence speak; it
+     still left him with no idea what November looks like, which is the thing he was
+     actually asking.
+     ⛔ AND IT IS DRAWN SO THE TWO CANNOT BE CONFUSED: a tilde, a dotted outline, no
+     snowflake even at freezing, and the word "typical" in the tooltip. A forecast is a
+     promise about Tuesday; a normal is a pattern across ten Novembers, and a strip
+     that made them look alike would be worse than the blank one it replaces. */
+  let typicals = 0;
   towns.forEach(function(t){
     const v = forecastHighFor(t, ds);
-    if(typeof v !== 'number' || !isFinite(v)) return;
+    if(typeof v !== 'number' || !isFinite(v)){
+      const u = (typeof normalHighFor === 'function') ? normalHighFor(t, ds) : null;
+      if(typeof u !== 'number' || !isFinite(u)) return;
+      typicals++;
+      bits.push('<span title="' + esc(t) + ' — typical high around this date, averaged ' +
+        'over the last ' + (SEASON_NORMALS.years || 0) + ' years. Not a forecast." ' +
+        'style="display:inline-block;padding:0 6px;border-radius:999px;font-weight:600;' +
+        'font-size:11.5px;margin-left:6px;color:#6b776f;border:1px dotted #b9c2bb">' +
+        esc(t) + ' ~' + Math.round(u) + '°</span>');
+      return;
+    }
     const freezing = v <= cold;
     bits.push('<span title="' + esc(t) + ' — forecast high for this day' +
       (freezing ? ', at or below the ' + cold + '° cutoff' : '') + '" ' +
@@ -64504,7 +65245,13 @@ function dayForecastChips(day){
       (freezing ? 'background:#e7f0fb;color:#1d4e89' : 'background:#f0efe6;color:#6b776f') +
       '">' + esc(t) + ' ' + Math.round(v) + '°' + (freezing ? ' ❄' : '') + '</span>');
   });
-  if(bits.length) return bits.join('');
+  if(bits.length){
+    /* Said once for the whole strip rather than on every chip — the same reason a town
+       with nothing to say gets no chip of its own ([[SCH-70]]). */
+    return bits.join('') + (typicals ?
+      '<span style="display:inline-block;margin-left:8px;font-size:11.5px;' +
+      'color:#8a938c">~ typical for the time of year, not a forecast</span>' : '');
+  }
   /* ⭐ AND AN EMPTY STRIP SAYS WHY IT IS EMPTY ([[SCH-70]], 2026-09-10). Dax, looking
      at the two route maps: "the only issue is I cant see the forecast."
      ⚠ NOTHING WAS WRONG. The free service answers about sixteen days and on 10
@@ -64530,7 +65277,16 @@ function dayForecastChips(day){
     let when = reach;
     try{ const l = dlabel(new Date(reach + 'T00:00:00')); when = l.full; }
     catch(err){ /* an unparseable date still reads fine as the iso string */ }
-    return note('No forecast this far ahead — it reaches to ' + when + '.');
+    /* ⚠ AND THIS SENTENCE NOW MEANS SOMETHING NARROWER THAN IT DID. Past the horizon
+       the strip normally shows typical highs instead, so reaching here means those are
+       missing too — and the office should be told that rather than only being told the
+       forecast is far off, which it can already see from the date. */
+    const why = (typeof SEASON_NORMALS === 'object' && SEASON_NORMALS.error)
+      ? ' ' + SEASON_NORMALS.error
+      : (SEASON_NORMALS && SEASON_NORMALS.towns
+          ? ' Past weather has nothing for this date either.'
+          : ' Still looking up what it is usually like.');
+    return note('No forecast this far ahead — it reaches to ' + when + '.' + why);
   }
   /* in range, and still nothing: the towns on this day have no located house, so
      there is nowhere to ask about. That is a data fault and the office can fix it. */
@@ -66038,7 +66794,20 @@ function ensureForecastForPanel(){
   if(forecastAskedForPanel) return;
   if(typeof loadSeasonForecast!=='function') return;
   forecastAskedForPanel=true;
-  loadSeasonForecast().then(function(){
+  /* ⭐ AND THE TYPICAL HIGHS ALONGSIDE IT ([[SCH-72]], 2026-09-10), because most of the
+     season is past the sixteen days the forecast reaches and the strip would otherwise
+     have nothing to say for any of it.
+     ⚠ LOADED HERE AND NOWHERE ELSE. Normals are shown and never acted on — they cannot
+     veto a town or move a house — so making Recalculate everything wait on ten requests
+     for numbers that change nothing about the plan would be pure delay in front of the
+     office. The forecast belongs in that gate; this does not.
+     ⚠ BOTH ARE AWAITED, AND NEITHER CAN SINK THE OTHER. allSettled, not all: a failed
+     normals fetch must still let the forecast’s own chips draw, and vice versa. */
+  const jobs = [loadSeasonForecast()];
+  if(typeof loadSeasonNormals==='function') jobs.push(loadSeasonNormals());
+  const settled = Promise.allSettled ? Promise.allSettled(jobs)
+    : Promise.all(jobs.map(function(p){ return p['catch'](function(){ return null; }); }));
+  settled.then(function(){
     try{ if(lastMappedDay) renderDayMaps(lastMappedDay); }
     catch(err){ /* the panel has moved on; the chips arrive on the next draw */ }
   });

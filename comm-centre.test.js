@@ -57,9 +57,13 @@ function liftConst(n){
    and the customer's picker offered different folders — and these strings ARE the folder
    names. */
 const commSectionsSrc = () => liftConst('RSVP_DECLINE_REASONS') + liftConst('COMM_SECTIONS');
-/* ⚠ AND THE TWO RSVP DECLINE TOPICS ([[RS-57]]) — SYSTEM_NOTICE_TOPICS names them, so
-   lifting that table without them dies on a bare ReferenceError while it is being built. */
-const NAMES = ['RSVP_NO_TOPIC','RSVP_BNY_TOPIC','MSG_TYPE_MEMBER','SYSTEM_NOTICE_TOPICS','MSG_CATEGORIES','MSG_TOPIC_CATEGORIES',
+/* ⚠ THREE COMPUTED ENTRIES NOW LEAD THIS LIST, AND TWO BRANCHES FOUND THE SAME TRAP IN THE
+   SAME WEEK. `SYSTEM_NOTICE_TOPICS` stopped being a table of plain strings: [[FIX-02]] gave
+   it `FIX_NOTICE_TOPIC` and [[RS-57]] gave it `RSVP_NO_TOPIC` / `RSVP_BNY_TOPIC`, so lifting
+   the array alone dies on a bare ReferenceError and takes the whole file with it.
+   ⚠ DECLARED FIRST, or the array references them before they exist — main's own note, and
+   it applies to all three. Lifted, never stubbed. */
+const NAMES = ['FIX_NOTICE_TOPIC','RSVP_NO_TOPIC','RSVP_BNY_TOPIC','MSG_TYPE_MEMBER','SYSTEM_NOTICE_TOPICS','MSG_CATEGORIES','MSG_TOPIC_CATEGORIES',
   'MSG_TEXT_CATEGORIES','MSG_STATUS','MSG_STATUS_LABEL','MSG_PRIORITY','MSG_PRIORITY_LABEL',
   'MSG_SEVERITY_LABEL','COMM_ACTIVITY_TOPICS'];
 /* ⚠ commRowMatches CALLS BOTH OF THESE NOW ([[MSG-15]]) — lifted, never stubbed. A stub for
@@ -258,9 +262,10 @@ console.log('');
 console.log('--- the contact line under the name ---');
 
 const CONTACT_SRC =
-  /* ⚠ SYSTEM_NOTICE_TOPICS NAMES THE TWO RSVP DECLINE TOPICS ([[RS-57]]), so lifting that
-     table without them dies on a bare ReferenceError while it is being built. */
-  liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
+  /* ⚠ ALL THREE COMPUTED TOPICS FIRST — SYSTEM_NOTICE_TOPICS references them ([[FIX-02]],
+     [[RS-57]]), so lifting that table without them dies on a bare ReferenceError while it
+     is being built. Same trap as above, and two branches hit it in the same week. */
+  liftConst('FIX_NOTICE_TOPIC') + liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
   liftConst('MSG_TYPE_MEMBER') + liftConst('SYSTEM_NOTICE_TOPICS') +
   liftFn('esc') + liftFn('fmtPhone') + liftFn('msgTypeOf') +
   liftFn('msgErrorTokenTail') + liftFn('msgErrorWhoIs') +
@@ -926,7 +931,7 @@ if(!JSDOM){
   const win = dom.window, docu = win.document;
   const ED = liftConst('MSG_TYPE_MEMBER') + liftConst('MSG_CATEGORIES') + liftConst('MSG_STATUS') +
     liftConst('MSG_STATUS_LABEL') + liftConst('MSG_PRIORITY') + liftConst('MSG_PRIORITY_LABEL') +
-    liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
+    liftConst('FIX_NOTICE_TOPIC') + liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
     liftConst('SYSTEM_NOTICE_TOPICS') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
     liftFn('esc') + liftFn('msgTypeOf') + liftFn('msgCategories') + liftFn('msgStatusOf') +
     liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
@@ -1045,7 +1050,7 @@ if(!JSDOM){
 if(JSDOM){
   const dom2 = new JSDOM('<!doctype html><body><div id="commCentreNav"></div></body>');
   const d2 = dom2.window.document;
-  const NAV = liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
+  const NAV = liftConst('FIX_NOTICE_TOPIC') + liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
     liftConst('MSG_TYPE_MEMBER') + liftConst('SYSTEM_NOTICE_TOPICS') +
     liftConst('MSG_CATEGORIES') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
     liftConst('MSG_STATUS') + liftConst('MSG_STATUS_LABEL') + liftConst('MSG_PRIORITY') +
@@ -1172,7 +1177,12 @@ if(JSDOM){
   const wrote = [];
   const DEL = liftConst('MSG_TYPE_MEMBER') + liftConst('MSG_CATEGORIES') + liftConst('MSG_STATUS') +
     liftConst('MSG_STATUS_LABEL') + liftConst('MSG_PRIORITY') + liftConst('MSG_PRIORITY_LABEL') +
-    liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
+    /* ⚠ THE FOURTH SANDBOX, AND THE MERGE IS WHAT FOUND IT. This one is [[MSG-17]]'s and
+       was written on a branch that had never heard of `FIX_NOTICE_TOPIC`; main added that
+       constant to SYSTEM_NOTICE_TOPICS on a branch that had never heard of this sandbox.
+       Neither side was wrong and neither side could have caught it — the file only dies
+       once both exist, which is the argument for merging rather than pasting. */
+    liftConst('FIX_NOTICE_TOPIC') + liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
     liftConst('SYSTEM_NOTICE_TOPICS') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
     liftConst('ERROR_FOLDER_MEMBER') + liftConst('ERROR_FOLDER_ADMIN') +
     liftConst('MESSAGE_HOME_FOLDER') + commSectionsSrc() +
