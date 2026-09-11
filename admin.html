@@ -31660,6 +31660,19 @@ function rmStopShotStream(){
   catch(err){ /* already gone; nothing to stop */ }
   rmShotStream = null;
 }
+/* How much of the pane the window is actually showing. A screenshot can only
+   ever contain what is on the glass, so this — not the element's layout box —
+   is what decides whether a capture is a photograph or a sliver of one.
+
+   The 2px of slack is for sub-pixel layout: a pane sitting flush against the
+   viewport edge routinely measures a third of a pixel short, and treating that
+   as clipped would send every capture to the fallback. */
+function rmPaneClipped(rect){
+  const visW = Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0);
+  const visH = Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0);
+  if(visW <= 0 || visH <= 0) return true;
+  return visW < rect.width - 2 || visH < rect.height - 2;
+}
 /* One frame of this tab, cropped to the pane. Null when there is no stream,
    which is the caller's signal to fall back. */
 async function rmGrabPane(el){
@@ -31681,8 +31694,32 @@ async function rmGrabPane(el){
        what is captured is the pane as it is now rather than as it was. */
     await new Promise(function(r){ requestAnimationFrame(function(){ requestAnimationFrame(r); }); });
     const vw = video.videoWidth, vh = video.videoHeight;
-    const rect = el.getBoundingClientRect();
-    if(vw > 0 && vh > 0 && rect.width > 20 && rect.height > 20){
+    /* ⚠ A PANE SCROLLED HALF OFF THE SCREEN CAME OUT AS A SLIVER (2026-09-11).
+       Owner: "his house is completely squashed because you couldnt see it on my
+       screan." Jeffrey Marz's photograph saved at 893x36 — a house at 25:1.
+
+       ⚠ THE GUARD BELOW READ THE WRONG HEIGHT. rect.height is the pane's LAYOUT
+       height, which is full whatever the scroll position, so `rect.height > 20`
+       passed happily; it was `ch` that collapsed, because it is clamped to
+       `vh - cy` — however much of the screen is left below the pane's top. Scroll
+       so a centimetre of pane shows and that clamp hands back a 36-pixel canvas,
+       which is then a 36-pixel photograph on the customer's record for ever.
+
+       So the visible part is measured, not the laid-out part, and a clipped pane
+       is scrolled into view and measured again. */
+    let rect = el.getBoundingClientRect();
+    if(rmPaneClipped(rect)){
+      el.scrollIntoView({block: 'center', inline: 'center'});
+      await new Promise(function(r){ requestAnimationFrame(function(){ requestAnimationFrame(r); }); });
+      rect = el.getBoundingClientRect();
+    }
+    /* ⚠ AND IF IT STILL WILL NOT FIT, THIS HANDS BACK NULL ON PURPOSE — a pane
+       taller than the window cannot be photographed whole, and the caller's
+       fallback fetches a fresh, correctly-proportioned photograph from Google.
+       Losing the drawn-on dots is a real cost; a squashed house is a worse one,
+       and the office can see the dots are missing while nobody notices an aspect
+       ratio until the crew is at the kerb. */
+    if(vw > 0 && vh > 0 && rect.width > 20 && rect.height > 20 && !rmPaneClipped(rect)){
       /* The tab is captured at its own scale, so one CSS pixel of this page is
          this many pixels of the frame. Measured rather than assumed: it is NOT
          always devicePixelRatio — a zoomed page and a scaled display disagree. */
