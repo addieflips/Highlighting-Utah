@@ -10626,7 +10626,7 @@ suite('19. All Customers: the next visit');
       'renamed or removed — update this test rather than deleting it');
   } else {
     global.esc = real('esc');
-    const api = eval(src + '\n;({next: nextVisitFor, chip: nextVisitChip})');
+    const api = eval(src + '\n;({next: nextVisitFor, chip: nextVisitChip, real: scheduledDayIsReal})');
     const T = '2026-11-10';
 
     check('nextvisit', 'a house with nothing booked reports nothing at all',
@@ -10691,10 +10691,87 @@ suite('19. All Customers: the next visit');
       api.chip({}) !== api.chip({ scheduled: true, scheduledDate: '2099-01-02' }) &&
       /dashed/.test(api.chip({})),
       'a dashed outline reads as "nothing here yet" rather than as a booking');
+
+    /* ---- IS THAT DAY REAL? ([[SCH-73]], 2026-09-11) ---------------------
+       Addie, on Darlene Price #680: "It says shes scheduled for Oct 16 but I
+       dont see oct 16 on the schedule." The pill read a STAMP on the customer
+       and never asked whether a crew route on that day still held them, so a
+       booking that had been taken apart went on promising a van.
+       ⚠ RUN, NEVER MATCHED. Every claim here is about which of three answers
+       comes back and what the pill then draws — a regex over the source cannot
+       tell `=== false` from `!==`, and getting that one operator wrong turns
+       the LOADING state into a warning on all ~950 rows at once. */
+    const savedLoaded = global.scheduledRoutesLoaded;
+    const savedCache = global.scheduledRoutesCache;
+    const BOOKED = { scheduled: true, scheduledDate: '2026-10-16' };
+
+    global.scheduledRoutesLoaded = false;
+    global.scheduledRoutesCache = {};
+    check('nextvisit', 'while the routes are still loading it refuses to answer',
+      api.real('c1', '2026-10-16') === null,
+      'scheduledRoutesLoaded is set after the FIRST snapshot, empty or not — before ' +
+      'that every stamped customer looks orphaned, and the column would shout on ' +
+      'every row for the second it takes to load');
+    check('nextvisit', 'and the pill is exactly what it was before',
+      !/not on the schedule/.test(api.chip(BOOKED, 'c1')),
+      'the null answer must draw the old pill — a "cannot tell" rendered as a ' +
+      'warning is the cries-wolf failure, on the screen she reads every morning');
+
+    global.scheduledRoutesLoaded = true;
+    check('nextvisit', 'a day with no route on it at all is not real',
+      api.real('c1', '2026-10-16') === false,
+      "Darlene's own case: the stamp outlived the day it named");
+    global.scheduledRoutesCache = {
+      '2026-10-16': [{ id: 'r1', stops: [{ id: 'somebody-else' }] }]
+    };
+    check('nextvisit', 'and a route on that day that does not hold them is not enough',
+      api.real('c1', '2026-10-16') === false,
+      'somebody else\'s crew run would otherwise vouch for a stamp nobody is driving to');
+    global.scheduledRoutesCache = {
+      '2026-10-16': [{ id: 'r1', stops: [{ id: 'other' }] },
+                     { id: 'r2', stops: [{ id: 'other2' }, { id: 'c1' }] }]
+    };
+    check('nextvisit', 'a real booking on a second crew of that day still counts',
+      api.real('c1', '2026-10-16') === true,
+      'a day holds one route per crew, so stopping at the first is how crew 2 ' +
+      'reads as having nobody on it');
+    check('nextvisit', 'and a real booking draws no warning',
+      !/not on the schedule/.test(api.chip(BOOKED, 'c1')));
+
+    /* ⚠ THE LATE DAY IN THE COLOUR CHECK NEEDS A ROUTE OF ITS OWN. Its first version
+       left the cache holding only 2026-10-16, so the overdue house was an ORPHAN as
+       well and both pills came back red — the check would have passed with the two
+       styles merged into one, which is precisely what it exists to refuse. */
+    global.scheduledRoutesCache = {
+      '2026-10-16': [],
+      '2020-01-02': [{ id: 'r9', stops: [{ id: 'c1' }] }]
+    };
+    check('nextvisit', 'an orphaned day says so on the pill, in words',
+      (() => { const h = api.chip(BOOKED, 'c1');
+               return /not on the schedule/.test(h) && /Oct 16/.test(h); })(),
+      'her words were "I dont see oct 16 on the schedule" — the pill has to say ' +
+      'the same thing, or the row still reads as a booking');
+    check('nextvisit', 'and it is its own colour, not the overdue amber',
+      (() => { const orphan = api.chip(BOOKED, 'c1');
+               const late = api.chip({ scheduled: true, scheduledDate: '2020-01-02' }, 'c1');
+               return orphan !== late && /#B42318/.test(orphan) && !/#B42318/.test(late); })(),
+      '"the crew missed this house" and "there is no crew" want different answers — ' +
+      'one colour is how an orphan gets left for a sweep that will never find it');
+    check('nextvisit', 'asking about no house at all refuses rather than accusing',
+      api.real('', '2026-10-16') === null && api.real(null, '') === null,
+      'a caller that forgets the id would otherwise flag every row on earth');
+
+    global.scheduledRoutesLoaded = savedLoaded;
+    global.scheduledRoutesCache = savedCache;
   }
 }
-check('nextvisit', 'the Route column actually shows it',
-  /const visitChip = nextVisitChip\(r\.d\);/.test(admin) &&
+/* REPOINTED 2026-09-11, not weakened: this matched `nextVisitChip(r.d)` exactly, so
+   [[SCH-73]] adding the customer id made it fail on code that is right. The id is the
+   half that matters now — without it scheduledDayIsReal answers null for ever and the
+   orphan warning is dead code reporting green — so it is asserted here rather than in
+   a second check beside it. */
+check('nextvisit', 'the Route column actually shows it, and hands it the customer id',
+  /const visitChip = nextVisitChip\(r\.d, r\.item\.id\);/.test(admin) &&
   /\(visitChip \? '<br>'\+visitChip : ''\)/.test(admin),
   'the helper existing is not the same as the office seeing it');
 check('nextvisit', 'and it went in the existing Route cell, not a new column',

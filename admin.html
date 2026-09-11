@@ -50898,11 +50898,54 @@ function nextVisitFor(d, todayStr){
   const past = out.slice().sort(function(a,b){ return a.date < b.date ? 1 : -1; });
   return {kind:past[0].kind, date:past[0].date, overdue:true};
 }
+/* ⭐ IS THAT DAY REAL? (2026-09-11, [[SCH-73]]). Addie, on Darlene Price #680: "It says
+   shes scheduled for Oct 16 but I dont see oct 16 on the schedule."
+
+   ⚠ THE ROW WAS READING STAMPS AND NOTHING ELSE. `scheduled` / `scheduledDate` are written
+   onto the CUSTOMER when somebody is put on a crew's sheet, and the pill above draws them
+   without ever asking whether that sheet still exists. So a stamp outlives the booking and
+   the row goes on promising a crew that is not coming.
+
+   ⛔ AND NO SWEEP COULD REACH HERS, WHICH IS WHY IT SURVIVED. There are two, and a
+   FUTURE-dated stamp with no route behind it falls between them: `clearStaleInstallBookings`
+   only clears a stamp for somebody who is OUT for the season, and she is Confirmed; the
+   reconcile sweep's stranded pass only re-homes a date already in the PAST. Step 1 of that
+   sweep walks routes and corrects the records on them — a customer on NO route is never
+   looked at. Nothing anywhere asks the question the other way round.
+
+   ⛔ IT REPORTS, IT NEVER REPAIRS, and that is deliberate — the same rule `townIsStreet` and
+   `confirmedNotOnAnyDay` already follow. Clearing the stamp here would be a write made from
+   a derived judgement on a render, and the one time it is wrong it cancels a real booking.
+   Naming it is what lets her press Recalculate everything, which is the thing that fixes it.
+
+   ⚠ AND IT FAILS SAFE WHILE LOADING, which is the whole reason it returns three answers
+   rather than two. `scheduledRoutesLoaded` is set after the first snapshot, empty or not;
+   before that every stamped customer would look orphaned and ~950 rows would shout at once.
+   `null` means "cannot tell" and draws exactly what it drew before. Same shape as
+   `cnFreePool` holding the pool back until `jobAddresses` has landed. */
+function scheduledDayIsReal(custId, dateStr){
+  if(typeof scheduledRoutesLoaded === 'undefined' || !scheduledRoutesLoaded) return null;
+  if(typeof scheduledRoutesCache === 'undefined' || !scheduledRoutesCache) return null;
+  const day = String(dateStr || '');
+  /* ⚠ THE TWO "CANNOT TELL" GUARDS COME FIRST, ahead of the empty-day answer, and that
+     ordering is the fail-safe one rather than a tidiness. An empty day really is false
+     for everybody, so answering it before asking who is asking is defensible — and it
+     means a caller that forgot the id starts accusing every row on a quiet date instead
+     of quietly answering nothing. Refusing is the cheap mistake here. */
+  if(!day || !custId) return null;
+  const onDay = scheduledRoutesCache[day];
+  if(!onDay || !onDay.length) return false;
+  /* ⚠ A ROUTE ON THAT DATE IS NOT ENOUGH — it has to be THIS house on it. A day with
+     somebody else's crew run would otherwise vouch for a stamp nobody is driving to. */
+  return onDay.some(function(route){
+    return (route.stops || []).some(function(st){ return st && st.id === custId; });
+  });
+}
 /* A label, not a control — deliberately a <span> and not a disabled <button>.
    A disabled button still reads to a screen reader as an action that is
    unavailable, and in some browsers is still a tab stop, neither of which is
    true of a date. cursor:default stops it inviting a click it will not answer. */
-function nextVisitChip(d){
+function nextVisitChip(d, custId){
   const v = nextVisitFor(d);
   /* ⚠ ALWAYS DRAWS SOMETHING, and that is deliberate — do not "optimise" the
      empty case back out.
@@ -50927,15 +50970,28 @@ function nextVisitChip(d){
   const p = v.date.split('-').map(Number);
   const when = new Date(p[0], p[1]-1, p[2])
     .toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
-  const style = v.overdue
+  /* ⚠ AND A DAY NOTHING IS DRIVING TO SAYS SO — [[SCH-73]], see scheduledDayIsReal.
+     Its own red, not the overdue amber: "the crew missed this house" and "there is no
+     crew" are different problems with different answers, and wearing one colour is how
+     an orphan gets read as a missed day and left for the sweep that will never find it.
+     `=== false` on purpose — the null answer (routes not loaded yet) must draw exactly
+     what it drew before, not the warning. */
+  const orphan = scheduledDayIsReal(custId, v.date) === false;
+  const style = orphan
+    ? 'background:#FDE8E8; color:#B42318; border-color:#F5C6C6;'
+    : v.overdue
     ? 'background:#FDEBD3; color:#B45309; border-color:#F0D5B6;'
     : (v.kind === 'Takedown'
         ? 'background:#EEF1F5; color:#48566A; border-color:#D6DDE6;'
         : 'background:#E6F2EA; color:#2E6B3E; border-color:#C3DCCB;');
-  return '<span title="'+(v.overdue ? 'This day has passed and it is still not ticked off' : 'The next visit booked for this house')+
+  const title = orphan
+    ? 'This house still carries this day, but no crew route on it holds them \u2014 press Recalculate everything on the Schedule tab'
+    : (v.overdue ? 'This day has passed and it is still not ticked off' : 'The next visit booked for this house');
+  return '<span title="'+esc(title)+
     '" style="display:inline-block; border:1px solid; border-radius:999px; padding:2px 9px; '+
     'font-size:11px; font-weight:600; cursor:default; white-space:nowrap; '+style+'">'+
-    (v.overdue ? '&#9888; ' : '') + esc(v.kind) + ' ' + esc(when) + '</span>';
+    ((orphan || v.overdue) ? '&#9888; ' : '') + esc(v.kind) + ' ' + esc(when) +
+    (orphan ? ' &mdash; not on the schedule' : '') + '</span>';
 }
 function allCustRouteStatus(d){
   if(d.removalDone) return 'Removed';
@@ -51247,7 +51303,7 @@ function renderAllCustomersTable(){
        than a new column on purpose: the responsive rules for this table are
        written as td:nth-child(2) and td:nth-child(4), so an extra column would
        silently relabel two others on a phone. */
-    const visitChip = nextVisitChip(r.d);
+    const visitChip = nextVisitChip(r.d, r.item.id);
     /* ⭐ WHY THEY ARE NOT GOING OUT, under the status that only ever said "Unscheduled"
        (added 2026-08-31). One word covered three different phone calls — owes money, has
        not replied, or simply not placed on a day yet.

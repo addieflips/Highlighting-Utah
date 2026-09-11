@@ -5113,6 +5113,28 @@ and gets forgotten, and until 2026-08-28 nothing measured it. ⚠ **`fixRaisedAt
 the mend**, beside `fixDoneAt`: the pair says how long the customer waited, and clearing
 it would let the repair erase the wait.
 
+⭐ **AND THE ROW NOW CHECKS THAT THE DAY IS REAL** (2026-09-11, [[SCH-73]]). Addie, on
+Darlene Price #680: *"It says shes scheduled for Oct 16 but I dont see oct 16 on the
+schedule."* The green pill in **All Customers › Route** read those stamps and nothing
+else, so a booking that had since been taken apart went on promising a van. It asks
+`scheduledDayIsReal` now — is there a crew route on that date, and does it hold this
+house? — and when the answer is a flat no the pill turns red and says **"not on the
+schedule"**.
+
+⚠ **NOTHING WAS EVER GOING TO FIND THAT ON ITS OWN, which is the part worth knowing.**
+The two sweeps between them cover the other cases and not this one: `clearStaleInstallBookings`
+only clears a stamp for somebody who is OUT for the season (Darlene is Confirmed), and the
+reconcile sweep's stranded pass only re-homes a date already in the PAST. Step 1 of that
+sweep walks **routes** and corrects the records on them, so a customer on no route is never
+looked at.
+
+⛔ **IT REPORTS, IT NEVER REPAIRS.** Clearing the stamp from a render would be a write made
+on a derived judgement, and the one time it is wrong it cancels a real booking. Naming it
+is what sends the office to **⚙ Recalculate everything**, which is the thing that fixes it.
+⚠ And it answers **three** ways, not two: until `scheduledRoutesLoaded` is set every stamped
+customer looks orphaned, so before that it says "cannot tell" and the pill is exactly what
+it was before.
+
 Most of the money was already dated and that was checked before anything was built: the
 $25 referral, manual discounts, carried credits, manual fees, the automatic $30 change fee
 and the carryover charge each carry a `date` on their own note. The join fee was the one
