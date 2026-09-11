@@ -360,6 +360,61 @@ const folderApi = new Function(ERROR_CONSTS + '\n' + HOME_MAP + '\n' + FOLDER_OF
 const folderOf = folderApi.messageFolderOf;
 const HOME_MAP_OBJ = folderApi.MESSAGE_HOME_FOLDER;
 
+/* ---------------------------------------------------------------------------
+ * 8. The Edit Customer stack instrument names the frame that actually threw.
+ *
+ * Two "Edit Customer save failed" reports reached the folder on 2026-09-09 and named no
+ * fixable thing, so 6f61d8c added the top stack frames to the report. It read them with
+ * `.slice(1, 3)`, which skips V8's "TypeError: ..." header — and WebKit and Firefox write
+ * no header, so on those the line being skipped was the throwing frame itself. One of the
+ * two reports was Safari.
+ *
+ * ⚠ THE REAL FUNCTION, LIFTED, not a restatement of it. A shape check here would pass on
+ * any rewrite that still counts lines instead of recognising them.
+ * ------------------------------------------------------------------------- */
+const TOP_FRAMES_FN = extractFn(admin, 'errorTopFrames');
+const topFrames = new Function(TOP_FRAMES_FN + '; return errorTopFrames;')();
+
+check('the stack instrument was lifted, not described',
+  TOP_FRAMES_FN.indexOf('looksLikeFrame') !== -1,
+  'repoint the lift rather than pasting a copy in here');
+
+/* V8: a header line, then frames indented with "at ". */
+const V8_STACK = [
+  "TypeError: Cannot read properties of null (reading 'indexOf')",
+  '    at saveCustomerEdits (https://highlightingutah.com/admin.html:55200:31)',
+  '    at HTMLButtonElement.<anonymous> (https://highlightingutah.com/admin.html:53773:9)',
+  '    at dispatch (https://highlightingutah.com/admin.html:41000:9)'
+].join('\n');
+
+/* WebKit and Firefox: NO header, so line 0 is already the throwing frame. */
+const WEBKIT_STACK = [
+  'saveCustomerEdits@https://highlightingutah.com/admin.html:55200:31',
+  'asyncFunctionResume@[native code]',
+  'dispatch@https://highlightingutah.com/admin.html:41000:9'
+].join('\n');
+
+check('on Chrome the header is dropped and the throwing frame is first',
+  topFrames({stack: V8_STACK}).indexOf('at saveCustomerEdits') === 0,
+  'a header counted as a frame pushes the real one out of the report');
+
+check('and the Chrome header itself never reaches the report',
+  topFrames({stack: V8_STACK}).indexOf('TypeError:') === -1,
+  'the message is already in the row; repeating it costs one of only two frames');
+
+check('on Safari the throwing frame is kept, not skipped',
+  topFrames({stack: WEBKIT_STACK}).indexOf('saveCustomerEdits@') === 0,
+  'this is the bug: .slice(1, 3) drops line 0, which on WebKit IS the fault');
+
+check('two frames, never more — messages is capped at 5,000 chars on create',
+  topFrames({stack: V8_STACK}).split(' <- ').length === 2 &&
+  topFrames({stack: WEBKIT_STACK}).split(' <- ').length === 2,
+  'a refused write is how this reporter goes silent');
+
+check('an error carrying no stack reports nothing rather than throwing',
+  topFrames({}) === '' && topFrames(null) === '',
+  'this runs inside the catch that is already handling a failure');
+
 check('a member error lands in Member Errors',
   folderOf({ topic: 'Member Error', folder: 'Inbox' }) === 'Member Errors',
   'index.html has no login and cannot read the folder table, so the topic has to be ' +

@@ -3857,6 +3857,25 @@ because the folder earning its keep within two days is the argument for it.
     own function instead of costing another read of a 1,400-line handler. Two frames, not
     the whole stack: `messages` is capped at 5,000 characters on create by
     `firestore.rules`, and a refused write is how this reporter goes silent.
+  - ⚠ **AND THAT INSTRUMENT WAS READING THE WRONG TWO FRAMES ON HALF THE REPORTS**
+    (fixed 2026-09-11). It took `.slice(1, 3)`, which is right on V8 — `stack` opens with
+    a `TypeError: ...` header that has to be skipped — and wrong on WebKit and Firefox,
+    which write **no header at all**. There line 0 IS the throwing frame, so skipping it
+    named the two functions ABOVE the fault. One of the two reports was Safari, so half
+    of the occurrences this was built for would have been misreported, and misreported
+    *confidently* — worse than the blank it replaced, because it sends whoever reads it
+    into a function that never threw. `errorTopFrames` now RECOGNISES a frame (`at fn
+    (file:line)` on V8, `fn@file:line` on the others) rather than counting lines, so a
+    header drops out by not looking like one.
+  - ⚠ **AND IT IS DECLARED INSIDE THE CATCH, NOT AT THE TOP OF THE FILE.** Five harnesses
+    in `run-all.js` run this handler by slicing `admin.html` from
+    `editCustSaveBtn').addEventListener` onwards. A helper lifted out above that point is
+    not in the slice, so the first fixture reaching the catch dies on `errorTopFrames is
+    not defined` — the suite **crashing** rather than failing, which takes every suite
+    after it down unscored. Proved that way round first, then moved.
+  - ⭐ **STILL NOT DIAGNOSED, AND STILL NOT GUESSED AT.** The crash has not recurred since
+    the instrument landed — both reports predate it — so there is nothing new to read.
+    The fix above is to the instrument, not to the fault.
 - ⚠ **An "Unhandled promise: Missing or insufficient permissions" row is not necessarily
   an auth fault** — §5 records that the same wording is what Firestore returns when a
   `messages` write breaks the 5,000-character cap. Check the rule's CONTENT conditions
