@@ -5703,6 +5703,34 @@ which prints on the new-hang crew sheets, is never touched.
 kind "does not retire the fix photo yet" while the call sat twenty lines below it. Corrected
 in the same change.
 
+### Everything about the season RSVP is on the RSVP tab
+
+Moved 2026-09-11. Addie: "at the top we got a lot going on. We can probably move emails that
+didn't get sent out over to RSVP in it's own sub tab. And Text the RSVP can go in it's own
+sub tab as well in RSVP."
+
+Two cards used to sit on **Templates**, above the templates themselves — a tab somebody
+opens to *edit an email*, carrying two cards about the state of a send. The RSVP tab now has
+three sub-tabs: **Daily send** (the paced 200-a-morning plan), **Did not send** (the people a
+send lost), and **Text the RSVP** (the people with no email on file). `Send the whole RSVP`
+deliberately stays on Templates — it is one press beside the templates it sends, and moving
+it would break the one route the office already knows.
+
+⚠ **The sub-tabs do not use `route-tab-btn` / `route-tab-panel`, and that is load-bearing.**
+The Automation tab handler clears `active` from *every* element with those classes under
+`#panel-automation` — a panel-wide sweep. Reusing the names would leave the RSVP tab opening
+with no sub-panel active at all: a blank tab, which reads as the feature being broken rather
+than as a naming collision. The obvious future tidy-up is to rename them to match, so
+`rsvp-subtabs.test.js` fails if anybody does. `rsvpSubtabShow` is the one place the state is
+set, called both by the sub-tab clicks and by the Automation handler when the tab opens.
+
+⚠ **The failure count moved onto the tab.** That card used to hide itself until a send lost
+somebody, and its own note says why: it has to be *noticed on the day it appears*, because
+until those people are emailed they cannot RSVP and an unanswered customer is out of the
+season. Behind a sub-tab, hiding it would be worse than before — it would be behind a tab
+nobody had a reason to open. The tab wears the number instead, and the empty sub-tab says
+plainly that nothing has failed.
+
 ### Are the rules still accurate?
 
 Every ruling in the questions map names the code that proves it, and until 2026-08-29
