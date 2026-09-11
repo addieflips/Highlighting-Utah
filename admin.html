@@ -6500,7 +6500,14 @@ function __setEl(id, path, val){
 const auth = getAuth(app);
 const db = getFirestore(app);
 const fbFunctions = getFunctions(app);
-const sendSmsFn = httpsCallable(fbFunctions, 'sendSms');
+/* ⚠ THERE IS NO sendSmsFn ANY MORE, AND ADDING ONE BACK WILL NOT WORK.
+   Highlighting Utah does not have a Twilio account — we text from Google Voice.
+   The sendSms cloud function is still deployed but its credentials have never
+   been real, so every call came back "Authentication Error - invalid username"
+   and the office was told the text failed after the quote had already been
+   priced. Google Voice has no send API, so the browser cannot send a text at
+   all; it can only hand the message to whoever is signed in. See
+   showQuoteTextBox. */
 const sendInvoicesNowFn = httpsCallable(fbFunctions, 'sendInvoicesNow');
 const runQuoteNudgesNowFn = httpsCallable(fbFunctions, 'runQuoteNudgesNow');
 /* Job 4: the fix photo is destroyed when the fix is done. Server-side because
@@ -8352,6 +8359,12 @@ const CUSTOMER_FIELD_QUIET = {
   lat: 'moves only because the address did, which has its own line',
   lng: 'moves only because the address did, which has its own line',
   lightsChangedAt: 'the colour line above it is the event',
+  /* ⚠ THE TICK IS THE EVENT AND THE TICK IS ALREADY LABELLED. This is only when it
+     was ticked, written in the same save; a second history row saying the date moved
+     would report one decision twice. It matters that it is written at all — it is the
+     date a STOP was honoured, and since we text from Google Voice rather than Twilio
+     there is no longer anything else that records one. */
+  smsOptedOutAt: 'the \u201COpted out of texts\u201D line is the event; this is when it was ticked',
   lightsChangedVia: 'the colour line above it is the event',
   lightsLockedUntil: 'a consequence of the colour change, not a separate edit',
   /* ⚠ BOTH ARE CONSEQUENCES OF QUEUEING A BUILD, not edits somebody made. The build
@@ -16324,6 +16337,17 @@ function renderQuoteRows(filtered){
       resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">No phone number on this quote.</div>';
       return;
     }
+    /* ⚠ STOP MEANS STOP, and this is now the only thing enforcing it on this
+       path. The quote list hides the text button on an opted-out quote, but a
+       stale render can still reach this function, and Twilio's 21610 used to be
+       the backstop that caught it. There is no backstop now — Google Voice will
+       send whatever gets pasted into it, and nobody is checking. */
+    if(d.smsOptedOut){
+      resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">'+
+        '\ud83d\udeab Do not text \u2014 '+esc(d.smsOptedOutReason || 'they asked us not to')+
+        '. Send them the email instead.</div>';
+      return;
+    }
     const tmplName = quoteTextTemplateFor(d);
     const template = tmplName ? getEmailTemplateByName(tmplName) : null;
     if(!template){
@@ -16359,7 +16383,9 @@ function renderQuoteRows(filtered){
       '<div style="font-size:11.5px; background:#EEF1FF; border:1px solid #C7CEF5; border-radius:8px; padding:9px 11px; margin-bottom:10px; color:#33397a; line-height:1.5;">'+
         'Text, pulled live from <strong>Automation Emails &rarr; Templates &rarr; '+esc(tmplName)+'</strong>. '+
         'A text can\'t show buttons, a photo, or a link hidden behind a word &mdash; it is plain characters only, '+
-        'so the address has to be visible. The link opens the page that has the buttons and the photo.'+
+        'so the address has to be visible. The link opens the page that has the buttons and the photo. '+
+        '<strong>This does not send itself</strong> — we text from Google Voice, so the message gets '+
+        'copied and the conversation opened, and you press send.'+
       '</div>'+
       '<div class="rtext" style="margin-bottom:6px;">To: <strong>'+esc(d.phone||'')+'</strong></div>'+
       '<div style="background:#E9E9EB; color:#000; border-radius:16px; padding:11px 14px; font-size:14.5px; line-height:1.45; white-space:pre-wrap; max-width:330px;">'+esc(msg)+'</div>'+
@@ -16368,62 +16394,74 @@ function renderQuoteRows(filtered){
         (segs > 1 ? ' \u2014 trim the template to get under 160.' : '')+
       '</div>'+
       '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">'+
-        '<button type="button" class="btn btn-gold btn-sm quotetext-send-btn">Send the text</button>'+
+        '<button type="button" class="btn btn-gold btn-sm quotetext-send-btn">Copy it &amp; open Google Voice</button>'+
         '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+id+'">Show the email instead</button>'+
       '</div>'+
       '<div class="quoteemail-sendstatus rtext" style="margin-top:6px;"></div>';
     const again = resultEl.querySelector('[data-copyquoteemail]');
     if(again) again.addEventListener('click', function(){ showQuoteEmailBox(id, 'quote'); });
+    /* ⚠ THIS CANNOT SEND THE TEXT AND MUST NEVER PRETEND TO. We text from Google
+       Voice, which has no send API, so the only honest thing a browser can do is
+       put the message on the clipboard, open the right conversation, and wait to
+       be told it went. The quote is marked sent on that confirmation and on
+       nothing else — a button that marked it sent the moment it was clicked would
+       quietly advance quotes nobody ever texted. */
+    const gvDigits = (d.phone || '').replace(/\D/g, '');
+    const gvE164 = gvDigits.length === 10 ? '+1' + gvDigits
+      : (gvDigits.length === 11 && gvDigits.charAt(0) === '1') ? '+' + gvDigits : '';
     resultEl.querySelector('.quotetext-send-btn').addEventListener('click', async function(){
       const btn = this;
       const statusEl = resultEl.querySelector('.quoteemail-sendstatus');
-      if(quoteSendInFlight.has(id)){ statusEl.textContent = 'Already sending \u2014 give it a second.'; return; }
-      quoteSendInFlight.add(id);
-      btn.disabled = true;
-      statusEl.style.color = 'var(--slate)';
-      statusEl.textContent = 'Sending\u2026';
+      let copied = true;
+      try{ await navigator.clipboard.writeText(msg); }
+      catch(err){ copied = false; console.error('Quote text copy failed:', err); }
+      /* No number we can shape into a conversation link is not a failure — the
+         message is still copied and Google Voice still opens, just on the inbox. */
       try{
-        await sendSmsFn({to: d.phone, body: msg});
-        const updates = {
-          quoteSentVia: 'sms', quoteSmsSentAt: serverTimestamp(),
-          quoteSentAt: serverTimestamp(),
-          quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
-        };
-        await updateDoc(doc(db,'quotes', id), updates);
-        quoteSendResults.set(id, {ok:true, text:'\u2713 Text sent to ' + d.phone + '.'});
-        followQuoteToItsStage(id, {quoteSentAt: quoteSentNowStamp(), quoteManuallySent: true});
-        repaintQuoteSendResults();
-        toast('Text sent to ' + d.phone + '.');
-      } catch(err){
-        const raw = (err && (err.message || err.text)) ? (err.message || err.text) : String(err);
-        /* Twilio blocks anyone who has replied STOP and reports 21610 on the
-           next attempt. Record it on the quote so nothing texts them again,
-           and archive the card. STOP withdraws permission to TEXT, not
-           necessarily interest in the quote, so the reason is stored and the
-           card stays restorable rather than being deleted. */
-        let msgOut;
-        if(/21610/.test(raw)){
-          msgOut = 'They replied STOP to a text, so this number can\'t be texted. Archived \u2014 restore it from Closed \u2192 Archived if you want to reach them by email.';
-          try{
-            await updateDoc(doc(db,'quotes', id), {
-              smsOptedOut: true, smsOptedOutAt: serverTimestamp(),
-              quoteArchived: true, quoteArchivedAt: serverTimestamp(),
-              quoteArchivedReason: 'Replied STOP to a text message'
-            });
-            followQuoteToItsStage(id, {smsOptedOut: true, quoteArchived: true, quoteArchivedReason: 'Replied STOP to a text message'});
-          } catch(e){ /* the message below still explains what happened */ }
-        } else {
-          msgOut = 'Text failed: ' + raw;
+        window.open(gvE164
+          ? 'https://voice.google.com/messages?itemId=t.' + encodeURIComponent(gvE164)
+          : 'https://voice.google.com/messages', '_blank', 'noopener');
+      } catch(err){ console.error('Could not open Google Voice:', err); }
+      btn.textContent = 'Copy it again';
+      statusEl.style.color = 'var(--slate)';
+      statusEl.innerHTML =
+        (copied
+          ? 'Copied. Paste it into the Google Voice conversation that just opened, then press send.'
+          : '<span style="color:var(--ember); font-weight:600;">Could not reach the clipboard — select the message above and copy it by hand.</span>')+
+        '<div style="margin-top:8px;"><button type="button" class="btn btn-gold btn-sm quotetext-confirm-btn">I sent it — mark this quote sent</button></div>';
+      statusEl.querySelector('.quotetext-confirm-btn').addEventListener('click', async function(){
+        const okBtn = this;
+        if(quoteSendInFlight.has(id)) return;
+        quoteSendInFlight.add(id);
+        okBtn.disabled = true;
+        okBtn.textContent = 'Saving\u2026';
+        try{
+          await updateDoc(doc(db,'quotes', id), {
+            quoteSentVia: 'sms', quoteSmsSentAt: serverTimestamp(),
+            quoteSentAt: serverTimestamp(),
+            quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
+          });
+          quoteSendResults.set(id, {ok:true, text:'\u2713 Texted ' + d.phone + ' from Google Voice.'});
+          followQuoteToItsStage(id, {quoteSentAt: quoteSentNowStamp(), quoteManuallySent: true});
+          repaintQuoteSendResults();
+          toast('Marked as texted to ' + d.phone + '.');
+        } catch(err){
+          /* Deliberately does NOT repaint: repaintQuoteSendResults replaces this
+             box's innerHTML, which would throw away the retry button along with
+             the only record that the text has already gone out. The text is sent;
+             the only thing that failed is writing that down. */
+          const raw = (err && (err.message || err.text)) ? (err.message || err.text) : String(err);
+          statusEl.style.color = 'var(--ember)';
+          okBtn.disabled = false;
+          okBtn.textContent = 'Try saving it again';
+          okBtn.insertAdjacentHTML('beforebegin',
+            '<div class="rtext" style="color:var(--ember); font-weight:600; margin-bottom:6px;">'+
+            'The text went out, but saving that failed \u2014 don\'t text them twice. '+esc(raw)+'</div>');
+          console.error('Quote text send failed:', err);
+        } finally {
+          quoteSendInFlight.delete(id);
         }
-        quoteSendResults.set(id, {ok:false, text: msgOut});
-        repaintQuoteSendResults();
-        statusEl.style.color = 'var(--ember)';
-        statusEl.textContent = msgOut;
-        btn.disabled = false;
-        console.error('Quote text send failed:', err);
-      } finally {
-        quoteSendInFlight.delete(id);
-      }
+      });
     });
   }
   /* Downloads the photo currently on screen, not blindly the first one. */
@@ -52785,8 +52823,14 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   statusEl.textContent = 'Saving…';
   try{
     const newNoTexts = document.getElementById('editCustNoTexts').checked;
+    /* ⚠ THIS TICK IS NOW THE ONLY THING THAT RECORDS A STOP. Twilio used to catch
+       a 21610 and stamp the date itself; we text from Google Voice, where a STOP
+       reply is just a message somebody reads, so the date only exists if ticking
+       the box writes it. Stamped on the change to ON only — re-saving the form
+       must not keep moving the date of a decision they made once. */
     const newNoAutoEmails = document.getElementById('editCustNoAutoEmails').checked;
     const addrUpdates = {smsOptedOut: newNoTexts, noAutomationEmails: newNoAutoEmails, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, city: newCity, customerNumber: newCustNumber, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, wantsTextedInvoice: newWantsTexted, houseSides: newHouseSides, buildings: newBuildings, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
+    if(newNoTexts && !item.data.smsOptedOut) addrUpdates.smsOptedOutAt = serverTimestamp();
     /* ⭐ A COUNT THE OFFICE MOVES DROPS A NAMED LIST IT NO LONGER FITS (2026-09-07).
        houseSidesList is the customer's own answer, ticked box by box in their Member
        Portal, and this form deliberately does not offer it — it is shown read-only
