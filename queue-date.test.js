@@ -1250,6 +1250,20 @@ check('the path still has every step in it',
       'the customer-side event is the recycle, and a step here could never be read because ' +
       'the jobAddresses record no longer exists',
     recycledAt: 'the same: closing off an ARCHIVED entry once the lights are back in stock',
+    /* ⚠ BOTH ARE THE WAREHOUSE'S SIDE OF AN EVENT THAT IS ALREADY A STEP. 'they ask for
+       different lights' (lightsChangedAt) is the moment on this customer's path; these two
+       date the JOB that moment creates and then closes — our own shop-floor bookkeeping,
+       the same shape as arrearsPaidNoticeAt above. Drawn as steps they would put a second
+       and third milestone on the picture for one thing the customer did, and the second of
+       them would date a day nothing happened to the customer at all: somebody in the
+       warehouse pressing Mark Done. */
+    colorChangeRequestedAt: 'when the warehouse was told to make the new set up — the ' +
+      'customer-side event is lightsChangedAt, "they ask for different lights", which is ' +
+      'already a step. This dates the work order, and it is also written by the manual ' +
+      'Color Change button, where the customer did nothing at all',
+    colorChangeDoneAt: 'when somebody in the warehouse pressed Mark Done on that work ' +
+      'order — a thing WE did, on a day nothing happened to the customer. The bundle ' +
+      'reaching them is the install, which is already on the path',
     gateCodeUpdatedAt: 'a DETAIL being corrected, not a stage anybody passes through. A customer confirming or fixing their gate code during the RSVP has not moved along the path — they are wherever they already were, and drawing it as a step would put a milestone on the picture for a four-digit correction. It exists so the office can tell a code confirmed this season from one sitting on the record since an import',
 
     /* ⚠ BOTH LIVE INSIDE referralCredits[], AND THEY ARE ABOUT SOMEBODY ELSE. A step on
