@@ -3944,6 +3944,16 @@ and message and no destination, so the *To Email* lives on the EmailJS template 
 `settings/emailjs.notifyTemplateId` (Admin → Automation Emails → Notify Template ID).
 Nothing here can see it, and no test can prove where the mail went.
 
+⭐ **And both directions are now driven in a real browser.** `test/address-move.spec.js`
+presses the button and reads the alert back, and presses **Save Information** on My Info and
+asserts NO alert — the regression guard that matters, because moving the call up into that
+save would read as a tidy-up and silently undo [[QT-35]]. The nudge is observable at all
+because `test/firebase-stub.js` serves a fake EmailJS SDK that RECORDS and resolves locally;
+`api.emailjs.com` stays forbidden and `assertNoRealCalls` still runs, so a spec proving an
+alert went is never the spec that emails the office. ⚠ It is **opt-in**
+(`{ emailAlerts: true }`): `publicConfig` still answers not-configured by default, which is
+what keeps every other spec's behaviour exactly as it was.
+
 ⚠ **The move alert hangs off the move button only.** `portalChangeAddress` writes its Inbox
 note server-side and cannot send mail, so the nudge is raised in the browser once that call
 returns `{ok:true}`. The ordinary My Info save is deliberately silent ([[QT-35]]) — a

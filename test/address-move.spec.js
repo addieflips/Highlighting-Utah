@@ -147,6 +147,55 @@ test.describe('Telling the portal you have moved', () => {
     await expect(page.locator('#cancelFinalBtn')).toBeEnabled();
   });
 
+  /* ⭐ THE OFFICE IS EMAILED, NOT ONLY LEFT AN INBOX NOTE (2026-09-11, MSG-17/MSG-18).
+     Addie: "lets just send everything to gmail that has to do with member portal, or
+     Send Message or contact", and errors and system messages stay in the Inbox.
+
+     ⚠ WHY THIS IS A BROWSER CHECK AND NOT A SOURCE ONE. The call sits inside the try,
+     after an await — so whether it RUNS depends on the server having said yes, which no
+     grep can see. It is also the exact shape this repo has shipped broken before: a
+     handler present in the source that never fires. And the alert is the whole of how
+     the office finds out today, since nothing polls the Inbox.
+
+     ⚠ NOTHING IS EMAILED ANYWHERE. api.emailjs.com stays forbidden; the stub serves a
+     fake SDK that records and resolves locally, and assertNoRealCalls still runs. */
+  test('a move emails the office, with the new address in it', async ({ page }) => {
+    const stub = await openPortal(page, { emailAlerts: true });
+    await page.locator('#infoMovedLink').click();
+    await page.locator('#movedStreet').fill('9 Oak St');
+    await page.locator('#movedCity').fill('Springville');
+    await page.locator('#movedDate').fill('mid-October');
+    await page.locator('#movedSaveBtn').click();
+    await expect(page.locator('#infoMovePending')).toBeVisible();
+
+    const alerts = await stub.alerts();
+    expect(alerts.length).toBe(1);
+    expect(alerts[0].params.topic).toBe('Existing Customer - Address Changed');
+    /* The office has to be able to act on it without opening the dashboard first. */
+    expect(alerts[0].params.message).toContain('9 Oak St, Springville');
+    expect(alerts[0].params.message).toContain('mid-October');
+    expect(alerts[0].params.customer_name).toBeTruthy();
+    stub.assertNoRealCalls();
+    expect(stub.thrown).toEqual([]);
+  });
+
+  /* ⛔ AND THE ORDINARY SAVE STILL SENDS NOTHING. This is the regression guard the
+     change most needs and did not have: the My Info save was deliberately stopped from
+     notifying on 2026-09-10 — "changing gate code or phone number should not notify us"
+     — because a corrected street spelling is not a move and comparing two typed strings
+     cannot tell them apart. Moving the new call up into that handler would look like a
+     tidy-up and would undo that fix, with nothing anywhere going red. Now something does. */
+  test('but saving My Info emails nobody, however much changed', async ({ page }) => {
+    const stub = await openPortal(page, { emailAlerts: true });
+    await page.locator('#infoPhone').fill('801 555 0142');
+    await page.locator('#infoGateCode').fill('4412');
+    await page.locator('#infoSaveBtn').click();
+    await expect(page.locator('#infoSaveStatus')).not.toHaveText('');
+
+    expect(await stub.alerts()).toEqual([]);
+    stub.assertNoRealCalls();
+  });
+
   /* ⚠ AND A FAILED CALL READS AS A FAILURE. portalCallFailedText is the one funnel
      every portal failure goes through, so a new path added later reports itself —
      but only if it actually calls it. */
