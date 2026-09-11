@@ -215,9 +215,22 @@ const printCols = admin.slice(admin.indexOf("  build:     [{k: 'number'"),
 check('and the Printing tab’s build sheet has one too',
   /k: 'reason'/.test(printCols) && /label: 'Why'/.test(printCols),
   'there are two build sheets and the other one is the one with thinner cover');
+/* ⚠ A CENSUS, AND THE NUMBER MOVING IS THE POINT. It went 3 → 5 on 2026-09-11 when
+   [[WH-34]] put the two timer jobs on paper (Remove timer, and the timer-only rows that
+   had been on no sheet at all). Five row builders now: blocked, Remove timer, Timer only,
+   houses, extras. Raise it only alongside a new builder that genuinely fills the cell —
+   this is what makes a sixth one announce itself instead of shipping a blank Why column. */
 check('every row builder fills the Why cell',
-  (fn('whSheetRowsForBuild').match(/reason:/g) || []).length === 3,
-  'houses, extras and the blocked ones all push rows onto that sheet');
+  (fn('whSheetRowsForBuild').match(/reason:/g) || []).length === 5,
+  'blocked, Remove timer, Timer only, houses and extras all push rows onto that sheet');
+/* ⭐ AND THE TWO TIMER ROWS KEEP THEIRS ([[WH-34]]). A timer job is somebody the office
+   asked for something, so it has a provenance to claim — unlike buffer stock below. */
+check('a Remove timer row keeps its badge',
+  /type: 'REMOVE TIMER',[\s\S]{0,80}reason: whBuildReasonLabel/.test(fn('whSheetRowsForBuild')),
+  'a row saying take a timer out still has to say where the request came from');
+check('and a Timer only row keeps its badge',
+  /type: 'TIMER ONLY',[\s\S]{0,80}reason: whBuildReasonLabel/.test(fn('whSheetRowsForBuild')),
+  'same house, same claim, whichever list it reached the paper through');
 /* ⚠ A BLOCKED ROW KEEPS ITS BADGE — those are the ones somebody has to chase, so losing
    it there is the wrong place to lose it. Buffer stock carries none. */
 const sheet = fn('whSheetRowsForBuild');

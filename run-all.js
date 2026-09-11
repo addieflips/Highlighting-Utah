@@ -26274,16 +26274,20 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'the warehouse tab' + String.fromCharCode(8217) + 's own build sheet has the column too',
       /key:'putInto'/.test(cols) && /When built, put into/.test(cols),
       'this is the sheet the warehouse prints and builds off');
+    /* ⚠ A CENSUS, AND THE NUMBER MOVING IS THE POINT. 3 → 5 on 2026-09-11, when
+       [[WH-34]] put the two timer jobs on paper (Remove timer, and the Timer only rows
+       that had been on no sheet at all). Five builders: blocked, Remove timer, Timer only,
+       houses, extras. */
     check('S107', 'and every row builder fills it in, so no row is short a cell',
-      (extractFn(admin, 'whSheetRowsForBuild').match(/putInto:/g) || []).length === 3,
-      'houses, extras and the blocked ones all push rows onto that sheet');
+      (extractFn(admin, 'whSheetRowsForBuild').match(/putInto:/g) || []).length === 5,
+      'blocked, Remove timer, Timer only, houses and extras all push rows onto that sheet');
     /* ⭐ AND THE Why COLUMN THE SAME WAY (2026-08-24). A column every row does not fill
        leaves that row short a cell and the table shifts under it. Buffer stock fills it
        with a blank on purpose — no customer, no provenance to claim — which still
        counts as filling it. */
     check('S107', 'and every row builder fills the Why column too',
-      (extractFn(admin, 'whSheetRowsForBuild').match(/reason:/g) || []).length === 3,
-      'houses, extras and the blocked ones all push rows onto that sheet');
+      (extractFn(admin, 'whSheetRowsForBuild').match(/reason:/g) || []).length === 5,
+      'blocked, Remove timer, Timer only, houses and extras all push rows onto that sheet');
 
     /* ⭐ BUNDLES, NOT FEET, ON THIS SHEET TOO (2026-08-21). Owner: "I don't think we
        need feet and bundles. I think how many bundles is fine for warehouse."
@@ -28317,6 +28321,18 @@ suite('Suite 108. The Edit Customer save, actually run');
          question under test. */
       whTimerOnlyQueue: new Function('return ' + extractFn(admin, 'whTimerOnlyQueue') +
         ';whTimerOnlyQueue')(),
+      /* ⚠ AND BOTH HALVES OF THE OTHER DIRECTION, LIFTED — not stubs. Joined this list
+         2026-09-11, in the same commit that made the save handler call them ([[WH-34]]):
+         the extraction-list trap CLAUDE.md describes, hit a SEVENTH time and caught a
+         seventh time by this suite failing loudly rather than skipping — 28 failures
+         across the re-quote, pool-write and colour-fee checks, not one of them naming the
+         function that was actually missing. Run the WHOLE suite after an extraction.
+         ⚠ whTimerRemovalQueue CALLS whTimerCameOff, so lifting one without the other
+         moves the same crash one line down rather than fixing it. */
+      whTimerCameOff: new Function('return ' + extractFn(admin, 'whTimerCameOff') +
+        ';whTimerCameOff')(),
+      whTimerRemovalQueue: new Function(extractFn(admin, 'whTimerCameOff') +
+        ';return ' + extractFn(admin, 'whTimerRemovalQueue') + ';')(),
       /* ⚠ THE REAL COLOUR READER, LIFTED — not a stub. Joined this list 2026-09-10, in the
          same commit that made the fee path ask it ([[WH-28]]): the extraction-list trap
          CLAUDE.md describes, hit a SIXTH time and caught a sixth time by this suite failing
@@ -37349,11 +37365,21 @@ suite('Suite 133. A wire or timer change reaches the warehouse');
          either throws or, worse, runs a different rule than the one on disk. */
       const b = fnsLF.indexOf("  if (section === 'lights'", a);
       const blk = fnsLF.slice(a, b);
+      /* ⚠ LIFTED, NEVER STUBBED ([[WH-34]], 2026-09-11 — and this suite died with a bare
+         `whTimerCameOffServer is not defined` the moment the block started calling it,
+         which is the extraction-list trap working as intended). A stub here would keep
+         the suite green through a change to WHO the warehouse is told about, which is the
+         one thing these checks exist to hold. */
+      const offSrc = extractFn(fnsLF, 'whTimerCameOffServer');
+      check('S133', 'the portal carries the timer-removal rule',
+        !!offSrc && /outletTimer/.test(offSrc),
+        'without it a customer switching their own timer off reaches nobody');
       const run = (oldData, updates) => {
-        new Function('oldData', 'updates', 'warehouseRebuildFields',
+        new Function('oldData', 'updates', 'warehouseRebuildFields', 'whTimerCameOffServer',
           blk)(oldData, updates,
           new Function('WAREHOUSE_BUILD_FIELDS', sSrc + ';return warehouseRebuildFields;')(
-            JSON.parse(sList[1].replace(/'/g, '"'))));
+            JSON.parse(sList[1].replace(/'/g, '"'))),
+          new Function(offSrc + ';return whTimerCameOffServer;')());
         return updates;
       };
       check('S133', 'changing the wire in the portal queues the warehouse',
@@ -37374,6 +37400,35 @@ suite('Suite 133. A wire or timer change reaches the warehouse');
           .needsLightBuild === true,
         'writing false here would bring back the bug where saving a customer ' +
         'with no colours silently cleared the build they were owed');
+      /* ⭐ AND A TIMER SWITCHED OFF IN THE PORTAL REACHES Remove Timer ([[WH-34]]).
+         ⚠ RUN, NOT MATCHED, because the claim is about a FLAG ON A RECORD. The whole
+         reason this field exists is that "used to have a timer" is readable off nothing
+         once the save lands, so a rule that quietly stops writing it cannot be noticed
+         from any screen afterwards. */
+      check('S133', 'a timer switched OFF in the portal queues the removal',
+        run({ outletTimer: 'Yes' }, { outletTimer: 'No' }).needsTimerRemoved === true,
+        'the record now looks exactly like the ~900 houses that never had one, so ' +
+        'nobody is ever told to take it out of their bin');
+      check('S133', 'and switching it ON does not',
+        run({ outletTimer: 'No' }, { outletTimer: 'Yes' }).needsTimerRemoved === undefined,
+        'a removal queued by somebody ASKING for a timer sends the warehouse to undo ' +
+        'the job it was just told to do');
+      /* ⚠ THE BUILD IS UNTOUCHED EITHER WAY on this side. functions/index.js has never had
+         [[WH-27]]'s timer-only routing, and [[WH-34]] deliberately did not add half of it
+         here — what the portal gained is the FLAG, which is the part that cannot be
+         re-derived later. Asserted so the asymmetry is a decision rather than a drift. */
+      check('S133', 'and the portal still queues the build as it always did',
+        run({ outletTimer: 'Yes' }, { outletTimer: 'No' }).needsLightBuild === true,
+        'the routing half of [[WH-27]]/[[WH-34]] is browser-only and was not half-ported');
+      check('S133', 'changing their mind takes the removal back',
+        run({ outletTimer: 'No', needsTimerRemoved: true }, { outletTimer: 'Yes' })
+          .needsTimerRemoved === false,
+        'nothing has been pulled while the flag is up, so a timer switched back on ' +
+        'cancels the job — the same shape as a pending recycle being cancelled');
+      check('S133', 'but an unrelated save never touches the removal flag',
+        run({ outletTimer: 'Yes', needsTimerRemoved: true }, { notes: 'x' })
+          .needsTimerRemoved === undefined,
+        'writing it on every save would clear a job somebody still has to do');
     }
   }
 

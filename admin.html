@@ -8217,6 +8217,9 @@ const CUSTOMER_FIELD_LABELS = {
      "Waiting for a timer: Yes" is the whole distinction, and the history is where somebody
      later asks why a house was never built. */
   needsTimerOnly: {label: 'Waiting for a timer', kind: 'yesno'},
+  /* ⚠ "Timer to come out", never "Timer" — the two flags are one word apart and opposite
+     instructions, and this line is what somebody reads back in a history months later. */
+  needsTimerRemoved: {label: 'Timer to come out', kind: 'yesno'},
   needsLightRecycle: {label: 'Old set to come back', kind: 'yesno'},
   recycleKeepingCustomer: {label: 'Keeping them as a customer', kind: 'yesno'},
   buildTopUpFromFeet: {label: 'Feet already in their bin', kind: 'number'},
@@ -47086,6 +47089,56 @@ function whTimerOnlyQueue(oldData, updates, changedFields, newLightsDescription)
   const timer = Object.prototype.hasOwnProperty.call(u, 'outletTimer') ? u.outletTimer : o.outletTimer;
   return String(timer == null ? '' : timer).trim() === 'Yes';
 }
+/* ⭐ AND THE OTHER DIRECTION — A TIMER THAT IS COMING OUT ([[WH-34]], 2026-09-11). Addie:
+ * "For people who don't want a timer anymore we need to put that in warehouse as Remove
+ * Timer."
+ *
+ * ⚠ THIS IS THE HALF [[WH-27]] LEFT OPEN ON PURPOSE, and its own note says why it could not
+ * be closed then: "routing a removal here would drop it off every screen silently, because
+ * `timerHouses` only ever collects Yes". That was true — there was nowhere for a removal to
+ * go. There is now. So this ANSWERS a question that was flagged to her rather than reversing
+ * one she had settled, and WH-27's scoping note stands exactly as written for the add side.
+ *
+ * ⛔ AND IT HAS TO BE A STAMP, WHICH THE ADD SIDE DOES NOT. That asymmetry is the whole
+ * reason this needs a field at all. "Wants a timer" is readable off the record for ever
+ * (`outletTimer === 'Yes'`), so the Timers list is DERIVED and a missed flag costs nothing —
+ * the next render finds them again. "USED TO WANT ONE" IS READABLE OFF NOTHING: the instant
+ * the field is saved as No that house is indistinguishable from the ~900 that never had one.
+ * If this save does not write it down, nobody is ever told to go and take the timer out, and
+ * it stays in their bin for the rest of the season.
+ *
+ * ⚠ THE OLD VALUE IS TESTED AS WELL AS `changedFields`, though `warehouseRebuildFields`
+ * already implies it (outletTimer can only be in that list if the two sides normalise
+ * differently, so a new value of No means the old one was Yes). Implied is not the same as
+ * checked: a caller handing in a list it built itself would otherwise turn every save of a
+ * timerless house into a removal, and this is the field that puts a row in front of somebody
+ * holding a clipboard. One line, and the function can be RUN on its own. */
+function whTimerCameOff(oldData, updates, changedFields){
+  const u = updates || {}, o = oldData || {};
+  if(!Array.isArray(changedFields) || changedFields.indexOf('outletTimer') === -1) return false;
+  /* ⚠ A BLANK TIMER IS "NO", exactly as everywhere else — so only a stored Yes can come off. */
+  if(String(o.outletTimer == null ? '' : o.outletTimer).trim() !== 'Yes') return false;
+  const now = Object.prototype.hasOwnProperty.call(u, 'outletTimer') ? u.outletTimer : o.outletTimer;
+  return String(now == null ? '' : now).trim() !== 'Yes';
+}
+/* ⭐ AND WHETHER TAKING IT OUT IS THE WHOLE JOB — the mirror of `whTimerOnlyQueue`, condition
+ * for condition, so the two directions cannot drift apart. Same reasoning in reverse: a house
+ * with NO colours whose only warehouse change was the timer has nothing being made up for it,
+ * so parking it under "Nothing can be made up until somebody fills them in" sends the office
+ * to chase an answer that does not exist and the row never clears. That is [[WH-27]]'s own
+ * complaint, and it is just as false about a removal as about an addition.
+ *
+ * ⚠ HOLES C AND D ARE STILL NOT REVERSED. A WIRE change is a real rebuild, and so is a timer
+ * change on a house that HAS colours — that house is in a real build group and always was.
+ * It still gets its Remove Timer row, because the bundle and the bin are two different jobs
+ * done by two different pairs of hands. */
+function whTimerRemovalQueue(oldData, updates, changedFields, newLightsDescription){
+  if(!Array.isArray(changedFields) || changedFields.length !== 1) return false;
+  if(!whTimerCameOff(oldData, updates, changedFields)) return false;
+  if((updates || {}).needsLightBuild) return false;
+  if(newLightsDescription) return false;
+  return true;
+}
 const WAREHOUSE_BUILD_FIELDS = ['lightsDescription', 'wireColor', 'outletTimer'];
 function warehouseRebuildFields(oldData, newData) {
   const o = oldData || {}, n = newData || {};
@@ -47280,6 +47333,11 @@ function whHouseFactsHtml(d){
 function whBuildQueueGroups(){
   const groups = {};
   const timerHouses = [];
+  /* ⭐ AND THE HOUSES A TIMER HAS TO COME OUT OF ([[WH-34]]). Its own list rather than a
+     marker on `timerHouses`: that one is "put one in" and this one is "take one out", and a
+     single list somebody reads at speed while carrying a bin is how a timer gets put back
+     into the house that just asked to be rid of it. */
+  const timerRemovals = [];
   /* ⭐ AND THE ONES THAT CANNOT BE BUILT YET ARE NOT DROPPED ON THE FLOOR. Owner,
      2026-08-20, having converted Ashley Wray: "i converted her but shes not in the build
      section."
@@ -47312,7 +47370,11 @@ function whBuildQueueGroups(){
        a house carrying both is simply a build, which is what it is. */
     const wantsBuild = !!d.needsLightBuild;
     const timerOnly = !wantsBuild && !!d.needsTimerOnly;
-    if((!wantsBuild && !timerOnly) || (typeof isOutForSeason === 'function' && isOutForSeason(d))) return;
+    /* ⭐ AND A TIMER COMING OUT IS A THIRD WAY ONTO THIS TAB ([[WH-34]]). Read alongside the
+       build rather than instead of it: a house having a new bundle made AND an old timer
+       pulled is both of those things, and it has to reach both lists. */
+    const timerRemoval = !!d.needsTimerRemoved;
+    if((!wantsBuild && !timerOnly && !timerRemoval) || (typeof isOutForSeason === 'function' && isOutForSeason(d))) return;
     /* ⚠ BOTH FIELDS. Testing lightsDescription alone put every ordinary house the
        master-sheet sync added into the blocked block with its colours sitting on the
        record — see houseLightsText. */
@@ -47332,10 +47394,19 @@ function whBuildQueueGroups(){
        out to be, so there is nothing to wait for — which is her own rule in as many
        words. Collected first; the blocked branch still blocks the BUILD. */
     if(String(d.outletTimer || '').trim() === 'Yes') timerHouses.push(item);
+    /* ⛔ COLLECTED IN THE SAME BREATH, AND FOR THE SAME REASON ([[WH-34]]). Pulling a timer
+       out does not wait on any colours either, so it is taken before the blocked branch —
+       that early `return` is exactly what hid the timer job under [[WH-26]]. */
+    if(timerRemoval) timerRemovals.push(item);
     /* ⛔ AND A TIMER-ONLY HOUSE IS NEVER BLOCKED. Nothing is being built for them, so there
        are no colours to wait for — the whole point of [[WH-27]]. It has already been pushed
        to `timerHouses` above, which is the one thing that house actually needs. */
     if(timerOnly) return;
+    /* ⛔ NOR IS A HOUSE THAT IS ONLY HAVING A TIMER TAKEN OUT ([[WH-34]]). Past the two lines
+       above, no build means this house is here for the removal alone: it belongs in no colour
+       group, and blocking it would put "waiting on light colours" against somebody who never
+       asked for any. Same rule as the line above, pointing the other way. */
+    if(!wantsBuild) return;
     if(!lights){ blocked.push(item); return; }
     const key = whGroupKey(lights, d.wireColor);
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
@@ -47378,7 +47449,8 @@ function whBuildQueueGroups(){
     const totalB = groups[b].houses.reduce(function(s,h){ return s+houseBundleNeed(h.data).bundles; },0) + groups[b].extras.reduce(function(s,e){ return s+(Number(e.data.quantity)||0); },0);
     return totalB - totalA;
   });
-  return {groups: groups, keys: keys, timerHouses: timerHouses, blocked: blocked};
+  return {groups: groups, keys: keys, timerHouses: timerHouses,
+          timerRemovals: timerRemovals, blocked: blocked};
 }
 /* ⭐ WHY IS THIS HOUSE NOT ON THE BUILD LIST. Owner, 2026-08-21, having pressed Build
    Them A New Set on Ashley Wray: "i clicked build ashley wray but shes not here."
@@ -47423,6 +47495,10 @@ function whHouseBuildStatus(item){
      would otherwise send the office to press Build Them A New Set on a house that is on this
      tab and needs no bundle. */
   if(!d.needsLightBuild && d.needsTimerOnly) return {state: 'timeronly'};
+  /* ⭐ [[WH-34]] — on the tab for a timer coming OUT and nothing else. Answered before
+     'notqueued' for the same reason as the line above: that sentence sends the office to
+     press Build Them A New Set on a house that is already on this tab and needs no bundle. */
+  if(!d.needsLightBuild && d.needsTimerRemoved) return {state: 'timerremoval'};
   if(!d.needsLightBuild) return {state: 'notqueued'};
   return {state: 'unknown'};
 }
@@ -47433,6 +47509,7 @@ function whBuildStatusText(name, st){
   if(st.state === 'extra') return who + ' is on the list as an extra request \u2014 under \u201c' + st.where + '\u201d.';
   if(st.state === 'blocked') return who + ' is queued to build but has NO LIGHT COLOURS on file, so they are in \u201cWaiting on light colours\u201d at the top. Add their colours and they join a build group.';
   if(st.state === 'timeronly') return who + ' only needs a TIMER \u2014 they are on the Timers list, not the build list. Nothing is being made up for them and no colours are needed. Press \u201cBuild Them A New Set\u201d on their record if they do need a bundle.';
+  if(st.state === 'timerremoval') return who + ' is having their TIMER TAKEN OUT \u2014 they are on the Remove Timer list, not the build list. Nothing is being made up for them and no colours are needed. Press \u201cBuild Them A New Set\u201d on their record if they do need a bundle.';
   if(st.state === 'nextyear') return who + (st.why === 'Back Next Year'
     ? ' is marked Back Next Year'
     : ' is out for this season — their lights are queued to be recycled') +
@@ -47560,6 +47637,7 @@ function renderWarehouseQueue(){
   if(!list) return;
   const built = whBuildQueueGroups();
   const groups = built.groups, keys = built.keys, timerHouses = built.timerHouses;
+  const timerRemovals = built.timerRemovals || [];
   const blocked = built.blocked || [];
   if(!keys.length && !blocked.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be built right now.</div>'; return; }
   let html = '';
@@ -47644,6 +47722,51 @@ function renderWarehouseQueue(){
           '</div>';
         }).join('')+
         '<div style="font-size:12px; color:var(--slate); margin-top:8px;">Most of these are listed in their colour groups below &mdash; marking a house done there covers its timer too. A row badged <strong>Timer only</strong> is in no group and has nothing being built, so it is finished from here.</div>'+
+      '</div>'+
+    '</div>';
+  }
+  /* ⭐ REMOVE TIMER ([[WH-34]], 2026-09-11). Addie: "For people who don't want a timer
+     anymore we need to put that in warehouse as Remove Timer."
+
+     ⚠ ITS OWN BLOCK, DIRECTLY UNDER Timers AND NEVER FOLDED INTO IT. The two lists are
+     one walk round the same shelves and opposite instructions at the end of it, so they
+     belong next to each other and must never share a heading — a row read off the wrong
+     list puts a timer back into the bin of the person who just asked to be rid of it.
+
+     ⭐ AND EVERY ROW HAS ITS OWN Done, unlike Timers. That block deliberately has none
+     because putting a timer IN is part of the bundle, so the group's Mark Done covers it.
+     Taking one OUT is not part of anything: the bin already exists, it may well be the
+     only job at that house, and marking a colour group done can never mean somebody
+     walked to a shelf and pulled a timer. The Done goes where the work is — the same rule
+     the Timer only row is written under, not an exception to it. */
+  if(timerRemovals.length){
+    html += '<div class="row-item" style="display:block;">'+
+      '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; cursor:pointer;" data-whtoggle="whtimersout">'+
+        '<div><strong style="font-size:15px;">Remove Timer</strong><div style="font-size:12.5px; color:var(--slate);">'+
+          timerRemovals.length+' house'+(timerRemovals.length===1?'':'s')+' no longer want'+(timerRemovals.length===1?'s':'')+' a timer &mdash; take it out of their bin</div></div>'+
+        whToggleBtn('whtoggle', 'whtimersout', 'Show '+timerRemovals.length+' house'+(timerRemovals.length===1?'':'s'))+
+      '</div>'+
+      '<div id="whtimersout" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">'+
+        timerRemovals.map(function(h){
+          /* ⚠ THE BIN NUMBER IS `whBinNumberFor`, NOT THE NUMBER ON THE RECORD. Somebody
+             sent to find a bin needs the number PAINTED ON IT, which is not always the
+             customer's current one — the recycle list has already been corrected for
+             exactly this once, and this is the same walk to the same shelf. */
+          const binNum = (typeof whBinNumberFor === 'function' ? whBinNumberFor(h.data) : (h.data.customerNumber || ''));
+          /* A house that is ALSO having a bundle made is listed below as well, and saying
+             so here is what stops somebody ticking this and assuming the house is finished. */
+          const alsoBuilding = !!h.data.needsLightBuild;
+          return '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:6px 0; font-size:13.5px;">'+
+            '<span>'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+
+              (binNum ? ' <span style="display:inline-block; background:var(--snow); color:var(--slate); border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">bin #'+esc(String(binNum))+'</span>' : '')+
+              (alsoBuilding ? ' <span class="status-pill status-new" style="font-size:10.5px;">also having a set built</span>' : '')+'</span>'+
+            '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
+              '<button type="button" class="btn btn-gold btn-sm" data-whtimerout="'+h.id+'">Timer taken out</button>'+
+              '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'">Edit</button>'+
+            '</span>'+
+          '</div>';
+        }).join('')+
+        '<div style="font-size:12px; color:var(--slate); margin-top:8px;">These asked to have their timer taken out. The bundle is untouched &mdash; a row marked <strong>also having a set built</strong> is in a colour group below as well, and needs both.</div>'+
       '</div>'+
     '</div>';
   }
@@ -47912,6 +48035,36 @@ function renderWarehouseQueue(){
       }catch(err){
         btn.disabled = false;
         console.error('Could not clear the timer queue:', err);
+        alert('Could not save that: ' + (err && err.message ? err.message : err));
+      }
+    });
+  });
+  /* ⭐ [[WH-34]] — the timer is out of the bin. Write, then cache, then paint: same order
+     and the same reason as the two buttons above.
+     ⚠ IT CLEARS THE REMOVAL AND NOTHING ELSE. `needsLightBuild` is deliberately untouched,
+     so a house having a set made as well stays in its colour group and is still built —
+     one button finishing somebody else's job is how a bundle goes missing.
+     ⚠ AND IT STAMPS NOTHING. `lightsMarkedBuiltAt` answers "when was this bundle made" and
+     nothing here made one; that is [[WH-25]]'s rule, and dating a build from this button
+     would put a date the warehouse audit box reads back as fact against a house with no
+     bundle. */
+  list.querySelectorAll('[data-whtimerout]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const id = btn.dataset.whtimerout;
+      const rec = jobAddresses.find(function(a){ return a.id === id; });
+      if(!rec) return;
+      btn.disabled = true;
+      try{
+        await updateDoc(doc(db, 'jobAddresses', id), {needsTimerRemoved: false, timerRemovedAt: serverTimestamp()});
+        rec.data.needsTimerRemoved = false;
+        rec.data.timerRemovedAt = new Date();
+        toast('Timer taken out for ' + (rec.data.name || 'that house') + '.');
+        logActivity('Marked the timer taken out for ' + (rec.data.name || 'that house'), 'customers', id);
+        renderWarehouseQueue();
+      }catch(err){
+        btn.disabled = false;
+        console.error('Could not clear the timer removal:', err);
         alert('Could not save that: ' + (err && err.message ? err.message : err));
       }
     });
@@ -48334,6 +48487,59 @@ function whSheetRowsForBuild(){
       timer: String(d.outletTimer || '').trim() === 'Yes' ? 'YES' : '',
       putInto: '',
       notes: 'NO LIGHT COLOURS ON FILE ' + String.fromCharCode(8212) + ' cannot be built yet'
+    });
+  });
+  /* ⭐ THE TIMER JOBS GO ON THE PAPER TOO ([[WH-34]], 2026-09-11). Both of them, and the
+     reason is the one already written at the top of this function: a sheet that quietly
+     leaves work off is a sheet that says the day is finished when it is not.
+
+     ⚠ REMOVALS ARE EMITTED FOR EVERY HOUSE, ADDITIONS ONLY FOR THE TIMER-ONLY ONES, and
+     that is not an oversight in either direction. A house in a colour group already has a
+     row whose Timer column reads YES, so a second row for it would be the same instruction
+     twice. A REMOVAL has no such column — `outletTimer` is No by then, so that row reads
+     blank — which means the one thing nobody would ever be told from this sheet is the one
+     thing this feature exists to say.
+
+     ⚠ AND A TIMER-ONLY HOUSE WAS ON NO SHEET AT ALL until now. It is in no group and is not
+     blocked, so it fell through both loops — [[WH-27]] put it on the screen and nothing put
+     it on paper, which is this repo's own "the two build sheets list the same people" rule
+     broken in the quietest possible way. Closed here rather than left as a matching hole. */
+  (built.timerRemovals || []).forEach(function(item){
+    const d = item.data;
+    rows.push({
+      group: 'Remove timer',
+      wire: '',
+      type: 'REMOVE TIMER',
+      reason: whBuildReasonLabel(d),
+      what: whWhoLabel(d),
+      address: d.address || '',
+      bins: whBinsForHouse(d),
+      bundles: '',
+      /* ⚠ NOT 'YES'. That column means "a timer goes in", and this row is the opposite
+         instruction — printing YES here is how one comes back out of the van. */
+      timer: 'TAKE OUT',
+      putInto: whPutIntoLabel(d),
+      notes: 'THEY DO NOT WANT A TIMER ' + String.fromCharCode(8212) + ' take it out of their bin' +
+             (d.needsLightBuild ? ' (they are also having a set built)' : '') +
+             (d.notes ? ' ' + String.fromCharCode(8212) + ' ' + String(d.notes).trim() : '')
+    });
+  });
+  (built.timerHouses || []).forEach(function(item){
+    const d = item.data;
+    if(d.needsLightBuild || !d.needsTimerOnly) return;
+    rows.push({
+      group: 'Timer only',
+      wire: '',
+      type: 'TIMER ONLY',
+      reason: whBuildReasonLabel(d),
+      what: whWhoLabel(d),
+      address: d.address || '',
+      bins: whBinsForHouse(d),
+      bundles: '',
+      timer: 'YES',
+      putInto: whPutIntoLabel(d),
+      notes: 'TIMER ONLY ' + String.fromCharCode(8212) + ' nothing to build, just a timer in their bin' +
+             (d.notes ? ' ' + String.fromCharCode(8212) + ' ' + String(d.notes).trim() : '')
     });
   });
   built.keys.forEach(function(key){
@@ -52364,8 +52570,30 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        ⚠ AND HOLES C AND D ARE NOT REVERSED. A WIRE change still re-queues the build, and so
        does a timer change on a house that has colours — that house is in a real build group
        and always was. Only the case she reported is moved. */
+    /* ⭐ AND A TIMER COMING OUT IS ITS OWN JOB ([[WH-34]], 2026-09-11). Addie: "For people
+       who don't want a timer anymore we need to put that in warehouse as Remove Timer."
+
+       ⛔ THE FLAG IS WRITTEN FOR EVERY HOUSE, NOT ONLY THE ONES ROUTED AWAY FROM THE BUILD,
+       and that is the load-bearing half. A timer that is ON can be re-derived off the record
+       for ever, so the Timers list does not need a flag at all; a timer that WAS on leaves
+       no trace whatsoever the moment this save lands. If it is not written down here it can
+       never be written down at all, and the timer stays in that bin all season.
+
+       ⚠ AND IT IS TAKEN BACK IF THEY CHANGE THEIR MIND before anybody has been. Nothing has
+       been pulled while the flag is still up, so a timer switched back on cancels the
+       removal — the same shape as a pending recycle being cancelled when somebody moves off
+       "no", and for the same reason: the job has not happened yet. Once the warehouse has
+       pressed Timer taken out the flag is already down and this cannot reach it. */
     const whChanged = warehouseRebuildFields(item.data, addrUpdates);
+    const timerCameOff = whTimerCameOff(item.data, addrUpdates, whChanged);
+    if(timerCameOff) addrUpdates.needsTimerRemoved = true;
+    else if(whChanged.indexOf('outletTimer') !== -1 && item.data.needsTimerRemoved) addrUpdates.needsTimerRemoved = false;
     if(whTimerOnlyQueue(item.data, addrUpdates, whChanged, newLightsDescription)) addrUpdates.needsTimerOnly = true;
+    /* ⭐ AND THE MIRROR OF THE LINE ABOVE: a removal that is the whole job queues no build.
+       Written as its own branch rather than folded into the one above, because the two
+       questions have different answers for a house that HAS colours — that one still
+       rebuilds, and still lands on the Remove Timer list through the flag set above. */
+    else if(whTimerRemovalQueue(item.data, addrUpdates, whChanged, newLightsDescription)) addrUpdates.needsTimerRemoved = true;
     else if(whChanged.length) addrUpdates.needsLightBuild = true;
     /* "They said no" is a lasting fact; "their lights need pulling back into
        stock" is a job that gets finished. This used to be re-derived from the

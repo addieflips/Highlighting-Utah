@@ -1684,6 +1684,31 @@ function warehouseRebuildFields(oldData, newData) {
   });
 }
 
+/* ⭐ DID THIS SAVE TURN A TIMER OFF? ([[WH-34]], 2026-09-11). Addie: "For people who don't
+ * want a timer anymore we need to put that in warehouse as Remove Timer."
+ *
+ * ⛔ THE PORTAL IS THE COMMONEST WAY THIS HAPPENS, which is why the rule cannot live only in
+ * admin.html. `outletTimer` is one of PORTAL_WRITE_FIELDS' preferences, so a customer turns
+ * their own timer off from their own phone — and if this file does not write the flag, the
+ * warehouse is never told and the timer stays in their bin however good the office screen is.
+ *
+ * ⚠ ONE RULE, TWO COPIES, ASSERTED IDENTICAL — `whTimerCameOff` in admin.html is the other,
+ * and run-all.js runs both over the same table of cases. The browser cannot run this one.
+ *
+ * ⚠ WHAT IS DELIBERATELY *NOT* MIRRORED IS THE ROUTING. admin.html can also route a
+ * timer-only save AWAY from the build queue ([[WH-27]]/[[WH-34]]); this file has never had
+ * `needsTimerOnly` at all and still sets `needsLightBuild` for any warehouse change, in both
+ * directions. That asymmetry pre-dates this and is left exactly as it was rather than widened
+ * by half: what is added here is the flag, which is the part that cannot be re-derived later. */
+function whTimerCameOffServer(oldData, updates, changedFields) {
+  const u = updates || {}, o = oldData || {};
+  if (!Array.isArray(changedFields) || changedFields.indexOf('outletTimer') === -1) return false;
+  /* A blank timer is "No" everywhere, so only a stored Yes can come off. */
+  if (String(o.outletTimer == null ? '' : o.outletTimer).trim() !== 'Yes') return false;
+  const now = Object.prototype.hasOwnProperty.call(u, 'outletTimer') ? u.outletTimer : o.outletTimer;
+  return String(now == null ? '' : now).trim() !== 'Yes';
+}
+
 /* ---- WHAT A CUSTOMER CHANGED IN THEIR OWN PORTAL -------------------------
  *
  * ⭐ THE LAST OF ADDIE'S SIX, AND THE OFFICE HALF WAS ALREADY DONE (added 2026-08-29).
@@ -2003,6 +2028,15 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
   {
     const rebuild = warehouseRebuildFields(oldData, updates);
     if (rebuild.length) updates.needsLightBuild = true;
+    /* ⭐ AND A TIMER SWITCHED OFF IS ITS OWN JOB ([[WH-34]]). The line above already queues
+       the rebuild; this is the half a rebuild cannot say, because by the time anybody reads
+       the record `outletTimer` is No and the house looks like the ~900 that never had one.
+       ⚠ AND IT IS TAKEN BACK IF THEY SWITCH IT ON AGAIN before the warehouse has been —
+       nothing has been pulled while the flag is still up, the same shape as a pending
+       recycle being cancelled. Only ever written when it CHANGES something, so an ordinary
+       preferences save never touches the field. */
+    if (whTimerCameOffServer(oldData, updates, rebuild)) updates.needsTimerRemoved = true;
+    else if (rebuild.indexOf('outletTimer') !== -1 && oldData.needsTimerRemoved) updates.needsTimerRemoved = false;
   }
   if (section === 'lights' && updates.lightsDescription !== undefined) {
     const changed = updates.lightsDescription !== (oldData.lightsDescription || '');
