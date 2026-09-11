@@ -10426,6 +10426,23 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              very hard to notice once they have gone wrong. */
           receiptSentForDeposit: null,
           importedPayments: [],
+          /* ⭐ AND THE 1 APRIL LATE-FEE GUARD, WHICH IS ABOUT LAST SEASON TOO
+             (2026-09-11). `lateFeeAt` is what stops `runLateFeeBatch` charging the
+             same invoice twice, and invoice documents are REUSED season to season —
+             so left standing it stops being a once-a-season guard and becomes a
+             once-for-ever one: charged in April 2027, silently skipped every April
+             after that, for that customer, permanently.
+             ⚠ THIS IS THE `chargeNewMemberFee` BUG POINTING THE OTHER WAY. That one
+             was a flag nothing cleared while its guard was released each season, so
+             the $30 was charged every year; this is a guard nothing releases, so the
+             fee is charged once and never again. Same shape, opposite sign, and the
+             quiet direction — nobody complains about not being charged, so the only
+             thing that would ever have found it is this line.
+             ⚠ AND THE FEE ITSELF IS NOT LOST BY BEING CLEARED HERE. If it was still
+             unpaid it is already inside `x.arrears` above, carried as the arrears
+             note; what goes is only the marker saying this invoice has had its turn. */
+          lateFeeAt: null,
+          lateFeeAmount: null,
           status: computeInvoiceStatus(x.newInstall, x.removal, 0, 0, x.arrears),
           priceReviewed: true, updatedAt: serverTimestamp()
         });
