@@ -23185,7 +23185,24 @@ function renderMessagesList(){
   if(msgFilter === 'awaiting') filtered = filtered.filter(m => !m.data.responded);
   document.getElementById('currentFolderLabel').textContent =
     commView.section === 'folder' ? selectedFolder : commViewLabel();
-  filtered = filtered.filter(m => (m.data.folder || 'Inbox') !== 'System');
+  /* ⭐ THE BLANKET "HIDE SYSTEM" FILTER IS GONE (2026-09-11, [[MSG-22]]). Addie: "inbox it
+     shows the number notification. But that should go away when we mark responded."
+     ⛔ ONE LEFTOVER LINE, TWO BUGS, AND IT EXPLAINS BOTH HALVES OF WHAT SHE SAW. It dropped
+     every message whose folder is System AFTER `commRows` had already chosen the section —
+     so the **System Messages** section, which has five tabs of its own, could never show a
+     single row, and the nav badge went on counting unread non-routine System notices that
+     she had NO WAY TO OPEN. Mark Responded was working perfectly; the number it could not
+     clear was made of rows the list refused to draw.
+     ⚠ IT IS A SURVIVAL FROM THE FOLDER-SHAPED INBOX, where System was a folder to be hidden
+     from "Inbox". The Comm Centre gave System its own section and its own type, and nobody
+     removed the old hide — the classic shape of a guard that was right about a design that
+     has since been replaced.
+     ⛔ AND REMOVING IT RESTORES ONE RULE RATHER THAN RELAXING ANYTHING. `commRowMatches`
+     already decides this and decides it better: `system` takes only MSG_TYPE_SYSTEM,
+     `member` only member, `errors` only error, and the Inbox deliberately keeps System out
+     unless she asks for All — her own words, quoted at that branch. This line was a second
+     opinion sitting on top of it, which is the exact failure that function's own note warns
+     about ("a tab reads 5 and shows 4"). */
   /* Search across everything the card shows, so what you can read you can find:
      the name, either contact detail, the address it was matched to, and the
      message itself. Phone typed with or without punctuation both work. */
@@ -58511,7 +58528,27 @@ async function reconcileUpcomingRoutes(){
       });
       const stopById = {};
       leftOver.forEach(function(c){ stopById[c.id] = c.stop; });
-      const newDays = planNewCrewDays(waiting, taken, {maxDays: MAX_NEW_DAYS_PER_SWEEP});
+      /* ⭐ AND THE WEATHER RULES COME WITH IT (2026-09-11, [[SCH-74]]). Addie: "we still
+         need to dictate the schedule by the weather. If an area is snowed in or a house
+         is covered in frost/ice we cannot do it."
+         ⛔ THIS SWEEP WAS THE ONE PLANNER WITH NO WEATHER IN IT AT ALL. `rebuildSeasonDays`
+         has passed tempFor/coldBelow/chillyBelow/warmBand since the cold rule was built;
+         this call passed `maxDays` and nothing else, so `planNewCrewDays` fell back to its
+         own "no opinion" default and THE COLD VETO COULD NEVER FIRE HERE. It would put a
+         crew in a town at 20° and nothing anywhere would say so — and the days it builds
+         are what stamp `scheduledDate` on the customer, so those are exactly the dates the
+         office reads off a row.
+         ⚠ SPELLED THE SAME WAY AS THE SCHEDULE'S CALL, GUARDS AND ALL, because the claim is
+         that the two planners decide the same thing — a second opinion about who may be
+         sent out in the cold is how they start disagreeing about one town. */
+      const sweepTempFor = (typeof forecastHighFor === 'function') ? forecastHighFor : function(){ return null; };
+      const newDays = planNewCrewDays(waiting, taken, {
+        maxDays: MAX_NEW_DAYS_PER_SWEEP,
+        tempFor: sweepTempFor,
+        coldBelow: (typeof COLD_DAY_MAX_F === 'number' ? COLD_DAY_MAX_F : 31),
+        chillyBelow: (typeof COLD_DAY_CHILLY_F === 'number' ? COLD_DAY_CHILLY_F : 35),
+        warmBand: (typeof WARMTH_BAND_F === 'number' ? WARMTH_BAND_F : 10)
+      });
       for(let i = 0; i < newDays.length; i++){
         const nd = newDays[i];
         const docId = nd.date + '_install_' + nd.crew;
@@ -59938,7 +59975,23 @@ async function clearStaleInstallBookingsRun(){
     const d = (item && item.data) || null;
     if(!d) return false;
     if(!(d.scheduled === true || d.scheduledDate || d.assignedCrew)) return false;
-    return isOutForSeason(d);
+    if(isOutForSeason(d)) return true;
+    /* ⭐ AND A DAY NO CREW ROUTE HOLDS THEM ON (2026-09-11, [[SCH-74]]). Addie, told the
+       red pill only REPORTED it: "I can't check every day to look at which date everyone
+       was assigned and if it's legitamite or not I need it to correctly place them."
+       ⛔ SHE IS RIGHT AND [[SCH-73]] WAS HALF A FIX. Naming an orphan on one row out of
+       ~950 is a report, and this file already knows where reports go — HC-03, "I don't
+       check health check very often". The stamp has to go, so the next sweep re-homes them
+       and the date on the row is true without anybody reading it.
+       ⚠ AND THE REPAIR BELONGS HERE, NOT IN THE RENDER, which is what `scheduledDayIsReal`
+       refused to do and still refuses. This function is already a write path the office
+       asked for BY NAME on Recalculate everything ("make sure that this updates when you
+       recalculate everything too"), it is batched, it takes them off their routes first,
+       and it mirrors into the cache. A render is none of those things.
+       ⚠ `=== false` IS THE WHOLE GUARD. `scheduledDayIsReal` answers null while the routes
+       are still loading, and null must never reach a write — that would clear ~950 real
+       bookings in one press. Same three-answer rule the pill reads. */
+    return scheduledDayIsReal(item.id, d.scheduledDate) === false;
   });
   /* ⭐ BATCHED, BECAUSE THE HONEST NUMBER HERE IS NEARLY A THOUSAND (2026-09-03).
      Addie: "@firebase/firestore: FirebaseError: [code=resource-exhausted]: Write stream
@@ -70283,7 +70336,12 @@ RT.addEventListener('click',e=>{const t=e.target;
        have yet. */
     if(typeof clearStaleInstallBookings === 'function'){
       clearStaleInstallBookings().then(function(n){
-        if(n) toast(n + ' record' + (n===1?'':'s') + ' no longer says booked — they are out for the season');
+        /* ⚠ WORDED FOR BOTH REASONS SINCE [[SCH-74]]. It used to say "they are out for the
+           season", which was the only reason it could fire for; an orphaned day is the
+           other one now, and naming the wrong cause is how the office learns to distrust
+           a message. What is true of every record it clears is that the row was claiming
+           a day nothing was going to honour. */
+        if(n) toast(n + ' record' + (n===1?'':'s') + ' stopped claiming a day nobody is coming on');
       }).catch(function(err){ console.error('Could not clear stale bookings:', err); });
     }
     preRebuild=before;

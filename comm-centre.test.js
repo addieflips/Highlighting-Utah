@@ -1295,6 +1295,140 @@ if(JSDOM){
 }
 
 
+/* =========================================================================
+   ⭐ EVERY MESSAGE THE BADGE COUNTS CAN BE REACHED ([[MSG-22]], 2026-09-11)
+
+   Addie: "inbox it shows the number notification. But that should go away when we mark
+   responded." Mark Responded was working — it sets `read` as well, and has since 2026-08-25.
+   What it could not clear was a number made of rows the list REFUSED TO DRAW.
+
+   ⛔ ONE LEFTOVER LINE IN renderMessagesList dropped every message whose folder is System,
+   AFTER commRows had already picked the section. So the System Messages section — five tabs
+   of its own — could never show a row, and the nav badge counted unread non-routine System
+   notices she had no way to open. A survival from the folder-shaped Inbox, where System was
+   a folder to hide from "Inbox"; the Comm Centre gave it a section and a type and nobody
+   removed the old hide.
+
+   ⭐ THE CHECK IS THE INVARIANT, NOT THE LINE. Asserting "no folder filter in that function"
+   pins the bug that happened and nothing else; a second way to hide a row would walk straight
+   past it. What must be true is that ANYTHING THE BADGE COUNTS LANDS IN SOME SECTION — so it
+   RUNS the badge rule and the section rule over the same fixtures and looks for a row that
+   is counted and homeless. That would have caught this, and catches the next shape too.
+   ========================================================================= */
+console.log('');
+console.log('--- a counted message is a reachable message ---');
+{
+  /* The badge's own rule, lifted rather than restated: every unread message except the
+     routine route-sweep notice. A copy here would agree with itself and prove nothing. */
+  const badgeSb = {};
+  new Function(liftConst('ROUTINE_NOTICE_TOPIC') + liftFn('noticeIsRoutine') +
+    'this.routine = noticeIsRoutine;').call(badgeSb);
+
+  const SECTIONS = new Function(commSectionsSrc() + 'return COMM_SECTIONS;')()
+    .map(function(x){ return x.key; });
+  const counted = function(d){ return !d.read && !badgeSb.routine(d); };
+  const reachable = function(d){
+    return SECTIONS.some(function(k){ return sb.matches(d, k, 'all'); });
+  };
+
+  const rows = [
+    ['a plain member question', {topic:'General Question', read:false, folder:'Inbox',
+      name:'A', message:'when are you coming?'}],
+    /* ⛔ THE ROW THAT WAS THE BUG. A System notice carrying the warning sign is not routine,
+       so the badge counts it — and before this fix the list could not draw it in ANY
+       section, so the number it added could never come back down. */
+    ['a System notice that is not the routine sweep', {topic:'Routes Kept Up To Date',
+      read:false, folder:'System', message:'\u26A0 29 moved, nobody has been told'}],
+    ['a scheduling System notice', {topic:'Moved To Another Day', read:false, folder:'System',
+      message:'moved from Tuesday to Wednesday'}],
+    ['a member error', {topic:'Member Error', read:false, folder:'Errors/Member Errors',
+      message:'the RSVP link failed'}],
+    ['an admin error', {topic:'Admin Error', read:false, folder:'Errors/Admin Errors',
+      message:'something threw'}]
+  ];
+  /* ⚠ EACH ROW STATES WHETHER IT SHOULD BE COUNTED, and that is not decoration. The first
+     version read `if(!counted(d)) return;` — so a sabotage that stopped the badge counting
+     these rows made every check SKIP rather than fail, and the red-check reported it as a
+     miss. A check that can quietly opt itself out is not a check. */
+  rows.forEach(function(pair){
+    const label = pair[0], d = pair[1];
+    check('the badge counts ' + label,
+      counted(d),
+      'it is unread and it is not the routine sweep, so it is on the number she is looking at');
+    check('and some section shows ' + label,
+      reachable(d),
+      'the nav badge counts it and no section in COMM_SECTIONS matches it — that number ' +
+      'can never come down, however many messages she marks responded');
+  });
+
+  /* ⚠ AND THE ROUTINE SWEEP NOTICE IS STILL NOT COUNTED, which is the other half: the
+     exclusion this badge already had is what stopped it reading 91 while the list held a
+     fraction of that. A fix that made everything reachable by also counting everything
+     would put that straight back. */
+  check('and the routine route-sweep notice is still left out of the count',
+    !counted({topic:'Routes Kept Up To Date', read:false, folder:'System',
+              message:'29 moved, 29 taken off'}),
+    'it fires every fifteen minutes — counting it is how the number became noise');
+
+  /* ⛔ AND THE SECTION IS NOT MERELY MATCHED, IT HOLDS THEM. commRowMatches answering true
+     is worth nothing if the renderer then drops the row, which is exactly what happened for
+     three days. This asserts the System section is a real, populated view. */
+  const sysRows = rows.map(function(p){ return p[1]; })
+    .filter(function(d){ return sb.matches(d, 'system', 'all'); });
+  check('the System Messages section is a populated view, not an empty one',
+    sysRows.length >= 2,
+    'it has five tabs and could not show a single row — the list filtered its own section out');
+
+  /* ⛔ AND THE RENDERER HAS TO OBEY THAT, WHICH IS A SEPARATE CLAIM AND SAYS SO. Everything
+     above drives commRowMatches from this harness, so it is all still green while
+     renderMessagesList throws the rows away on the next line — which is precisely what
+     happened here for three days, and the shape this repo has shipped twice before (the
+     house-tab strip, the recycle "bin says" box). This one is STRUCTURAL rather than
+     behavioural and that is not pretended otherwise: the renderer wants a DOM, and what
+     can be pinned without one is that nothing between picking the section and drawing it
+     re-decides membership by FOLDER. Search, unread, important and awaiting are the only
+     narrowing allowed there — they are the toolbar, and she set them herself. */
+  {
+    const fnStart = admin.indexOf('function renderMessagesList(');
+    const body = fnStart === -1 ? '' : admin.slice(fnStart, admin.indexOf('if(!filtered.length)', fnStart));
+    const stripped = body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    /* ⚠ IT WALKS EACH FILTER'S OWN BRACKETS. The first version matched
+       `filtered.filter(` followed by `folder` with no `)` between — which the arrow form
+       satisfies and the `function(m){ ... }` form does NOT, because the `)` closing the
+       parameter list arrives first. A red-check put the same rule back in the other shape
+       and sailed straight through. Two spellings of one mistake is one mistake. */
+    const filterBodies = (function(){
+      const out = [];
+      let at = 0;
+      for(;;){
+        const i = stripped.indexOf('filtered.filter(', at);
+        if(i === -1) return out;
+        let depth = 0, j = i + 'filtered.filter'.length;
+        for(; j < stripped.length; j++){
+          const ch = stripped[j];
+          if(ch === '(') depth++;
+          else if(ch === ')'){ depth--; if(depth <= 0) break; }
+        }
+        out.push(stripped.slice(i, j + 1));
+        at = j + 1;
+      }
+    })();
+    check('and nothing re-decides membership by folder after the section is picked',
+      !!body && !filterBodies.some(function(f){ return f.indexOf('folder') !== -1; }),
+      'commRowMatches is the one rule that decides the list and every tab count; a second ' +
+      'opinion on top of it is how the System section showed nothing while its badge counted' +
+      (filterBodies.length ? ' — found: ' + filterBodies.filter(function(f){ return f.indexOf('folder') !== -1; }).join(' | ') : ''));
+    /* ⚠ COMMENTS STRIPPED FIRST — the paragraph above the fix NAMES the filter it removed,
+       and a plain search reads the explanation as the code. Suites 58, 274, 275 and 300 each
+       had to learn this, and the reliability suite in this very file learned it again. */
+    check('and that check reads the code rather than the note explaining it',
+      stripped.indexOf('folder-shaped Inbox') === -1,
+      'the comment recording the removal mentions the filter by name; unstripped, this ' +
+      'check would fail on the very file that fixed it');
+  }
+}
+
+
 Promise.all(pendingChecks).then(function(){
   console.log('');
   console.log('=== The communication centre ===');

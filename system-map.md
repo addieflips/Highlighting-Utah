@@ -3651,11 +3651,28 @@ folder files its derived residents into Inbox for the same reason. ⚠ **And `fo
 field decides which *tab* a message is on, not which folder, and a topic must never be able
 to move a notice between them.
 
-⚠ **The nav badge was counting messages its own list has never shown.**
-`renderMessagesList` has always filtered System notices *out* of the customer list
-(`folder !== 'System'`) while the badge beside it counted `allMessages` unread — System
-notices included. That is why it read 91 over a list holding a fraction of that, and why a
-real customer message arriving moved it by one and nobody could tell.
+⭐ **THE NAV BADGE USED TO COUNT MESSAGES ITS OWN LIST REFUSED TO DRAW — FIXED 2026-09-11**
+([[MSG-22]]). Addie: *"inbox it shows the number notification. But that should go away when
+we mark responded."*
+
+`renderMessagesList` dropped every `folder === 'System'` row **after** `commRows` had already
+picked the section, while the badge counted every unread non-routine message. Two bugs from
+one line: the **System Messages** section (five tabs of its own) could never show a single
+row, and the badge counted System notices she had no way to open — so the number could never
+come down however many messages she marked responded.
+
+⭐ **Mark Responded was never the problem.** It has set `read` as well as `responded` since
+2026-08-25, for exactly this reason, and still does.
+
+⛔ **The line was a survival from the folder-shaped Inbox**, where System was a folder to hide
+from "Inbox". The Communication Centre gave System its own section *and* its own type and
+nobody removed the old hide. Removing it restores one rule rather than relaxing any:
+`commRowMatches` already keeps System out of the Inbox unless you ask for **All**, which is
+Addie's own instruction quoted at that branch.
+
+⚠ **Historic, and still the reason the exclusion exists at all:** the badge once read 91 over
+a list holding a fraction of that, because it counted the routine route-sweep notice too.
+That exclusion stands — it is the only thing `noticeIsRoutine` does.
 
 ⚠ **Nothing is deleted and nothing is marked read.** These notes record days that moved
 under customers who may already have been told a date — the closing line of every digest
@@ -5141,9 +5158,25 @@ reconcile sweep's stranded pass only re-homes a date already in the PAST. Step 1
 sweep walks **routes** and corrects the records on them, so a customer on no route is never
 looked at.
 
-⛔ **IT REPORTS, IT NEVER REPAIRS.** Clearing the stamp from a render would be a write made
-on a derived judgement, and the one time it is wrong it cancels a real booking. Naming it
-is what sends the office to **⚙ Recalculate everything**, which is the thing that fixes it.
+⛔ **THE PILL REPORTS; THE REPAIR HAPPENS ON RECALCULATE EVERYTHING** (2026-09-11, [[SCH-74]]).
+Addie: *"I can't check every day to look at which date everyone was assigned and if it's
+legitamite or not I need it to correctly place them."* She is right — a warning on one row
+out of ~950 is a report. `clearStaleInstallBookingsRun` now clears an orphaned stamp as well
+as an out-for-the-season one, so the next sweep re-homes them and the date comes right on its
+own. The pill stays as the thing that says so on screen; it still never writes.
+
+⭐ **AND THE CAUSE IS THAT THERE ARE TWO PLANNERS.** The **Schedule** tab builds
+`routeSchedule` — the day list, Recalculate everything, both crew print sheets, the Printing
+tab. The **reconcile sweep** builds its own crew-days in `scheduledRoutes` every fifteen
+minutes, and that is what stamps `scheduled` / `scheduledDate` / `assignedCrew` on the
+customer. The row was reporting the planner the office does not look at.
+
+⭐ **THE SWEEP NOW PLANS BY THE WEATHER TOO.** `rebuildSeasonDays` has always passed the cold
+veto, the chilly preference and the warmth band; the sweep passed `maxDays` alone, so its
+forecast lookup defaulted to "no opinion" and the cold rule **could never fire there** — it
+would send a crew to a town at 20° and write that date onto a row. Both now pass the same
+four options. ⚠ It is still a TEMPERATURE rule only: 38° and snowing passes it, and frost on
+one roof is a morning call no forecast can make.
 ⚠ And it answers **three** ways, not two: until `scheduledRoutesLoaded` is set every stamped
 customer looks orphaned, so before that it says "cannot tell" and the pill is exactly what
 it was before.
