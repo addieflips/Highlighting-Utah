@@ -94,6 +94,99 @@ const ERROR_CONSTS = between(admin, "const ERROR_FOLDER = 'Errors';",
 const ADMIN_BLOCK = between(admin, 'const ERROR_REPEAT_HOURS = 12;',
   'function loadMessageFolders(', 'the admin reporter');
 const SEED_FN = extractFn(admin, 'seedErrorFolders');
+
+/* =========================================================================
+   ⭐ THE RED BADGE HOLDS EVERY ERROR, NOT JUST THIS PAGE LOAD'S ([[MSG-24]])
+
+   Addie, 2026-09-11: "I like the red error thing can we get rid of error inbox's
+   altogether ... and just have all emails go to the red errors badge instead", then
+   "Inbox gets deleted and badge stays with all error messages underneath it."
+
+   ⛔ THE BADGE COULD NOT HAVE CARRIED THAT ON ITS OWN, and this is the half that has to
+   work before the Errors folders can leave the Inbox. `caught` is an in-memory array in a
+   script that runs before Firebase — emptied by every reload, which is precisely why the
+   stored copy was added ("a fault that happened while she was on the phone was never seen
+   by anybody"). Deleting the rows and keeping the badge as it was would have thrown away
+   every error she was not watching happen.
+
+   ⚠ RUN, NOT MATCHED. Every claim here is about what ends up IN the list and in what
+   order — which a regex cannot see, and getting it wrong shows her last Tuesday's fault
+   at the top while today's is buried.
+   ========================================================================= */
+console.log('');
+console.log('--- the badge is topped up from what is stored ---');
+{
+  const sb = {};
+  /* ⚠ THE CAP IS LIFTED, NOT STUBBED — errBadgeStoredLines reads it, so a sandbox without
+     it dies on a bare ReferenceError (the extraction-list trap, working as documented), and
+     a stubbed copy would let this gate stay green while the real list was uncapped. */
+  const CAP = /const ERR_BADGE_MAX_STORED = \d+;/.exec(admin);
+  if(!CAP) throw new Error('could not find ERR_BADGE_MAX_STORED');
+  new Function('allMessages', 'msgFacets', 'MSG_TYPE_ERROR', 'toJsDate', 'msgErrorWhoLabel',
+    CAP[0] + '\n' + extractFn(admin, 'errBadgeStoredLines') +
+    'this.lines = errBadgeStoredLines;')
+    .call(sb,
+      [
+        {id:'a', data:{message:'older fault', createdAt:new Date('2026-09-01T10:00:00Z'), name:'Pat'}},
+        {id:'b', data:{message:'newest fault', createdAt:new Date('2026-09-09T10:00:00Z')}},
+        {id:'c', data:{message:'a member message', createdAt:new Date('2026-09-10T10:00:00Z')}},
+        {id:'d', data:{message:'middle fault', createdAt:new Date('2026-09-05T10:00:00Z')}}
+      ],
+      function(d){ return {type: /fault/.test(d.message) ? 'error' : 'member'}; },
+      'error',
+      function(v){ return v instanceof Date ? v : null; },
+      function(d){ return d.name || ''; });
+
+  const lines = sb.lines();
+  check('only the errors are put on the badge',
+    lines.length === 3 && !lines.some(l => /member message/.test(l)),
+    'got ' + JSON.stringify(lines) + ' — a customer question on the error badge is noise ' +
+    'on the one list that is meant to mean something is broken');
+  check('and the newest is first',
+    /newest fault/.test(lines[0]) && /older fault/.test(lines[2]),
+    'got ' + JSON.stringify(lines) + ' — a list opening on last Tuesday reads as the badge ' +
+    'being stuck, and what just broke is what she is looking for');
+  /* ⚠ THE DATE, NOT A CLOCK TIME. These are from other days by definition; a bare time
+     beside this session's live errors reads as something that just happened. */
+  check('a stored line is stamped with its date',
+    lines.every(l => /^\[\d/.test(l)) && !lines.some(l => /^\[\d+:\d\d:\d\d/.test(l)),
+    'got ' + JSON.stringify(lines));
+  check('and it names who hit it when that is known',
+    /Pat/.test(lines.find(l => /older fault/.test(l)) || ''),
+    '[[MSG-10]] taught these rows to name the customer; dropping that on the badge would ' +
+    'undo it on the one screen she is now meant to read them from');
+  /* ⛔ AND IT IS CAPPED. Every error of the season in a phone-sized panel is the cries-wolf
+     failure this file names in four other places. */
+  check('the stored half is capped',
+    /ERR_BADGE_MAX_STORED/.test(admin) && /slice\(0, ERR_BADGE_MAX_STORED\)/.test(admin),
+    'an uncapped list is one nobody scrolls to the bottom of');
+
+  /* ⛔ AND THE TWO HALVES ARE ACTUALLY JOINED. Everything above drives the reader from its
+     own harness — delete the call from flushAdminErrors and every check still passes while
+     the badge never gains a single stored row. This repo has shipped that exact shape
+     twice (the house-tab strip, the recycle "bin says" box). */
+  const flush = extractFn(admin, 'flushAdminErrors');
+  check('and flushAdminErrors is what puts them there',
+    /errBadgeSeedFromStored\(\)/.test(flush),
+    'messages landing is the one moment there is anything to read — called any earlier it ' +
+    'seeds an empty list, and seededOnce means it never tries again');
+  /* ⚠ THE CALL, NOT THE GUARD. The first version matched `window.__huErrCatchSeed`
+     anywhere in that function — which the `typeof ... !== 'function'` guard on the line
+     above satisfies all by itself, so a red-check deleting the actual call sailed through.
+     It has to be the call, WITH the lines handed to it. */
+  check('and the seeder hands them to the plain-script badge',
+    /window\.__huErrCatchSeed\(\s*errBadgeStoredLines\(\)\s*\)/.test(extractFn(admin, 'errBadgeSeedFromStored')) &&
+    /window\.__huErrCatchSeed *= *function/.test(admin),
+    'the catcher runs before Firebase exists, so the hand-over has to go through window — ' +
+    'the same bridge __huAdminErrorSink already makes in the other direction');
+  /* ⚠ AND A LIVE ERROR IS NOT SHOWN TWICE. The same fault still happening this session is
+     already in the list with its own timestamp; adding the stored copy underneath would
+     make the count lie about how many things are wrong. */
+  check('a fault already on screen is not added again underneath',
+    /if\(seen\[t\]\) continue;/.test(admin),
+    'the live one wins — it has the timestamp she cares about');
+}
+
 const RETRY_AFTER_FN = extractFn(admin, 'emailSendRetryAfter');
 const HOME_MAP = (admin.match(/const MESSAGE_HOME_FOLDER = \{[\s\S]*?\};/) || [])[0];
 const FOLDER_OF = extractFn(admin, 'messageFolderOf');
