@@ -403,6 +403,12 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
 
     ⭐ **Fixed in passing:** the three buttons at the bottom of Edit Customer each disable themselves when pressed so they cannot be double-pressed, and **nothing ever re-enabled them** — so queueing a build for one customer left *Build Them A New Set* greyed out for every customer opened afterwards, until the page was reloaded. `openEditCustomerModal` puts all three back. Found while adding the third button, which would have inherited the same bug.
 
+    ⭐ **And Save Changes joined them, from the other end** (2026-09-11, from the Errors folder). It was the one button down there that never disabled itself, and the save behind it is 1,400 lines and around forty awaits long. Two rows on 2026-09-09 — *"null is not an object (evaluating 's.indexOf')"* on Safari and *"Cannot read properties of null (reading 'indexOf')"* on Chrome — are one fault worded by two browsers: `s` is the Firestore SDK's own loop variable, and a **null document id** reaching `doc()` is the only thing in the page that reaches it. **The save now holds the id it started with** (`savingCustomerId`) instead of re-reading the module-level `editCustomerId` at every one of eleven sites.
+
+    ⛔ **The crash was the lucky half of that bug.** Cancel, the X, Remove to recycle and the save's own last line all set `editCustomerId` to null, and opening another customer sets it to **somebody else's id** — any of which can land between two awaits while a save is still running. Null throws, and the office is told *"Nothing was saved"*, which is at least true. **A different id does not throw at all:** the rest of the save writes this customer's thirty-odd fields onto that customer's record, silently, and nothing on any screen says so. Holding the id closes both; disabling the button closes the same race from its other end, two clicks running the handler twice.
+
+    ⚠ **One line still has to ask what is on screen, and it is the close.** A save that outlived its modal now finishes correctly against the right record — so the only thing left that must compare against `editCustomerId` is the line that hides the overlay, because closing unconditionally shuts a window somebody has already started typing in. The button is given back in a `finally`, not by the opener: the save that fails is the one she needs to retry.
+
 ---
 
 ## 2. Fields that drive more than one thing
