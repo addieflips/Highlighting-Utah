@@ -22054,7 +22054,7 @@ let commView = {section:'inbox', tab:'all'};
  * A whole feature that looks saved and is not is a worse trade than the one cost here, which
  * is that two people editing sections at the same moment overwrite each other. Same trade
  * `settings/scheduling` already makes, on something that changes about as often. */
-/* ⭐ AND THEN SHE NAMED THE WHOLE THING ([[MSG-17]], 2026-09-11). Addie, in five messages:
+/* ⭐ AND THEN SHE NAMED THE WHOLE THING ([[MSG-19]], 2026-09-11). Addie, in five messages:
  * "on inbox we need to be able to add a folder to each section not just a new section";
  * "in what type does this belong to we should have a spot for nothing so we can just move
  * emails into it for my completed folder"; "I also don't like the filters you set for me we
@@ -22119,7 +22119,7 @@ const COMM_SECTIONS = [
      after — so the office does different things with each, and a single No folder would hide
      that difference on the one screen where it is acted on.
      ⚠ IT IS A BUILT-IN, so she can rename it, re-icon it, hide it or add folders to it
-     ([[MSG-17]]) — but what lands in it is code, because a declined RSVP has to reach it
+     ([[MSG-19]]) — but what lands in it is code, because a declined RSVP has to reach it
      whatever anybody has renamed. */
   /* ⚠ THE TWO ANSWERS FIRST, THEN A FOLDER PER REASON ([[RS-60]]) — her "it will go in
      the folder with the response they choose", with the reasons built from the shared
@@ -22200,7 +22200,7 @@ function commAllSections(){
               tabs: [['all', 'All']].concat(asTabs(sec.tabs))};
     }));
 }
-/* ⭐ WHICH FOLDER A VIEW IS, if it is one at all ([[MSG-17]]). A section or a subtab she
+/* ⭐ WHICH FOLDER A VIEW IS, if it is one at all ([[MSG-19]]). A section or a subtab she
    fills by hand IS a message folder — the same folder Move to… offers and a drag drops into —
    so this is the one place that turns a view into a folder name. Returns '' for a view that
    fills itself by rule, which is what keeps the two kinds apart everywhere else. */
@@ -22243,7 +22243,7 @@ function commSectionByKey(key){
    visibly a filter nobody has narrowed yet. The editor says so and shows a live count. */
 function commFilterMatches(d, filter){
   if(!filter) return true;
-  /* ⭐ "A SPOT FOR NOTHING SO WE CAN JUST MOVE EMAILS INTO IT" ([[MSG-17]]). A view that
+  /* ⭐ "A SPOT FOR NOTHING SO WE CAN JUST MOVE EMAILS INTO IT" ([[MSG-19]]). A view that
      fills by hand asks the message ONE question — which folder are you in — and asks it of
      the message's own field, exactly as the folder sidebar always did. It is still a filter
      in the sense that matters: nothing is stored against the view, two views cannot disagree
@@ -22273,7 +22273,7 @@ function commFilterMatches(d, filter){
   }
   return true;
 }
-/* ⭐ HAS A PERSON PUT THIS SOMEWHERE? ([[MSG-17]]) The one test that empties a row out of the
+/* ⭐ HAS A PERSON PUT THIS SOMEWHERE? ([[MSG-19]]) The one test that empties a row out of the
    Inbox, kept as its own named rule because three things ask it: the Inbox branch below, the
    "Your folders" fallback in the sidebar, and the count beside it.
    ⚠ `filedByHand` AND NOT MERELY A FOLDER. A message can carry a folder it was never moved
@@ -22292,7 +22292,7 @@ function commRowMatches(d, section, tab){
   /* ⭐ HER OWN SECTIONS GO THROUGH THIS SAME FUNCTION ([[MSG-15]]). A second evaluator for
      custom tabs is how a tab reads 5 and shows 4 — the exact failure this function's own
      note above exists to prevent, so the new kind of view must not get one. */
-  /* ⭐ A BARE FOLDER, opened from the "Your folders" line ([[MSG-17]]). Not a section and
+  /* ⭐ A BARE FOLDER, opened from the "Your folders" line ([[MSG-19]]). Not a section and
      deliberately not turned into one: these are folders nobody has given a place in the nav,
      including everything filed before any of this existed, and inventing a section for each
      would fill her sidebar with names she never chose. One prefix, one rule, still answered
@@ -22310,7 +22310,7 @@ function commRowMatches(d, section, tab){
     if(!t) return true;
     return commFilterMatches(d, t.filter);
   }
-  /* ⭐ A FOLDER SHE ADDED TO ONE OF THE FOUR BUILT-IN SECTIONS ([[MSG-17]]). Addie: "on inbox
+  /* ⭐ A FOLDER SHE ADDED TO ONE OF THE FOUR BUILT-IN SECTIONS ([[MSG-19]]). Addie: "on inbox
      we need to be able to add a folder to each section not just a new section."
      ⚠ IT STILL HAS TO PASS THE SECTION ITSELF, exactly as a custom section's subtabs do — a
      subtab that matched on its own would quietly widen its section, which is the
@@ -22373,7 +22373,7 @@ function commRowMatches(d, section, tab){
   /* Inbox — everything that is somebody's problem. ⚠ SYSTEM NOTICES ARE NOT MIXED IN
      unless she asks for All: "System messages should generally not appear mixed into the
      main member conversation list unless the admin chooses All." */
-  /* ⭐ AND THE INBOX IS THE PILE NOBODY HAS FILED YET ([[MSG-17]]). Addie: "we can just put
+  /* ⭐ AND THE INBOX IS THE PILE NOBODY HAS FILED YET ([[MSG-19]]). Addie: "we can just put
      everything in inbox and we can choose what section they go in from there. Then put them
      in completed afterward." Moving something has to MOVE it — a message that stays in the
      Inbox for ever after being filed means the Inbox never shrinks and the filing buys her
@@ -22455,7 +22455,7 @@ function renderCommNav(){
     const open = commView.section === sec.key;
     html += '<div class="comm-sec' + (open ? ' open' : '') + '">' +
       '<div class="comm-sec-row">' +
-        /* ⭐ A SECTION SHE FILLS BY HAND IS A DROP TARGET ([[MSG-17]]). Addie: "I need to
+        /* ⭐ A SECTION SHE FILLS BY HAND IS A DROP TARGET ([[MSG-19]]). Addie: "I need to
            be able to put emails in the folders as well like drag and drop." A section that
            fills itself by rule is deliberately NOT one — dropping a message on "System
            Messages" could only lie about it or do nothing. */
@@ -22467,7 +22467,7 @@ function renderCommNav(){
            "Deleting anything" means two different things for the two kinds, and offering
            Delete on a built-in would be a button that either breaks the dashboard tiles
            pointing at it or quietly does nothing. */
-        /* ⭐ EVERY SECTION IS EDITABLE NOW ([[MSG-17]]). Addie: "on inbox we need to be
+        /* ⭐ EVERY SECTION IS EDITABLE NOW ([[MSG-19]]). Addie: "on inbox we need to be
            able to add a folder to each section not just a new section", and "I can choose
            what all sections are called". The pencil opens the same editor for both kinds;
            what differs is what it OFFERS, not whether it opens. A built-in still cannot be
@@ -22502,7 +22502,7 @@ function renderCommNav(){
      question the screen should answer itself. */
   const hidden = (commSections.hidden || []).filter(function(k){
     return COMM_SECTIONS.some(function(s){ return s.key === k; }); });
-  /* ⭐ NOTHING SHE HAS FILED CAN BECOME UNREACHABLE ([[MSG-17]]). The Inbox now shows the
+  /* ⭐ NOTHING SHE HAS FILED CAN BECOME UNREACHABLE ([[MSG-19]]). The Inbox now shows the
      UNFILED pile, so a message in a folder that no section points at would be findable only
      by search — including everything filed before any of this existed. Every such folder is
      listed here with its unread count and is a drop target like any other.
@@ -22583,7 +22583,7 @@ function renderCommNav(){
   });
   const addBtn = document.getElementById('commAddSection');
   if(addBtn) addBtn.addEventListener('click', function(){ commEditSection(null); });
-  /* ⭐ DRAG A MESSAGE ONTO A FOLDER ([[MSG-17]]). Addie: "I need to be able to put emails in
+  /* ⭐ DRAG A MESSAGE ONTO A FOLDER ([[MSG-19]]). Addie: "I need to be able to put emails in
      the folders as well like drag and drop." The message rows have set `text/plain` to their
      own id on dragstart since the folder sidebar existed, so this is the other half of a
      mechanism that was already there rather than a new one.
@@ -22627,7 +22627,7 @@ function renderCommNav(){
 
    ⚠ NOTHING IS WRITTEN UNTIL Save. Cancel leaves the stored sections untouched, so a
    half-built section cannot appear in the sidebar for anybody else mid-edit. */
-/* ⭐ ONE EDITOR, BOTH KINDS ([[MSG-17]]). `existing` is a stored custom section, or a plain
+/* ⭐ ONE EDITOR, BOTH KINDS ([[MSG-19]]). `existing` is a stored custom section, or a plain
    built-in KEY string, or null for a new one. A second editor for built-ins would be a second
    place the folder shape is decided, and the one nobody opens is the one that goes stale. */
 function commEditSection(existing){
@@ -22651,7 +22651,7 @@ function commEditSection(existing){
   const draft = existing
     ? JSON.parse(JSON.stringify(existing))
     : {key: 'c-' + Date.now().toString(36), icon: '\u{1F4CC}', label: '',
-       /* ⭐ A NEW SECTION IS NOW A FOLDER SHE FILLS HERSELF ([[MSG-17]]). Addie: "I also
+       /* ⭐ A NEW SECTION IS NOW A FOLDER SHE FILLS HERSELF ([[MSG-19]]). Addie: "I also
           don't like the filters you set for me we can just put everything in inbox and we
           can choose what section they go in from there."
           ⚠ THIS USED TO DEFAULT TO A MEMBER-MESSAGES FILTER, and the reasoning is kept
@@ -22697,7 +22697,7 @@ function commEditSection(existing){
   const filterUi = function(filter, name) {
     const byHand = filter.fill === 'hand';
     return '<div class="comm-filter" data-for="' + esc(name) + '">' +
-      /* ⭐ "A SPOT FOR NOTHING" ([[MSG-17]]). Addie asked for it inside the Type list; it is
+      /* ⭐ "A SPOT FOR NOTHING" ([[MSG-19]]). Addie asked for it inside the Type list; it is
          a row of its own instead, because it is not one more kind of message — it is the
          answer to a different question, and a Type tick that meant "ignore every other tick
          on this form" would be the most confusing box on the screen. */
@@ -22830,7 +22830,7 @@ function commEditSection(existing){
     const add = card.querySelector('#commEdAddTab');
     if(add) add.addEventListener('click', function(){
       readAll();
-      /* ⭐ A NEW SUBTAB IS A FOLDER SHE FILLS ([[MSG-17]]), for the same reason a new section
+      /* ⭐ A NEW SUBTAB IS A FOLDER SHE FILLS ([[MSG-19]]), for the same reason a new section
          is: "we can just put everything in inbox and we can choose what section they go in
          from there. Then put them in completed afterward."
          ⚠ THE OLD DEFAULT — no narrowing, so it showed the whole section — is kept as the
@@ -22853,7 +22853,7 @@ function commEditSection(existing){
     if(cancel) cancel.addEventListener('click', function(){ overlay.remove(); });
     const delSec = card.querySelector('#commEdDelete');
     if(delSec) delSec.addEventListener('click', async function(){
-      /* ⭐ DELETING A FOLDER MUST NOT STRAND WHAT IS IN IT ([[MSG-17]]). This is the concrete
+      /* ⭐ DELETING A FOLDER MUST NOT STRAND WHAT IS IN IT ([[MSG-19]]). This is the concrete
          answer to the worry [[MSG-15]] refused the whole feature over — "a message would then
          live in exactly one place and deleting a section could lose it" — rather than a
          reason not to give her what she asked for.
@@ -22897,7 +22897,7 @@ function commEditSection(existing){
       readAll();
       if(!draft.label){ alert('Give the section a name.'); return; }
       /* ⭐ A FOLDER WITH NO NAME HOLDS NOTHING, so it is refused rather than saved empty
-         ([[MSG-17]]). `commFilterMatches` answers false for one — the safe direction, since
+         ([[MSG-19]]). `commFilterMatches` answers false for one — the safe direction, since
          the other reading would empty the Inbox into it — but an empty folder she cannot
          drop anything into reads exactly like the feature not working.
          ⚠ THE LABEL IS THE FALLBACK, not an error: naming a folder Completed and being
@@ -22915,7 +22915,7 @@ function commEditSection(existing){
       });
       save.disabled = true;
       try{
-        /* ⭐ ONE VOCABULARY ([[MSG-17]]). The folder she names in the sidebar is created as a
+        /* ⭐ ONE VOCABULARY ([[MSG-19]]). The folder she names in the sidebar is created as a
            real `messageFolders` document, so Move to… offers it, a drag drops into it, and
            the right-click menu knows it — all of which already existed and none of which can
            see a name that lives only in a settings document. ⚠ A FAILURE HERE DOES NOT FAIL
@@ -32180,6 +32180,19 @@ function rmStopShotStream(){
   catch(err){ /* already gone; nothing to stop */ }
   rmShotStream = null;
 }
+/* How much of the pane the window is actually showing. A screenshot can only
+   ever contain what is on the glass, so this — not the element's layout box —
+   is what decides whether a capture is a photograph or a sliver of one.
+
+   The 2px of slack is for sub-pixel layout: a pane sitting flush against the
+   viewport edge routinely measures a third of a pixel short, and treating that
+   as clipped would send every capture to the fallback. */
+function rmPaneClipped(rect){
+  const visW = Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0);
+  const visH = Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0);
+  if(visW <= 0 || visH <= 0) return true;
+  return visW < rect.width - 2 || visH < rect.height - 2;
+}
 /* One frame of this tab, cropped to the pane. Null when there is no stream,
    which is the caller's signal to fall back. */
 async function rmGrabPane(el){
@@ -32201,8 +32214,32 @@ async function rmGrabPane(el){
        what is captured is the pane as it is now rather than as it was. */
     await new Promise(function(r){ requestAnimationFrame(function(){ requestAnimationFrame(r); }); });
     const vw = video.videoWidth, vh = video.videoHeight;
-    const rect = el.getBoundingClientRect();
-    if(vw > 0 && vh > 0 && rect.width > 20 && rect.height > 20){
+    /* ⚠ A PANE SCROLLED HALF OFF THE SCREEN CAME OUT AS A SLIVER (2026-09-11).
+       Owner: "his house is completely squashed because you couldnt see it on my
+       screan." Jeffrey Marz's photograph saved at 893x36 — a house at 25:1.
+
+       ⚠ THE GUARD BELOW READ THE WRONG HEIGHT. rect.height is the pane's LAYOUT
+       height, which is full whatever the scroll position, so `rect.height > 20`
+       passed happily; it was `ch` that collapsed, because it is clamped to
+       `vh - cy` — however much of the screen is left below the pane's top. Scroll
+       so a centimetre of pane shows and that clamp hands back a 36-pixel canvas,
+       which is then a 36-pixel photograph on the customer's record for ever.
+
+       So the visible part is measured, not the laid-out part, and a clipped pane
+       is scrolled into view and measured again. */
+    let rect = el.getBoundingClientRect();
+    if(rmPaneClipped(rect)){
+      el.scrollIntoView({block: 'center', inline: 'center'});
+      await new Promise(function(r){ requestAnimationFrame(function(){ requestAnimationFrame(r); }); });
+      rect = el.getBoundingClientRect();
+    }
+    /* ⚠ AND IF IT STILL WILL NOT FIT, THIS HANDS BACK NULL ON PURPOSE — a pane
+       taller than the window cannot be photographed whole, and the caller's
+       fallback fetches a fresh, correctly-proportioned photograph from Google.
+       Losing the drawn-on dots is a real cost; a squashed house is a worse one,
+       and the office can see the dots are missing while nobody notices an aspect
+       ratio until the crew is at the kerb. */
+    if(vw > 0 && vh > 0 && rect.width > 20 && rect.height > 20 && !rmPaneClipped(rect)){
       /* The tab is captured at its own scale, so one CSS pixel of this page is
          this many pixels of the frame. Measured rather than assumed: it is NOT
          always devicePixelRatio — a zoomed page and a scaled display disagree. */

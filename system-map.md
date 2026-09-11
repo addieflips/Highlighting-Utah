@@ -3942,6 +3942,47 @@ any of it urgent, what is already handled.
 answer is still right about what it was protecting — a tree is how you file something you
 will look for later — but filing turned out to be the wrong FIRST question.
 
+### Which of these also email the office (2026-09-11, [[MSG-17]] / [[MSG-18]])
+
+A message landing in the Inbox and the office being TOLD about it are two different things,
+and only the first is decided here. The nudge is one function, `notifyBusinessOfMessage` in
+index.html, and the rule is **who acted**, not which folder the message lands in.
+
+- **A member typed or did something → the Gmail hears about it.** All thirteen call sites:
+  the site contact form and quick-message form, the portal's Contact Us form, a cancellation,
+  a note added, a light-colour change, a wire-colour change, an outlet-timer change, a sides
+  change, the three quote buttons (approve / maybe / decline), and — since 2026-09-11 — a
+  **move**.
+- **The app talking about itself → the Inbox only.** Nothing in `functions/index.js` or
+  `admin.html` calls that function at all, so route-sweep notices, reconcile notes, member
+  error reports and admin error reports reach the office screen and email nobody. That was
+  already true and is now the stated rule rather than an accident.
+
+⚠ **Three portal actions write `folder: 'System'` and still email** — light colour, wire
+colour and outlet timer. They are filed as notices because the app wrote the sentence; they
+are member ACTIONS, which is what decides this. Do not "tidy" them out of the alert by
+reading the folder.
+
+⚠ **The recipient address is not in this repo.** The params carry name, phone, email, topic
+and message and no destination, so the *To Email* lives on the EmailJS template named by
+`settings/emailjs.notifyTemplateId` (Admin → Automation Emails → Notify Template ID).
+Nothing here can see it, and no test can prove where the mail went.
+
+⭐ **And both directions are now driven in a real browser.** `test/address-move.spec.js`
+presses the button and reads the alert back, and presses **Save Information** on My Info and
+asserts NO alert — the regression guard that matters, because moving the call up into that
+save would read as a tidy-up and silently undo [[QT-35]]. The nudge is observable at all
+because `test/firebase-stub.js` serves a fake EmailJS SDK that RECORDS and resolves locally;
+`api.emailjs.com` stays forbidden and `assertNoRealCalls` still runs, so a spec proving an
+alert went is never the spec that emails the office. ⚠ It is **opt-in**
+(`{ emailAlerts: true }`): `publicConfig` still answers not-configured by default, which is
+what keeps every other spec's behaviour exactly as it was.
+
+⚠ **The move alert hangs off the move button only.** `portalChangeAddress` writes its Inbox
+note server-side and cannot send mail, so the nudge is raised in the browser once that call
+returns `{ok:true}`. The ordinary My Info save is deliberately silent ([[QT-35]]) — a
+corrected street spelling is not a move — so do not move this call up into it.
+
 ⛔ **The folders are gone** ([[MSG-12]], the same day). Once the system was in, Addie asked
 *"can we just get rid of your folders altogether if the system is made?"* — and they had
 become a second way of saying the same thing: every one of the eight the app created maps
@@ -4042,7 +4083,7 @@ every silent decline into whichever folder sorts first.
 questions, so a Moved back-next-year is in **Back Next Year** and in **Moved**, never in Not
 This Year.
 
-⭐ **AND THEN SHE NAMED THE WHOLE THING** ([[MSG-17]], 2026-09-11). Addie, across five
+⭐ **AND THEN SHE NAMED THE WHOLE THING** ([[MSG-19]], 2026-09-11). Addie, across five
 messages: *"on inbox we need to be able to add a folder to each section not just a new
 section"*; *"in what type does this belong to we should have a spot for nothing so we can just
 move emails into it for my completed folder"*; *"I also don't like the filters you set for me
@@ -4091,7 +4132,7 @@ before saving. Nothing is written until **Save** — Cancel leaves everything as
 
 **The four built-in sections can be hidden, not deleted.** They are the spine the dashboard
 tiles are built on, so deleting one would leave those tiles pointing at nothing. Hidden ones
-are listed at the bottom of the sidebar with a one-click way back. ⚠ Since [[MSG-17]] they
+are listed at the bottom of the sidebar with a one-click way back. ⚠ Since [[MSG-19]] they
 also carry the pencil, for renaming and for adding folders — hiding is what "deleting" means
 for a list she did not make.
 
@@ -6181,4 +6222,5 @@ are the two copies of the rule — change one, change the other, in the same pus
 - **A house was re-measured but the route card, the crew sheet or the customer record still shows the old picture** → check WHEN it was measured. Until 2026-09-09 **Attach to Quote wrote the photograph to the quote and stopped there**. A quote's photographs live in `quotePhotos`; a customer's live in `housePhotos`, and the only thing that had ever carried one across was CONVERSION (`fillAddCustFromQuote`) — so on an already-converted customer, which is every re-measure, the picture never reached the record the crew reads. `rmPushPhotosToCustomer` now runs in the same press as the feet and the price ([[MR-40]], finishing [[MR-25]]). **It APPENDS**: a customer who already had a photograph keeps it as their main one and gains the measured picture beside it, so an old main photo staying put is correct, not a failure — the new one is on the record, further along the strip. Anything attached BEFORE that date is on the quote only and has to be added to the record by hand.
 - **Attach to Quote thinks for a moment and then says nothing at all** → that is a THROW, not a refusal. Every deliberate way out of `rmAttachShots` prints a line; a rejected promise printed nothing, left the gold button disabled and looked exactly like a click that never registered. Since 2026-09-09 both buttons go through `rmAttachSafely`, which catches anything the attach throws, puts the error's own words on the line beside the button, re-enables it, and files the reason to **Inbox → Admin Errors**. ⚠ **So a silent Attach now means something else** — the page failed to load at all, or the click is not reaching the button. Check the red error badge first.
 - **Measure Roof's Attach to Quote says "Nothing uploaded"** → read the rest of that line, and believe it over the button. Since 2026-09-09 the message carries the picture service's own words, because for one afternoon it said only *"Nothing uploaded — try again."* while Cloudinary was answering every request `401 cloud_name highlighting-utah is disabled` — the whole account switched off, so retrying could not work at any hour of any day and the office was sent to the one action guaranteed to fail. **A disabled account is a billing problem at Cloudinary, not a bug in Attach**, and it takes down every photograph already on a quote as well as new uploads (delivery from `res.cloudinary.com` 401s too), so the symptom to expect alongside it is blank pictures across the whole app. Check it in one line from any machine: `curl -s -D - -o /dev/null https://res.cloudinary.com/highlighting-utah/image/upload/sample.jpg` — the `X-Cld-Error` header names the fault. `uploadFailAdvice` is what turns the message into an instruction; it never replaces the service's words, only leads them.
+- **A house photo saved from Measure Roof is squashed into a thin strip** → the pane was scrolled mostly off the screen when the picture was taken. Since 2026-08-30 the Street View and satellite captures are a PHOTOGRAPH OF THE TAB cropped to the pane, so the picture can only ever contain what was on the glass; with a centimetre of pane showing, that is a centimetre of photograph. Jeffrey Marz's came out **893 × 36** — a house at nearly 25:1. The guard that should have caught it was reading `rect.height`, the pane's LAYOUT height, which is full at any scroll position; the collapse happened afterwards, where the crop height is clamped to whatever screen is left below the pane's top. Fixed 2026-09-11: `rmPaneClipped` measures the VISIBLE part, a clipped pane is scrolled into view and measured again, and one that still will not fit hands back `null` so the caller fetches a fresh, correctly proportioned photograph from Google instead. ⚠ **That fallback loses the drawn-on dots**, which is the deliberate trade — the office can see dots are missing, and nobody notices an aspect ratio until the crew is at the kerb. To check a stored photo without opening it, read its dimensions: a house should be about 4:3, and anything past about 3:1 is this fault.
 - **Firestore's "Fetch failed" / long-poll `Listen`/`channel` message in the console** → normal reconnection noise, not a bug.

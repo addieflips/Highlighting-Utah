@@ -70,7 +70,7 @@ const NAMES = ['FIX_NOTICE_TOPIC','RSVP_NO_TOPIC','RSVP_BNY_TOPIC','MSG_TYPE_MEM
    commSectionByKey would decide for itself which sections exist, which is exactly the thing
    under test; and the suite dies with a bare ReferenceError rather than skipping, which is
    the extraction-list trap CLAUDE.md describes working as intended. */
-/* ⚠ AND THREE MORE ARRIVED WITH [[MSG-17]] — lifted, never stubbed, for the same reason.
+/* ⚠ AND THREE MORE ARRIVED WITH [[MSG-19]] — lifted, never stubbed, for the same reason.
    `commBuiltInExtras` decides which folders she has added to a built-in section,
    `messageFolderOf` decides where a message actually IS (it reads filedByHand before the
    topic table, which is the whole distinction between filing and an automatic home folder),
@@ -773,7 +773,7 @@ console.log('--- the No RSVPs section ---');
 }
 
 /* =============================================================================
- * ⭐ THE NAV IS HERS — NAMED SECTIONS AND FOLDERS SHE FILLS ([[MSG-17]], 2026-09-11)
+ * ⭐ THE NAV IS HERS — NAMED SECTIONS AND FOLDERS SHE FILLS ([[MSG-19]], 2026-09-11)
  *
  * Addie, in five messages: "on inbox we need to be able to add a folder to each section not
  * just a new section"; "in what type does this belong to we should have a spot for nothing so
@@ -881,7 +881,7 @@ const sectionCode = (liftFn('commEditSection') + liftFn('saveCommSections') +
                      liftFn('commFilterMatches') + liftFn('commSectionByKey') +
                      liftFn('commAllSections'))
   .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
-/* ⚠ NARROWED FOR [[MSG-17]], AND THE NARROWING IS THE WHOLE RULING — say so, per R-024.
+/* ⚠ NARROWED FOR [[MSG-19]], AND THE NARROWING IS THE WHOLE RULING — say so, per R-024.
    Addie reversed the filter-only design herself: "we can just put everything in inbox and we
    can choose what section they go in from there. Then put them in completed afterward." So a
    view she fills by hand is now a real thing, and the old blanket ban would forbid it.
@@ -894,7 +894,7 @@ check('a section stores a filter, never a list of messages',
   !/messageIds/.test(sectionCode),
   'a section holding its own list of ids is folders again ([[MSG-12]]) — a message would ' +
   'live in exactly one place and deleting a section could lose it. Asking the message ' +
-  'which folder it is in is not that, and is what [[MSG-17]] is built on');
+  'which folder it is in is not that, and is what [[MSG-19]] is built on');
 /* ⚠ AND THE ONE WRITE IT IS NOW ALLOWED IS THE OPPOSITE OF FILING. Deleting a hand-filled
    section puts its messages BACK in the Inbox — which is the concrete answer to the worry
    the old blanket ban existed for, now that the Inbox shows the unfiled pile and a message
@@ -937,7 +937,7 @@ if(!JSDOM){
     liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
     liftConst('ERROR_FOLDER_MEMBER') + liftConst('ERROR_FOLDER_ADMIN') +
     liftConst('MESSAGE_HOME_FOLDER') + commSectionsSrc() +
-    /* ⚠ [[MSG-17]]'s four, lifted not stubbed — the editor opens for a BUILT-IN now, so it
+    /* ⚠ [[MSG-19]]'s four, lifted not stubbed — the editor opens for a BUILT-IN now, so it
        asks which folders she has already added to one and what that section holds. */
     liftFn('messageFolderOf') + liftFn('msgIsFiledAway') + liftFn('commBuiltInExtras') +
     liftFn('commSectionByKey') + liftFn('commRowMatches') +
@@ -964,7 +964,7 @@ if(!JSDOM){
     'a popup that produces no markup is the failure four other checks in this repo exist for');
   check('it offers a name and an icon',
     !!docu.getElementById('commEdLabel') && !!docu.getElementById('commEdIcon'));
-  /* ⭐ REPOINTED FOR [[MSG-17]], NOT WEAKENED. A new section now starts as a FOLDER she
+  /* ⭐ REPOINTED FOR [[MSG-19]], NOT WEAKENED. A new section now starts as a FOLDER she
      fills herself — Addie: "I also don't like the filters you set for me we can just put
      everything in inbox and we can choose what section they go in from there" — so the
      facet rows are behind the other radio rather than on screen first. The claim that
@@ -1021,7 +1021,7 @@ if(!JSDOM){
   const after = docu.querySelectorAll('[data-edtab]').length;
   check('pressing ＋ Subtab really adds one',
     after === before + 1, 'went from ' + before + ' to ' + after);
-  /* ⚠ REPOINTED FOR [[MSG-17]]: a new subtab is a FOLDER now, so what it offers is a name
+  /* ⚠ REPOINTED FOR [[MSG-19]]: a new subtab is a FOLDER now, so what it offers is a name
      and a folder rather than a name and a category list. Both modes are still reachable. */
   check('and the new folder can be named, and is one she fills herself',
     !!docu.getElementById('commEdTabName') &&
@@ -1060,7 +1060,7 @@ if(JSDOM){
     liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
     liftConst('ERROR_FOLDER_MEMBER') + liftConst('ERROR_FOLDER_ADMIN') +
     liftConst('MESSAGE_HOME_FOLDER') +
-    /* ⚠ [[MSG-17]]'s five, lifted not stubbed. renderCommNav now asks which folders exist
+    /* ⚠ [[MSG-19]]'s five, lifted not stubbed. renderCommNav now asks which folders exist
        (commHandFolders), where a message actually is (messageFolderOf), whether a person put
        it there (msgIsFiledAway) and what she has added to a built-in (commBuiltInExtras) —
        and it died with a bare `commBuiltInExtras is not defined` the moment it did. */
@@ -1099,7 +1099,7 @@ if(JSDOM){
   check('and its All tab is added rather than stored',
     host.querySelectorAll('[data-commsec="c-9"][data-commtab="all"]').length === 1,
     'a section with one subtab must still have an All that agrees with it');
-  /* ⭐ REVERSED BY [[MSG-17]], AND SAID OUT LOUD PER R-024. Addie: "on inbox we need to be
+  /* ⭐ REVERSED BY [[MSG-19]], AND SAID OUT LOUD PER R-024. Addie: "on inbox we need to be
      able to add a folder to each section not just a new section." So EVERY section carries
      the pencil now, hers and the built-ins alike.
      ⚠ WHAT THE OLD CHECK WAS REALLY PROTECTING IS STILL PROTECTED, and it is the line below:
@@ -1114,7 +1114,7 @@ if(JSDOM){
     'would break the dashboard tiles pointing at it');
   /* ⚠ A HIDDEN SECTION IS NAMED, NOT FORGOTTEN. "Where did System Messages go" is a
      question the screen should answer itself. */
-  /* ---- [[MSG-17]]: her folders are on screen, and they take a drop ---- */
+  /* ---- [[MSG-19]]: her folders are on screen, and they take a drop ---- */
   /* ⚠ DRIVEN, NOT MATCHED. Every claim here is about a ROW THAT EXISTS and an attribute a
      browser acts on — the exact shape this repo has been caught by four times, where the
      message was in the source and never on the screen. */
@@ -1156,7 +1156,7 @@ if(JSDOM){
     /Old stuff/.test(strayHost.innerHTML) &&
     !!strayHost.querySelector('[data-commfolder="Old stuff"]'),
     'with the Inbox showing the unfiled pile, a message in here would otherwise be ' +
-    'reachable only by search — including everything filed before [[MSG-17]] existed');
+    'reachable only by search — including everything filed before [[MSG-19]] existed');
   check('and it can be opened, and dropped into',
     !!strayHost.querySelector('[data-commfolder="Old stuff"][data-commdrop="Old stuff"]'),
     'a folder that is named and cannot be opened is a worse answer than not naming it');
@@ -1166,7 +1166,7 @@ if(JSDOM){
     'hidden with no route back is a feature lost rather than tidied');
 }
 
-/* ⭐ AND THE PUTTING-BACK IS DRIVEN, NOT MATCHED ([[MSG-17]]). This is the tier-1 claim of
+/* ⭐ AND THE PUTTING-BACK IS DRIVEN, NOT MATCHED ([[MSG-19]]). This is the tier-1 claim of
    the whole change — deleting a folder must not strand what is in it — and the first version
    of the check above was a regex over the source, which a red-check walked straight through
    by wrapping the write in `if(false)`. Every word was still there; nothing ran. That is the
@@ -1177,7 +1177,7 @@ if(JSDOM){
   const wrote = [];
   const DEL = liftConst('MSG_TYPE_MEMBER') + liftConst('MSG_CATEGORIES') + liftConst('MSG_STATUS') +
     liftConst('MSG_STATUS_LABEL') + liftConst('MSG_PRIORITY') + liftConst('MSG_PRIORITY_LABEL') +
-    /* ⚠ THE FOURTH SANDBOX, AND THE MERGE IS WHAT FOUND IT. This one is [[MSG-17]]'s and
+    /* ⚠ THE FOURTH SANDBOX, AND THE MERGE IS WHAT FOUND IT. This one is [[MSG-19]]'s and
        was written on a branch that had never heard of `FIX_NOTICE_TOPIC`; main added that
        constant to SYSTEM_NOTICE_TOPICS on a branch that had never heard of this sandbox.
        Neither side was wrong and neither side could have caught it — the file only dies

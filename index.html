@@ -8042,6 +8042,38 @@ document.getElementById('movedSaveBtn').addEventListener('click', async function
       currentJobAddressData.pendingAddress = (res && res.pendingAddress) || (street + ', ' + city);
       currentJobAddressData.pendingMoveDate = when;
     }
+    /* ⭐ A MOVE NOW REACHES THE GMAIL, NOT ONLY THE INBOX (2026-09-11). Addie: "if someone
+       moved and changed there address or wants a light change those should go to gmail as
+       well." Every other thing a customer does from the portal already sends this alert;
+       a move was the one that did not, because its message is written SERVER-SIDE by
+       portalChangeAddress — and functions/index.js says so on purpose: "The office is told
+       through the Inbox, not email." That was true and is now out of date, so the nudge is
+       sent from here rather than by teaching the Cloud Function a mail transport it has no
+       key for.
+
+       ⚠ IT HANGS OFF THIS BUTTON AND NOTHING ELSE, which is the whole reason the move is a
+       separate door. The ordinary info save was deliberately stopped from notifying on
+       2026-09-10 — "changing gate code or phone number should not notify us" — because a
+       corrected street spelling is not a move and the address string changing cannot tell
+       them apart. Moving this call up into that save would undo that fix.
+
+       ⚠ ONLY AFTER THE SERVER SAID YES. The await above throws on failure and the catch
+       below owns that path, so this line is unreachable unless the pending address really
+       was recorded. An email about a move that did not save is worse than no email.
+
+       ⚠ BEST EFFORT, LIKE EVERY OTHER CALLER. notifyBusinessOfMessage swallows and logs its
+       own failures; the move is already safely stored and the Inbox note already written,
+       so a refused send must never reach the customer as an error. */
+    notifyBusinessOfMessage({
+      customer_name: (currentLookupRecord && currentLookupRecord.name) || (currentJobAddressData && currentJobAddressData.name) || '',
+      customer_phone: (currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || '',
+      customer_email: (currentLookupRecord && currentLookupRecord.email) || (currentJobAddressData && currentJobAddressData.email) || '',
+      topic: 'Existing Customer - Address Changed',
+      message: 'They have moved to "' + ((res && res.pendingAddress) || (street + ', ' + city)) + '"' +
+        (when ? ', in by ' + when : '') + '. Their record still holds the old address on purpose — ' +
+        'open them in Customers and press Apply on the move to re-quote the new house and ' +
+        're-point their route.'
+    });
     statusEl.textContent = '';
     portalRenderPendingMove();
   } catch(err){

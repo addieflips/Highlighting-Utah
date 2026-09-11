@@ -565,7 +565,16 @@ const FAKE_FUNCTIONS_MODULE = `
       return { ok: true };
     },
 
-    publicConfig: () => ({ configured: false })
+    /* ⚠ NOT-CONFIGURED IS STILL THE DEFAULT, and deliberately: it is what keeps
+       notifyBusinessOfMessage returning at its first guard for every spec that has
+       not asked for the nudge, so adding the recorder changed no existing spec.
+       With { emailAlerts: true } it answers configured and the real alert path runs
+       against the fake SDK above. The ids are obvious nonsense so a value of theirs
+       can never be mistaken for a real template. */
+    publicConfig: () => (window.__HU_EMAIL_ALERTS__
+      ? { configured: true, serviceId: 'stub-service',
+          notifyTemplateId: 'stub-notify-template', publicKey: 'stub-public-key' }
+      : { configured: false })
   };
 
   export function getFunctions() { return { __stub: true }; }
@@ -632,13 +641,51 @@ const FAKE_PAYPAL_SDK = `
   };
 `;
 
+/* The EmailJS SDK, faked — and OPT-IN, which is the part to read first.
+ *
+ * ⭐ WHY IT EXISTS. notifyBusinessOfMessage is the "you have a new message" nudge, and
+ * twelve portal actions call it. Until now NO spec could see one: publicConfig is faked
+ * as not-configured, so every call returned at its first guard. That was a deliberate
+ * decision and the comment on that fake records it — but its premise was that there was
+ * no safe way to fake a send. A recorder is that way, so the premise changed rather than
+ * the decision being overruled.
+ *
+ * ⚠ IT RECORDS, IT NEVER SENDS. api.emailjs.com stays on FORBIDDEN_HOSTS and is never
+ * reached, because this fake is served in its place and resolves locally. A spec asserting
+ * an alert went must never be the spec that emails the office.
+ *
+ * ⚠ SERVED ALWAYS, ANNOUNCED ONLY WHEN ASKED FOR. The script tag is unconditional in
+ * index.html, so faking it always is strictly better than letting the request reach
+ * jsdelivr — deterministic, and nothing leaves the machine. What is opt-in is
+ * publicConfig saying "configured": without that flag every caller still returns at its
+ * first guard exactly as before, so the other specs are untouched. Pass
+ * { emailAlerts: true } to installFirebaseStub to turn the nudge on.
+ *
+ * Only the surface index.html uses: init() and send(). */
+const FAKE_EMAILJS_SDK = `
+  window.__HU_ALERTS__ = window.__HU_ALERTS__ || [];
+  window.emailjs = {
+    init: function (key) { window.__HU_EMAILJS_KEY__ = key; },
+    send: function (serviceId, templateId, params) {
+      window.__HU_ALERTS__.push({
+        serviceId: serviceId, templateId: templateId, params: params || {}
+      });
+      return Promise.resolve({ status: 200, text: 'OK (test double)' });
+    }
+  };
+`;
+
 const MODULE_BY_URL = [
   ['firebase-app.js', FAKE_APP_MODULE],
   ['firebase-firestore.js', FAKE_FIRESTORE_MODULE],
   ['firebase-functions.js', FAKE_FUNCTIONS_MODULE],
   /* Checked BEFORE the forbidden-host list, so the fake is served rather than
    * the request being blocked. Order inside the handler matters here. */
-  ['paypal.com/sdk/js', FAKE_PAYPAL_SDK]
+  ['paypal.com/sdk/js', FAKE_PAYPAL_SDK],
+  /* jsdelivr is not on the forbidden list, so without this the request would go
+     out to the real CDN — slow, and different depending on what the network
+     allows. The fake makes it deterministic. */
+  ['@emailjs/browser', FAKE_EMAILJS_SDK]
 ];
 
 /* ---- installation -------------------------------------------------------- */
@@ -657,6 +704,13 @@ async function installFirebaseStub(page, overrides = {}) {
     quotes:   Object.assign({}, QUOTES,   overrides.quotes   || {}),
     frozenNow: FROZEN_NOW.toISOString()
   };
+
+  /* Whether the "you have a new message" nudge is switched on for this spec. Set
+     before any page script so publicConfig can read it on first call. */
+  await page.addInitScript(on => {
+    window.__HU_EMAIL_ALERTS__ = !!on;
+    window.__HU_ALERTS__ = [];
+  }, !!overrides.emailAlerts);
 
   // Fixture data + the two lookup helpers, injected before any page script runs.
   await page.addInitScript(
@@ -738,7 +792,10 @@ async function installFirebaseStub(page, overrides = {}) {
     /** Which callables the page invoked, in order, with their payloads. */
     calls: () => page.evaluate(() => window.__HU_CALLS__ || []),
     /** Firestore writes the page attempted (none are sent anywhere). */
-    writes: () => page.evaluate(() => window.__HU_WRITES__ || [])
+    writes: () => page.evaluate(() => window.__HU_WRITES__ || []),
+    /** The "new message" alerts the page sent, in order. Empty unless the spec
+     *  passed { emailAlerts: true } — see FAKE_EMAILJS_SDK. */
+    alerts: () => page.evaluate(() => window.__HU_ALERTS__ || [])
   };
 }
 
