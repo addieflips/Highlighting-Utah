@@ -132,7 +132,7 @@ check('portalChangeAddress exists', /exports\.portalChangeAddress\s*=/.test(fns)
    already reads address_changed — so a stub here would keep this file green
    through the stamp being dropped, which is the one thing it is checking. */
 const stampSrc = lift(fns, 'stampSeasonStatusServer');
-/* ⭐ AND THE ONE RULE FOR WHAT A YES MEANS ([[RS-58]], 2026-09-11). A move reported from
+/* ⭐ AND THE ONE RULE FOR WHAT A YES MEANS ([[RS-60]], 2026-09-11). A move reported from
    the RSVP decline picker puts the customer back in the season, and it does it through
    `seasonYesUpdates` rather than writing `rsvpStatus: 'yes'` by hand — a no sets
    `needsLightRecycle`, so a hand-written yes leaves somebody confirmed for the season AND
@@ -473,7 +473,123 @@ check('the badge is left for the re-quote to answer',
   'the re-quote it raised is still unanswered');
 
 // ==========================================================================
-// 3. A MOVE REPORTED FROM THE DECLINE PICKER PUTS THEM BACK IN ([[RS-58]])
+// 5. AND NOTHING ELSE MAY CLEAR THE MOVE'S BADGE  (QT-37)
+// ==========================================================================
+/* ⭐ Addie, shown the drift and asked whether to tighten it: "go ahead."
+ *
+ * ⚠ WHAT THIS IS ABOUT. `address_changed` used to have ONE writer — a re-quote
+ * raised by the portal — so three places treated it as this quote's own question
+ * and cleared it back to `confirmed` when the quote was answered or deleted: the
+ * add-on refusal, the same-as-last-year refusal, and the office deleting a
+ * re-quote. The move door made it a SECOND writer, answered only by the office
+ * applying the move, and all three were clearing that too.
+ *
+ * ⚠ SAID ACCURATELY: nothing routed or billed. seasonStatus is read for DISPLAY
+ * only, and the move itself survived either way because the banner reads
+ * pendingAddress. What went was the one signal on the row saying a house we have
+ * not re-quoted is not settled.
+ *
+ * ⚠ THE BEHAVIOUR IS PROVED WHERE IT CAN RUN — Suites 137 and 138 of run-all.js
+ * already drive both decline paths against a fake Firestore, so they assert the
+ * status survives and, in the other direction, that an ordinary one still clears.
+ * ⚠ WHAT IS LEFT HERE IS THE HALF THOSE CANNOT SEE: that the rule is written ONCE
+ * per side, that all three sites ask it, and that the two copies agree. §9.1 —
+ * one claim, one place. */
+const mayClearSrv = lift(fns, 'quoteAnswerMayClearStatusServer');
+const mayClearAdm = lift(adm.replace(/\r\n/g, '\n'), 'quoteAnswerMayClearStatus');
+check('the rule exists on both sides', !!mayClearSrv && !!mayClearAdm,
+  'one side deciding what may overwrite a move and the other guessing is the ' +
+  'shape this whole entry is about');
+
+/* ⚠ RUN, NOT COMPARED AS TEXT. They keep different brace styles on purpose — the
+   claim is that they DECIDE the same thing, not that they are typed alike. Same
+   argument money-parity.test.js makes about the invoice maths. */
+const srvFn = new Function(mayClearSrv + ';return quoteAnswerMayClearStatusServer;')();
+const admFn = new Function(mayClearAdm + ';return quoteAnswerMayClearStatus;')();
+const MOVE_STATES = [
+  {},
+  { pendingAddress: '' },
+  { pendingAddress: '   ' },
+  { pendingAddress: '9 Oak St, Springville 84663' },
+  { pendingAddress: '9 Oak St', seasonStatus: 'address_changed' },
+  { pendingAddress: '9 Oak St', seasonStatus: 'needs_changes' },
+  { seasonStatus: 'address_changed' },
+  { pendingMoveDate: 'mid-October' },
+  null,
+  undefined
+];
+const disagree = MOVE_STATES.filter(d => srvFn(d) !== admFn(d));
+check('and the two copies agree about every shape a record can be in',
+  !disagree.length,
+  'the office would keep a badge the server clears, or the other way round: ' +
+  JSON.stringify(disagree));
+
+/* ⚠ THE ANSWERS ARE ASSERTED, NOT ONLY THE AGREEMENT. Two copies wrong in the
+   same way agree perfectly — money-parity's own rule, applied to a badge. */
+check('a pending move holds the badge, and nothing else does',
+  srvFn({ pendingAddress: '9 Oak St' }) === false &&
+  srvFn({ pendingAddress: '  ' }) === true &&
+  srvFn({ seasonStatus: 'address_changed' }) === true &&
+  srvFn({}) === true && srvFn(null) === true,
+  'a blank or whitespace pendingAddress is no move at all, and an ' +
+  'address_changed with nothing pending is an ordinary re-quote question — ' +
+  'holding that one back reopens the hole the clearing was written to close');
+
+/* ⚠ AND IT MUST READ pendingAddress, NEVER THE STATUS. There is only ONE
+   seasonStatus field, so a move can be outstanding while the pill shows
+   needs_changes because something else wrote last — a guard keyed on the word
+   would be a guess about which writer put it there. */
+check('the rule asks about the pending move, not about the word',
+  /pendingAddress/.test(stripComments(mayClearSrv)) &&
+  !/address_changed|seasonStatus/.test(stripComments(mayClearSrv)),
+  'keyed on the status it answers the wrong question, and misses a move whose ' +
+  'pill has since been overwritten');
+
+/* ⚠ ALL THREE SITES, NOT THE ONE THAT PROMPTED IT. "A fix in one direction is
+   half a fix" is written into CLAUDE.md by name, and the payer-name bug in this
+   repo was three callers where only one was corrected. */
+const fnsNoC = stripComments(fns);
+const srvCalls = (fnsNoC.match(/quoteAnswerMayClearStatusServer\(/g) || []).length;
+check('both server clearing sites ask it',
+  srvCalls === 3,
+  'expected the declaration plus two callers, found ' + srvCalls +
+  ' — declineAsksAboutLastYear and declineAddOnOnly each clear the status, and ' +
+  'guarding one leaves the same bug reachable the other way');
+/* ⚠ ANCHORED TO WHAT MUST BE TRUE, NOT TO OPERAND ORDER. The first version of this
+   matched `indexOf(was) !== -1)` with a closing paren straight after — which is the
+   shape that WAS wrong, and would also fail a perfectly good site that happened to
+   write the guard first. That is the §7 slow-fuse: a check pinned to where a string
+   sits, going red on code that is right. It now walks each use of the list and asks
+   that the guard appears in the SAME condition, whichever side of it. */
+const listUses = [];
+for (let k = fnsNoC.indexOf('QUOTE_RAISED_STATUSES_SERVER.indexOf(');
+     k !== -1;
+     k = fnsNoC.indexOf('QUOTE_RAISED_STATUSES_SERVER.indexOf(', k + 1)) {
+  /* The condition this use sits in: back to its own `if (`, forward to the brace or
+     semicolon that ends the statement. */
+  const from = fnsNoC.lastIndexOf('if (', k);
+  let to = fnsNoC.length;
+  ['{', ';'].forEach(ch => {
+    const at = fnsNoC.indexOf(ch, k);
+    if (at !== -1 && at < to) to = at;
+  });
+  listUses.push(fnsNoC.slice(from === -1 ? k : from, to + 1));
+}
+check('every server use of the list is in a condition that also asks the rule',
+  listUses.length === 2 &&
+  listUses.every(c => c.indexOf('quoteAnswerMayClearStatusServer(') !== -1),
+  'found ' + listUses.length + ' use(s), ' +
+  listUses.filter(c => c.indexOf('quoteAnswerMayClearStatusServer(') === -1).length +
+  ' with no move guard in the same condition — a bare list test is the shape that ' +
+  'was wrong, and a third clearing site added later needs the guard too');
+check('the office delete asks it too',
+  /QUOTE_RAISED_STATUSES\.indexOf\([\s\S]{0,80}?\)\s*!==\s*-1[\s\S]{0,80}?quoteAnswerMayClearStatus\(/
+    .test(stripComments(adm.replace(/\r\n/g, '\n'))),
+  'deleting a stale price re-quote for somebody who has since reported a move ' +
+  'would clear the badge that move is holding');
+
+// ==========================================================================
+// 6. A MOVE REPORTED FROM THE DECLINE PICKER PUTS THEM BACK IN ([[RS-60]])
 // ==========================================================================
 
 /* Addie: "Moved should also give option change address which will keep them and confrim

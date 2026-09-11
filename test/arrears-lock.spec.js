@@ -19,7 +19,7 @@
  */
 
 const { test, expect } = require('@playwright/test');
-const { installFirebaseStub } = require('./firebase-stub');
+const { installFirebaseStub, tapRsvpConfirm } = require('./firebase-stub');
 const { CUSTOMERS, INVOICES } = require('./fixtures');
 
 const CUST = CUSTOMERS.standard;
@@ -49,6 +49,9 @@ async function open(page, url, overrides) {
     if (m.type() === 'error' && !BLOCKED_RESOURCE.test(m.text())) thrown.push('console: ' + m.text());
   });
   await page.goto(url);
+  /* ⭐ An RSVP link no longer answers on open — one tap confirms it. No-ops on any
+     other link. See tapRsvpConfirm. */
+  await tapRsvpConfirm(page, url);
   stub.thrown = thrown;
   return stub;
 }

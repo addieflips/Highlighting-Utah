@@ -1329,9 +1329,16 @@ if (unguarded.length) {
 
   /* Browser timers. `setInterval` assigned to a named variable is what a long-lived
      automatic run looks like here; an anonymous one-off is not that. */
+  /* ⚠ IT READS THE CODE, NOT THE COMMENTS (2026-09-11). This swept raw source, so a
+     comment in admin.html EXPLAINING this very rule — it quotes `x = setInterval(` as the
+     shape the sweep looks for — was read as a sixth timer named `x`, and the check failed
+     on a file that was right. Suites 58, 274, 275 and 300 each learned this from the other
+     direction, and the argument every time was to strip by default rather than when
+     somebody remembers. Stripping also makes both sweeps STRONGER: a real timer can no
+     longer hide inside a commented-out block. */
   const timerIds = [];
   ['admin.html', 'index.html', 'employee.html'].forEach(f => {
-    const src = readSrc(f);
+    const src = blankNonCode(readSrc(f));
     const re = /(\w+)\s*=\s*setInterval\(/g;
     let mm;
     while ((mm = re.exec(src)) !== null) timerIds.push(mm[1]);
@@ -1369,7 +1376,7 @@ if (unguarded.length) {
      that finishes; a minute or more is something that runs all day. */
   const anon = [];
   ['admin.html', 'index.html', 'employee.html'].forEach(f => {
-    const src = readSrc(f);
+    const src = blankNonCode(readSrc(f));
     const re = /(^|[^\w.])setInterval\(/g;
     let mm;
     while ((mm = re.exec(src)) !== null) {
@@ -1388,6 +1395,46 @@ if (unguarded.length) {
     ': ' + anon.join(', ') + ' — an unnamed interval cannot be matched to a row on the ' +
     'automation list, so it runs and the page that says what runs cannot see it. Assign ' +
     'it to a variable and add the row.');
+
+  /* ⭐ AND NONE OF THEM MAY TICK AFTER A SIGN-OUT (2026-09-11, from the Errors folder).
+     detachAllListeners stops every snapshot listener and the guard inside onSnapshot
+     forgives the denial that races it, but neither reaches a setInterval — so all four of
+     admin's long-lived timers went on running after a sign-out and after a token expiry,
+     and every tick is a one-shot getDoc/getDocs that Firestore refuses.
+
+     ⚠ THAT IS THE "Signed in as: nobody" ROW. Two landed in the Errors folder within a
+     minute of each other on 2026-09-10 — "[HU] activity log read failed" and "[HU] could
+     not read nightly billing health" — and neither names a fault in the thing it was
+     reading. Unactionable rows are what teach somebody to stop opening the folder.
+
+     ⚠ IT IS SWEPT OFF THE SAME INVENTORY AS THE TWO CHECKS ABOVE, deliberately: a timer
+     added later is checked for the guard by the same line that checks it has a name, so
+     neither can be got right while the other is forgotten. The guard wraps the CALLBACK
+     (`x = setInterval(whileSignedIn(fn), ms)`) precisely so `x = setInterval(` still
+     reads as a named timer to those sweeps. */
+  /* ⚠ admin.html ALONE, and that is not an oversight: HU_SIGNED_OUT is an admin concept.
+     index.html and employee.html have no Firebase Auth session to lose. */
+  const adminCode = blankNonCode(readSrc('admin.html'));
+  const guardAt = adminCode.indexOf('function whileSignedIn(');
+  check('admin.html has the signed-out guard the timers rest on',
+    guardAt > -1 && /if\s*\(\s*HU_SIGNED_OUT\s*\)\s*return;/.test(
+      adminCode.slice(guardAt, guardAt + 400)),
+    'without it the wrapper below is a no-op and every timer goes on reporting ' +
+    'permission-denied for the rest of the session');
+  const unguarded = [];
+  ['admin.html'].forEach(f => {
+    const src2 = blankNonCode(readSrc(f));
+    const re2 = /(\w+)\s*=\s*setInterval\(\s*([A-Za-z_$][\w$]*)?/g;
+    let g;
+    while ((g = re2.exec(src2)) !== null) {
+      if (NOT_AUTOMATION[g[1]]) continue;
+      if (g[2] !== 'whileSignedIn') unguarded.push(f + ':' + g[1]);
+    }
+  });
+  check('and every long-lived admin timer only runs while somebody is signed in',
+    unguarded.length === 0,
+    ': ' + unguarded.join(', ') + ' — a tick after sign-out is a refused read, and it ' +
+    'files an Admin Error reading "Signed in as: nobody" that names no fixable thing');
 
   /* And the other direction: a row describing something that no longer exists. */
   const allSrc = ['functions/index.js', 'admin.html', 'index.html', 'employee.html']

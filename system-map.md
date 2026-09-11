@@ -63,9 +63,9 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
 
     ⚠ **AND HALF AN OWNER RULING IS REVERSED HERE, out loud.** Addie asked for the back-next-year-then-no sequence and was answered *"they belong on the recycle list, and NOT on Contact 2027 as well"*. The Contact 2027 half stands — a no still clears `maybeNextYear`. The recycle half is Dax's later call (R-024).
 
-    ⭐ **AND IT IS ADDIE'S RULE NOW TOO** (2026-09-11, [[RS-59]]). She said it in her own words: *"they will only be a real no if they cancelled member portal."* Nothing about the rule changes — what changes is that it no longer rests on one person's call, which [[RS-55]] had flagged as unsettled. ⚠ **WHAT PROMPTED IT WAS A TEST FAKE THAT AGREED WITH THE OLD RULE:** `test/firebase-stub.js` went on writing `needsLightRecycle` on a No for eight days after the server stopped, so a browser spec asserted the reversed rule and passed. A stub that has drifted from the server is a spec proving the opposite of what the app does, and nothing goes red. ⚠ **AND AN OWED RECYCLE STILL SURVIVES A No** — somebody who cancelled properly and then answers the RSVP again keeps the collection the warehouse is queued for. Both halves now have a browser test.
+    ⭐ **AND IT IS ADDIE'S RULE NOW TOO** (2026-09-11, [[RS-61]]). She said it in her own words: *"they will only be a real no if they cancelled member portal."* Nothing about the rule changes — what changes is that it no longer rests on one person's call, which [[RS-55]] had flagged as unsettled. ⚠ **WHAT PROMPTED IT WAS A TEST FAKE THAT AGREED WITH THE OLD RULE:** `test/firebase-stub.js` went on writing `needsLightRecycle` on a No for eight days after the server stopped, so a browser spec asserted the reversed rule and passed. A stub that has drifted from the server is a spec proving the opposite of what the app does, and nothing goes red. ⚠ **AND AN OWED RECYCLE STILL SURVIVES A No** — somebody who cancelled properly and then answers the RSVP again keeps the collection the warehouse is queued for. Both halves now have a browser test.
 
-    ⭐ **AND SOMEBODY IS TOLD, AND THEN ASKED WHY** (2026-09-11, RS-57 and RS-58). A decline used to write **nothing to the Inbox at all** — the record changed, they came off every route and their referral was clawed back, in silence, on the most consequential answer in the season. `portalRsvp` now raises a note under **RSVP — Not This Year** or **RSVP — Back Next Year**, and those two strings are the folders the Inbox files them into, under a **No RSVPs** section of its own. On the TRANSITION only, and best-effort: their answer is already written by that line.
+    ⭐ **AND SOMEBODY IS TOLD, AND THEN ASKED WHY** (2026-09-11, RS-59 and RS-60). A decline used to write **nothing to the Inbox at all** — the record changed, they came off every route and their referral was clawed back, in silence, on the most consequential answer in the season. `portalRsvp` now raises a note under **RSVP — Not This Year** or **RSVP — Back Next Year**, and those two strings are the folders the Inbox files them into, under a **No RSVPs** section of its own. On the TRANSITION only, and best-effort: their answer is already written by that line.
 
     ⭐ **THE REASON IS OPTIONAL AND IT PICKS THE FOLDER.** Addie: *"okay i need it to be optional choice"*, then *"Should be Moved, Finances, etc."* The portal offers **Moved · Finances · Doing it ourselves · Another company · Not decorating · Other** — one list (`RSVP_DECLINE_REASONS`) held identically in `index.html`, `functions/index.js` and `admin.html`, because these strings are **folder names** and one character apart files a real answer where nobody is looking.
     - ⛔ **The answer is recorded FIRST and the reason asked afterwards.** It is a second call for exactly that reason and it writes no `rsvpStatus` of its own — somebody who closes the tab on the picker has still declined, and a stale retry cannot overwrite a newer decision.
@@ -133,7 +133,7 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    - ⚠ **And minimal mode ends there by design.** `openPortalAfterYes` removes `rsvp-minimal`/`rsvp-back`,
      exactly as the old *Take Me to My Portal* button did — a receipt is right for a card, wrong for an
      account page. The no and back-next-year paths still end on the receipt.
-   - ⭐ **AND A NO IS ASKED WHY, ONCE IT IS IN** (2026-09-11, [[RS-58]]). The optional reason picker is
+   - ⭐ **AND A NO IS ASKED WHY, ONCE IT IS IN** (2026-09-11, [[RS-60]]). The optional reason picker is
      drawn only for a record that already says no or back next year and has not answered it — which is
      what makes it optional rather than a step. ⚠ **It follows them between tabs**: a decline from the
      email link lands on **Cancel**, the in-portal Yes/No buttons are on **Changes**, and there is ONE
@@ -142,6 +142,10 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
      from the INVOICE record — thirteen fields, no RSVP among them — so it had been saying *"You haven't
      told us yet."* to somebody who had answered a second earlier, and the picker keyed off the same
      blank. Every source check passed the whole time; a browser is what found it.
+     ⚠ **AND IT NOW SITS BEHIND THE TAP** ([[RS-57]], the same day and from another branch).
+     The link no longer answers on open, so the answer this visit recorded is the one the
+     TAP recorded — which is exactly where the picker should appear, and it is why every
+     browser spec that opens an RSVP link taps through `tapRsvpConfirm` first.
 
    ⭐ **AND SOMEBODY WHO OWES FOR LAST SEASON IS HELD BEFORE ANY OF IT** (2026-09-02, RS-36). Dax:
    *"make sure it forces them to pay for their last year lights before they can do anything and before
@@ -3715,6 +3719,217 @@ because the folder earning its keep within two days is the argument for it.
   so `isOutForSeason` drops them. **The rows are the only record that they answered at
   all**, which is the whole reason this folder exists.
 
+#### The seven "lost" RSVPs were not lost (2026-09-11, [[RS-58]])
+
+Addie, checking three of the members the Errors folder had reported: *"It looks like those
+ones went through and are confirmed."*
+
+⭐ **She is right, and the row was stating the opposite as fact.** `portalRsvp` writes the
+answer to `jobAddresses` as its **first** action, and only then does the slow work — reading
+the bill for a yes, walking the upcoming routes for a no. Both of those carry their own
+try/catch and cannot throw. So an `internal` or a `deadline-exceeded` arriving in the browser
+means **the response went missing, not the write.**
+
+⛔ **It cost something in both directions.** The customer was apologised to and told to ring
+us about an answer we already had. And the Member Errors row said *"did NOT save … we still
+do not have it"* — which sends the office to chase, and possibly overwrite, a good record.
+
+⭐ **So the call is retried**, up to three times on a 25-second timeout. That is safe because
+`portalRsvp` is idempotent, and that was checked branch by branch rather than assumed:
+
+- the updates are the same values written twice;
+- `seasonYesUpdates` computes `wasOut` from the record **as it now is**, so `cameBackThisSeasonAt`
+  and `needsDayAssignedAt` are not re-stamped on the second pass;
+- `rejoinNeedsBuildServer` reads the already-updated status, so the Rejoined After Recycling
+  note cannot be raised twice;
+- `clawBackReferralServer` is guarded on the **transition**, so a referral cannot be taken
+  back twice;
+- `removeCustomerFromUpcomingRoutes` filters, so running it again removes nothing.
+
+⚠ **Scoped to `portalRsvp` and nothing else.** `portalSave` can add a $30 colour-change fee,
+and blanket-retrying `callPortalFn` is how somebody gets charged twice. Do not widen it.
+
+⚠ **The short timeout is the point.** The default is 70 seconds, so one bad attempt spent the
+customer's whole patience and left no room to try again. Three attempts now fit inside the
+time one used to take.
+
+⚠ **A stale link is still refused on the first try.** `not-found` is the one failure we *can*
+be certain about, and retrying it only makes the customer wait three times as long for the
+same sentence.
+
+⚠ **And when all three fail we still do not know it was lost.** Both the customer and the
+Inbox row now say the reply may already be saved. The old wording is **kept** for the cases it
+is still true of — a refused write, a stale link, anything that failed before the write —
+because a real loss reading as a maybe is how an answer nobody has is never chased. The caller
+says which it is.
+
+⭐ **And the route sweep stopped reading the whole season.** `removeCustomerFromUpcomingRoutes`
+read **every** `scheduledRoutes` document ever written and threw most of them away on the next
+line. It now asks for `date >= today`. That runs inside `portalRsvp` after the answer is written
+but before the reply reaches the customer, so its cost is time they spend looking at "One
+moment…" — and when it overran, they were told their answer had failed.
+
+#### And the cold-start theory was wrong — measured, 2026-09-11
+
+The line that stood here said the cause was probably cold starts: `functions/index.js` is a
+329KB module with no `minInstances`, so a burst of RSVP opens right after a send would be a
+burst of cold starts. **That was a hypothesis and it is now refuted.** Measured by timing the
+require on a clean install, three runs:
+
+| | |
+|---|---|
+| `firebase-functions/v2/https` | ~190 ms |
+| `firebase-admin` | ~1 ms |
+| **our own `functions/index.js`** | **~55 ms** |
+| **total module load** | **~250 ms** |
+
+A quarter of a second. Add container start and a cold `portalRsvp` is a second or two, not
+seventy. ⚠ **So do not spend money on `minInstances` for this** — it would buy nothing here, and
+that was the obvious next move.
+
+⭐ **What the evidence actually supports.** For a **yes**, `portalRsvp` does exactly three small
+Firestore operations: find the token, write the answer, read one invoice. Every `await` after the
+write is inside its own try/catch — `clawBackReferralServer`, `removeCustomerFromUpcomingRoutes`
+and `arrearsForCustomer` are each wrapped whole, and the rejoin note is wrapped at its call
+site — so the function **cannot throw after the answer is recorded.** Addie confirmed the answers
+were on the records. Put together: the server did its work and returned; the reply did not reach
+the browser.
+
+That is a **transport failure between the function and the customer's browser**, not a server
+fault — which is what the client SDK reports as `deadline-exceeded` (its own 70-second timer) or
+`internal` (a response that arrived broken or not at all). It also fits who it happened to: three
+of the seven were on phones, where a locked screen or a switched app drops a connection mid-request.
+
+⭐ **So the retry is not a workaround for an undiagnosed bug — it is the fix for this failure
+mode.** A second attempt on a fresh connection is precisely what recovers a dropped response, and
+because the call is idempotent the re-send confirms the answer that was already saved.
+
+⚠ **The logs would still confirm it** and are worth a look if it recurs — invocations completing
+in about a second with no errors logged is the signature of exactly this. But nothing is waiting
+on them any more, and no code change is pending behind them.
+
+⚠ **AND THE ORDER IS NOW HELD BY A CHECK**, because it is the whole reason a lost reply is
+harmless. `run-all.js` keeps a census of every `await` that runs after the answer-write: a new one
+fails the build until somebody has decided whether it may take the customer's confirmation down
+with it, each named helper must still carry its own try/catch, and the write must still come
+first. Same shape as build-stamp's clear census. Three sabotages red-checked; a fourth was a
+no-op and is recorded as such rather than counted.
+
+#### Opening an RSVP link is no longer answering it (2026-09-11, [[RS-57]])
+
+Addie: *"lets do a confimring step."*
+
+**What it used to do.** `handleRsvpLink` called `portalRsvp` before it drew anything, and the
+comment said why in as many words — *"the RSVP is recorded on the server FIRST, before any UI
+is shown, so a No is saved even if the customer closes the page immediately after."* That is a
+real guarantee and it was deliberate. Its cost is that **whatever FETCHED the link is what
+answered**, and plenty of things fetch a URL that are not the customer.
+
+⛔ **It had already happened.** Eric Kling (#474, a work address) had `rsvp=no` fetched at
+3:42am and `rsvp=back` at 4:07am from `X11; Linux x86_64 … Chrome/124` — a server browser, at
+an hour nobody is answering email. Dayna Giles (#340, also a work address) the same. Corporate
+mail gateways open every link in an incoming message to check it is safe, and an RSVP email
+carries all three answers.
+
+⭐ **Both attempts failed for an unrelated reason, and that is the only thing that saved
+them.** A landed `no` moves a confirmed, paying customer to Maybe Next Year, and **nothing
+anywhere records who submitted an RSVP** — so no audit could ever have said it was not him.
+⚠ **So the failures are not the safety net.** Fixing `portalRsvp` without this would turn a
+silent near-miss into a silent loss.
+
+⭐ **A scanner can open a page. It cannot tap a button.** The link now draws the answer in
+words — *"Yes — I'm in for this year"*, *"No — not this season"*, *"I'll be back next year"* —
+with one gold button under it, and nothing reaches the server until it is tapped.
+
+- ⚠ **The button names the answer, never a bare "Confirm."** They arrived by tapping a coloured
+  button in an email and may not remember which one.
+- ⚠ **One gate, both doors.** `handleRsvpLink` and `handleBackNextYear` each call
+  `rsvpAwaitConfirmTap`; a second copy is how one of the three answers quietly goes back to
+  recording on open.
+- ⚠ **It fails towards NOT recording.** With the button missing it says so and stops. Proceeding
+  would silently restore the exact behaviour this removes; a customer who cannot answer rings us,
+  which is visible. `selector-contract.test.js` keeps the ids honest.
+- ⚠ **`savePortalLogin` moved inside the tap too** — a bare open must leave no trace at all.
+- ⚠ **And the answer table lives INSIDE the function, which is not tidiness.** Written as a
+  module-level `var` beside it, it was hoisted as `undefined` and read before its own assignment
+  line had run: `navigate()` is called some 2,500 lines above and reaches `handleRsvpLink`
+  through `typeof handleRsvpLink === 'function'`, which a hoisted **function** declaration
+  satisfies while a `var` is still undefined. The throw happened before anything was drawn, so
+  the confirm row stayed hidden and no answer could be given at all — and **every source check
+  passed.** Only driving the real page found it. Same shape as the `rmSaveGrade` scope error.
+
+**What it costs, taken knowingly.** The old guarantee is gone: somebody who taps the email link
+and closes the tab before confirming is now **not** recorded. That was put to Addie before it
+was built. Do not restore the old ordering as a simplification — it is the bug.
+
+⚠ **Every RSVP spec now taps.** Eleven spec files open RSVP links; they all go through
+`tapRsvpConfirm` in `test/firebase-stub.js`, which reads the URL and no-ops on anything that is
+not an RSVP link, so it can be called after every `goto` without the caller knowing which is
+which. Eleven copies of a selector is how one of them keeps passing against a renamed button.
+
+⚠ **And two existing checks were repointed, not weakened.** One asserted `portalRsvp` was call
+`[0]` of any kind — true only because the answer used to go out during `navigate()`, before the
+page-load `publicConfig` read came back; it names the PORTAL's own calls now, which is the
+guarantee it was always about. The other looped two answers in one page and had to gain a real
+reload between them: both URLs differ only by their hash, so the second `goto` is a hashchange
+in the same document and the gate-code modal the first answer opened is still up, with its
+backdrop over the page. Nothing about that is new — it only became visible once the test had to
+click something.
+
+#### And what the second read found (2026-09-11)
+
+- ⭐ **Three of the four admin rows were one bug: a timer ticking after sign-out.**
+  `detachAllListeners` stops every snapshot listener, and the guard inside `onSnapshot`
+  forgives the permission denial that races it — but **neither of them reaches a
+  `setInterval`**. All four of admin's long-lived timers went on running after a sign-out
+  and after a token expiry alike, and each tick is a one-shot `getDoc`/`getDocs` that
+  Firestore then refuses.
+  - That is what a row reading **"Signed in as: nobody"** is. Two arrived within a minute
+    of each other — *"[HU] activity log read failed"* and *"[HU] could not read nightly
+    billing health"* — and neither names a fault in the thing it was reading.
+  - ⭐ Every timer callback now goes through **`whileSignedIn`**, which returns on its
+    first line while `HU_SIGNED_OUT` is set. ⚠ **A guard, not a `clearInterval`, and the
+    reason is `initialized`** — that flag is set once inside `initData` and never put back,
+    so signing in again without a reload does not re-run it. A cleared timer would stay
+    cleared for the rest of the session and the restart guards (`if(hcAutoTimer) return;`)
+    would hold it there. A tick that returns immediately costs nothing and starts working
+    again the moment `HU_SIGNED_OUT` goes back to false.
+  - ⚠ **It wraps the callback, never `setInterval` itself.** `connections.test.js` finds a
+    long-lived timer by the variable it is assigned to and refuses an anonymous one, so a
+    helper that took the interval over would make all four invisible to the page whose job
+    is saying what runs by itself. That suite now sweeps the guard off the same inventory,
+    so a timer added later cannot have the name without the guard.
+  - ⚠ **And the two timer sweeps now strip comments first.** The explanatory comment on
+    the new guard quotes `x = setInterval(` as the shape the sweep looks for, and the sweep
+    read its own explanation as a sixth timer called `x`. Suites 58, 274, 275 and 300 each
+    learned this from the other direction.
+- ⭐ **"1 of 258 failed" now says which one.** The row carried the mail service's reason
+  (*"The recipients address is corrupted"*) and no name, so there was no way to tell which
+  of the 258 never heard from us — and under `confirmed-only` a customer who was never
+  asked is a house no crew is sent to.
+  - ⚠ **The answer was already being collected.** All five bulk senders build
+    `failedRecipients` and hand it to `saveEmailSendFailures` ([[EM-01]]); only this report
+    never got the list. It names up to five and counts the rest — `messages` is capped at
+    5,000 characters on create, and a refused write is how this reporter goes silent.
+  - ⚠ **And it pointed at the wrong screen.** *Email Setup* is where the keys live, which is
+    right for a broken account and useless for one bad address on one record. It now points
+    at **⚠ Some emails did not go out**, the card that names them and can resend to only
+    those people.
+- ⭐ **The paid-but-not-approved note was raising itself twice.** *"could not raise the
+  paid-but-not-approved note for Suzette Robins — Document already exists:
+  …/messages/0HcE7pW1ZaAuPdaNi5iQ"*. `addDoc` mints its own random id, so that is not a
+  collision: it is the SDK retrying a write whose acknowledgement was lost — the long-poll
+  reconnection noise §7 already names — after the first attempt had landed.
+  - The throw then skipped the `arrearsPaidNoticeAt` stamp below it, so **the note existed
+    and nothing recorded that** — and the next sweep raised the whole thing again, with a
+    fresh id, for as long as the customer stayed unanswered. A duplicate note about one
+    customer on every sweep is how the row stops being read.
+  - ⚠ **The order of the two writes is unchanged and deliberate.** A raised note with no
+    stamp costs a duplicate, which is visible; a stamp with no note costs the phone call,
+    which is not. If the stamp cannot be written it goes back to retrying, exactly as
+    before. `arrears-hold.test.js` **runs** the sweep twice over a stub for this, because
+    the claim is about what a second pass does and a regex cannot see that.
+
 ### The Communication Centre — type, status, category, priority
 
 Added 2026-09-09 ([[MSG-11]]). Addie's blueprint: *"Do NOT simply create more folders.
@@ -3789,7 +4004,7 @@ that added so I can make it like this?"* **＋ New section** at the bottom of th
 builds one: a name, an icon, what belongs in it, and as many subtabs as you like — the same
 shape as Member Messages and its five.
 
-⭐ **THE RSVP NOs HAVE THEIR OWN SECTION** ([[RS-57]], 2026-09-11). Addie: *"can we have no
+⭐ **THE RSVP NOs HAVE THEIR OWN SECTION** ([[RS-59]], 2026-09-11). Addie: *"can we have no
 emails be there own section and it will go in the folder with the response they choose"*, then
 *"I mean No RSVPs."*
 
@@ -3810,7 +4025,7 @@ duplicates, and **best effort**, so a failed note never undoes an answer already
 ⛔ **The office's own "no" raises nothing**, deliberately — somebody in admin setting a customer
 to No already knows, and a note telling them what they just typed is noise.
 
-⭐ **AND A FOLDER PER REASON** ([[RS-58]], the same day). This line used to read *"an RSVP
+⭐ **AND A FOLDER PER REASON** ([[RS-60]], the same day). This line used to read *"an RSVP
 decline has no optional reason picker — it is a single button"*, which is what she was told, and
 her answer was *"okay i need it to be optional choice"*, then *"Should be Moved, Finances, etc."*
 The section now carries a tab per reason under the two answer tabs, built from the shared
@@ -4061,13 +4276,18 @@ a fake Firestore rather than reading their source; 16 sabotages red-checked.
     - ⚠ **What was wrong**: `portalSave`'s `info` section decided somebody had MOVED from nothing but the address STRING having changed, and wrote a re-quote state on **every** save of that tab (`address_changed` if the string differed, `needs_changes` otherwise). index.html raised the quote card itself in the same breath and emailed the office. So correcting a spelling produced a card somebody had to answer; correcting a phone number parked them in Needs Changes with no card at all, for ever. No comparison of two typed strings can tell a correction from a move — which is why this is a button.
     - ⭐ **The move is RECORDED, never applied.** It writes `pendingAddress`/`pendingCity`/`pendingZip`/`pendingMoveDate`/`pendingAddressAt` and leaves the live `address`, the town and the map pin exactly as they were. ⚠ **There is no geocoder on the server** and the **town is what a crew-day is grouped by**, so applying it there leaves the customer at the new house with the OLD house's pin, on the OLD town's day, with the new address already pushed onto a frozen route stop the crew is holding.
     - ⭐ **The office's own Save is the one writer.** Edit Customer shows a banner with both addresses and the move date; **Apply fills the boxes and writes nothing**, and pressing Save re-geocodes, raises the re-quote with `existingCustomerId` and re-syncs upcoming stops — the path that already does all three, rather than a second writer that would do one.
-    - ⚠ **The badge is the half that was kept**: `seasonStatus: 'address_changed'` is the pill on the customer row and the filter the office works from, and it clears when the re-quote is answered (`QUOTE_RAISED_STATUSES`). Written through `stampSeasonStatusServer`, not by hand — that helper exists because a stamp beside any ONE branch misses the others, and this is its fourth writer; it is also what puts the move on the customer's **history**, where `historySeasonWords` already reads `address_changed`.
+    - ⚠ **The badge is the half that was kept**: `seasonStatus: 'address_changed'` is the pill on the customer row and the filter the office works from, and it clears when the re-quote is answered (`QUOTE_RAISED_STATUSES`). ⭐ **And ONLY by the re-quote, as of 2026-09-11 (QT-37)** — see the bullet below. Written through `stampSeasonStatusServer`, not by hand — that helper exists because a stamp beside any ONE branch misses the others, and this is its fourth writer; it is also what puts the move on the customer's **history**, where `historySeasonWords` already reads `address_changed`.
     - ⚠ **The portal is told its request landed.** The live address stays the old one on purpose, so without a banner the tab looks like it lost the form and they send it again. Only `pendingAddress` and `pendingMoveDate` are on the read whitelist; the other three are deliberately not, because no line of the page looks at them (`portal-fields.test.js` is what said so).
     - ⚠ **And the request is retired by the save that grants it** — on the address having **changed**, not on it matching what the customer typed. The office routinely tidies a street name, and an exact test would leave the banner advertising a move already applied for the next person to apply twice: the sticky-field bug this repo shipped once as `maybeNextYear`.
     - Gated by `address-move.test.js`, which RUNS the callable against a fake Firestore and reads the update object back — the central claim is a NEGATIVE (no address, no town, no pin) and a source search cannot see one. 12 sabotages red-checked.
     - ⭐ **AND ANYONE MAY REPORT ONE, PAID UP OR NOT** (2026-09-10, QT-36). Addie: *"Yes anyone can report a move but when we requote the person that didn't pay for last year still can't be scheduled until they pay there balance."* So `portalChangeAddress` is **the one portal write deliberately NOT behind the arrears hold** — `portalSave` refuses every section but `cancel` while last season is unpaid, which makes this look like the door that forgot its guard. It is not; it is her exception, and it is asserted as code so a "tidy-up" goes red.
       - ⚠ **THE HOLD IS ON BEING SCHEDULED, NOT ON TELLING US**, and that is the whole reconciliation with Dax's *"before anything goes into the system"*: a pending address grants nothing. `houseOwesFromLastSeason` inside `isOutForSeason` — tested AHEAD of the rsvpStatus and Confirmed branches — keeps a debtor off the routes, out of the build queue and off the schedule even after the office applies the move, re-quotes them, and they APPROVE it. `placeUnscheduledOnNextDay` refuses anybody it holds, so the `needsDayAssignedAt` a yes stamps does not place them either.
       - ⚠ **NOTHING WAS BUILT FOR THAT SECOND HALF** — it was already true and already pinned. `arrears-hold.test.js` §4d runs the real `seasonYesUpdates` into the real `isOutForSeason` for the email-approval path, which is the same `quoteRespond` route a move re-quote takes. Verified before writing anything rather than assumed.
+    - ⭐ **AND NOTHING BUT THE RE-QUOTE MAY CLEAR THE BADGE** (2026-09-11, QT-37). Addie, shown the drift and asked whether to tighten it: *"go ahead."* Three places used to clear a quote-raised `seasonStatus` back to `confirmed` — an **add-on refusal**, a **same-as-last-year refusal**, and the office **deleting a re-quote** — on the argument, written into `QUOTE_RAISED_STATUSES`' own note, that anything sitting there was put there by THIS quote. That was true when it was written and is still true of `needs_changes`; the move door made it a **second writer of `address_changed`**, answered only when the office applies the move, and all three were clearing that too.
+      - ⚠ **What it cost, said accurately**: nothing routed and nothing billed. `seasonStatus` is read for **display only** — the pill and the history line — and the pending move itself survived either way, because the Edit Customer banner reads `pendingAddress` rather than the status. What went was the one signal on that row saying a house we have not re-quoted is not settled.
+      - ⭐ **One rule per side**: `quoteAnswerMayClearStatusServer` (both server sites) and `quoteAnswerMayClearStatus` (the office delete). It asks about **`pendingAddress`** — the same field the banner reads and the same field the Save clears once the address has moved — and deliberately **not about the status word**: there is only one `seasonStatus` field, so a move can be outstanding while the pill shows `needs_changes` because something else wrote last.
+      - ⭐ **The hold is bounded, which is the whole argument for it.** The hole the clearing closed is a customer sitting in Needs Changes for ever with nothing anywhere to clear it; here there IS something left — the move, which the office applies, and that save clears `pendingAddress` and raises the re-quote that answers the badge properly. **It reports nothing and flags nothing**: the badge still reading Needs Changes is the honest answer while a move is outstanding, and a follow-up raised for correct behaviour is how the office learns to click past the ones that matter.
+      - ⚠ **All three sites, not the one that prompted it** — "a fix in one direction is half a fix". Proved where each half can be: the **behaviour** in run-all.js Suites 137 and 138, which already drive both decline paths against a fake Firestore (the status survives, and an `address_changed` with **no** pending move still clears); the **agreement** in §5 of `address-move.test.js`, which RUNS the two copies side by side over every shape a record can be in, money-parity's argument applied to a badge. 6 sabotages red-checked.
 - **Cloud Functions it calls**: `portalLookup` (the one entry point for all lookups — token or phone/email+lastname, rate-limited), `portalSave` (whitelisted writes per section, mirrors changes onto the invoice, resyncs upcoming routes), `portalRsvp`, `portalSetGateCode`, `portalChangeAddress` (records a move as PENDING; applies nothing), `portalInvoice` (sanitized invoice read), `quoteRespond`, `publicQuoteLookup`, `paypalCreateOrder`/`paypalCaptureOrder`, `publicConfig` (public-safe EmailJS keys for the contact form).
 
 ### Admin dashboard (`admin.html`)

@@ -3655,7 +3655,7 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     referralSrcs.every(Boolean),
     'renamed or removed — a missing one leaves every decline throwing a bare ' +
     'ReferenceError, which reads as "an async suite crashed"');
-  /* ⚠ AND THE THREE [[RS-57]]/[[RS-58]] CONSTANTS, LIFTED — not stubbed. portalRsvp
+  /* ⚠ AND THE THREE [[RS-59]]/[[RS-60]] CONSTANTS, LIFTED — not stubbed. portalRsvp
      names them when it raises the decline note and again when it files a reason, and
      the note write is wrapped in a best-effort try/catch — so without them the sandbox
      does NOT fail, it quietly logs "[HU] RSVP decline note failed: RSVP_NO_TOPIC is not
@@ -3686,7 +3686,7 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
   // written; add() records Inbox notes with the collection they landed in;
   // get() backs removeCustomerFromUpcomingRoutes's own route scan — empty on
   // purpose, since no test here needs a real route to already exist.
-  /* ⚠ `opts` CARRIES THE FOLLOW-UP ([[RS-58]]): `opts.body` adds fields to the call so
+  /* ⚠ `opts` CARRIES THE FOLLOW-UP ([[RS-60]]): `opts.body` adds fields to the call so
      the reason branch can be RUN rather than read, and `opts.notes` is what the messages
      query finds, since that branch re-opens a note an EARLIER call wrote. */
   function runRsvp(record, response, routes, opts) {
@@ -3722,25 +3722,45 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
          the fake db, and never a list the stub was supposed to keep. */
       db: {
         collection: (name) => {
-          /* ⚠ `where()` RETURNS THE SAME OBJECT so a two-clause query chains, and the
-             messages collection answers with the notes this call is meant to find —
-             the route sweep and the decline-note move both end in `.get()` and want
-             different rows. */
-          const q = {
+          /* ⚠ `.where` IS MODELLED AND REALLY FILTERS (2026-09-11, [[RS-58]]), AND IT CHAINS
+             (the decline-note lookup of [[RS-60]] asks two clauses). Both halves are load-bearing and
+             they arrived from two branches: the real removeCustomerFromUpcomingRoutes asks
+             for `date >= today` rather than reading every route ever written, and a fake
+             offering `get` alone turned that into a TypeError — swallowed by that
+             function's own try/catch, so the sweep silently did nothing and three checks
+             here went red without naming why. The real function declared in fullSrc
+             shadows the stub above it, which is what makes those three checks about the
+             SWEEP rather than about a call being made.
+             ⚠ AND `messages` ANSWERS WITH THE NOTES, filtered the same way, so a check on
+             the decline-note move proves the QUERY finds it rather than proving a fake
+             handed the rows over regardless. */
+          const docsFor = (list) => ({ docs: (list || []).map(r => ({
+            data: () => r,
+            ref: { update: async (u) => { routeWrites.push({ id: r.id, stops: u.stops }); } }
+          })) });
+          const notesFor = (list) => ({ docs: (list || []).map(n => ({
+            data: () => n,
+            ref: { update: async (u) => { noteWrites.push(Object.assign({}, n, u)); } }
+          })) });
+          const passes = (r, f) => {
+            const v = r[f.field];
+            if (f.op === '>=') return v !== undefined && v >= f.value;
+            if (f.op === '>')  return v !== undefined && v > f.value;
+            if (f.op === '==') return v === f.value;
+            if (f.op === 'in') return (f.value || []).indexOf(v) !== -1;
+            throw new Error('this harness does not model ' + f.op);
+          };
+          const query = (filters) => ({
             doc: () => ({ update: async (u) => { Object.assign(written, u); } }),
             add: async (m) => { added.push(Object.assign({ __col: name }, m)); },
-            where: () => q,
-            get: async () => (name === 'messages'
-              ? { docs: ((opts && opts.notes) || []).map(n => ({
-                  data: () => n,
-                  ref: { update: async (u) => { noteWrites.push(Object.assign({}, n, u)); } }
-                })) }
-              : { docs: (routes || []).map(r => ({
-                  data: () => r,
-                  ref: { update: async (u) => { routeWrites.push({ id: r.id, stops: u.stops }); } }
-                })) })
-          };
-          return q;
+            where: (field, op, value) => query(filters.concat([{ field, op, value }])),
+            get: async () => {
+              const all = name === 'messages' ? ((opts && opts.notes) || []) : (routes || []);
+              const rows = all.filter(r => filters.every(f => passes(r, f)));
+              return name === 'messages' ? notesFor(rows) : docsFor(rows);
+            }
+          });
+          return query([]);
         }
       },
       console
@@ -3872,7 +3892,7 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
       plain.written.needsLightBuild === undefined && notes(plain.added).length === 0);
 
     /* =======================================================================
-       ⭐ THE OPTIONAL REASON, RUN ([[RS-58]], 2026-09-11). Addie: "okay i need it to
+       ⭐ THE OPTIONAL REASON, RUN ([[RS-60]], 2026-09-11). Addie: "okay i need it to
        be optional choice." Everything below is about what is WRITTEN and WHERE, so
        none of it can be a text match — the checks beside this suite that read the
        source prove the branch is placed correctly; these prove it does the right
@@ -6213,8 +6233,14 @@ suite('11. Reliability pass');
   check('reliability', 'the automatic run waits for the customer list to load',
     /function hcCachesReady/.test(admin) && /if\(!hcCachesReady\(\)\) return;/.test(admin),
     'running against an empty cache reports a serene "everything lines up" a second after login');
+  /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. The callback is now wrapped in
+     whileSignedIn so a tick after a sign-out does not fire a read Firestore will refuse
+     — see the Errors folder's "Signed in as: nobody" rows. This matched the bare name and
+     so failed on code that is right; the guarantee it holds has not moved, and the wrapper
+     is optional in the match so neither spelling can quietly drop the other. Same
+     slow-fuse shape as S82, S129 and the folder-names suite. */
   check('reliability', 'the automatic run repeats, not just once',
-    /setInterval\(runHealthCheckAuto/.test(admin),
+    /setInterval\((?:whileSignedIn\()?runHealthCheckAuto/.test(admin),
     'a check that runs once at login misses everything that happens during the day');
   check('reliability', 'a failing background check cannot break the page',
     /function runHealthCheckAuto\(\)\{[\s\S]{0,400}try\{[\s\S]{0,300}catch/.test(admin.replace(/\r/g,'')),
@@ -7996,17 +8022,40 @@ if (!JSDOM) {
   }
   const rSrc = fnsSrc.slice(rStart, fnsSrc.indexOf('\n}', rStart) + 2);
 
+  /* ⚠ THE FAKE UNDERSTANDS `.where` NOW, AND IT REALLY FILTERS (2026-09-11). It used to
+     offer `get` alone, so when the real function started asking for `date >= today` the
+     call was a TypeError — swallowed by that function's own try/catch, which then returned
+     0 and swept nothing. Five checks went red at once and NONE of them named the cause,
+     because the symptom is a sweep that quietly does nothing. A fake that cannot express
+     the query the code makes is a fake that fails correct code.
+     ⚠ AND IT RECORDS THAT THE QUERY WAS NARROWED. With the filter modelled, the old
+     read-everything shape passes these checks too — the `continue` inside the loop drops
+     the same rows — so without `usedWhere` a revert to `.get()` is invisible. That read
+     the WHOLE season to answer a question about the days ahead, inside portalRsvp, after
+     the customer's answer is written but before the reply reaches them ([[RS-58]]). */
   function makeRouteHarness(routes) {
     const updated = [];
+    const seen = { usedWhere: false };
+    const docsFor = (list) => ({
+      docs: list.map(r => ({
+        data: () => r,
+        ref: { update: async (payload) => { updated.push({ id: r.id, payload }); r.stops = payload.stops; } }
+      }))
+    });
     const ctx = {
       db: {
         collection: () => ({
-          get: async () => ({
-            docs: routes.map(r => ({
-              data: () => r,
-              ref: { update: async (payload) => { updated.push({ id: r.id, payload }); r.stops = payload.stops; } }
-            }))
-          })
+          get: async () => docsFor(routes),
+          where: (field, op, value) => {
+            seen.usedWhere = true;
+            return { get: async () => docsFor(routes.filter(r => {
+              const v = r[field];
+              if (op === '>=') return v !== undefined && v >= value;
+              if (op === '>')  return v !== undefined && v > value;
+              if (op === '==') return v === value;
+              throw new Error('the route harness does not model ' + op + ' — teach it rather than widening the query');
+            })) };
+          }
         })
       },
       todayStrInDenver: () => '2026-11-20',
@@ -8014,7 +8063,7 @@ if (!JSDOM) {
     };
     const names = Object.keys(ctx);
     const fn = new Function(...names, rSrc + '\nreturn removeCustomerFromUpcomingRoutes;')(...names.map(n => ctx[n]));
-    return { fn, updated };
+    return { fn, updated, seen };
   }
 
   const upcomingRoute = { id: 'r-upcoming', date: '2026-11-25', stops: [{ id: 'cust-1' }, { id: 'cust-2' }] };
@@ -8023,12 +8072,92 @@ if (!JSDOM) {
 
   pendingAsync.push((async () => {
     suite('11. RSVP no / back-next-year removes the customer from upcoming routes');
+
+    /* ⭐ NOTHING AFTER THE ANSWER IS WRITTEN MAY THROW (2026-09-11, [[RS-58]]).
+       portalRsvp writes the customer's answer as its FIRST action and then does the rest.
+       So anything that throws AFTER that line rejects the callable — and the customer is
+       told their RSVP failed for an answer we already have, then filed under Member Errors
+       telling the office it was lost. That is the report Addie disproved by looking at the
+       records: "It looks like those ones went through and are confirmed."
+
+       ⚠ THIS IS A CENSUS, NOT A PATTERN MATCH, and deliberately so. It is the same shape as
+       build-stamp's clear census and queue-date's queue census: every await after the write
+       is NAMED here, and a new one fails this check until somebody has decided whether it is
+       allowed to take the customer's confirmation down with it. A regex asking "is it inside
+       a try" would pass the moment a helper is called that throws internally.
+
+       ⚠ AND EACH NAMED HELPER MUST STILL CARRY ITS OWN try/catch. Listing it here is not the
+       guarantee — the guard inside it is. Both halves are checked, because a helper that
+       loses its catch is exactly how this comes back with the list still looking right. */
+    const pStart = fnsSrc.indexOf('exports.portalRsvp = onCall(');
+    const pBody = pStart === -1 ? '' : fnsSrc.slice(pStart, fnsSrc.indexOf('\n});', pStart));
+    const writeAt = pBody.indexOf(".doc(match.id).update(updates)");
+    check('rsvp-routes', 'portalRsvp and its answer-write were both found',
+      pStart !== -1 && writeAt !== -1,
+      'the census below silently passes on nothing if either anchor moves');
+    if (pStart !== -1 && writeAt !== -1) {
+      const after = stripComments(pBody.slice(writeAt));
+      /* Every await after the write, by the name it calls. */
+      const AFTER_THE_WRITE = {
+        clawBackReferralServer:
+          'takes a referral credit back when somebody cancels — its whole body is inside a try/catch',
+        removeCustomerFromUpcomingRoutes:
+          'sweeps them off routes a crew already holds — its whole body is inside a try/catch',
+        arrearsForCustomer:
+          'reads what they owe from last season so the confirmation can stop promising an ' +
+          'install — its whole body is inside a try/catch, and it answers nought on a bad read',
+        'db.collection':
+          'the Rejoined After Recycling note — a direct Firestore call, wrapped in its own ' +
+          'try/catch at the call site rather than inside a helper'
+      };
+      const called = [];
+      const re = /await\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(/g;
+      let m;
+      while ((m = re.exec(after)) !== null) {
+        /* ⚠ THE WHOLE DOTTED NAME, not its last segment. `db.collection(...).add(...)`
+           reads as `add` if you take the tail, which hides that it is a raw Firestore call
+           — and a raw call is exactly the kind that needs looking at here. */
+        const name = m[1];
+        if (called.indexOf(name) === -1) called.push(name);
+      }
+      const unlisted = called.filter(n => !AFTER_THE_WRITE[n]);
+      check('rsvp-routes', 'every await after the answer is written is one we have decided about',
+        called.length > 0 && unlisted.length === 0,
+        ': ' + unlisted.join(', ') + ' runs after the customer\'s answer is already saved. If it ' +
+        'throws, they are told their RSVP failed for an answer we have — and the Inbox is told ' +
+        'it was lost. Guard it, then name it in AFTER_THE_WRITE.');
+      /* The list is not the guarantee; the guard inside each helper is. */
+      const unguarded = Object.keys(AFTER_THE_WRITE).filter(function (n) {
+        /* A raw Firestore call has no helper to inspect — its guard is the try/catch
+           around it in portalRsvp, which the census above is what holds. */
+        if (n.indexOf('.') !== -1) return false;
+        const at = fnsSrc.indexOf('async function ' + n + '(');
+        if (at === -1) return true;
+        const body = fnsSrc.slice(at, fnsSrc.indexOf('\n}', at));
+        return !(/\btry\s*\{/.test(body) && /\bcatch\s*\(/.test(body));
+      });
+      check('rsvp-routes', 'and each of them still carries its own try/catch',
+        unguarded.length === 0,
+        ': ' + unguarded.join(', ') + ' — naming it in the census is not the guard, the ' +
+        'try/catch is. Without it the customer loses a confirmation for an answer we saved.');
+      /* ⚠ AND THE ORDER IS THE WHOLE THING. A tidy-up that moved the write below any of
+         these would put every one of them back in front of the customer's answer. */
+      check('rsvp-routes', 'the answer is written before any of that work is done',
+        writeAt < pBody.indexOf('removeCustomerFromUpcomingRoutes(match.id)') &&
+        writeAt < pBody.indexOf('arrearsForCustomer(oldData)'),
+        'the write being FIRST is what makes a lost response harmless — reorder it and a ' +
+        'slow route sweep starts costing real answers again');
+    }
     let removedCount = null, threw = null;
     try { removedCount = await harness.fn('cust-1'); } catch (e) { threw = e; }
 
     check('rsvp-routes', 'removeCustomerFromUpcomingRoutes runs without throwing',
       threw === null,
       'it threw ' + (threw && threw.message) + ' — every caller silently fails to sweep routes');
+    check('rsvp-routes', 'it asks only for the days still to come, not the whole season',
+      harness.seen.usedWhere,
+      'reading every scheduledRoutes document ever written is time the customer spends ' +
+      'watching "One moment" — and when it overran they were told their answer had failed');
     check('rsvp-routes', 'the customer is stripped from the upcoming route\'s stops',
       !upcomingRoute.stops.some(s => s.id === 'cust-1'),
       'a customer who declined would still be a stop on a route the crew is about to run');
@@ -9893,8 +10022,15 @@ suite('17. A new customer lands on the next day in their city');
 }
 
 // ---- 18.4 How it is wired in -------------------------------------------
+  /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. The callback is now wrapped in
+   whileSignedIn so a tick after a sign-out does not fire a read Firestore will refuse
+   — see the Errors folder's "Signed in as: nobody" rows. This matched the bare name and
+   so failed on code that is right; the guarantee it holds has not moved, and the wrapper
+   is optional in the match so neither spelling can quietly drop the other. Same
+   slow-fuse shape as S82, S129 and the folder-names suite. */
 check('reconcile', 'the sweep starts itself, like the health check does',
-  /startReconcileAuto\(\);/.test(admin) && /setInterval\(runReconcileAuto, RECONCILE_INTERVAL_MS\)/.test(admin),
+  /startReconcileAuto\(\);/.test(admin) &&
+  /setInterval\((?:whileSignedIn\()?runReconcileAuto\)?, RECONCILE_INTERVAL_MS\)/.test(admin),
   'a reconciler nobody runs is a reconciler that does nothing');
 /* Read out of the FUNCTION, not out of a 600-character window after the call.
    The window version broke the moment runReconcileAuto grew a few lines, which
@@ -11728,8 +11864,14 @@ check('build', 'the flag is set inside the snapshot, so an empty result still co
     return i !== -1 && blk.indexOf('scheduledRoutesLoaded = true;') !== -1;
   })(),
   'setting it anywhere else means either never running, or running too early');
+  /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. The callback is now wrapped in
+   whileSignedIn so a tick after a sign-out does not fire a read Firestore will refuse
+   — see the Errors folder's "Signed in as: nobody" rows. This matched the bare name and
+   so failed on code that is right; the guarantee it holds has not moved, and the wrapper
+   is optional in the match so neither spelling can quietly drop the other. Same
+   slow-fuse shape as S82, S129 and the folder-names suite. */
 check('build', 'a bounded pass comes straight back rather than waiting the full interval',
-  /if\(report\.moreToDo\) setTimeout\(runReconcileAuto, \d+\);/.test(admin),
+  /if\(report\.moreToDo\) setTimeout\((?:whileSignedIn\()?runReconcileAuto\)?, \d+\);/.test(admin),
   'the first run of a season is deliberately bounded — leaving the rest for ' +
   'fifteen minutes makes a season take an hour to appear, which looks broken');
 check('build', 'the sweep actually builds the days it plans',
@@ -35450,7 +35592,11 @@ suite('Suite 137. A decline asks a question, it does not cancel their season');
        exists to ask (what a decline does to their season) with itself. Added the moment
        the real function gained the call: sandboxDeps named it in the failure, which is
        exactly what that guard is for. */
-    'stampSeasonStatusServer'];
+    'stampSeasonStatusServer',
+    /* ⚠ LIFTED, NOT STUBBED (2026-09-11). It decides whether the decline is
+       ALLOWED to clear the status, so a stub answering true makes the pending-move
+       check below pass on code that never consults it. */
+    'quoteAnswerMayClearStatusServer'];
   const src = {};
   NEEDED.forEach(n => { src[n] = extractFn(fns, n); });
   const missing = NEEDED.filter(n => !src[n]);
@@ -35653,6 +35799,44 @@ suite('Suite 137. A decline asks a question, it does not cancel their season');
           !w.messages.length && !w.customers.c1.askSameAsLastYear,
           'owner: "we won\'t have an info for them yet" — the quote is archived ' +
           'and that is the whole of it');
+      }
+
+      /* ---- 2b. A MOVE NOBODY HAS APPLIED IS NOT THIS QUOTE'S TO CLEAR ----
+         QT-37. The portal's move door is a second writer of address_changed and
+         only the office APPLYING the move answers it, so a "same as last year"
+         refusal must leave it standing. ⚠ THE FIXTURE CARRIES pendingAddress AND
+         address_changed TOGETHER, which is the only shape that can fail: with the
+         status alone the clear is correct, and with the pending address alone
+         there is no status to clear. */
+      {
+        const w = makeWorld({ customers: { c1: member({
+          seasonStatus: 'address_changed',
+          pendingAddress: '9 Oak St, Springville 84663',
+          pendingMoveDate: 'mid-October'
+        }) } });
+        const res = await w.run({ existingCustomerId: 'c1', name: 'Rachel Oslund' }, 'q1');
+        check('S137', 'a pending move survives a decline, status and all',
+          res.reached === true &&
+          w.customers.c1.seasonStatus === 'address_changed' &&
+          w.customers.c1.pendingAddress === '9 Oak St, Springville 84663',
+          'the office row would read Confirmed while a house we have not ' +
+          're-quoted is waiting to be applied — the one signal saying so, gone');
+        check('S137', 'and nothing dates a status change that did not happen',
+          !w.customers.c1.seasonStatusAt && !w.customers.c1.seasonStatusWas,
+          'stampSeasonStatusServer only stamps a status it is actually writing; ' +
+          'a date here would claim the question was answered');
+        check('S137', 'the question they were asked is still recorded',
+          w.customers.c1.askSameAsLastYear === true,
+          'holding the status back must not swallow the decline itself — they ' +
+          'still said no, and somebody still has to ask them');
+        /* ⚠ AND THE ORDINARY CASE STILL CLEARS. A guard that held every status
+           back would look identical on this fixture and break the hole the
+           clearing was written to close. */
+        const w2 = makeWorld({ customers: { c1: member() } });
+        await w2.run({ existingCustomerId: 'c1', name: 'Rachel Oslund' }, 'q1');
+        check('S137', 'a customer with no pending move is still cleared as before',
+          w2.customers.c1.seasonStatus === 'confirmed',
+          'the guard is about a move, not about declining');
       }
 
       /* ---- 3. NEVER BY PHONE ALONE -------------------------------------
@@ -35894,7 +36078,9 @@ suite('Suite 138. Declining an add-on refuses the add-on, not the season');
 
   /* ---- 2. declineAddOnOnly, RUN ---------------------------------------- */
   const NEED = ['declineAddOnOnly', 'quoteCustomerRef', 'quoteMatchesExistingCustomer',
-    'quoteMatchAddressServer', 'digitsOnly', 'tryFirestore', 'flagQuoteFollowUp'];
+    'quoteMatchAddressServer', 'digitsOnly', 'tryFirestore', 'flagQuoteFollowUp',
+    /* ⚠ LIFTED, NOT STUBBED (2026-09-11) — see the same entry in Suite 137. */
+    'quoteAnswerMayClearStatusServer'];
   const parts = {};
   NEED.forEach(n => { parts[n] = lift(fns, n); });
   const gone = NEED.filter(n => !parts[n]);
@@ -36056,6 +36242,40 @@ suite('Suite 138. Declining an add-on refuses the add-on, not the season');
         check('S138', 'a customer with nothing to clear is not written to',
           w.customers.c1.seasonStatus === 'confirmed' && w.messages.length === 1,
           'the note still goes — the office needs telling either way');
+      }
+
+      {
+        /* ⭐ AND NEITHER IS A MOVE NOBODY HAS APPLIED (QT-37, 2026-09-11). Same
+           argument as the cancellation request above, arrived at from the other
+           end: address_changed now has TWO writers, and the portal's move door
+           is answered by the office applying the move, not by an add-on refusal.
+           ⚠ THE FIXTURE NEEDS BOTH HALVES — the status AND the pending address.
+           Either alone passes whether the guard is there or not. */
+        const w = makeWorld({ c1: inSeason({
+          seasonStatus: 'address_changed',
+          pendingAddress: '9 Oak St, Springville 84663'
+        }) });
+        const res = await w.run({ existingCustomerId: 'c1', requoteKind: 'addition' });
+        check('S138', 'a pending move is NOT cleared by an add-on refusal',
+          w.customers.c1.seasonStatus === 'address_changed' &&
+          w.customers.c1.pendingAddress === '9 Oak St, Springville 84663' &&
+          res.seasonStatusCleared !== true,
+          'the row would read Confirmed while a house we have not re-quoted ' +
+          'waits to be applied');
+        check('S138', 'and the refusal itself is still recorded and reported',
+          res.reached === true && res.addOnOnly === true && w.messages.length === 1,
+          'holding the status back must not swallow the answer — the office ' +
+          'still needs telling the extra is off');
+      }
+      {
+        /* ⚠ THE OPPOSITE DIRECTION, and it is what stops the guard being widened
+           into the hole the clearing closed: an address_changed with NO pending
+           move is an ordinary re-quote question and still clears. */
+        const w = makeWorld({ c1: inSeason({ seasonStatus: 'address_changed' }) });
+        const res = await w.run({ existingCustomerId: 'c1', requoteKind: 'addition' });
+        check('S138', 'an address_changed with no pending move still clears',
+          w.customers.c1.seasonStatus === 'confirmed' && res.seasonStatusCleared === true,
+          'the guard is about an unapplied move, not about the word');
       }
 
       /* ---- a new lead, and the best-effort guards ---------------------- */
@@ -58438,7 +58658,7 @@ suite('326. What the weather usually does, and the wall between that and a forec
  * moved. Every check('S323') in it moved with it: the PREFIX is the half that matters,
  * because it is what NAMES a failure in the log. */
 /* =====================================================================
- * Suite 327. A declined RSVP tells somebody ([[RS-57]], 2026-09-11)
+ * Suite 327. A declined RSVP tells somebody ([[RS-59]], 2026-09-11)
  *
  * Addie: "can we have no emails be there own section and it will go in the folder
  * with the response they choose", then "I mean No RSVPs."
@@ -58471,7 +58691,7 @@ suite('Suite 327. A declined RSVP tells somebody');
     /* ⭐ THE TOPIC IS THE ANSWER THEY CHOSE — her "it will go in the folder with the
        response they choose". The Inbox files on the topic, so this string IS the folder.
        ⚠ REPOINTED 2026-09-11: this matched the two literal strings inside the note, so
-       it failed on correct code the moment [[RS-58]] moved them behind named constants.
+       it failed on correct code the moment [[RS-60]] moved them behind named constants.
        What has to be true is that the two answers are told apart, and the constants
        themselves are compared against the browser's below. */
     check('S327', 'and the topic is the answer they gave, so it lands in that folder',
@@ -58521,7 +58741,7 @@ suite('Suite 327. A declined RSVP tells somebody');
       check('S327', 'the server spells ' + n + ' exactly as the browser does',
         !!a && a === b, 'browser ' + JSON.stringify(a) + ' vs server ' + JSON.stringify(b));
     });
-    /* ⭐ AND THE REASONS, WHICH ARE ALSO FOLDER NAMES ([[RS-58]]). Addie: "okay i need
+    /* ⭐ AND THE REASONS, WHICH ARE ALSO FOLDER NAMES ([[RS-60]]). Addie: "okay i need
        it to be optional choice." The customer picks one in index.html, the server
        refuses anything not on its own list, and the Inbox files the note under it — so
        three files hold the same words and a single typo puts a real answer in a folder
@@ -58579,7 +58799,7 @@ suite('Suite 327. A declined RSVP tells somebody');
       'without it the reason arriving a moment later has no way to find this row');
 
     /* =====================================================================
-       ⭐ THE PICKER'S OWN STATE, IN index.html ([[RS-58]]). Everything about what
+       ⭐ THE PICKER'S OWN STATE, IN index.html ([[RS-60]]). Everything about what
        APPEARS is driven in a real browser by test/rsvp-decline-reason.spec.js —
        these are the two claims about a module variable, which a browser cannot see.
        ===================================================================== */

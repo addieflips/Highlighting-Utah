@@ -760,7 +760,7 @@ const PORTAL_READ_FIELDS = [
      looks at. portal-fields.test.js is what said so, which is the whole reason
      that census exists. The office reads all five; only the portal is narrowed. */
   'pendingAddress', 'pendingMoveDate',
-  /* ⭐ WHETHER THEY HAVE ALREADY SAID WHY ([[RS-58]], 2026-09-11). The picker is drawn
+  /* ⭐ WHETHER THEY HAVE ALREADY SAID WHY ([[RS-60]], 2026-09-11). The picker is drawn
      only for somebody who has NOT answered it, and a whitelist is the whole of what
      reaches the browser — so without this the field reads undefined for everybody and
      the question is put again to every customer who has already answered it, on every
@@ -2474,7 +2474,7 @@ function seasonYesUpdates(oldData, ts) {
   }
   return updates;
 }
-/* ⭐ THE TWO DECLINE TOPICS AND THE REASONS SOMEBODY MAY GIVE ([[RS-57]]/[[RS-58]]).
+/* ⭐ THE TWO DECLINE TOPICS AND THE REASONS SOMEBODY MAY GIVE ([[RS-59]]/[[RS-60]]).
  * ⚠ THE TOPICS ARE THE FOLDER NAMES the Inbox files on, and the REASONS become folder
  * names too — so all three are spelled identically in admin.html and run-all.js Suite
  * 323 compares them character for character. One character apart and a note lands in a
@@ -2507,7 +2507,7 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
   const match = await findByToken(token);
   if (!match) throw new HttpsError('not-found', 'Account not found.');
 
-  /* ⭐ AND WHY, IF THEY WANT TO SAY ([[RS-58]], 2026-09-11). Addie: "okay i need it to
+  /* ⭐ AND WHY, IF THEY WANT TO SAY ([[RS-60]], 2026-09-11). Addie: "okay i need it to
      be optional choice", after being told a decline had no reason picker at all.
 
      ⛔ THE ANSWER IS RECORDED FIRST AND THE REASON ASKED AFTERWARDS, which is the whole
@@ -2535,7 +2535,7 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
     if (RSVP_DECLINE_REASONS.indexOf(reason) === -1) {
       throw new HttpsError('invalid-argument', 'Unknown reason.');
     }
-    /* ⭐ AND `Other` CARRIES THEIR OWN WORDS ([[RS-58]]). Addie: "There should also be
+    /* ⭐ AND `Other` CARRIES THEIR OWN WORDS ([[RS-60]]). Addie: "There should also be
        an option for other and if they put other than a note section will show up that
        they can put in there reason."
        ⛔ THE NOTE IS NEVER A FOLDER NAME. The reason picked names the folder and is held
@@ -2702,7 +2702,7 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
     removedFrom = await removeCustomerFromUpcomingRoutes(match.id);
   }
 
-  /* ⭐ AND SOMEBODY IS TOLD ([[RS-57]], 2026-09-11). Addie: "can we have no emails be there
+  /* ⭐ AND SOMEBODY IS TOLD ([[RS-59]], 2026-09-11). Addie: "can we have no emails be there
      own section and it will go in the folder with the response they choose", then "I mean No
      RSVPs."
      ⛔ NOTHING WAS WRITTEN TO THE INBOX AT ALL when somebody declined. The record changed,
@@ -2727,7 +2727,7 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
       await db.collection('messages').add({
         topic: response === 'no' ? RSVP_NO_TOPIC : RSVP_BNY_TOPIC,
         folder: 'System',
-        /* ⭐ WHOSE NOTE THIS IS ([[RS-58]]). The reason arrives in a SECOND call a moment
+        /* ⭐ WHOSE NOTE THIS IS ([[RS-60]]). The reason arrives in a SECOND call a moment
            later and has to find this row to file it under the reason chosen — by the
            customer the token proves, never by an id the browser supplies. */
         custId: match.id,
@@ -2778,7 +2778,7 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
      office still has Schedule › Owes from last year either way. */
   const owed = response === 'yes' ? await arrearsForCustomer(oldData) : { outstanding: 0, season: '' };
 
-  /* ⭐ AND WHETHER THEY HAVE ALREADY SAID WHY ([[RS-58]]). The portal opened from an RSVP
+  /* ⭐ AND WHETHER THEY HAVE ALREADY SAID WHY ([[RS-60]]). The portal opened from an RSVP
      email link renders from the INVOICE record, which carries no RSVP fields at all — so
      without this the reason picker is offered again on every visit to somebody who has
      already used it, which reads as their answer not having saved. The server is the only
@@ -2936,7 +2936,7 @@ exports.portalChangeAddress = onCall({ cors: true }, async (request) => {
        it, so this is now the only way it arrives from the portal. */
     seasonStatus: 'address_changed'
   };
-  /* ⭐ A MOVE REPORTED FROM THE DECLINE PICKER PUTS THEM BACK IN ([[RS-58]], 2026-09-11).
+  /* ⭐ A MOVE REPORTED FROM THE DECLINE PICKER PUTS THEM BACK IN ([[RS-60]], 2026-09-11).
      Addie: "Moved should also give option change address which will keep them and confrim
      them for that year along with send them to requotes." The re-quote half was already
      true — `seasonStatus: 'address_changed'` above is what raises one when the office
@@ -3020,7 +3020,16 @@ async function removeCustomerFromUpcomingRoutes(customerId) {
   let removedFrom = 0;
   try {
     const todayStr = todayStrInDenver();
-    const routesSnap = await db.collection('scheduledRoutes').get();
+    /* ⚠ ONLY THE DAYS STILL TO COME (2026-09-11). This read EVERY route document ever
+       written and threw most of them away on the next line — a whole season of days to
+       answer a question about the days ahead. It runs inside portalRsvp, AFTER the
+       customer's answer is written but BEFORE the reply reaches them, so the time it
+       takes is time the customer spends looking at "One moment…" — and when it overran,
+       they were told their answer had failed for an answer we already had.
+       ⚠ THE `continue` BELOW IS KEPT, NOT REPLACED. A document with no `date` at all is
+       excluded by this query and was skipped by that line, so the two agree — but the
+       line is what holds if the query is ever widened again, and it costs nothing. */
+    const routesSnap = await db.collection('scheduledRoutes').where('date', '>=', todayStr).get();
     for (const rDoc of routesSnap.docs) {
       const rd = rDoc.data();
       if ((rd.date || '') < todayStr) continue;
@@ -3300,7 +3309,8 @@ async function declineAsksAboutLastYear(quoteData, quoteId) {
      ⚠ ONLY THOSE TWO VALUES: a cancellation request was put there by something
      that is not this quote, and clearing it would un-cancel somebody. */
   const was = String((cust.data || {}).seasonStatus || '');
-  if (QUOTE_RAISED_STATUSES_SERVER.indexOf(was) !== -1) updates.seasonStatus = 'confirmed';
+  if (QUOTE_RAISED_STATUSES_SERVER.indexOf(was) !== -1 &&
+      quoteAnswerMayClearStatusServer(cust.data)) updates.seasonStatus = 'confirmed';
   /* ⚠ THE THIRD WRITER, and it was missed until a census went looking. Settling a
      customer's changes is as much a status change as asking for them, and undated the
      history can say a re-quote was owed and never that it was answered. `was` is the
@@ -3414,6 +3424,46 @@ function quoteButtonLabelsServer(quoteData) {
  * definition has not happened to one that is being declined. Clearing them
  * "to be safe" would cancel a build the customer never asked to cancel. */
 const QUOTE_RAISED_STATUSES_SERVER = ['needs_changes', 'address_changed'];
+/* ⭐ A QUOTE'S ANSWER MAY NOT CLEAR A MOVE NOBODY HAS APPLIED (2026-09-11, QT-37).
+ * Addie, shown the drift and asked whether to tighten it: "go ahead."
+ *
+ * ⚠ THE LIST'S PREMISE STOPPED BEING TRUE, AND THE OLD REASONING ABOVE IS KEPT
+ * BECAUSE IT IS STILL RIGHT ABOUT WHAT IT REFUSED. It says anything sitting in
+ * seasonStatus was put there by THIS quote, so clearing it is withdrawing this
+ * quote's own question — true of both values when it was written, and still true
+ * of needs_changes. Then portalChangeAddress (QT-35) became a SECOND writer of
+ * address_changed, raised by the customer reporting a move and answered only when
+ * the office APPLIES it. An add-on refusal, a "same as last year" refusal or a
+ * deleted price re-quote does not answer that, and all three were clearing it.
+ *
+ * ⚠ WHAT IT ACTUALLY COST, said accurately so nobody looks for a worse bug:
+ * nothing routed or billed. seasonStatus is read for DISPLAY only — the pill on
+ * the customer row, the history line — and the pending move itself survives
+ * either way, because the office banner reads pendingAddress rather than the
+ * status. What went was the one signal on that row saying a house we have not
+ * re-quoted is not settled.
+ *
+ * ⚠ pendingAddress IS THE SIGNAL, NOT A SECOND OPINION — the same field the Edit
+ * Customer banner reads and the same field that save clears once the address has
+ * moved. Asking "is the status address_changed" instead would be a guess about
+ * which writer put it there, and there is only one seasonStatus field: a move can
+ * be outstanding while the pill shows needs_changes because something else wrote
+ * last. So it holds on the PENDING MOVE, whichever of the two is showing.
+ *
+ * ⭐ AND THE HOLD IS BOUNDED, WHICH IS THE WHOLE ARGUMENT FOR IT. The hole the
+ * clearing was written to close is a customer sitting in Needs Changes "for ever
+ * with nothing left anywhere to clear it". Here there IS something left — the
+ * move, which the office applies, and that save clears pendingAddress and raises
+ * the re-quote that answers the status properly. Not clearing is a wait, not a
+ * dead end, so failing towards the wait is safe in a way it would not otherwise be.
+ *
+ * ⚠ IT IS NOT A FAILURE AND MUST NOT BE REPORTED AS ONE. The status still reading
+ * Needs Changes is the honest answer while a move is outstanding, so this adds no
+ * problem, no follow-up flag and no note — a follow-up raised for correct
+ * behaviour is how the office learns to click past the ones that matter. */
+function quoteAnswerMayClearStatusServer(custData) {
+  return !String((custData && custData.pendingAddress) || '').trim();
+}
 async function declineAddOnOnly(quoteData, quoteId) {
   const problems = [];
   /* ⚠ SAME RULE AS THE SEASON DECLINE: a lookup that could not run is not the
@@ -3430,7 +3480,8 @@ async function declineAddOnOnly(quoteData, quoteId) {
 
   let cleared = false;
   const was = String((cust.data || {}).seasonStatus || '');
-  if (QUOTE_RAISED_STATUSES_SERVER.indexOf(was) !== -1) {
+  if (QUOTE_RAISED_STATUSES_SERVER.indexOf(was) !== -1 &&
+      quoteAnswerMayClearStatusServer(cust.data)) {
     const wrote = await tryFirestore('add-on decline seasonStatus clear', () =>
       db.collection('jobAddresses').doc(cust.id).update({ seasonStatus: 'confirmed' }));
     cleared = wrote.ok;

@@ -1,5 +1,5 @@
 /*
- * WHY THEY SAID NO — THE OPTIONAL REASON, IN THE REAL PORTAL ([[RS-58]])
+ * WHY THEY SAID NO — THE OPTIONAL REASON, IN THE REAL PORTAL ([[RS-60]])
  *
  * Addie, 2026-09-11: "okay i need it to be optional choice", then the wording —
  * "Should be Moved, Finances, etc. However Moved should also give option change
@@ -25,7 +25,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
-const { installFirebaseStub } = require('./firebase-stub');
+const { installFirebaseStub, tapRsvpConfirm } = require('./firebase-stub');
 const { CUSTOMERS } = require('./fixtures');
 
 const BLOCKED = /Failed to load resource|net::ERR_|ERR_TUNNEL|ERR_CONNECTION/;
@@ -51,7 +51,14 @@ async function openDeclined(page, extra) {
      customer actually reaches — the RSVP email link lands them here having already
      answered. Driving the real link rather than seeding the record is what proves the
      picker follows the answer instead of some other condition. */
-  await page.goto(`/index.html#/payment?token=${CUST.token}&rsvp=${(extra && extra.answer) || 'no'}`);
+  const url = `/index.html#/payment?token=${CUST.token}&rsvp=${(extra && extra.answer) || 'no'}`;
+  await page.goto(url);
+  /* ⚠ AND THE TAP, since [[RS-57]] — opening the link no longer answers it. Without this
+     the answer is never recorded, so the picker correctly does not appear and every test
+     below fails for a reason that has nothing to do with the picker. Through the shared
+     helper, never a selector of our own: its note says eleven copies of that button's id
+     is how one spec keeps passing against a button that has been renamed. */
+  await tapRsvpConfirm(page, url);
   stub.thrown = thrown;
   return stub;
 }

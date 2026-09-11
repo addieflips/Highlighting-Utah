@@ -25,7 +25,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
-const { installFirebaseStub } = require('./firebase-stub');
+const { installFirebaseStub, tapRsvpConfirm } = require('./firebase-stub');
 const { CUSTOMERS } = require('./fixtures');
 
 const TOKEN = CUSTOMERS.standard.token;
@@ -63,6 +63,9 @@ function officeRsvpLabel(record) {
 async function pressAndRead(page, url) {
   const stub = await installFirebaseStub(page, {});
   await page.goto(url);
+  /* ⭐ An RSVP link no longer answers on open — one tap confirms it. No-ops on any
+     other link. See tapRsvpConfirm. */
+  await tapRsvpConfirm(page, url);
   /* Wait on the write itself rather than on a timer: the answer is what is being
      asserted, and a sleep would make this flaky on a slow machine. */
   await expect.poll(async () => {
@@ -111,7 +114,12 @@ test.describe('What a pressed RSVP button leaves on the record', () => {
     const already = JSON.parse(JSON.stringify(CUSTOMERS));
     already.standard.record.needsLightRecycle = true;
     const stub = await installFirebaseStub(page, { customers: already });
-    await page.goto(`/index.html#/payment?token=${TOKEN}&rsvp=no`);
+    const url = `/index.html#/payment?token=${TOKEN}&rsvp=no`;
+    await page.goto(url);
+    /* ⭐ The link no longer answers on open — one tap confirms it ([[RS-57]]). This test
+       builds its own stub for the owed recycle, so it cannot go through pressAndRead and
+       has to tap for itself. */
+    await tapRsvpConfirm(page, url);
     await expect.poll(async () => {
       const calls = await stub.calls();
       return calls.some(c => c.name === 'portalRsvp');

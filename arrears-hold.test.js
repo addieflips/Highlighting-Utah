@@ -831,6 +831,100 @@ function seasonResetWrite() {
     /if\(d\.arrearsPaidNoticeAt\) continue;/.test(sweep) &&
     /arrearsPaidNoticeAt: serverTimestamp\(\)/.test(sweep),
     'a note repeated on every payment is one nobody reads');
+
+  /* ⭐ AND "already exists" MEANS IT WAS RAISED, NOT THAT IT FAILED (2026-09-11, from the
+     Errors folder). On 2026-09-09 the folder carried "could not raise the paid-but-not-
+     approved note for Suzette Robins — Document already exists: …/messages/0HcE7pW1ZaAu…".
+     addDoc mints its own random id, so that is not a collision: it is the SDK retrying a
+     write whose acknowledgement was lost, after the first attempt had landed. The throw
+     then skipped the stamp below it, so the note existed and NOTHING recorded that — and
+     the next sweep raised the whole thing again, with a fresh id, for as long as the
+     customer stayed unanswered.
+
+     ⚠ THESE RUN THE SWEEP, they do not read it. The claim is about what a SECOND pass
+     does, which a regex cannot see: the first version of this was a text check for the
+     word `already-exists` and it passed on a branch that stamped nothing. */
+  const sweepFn = new Function(
+    'jobAddresses', 'invoiceById', 'arrearsNoticedThisSession', 'custInvoiceKey',
+    'paidButNotApproved', 'arrearsOnInvoice', 'addDoc', 'collection', 'updateDoc',
+    'doc', 'db', 'serverTimestamp', 'console',
+    sweep + '\nreturn noticeArrearsPaidNotApproved;');
+
+  function runSweep(opts){
+    const notes = [], stamps = [];
+    const rec = { id: 'c1', data: Object.assign({ name: 'Suzette Robins', phone: '8015550101' }, opts.data || {}) };
+    const env = {
+      jobAddresses: [rec],
+      invoiceById: new Map([['8015550101', { data: { install: 400, deposit: 400, arrears: 0 } }]]),
+      seen: new Set(),
+      rec: rec, notes: notes, stamps: stamps
+    };
+    const api = sweepFn(
+      env.jobAddresses, env.invoiceById, env.seen,
+      function(d){ return String(d.phone || ''); },
+      function(){ return true; },
+      function(){ return 0; },
+      async function(_c, data){
+        notes.push(data);
+        if (opts.addDocThrows && notes.length <= (opts.addDocThrows.times || 1)) {
+          /* ⚠ THE MESSAGE FOLLOWS THE CODE, and the first version of this fixture did not
+             — every throw carried Firestore's real "Document already exists" wording, so
+             the permission-denied case matched the already-exists branch on its MESSAGE
+             and the two checks below failed against code that is right. A fixture whose
+             failures all look alike cannot tell two branches apart. */
+          const e = new Error(opts.addDocThrows.code === 'already-exists'
+            ? 'Document already exists: projects/x/databases/(default)/documents/messages/abc'
+            : 'Missing or insufficient permissions.');
+          e.code = opts.addDocThrows.code;
+          throw e;
+        }
+      },
+      function(){ return {}; },
+      async function(_ref, data){
+        if (opts.updateThrows) throw new Error('stamp refused');
+        stamps.push(data); rec.data.arrearsPaidNoticeAt = new Date();
+      },
+      function(){ return {}; },
+      {}, function(){ return 'TS'; },
+      { error(){}, warn(){}, log(){} });
+    return { run: api, env: env };
+  }
+
+  {
+    const h = runSweep({ addDocThrows: { code: 'already-exists', times: 1 } });
+    await h.run();
+    check('a note the SDK retried is treated as raised, and the record is stamped',
+      h.env.notes.length === 1 && h.env.stamps.length === 1,
+      'the throw used to skip the stamp, so nothing recorded that the note existed');
+    h.env.seen.clear();
+    await h.run();
+    check('and a second sweep does not raise it a second time',
+      h.env.notes.length === 1,
+      'a duplicate note about one customer, every sweep, is the crying-wolf failure this ' +
+      'file names in four other places — found ' + h.env.notes.length + ' notes');
+  }
+
+  {
+    /* The other direction, and it is the half that must not be traded away. */
+    const h = runSweep({ addDocThrows: { code: 'permission-denied', times: 99 } });
+    await h.run();
+    check('a note that genuinely failed is NOT stamped, so it is tried again',
+      h.env.stamps.length === 0 && !h.env.rec.data.arrearsPaidNoticeAt,
+      'a raised note with no stamp costs a duplicate, which is visible; a stamp with no ' +
+      'note costs the phone call, which is not');
+    check('and the session marker is released so the retry can happen',
+      h.env.seen.size === 0,
+      'left set, the retry cannot happen until the page is reloaded');
+  }
+
+  {
+    /* already-exists AND the stamp refused: back to retrying, never silently done. */
+    const h = runSweep({ addDocThrows: { code: 'already-exists', times: 1 }, updateThrows: true });
+    await h.run();
+    check('a stamp that cannot be written falls back to retrying, not to silence',
+      h.env.seen.size === 0 && !h.env.rec.data.arrearsPaidNoticeAt,
+      'the note is there but nothing records it, so raising it again is the safe half');
+  }
   /* ⚠ THE CUSTOMER WRITE, NOT THE INVOICE WRITE. seasonResetWrite() slices the invoice
      update; this flag lives on jobAddresses beside the other season-scoped ones, and the
      first version of this check looked in the wrong half of the reset. */

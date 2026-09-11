@@ -47,7 +47,7 @@ function liftConst(n){
   if(!m) throw new Error('could not find const ' + n);
   return m[0];
 }
-/* ⭐ COMM_SECTIONS NO LONGER STANDS ALONE ([[RS-58]]). The No RSVPs section builds a
+/* ⭐ COMM_SECTIONS NO LONGER STANDS ALONE ([[RS-60]]). The No RSVPs section builds a
    folder per decline reason from `RSVP_DECLINE_REASONS` rather than typing the tabs out,
    so every lift of the sections table needs that list in front of it — lift the table by
    itself and the file dies on a bare ReferenceError, which is the extraction-list trap
@@ -59,7 +59,7 @@ function liftConst(n){
 const commSectionsSrc = () => liftConst('RSVP_DECLINE_REASONS') + liftConst('COMM_SECTIONS');
 /* ⚠ THREE COMPUTED ENTRIES NOW LEAD THIS LIST, AND TWO BRANCHES FOUND THE SAME TRAP IN THE
    SAME WEEK. `SYSTEM_NOTICE_TOPICS` stopped being a table of plain strings: [[FIX-02]] gave
-   it `FIX_NOTICE_TOPIC` and [[RS-57]] gave it `RSVP_NO_TOPIC` / `RSVP_BNY_TOPIC`, so lifting
+   it `FIX_NOTICE_TOPIC` and [[RS-59]] gave it `RSVP_NO_TOPIC` / `RSVP_BNY_TOPIC`, so lifting
    the array alone dies on a bare ReferenceError and takes the whole file with it.
    ⚠ DECLARED FIRST, or the array references them before they exist — main's own note, and
    it applies to all three. Lifted, never stubbed. */
@@ -263,7 +263,7 @@ console.log('--- the contact line under the name ---');
 
 const CONTACT_SRC =
   /* ⚠ ALL THREE COMPUTED TOPICS FIRST — SYSTEM_NOTICE_TOPICS references them ([[FIX-02]],
-     [[RS-57]]), so lifting that table without them dies on a bare ReferenceError while it
+     [[RS-59]]), so lifting that table without them dies on a bare ReferenceError while it
      is being built. Same trap as above, and two branches hit it in the same week. */
   liftConst('FIX_NOTICE_TOPIC') + liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
   liftConst('MSG_TYPE_MEMBER') + liftConst('SYSTEM_NOTICE_TOPICS') +
@@ -636,7 +636,7 @@ check('the built-in sections still work with custom ones present',
   sb.matches(aMemberUnread, 'member', 'questions') === true);
 
 /* =============================================================================
- * ⭐ THE NOs GET THEIR OWN SECTION ([[RS-57]], 2026-09-11)
+ * ⭐ THE NOs GET THEIR OWN SECTION ([[RS-59]], 2026-09-11)
  *
  * Addie: "can we have no emails be there own section and it will go in the folder with the
  * response they choose", then "I mean No RSVPs."
@@ -698,7 +698,7 @@ console.log('--- the No RSVPs section ---');
      out of COMM_SECTIONS left them all green while there was nowhere on screen to read
      these notes. That gap went green across a 5,162-check suite once already (the Edit
      Customer tab strip), and the red-check caught it here. */
-  /* ⚠ AND `RSVP_DECLINE_REASONS` COMES WITH IT ([[RS-58]]). The No RSVPs section now
+  /* ⚠ AND `RSVP_DECLINE_REASONS` COMES WITH IT ([[RS-60]]). The No RSVPs section now
      builds a folder per reason from that list rather than typing the tabs out, so lifting
      COMM_SECTIONS alone dies on a bare ReferenceError and takes the whole file with it —
      the extraction-list trap, working exactly as documented. Lifted, never stubbed: a
@@ -717,7 +717,7 @@ console.log('--- the No RSVPs section ---');
     'somebody who said no in October and yes in November has two records, not one that moves');
 
   /* =========================================================================
-     ⭐ AND A FOLDER PER REASON ([[RS-58]], 2026-09-11). Addie: "okay i need it to be
+     ⭐ AND A FOLDER PER REASON ([[RS-60]], 2026-09-11). Addie: "okay i need it to be
      optional choice", and her words the day before — "it will go in the folder with the
      response they choose" — are what this finishes: the answer picks the section, the
      reason picks the folder inside it.

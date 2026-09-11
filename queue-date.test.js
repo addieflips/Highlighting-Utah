@@ -1285,7 +1285,7 @@ check('the path still has every step in it',
     timerRemovedAt: 'when somebody in the warehouse pressed Timer taken out — a thing WE ' +
       'did on a day nothing happened to the customer. Them asking to be rid of the timer ' +
       'is the customer-side event, and the change log already carries it',
-    /* ⭐ [[RS-58]]. The customer-side EVENT is the RSVP answer itself, and that is
+    /* ⭐ [[RS-60]]. The customer-side EVENT is the RSVP answer itself, and that is
        already a step (`rsvpRespondedAt`). This dates a detail added to that answer a
        moment later — they have not moved along the path, they are exactly where the
        no put them, and drawing it would put a second milestone on the picture for one
