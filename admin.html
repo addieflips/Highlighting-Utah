@@ -1195,6 +1195,42 @@
 (function(){
   var caught = [];
   function stamp(){ var d = new Date(); return d.toLocaleTimeString(); }
+  /* ⭐ THE BADGE HOLDS EVERY ERROR, NOT JUST THIS PAGE LOAD'S ([[MSG-24]], 2026-09-11).
+     Addie: "I like the red error thing can we get rid of error inbox's altogether ... and
+     just have all emails go to the red errors badge instead", then "Inbox gets deleted and
+     badge stays with all error messages underneath it."
+     ⛔ THE BADGE COULD NOT HAVE CARRIED THAT ON ITS OWN, and this is the half that had to
+     be built before the Inbox folders could go. `caught` is an in-memory array in a script
+     that runs before Firebase: it is emptied by every reload, which is exactly why the
+     stored copy was added in the first place — "a fault that happened while she was on the
+     phone was never seen by anybody". Deleting the Inbox rows and keeping this as it was
+     would have thrown away every error she was not watching happen.
+     ⭐ SO THE STORED ONES ARE PUSHED BACK IN. The module reads them once `allMessages` has
+     landed and calls this; the same hand-over `__huAdminErrorSink` already makes in the
+     other direction, and for the same reason — this code cannot reach Firestore itself.
+     ⚠ STORED ONES GO UNDERNEATH, and they are marked. What just broke in front of her is
+     the thing she is looking for; a list that opens on something from last Tuesday reads
+     as the badge being stuck. */
+  var seededOnce = false;
+  window.__huErrCatchSeed = function(lines){
+    try{
+      if(seededOnce || !lines || !lines.length) return;
+      seededOnce = true;
+      for(var i = 0; i < lines.length && caught.length < 40; i++){
+        var t = String(lines[i] || '').trim();
+        if(!t) continue;
+        /* ⚠ THE LIVE ONE WINS. A fault still happening this session is already in the list
+           with its own timestamp, and adding the stored copy underneath would show the
+           same problem twice and make the count lie about how many things are wrong. */
+        if(seen[t]) continue;
+        seen[t] = 1;
+        caught.push(t);
+      }
+      show();
+    }catch(e){ /* quiet on purpose: this IS the error reporter. A reporter that throws
+                  takes down the page it was reporting on, and the live errors above are
+                  already on screen either way. */ }
+  };
   function show(){
     var badge = document.getElementById('errCatchBadge');
     if(!badge) return;
@@ -21316,8 +21352,51 @@ function reportAdminError(text){
 /* Called once messages have loaded, which is what makes the repeat check above answerable. */
 function flushAdminErrors(){
   adminErrorReady = true;
+  /* ⭐ AND THE BADGE IS TOPPED UP FROM WHAT IS STORED ([[MSG-24]], 2026-09-11). Addie:
+     "Inbox gets deleted and badge stays with all error messages underneath it."
+     ⛔ THE BADGE IS IN-MEMORY AND A RELOAD EMPTIES IT, so "all error messages" was a claim
+     it could not make on its own — and that gap is the whole reason the stored copy exists
+     ("a fault that happened while she was on the phone was never seen by anybody"). This is
+     what lets the Errors folders leave the Inbox without losing anything.
+     ⚠ IT RUNS HERE AND NOWHERE ELSE, because this is the one moment that is true: messages
+     have landed, so there is something to read. Called earlier it seeds an empty list and
+     `seededOnce` means it never tries again. */
+  try{ errBadgeSeedFromStored(); }
+  catch(err){ console.error('[HU] could not put the stored errors on the badge', err); }
   if(!adminErrorQueue.length) return;
   adminErrorQueue.splice(0, adminErrorQueue.length).forEach(reportAdminError);
+}
+/* ⚠ NEWEST FIRST AND CAPPED. The badge panel is a phone-sized list somebody reads in a
+   hurry; every error of the season in it is the cries-wolf failure this file names in five
+   other places. ⚠ AND IT READS THE SAME `msgFacets` TYPE THE SECTIONS USED, never a folder
+   name — the folders are what this change removes, so keying on one would stop finding
+   anything the moment they go. */
+const ERR_BADGE_MAX_STORED = 25;
+function errBadgeStoredLines(){
+  if(typeof allMessages === 'undefined' || !Array.isArray(allMessages)) return [];
+  const rows = allMessages.filter(function(m){
+    const d = (m && m.data) || {};
+    try{ return msgFacets(d).type === MSG_TYPE_ERROR; }
+    catch(e){ /* a row this build cannot classify is not worth losing the rest over */
+      return false; }
+  });
+  rows.sort(function(a, b){
+    const at = toJsDate(a.data && a.data.createdAt), bt = toJsDate(b.data && b.data.createdAt);
+    return (bt ? bt.getTime() : 0) - (at ? at.getTime() : 0);
+  });
+  return rows.slice(0, ERR_BADGE_MAX_STORED).map(function(m){
+    const d = m.data || {};
+    const when = toJsDate(d.createdAt);
+    /* ⚠ THE DATE, NOT THE TIME. These are from other days by definition — a bare clock time
+       beside this session's live errors reads as something that just happened. */
+    const stamp = when ? when.toLocaleDateString() : 'earlier';
+    const who = (typeof msgErrorWhoLabel === 'function') ? (msgErrorWhoLabel(d) || '') : '';
+    return '[' + stamp + '] ' + String(d.message || '').trim() + (who ? '  — ' + who : '');
+  });
+}
+function errBadgeSeedFromStored(){
+  if(typeof window.__huErrCatchSeed !== 'function') return;
+  window.__huErrCatchSeed(errBadgeStoredLines());
 }
 /* The catcher at the top of this page is plain JS running before Firebase exists, so it
    cannot write anything itself. It calls this, and hands over whatever it caught first. */

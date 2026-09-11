@@ -3713,6 +3713,15 @@ folder files its derived residents into Inbox for the same reason. ⚠ **And `fo
 field decides which *tab* a message is on, not which folder, and a topic must never be able
 to move a notice between them.
 
+⭐ **THE RED BADGE NOW HOLDS EVERY ERROR, NOT JUST THIS PAGE LOAD'S** (2026-09-11,
+[[MSG-24]]). Addie: *"Inbox gets deleted and badge stays with all error messages underneath
+it."* The badge's list is an in-memory array in a script that runs before Firebase, so a
+reload emptied it — which is why the stored copy was added in the first place. Once messages
+land, `flushAdminErrors` pushes the stored errors back onto the badge (newest first, capped
+at 25, stamped with the date, naming who hit it). ⚠ A fault already on screen from this
+session is not added twice. ⚠ **This is the half that has to work before the Errors folders
+can leave the Inbox** — that removal is deliberately a separate change.
+
 ⭐ **THE SECTION CONTROLS ARE ALWAYS VISIBLE NOW** (2026-09-11, [[MSG-23]]). Addie: *"not
 able to add to each section and delete from each section."* Both buttons — `✎` to rename a
 section or add a folder to it, `✕` to hide one — were rendered and wired the whole time, at
