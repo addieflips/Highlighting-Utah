@@ -270,7 +270,7 @@ const CONTACT_SRC =
   liftFn('esc') + liftFn('fmtPhone') + liftFn('msgTypeOf') +
   liftFn('msgErrorTokenTail') + liftFn('msgErrorWhoIs') +
   liftFn('msgContactCustomer') + liftFn('msgContactFor') +
-  liftFn('msgContactPreference') + liftFn('msgContactLineHtml');
+  liftFn('msgContactPreference') + liftFn('msgStaffSignedInAs') + liftFn('msgContactLineHtml');
 const cb = {};
 new Function('MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'jobAddresses',
   CONTACT_SRC + 'this.line = msgContactLineHtml; this.contact = msgContactFor;')
@@ -546,6 +546,70 @@ const SOLO  = {id:'c3', data:{name:'Ada Frost',  phone:'8015550999',     email:'
   check('the search box reaches the contact the row actually shows',
     /msgContactFor\(d\)/.test(searchBlock) && !/String\(d\.phone\|\|''\)\.replace/.test(searchBlock),
     'a number printed on screen that the search cannot match is worse than one never shown');
+}
+
+/* 12 — ⭐ WHO HIT AN ADMIN ERROR (2026-09-11). Addie, shown two of these rows: "can you
+   update this?" Both read "No phone or email on this message, and no record matches it".
+   ⚠ THAT SENTENCE DESCRIBES A SEARCH FOR A CUSTOMER WHO WAS NEVER INVOLVED. The office's
+   own browser raises these and `reportAdminError` hardcodes name/phone/email empty, so the
+   no-contact branch was the only one they could ever reach — and the heading above is blank
+   too (`msgErrorWhoLabel` returns '' with no portal link to match), so the row named nobody
+   while the address sat in its own body two lines down.
+   ⚠ THESE RUN THE RENDERER rather than matching its source, because every claim here is
+   about A LINE ON A ROW — the failure this repo has shipped three times is a message that
+   is in the file and can never reach the screen. */
+{
+  /* ⚠ THE FIXTURES ARE HER TWO ACTUAL ROWS, not invented ones. A fix that cannot reach the
+     case that prompted it is not finished, and these are old rows carrying the address only
+     as prose — exactly what the body fallback exists for. */
+  const TWILIO = {topic:'Admin Error', name:'', phone:'', email:'', message:
+    'Something went wrong on the admin page.\n\nQuote text send failed: Twilio send failed: ' +
+    'Authentication Error - invalid username\n\nWhere: (the dashboard)\n' +
+    'Signed in as: addiechichia@gmail.com\nBrowser: Mozilla/5.0'};
+  const sent = withBook([]).line(TWILIO);
+  check('an admin error names who was signed in',
+    /addiechichia@gmail\.com/.test(sent), sent);
+  check('and it no longer claims a customer record failed to match',
+    sent.indexOf('no record matches it') === -1, sent);
+
+  /* ⚠ "nobody" IS A REAL ANSWER AND MUST SURVIVE AS ONE. reportAdminError writes that word
+     when there is no signed-in user, and such a row is the signature of a timer still
+     running after a sign-out — the fault `whileSignedIn` was added for. Flattened to "we do
+     not know", the row stops being evidence of the thing it is evidence of. */
+  const none = withBook([]).line({topic:'Admin Error', name:'', phone:'', email:'',
+    message:'Something went wrong.\n\nWhere: (the dashboard)\nSigned in as: nobody'});
+  check('a signed-out row says so plainly, rather than being flattened away',
+    /Nobody was signed in/.test(none), none);
+
+  /* ⚠ THE FIELD MUST WIN OVER THE BODY, or a reworded body silently changes who a row
+     blames. The fixture deliberately disagrees with itself. */
+  const both = withBook([]).line({topic:'Admin Error', staffEmail:'dad@example.com',
+    name:'', phone:'', email:'', message:'x\nSigned in as: stale@old.example'});
+  check('the stored field beats the prose in the body',
+    /dad@example\.com/.test(both) && both.indexOf('stale@old.example') === -1, both);
+
+  /* ⚠ AND NOTHING IS BETTER THAN THE OLD SENTENCE. An admin error with no signed-in line at
+     all must not fall through to the customer branch it could never satisfy. */
+  const bare = withBook([]).line({topic:'Admin Error', name:'', phone:'', email:'',
+    message:'Something went wrong.'});
+  check('an admin error with nothing to say shows nothing, not a failed lookup',
+    bare === '', bare);
+
+  /* ⛔ THE HALF THIS MUST NOT TAKE WITH IT. A MEMBER error is a real customer hitting a real
+     failure, and ringing them is the entire point of [[MSG-14]]. A sabotage widening the
+     admin branch to every error topic is caught here and nowhere else. */
+  const mem = withBook([SOLO]).line({topic:'Member Error', name:'Ada Frost',
+    phone:'8015550999', email:'ada@example.com', message:'portal failed'});
+  check('a MEMBER error still shows the customer contact',
+    /8015550999|801\) 555-0999/.test(mem) && /ada@example\.com/.test(mem), mem);
+
+  /* ⚠ AND THE ADDRESS IS ESCAPED. It comes out of a message body, and `messages` is
+     PUBLICLY creatable — so this string is attacker-reachable, unlike a staff email typed
+     into a form. */
+  const evil = withBook([]).line({topic:'Admin Error', name:'', phone:'', email:'',
+    message:'x\nSigned in as: a"b<script>@example.com'});
+  check('an address out of the body cannot inject markup',
+    evil.indexOf('<script>') === -1 && /a&quot;b/.test(evil), evil);
 }
 
 /* =============================================================================
