@@ -28301,10 +28301,19 @@ suite('Suite 108. The Edit Customer save, actually run');
     const feeInv = feeRun.writes.find(w => w.col === 'invoices' && w.op === 'set' &&
       w.payload && w.payload.changeFees);
 
-    check('S108', 'the office is ASKED before anybody is charged',
-      feeRun.asked.length === 1 && feeRun.asked[0].dest === 'invoice',
-      'the portal has warned its own customer for months; whoever is on the phone ' +
-      'deserves the same warning before it lands on a bill');
+    /* ⚠ THIS CHECK WAS THE EXACT OPPOSITE UNTIL 2026-09-10 and the reversal is
+       deliberate, not a weakening. It read "the office is ASKED before anybody is
+       charged" and asserted `asked.length === 1`, which was Addie's ruling of
+       2026-08-21. Dax superseded it: "make sure the color change fee is automatic".
+       What made that safe is MON-54's × on every fee line (2026-09-02) — her whole
+       objection was that there was no way back, and there is one now.
+       ⚠ IT IS ASSERTED AS A ZERO, not simply left out. A popup that came back would
+       block the save on a click nobody is there to give, and every check below it
+       would then be measuring a save that never finished. */
+    check('S108', 'the fee is charged without stopping to ask',
+      feeRun.asked.length === 0,
+      'Dax, 2026-09-10: the colour-change fee is automatic. A dialog here would ' +
+      'hold the save open waiting for a click');
     check('S108', 'a colour change adds the $30 to their invoice',
       !!feeInv && feeInv.payload.changeFees === 30,
       'this path wrote no fee at all until today');
@@ -28333,32 +28342,35 @@ suite('Suite 108. The Edit Customer save, actually run');
         feeRun.writes.indexOf(feeRun.writes.find(w => w.col === 'jobAddresses' && w.op === 'update')),
       'syncPayerInvoice rebuilds the invoice; a fee written before it is overwritten');
 
-    /* Waived — for the office correcting its own typo. */
+    /* ⭐ THERE IS NO WAIVE ANSWER AT SAVE TIME ANY MORE — waiving is the × on the fee
+       line (MON-54). What the old pair of checks protected is still protected, from the
+       other end: the fee lands as its own `changeFeeNotes` line (checked above), and
+       `waiveLedgerLine` is what takes it off. The half worth keeping here is that the
+       48-hour lock is NOT a consequence of the money — so it is asserted on the
+       ordinary charged run, where it now belongs. */
     const waived = await runSave({noRequote: true, lights: 'Red, Green', feeAnswer: 'waive',
       cust: {lightsDescription: 'Warm White', scheduled: true, invoiceEmailSent: false}});
-    check('S108', 'waiving the fee charges nothing',
-      !waived.writes.some(w => w.col === 'invoices' && w.payload && w.payload.changeFees),
-      'waivable at the point of saving — nobody goes back to undo a fee later');
-    check('S108', 'but STILL sets the window and still tells the crew',
+    check('S108', 'a waive answer is no longer offered, so it cannot change the outcome',
+      waived.asked.length === 0 &&
+      waived.writes.some(w => w.col === 'invoices' && w.payload && w.payload.changeFees === 30),
+      'the popup is gone; a stray feeAnswer must not be able to suppress a real fee');
+    check('S108', 'and the window and the crew note do not depend on the money',
       !!waived.cust && !!waived.cust.payload.lightsLockedUntil &&
       waived.writes.some(w => w.col === 'messages' && w.op === 'add'),
-      'the lock is about the crew, not about money — only the money is waived');
+      'the lock is about the crew, not about money — their pattern may still move');
 
-    /* Cancelled — nothing at all is saved, not even the rest of the form. */
+    /* ⭐ THE CANCEL PATH IS GONE, AND THAT IS THE POINT OF THIS CHECK. It used to be
+       the one route that could abandon a save half-made, and its own note here recorded
+       a ReferenceError that shipped on it precisely because nobody exercises a cancel
+       twice. With the popup removed the save is all of a piece — so what is asserted
+       now is that a cancel answer cannot reach in and stop it. */
     const cancelled = await runSave({noRequote: true, lights: 'Red, Green', feeAnswer: 'cancel',
       cust: {lightsDescription: 'Warm White', invoiceEmailSent: false}});
-    /* ⚠ THE MESSAGE IS PART OF THE ASSERTION, and that is not decoration. The first
-       version checked only that nothing was written — which is equally true when the
-       handler CANCELS cleanly and when it THROWS, so it sailed straight over a
-       ReferenceError on this exact path (a `btn.disabled = false` in a handler with
-       no `btn` in scope). The office would have been told the save went wrong when
-       they had simply cancelled. Asserting the status text is what tells the two
-       apart. */
-    check('S108', 'cancelling the fee popup saves nothing at all, and says so',
-      !cancelled.cust && !cancelled.writes.some(w => w.col === 'invoices') &&
-      /cancelled/i.test(cancelled.status) && !/went wrong/i.test(cancelled.status),
-      'asking after the record has been written would leave the lights changed and ' +
-      'the fee refused');
+    check('S108', 'a cancel answer can no longer abandon the save half-made',
+      !!cancelled.cust && !/went wrong/i.test(cancelled.status) &&
+      cancelled.writes.some(w => w.col === 'invoices' && w.payload && w.payload.changeFees === 30),
+      'the popup was the only thing that could leave the colours changed and the fee ' +
+      'refused; nothing should be able to do that now');
 
     /* Their bill has already gone out, so it rides to next season instead. */
     const billed = await runSave({noRequote: true, lights: 'Red, Green',
@@ -28367,9 +28379,15 @@ suite('Suite 108. The Edit Customer save, actually run');
       !!billed.cust && billed.cust.payload.carryoverCharge === 30 &&
       !billed.writes.some(w => w.col === 'invoices' && w.payload && w.payload.changeFees),
       'nothing re-opens a sent invoice, so a fee added there would never be posted');
-    check('S108', 'and the office is told which of the two it is',
-      billed.asked.length === 1 && billed.asked[0].dest === 'nextSeason',
-      'the popup names where the money is going, because the two are different answers');
+    /* ⚠ THE DESTINATION STILL MATTERS AS MUCH AS IT EVER DID — it is the difference
+       between a bill they have already had and one they have not. What changed is only
+       that nobody is asked about it, so it is asserted on the WRITE rather than on the
+       popup that used to name it. */
+    check('S108', 'and a sent bill is not re-opened to carry it',
+      billed.asked.length === 0 &&
+      !billed.writes.some(w => w.col === 'invoices' && w.payload && w.payload.changeFees),
+      'invoiceEmailSent is only ever cleared by Start New Season, so a fee added to a ' +
+      'sent invoice would sit there and never be posted to anybody');
 
     /* Inside the window: free, and the window does not move. */
     const inWindow = await runSave({noRequote: true, lights: 'Red, Green',

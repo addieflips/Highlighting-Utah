@@ -7870,6 +7870,30 @@ async function waiveLedgerLine(invoiceId, ledger, key){
      something was waived tells the office it has a problem and not how to undo it.
      ⚠ ONLY THE CARRIED DEBT. A light-change fee or a discount coming off is ordinary
      office work; a note for each would bury this one, which is the whole point of it. */
+  /* ⭐ A WAIVED FEE LEAVES A TRACE AGAIN (added 2026-09-10). Waiving DELETES the line
+     from `changeFeeNotes`, so once the Edit Customer save stopped offering a waive answer
+     of its own, the × became the ONLY way a light-change fee comes off — and it recorded
+     nothing at all for anything but carried debt. That is exactly the asymmetry
+     change-log.test.js §3b was written to close: a charge lands as a dated line anybody
+     can read, and a waiver left "why was this customer not charged" with no answer
+     anywhere.
+     ⚠ IT IS logActivity, NOT A SYSTEM NOTE. The block below deliberately raises an Inbox
+     note only for the carried debt, because "a light-change fee or a discount coming off
+     is ordinary office work; a note for each would bury this one". That reasoning is
+     untouched — this writes to the customer's own history, which is where the save-time
+     waiver used to go and where somebody asking about one customer will look. */
+  if(ledger === 'fee' && plan.removed){
+    try{
+      const amt = Number(plan.removed.amount) || 0;
+      logActivity('Waived the ' + fmtMoney(amt) + ' ' +
+        (plan.removed.reason || 'fee') + ' on invoice ' + invoiceId,
+        'invoices', invoiceId);
+    }catch(e){
+      /* Logged, never thrown: the waiver already succeeded and a failed history line
+         must not undo it — but it must not vanish silently either. */
+      console.error('[HU] could not log the waived fee', e);
+    }
+  }
   if(ledger === 'fee' && plan.removed && plan.removed.kind === ARREARS_KIND){
     try{
       const who = jobAddresses.find(function(a){
@@ -52014,25 +52038,29 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       scheduled: !!item.data.scheduled,
       nowMs: Date.now()
     });
-    let lightFeeWaived = false;
-    if(lightChange.feeAmount > 0){
-      const answer = await askLightChangeFee(newName || item.data.name || 'This customer',
-        oldLightsForBuild, newLightsDescription, lightChange.feeDestination);
-      if(answer === 'cancel'){
-        /* ⚠ NO `btn.disabled = false` HERE. This handler never disables a button —
-           there is no `btn` in its scope at all — so that line was a ReferenceError
-           on the one path nobody would test twice: it threw, the outer catch turned
-           the clean "cancelled" message into "Something went wrong", and the office
-           was told the save had failed when it had simply been cancelled.
+    /* ⭐ THE FEE IS CHARGED, NOT ASKED ABOUT (changed 2026-09-10). Dax: "make sure the
+       color change fee is automatic when they are put in color change section."
 
-           ⚠ AND MY OWN CHECK PASSED THROUGH IT, because it asserted only that
-           nothing was written — which is equally true of a clean cancel and of a
-           throw. It asserts the message now. */
-        statusEl.textContent = 'Nothing was saved — the light change was cancelled.';
-        return;
-      }
-      lightFeeWaived = (answer === 'waive');
-    }
+       ⚠ THIS REVERSES ADDIE'S RULING OF 2026-08-21 and her reasoning is kept here,
+       because it was right when she made it: the office used to be asked rather than
+       charged silently, with THREE answers — charge, waive, cancel — precisely because
+       "nobody goes back to undo a fee they did not mean to add, so waive it later means
+       charge them by mistake". Waiving had to be available AT THE POINT OF SAVING.
+
+       ⭐ WHAT CHANGED IS THAT WAIVING LATER IS NOW ONE CLICK. MON-54 put an × beside
+       every fee line, in Invoices AND in Customers, on 2026-09-02 — three weeks after
+       she ruled. Her objection was about there being no way back, and there is one now.
+       R-024: the newer answer wins, and the older one is superseded rather than deleted.
+
+       ⚠ WHO IS CHARGED HAS NOT MOVED AN INCH. applyLightChange still decides, and it
+       still refuses a first-time colour, a cleared one, and any change inside the
+       48-hour free window. This only removes the popup, never the rule — and the
+       portal has always charged without asking, so the two sides now agree.
+
+       ⚠ AND THE CANCEL ANSWER IS GONE WITH IT. There is no longer a way for the fee
+       dialog to abandon a save half-made, which was the one path that could leave the
+       colours changed and the fee refused. The save is now all of a piece. */
+    const lightFeeWaived = false;
     if(lightChange.setLightsChangedAt){
       addrUpdates.lightsChangedAt = serverTimestamp();
       /* ⭐ WHO CHANGED IT (added 2026-08-24). The warehouse badges say WHY a bundle is
@@ -52645,6 +52673,10 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        capped at twelve fields and lists what CHANGED; a waiver is precisely a thing that
        did NOT change, so it would be the first line dropped by the cap and the last one
        anybody would think to look for. */
+    /* ⚠ THE WAIVER LOG MOVED TO waiveLedgerLine AND DID NOT DISAPPEAR (2026-09-10).
+       `lightFeeWaived` is a const false now — the save has no waive answer to give — so
+       this branch could never fire and is kept only as the guard it always was: read it
+       with the entry in change-log.test.js §3b, which is now pointed at the ×. */
     if(lightChange.feeAmount > 0 && lightFeeWaived){
       logActivity('Waived the ' + fmtMoney(lightChange.feeAmount) + ' light-change fee for ' +
         (newName || item.data.name || 'a customer') +
