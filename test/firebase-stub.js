@@ -110,11 +110,28 @@ const FAKE_FIRESTORE_MODULE = `
   export function serverTimestamp() { return new Date(window.__HU_FIXTURES__.frozenNow); }
 `;
 
+/* ⭐ THE DECLINE REASONS, READ OUT OF THE REAL SERVER ([[RS-60]]) rather than typed
+ * here. The fake refuses an off-list reason exactly as the server does, and a hand-typed
+ * copy would be a FOURTH list — so a spec could drive a reason the real server throws on
+ * and go green. Reading the shipped constant means this fake cannot drift from it.
+ * ⚠ IT THROWS RATHER THAN FALLING BACK TO A DEFAULT. An empty list would make the fake
+ * refuse every reason, and every spec below would fail with a message about the picker
+ * rather than about a renamed constant — the failure this repo keeps re-learning. */
+const RSVP_DECLINE_REASONS = (function () {
+  const src = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'functions', 'index.js'), 'utf8');
+  const m = /const RSVP_DECLINE_REASONS = \[([\s\S]*?)\];/.exec(src);
+  const out = m ? (m[1].match(/'([^']+)'/g) || []).map(x => x.slice(1, -1)) : [];
+  if (!out.length) throw new Error('firebase-stub: could not read RSVP_DECLINE_REASONS out of functions/index.js');
+  return out;
+})();
+
 /* The four portal callables. This mirrors the real return shapes read out of
  * functions/index.js — portalLookup returns {found, id, token, deactivated,
  * invoiceKey, record}, where record is sanitizeRecord() output. */
 const FAKE_FUNCTIONS_MODULE = `
   const F = window.__HU_FIXTURES__;
+  const STUB_DECLINE_REASONS = ${JSON.stringify(RSVP_DECLINE_REASONS)};
 
   window.__HU_CALLS__ = [];
 
@@ -296,6 +313,34 @@ const FAKE_FUNCTIONS_MODULE = `
         if (F.customers[k].token === token) hit = F.customers[k];
       });
       if (!hit) { const e = new Error('Account not found.'); e.code = 'functions/not-found'; throw e; }
+      /* ⭐ THE OPTIONAL REASON IS A SECOND CALL ([[RS-60]]), and this fake has to be shaped
+         the same way or a spec proves nothing about the half that matters. The real branch
+         returns EARLY: it writes the reason and touches rsvpStatus not at all, because a
+         retry arriving after somebody changed their mind must not put the old answer back.
+         ⚠ SO IT SITS BEFORE THE ANSWER WRITE BELOW, not after it. Written the other way
+         round the fake would re-answer the RSVP on every reason, and a spec asserting the
+         follow-up leaves the answer alone would be green over a fake that does not. */
+      if (payload && Object.prototype.hasOwnProperty.call(payload, 'declineReason')) {
+        const reason = String(payload.declineReason || '').trim();
+        /* ⚠ REFUSES OFF-LIST, exactly as the server does — a TRIPWIRE FOR A FUTURE SPEC,
+           and said plainly rather than claimed as tested. Nothing today can reach it: the
+           picker only ever offers what it draws from the shared list, so no spec drives an
+           invalid reason and a red-check correctly reported deleting this guard as
+           changing nothing. It is here so that the first spec that hand-writes a reason
+           fails here rather than going green against a server that would have thrown. */
+        if (STUB_DECLINE_REASONS.indexOf(reason) === -1) {
+          const e = new Error('Unknown reason.'); e.code = 'functions/invalid-argument'; throw e;
+        }
+        const note = String((payload.declineNote == null ? '' : payload.declineNote)).trim();
+        if (hit.record) {
+          hit.record.rsvpDeclineReason = reason;
+          hit.record.rsvpDeclineReasonAt = new Date(F.frozenNow).toISOString();
+          /* ⚠ ONLY WHEN THERE IS ONE — a blank stored where an answer goes reads as an
+             answer, which is the rule the server follows. */
+          if (note) hit.record.rsvpDeclineNote = note;
+        }
+        return { ok: true, reasonSaved: true };
+      }
       /* ⚠ AND SO DOES WHAT THEY STILL OWE FROM LAST SEASON, on a yes. The real
          portalRsvp reads the invoice and returns these two so the confirmation can
          stop promising an install to somebody RS-24 holds out of the season. Without
@@ -327,9 +372,21 @@ const FAKE_FUNCTIONS_MODULE = `
           hit.record.maybeNextYear = false;
           hit.record.maybeNextYearAt = null;
         }
-        /* Only a no. A back next year must NOT clear a recycle that was already owed
-           -- that is Hole G, written up in the real function. */
-        if (response === 'no') hit.record.needsLightRecycle = true;
+        /* ⛔ NEITHER ANSWER TOUCHES THEIR LIGHTS, AND THIS FAKE USED TO ([[RS-51]], and
+           confirmed by Addie on 2026-09-11: "they will only be a real no if they cancelled
+           member portal"). A line reading   if (response === 'no') hit.record.needsLightRecycle
+           = true;   sat here long after the real portalRsvp stopped doing it — so this fake
+           was writing a field the server does not write, on the one answer ~960 customers
+           will give, and a spec asserting it passed against a rule the app no longer has.
+           ⚠ THE REAL DOOR IS portalSave's own cancel section — Cancel My Lights, in the
+           member portal — and nothing else. That is the step which takes the bundle apart
+           and hands the customer number back to the pool, and Dax's whole argument for
+           moving it there was that one tap in an email must not set off a destructive,
+           physical act with no confirmation in front of it.
+           ⚠ WHAT THE OLD COMMENT WAS RIGHT ABOUT IS KEPT: a back next year must never
+           CLEAR a recycle that was already owed (Hole G). Neither answer writing the field
+           at all satisfies that too — an owed recycle survives both, which is what the
+           server does and what season-state.test.js holds. */
       }
       let arrearsOutstanding = 0;
       let arrearsSeason = '';
@@ -349,6 +406,11 @@ const FAKE_FUNCTIONS_MODULE = `
       return { ok: true, rsvpStatus: response,
                arrearsOutstanding: arrearsOutstanding,
                arrearsSeason: arrearsSeason,
+               /* ⚠ AND WHETHER A REASON IS ALREADY ON FILE ([[RS-60]]), exactly as the
+                  server returns it — the portal on this route has no other way to know,
+                  and a fake that left it out would let a spec prove the picker is not
+                  re-offered while the real page re-offers it. */
+               declineReason: String((hit.record && hit.record.rsvpDeclineReason) || ''),
                gateCode: String((hit.record && hit.record.gateCode) || '') };
     },
 

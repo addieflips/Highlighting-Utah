@@ -531,15 +531,155 @@ console.log('  ' + w('value', 26) + w('import reads', 28) + 'warehouse groups as
     check('a timer change on a house that HAS colours is still a build',
       timerOnly(OLD, {outletTimer:'Yes'}, ['outletTimer'], 'Red, Warm White') === false,
       'that house is in a real build group and always was; only the case she reported moves');
-    /* ⚠ TURNING A TIMER OFF KEEPS TODAY'S BEHAVIOUR, deliberately. `timerHouses` only ever
-       collects Yes, so routing a removal here would drop it off every screen silently —
-       worse than the untidiness this fixes. Flagged to Addie rather than guessed at. */
-    check('turning a timer OFF is left exactly as it was',
+    /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. This check is unchanged and still right: the
+       ADD rule must never claim a removal. What changed is the reason — it used to read
+       "routing a removal here would drop it off every screen silently", which was true
+       while there was nowhere for a removal to go. [[WH-34]] built that somewhere, so a
+       removal now has `whTimerRemovalQueue` and the Remove Timer list of its own, and the
+       two directions must stay in their own lanes. */
+    check('turning a timer OFF is not the ADD rule\u2019s business',
       timerOnly({outletTimer:'Yes'}, {outletTimer:'No'}, ['outletTimer'], '') === false,
-      'the warehouse still has to be told to take one out, and only the build queue says so');
+      'it has its own rule now ([[WH-34]]); this one answering yes would put a house on ' +
+      'the Timers list asking for the timer it just said it did not want');
     check('and it never fires when a build is already being queued by the same save',
       timerOnly(OLD, {outletTimer:'Yes', needsLightBuild:true}, ['outletTimer'], '') === false,
       'a build owed for another reason wins — the flags are an OR and the build is the safe side');
+
+    /* -----------------------------------------------------------------------
+     * ⭐ AND THE OTHER DIRECTION — A TIMER COMING OUT ([[WH-34]], 2026-09-11)
+     *
+     * Addie: "For people who don't want a timer anymore we need to put that in warehouse
+     * as Remove Timer." This is the half [[WH-27]] left open on purpose — its own note
+     * said a removal could not be routed anywhere because "timerHouses only ever collects
+     * Yes and it would drop off every screen silently". There is somewhere now.
+     *
+     * ⛔ THE ASYMMETRY IS THE WHOLE REASON THIS NEEDS A FIELD. "Wants a timer" is readable
+     * off the record for ever, so the Timers list is DERIVED and a missed flag self-heals
+     * on the next render. "USED TO WANT ONE" is readable off nothing at all once the save
+     * lands — that house is then identical to the ~900 that never had one. So every check
+     * below RUNS the rule rather than matching it: a rule that quietly stops writing this
+     * flag cannot be noticed from any screen afterwards.
+     * --------------------------------------------------------------------- */
+    const cameOff = new Function('return ' + fn('whTimerCameOff') + ';whTimerCameOff')();
+    const removalQ = new Function(fn('whTimerCameOff') +
+      ';return ' + fn('whTimerRemovalQueue') + ';')();
+
+    check('a timer switched off is a removal',
+      cameOff({outletTimer:'Yes'}, {outletTimer:'No'}, ['outletTimer']) === true,
+      'this is the only moment it can be written down; afterwards the record says nothing');
+    check('and cleared to blank is the same thing',
+      cameOff({outletTimer:'Yes'}, {outletTimer:''}, ['outletTimer']) === true,
+      'a blank timer is No everywhere else, so it has to be No here too');
+    check('a timer switched ON is not a removal',
+      cameOff({outletTimer:'No'}, {outletTimer:'Yes'}, ['outletTimer']) === false,
+      'that would send the warehouse to undo the job it was just told to do');
+    check('a wire change on a house with a timer is not a removal',
+      cameOff({outletTimer:'Yes', wireColor:'White'}, {wireColor:'Green'}, ['wireColor']) === false,
+      'the field that changed decides, not the value the timer happens to hold');
+    /* ⚠ THE GUARD THAT LOOKS REDUNDANT AND IS NOT. warehouseRebuildFields can only name
+       outletTimer when it really flipped, so the old value is implied — but implied is not
+       checked, and a caller building its own list would turn every save of a timerless
+       house into a work order somebody has to walk to a shelf for. */
+    check('a house that never had a timer cannot have one removed',
+      cameOff({outletTimer:'No'}, {outletTimer:'No'}, ['outletTimer']) === false &&
+      cameOff({}, {outletTimer:''}, ['outletTimer']) === false,
+      'the old value is tested as well as the changed-field list, on purpose');
+
+    check('a removal alone on a colourless house is the whole job',
+      removalQ({outletTimer:'Yes'}, {outletTimer:'No'}, ['outletTimer'], '') === true,
+      'nothing is being made up for them, so parking them in Waiting on light colours ' +
+      'sends the office to chase an answer that does not exist — [[WH-27]] in reverse');
+    check('but on a house that HAS colours it is still a build',
+      removalQ({outletTimer:'Yes'}, {outletTimer:'No'}, ['outletTimer'], 'Red, Warm White') === false,
+      'holes C and D stay unreversed; that house is in a real build group and always was');
+    check('and alongside anything else it is still a build',
+      removalQ({outletTimer:'Yes'}, {outletTimer:'No', wireColor:'Green'},
+        ['outletTimer','wireColor'], '') === false,
+      'a wire change genuinely needs the bundle remade');
+    check('and never when a build is already being queued by the same save',
+      removalQ({outletTimer:'Yes'}, {outletTimer:'No', needsLightBuild:true}, ['outletTimer'], '') === false,
+      'the build is the safe side, exactly as it is for the add rule');
+
+    /* ---- and the queue puts it somewhere somebody will read -------------- */
+    const rem = runQueue([
+      {id:'r', data:{name:'No More Timer', needsTimerRemoved:true, outletTimer:'No', wireColor:'White'}}
+    ]);
+    check('a house queued for a removal reaches the Remove Timer list',
+      (rem.timerRemovals || []).map(i => i.data.name).indexOf('No More Timer') !== -1,
+      'got: ' + JSON.stringify((rem.timerRemovals || []).map(i => i.data.name)));
+    /* ⛔ THE ONE THAT WOULD PUT A TIMER BACK IN. The two lists are opposite instructions
+       about the same shelf, so a removal appearing on Timers is worse than it appearing
+       nowhere — somebody reads it at speed and fits the timer the customer just refused. */
+    check('and is NOT on the Timers list',
+      (rem.timerHouses || []).length === 0,
+      'that list means "put one in"; this house asked for the opposite');
+    check('and is not waiting on light colours',
+      (rem.blocked || []).length === 0,
+      'nobody asked for lights, so there are no colours to wait for');
+    check('and nothing is built for them',
+      rem.keys.length === 0, 'taking a timer out is not a bundle');
+
+    /* ⚠ BOTH JOBS, BOTH LISTS. A house having a set made AND an old timer pulled is two
+       different jobs done by two different pairs of hands — dropping either is a bundle
+       never made or a timer left in a bin all season. */
+    const remBuild = runQueue([
+      {id:'rb', data:{name:'Both Jobs', needsLightBuild:true, needsTimerRemoved:true,
+                      outletTimer:'No', wireColor:'White', lightsDescription:'Red, Warm White'}}
+    ]);
+    check('a house building AND losing its timer is on both lists',
+      (remBuild.timerRemovals || []).map(i => i.data.name).indexOf('Both Jobs') !== -1 &&
+      remBuild.keys.length === 1,
+      'the bundle and the bin are two jobs: ' + JSON.stringify(remBuild.keys));
+
+    /* ⚠ AND IT CANNOT DRAG SOMEBODY BACK INTO THE SEASON, the same rule the build flag
+       and needsTimerOnly both follow — isOutForSeason is asked before any queue. */
+    const remOut = (() => {
+      const sb = {};
+      new Function('jobAddresses', 'warehouseExtras', 'isOutForSeason', 'houseLightsText',
+        'whGroupKey', 'houseBundleNeed', 'whBinsForHouse', 'whBuildReasonKey', 'cnBinsForFeet',
+        fn('whBuildQueueGroups') + 'this.run = whBuildQueueGroups;')
+        .call(sb, [{id:'g', data:{name:'Gone', needsTimerRemoved:true, outletTimer:'No'}}], [],
+          () => true, (d) => d.lightsDescription || '', (l, w) => l + '|' + w,
+          () => 0, () => 1, () => '', () => 1);
+      return sb.run();
+    })();
+    check('a removal for somebody sitting the season out is on no list',
+      (remOut.timerRemovals || []).length === 0,
+      'their bin is not being touched at all this year');
+
+    /* ⚠ THE WAY OFF THE LIST, and it must clear the removal WITHOUT clearing the build —
+       one button finishing somebody else's job is how a bundle goes missing. */
+    check('a Remove Timer row can be finished from that list',
+      /data-whtimerout=/.test(admin) && /needsTimerRemoved: false/.test(admin),
+      'a removal is in no colour group, so no Mark Done can ever reach it');
+    check('and finishing it leaves the build alone',
+      !/needsTimerRemoved: false, needsLightBuild/.test(admin),
+      'a house having a set made as well still needs the set made');
+    /* ⚠ AND IT REACHES PAPER. The crew and the warehouse work off printed sheets this
+       season — "were not using the employee portal this year" — so a job that exists only
+       on screen is a job nobody does. */
+    check('and it is on the printed build sheet',
+      /group: 'Remove timer'/.test(admin) && /timer: 'TAKE OUT'/.test(admin),
+      'a screen-only work order is one nobody standing in the warehouse ever sees');
+    /* ⛔ AND THE SAVE ACTUALLY CALLS IT. [[WH-27]]'s own red-check pass recorded this as
+       one of two sabotages it MISSED — "no check asserted the SAVE calls the rule" — so
+       every behavioural check above can pass while nothing in the real page ever sets the
+       flag. The wiring is asserted separately from the mechanism, deliberately. */
+    check('the Edit Customer save asks the removal rule',
+      /whTimerCameOff\(item\.data, addrUpdates, whChanged\)/.test(admin) &&
+      /addrUpdates\.needsTimerRemoved = true;/.test(admin),
+      'a rule nothing calls is a rule that never runs');
+    check('and takes the removal back if they change their mind',
+      /needsTimerRemoved\) addrUpdates\.needsTimerRemoved = false;/.test(admin),
+      'nothing has been pulled while the flag is up, so switching the timer back on ' +
+      'cancels the job rather than leaving somebody to walk to a shelf for nothing');
+    check('and the removal branch is asked before the plain build escalation',
+      admin.indexOf('whTimerRemovalQueue(item.data, addrUpdates, whChanged') <
+      admin.indexOf('else if(whChanged.length) addrUpdates.needsLightBuild = true;'),
+      'after it, the build wins every time and the carve-out can never fire');
+    check('and the paper never says YES on a removal row',
+      !/group: 'Remove timer',[\s\S]{0,400}timer: 'YES'/.test(admin),
+      'that column means a timer goes IN — this row is the opposite instruction');
   }
 }
 

@@ -36,7 +36,7 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
 
    Both copy the same details (name, phone, colors, wire color, install timing, gate code, outlet timer, specific outlet, notes, wants-mailed-invoice, photo, contact method, the $30 set-up fee decision, and the *approved* price — never a recalculated one) and both create the `jobAddresses` document through the **same** Add Customer submit handler: automatic fills the form and submits it rather than writing its own record, so the customer number, invoice, warehouse build flag and auto-scheduling cannot drift apart from the manual path. The quote is marked `status: 'closed'` with `convertedToCustomerAt` set.
 
-   *The light colours decide WHICH build group a house lands in, not whether it is queued at all.* Conversion still falls back to the quote's own wording when no colour boxes were ticked, so a pattern typed as free text is not lost. ⚠ **Corrected 2026-08-26:** this used to say `needsLightBuild` was set FROM `lightsDescription`. It is not, and has not been since 2026-08-21 — every new house is flagged, colours or no colours (questions map WH-17, WH-20). A house with no colours goes to the warehouse's own "Waiting on light colours" block, which is visible and has an Add colours button; leaving it unflagged made those houses invisible instead, which was the bug. ⛔ **And its TIMER is not waiting on any of that** (2026-09-09, [[WH-26]]). Changing a timer alone queues a build — `outletTimer` is one of the three `WAREHOUSE_BUILD_FIELDS` — so a house with no colours that asked only for a timer landed in this block. The damage was that `whBuildQueueGroups` collected timers AFTER the blocked branch returned, so such a house never reached the timer list at all: the one thing it actually needed was the one thing no sheet asked for. Timers are collected first now, the house stays blocked for the BUILD, and the row says the timer can go in today. ⭐ **And then the house stopped being parked at all** (2026-09-09, [[WH-27]]) — Addie, shown the cause: *"can you fix those."* A timer change on its own now sets **`needsTimerOnly`**, the timer's own queue, instead of `needsLightBuild`. Those houses appear on the **Timers** list badged *Timer only*, with a **Timer in the bin** button to finish them, and they are **not** on the Waiting-on-light-colours list — because nothing is being made up for them, so there are no colours to wait for and nothing for the office to chase. ⚠ It never switches the build flag off: a real build queued for any other reason wins on its own, which is why it is a separate flag rather than a marker on the existing one. ⚠ Turning a timer **off** still queues a rebuild, deliberately — the timer list only ever collects Yes, so a removal routed there would vanish off every screen. ⚠ And a wire change, or a timer change on a house that **has** colours, is still a build exactly as before. **The five houses already sitting on that list carry no flag**, so each blocked row that has a timer on file now offers **Only needed a timer** — one press moves that house across, and *Build Them A New Set* on their record undoes it. Only a person can make that call: nothing on the record can tell a house queued by a timer change from one converted with its colours still to come. ⚠ Do not "fix" this by dropping `outletTimer` from that field list — the timer list is derived from the build queue, so a house that stopped being queued would stop getting a timer at all.
+   *The light colours decide WHICH build group a house lands in, not whether it is queued at all.* Conversion still falls back to the quote's own wording when no colour boxes were ticked, so a pattern typed as free text is not lost. ⚠ **Corrected 2026-08-26:** this used to say `needsLightBuild` was set FROM `lightsDescription`. It is not, and has not been since 2026-08-21 — every new house is flagged, colours or no colours (questions map WH-17, WH-20). A house with no colours goes to the warehouse's own "Waiting on light colours" block, which is visible and has an Add colours button; leaving it unflagged made those houses invisible instead, which was the bug. ⛔ **And its TIMER is not waiting on any of that** (2026-09-09, [[WH-26]]). Changing a timer alone queues a build — `outletTimer` is one of the three `WAREHOUSE_BUILD_FIELDS` — so a house with no colours that asked only for a timer landed in this block. The damage was that `whBuildQueueGroups` collected timers AFTER the blocked branch returned, so such a house never reached the timer list at all: the one thing it actually needed was the one thing no sheet asked for. Timers are collected first now, the house stays blocked for the BUILD, and the row says the timer can go in today. ⭐ **And then the house stopped being parked at all** (2026-09-09, [[WH-27]]) — Addie, shown the cause: *"can you fix those."* A timer change on its own now sets **`needsTimerOnly`**, the timer's own queue, instead of `needsLightBuild`. Those houses appear on the **Timers** list badged *Timer only*, with a **Timer in the bin** button to finish them, and they are **not** on the Waiting-on-light-colours list — because nothing is being made up for them, so there are no colours to wait for and nothing for the office to chase. ⚠ It never switches the build flag off: a real build queued for any other reason wins on its own, which is why it is a separate flag rather than a marker on the existing one. ⭐ **And turning a timer OFF is now its own job too** (2026-09-11, [[WH-34]]) — Addie: *"For people who don't want a timer anymore we need to put that in warehouse as Remove Timer."* That sentence used to read *"turning a timer off still queues a rebuild, deliberately — the timer list only ever collects Yes, so a removal routed there would vanish off every screen"*, which was true while there was nowhere for a removal to go. There is now: **`needsTimerRemoved`** and a **Remove Timer** block directly under Timers, with a **Timer taken out** button on every row. ⛔ It has to be a stored flag, and that is the one thing to protect here: *wants a timer* can be read off the record for ever (`outletTimer === 'Yes'`), so the Timers list is derived and a missed flag heals itself — but *used to want one* is readable off **nothing** the moment the save lands, because that house then looks exactly like the ~900 that never had one. If the save does not write it down, nobody is ever told and the timer stays in their bin all season. So it is written at **both** doors: the Edit Customer save and `portalSave`, since a customer switching their own timer off from their phone is the commonest way this happens. ⚠ It is taken back if they switch it on again before anybody has been to the shelf — nothing has been pulled while the flag is up — and once the warehouse presses Timer taken out the flag is already down. ⚠ The Remove Timer block is never folded into Timers: they are one walk round the same shelves and opposite instructions at the end of it. ⚠ Its Done clears the removal and **nothing else**, so a house also having a set made stays in its colour group and is still built. ⚠ A wire change, or a timer change on a house that **has** colours, is still a build exactly as before — only the colourless case is routed away. ⭐ And both timer jobs reach **paper** for the first time: a timer-only house was in no group and not blocked, so it fell through both loops of `whSheetRowsForBuild` and was on the screen but on no sheet at all. The removal row's Timer column reads **TAKE OUT**, never YES. ⚠ And a wire change, or a timer change on a house that **has** colours, is still a build exactly as before. **The five houses already sitting on that list carry no flag**, so each blocked row that has a timer on file now offers **Only needed a timer** — one press moves that house across, and *Build Them A New Set* on their record undoes it. Only a person can make that call: nothing on the record can tell a house queued by a timer change from one converted with its colours still to come. ⚠ Do not "fix" this by dropping `outletTimer` from that field list — the timer list is derived from the build queue, so a house that stopped being queued would stop getting a timer at all.
 5. **Measured Feet drives everything** — see §2, it's the single highest-leverage field in the app.
 6. **Warehouse builds it** — `needsLightBuild: true` queues the house into the warehouse build list (grouped by colour pattern, bundle count from feet). It is set for **every** newly created house, by all six routes that create one — Add a Customer, quote conversion, the sheet sync, both bulk importers and the test-record builders. A house with no colours yet is queued too, and shown in the blocked "Waiting on light colours" block rather than dropped.
 
@@ -62,6 +62,17 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
     ⚠ **THE COST, TAKEN KNOWINGLY:** a customer who says no and never cancels keeps their bin and their customer number for the season. Under the old rule that number came back to `availableCustomerNumbers` on the answer alone. Fewer numbers recycle; nothing is destroyed by mistake.
 
     ⚠ **AND HALF AN OWNER RULING IS REVERSED HERE, out loud.** Addie asked for the back-next-year-then-no sequence and was answered *"they belong on the recycle list, and NOT on Contact 2027 as well"*. The Contact 2027 half stands — a no still clears `maybeNextYear`. The recycle half is Dax's later call (R-024).
+
+    ⭐ **AND IT IS ADDIE'S RULE NOW TOO** (2026-09-11, [[RS-61]]). She said it in her own words: *"they will only be a real no if they cancelled member portal."* Nothing about the rule changes — what changes is that it no longer rests on one person's call, which [[RS-55]] had flagged as unsettled. ⚠ **WHAT PROMPTED IT WAS A TEST FAKE THAT AGREED WITH THE OLD RULE:** `test/firebase-stub.js` went on writing `needsLightRecycle` on a No for eight days after the server stopped, so a browser spec asserted the reversed rule and passed. A stub that has drifted from the server is a spec proving the opposite of what the app does, and nothing goes red. ⚠ **AND AN OWED RECYCLE STILL SURVIVES A No** — somebody who cancelled properly and then answers the RSVP again keeps the collection the warehouse is queued for. Both halves now have a browser test.
+
+    ⭐ **AND SOMEBODY IS TOLD, AND THEN ASKED WHY** (2026-09-11, RS-59 and RS-60). A decline used to write **nothing to the Inbox at all** — the record changed, they came off every route and their referral was clawed back, in silence, on the most consequential answer in the season. `portalRsvp` now raises a note under **RSVP — Not This Year** or **RSVP — Back Next Year**, and those two strings are the folders the Inbox files them into, under a **No RSVPs** section of its own. On the TRANSITION only, and best-effort: their answer is already written by that line.
+
+    ⭐ **THE REASON IS OPTIONAL AND IT PICKS THE FOLDER.** Addie: *"okay i need it to be optional choice"*, then *"Should be Moved, Finances, etc."* The portal offers **Moved · Finances · Doing it ourselves · Another company · Not decorating · Other** — one list (`RSVP_DECLINE_REASONS`) held identically in `index.html`, `functions/index.js` and `admin.html`, because these strings are **folder names** and one character apart files a real answer where nobody is looking.
+    - ⛔ **The answer is recorded FIRST and the reason asked afterwards.** It is a second call for exactly that reason and it writes no `rsvpStatus` of its own — somebody who closes the tab on the picker has still declined, and a stale retry cannot overwrite a newer decision.
+    - ⛔ **`Other` carries their own words, and those words never name a folder.** The reason picked is held to the list and names the folder; the typed note is stored beside it and appended to the note the office reads. This is a public callable: a folder named by whatever a stranger typed is both a mess and a way in.
+    - ⭐ **`Moved` can undo the no.** Addie: *"Moved should also give option change address which will keep them and confrim them for that year along with send them to requotes."* The button opens the existing move form (QT-35); the move it sends is marked `fromDecline`, and the server puts them back in the season through `seasonYesUpdates` — never a hand-written yes, which would leave them confirmed AND queued for recycling. ⛔ **Both conditions**: the browser says where the request came from, but the RECORD has to say they actually declined, or a flag from a public callable would confirm anybody.
+    - ⚠ **Where it appears.** One block, MOVED into whichever panel is open — a decline from the email link lands on **Cancel** (RS-33) while the in-portal Yes/No buttons are on **Changes**. Built on one of them it was invisible to half the people it is for, and a browser is the only thing that found that.
+    - ⚠ **And the block above it had been lying.** The portal opened from an RSVP link renders from the **invoice** record, which carries no `rsvpStatus`, so *"Are you having lights this season?"* answered *"You haven't told us yet."* to somebody who had answered a second earlier. The answer this visit recorded is remembered and wins; `portalRsvp` also returns any reason already on file, so a later visit is not asked again.
 
    ⭐ **WHERE THE THREE RSVP EMAIL BUTTONS LAND** (corrected 2026-08-31). The buttons are built by `applyEmailTokens` in `admin.html` — `{{rsvp_yes_button}}`, `{{rsvp_no_button}}`, `{{rsvp_back_button}}` — and each one carries the customer's own portal token:
 
@@ -122,6 +133,19 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    - ⚠ **And minimal mode ends there by design.** `openPortalAfterYes` removes `rsvp-minimal`/`rsvp-back`,
      exactly as the old *Take Me to My Portal* button did — a receipt is right for a card, wrong for an
      account page. The no and back-next-year paths still end on the receipt.
+   - ⭐ **AND A NO IS ASKED WHY, ONCE IT IS IN** (2026-09-11, [[RS-60]]). The optional reason picker is
+     drawn only for a record that already says no or back next year and has not answered it — which is
+     what makes it optional rather than a step. ⚠ **It follows them between tabs**: a decline from the
+     email link lands on **Cancel**, the in-portal Yes/No buttons are on **Changes**, and there is ONE
+     block moved into whichever panel is open rather than a copy on each. ⚠ **And the RSVP block reads
+     the answer this visit recorded** (`portalRsvpStatusOf`), because on the link route the page renders
+     from the INVOICE record — thirteen fields, no RSVP among them — so it had been saying *"You haven't
+     told us yet."* to somebody who had answered a second earlier, and the picker keyed off the same
+     blank. Every source check passed the whole time; a browser is what found it.
+     ⚠ **AND IT NOW SITS BEHIND THE TAP** ([[RS-57]], the same day and from another branch).
+     The link no longer answers on open, so the answer this visit recorded is the one the
+     TAP recorded — which is exactly where the picker should appear, and it is why every
+     browser spec that opens an RSVP link taps through `tapRsvpConfirm` first.
 
    ⭐ **AND SOMEBODY WHO OWES FOR LAST SEASON IS HELD BEFORE ANY OF IT** (2026-09-02, RS-36). Dax:
    *"make sure it forces them to pay for their last year lights before they can do anything and before
@@ -2086,6 +2110,37 @@ wrong," it is a second, narrower question the first one never claimed to answer.
   canonical ordering, dedup, the list overriding a mismatched count, and the
   empty-list fallback).
 
+⭐ **AND THE CREW IS FINALLY TOLD WHICH ONES** (2026-09-11, [[OPT-09]]). Addie: *"for
+sides can you mention which side they want looking from there street? so is it left side
+from looking at your house from the street kind of thing."*
+
+- **What was wrong.** Every screen above learned the names and the printed sheet never
+  did. Its Sides column called `printSideCount`, which returns the COUNT — so a house
+  that had said Front, Left and Back reached the kerb as the number **3**, and this is
+  the season the crew works off paper alone. That is [[OPT-02]]'s own question — *"how
+  are we supposed to know which sides they want if it just says how many"* — still
+  unanswered in the one place it is asked.
+- **`printSidesCell`** (renamed from `printSideCount`, because the old name no longer
+  described what it returns) prints the names when `houseSidesList` holds exactly as
+  many as the count, and the number otherwise. ⛔ **It never prints a list that does not
+  fit the count** — two names under a count of three is a claim that cannot be true, and
+  records really can be in that state because the count is far older than the list. The
+  count wins, the same way round as [[OPT-07]]; a list trimmed to fit would be an answer
+  nobody gave.
+- **The viewpoint is on the column and on the labels**, not in a note beside them. The
+  heading reads **Sides (from street)**, and Add and Edit Customer's tick boxes read
+  *Left side (from the street)* / *Right side (from the street)*. [[OPT-03]] settled that
+  left and right are read from the street and the portal says so in a sentence; the
+  office's boxes said it only in grey text underneath, and paper carries no note at all.
+  The two readings are mirror images, so the word alone decides which half of a roof gets
+  lit by a coin toss.
+- ⚠ **Nothing about the stored values changed** — the four names, the count, the
+  re-quote rules and every gate on them are untouched. This is what is SAID, not what is
+  kept.
+- Proved by Suite 104, *run* against the real helpers (the names on the sheet, the
+  fallback to the number, a mismatched list, a value nobody offers, and the heading), with
+  the crew-sheet fixture given a list so the check cannot pass on the old behaviour.
+
 ⭐ **THE PORTAL SAYS WHEN A BALANCE IS ACTUALLY DUE** (added 2026-09-02, MON-57). Addie:
 *"I want to make it clear to the member that this is there payment however they do not need
 to pay until after they get an invoice from us."* The payment card said **Current Balance**
@@ -4021,14 +4076,85 @@ that added so I can make it like this?"* **＋ New section** at the bottom of th
 builds one: a name, an icon, what belongs in it, and as many subtabs as you like — the same
 shape as Member Messages and its five.
 
-⛔ **A section is a saved filter, not a folder.** This is not the folders coming back. Nothing
-is *moved* into a section: a message shows up in every view it matches, so it can be in two
-sections at once, and **deleting a section can never lose a message**. That is why there is
-no "put this message here" anywhere in it — the whole point of [[MSG-12]] was that filing a
-message in one place is how it goes missing.
+⭐ **THE RSVP NOs HAVE THEIR OWN SECTION** ([[RS-59]], 2026-09-11). Addie: *"can we have no
+emails be there own section and it will go in the folder with the response they choose"*, then
+*"I mean No RSVPs."*
 
-**What a filter is made of:** message type, category, status, priority, and optionally words
-that must appear. Nothing ticked in a row means *any*; ticks in different rows must **all**
+⛔ **Nothing was written to the Inbox at all when somebody declined.** `portalRsvp` recorded the
+answer, pulled them off every upcoming route, queued their lights for recycling and took their
+referral back — and the one list the office reads every morning said nothing. A customer saying
+no is the most consequential answer in the season and it was the quietest thing that could
+happen, so the note had to be invented before a section could hold one.
+
+**The topic IS the folder**, which is her rule said literally: **RSVP — Not This Year** and
+**RSVP — Back Next Year**, two topics rather than one with a field, because the two are
+different decisions — one queues a recycle and puts their customer number back in the pool, the
+other keeps them on the books for the season after — and the two notes say different things
+about what happens next. ⚠ **They are system notices, never member messages**: on a send of
+~960 they outnumber real questions, and read as member mail they bury the reply queue.
+⚠ **Raised on the transition only**, so re-opening the link does not fill the folder with
+duplicates, and **best effort**, so a failed note never undoes an answer already recorded.
+⛔ **The office's own "no" raises nothing**, deliberately — somebody in admin setting a customer
+to No already knows, and a note telling them what they just typed is noise.
+
+⭐ **AND A FOLDER PER REASON** ([[RS-60]], the same day). This line used to read *"an RSVP
+decline has no optional reason picker — it is a single button"*, which is what she was told, and
+her answer was *"okay i need it to be optional choice"*, then *"Should be Moved, Finances, etc."*
+The section now carries a tab per reason under the two answer tabs, built from the shared
+`RSVP_DECLINE_REASONS` list rather than typed out, so the folders cannot drift from what the
+customer is offered or from what the server files them under.
+
+⚠ **The `why:` tab reads the reason off the MESSAGE**, never off the customer record — the same
+rule as the two answer tabs. A message is what somebody said on a day; re-deriving it from the
+record would shuffle old notes between folders every time a customer changed their mind.
+⚠ **A decline with no reason is in no reason folder and still in its answer folder** — the
+reason is optional, so that is the ordinary case, and treating a blank as a match would put
+every silent decline into whichever folder sorts first.
+⚠ **And a reason never drags a note out of its answer.** What they said and why are different
+questions, so a Moved back-next-year is in **Back Next Year** and in **Moved**, never in Not
+This Year.
+
+⭐ **AND THEN SHE NAMED THE WHOLE THING** ([[MSG-19]], 2026-09-11). Addie, across five
+messages: *"on inbox we need to be able to add a folder to each section not just a new
+section"*; *"in what type does this belong to we should have a spot for nothing so we can just
+move emails into it for my completed folder"*; *"I also don't like the filters you set for me
+we can just put everything in inbox and we can choose what section they go in from there. Then
+put them in completed afterward. In other words I can choose what all sections are called and
+all folders are called"*; *"And I need to be able to put emails in the folders as well like
+drag and drop."*
+
+⛔ **This paragraph used to read "a section is a saved filter, not a folder — nothing is moved
+into a section",** and that was [[MSG-15]], which was also hers. She reversed it, so the newer
+answer is the one the app follows (R-024) and the old row is marked Superseded rather than
+deleted. **What it was protecting is still protected**, and this is the part to keep: a view
+she fills by hand asks the MESSAGE which folder it is in — the same `folder` / `filedByHand`
+pair the drag, the right-click and Move to… have always written — so no section holds a list
+of its own, two views can never disagree about one message, and deleting one strands nothing.
+
+**Every view now answers one question first: what goes in here?** Either *Nothing — I move
+messages in myself*, which makes it a folder, or *anything matching the ticks below*, which is
+the filter as it was. **A new section and a new folder both start on the hand-filled answer.**
+
+**The Inbox is the pile nobody has filed yet.** Move something and it leaves — otherwise the
+Inbox never shrinks and the filing buys nothing. ⚠ **Hand filing only**: a cancellation
+request files itself into Cancellations off its topic with nobody having touched it, and those
+stay in the Inbox, because they are unfiled work that happens to have a home.
+
+⚠ **Nothing can become unreachable.** Any folder holding filed mail that no section points at —
+including everything filed before any of this existed — is listed under **Your folders** at the
+bottom of the sidebar, and can be opened and dropped into. **Deleting a hand-filled section
+puts its messages back in the Inbox first**, and says how many.
+
+**Every section is editable, the four built-ins included** — rename it, change its icon, add as
+many folders as you like. ⛔ **But not redefined**: what lands in one of the four to begin with
+is code and every dashboard tile counts it, so the editor says so rather than offering a
+control that would break those tiles. They can still be hidden, never deleted.
+
+**The folder she names IS the message folder** — a real `messageFolders` document is created
+with it, so Move to…, the right-click menu and a drag all know the same names.
+
+**What a by-rule filter is made of:** message type, category, status, priority, and optionally
+words that must appear. Nothing ticked in a row means *any*; ticks in different rows must **all**
 match. A subtab **narrows** its section and can never reach outside it, so a Payments subtab
 under a Member section shows member payment questions, never system payment notices.
 
@@ -4037,11 +4163,36 @@ before saving. Nothing is written until **Save** — Cancel leaves everything as
 
 **The four built-in sections can be hidden, not deleted.** They are the spine the dashboard
 tiles are built on, so deleting one would leave those tiles pointing at nothing. Hidden ones
-are listed at the bottom of the sidebar with a one-click way back.
+are listed at the bottom of the sidebar with a one-click way back. ⚠ Since [[MSG-19]] they
+also carry the pencil, for renaming and for adding folders — hiding is what "deleting" means
+for a list she did not make.
 
 ⚠ Sections live in `settings/commSections`, one small document. If two people edit sections
 at the same moment, the last save wins — they change rarely enough that this is the right
 trade, and it is the same one the scheduling settings already make.
+
+**Every light change is charged $30, whichever screen it was typed into** ([[MON-78]],
+2026-09-11). Addie: *"anyone that does a light change or ends up in warehouse because of a
+light change besides requotes and quotes will need to be charged 30 dollars unless waived"*,
+then *"Yes either light change made in member portal or in costumer admin portal."*
+
+⛔ **The office had two doors onto one change and only one of them charged.** Edit Customer
+asks and charges; the **All Customers row panel**, which has its own lights picker, queued the
+warehouse colour change and wrote the new colours to the record and to the invoice — and
+charged nothing. So what a customer paid depended on which box somebody happened to type into,
+and neither they nor their bill can tell the difference. It also never stamped
+`lightsChangedAt` or `lightsChangedVia`, so a change made there was invisible to the fee path,
+to the workbook's Color Changes tab and to the warehouse's build badge as well.
+
+It now asks first — **charge, waive, or cancel the whole save** — reads the free window and
+the sent bill off the record rather than assuming neither, and asks `houseLightsText` what
+they had (both colour fields, per [[WH-28]] below). ⚠ **The 48-hour free window is untouched**:
+a change inside it is still free. ⚠ **Re-quotes and new quotes are still exempt** — that is her
+*"besides requotes and quotes"*, and a first-time colour was never a change anyway.
+
+⚠ **One fee writer, not a third copy.** `addLightChangeFeeToInvoice` and
+`lightChangeCarryoverUpdates` are shared by both doors: two copies of a money write is how one
+screen starts charging what another does not.
 
 **Why some light changes never showed a $30 fee** ([[WH-28]], 2026-09-10). Addie: *"there are
 member that did light changes but are not showing 30 dollar fee on there account."*

@@ -3655,7 +3655,20 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     referralSrcs.every(Boolean),
     'renamed or removed — a missing one leaves every decline throwing a bare ' +
     'ReferenceError, which reads as "an async suite crashed"');
-  const fullSrc = [todayStrSrc, stampSrcs, arrearsSrcs.filter(Boolean).join('\n'),
+  /* ⚠ AND THE THREE [[RS-59]]/[[RS-60]] CONSTANTS, LIFTED — not stubbed. portalRsvp
+     names them when it raises the decline note and again when it files a reason, and
+     the note write is wrapped in a best-effort try/catch — so without them the sandbox
+     does NOT fail, it quietly logs "[HU] RSVP decline note failed: RSVP_NO_TOPIC is not
+     defined" and every check about that note passes against a note that was never
+     written. A green run for the worst possible reason, which is why they are here. */
+  const rsvpConstSrc = (fnSrc.match(/const RSVP_NO_TOPIC = '[^']*';/) || [''])[0] + '\n' +
+                       (fnSrc.match(/const RSVP_BNY_TOPIC = '[^']*';/) || [''])[0] + '\n' +
+                       (fnSrc.match(/const RSVP_DECLINE_REASONS = \[[\s\S]*?\];/) || [''])[0];
+  check('flow', 'the RSVP decline constants were found for the sandbox',
+    /RSVP_NO_TOPIC/.test(rsvpConstSrc) && /RSVP_DECLINE_REASONS/.test(rsvpConstSrc),
+    'without them the note write throws into its own catch and every check about it ' +
+    'passes against a note that was never raised');
+  const fullSrc = [todayStrSrc, rsvpConstSrc, stampSrcs, arrearsSrcs.filter(Boolean).join('\n'),
                    referralSrcs.filter(Boolean).join('\n'),
                    seasonYesSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
     .filter(Boolean).join('\n');
@@ -3673,10 +3686,14 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
   // written; add() records Inbox notes with the collection they landed in;
   // get() backs removeCustomerFromUpcomingRoutes's own route scan — empty on
   // purpose, since no test here needs a real route to already exist.
-  function runRsvp(record, response, routes) {
+  /* ⚠ `opts` CARRIES THE FOLLOW-UP ([[RS-60]]): `opts.body` adds fields to the call so
+     the reason branch can be RUN rather than read, and `opts.notes` is what the messages
+     query finds, since that branch re-opens a note an EARLIER call wrote. */
+  function runRsvp(record, response, routes, opts) {
     const written = {};
     const added = [];
     const routeWrites = [];
+    const noteWrites = [];
     const ctx = {
       exports: {},
       onCall: (opts, handler) => handler,
@@ -3694,47 +3711,64 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
         if (d.email2 !== undefined) out.email2Lower = String(d.email2 || '').toLowerCase().trim();
         return out;
       },
-      /* portalRsvp does TWO things now, from two different sessions' work
-         merged together: it raises the rejoined-after-recycle note, AND it
-         sweeps a declining customer off any route a crew has already been
-         handed. This suite is about the first; the second has its own suite.
-         Stubbed rather than left out, because leaving it out made the whole
-         async suite die on a ReferenceError, which reads as "everything here
-         is broken" instead of "one helper is missing". */
-      removeCustomerFromUpcomingRoutes: async (id) => { sweptFromRoutes.push(id); return 0; },
+      /* ⚠ THERE IS NO ROUTE-SWEEP STUB HERE, AND THERE MUST NOT BE. A stub used to sit
+         at this line, and it was DEAD: `fullSrc` lifts the real
+         `removeCustomerFromUpcomingRoutes` out of functions/index.js, and a function
+         DECLARATION inside the sandbox shadows the parameter of the same name for the
+         whole body — so the stub could never run. It was proved dead by accident: its
+         body pushed to an undeclared `sweptFromRoutes`, which would have thrown a
+         ReferenceError out of every decline in this suite, and every decline passed.
+         ⚠ SO A CHECK HERE MUST READ `routeWrites`, which the real sweep fills through
+         the fake db, and never a list the stub was supposed to keep. */
       db: {
         collection: (name) => {
-          /* ⚠ `.where` IS MODELLED AND REALLY FILTERS (2026-09-11). The real
-             removeCustomerFromUpcomingRoutes asks for `date >= today` rather than reading
-             every route ever written ([[RS-58]]), and a fake offering `get` alone turned
-             that into a TypeError — swallowed by that function's own try/catch, so the
-             sweep silently did nothing and three checks here went red without naming why.
-             The real function declared in fullSrc shadows the stub above it, which is what
-             makes these three checks about the SWEEP rather than about a call being made. */
+          /* ⚠ `.where` IS MODELLED AND REALLY FILTERS (2026-09-11, [[RS-58]]), AND IT CHAINS
+             (the decline-note lookup of [[RS-60]] asks two clauses). Both halves are load-bearing and
+             they arrived from two branches: the real removeCustomerFromUpcomingRoutes asks
+             for `date >= today` rather than reading every route ever written, and a fake
+             offering `get` alone turned that into a TypeError — swallowed by that
+             function's own try/catch, so the sweep silently did nothing and three checks
+             here went red without naming why. The real function declared in fullSrc
+             shadows the stub above it, which is what makes those three checks about the
+             SWEEP rather than about a call being made.
+             ⚠ AND `messages` ANSWERS WITH THE NOTES, filtered the same way, so a check on
+             the decline-note move proves the QUERY finds it rather than proving a fake
+             handed the rows over regardless. */
           const docsFor = (list) => ({ docs: (list || []).map(r => ({
             data: () => r,
             ref: { update: async (u) => { routeWrites.push({ id: r.id, stops: u.stops }); } }
           })) });
-          return {
+          const notesFor = (list) => ({ docs: (list || []).map(n => ({
+            data: () => n,
+            ref: { update: async (u) => { noteWrites.push(Object.assign({}, n, u)); } }
+          })) });
+          const passes = (r, f) => {
+            const v = r[f.field];
+            if (f.op === '>=') return v !== undefined && v >= f.value;
+            if (f.op === '>')  return v !== undefined && v > f.value;
+            if (f.op === '==') return v === f.value;
+            if (f.op === 'in') return (f.value || []).indexOf(v) !== -1;
+            throw new Error('this harness does not model ' + f.op);
+          };
+          const query = (filters) => ({
             doc: () => ({ update: async (u) => { Object.assign(written, u); } }),
             add: async (m) => { added.push(Object.assign({ __col: name }, m)); },
-            get: async () => docsFor(routes),
-            where: (field, op, value) => ({ get: async () => docsFor((routes || []).filter(r => {
-              const v = r[field];
-              if (op === '>=') return v !== undefined && v >= value;
-              if (op === '>')  return v !== undefined && v > value;
-              if (op === '==') return v === value;
-              throw new Error('this harness does not model ' + op);
-            })) })
-          };
+            where: (field, op, value) => query(filters.concat([{ field, op, value }])),
+            get: async () => {
+              const all = name === 'messages' ? ((opts && opts.notes) || []) : (routes || []);
+              const rows = all.filter(r => filters.every(f => passes(r, f)));
+              return name === 'messages' ? notesFor(rows) : docsFor(rows);
+            }
+          });
+          return query([]);
         }
       },
       console
     };
     const names = Object.keys(ctx);
     new Function(...names, fullSrc)(...names.map(n => ctx[n]));
-    return ctx.exports.portalRsvp({ data: { token: 't', response } })
-      .then(res => ({ res, written, added, routeWrites }));
+    return ctx.exports.portalRsvp({ data: Object.assign({ token: 't', response }, (opts && opts.body) || {}) })
+      .then(res => ({ res, written, added, routeWrites, noteWrites }));
   }
 
   const notes = a => a.filter(m => m.__col === 'messages' && m.topic === 'Rejoined After Recycling');
@@ -3856,6 +3890,104 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     const plain = await runRsvp({ name: 'Normal', rsvpStatus: '', needsLightRecycle: false }, 'yes');
     check('flow', 'a first-time yes does not look like a rejoin',
       plain.written.needsLightBuild === undefined && notes(plain.added).length === 0);
+
+    /* =======================================================================
+       ⭐ THE OPTIONAL REASON, RUN ([[RS-60]], 2026-09-11). Addie: "okay i need it to
+       be optional choice." Everything below is about what is WRITTEN and WHERE, so
+       none of it can be a text match — the checks beside this suite that read the
+       source prove the branch is placed correctly; these prove it does the right
+       thing when it runs.
+       ======================================================================= */
+    const declineNote = { id: 'm1', topic: 'RSVP \u2014 Not This Year', folder: 'System',
+                          custId: 'h1', message: 'Somebody said no. Here is what happens next.' };
+    const declined = { name: 'Gone', rsvpStatus: 'no', needsLightRecycle: true };
+
+    const why = await runRsvp(declined, 'no', [],
+      { body: { declineReason: 'Finances' }, notes: [declineNote] });
+    check('flow', 'a reason is written onto the customer',
+      why.written.rsvpDeclineReason === 'Finances' && why.written.rsvpDeclineReasonAt === '__ts__',
+      'the office filters and reports on the field, not on the folder');
+    /* ⛔ THE ANSWER WAS RECORDED ON THE FIRST CALL AND THIS ONE MUST NOT TOUCH IT. A
+       retry arriving after somebody changed their mind would otherwise put the old
+       answer back — on the field that decides who gets a crew. */
+    check('flow', 'and the follow-up writes no RSVP answer at all',
+      why.written.rsvpStatus === undefined && why.written.rsvpRespondedAt === undefined,
+      'a stale retry could overwrite a newer decision');
+    /* ⚠ AND IT DOES NONE OF THE TRANSITION WORK A SECOND TIME. */
+    check('flow', 'and it does not re-run the decline',
+      why.written.needsLightRecycle === undefined && why.routeWrites.length === 0 &&
+      why.added.length === 0,
+      'the routes pull, the recycle flag and the note all ran on the first call');
+    /* ⭐ "IT WILL GO IN THE FOLDER WITH THE RESPONSE THEY CHOOSE" — her words. The
+       Inbox files on `folder`, so the reason IS the folder. */
+    check('flow', 'and the note moves into the folder of that reason',
+      why.noteWrites.length === 1 && why.noteWrites[0].folder === 'Finances',
+      'got ' + JSON.stringify(why.noteWrites.map(n => n.folder)));
+    /* ⛔ AND THE ROW CARRIES THE REASON AS A FIELD TOO. commRowMatches' `why:` tab
+       reads `rsvpDeclineReason` off the MESSAGE — the folder alone is renameable by
+       hand ([[MSG-19]]), and a renamed folder would empty the tab. */
+    check('flow', 'and the row carries the reason for the folder tab to read',
+      why.noteWrites[0].rsvpDeclineReason === 'Finances',
+      'the tab reads the field; a hand-renamed folder must not empty it');
+    check('flow', 'and the note keeps the sentence it already had',
+      String(why.noteWrites[0].message || '').indexOf('what happens next') !== -1,
+      'that sentence is what the office acts on');
+
+    /* ⭐ `Other` CARRIES THEIR OWN WORDS. Addie: "if they put other than a note
+       section will show up that they can put in there reason." */
+    const other = await runRsvp(declined, 'no', [],
+      { body: { declineReason: 'Other', declineNote: 'Selling the house in November' },
+        notes: [declineNote] });
+    check('flow', 'an Other note is stored beside the reason',
+      other.written.rsvpDeclineNote === 'Selling the house in November' &&
+      other.written.rsvpDeclineReason === 'Other');
+    /* ⛔ AND THE TYPED WORDS NEVER NAME A FOLDER. This is a PUBLIC callable: a folder
+       named by whatever a stranger typed would let anybody write arbitrary strings
+       into the office's own sidebar, and would make a folder per customer. */
+    check('flow', 'but the typed words never become the folder',
+      other.noteWrites[0].folder === 'Other' &&
+      other.noteWrites[0].rsvpDeclineReason === 'Other',
+      'got folder ' + JSON.stringify(other.noteWrites[0].folder));
+    check('flow', 'and their words are added to the note the office reads',
+      String(other.noteWrites[0].message || '').indexOf('Selling the house in November') !== -1,
+      'stored on the record and nowhere anybody looks is half a feature');
+    /* ⚠ A BLANK IS NOT AN ANSWER — the same rule `requoteKind` follows. Stored, it
+       reads as somebody having typed nothing on purpose. */
+    const noNote = await runRsvp(declined, 'no', [],
+      { body: { declineReason: 'Other', declineNote: '   ' }, notes: [declineNote] });
+    check('flow', 'and an empty note is not stored at all',
+      !('rsvpDeclineNote' in noNote.written),
+      'a blank where an answer goes reads as an answer');
+
+    /* ⛔ OFF THE LIST IS REFUSED, RUN rather than read. */
+    let refused = null;
+    try {
+      await runRsvp(declined, 'no', [],
+        { body: { declineReason: '<script>hi</script>' }, notes: [declineNote] });
+    } catch (e) { refused = e; }
+    check('flow', 'a reason that is not on the list is refused',
+      !!refused && refused.code === 'invalid-argument',
+      'the reason names a folder, so free text here is a way into the sidebar');
+
+    /* ⚠ AND A REFUSAL WRITES NOTHING. Refusing after the customer write would leave
+       the record holding a reason the office can never see a folder for. */
+    const before = await (async () => {
+      let caught = null, out = null;
+      try { out = await runRsvp(declined, 'no', [],
+        { body: { declineReason: 'Nope' }, notes: [declineNote] }); } catch (e) { caught = e; }
+      return { caught, out };
+    })();
+    check('flow', 'and the refusal happens before anything is written',
+      !!before.caught,
+      'a reason on the record with no folder anywhere is worse than no reason');
+
+    /* ⚠ A FAILED MOVE NEVER LOSES THE REASON. The customer write is the half the
+       office filters on; the folder is the nudge. */
+    const noNotes = await runRsvp(declined, 'no', [],
+      { body: { declineReason: 'Moved' }, notes: [] });
+    check('flow', 'a reason with no note to move still saves',
+      noNotes.written.rsvpDeclineReason === 'Moved' && noNotes.res.reasonSaved === true,
+      'the note is best effort; the field is not');
   })());
 })();
 
@@ -21005,6 +21137,24 @@ suite('Suite 313. Which sides, by name — sanitized server-side, and the list w
       boxRow.indexOf('value="Right"') < boxRow.indexOf('value="Left"') &&
       boxRow.indexOf('value="Left"') < boxRow.indexOf('value="Back"'),
       'a fill that visibly skips the second box reads as a bug and gets reported as one');
+    /* ⭐ AND THE TWO THAT NEED A VIEWPOINT SAY IT ON THE LABEL ([[OPT-09]], 2026-09-11).
+       Addie: "is it left side from looking at your house from the street kind of thing."
+       [[OPT-03]] settled that it is read from the street; the boxes said so only in the
+       grey line underneath, which is not where somebody ticking a box is looking. Front
+       and Back need nothing — they are the same side whichever way you face. */
+    const addBoxRow = (function () {
+      const s2 = admin.indexOf('<div class="pill-check-row" id="addCustHouseSideNames"');
+      const e2 = s2 > 0 ? admin.indexOf('</div>', s2) : -1;
+      return s2 > 0 && e2 > s2 ? admin.slice(s2, e2 + 6) : '';
+    })();
+    check('S313', 'left and right name their viewpoint on the box itself, in both forms',
+      [boxRow, addBoxRow].every(function (row) {
+        return /value="Left">\s*Left side \(from the street\)/.test(row) &&
+               /value="Right">\s*Right side \(from the street\)/.test(row);
+      }),
+      'from the door your left is the OTHER half of the roof, so the word alone is a ' +
+      'coin toss about which side a crew lights — and Add Customer is the form a new ' +
+      'member is first recorded in');
 
     /* ⚠ GATED ON THE MODULE-LEVEL JSDOM, which Suite 5 sets once — and a run without
        it already refuses to say it is safe to push, so these do not degrade to a note
@@ -24706,7 +24856,7 @@ suite('Suite 104. The Printing tab');
 
   /* ---- the crew row builder, RUN rather than read ---- */
   {
-    const need = ['printGateCode', 'printSideCount', 'printCrewNotes', 'printBinCount'];
+    const need = ['printGateCode', 'printSidesCell', 'printCrewNotes', 'printBinCount'];
     const srcs = need.map(n => extractFn(admin, n));
     check('S104', 'the crew-sheet helpers are all there', srcs.every(Boolean),
       need.filter((n, i) => !srcs[i]).join(', ') + ' missing');
@@ -24723,7 +24873,18 @@ suite('Suite 104. The Printing tab');
            agree with itself and prove nothing. */
         cnDoubleBinFeetSrc + cnBinsForFeetSrc + extractFn(admin, 'whBinsForHouse') +
         extractFn(admin, 'whBinNumberFor') + extractFn(admin, 'whBinNumberMoved') +
-        srcs.join('') + 'return {g: printGateCode, s: printSideCount, ' +
+        /* ⚠ AND THE REAL SANITIZER ([[OPT-09]]), lifted not stubbed for the same reason
+           houseSideCount is: printSidesCell only prints names it has put through
+           houseSidesListFromValue, so a stub that returned the raw array would let a
+           stray value onto a crew sheet here and report green. */
+        /* ⚠ THE CONSTANT IS LIFTED OUT OF THE PAGE, NEVER TYPED HERE. It is the STORED
+           order (Front, Left, Right, Back) and admin.html also holds a FILL order that
+           differs (Front, Right, Left, Back) — a hand-typed copy that picked the wrong
+           one would print the sides in an order the real sheet never uses, and agree
+           with itself while doing it. */
+        (admin.match(/const HOUSE_SIDE_NAMES = \[[^\]]*\];/) || [''])[0] +
+        extractFn(admin, 'houseSidesListFromValue') +
+        srcs.join('') + 'return {g: printGateCode, s: printSidesCell, ' +
         'n: printCrewNotes, b: printBinCount};'
       )();
 
@@ -24762,10 +24923,46 @@ suite('Suite 104. The Printing tab');
         sb.g({}) === '\u2014' && sb.g({ gateCode: '  ' }) === '\u2014',
         'got ' + JSON.stringify(sb.g({})));
 
-      check('S104', 'the side count always prints, and matches houseSideCount',
+      /* ⚠ THE FALLBACK IS UNCHANGED AND IS STILL ASSERTED. A house with no names on
+         file prints the number exactly as it always has, including the old array shape
+         of the count field — the sheet disagreeing with the schedule about how many
+         sides a house has is two answers for one house. */
+      check('S104', 'a house with no names on file still prints the count',
         sb.s({ houseSides: 3 }) === '3' && sb.s({}) === '1' &&
         sb.s({ houseSides: ['front', 'left'] }) === '2',
-        'the sheet disagreeing with the schedule about sides is two answers for one house');
+        'got ' + JSON.stringify([sb.s({ houseSides: 3 }), sb.s({}),
+          sb.s({ houseSides: ['front', 'left'] })]));
+      /* ⭐ AND THE NAMES REACH THE KERB ([[OPT-09]], 2026-09-11). Addie: "for sides can
+         you mention which side they want looking from there street?" The crew sheet is
+         the only thing they see this season, and it printed the number 3 for a house
+         that had said which three. RUN, because the claim is about what is in the cell. */
+      check('S104', 'the sides a customer actually named are printed, not just how many',
+        sb.s({ houseSides: 3, houseSidesList: ['Front', 'Left', 'Back'] }) === 'Front, Left, Back',
+        'got ' + JSON.stringify(sb.s({ houseSides: 3, houseSidesList: ['Front', 'Left', 'Back'] })) +
+        ' — the crew arriving at the kerb with a number has to guess which half of the roof');
+      /* ⛔ AND A LIST THAT DOES NOT FIT THE COUNT IS NOT PRINTED. Two names under a count
+         of three is a claim that cannot be true, and records really can be in that state:
+         the count has existed far longer than the list. The number is the honest answer,
+         and a list trimmed to fit would be an answer nobody gave. */
+      check('S104', 'a list that does not fit the count falls back to the number',
+        sb.s({ houseSides: 3, houseSidesList: ['Front', 'Left'] }) === '3' &&
+        sb.s({ houseSides: 2, houseSidesList: ['Front', 'Left', 'Back'] }) === '2',
+        'got ' + JSON.stringify([sb.s({ houseSides: 3, houseSidesList: ['Front', 'Left'] }),
+          sb.s({ houseSides: 2, houseSidesList: ['Front', 'Left', 'Back'] })]));
+      /* ⚠ AND A STRAY VALUE CANNOT REACH A CREW SHEET. houseSidesListFromValue drops
+         anything nobody offers and de-duplicates, so 'Roof' leaves two names under a
+         count of three and the cell falls back to the number rather than printing it. */
+      check('S104', 'a value nobody offers never reaches the sheet',
+        sb.s({ houseSides: 3, houseSidesList: ['Front', 'Roof', 'Left'] }) === '3' &&
+        sb.s({ houseSides: 4, houseSidesList: ['Front', 'Front', 'Left', 'Back'] }) === '4',
+        'got ' + JSON.stringify(sb.s({ houseSides: 3, houseSidesList: ['Front', 'Roof', 'Left'] })));
+      /* ⚠ AND LEFT AND RIGHT NAME THEIR VIEWPOINT ([[OPT-03]]), on the COLUMN rather than
+         in a note beside the sheet. The two readings are mirror images — from the door
+         your left is the other half of the roof — so the word alone is a coin toss, and
+         paper carries no note to explain it. */
+      check('S104', 'the Sides column says which way round left and right are',
+        /\{k: 'sides', label: 'Sides \(from street\)'\}/.test(admin),
+        'a bare "Left" on a printed sheet names no viewpoint at all');
 
       const full = sb.n({ specificOutletNotes: 'lower outlet by door',
                           oneTimeNote: 'ring the bell', notes: 'dog in the back' }, {});
@@ -25132,8 +25329,12 @@ suite('Suite 104. The Printing tab');
       /* ⚠ LIFTED, NOT STUBBED (2026-08-21). printCrewDayList now fills Gate, Sides
          and a folded Notes, and a stub of those is a stub of the fix that put the
          gate code on paper at all. houseSideCount comes with them because
-         printSideCount reads it. */
-      extractFn(admin, 'printGateCode') + extractFn(admin, 'printSideCount') +
+         printSidesCell reads it, and houseSidesListFromValue with its stored-name
+         constant because printSidesCell prints nothing it has not sanitized
+         ([[OPT-09]]). */
+      extractFn(admin, 'printGateCode') +
+      (admin.match(/const HOUSE_SIDE_NAMES = \[[^\]]*\];/) || [''])[0] +
+      extractFn(admin, 'houseSidesListFromValue') + extractFn(admin, 'printSidesCell') +
       extractFn(admin, 'printCrewNotes') +
       /* ⚠ AND THE BIN COUNT, ALL THE WAY DOWN TO cnBinsForFeet OUT OF js/money.js.
          A stubbed whBinsForHouse would prove the column renders and nothing about
@@ -25170,7 +25371,11 @@ suite('Suite 104. The Printing tab');
       useEaves: true, outletTimer: 'Yes', notes: 'gate 4321'}},
     {crew: 0, id: 'h2', cust: {customerNumber: '12', name: 'B', street: '2 St'}},
     {crew: 1, id: 'h3', cust: {customerNumber: '21', name: 'C', street: '3 St', outletTimer: 'Yes',
-      gateCode: '4412', houseSides: 3, measuredFeet: 400,
+      /* ⚠ AND WHICH THREE ([[OPT-09]]). Without a list on the fixture the cell falls
+         back to the number and the check below passes on the old behaviour — the
+         vacuous-fixture trap this repo keeps re-learning. */
+      gateCode: '4412', houseSides: 3, houseSidesList: ['Front', 'Left', 'Back'],
+      measuredFeet: 400,
       specificOutletNotes: 'lower outlet by door',
       oneTimeNote: 'ring the bell', notes: 'dog in the back'}},
     /* ⚠ THE BIN THAT WEARS THE OLD NUMBER. This customer moved from #894 to the
@@ -25254,9 +25459,15 @@ suite('Suite 104. The Printing tab');
   check('S104', 'the Gate column is actually filled in, not just present',
     /<th>Gate<\/th>/.test(crewBody) && /<td>4412<\/td>/.test(crewBody),
     'a Gate header with nothing under it is the crew still stuck at the gate');
-  check('S104', 'the Sides column is actually filled in',
-    /<th>Sides<\/th>/.test(crewBody) && /<td>3<\/td>/.test(crewBody),
-    'got a Sides header with nothing under it');
+  /* ⭐ THE NAMES, ON THE PAPER ([[OPT-09]]). The header used to read Sides and the cell
+     under it a bare 3 — the crew at the kerb with a number and three ways to be wrong.
+     Both halves are asserted: the heading names the viewpoint, because left and right
+     read from the door are the mirror image of left and right read from the street, and
+     the cell carries what the customer said. */
+  check('S104', 'the Sides column is filled in with the sides they named',
+    /<th>Sides \(from street\)<\/th>/.test(crewBody) &&
+    /<td>Front, Left, Back<\/td>/.test(crewBody),
+    'got a Sides header with a bare count under it, or none at all');
   /* ⚠ SAME TRAP AGAIN: a header with nothing under it. The fixture's house is 300 ft,
      which is over CN_DOUBLE_BIN_FEET, so the honest answer is 2 — and a van loaded off
      a blank column leaves with half the lights. */
@@ -26472,16 +26683,20 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'the warehouse tab' + String.fromCharCode(8217) + 's own build sheet has the column too',
       /key:'putInto'/.test(cols) && /When built, put into/.test(cols),
       'this is the sheet the warehouse prints and builds off');
+    /* ⚠ A CENSUS, AND THE NUMBER MOVING IS THE POINT. 3 → 5 on 2026-09-11, when
+       [[WH-34]] put the two timer jobs on paper (Remove timer, and the Timer only rows
+       that had been on no sheet at all). Five builders: blocked, Remove timer, Timer only,
+       houses, extras. */
     check('S107', 'and every row builder fills it in, so no row is short a cell',
-      (extractFn(admin, 'whSheetRowsForBuild').match(/putInto:/g) || []).length === 3,
-      'houses, extras and the blocked ones all push rows onto that sheet');
+      (extractFn(admin, 'whSheetRowsForBuild').match(/putInto:/g) || []).length === 5,
+      'blocked, Remove timer, Timer only, houses and extras all push rows onto that sheet');
     /* ⭐ AND THE Why COLUMN THE SAME WAY (2026-08-24). A column every row does not fill
        leaves that row short a cell and the table shifts under it. Buffer stock fills it
        with a blank on purpose — no customer, no provenance to claim — which still
        counts as filling it. */
     check('S107', 'and every row builder fills the Why column too',
-      (extractFn(admin, 'whSheetRowsForBuild').match(/reason:/g) || []).length === 3,
-      'houses, extras and the blocked ones all push rows onto that sheet');
+      (extractFn(admin, 'whSheetRowsForBuild').match(/reason:/g) || []).length === 5,
+      'blocked, Remove timer, Timer only, houses and extras all push rows onto that sheet');
 
     /* ⭐ BUNDLES, NOT FEET, ON THIS SHEET TOO (2026-08-21). Owner: "I don't think we
        need feet and bundles. I think how many bundles is fine for warehouse."
@@ -28515,6 +28730,28 @@ suite('Suite 108. The Edit Customer save, actually run');
          question under test. */
       whTimerOnlyQueue: new Function('return ' + extractFn(admin, 'whTimerOnlyQueue') +
         ';whTimerOnlyQueue')(),
+      /* ⚠ AND BOTH HALVES OF THE OTHER DIRECTION, LIFTED — not stubs. Joined this list
+         2026-09-11, in the same commit that made the save handler call them ([[WH-34]]):
+         the extraction-list trap CLAUDE.md describes, hit a SEVENTH time and caught a
+         seventh time by this suite failing loudly rather than skipping — 28 failures
+         across the re-quote, pool-write and colour-fee checks, not one of them naming the
+         function that was actually missing. Run the WHOLE suite after an extraction.
+         ⚠ whTimerRemovalQueue CALLS whTimerCameOff, so lifting one without the other
+         moves the same crash one line down rather than fixing it. */
+      whTimerCameOff: new Function('return ' + extractFn(admin, 'whTimerCameOff') +
+        ';whTimerCameOff')(),
+      whTimerRemovalQueue: new Function(extractFn(admin, 'whTimerCameOff') +
+        ';return ' + extractFn(admin, 'whTimerRemovalQueue') + ';')(),
+      /* ⚠ AND THE TWO FEE WRITERS, LIFTED — not stubs. Joined this list 2026-09-11, in
+         the same commit that extracted them so the All Customers panel could charge the
+         same $30 ([[MON-78]]): the extraction-list trap CLAUDE.md describes, hit an
+         EIGHTH time. A stub for either would decide for itself what lands on a bill,
+         which is the whole of what these four checks measure.
+         ⚠ addLightChangeFeeToInvoice CLOSES OVER getDoc/doc/setDoc/db/serverTimestamp
+         and computeInvoiceStatus, so it is built inside the sandbox's own scope rather
+         than in a bare one — a bare lift would throw on the first fee it tried to write. */
+      lightChangeCarryoverUpdates: new Function('return ' +
+        extractFn(admin, 'lightChangeCarryoverUpdates') + ';lightChangeCarryoverUpdates')(),
       /* ⚠ THE REAL COLOUR READER, LIFTED — not a stub. Joined this list 2026-09-10, in the
          same commit that made the fee path ask it ([[WH-28]]): the extraction-list trap
          CLAUDE.md describes, hit a SIXTH time and caught a sixth time by this suite failing
@@ -28638,6 +28875,27 @@ suite('Suite 108. The Edit Customer save, actually run');
       'document',
       'return ' + extractFn(admin, 'editCustReadBuildings') + ';editCustReadBuildings'
     )({ getElementById: function(){ return null; } });
+    /* ⭐ THE REAL INVOICE FEE WRITER, LIFTED — not a stub ([[MON-78]], 2026-09-11). It
+       was inline in this handler until today; the All Customers panel now charges the
+       same $30, so it is one named function and both callers ask it. Four checks below
+       read what it wrote, so a stub would answer the question they exist to measure.
+       ⚠ BUILT WITH THIS SANDBOX'S OWN FIRESTORE STUBS, because a `new Function` body
+       sees globals and never this ctx — the same reason the pool-failure notice above
+       is built the long way round. `async` is kept by asking for it explicitly: extractFn
+       matches "function NAME(" and drops the keyword, which turns a body full of bare
+       `await` into a parse error that kills the whole suite unattributably (CLAUDE.md §5). */
+    {
+      const st = admin.indexOf('async function addLightChangeFeeToInvoice(');
+      let b = admin.indexOf('{', st), d3 = 0, e = b;
+      if (st > 0) { for (;; e++) { if (admin[e] === '{') d3++; else if (admin[e] === '}') { d3--; if (!d3) break; } } }
+      const feeSrc = st > 0 ? admin.slice(st, e + 1) : '';
+      check('S108', 'the invoice fee writer was found to run', !!feeSrc,
+        'without it the four fee checks below prove nothing about what lands on a bill');
+      ctx.addLightChangeFeeToInvoice = new Function(
+        'getDoc', 'doc', 'setDoc', 'db', 'serverTimestamp', 'computeInvoiceStatus',
+        'return ' + feeSrc + ';addLightChangeFeeToInvoice'
+      )(ctx.getDoc, ctx.doc, ctx.setDoc, ctx.db, ctx.serverTimestamp, ctx.computeInvoiceStatus);
+    }
     const names = Object.keys(ctx);
     const fn = new AsyncFn(...names, handlerSrc);
     return fn(...names.map(n => ctx[n])).then(function(){
@@ -37625,11 +37883,21 @@ suite('Suite 133. A wire or timer change reaches the warehouse');
          either throws or, worse, runs a different rule than the one on disk. */
       const b = fnsLF.indexOf("  if (section === 'lights'", a);
       const blk = fnsLF.slice(a, b);
+      /* ⚠ LIFTED, NEVER STUBBED ([[WH-34]], 2026-09-11 — and this suite died with a bare
+         `whTimerCameOffServer is not defined` the moment the block started calling it,
+         which is the extraction-list trap working as intended). A stub here would keep
+         the suite green through a change to WHO the warehouse is told about, which is the
+         one thing these checks exist to hold. */
+      const offSrc = extractFn(fnsLF, 'whTimerCameOffServer');
+      check('S133', 'the portal carries the timer-removal rule',
+        !!offSrc && /outletTimer/.test(offSrc),
+        'without it a customer switching their own timer off reaches nobody');
       const run = (oldData, updates) => {
-        new Function('oldData', 'updates', 'warehouseRebuildFields',
+        new Function('oldData', 'updates', 'warehouseRebuildFields', 'whTimerCameOffServer',
           blk)(oldData, updates,
           new Function('WAREHOUSE_BUILD_FIELDS', sSrc + ';return warehouseRebuildFields;')(
-            JSON.parse(sList[1].replace(/'/g, '"'))));
+            JSON.parse(sList[1].replace(/'/g, '"'))),
+          new Function(offSrc + ';return whTimerCameOffServer;')());
         return updates;
       };
       check('S133', 'changing the wire in the portal queues the warehouse',
@@ -37650,6 +37918,35 @@ suite('Suite 133. A wire or timer change reaches the warehouse');
           .needsLightBuild === true,
         'writing false here would bring back the bug where saving a customer ' +
         'with no colours silently cleared the build they were owed');
+      /* ⭐ AND A TIMER SWITCHED OFF IN THE PORTAL REACHES Remove Timer ([[WH-34]]).
+         ⚠ RUN, NOT MATCHED, because the claim is about a FLAG ON A RECORD. The whole
+         reason this field exists is that "used to have a timer" is readable off nothing
+         once the save lands, so a rule that quietly stops writing it cannot be noticed
+         from any screen afterwards. */
+      check('S133', 'a timer switched OFF in the portal queues the removal',
+        run({ outletTimer: 'Yes' }, { outletTimer: 'No' }).needsTimerRemoved === true,
+        'the record now looks exactly like the ~900 houses that never had one, so ' +
+        'nobody is ever told to take it out of their bin');
+      check('S133', 'and switching it ON does not',
+        run({ outletTimer: 'No' }, { outletTimer: 'Yes' }).needsTimerRemoved === undefined,
+        'a removal queued by somebody ASKING for a timer sends the warehouse to undo ' +
+        'the job it was just told to do');
+      /* ⚠ THE BUILD IS UNTOUCHED EITHER WAY on this side. functions/index.js has never had
+         [[WH-27]]'s timer-only routing, and [[WH-34]] deliberately did not add half of it
+         here — what the portal gained is the FLAG, which is the part that cannot be
+         re-derived later. Asserted so the asymmetry is a decision rather than a drift. */
+      check('S133', 'and the portal still queues the build as it always did',
+        run({ outletTimer: 'Yes' }, { outletTimer: 'No' }).needsLightBuild === true,
+        'the routing half of [[WH-27]]/[[WH-34]] is browser-only and was not half-ported');
+      check('S133', 'changing their mind takes the removal back',
+        run({ outletTimer: 'No', needsTimerRemoved: true }, { outletTimer: 'Yes' })
+          .needsTimerRemoved === false,
+        'nothing has been pulled while the flag is up, so a timer switched back on ' +
+        'cancels the job — the same shape as a pending recycle being cancelled');
+      check('S133', 'but an unrelated save never touches the removal flag',
+        run({ outletTimer: 'Yes', needsTimerRemoved: true }, { notes: 'x' })
+          .needsTimerRemoved === undefined,
+        'writing it on every save would clear a job somebody still has to do');
     }
   }
 
@@ -58540,4 +58837,196 @@ suite('326. What the weather usually does, and the wall between that and a forec
     /NORMALS_FRESH_MS/.test(loadSrc) &&
     /const NORMALS_FRESH_MS = 24 \* 60 \* 60 \* 1000;/.test(admin),
     'ten years of past weather does not change between elevenses and lunch');
+}
+
+/* ⚠ THIS SUITE WAS NUMBERED 323 AND IS NOW 327 (merge, 2026-09-11). A parallel branch
+ * appended its own 323 on the same day — the append-at-the-end collision CLAUDE.md
+ * records, for the second time in a week. The rule is that the suite which reached main
+ * FIRST keeps the number, so main's "Who the 1 February text goes to" is 323 and this one
+ * moved. Every check('S323') in it moved with it: the PREFIX is the half that matters,
+ * because it is what NAMES a failure in the log. */
+/* =====================================================================
+ * Suite 327. A declined RSVP tells somebody ([[RS-59]], 2026-09-11)
+ *
+ * Addie: "can we have no emails be there own section and it will go in the folder
+ * with the response they choose", then "I mean No RSVPs."
+ *
+ * ⛔ NOTHING WAS WRITTEN TO THE INBOX AT ALL. portalRsvp recorded the answer, pulled
+ * them off every upcoming route, queued their lights for recycling and took their
+ * referral back — and said nothing anywhere a person looks. A customer saying no is
+ * the most consequential answer in the season and it was the quietest thing that
+ * could happen. The section holding these notes is checked in comm-centre.test.js;
+ * this is the half that makes one exist.
+ *
+ * ⚠ NUMBERED 323, NOT 322. The suite above already uses S322 as its check prefix
+ * while calling itself Suite 321 — the exact collision CLAUDE.md's structure gate
+ * describes, and the prefix is the half that matters because it is what NAMES a
+ * failure. Taking 322 here would have made a red line ambiguous between two suites.
+ * ===================================================================== */
+suite('Suite 327. A declined RSVP tells somebody');
+{
+  /* ⚠ `fnsSrc`, the file-level read — `fns` is a local inside another suite and this
+     block died on a bare ReferenceError reaching for it. ⚠ AND NORMALISED, because
+     functions/index.js is stored with CRLF: a multi-line anchor written with \n matches
+     nothing, indexOf returns -1, and the check fails on code that never moved (§7). */
+  const src = fnsSrc.replace(/\r\n/g, '\n');
+  const idx = read('index.html');
+  const at = src.indexOf("if ((response === 'no' || response === 'backnextyear') &&");
+  check('S327', 'portalRsvp raises a note when somebody declines', at !== -1,
+    'the record changed, they came off every route, and the Inbox said nothing');
+  if (at !== -1) {
+    const blkSrc = src.slice(at, src.indexOf('\n  }', at) + 4);
+    /* ⭐ THE TOPIC IS THE ANSWER THEY CHOSE — her "it will go in the folder with the
+       response they choose". The Inbox files on the topic, so this string IS the folder.
+       ⚠ REPOINTED 2026-09-11: this matched the two literal strings inside the note, so
+       it failed on correct code the moment [[RS-60]] moved them behind named constants.
+       What has to be true is that the two answers are told apart, and the constants
+       themselves are compared against the browser's below. */
+    check('S327', 'and the topic is the answer they gave, so it lands in that folder',
+      /RSVP_NO_TOPIC/.test(blkSrc) && /RSVP_BNY_TOPIC/.test(blkSrc) &&
+      /response === 'no' \?/.test(blkSrc),
+      'one topic for both would put a recycle and a stay-on-the-books in one pile');
+    /* ⚠ A SYSTEM NOTICE, NOT A MEMBER MESSAGE. On a send of ~960 these outnumber real
+       questions; read as member mail they bury the reply queue, which is the complaint
+       the Communication Centre exists to fix. */
+    check('S327', 'and it is filed as a system notice',
+      /folder: 'System'/.test(blkSrc),
+      'a member message reads as NEEDS REPLY and there will be hundreds of these');
+    /* ⛔ ON THE TRANSITION ONLY. Re-answering the same way must not raise the note
+       again — the same shape the recycle flag and the referral clawback above use, and
+       without it one decision fills a folder with duplicates every time somebody
+       re-opens their link. */
+    check('S327', 'and only when the answer actually changed',
+      /String\(oldData\.rsvpStatus \|\| ''\) !== response/.test(blkSrc),
+      're-opening the link would raise the same note again, for ever');
+    /* ⚠ BEST EFFORT, GUARDED ON ITS OWN. Their answer is already written by this line;
+       a failed note must never undo it. */
+    check('S327', 'and a failed note never undoes the answer',
+      /try \{/.test(blkSrc) && /catch \(e\)/.test(blkSrc),
+      'the RSVP is the thing that matters and it is already recorded');
+    /* ⚠ AND IT SAYS WHAT HAPPENS NEXT, differently for the two. The office does
+       different things with a recycle and with somebody staying on the books, and a
+       note that does not say which is a row nobody can act on. */
+    check('S327', 'and the two notes say different things about what happens next',
+      /queued to be recycled/.test(blkSrc) && /they are still on the/.test(blkSrc),
+      'one wording for both answers is a folder split that tells you nothing');
+    /* ⛔ AFTER the routes are pulled, so the count it quotes is real. */
+    check('S327', 'and it is raised after the routes are pulled, so its count is true',
+      src.indexOf('removedFrom = await removeCustomerFromUpcomingRoutes') < at,
+      'quoting a number taken before the work is a note that is confidently wrong');
+    /* ⛔ AND THE TWO TOPIC STRINGS MATCH THE BROWSER'S CONSTANTS EXACTLY. They are the
+       folder names: one character apart and the note is written into a section that
+       shows nothing, with nothing anywhere going red. */
+    /* ⚠ COMPARED AS CONSTANTS, in both files, rather than hunted for inside the note.
+       These strings ARE folder names: one character apart and a note lands in a section
+       that shows nothing, with nothing anywhere going red. */
+    const constOf = (src, n) => {
+      const m = new RegExp('const ' + n + " = '([^']*)';").exec(src);
+      return m ? m[1].replace(/\\u2014/g, '\u2014') : '';
+    };
+    ['RSVP_NO_TOPIC', 'RSVP_BNY_TOPIC'].forEach(function(n){
+      const a = constOf(admin, n), b = constOf(src, n);
+      check('S327', 'the server spells ' + n + ' exactly as the browser does',
+        !!a && a === b, 'browser ' + JSON.stringify(a) + ' vs server ' + JSON.stringify(b));
+    });
+    /* ⭐ AND THE REASONS, WHICH ARE ALSO FOLDER NAMES ([[RS-60]]). Addie: "okay i need
+       it to be optional choice." The customer picks one in index.html, the server
+       refuses anything not on its own list, and the Inbox files the note under it — so
+       three files hold the same words and a single typo puts a real answer in a folder
+       nobody is looking at. ⚠ THE ORDER IS COMPARED TOO: the picker draws them in this
+       order and the section's folders are built from it, so a reordered copy silently
+       renames every tab. */
+    const listOf = (srcTxt) => {
+      /* ⚠ `var` IN index.html, `const` IN THE OTHER TWO — index.html's portal script is
+         the old-style one. A regex that only knew `const` read the picker's list as
+         EMPTY and reported a mismatch against code that was right. */
+      const m = /(?:const|var) RSVP_DECLINE_REASONS = \[([\s\S]*?)\];/.exec(srcTxt);
+      return m ? (m[1].match(/'([^']+)'/g) || []).map(x => x.slice(1, -1)) : [];
+    };
+    const svrReasons = listOf(src), admReasons = listOf(admin), idxReasons = listOf(idx);
+    check('S327', 'the three copies of the decline reasons are the same list',
+      svrReasons.length > 1 &&
+      JSON.stringify(svrReasons) === JSON.stringify(admReasons) &&
+      JSON.stringify(svrReasons) === JSON.stringify(idxReasons),
+      'server ' + JSON.stringify(svrReasons) + '\n        admin ' + JSON.stringify(admReasons) +
+      '\n        index ' + JSON.stringify(idxReasons));
+    /* ⛔ AND THE SERVER REFUSES ANYTHING NOT ON IT. The reason becomes a FOLDER NAME, so
+       free text here would let anybody who can reach a public callable write arbitrary
+       strings into the office's own sidebar. */
+    check('S327', 'and the server refuses a reason that is not on the list',
+      /RSVP_DECLINE_REASONS\.indexOf\(reason\) === -1/.test(src) &&
+      /throw new HttpsError\('invalid-argument', 'Unknown reason\.'\)/.test(src),
+      'a folder named by whatever a stranger typed is both a mess and a way in');
+    /* ⛔ THE ANSWER IS RECORDED FIRST AND THE REASON ASKED AFTER. A customer who closes
+       the tab on the reason screen has still declined — asking first trades a recorded
+       answer for an optional one, on the send that decides who gets a crew. */
+    /* ⚠ SCOPED TO portalRsvp, NOT THE FILE. `const oldData = match.data` appears three
+       times in functions/index.js and the FIRST is in another function entirely, so a
+       file-wide indexOf compares against the wrong anchor and fails on correct code —
+       which is exactly what it did on the first pass. */
+    const fnAt = src.indexOf('exports.portalRsvp = onCall(');
+    const rsvpFn = src.slice(fnAt, src.indexOf('\nexports.', fnAt + 10));
+    check('S327', 'the reason is a follow-up that never re-answers the RSVP',
+      /hasOwnProperty\.call\(body, 'declineReason'\)/.test(rsvpFn) &&
+      rsvpFn.indexOf("hasOwnProperty.call(body, 'declineReason')") < rsvpFn.indexOf('const oldData = match.data'),
+      'it must return before the transition work, and must not write rsvpStatus');
+    {
+      const rsn = rsvpFn.slice(rsvpFn.indexOf("hasOwnProperty.call(body, 'declineReason')"),
+                               rsvpFn.indexOf('const oldData = match.data'));
+      check('S327', 'and the follow-up writes no RSVP answer of its own',
+        !/rsvpStatus/.test(rsn),
+        'a retry could otherwise overwrite a newer decision with a stale one');
+      /* ⛔ AND IT FINDS THE NOTE BY THE CUSTOMER THE TOKEN PROVES, never by an id the
+         browser supplied — moving an arbitrary message is not a customer's to do. */
+      check('S327', 'and finds the note by custId, not by an id from the caller',
+        /where\('custId', '==', match\.id\)/.test(rsn) && !/body\.noteId|body\.messageId/.test(rsn),
+        'a message id from a public callable is a message id anybody can supply');
+    }
+    check('S327', 'and the note carries the customer it belongs to',
+      /custId: match\.id/.test(blkSrc),
+      'without it the reason arriving a moment later has no way to find this row');
+
+    /* =====================================================================
+       ⭐ THE PICKER'S OWN STATE, IN index.html ([[RS-60]]). Everything about what
+       APPEARS is driven in a real browser by test/rsvp-decline-reason.spec.js —
+       these are the two claims about a module variable, which a browser cannot see.
+       ===================================================================== */
+    const idxNoComments = stripComments(idx);
+    /* ⛔ THE MOVE FLAG IS READ ONCE AND CLEARED IN THE SAME BREATH. Left set, every
+       later ordinary move would ask to be confirmed for a season nobody answered
+       about — the sticky-field bug this repo already shipped once as maybeNextYear.
+       ⚠ THE BROWSER SPEC CANNOT COVER THIS: the move offer folds itself away after
+       one submission, so there is no second move to drive through the page. */
+    {
+      /* ⚠ SLICED TO A REAL ANCHOR, never a character count — §7 bans fixed-length
+         extraction windows and the structure gate enforces it, which is what caught the
+         first draft of this check. The anchor is the call itself: the flag has to be
+         cleared between being read and being sent. */
+      const at = idxNoComments.indexOf('var cameFromDecline = portalMoveConfirmsSeason');
+      const callAt = at === -1 ? -1 : idxNoComments.indexOf("callPortalFn('portalChangeAddress'", at);
+      const between = (at === -1 || callAt === -1) ? '' : idxNoComments.slice(at, callAt);
+      check('S327', 'the decline-move flag is spent the moment it is read',
+        at !== -1 && callAt !== -1 && /portalMoveConfirmsSeason = false/.test(between),
+        'cleared after the call, a failed send leaves it set and the NEXT ordinary move ' +
+        'asks to be confirmed for a season nobody answered about');
+    }
+    /* ⛔ AND THE PICKER IS ONE BLOCK, MOVED — never a second copy. Two blocks means two
+       sets of buttons and eventually two different lists of reasons, and the list is a
+       FOLDER NAME in three files already. */
+    check('S327', 'there is exactly one reason picker in the page',
+      (idxNoComments.match(/id="portalRsvpReason"/g) || []).length === 1 &&
+      (idxNoComments.match(/id="portalRsvpReasonBtns"/g) || []).length === 1,
+      'a second copy is a second list of folder names waiting to disagree');
+    /* ⚠ AND IT IS RE-MOUNTED AFTER THE PANELS ARE SWITCHED, not before: the host is
+       chosen by which panel is VISIBLE, so running it first reads the old tab and
+       leaves the picker on the one the customer is not looking at. */
+    {
+      const fnAt2 = idxNoComments.indexOf('function activatePortalTab(');
+      const body = fnAt2 === -1 ? '' : idxNoComments.slice(fnAt2, idxNoComments.indexOf('\n}', fnAt2));
+      check('S327', 'the picker is re-mounted after the tab is switched, not before',
+        /renderPortalRsvpReason\(\)/.test(body) &&
+        body.indexOf('renderPortalRsvpReason()') > body.indexOf("panel.style.display = name === tabName"),
+        'mounted first it reads the OLD tab and stays where the customer is not looking');
+    }
+  }
 }
