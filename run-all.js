@@ -44710,6 +44710,38 @@ suite('265. Measure Roof - the captured picture is clean, and can be marked up')
     /ctx\.clearRect\(0, 0, canvas\.width, canvas\.height\);/.test(paint),
     'drawing over the last version leaves the old lines under the new picture');
 
+  /* ⭐ THE SQUASHED HOUSE (2026-09-11). Owner: "his house is completely squashed
+     because you couldnt see it on my screan." Jeffrey Marz's photograph was
+     saved 893x36 — a house at nearly 25:1 — because the screenshot is cropped to
+     the pane and the pane was scrolled almost off the bottom of the window.
+
+     ⚠ THE OLD GUARD ASKED THE ELEMENT, NOT THE WINDOW. `rect.height > 20` is the
+     LAYOUT height, full at any scroll position, so it never fired; the collapse
+     happened afterwards in `ch`, clamped to `vh - cy`. These run the real
+     function against real rectangles rather than reading the source, because the
+     bug was never in whether a guard existed — it was in which number it read. */
+  const paneClipped = real('rmPaneClipped', { window: { innerWidth: 1000, innerHeight: 800 } });
+  check('S265', 'a pane fully on screen is not clipped',
+    paneClipped({ left: 100, top: 100, right: 900, bottom: 700, width: 800, height: 600 }) === false,
+    'if a pane in plain view counts as clipped, every capture falls back and the dots are never on the picture');
+  check('S265', 'a pane scrolled nearly off the bottom IS clipped',
+    paneClipped({ left: 100, top: 764, right: 900, bottom: 1364, width: 800, height: 600 }) === true,
+    'this is Jeffrey Marz exactly: 600px of pane, 36px of it on the glass, saved as the photograph');
+  check('S265', 'a pane scrolled off the top is clipped too',
+    paneClipped({ left: 100, top: -560, right: 900, bottom: 40, width: 800, height: 600 }) === true,
+    'off the top reads the wrong band of the frame rather than a short one — same bad picture, harder to spot');
+  check('S265', 'a pane flush to the edge is NOT clipped by a sub-pixel',
+    paneClipped({ left: 0, top: 0, right: 1000, bottom: 800, width: 1000.4, height: 800.3 }) === false,
+    'without slack, sub-pixel layout sends every full-screen capture to the fallback');
+  const grab = extractFn(admin, 'rmGrabPane') || '';
+  check('S265', 'the capture scrolls a clipped pane into view before measuring again',
+    /rmPaneClipped\(rect\)/.test(grab) && /scrollIntoView/.test(grab) &&
+    /rect = el\.getBoundingClientRect\(\);/.test(grab),
+    'measuring once means a pane that could have been shown whole is photographed as a sliver anyway');
+  check('S265', 'and a pane that still will not fit falls back instead of saving a sliver',
+    /&& !rmPaneClipped\(rect\)\)\{/.test(grab),
+    'the fallback fetches a correctly proportioned photograph; a 25:1 house on a record is for ever');
+
   const lineWire = (admin.split("getElementById('rmCropLines').addEventListener")[1] || '').slice(0, 800);
   check('S265', 'the toggle is really wired and redraws',
     !!lineWire && /rmCrop\.lines = this\.checked;/.test(lineWire) && /rmComposeCapture\(\);/.test(lineWire),
