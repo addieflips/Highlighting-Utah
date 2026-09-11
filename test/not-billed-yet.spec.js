@@ -40,7 +40,7 @@
  */
 
 const { test, expect } = require('@playwright/test');
-const { installFirebaseStub } = require('./firebase-stub');
+const { installFirebaseStub, tapRsvpConfirm } = require('./firebase-stub');
 const { CUSTOMERS, INVOICES } = require('./fixtures');
 
 const BLOCKED = /Failed to load resource|net::ERR_|ERR_TUNNEL|ERR_CONNECTION/;
@@ -88,6 +88,8 @@ async function openViaRsvpApprove(page, overrides) {
   page.on('pageerror', e => thrown.push('pageerror: ' + e));
   page.on('console', m => { if (m.type() === 'error' && !BLOCKED.test(m.text())) thrown.push('console: ' + m.text()); });
   await page.goto(`/index.html#/payment?token=${CUST.token}&rsvp=yes`);
+  /* ⭐ An RSVP link no longer answers on open — one tap confirms it. */
+  await tapRsvpConfirm(page, `/index.html#/payment?token=${CUST.token}&rsvp=yes`);
   stub.thrown = thrown;
   return stub;
 }

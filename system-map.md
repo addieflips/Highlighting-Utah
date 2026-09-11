@@ -3695,6 +3695,217 @@ because the folder earning its keep within two days is the argument for it.
   so `isOutForSeason` drops them. **The rows are the only record that they answered at
   all**, which is the whole reason this folder exists.
 
+#### The seven "lost" RSVPs were not lost (2026-09-11, [[RS-58]])
+
+Addie, checking three of the members the Errors folder had reported: *"It looks like those
+ones went through and are confirmed."*
+
+⭐ **She is right, and the row was stating the opposite as fact.** `portalRsvp` writes the
+answer to `jobAddresses` as its **first** action, and only then does the slow work — reading
+the bill for a yes, walking the upcoming routes for a no. Both of those carry their own
+try/catch and cannot throw. So an `internal` or a `deadline-exceeded` arriving in the browser
+means **the response went missing, not the write.**
+
+⛔ **It cost something in both directions.** The customer was apologised to and told to ring
+us about an answer we already had. And the Member Errors row said *"did NOT save … we still
+do not have it"* — which sends the office to chase, and possibly overwrite, a good record.
+
+⭐ **So the call is retried**, up to three times on a 25-second timeout. That is safe because
+`portalRsvp` is idempotent, and that was checked branch by branch rather than assumed:
+
+- the updates are the same values written twice;
+- `seasonYesUpdates` computes `wasOut` from the record **as it now is**, so `cameBackThisSeasonAt`
+  and `needsDayAssignedAt` are not re-stamped on the second pass;
+- `rejoinNeedsBuildServer` reads the already-updated status, so the Rejoined After Recycling
+  note cannot be raised twice;
+- `clawBackReferralServer` is guarded on the **transition**, so a referral cannot be taken
+  back twice;
+- `removeCustomerFromUpcomingRoutes` filters, so running it again removes nothing.
+
+⚠ **Scoped to `portalRsvp` and nothing else.** `portalSave` can add a $30 colour-change fee,
+and blanket-retrying `callPortalFn` is how somebody gets charged twice. Do not widen it.
+
+⚠ **The short timeout is the point.** The default is 70 seconds, so one bad attempt spent the
+customer's whole patience and left no room to try again. Three attempts now fit inside the
+time one used to take.
+
+⚠ **A stale link is still refused on the first try.** `not-found` is the one failure we *can*
+be certain about, and retrying it only makes the customer wait three times as long for the
+same sentence.
+
+⚠ **And when all three fail we still do not know it was lost.** Both the customer and the
+Inbox row now say the reply may already be saved. The old wording is **kept** for the cases it
+is still true of — a refused write, a stale link, anything that failed before the write —
+because a real loss reading as a maybe is how an answer nobody has is never chased. The caller
+says which it is.
+
+⭐ **And the route sweep stopped reading the whole season.** `removeCustomerFromUpcomingRoutes`
+read **every** `scheduledRoutes` document ever written and threw most of them away on the next
+line. It now asks for `date >= today`. That runs inside `portalRsvp` after the answer is written
+but before the reply reaches the customer, so its cost is time they spend looking at "One
+moment…" — and when it overran, they were told their answer had failed.
+
+#### And the cold-start theory was wrong — measured, 2026-09-11
+
+The line that stood here said the cause was probably cold starts: `functions/index.js` is a
+329KB module with no `minInstances`, so a burst of RSVP opens right after a send would be a
+burst of cold starts. **That was a hypothesis and it is now refuted.** Measured by timing the
+require on a clean install, three runs:
+
+| | |
+|---|---|
+| `firebase-functions/v2/https` | ~190 ms |
+| `firebase-admin` | ~1 ms |
+| **our own `functions/index.js`** | **~55 ms** |
+| **total module load** | **~250 ms** |
+
+A quarter of a second. Add container start and a cold `portalRsvp` is a second or two, not
+seventy. ⚠ **So do not spend money on `minInstances` for this** — it would buy nothing here, and
+that was the obvious next move.
+
+⭐ **What the evidence actually supports.** For a **yes**, `portalRsvp` does exactly three small
+Firestore operations: find the token, write the answer, read one invoice. Every `await` after the
+write is inside its own try/catch — `clawBackReferralServer`, `removeCustomerFromUpcomingRoutes`
+and `arrearsForCustomer` are each wrapped whole, and the rejoin note is wrapped at its call
+site — so the function **cannot throw after the answer is recorded.** Addie confirmed the answers
+were on the records. Put together: the server did its work and returned; the reply did not reach
+the browser.
+
+That is a **transport failure between the function and the customer's browser**, not a server
+fault — which is what the client SDK reports as `deadline-exceeded` (its own 70-second timer) or
+`internal` (a response that arrived broken or not at all). It also fits who it happened to: three
+of the seven were on phones, where a locked screen or a switched app drops a connection mid-request.
+
+⭐ **So the retry is not a workaround for an undiagnosed bug — it is the fix for this failure
+mode.** A second attempt on a fresh connection is precisely what recovers a dropped response, and
+because the call is idempotent the re-send confirms the answer that was already saved.
+
+⚠ **The logs would still confirm it** and are worth a look if it recurs — invocations completing
+in about a second with no errors logged is the signature of exactly this. But nothing is waiting
+on them any more, and no code change is pending behind them.
+
+⚠ **AND THE ORDER IS NOW HELD BY A CHECK**, because it is the whole reason a lost reply is
+harmless. `run-all.js` keeps a census of every `await` that runs after the answer-write: a new one
+fails the build until somebody has decided whether it may take the customer's confirmation down
+with it, each named helper must still carry its own try/catch, and the write must still come
+first. Same shape as build-stamp's clear census. Three sabotages red-checked; a fourth was a
+no-op and is recorded as such rather than counted.
+
+#### Opening an RSVP link is no longer answering it (2026-09-11, [[RS-57]])
+
+Addie: *"lets do a confimring step."*
+
+**What it used to do.** `handleRsvpLink` called `portalRsvp` before it drew anything, and the
+comment said why in as many words — *"the RSVP is recorded on the server FIRST, before any UI
+is shown, so a No is saved even if the customer closes the page immediately after."* That is a
+real guarantee and it was deliberate. Its cost is that **whatever FETCHED the link is what
+answered**, and plenty of things fetch a URL that are not the customer.
+
+⛔ **It had already happened.** Eric Kling (#474, a work address) had `rsvp=no` fetched at
+3:42am and `rsvp=back` at 4:07am from `X11; Linux x86_64 … Chrome/124` — a server browser, at
+an hour nobody is answering email. Dayna Giles (#340, also a work address) the same. Corporate
+mail gateways open every link in an incoming message to check it is safe, and an RSVP email
+carries all three answers.
+
+⭐ **Both attempts failed for an unrelated reason, and that is the only thing that saved
+them.** A landed `no` moves a confirmed, paying customer to Maybe Next Year, and **nothing
+anywhere records who submitted an RSVP** — so no audit could ever have said it was not him.
+⚠ **So the failures are not the safety net.** Fixing `portalRsvp` without this would turn a
+silent near-miss into a silent loss.
+
+⭐ **A scanner can open a page. It cannot tap a button.** The link now draws the answer in
+words — *"Yes — I'm in for this year"*, *"No — not this season"*, *"I'll be back next year"* —
+with one gold button under it, and nothing reaches the server until it is tapped.
+
+- ⚠ **The button names the answer, never a bare "Confirm."** They arrived by tapping a coloured
+  button in an email and may not remember which one.
+- ⚠ **One gate, both doors.** `handleRsvpLink` and `handleBackNextYear` each call
+  `rsvpAwaitConfirmTap`; a second copy is how one of the three answers quietly goes back to
+  recording on open.
+- ⚠ **It fails towards NOT recording.** With the button missing it says so and stops. Proceeding
+  would silently restore the exact behaviour this removes; a customer who cannot answer rings us,
+  which is visible. `selector-contract.test.js` keeps the ids honest.
+- ⚠ **`savePortalLogin` moved inside the tap too** — a bare open must leave no trace at all.
+- ⚠ **And the answer table lives INSIDE the function, which is not tidiness.** Written as a
+  module-level `var` beside it, it was hoisted as `undefined` and read before its own assignment
+  line had run: `navigate()` is called some 2,500 lines above and reaches `handleRsvpLink`
+  through `typeof handleRsvpLink === 'function'`, which a hoisted **function** declaration
+  satisfies while a `var` is still undefined. The throw happened before anything was drawn, so
+  the confirm row stayed hidden and no answer could be given at all — and **every source check
+  passed.** Only driving the real page found it. Same shape as the `rmSaveGrade` scope error.
+
+**What it costs, taken knowingly.** The old guarantee is gone: somebody who taps the email link
+and closes the tab before confirming is now **not** recorded. That was put to Addie before it
+was built. Do not restore the old ordering as a simplification — it is the bug.
+
+⚠ **Every RSVP spec now taps.** Eleven spec files open RSVP links; they all go through
+`tapRsvpConfirm` in `test/firebase-stub.js`, which reads the URL and no-ops on anything that is
+not an RSVP link, so it can be called after every `goto` without the caller knowing which is
+which. Eleven copies of a selector is how one of them keeps passing against a renamed button.
+
+⚠ **And two existing checks were repointed, not weakened.** One asserted `portalRsvp` was call
+`[0]` of any kind — true only because the answer used to go out during `navigate()`, before the
+page-load `publicConfig` read came back; it names the PORTAL's own calls now, which is the
+guarantee it was always about. The other looped two answers in one page and had to gain a real
+reload between them: both URLs differ only by their hash, so the second `goto` is a hashchange
+in the same document and the gate-code modal the first answer opened is still up, with its
+backdrop over the page. Nothing about that is new — it only became visible once the test had to
+click something.
+
+#### And what the second read found (2026-09-11)
+
+- ⭐ **Three of the four admin rows were one bug: a timer ticking after sign-out.**
+  `detachAllListeners` stops every snapshot listener, and the guard inside `onSnapshot`
+  forgives the permission denial that races it — but **neither of them reaches a
+  `setInterval`**. All four of admin's long-lived timers went on running after a sign-out
+  and after a token expiry alike, and each tick is a one-shot `getDoc`/`getDocs` that
+  Firestore then refuses.
+  - That is what a row reading **"Signed in as: nobody"** is. Two arrived within a minute
+    of each other — *"[HU] activity log read failed"* and *"[HU] could not read nightly
+    billing health"* — and neither names a fault in the thing it was reading.
+  - ⭐ Every timer callback now goes through **`whileSignedIn`**, which returns on its
+    first line while `HU_SIGNED_OUT` is set. ⚠ **A guard, not a `clearInterval`, and the
+    reason is `initialized`** — that flag is set once inside `initData` and never put back,
+    so signing in again without a reload does not re-run it. A cleared timer would stay
+    cleared for the rest of the session and the restart guards (`if(hcAutoTimer) return;`)
+    would hold it there. A tick that returns immediately costs nothing and starts working
+    again the moment `HU_SIGNED_OUT` goes back to false.
+  - ⚠ **It wraps the callback, never `setInterval` itself.** `connections.test.js` finds a
+    long-lived timer by the variable it is assigned to and refuses an anonymous one, so a
+    helper that took the interval over would make all four invisible to the page whose job
+    is saying what runs by itself. That suite now sweeps the guard off the same inventory,
+    so a timer added later cannot have the name without the guard.
+  - ⚠ **And the two timer sweeps now strip comments first.** The explanatory comment on
+    the new guard quotes `x = setInterval(` as the shape the sweep looks for, and the sweep
+    read its own explanation as a sixth timer called `x`. Suites 58, 274, 275 and 300 each
+    learned this from the other direction.
+- ⭐ **"1 of 258 failed" now says which one.** The row carried the mail service's reason
+  (*"The recipients address is corrupted"*) and no name, so there was no way to tell which
+  of the 258 never heard from us — and under `confirmed-only` a customer who was never
+  asked is a house no crew is sent to.
+  - ⚠ **The answer was already being collected.** All five bulk senders build
+    `failedRecipients` and hand it to `saveEmailSendFailures` ([[EM-01]]); only this report
+    never got the list. It names up to five and counts the rest — `messages` is capped at
+    5,000 characters on create, and a refused write is how this reporter goes silent.
+  - ⚠ **And it pointed at the wrong screen.** *Email Setup* is where the keys live, which is
+    right for a broken account and useless for one bad address on one record. It now points
+    at **⚠ Some emails did not go out**, the card that names them and can resend to only
+    those people.
+- ⭐ **The paid-but-not-approved note was raising itself twice.** *"could not raise the
+  paid-but-not-approved note for Suzette Robins — Document already exists:
+  …/messages/0HcE7pW1ZaAuPdaNi5iQ"*. `addDoc` mints its own random id, so that is not a
+  collision: it is the SDK retrying a write whose acknowledgement was lost — the long-poll
+  reconnection noise §7 already names — after the first attempt had landed.
+  - The throw then skipped the `arrearsPaidNoticeAt` stamp below it, so **the note existed
+    and nothing recorded that** — and the next sweep raised the whole thing again, with a
+    fresh id, for as long as the customer stayed unanswered. A duplicate note about one
+    customer on every sweep is how the row stops being read.
+  - ⚠ **The order of the two writes is unchanged and deliberate.** A raised note with no
+    stamp costs a duplicate, which is visible; a stamp with no note costs the phone call,
+    which is not. If the stamp cannot be written it goes back to retrying, exactly as
+    before. `arrears-hold.test.js` **runs** the sweep twice over a stub for this, because
+    the claim is about what a second pass does and a regex cannot see that.
+
 ### The Communication Centre — type, status, category, priority
 
 Added 2026-09-09 ([[MSG-11]]). Addie's blueprint: *"Do NOT simply create more folders.

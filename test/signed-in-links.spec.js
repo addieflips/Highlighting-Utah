@@ -18,7 +18,7 @@
  */
 
 const { test, expect } = require('@playwright/test');
-const { installFirebaseStub } = require('./firebase-stub');
+const { installFirebaseStub, tapRsvpConfirm } = require('./firebase-stub');
 const { CUSTOMERS, QUOTES } = require('./fixtures');
 
 const CUST = CUSTOMERS.standard;
@@ -47,6 +47,9 @@ async function openSignedIn(page, hash) {
     try { localStorage.setItem('huPortalToken', token); } catch (e) {}
   }, CUST.token);
   await page.goto('/index.html' + hash);
+  /* ⭐ An RSVP link no longer answers on open — one tap confirms it. No-ops on any
+     other link. See tapRsvpConfirm. */
+  await tapRsvpConfirm(page, hash);
   stub.scriptErrors = scriptErrors;
   return stub;
 }

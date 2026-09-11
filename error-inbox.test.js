@@ -617,6 +617,58 @@ console.log('--- emails that did not go out ---');
     'the whole risk is that she reads "3 failed" as something the system handled');
 }
 
+/* ⭐ AND IT NAMES THEM (2026-09-11, from the Errors folder). "Emails did not send: 1 of 258
+   failed — The recipients address is corrupted" reached the folder on 2026-09-10, and there
+   was no way to tell from the row which one of the 258 never heard from us. Under
+   confirmed-only a customer who was never asked is a customer nobody is sent to, so the one
+   that got away is the whole cost of the row. */
+{
+  const h = adminHarness();
+  h.flushAdminErrors();
+  h.setLastEmailError({ text: 'The recipients address is corrupted' });
+  h.reportEmailSendFailures(1, 257, [{ id: 'a1', name: 'Barbara Jones', email: 'barb.jones4@gmail.com' }]);
+  const msg = h.writes[0].data.message;
+  check('a send that missed one person names that person',
+    msg.indexOf('Barbara Jones') !== -1 && msg.indexOf('barb.jones4@gmail.com') !== -1,
+    'a count with no name cannot be acted on — it was 1 of 258 and nothing said which');
+  check('and it points at the card that can send to them again, not at Email Setup',
+    /Some emails did not go out/.test(msg) && /Send again to the ones it missed/.test(msg),
+    'Email Setup is where the keys live, which is the right screen for a broken account ' +
+    'and the wrong one for a bad address on a single record');
+}
+
+{
+  /* ⚠ FIVE NAMES, THEN A COUNT. firestore.rules caps a message at 5,000 characters on
+     CREATE, and a refused write is how this reporter goes silent — §5 records that failure
+     reading like an auth fault for weeks. A send that fails wholesale must not be the thing
+     that silences the folder. */
+  const h = adminHarness();
+  h.flushAdminErrors();
+  h.setLastEmailError({ text: 'Gmail stopped the send' });
+  const many = [];
+  for (let i = 0; i < 40; i++) many.push({ id: 'c' + i, name: 'Customer ' + i, email: 'c' + i + '@example.com' });
+  h.reportEmailSendFailures(40, 0, many);
+  const msg = h.writes[0].data.message;
+  check('a send that failed wholesale names a few and counts the rest',
+    msg.indexOf('Customer 4') !== -1 && msg.indexOf('Customer 39') === -1 &&
+    /…and 35 more/.test(msg),
+    'forty addresses in one row is how a message hits the 5,000-character cap and is ' +
+    'refused outright, which is worse than a short one');
+  check('and the row is comfortably inside the 5,000-character cap',
+    msg.length < 2000,
+    'a refused write is a silent reporter — found ' + msg.length + ' characters');
+}
+
+{
+  const h = adminHarness();
+  h.flushAdminErrors();
+  h.setLastEmailError({ text: 'no list was passed' });
+  h.reportEmailSendFailures(2, 3);
+  check('a sender that passes no list still reports the count and the reason',
+    h.writes.length === 1 && h.writes[0].data.message.indexOf('no list was passed') !== -1,
+    'the names are the improvement; losing the report itself would be a regression');
+}
+
 {
   const h = adminHarness();
   h.flushAdminErrors();
@@ -652,8 +704,13 @@ console.log('--- wiring ---');
      from the other direction, a check finding the code that explains it rather than the
      code that runs. The declaration ends in `){`, so a call is the only thing that ends
      in `);`. */
-  const calls = admin.split('reportEmailSendFailures(failed, sent);').length - 1;
-  check('every bulk email sender reports what failed (structural)',
+  /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. The shape gained a third argument — the list of
+     people, which every one of these five already had in hand (EM-09) and none of them was
+     passing on. The guarantee is unchanged and is now slightly stronger: a sender that
+     reports its count without saying WHO is as much of a gap as one that reports nothing,
+     because "1 of 258 failed" with no name is a customer nobody can go and find. */
+  const calls = admin.split('reportEmailSendFailures(failed, sent, failedRecipients);').length - 1;
+  check('every bulk email sender reports what failed, and who (structural)',
     calls === 5,
     'expected the four status-line senders plus the referral one; found ' + calls +
     '. A sender added later without this line fails silently exactly as they all used to');

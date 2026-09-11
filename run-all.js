@@ -3703,14 +3703,31 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
          is broken" instead of "one helper is missing". */
       removeCustomerFromUpcomingRoutes: async (id) => { sweptFromRoutes.push(id); return 0; },
       db: {
-        collection: (name) => ({
-          doc: () => ({ update: async (u) => { Object.assign(written, u); } }),
-          add: async (m) => { added.push(Object.assign({ __col: name }, m)); },
-          get: async () => ({ docs: (routes || []).map(r => ({
+        collection: (name) => {
+          /* ⚠ `.where` IS MODELLED AND REALLY FILTERS (2026-09-11). The real
+             removeCustomerFromUpcomingRoutes asks for `date >= today` rather than reading
+             every route ever written ([[RS-58]]), and a fake offering `get` alone turned
+             that into a TypeError — swallowed by that function's own try/catch, so the
+             sweep silently did nothing and three checks here went red without naming why.
+             The real function declared in fullSrc shadows the stub above it, which is what
+             makes these three checks about the SWEEP rather than about a call being made. */
+          const docsFor = (list) => ({ docs: (list || []).map(r => ({
             data: () => r,
             ref: { update: async (u) => { routeWrites.push({ id: r.id, stops: u.stops }); } }
-          })) })
-        })
+          })) });
+          return {
+            doc: () => ({ update: async (u) => { Object.assign(written, u); } }),
+            add: async (m) => { added.push(Object.assign({ __col: name }, m)); },
+            get: async () => docsFor(routes),
+            where: (field, op, value) => ({ get: async () => docsFor((routes || []).filter(r => {
+              const v = r[field];
+              if (op === '>=') return v !== undefined && v >= value;
+              if (op === '>')  return v !== undefined && v > value;
+              if (op === '==') return v === value;
+              throw new Error('this harness does not model ' + op);
+            })) })
+          };
+        }
       },
       console
     };
@@ -6084,8 +6101,14 @@ suite('11. Reliability pass');
   check('reliability', 'the automatic run waits for the customer list to load',
     /function hcCachesReady/.test(admin) && /if\(!hcCachesReady\(\)\) return;/.test(admin),
     'running against an empty cache reports a serene "everything lines up" a second after login');
+  /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. The callback is now wrapped in
+     whileSignedIn so a tick after a sign-out does not fire a read Firestore will refuse
+     — see the Errors folder's "Signed in as: nobody" rows. This matched the bare name and
+     so failed on code that is right; the guarantee it holds has not moved, and the wrapper
+     is optional in the match so neither spelling can quietly drop the other. Same
+     slow-fuse shape as S82, S129 and the folder-names suite. */
   check('reliability', 'the automatic run repeats, not just once',
-    /setInterval\(runHealthCheckAuto/.test(admin),
+    /setInterval\((?:whileSignedIn\()?runHealthCheckAuto/.test(admin),
     'a check that runs once at login misses everything that happens during the day');
   check('reliability', 'a failing background check cannot break the page',
     /function runHealthCheckAuto\(\)\{[\s\S]{0,400}try\{[\s\S]{0,300}catch/.test(admin.replace(/\r/g,'')),
@@ -7867,17 +7890,40 @@ if (!JSDOM) {
   }
   const rSrc = fnsSrc.slice(rStart, fnsSrc.indexOf('\n}', rStart) + 2);
 
+  /* ⚠ THE FAKE UNDERSTANDS `.where` NOW, AND IT REALLY FILTERS (2026-09-11). It used to
+     offer `get` alone, so when the real function started asking for `date >= today` the
+     call was a TypeError — swallowed by that function's own try/catch, which then returned
+     0 and swept nothing. Five checks went red at once and NONE of them named the cause,
+     because the symptom is a sweep that quietly does nothing. A fake that cannot express
+     the query the code makes is a fake that fails correct code.
+     ⚠ AND IT RECORDS THAT THE QUERY WAS NARROWED. With the filter modelled, the old
+     read-everything shape passes these checks too — the `continue` inside the loop drops
+     the same rows — so without `usedWhere` a revert to `.get()` is invisible. That read
+     the WHOLE season to answer a question about the days ahead, inside portalRsvp, after
+     the customer's answer is written but before the reply reaches them ([[RS-58]]). */
   function makeRouteHarness(routes) {
     const updated = [];
+    const seen = { usedWhere: false };
+    const docsFor = (list) => ({
+      docs: list.map(r => ({
+        data: () => r,
+        ref: { update: async (payload) => { updated.push({ id: r.id, payload }); r.stops = payload.stops; } }
+      }))
+    });
     const ctx = {
       db: {
         collection: () => ({
-          get: async () => ({
-            docs: routes.map(r => ({
-              data: () => r,
-              ref: { update: async (payload) => { updated.push({ id: r.id, payload }); r.stops = payload.stops; } }
-            }))
-          })
+          get: async () => docsFor(routes),
+          where: (field, op, value) => {
+            seen.usedWhere = true;
+            return { get: async () => docsFor(routes.filter(r => {
+              const v = r[field];
+              if (op === '>=') return v !== undefined && v >= value;
+              if (op === '>')  return v !== undefined && v > value;
+              if (op === '==') return v === value;
+              throw new Error('the route harness does not model ' + op + ' — teach it rather than widening the query');
+            })) };
+          }
         })
       },
       todayStrInDenver: () => '2026-11-20',
@@ -7885,7 +7931,7 @@ if (!JSDOM) {
     };
     const names = Object.keys(ctx);
     const fn = new Function(...names, rSrc + '\nreturn removeCustomerFromUpcomingRoutes;')(...names.map(n => ctx[n]));
-    return { fn, updated };
+    return { fn, updated, seen };
   }
 
   const upcomingRoute = { id: 'r-upcoming', date: '2026-11-25', stops: [{ id: 'cust-1' }, { id: 'cust-2' }] };
@@ -7894,12 +7940,92 @@ if (!JSDOM) {
 
   pendingAsync.push((async () => {
     suite('11. RSVP no / back-next-year removes the customer from upcoming routes');
+
+    /* ⭐ NOTHING AFTER THE ANSWER IS WRITTEN MAY THROW (2026-09-11, [[RS-58]]).
+       portalRsvp writes the customer's answer as its FIRST action and then does the rest.
+       So anything that throws AFTER that line rejects the callable — and the customer is
+       told their RSVP failed for an answer we already have, then filed under Member Errors
+       telling the office it was lost. That is the report Addie disproved by looking at the
+       records: "It looks like those ones went through and are confirmed."
+
+       ⚠ THIS IS A CENSUS, NOT A PATTERN MATCH, and deliberately so. It is the same shape as
+       build-stamp's clear census and queue-date's queue census: every await after the write
+       is NAMED here, and a new one fails this check until somebody has decided whether it is
+       allowed to take the customer's confirmation down with it. A regex asking "is it inside
+       a try" would pass the moment a helper is called that throws internally.
+
+       ⚠ AND EACH NAMED HELPER MUST STILL CARRY ITS OWN try/catch. Listing it here is not the
+       guarantee — the guard inside it is. Both halves are checked, because a helper that
+       loses its catch is exactly how this comes back with the list still looking right. */
+    const pStart = fnsSrc.indexOf('exports.portalRsvp = onCall(');
+    const pBody = pStart === -1 ? '' : fnsSrc.slice(pStart, fnsSrc.indexOf('\n});', pStart));
+    const writeAt = pBody.indexOf(".doc(match.id).update(updates)");
+    check('rsvp-routes', 'portalRsvp and its answer-write were both found',
+      pStart !== -1 && writeAt !== -1,
+      'the census below silently passes on nothing if either anchor moves');
+    if (pStart !== -1 && writeAt !== -1) {
+      const after = stripComments(pBody.slice(writeAt));
+      /* Every await after the write, by the name it calls. */
+      const AFTER_THE_WRITE = {
+        clawBackReferralServer:
+          'takes a referral credit back when somebody cancels — its whole body is inside a try/catch',
+        removeCustomerFromUpcomingRoutes:
+          'sweeps them off routes a crew already holds — its whole body is inside a try/catch',
+        arrearsForCustomer:
+          'reads what they owe from last season so the confirmation can stop promising an ' +
+          'install — its whole body is inside a try/catch, and it answers nought on a bad read',
+        'db.collection':
+          'the Rejoined After Recycling note — a direct Firestore call, wrapped in its own ' +
+          'try/catch at the call site rather than inside a helper'
+      };
+      const called = [];
+      const re = /await\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(/g;
+      let m;
+      while ((m = re.exec(after)) !== null) {
+        /* ⚠ THE WHOLE DOTTED NAME, not its last segment. `db.collection(...).add(...)`
+           reads as `add` if you take the tail, which hides that it is a raw Firestore call
+           — and a raw call is exactly the kind that needs looking at here. */
+        const name = m[1];
+        if (called.indexOf(name) === -1) called.push(name);
+      }
+      const unlisted = called.filter(n => !AFTER_THE_WRITE[n]);
+      check('rsvp-routes', 'every await after the answer is written is one we have decided about',
+        called.length > 0 && unlisted.length === 0,
+        ': ' + unlisted.join(', ') + ' runs after the customer\'s answer is already saved. If it ' +
+        'throws, they are told their RSVP failed for an answer we have — and the Inbox is told ' +
+        'it was lost. Guard it, then name it in AFTER_THE_WRITE.');
+      /* The list is not the guarantee; the guard inside each helper is. */
+      const unguarded = Object.keys(AFTER_THE_WRITE).filter(function (n) {
+        /* A raw Firestore call has no helper to inspect — its guard is the try/catch
+           around it in portalRsvp, which the census above is what holds. */
+        if (n.indexOf('.') !== -1) return false;
+        const at = fnsSrc.indexOf('async function ' + n + '(');
+        if (at === -1) return true;
+        const body = fnsSrc.slice(at, fnsSrc.indexOf('\n}', at));
+        return !(/\btry\s*\{/.test(body) && /\bcatch\s*\(/.test(body));
+      });
+      check('rsvp-routes', 'and each of them still carries its own try/catch',
+        unguarded.length === 0,
+        ': ' + unguarded.join(', ') + ' — naming it in the census is not the guard, the ' +
+        'try/catch is. Without it the customer loses a confirmation for an answer we saved.');
+      /* ⚠ AND THE ORDER IS THE WHOLE THING. A tidy-up that moved the write below any of
+         these would put every one of them back in front of the customer's answer. */
+      check('rsvp-routes', 'the answer is written before any of that work is done',
+        writeAt < pBody.indexOf('removeCustomerFromUpcomingRoutes(match.id)') &&
+        writeAt < pBody.indexOf('arrearsForCustomer(oldData)'),
+        'the write being FIRST is what makes a lost response harmless — reorder it and a ' +
+        'slow route sweep starts costing real answers again');
+    }
     let removedCount = null, threw = null;
     try { removedCount = await harness.fn('cust-1'); } catch (e) { threw = e; }
 
     check('rsvp-routes', 'removeCustomerFromUpcomingRoutes runs without throwing',
       threw === null,
       'it threw ' + (threw && threw.message) + ' — every caller silently fails to sweep routes');
+    check('rsvp-routes', 'it asks only for the days still to come, not the whole season',
+      harness.seen.usedWhere,
+      'reading every scheduledRoutes document ever written is time the customer spends ' +
+      'watching "One moment" — and when it overran they were told their answer had failed');
     check('rsvp-routes', 'the customer is stripped from the upcoming route\'s stops',
       !upcomingRoute.stops.some(s => s.id === 'cust-1'),
       'a customer who declined would still be a stop on a route the crew is about to run');
@@ -9764,8 +9890,15 @@ suite('17. A new customer lands on the next day in their city');
 }
 
 // ---- 18.4 How it is wired in -------------------------------------------
+  /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. The callback is now wrapped in
+   whileSignedIn so a tick after a sign-out does not fire a read Firestore will refuse
+   — see the Errors folder's "Signed in as: nobody" rows. This matched the bare name and
+   so failed on code that is right; the guarantee it holds has not moved, and the wrapper
+   is optional in the match so neither spelling can quietly drop the other. Same
+   slow-fuse shape as S82, S129 and the folder-names suite. */
 check('reconcile', 'the sweep starts itself, like the health check does',
-  /startReconcileAuto\(\);/.test(admin) && /setInterval\(runReconcileAuto, RECONCILE_INTERVAL_MS\)/.test(admin),
+  /startReconcileAuto\(\);/.test(admin) &&
+  /setInterval\((?:whileSignedIn\()?runReconcileAuto\)?, RECONCILE_INTERVAL_MS\)/.test(admin),
   'a reconciler nobody runs is a reconciler that does nothing');
 /* Read out of the FUNCTION, not out of a 600-character window after the call.
    The window version broke the moment runReconcileAuto grew a few lines, which
@@ -11599,8 +11732,14 @@ check('build', 'the flag is set inside the snapshot, so an empty result still co
     return i !== -1 && blk.indexOf('scheduledRoutesLoaded = true;') !== -1;
   })(),
   'setting it anywhere else means either never running, or running too early');
+  /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. The callback is now wrapped in
+   whileSignedIn so a tick after a sign-out does not fire a read Firestore will refuse
+   — see the Errors folder's "Signed in as: nobody" rows. This matched the bare name and
+   so failed on code that is right; the guarantee it holds has not moved, and the wrapper
+   is optional in the match so neither spelling can quietly drop the other. Same
+   slow-fuse shape as S82, S129 and the folder-names suite. */
 check('build', 'a bounded pass comes straight back rather than waiting the full interval',
-  /if\(report\.moreToDo\) setTimeout\(runReconcileAuto, \d+\);/.test(admin),
+  /if\(report\.moreToDo\) setTimeout\((?:whileSignedIn\()?runReconcileAuto\)?, \d+\);/.test(admin),
   'the first run of a season is deliberately bounded — leaving the rest for ' +
   'fifteen minutes makes a season take an hour to appear, which looks broken');
 check('build', 'the sweep actually builds the days it plans',
