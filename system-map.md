@@ -4023,7 +4023,7 @@ the only other copy is a screen on emailjs.com):
 |---|---|---|
 | `settings/emailjs` key | `templateId` | `notifyTemplateId` |
 | To Email | `{{to_email}}` | the office Gmail, **typed literally** |
-| Subject | `{{subject}}` | `{{topic}} — {{customer_name}}` |
+| Subject | `{{subject}}` | `{{topic}}` — Addie's choice, 2026-09-11: offered with `— {{customer_name}}` appended so the inbox list says who each one is about, and she asked for the topic alone. The name is still the first line of the body. |
 | Body | `Hi {{to_name}},` + `{{{message}}}` (triple — those bodies are HTML) | `Hi {{customer_name}},` + `{{message}}` (double — it carries text a customer typed) |
 | Reply To | the office address, so customer replies reach a person | `{{customer_email}}`, so hitting Reply answers the customer |
 
