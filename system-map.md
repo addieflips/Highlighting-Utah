@@ -3663,14 +3663,47 @@ that added so I can make it like this?"* **＋ New section** at the bottom of th
 builds one: a name, an icon, what belongs in it, and as many subtabs as you like — the same
 shape as Member Messages and its five.
 
-⛔ **A section is a saved filter, not a folder.** This is not the folders coming back. Nothing
-is *moved* into a section: a message shows up in every view it matches, so it can be in two
-sections at once, and **deleting a section can never lose a message**. That is why there is
-no "put this message here" anywhere in it — the whole point of [[MSG-12]] was that filing a
-message in one place is how it goes missing.
+⭐ **AND THEN SHE NAMED THE WHOLE THING** ([[MSG-17]], 2026-09-11). Addie, across five
+messages: *"on inbox we need to be able to add a folder to each section not just a new
+section"*; *"in what type does this belong to we should have a spot for nothing so we can just
+move emails into it for my completed folder"*; *"I also don't like the filters you set for me
+we can just put everything in inbox and we can choose what section they go in from there. Then
+put them in completed afterward. In other words I can choose what all sections are called and
+all folders are called"*; *"And I need to be able to put emails in the folders as well like
+drag and drop."*
 
-**What a filter is made of:** message type, category, status, priority, and optionally words
-that must appear. Nothing ticked in a row means *any*; ticks in different rows must **all**
+⛔ **This paragraph used to read "a section is a saved filter, not a folder — nothing is moved
+into a section",** and that was [[MSG-15]], which was also hers. She reversed it, so the newer
+answer is the one the app follows (R-024) and the old row is marked Superseded rather than
+deleted. **What it was protecting is still protected**, and this is the part to keep: a view
+she fills by hand asks the MESSAGE which folder it is in — the same `folder` / `filedByHand`
+pair the drag, the right-click and Move to… have always written — so no section holds a list
+of its own, two views can never disagree about one message, and deleting one strands nothing.
+
+**Every view now answers one question first: what goes in here?** Either *Nothing — I move
+messages in myself*, which makes it a folder, or *anything matching the ticks below*, which is
+the filter as it was. **A new section and a new folder both start on the hand-filled answer.**
+
+**The Inbox is the pile nobody has filed yet.** Move something and it leaves — otherwise the
+Inbox never shrinks and the filing buys nothing. ⚠ **Hand filing only**: a cancellation
+request files itself into Cancellations off its topic with nobody having touched it, and those
+stay in the Inbox, because they are unfiled work that happens to have a home.
+
+⚠ **Nothing can become unreachable.** Any folder holding filed mail that no section points at —
+including everything filed before any of this existed — is listed under **Your folders** at the
+bottom of the sidebar, and can be opened and dropped into. **Deleting a hand-filled section
+puts its messages back in the Inbox first**, and says how many.
+
+**Every section is editable, the four built-ins included** — rename it, change its icon, add as
+many folders as you like. ⛔ **But not redefined**: what lands in one of the four to begin with
+is code and every dashboard tile counts it, so the editor says so rather than offering a
+control that would break those tiles. They can still be hidden, never deleted.
+
+**The folder she names IS the message folder** — a real `messageFolders` document is created
+with it, so Move to…, the right-click menu and a drag all know the same names.
+
+**What a by-rule filter is made of:** message type, category, status, priority, and optionally
+words that must appear. Nothing ticked in a row means *any*; ticks in different rows must **all**
 match. A subtab **narrows** its section and can never reach outside it, so a Payments subtab
 under a Member section shows member payment questions, never system payment notices.
 
@@ -3679,7 +3712,9 @@ before saving. Nothing is written until **Save** — Cancel leaves everything as
 
 **The four built-in sections can be hidden, not deleted.** They are the spine the dashboard
 tiles are built on, so deleting one would leave those tiles pointing at nothing. Hidden ones
-are listed at the bottom of the sidebar with a one-click way back.
+are listed at the bottom of the sidebar with a one-click way back. ⚠ Since [[MSG-17]] they
+also carry the pencil, for renaming and for adding folders — hiding is what "deleting" means
+for a list she did not make.
 
 ⚠ Sections live in `settings/commSections`, one small document. If two people edit sections
 at the same moment, the last save wins — they change rarely enough that this is the right

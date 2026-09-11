@@ -19,6 +19,11 @@ const admin = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8');
 
 let passed = 0, failed = 0;
 const failures = [];
+/* ⚠ ANY CHECK THAT SCORES AFTER THE SUMMARY CAN NEVER FAIL THE BUILD. The delete path is
+   async — it awaits a write per message before the section is removed — so its checks are
+   pushed here and the summary waits on the list. Same rule Suite 10's `pendingAsync` follows
+   in run-all.js, and for the same reason. */
+const pendingChecks = [];
 function check(name, ok, why){
   if(ok){ passed++; console.log('  PASS  ' + name); }
   else { failed++; failures.push({name, why}); console.log('  FAIL  ' + name + (why ? '\n          ' + why : '')); }
@@ -49,16 +54,29 @@ const NAMES = ['MSG_TYPE_MEMBER','SYSTEM_NOTICE_TOPICS','MSG_CATEGORIES','MSG_TO
    commSectionByKey would decide for itself which sections exist, which is exactly the thing
    under test; and the suite dies with a bare ReferenceError rather than skipping, which is
    the extraction-list trap CLAUDE.md describes working as intended. */
+/* ⚠ AND THREE MORE ARRIVED WITH [[MSG-17]] — lifted, never stubbed, for the same reason.
+   `commBuiltInExtras` decides which folders she has added to a built-in section,
+   `messageFolderOf` decides where a message actually IS (it reads filedByHand before the
+   topic table, which is the whole distinction between filing and an automatic home folder),
+   and `msgIsFiledAway` is what empties a filed row out of the Inbox. A stub for any of the
+   three would answer the question under test. The suite died with a bare
+   `commBuiltInExtras is not defined` the moment commRowMatches started asking it, which is
+   the extraction-list trap CLAUDE.md describes working exactly as intended. */
 const SRC = NAMES.map(liftConst).join('') +
+  /* ⚠ AND MESSAGE_HOME_FOLDER'S OWN TWO CONSTANTS, or the table dies on a bare
+     ReferenceError while it is being built — the same trap one level down. */
+  liftConst('ERROR_FOLDER_MEMBER') + liftConst('ERROR_FOLDER_ADMIN') +
+  liftConst('MESSAGE_HOME_FOLDER') +
   liftFn('msgTypeOf') + liftFn('msgCategories') + liftFn('msgStatusOf') +
   liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
+  liftFn('messageFolderOf') + liftFn('msgIsFiledAway') + liftFn('commBuiltInExtras') +
   liftFn('commFilterMatches') + liftFn('commSectionByKey') + liftFn('commRowMatches');
 const sb = {};
 new Function('MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'commSections',
   'let __cs = commSections;' + SRC.replace(/\bcommSections\b(?!\s*[,)])/g, '__cs') +
   'this.facets = msgFacets; this.matches = commRowMatches; this.filter = commFilterMatches;' +
   'this.setSections = function(v){ __cs = v; };')
-  .call(sb, 'Member Error', 'Admin Error', {custom: [], hidden: []});
+  .call(sb, 'Member Error', 'Admin Error', {custom: [], hidden: [], builtIn: {}});
 
 console.log('');
 console.log('--- what kind of thing is this ---');
@@ -597,6 +615,103 @@ check('the built-in sections still work with custom ones present',
   sb.matches(aNotice, 'system', 'all') === true &&
   sb.matches(aMemberUnread, 'member', 'questions') === true);
 
+/* =============================================================================
+ * ⭐ THE NAV IS HERS — NAMED SECTIONS AND FOLDERS SHE FILLS ([[MSG-17]], 2026-09-11)
+ *
+ * Addie, in five messages: "on inbox we need to be able to add a folder to each section not
+ * just a new section"; "in what type does this belong to we should have a spot for nothing so
+ * we can just move emails into it for my completed folder"; "I also don't like the filters you
+ * set for me we can just put everything in inbox and we can choose what section they go in from
+ * there. Then put them in completed afterward. In other words I can choose what all sections are
+ * called and all folders are called"; "And I need to be able to put emails in the folders as
+ * well like drag and drop."
+ *
+ * ⛔ THIS REVERSES [[MSG-15]], WHICH WAS ALSO HERS. R-024 — the later answer is the one to
+ * trust — and these checks are the "say so when you apply it" half. The three checks above that
+ * asserted the old design are repointed rather than deleted, each saying what it now claims.
+ * ============================================================================= */
+console.log('');
+console.log('--- her own sections and folders ---');
+{
+  const filed   = {topic:'General Question', read:true, message:'x', folder:'Completed', filedByHand:true};
+  const unfiled = {topic:'General Question', read:true, message:'x'};
+  /* ⚠ A MESSAGE THE TOPIC TABLE FILES BY ITSELF, which is NOT somebody having filed it —
+     `messageFolderOf` answers "Cancellations" for this with nobody having touched it. */
+  const auto    = {topic:'Cancellation Request', read:false, message:'x'};
+
+  check('a view she fills by hand holds what she moved into it',
+    sb.filter(filed, {fill:'hand', folder:'Completed'}) === true);
+  check('and holds nothing else',
+    sb.filter(unfiled, {fill:'hand', folder:'Completed'}) === false &&
+    sb.filter(filed,   {fill:'hand', folder:'Somewhere else'}) === false,
+    'that is the whole of "a spot for nothing so we can just move emails into it"');
+  /* ⛔ THE SAFE DIRECTION, and the other reading is the expensive one: "no folder set, so
+     match everything" would empty the entire Inbox into a half-built section the moment she
+     opened the editor and before she had typed a name. */
+  check('a hand-filled view with no folder name holds nothing at all',
+    sb.filter(filed, {fill:'hand', folder:''}) === false &&
+    sb.filter(filed, {fill:'hand'}) === false,
+    'matching everything while half-built is how a section reads as having eaten the Inbox');
+  /* ⚠ AND IT IS STILL A FILTER: nothing is stored against the view, so the same message
+     answers the same way for every view that asks, and deleting one strands nothing. */
+  check('two views can point at one folder and both hold it',
+    sb.filter(filed, {fill:'hand', folder:'Completed'}) === true &&
+    sb.filter(filed, {fill:'hand', folder:'Completed'}) === true);
+
+  /* ---- the Inbox is the pile nobody has filed yet ---- */
+  check('a message she has filed leaves the Inbox',
+    sb.matches(unfiled, 'inbox', 'all') === true &&
+    sb.matches(filed,   'inbox', 'all') === false,
+    'her words: "put everything in inbox and we can choose what section they go in from ' +
+    'there. Then put them in completed afterward" — moving it has to MOVE it');
+  /* ⛔ THE ONE THAT WOULD HIDE REAL WORK. messageFolderOf also answers off the TOPIC, for
+     messages nobody has touched — a cancellation request files itself into Cancellations.
+     Dropping those out of the Inbox would take a cancellation off the one list the office
+     reads every morning, which is far worse than the untidiness this fixes. */
+  check('but one the app filed by topic does not',
+    sb.matches(auto, 'inbox', 'all') === true,
+    'nobody moved it — it is unfiled work that happens to have a home folder');
+  check('and moving something back to the Inbox returns it',
+    sb.matches({topic:'General Question', read:true, message:'x',
+                folder:'Inbox', filedByHand:true}, 'inbox', 'all') === true,
+    'moving it back is how a mistake is undone, so Inbox itself cannot count as filed away');
+  /* ⚠ AND IT IS STILL FINDABLE. A filed message is not deleted and not hidden everywhere —
+     it is in its own folder view, which is what stops the Inbox rule losing anything. */
+  check('a filed message is still in its folder',
+    sb.matches(filed, 'folder:Completed', 'all') === true,
+    'the "Your folders" line opens exactly this view, so nothing can become unreachable');
+  check('and a folder view holds only that folder',
+    sb.matches(unfiled, 'folder:Completed', 'all') === false);
+
+  /* ---- folders she added to a BUILT-IN section ---- */
+  sb.setSections({custom: [], hidden: [], builtIn: {member: {label: 'Members', tabs: [
+    {key:'t-done', label:'Completed', filter:{fill:'hand', folder:'Completed'}}
+  ]}}});
+  /* ⚠ BOTH DIRECTIONS, AND THE SECOND IS THE ONE THAT BITES. With only the first, deleting
+     the whole branch PASSES — an unknown tab on a built-in falls through to `return true`,
+     so a member message matches either way and the check proves nothing about the folder.
+     The red-check reported this sabotage as MISSED, which is what it is for. */
+  check('a folder she added to a built-in section holds what she moved in',
+    sb.matches(filed, 'member', 't-done') === true,
+    'her first message: "add a folder to each section not just a new section"');
+  check('and holds nothing she has not moved in',
+    sb.matches(unfiled, 'member', 't-done') === false,
+    'without this the check above passes with the whole branch deleted, because an ' +
+    'unrecognised tab on a built-in section falls through to showing everything');
+  /* ⛔ AND IT CAN NEVER REACH OUTSIDE ITS SECTION. A folder under Member Messages showing a
+     system notice is the folder-shaped confusion all of this replaced — both filters pass,
+     or neither counts. */
+  check('and can never reach outside the section it is under',
+    sb.matches({topic:'Routes Kept Up To Date', folder:'Completed', filedByHand:true,
+                read:true, message:'x'}, 'member', 't-done') === false,
+    'a system notice is not a member message however it was filed');
+  check('and the built-in section itself still works untouched',
+    sb.matches(unfiled, 'member', 'all') === true &&
+    sb.matches({topic:'Routes Kept Up To Date', folder:'System', read:true, message:'x'},
+               'member', 'all') === false,
+    'she can rename it and add folders to it; what belongs in it is still code');
+  sb.setSections({custom: [], hidden: [], builtIn: {}});
+}
 /* ⭐ AND THE LINE THAT MUST NOT BE CROSSED, asserted as code rather than left as a note:
    a section is a filter, so nothing about it can WRITE to a message. If a future change
    gives sections a membership list, this is what should go red. */
@@ -609,13 +724,30 @@ const sectionCode = (liftFn('commEditSection') + liftFn('saveCommSections') +
                      liftFn('commFilterMatches') + liftFn('commSectionByKey') +
                      liftFn('commAllSections'))
   .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
+/* ⚠ NARROWED FOR [[MSG-17]], AND THE NARROWING IS THE WHOLE RULING — say so, per R-024.
+   Addie reversed the filter-only design herself: "we can just put everything in inbox and we
+   can choose what section they go in from there. Then put them in completed afterward." So a
+   view she fills by hand is now a real thing, and the old blanket ban would forbid it.
+   ⭐ WHAT SURVIVES UNCHANGED IS THE PART THAT WAS EVER LOAD-BEARING: a section still stores
+   NO list of messages. A hand-filled view asks the MESSAGE which folder it is in — the same
+   `folder`/`filedByHand` pair the drag, the right-click and Move to… have always written —
+   so two views cannot disagree about one message and deleting a view strands nothing.
+   `messageIds` is still what must never appear. */
 check('a section stores a filter, never a list of messages',
-  !/messageIds|filedByHand/.test(sectionCode),
-  'that would be folders again ([[MSG-12]]) — a message would then live in exactly one ' +
-  'place and deleting a section could lose it');
-check('and nothing in the section machinery writes to a message',
-  !/doc\(db,\s*'messages'/.test(sectionCode) && !/msgBulkApply/.test(sectionCode),
-  'a saved filter that edited rows would be filing wearing a different name');
+  !/messageIds/.test(sectionCode),
+  'a section holding its own list of ids is folders again ([[MSG-12]]) — a message would ' +
+  'live in exactly one place and deleting a section could lose it. Asking the message ' +
+  'which folder it is in is not that, and is what [[MSG-17]] is built on');
+/* ⚠ AND THE ONE WRITE IT IS NOW ALLOWED IS THE OPPOSITE OF FILING. Deleting a hand-filled
+   section puts its messages BACK in the Inbox — which is the concrete answer to the worry
+   the old blanket ban existed for, now that the Inbox shows the unfiled pile and a message
+   left behind would be reachable only by search. */
+check('the only message the section machinery writes is one going back to the Inbox',
+  !/msgBulkApply/.test(sectionCode) &&
+  /folder: 'Inbox', filedByHand: false/.test(sectionCode) &&
+  (sectionCode.match(/doc\(db,\s*'messages'/g) || []).length === 1,
+  'a section that could file a message INTO itself would be filing wearing a different ' +
+  'name; putting one back is the undo that stops a delete stranding anything');
 check('deleting a section only ever rewrites the settings document',
   /saveCommSections/.test(liftFn('commEditSection')) &&
   /setDoc\(doc\(db, 'settings', 'commSections'\)/.test(liftFn('saveCommSections')),
@@ -645,18 +777,28 @@ if(!JSDOM){
     liftConst('SYSTEM_NOTICE_TOPICS') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
     liftFn('esc') + liftFn('msgTypeOf') + liftFn('msgCategories') + liftFn('msgStatusOf') +
     liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
+    liftConst('ERROR_FOLDER_MEMBER') + liftConst('ERROR_FOLDER_ADMIN') +
+    liftConst('MESSAGE_HOME_FOLDER') + liftConst('COMM_SECTIONS') +
+    /* ⚠ [[MSG-17]]'s four, lifted not stubbed — the editor opens for a BUILT-IN now, so it
+       asks which folders she has already added to one and what that section holds. */
+    liftFn('messageFolderOf') + liftFn('msgIsFiledAway') + liftFn('commBuiltInExtras') +
+    liftFn('commSectionByKey') + liftFn('commRowMatches') +
     liftFn('commFilterMatches') + liftFn('commEditSection');
   const ed = {};
   new Function('document', 'allMessages', 'commSections', 'saveCommSections', 'toast',
-    'confirm', 'alert', 'MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC',
+    'confirm', 'alert', 'MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'messageFolders',
+    'addDoc', 'collection', 'db', 'serverTimestamp', 'updateDoc', 'doc',
     ED + 'this.open = commEditSection;')
     .call(ed, docu,
       [{id: 'm1', data: {topic: 'General Question', read: false, message: 'gate code?'}},
        {id: 'm2', data: {topic: 'Routes Kept Up To Date', folder: 'System', read: true, message: 'x'}}],
-      {custom: [], hidden: []},
+      {custom: [], hidden: [], builtIn: {}},
       async function(){ /* the write is not what is under test */ },
       function(){ /* toast */ }, function(){ return true; }, function(){ /* alert */ },
-      'Member Error', 'Admin Error');
+      'Member Error', 'Admin Error', [],
+      async function(){ /* the folder document is not what is under test */ },
+      function(){ return {}; }, {}, function(){ return null; },
+      async function(){ /* putting messages back is checked separately */ }, function(){ return {}; });
 
   ed.open(null);
   const card = docu.querySelector('.comm-editor');
@@ -664,6 +806,32 @@ if(!JSDOM){
     'a popup that produces no markup is the failure four other checks in this repo exist for');
   check('it offers a name and an icon',
     !!docu.getElementById('commEdLabel') && !!docu.getElementById('commEdIcon'));
+  /* ⭐ REPOINTED FOR [[MSG-17]], NOT WEAKENED. A new section now starts as a FOLDER she
+     fills herself — Addie: "I also don't like the filters you set for me we can just put
+     everything in inbox and we can choose what section they go in from there" — so the
+     facet rows are behind the other radio rather than on screen first. The claim that
+     matters is unchanged and is checked below: every facet is still offered. */
+  const fillBoxes = docu.querySelectorAll('[data-f="fill"]');
+  check('a new section asks what goes in it, and offers "nothing" as an answer',
+    fillBoxes.length === 2 &&
+    Array.prototype.some.call(fillBoxes, function(b){ return b.value === 'hand' && b.checked; }),
+    'her words: "we should have a spot for nothing so we can just move emails into it"');
+  check('and a hand-filled section asks for the folder name, not for filters',
+    !!docu.querySelector('[data-f="folder"]') && !docu.querySelector('[data-f="categories"]'),
+    'a form showing both answers at once is the most confusing screen available');
+  /* ⚠ A HAND-FILLED SECTION STARTS EMPTY, and that is the point rather than a bug: nothing
+     lands in it by itself. The old default matched Member Messages, and the reason it was
+     not an EMPTY filter is kept in the code — an empty filter matches the route sweeps too. */
+  const sectionTab0 = docu.querySelector('[data-edtab="section"]');
+  check('and it holds nothing until she moves something in',
+    !!sectionTab0 && !/\b[12]\b/.test(sectionTab0.textContent),
+    'got "' + (sectionTab0 ? sectionTab0.textContent.trim() : 'no tab') + '"');
+
+  /* ---- and the by-rule half is still all there, one click away ---- */
+  const byRule = Array.prototype.find.call(docu.querySelectorAll('[data-f="fill"]'),
+    function(b){ return b.value === 'rule'; });
+  byRule.checked = true;
+  byRule.dispatchEvent(new win.Event('change', {bubbles: true}));
   check('it offers every facet as a row of choices',
     docu.querySelectorAll('[data-f="types"]').length > 0 &&
     docu.querySelectorAll('[data-f="categories"]').length === (new Function(liftConst('MSG_CATEGORIES') + 'return MSG_CATEGORIES.length;')()) &&
@@ -672,16 +840,20 @@ if(!JSDOM){
     !!docu.querySelector('[data-f="search"]'),
     'found ' + docu.querySelectorAll('[data-f="categories"]').length + ' category boxes');
   /* ⚠ THE LIVE COUNT IS THE HALF THAT MAKES IT USABLE, so it is checked as a number on
-     screen rather than as a call in the source. A new section starts on Member Messages,
-     and the fixture holds exactly one member message and one system notice. */
+     screen rather than as a call in the source. Switched to by-rule with nothing ticked it
+     shows everything the fixture holds — two — which is what "nothing ticked means any"
+     says on the note underneath. */
   const sectionTab = docu.querySelector('[data-edtab="section"]');
   check('and a live count of what the section would hold',
-    !!sectionTab && /\b1\b/.test(sectionTab.textContent),
+    !!sectionTab && /\b2\b/.test(sectionTab.textContent),
     'got "' + (sectionTab ? sectionTab.textContent.trim() : 'no tab') + '" — the fixture has ' +
-    'one member message and one system notice, and a new section starts on Member Messages');
-  check('a new section does not start matching everything',
-    !!sectionTab && !/\b2\b/.test(sectionTab.textContent),
-    'an empty filter would show the route sweeps too, which reads as broken rather than as unnarrowed');
+    'one member message and one system notice');
+  /* ⚠ AND THE RADIO REALLY MOVED THE MODE, rather than merely redrawing: without readAll()
+     reading it back before the redraw, the click would be lost and this would still be the
+     folder form. That is the same "typing survives a redraw" failure one control along. */
+  check('switching to by-rule sticks',
+    !docu.querySelector('[data-f="folder"]'),
+    'the popup redraws on every change; a mode not read back first is silently lost');
 
   /* ⭐ AND THE SUBTAB BUTTON IS PRESSED, because "add a whole new section with subtabs" is
      the request and a button that renders but does nothing is the exact bug the recycle
@@ -691,8 +863,12 @@ if(!JSDOM){
   const after = docu.querySelectorAll('[data-edtab]').length;
   check('pressing ＋ Subtab really adds one',
     after === before + 1, 'went from ' + before + ' to ' + after);
-  check('and the new subtab can be named and filtered',
-    !!docu.getElementById('commEdTabName') && !!docu.querySelector('.comm-filter [data-f="categories"]'));
+  /* ⚠ REPOINTED FOR [[MSG-17]]: a new subtab is a FOLDER now, so what it offers is a name
+     and a folder rather than a name and a category list. Both modes are still reachable. */
+  check('and the new folder can be named, and is one she fills herself',
+    !!docu.getElementById('commEdTabName') &&
+    !!docu.querySelector('.comm-filter [data-f="folder"]'),
+    'a subtab that starts as a filter is a folder-shaped thing that is not a folder');
   check('and deleted again',
     !!docu.getElementById('commEdDelTab'));
   docu.getElementById('commEdDelTab').dispatchEvent(new win.MouseEvent('click', {bubbles: true}));
@@ -723,20 +899,37 @@ if(JSDOM){
     liftConst('COMM_SECTIONS') +
     liftFn('esc') + liftFn('msgTypeOf') + liftFn('msgCategories') + liftFn('msgStatusOf') +
     liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
+    liftConst('ERROR_FOLDER_MEMBER') + liftConst('ERROR_FOLDER_ADMIN') +
+    liftConst('MESSAGE_HOME_FOLDER') +
+    /* ⚠ [[MSG-17]]'s five, lifted not stubbed. renderCommNav now asks which folders exist
+       (commHandFolders), where a message actually is (messageFolderOf), whether a person put
+       it there (msgIsFiledAway) and what she has added to a built-in (commBuiltInExtras) —
+       and it died with a bare `commBuiltInExtras is not defined` the moment it did. */
+    liftFn('messageFolderOf') + liftFn('msgIsFiledAway') + liftFn('commBuiltInExtras') +
     liftFn('commFilterMatches') + liftFn('commSectionByKey') + liftFn('commAllSections') +
+    liftFn('commHandFolders') +
     liftFn('commRowMatches') + liftFn('commRows') + liftFn('commCount') + liftFn('renderCommNav');
   const nav = {};
   new Function('document', 'allMessages', 'commSections', 'commView', 'renderCommDash',
     'renderMessagesList', 'commEditSection', 'saveCommSections', 'confirm', 'toast',
-    'MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC',
+    'MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'folderUnread', 'msgBulkApply',
     NAV + 'this.draw = renderCommNav;')
     .call(nav, d2, [{id: 'm1', data: {topic: 'General Question', read: false, message: 'x'}}],
+      /* ⚠ ONE OF EACH KIND, deliberately: a section that fills by rule with a by-rule
+         subtab, and a folder she fills herself. A fixture with only one kind passes
+         whether the two are told apart or not. */
       {custom: [{key: 'c-9', icon: '\u{1F4CC}', label: 'Gate codes',
                  filter: {types: ['member']}, tabs: [{key: 't-1', label: 'Unread',
-                 filter: {statuses: ['unread']}}]}], hidden: ['system']},
+                 filter: {statuses: ['unread']}},
+                {key: 't-2', label: 'Completed', filter: {fill: 'hand', folder: 'Completed'}}]}],
+       hidden: ['system'], builtIn: {}},
       {section: 'inbox', tab: 'all'},
       function(){}, function(){}, function(){}, async function(){},
-      function(){ return true; }, function(){}, 'Member Error', 'Admin Error');
+      function(){ return true; }, function(){}, 'Member Error', 'Admin Error',
+      /* The unread count beside a stray folder, and the write a drop makes — both stubbed,
+         because neither is what this block is about. What IS under test is that the folder
+         appears at all and that it accepts a drop. */
+      function(){ return 0; }, async function(){});
   nav.draw();
   const host = d2.getElementById('commCentreNav');
   check('the sidebar offers a way to add a section',
@@ -747,26 +940,141 @@ if(JSDOM){
   check('and its All tab is added rather than stored',
     host.querySelectorAll('[data-commsec="c-9"][data-commtab="all"]').length === 1,
     'a section with one subtab must still have an All that agrees with it');
-  check('her section carries an edit control and a built-in does not',
-    !!host.querySelector('[data-commedit="c-9"]') && !host.querySelector('[data-commedit="inbox"]'),
-    'Delete on a built-in would break the dashboard tiles pointing at it');
-  check('a built-in carries a hide control instead',
-    !!host.querySelector('[data-commhide="inbox"]'));
+  /* ⭐ REVERSED BY [[MSG-17]], AND SAID OUT LOUD PER R-024. Addie: "on inbox we need to be
+     able to add a folder to each section not just a new section." So EVERY section carries
+     the pencil now, hers and the built-ins alike.
+     ⚠ WHAT THE OLD CHECK WAS REALLY PROTECTING IS STILL PROTECTED, and it is the line below:
+     a built-in can be renamed and given folders, and it can be hidden, but it can never be
+     DELETED — every dashboard tile is written in terms of its key. */
+  check('every section carries an edit control, hers and the built-ins alike',
+    !!host.querySelector('[data-commedit="c-9"]') && !!host.querySelector('[data-commedit="inbox"]'),
+    'she asked to add a folder to each section, not only to ones she made');
+  check('a built-in also carries a hide control, and only a built-in',
+    !!host.querySelector('[data-commhide="inbox"]') && !host.querySelector('[data-commhide="c-9"]'),
+    'hiding is what "deleting" means for a list she did not make; deleting one outright ' +
+    'would break the dashboard tiles pointing at it');
   /* ⚠ A HIDDEN SECTION IS NAMED, NOT FORGOTTEN. "Where did System Messages go" is a
      question the screen should answer itself. */
+  /* ---- [[MSG-17]]: her folders are on screen, and they take a drop ---- */
+  /* ⚠ DRIVEN, NOT MATCHED. Every claim here is about a ROW THAT EXISTS and an attribute a
+     browser acts on — the exact shape this repo has been caught by four times, where the
+     message was in the source and never on the screen. */
+  check('a folder she made is a drop target',
+    !!host.querySelector('[data-commdrop="Completed"]'),
+    'her words: "I need to be able to put emails in the folders as well like drag and drop"');
+  /* ⛔ AND A TAB THAT FILLS ITSELF BY RULE IS NOT ONE. Dropping a message on "Unread" could
+     only lie about it or do nothing — it is a question about the message, not a place. */
+  check('but a by-rule tab is not',
+    !host.querySelector('[data-commsec="c-9"][data-commtab="t-1"][data-commdrop]'),
+    'offering to file something into "Unread" is a control that can only mislead');
+  check('and neither is a built-in section head',
+    !host.querySelector('.comm-sec-head[data-commsec="inbox"][data-commdrop]'),
+    'System Messages is a rule, not a shelf');
+
+  /* ⭐ NOTHING SHE HAS FILED CAN BECOME UNREACHABLE. With the Inbox now showing the UNFILED
+     pile, a folder no section points at — including everything filed before any of this
+     existed — would be findable only by search. It is listed, and it is a drop target. */
+  /* ⚠ ITS OWN DOCUMENT. Rendering into the shared host would overwrite what the checks
+     above and below read back off it — which is exactly what happened on the first pass,
+     and it failed the hidden-section check on code that was fine. */
+  const dom3 = new JSDOM('<!doctype html><body><div id="commCentreNav"></div></body>');
+  const d3 = dom3.window.document;
+  const stray = {};
+  new Function('document', 'allMessages', 'commSections', 'commView', 'renderCommDash',
+    'renderMessagesList', 'commEditSection', 'saveCommSections', 'confirm', 'toast',
+    'MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'folderUnread', 'msgBulkApply',
+    NAV + 'this.draw = renderCommNav;')
+    .call(stray, d3,
+      [{id: 'm9', data: {topic: 'General Question', read: false, message: 'x',
+                         folder: 'Old stuff', filedByHand: true}}],
+      {custom: [], hidden: [], builtIn: {}}, {section: 'inbox', tab: 'all'},
+      function(){}, function(){}, function(){}, async function(){},
+      function(){ return true; }, function(){}, 'Member Error', 'Admin Error',
+      function(){ return 3; }, async function(){});
+  stray.draw();
+  const strayHost = d3.getElementById('commCentreNav');
+  check('a folder no section points at is still listed',
+    /Old stuff/.test(strayHost.innerHTML) &&
+    !!strayHost.querySelector('[data-commfolder="Old stuff"]'),
+    'with the Inbox showing the unfiled pile, a message in here would otherwise be ' +
+    'reachable only by search — including everything filed before [[MSG-17]] existed');
+  check('and it can be opened, and dropped into',
+    !!strayHost.querySelector('[data-commfolder="Old stuff"][data-commdrop="Old stuff"]'),
+    'a folder that is named and cannot be opened is a worse answer than not naming it');
   check('a hidden section is still listed, with a way back',
     !!host.querySelector('[data-commshow="system"]') &&
     !host.querySelector('[data-commsec="system"]'),
     'hidden with no route back is a feature lost rather than tidied');
 }
 
-console.log('');
-console.log('=== The communication centre ===');
-console.log('');
-if(failed){
-  console.log('  ' + failed + ' failure(s):');
-  failures.forEach(f => console.log('   - ' + f.name + (f.why ? '\n     ' + f.why : '')));
-  console.log('');
+/* ⭐ AND THE PUTTING-BACK IS DRIVEN, NOT MATCHED ([[MSG-17]]). This is the tier-1 claim of
+   the whole change — deleting a folder must not strand what is in it — and the first version
+   of the check above was a regex over the source, which a red-check walked straight through
+   by wrapping the write in `if(false)`. Every word was still there; nothing ran. That is the
+   exact failure this repo records in four other places. */
+if(JSDOM){
+  const domD = new JSDOM('<!doctype html><body></body>');
+  const winD = domD.window, docD = domD.window.document;
+  const wrote = [];
+  const DEL = liftConst('MSG_TYPE_MEMBER') + liftConst('MSG_CATEGORIES') + liftConst('MSG_STATUS') +
+    liftConst('MSG_STATUS_LABEL') + liftConst('MSG_PRIORITY') + liftConst('MSG_PRIORITY_LABEL') +
+    liftConst('SYSTEM_NOTICE_TOPICS') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
+    liftConst('ERROR_FOLDER_MEMBER') + liftConst('ERROR_FOLDER_ADMIN') +
+    liftConst('MESSAGE_HOME_FOLDER') + liftConst('COMM_SECTIONS') +
+    liftFn('esc') + liftFn('msgTypeOf') + liftFn('msgCategories') + liftFn('msgStatusOf') +
+    liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
+    liftFn('messageFolderOf') + liftFn('msgIsFiledAway') + liftFn('commBuiltInExtras') +
+    liftFn('commSectionByKey') + liftFn('commRowMatches') +
+    liftFn('commFilterMatches') + liftFn('commEditSection');
+  const del = {};
+  const mine = {key: 'c-done', icon: '\u{1F4CC}', label: 'Completed',
+                filter: {fill: 'hand', folder: 'Completed'}, tabs: []};
+  new Function('document', 'allMessages', 'commSections', 'saveCommSections', 'toast',
+    'confirm', 'alert', 'MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'messageFolders',
+    'addDoc', 'collection', 'db', 'serverTimestamp', 'updateDoc', 'doc',
+    DEL + 'this.open = commEditSection;')
+    .call(del, docD,
+      [{id: 'mA', data: {topic: 'General Question', read: true, message: 'x',
+                         folder: 'Completed', filedByHand: true}},
+       {id: 'mB', data: {topic: 'General Question', read: true, message: 'y'}}],
+      {custom: [mine], hidden: [], builtIn: {}},
+      async function(){}, function(){}, function(){ return true; }, function(){},
+      'Member Error', 'Admin Error', [],
+      async function(){}, function(){ return {}; }, {}, function(){ return null; },
+      /* The write under test. Captured rather than stubbed away. */
+      async function(ref, patch){ wrote.push({ref: ref, patch: patch}); },
+      function(_db, _col, id){ return id; });
+
+  del.open(JSON.parse(JSON.stringify(mine)));
+  const delBtn = docD.getElementById('commEdDelete');
+  check('a hand-filled section can be deleted', !!delBtn);
+  if(delBtn){
+    delBtn.dispatchEvent(new winD.MouseEvent('click', {bubbles: true}));
+    /* The handler awaits; give the microtasks a turn before reading what it did. */
+    const done = new Promise(function(r){ setTimeout(r, 0); });
+    pendingChecks.push(done.then(function(){
+      check('deleting it puts the messages it held back in the Inbox',
+        wrote.length === 1 && wrote[0].ref === 'mA' &&
+        wrote[0].patch.folder === 'Inbox' && wrote[0].patch.filedByHand === false,
+        'got ' + JSON.stringify(wrote) + ' — with the Inbox showing the unfiled pile, a ' +
+        'message left in a deleted folder is reachable only by search');
+      check('and leaves messages it never held alone',
+        !wrote.some(function(w){ return w.ref === 'mB'; }),
+        'mB was never filed anywhere; touching it would be rewriting somebody else\'s row');
+    }));
+  }
 }
-console.log(passed + ' passed, ' + failed + ' failed');
-process.exit(failed ? 1 : 0);
+
+
+Promise.all(pendingChecks).then(function(){
+  console.log('');
+  console.log('=== The communication centre ===');
+  console.log('');
+  if(failed){
+    console.log('  ' + failed + ' failure(s):');
+    failures.forEach(f => console.log('   - ' + f.name + (f.why ? '\n     ' + f.why : '')));
+    console.log('');
+  }
+  console.log(passed + ' passed, ' + failed + ' failed');
+  process.exit(failed ? 1 : 0);
+});
