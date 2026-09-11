@@ -7940,6 +7940,82 @@ if (!JSDOM) {
 
   pendingAsync.push((async () => {
     suite('11. RSVP no / back-next-year removes the customer from upcoming routes');
+
+    /* ⭐ NOTHING AFTER THE ANSWER IS WRITTEN MAY THROW (2026-09-11, [[RS-58]]).
+       portalRsvp writes the customer's answer as its FIRST action and then does the rest.
+       So anything that throws AFTER that line rejects the callable — and the customer is
+       told their RSVP failed for an answer we already have, then filed under Member Errors
+       telling the office it was lost. That is the report Addie disproved by looking at the
+       records: "It looks like those ones went through and are confirmed."
+
+       ⚠ THIS IS A CENSUS, NOT A PATTERN MATCH, and deliberately so. It is the same shape as
+       build-stamp's clear census and queue-date's queue census: every await after the write
+       is NAMED here, and a new one fails this check until somebody has decided whether it is
+       allowed to take the customer's confirmation down with it. A regex asking "is it inside
+       a try" would pass the moment a helper is called that throws internally.
+
+       ⚠ AND EACH NAMED HELPER MUST STILL CARRY ITS OWN try/catch. Listing it here is not the
+       guarantee — the guard inside it is. Both halves are checked, because a helper that
+       loses its catch is exactly how this comes back with the list still looking right. */
+    const pStart = fnsSrc.indexOf('exports.portalRsvp = onCall(');
+    const pBody = pStart === -1 ? '' : fnsSrc.slice(pStart, fnsSrc.indexOf('\n});', pStart));
+    const writeAt = pBody.indexOf(".doc(match.id).update(updates)");
+    check('rsvp-routes', 'portalRsvp and its answer-write were both found',
+      pStart !== -1 && writeAt !== -1,
+      'the census below silently passes on nothing if either anchor moves');
+    if (pStart !== -1 && writeAt !== -1) {
+      const after = stripComments(pBody.slice(writeAt));
+      /* Every await after the write, by the name it calls. */
+      const AFTER_THE_WRITE = {
+        clawBackReferralServer:
+          'takes a referral credit back when somebody cancels — its whole body is inside a try/catch',
+        removeCustomerFromUpcomingRoutes:
+          'sweeps them off routes a crew already holds — its whole body is inside a try/catch',
+        arrearsForCustomer:
+          'reads what they owe from last season so the confirmation can stop promising an ' +
+          'install — its whole body is inside a try/catch, and it answers nought on a bad read',
+        'db.collection':
+          'the Rejoined After Recycling note — a direct Firestore call, wrapped in its own ' +
+          'try/catch at the call site rather than inside a helper'
+      };
+      const called = [];
+      const re = /await\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(/g;
+      let m;
+      while ((m = re.exec(after)) !== null) {
+        /* ⚠ THE WHOLE DOTTED NAME, not its last segment. `db.collection(...).add(...)`
+           reads as `add` if you take the tail, which hides that it is a raw Firestore call
+           — and a raw call is exactly the kind that needs looking at here. */
+        const name = m[1];
+        if (called.indexOf(name) === -1) called.push(name);
+      }
+      const unlisted = called.filter(n => !AFTER_THE_WRITE[n]);
+      check('rsvp-routes', 'every await after the answer is written is one we have decided about',
+        called.length > 0 && unlisted.length === 0,
+        ': ' + unlisted.join(', ') + ' runs after the customer\'s answer is already saved. If it ' +
+        'throws, they are told their RSVP failed for an answer we have — and the Inbox is told ' +
+        'it was lost. Guard it, then name it in AFTER_THE_WRITE.');
+      /* The list is not the guarantee; the guard inside each helper is. */
+      const unguarded = Object.keys(AFTER_THE_WRITE).filter(function (n) {
+        /* A raw Firestore call has no helper to inspect — its guard is the try/catch
+           around it in portalRsvp, which the census above is what holds. */
+        if (n.indexOf('.') !== -1) return false;
+        const at = fnsSrc.indexOf('async function ' + n + '(');
+        if (at === -1) return true;
+        const body = fnsSrc.slice(at, fnsSrc.indexOf('\n}', at));
+        return !(/\btry\s*\{/.test(body) && /\bcatch\s*\(/.test(body));
+      });
+      check('rsvp-routes', 'and each of them still carries its own try/catch',
+        unguarded.length === 0,
+        ': ' + unguarded.join(', ') + ' — naming it in the census is not the guard, the ' +
+        'try/catch is. Without it the customer loses a confirmation for an answer we saved.');
+      /* ⚠ AND THE ORDER IS THE WHOLE THING. A tidy-up that moved the write below any of
+         these would put every one of them back in front of the customer's answer. */
+      check('rsvp-routes', 'the answer is written before any of that work is done',
+        writeAt < pBody.indexOf('removeCustomerFromUpcomingRoutes(match.id)') &&
+        writeAt < pBody.indexOf('arrearsForCustomer(oldData)'),
+        'the write being FIRST is what makes a lost response harmless — reorder it and a ' +
+        'slow route sweep starts costing real answers again');
+    }
     let removedCount = null, threw = null;
     try { removedCount = await harness.fn('cust-1'); } catch (e) { threw = e; }
 

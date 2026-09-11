@@ -3745,11 +3745,51 @@ line. It now asks for `date >= today`. That runs inside `portalRsvp` after the a
 but before the reply reaches the customer, so its cost is time they spend looking at "One
 moment…" — and when it overran, they were told their answer had failed.
 
-⚠ **What this does NOT explain**, so nobody claims it does: *why* the function was slow or
-returned `internal` in the first place. `functions/index.js` is a 329KB module with no
-`minInstances`, so a burst of RSVP opens right after a send is a burst of cold starts — that is
-a hypothesis, not a finding, and the Cloud Functions log is what settles it. The retry makes the
-symptom survivable; it is not the diagnosis.
+#### And the cold-start theory was wrong — measured, 2026-09-11
+
+The line that stood here said the cause was probably cold starts: `functions/index.js` is a
+329KB module with no `minInstances`, so a burst of RSVP opens right after a send would be a
+burst of cold starts. **That was a hypothesis and it is now refuted.** Measured by timing the
+require on a clean install, three runs:
+
+| | |
+|---|---|
+| `firebase-functions/v2/https` | ~190 ms |
+| `firebase-admin` | ~1 ms |
+| **our own `functions/index.js`** | **~55 ms** |
+| **total module load** | **~250 ms** |
+
+A quarter of a second. Add container start and a cold `portalRsvp` is a second or two, not
+seventy. ⚠ **So do not spend money on `minInstances` for this** — it would buy nothing here, and
+that was the obvious next move.
+
+⭐ **What the evidence actually supports.** For a **yes**, `portalRsvp` does exactly three small
+Firestore operations: find the token, write the answer, read one invoice. Every `await` after the
+write is inside its own try/catch — `clawBackReferralServer`, `removeCustomerFromUpcomingRoutes`
+and `arrearsForCustomer` are each wrapped whole, and the rejoin note is wrapped at its call
+site — so the function **cannot throw after the answer is recorded.** Addie confirmed the answers
+were on the records. Put together: the server did its work and returned; the reply did not reach
+the browser.
+
+That is a **transport failure between the function and the customer's browser**, not a server
+fault — which is what the client SDK reports as `deadline-exceeded` (its own 70-second timer) or
+`internal` (a response that arrived broken or not at all). It also fits who it happened to: three
+of the seven were on phones, where a locked screen or a switched app drops a connection mid-request.
+
+⭐ **So the retry is not a workaround for an undiagnosed bug — it is the fix for this failure
+mode.** A second attempt on a fresh connection is precisely what recovers a dropped response, and
+because the call is idempotent the re-send confirms the answer that was already saved.
+
+⚠ **The logs would still confirm it** and are worth a look if it recurs — invocations completing
+in about a second with no errors logged is the signature of exactly this. But nothing is waiting
+on them any more, and no code change is pending behind them.
+
+⚠ **AND THE ORDER IS NOW HELD BY A CHECK**, because it is the whole reason a lost reply is
+harmless. `run-all.js` keeps a census of every `await` that runs after the answer-write: a new one
+fails the build until somebody has decided whether it may take the customer's confirmation down
+with it, each named helper must still carry its own try/catch, and the write must still come
+first. Same shape as build-stamp's clear census. Three sabotages red-checked; a fourth was a
+no-op and is recorded as such rather than counted.
 
 #### Opening an RSVP link is no longer answering it (2026-09-11, [[RS-57]])
 
