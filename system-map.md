@@ -3651,11 +3651,28 @@ folder files its derived residents into Inbox for the same reason. ⚠ **And `fo
 field decides which *tab* a message is on, not which folder, and a topic must never be able
 to move a notice between them.
 
-⚠ **The nav badge was counting messages its own list has never shown.**
-`renderMessagesList` has always filtered System notices *out* of the customer list
-(`folder !== 'System'`) while the badge beside it counted `allMessages` unread — System
-notices included. That is why it read 91 over a list holding a fraction of that, and why a
-real customer message arriving moved it by one and nobody could tell.
+⭐ **THE NAV BADGE USED TO COUNT MESSAGES ITS OWN LIST REFUSED TO DRAW — FIXED 2026-09-11**
+([[MSG-22]]). Addie: *"inbox it shows the number notification. But that should go away when
+we mark responded."*
+
+`renderMessagesList` dropped every `folder === 'System'` row **after** `commRows` had already
+picked the section, while the badge counted every unread non-routine message. Two bugs from
+one line: the **System Messages** section (five tabs of its own) could never show a single
+row, and the badge counted System notices she had no way to open — so the number could never
+come down however many messages she marked responded.
+
+⭐ **Mark Responded was never the problem.** It has set `read` as well as `responded` since
+2026-08-25, for exactly this reason, and still does.
+
+⛔ **The line was a survival from the folder-shaped Inbox**, where System was a folder to hide
+from "Inbox". The Communication Centre gave System its own section *and* its own type and
+nobody removed the old hide. Removing it restores one rule rather than relaxing any:
+`commRowMatches` already keeps System out of the Inbox unless you ask for **All**, which is
+Addie's own instruction quoted at that branch.
+
+⚠ **Historic, and still the reason the exclusion exists at all:** the badge once read 91 over
+a list holding a fraction of that, because it counted the routine route-sweep notice too.
+That exclusion stands — it is the only thing `noticeIsRoutine` does.
 
 ⚠ **Nothing is deleted and nothing is marked read.** These notes record days that moved
 under customers who may already have been told a date — the closing line of every digest

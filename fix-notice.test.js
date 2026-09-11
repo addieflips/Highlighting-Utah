@@ -287,13 +287,66 @@ const CUST = { name: 'Ashley Wray', phone: '8015550123', email: 'a@x.com',
 
   /* ---------- the notice is excluded from the customer list ---------- */
   {
-    /* A System notice must not appear in the main Inbox list as well — it would be
-       in two places, and the office would answer it twice. renderMessagesList's own
-       filter is what does this; asserted here because the topic is new. */
-    const listSrc = lift('renderMessagesList');
+    /* A System notice must not appear in the main Inbox list as well — it would be in two
+       places and the office would answer it twice. THAT is the rule, and it is unchanged.
+
+       ⚠ REPOINTED 2026-09-11, NOT WEAKENED ([[MSG-22]]). This used to match `!== 'System'`
+       inside renderMessagesList — that is, it was pinned to WHERE the rule happened to sit
+       rather than to what must be true. That line turned out to be a survival from the
+       folder-shaped Inbox: it ran AFTER commRows had already picked the section, so it also
+       emptied the System Messages section and left the nav badge counting rows nobody could
+       open. Removing it made this check fail on code that is right — the §7 slow fuse, and
+       the same shape as S82, S129 and the folder-names suite.
+
+       ⛔ IT RUNS THE REAL RULE NOW, which is a stronger claim than the string ever was: a
+       regex proves a line exists, this proves a System notice does not reach the Inbox. */
+    /* ⚠ THE NAME LIST IS comm-centre.test.js's, COPIED DELIBERATELY rather than trimmed to
+       what looks needed: every one of these is something commRowMatches reaches, directly or
+       through msgFacets, and guessing a shorter list is how a sandbox dies on a bare
+       ReferenceError three commits later. ⚠ MSG_TYPE_SYSTEM and MSG_TYPE_ERROR are NOT lifted
+       by name — all three share one `const` line, so lifting MSG_TYPE_MEMBER brings them, and
+       asking for the other two by name throws "cannot find const". */
+    /* ⚠ AND NOT THIS FILE'S OWN liftConst, WHICH SLICES TO THE NEXT `\n};` — on a run of
+       object literals that swallows the one after it, so MSG_CATEGORIES arrived carrying
+       MSG_TOPIC_CATEGORIES and the sandbox died on "already been declared". comm-centre's
+       regex stops at the first `;` and is the right tool; borrowed rather than changing a
+       helper the rest of this file depends on. */
+    const exactConst = function(n){
+      const m = new RegExp('const ' + n + '\\s*=\\s*[\\s\\S]*?;\\r?\\n').exec(admin);
+      if(!m) throw new Error('could not find const ' + n);
+      return m[0];
+    };
+    const sandbox = ['FIX_NOTICE_TOPIC','RSVP_NO_TOPIC','RSVP_BNY_TOPIC','MSG_TYPE_MEMBER',
+      'SYSTEM_NOTICE_TOPICS','MSG_CATEGORIES','MSG_TOPIC_CATEGORIES','MSG_TEXT_CATEGORIES',
+      'MSG_STATUS','MSG_STATUS_LABEL','MSG_PRIORITY','MSG_PRIORITY_LABEL','MSG_SEVERITY_LABEL',
+      'COMM_ACTIVITY_TOPICS'].map(exactConst).join('') +
+      exactConst('ERROR_FOLDER_MEMBER') + exactConst('ERROR_FOLDER_ADMIN') +
+      exactConst('MESSAGE_HOME_FOLDER') +
+      lift('msgTypeOf') + lift('msgCategories') + lift('msgStatusOf') +
+      lift('msgPriorityOf') + lift('msgSeverityOf') + lift('msgFacets') +
+      lift('messageFolderOf') + lift('msgIsFiledAway') + lift('commBuiltInExtras') +
+      lift('commFilterMatches') + lift('commSectionByKey') + lift('commRowMatches');
+    /* ⚠ RSVP_DECLINE_REASONS FIRST — COMM_SECTIONS builds its No RSVPs tabs from it, so
+       lifting the table alone dies on a bare ReferenceError. The extraction-list trap,
+       which has now bitten a sandbox in four separate files. */
+    const api = new Function('MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'commSections',
+      exactConst('RSVP_DECLINE_REASONS') + exactConst('COMM_SECTIONS') + sandbox +
+      /* ⚠ THE TOPIC COMES BACK OUT OF THE SANDBOX TOO. It is lifted INTO it, so it does not
+         exist in this file's scope — reading it here threw a bare ReferenceError. */
+      'return {matches: commRowMatches, topic: FIX_NOTICE_TOPIC};')('Member Error',
+      'Admin Error', {custom: [], hidden: [], builtIn: {}});
+
+    const notice = {topic: api.topic, folder: 'System', read: false,
+                    message: 'a fix was raised for 12 Elm St'};
     check('System notices stay out of the customer message list',
-      /!==\s*'System'/.test(listSrc),
-      'the notice would show in both tabs');
+      api.matches(notice, 'inbox', 'all') === false,
+      'it would be in two places and the office would answer it twice');
+    /* ⛔ AND IT REACHES ITS OWN SECTION, which is the other half and the half that was
+       broken: a rule that merely kept System out of the Inbox while no view showed it is
+       how the badge counted rows that could not be opened. */
+    check('and they do reach the System Messages section',
+      api.matches(notice, 'system', 'all') === true,
+      'excluded from the Inbox AND from its own section is a message nobody can ever read');
   }
 
   console.log('\n' + passed + ' passed, ' + failed + ' failed\n');

@@ -23185,7 +23185,24 @@ function renderMessagesList(){
   if(msgFilter === 'awaiting') filtered = filtered.filter(m => !m.data.responded);
   document.getElementById('currentFolderLabel').textContent =
     commView.section === 'folder' ? selectedFolder : commViewLabel();
-  filtered = filtered.filter(m => (m.data.folder || 'Inbox') !== 'System');
+  /* ⭐ THE BLANKET "HIDE SYSTEM" FILTER IS GONE (2026-09-11, [[MSG-22]]). Addie: "inbox it
+     shows the number notification. But that should go away when we mark responded."
+     ⛔ ONE LEFTOVER LINE, TWO BUGS, AND IT EXPLAINS BOTH HALVES OF WHAT SHE SAW. It dropped
+     every message whose folder is System AFTER `commRows` had already chosen the section —
+     so the **System Messages** section, which has five tabs of its own, could never show a
+     single row, and the nav badge went on counting unread non-routine System notices that
+     she had NO WAY TO OPEN. Mark Responded was working perfectly; the number it could not
+     clear was made of rows the list refused to draw.
+     ⚠ IT IS A SURVIVAL FROM THE FOLDER-SHAPED INBOX, where System was a folder to be hidden
+     from "Inbox". The Comm Centre gave System its own section and its own type, and nobody
+     removed the old hide — the classic shape of a guard that was right about a design that
+     has since been replaced.
+     ⛔ AND REMOVING IT RESTORES ONE RULE RATHER THAN RELAXING ANYTHING. `commRowMatches`
+     already decides this and decides it better: `system` takes only MSG_TYPE_SYSTEM,
+     `member` only member, `errors` only error, and the Inbox deliberately keeps System out
+     unless she asks for All — her own words, quoted at that branch. This line was a second
+     opinion sitting on top of it, which is the exact failure that function's own note warns
+     about ("a tab reads 5 and shows 4"). */
   /* Search across everything the card shows, so what you can read you can find:
      the name, either contact detail, the address it was matched to, and the
      message itself. Phone typed with or without punctuation both work. */
