@@ -58481,3 +58481,100 @@ suite('326. What the weather usually does, and the wall between that and a forec
     /const NORMALS_FRESH_MS = 24 \* 60 \* 60 \* 1000;/.test(admin),
     'ten years of past weather does not change between elevenses and lunch');
 }
+
+suite('327. Every screen that texts hands off to Google Voice, and none of them can send');
+{
+  /* ⚠ THIS SUITE EXISTS BECAUSE ITS ABSENCE WAS INVISIBLE. The route sheet texted
+     customers through an `sms:` link — the DEVICE's own messages app, never Google
+     Voice — and this file was green before that was fixed and green after. Five
+     screens now go through one hand-off, so it is the single thing worth grading.
+
+     ⚠ extractFn ANCHORS ON `function <name>(`, WHICH DROPS A LEADING `async`. Lifted
+     bare, handToGoogleVoice comes back as a non-async function still containing
+     `await` — a syntax error at eval time, not a failed check. Hence the 'async ' + . */
+  const LF = String.fromCharCode(10);
+  const e164 = real('gvE164');
+  const convUrl = real('gvConversationUrl', {gvE164: e164});
+
+  check('S327', 'a ten-digit number becomes a US number',
+    e164('801-555-1234') === '+18015551234',
+    'got ' + JSON.stringify(e164('801-555-1234')));
+  check('S327', 'an eleven-digit number that already leads with 1 is not given a second one',
+    e164('1 801 555 1234') === '+18015551234',
+    'got ' + JSON.stringify(e164('1 801 555 1234')) + ' — +11801... reaches nobody');
+  check('S327', 'punctuation and a leading + are stripped, not counted',
+    e164('+1 (801) 555-1234') === '+18015551234',
+    'got ' + JSON.stringify(e164('+1 (801) 555-1234')));
+  check('S327', 'a number too short to dial is refused rather than guessed at',
+    e164('555-1234') === '' && e164('') === '' && e164(null) === '',
+    'a half-number shaped into +1555... opens a thread with a stranger');
+
+  check('S327', "a good number opens that person's own thread",
+    convUrl('801-555-1234').indexOf('itemId=t.%2B18015551234') !== -1,
+    'got ' + convUrl('801-555-1234'));
+  /* ⚠ A BAD NUMBER STILL OPENS GOOGLE VOICE, deliberately. The message is on the
+     clipboard either way, so the office is one paste from sending it; a button that
+     did nothing would leave them retyping a message they can no longer see. */
+  check('S327', 'a number that cannot be shaped opens the inbox, not a broken thread',
+    convUrl('555-1234') === 'https://voice.google.com/messages' &&
+    convUrl('') === 'https://voice.google.com/messages',
+    'got ' + convUrl('555-1234'));
+
+  /* ── the two halves fail differently, and the caller is told which ── */
+  const handSrc = extractFn(admin, 'handToGoogleVoice');
+  check('S327', 'the hand-off is findable', !!handSrc && handSrc.length > 100,
+    'renamed — repoint this rather than dropping it; it is the only thing five screens go through');
+  const mkHand = function(clipOk, winOk){
+    const wrote = [];
+    const fn = new Function('navigator', 'window', 'console', 'gvConversationUrl',
+      'async ' + handSrc + LF + 'return handToGoogleVoice;')(
+      {clipboard: {writeText: function(t){
+        if(!clipOk) return Promise.reject(new Error('denied'));
+        wrote.push(t);
+        return Promise.resolve();
+      }}},
+      {open: function(){ return winOk ? {} : null; }},
+      {error: function(){}},
+      convUrl);
+    return {fn: fn, wrote: wrote};
+  };
+
+  pendingAsync.push((async () => {
+    const good = mkHand(true, true);
+    const r1 = await good.fn('801-555-1234', 'hello');
+    check('S327', 'a clean hand-off reports both halves done',
+      r1.copied === true && r1.opened === true && good.wrote[0] === 'hello',
+      'got ' + JSON.stringify(r1));
+
+    /* A blocked popup is an inconvenience: the message is on the clipboard and Google
+       Voice is one bookmark away. It must not read as a failure to copy. */
+    const blocked = mkHand(true, false);
+    const r2 = await blocked.fn('801-555-1234', 'hello');
+    check('S327', 'a blocked popup is reported without losing the message',
+      r2.copied === true && r2.opened === false && blocked.wrote[0] === 'hello',
+      'got ' + JSON.stringify(r2) + ' — window.open returns null when blocked, it does not throw, so a try/catch alone would call this a success');
+
+    /* ⛔ THE ONE THAT COSTS A REAL CUSTOMER. A copy that failed leaves whatever was on
+       the clipboard BEFORE — someone else's message, a password, a link — and the
+       office pastes that into a named customer's thread and presses send. */
+    const noClip = mkHand(false, true);
+    const r3 = await noClip.fn('801-555-1234', 'hello');
+    check('S327', 'a copy that failed never reads as a copy that worked',
+      r3.copied === false,
+      'got ' + JSON.stringify(r3) + ' — the office would paste whatever was on the clipboard before, into a real thread');
+  })());
+
+  check('S327', 'and a failed hand-off says so out loud rather than silently',
+    real('gvHandoffSay')({copied:false, opened:false}).indexOf('Could not copy') === 0,
+    'a hand-off that fails quietly is a text nobody knows did not go');
+
+  /* ── and nothing bypasses it ── */
+  check('S327', "no screen texts through the device's own messages app",
+    admin.indexOf("window.location.href = 'sms:'") === -1,
+    'an sms: link opens whatever app the DEVICE has, so the customer is texted from a ' +
+    'personal number they cannot reply to and nobody in the office can see');
+  check('S327', 'and every screen that texts goes through the one hand-off',
+    admin.split('handToGoogleVoice(').length - 1 >= 6,
+    'five call sites plus the definition — a screen that copies straight to the clipboard ' +
+    'is one that never opens Google Voice, which is exactly how they drifted apart before');
+}

@@ -11541,13 +11541,13 @@ document.getElementById('loadBulkTextListBtn')?.addEventListener('click', async 
     const msg = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, d.name || 'there'), d.phone, 0) + '\n\n\uD83C\uDF84 Update My Christmas Lights: ' + portalUrl;
     rows.push('<div class="row-item" style="padding:10px 12px;">'+
       '<div class="rmain"><h4 style="margin:0; font-size:13.5px;">'+esc(d.name||'(no name)')+'</h4><div class="rmeta">'+esc(d.phone)+'</div></div>'+
-      '<button type="button" class="btn btn-outline btn-sm bulk-text-copy" data-msg="'+esc(msg)+'">Copy Message</button>'+
+      '<button type="button" class="btn btn-outline btn-sm bulk-text-copy" data-msg="'+esc(msg)+'" data-phone="'+esc(d.phone||'')+'">Text them in Google Voice</button>'+
     '</div>');
   }
   wrap.innerHTML = rows.join('');
   wrap.querySelectorAll('.bulk-text-copy').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      navigator.clipboard.writeText(btn.dataset.msg).then(function(){ toast('Copied — paste into your texting app'); });
+    btn.addEventListener('click', async function(){
+      toast(gvHandoffSay(await handToGoogleVoice(btn.dataset.phone, btn.dataset.msg)));
     });
   });
 });
@@ -12895,6 +12895,54 @@ function quoteTextTemplateFor(d){
      insisting on the re-quote wording. */
   if(quoteTemplateNames.requoteText) return quoteTemplateNames.requoteText;
   return (d && d.existingCustomerId) ? quoteTemplateNames.requoteText : quoteTemplateNames.newQuoteText;
+}
+/* ⚠ EVERY SCREEN THAT TEXTS GOES THROUGH HERE, AND NONE OF THEM CAN SEND.
+   Google Voice has no send API, and driving a signed-in session breaks Google's own
+   Acceptable Use Policy — so the most any button in this file can do is put the
+   message on the clipboard and open the right conversation. A person presses send.
+
+   ⚠ IT IS ONE FUNCTION BECAUSE THE FIVE SCREENS THAT DO THIS HAD DRIFTED APART.
+   The quote text opened Google Voice; the RSVP text, the bulk text and the photo
+   copy said "paste into your texting app" and left the office to find the right
+   thread; and the route sheet used an `sms:` link, which does not reach Google Voice
+   at all — it opens whatever messages app the DEVICE has, so a crew member tapping a
+   customer's name texted them from a personal number. */
+function gvE164(raw){
+  const digits = String(raw || '').replace(/\D/g, '');
+  if(digits.length === 10) return '+1' + digits;
+  if(digits.length === 11 && digits.charAt(0) === '1') return '+' + digits;
+  return '';
+}
+function gvConversationUrl(phone){
+  const e164 = gvE164(phone);
+  /* A number we cannot shape still opens Google Voice, on the inbox rather than a
+     thread. The message is copied either way, so the office is one paste from
+     sending it — which beats a button that does nothing on a malformed number. */
+  return e164
+    ? 'https://voice.google.com/messages?itemId=t.' + encodeURIComponent(e164)
+    : 'https://voice.google.com/messages';
+}
+/* ⚠ THE TWO HALVES FAIL DIFFERENTLY AND THE CALLER NEEDS TO KNOW WHICH.
+   A blocked popup is an inconvenience — the message is on the clipboard and Google
+   Voice is one bookmark away. A copy that failed is a lost text: the office pastes
+   whatever was on the clipboard before, into a real customer's thread. So `copied`
+   is the half worth refusing on, and window.open returning null (a popup blocker,
+   which does NOT throw) is reported rather than swallowed. */
+async function handToGoogleVoice(phone, msg){
+  let copied = true;
+  try{ await navigator.clipboard.writeText(msg); }
+  catch(err){ copied = false; console.error('[HU] could not copy the message:', err); }
+  let opened = false;
+  try{ opened = !!window.open(gvConversationUrl(phone), '_blank', 'noopener'); }
+  catch(err){ console.error('[HU] could not open Google Voice:', err); }
+  return {copied: copied, opened: opened};
+}
+/* Says what happened in one line, so six call sites do not invent six wordings. */
+function gvHandoffSay(handed){
+  if(!handed.copied) return 'Could not copy it \u2014 select the message and copy it by hand.';
+  return handed.opened
+    ? 'Copied \u2014 paste it in the Google Voice tab that just opened.'
+    : 'Copied \u2014 open Google Voice and paste it (the tab was blocked).';
 }
 /* Texts are billed in 160-character blocks (153 once it spills past one), so
    the count is worth showing before anything is sent. */
@@ -16393,28 +16441,16 @@ function renderQuoteRows(filtered){
        be told it went. The quote is marked sent on that confirmation and on
        nothing else — a button that marked it sent the moment it was clicked would
        quietly advance quotes nobody ever texted. */
-    const gvDigits = (d.phone || '').replace(/\D/g, '');
-    const gvE164 = gvDigits.length === 10 ? '+1' + gvDigits
-      : (gvDigits.length === 11 && gvDigits.charAt(0) === '1') ? '+' + gvDigits : '';
     resultEl.querySelector('.quotetext-send-btn').addEventListener('click', async function(){
       const btn = this;
       const statusEl = resultEl.querySelector('.quoteemail-sendstatus');
-      let copied = true;
-      try{ await navigator.clipboard.writeText(msg); }
-      catch(err){ copied = false; console.error('Quote text copy failed:', err); }
-      /* No number we can shape into a conversation link is not a failure — the
-         message is still copied and Google Voice still opens, just on the inbox. */
-      try{
-        window.open(gvE164
-          ? 'https://voice.google.com/messages?itemId=t.' + encodeURIComponent(gvE164)
-          : 'https://voice.google.com/messages', '_blank', 'noopener');
-      } catch(err){ console.error('Could not open Google Voice:', err); }
+      const handed = await handToGoogleVoice(d.phone, msg);
       btn.textContent = 'Copy it again';
-      statusEl.style.color = 'var(--slate)';
+      statusEl.style.color = handed.copied ? 'var(--slate)' : 'var(--ember)';
       statusEl.innerHTML =
-        (copied
-          ? 'Copied. Paste it into the Google Voice conversation that just opened, then press send.'
-          : '<span style="color:var(--ember); font-weight:600;">Could not reach the clipboard — select the message above and copy it by hand.</span>')+
+        (handed.copied
+          ? esc(gvHandoffSay(handed)) + ' Then press send there.'
+          : '<span style="color:var(--ember); font-weight:600;">' + esc(gvHandoffSay(handed)) + '</span>')+
         '<div style="margin-top:8px;"><button type="button" class="btn btn-gold btn-sm quotetext-confirm-btn">I sent it — mark this quote sent</button></div>';
       statusEl.querySelector('.quotetext-confirm-btn').addEventListener('click', async function(){
         const okBtn = this;
@@ -16612,12 +16648,13 @@ function renderQuoteRows(filtered){
         .split('{{link}}').join(link)
         .replace(/\n{3,}/g, '\n\n').trim();
       if(msg.indexOf(link) === -1) msg += '\n\n' + link;
-      try{ await navigator.clipboard.writeText(msg); } catch(err){ toast('Could not copy the message.'); return; }
+      const handed = await handToGoogleVoice(d.phone, msg);
+      if(!handed.copied){ toast(gvHandoffSay(handed)); return; }
       /* The clipboard holds one thing at a time, so the photo cannot travel
          with the text - it downloads instead, and gets attached by hand. */
       const gotPhoto = await downloadQuotePhoto(id);
       toast(gotPhoto
-        ? 'Message copied and photo saved to Downloads \u2014 paste the text, then attach the photo.'
+        ? 'Copied and photo saved to Downloads \u2014 paste the text in Google Voice, then attach the photo.'
         : 'Message copied. The photo did not save \u2014 right-click it and choose Save Image.');
     });
   });
@@ -17894,7 +17931,7 @@ function rsvpTextRender(){
         '<br><span style="font-size:12.5px; color:var(--slate);">' + esc(d.phone || '') + '</span></div>' +
       (stopped
         ? '<span class="status-pill" style="background:#FDECEA; color:#B91C1C;">Do not text &mdash; they replied STOP</span>'
-        : '<button type="button" class="btn btn-outline btn-sm" data-rsvptext="' + esc(item.id) + '">Copy their text</button>') +
+        : '<button type="button" class="btn btn-outline btn-sm" data-rsvptext="' + esc(item.id) + '">Text them in Google Voice</button>') +
     '</div>';
   }).join('');
   list.querySelectorAll('[data-rsvptext]').forEach(function(btn){
@@ -17908,8 +17945,11 @@ function rsvpTextRender(){
         const token = await rsvpTextTokenFor(item);
         if(!token){ btn.textContent = 'Could not make a link'; return; }
         const msg = rsvpTextMessageFor(item.data, rsvpTextLinkFrom(token));
-        await navigator.clipboard.writeText(msg);
-        btn.textContent = '\u2713 Copied \u2014 paste it into a text';
+        const handed = await handToGoogleVoice((item.data || {}).phone, msg);
+        btn.textContent = handed.copied
+          ? '\u2713 Copied \u2014 paste it in Google Voice'
+          : 'Could not copy \u2014 try again';
+        btn.title = gvHandoffSay(handed);
         setTimeout(function(){ btn.textContent = was; btn.disabled = false; }, 4000);
       }catch(err){
         console.error('Could not copy the RSVP text:', err);
@@ -23282,6 +23322,7 @@ function showTextChaseReminder(list, season){
     '<div style="display:flex; gap:9px; margin-top:12px; flex-wrap:wrap;">'+
       '<button type="button" class="btn btn-gold" id="textChaseDone" style="flex:1 1 200px;">I have sent the texts</button>'+
       '<button type="button" class="btn btn-outline" id="textChaseCopy" style="flex:0 1 auto;">Copy the numbers</button>'+
+      '<button type="button" class="btn btn-outline" id="textChaseOpenGv" style="flex:0 1 auto;">Open Google Voice</button>'+
       '<button type="button" class="btn btn-outline" id="textChaseLater" style="flex:0 1 auto; color:var(--slate);">Later today</button>'+
     '</div>'+
     '<p style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">&ldquo;I have sent the texts&rdquo; puts this away for the whole '+
@@ -23300,6 +23341,15 @@ function showTextChaseReminder(list, season){
     }).catch(function(){
       statusEl.textContent = 'Could not copy automatically. The list is on screen above.';
     });
+  });
+  /* ⚠ THE INBOX, NOT A CONVERSATION, and that is the difference from every other
+     hand-off in this file. The copy beside it is a WORKLIST — name, phone, amount,
+     tab-separated for a spreadsheet — not a message to paste into one thread. */
+  overlay.querySelector('#textChaseOpenGv').addEventListener('click', function(){
+    let opened = false;
+    try{ opened = !!window.open('https://voice.google.com/messages', '_blank', 'noopener'); }
+    catch(e){ /* reported on the next line, same as a blocked popup */ }
+    if(!opened) statusEl.textContent = 'Could not open it \u2014 go to voice.google.com.';
   });
   overlay.querySelector('#textChaseLater').addEventListener('click', function(){
     try{ sessionStorage.setItem('hu.textChase.later', new Date().toISOString().slice(0,10)); }
@@ -58616,7 +58666,7 @@ function renderTextOutSection(ordered){
         '<button type="button" class="btn btn-gold btn-sm" id="copyNumbersBtn" style="flex-shrink:0;">Copy</button>'+
       '</div>'+
     '</div>'+
-    '<p style="font-size:12.5px; margin-bottom:10px;">Tap a name below to open a pre-filled text to that person individually (works on phones/tablets with a texting app):</p>'+
+    '<p style="font-size:12.5px; margin-bottom:10px;">Tap a name below to copy that person&rsquo;s message and open their Google Voice conversation &mdash; then press send there. It used to open the phone&rsquo;s own messages app, which texted them from whoever&rsquo;s phone it was.</p>'+
     '<div style="display:flex; gap:8px; flex-wrap:wrap;">'+
     withPhone.map(function(s){
       return '<a href="#" class="btn btn-outline btn-sm text-person-link" data-phone="'+esc(s.phone)+'">'+ (esc(s.name) || esc(s.phone)) +'</a>';
@@ -58631,10 +58681,14 @@ function renderTextOutSection(ordered){
     });
   });
   section.querySelectorAll('.text-person-link').forEach(function(link){
-    link.addEventListener('click', function(e){
+    /* ⚠ WAS AN sms: LINK, WHICH NEVER REACHED GOOGLE VOICE (2026-09-11). It handed the
+       message to whatever messages app the device had, so the customer got a text from
+       a crew member's personal number — a number they cannot reply to usefully and that
+       nobody in the office can see. */
+    link.addEventListener('click', async function(e){
       e.preventDefault();
       const msg = document.getElementById('textTemplate').value;
-      window.location.href = 'sms:' + link.dataset.phone + '?body=' + encodeURIComponent(msg);
+      toast(gvHandoffSay(await handToGoogleVoice(link.dataset.phone, msg)));
     });
   });
 }
