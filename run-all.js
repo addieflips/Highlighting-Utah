@@ -28333,6 +28333,16 @@ suite('Suite 108. The Edit Customer save, actually run');
         ';whTimerCameOff')(),
       whTimerRemovalQueue: new Function(extractFn(admin, 'whTimerCameOff') +
         ';return ' + extractFn(admin, 'whTimerRemovalQueue') + ';')(),
+      /* ⚠ AND THE TWO FEE WRITERS, LIFTED — not stubs. Joined this list 2026-09-11, in
+         the same commit that extracted them so the All Customers panel could charge the
+         same $30 ([[MON-70]]): the extraction-list trap CLAUDE.md describes, hit an
+         EIGHTH time. A stub for either would decide for itself what lands on a bill,
+         which is the whole of what these four checks measure.
+         ⚠ addLightChangeFeeToInvoice CLOSES OVER getDoc/doc/setDoc/db/serverTimestamp
+         and computeInvoiceStatus, so it is built inside the sandbox's own scope rather
+         than in a bare one — a bare lift would throw on the first fee it tried to write. */
+      lightChangeCarryoverUpdates: new Function('return ' +
+        extractFn(admin, 'lightChangeCarryoverUpdates') + ';lightChangeCarryoverUpdates')(),
       /* ⚠ THE REAL COLOUR READER, LIFTED — not a stub. Joined this list 2026-09-10, in the
          same commit that made the fee path ask it ([[WH-28]]): the extraction-list trap
          CLAUDE.md describes, hit a SIXTH time and caught a sixth time by this suite failing
@@ -28456,6 +28466,27 @@ suite('Suite 108. The Edit Customer save, actually run');
       'document',
       'return ' + extractFn(admin, 'editCustReadBuildings') + ';editCustReadBuildings'
     )({ getElementById: function(){ return null; } });
+    /* ⭐ THE REAL INVOICE FEE WRITER, LIFTED — not a stub ([[MON-70]], 2026-09-11). It
+       was inline in this handler until today; the All Customers panel now charges the
+       same $30, so it is one named function and both callers ask it. Four checks below
+       read what it wrote, so a stub would answer the question they exist to measure.
+       ⚠ BUILT WITH THIS SANDBOX'S OWN FIRESTORE STUBS, because a `new Function` body
+       sees globals and never this ctx — the same reason the pool-failure notice above
+       is built the long way round. `async` is kept by asking for it explicitly: extractFn
+       matches "function NAME(" and drops the keyword, which turns a body full of bare
+       `await` into a parse error that kills the whole suite unattributably (CLAUDE.md §5). */
+    {
+      const st = admin.indexOf('async function addLightChangeFeeToInvoice(');
+      let b = admin.indexOf('{', st), d3 = 0, e = b;
+      if (st > 0) { for (;; e++) { if (admin[e] === '{') d3++; else if (admin[e] === '}') { d3--; if (!d3) break; } } }
+      const feeSrc = st > 0 ? admin.slice(st, e + 1) : '';
+      check('S108', 'the invoice fee writer was found to run', !!feeSrc,
+        'without it the four fee checks below prove nothing about what lands on a bill');
+      ctx.addLightChangeFeeToInvoice = new Function(
+        'getDoc', 'doc', 'setDoc', 'db', 'serverTimestamp', 'computeInvoiceStatus',
+        'return ' + feeSrc + ';addLightChangeFeeToInvoice'
+      )(ctx.getDoc, ctx.doc, ctx.setDoc, ctx.db, ctx.serverTimestamp, ctx.computeInvoiceStatus);
+    }
     const names = Object.keys(ctx);
     const fn = new AsyncFn(...names, handlerSrc);
     return fn(...names.map(n => ctx[n])).then(function(){

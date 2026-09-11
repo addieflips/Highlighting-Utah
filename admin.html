@@ -7783,6 +7783,69 @@ function ledgerWaiveUpdates(inv, ledger, key){
   return { ledger: ledger, updates: updates, removed: removed };
 }
 function feeWaiveUpdates(inv, key){ return ledgerWaiveUpdates(inv, 'fee', key); }
+/* ⭐ WHERE A $30 LIGHT-CHANGE FEE IS ACTUALLY WRITTEN — ONE WRITER ([[MON-70]], 2026-09-11).
+ * Addie: "anyone that does a light change or ends up in warehouse because of a light change
+ * besides requotes and quotes will need to be charged 30 dollars unless waived", then, asked
+ * which doors she meant: "Yes either light change made in member portal or in costumer admin
+ * portal."
+ *
+ * ⛔ THE OFFICE HAD TWO DOORS AND ONLY ONE OF THEM CHARGED. Edit Customer asks and charges;
+ * the All Customers row panel has its own lights picker, queued the warehouse colour change,
+ * wrote the new colours to the record AND to the invoice — and deliberately charged nothing,
+ * with a comment saying the $30 "belongs to the Edit Customer save". That was a decision, and
+ * she has now overruled it: a colour change typed in the office is a colour change whichever
+ * box it was typed into, and the customer cannot tell which screen somebody used.
+ *
+ * ⚠ EXTRACTED RATHER THAN COPIED, and that is the point of it being a function. This is the
+ * third place that would otherwise hold the same ~25 lines of money write, and two copies of
+ * a fee write is how one screen starts charging what another does not — the exact failure
+ * `money-parity.test.js` exists for, one level up.
+ *
+ * ⚠ IT RE-READS THE INVOICE IMMEDIATELY BEFORE WRITING. The browser has no transaction —
+ * portalSave wraps its own decision in `db.runTransaction` and there is no equivalent here,
+ * and two people are in admin every day — so a stale read taken at the top of a long save
+ * must never be the basis of an addition.
+ *
+ * ⚠ AND IT REPORTS RATHER THAN THROWS. A failed fee must not undo a save that already
+ * worked: the customer record is written by the time this runs, and the office is told to add
+ * it by hand. */
+async function addLightChangeFeeToInvoice(feeKey, change){
+  if(!feeKey || !change || !(change.feeAmount > 0)) return false;
+  const fSnap = await getDoc(doc(db,'invoices', feeKey));
+  const fData = fSnap.exists() ? fSnap.data() : {};
+  const feeNotes = (Array.isArray(fData.changeFeeNotes) ? fData.changeFeeNotes : [])
+    .concat([{amount: change.feeAmount, reason: change.feeReason,
+              date: new Date().toISOString()}]);
+  const feeTotal = (Number(fData.changeFees) || 0) + change.feeAmount;
+  /* setDoc+merge rather than updateDoc: the invoice document may not exist yet, and
+     updateDoc throws on one that does not. */
+  await setDoc(doc(db,'invoices', feeKey), {
+    changeFees: feeTotal, changeFeeNotes: feeNotes,
+    lastLightChangeFeeAt: new Date(),
+    status: computeInvoiceStatus(fData.install || 0, fData.removal || 0,
+      fData.deposit || 0, fData.credits || 0, feeTotal),
+    updatedAt: serverTimestamp()
+  }, {merge:true});
+  return true;
+}
+/* ⭐ AND THE OTHER HALF: a fee that has missed this season's bill. Their invoice has already
+ * gone out, and nothing re-opens a sent one — `invoiceEmailSent` is cleared only by Start New
+ * Season — so a fee parked on the invoice would sit there and never be posted to anybody.
+ * It rides on the CUSTOMER instead, which Start New Season does not wipe, and the nightly run
+ * collects it next season.
+ * ⚠ PURE, AND IT RETURNS FIELDS RATHER THAN WRITING THEM, so the caller can put them in the
+ * SAME write as the rest of the customer record — a separate write can half-succeed, and the
+ * half that survives would be a colour change nobody was charged for. */
+function lightChangeCarryoverUpdates(prev, change){
+  const p = prev || {};
+  return {
+    carryoverCharge: (Number(p.carryoverCharge) || 0) + change.feeAmount,
+    carryoverChargeNotes:
+      (Array.isArray(p.carryoverChargeNotes) ? p.carryoverChargeNotes : [])
+        .concat([{amount: change.feeAmount, reason: change.feeReason,
+                  date: new Date().toISOString()}])
+  };
+}
 /* One row per line, with a × on the ones that may go. Shared by the Invoices panel
    and both boxes in Edit Customer so no two screens can describe one bill
    differently. */
@@ -44113,21 +44176,91 @@ function attachAddressRowHandlers(container){
            their own colours in for the first time — which is how twelve ordinary new
            customers reached the Color Changes sheet once already.
 
-           ⚠ AND NO FEE IS WRITTEN HERE, deliberately. This panel has never charged for a
-           colour change and this is not the change that starts it: the $30 belongs to the
-           Edit Customer save, which asks the office first. Only `isChange` is read off the
-           result — feeAmount, the 48-hour lock and feeDestination are all ignored. */
+           ⭐ AND IT CHARGES THE $30 NOW ([[MON-70]], 2026-09-11). Addie: "anyone that does a
+           light change or ends up in warehouse because of a light change besides requotes
+           and quotes will need to be charged 30 dollars unless waived", then "Yes either
+           light change made in member portal or in costumer admin portal."
+
+           ⛔ THIS PARAGRAPH USED TO SAY THE OPPOSITE — "no fee is written here, deliberately
+           ... the $30 belongs to the Edit Customer save" — and that was a real decision,
+           kept here because it is what she overruled. The office had two doors onto the same
+           change and only one of them charged, so what a customer paid depended on which box
+           somebody happened to type into. They cannot tell the difference and neither can
+           their bill.
+
+           ⚠ THE THREE HARD-CODED ARGUMENTS WERE A BUG WAITING FOR THIS. `lockedUntil: 0,
+           invoiceSent: false` were safe only while the answer was thrown away: with the fee
+           live they would charge somebody inside their own free 48-hour window and post the
+           charge to a bill that has already gone out. They read the record now, exactly as
+           the Edit Customer save does.
+
+           ⚠ AND IT ASKS BEFORE IT WRITES ANYTHING, so Cancel still means nothing is saved —
+           the same order and the same three answers as Edit Customer, through the same
+           `askLightChangeFee`. A fee nobody can refuse at the point of saving is one the
+           office finds out about afterwards, and nobody goes back to undo one. */
         const hdChange = applyLightChange({
-          oldLights: existingCust.lightsDescription || '',
+          /* ⚠ BOTH FIELDS, via houseLightsText ([[WH-28]]). Reading `lightsDescription`
+             alone made every ordinary house — colours in `lightColors`, description empty —
+             look as though it had none, and a first-time colour is not a change and is not
+             charged. That is the fault that let the whole imported book re-colour for free,
+             and this caller had the same hole. */
+          oldLights: houseLightsText(existingCust),
           newLights: newLights,
-          lockedUntil: 0, invoiceSent: false, scheduled: false, nowMs: Date.now()
+          lockedUntil: lightsLockMillis(existingCust),
+          invoiceSent: !!existingCust.invoiceEmailSent,
+          scheduled: !!existingCust.scheduled, nowMs: Date.now()
         });
+        let hdWaived = false;
+        if(hdChange.feeAmount > 0){
+          const answer = await askLightChangeFee(existingCust.name || 'This customer',
+            houseLightsText(existingCust), newLights, hdChange.feeDestination);
+          if(answer === 'cancel'){ toast('Nothing was saved — the light change was cancelled.'); return; }
+          hdWaived = (answer === 'waive');
+        }
+        /* ⚠ STAMPED HERE TOO, and it was missing entirely. `lightsChangedAt` is what the
+           $30 path, the workbook's Color Changes tab and the warehouse badge all read, so a
+           change made through this panel was invisible to every one of them. 'office' is the
+           same source the Edit Customer save stamps — somebody in admin typed it.
+           ⚠ ABOVE the queue fields, matching the Edit Customer save's own order: the
+           colour-change census reads the code AFTER each stamp looking for the queue beside
+           it, and a door that stamps in one order and queues in the other reads to that
+           sweep as a door that never queues at all. */
+        if(hdChange.setLightsChangedAt){
+          updates.lightsChangedAt = serverTimestamp();
+          updates.lightsChangedVia = 'office';
+        }
+        /* ⚠ ON `isChange`, WHICH IS NARROWER THAN THE STAMP ABOVE, and deliberately so: that
+           rule already refuses a FIRST-TIME colour and a cleared one, and getting it wrong
+           queues a colour change for somebody filling their own colours in — which swept
+           twelve ordinary new customers onto the Color Changes sheet once already. */
         if(hdChange.isChange){
           updates.needsColorChange = true;
           updates.colorChangeColors = newLights;
           updates.colorChangeRequestedAt = serverTimestamp();
         }
+        /* ⚠ THE LOCK IS SET EVEN WHEN THE FEE IS WAIVED. It is about the crew, not the
+           money — their pattern may still move, so they must not be routed either way. */
+        if(hdChange.lightsLockedUntil){
+          updates.lightsLockedUntil = new Date(hdChange.lightsLockedUntil);
+        }
+        if(hdChange.feeAmount > 0 && !hdWaived && hdChange.feeDestination === 'nextSeason'){
+          const hdCarried = lightChangeCarryoverUpdates(existingCust, hdChange);
+          /* By name, for the tracer — see the same assignment in the Edit Customer save. */
+          updates.carryoverCharge = hdCarried.carryoverCharge;
+          updates.carryoverChargeNotes = hdCarried.carryoverChargeNotes;
+        }
         await updateDoc(doc(db,'jobAddresses',id), updates);
+        /* ⚠ AFTER the customer write, and guarded on its own: a failed fee must not undo a
+           save that already worked. The office is told to add it by hand rather than the
+           save reporting success about something that did not happen. */
+        if(hdChange.feeAmount > 0 && !hdWaived && hdChange.feeDestination === 'invoice'){
+          try{
+            await addLightChangeFeeToInvoice(custInvoiceKey(Object.assign({}, existingCust, updates)), hdChange);
+          }catch(e){
+            console.error('Light-change fee could not be added to the invoice', e);
+            toast('Saved — but the $30 light-change fee could not be added to their invoice. Add it by hand.');
+          }
+        }
         if(currentPhotoUrl){
         }
         // Sync these fields to the matching invoice record (invoice doc ID =
@@ -52893,11 +53026,16 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        collected by the nightly run next season. Written here with the rest of the
        customer record rather than as a separate write, so it cannot half-happen. */
     if(lightChange.feeAmount > 0 && !lightFeeWaived && lightChange.feeDestination === 'nextSeason'){
-      addrUpdates.carryoverCharge = (Number(item.data.carryoverCharge) || 0) + lightChange.feeAmount;
-      addrUpdates.carryoverChargeNotes =
-        (Array.isArray(item.data.carryoverChargeNotes) ? item.data.carryoverChargeNotes : [])
-          .concat([{amount: lightChange.feeAmount, reason: lightChange.feeReason,
-                    date: new Date().toISOString()}]);
+      /* ⭐ ONE WRITER, shared with the All Customers panel ([[MON-70]]). It returns the two
+         fields rather than writing them, so they ride in the same write as the rest of the
+         customer record — see lightChangeCarryoverUpdates. */
+      /* ⚠ ASSIGNED BY NAME, never Object.assign'd in. This file's own ledger helpers carry
+         the reason a few thousand lines up: "a computed key is invisible to everything that
+         traces who writes `carryoverCharge`" — and connections/manifest.js is exactly such a
+         tracer. It went red on the first version of this extraction, correctly. */
+      const carried = lightChangeCarryoverUpdates(item.data, lightChange);
+      addrUpdates.carryoverCharge = carried.carryoverCharge;
+      addrUpdates.carryoverChargeNotes = carried.carryoverChargeNotes;
     }
     /* ⭐ A BUILD THAT IS OWED IS NOT CANCELLED BY THE COLOURS BEING BLANK. Owner,
        2026-08-21, having converted Ashley Wray: "big problem, she went to the recycle
@@ -53932,24 +54070,10 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        a failed fee is reported and nothing else is lost. */
     if(lightChange.feeAmount > 0 && !lightFeeWaived && lightChange.feeDestination === 'invoice'){
       try{
-        const feeKey = custInvoiceKey(Object.assign({}, item.data, addrUpdates));
-        if(feeKey){
-          const fSnap = await getDoc(doc(db,'invoices', feeKey));
-          const fData = fSnap.exists() ? fSnap.data() : {};
-          const feeNotes = (Array.isArray(fData.changeFeeNotes) ? fData.changeFeeNotes : [])
-            .concat([{amount: lightChange.feeAmount, reason: lightChange.feeReason,
-                      date: new Date().toISOString()}]);
-          const feeTotal = (Number(fData.changeFees) || 0) + lightChange.feeAmount;
-          /* setDoc+merge for the same reason the fee migration above uses it: the
-             invoice document may not exist yet, and updateDoc would throw. */
-          await setDoc(doc(db,'invoices', feeKey), {
-            changeFees: feeTotal, changeFeeNotes: feeNotes,
-            lastLightChangeFeeAt: new Date(),
-            status: computeInvoiceStatus(fData.install || 0, fData.removal || 0,
-              fData.deposit || 0, fData.credits || 0, feeTotal),
-            updatedAt: serverTimestamp()
-          }, {merge:true});
-        }
+        /* ⭐ ONE WRITER, shared with the All Customers panel ([[MON-70]]). It re-reads the
+           invoice itself, for the no-transaction reason spelled out above. */
+        await addLightChangeFeeToInvoice(
+          custInvoiceKey(Object.assign({}, item.data, addrUpdates)), lightChange);
       }catch(e){
         console.error('Light-change fee could not be added to the invoice', e);
         toast('Saved — but the $30 light-change fee could not be added to their invoice. Add it by hand.');

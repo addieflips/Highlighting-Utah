@@ -3720,6 +3720,29 @@ for a list she did not make.
 at the same moment, the last save wins — they change rarely enough that this is the right
 trade, and it is the same one the scheduling settings already make.
 
+**Every light change is charged $30, whichever screen it was typed into** ([[MON-70]],
+2026-09-11). Addie: *"anyone that does a light change or ends up in warehouse because of a
+light change besides requotes and quotes will need to be charged 30 dollars unless waived"*,
+then *"Yes either light change made in member portal or in costumer admin portal."*
+
+⛔ **The office had two doors onto one change and only one of them charged.** Edit Customer
+asks and charges; the **All Customers row panel**, which has its own lights picker, queued the
+warehouse colour change and wrote the new colours to the record and to the invoice — and
+charged nothing. So what a customer paid depended on which box somebody happened to type into,
+and neither they nor their bill can tell the difference. It also never stamped
+`lightsChangedAt` or `lightsChangedVia`, so a change made there was invisible to the fee path,
+to the workbook's Color Changes tab and to the warehouse's build badge as well.
+
+It now asks first — **charge, waive, or cancel the whole save** — reads the free window and
+the sent bill off the record rather than assuming neither, and asks `houseLightsText` what
+they had (both colour fields, per [[WH-28]] below). ⚠ **The 48-hour free window is untouched**:
+a change inside it is still free. ⚠ **Re-quotes and new quotes are still exempt** — that is her
+*"besides requotes and quotes"*, and a first-time colour was never a change anyway.
+
+⚠ **One fee writer, not a third copy.** `addLightChangeFeeToInvoice` and
+`lightChangeCarryoverUpdates` are shared by both doors: two copies of a money write is how one
+screen starts charging what another does not.
+
 **Why some light changes never showed a $30 fee** ([[WH-28]], 2026-09-10). Addie: *"there are
 member that did light changes but are not showing 30 dollar fee on there account."*
 

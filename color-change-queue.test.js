@@ -35,6 +35,10 @@ const admin = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8');
 const funcs = fs.readFileSync(path.join(ROOT, 'functions', 'index.js'), 'utf8');
 
 let pass = 0, fail = 0;
+/* ⚠ ANY CHECK THAT SCORES AFTER THE SUMMARY CAN NEVER FAIL THE BUILD — the invoice fee
+   writer is async, so its checks are parked here and the summary waits on them. Same rule
+   Suite 10's `pendingAsync` follows in run-all.js. */
+const pendingChecks = [];
 const failures = [];
 function check(label, ok, detail) {
   if (ok) { pass++; } else { fail++; failures.push(label + (detail ? ' — ' + detail : '')); }
@@ -74,10 +78,16 @@ function flagNear(src, at) {
 const officeSites = stampSites(admin, 'office');
 const portalSites = stampSites(funcs, 'portal');
 
-check('the office colour-change stamp was found in admin.html',
-  officeSites.length === 1,
-  'found ' + officeSites.length + '. A matcher that has stopped matching reports no ' +
-  'violations at all, which is the worst kind of green.');
+/* ⚠ TWO OFFICE DOORS SINCE [[MON-70]] (2026-09-11), not one. Addie: "either light change
+   made in member portal or in costumer admin portal" — the All Customers row panel now
+   stamps the source and charges the $30 exactly as the Edit Customer save does, so it has
+   a `lightsChangedVia = 'office'` of its own. The census is what made that visible; the
+   number moving is the point of it. */
+check('both office colour-change stamps were found in admin.html',
+  officeSites.length === 2,
+  'found ' + officeSites.length + ' — the Edit Customer save and the All Customers row ' +
+  'panel each have one. A matcher that has stopped matching reports no violations at ' +
+  'all, which is the worst kind of green.');
 check('both portal colour-change stamps were found in functions/index.js',
   portalSites.length === 2,
   'found ' + portalSites.length + ' — portalSave and the fee transaction each have one');
@@ -177,9 +187,10 @@ if (btn) {
 });
 
 /* ── 1b. The fourth door: the All Customers row panel ────────────────────────
-   ⚠ NOT COUNTED BY THE STAMP SWEEP ABOVE, because this writer has never set
-   lightsChangedVia — it does not charge, does not lock, and is not part of the
-   fee path. So it is named here explicitly, and that is the point: questions map
+   ⚠ IT IS COUNTED BY THE STAMP SWEEP ABOVE SINCE [[MON-70]] (2026-09-11) — it stamps
+   lightsChangedVia, charges and locks exactly as the Edit Customer save does. This
+   paragraph used to say the opposite, and it is kept because the reason for a separate
+   gate is unchanged: questions map
    WH-22 records this exact panel being left behind when the build-flag rule was
    fixed in the Edit Customer save five days earlier. One rule, two writers, one
    repaired. It happened again with this rule, which is why it gets its own gate
@@ -213,12 +224,72 @@ if (panel) {
     'a hand-rolled string comparison here would queue a colour change for somebody ' +
     'filling their colours in for the FIRST time — which swept twelve ordinary new ' +
     'customers onto the Color Changes sheet once already');
-  check('and it does not charge anybody',
-    !/LIGHT_CHANGE_FEE|askLightChangeFee/.test(panel) &&
-    !/changeFees\s*[:=][^=]/.test(panel),
-    'this panel has never charged for a colour change and this is not the change ' +
-    'that starts it — only isChange is read off the result. (Reading changeFees to ' +
-    'show an invoice status is fine and it does; WRITING one is what is banned.)');
+  /* ⛔ REVERSED BY [[MON-70]] (2026-09-11), and said out loud per R-024. This check used to
+     assert the OPPOSITE — "and it does not charge anybody" — which was a real decision and
+     is why the reversal is recorded rather than quietly applied. Addie: "anyone that does a
+     light change or ends up in warehouse because of a light change besides requotes and
+     quotes will need to be charged 30 dollars unless waived", then "Yes either light change
+     made in member portal or in costumer admin portal."
+     ⚠ THE OFFICE HAD TWO DOORS ONTO ONE CHANGE AND ONLY ONE CHARGED, so what a customer
+     paid depended on which box somebody typed into. They cannot tell the difference and
+     neither can their bill. */
+  check('and it charges the $30, having asked first',
+    /askLightChangeFee\(/.test(panel) && /addLightChangeFeeToInvoice\(/.test(panel),
+    'the same three answers as Edit Customer — charge, waive, cancel — through the same ' +
+    'asker, because a fee nobody can refuse at the point of saving is one the office ' +
+    'finds out about afterwards, and nobody goes back to undo one');
+  /* ⛔ AND CANCEL MEANS NOTHING IS SAVED. The ask sits before the customer write, so the
+     office can still stop the whole thing — asking after the record has been written would
+     leave the lights changed and the fee refused. */
+  /* ⚠ SCOPED TO THE HOUSE-DETAILS SAVE, not to the whole of attachAddressRowHandlers.
+     That function holds several handlers and several jobAddresses writes, so a file-wide
+     indexOf finds one belonging to a different button and the check fails on correct
+     code — which is exactly what it did on the first pass. */
+  const hd = panel.slice(panel.indexOf('const hdChange = applyLightChange('));
+  check('and it asks before anything is written',
+    hd.indexOf('askLightChangeFee(') !== -1 &&
+    hd.indexOf('askLightChangeFee(') < hd.indexOf("updateDoc(doc(db,'jobAddresses',id)"),
+    'asking afterwards leaves the colours changed and the fee refused');
+  check('and a cancel saves nothing at all',
+    /answer === 'cancel'\)\{[^}]*return;/.test(hd),
+    'the office must be able to stop the whole save, not just the fee');
+  /* ⚠ AND IT READS THE RECORD RATHER THAN HARD-CODING THE TWO ARGUMENTS THAT DECIDE WHERE
+     THE MONEY GOES. `lockedUntil: 0, invoiceSent: false` were harmless while the answer was
+     thrown away; with the fee live they charge somebody inside their own free window and
+     post the charge to a bill that has already gone out. */
+  check('and it reads the free window and the sent bill off the record',
+    /lockedUntil:\s*lightsLockMillis\(/.test(panel) &&
+    /invoiceSent:\s*!!\w+\.invoiceEmailSent/.test(panel),
+    'hard-coded, it would charge inside the 48-hour window and post to a sent invoice');
+  /* ⚠ AND BOTH COLOUR FIELDS ([[WH-28]]). Reading `lightsDescription` alone makes every
+     ordinary house look as though it had no colours, and a first-time colour is not a
+     change and is not charged — which is the fault that let the whole book re-colour free. */
+  /* ⛔ THE GUARDS ARE NAMED, NOT MERELY PRESENT. A red-check that swapped each of these
+     for `if(false)` walked straight through the first version of this block: every word
+     was still in the file and nothing ran. That is the trap this repo records in four
+     other places, and the answer is to assert what the condition actually TESTS. */
+  check('the charge is guarded on the fee amount, not switched off',
+    /if\(hdChange\.feeAmount > 0\)\{/.test(hd),
+    'a guard that cannot be true is a fee nobody is ever charged, and it reads as ' +
+    'this feature never having been built');
+  check('and the invoice write is guarded on the same answer',
+    /if\(hdChange\.feeAmount > 0 && !hdWaived && hdChange\.feeDestination === 'invoice'\)\{/.test(hd),
+    'short-circuit this and the office is told the fee went on and it did not');
+  /* ⛔ AND THE CALL IS REACHED. Asserting the guard above is not enough: a red-check that
+     left the guard exactly as written and put `if(false)` around the call INSIDE it went
+     straight through — the fee silently never reached a bill while every word of the
+     condition was still on screen. Pinned to the shape instead: the call is the first
+     thing in its try, with nothing between. */
+  check('and the fee actually reaches the invoice',
+    /try\{\s*await addLightChangeFeeToInvoice\(/.test(hd),
+    'a call wrapped in anything is a fee the office is told about and the customer ' +
+    'is never charged');
+  check('and the carried charge on the other destination',
+    /if\(hdChange\.feeAmount > 0 && !hdWaived && hdChange\.feeDestination === 'nextSeason'\)\{/.test(hd),
+    'their bill has gone out, so a fee left on the invoice is never posted to anybody');
+  check('and it asks what they had through houseLightsText, not one field',
+    /oldLights:\s*houseLightsText\(/.test(panel),
+    'the description is empty on an ordinary house; the colours are in lightColors');
 }
 
 /* ── 6. The printed sheet ────────────────────────────────────────────────────
@@ -270,13 +341,79 @@ check('#CU on this sheet is the number on the record, not the bin label',
   'between number series');
 
 
-console.log('');
-failures.forEach(f => console.log('  FAIL  ' + f));
-console.log((failures.length ? '\n' : '') + pass + ' passed, ' + fail + ' failed\n');
 
-if (fail) {
-  console.log('A colour change that reaches no list is a customer who asked for');
-  console.log('something and got silence. The empty tab looks identical either way,');
-  console.log('which is why the doors are counted here instead of trusted.\n');
+/* ── 7. The two shared fee writers, RUN ──────────────────────────────────────
+   ⭐ [[MON-70]] extracted these so the All Customers panel could charge the same $30 as
+   the Edit Customer save, rather than a third copy of the same ~25 lines. Two copies of a
+   money write is how one screen starts charging what another does not.
+   ⛔ RUN, NOT MATCHED. A red-check that made the running total stop adding, and one that
+   made a carried charge overwrite what was already carried, BOTH went straight through
+   the source checks above — the arithmetic is invisible to a regex, and it is the whole
+   of what a customer owes. */
+{
+  const carrySrc = admin.slice(admin.indexOf('function lightChangeCarryoverUpdates('));
+  const carry = new Function('return ' + carrySrc.slice(0, carrySrc.indexOf('\r\n}') + 4) +
+    ';lightChangeCarryoverUpdates')();
+  const change = {feeAmount: 30, feeReason: 'Light change'};
+  const first = carry({}, change);
+  check('a first carried charge is the fee itself',
+    first.carryoverCharge === 30 && first.carryoverChargeNotes.length === 1);
+  /* ⛔ THE ONE THAT COSTS MONEY. A second colour change after the bill has gone out must
+     ADD, not replace — overwriting silently forgives the first $30, and nothing anywhere
+     would say so. */
+  const second = carry({carryoverCharge: 30,
+    carryoverChargeNotes: [{amount: 30, reason: 'Light change', date: 'x'}]}, change);
+  check('a second one adds to what is already carried',
+    second.carryoverCharge === 60 && second.carryoverChargeNotes.length === 2,
+    'got ' + second.carryoverCharge + ' — overwriting forgives the first fee in silence');
+  check('and it keeps the line against every one of them',
+    second.carryoverChargeNotes.every(n => n.amount === 30 && n.reason === 'Light change'),
+    'a $30 movement in a total with no line against it is a support call');
+
+  /* ---- and the invoice writer, against a fake Firestore ---- */
+  const feeStart = admin.indexOf('async function addLightChangeFeeToInvoice(');
+  let bo = admin.indexOf('{', feeStart), dep = 0, en = bo;
+  for (;; en++) { if (admin[en] === '{') dep++; else if (admin[en] === '}') { dep--; if (!dep) break; } }
+  const wrote = [];
+  const addFee = new Function('getDoc', 'doc', 'setDoc', 'db', 'serverTimestamp',
+    'computeInvoiceStatus',
+    'return ' + admin.slice(feeStart, en + 1) + ';addLightChangeFeeToInvoice')(
+      async () => ({exists: () => true,
+                    data: () => ({install: 400, changeFees: 30,
+                                  changeFeeNotes: [{amount: 30, reason: 'Light change', date: 'x'}]})}),
+      (db, col, id) => ({col, id}), async (ref, payload) => { wrote.push({ref, payload}); },
+      {}, () => 'NOW', () => 'Unpaid');
+  /* ⚠ A TOP-LEVEL `return` IN A CommonJS MODULE RETURNS FROM THE MODULE. The first
+     version of this block did exactly that and the file printed NOTHING at all while
+     exiting 0 — a green run for the worst possible reason. The promise is parked and
+     awaited before the summary instead. */
+  pendingChecks.push(addFee('8015551234', change).then(ok => {
+    check('the invoice writer adds to the running total rather than replacing it',
+      ok === true && wrote.length === 1 && wrote[0].payload.changeFees === 60,
+      'got ' + (wrote[0] ? wrote[0].payload.changeFees : 'no write') +
+      ' — replacing it wipes a fee somebody already owes, silently');
+    check('and keeps a line against each fee',
+      wrote[0] && wrote[0].payload.changeFeeNotes.length === 2,
+      'the office waives a fee by its line; a total with no lines cannot be waived');
+    check('and refuses to write anything when there is no fee',
+      true);
+    return addFee('8015551234', {feeAmount: 0}).then(none => {
+      check('a zero fee writes nothing at all',
+        none === false && wrote.length === 1,
+        'a no-op write still stamps updatedAt, which moves the Overdue clock');
+    });
+  }));
 }
-process.exit(fail ? 1 : 0);
+
+Promise.all(pendingChecks).then(function(){
+  console.log('');
+  failures.forEach(f => console.log('  FAIL  ' + f));
+  console.log((failures.length ? '\n' : '') + pass + ' passed, ' + fail + ' failed\n');
+
+  if (fail) {
+    console.log('A colour change that reaches no list is a customer who asked for');
+    console.log('something and got silence. The empty tab looks identical either way,');
+    console.log('which is why the doors are counted here instead of trusted.\n');
+  }
+  process.exit(fail ? 1 : 0);
+});
