@@ -2270,7 +2270,7 @@ in it, so it is not superseded.
 
 ---
 
-## Q-034 · intent · open · 2026-09-11
+## Q-034 · intent · ANSWERED 2026-09-11 · closed
 Does last season's carried debt get charged the 1 April late fee as well?
 
 **Raised while building the new invoice terms (MON-70 to MON-72). Not asked, and
@@ -2295,6 +2295,27 @@ rather than in the abstract.
 **What changing it takes.** One condition in `runLateFeeBatch` (`owedNow - carried <= 0`)
 and its check in the same file. The guard is commented as hers to move.
 
-**Resulting map change.** A MON row recording whichever way she answers, and — if she
-overturns it — this default marked as the superseded reasoning, since the every-April
-argument above is exactly what the new rule would have to answer.
+⭐ **ANSWERED, and the default was right.** Addie, 2026-09-11: *"No last seasons late bill
+will not get aprils fee. Fees should only be applied once. However the full payment
+including the fee that they did not pay last year will be carried over to the next season
+until that is payed in full. And they will not be allowed to be scheduled until they pay
+last years bill in full."*
+
+She answered more than was asked, and the three extra clauses were all verified as already
+built rather than taken on trust:
+
+- **"Fees should only be applied once"** — `lateFeeAt` is stamped per invoice before the
+  email is sent, and the batch refuses any invoice carrying one. A second, independent
+  guard: an unpaid customer is never scheduled, so they are never hung, never completed
+  and never invoiced again — there is no `invoicedAt` for a later April run to act on.
+- **"the full payment including the fee … carried over"** — true by construction. The fee
+  writes into `changeFees`, and Start New Season carries `balanceDueAmount`, which sums
+  `changeFees`. Nothing needed adding; if it ever needs its own branch, the rule has been
+  implemented twice.
+- **"not allowed to be scheduled until they pay last years bill in full"** — `arrearsSettled`
+  already compares against the WHOLE carried amount, never a proportion, which is her own
+  earlier ruling (billed 800, paid 400, "bill is not cleared and we cannot schedule them").
+
+**Resulting map change.** `MON-73` (no April fee on carried arrears — this default, now
+her ruling), `MON-74` (fees applied once), `MON-75` (the unpaid fee carries forward inside
+the balance), `MON-76` (no scheduling until last season is paid in full).

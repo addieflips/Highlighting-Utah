@@ -367,6 +367,16 @@
   .route-tab-btn.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
   .route-tab-panel{ display:none; }
   .route-tab-panel.active{ display:block; }
+  /* ⭐ The RSVP tab's own sub-tabs ([[FIX/RSVP]] 2026-09-11). Same look as a route tab,
+     one size down, and DELIBERATELY NOT the same class names — see the markup's own note:
+     the Automation handler's panel-wide query would clear these too. Visibility is the
+     `hidden` attribute rather than an `active` class, so a panel cannot be left showing
+     by a stylesheet that did not load. */
+  .rsvp-subtab-btn{
+    background:#fff; border:1px solid var(--line); color:var(--slate); border-radius:999px;
+    padding:7px 14px; font-size:12.5px; font-weight:600; cursor:pointer;
+  }
+  .rsvp-subtab-btn.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
   .gen-subtab-panel{ display:none; }
   .gen-subtab-panel.active{ display:block; }
   .route-tabs .route-tab-btn{ cursor:grab; }
@@ -3344,9 +3354,11 @@
       </div>
       <!-- ===== TEMPLATES TAB ===== -->
       <div class="route-tab-panel active" id="automationtab-templates">
-      <!-- ⭐ Owner, 2026-09-02: "make an rsvp text link for everyone that doesnt have
-           an email on file." The RSVP goes out by email; these are the people it can
-           never reach, and without this they are simply never asked. -->
+      <!-- ⚠ THE TEXT LIST AND THE FAILURE CARD MOVED TO THE RSVP TAB (2026-09-11), into
+           sub-tabs of their own — Addie: "at the top we got a lot going on". This comment
+           introduced them and is kept, pointing there, rather than deleted: "make an rsvp
+           text link for everyone that doesnt have an email on file" (2026-09-02) is still
+           the reason that list exists at all. -->
       <!-- ⭐ Dax, 2026-09-07: "We want one button for the entire rsvp", and "we need
            everyone to get the right email and hve it sent to the right spot." The season
            RSVP was three screens — the standard email here, the Not Paid one under
@@ -3355,7 +3367,7 @@
            order. This is those three, in one press, with the breakdown shown first. -->
       <div class="card" id="rsvpWholeCard" style="margin-bottom:22px; border-color:var(--gold);">
         <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#127876; Send the whole RSVP</h3>
-        <p class="form-note" style="margin:0 0 12px;">One press sends both RSVP emails: the ordinary one to everybody who is straight, and the <b>Not Paid RSVP</b> to everybody who owes from last season &mdash; so each customer gets the one that fits them, and nobody gets both. Anyone with no email on file is listed underneath for texting instead. <b>Check first</b> shows exactly who would get what without sending anything.</p>
+        <p class="form-note" style="margin:0 0 12px;">One press sends both RSVP emails: the ordinary one to everybody who is straight, and the <b>Not Paid RSVP</b> to everybody who owes from last season &mdash; so each customer gets the one that fits them, and nobody gets both. Anyone with no email on file is listed under <b>RSVP &rarr; Text the RSVP</b> for texting instead. <b>Check first</b> shows exactly who would get what without sending anything.</p>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
           <button type="button" class="btn btn-outline btn-sm" id="rsvpWholeCheckBtn">Check first &mdash; who gets what</button>
           <button type="button" class="btn btn-gold" id="rsvpWholeSendBtn">Send the whole RSVP</button>
@@ -3405,30 +3417,6 @@
           <div id="rsvpCheckListStatus" style="font-size:13px; color:var(--slate); margin:0 0 6px;"></div>
           <div id="rsvpCheckListReport" style="font-size:13px;"></div>
         </div>
-      </div>
-      <!-- Hidden until a send actually loses somebody. A permanent empty card about
-           failures is one nobody reads, and this one has to be noticed on the day it
-           appears: until these people are emailed they cannot RSVP, and a customer who
-           has not answered is OUT of the season — no route, no bundle, no crew. -->
-      <div class="card" id="sendFailureCard" hidden style="margin-bottom:22px; border-color:#c0392b;">
-        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#9888; Some emails did not go out</h3>
-        <p class="form-note" style="margin:0 0 12px;">These customers were <strong>not</strong> emailed and do not know anything is wrong &mdash; and because nobody who has not answered the RSVP is scheduled, they are currently out of the season. Sending again reaches <strong>only these people</strong>; nobody who already got the email is sent a second copy. Each one is sent the same template it was meant to get the first time.</p>
-        <div id="sendFailureBody" style="font-size:13px; margin-bottom:10px;"></div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
-          <button type="button" class="btn btn-gold" id="sendFailureRetryBtn">Send again to the ones it missed</button>
-        </div>
-        <div id="sendFailureStatus" style="font-size:13px; color:var(--slate);"></div>
-      </div>
-      <div class="card" id="rsvpTextCard" style="margin-bottom:22px; border-color:var(--gold-dim);">
-        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128241; Text the RSVP &mdash; no email on file</h3>
-        <p class="form-note" style="margin:0 0 12px;">The RSVP email cannot reach these customers, so they are never asked. Each link signs that person into their own portal, where the first thing on the page is <strong>&ldquo;Are you having lights this season?&rdquo;</strong> with Yes, Back next year and Not this season &mdash; so one short link is the whole RSVP. Nobody who has already answered is listed, and nobody in their first year, for the same reason the email skips them.</p>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
-          <button type="button" class="btn btn-outline btn-sm" id="rsvpTextFindBtn">Find who has no email</button>
-          <button type="button" class="btn btn-gold btn-sm" id="rsvpTextCopyAllBtn" style="display:none;">Copy them all for texting</button>
-          <span id="rsvpTextCount" style="font-size:12.5px; color:var(--slate);"></span>
-        </div>
-        <div id="rsvpTextStatus" class="form-note" style="margin:0 0 10px;"></div>
-        <div id="rsvpTextList"></div>
       </div>
       <!-- Main Templates View -->
       <div style="display:grid; grid-template-columns:200px minmax(0,1fr); gap:20px; margin-bottom:30px;">
@@ -3701,6 +3689,32 @@
       <!-- ===== INVOICES TAB ===== -->
       <!-- ===== RSVP DRIP TAB ===== -->
       <div class="route-tab-panel" id="automationtab-rsvpdrip">
+      <!-- ⭐ THREE SUB-TABS UNDER RSVP (2026-09-11). Addie: "at the top we got a lot going
+           on. We can probably move emails that didn't get sent out over to RSVP in it's own
+           sub tab. And Text the RSVP can go in it's own sub tab as well in RSVP."
+           Both cards used to sit on the TEMPLATES tab, above the templates themselves — a
+           tab somebody opens to EDIT an email, carrying two cards about the state of a send.
+           Everything about the season RSVP is in one place now.
+           ⚠ THE CLASSES ARE NOT `route-tab-btn` / `route-tab-panel`, DELIBERATELY. The
+           Automation tab handler clears `active` from EVERY `.route-tab-btn` and
+           `.route-tab-panel` under `#panel-automation` — a panel-wide query — so reusing
+           those names here would leave the RSVP tab opening with no sub-panel active at all,
+           which reads as a blank tab rather than as a bug. Own names, own handler.
+           ⚠ AND `rsvpSubtabShow` IS THE ONE PLACE THE STATE IS SET, called by the sub-tab
+           clicks AND by the Automation handler when the RSVP tab is opened — so it survives
+           that blanket clear by construction rather than by luck. -->
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px;">
+        <button type="button" class="rsvp-subtab-btn active" data-rsvptab="daily">Daily send</button>
+        <!-- ⚠ THE COUNT IS THE HALF THAT MATTERS. The failure card used to be `hidden` until
+             a send lost somebody, and its own note says why: it has to be NOTICED on the day
+             it appears, because until those people are emailed they cannot RSVP and an
+             unanswered customer is out of the season. Inside a sub-tab, hiding it would be
+             WORSE than before — it would be behind a tab nobody had a reason to open. So the
+             tab is always there and wears the number instead. -->
+        <button type="button" class="rsvp-subtab-btn" data-rsvptab="failed">Did not send <span id="rsvpSubtabFailedCount" class="status-pill status-due" hidden></span></button>
+        <button type="button" class="rsvp-subtab-btn" data-rsvptab="text">Text the RSVP</button>
+      </div>
+      <div class="rsvp-subtab-panel" id="rsvpsub-daily">
       <!-- ⭐ EM-16. Addie, after a send of ~950 that Gmail cut off partway and that took a
            pasted spreadsheet of 673 names to reconcile: "we need to make sure we don't run
            into this situation in the future. Can we make a calendar for RSVP emails that
@@ -3734,6 +3748,36 @@
           <input type="number" id="rsvpDripPerDay" min="1" max="2000" step="10" style="width:90px; margin-left:6px;">
         </label>
         <div id="rsvpDripStatus" style="font-size:13px; color:var(--slate);"></div>
+      </div>
+      </div>
+      <div class="rsvp-subtab-panel" id="rsvpsub-failed" hidden>
+      <!-- Hidden until a send actually loses somebody. A permanent empty card about
+           failures is one nobody reads, and this one has to be noticed on the day it
+           appears: until these people are emailed they cannot RSVP, and a customer who
+           has not answered is OUT of the season — no route, no bundle, no crew. -->
+      <div class="card" id="sendFailureCard" hidden style="margin-bottom:22px; border-color:#c0392b;">
+        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#9888; Some emails did not go out</h3>
+        <p class="form-note" style="margin:0 0 12px;">These customers were <strong>not</strong> emailed and do not know anything is wrong &mdash; and because nobody who has not answered the RSVP is scheduled, they are currently out of the season. Sending again reaches <strong>only these people</strong>; nobody who already got the email is sent a second copy. Each one is sent the same template it was meant to get the first time.</p>
+        <div id="sendFailureBody" style="font-size:13px; margin-bottom:10px;"></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+          <button type="button" class="btn btn-gold" id="sendFailureRetryBtn">Send again to the ones it missed</button>
+        </div>
+        <div id="sendFailureStatus" style="font-size:13px; color:var(--slate);"></div>
+      </div>
+        <div id="rsvpNoFailuresNote" class="empty-note">No email has failed to send. If a send ever loses somebody they are listed here, and the tab carries a count so it is noticed on the day it happens.</div>
+      </div>
+      <div class="rsvp-subtab-panel" id="rsvpsub-text" hidden>
+      <div class="card" id="rsvpTextCard" style="margin-bottom:22px; border-color:var(--gold-dim);">
+        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128241; Text the RSVP &mdash; no email on file</h3>
+        <p class="form-note" style="margin:0 0 12px;">The RSVP email cannot reach these customers, so they are never asked. Each link signs that person into their own portal, where the first thing on the page is <strong>&ldquo;Are you having lights this season?&rdquo;</strong> with Yes, Back next year and Not this season &mdash; so one short link is the whole RSVP. Nobody who has already answered is listed, and nobody in their first year, for the same reason the email skips them.</p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+          <button type="button" class="btn btn-outline btn-sm" id="rsvpTextFindBtn">Find who has no email</button>
+          <button type="button" class="btn btn-gold btn-sm" id="rsvpTextCopyAllBtn" style="display:none;">Copy them all for texting</button>
+          <span id="rsvpTextCount" style="font-size:12.5px; color:var(--slate);"></span>
+        </div>
+        <div id="rsvpTextStatus" class="form-note" style="margin:0 0 10px;"></div>
+        <div id="rsvpTextList"></div>
+      </div>
       </div>
       </div>
       <div class="route-tab-panel" id="automationtab-invoices">
@@ -9761,7 +9805,44 @@ document.querySelectorAll('[data-automationtab]').forEach(function(btn){
        counts here are the ones the office acts on. */
     if(tab === 'rsvpdrip'){
       if(typeof rsvpDripRender === 'function') rsvpDripRender();
+      /* ⚠ RE-ASSERTED HERE, and this line is the whole reason the sub-tabs work. The two
+         queries above clear `active` from every `.route-tab-btn` and `.route-tab-panel`
+         under #panel-automation — a panel-wide sweep — and then only the RSVP panel itself
+         is switched back on. The sub-tabs use their own class names so that sweep cannot
+         reach them, and this call puts the sub-tab state back where it was rather than
+         leaving whichever one happened to be showing. */
+      if(typeof rsvpSubtabShow === 'function') rsvpSubtabShow(rsvpSubtab);
     }
+  });
+});
+/* ⭐ THE RSVP TAB'S SUB-TABS (2026-09-11). Addie: "at the top we got a lot going on. We can
+   probably move emails that didn't get sent out over to RSVP in it's own sub tab. And Text
+   the RSVP can go in it's own sub tab as well in RSVP."
+
+   ⚠ ONE PLACE SETS THE STATE. Two — a click handler and an open handler each doing their
+   own showing — is how a tab ends up highlighted with the wrong panel under it, which is
+   the shape the Inbox folder badge already had once. */
+let rsvpSubtab = 'daily';
+function rsvpSubtabShow(name){
+  const which = ['daily','failed','text'].indexOf(name) === -1 ? 'daily' : name;
+  rsvpSubtab = which;
+  document.querySelectorAll('.rsvp-subtab-btn').forEach(function(b){
+    b.classList.toggle('active', b.getAttribute('data-rsvptab') === which);
+  });
+  /* ⚠ `hidden`, not a display style — the repo's own rule, and it means a panel cannot be
+     left showing by a stylesheet that did not load. */
+  ['daily','failed','text'].forEach(function(k){
+    const el = document.getElementById('rsvpsub-' + k);
+    if(el) el.hidden = (k !== which);
+  });
+  /* ⚠ DRAWN ON OPEN, for the same reason the Automation tabs above are: the failure list is
+     rendered by a listener that has usually already fired, so a sub-tab opened later would
+     show whatever it last drew — or nothing at all on a first visit. */
+  if(which === 'failed' && typeof renderSendFailureCard === 'function') renderSendFailureCard();
+}
+document.querySelectorAll('[data-rsvptab]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    rsvpSubtabShow(this.getAttribute('data-rsvptab'));
   });
 });
 async function loadEmailjsSettings(){
@@ -21556,6 +21637,25 @@ function msgTypeOf(d){
   if(SYSTEM_NOTICE_TOPICS.indexOf(topic) !== -1) return MSG_TYPE_SYSTEM;
   return MSG_TYPE_MEMBER;
 }
+/* ⭐ A NEW FAULT ANNOUNCES ITSELF ([[FIX-02]], 2026-09-11). Addie, asked how a new fix
+   should surface: a System inbox note with a link to the customer card, and the note
+   disappears when the fix is done.
+
+   ⚠ RAISING A FIX USED TO BE COMPLETELY SILENT. Four doors set `needsFix` (the customer
+   row, the Routes stop toggle, Schedule, and the crew tick — see [[FIX-05]]), and every
+   one of them only ticked a box. The house then appeared on the fix list and on a Fixer
+   Route sheet, both of which somebody has to go and LOOK at — so a fault reported on the
+   phone on a Tuesday sat unseen until whoever raised it happened to open the right tab.
+   ⚠ AND IT IS MONEY, NOT ONLY TIDINESS, the same argument [[FIX-05]] makes: a fault on a
+   completed house stops that payer's WHOLE group being invoiced. A fix nobody notices is
+   a bill nobody sends.
+
+   ⚠ THE TOPIC IS DECLARED IN FOUR PLACES AND ALL FOUR ARE HERE OR JUST BELOW — this
+   list (so it types as a system notice), `SYSTEM_NOTICE_SECTION_OF` (which section of
+   the System tab it lands in), `MSG_TOPIC_CATEGORIES` (its Communication Centre tag),
+   and `fixNoticeId` (the document it is written to). A topic missing from the section
+   map falls through to "Everything else" silently, which is exactly where nobody looks. */
+const FIX_NOTICE_TOPIC = 'A Fix Was Raised';
 /* Every topic this app writes for ITSELF rather than on behalf of a customer. Listed
    rather than pattern-matched: a customer is free to type any subject they like, and a
    guess here files somebody's question where nobody answers it. */
@@ -21564,7 +21664,7 @@ const SYSTEM_NOTICE_TOPICS = [
   'Lights Changed After Assignment', 'Rejoined After Recycling', 'Customer Number Needs Fixing',
   'A Background Check Has Stopped', 'Carried Debt Written Off', 'Add-On Declined',
   'Cannot Be Billed', 'Maybe Next Year — New Record', 'Payment With No Bill',
-  'Re-quote Declined', 'Referral Taken Back'
+  'Re-quote Declined', 'Referral Taken Back', FIX_NOTICE_TOPIC
 ];
 
 /* ⭐ CATEGORIES ARE TAGS, NOT FOLDERS, WHICH IS THE POINT OF THE WHOLE BLUEPRINT.
@@ -21593,7 +21693,10 @@ const MSG_TOPIC_CATEGORIES = {
   'Routes Kept Up To Date': ['Scheduling'],
   'A Route Sheet Is Out Of Date': ['Scheduling'],
   'Lights Changed After Assignment': ['Lights / Colors'],
-  'Rejoined After Recycling': ['Account']
+  'Rejoined After Recycling': ['Account'],
+  /* The same tag a customer's own "Report an Issue" gets, deliberately: the Repair /
+     Issue tab should hold the fault whether the customer reported it or we did. */
+  [FIX_NOTICE_TOPIC]: ['Repair / Issue']
 };
 /* ⚠ WHOLE WORDS, AND DELIBERATELY FEW. A loose scan tags everything and a tag on every
    row carries no information at all — the same argument the email-typo list turns on
@@ -46177,9 +46280,23 @@ function renderSendFailureCard(){
   const card = document.getElementById('sendFailureCard');
   if(!card) return;
   const passes = (emailSendFailuresCache && emailSendFailuresCache.passes) || [];
+  /* ⭐ THE COUNT ON THE SUB-TAB (2026-09-11). This card moved out of Templates and into
+     the RSVP tab's Did-not-send sub-tab, and that move costs it the one thing it was
+     built for: its own note says it has to be NOTICED on the day it appears, because
+     until these people are emailed they cannot RSVP and an unanswered customer is out
+     of the season. Behind a sub-tab, a hidden card is one nobody will ever open. So the
+     tab carries the number instead — the card still hides itself when there is nothing,
+     and the empty note takes its place so the tab never looks broken.
+     ⚠ WRITTEN HERE, in the one renderer, rather than wherever the cache is filled: every
+     path that changes the failures already ends up here. */
+  const badge = document.getElementById('rsvpSubtabFailedCount');
+  const note  = document.getElementById('rsvpNoFailuresNote');
+  const nTotal = sendFailureTotal();
+  if(badge){ badge.hidden = !passes.length; badge.textContent = String(nTotal); }
+  if(note) note.hidden = !!passes.length;
   if(!passes.length){ card.hidden = true; return; }
   card.hidden = false;
-  const total = sendFailureTotal();
+  const total = nTotal;
   const body = document.getElementById('sendFailureBody');
   if(!body) return;
   /* ⚠ NAMES AND THE REASON, not a bare number — that is the whole complaint this
@@ -51752,10 +51869,13 @@ document.getElementById('editCustLayoutMapFile').addEventListener('change', asyn
  * "say this to them once" note the route editor and the crew portal both read and
  * clear on completion; carrying it into next season repeats a one-off instruction.
  *
- * ⚠ THE FIX KIND DOES NOT RETIRE THE FIX PHOTO YET. That is Job 4 (park-then-destroy),
- * which has not been built and needs a decision first. Marking a fix done here clears
- * the flag, the schedule marker and the note, and deliberately leaves fixPhotoUrl
- * alone rather than destroying an asset with no undo behind it.
+ * ⚠ CORRECTED 2026-09-11 — THIS SAID THE FIX PHOTO WAS NOT RETIRED YET, and it had not
+ * been true for three weeks: `hlxRetireFixPhoto` is twenty lines below and is CALLED at
+ * the bottom of hlxMarkJobDone. A fix marked done destroys its photo on the spot.
+ * ⚠ AND IT IS DESTROY, NOT THE PARK-THEN-DESTROY-WITH-AN-UNDO [[FIX-02]] ORIGINALLY
+ * ASKED FOR. Addie changed her mind on 2026-08-21 and gave the reason: "we want the
+ * picture destroyed on the spot. There is no need for it after we fix the house."
+ * R-024 — the later answer wins. See [[FIX-06]]; do not rebuild the parking.
  *
  * ⚠ AND IT NEVER TOUCHES THE HOUSE PHOTO. housePhotos / housePhotoUrl /
  * housePhotoOriginal / housePhotoMarkup are what print on the new-hang crew sheets,
@@ -51818,6 +51938,76 @@ async function hlxRetireFixPhoto(url){
     return {cleared: false, destroyed: false, result: 'error'};
   }
 }
+/* ⭐ THE FIX NOTE'S DOCUMENT ID IS DERIVED FROM THE CUSTOMER ([[FIX-02]]).
+   Its own function so a test can RUN it, and so the raise and the clear cannot drift
+   apart — two spellings of this is a note that is written and never found again.
+
+   ⚠ A CHOSEN ID RATHER THAN addDoc, AND THAT IS THE DESIGN RATHER THAN A SHORTCUT. It
+   buys both halves of the ruling at once: raising twice writes the same document, so
+   toggling Needs Fix off and on cannot stack up four notes about one house, and the
+   clear is a plain delete that needs neither the messages cache nor a composite index.
+   Finding it by topic+customer would need `where('topic','==',…).where('customerId',…)`,
+   which is a composite index — and firestore.indexes.json is NOT deployed by CI, so the
+   query would fail silently in production while passing every check here. */
+function fixNoticeId(custId){
+  const id = String(custId || '').trim();
+  return id ? 'fix-' + id : '';
+}
+/* Raised when a fault is reported, cleared when it is mended. Both are BEST EFFORT and
+   neither throws: they run after the write that actually matters, and losing a notice
+   must never cost the flag that takes a house off a crew sheet. */
+async function raiseFixNotice(custId, d){
+  const noteId = fixNoticeId(custId);
+  if(!noteId) return {ok: false, why: 'no customer'};
+  const c = d || {};
+  try{
+    /* ⚠ ONLY IF THERE IS NOT ONE THERE ALREADY. A bare setDoc would rewrite `read:false`
+       over a notice the office has already read, every time anybody re-ticked the box —
+       the cries-wolf failure this repo names in four other places. A single getDoc by id
+       needs no index. ⚠ AND A FAILED READ WRITES NOTHING: a missing notice is a nuisance,
+       one that re-marks itself unread on every toggle is what teaches her to ignore them. */
+    const already = await getDoc(doc(db,'messages', noteId));
+    if(already.exists()) return {ok: true, already: true};
+    await setDoc(doc(db,'messages', noteId), {
+      topic: FIX_NOTICE_TOPIC, folder: 'System',
+      name: c.name || '', phone: c.phone || '', email: c.email || '',
+      contactMethod: '',
+      /* ⚠ THE NOTICE IS THE ALERT, THE CARD IS THE DETAIL. What is actually wrong lives in
+         `fixNote`, which is typed separately and can be filled in after the box is ticked —
+         so copying it in here would freeze whatever was known at this instant, usually
+         nothing. Addie asked for "a link to the customer card" for exactly this reason. */
+      message: (c.name || 'A customer') + ' at ' + (c.address || 'their house') +
+        ' has been marked as needing a fix. Open their card for what is wrong and to add ' +
+        'the note and the photo. They will appear on the fix list and can be put on a Fixer ' +
+        'Route. This notice disappears by itself when the fix is marked done.',
+      /* What the Open their card button reads. */
+      customerId: String(custId),
+      read: false, responded: false,
+      autoQueuedToWarehouse: false,
+      needsReassign: false,
+      createdAt: serverTimestamp()
+    });
+    return {ok: true, already: false};
+  }catch(err){
+    console.error('[HU] could not raise the fix notice for ' + custId, err);
+    return {ok: false, why: (err && err.message) || 'the write was refused'};
+  }
+}
+/* ⚠ "THE NOTE DISAPPEARS WHEN IT'S DONE" IS HER WORDING, so this really does delete it.
+   Nothing is lost by that: `fixRaisedAt` and `fixDoneAt` stay on the customer record and
+   are the permanent record that a fault happened and how long it took ([[FIX-05]]). The
+   notice is a thing to act on, and one that survives the acting is clutter. */
+async function clearFixNotice(custId){
+  const noteId = fixNoticeId(custId);
+  if(!noteId) return {ok: false, why: 'no customer'};
+  try{
+    await deleteDoc(doc(db,'messages', noteId));
+    return {ok: true};
+  }catch(err){
+    console.error('[HU] could not clear the fix notice for ' + custId, err);
+    return {ok: false, why: (err && err.message) || 'the delete was refused'};
+  }
+}
 async function hlxMarkJobDone(target, kind, done, opts) {
   const o = opts || {};
   const spec = HLX_DONE_KINDS[kind];
@@ -51867,6 +52057,21 @@ async function hlxMarkJobDone(target, kind, done, opts) {
         catch (e) { /* no toast on this screen */ }
       }
     }
+  }
+  /* ⭐ AND THE OFFICE IS TOLD, BOTH WAYS ([[FIX-02]], 2026-09-11).
+     ⚠ HERE, IN THE ONE DOOR, RATHER THAN AT THE FOUR CALLERS. [[FIX-05]] is the whole
+     argument: `needsFix` used to be written bare by two of the four things that raise a
+     fault, so anything bolted onto a caller reaches some of them and reads as working.
+     Every door goes through hlxMarkJobDone now, so a fifth added later announces itself
+     without anybody remembering to wire it.
+     ⚠ AFTER THE WRITE, AND BEST EFFORT. The flag is what takes a house on and off a crew
+     sheet; a refused notice must not cost it, so neither call is awaited into the result. */
+  if (kind === 'fix') {
+    const cust = (target && target.data) ? target.data
+      : ((typeof jobAddresses !== 'undefined' &&
+         (jobAddresses.find(function(a){ return a.id === id; }) || {}).data) || {});
+    if (done) await clearFixNotice(id);
+    else await raiseFixNotice(id, cust);
   }
   /* Best-effort, and last. With the crew portal out of use everything is done by two
      people in one admin panel, so "who marked this done and when" has no other
@@ -60323,6 +60528,9 @@ const SYSTEM_NOTICE_SECTION_OF = {
   'Routes Kept Up To Date': 'schedule',
   'Moved To Another Day': 'schedule',
   'A Route Sheet Is Out Of Date': 'schedule',
+  /* A fault is crew work — it is fixed by a van going back out, and the Fixer Route is
+     built on this tab. Filing it under the crews is where somebody looks for it. */
+  [FIX_NOTICE_TOPIC]: 'schedule',
   'Quote Approved': 'quotes',
   'Quote Declined': 'quotes',
   'Quote - Maybe Next Year': 'quotes',
@@ -60423,6 +60631,10 @@ function systemNoticeRow(item){
           : d.addedToWarehouseAt
             ? '<div class="rtext" style="margin-top:6px; font-weight:600; color:var(--moss);">&#10003; Sent to the Warehouse</div>'
             : '<button type="button" class="btn btn-outline btn-sm" data-sendtowh="'+item.id+'" style="margin-top:6px;">Send to Warehouse</button>') : '')+
+        /* ⭐ THE LINK TO THE CUSTOMER CARD ([[FIX-02]]). Offered on any notice carrying a
+           `customerId`, not only a fix one — the field is the contract, so a notice added
+           later gets the button by writing that one field. Nothing else writes it today. */
+        (d.customerId ? '<button type="button" class="btn btn-outline btn-sm" data-noticecust="'+esc(d.customerId)+'" style="margin-top:6px;">Open their card</button>' : '')+
       '</div>'+
       '<div class="row-actions" style="align-items:center;">'+
         '<button class="icon-btn" data-sysread="'+item.id+'" data-current="'+(d.read?1:0)+'" title="'+(isUnread?'Mark as read':'Mark as unread')+'">'+(isUnread ? mailIcon() : mailOpenIcon())+'</button>'+
@@ -60436,6 +60648,23 @@ function systemNoticeWireRows(list){
   list.querySelectorAll('[data-sysread]').forEach(function(btn){
     btn.addEventListener('click', function(){
       updateDoc(doc(db,'messages',btn.dataset.sysread), {read: btn.dataset.current !== '1'});
+    });
+  });
+  /* ⭐ Opens Edit Customer straight from the notice ([[FIX-02]]). The popup is a fixed
+     overlay, so it works from the Messages panel without changing tab first.
+     ⚠ IT SAYS SO WHEN THERE IS NOBODY THERE. openEditCustomerModal returns silently for
+     an id it cannot find, and a customer really can have been removed or recycled since
+     the notice was written — so on its own this would be a button that does nothing,
+     which is the exact class of bug Addie has asked about by name ("make sure that if i
+     click a button the function that is supposed to happen actually does"). */
+  list.querySelectorAll('[data-noticecust]').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      const cid = btn.dataset.noticecust;
+      const found = (typeof jobAddresses !== 'undefined')
+        ? jobAddresses.find(function(a){ return a.id === cid; }) : null;
+      if(!found){ toast('That customer is no longer on file — they may have been removed or recycled.'); return; }
+      openEditCustomerModal(cid);
     });
   });
   list.querySelectorAll('[data-sendtowh]').forEach(function(btn){
