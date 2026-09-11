@@ -43536,6 +43536,11 @@ function attachAddressRowHandlers(container){
           updates.colorChangeColors = newLights;
           updates.colorChangeRequestedAt = serverTimestamp();
         }
+        /* ⭐ AND THIS PANEL CHARGES NOW TOO (2026-09-10). Dax: "yes anyone in color
+           change gets the fee." It never has, so this is a real change to what a screen
+           costs a customer — said plainly in the toast below rather than left for them
+           to find on a bill. The write itself happens after the record is saved. */
+        const hdCharge = hdChange.isChange;
         await updateDoc(doc(db,'jobAddresses',id), updates);
         if(currentPhotoUrl){
         }
@@ -43548,7 +43553,14 @@ function attachAddressRowHandlers(container){
             await updateDoc(doc(db,'invoices',custKey), {phone2: newPhone2, email2: newEmail2, lightsDescription: newLights});
           }
         }
-        toast('House details saved');
+        if(hdCharge){
+          const hdFee = await chargeColorChangeFee(id, existingCust, 'Light change');
+          toast('House details saved \u2014 on the colour-change list' +
+            (hdFee.charged ? (', ' + fmtMoney(hdFee.charged) + ' fee added') :
+             (hdFee.where === 'window' ? ', no fee inside their 48-hour window' : '')));
+        } else {
+          toast('House details saved');
+        }
       });
       panel.style.display = 'block';
     });
@@ -47261,6 +47273,78 @@ function whBuildStatusText(name, st){
    the shop floor's own list and is cleared by Mark Done; lightsChangedAt is history
    and is never cleared. Reading one for the other is how twelve ordinary new customers
    ended up on the Color Changes sheet once already. */
+/* ⭐ ANYONE ON THE COLOUR-CHANGE LIST PAYS THE $30 (added 2026-09-10). Dax, asked
+   whether the manual door should charge and answering twice: "everyone getting a color
+   change gets the fee", then "yes anyone in color change gets the fee."
+
+   ⚠ THIS SUPERSEDES THE SCOPE HE PICKED EARLIER THE SAME DAY ([[MON-70]] recorded
+   "genuine changes only"), and the concern that scope was protecting is recorded rather
+   than quietly dropped: the manual button exists for the case where the warehouse needs
+   a set AGAIN — a bundle lost or built wrong — and charging there bills a customer for
+   our own mistake, on an invoice they read. He was told that and asked for it anyway,
+   so it is built. The × on the fee line is how the office takes one back.
+
+   ⚠ THE 48-HOUR FREE WINDOW STILL APPLIES, and that is not a hedge against the ruling.
+   The window exists because the customer ALREADY PAID $30 for the change that opened
+   it; charging again inside it bills the same person twice for one decision, which is
+   not what "everyone pays" means. `lightsLockMillis` is the same reader applyLightChange
+   is handed.
+
+   ⚠ ONE PLACE WRITES THIS FEE FOR THE QUEUE, and it is deliberately NOT a third copy of
+   the maths: it lands in exactly the same two destinations as the Edit Customer save
+   (`changeFees` + `changeFeeNotes` on the invoice, or `carryoverCharge` on the customer
+   once their bill has gone out), reads the same LIGHT_CHANGE_FEE, and recomputes the
+   status with the same computeInvoiceStatus. A fee written any other way is how the
+   office screen and the nightly run start disagreeing about one bill.
+
+   ⚠ IT NEVER THROWS. The colours are already saved and the customer is already on the
+   warehouse list by the time this runs; a failed fee must not undo either. It says so
+   out loud instead — a silent miss here is money nobody ever collects. */
+async function chargeColorChangeFee(custId, custData, reason){
+  const d = custData || {};
+  const lockedUntil = (typeof lightsLockMillis === 'function') ? lightsLockMillis(d) : 0;
+  if(lockedUntil > Date.now()){
+    return {charged: 0, where: 'window'};
+  }
+  const amount = LIGHT_CHANGE_FEE;
+  const why = reason || 'Light change';
+  try{
+    /* Their bill has already gone out, so this cannot ride on it — nothing re-opens a
+       sent invoice. Parked on the CUSTOMER, which Start New Season does not wipe. */
+    if(d.invoiceEmailSent){
+      const notes = (Array.isArray(d.carryoverChargeNotes) ? d.carryoverChargeNotes : [])
+        .concat([{amount: amount, reason: why, date: new Date().toISOString()}]);
+      await updateDoc(doc(db,'jobAddresses', custId), {
+        carryoverCharge: (Number(d.carryoverCharge) || 0) + amount,
+        carryoverChargeNotes: notes
+      });
+      d.carryoverCharge = (Number(d.carryoverCharge) || 0) + amount;
+      d.carryoverChargeNotes = notes;
+      return {charged: amount, where: 'nextSeason'};
+    }
+    const feeKey = custInvoiceKey(d);
+    if(!feeKey) return {charged: 0, where: 'nokey'};
+    const fSnap = await getDoc(doc(db,'invoices', feeKey));
+    const fData = fSnap.exists() ? fSnap.data() : {};
+    const feeNotes = (Array.isArray(fData.changeFeeNotes) ? fData.changeFeeNotes : [])
+      .concat([{amount: amount, reason: why, date: new Date().toISOString()}]);
+    const feeTotal = (Number(fData.changeFees) || 0) + amount;
+    /* setDoc+merge, not updateDoc: the invoice document may not exist yet. */
+    await setDoc(doc(db,'invoices', feeKey), {
+      changeFees: feeTotal, changeFeeNotes: feeNotes,
+      lastLightChangeFeeAt: new Date(),
+      status: computeInvoiceStatus(fData.install || 0, fData.removal || 0,
+        fData.deposit || 0, fData.credits || 0, feeTotal),
+      updatedAt: serverTimestamp()
+    }, {merge:true});
+    return {charged: amount, where: 'invoice'};
+  }catch(e){
+    console.error('Colour-change fee could not be added', e);
+    toast('They are on the colour-change list \u2014 but the ' + fmtMoney(LIGHT_CHANGE_FEE) +
+      ' fee could not be added. Put it on by hand.');
+    return {charged: 0, where: 'failed'};
+  }
+}
 function whColorChangeHouses(){
   const houses = [];
   (jobAddresses || []).forEach(function(item){
@@ -51556,7 +51640,17 @@ document.getElementById('editCustColorChangeBtn').addEventListener('click', asyn
        carries a real one. Same reason as the build button above. */
     Object.assign(item.data, {needsColorChange: true, colorChangeColors: colours,
       colorChangeRequestedAt: new Date()});
-    if(statusEl) statusEl.textContent = 'Done \u2014 they are on the warehouse colour-change list.';
+    /* ⭐ AND THE $30 GOES ON (2026-09-10). Dax: "yes anyone in color change gets the
+       fee." AFTER the customer write, never before: they are on the list either way,
+       and a fee written first could land on somebody the write then failed to queue. */
+    const feeOut = await chargeColorChangeFee(editCustomerId, item.data, 'Light change');
+    if(statusEl) statusEl.textContent = 'Done \u2014 they are on the warehouse colour-change list.' +
+      (feeOut.charged
+        ? (' ' + fmtMoney(feeOut.charged) + ' added to ' +
+           (feeOut.where === 'nextSeason' ? 'next season\u2019s bill.' : 'their invoice.'))
+        : (feeOut.where === 'window'
+           ? ' No fee \u2014 they are still inside their 48-hour window.'
+           : ''));
     toast((d.name || 'They') + ' \u2014 on the colour-change list');
     logActivity('Sent a colour change to the warehouse for ' + (d.name || editCustomerId) +
       ' (' + colours + ')', 'customers', editCustomerId);

@@ -149,10 +149,22 @@ const btn = handlerSrc('editCustColorChangeBtn');
 check('the Color Change button handler was found', !!btn,
   'the checks below prove nothing against an empty string');
 if (btn) {
-  check('the button does not charge anybody',
-    !/applyLightChange|LIGHT_CHANGE_FEE|askLightChangeFee/.test(btn),
-    'the $30 fee belongs to the colour boxes and Save Changes. A warehouse button ' +
-    'that quietly billed somebody would be found by the customer, not by us.');
+  /* ⚠ THIS CHECK SAID THE OPPOSITE THIS MORNING, AND IT WENT ON PASSING AFTER THE
+     CODE REVERSED — which is the reason it is written the way it is now. It read
+     "the button does not charge anybody" and matched the ABSENCE of the words
+     applyLightChange / LIGHT_CHANGE_FEE / askLightChangeFee. The button charges through
+     a helper, so none of those words appear in it, and a check asserting a falsehood
+     stayed green. A green check that is wrong is worse than no check: it is the fourth
+     time this repo has been caught matching a NAME instead of a BEHAVIOUR.
+     ⭐ Dax, 2026-09-10, asked twice: "everyone getting a color change gets the fee",
+     then "yes anyone in color change gets the fee." */
+  check('the button charges the fee, through the one shared writer',
+    /chargeColorChangeFee\s*\(/.test(btn),
+    'anyone put on the colour-change list pays the $30 — and it must go through ' +
+    'chargeColorChangeFee, not a second copy of the fee maths');
+  check('and it charges AFTER the customer is written, never before',
+    btn.indexOf('needsColorChange') < btn.indexOf('chargeColorChangeFee'),
+    'a fee written first could land on somebody the queueing write then failed to save');
   check('the button does not rewrite their history',
     !/lightsChangedAt|lightsChangedVia|lightsLockedUntil/.test(btn),
     'it sends a set to be made up; it is not itself a colour change');
@@ -213,12 +225,17 @@ if (panel) {
     'a hand-rolled string comparison here would queue a colour change for somebody ' +
     'filling their colours in for the FIRST time — which swept twelve ordinary new ' +
     'customers onto the Color Changes sheet once already');
-  check('and it does not charge anybody',
-    !/LIGHT_CHANGE_FEE|askLightChangeFee/.test(panel) &&
+  /* ⭐ AND IT CHARGES NOW, which it never did before 2026-09-10. Same ruling as the
+     button above. This is a real change to what an existing screen costs a customer,
+     so it is asserted rather than assumed. */
+  check('the All Customers panel charges the fee too',
+    /chargeColorChangeFee\s*\(/.test(panel),
+    'Dax: anyone in colour change gets the fee — this panel is one of the four doors');
+  check('and it still never writes changeFees itself',
     !/changeFees\s*[:=][^=]/.test(panel),
-    'this panel has never charged for a colour change and this is not the change ' +
-    'that starts it — only isChange is read off the result. (Reading changeFees to ' +
-    'show an invoice status is fine and it does; WRITING one is what is banned.)');
+    'one writer for this fee, or the office screen and the nightly run start ' +
+    'disagreeing about a bill. (Reading changeFees to show an invoice status is fine ' +
+    'and it does; WRITING one here is what is banned.)');
 }
 
 /* ── 6. The printed sheet ────────────────────────────────────────────────────
@@ -268,6 +285,49 @@ check('#CU on this sheet is the number on the record, not the bin label',
   'fetching it; nobody is fetching anything here, so the number wanted is the ' +
   'customer\'s own — and those two differ for every house whose footage moved it ' +
   'between number series');
+
+
+/* ── 7. The one writer for the queue fee ─────────────────────────────────────
+   ⚠ THE FREE WINDOW IS NOT A HEDGE AGAINST THE RULING, it is the other half of it:
+   the window exists because the customer ALREADY PAID $30 for the change that
+   opened it, so charging again inside it bills one person twice for one decision.
+   Dax's "everyone pays" is about who is charged, not about charging twice. */
+const FEEFN = (() => {
+  const at = admin.indexOf('async function chargeColorChangeFee(');
+  if (at < 0) return '';
+  let b = admin.indexOf('{', at), d = 0, k = b;
+  for (;;) { if (admin[k] === '{') d++; else if (admin[k] === '}') { d--; if (!d) break; } k++; }
+  return admin.slice(b + 1, k);
+})();
+check('the shared queue-fee writer exists', !!FEEFN,
+  'the checks below prove nothing against an empty string');
+if (FEEFN) {
+  check('it honours the 48-hour free window',
+    /lightsLockMillis/.test(FEEFN) && /Date\.now\(\)/.test(FEEFN),
+    'without it a customer who changes twice in one afternoon pays $60 for one decision');
+  check('it reads the one fee constant, never a literal 30',
+    /LIGHT_CHANGE_FEE/.test(FEEFN) && !/=\s*30\b/.test(FEEFN),
+    'a money literal here is exactly what money-parity.test.js exists to stop');
+  check('a sent bill is carried to next season, not re-opened',
+    /invoiceEmailSent/.test(FEEFN) && /carryoverCharge/.test(FEEFN),
+    'invoiceEmailSent is only ever cleared by Start New Season, so a fee added to a ' +
+    'sent invoice would sit there and never be posted to anybody');
+  check('and an unsent one takes it as its own line',
+    /changeFeeNotes/.test(FEEFN) && /changeFees/.test(FEEFN),
+    'a $30 movement in a total with no line against it is a support call');
+  check('it recomputes the invoice status with the shared rule',
+    /computeInvoiceStatus/.test(FEEFN),
+    'a fee that moves the balance without moving the status leaves the row lying');
+  check('it uses setDoc+merge, because the invoice may not exist yet',
+    /setDoc/.test(FEEFN) && /merge/.test(FEEFN),
+    'updateDoc throws on a customer who has never been invoiced');
+  /* ⚠ THE COLOURS ARE ALREADY SAVED AND THE HOUSE IS ALREADY QUEUED by the time this
+     runs. A throw here would undo neither, so it must not be allowed to propagate --
+     but it must not vanish either, or it is money nobody ever collects. */
+  check('a failed fee never throws, and never fails silently',
+    /catch/.test(FEEFN) && /toast\(/.test(FEEFN) && /console\.error/.test(FEEFN),
+    'the customer is on the list either way; a silent miss is uncollected money');
+}
 
 
 console.log('');
