@@ -21556,6 +21556,25 @@ function msgTypeOf(d){
   if(SYSTEM_NOTICE_TOPICS.indexOf(topic) !== -1) return MSG_TYPE_SYSTEM;
   return MSG_TYPE_MEMBER;
 }
+/* ⭐ A NEW FAULT ANNOUNCES ITSELF ([[FIX-02]], 2026-09-11). Addie, asked how a new fix
+   should surface: a System inbox note with a link to the customer card, and the note
+   disappears when the fix is done.
+
+   ⚠ RAISING A FIX USED TO BE COMPLETELY SILENT. Four doors set `needsFix` (the customer
+   row, the Routes stop toggle, Schedule, and the crew tick — see [[FIX-05]]), and every
+   one of them only ticked a box. The house then appeared on the fix list and on a Fixer
+   Route sheet, both of which somebody has to go and LOOK at — so a fault reported on the
+   phone on a Tuesday sat unseen until whoever raised it happened to open the right tab.
+   ⚠ AND IT IS MONEY, NOT ONLY TIDINESS, the same argument [[FIX-05]] makes: a fault on a
+   completed house stops that payer's WHOLE group being invoiced. A fix nobody notices is
+   a bill nobody sends.
+
+   ⚠ THE TOPIC IS DECLARED IN FOUR PLACES AND ALL FOUR ARE HERE OR JUST BELOW — this
+   list (so it types as a system notice), `SYSTEM_NOTICE_SECTION_OF` (which section of
+   the System tab it lands in), `MSG_TOPIC_CATEGORIES` (its Communication Centre tag),
+   and `fixNoticeId` (the document it is written to). A topic missing from the section
+   map falls through to "Everything else" silently, which is exactly where nobody looks. */
+const FIX_NOTICE_TOPIC = 'A Fix Was Raised';
 /* Every topic this app writes for ITSELF rather than on behalf of a customer. Listed
    rather than pattern-matched: a customer is free to type any subject they like, and a
    guess here files somebody's question where nobody answers it. */
@@ -21564,7 +21583,7 @@ const SYSTEM_NOTICE_TOPICS = [
   'Lights Changed After Assignment', 'Rejoined After Recycling', 'Customer Number Needs Fixing',
   'A Background Check Has Stopped', 'Carried Debt Written Off', 'Add-On Declined',
   'Cannot Be Billed', 'Maybe Next Year — New Record', 'Payment With No Bill',
-  'Re-quote Declined', 'Referral Taken Back'
+  'Re-quote Declined', 'Referral Taken Back', FIX_NOTICE_TOPIC
 ];
 
 /* ⭐ CATEGORIES ARE TAGS, NOT FOLDERS, WHICH IS THE POINT OF THE WHOLE BLUEPRINT.
@@ -21593,7 +21612,10 @@ const MSG_TOPIC_CATEGORIES = {
   'Routes Kept Up To Date': ['Scheduling'],
   'A Route Sheet Is Out Of Date': ['Scheduling'],
   'Lights Changed After Assignment': ['Lights / Colors'],
-  'Rejoined After Recycling': ['Account']
+  'Rejoined After Recycling': ['Account'],
+  /* The same tag a customer's own "Report an Issue" gets, deliberately: the Repair /
+     Issue tab should hold the fault whether the customer reported it or we did. */
+  [FIX_NOTICE_TOPIC]: ['Repair / Issue']
 };
 /* ⚠ WHOLE WORDS, AND DELIBERATELY FEW. A loose scan tags everything and a tag on every
    row carries no information at all — the same argument the email-typo list turns on
@@ -51752,10 +51774,13 @@ document.getElementById('editCustLayoutMapFile').addEventListener('change', asyn
  * "say this to them once" note the route editor and the crew portal both read and
  * clear on completion; carrying it into next season repeats a one-off instruction.
  *
- * ⚠ THE FIX KIND DOES NOT RETIRE THE FIX PHOTO YET. That is Job 4 (park-then-destroy),
- * which has not been built and needs a decision first. Marking a fix done here clears
- * the flag, the schedule marker and the note, and deliberately leaves fixPhotoUrl
- * alone rather than destroying an asset with no undo behind it.
+ * ⚠ CORRECTED 2026-09-11 — THIS SAID THE FIX PHOTO WAS NOT RETIRED YET, and it had not
+ * been true for three weeks: `hlxRetireFixPhoto` is twenty lines below and is CALLED at
+ * the bottom of hlxMarkJobDone. A fix marked done destroys its photo on the spot.
+ * ⚠ AND IT IS DESTROY, NOT THE PARK-THEN-DESTROY-WITH-AN-UNDO [[FIX-02]] ORIGINALLY
+ * ASKED FOR. Addie changed her mind on 2026-08-21 and gave the reason: "we want the
+ * picture destroyed on the spot. There is no need for it after we fix the house."
+ * R-024 — the later answer wins. See [[FIX-06]]; do not rebuild the parking.
  *
  * ⚠ AND IT NEVER TOUCHES THE HOUSE PHOTO. housePhotos / housePhotoUrl /
  * housePhotoOriginal / housePhotoMarkup are what print on the new-hang crew sheets,
@@ -51818,6 +51843,76 @@ async function hlxRetireFixPhoto(url){
     return {cleared: false, destroyed: false, result: 'error'};
   }
 }
+/* ⭐ THE FIX NOTE'S DOCUMENT ID IS DERIVED FROM THE CUSTOMER ([[FIX-02]]).
+   Its own function so a test can RUN it, and so the raise and the clear cannot drift
+   apart — two spellings of this is a note that is written and never found again.
+
+   ⚠ A CHOSEN ID RATHER THAN addDoc, AND THAT IS THE DESIGN RATHER THAN A SHORTCUT. It
+   buys both halves of the ruling at once: raising twice writes the same document, so
+   toggling Needs Fix off and on cannot stack up four notes about one house, and the
+   clear is a plain delete that needs neither the messages cache nor a composite index.
+   Finding it by topic+customer would need `where('topic','==',…).where('customerId',…)`,
+   which is a composite index — and firestore.indexes.json is NOT deployed by CI, so the
+   query would fail silently in production while passing every check here. */
+function fixNoticeId(custId){
+  const id = String(custId || '').trim();
+  return id ? 'fix-' + id : '';
+}
+/* Raised when a fault is reported, cleared when it is mended. Both are BEST EFFORT and
+   neither throws: they run after the write that actually matters, and losing a notice
+   must never cost the flag that takes a house off a crew sheet. */
+async function raiseFixNotice(custId, d){
+  const noteId = fixNoticeId(custId);
+  if(!noteId) return {ok: false, why: 'no customer'};
+  const c = d || {};
+  try{
+    /* ⚠ ONLY IF THERE IS NOT ONE THERE ALREADY. A bare setDoc would rewrite `read:false`
+       over a notice the office has already read, every time anybody re-ticked the box —
+       the cries-wolf failure this repo names in four other places. A single getDoc by id
+       needs no index. ⚠ AND A FAILED READ WRITES NOTHING: a missing notice is a nuisance,
+       one that re-marks itself unread on every toggle is what teaches her to ignore them. */
+    const already = await getDoc(doc(db,'messages', noteId));
+    if(already.exists()) return {ok: true, already: true};
+    await setDoc(doc(db,'messages', noteId), {
+      topic: FIX_NOTICE_TOPIC, folder: 'System',
+      name: c.name || '', phone: c.phone || '', email: c.email || '',
+      contactMethod: '',
+      /* ⚠ THE NOTICE IS THE ALERT, THE CARD IS THE DETAIL. What is actually wrong lives in
+         `fixNote`, which is typed separately and can be filled in after the box is ticked —
+         so copying it in here would freeze whatever was known at this instant, usually
+         nothing. Addie asked for "a link to the customer card" for exactly this reason. */
+      message: (c.name || 'A customer') + ' at ' + (c.address || 'their house') +
+        ' has been marked as needing a fix. Open their card for what is wrong and to add ' +
+        'the note and the photo. They will appear on the fix list and can be put on a Fixer ' +
+        'Route. This notice disappears by itself when the fix is marked done.',
+      /* What the Open their card button reads. */
+      customerId: String(custId),
+      read: false, responded: false,
+      autoQueuedToWarehouse: false,
+      needsReassign: false,
+      createdAt: serverTimestamp()
+    });
+    return {ok: true, already: false};
+  }catch(err){
+    console.error('[HU] could not raise the fix notice for ' + custId, err);
+    return {ok: false, why: (err && err.message) || 'the write was refused'};
+  }
+}
+/* ⚠ "THE NOTE DISAPPEARS WHEN IT'S DONE" IS HER WORDING, so this really does delete it.
+   Nothing is lost by that: `fixRaisedAt` and `fixDoneAt` stay on the customer record and
+   are the permanent record that a fault happened and how long it took ([[FIX-05]]). The
+   notice is a thing to act on, and one that survives the acting is clutter. */
+async function clearFixNotice(custId){
+  const noteId = fixNoticeId(custId);
+  if(!noteId) return {ok: false, why: 'no customer'};
+  try{
+    await deleteDoc(doc(db,'messages', noteId));
+    return {ok: true};
+  }catch(err){
+    console.error('[HU] could not clear the fix notice for ' + custId, err);
+    return {ok: false, why: (err && err.message) || 'the delete was refused'};
+  }
+}
 async function hlxMarkJobDone(target, kind, done, opts) {
   const o = opts || {};
   const spec = HLX_DONE_KINDS[kind];
@@ -51867,6 +51962,21 @@ async function hlxMarkJobDone(target, kind, done, opts) {
         catch (e) { /* no toast on this screen */ }
       }
     }
+  }
+  /* ⭐ AND THE OFFICE IS TOLD, BOTH WAYS ([[FIX-02]], 2026-09-11).
+     ⚠ HERE, IN THE ONE DOOR, RATHER THAN AT THE FOUR CALLERS. [[FIX-05]] is the whole
+     argument: `needsFix` used to be written bare by two of the four things that raise a
+     fault, so anything bolted onto a caller reaches some of them and reads as working.
+     Every door goes through hlxMarkJobDone now, so a fifth added later announces itself
+     without anybody remembering to wire it.
+     ⚠ AFTER THE WRITE, AND BEST EFFORT. The flag is what takes a house on and off a crew
+     sheet; a refused notice must not cost it, so neither call is awaited into the result. */
+  if (kind === 'fix') {
+    const cust = (target && target.data) ? target.data
+      : ((typeof jobAddresses !== 'undefined' &&
+         (jobAddresses.find(function(a){ return a.id === id; }) || {}).data) || {});
+    if (done) await clearFixNotice(id);
+    else await raiseFixNotice(id, cust);
   }
   /* Best-effort, and last. With the crew portal out of use everything is done by two
      people in one admin panel, so "who marked this done and when" has no other
@@ -60323,6 +60433,9 @@ const SYSTEM_NOTICE_SECTION_OF = {
   'Routes Kept Up To Date': 'schedule',
   'Moved To Another Day': 'schedule',
   'A Route Sheet Is Out Of Date': 'schedule',
+  /* A fault is crew work — it is fixed by a van going back out, and the Fixer Route is
+     built on this tab. Filing it under the crews is where somebody looks for it. */
+  [FIX_NOTICE_TOPIC]: 'schedule',
   'Quote Approved': 'quotes',
   'Quote Declined': 'quotes',
   'Quote - Maybe Next Year': 'quotes',
@@ -60423,6 +60536,10 @@ function systemNoticeRow(item){
           : d.addedToWarehouseAt
             ? '<div class="rtext" style="margin-top:6px; font-weight:600; color:var(--moss);">&#10003; Sent to the Warehouse</div>'
             : '<button type="button" class="btn btn-outline btn-sm" data-sendtowh="'+item.id+'" style="margin-top:6px;">Send to Warehouse</button>') : '')+
+        /* ⭐ THE LINK TO THE CUSTOMER CARD ([[FIX-02]]). Offered on any notice carrying a
+           `customerId`, not only a fix one — the field is the contract, so a notice added
+           later gets the button by writing that one field. Nothing else writes it today. */
+        (d.customerId ? '<button type="button" class="btn btn-outline btn-sm" data-noticecust="'+esc(d.customerId)+'" style="margin-top:6px;">Open their card</button>' : '')+
       '</div>'+
       '<div class="row-actions" style="align-items:center;">'+
         '<button class="icon-btn" data-sysread="'+item.id+'" data-current="'+(d.read?1:0)+'" title="'+(isUnread?'Mark as read':'Mark as unread')+'">'+(isUnread ? mailIcon() : mailOpenIcon())+'</button>'+
@@ -60436,6 +60553,23 @@ function systemNoticeWireRows(list){
   list.querySelectorAll('[data-sysread]').forEach(function(btn){
     btn.addEventListener('click', function(){
       updateDoc(doc(db,'messages',btn.dataset.sysread), {read: btn.dataset.current !== '1'});
+    });
+  });
+  /* ⭐ Opens Edit Customer straight from the notice ([[FIX-02]]). The popup is a fixed
+     overlay, so it works from the Messages panel without changing tab first.
+     ⚠ IT SAYS SO WHEN THERE IS NOBODY THERE. openEditCustomerModal returns silently for
+     an id it cannot find, and a customer really can have been removed or recycled since
+     the notice was written — so on its own this would be a button that does nothing,
+     which is the exact class of bug Addie has asked about by name ("make sure that if i
+     click a button the function that is supposed to happen actually does"). */
+  list.querySelectorAll('[data-noticecust]').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      const cid = btn.dataset.noticecust;
+      const found = (typeof jobAddresses !== 'undefined')
+        ? jobAddresses.find(function(a){ return a.id === cid; }) : null;
+      if(!found){ toast('That customer is no longer on file — they may have been removed or recycled.'); return; }
+      openEditCustomerModal(cid);
     });
   });
   list.querySelectorAll('[data-sendtowh]').forEach(function(btn){

@@ -5661,6 +5661,48 @@ now censuses every place that writes the flag: each is either a door that must g
 — `buildAddressRowHtml` reads the flag into markup, and `planTickCustomer` mirrors it into the
 local cache before the write is awaited so the derived tick does not spring back.
 
+### A new fault tells the office, and the notice goes away when it is mended
+
+Added 2026-09-11 ([[FIX-02]]). Until then **raising a fix was completely silent.** All four
+doors did was tick `needsFix`. The house then appeared on the fix list and on a Fixer Route
+sheet — both of which somebody has to go and *look* at — so a fault reported on the phone on
+a Tuesday sat unseen until whoever raised it happened to open the right tab. Given the point
+above, that is a bill held open with nobody told.
+
+Marking Needs Fix now writes a **System notice** — filed under *Schedule & Routes*, tagged
+*Repair / Issue*, carrying an **Open their card** button that opens Edit Customer straight
+from the Inbox. Marking the fix done **deletes that notice**, which is Addie's own wording
+("the note disappears when it's done"). Nothing is lost by the deletion: `fixRaisedAt` and
+`fixDoneAt` stay on the customer record and are the permanent trace of how long the customer
+waited.
+
+⚠ **Raised in the one door, not at the four callers.** That is the lesson of the section
+above stated forwards: anything bolted onto a caller reaches some of them and reads as
+working. Both halves sit in `hlxMarkJobDone`, so a fifth door added later announces itself
+without anybody remembering to wire it.
+
+⚠ **The notice's document id is derived from the customer** (`fix-<id>`) rather than
+auto-generated. That buys both halves of the ruling at once: raising twice writes the same
+document, so toggling the box off and on cannot stack four notices about one house; and the
+clear is a plain delete needing neither the messages cache nor a composite index. Finding it
+by topic-plus-customer would need a composite index, and `firestore.indexes.json` is **not**
+deployed by CI — so that query would fail silently in production while passing every check.
+
+⚠ **It never re-marks a notice she has already read.** A bare write would reset `read` on
+every toggle, which is the cries-wolf failure this repo names in four other places.
+
+⚠ **The fix photo is destroyed on the spot, not parked** ([[FIX-06]]). FIX-02 originally
+asked for park-then-destroy with an undo; Addie reversed it on 2026-08-21 — "we want the
+picture destroyed on the spot" — and R-024 applies. What makes a no-undo destroy safe is the
+order and the condition: the record is written first, only `done === true` destroys anything,
+the field is cleared only if the picture really went, and a failed destroy keeps the URL so
+the next Mark Done retries rather than orphaning a public Cloudinary asset. The house photo,
+which prints on the new-hang crew sheets, is never touched.
+
+⚠ **A comment in `admin.html` claimed this was unbuilt for three weeks** — it said the fix
+kind "does not retire the fix photo yet" while the call sat twenty lines below it. Corrected
+in the same change.
+
 ### Are the rules still accurate?
 
 Every ruling in the questions map names the code that proves it, and until 2026-08-29

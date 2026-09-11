@@ -42,7 +42,12 @@ function liftConst(n){
   if(!m) throw new Error('could not find const ' + n);
   return m[0];
 }
-const NAMES = ['MSG_TYPE_MEMBER','SYSTEM_NOTICE_TOPICS','MSG_CATEGORIES','MSG_TOPIC_CATEGORIES',
+/* ⚠ FIX_NOTICE_TOPIC LEADS THE LIST BECAUSE SYSTEM_NOTICE_TOPICS NOW USES IT.
+   [[FIX-02]] turned that array from plain strings into one with a computed entry, so
+   lifting it alone died on a bare ReferenceError and took the whole file with it —
+   the extraction-list trap, and the second sandbox it caught in one change. Lifted,
+   never stubbed, and DECLARED FIRST or the array references it before it exists. */
+const NAMES = ['FIX_NOTICE_TOPIC','MSG_TYPE_MEMBER','SYSTEM_NOTICE_TOPICS','MSG_CATEGORIES','MSG_TOPIC_CATEGORIES',
   'MSG_TEXT_CATEGORIES','MSG_STATUS','MSG_STATUS_LABEL','MSG_PRIORITY','MSG_PRIORITY_LABEL',
   'MSG_SEVERITY_LABEL','COMM_ACTIVITY_TOPICS'];
 /* ⚠ commRowMatches CALLS BOTH OF THESE NOW ([[MSG-15]]) — lifted, never stubbed. A stub for
@@ -228,6 +233,8 @@ console.log('');
 console.log('--- the contact line under the name ---');
 
 const CONTACT_SRC =
+  /* FIX_NOTICE_TOPIC first — SYSTEM_NOTICE_TOPICS references it. Same trap as above. */
+  liftConst('FIX_NOTICE_TOPIC') +
   liftConst('MSG_TYPE_MEMBER') + liftConst('SYSTEM_NOTICE_TOPICS') +
   liftFn('esc') + liftFn('fmtPhone') + liftFn('msgTypeOf') +
   liftFn('msgErrorTokenTail') + liftFn('msgErrorWhoIs') +
@@ -642,6 +649,7 @@ if(!JSDOM){
   const win = dom.window, docu = win.document;
   const ED = liftConst('MSG_TYPE_MEMBER') + liftConst('MSG_CATEGORIES') + liftConst('MSG_STATUS') +
     liftConst('MSG_STATUS_LABEL') + liftConst('MSG_PRIORITY') + liftConst('MSG_PRIORITY_LABEL') +
+    liftConst('FIX_NOTICE_TOPIC') +
     liftConst('SYSTEM_NOTICE_TOPICS') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
     liftFn('esc') + liftFn('msgTypeOf') + liftFn('msgCategories') + liftFn('msgStatusOf') +
     liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
@@ -716,7 +724,7 @@ if(!JSDOM){
 if(JSDOM){
   const dom2 = new JSDOM('<!doctype html><body><div id="commCentreNav"></div></body>');
   const d2 = dom2.window.document;
-  const NAV = liftConst('MSG_TYPE_MEMBER') + liftConst('SYSTEM_NOTICE_TOPICS') +
+  const NAV = liftConst('FIX_NOTICE_TOPIC') + liftConst('MSG_TYPE_MEMBER') + liftConst('SYSTEM_NOTICE_TOPICS') +
     liftConst('MSG_CATEGORIES') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
     liftConst('MSG_STATUS') + liftConst('MSG_STATUS_LABEL') + liftConst('MSG_PRIORITY') +
     liftConst('MSG_PRIORITY_LABEL') + liftConst('MSG_SEVERITY_LABEL') + liftConst('COMM_ACTIVITY_TOPICS') +

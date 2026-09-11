@@ -38218,8 +38218,18 @@ suite('Suite 140. A finished fix takes its photo with it');
     doneSrc.indexOf("updateDoc(doc(db, 'jobAddresses', id), fields)") <
     doneSrc.indexOf('hlxRetireFixPhoto'),
     'the done state is what matters; the photo is cleaned up behind it');
+  /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. This proved the gating by asserting that NO
+     bare `kind === 'fix')` appeared anywhere in the function — that is, by pinning to a
+     string's absence rather than to what must be true. [[FIX-02]] added a second fix
+     branch that legitimately runs on BOTH sides (the System notice is raised when a
+     fault is reported and cleared when it is mended), so the old form began failing on
+     code that is right. It now asks the real question: the branch the DESTROY sits in
+     is gated on `done`. Same slow-fuse shape as S82, S129 and the folder-names suite. */
+  const destroyAt = doneSrc.indexOf('hlxRetireFixPhoto');
+  const guardBefore = doneSrc.lastIndexOf("kind === 'fix'", destroyAt);
   check('S140', 'only when marking done, never when unticking',
-    /kind === 'fix' && done\b/.test(doneSrc) && !/kind === 'fix'\s*\)/.test(doneSrc),
+    destroyAt > 0 && guardBefore > 0 &&
+    /^kind === 'fix' && done\b/.test(doneSrc.slice(guardBefore)),
     'unticking a fix must not destroy the photo the office is about to look at');
   check('S140', 'and the field is cleared only if the picture really went',
     /if \(gone\.cleared\) \{/.test(doneSrc),
@@ -49985,17 +49995,25 @@ suite('292. Cancellations, the member portal, and folders in the System tab');
   const homeMap = (admin.match(/const MESSAGE_HOME_FOLDER = \{[\s\S]*?\};/) || [])[0];
   /* Lifted for the same reason as in Suite 273 above — see the note there. */
   const errConsts292 = (admin.match(/const ERROR_FOLDER = [\s\S]*?const ADMIN_ERROR_TOPIC = '[^']*';/) || [])[0];
+  /* ⚠ LIFTED, NEVER STUBBED — the extraction-list trap for the seventh time, and the
+     same shape as MESSAGE_HOME_FOLDER's two keys in Suite 273: SYSTEM_NOTICE_SECTION_OF
+     stopped being a table of plain strings when [[FIX-02]] added a computed key, so
+     lifting the table alone died on a bare ReferenceError and took the whole suite with
+     it. A stub would let this suite stay green through a change to where a fix notice
+     lands, which is the one thing it exists to protect. */
+  const fixTopic292 = (admin.match(/const FIX_NOTICE_TOPIC = '[^']*';/) || [])[0];
   const folderOf = extractFn(admin, 'messageFolderOf');
   const sectionOf = extractFn(admin, 'systemNoticeSection');
   const secMap = (admin.match(/const SYSTEM_NOTICE_SECTION_OF = \{[\s\S]*?\};/) || [])[0];
   const secList = (admin.match(/const SYSTEM_NOTICE_SECTIONS = \[[\s\S]*?\];/) || [])[0];
   check('S292', 'the two tables and the two rules were all found',
-    !!homeMap && !!folderOf && !!sectionOf && !!secMap && !!secList && !!errConsts292,
+    !!homeMap && !!folderOf && !!sectionOf && !!secMap && !!secList && !!errConsts292 &&
+    !!fixTopic292,
     'renamed? update this suite rather than deleting it');
 
   if (homeMap && folderOf && sectionOf && secMap && secList) {
     const api = new Function(
-      (errConsts292 || '') + NL292 +
+      (errConsts292 || '') + NL292 + (fixTopic292 || '') + NL292 +
       homeMap + NL292 + folderOf + NL292 + secMap + NL292 + secList + NL292 + sectionOf + NL292 +
       'return {folderOf: messageFolderOf, sectionOf: systemNoticeSection,' +
       ' sections: SYSTEM_NOTICE_SECTIONS, home: MESSAGE_HOME_FOLDER};')();
