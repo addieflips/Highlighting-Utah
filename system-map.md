@@ -3999,6 +3999,49 @@ and message and no destination, so the *To Email* lives on the EmailJS template 
 `settings/emailjs.notifyTemplateId` (Admin → Automation Emails → Notify Template ID).
 Nothing here can see it, and no test can prove where the mail went.
 
+⛔ **AND IT WAS MISCONFIGURED FROM THE START — ALL THIRTEEN ALERTS WERE BEING REJECTED**
+(found 2026-09-11, with Addie reading the EmailJS screens out loud). `notifyTemplateId`
+pointed at **the customer template** — the one every invoice, RSVP and quote email goes
+through — whose **To Email** is `{{to_email}}`. The alert sends no `to_email`, so EmailJS
+refused every one for an empty recipient. Nothing had ever arrived: not a contact-form
+message, not a cancellation, not a quote answer. It read exactly like a quiet season.
+
+⚠ **THE TWO SENDERS PASS DIFFERENT THINGS, AND THAT IS WHY ONE TEMPLATE CANNOT SERVE BOTH.**
+Admin sends supply `to_email` / `to_name` / `message` (+ `button_url`, `payment_link`…);
+the public-site alert supplies `customer_name` / `customer_phone` / `customer_email` /
+`topic` / `message` and **no recipient at all**. A template written for one renders blank
+or is refused outright for the other.
+
+⛔ **SO NEVER "FIX" THIS BY TYPING THE OFFICE ADDRESS INTO THE CUSTOMER TEMPLATE'S To Email.**
+It is the tempting one-field repair and it would send all ~950 invoices and RSVPs to the
+office instead of to the customers. Two templates, permanently.
+
+⭐ **WHAT CORRECT LOOKS LIKE** (recorded because no test in this repo can see any of it, and
+the only other copy is a screen on emailjs.com):
+
+| | Customer template | Office-alert template |
+|---|---|---|
+| `settings/emailjs` key | `templateId` | `notifyTemplateId` |
+| To Email | `{{to_email}}` | the office Gmail, **typed literally** |
+| Subject | `{{subject}}` | `{{topic}} — {{customer_name}}` |
+| Body | `Hi {{to_name}},` + `{{{message}}}` (triple — those bodies are HTML) | `Hi {{customer_name}},` + `{{message}}` (double — it carries text a customer typed) |
+| Reply To | the office address, so customer replies reach a person | `{{customer_email}}`, so hitting Reply answers the customer |
+
+⚠ **`customer_name` IS FILLED ON ALL THIRTEEN PATHS**, so the greeting never renders "Hi ,":
+the three contact forms mark the name `required`, the portal actions read the signed-in
+customer's record, and the quote answers read the quote. It is who TRIGGERED the alert, not
+who sent it — and on a portal action it is the name on the ACCOUNT, so a spouse signing in
+shows the account holder.
+
+⚠ **AND THE TWO TEMPLATES MUST NOT BE NAMED ALIKE.** This bug existed because one template
+was doing two jobs; the names are now the only thing keeping them apart, and opening the
+wrong one to edit customer copy re-breaks the alerts silently.
+
+⚠ **THE FAILURE IS STILL CONSOLE-ONLY.** `notifyBusinessOfMessage` logs a refusal and
+nothing else — which is why this sat broken and looked like customers not writing in. It
+does NOT file into Errors → Admin Errors the way other faults do. That is the gap worth
+closing next; until it is, a rejected alert is indistinguishable from silence.
+
 ⭐ **And both directions are now driven in a real browser.** `test/address-move.spec.js`
 presses the button and reads the alert back, and presses **Save Information** on My Info and
 asserts NO alert — the regression guard that matters, because moving the call up into that
