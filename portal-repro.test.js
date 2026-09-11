@@ -313,6 +313,66 @@ function report(label, got, expected) {
   report('no page reads .value straight off a :checked query',
     unguarded.length ? unguarded.join(', ') : 'none', 'none');
 
+  /* ================= SCENARIO: a call that never got an answer =================
+     Every one of the twelve urgent Member Errors raised from RSVP email links on
+     8-10 September reported `deadline-exceeded` or `internal` — the two codes the
+     callable CLIENT raises when the request never completed, rather than the server
+     refusing anything. callPortalFn made exactly one attempt, so each of those was a
+     customer's answer lost to one slow cold start.
+
+     ⚠ THE REAL FUNCTION, SLICED VERBATIM, like everything else in this file — and
+     with setTimeout stubbed out, so the gate proves the retry without sitting through
+     the backoff it schedules. */
+  console.log('\nSCENARIO 8 — a portal call that never gets an answer');
+  const retryStart = src.indexOf('var PORTAL_RETRY_CODES');
+  const cpfAt = src.indexOf('async function callPortalFn(', retryStart);
+  let retrySrc = '';
+  if (retryStart !== -1 && cpfAt !== -1) {
+    let depth = 0, i = src.indexOf('{', cpfAt);
+    for (; i < src.length; i++) {
+      if (src[i] === '{') depth++;
+      else if (src[i] === '}') { depth--; if (!depth) break; }
+    }
+    retrySrc = src.slice(retryStart, i + 1);
+  }
+  report('callPortalFn and its retry rule are in index.html',
+    retrySrc ? 'found' : 'MISSING', 'found');
+
+  if (retrySrc) {
+    let attempts = 0, mode = '';
+    const fakeCallable = function () {
+      return function () {
+        attempts++;
+        if (mode === 'transient-then-ok' && attempts < 3) throw errWith('functions/deadline-exceeded');
+        if (mode === 'always-transient') throw errWith('functions/internal');
+        if (mode === 'decided') throw errWith('functions/not-found');
+        return Promise.resolve({ data: { ok: true } });
+      };
+    };
+    function errWith(code) { const e = new Error(code.replace('functions/', '')); e.code = code; return e; }
+    /* setTimeout fires straight away: the backoff is real in the page and pointless here. */
+    const built = new Function('httpsCallable', 'fbFunctions', 'console', 'setTimeout',
+      retrySrc + '; return callPortalFn;')(fakeCallable, {}, { warn: function () {} },
+      function (f) { f(); });
+
+    mode = 'transient-then-ok'; attempts = 0;
+    let got = null;
+    try { got = await built('portalRsvp', {}); } catch (e) { got = null; }
+    report('a call that times out twice still gets the answer through',
+      got && got.ok ? 'answered on attempt ' + attempts : 'gave up', 'answered on attempt 3');
+
+    mode = 'decided'; attempts = 0;
+    try { await built('portalRsvp', {}); } catch (e) { /* expected */ }
+    report('a server that has DECIDED is not asked twice',
+      'attempts: ' + attempts, 'attempts: 1');
+
+    mode = 'always-transient'; attempts = 0;
+    let threw = '';
+    try { await built('portalRsvp', {}); } catch (e) { threw = String(e && e.code); }
+    report('and when every attempt fails the original error still reaches the apology',
+      threw + ' after ' + attempts, 'functions/internal after 3');
+  }
+
   console.log('\n' + (failures ? failures + ' result(s) differed from a working portal' : 'everything behaved'));
   if (failures) {
     console.log('\nThe portal behaved differently from a working one. The scenario above');

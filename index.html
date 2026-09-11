@@ -2410,10 +2410,64 @@ const fbFunctions = getFunctions(fbApp);
 /* Printed to the console on every load, so it is possible to tell at a glance
    whether the browser is running the newest file or a cached one. */
 console.log('%cHighlighting Utah build: 2026-08-11 17:28 UTC', 'color:#3E7A5B; font-weight:bold;');
+/* ⭐ A CALL THAT NEVER GOT AN ANSWER GETS ANOTHER GO, BECAUSE THE CUSTOMER WILL NOT
+   (2026-09-11). Every one of the twelve urgent Member Errors raised from RSVP email links
+   reported `deadline-exceeded` or `internal`. Those are not the server saying no — they are
+   the two codes the callable CLIENT raises when the request never completed at all: its own
+   70-second deadline, and the fetch failing outright. The server never answered, so nothing
+   was decided and nothing was written.
+
+   ⚠ AND ONE ATTEMPT WAS THE WHOLE OF IT. This was a bare httpsCallable, so a single slow
+   cold start became an apology and a lost answer. portalRsvp runs at minInstances 0 and its
+   own logs show most invocations starting a new instance, which means the slowest call this
+   site ever makes is the one a customer makes from an email, on a phone, exactly once. To
+   them it then looks like they already told us — the precise failure the Member Errors
+   folder exists to catch, arriving through the one path that had no second chance.
+
+   ⚠ ONLY THE CODES THAT MEAN "NO ANSWER" ARE RETRIED. not-found, invalid-argument,
+   permission-denied, already-exists and failed-precondition are the server having decided;
+   asking again only makes the customer wait longer for the same no, and `not-found` in
+   particular is the one portalCallFailedText turns into the friendly out-of-date-link
+   wording. resource-exhausted is left out on purpose too — retrying a quota failure is how
+   a busy minute becomes a broken hour.
+
+   ⚠ RETRYING IS SAFE BECAUSE EVERY PORTAL CALLABLE SETS RATHER THAN COUNTS. portalRsvp,
+   portalSave, portalSetGateCode, portalChangeAddress, quoteRespond and quoteSaveDetails all
+   write a field to a value and none of them creates a customer or adds to a total, so a
+   second attempt after a first that silently landed writes the same answer twice rather
+   than two different ones. The one-shot guards already in the server hold the rest: the
+   referral claw-back is gated on the status it is about to change, so it cannot be taken
+   twice. Do not add a caller here that ADDS anything without giving it its own key. */
+var PORTAL_RETRY_CODES = ['deadline-exceeded', 'internal', 'unavailable', 'aborted'];
+var PORTAL_RETRY_ATTEMPTS = 3;
+function portalCallRetryable(err){
+  /* The SDK reports `functions/deadline-exceeded` on the code and a bare
+     `deadline-exceeded` as the message; both spellings are accepted so this cannot
+     quietly stop matching the thing it was written for. */
+  var raw = String((err && (err.code || err.status || err.message)) || '').toLowerCase();
+  var code = raw.replace(/^functions\//, '').trim();
+  return PORTAL_RETRY_CODES.indexOf(code) !== -1;
+}
 async function callPortalFn(name, payload){
   var fn = httpsCallable(fbFunctions, name);
-  var res = await fn(payload || {});
-  return res.data;
+  var lastErr = null;
+  for(var attempt = 1; attempt <= PORTAL_RETRY_ATTEMPTS; attempt++){
+    /* Waiting BEFORE the retry rather than after the failure, so the last attempt is
+       never followed by a pause the customer sits through for nothing. */
+    if(attempt > 1) await new Promise(function(r){ setTimeout(r, (attempt - 1) * 1200); });
+    try{
+      var res = await fn(payload || {});
+      return res.data;
+    }catch(err){
+      lastErr = err;
+      if(!portalCallRetryable(err)) throw err;
+      console.warn('[HU] portal call ' + name + ' got ' + (err && (err.code || err.message)) +
+        ' with no answer — attempt ' + attempt + ' of ' + PORTAL_RETRY_ATTEMPTS);
+    }
+  }
+  /* Out of attempts: the original error travels on untouched, so portalCallFailedText
+     still files a Member Error and still says the right thing to the customer. */
+  throw lastErr;
 }
 function getActivePortalToken(){
   try{ return localStorage.getItem('huPortalToken') || null; }catch(e){ return null; }
