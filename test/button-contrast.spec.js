@@ -156,7 +156,15 @@ test.describe('The RSVP card is centred, not shoved to one side', () => {
        every pageerror, still fails this test. */
     page.on('console', m => {
       const t = m.text();
-      if (m.type() === 'error' && !BLOCKED_RESOURCE.test(t) && !/portal call failed/.test(t)) thrown.push(t);
+      /* ⚠ THE RETRY LINE IS EXPECTED TOO (2026-09-11, [[RS-58]]). A timeout or an
+         internal error out of portalRsvp means the RESPONSE was lost, not the write, so
+         the browser now tries again — and says each attempt out loud for the same reason
+         it says the final failure out loud. `forceinternal` fails every time by design, so
+         this route legitimately prints one line per attempt. Widening the allow-list, not
+         silencing it: anything that is neither the retry notice nor the final report still
+         fails this test, and every pageerror still does. */
+      if (m.type() === 'error' && !BLOCKED_RESOURCE.test(t) &&
+          !/portal call failed/.test(t) && !/portalRsvp attempt \d+ failed/.test(t)) thrown.push(t);
     });
     await page.goto('/index.html#/payment?token=forceinternal&rsvp=yes');
     /* ⭐ An RSVP link no longer answers on open — one tap confirms it. */

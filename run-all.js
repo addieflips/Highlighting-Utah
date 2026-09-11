@@ -3703,14 +3703,31 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
          is broken" instead of "one helper is missing". */
       removeCustomerFromUpcomingRoutes: async (id) => { sweptFromRoutes.push(id); return 0; },
       db: {
-        collection: (name) => ({
-          doc: () => ({ update: async (u) => { Object.assign(written, u); } }),
-          add: async (m) => { added.push(Object.assign({ __col: name }, m)); },
-          get: async () => ({ docs: (routes || []).map(r => ({
+        collection: (name) => {
+          /* ⚠ `.where` IS MODELLED AND REALLY FILTERS (2026-09-11). The real
+             removeCustomerFromUpcomingRoutes asks for `date >= today` rather than reading
+             every route ever written ([[RS-58]]), and a fake offering `get` alone turned
+             that into a TypeError — swallowed by that function's own try/catch, so the
+             sweep silently did nothing and three checks here went red without naming why.
+             The real function declared in fullSrc shadows the stub above it, which is what
+             makes these three checks about the SWEEP rather than about a call being made. */
+          const docsFor = (list) => ({ docs: (list || []).map(r => ({
             data: () => r,
             ref: { update: async (u) => { routeWrites.push({ id: r.id, stops: u.stops }); } }
-          })) })
-        })
+          })) });
+          return {
+            doc: () => ({ update: async (u) => { Object.assign(written, u); } }),
+            add: async (m) => { added.push(Object.assign({ __col: name }, m)); },
+            get: async () => docsFor(routes),
+            where: (field, op, value) => ({ get: async () => docsFor((routes || []).filter(r => {
+              const v = r[field];
+              if (op === '>=') return v !== undefined && v >= value;
+              if (op === '>')  return v !== undefined && v > value;
+              if (op === '==') return v === value;
+              throw new Error('this harness does not model ' + op);
+            })) })
+          };
+        }
       },
       console
     };
@@ -7873,17 +7890,40 @@ if (!JSDOM) {
   }
   const rSrc = fnsSrc.slice(rStart, fnsSrc.indexOf('\n}', rStart) + 2);
 
+  /* ⚠ THE FAKE UNDERSTANDS `.where` NOW, AND IT REALLY FILTERS (2026-09-11). It used to
+     offer `get` alone, so when the real function started asking for `date >= today` the
+     call was a TypeError — swallowed by that function's own try/catch, which then returned
+     0 and swept nothing. Five checks went red at once and NONE of them named the cause,
+     because the symptom is a sweep that quietly does nothing. A fake that cannot express
+     the query the code makes is a fake that fails correct code.
+     ⚠ AND IT RECORDS THAT THE QUERY WAS NARROWED. With the filter modelled, the old
+     read-everything shape passes these checks too — the `continue` inside the loop drops
+     the same rows — so without `usedWhere` a revert to `.get()` is invisible. That read
+     the WHOLE season to answer a question about the days ahead, inside portalRsvp, after
+     the customer's answer is written but before the reply reaches them ([[RS-58]]). */
   function makeRouteHarness(routes) {
     const updated = [];
+    const seen = { usedWhere: false };
+    const docsFor = (list) => ({
+      docs: list.map(r => ({
+        data: () => r,
+        ref: { update: async (payload) => { updated.push({ id: r.id, payload }); r.stops = payload.stops; } }
+      }))
+    });
     const ctx = {
       db: {
         collection: () => ({
-          get: async () => ({
-            docs: routes.map(r => ({
-              data: () => r,
-              ref: { update: async (payload) => { updated.push({ id: r.id, payload }); r.stops = payload.stops; } }
-            }))
-          })
+          get: async () => docsFor(routes),
+          where: (field, op, value) => {
+            seen.usedWhere = true;
+            return { get: async () => docsFor(routes.filter(r => {
+              const v = r[field];
+              if (op === '>=') return v !== undefined && v >= value;
+              if (op === '>')  return v !== undefined && v > value;
+              if (op === '==') return v === value;
+              throw new Error('the route harness does not model ' + op + ' — teach it rather than widening the query');
+            })) };
+          }
         })
       },
       todayStrInDenver: () => '2026-11-20',
@@ -7891,7 +7931,7 @@ if (!JSDOM) {
     };
     const names = Object.keys(ctx);
     const fn = new Function(...names, rSrc + '\nreturn removeCustomerFromUpcomingRoutes;')(...names.map(n => ctx[n]));
-    return { fn, updated };
+    return { fn, updated, seen };
   }
 
   const upcomingRoute = { id: 'r-upcoming', date: '2026-11-25', stops: [{ id: 'cust-1' }, { id: 'cust-2' }] };
@@ -7906,6 +7946,10 @@ if (!JSDOM) {
     check('rsvp-routes', 'removeCustomerFromUpcomingRoutes runs without throwing',
       threw === null,
       'it threw ' + (threw && threw.message) + ' — every caller silently fails to sweep routes');
+    check('rsvp-routes', 'it asks only for the days still to come, not the whole season',
+      harness.seen.usedWhere,
+      'reading every scheduledRoutes document ever written is time the customer spends ' +
+      'watching "One moment" — and when it overran they were told their answer had failed');
     check('rsvp-routes', 'the customer is stripped from the upcoming route\'s stops',
       !upcomingRoute.stops.some(s => s.id === 'cust-1'),
       'a customer who declined would still be a stop on a route the crew is about to run');

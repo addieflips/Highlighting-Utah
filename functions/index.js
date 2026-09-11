@@ -2802,7 +2802,16 @@ async function removeCustomerFromUpcomingRoutes(customerId) {
   let removedFrom = 0;
   try {
     const todayStr = todayStrInDenver();
-    const routesSnap = await db.collection('scheduledRoutes').get();
+    /* ⚠ ONLY THE DAYS STILL TO COME (2026-09-11). This read EVERY route document ever
+       written and threw most of them away on the next line — a whole season of days to
+       answer a question about the days ahead. It runs inside portalRsvp, AFTER the
+       customer's answer is written but BEFORE the reply reaches them, so the time it
+       takes is time the customer spends looking at "One moment…" — and when it overran,
+       they were told their answer had failed for an answer we already had.
+       ⚠ THE `continue` BELOW IS KEPT, NOT REPLACED. A document with no `date` at all is
+       excluded by this query and was skipped by that line, so the two agree — but the
+       line is what holds if the query is ever widened again, and it costs nothing. */
+    const routesSnap = await db.collection('scheduledRoutes').where('date', '>=', todayStr).get();
     for (const rDoc of routesSnap.docs) {
       const rd = rDoc.data();
       if ((rd.date || '') < todayStr) continue;

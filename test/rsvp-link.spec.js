@@ -328,11 +328,50 @@ test.describe('An RSVP link that no longer matches an account', () => {
   /* ⚠ A GENUINE OUTAGE MUST STILL READ AS ONE. Calling every failure a stale
      link is the opposite error, and it hides a real fault behind a reassuring
      sentence — the exact caveat written into portalCallFailedText. */
-  test('a real server failure still reads as a failure, not a stale link', async ({ page }) => {
+  /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. It matched "something went wrong", which was
+     a flat claim that the answer was lost — and Addie proved it wrong: three customers
+     this reported were confirmed on their records. portalRsvp writes the answer before it
+     does anything slow, so a timeout or an `internal` means the RESPONSE went missing, not
+     the write. The guarantee this check exists for is unchanged and is still asserted: a
+     genuine outage must NOT read as a stale link. What changed is the other half. */
+  test('a real server failure does not read as a stale link, and does not claim the answer was lost', async ({ page }) => {
     const stub = await open(page, '/index.html#/payment?token=forceinternal&rsvp=yes');
 
-    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/something went wrong/i);
+    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/may already be saved/i);
+    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/901-0011/);
     await expect(page.locator('#rsvpConfirmMsg')).not.toContainText(/out of date/i);
+
+    stub.assertNoRealCalls();
+  });
+
+  /* ⭐ AND A SLOW ANSWER IS NOT A LOST ONE. This is the case from the Errors folder:
+     seven members over three days were told their RSVP failed, and the ones Addie checked
+     were confirmed on their records all along. */
+  test('an answer that times out once is retried, and goes through', async ({ page }) => {
+    const stub = await open(page, '/index.html#/payment?token=failoncethenok&rsvp=yes');
+
+    /* The customer never learns anything went wrong — no apology, no phone number. */
+    await expect(page.locator('#rsvpConfirmMsg')).not.toContainText(/901-0011/);
+    await expect(page.locator('#rsvpConfirmMsg')).not.toContainText(/may already be saved/i);
+
+    /* ⚠ AND IT REALLY WENT TWICE. Without this the check passes on a page that simply
+       swallowed the failure and said nothing, which is worse than the apology. */
+    const tries = (await stub.calls()).filter(c => c.name === 'portalRsvp');
+    expect(tries.length, 'the first attempt was not retried').toBe(2);
+    expect(tries[1].payload.response).toBe('yes');
+
+    stub.assertNoRealCalls();
+  });
+
+  /* ⚠ A STALE LINK IS STILL REFUSED ON THE FIRST TRY. Retrying it only makes the customer
+     wait three times as long for the same sentence, and the not-found path is the one
+     failure we CAN be certain about. */
+  test('a stale link is not retried', async ({ page }) => {
+    const stub = await open(page, '/index.html#/payment?token=nosuchtoken&rsvp=yes');
+
+    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/out of date/i);
+    const tries = (await stub.calls()).filter(c => c.name === 'portalRsvp');
+    expect(tries.length, 'a link that cannot be found was tried more than once').toBe(1);
 
     stub.assertNoRealCalls();
   });

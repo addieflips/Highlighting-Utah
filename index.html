@@ -5201,7 +5201,7 @@ function handleRsvpLink(token, rsvpValue){
   confirmMsg.textContent = 'One moment\u2026';
   /* savePortalLogin is INSIDE the tap too: a bare open must leave no trace at all. */
   savePortalLogin(token);
-  callPortalFn('portalRsvp', {token: token, response: rsvpValue === 'yes' ? 'yes' : 'no'}).then(function(res){
+  callPortalRsvp({token: token, response: rsvpValue === 'yes' ? 'yes' : 'no'}).then(function(res){
     /* ⚠ UNREACHABLE THROUGH TODAY'S SERVER, AND KEPT. portalRsvp reports a
        miss by THROWING, so a failure rejects the callable and lands in the
        catch below — this branch is the correct handling if it is ever changed
@@ -5447,7 +5447,7 @@ function handleRsvpLink(token, rsvpValue){
        the wrong one. */
     var empty = document.getElementById('lookupEmpty');
     if(empty) empty.style.display = 'none';
-    if(confirmMsg) confirmMsg.textContent = portalCallFailedText(err, 'account', rsvpValue === 'yes' ? 'Answering Yes to the RSVP email' : 'Answering No to the RSVP email');
+    if(confirmMsg) confirmMsg.textContent = rsvpMaybeSavedText(err, rsvpValue === 'yes' ? 'Answering Yes to the RSVP email' : 'Answering No to the RSVP email');
   }
 }
 function handleBackNextYear(token){
@@ -5467,15 +5467,15 @@ function handleBackNextYear(token){
     function(){
   if(msg) msg.textContent = 'One moment\u2026';
   // "Back Next Year" gets its own status and never triggers light recycling.
-  callPortalFn('portalRsvp', {token: token, response: 'backnextyear'}).then(function(res){
+  callPortalRsvp({token: token, response: 'backnextyear'}).then(function(res){
     if(!res || !res.ok){
-      if(msg) msg.textContent = portalCallFailedText(null, 'account', 'Answering Back Next Year from the RSVP email');
+      if(msg) msg.textContent = rsvpMaybeSavedText(null, 'Answering Back Next Year from the RSVP email');
       return;
     }
     if(title) title.style.display = 'block';
     if(msg) msg.textContent = 'We look forward to seeing you next year!';
   }).catch(function(err){
-    if(msg) msg.textContent = portalCallFailedText(err, 'account', 'Answering Back Next Year from the RSVP email');
+    if(msg) msg.textContent = rsvpMaybeSavedText(err, 'Answering Back Next Year from the RSVP email');
   });
   });
 }
@@ -5573,7 +5573,7 @@ function memberErrorTokenTail(){
 }
 /* ⚠ NEVER THROWS. Every caller is already handling a failure; a reporter that can fail on
    top of it would replace the apology the customer is about to read with a blank screen. */
-function reportMemberError(doing, err, who){
+function reportMemberError(doing, err, who, opts){
   try{
     if(memberErrorBusy || memberErrorCount >= MEMBER_ERROR_MAX_PER_VISIT) return;
     /* ⭐ NAME THEM WHEN WE CAN. A failure inside the portal is the one case where we
@@ -5611,9 +5611,28 @@ function reportMemberError(doing, err, who){
         message: 'A customer hit an error on the website.' + String.fromCharCode(10,10) +
           'What they were doing: ' + String(doing || 'using the website') + String.fromCharCode(10) +
           'What went wrong: ' + String(reason).slice(0, 300) + String.fromCharCode(10,10) +
-          'They were shown an apology and our phone number, so they may ring. Whatever they ' +
-          'were trying to do did NOT save \u2014 if this was an RSVP or a quote answer, we still ' +
-          'do not have it, and to them it will look like they already told us.' + String.fromCharCode(10,10) +
+          /* ⭐ IT NO LONGER CLAIMS THE ANSWER WAS LOST WHEN IT MAY NOT HAVE BEEN
+             (2026-09-11). Addie, on three customers this had reported: "It looks like those
+             ones went through and are confirmed." She was right, and the row said the
+             opposite as a flat statement of fact.
+             ⚠ portalRsvp WRITES THE ANSWER FIRST and only then does its slow work, and
+             both of those steps carry their own try/catch and cannot throw — so a timeout
+             or an `internal` reaching the browser means the RESPONSE was lost, not the
+             write. Told the answer was lost, the office chases somebody who has already
+             replied and may overwrite a good record doing it.
+             ⚠ AND THE OLD SENTENCE IS KEPT FOR THE CASES IT IS STILL TRUE OF — a refused
+             write, a stale link, anything that failed before the write. Softening it for
+             everything would be the opposite mistake: a real loss reading as a maybe is how
+             an answer nobody has is never chased. The CALLER says which it is. */
+          (opts && opts.maybeSaved
+            ? 'They were shown our phone number and told their reply may already be saved, ' +
+              'so they may ring. CHECK THE RECORD BEFORE ACTING: our system was slow to ' +
+              'answer rather than refusing, and an RSVP answer is written before that ' +
+              'happens \u2014 so this one has probably gone through.'
+            : 'They were shown an apology and our phone number, so they may ring. Whatever ' +
+              'they were trying to do did NOT save \u2014 if this was an RSVP or a quote ' +
+              'answer, we still do not have it, and to them it will look like they already ' +
+              'told us.') + String.fromCharCode(10,10) +
           'Page they were on: ' + safeHref + String.fromCharCode(10) +
           /* ⚠ ONLY WHEN SOMETHING WAS ACTUALLY CUT. On a page carrying no token the line
              is a claim about nothing, and a report that explains a redaction that did not
@@ -5661,6 +5680,75 @@ function quoteAnswerWords(action){
   if(action === 'maybe_next_year') return 'Answering Maybe Next Year to their quote';
   if(action === 'decline') return 'Declining their quote';
   return 'Answering their quote';
+}
+/* ⭐ AN RSVP THAT TIMED OUT WAS PROBABLY SAVED (2026-09-11, from the Errors folder).
+   Addie, on the three customers this reported as lost: "It looks like those ones went
+   through and are confirmed."
+
+   ⚠ SHE IS RIGHT, AND THE ROW WAS LYING. portalRsvp writes the answer to jobAddresses
+   as its FIRST action and only then does the slow work — reading the bill for a yes,
+   walking every upcoming route for a no. Both of those are already wrapped in their own
+   try/catch and cannot throw, so an `internal` or a `deadline-exceeded` reaching the
+   browser means the RESPONSE was lost, not the write. The customer was apologised to,
+   told to ring us, and filed under Member Errors, for an answer we already had.
+
+   ⭐ SO IT IS RETRIED, AND THAT IS SAFE BECAUSE portalRsvp IS IDEMPOTENT — checked
+   branch by branch rather than assumed:
+     · the updates are the same values written twice;
+     · `seasonYesUpdates` computes `wasOut` from the record as it now is, so
+       cameBackThisSeasonAt and needsDayAssignedAt are not re-stamped on the second pass;
+     · `rejoinNeedsBuildServer` reads the status, which is already the new one, so the
+       Rejoined After Recycling note cannot be raised twice;
+     · `clawBackReferralServer` is guarded on the TRANSITION (`oldData.rsvpStatus !== 'no'`),
+       so a referral cannot be taken back twice;
+     · `removeCustomerFromUpcomingRoutes` filters, so running it again removes nothing.
+   ⚠ IT IS SCOPED TO portalRsvp AND NOTHING ELSE. `portalSave` can add a $30 colour-change
+   fee, and blanket-retrying every portal call is how somebody gets charged twice. Do not
+   widen this to callPortalFn.
+
+   ⚠ THE SHORT TIMEOUT IS THE POINT. The default is 70 seconds, so one bad attempt used
+   the customer's whole patience and left no room to try again. The write lands in the
+   first second of a healthy call; 25 seconds is already far past a cold start, so three
+   attempts fit inside the time one used to take. */
+function rsvpWorthRetrying(err){
+  /* ⚠ THE LIST LIVES IN HERE, for the reason rsvpAwaitConfirmTap's words do: a module-level
+     `var` beside a function that navigate() can reach is hoisted as undefined and read
+     before its own assignment line has run. That cost this page a whole release once. */
+  var retry = ['internal', 'deadline-exceeded', 'unavailable', 'aborted', 'cancelled'];
+  var code = String((err && (err.code || err.status)) || '').toLowerCase().replace('functions/', '');
+  return retry.indexOf(code) !== -1;
+}
+async function callPortalRsvp(payload){
+  var last = null;
+  for(var attempt = 0; attempt < 3; attempt++){
+    try{
+      var fn = httpsCallable(fbFunctions, 'portalRsvp', {timeout: 25000});
+      var res = await fn(payload);
+      return res.data;
+    }catch(err){
+      last = err;
+      /* A stale link or a bad answer will fail the same way every time — retrying it
+         only makes the customer wait longer for the same sentence. */
+      if(!rsvpWorthRetrying(err)) throw err;
+      console.error('[HU] portalRsvp attempt ' + (attempt + 1) + ' failed, retrying', err);
+    }
+  }
+  throw last;
+}
+/* ⚠ AND IF ALL THREE FAIL WE STILL DO NOT KNOW THAT IT WAS LOST. The write may well have
+   landed on any of them, so the customer is told what is actually true — we may have it,
+   and here is the number if they want to be sure — rather than being sent to ring us about
+   something already on file. `portalCallMissed` is untouched: a stale link IS knowable, and
+   that sentence stays exactly as it was. */
+function rsvpMaybeSavedText(err, doing){
+  if(err) console.error('[HU] portal call failed', err);
+  reportMemberError(doing, err, null, {maybeSaved: !portalCallMissed(err)});
+  if(err && !portalCallMissed(err)){
+    return "We may not have got that \u2014 our system was slow to answer. Your reply may " +
+           "already be saved. To be sure, call or text us at (801) 901-0011.";
+  }
+  return "We couldn't find your account \u2014 this link may be out of date. " +
+         "Please call or text us at (801) 901-0011 and we'll send you a fresh one.";
 }
 function portalCallMissed(err){
   var code = String((err && (err.code || err.status)) || '').toLowerCase();

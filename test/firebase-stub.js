@@ -266,7 +266,10 @@ const FAKE_FUNCTIONS_MODULE = `
        and the whole stub fails to parse -- which reads as "no tests found",
        not as a syntax error in a comment. */
     portalRsvp: function (payload) {
-      const token = String((payload && payload.token) || '').trim();
+      /* let, NOT const -- and no backticks, see the rule directly above: the
+         fail-once sentinel below swaps itself for a real customer's token once it
+         has thrown its one failure. */
+      let token = String((payload && payload.token) || '').trim();
       const response = String((payload && payload.response) || '').trim();
       if (['yes', 'no', 'backnextyear'].indexOf(response) === -1) {
         throw new Error('Unknown RSVP response: ' + response);
@@ -275,6 +278,18 @@ const FAKE_FUNCTIONS_MODULE = `
          a genuine outage still reads as one rather than as a stale link. */
       if (token === 'forceinternal') {
         const e = new Error('boom'); e.code = 'functions/internal'; throw e;
+      }
+      /* ⭐ FAILS ONCE, THEN WORKS — the shape the Errors folder actually showed
+         (2026-09-11). portalRsvp writes the answer FIRST and only then does its slow
+         work, so a timeout or an internal error means the RESPONSE was lost and the write
+         landed. The browser retries for exactly that reason, and a stub that failed
+         every time could not tell a working retry from a broken one. */
+      if (token === 'failoncethenok') {
+        F.__rsvpAttempts = (F.__rsvpAttempts || 0) + 1;
+        if (F.__rsvpAttempts === 1) {
+          const e = new Error('deadline exceeded'); e.code = 'functions/deadline-exceeded'; throw e;
+        }
+        token = (F.customers.standard || {}).token;
       }
       let hit = null;
       Object.keys(F.customers || {}).forEach(function (k) {

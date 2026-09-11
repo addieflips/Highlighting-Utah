@@ -3695,6 +3695,62 @@ because the folder earning its keep within two days is the argument for it.
   so `isOutForSeason` drops them. **The rows are the only record that they answered at
   all**, which is the whole reason this folder exists.
 
+#### The seven "lost" RSVPs were not lost (2026-09-11, [[RS-58]])
+
+Addie, checking three of the members the Errors folder had reported: *"It looks like those
+ones went through and are confirmed."*
+
+⭐ **She is right, and the row was stating the opposite as fact.** `portalRsvp` writes the
+answer to `jobAddresses` as its **first** action, and only then does the slow work — reading
+the bill for a yes, walking the upcoming routes for a no. Both of those carry their own
+try/catch and cannot throw. So an `internal` or a `deadline-exceeded` arriving in the browser
+means **the response went missing, not the write.**
+
+⛔ **It cost something in both directions.** The customer was apologised to and told to ring
+us about an answer we already had. And the Member Errors row said *"did NOT save … we still
+do not have it"* — which sends the office to chase, and possibly overwrite, a good record.
+
+⭐ **So the call is retried**, up to three times on a 25-second timeout. That is safe because
+`portalRsvp` is idempotent, and that was checked branch by branch rather than assumed:
+
+- the updates are the same values written twice;
+- `seasonYesUpdates` computes `wasOut` from the record **as it now is**, so `cameBackThisSeasonAt`
+  and `needsDayAssignedAt` are not re-stamped on the second pass;
+- `rejoinNeedsBuildServer` reads the already-updated status, so the Rejoined After Recycling
+  note cannot be raised twice;
+- `clawBackReferralServer` is guarded on the **transition**, so a referral cannot be taken
+  back twice;
+- `removeCustomerFromUpcomingRoutes` filters, so running it again removes nothing.
+
+⚠ **Scoped to `portalRsvp` and nothing else.** `portalSave` can add a $30 colour-change fee,
+and blanket-retrying `callPortalFn` is how somebody gets charged twice. Do not widen it.
+
+⚠ **The short timeout is the point.** The default is 70 seconds, so one bad attempt spent the
+customer's whole patience and left no room to try again. Three attempts now fit inside the
+time one used to take.
+
+⚠ **A stale link is still refused on the first try.** `not-found` is the one failure we *can*
+be certain about, and retrying it only makes the customer wait three times as long for the
+same sentence.
+
+⚠ **And when all three fail we still do not know it was lost.** Both the customer and the
+Inbox row now say the reply may already be saved. The old wording is **kept** for the cases it
+is still true of — a refused write, a stale link, anything that failed before the write —
+because a real loss reading as a maybe is how an answer nobody has is never chased. The caller
+says which it is.
+
+⭐ **And the route sweep stopped reading the whole season.** `removeCustomerFromUpcomingRoutes`
+read **every** `scheduledRoutes` document ever written and threw most of them away on the next
+line. It now asks for `date >= today`. That runs inside `portalRsvp` after the answer is written
+but before the reply reaches the customer, so its cost is time they spend looking at "One
+moment…" — and when it overran, they were told their answer had failed.
+
+⚠ **What this does NOT explain**, so nobody claims it does: *why* the function was slow or
+returned `internal` in the first place. `functions/index.js` is a 329KB module with no
+`minInstances`, so a burst of RSVP opens right after a send is a burst of cold starts — that is
+a hypothesis, not a finding, and the Cloud Functions log is what settles it. The retry makes the
+symptom survivable; it is not the diagnosis.
+
 #### Opening an RSVP link is no longer answering it (2026-09-11, [[RS-57]])
 
 Addie: *"lets do a confimring step."*
