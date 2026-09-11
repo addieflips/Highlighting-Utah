@@ -3082,7 +3082,8 @@ async function declineAsksAboutLastYear(quoteData, quoteId) {
      ⚠ ONLY THOSE TWO VALUES: a cancellation request was put there by something
      that is not this quote, and clearing it would un-cancel somebody. */
   const was = String((cust.data || {}).seasonStatus || '');
-  if (QUOTE_RAISED_STATUSES_SERVER.indexOf(was) !== -1) updates.seasonStatus = 'confirmed';
+  if (QUOTE_RAISED_STATUSES_SERVER.indexOf(was) !== -1 &&
+      quoteAnswerMayClearStatusServer(cust.data)) updates.seasonStatus = 'confirmed';
   /* ⚠ THE THIRD WRITER, and it was missed until a census went looking. Settling a
      customer's changes is as much a status change as asking for them, and undated the
      history can say a re-quote was owed and never that it was answered. `was` is the
@@ -3196,6 +3197,46 @@ function quoteButtonLabelsServer(quoteData) {
  * definition has not happened to one that is being declined. Clearing them
  * "to be safe" would cancel a build the customer never asked to cancel. */
 const QUOTE_RAISED_STATUSES_SERVER = ['needs_changes', 'address_changed'];
+/* ⭐ A QUOTE'S ANSWER MAY NOT CLEAR A MOVE NOBODY HAS APPLIED (2026-09-11, QT-37).
+ * Addie, shown the drift and asked whether to tighten it: "go ahead."
+ *
+ * ⚠ THE LIST'S PREMISE STOPPED BEING TRUE, AND THE OLD REASONING ABOVE IS KEPT
+ * BECAUSE IT IS STILL RIGHT ABOUT WHAT IT REFUSED. It says anything sitting in
+ * seasonStatus was put there by THIS quote, so clearing it is withdrawing this
+ * quote's own question — true of both values when it was written, and still true
+ * of needs_changes. Then portalChangeAddress (QT-35) became a SECOND writer of
+ * address_changed, raised by the customer reporting a move and answered only when
+ * the office APPLIES it. An add-on refusal, a "same as last year" refusal or a
+ * deleted price re-quote does not answer that, and all three were clearing it.
+ *
+ * ⚠ WHAT IT ACTUALLY COST, said accurately so nobody looks for a worse bug:
+ * nothing routed or billed. seasonStatus is read for DISPLAY only — the pill on
+ * the customer row, the history line — and the pending move itself survives
+ * either way, because the office banner reads pendingAddress rather than the
+ * status. What went was the one signal on that row saying a house we have not
+ * re-quoted is not settled.
+ *
+ * ⚠ pendingAddress IS THE SIGNAL, NOT A SECOND OPINION — the same field the Edit
+ * Customer banner reads and the same field that save clears once the address has
+ * moved. Asking "is the status address_changed" instead would be a guess about
+ * which writer put it there, and there is only one seasonStatus field: a move can
+ * be outstanding while the pill shows needs_changes because something else wrote
+ * last. So it holds on the PENDING MOVE, whichever of the two is showing.
+ *
+ * ⭐ AND THE HOLD IS BOUNDED, WHICH IS THE WHOLE ARGUMENT FOR IT. The hole the
+ * clearing was written to close is a customer sitting in Needs Changes "for ever
+ * with nothing left anywhere to clear it". Here there IS something left — the
+ * move, which the office applies, and that save clears pendingAddress and raises
+ * the re-quote that answers the status properly. Not clearing is a wait, not a
+ * dead end, so failing towards the wait is safe in a way it would not otherwise be.
+ *
+ * ⚠ IT IS NOT A FAILURE AND MUST NOT BE REPORTED AS ONE. The status still reading
+ * Needs Changes is the honest answer while a move is outstanding, so this adds no
+ * problem, no follow-up flag and no note — a follow-up raised for correct
+ * behaviour is how the office learns to click past the ones that matter. */
+function quoteAnswerMayClearStatusServer(custData) {
+  return !String((custData && custData.pendingAddress) || '').trim();
+}
 async function declineAddOnOnly(quoteData, quoteId) {
   const problems = [];
   /* ⚠ SAME RULE AS THE SEASON DECLINE: a lookup that could not run is not the
@@ -3212,7 +3253,8 @@ async function declineAddOnOnly(quoteData, quoteId) {
 
   let cleared = false;
   const was = String((cust.data || {}).seasonStatus || '');
-  if (QUOTE_RAISED_STATUSES_SERVER.indexOf(was) !== -1) {
+  if (QUOTE_RAISED_STATUSES_SERVER.indexOf(was) !== -1 &&
+      quoteAnswerMayClearStatusServer(cust.data)) {
     const wrote = await tryFirestore('add-on decline seasonStatus clear', () =>
       db.collection('jobAddresses').doc(cust.id).update({ seasonStatus: 'confirmed' }));
     cleared = wrote.ok;

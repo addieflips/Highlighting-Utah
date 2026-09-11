@@ -64095,6 +64095,18 @@ async function runProjectTestSync(){
    that is not this quote, and clearing it would be this button reaching past what it
    was pressed to do. */
 const QUOTE_RAISED_STATUSES = ['needs_changes', 'address_changed'];
+/* ⭐ DELETING A QUOTE MAY NOT CLEAR A MOVE NOBODY HAS APPLIED (2026-09-11, QT-37).
+   The office copy of quoteAnswerMayClearStatusServer in functions/index.js, which
+   carries the full reasoning — read it there before changing either. In short: the
+   note above is right that anything in seasonStatus was put there by this quote, and
+   that stopped being true of address_changed when the portal's move door became a
+   second writer of it. Deleting a stale price re-quote does not answer a move.
+   ⚠ THE TWO COPIES MUST AGREE. address-move.test.js compares them, because a rule
+   about what a screen may overwrite is exactly the shape that drifts once it is
+   written down twice. */
+function quoteAnswerMayClearStatus(custData){
+  return !String((custData && custData.pendingAddress) || '').trim();
+}
 function attachDeleteHandlers(container){
   container.querySelectorAll('[data-del]').forEach(function(btn){
     btn.addEventListener('click', async function(){
@@ -64120,7 +64132,8 @@ function attachDeleteHandlers(container){
         : 'Delete this quote? This cannot be undone.')) return;
       try{
         await deleteDoc(doc(db, 'quotes', id));
-        if(cust && QUOTE_RAISED_STATUSES.indexOf((cust.data || {}).seasonStatus) !== -1){
+        if(cust && QUOTE_RAISED_STATUSES.indexOf((cust.data || {}).seasonStatus) !== -1
+           && quoteAnswerMayClearStatus(cust.data)){
           await updateDoc(doc(db,'jobAddresses', cust.id), {seasonStatus: 'confirmed'})
             .catch(function(){ /* the quote is gone either way; say so below */ });
         }

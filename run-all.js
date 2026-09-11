@@ -35274,7 +35274,11 @@ suite('Suite 137. A decline asks a question, it does not cancel their season');
        exists to ask (what a decline does to their season) with itself. Added the moment
        the real function gained the call: sandboxDeps named it in the failure, which is
        exactly what that guard is for. */
-    'stampSeasonStatusServer'];
+    'stampSeasonStatusServer',
+    /* ⚠ LIFTED, NOT STUBBED (2026-09-11). It decides whether the decline is
+       ALLOWED to clear the status, so a stub answering true makes the pending-move
+       check below pass on code that never consults it. */
+    'quoteAnswerMayClearStatusServer'];
   const src = {};
   NEEDED.forEach(n => { src[n] = extractFn(fns, n); });
   const missing = NEEDED.filter(n => !src[n]);
@@ -35477,6 +35481,44 @@ suite('Suite 137. A decline asks a question, it does not cancel their season');
           !w.messages.length && !w.customers.c1.askSameAsLastYear,
           'owner: "we won\'t have an info for them yet" — the quote is archived ' +
           'and that is the whole of it');
+      }
+
+      /* ---- 2b. A MOVE NOBODY HAS APPLIED IS NOT THIS QUOTE'S TO CLEAR ----
+         QT-37. The portal's move door is a second writer of address_changed and
+         only the office APPLYING the move answers it, so a "same as last year"
+         refusal must leave it standing. ⚠ THE FIXTURE CARRIES pendingAddress AND
+         address_changed TOGETHER, which is the only shape that can fail: with the
+         status alone the clear is correct, and with the pending address alone
+         there is no status to clear. */
+      {
+        const w = makeWorld({ customers: { c1: member({
+          seasonStatus: 'address_changed',
+          pendingAddress: '9 Oak St, Springville 84663',
+          pendingMoveDate: 'mid-October'
+        }) } });
+        const res = await w.run({ existingCustomerId: 'c1', name: 'Rachel Oslund' }, 'q1');
+        check('S137', 'a pending move survives a decline, status and all',
+          res.reached === true &&
+          w.customers.c1.seasonStatus === 'address_changed' &&
+          w.customers.c1.pendingAddress === '9 Oak St, Springville 84663',
+          'the office row would read Confirmed while a house we have not ' +
+          're-quoted is waiting to be applied — the one signal saying so, gone');
+        check('S137', 'and nothing dates a status change that did not happen',
+          !w.customers.c1.seasonStatusAt && !w.customers.c1.seasonStatusWas,
+          'stampSeasonStatusServer only stamps a status it is actually writing; ' +
+          'a date here would claim the question was answered');
+        check('S137', 'the question they were asked is still recorded',
+          w.customers.c1.askSameAsLastYear === true,
+          'holding the status back must not swallow the decline itself — they ' +
+          'still said no, and somebody still has to ask them');
+        /* ⚠ AND THE ORDINARY CASE STILL CLEARS. A guard that held every status
+           back would look identical on this fixture and break the hole the
+           clearing was written to close. */
+        const w2 = makeWorld({ customers: { c1: member() } });
+        await w2.run({ existingCustomerId: 'c1', name: 'Rachel Oslund' }, 'q1');
+        check('S137', 'a customer with no pending move is still cleared as before',
+          w2.customers.c1.seasonStatus === 'confirmed',
+          'the guard is about a move, not about declining');
       }
 
       /* ---- 3. NEVER BY PHONE ALONE -------------------------------------
@@ -35718,7 +35760,9 @@ suite('Suite 138. Declining an add-on refuses the add-on, not the season');
 
   /* ---- 2. declineAddOnOnly, RUN ---------------------------------------- */
   const NEED = ['declineAddOnOnly', 'quoteCustomerRef', 'quoteMatchesExistingCustomer',
-    'quoteMatchAddressServer', 'digitsOnly', 'tryFirestore', 'flagQuoteFollowUp'];
+    'quoteMatchAddressServer', 'digitsOnly', 'tryFirestore', 'flagQuoteFollowUp',
+    /* ⚠ LIFTED, NOT STUBBED (2026-09-11) — see the same entry in Suite 137. */
+    'quoteAnswerMayClearStatusServer'];
   const parts = {};
   NEED.forEach(n => { parts[n] = lift(fns, n); });
   const gone = NEED.filter(n => !parts[n]);
@@ -35880,6 +35924,40 @@ suite('Suite 138. Declining an add-on refuses the add-on, not the season');
         check('S138', 'a customer with nothing to clear is not written to',
           w.customers.c1.seasonStatus === 'confirmed' && w.messages.length === 1,
           'the note still goes — the office needs telling either way');
+      }
+
+      {
+        /* ⭐ AND NEITHER IS A MOVE NOBODY HAS APPLIED (QT-37, 2026-09-11). Same
+           argument as the cancellation request above, arrived at from the other
+           end: address_changed now has TWO writers, and the portal's move door
+           is answered by the office applying the move, not by an add-on refusal.
+           ⚠ THE FIXTURE NEEDS BOTH HALVES — the status AND the pending address.
+           Either alone passes whether the guard is there or not. */
+        const w = makeWorld({ c1: inSeason({
+          seasonStatus: 'address_changed',
+          pendingAddress: '9 Oak St, Springville 84663'
+        }) });
+        const res = await w.run({ existingCustomerId: 'c1', requoteKind: 'addition' });
+        check('S138', 'a pending move is NOT cleared by an add-on refusal',
+          w.customers.c1.seasonStatus === 'address_changed' &&
+          w.customers.c1.pendingAddress === '9 Oak St, Springville 84663' &&
+          res.seasonStatusCleared !== true,
+          'the row would read Confirmed while a house we have not re-quoted ' +
+          'waits to be applied');
+        check('S138', 'and the refusal itself is still recorded and reported',
+          res.reached === true && res.addOnOnly === true && w.messages.length === 1,
+          'holding the status back must not swallow the answer — the office ' +
+          'still needs telling the extra is off');
+      }
+      {
+        /* ⚠ THE OPPOSITE DIRECTION, and it is what stops the guard being widened
+           into the hole the clearing closed: an address_changed with NO pending
+           move is an ordinary re-quote question and still clears. */
+        const w = makeWorld({ c1: inSeason({ seasonStatus: 'address_changed' }) });
+        const res = await w.run({ existingCustomerId: 'c1', requoteKind: 'addition' });
+        check('S138', 'an address_changed with no pending move still clears',
+          w.customers.c1.seasonStatus === 'confirmed' && res.seasonStatusCleared === true,
+          'the guard is about an unapplied move, not about the word');
       }
 
       /* ---- a new lead, and the best-effort guards ---------------------- */
