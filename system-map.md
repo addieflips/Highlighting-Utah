@@ -984,6 +984,52 @@ is what a roofline doubling back on itself needs.
 
 ## 3. The money model
 
+⭐ **WHEN A BILL IS DUE, AND WHAT HAPPENS IF IT IS NOT PAID** (changed 2026-09-11).
+Addie: *"everyone still receives there invoice after they get installed but now they have
+until february to get them paid. We will give them one text reminder at the end of
+February than if they don't respond by end of March than they will get a fee email at
+beginning of April"*, and on the text: *"Feb 1 is when we will send out Text messages and
+need to be reminded on Feb 1st to send those out to everyone that hasn't paid as a pop up
+on admin portal on feb 1st."*
+
+Four dates, and they belong to the **season**, not to the house:
+
+| | When | What happens | Who does it |
+|---|---|---|---|
+| **Invoice** | the night their lights go up | emailed automatically, 7 PM | the system |
+| **Due** | **last day of February** | printed on the invoice and on the email | — |
+| **Text** | **1 February** | a pop-up lists everybody who has not paid, with their phone numbers | **the office texts them** |
+| **Fee** | **1 April** | $25 if they have paid something, $40 if nothing, added to the bill and emailed with it | the system, *if switched on* |
+
+⭐ **THIS REPLACED A ROLLING 30-DAY CLOCK, and that is the whole of the change.** Terms
+used to run 30 days from the invoice date, so every house had its own private due date and
+its own private chase days: a house done on 3 October was chased in November while its
+neighbour done on 20 December was chased in January. The office now has two days in the
+year to think about rather than nine hundred.
+
+- ⚠ **The text comes BEFORE the due date, on purpose.** Asked whether the paper should say
+  1 February to match the text, Addie chose *Feb 28 on paper, text Feb 1* — so the text is
+  a reminder that the month to pay has started, not a chase for a bill already late.
+- ⚠ **"If they don't respond" means they have not PAID.** Asked directly, she chose *they
+  haven't paid in full* over *they never replied*. There is no "they answered" flag
+  anywhere in it and there must not be one: a reply is not a payment.
+- ⚠ **Which February is decided by the SEASON, not the year on the invoice.** A bill issued
+  in January belongs to the autumn just gone and is due weeks later — reading the issue
+  year alone would give that house fourteen months. July is the split.
+- ⚠ **Overdue now means past the date on their own invoice**, and the red card waits until
+  1 April. Both used to count days from the invoice, which under February terms would have
+  flagged the whole book in November and reddened it in December while nobody was late.
+- ⚠ **One rule, two copies**, `invoiceDueDate` in `js/money.js` and `invoiceDueDateServer`
+  in `functions/index.js`, swept by `money-parity.test.js` over 144 issue dates — the
+  server's is what stamps the date the customer actually reads.
+- ⛔ **The April send is the only thing in the app that charges a customer with nobody
+  pressing anything, and it ships switched OFF.** `settings/lateFeeAutomation`, with a
+  *Check first* dry run beside the switch in Invoices > Nightly Automation, and checklist
+  row 222 to read that list against the real book before it is ever turned on. It skips
+  anybody already charged, anybody paid in full, and anybody whose only outstanding amount
+  is a balance carried from an earlier season (**Q-034**, open — that last one is a default
+  rather than her ruling).
+
 **The one correct formula, everywhere:**
 ```
 owed = (install + removal + changeFees) − credits − deposit, floored at 0
@@ -2116,8 +2162,8 @@ invoice, and already reaches the customer's portal.
 
 ⭐ **A CARD GOES RED WHEN SOMEBODY IS SERIOUSLY BEHIND** (added 2026-09-01). Addie: *"turn everyone that hasn't paid from last year or is 60 days over there payment as red for there card."* In **All Customers**, a row gets a red left bar and a pink tint when either is true:
   - they **owe from an earlier season** (`houseOwesFromLastSeason` — the same rule that holds them out of the season, so the card and the hold can never name different people), or
-  - their bill **went out 60 days ago** and is still not settled. Terms are 30 days, so a card reddens 30 days after the payment was actually due. (Asked directly: *"no 60 days after invoice goes out"* — an earlier draft counted from the due date and reddened at 90.)
-  - ⚠ **Its own threshold** (`RED_CARD_DAYS_FROM_INVOICE`), not `OVERDUE_DAYS`. That one is 30 and drives the ordinary Overdue flag; sharing it would turn most of the book red in November and say nothing.
+  - their bill is **past 1 April** and is still not settled — the morning the late fee lands. (⚠ **Changed 2026-09-11 with the payment terms.** It used to be 60 days after the invoice, which under 30-day terms meant "a month past due" — the shape she asked for when she said *"no 60 days after invoice goes out"*. Moving payment to February kept the shape and broke the arithmetic: sixty days after an October invoice is December, so the whole book would have gone red over Christmas while nobody was late at all.)
+  - ⚠ **It is not the Overdue flag.** That one turns on the day after the invoice's own due date at the end of February; this one waits the further month Addie gives them before a fee. Reddening everybody on 1 March would say nothing the Overdue column does not already say.
   - ⚠ **Paid in full is never red**, whatever the dates say, and neither is a bill that was **never issued** — that has not gone out, so there is nothing to be late for.
   - ⚠ **A bar and a tint, not red text.** The row already uses colour for the RSVP and invoice pills; recolouring those makes an overdue customer's answers unreadable.
 
@@ -4396,12 +4442,15 @@ the trail rather than adding to it.
 it, and clicking one lands on that field's row on *Where things go* — the same one level in
 it always was. What changed is that you arrive there through the journey.
 
-⚠ **A step that is not built says so, and looks different.** The two payment chases are
-Addie's own spec and neither runs today: a text at 30 days that the system tells the office
-to send, and an automatic email at 60 days carrying a fee and a new invoice. The fee rule was
-already written down in the page — **$25 if they have paid something, $40 if they have paid
-nothing** — marked *preview only, not built*. Drawn as working, this page would be a wish
-rather than a map, and its whole value is that it is true.
+⚠ **A step that is not built says so, and looks different.** ⭐ **Both payment chases are now
+built (2026-09-11) and the dates moved with the terms** — a text the office sends on **1
+February**, and an automatic email on **1 April** carrying the fee and the updated bill. The
+fee rule is the one that was already written down in the page, unchanged: **$25 if they have
+paid something, $40 if they have paid nothing**. ⚠ **The April send is the only thing in the
+app that charges a customer with nobody pressing anything, and it ships switched OFF** —
+`settings/lateFeeAutomation`, with a *Check first* dry run beside the switch in Invoices >
+Nightly Automation. Drawn as working while it is off, this page would be a wish rather than a
+map, and its whole value is that it is true.
 
 ⚠ **`connections/journey.js` is hand-written, like the manifest, and for the same reason** —
 the code can say what it does, never what order it was meant to happen in. What is checked
