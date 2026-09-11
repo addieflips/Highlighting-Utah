@@ -3191,12 +3191,12 @@
             <div id="fcScenarios" style="margin-top:14px;"></div>
           </div>
           <div class="card">
-            <h3 style="margin-top:0;">Late fee &mdash; preview only, not built</h3>
-            <p style="font-size:13px; margin:0 0 12px;">This is the Phase 5 rule, shown so the numbers can be checked before anything is built. Nothing below is live: no late fee is ever charged today.</p>
+            <h3 style="margin-top:0;">Late fee &mdash; what it would cost</h3>
+            <p style="font-size:13px; margin:0 0 12px;">The rule, so the numbers can be checked against one customer. The automatic send that charges it lives under <strong>Nightly Automation</strong> on the next tab, and is off until you turn it on.</p>
             <div class="form-grid-2">
-              <div class="form-row"><label>Paid anything before the 3rd contact?</label>
+              <div class="form-row"><label>Paid anything by the end of March?</label>
                 <select id="fcPaidSomething"><option value="no">No &mdash; nothing at all</option><option value="yes">Yes &mdash; some of it</option></select></div>
-              <div class="form-row"><label>Fee that would apply</label><input type="text" id="fcLateFee" readonly style="background:var(--paper); font-weight:700;"></div>
+              <div class="form-row"><label>Fee that applies</label><input type="text" id="fcLateFee" readonly style="background:var(--paper); font-weight:700;"></div>
             </div>
             <div id="fcLatePreview" style="font-size:13px; color:var(--slate);"></div>
           </div>
@@ -3212,6 +3212,28 @@
               Send nightly invoice emails automatically
             </label>
             <span id="nightlyInvoiceStatus" style="font-size:13px; color:var(--slate); margin-top:8px; display:block;"></span>
+            <!-- ⭐ THE 1 APRIL LATE-FEE SEND (added 2026-09-11). Addie: "if they don't
+                 respond by end of March than they will get a fee email at beginning of
+                 April", and 2026-08-29: "The last email with a fee should automatically
+                 send with new invoice."
+                 ⛔ IT DEFAULTS OFF AND THE BANNER SAYS SO. This is the only thing in the
+                 app that charges a customer with nobody pressing anything, so the first
+                 anybody hears of a mistake in it must not be a few hundred real charges.
+                 Check first shows exactly who and how much, and writes nothing. -->
+            <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
+              <label style="font-weight:600; font-size:13px; display:block; margin-bottom:4px;">Late fees &mdash; 1 April</label>
+              <p style="font-size:12.5px; color:var(--slate); margin:0 0 8px;">On 1 April, anybody who still has not paid their February invoice is charged a late fee &mdash; <strong>$25</strong> if they have paid something, <strong>$40</strong> if they have paid nothing &mdash; and emailed their updated bill. Each customer is only ever charged once. Last season's carried debt is never charged a late fee.</p>
+              <label style="display:flex; align-items:center; gap:8px; font-weight:600; cursor:pointer; font-size:13px;">
+                <input type="checkbox" id="lateFeeEnabled" style="width:18px; height:18px;">
+                Add late fees and email them automatically on 1 April
+              </label>
+              <span id="lateFeeStatus" style="font-size:13px; color:var(--slate); margin-top:6px; display:block;"></span>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+                <button type="button" class="btn btn-outline btn-sm" id="lateFeeCheckBtn">Check first &mdash; who would be charged</button>
+                <button type="button" class="btn btn-outline btn-sm" id="lateFeeRunBtn" style="color:var(--ember);">Run it now</button>
+              </div>
+              <div id="lateFeeReport" style="font-size:12.5px; margin-top:8px;"></div>
+            </div>
             <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
               <label style="font-weight:600; font-size:13px; display:block; margin-bottom:4px;">Text a nightly billing summary to this number</label>
               <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
@@ -6232,6 +6254,14 @@ import {
      a second copy of a money rule is precisely what this repo forbids: the next
      change to the rule would have moved one of them. */
   arrearsOutstanding,
+  /* ⭐ THE INVOICE CALENDAR (2026-09-11). Due the last day of February, texted
+     on 1 February, fee email on 1 April — four dates that belong to the SEASON
+     rather than to each house, replacing the rolling 30-day clock. The server
+     carries a twin of each and money-parity.test.js sweeps them, because the
+     nightly run stamps the {{due_date}} on the email the customer receives. */
+  invoiceDueDate, invoiceTextChaseDate, invoiceFeeChaseDate, invoiceSeasonYear,
+  /* The late fee PROC-32 settled on 2026-08-29 and nothing charged until now. */
+  LATE_FEE_KIND, LATE_FEE_PAID_SOMETHING, LATE_FEE_PAID_NOTHING, lateFeeAmount,
   /* The set-up fee. One number, shared with the server through
      money-parity.test.js — see its note in js/money.js. */
   NEW_MEMBER_FEE
@@ -9445,12 +9475,13 @@ async function resolveLinkTokens(text, phone, amount, opts){
   }
   /* The due date the customer is told must be the same one the Invoice List
      chases them by, so it is worked out from the invoice's own timestamp using
-     PAYMENT_TERMS_DAYS - the single constant the printed invoice uses too. */
+     invoiceDueDate - the single rule the printed invoice and the Overdue flag
+     both read too. */
   if(out.indexOf('{{due_date}}') !== -1){
     const dueKey = (String(phone||'').replace(/\D/g,'')) || String(phone||'').toLowerCase().trim();
     const dueInv = allInvoicesCache.find(i => i.id === dueKey);
     const issued = (dueInv && invoiceIssuedAt(dueInv.data)) || new Date();
-    out = out.split('{{due_date}}').join(niceDate(addDays(issued, PAYMENT_TERMS_DAYS)));
+    out = out.split('{{due_date}}').join(niceDate(invoiceDueDate(issued)));
   }
   if(out.indexOf('{{feet_line}}') !== -1 || out.indexOf('{{new_member_fee_line}}') !== -1 || out.indexOf('{{amount_due}}') !== -1 || out.indexOf('{{amount_paid}}') !== -1){
     const phoneDigits = (phone||'').replace(/\D/g,'');
@@ -9920,6 +9951,18 @@ async function loadNightlyInvoiceSettings(){
     const ap = document.getElementById('nightlyAlertPhone');
     if(ap) ap.value = (snap.exists() && snap.data().alertPhone) ? snap.data().alertPhone : '';
   } catch(err){ /* not saved yet, fine */ }
+  /* ⚠ ITS OWN READ, ITS OWN try. The late-fee switch lives in a different settings
+     document, and sharing the block above would mean a failed read of one leaving
+     the other showing OFF — which on this particular switch is the reading that
+     matters, because it is the one that charges people. */
+  try{
+    const lfSnap = await getDoc(doc(db,'settings','lateFeeAutomation'));
+    const on = lfSnap.exists() ? !!lfSnap.data().enabled : false;
+    const box = document.getElementById('lateFeeEnabled');
+    if(box) box.checked = on;
+    const st = document.getElementById('lateFeeStatus');
+    if(st){ st.textContent = lateFeeSay(on); st.style.color = on ? 'var(--emerald)' : 'var(--slate)'; }
+  } catch(err){ /* never saved, so off — which is the shipped state anyway */ }
 }
 document.getElementById('nightlyAlertSaveBtn')?.addEventListener('click', async function(){
   const val = document.getElementById('nightlyAlertPhone').value.trim();
@@ -9944,6 +9987,91 @@ document.getElementById('nightlyInvoiceEnabled')?.addEventListener('change', asy
     statusEl.style.color = 'var(--ember)';
     this.checked = !this.checked;
   }
+});
+
+/* ---- Late fees on 1 April: the switch, the dry run, and the one-off run -----
+   ⛔ NOTHING HERE DEFAULTS ON. The box reads settings/lateFeeAutomation and an
+   ABSENT document is off, which is the shipped state — see the banner on the card
+   and the header on runLateFeeBatch. This is the only automatic CHARGE in the app.
+
+   ⚠ CHECK FIRST IS A REAL DRY RUN, not a different estimate written here. It calls
+   the same `runLateFeeBatch` with dryRun set, so what it reports is what the real
+   run would do — a second opinion computed in the browser would eventually disagree
+   with the thing that actually takes the money, and the disagreement would only show
+   up after somebody had been charged. */
+function lateFeeSay(on){
+  return on ? '✓ On — late fees are added and emailed on 1 April'
+            : 'Off — nothing is charged automatically';
+}
+document.getElementById('lateFeeEnabled')?.addEventListener('change', async function(){
+  const statusEl = document.getElementById('lateFeeStatus');
+  try{
+    await setDoc(doc(db,'settings','lateFeeAutomation'), {enabled: this.checked}, {merge:true});
+    statusEl.textContent = lateFeeSay(this.checked);
+    statusEl.style.color = this.checked ? 'var(--emerald)' : 'var(--slate)';
+  } catch(err){
+    /* ⚠ THE BOX IS PUT BACK. A tick that looks saved and is not would have her
+       believing the April send is armed when it is off — or worse, off when it is on. */
+    console.error('[HU] could not save the late-fee switch', err);
+    statusEl.textContent = '✗ Couldn\'t save — ' + ((err && err.message) || err);
+    statusEl.style.color = 'var(--ember)';
+    this.checked = !this.checked;
+  }
+});
+function lateFeeRenderReport(res, wasDry){
+  const el = document.getElementById('lateFeeReport');
+  if(!el) return;
+  if(res.stopped){
+    el.innerHTML = '<div style="color:var(--ember); font-weight:600;">Stopped: '+esc(res.stopped)+'</div>';
+    return;
+  }
+  const n = wasDry ? (res.wouldCharge||0) : (res.charged||0);
+  const head = wasDry
+    ? (n ? n+' customer'+(n===1?'':'s')+' would be charged, '+fmtMoney(res.amount||0)+' in total. Nothing has been written.'
+         : 'Nobody would be charged today.')
+    : (n ? n+' customer'+(n===1?'':'s')+' charged, '+fmtMoney(res.amount||0)+' added, and their updated invoices emailed.'
+         : 'Nobody was charged.');
+  el.innerHTML = '<div style="font-weight:600; color:'+(wasDry ? 'var(--ink)' : 'var(--emerald)')+';">'+esc(head)+'</div>'+
+    ((res.names && res.names.length)
+      ? '<div style="margin-top:6px; max-height:180px; overflow:auto; color:var(--slate);">'+
+          res.names.map(function(s){ return esc(s); }).join('<br>')+
+          (n > res.names.length ? '<br><em>&hellip; and '+(n - res.names.length)+' more</em>' : '')+'</div>'
+      : '')+
+    ((res.errors && res.errors.length)
+      ? '<div style="margin-top:8px; color:var(--ember);"><strong>'+res.errors.length+' problem'+(res.errors.length===1?'':'s')+':</strong><br>'+
+          res.errors.map(function(s){ return esc(s); }).join('<br>')+'</div>'
+      : '');
+}
+document.getElementById('lateFeeCheckBtn')?.addEventListener('click', async function(){
+  const el = document.getElementById('lateFeeReport');
+  this.disabled = true;
+  el.innerHTML = 'Checking…';
+  try{
+    const res = await httpsCallable(fbFunctions,'previewLateFees')();
+    lateFeeRenderReport(res.data || {}, true);
+  }catch(err){
+    console.error('[HU] late fee dry run failed', err);
+    el.innerHTML = '<span style="color:var(--ember);">Could not check — '+esc((err && err.message) || String(err))+'</span>';
+  }
+  this.disabled = false;
+});
+document.getElementById('lateFeeRunBtn')?.addEventListener('click', async function(){
+  /* ⚠ TYPED CONFIRMATION, like every other mass write in this app, because this
+     one takes money rather than moving a record. The dry run above is free; this
+     is not undoable except by pressing × on each fee afterwards. */
+  const answer = prompt('This adds a late fee to every unpaid invoice past its due date and emails each of them.\n\nRun the check first if you have not.\n\nType CHARGE to go ahead.');
+  if(String(answer||'').trim().toUpperCase() !== 'CHARGE') return;
+  const el = document.getElementById('lateFeeReport');
+  this.disabled = true;
+  el.innerHTML = 'Running…';
+  try{
+    const res = await httpsCallable(fbFunctions,'runLateFeesNow')();
+    lateFeeRenderReport(res.data || {}, false);
+  }catch(err){
+    console.error('[HU] late fee run failed', err);
+    el.innerHTML = '<span style="color:var(--ember);">Could not run — '+esc((err && err.message) || String(err))+'</span>';
+  }
+  this.disabled = false;
 });
 
 /* ---- Unpaid Last Season: the switch, and the one-off run --------------------
@@ -10330,6 +10458,23 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              very hard to notice once they have gone wrong. */
           receiptSentForDeposit: null,
           importedPayments: [],
+          /* ⭐ AND THE 1 APRIL LATE-FEE GUARD, WHICH IS ABOUT LAST SEASON TOO
+             (2026-09-11). `lateFeeAt` is what stops `runLateFeeBatch` charging the
+             same invoice twice, and invoice documents are REUSED season to season —
+             so left standing it stops being a once-a-season guard and becomes a
+             once-for-ever one: charged in April 2027, silently skipped every April
+             after that, for that customer, permanently.
+             ⚠ THIS IS THE `chargeNewMemberFee` BUG POINTING THE OTHER WAY. That one
+             was a flag nothing cleared while its guard was released each season, so
+             the $30 was charged every year; this is a guard nothing releases, so the
+             fee is charged once and never again. Same shape, opposite sign, and the
+             quiet direction — nobody complains about not being charged, so the only
+             thing that would ever have found it is this line.
+             ⚠ AND THE FEE ITSELF IS NOT LOST BY BEING CLEARED HERE. If it was still
+             unpaid it is already inside `x.arrears` above, carried as the arrears
+             note; what goes is only the marker saying this invoice has had its turn. */
+          lateFeeAt: null,
+          lateFeeAmount: null,
           status: computeInvoiceStatus(x.newInstall, x.removal, 0, 0, x.arrears),
           priceReviewed: true, updatedAt: serverTimestamp()
         });
@@ -16930,6 +17075,12 @@ const ET_PREBUILT_TEMPLATES = [
   {name:'Post-Install Invoice', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out \u2014 your lights are up! Your balance for this season is {{amount}}. You can pay through your portal or Venmo using the links below.\n\n{{portal_link}}{{venmo_button}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'venmo_button', style:'button'}]},
   {name:'Already Paid - Say Thanks', folderName:'Billing', body:'Hi {{name}},\n\nYour lights are up! Just confirming we received your payment of {{amount}} for this season \u2014 you\'re all set.\n\n{{message_link}}', linkedTokens:[{code:'message_link', style:'link'}]},
   {name:'Nightly Auto-Invoice \u2014 Unpaid', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out today \u2014 your lights are up!\n\n{{feet_line}}\n{{new_member_fee_line}}\n{{credit_lines}}\n\nAmount due: {{amount_due}}\nPlease pay by {{due_date}}.\n\nPay your invoice here:\n\n{{pay_button}}{{venmo_button}}', linkedTokens:[{code:'pay_button', style:'button'},{code:'venmo_button', style:'button'}]},
+  /* ⭐ THE 1 APRIL LATE-FEE EMAIL (2026-09-11). Sent by `runLateFeeBatch` in
+     functions/index.js to anybody still unpaid at the end of March, with the fee
+     already added to their bill. ⚠ THE NAME IS LOOKED UP EXACTLY — the server
+     asks findTemplateSnapByName('Late Fee Notice'), so renaming this row means
+     the send falls back to a plain built-in wording and says so in its report. */
+  {name:'Late Fee Notice', folderName:'Billing', body:'Hi {{name}},\n\nYour Christmas lights invoice was due on {{due_date}} and we have not received payment.\n\nA late fee of {{late_fee}} has been added to your account, so the amount now due is {{amount_due}}.\n\nYou can pay online any time:\n\n{{pay_button}}{{venmo_button}}\n\nIf you have already paid, or if something here is wrong, please let us know and we will sort it out: {{message_link}}\n\n— Highlighting Utah', linkedTokens:[{code:'pay_button', style:'button'},{code:'venmo_button', style:'button'},{code:'message_link', style:'link'}]},
   {name:'Nightly Auto-Invoice \u2014 Paid Receipt', folderName:'Billing', body:'Hi {{name}},\n\nYour lights are up! This confirms we\'ve already received your payment in full for this season \u2014 you\'re all set, nothing more to do.\n\n{{feet_line}}\n{{new_member_fee_line}}\n{{credit_lines}}\n\nAmount paid: {{amount_paid}}\n\nThank you for choosing Highlighting Utah!\n\n{{view_portal_button}}{{message_link}}', linkedTokens:[{code:'view_portal_button', style:'button'},{code:'message_link', style:'link'}]},
   {name:'Payment Received \u2014 Balance Remaining', folderName:'Billing', body:'Hi {{name}},\n\nThanks \u2014 we\'ve received your payment of {{payment_amount}}.\n\nInvoice total: {{amount_total}}\nPaid so far: {{amount_paid}}\nAmount still due: {{amount_due}}\n\nYou can finish paying any time using the button below.\n\n{{pay_button}}{{venmo_button}}\n\n{{message_link}}', linkedTokens:[{code:'pay_button', style:'button'},{code:'venmo_button', style:'button'},{code:'message_link', style:'link'}]},
   {name:'Quick Announcement', folderName:'Announcements', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Tap below to update your info, check your balance, or send us a message anytime.\n\n{{portal_link}}{{message_link}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'message_link', style:'link'}]},
@@ -18530,7 +18681,12 @@ document.getElementById('etPreviewMemberSelect').addEventListener('change', etUp
 let siteContentCache = {};
 const VENMO_HANDLE = 'HighLightingUtah';
 const PORTAL_ADDRESS = 'highlightingutah.com';
-const PAYMENT_TERMS_DAYS = 30;
+/* ⚠ `PAYMENT_TERMS_DAYS` STOOD HERE AND IS DELIBERATELY GONE (2026-09-11), not
+   retuned to some other number of days. Payment terms are a CALENDAR now — the
+   last day of February, whatever day the bill went out — so any constant here
+   counting days from the invoice would be a second, wrong answer sitting beside
+   `invoiceDueDate` in js/money.js and reading like the real one. Four places
+   used it and all four ask that rule instead. */
 /* A short, stable, human-readable invoice number. Invoices are keyed by payer
    phone (or lowercase email), so the last four of the key gives a number that
    is the same every time the document is printed without exposing anything
@@ -18706,7 +18862,7 @@ function buildInvoiceDocHtml(member){
      read invoicedAt, and the Overdue flag was the only thing still counting from
      updatedAt — so the two it promised could never disagree, did. */
   const invoiceDate = (inv && invoiceIssuedAt(inv)) || new Date();
-  const dueDate = addDays(invoiceDate, PAYMENT_TERMS_DAYS);
+  const dueDate = invoiceDueDate(invoiceDate);
   const paidDate = inv ? (toJsDate(inv.lastPaymentAt) || toJsDate(inv.updatedAt)) : null;
   const season = invoiceDate.getFullYear();
   const invoiceNo = invoiceNumberFor(invoiceKey, season);
@@ -19062,7 +19218,7 @@ async function invTestSend(){
     body = body.split('{{amount_due}}').join(fmtMoney(amountDue));
     body = body.split('{{amount_paid}}').join(fmtMoney(deposit));
     const issuedOn = invoiceIssuedAt(inv) || new Date();
-    body = body.split('{{due_date}}').join(niceDate(addDays(issuedOn, PAYMENT_TERMS_DAYS)));
+    body = body.split('{{due_date}}').join(niceDate(invoiceDueDate(issuedOn)));
     body = await resolveLinkTokens(body.replace(/\{\{name\}\}/g, d.name || 'there'), d.phone || key, amountDue);
     body = body.replace(/\n/g, '<br>');
     body = '<div style="background:#FFF8E9; border:1px solid #D89F3D; border-radius:8px; padding:10px 12px; font-family:Arial,sans-serif; font-size:13px; margin-bottom:16px;">'+
@@ -20490,7 +20646,8 @@ const IC_CODES = {
     {token:'{{amount}}', label:'Amount (billing)'},
     {token:'{{portal_link}}', label:'Portal link (plain URL)'},
     {token:'{{portal_button}}', label:'Portal link (button)'},
-    {token:'{{due_date}}', label:'Payment due date (30 days from the invoice)'},
+    {token:'{{due_date}}', label:'Payment due date (the last day of February)'},
+    {token:'{{late_fee}}', label:'Late fee added on 1 April ($25 / $40)'},
     {token:'{{pay_button}}', label:'Pay Your Invoice (button)'},
     {token:'{{view_portal_button}}', label:'View Your Portal (button)'},
     {token:'{{messages_link}}', label:'Send-us-a-message link (plain URL)'},
@@ -22657,11 +22814,21 @@ let allInvoicesCache = [];
 let invoiceById = new Map();
 let activeInvFilters = { unpaid:false, partial:false, paid:false, overdue:false };
 let invoiceSearchTerm = '';
-/* Payment terms are 30 days from the invoice date (Addie, 2026-08-11). This
-   constant is what flags a row Overdue and what the Overdue filter uses, so
-   it has to match the due date printed on the invoice - otherwise the paper
-   tells a customer they have 30 days while the list chases them at 14. */
-const OVERDUE_DAYS = 30;
+/* ⭐ OVERDUE MEANS PAST THE DATE ON THEIR INVOICE (changed 2026-09-11).
+   Payment ran 30 days from the invoice date until Addie moved the terms to a
+   fixed calendar — "they have until february to get them paid" — so this no
+   longer counts days at all. It asks `invoiceDueDate`, the one rule the printed
+   invoice and the {{due_date}} on the email both read, for exactly the reason
+   the 30-day version gave: the flag has to match the date printed on the paper,
+   or the office chases somebody the invoice says is not yet late.
+
+   ⚠ THE OLD CONSTANT HAD TO GO, NOT JUST BE RETUNED. Under the new terms an
+   October house was 30 days old in November — Overdue on this screen, three
+   months before its own due date, with the customer's copy in their hand saying
+   February. That is the same paper-versus-screen split `invoiceIssuedAt` was
+   written to close, arriving from the other direction: not a clock counting from
+   the wrong field, but the right field measured against a rule nobody uses any
+   more. There is no threshold here to tune now, which is the point. */
 function isInvoiceOverdue(d){
   const status = computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees);
   if(status === 'Paid in Full') return false;
@@ -22674,8 +22841,9 @@ function isInvoiceOverdue(d){
      never been issued has not been billed, and chasing it would be chasing nobody. */
   const issued = invoiceIssuedAt(d);
   if(!issued) return false;
-  const days = (Date.now() - issued.getTime()) / 86400000;
-  return days >= OVERDUE_DAYS;
+  const due = invoiceDueDate(issued);
+  if(!due) return false;
+  return Date.now() > due.getTime();
 }
 /* ⭐ THEY PAID LAST SEASON'S BILL BUT HAVE NOT SAID YES (added 2026-09-01). Addie:
    "if someone pays that didn't pay last year, but also didn't approve email than that
@@ -22865,6 +23033,172 @@ function loadInvoices(){
         console.error('[HU] paid-but-not-approved sweep failed', err);
       });
     }
+    /* ⚠ AFTER the caches are rebuilt, for the same reason as the sweep above —
+       it reads allInvoicesCache to work out who has not paid. Not awaited, and
+       it can never throw into this listener. */
+    if(typeof maybeShowTextChaseReminder === 'function'){
+      maybeShowTextChaseReminder().catch(function(err){
+        console.error('[HU] February text reminder failed', err);
+      });
+    }
+  });
+}
+
+/* ⭐ THE 1 FEBRUARY REMINDER TO TEXT EVERYBODY WHO HAS NOT PAID (added
+   2026-09-11). Addie, setting the new invoice terms: "Feb 1 is when we will send
+   out Text messages and need to be reminded on Feb 1st to send those out to
+   everyone that hasn't paid as a pop up on admin portal on feb 1st."
+
+   ⭐ THE OFFICE SENDS THE TEXTS; THIS ONLY REMEMBERS THE DAY AND BUILDS THE LIST.
+   Asked directly whether the system should text customers itself, she chose
+   "Office sends it, system flags the list" — which is also her own 2026-08-29
+   ruling, "The text should notify us when we need to send that." So nothing here
+   reaches Twilio. Twilio is wired in this app for exactly two things and both of
+   them text the OFFICE (the nightly alert and the unmatched-payment alert); there
+   is no customer-facing SMS anywhere, and this does not add one.
+
+   ⚠ IT IS NOT A ONE-DAY POP-UP, WHICH IS THE WHOLE OF WHAT MAKES IT USEFUL.
+   Something that appeared only on 1 February would be missed by anyone not at the
+   desk that morning — a Sunday, a day off — and the season's one chase would go
+   out never, with the pop-up having technically worked. It shows from 1 February
+   until the day the fee lands, or until she says the texts are done.
+
+   ⚠ AND IT IS DISMISSED BY SAYING THE JOB IS DONE, NOT BY CLOSING IT. "Later"
+   silences it for the rest of the day only. A × that killed it for the season
+   would be one stray click between her and the texts, and nothing would ever
+   mention them again.
+
+   ⚠ EVERY DATE COMES FROM invoiceTextChaseDate, never from `new Date().getMonth()
+   === 1`. A bill issued late enough to roll into the following February has its
+   own later chase day (see js/money.js), and a bare calendar check would put it
+   on this year's list eleven months early. */
+const TEXT_CHASE_DONE_DOC = 'lateChaseTexts';
+let textChaseReminderShown = false;
+
+/* Who the February text goes to: everybody carrying a balance whose chase day has
+   arrived and whose fee day has not. Its own function so a test can RUN it. */
+function textChaseRecipients(invoices, nowMs){
+  const now = Number(nowMs) || Date.now();
+  const out = [];
+  (invoices || []).forEach(function(item){
+    const d = item && item.data;
+    if(!d) return;
+    if(d.isTestRecord === true) return;
+    if(computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees) === 'Paid in Full') return;
+    const issued = invoiceIssuedAt(d);
+    if(!issued) return;
+    const textDay = invoiceTextChaseDate(issued);
+    const feeDay = invoiceFeeChaseDate(issued);
+    if(!textDay || !feeDay) return;
+    if(now < textDay.getTime() || now >= feeDay.getTime()) return;
+    const owed = Math.max(0,
+      (Number(d.install)||0) + (Number(d.removal)||0) + (Number(d.changeFees)||0)
+      - (Number(d.credits)||0) - (Number(d.deposit)||0));
+    out.push({ id: item.id, name: d.name || '(no name)', phone: d.phone || '', owed: owed,
+               season: invoiceSeasonYear(issued) });
+  });
+  out.sort(function(a,b){ return String(a.name).localeCompare(String(b.name)); });
+  return out;
+}
+
+async function maybeShowTextChaseReminder(){
+  if(textChaseReminderShown) return;
+  const list = textChaseRecipients(allInvoicesCache, Date.now());
+  if(!list.length) return;
+  /* The season the chase belongs to, so "done" is recorded against a year rather
+     than being a flag that has to be cleared by hand every January.
+     ⚠ THE LATEST SEASON ON THE LIST, NEVER `list[0]`. The rows are sorted by NAME,
+     so the first of them is whoever is alphabetically first — and if a stale unpaid
+     invoice from an earlier season is still on the books, that could be either year.
+     Recording "done" against the wrong one leaves this season's reminder showing for
+     ever, or silences it before she has sent a thing. */
+  const season = list.reduce(function(max, r){
+    return (r.season != null && (max == null || r.season > max)) ? r.season : max;
+  }, null);
+  if(season == null) return;
+  const snap = await getDoc(doc(db,'settings',TEXT_CHASE_DONE_DOC));
+  const saved = snap.exists() ? (snap.data() || {}) : {};
+  if(String(saved.doneForSeason || '') === String(season)) return;
+  /* "Later" is for today only — see the note above. */
+  const today = new Date().toISOString().slice(0,10);
+  try{ if(sessionStorage.getItem('hu.textChase.later') === today) return; }
+  catch(e){ /* private browsing: the reminder simply shows again, which is the safe way round */ }
+  textChaseReminderShown = true;
+  showTextChaseReminder(list, season);
+}
+
+function showTextChaseReminder(list, season){
+  const total = list.reduce(function(s,r){ return s + r.owed; }, 0);
+  const rows = list.map(function(r){
+    return '<tr style="border-bottom:1px solid var(--line);">'+
+      '<td style="padding:6px 8px; font-size:13px;">'+esc(r.name)+'</td>'+
+      '<td style="padding:6px 8px; font-size:13px;">'+(r.phone ? '<a href="tel:'+esc(String(r.phone).replace(/[^0-9+]/g,''))+'">'+esc(r.phone)+'</a>' : '<span style="color:var(--slate);">no number</span>')+'</td>'+
+      '<td style="padding:6px 8px; font-size:13px; text-align:right; font-weight:600;">'+esc(fmtMoney(r.owed))+'</td></tr>';
+  }).join('');
+  const overlay = document.createElement('div');
+  overlay.className = 'needsfix-popup-overlay';
+  overlay.innerHTML = '<div class="needsfix-popup" style="max-width:620px;">'+
+    '<h3 style="color:var(--dusk); margin-top:0;">Time to text the people who have not paid</h3>'+
+    '<p style="font-size:13px;">It is 1 February or later. These <strong>'+list.length+'</strong> '+
+      (list.length === 1 ? 'customer has' : 'customers have')+' not paid their '+esc(String(season))+
+      ' invoice &mdash; '+esc(fmtMoney(total))+' outstanding in total. This is the one text reminder they get; '+
+      'if they still have not paid by the end of March, the late-fee email goes out on 1 April.</p>'+
+    '<div style="max-height:300px; overflow:auto; border:1px solid var(--line); border-radius:9px;">'+
+      '<table style="width:100%; border-collapse:collapse;">'+
+        '<thead><tr style="background:var(--paper);">'+
+          '<th style="padding:6px 8px; font-size:11.5px; text-align:left; color:var(--slate);">Name</th>'+
+          '<th style="padding:6px 8px; font-size:11.5px; text-align:left; color:var(--slate);">Phone</th>'+
+          '<th style="padding:6px 8px; font-size:11.5px; text-align:right; color:var(--slate);">Owes</th>'+
+        '</tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<div id="textChaseStatus" style="font-size:12.5px; color:var(--slate); margin-top:8px;"></div>'+
+    '<div style="display:flex; gap:9px; margin-top:12px; flex-wrap:wrap;">'+
+      '<button type="button" class="btn btn-gold" id="textChaseDone" style="flex:1 1 200px;">I have sent the texts</button>'+
+      '<button type="button" class="btn btn-outline" id="textChaseCopy" style="flex:0 1 auto;">Copy the numbers</button>'+
+      '<button type="button" class="btn btn-outline" id="textChaseLater" style="flex:0 1 auto; color:var(--slate);">Later today</button>'+
+    '</div>'+
+    '<p style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">&ldquo;I have sent the texts&rdquo; puts this away for the whole '+
+      esc(String(season))+' season. &ldquo;Later today&rdquo; brings it back tomorrow.</p>'+
+  '</div>';
+  document.body.appendChild(overlay);
+  const statusEl = overlay.querySelector('#textChaseStatus');
+  /* ⚠ NO CLICK-THE-BACKDROP TO CLOSE, deliberately, and no ×. Every other popup
+     in this file has one because backing out of them costs nothing; backing out of
+     this one silently costs the season's only chase. The two ways out are both
+     buttons that say what they do. */
+  overlay.querySelector('#textChaseCopy').addEventListener('click', function(){
+    const text = list.map(function(r){ return r.name + '\t' + r.phone + '\t' + fmtMoney(r.owed); }).join('\n');
+    navigator.clipboard.writeText(text).then(function(){
+      statusEl.textContent = 'Copied ' + list.length + ' rows — paste them anywhere.';
+    }).catch(function(){
+      statusEl.textContent = 'Could not copy automatically. The list is on screen above.';
+    });
+  });
+  overlay.querySelector('#textChaseLater').addEventListener('click', function(){
+    try{ sessionStorage.setItem('hu.textChase.later', new Date().toISOString().slice(0,10)); }
+    catch(e){ /* private browsing: it reappears on the next load, which is the harmless direction */ }
+    overlay.remove();
+  });
+  overlay.querySelector('#textChaseDone').addEventListener('click', async function(){
+    const btn = this;
+    btn.disabled = true;
+    statusEl.textContent = 'Saving…';
+    try{
+      await setDoc(doc(db,'settings',TEXT_CHASE_DONE_DOC), {
+        doneForSeason: String(season),
+        doneAt: serverTimestamp(),
+        doneBy: (auth.currentUser && auth.currentUser.email) || '',
+        countAtTheTime: list.length
+      }, {merge:true});
+      overlay.remove();
+      toast('Noted — the February texts are marked done for ' + season + '.');
+    }catch(err){
+      /* ⚠ NOT SILENT. A failed write here means the reminder comes back tomorrow,
+         which is recoverable — but telling her it saved when it did not is how the
+         same pop-up starts looking broken. */
+      console.error('[HU] could not record the February texts as done', err);
+      btn.disabled = false;
+      statusEl.textContent = 'That did not save — ' + ((err && err.message) || err) + '. Try again, or press Later today.';
+    }
   });
 }
 /* Phone digits -> customer, built once whenever the customer list changes.
@@ -22997,12 +23331,17 @@ function fcRender(){
       '<div style="display:flex; justify-content:space-between; padding:10px 0 0; margin-top:6px; border-top:1px solid var(--line); font-size:18px; font-weight:700;"><span>Balance</span><span>'+fmtMoney(bal)+'</span></div>'+
       '<div style="margin-top:10px; font-weight:700; color:'+colour+';">'+status+'</div>'+
     '</div>' + oddity;
-  const fee = document.getElementById('fcPaidSomething').value === 'yes' ? 25 : 40;
+  /* ⚠ THE TWO NUMBERS COME FROM js/money.js, NEVER TYPED HERE. They sat in this
+     function as the literals 25 and 40 while the fee was a preview; now that
+     `runLateFeeBatch` actually charges it, a second copy on this screen is a card
+     that can quietly start quoting a fee nobody is charged. */
+  const fee = document.getElementById('fcPaidSomething').value === 'yes'
+    ? LATE_FEE_PAID_SOMETHING : LATE_FEE_PAID_NOTHING;
   document.getElementById('fcLateFee').value = fmtMoney(fee);
   document.getElementById('fcLatePreview').innerHTML =
-    'If this customer reached the third contact unpaid, their balance would become <strong>'+
-    fmtMoney(bal + fee)+'</strong> &mdash; '+fmtMoney(bal)+' plus the '+fmtMoney(fee)+' fee. '+
-    '<em>Not built. Nothing charges this today.</em>';
+    'If this customer is still unpaid at the end of March, their balance becomes <strong>'+
+    fmtMoney(bal + fee)+'</strong> &mdash; '+fmtMoney(bal)+' plus the '+fmtMoney(fee)+' fee, '+
+    'added and emailed on 1 April.';
 }
 function fcRunScenarios(){
   const wrap = document.getElementById('fcScenarios');
@@ -43160,22 +43499,26 @@ function populateCityDropdowns(){
    1. THEY OWE FROM AN EARLIER SEASON — houseOwesFromLastSeason, the same rule
       that holds them out of the season, so the red card and the hold can never
       disagree about who is behind.
-   2. THEIR BILL WENT OUT 60 DAYS AGO and is still not settled.
+   2. THEIR BILL IS PAST THE DAY THE LATE FEE LANDS and is still not settled.
 
-   ⚠ SIXTY DAYS FROM THE INVOICE, NOT FROM THE DUE DATE. Asked directly, Addie:
-   "no 60 days after invoice goes out." The first version counted from the due
-   date — 30 days of terms plus 60 — which reddened a card at 90 days and is
-   NOT what she asked for. Since terms are 30 days, a card now goes red 30 days
-   after the payment was actually due.
+   ⚠ IT MOVED FROM SIXTY DAYS TO A DATE (2026-09-11), with the terms. Asked in
+   2026-09-01 whether to count from the invoice or the due date, Addie said "no
+   60 days after invoice goes out" — and under 30-day terms that landed a card
+   red 30 days after payment was actually due, which is the shape she wanted.
+   Moving payment to February kept the shape and broke the arithmetic: sixty days
+   after an October invoice is December, so the whole book would have gone red
+   over Christmas while nobody was late at all. It is now 1 April — the morning
+   the late-fee email sends itself — which is again "past due and the grace month
+   has gone", said as a date instead of a count.
 
-   ⚠ IT IS NOT OVERDUE_DAYS. That one is 30 and drives the ordinary Overdue
-   flag; reusing it would turn most of the book red in November and say nothing.
-   Two thresholds, two purposes.
+   ⚠ IT IS NOT THE OVERDUE FLAG. That one turns on the day after the invoice's
+   own due date, at the end of February; this one waits the further month Addie
+   gives them before a fee. Two moments, two purposes — reddening everybody on
+   1 March would say nothing that the Overdue column does not already say.
 
    ⚠ AND IT READS invoiceIssuedAt, never updatedAt — a corrected spelling or a
    payer re-sync would otherwise push the clock out and quietly un-redden a card
    that really is months late. */
-const RED_CARD_DAYS_FROM_INVOICE = 60;
 function houseCardIsRed(d, inv){
   if(!d) return false;
   /* Paid in full is never red, whatever the dates say. */
@@ -43185,8 +43528,9 @@ function houseCardIsRed(d, inv){
   const issued = invoiceIssuedAt(inv);
   /* No issue date means never billed, so there is nothing to be late for. */
   if(!issued) return false;
-  const days = (Date.now() - issued.getTime()) / 86400000;
-  return days >= RED_CARD_DAYS_FROM_INVOICE;
+  const feeDay = invoiceFeeChaseDate(issued);
+  if(!feeDay) return false;
+  return Date.now() >= feeDay.getTime();
 }
 function buildAddressRowHtml(item){
   const d = item.data;

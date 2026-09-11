@@ -2267,3 +2267,34 @@ debtor's move vanished with no error.
 scheduling half is enforced, and is what goes red if somebody "tidies" the door to match
 `portalSave`. QT-35 still describes the door itself and is unchanged — this narrows nothing
 in it, so it is not superseded.
+
+---
+
+## Q-034 · intent · open · 2026-09-11
+Does last season's carried debt get charged the 1 April late fee as well?
+
+**Raised while building the new invoice terms (MON-70 to MON-72). Not asked, and
+deliberately not guessed — a default was chosen and it is named here so it can be
+overturned rather than discovered.**
+
+The April run charges a late fee against **this season's bill only**. An invoice whose
+whole outstanding amount is a balance carried from an earlier season is skipped.
+
+**Why that way round.** A carried balance reached this invoice *by* being unpaid. A rule
+that fined any unpaid amount without asking why would charge the same customer $40 every
+April for the same old debt, for ever, adding a line to their fee ledger each year — a
+harm that repeats silently rather than a one-off mistake somebody notices. The other
+reading has an honest argument too, and it is hers: somebody two seasons behind is exactly
+who a late fee is aimed at.
+
+**What it costs today.** Nothing, yet. `Q-051`-style urgency does not apply: the send is
+switched off, it first fires in April 2027, and checklist row 222 puts the dry-run list in
+front of her before the switch is ever turned on — so this can be answered from real names
+rather than in the abstract.
+
+**What changing it takes.** One condition in `runLateFeeBatch` (`owedNow - carried <= 0`)
+and its check in the same file. The guard is commented as hers to move.
+
+**Resulting map change.** A MON row recording whichever way she answers, and — if she
+overturns it — this default marked as the superseded reasoning, since the every-April
+argument above is exactly what the new rule would have to answer.
