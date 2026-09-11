@@ -57940,3 +57940,46 @@ suite('324. The February reminder is filed against the right season');
       'a reminder filed under "null" is one that can never be marked done');
   }
 }
+
+suite('325. The late-fee guard is released each season');
+/* ⭐ FOUND AFTER THE MERGE, 2026-09-11, and it is the `chargeNewMemberFee` bug pointing
+   the other way. `lateFeeAt` is what stops runLateFeeBatch charging one invoice twice —
+   and invoice documents are REUSED season to season, keyed by the payer. Nothing cleared
+   it, so it stopped being a once-a-season guard and became a once-for-ever one: charged
+   in April 2027, silently skipped every April after that, for that customer, permanently.
+
+   ⚠ IT FAILS QUIET, WHICH IS WHY IT NEEDS A CHECK RATHER THAN A COMMENT. Nobody ever
+   rings up to say they were not charged, and the only symptom is a number that does not
+   appear. The $30 join fee's version of this ran for a whole season before anybody saw
+   it, and that one at least over-charged, which somebody notices. */
+{
+  const stamped = /lateFeeAt: admin\.firestore\.FieldValue\.serverTimestamp\(\)/.test(fnsSrc);
+  const guarded = /if \(inv\.lateFeeAt\) \{ out\.skipped\+\+; continue; \}/.test(fnsSrc);
+  check('S325', 'the batch still stamps the guard and reads it', stamped && guarded,
+    'without both, a re-run charges the same customer twice');
+
+  /* ⚠ SCOPED TO THE SEASON RESET'S OWN INVOICE WRITE, not the whole file — a file-wide
+     search finds the batch's own stamp and passes while the reset never clears it. */
+  const resetAt = admin.indexOf('UNPAID BILL IS CARRIED, NOT ERASED');
+  const block = resetAt === -1 ? '' : admin.slice(resetAt, admin.indexOf('priceReviewed: true', resetAt));
+  check('S325', 'the season reset was found', !!block,
+    'anchored on the arrears-carry note, which is inside the same write');
+  check('S325', 'Start New Season releases the guard', /lateFeeAt: null/.test(block),
+    'left set, that customer is never charged a late fee again as long as the invoice ' +
+    'document lives — the chargeNewMemberFee failure with its sign flipped');
+  check('S325', 'and clears the amount beside it', /lateFeeAmount: null/.test(block),
+    'a stale amount on a fresh season reads as a fee that was charged this year');
+
+  /* ⚠ IT IS CLEARED IN THE SAME WRITE AS THE REST, never as a follow-up. A separate
+     write can fail on its own and leave exactly the half-state this closes — the
+     argument Start New Season already makes for chargeNewMemberFee. */
+  /* ⚠ NOT A CHARACTER WINDOW — §7 bans those by name, and the first draft of this
+     check was one. "Same write" means no SECOND write opens between the guard being
+     cleared and the end of this object literal; `block` already ends at the last field
+     of it, so that is what to assert. */
+  const afterGuard = block.slice(block.indexOf('lateFeeAt: null'));
+  check('S325', 'cleared in the same write as the rest of the reset',
+    block.indexOf('lateFeeAt: null') !== -1 && !/updateDoc\(|setDoc\(/.test(afterGuard),
+    'a second write can fail alone and leave the guard set on a reset invoice — the ' +
+    'argument Start New Season already makes for chargeNewMemberFee');
+}

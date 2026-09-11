@@ -1029,6 +1029,14 @@ year to think about rather than nine hundred.
   anybody already charged, anybody paid in full, and anybody whose only outstanding amount
   is a balance carried from an earlier season (**Q-034**, open — that last one is a default
   rather than her ruling).
+- ⚠ **"Anybody already charged" means already charged THIS season, and Start New Season is
+  what makes that true.** The marker (`lateFeeAt`) lives on the invoice, and invoices are
+  reused season to season rather than recreated — so the season reset clears it along with
+  the deposit, the credits and the issue date. Left standing it would stop being a
+  once-a-season guard and become a once-for-ever one: charged in April 2027, then silently
+  skipped every April after that, for that customer, permanently. That is the
+  `chargeNewMemberFee` failure with its sign flipped, and the quiet direction of it —
+  nobody ever rings up to say they were *not* charged. Suite 325 holds it.
 
 **The one correct formula, everywhere:**
 ```
