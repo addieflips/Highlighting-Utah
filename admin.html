@@ -21265,14 +21265,24 @@ function reportAdminError(text){
        console.error comes straight back in here if anything below logs. */
     adminErrorBusy = true;
     try{
+      /* ⭐ THE SIGNED-IN ADDRESS IS A FIELD NOW, NOT ONLY PROSE ([[MSG-10]] finished,
+         2026-09-11). It has always been written into the body below; nothing could READ it
+         there, so every admin error drew with nothing on the row naming who hit it.
+         ⚠ ONE EXPRESSION, USED TWICE. The field and the body must never disagree about who
+         was signed in — that agreement is the whole value of having the field.
+         ⚠ AND IT IS NOT NEW EXPOSURE: `messages` is staff-read-only in firestore.rules, and
+         this address already sits in the body of every one of these rows. No rules deploy.
+         ⚠ THE FIELD IS NOT ENOUGH ON ITS OWN — it reaches rows written from here on, and the
+         rows she is looking at are older. `msgStaffSignedInAs` reads the body as well. */
+      const signedInAs = ((auth && auth.currentUser && auth.currentUser.email) || 'nobody');
       addDoc(collection(db,'messages'), {
         topic: ADMIN_ERROR_TOPIC, folder: ERROR_FOLDER_ADMIN,
         name: '', phone: '', email: '', contactMethod: '',
-        errorKey: key,
+        errorKey: key, staffEmail: signedInAs,
         message: 'Something went wrong on the admin page.' + String.fromCharCode(10,10) +
           text.slice(0, 1500) + String.fromCharCode(10,10) +
           'Where: ' + String((location && location.hash) || '(the dashboard)').slice(0, 120) + String.fromCharCode(10) +
-          'Signed in as: ' + ((auth && auth.currentUser && auth.currentUser.email) || 'nobody') + String.fromCharCode(10) +
+          'Signed in as: ' + signedInAs + String.fromCharCode(10) +
           'Browser: ' + String(navigator.userAgent || '').slice(0, 200),
         autoQueuedToWarehouse: false, needsReassign: false,
         createdAt: serverTimestamp()
@@ -21618,6 +21628,29 @@ function msgContactPreference(d){
    somebody is waiting. Same rule as the fix sheet’s "?". */
 function msgContactLineHtml(d){
   if(typeof msgTypeOf === 'function' && msgTypeOf(d) === MSG_TYPE_SYSTEM) return '';
+  /* ⭐ AN ADMIN ERROR HAS NO CUSTOMER, AND REPORTING THAT AS A FAILED LOOKUP IS WORSE THAN
+     SAYING NOTHING (2026-09-11). Both rows Addie was reading said "No phone or email on this
+     message, and no record matches it" — which describes a search for a customer who was
+     never involved. The office's OWN browser raised these; `reportAdminError` hardcodes
+     name/phone/email empty, so that branch was the only one they could ever reach.
+     ⚠ AND THE HEADING IS BLANK ON THESE ROWS, which is what made it bite. `msgErrorWhoLabel`
+     returns '' with no portal link to match, so this line was the ONLY thing on the row that
+     could have named anybody — and it named nobody, twice over.
+     ⚠ MEMBER ERRORS KEEP THE CONTACT LINE. A customer really did hit one of those and
+     ringing them is the entire point ([[MSG-14]]). This is the admin half alone. */
+  if(String((d && d.topic) || '') === ADMIN_ERROR_TOPIC){
+    const staff = msgStaffSignedInAs(d);
+    /* ⚠ "nobody" IS A REAL ANSWER AND IS KEPT AS ONE. reportAdminError writes that word when
+       there is no signed-in user, and it is the signature of a timer still running after a
+       sign-out — the fault `whileSignedIn` was added for. Flattening it to "we do not know"
+       would hide the one thing such a row is evidence of.
+       ⚠ AND A ROW WITH NEITHER SHOWS NOTHING, rather than falling through to the customer
+       line below. Nothing beats a sentence about a lookup that was never going to succeed. */
+    if(!staff) return '';
+    if(staff === 'nobody') return '<div class="row-contact none">Nobody was signed in when this happened</div>';
+    return '<div class="row-contact">Signed in as <span class="row-contact-val">' +
+      esc(staff) + '</span></div>';
+  }
   const c = msgContactFor(d);
   const pref = msgContactPreference(d);
   const tag = function(where){
@@ -21665,6 +21698,22 @@ function msgContactLineHtml(d){
   }
   return '<div class="row-contact">' + bits.join(' &middot; ') + extra +
     (c.fromRecord ? ' <span class="row-contact-src">from their record</span>' : '') + '</div>' + strandedLine;
+}
+/* ⭐ WHO HIT AN ADMIN ERROR ([[MSG-10]] finished, 2026-09-11). Addie, looking at two of
+   these rows: "can you update this?"
+   ⚠ IT READS THE ROWS ALREADY FILED, and that is the point rather than a nicety — the same
+   rule [[MSG-10]] was held to when it taught the member-error row to name a customer. Every
+   admin error written before today carries the signed-in address ONLY as prose inside its
+   own message body, and those are the rows she is looking at. A fix that cannot reach the
+   case that prompted it is not finished. New rows carry `staffEmail`, which wins where it
+   exists because it cannot be broken by somebody rewording the body.
+   ⚠ ANCHORED TO THE START OF A LINE. "Signed in as:" is a phrase that can appear inside a
+   pasted error message; the line reportAdminError writes is the one at a line start. */
+function msgStaffSignedInAs(d){
+  if(!d) return '';
+  if(d.staffEmail) return String(d.staffEmail).trim();
+  const m = /(?:^|\r?\n)Signed in as:[ \t]*([^\r\n]*)/.exec(String(d.message || ''));
+  return m ? m[1].trim() : '';
 }
 function messageAddressLookup(d){
   const phoneDigits = (d.phone||'').replace(/\D/g,'');
