@@ -305,7 +305,7 @@ if (describe) {
  * ------------------------------------------------------------------------- */
 if (H) {
   const iDiff = H.indexOf('describeCustomerChanges(item.data, addrUpdates)');
-  const iWrite = H.indexOf("updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates)");
+  const iWrite = H.indexOf("updateDoc(doc(db,'jobAddresses', savingCustomerId), addrUpdates)");
   const iLog = H.indexOf('customerChangeSentence(');
   check('the save handler takes the diff', iDiff > -1,
     'without this call nothing is ever logged and the whole gate above proves nothing');
@@ -377,7 +377,7 @@ if (H) {
 
   /* ⚠ AND IT IS AFTER THE WRITE, like every other row here: an entry for a save that then
      failed is a history of something that did not happen. */
-  const iWrite = region.indexOf("updateDoc(doc(db,'jobAddresses', editCustomerId)");
+  const iWrite = region.indexOf("updateDoc(doc(db,'jobAddresses', savingCustomerId)");
   const whole = at > -1 ? admin.slice(admin.lastIndexOf('const custChanges', at), admin.indexOf('Pool bookkeeping', at)) : '';
   check('and it is written after the record is',
     whole.indexOf("updateDoc(doc(db,'jobAddresses'") > -1 &&

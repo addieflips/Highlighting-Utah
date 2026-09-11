@@ -53778,6 +53778,26 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   statusEl.style.color = '';
   const item = jobAddresses.find(a => a.id === editCustomerId);
   if(!item) return;
+  /* ⭐ THE SAVE HOLDS THE ID IT STARTED WITH (2026-09-11, from the Errors folder).
+     Two rows on 2026-09-09 — "null is not an object (evaluating 's.indexOf')" on Safari
+     and "Cannot read properties of null (reading 'indexOf')" on Chrome — are ONE fault
+     worded by two browsers, and `s` is not ours: it is the SDK's own loop variable.
+     firebase-firestore 10.12.2 validates only the COLLECTION argument of doc() and then
+     runs `ResourcePath.fromString(path, ...segments)`, whose loop body is literally
+     `for(const s of e){ if(s.indexOf("//") >= 0) ... }`. So a NULL ID reaching doc()
+     throws exactly those two messages, and in this file nothing else does.
+     ⚠ THE ONLY ID HERE THAT GOES NULL IS THIS ONE. `editCustomerId` is module-level and
+     this handler awaits against it around forty times. Cancel, the X, Remove-to-recycle
+     and this handler's own success line all set it to null, and openEditCustomerModal
+     sets it to a DIFFERENT id. Any of those landing between two awaits redirected the
+     rest of the save — the first unguarded use is the updateDoc that writes the record.
+     ⚠ AND THE CRASH IS THE LUCKY HALF OF IT. A null throws, the save stops, and she is
+     told "Nothing was saved", which is at least true. Opening a second customer mid-save
+     does NOT throw: it writes this customer's thirty-odd fields onto that one's record,
+     silently, and the office has no reason to look. That is why this is a capture and
+     not a re-check — a re-check can only refuse, and by then the wrong record is open. */
+  const savingCustomerId = item.id;
+  const saveBtn = document.getElementById('editCustSaveBtn');
   const d = item.data;
   const newName = document.getElementById('editCustName').value.trim();
   const newPropertyLabel = document.getElementById('editCustPropertyLabel').value.trim();
@@ -53895,6 +53915,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newRushInstall = document.getElementById('editCustRushInstall').checked;
   const newHouseNotes = document.getElementById('editCustNotes').value.trim();
   if(!newName || (!newPhone && !newEmail)){ statusEl.textContent = 'Name plus a phone number or email are required.'; return; }
+  /* ⚠ AND ONE SAVE AT A TIME. Nothing disabled this button, so a second click while the
+     first save was still awaiting ran the whole 1,400-line handler again — and whichever
+     finished first nulled `editCustomerId` under the other, which is the same race from
+     the other end. `editCustTopSave` already refuses to forward a click to a disabled
+     button, so disabling the real one closes both doors in. */
+  saveBtn.disabled = true;
   /* ⚠ HAS ANYBODY ELSE TOUCHED THIS RECORD WHILE THE MODAL WAS OPEN?
      This handler writes ~30 fields from the snapshot taken when it opened —
      including Measured Feet, which drives bins, the customer number series and
@@ -53906,7 +53932,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
      may not have delivered the other change yet, and the whole point is to see
      something the cache might not know about. */
   try{
-    const freshSnap = await getDoc(doc(db,'jobAddresses', editCustomerId));
+    const freshSnap = await getDoc(doc(db,'jobAddresses', savingCustomerId));
     const freshAt = freshSnap.exists() ? (freshSnap.data().updatedAt || null) : null;
     const openedMs = editCustOpenedWithUpdatedAt && editCustOpenedWithUpdatedAt.toMillis ? editCustOpenedWithUpdatedAt.toMillis() : 0;
     const freshMs = freshAt && freshAt.toMillis ? freshAt.toMillis() : 0;
@@ -54717,12 +54743,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       addrUpdates.scheduleHeldReason = 'Sent to the warehouse';
     }
     const custChanges = describeCustomerChanges(item.data, addrUpdates);
-    await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
+    await updateDoc(doc(db,'jobAddresses', savingCustomerId), addrUpdates);
     /* ⚠ NOT AWAITED, like every other logActivity call: a note about a change must
        never be able to break the change. It carries its own catch. */
     if(custChanges.length){
       logActivity(customerChangeSentence(newName || item.data.name, custChanges),
-        'customers', editCustomerId);
+        'customers', savingCustomerId);
     }
     /* ⭐ A WAIVED FEE IS A DECISION, AND IT LEFT NO TRACE AT ALL (added 2026-08-29).
        `lightFeeWaived` is a LOCAL VARIABLE. It decides whether the $30 is charged and then
@@ -54753,7 +54779,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       logActivity('Waived the ' + fmtMoney(lightChange.feeAmount) + ' light-change fee for ' +
         (newName || item.data.name || 'a customer') +
         (lightChange.feeReason ? ' \u2014 ' + lightChange.feeReason : ''),
-        'customers', editCustomerId);
+        'customers', savingCustomerId);
     }
     /* Pool bookkeeping, after the record is safely written. Each half is
        guarded on its own: a pool write that fails must not undo a save that
@@ -54818,7 +54844,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     if((feetChanged || addressChanged || sidesChanged || priceWantsRequote) && !requoteBeingConverted){
       try{
         const already = quotesCache.find(function(q){
-          return q.data.existingCustomerId === editCustomerId && quoteStage(q.data) === 'new';
+          return q.data.existingCustomerId === savingCustomerId && quoteStage(q.data) === 'new';
         });
         const changeNote = feetChanged
           ? {what:'feet', oldFeet: Number(d.measuredFeet || 0), newFeet: Number(newMeasuredFeet || 0), oldPrice: Number(d.housePrice || 0)}
@@ -54852,7 +54878,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
             name: newName, phone: newPhone, email: (newEmail || '').toLowerCase(),
             address: newAddress, frontPhotoUrl: d.frontPhotoUrl || '',
             estimatedFeet: Number(newMeasuredFeet || 0) || '',
-            existingCustomerId: editCustomerId,
+            existingCustomerId: savingCustomerId,
             existingCustomerNumber: d.customerNumber || '',
             changed: changeNote,
             quoteToken: generatePortalToken(), formCompleted: false,
@@ -54882,7 +54908,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       try{
         await updateDoc(doc(db,'quotes', answeredQuoteId), {
           status: 'closed', convertedToCustomerAt: serverTimestamp(),
-          convertedToCustomerId: editCustomerId
+          convertedToCustomerId: savingCustomerId
         });
       } catch(err){
         console.error('Saved the customer but could not close the re-quote:', err);
@@ -54900,7 +54926,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       if(rqReferral){
         await creditReferralIfAny(
           Object.assign({}, rqReferral.data, {__quoteId: answeredQuoteId}),
-          editCustomerId,
+          savingCustomerId,
           {name: newName, phone: newPhone, email: newEmail});
       }
     }
@@ -54909,7 +54935,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        Without this, correcting an address or gate code never reaches a crew
        that's already been scheduled. Only upcoming routes are touched — past
        routes stay as they were on the day. */
-    await resyncSavedRouteStops(editCustomerId, {
+    await resyncSavedRouteStops(savingCustomerId, {
       name: newName, phone: newPhone, address: newAddress, gateCode: newGateCode,
       specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes,
       customerNumber: addrUpdates.customerNumber, lat: addrUpdates.lat, lng: addrUpdates.lng
@@ -54923,7 +54949,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        link had (fixed in functions/index.js's portalRsvp). */
     if((seasonMaybeChosen && !item.data.maybeNextYear) ||
        (newRsvp === 'no' && item.data.rsvpStatus !== 'no')){
-      await removeCustomerFromUpcomingRoutes(editCustomerId);
+      await removeCustomerFromUpcomingRoutes(savingCustomerId);
     }
     /* ⭐ AND CANCELLING BEFORE THE LIGHTS GO UP TAKES BACK THE REFERRAL THAT BROUGHT
        THEM IN (2026-09-03). Addie's rule: a referral that reached an install is earned,
@@ -54941,7 +54967,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        whether the credit is earned, and the stale cached copy is what the rule reads
        without this. */
     if(newRsvp === 'no' && item.data.rsvpStatus !== 'no'){
-      await clawBackReferralIfAny(editCustomerId, Object.assign({}, item.data, addrUpdates));
+      await clawBackReferralIfAny(savingCustomerId, Object.assign({}, item.data, addrUpdates));
     }
     let inv = allCustInvoiceFor(item);
     let resyncPayerAfter = null;
@@ -55202,8 +55228,15 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         });
       }catch(e){ console.error('Could not raise the reassign note', e); }
     }
-    document.getElementById('editCustOverlay').style.display = 'none';
-    editCustomerId = null;
+    /* ⚠ CLOSE ONLY WHAT THIS SAVE OPENED. Holding the id above means a save that ran
+       while the office moved on now FINISHES correctly against the right customer — so
+       this line, which used to be the same window every time, is the one place that
+       still has to ask. Hiding the overlay and nulling the id when a different customer
+       is on screen shuts a window somebody is typing in. */
+    if(editCustomerId === savingCustomerId){
+      document.getElementById('editCustOverlay').style.display = 'none';
+      editCustomerId = null;
+    }
     /* ⚠ AND IT SAYS SO. Declining to write is the right answer and a silent one is
        indistinguishable from the colours having been saved — which is the whole of
        "nothing should fail quietly". It names the wording that was kept, so the
@@ -55260,6 +55293,11 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     statusEl.textContent = 'Nothing was saved \u2014 ' + detail;
     statusEl.style.color = 'var(--ember)';
     toast('Nothing was saved for ' + (newName || 'this customer') + '. ' + detail);
+  } finally {
+    /* Saved, refused by the stale-record confirm, or thrown — the button comes back
+       either way. A save that leaves it dead reads as a frozen page, and the office
+       reloads and saves again, which is the double-write this just stopped. */
+    saveBtn.disabled = false;
   }
 });
 /* The dropdowns repaint immediately — one click, one render. Only the typed

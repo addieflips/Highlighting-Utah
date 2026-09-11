@@ -5236,7 +5236,7 @@ suite('8. Quote decline / maybe next year');
     admin.indexOf('addrUpdates.maybeNextYear = seasonMaybeChosen') >
       admin.indexOf('addrUpdates.needsLightBuild = newLightsDescription') &&
     admin.indexOf('addrUpdates.maybeNextYear = seasonMaybeChosen') <
-      admin.indexOf("await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates)"),
+      admin.indexOf("await updateDoc(doc(db,'jobAddresses', savingCustomerId), addrUpdates)"),
     'the RSVP dropdown or the build flag would overwrite it and leave a half state');
   /* ⭐ REPOINTED FROM ITS OPPOSITE (2026-09-02). This used to require the stale-dropdown
      rescue — "if the dropdown still says backnextyear, blank it" — which could only fire
@@ -5849,7 +5849,7 @@ suite('10d. Activity log, and losing somebody else’s edit');
     /editCustOpenedWithUpdatedAt/.test(saveSrc) && /freshMs > openedMs/.test(saveSrc),
     'a save silently replaced the other person’s work with a stale snapshot');
   check('conflict', 'it re-reads from the server, not from the cache',
-    /getDoc\(doc\(db,'jobAddresses', editCustomerId\)\)/.test(saveSrc),
+    /getDoc\(doc\(db,'jobAddresses', savingCustomerId\)\)/.test(saveSrc),
     'the listener may not have delivered the other change yet — the cache is the thing that might not know');
   check('conflict', 'overwriting is possible but has to be chosen',
     /Save anyway and overwrite\?/.test(saveSrc),
@@ -8197,7 +8197,7 @@ if (!JSDOM) {
     const ecSrc = ecStart > -1 ? admin.slice(ecStart, ecEnd > -1 ? ecEnd : admin.length) : admin;
     check('rsvp-routes', 'Edit Customer removes the customer from upcoming routes when RSVP is set to No',
       /newRsvp === 'no' && item\.data\.rsvpStatus !== 'no'/.test(ecSrc) &&
-      (ecSrc.match(/removeCustomerFromUpcomingRoutes\(editCustomerId\)/g) || []).length >= 1,
+      (ecSrc.match(/removeCustomerFromUpcomingRoutes\(savingCustomerId\)/g) || []).length >= 1,
       'setting RSVP straight to No from the dropdown had the same gap as the portal link — the crew still turns up');
   })());
 })();
@@ -13386,7 +13386,7 @@ suite('Suite 30. Edit Customer saves the town');
     'an ordinary save of an unrelated field must not churn the pool');
   check('S30', 'the pool writes happen AFTER the record is saved, each guarded',
     admin.indexOf("setDoc(doc(db,'availableCustomerNumbers', oldCustNumber)") >
-    admin.indexOf("await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);"),
+    admin.indexOf("await updateDoc(doc(db,'jobAddresses', savingCustomerId), addrUpdates);"),
     'a failed pool write must not throw away an edit that already succeeded — the pool is fixable by hand, a lost edit is not');
 
   check('S30', 'there is no second address parser', !/function cityFromAddressLine/.test(admin),
@@ -28688,6 +28688,31 @@ suite('Suite 108. The Edit Customer save, actually run');
   const handlerSrc = at > 0 ? admin.slice(brace + 1, k) : '';
   check('S108', 'the save handler was found to run', !!handlerSrc);
 
+  /* ⭐ AND NO BRANCH OF IT READS THE MODULE-LEVEL ID (2026-09-11, from the Errors folder).
+     The checks at the end of this suite prove WHY this matters by running the race; this one
+     proves it holds at all ELEVEN sites, which no fixture can reach — four of them are
+     stubbed calls and two are payload fields, so reverting those individually changes
+     nothing any behavioural check can see. It is the same split this file makes everywhere
+     else: the mechanism is run, the wiring is asserted.
+     ⚠ THE WINDOW IS CAPTURE-TO-CLOSE, NOT THE WHOLE HANDLER. `editCustomerId` is read
+     legitimately on both sides of it — the entry guard above needs the module variable
+     because there is nothing else yet, and the close below has to compare against what is
+     on screen NOW, which is the one question the captured id cannot answer. */
+  const idCapture = handlerSrc.indexOf('const savingCustomerId = item.id;');
+  const idClose = handlerSrc.indexOf('if(editCustomerId === savingCustomerId){');
+  check('S108', 'the save captures the id it is working on', idCapture > -1,
+    'without the capture every check below is about the module variable again');
+  /* ⚠ COMMENTS STRIPPED FIRST, and the reason is worth keeping: the note above the
+     capture EXPLAINS the fault by naming `editCustomerId`, which is exactly what it
+     should do — the first version of this check failed on its own documentation. Only
+     block and line comments are removed, nothing is tokenised, and the per-site
+     red-check below is what proves the stripper still sees all eleven. */
+  const idBody = handlerSrc.slice(Math.max(idCapture, 0), Math.max(idClose, 0))
+    .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+  check('S108', 'and no branch of the save reads the module-level id after that',
+    idCapture > -1 && idClose > idCapture && !/\beditCustomerId\b/.test(idBody),
+    'one reverted site is one write that can be redirected mid-save — to null, which throws the s.indexOf crash from the Errors folder, or to whoever was opened next, which does not throw at all');
+
   const AsyncFn = Object.getPrototypeOf(async function(){}).constructor;
 
   /* Ashley's own situation: 300 ft against a regular number, a re-quote in hand, and
@@ -28708,6 +28733,13 @@ suite('Suite 108. The Edit Customer save, actually run');
       classList: {add(){}, remove(){}, toggle(){}}, addEventListener(){},
       querySelectorAll: () => [], querySelector: () => null, closest: () => null,
       focus(){}, click(){}});
+    /* ⭐ A WAY TO INTERFERE MID-SAVE (2026-09-11, from the Errors folder). The
+       three below are the harness half of the id-race checks at the end of this
+       suite: setEditId reaches the sandbox's own `editCustomerId` binding, so a
+       stub can do to it exactly what a Cancel click or a second customer being
+       opened does to it on the real page — between two awaits, with the save
+       already running. Nothing here touches the handler source. */
+    let setEditId = null, stole = false, disabledDuring = null;
     const writes = [];
     const errs = [];
     /* What the office was asked before anything was charged. */
@@ -28752,8 +28784,20 @@ suite('Suite 108. The Edit Customer save, actually run');
       },
       deleteDoc: async (r) => { writes.push({op:'delete', col:r.col, id:r.id}); },
       addDoc: async (r, p) => { writes.push({op:'add', col:r.col, payload:p}); return {id:'n1'}; },
-      getDoc: async () => ({exists: () => false, data: () => ({})}),
+      /* ⚠ THE FIRST await IN THE HANDLER, which is why the interference is hung here:
+         it is the earliest moment the office can still be clicking, and everything the
+         save writes comes after it. */
+      getDoc: async () => {
+        if (!stole) {
+          stole = true;
+          disabledDuring = (els.editCustSaveBtn || {}).disabled;
+          if (o.stealIdDuring !== undefined && setEditId) setEditId(o.stealIdDuring);
+          if (o.throwDuring) throw new Error('the record could not be re-read');
+        }
+        return {exists: () => false, data: () => ({})};
+      },
       serverTimestamp: () => 'NOW', db: {},
+      __holdIdSetter: (set) => { setEditId = set; },
       editCustomerId: 'c894', editCustOpenedWithUpdatedAt: null,
       requoteBeingConverted: o.noRequote ? null : 'q1',
       requoteBuildChoice: o.noRequote ? null : {mode: 'recycle'},
@@ -28817,6 +28861,21 @@ suite('Suite 108. The Edit Customer save, actually run');
           '\nreturn {' + names.join(',') + '};');
         return made(fakeDoc);
       })(),
+      /* ⭐ THE TWO REFERRAL DOORS, STUBBED ON PURPOSE — AND THE SANDBOX WAS MISSING THEM
+         ENTIRELY UNTIL 2026-09-11. This is the extraction-list trap CLAUDE.md names, in the
+         one shape that does NOT announce itself: the save handler calls creditReferralIfAny
+         inside the outer try, so the ReferenceError did not take the suite down with a bare
+         name — the handler's OWN catch swallowed it, set "Nothing was saved", and returned
+         normally. Every default-fixture save in this suite had been stopping there for as
+         long as that call has existed, and every check stayed green because all of them read
+         writes made earlier in the handler. Nothing after the re-quote branch was covered at
+         all. Found by a check that asserted the END of a save rather than a write in it.
+         ⚠ STUBS RATHER THAN LIFTS, unlike everything else in this list, and the rule is the
+         same one: lift what is under test. Whether a referral is earned is not this suite's
+         claim — the real pair, with all eight helpers under them, is lifted and run in the
+         referral suite below. What IS this suite's claim is that the save gets past them. */
+      creditReferralIfAny: async () => {},
+      clawBackReferralIfAny: async () => {},
       removeCustomerFromUpcomingRoutes: async () => {},
       resyncSavedRouteStops: async () => {}, syncPayerInvoice: async () => {},
       requoteRestoreSaveLabel: () => {},
@@ -29011,7 +29070,11 @@ suite('Suite 108. The Edit Customer save, actually run');
       )(ctx.getDoc, ctx.doc, ctx.setDoc, ctx.db, ctx.serverTimestamp, ctx.computeInvoiceStatus);
     }
     const names = Object.keys(ctx);
-    const fn = new AsyncFn(...names, handlerSrc);
+    /* ⚠ PREPENDED, NOT WOVEN IN. handlerSrc is the real bytes out of admin.html and
+       stays that way; this one line runs before it and captures the same binding, which
+       is the only way an outside stub can reach a function parameter. */
+    const fn = new AsyncFn(...names,
+      '__holdIdSetter(function(v){ editCustomerId = v; });\n' + handlerSrc);
     return fn(...names.map(n => ctx[n])).then(function(){
       const cust = writes.find(w => w.col === 'jobAddresses' && w.op === 'update');
       const quote = writes.find(w => w.col === 'quotes');
@@ -29022,6 +29085,9 @@ suite('Suite 108. The Edit Customer save, actually run');
       const raised = writes.find(w => w.col === 'quotes' && w.op === 'add');
       return {writes: writes, errs: errs, cust: cust, quote: quote, raised: raised,
               asked: asked, logged: logged,
+              disabledDuring: disabledDuring,
+              disabledAfter: (els.editCustSaveBtn || {}).disabled,
+              overlayHidden: (((els.editCustOverlay || {}).style) || {}).display === 'none',
               status: (els.editCustStatus || {}).textContent || ''};
     });
   }
@@ -29499,6 +29565,70 @@ suite('Suite 108. The Edit Customer save, actually run');
     check('S108', 'and does not flag the warehouse',
       !!plain.cust && plain.cust.payload.needsLightRecycle !== true,
       'the recycle flag belongs to the re-quote choice, not to every save');
+  })());
+
+  /* ⭐ THE SAVE WRITES TO THE CUSTOMER IT OPENED, WHATEVER HAPPENS TO THE MODAL
+     (2026-09-11, from the Errors folder). Two rows on 2026-09-09 — "null is not an
+     object (evaluating 's.indexOf')" on Safari and "Cannot read properties of null
+     (reading 'indexOf')" on Chrome — are one fault worded twice. `s` is the Firestore
+     SDK's own loop variable: doc() validates only its COLLECTION argument and then runs
+     ResourcePath.fromString, whose body is `for(const s of e){ if(s.indexOf("//")...`.
+     A null id is the only thing in this file that reaches it.
+     ⚠ AND THE CRASH WAS THE LUCKY HALF. The handler read the module-level
+     `editCustomerId` at forty points across forty awaits. Cancel and the X null it;
+     openEditCustomerModal sets it to somebody else. Null threw and she was told nothing
+     saved, which was true. Somebody else did NOT throw — it wrote this customer's thirty
+     fields onto that one's record, silently, which is a tier-1 fault and is why the
+     second check below matters more than the first.
+     ⚠ THE FAKE doc() HERE CANNOT THROW, and that is deliberate: it records whatever id
+     it is handed, so these read the id that WOULD have gone to Firestore rather than
+     the SDK's complaint about it. Point the handler back at the module variable and the
+     first check reads null and the second reads c999. */
+  if (handlerSrc) pendingAsync.push((async () => {
+    const cancelled = await runSave({stealIdDuring: null});
+    check('S108', 'closing the window mid-save still writes to the customer it opened',
+      !!cancelled.cust && cancelled.cust.id === 'c894',
+      'a null id here is the crash in the Errors folder — doc() throws on it and the ' +
+      'save stops with thirty fields half-written');
+    check('S108', 'and nothing at all is addressed to a null id',
+      cancelled.writes.every(w => w.id !== null && w.id !== undefined || w.op === 'add'),
+      'every write in the handler shares the one id');
+
+    const switched = await runSave({stealIdDuring: 'c999'});
+    check('S108', 'and opening another customer mid-save cannot redirect the write',
+      !!switched.cust && switched.cust.id === 'c894',
+      'this is the silent half: the save lands on the wrong record and nothing on ' +
+      'screen ever says so');
+    check('S108', 'and not one write reaches the customer opened after it',
+      switched.writes.every(w => w.id !== 'c999'),
+      'the id is captured once, so no branch of the handler can be pointed elsewhere');
+
+    /* ⚠ AND ONE SAVE AT A TIME, which is the same race from the other end: two clicks
+       ran the handler twice and whichever finished first nulled the id under the other.
+       `editCustTopSave` already refuses to forward a click to a disabled button. */
+    const held = await runSave({});
+    check('S108', 'the Save button is disabled while the save is running',
+      held.disabledDuring === true,
+      'nothing stopped a second click, and the second save raced the first');
+    check('S108', 'and is given back when it finishes',
+      held.disabledAfter === false,
+      'a button left dead reads as a frozen page');
+
+    /* ⚠ AND THE LAST LINE OF THE SAVE STILL HAS TO ASK. Holding the id means a save
+       that outlived its modal now finishes correctly against the right record — which
+       leaves exactly one thing that must still look at what is on screen: the line that
+       closes the window. Closing unconditionally shuts one somebody is typing in. */
+    check('S108', 'a save that finishes normally closes its own window',
+      held.overlayHidden === true,
+      'the modal has to close on a good save or every save looks like it failed');
+    check('S108', 'but not the window of the customer opened after it',
+      switched.overlayHidden === false,
+      'the earlier save finishing is not a reason to shut the record she just opened');
+    const blew = await runSave({throwDuring: true});
+    check('S108', 'and given back even when the save throws',
+      blew.disabledAfter === false,
+      'the finally is the whole point — the one save that fails is the one she needs ' +
+      'to retry, and a dead button is how she reloads and loses the form');
   })());
 }
 
@@ -30168,7 +30298,7 @@ suite('Suite 85. Nobody is left off the sheet, and who counts as confirmed');
       const save = sectionFrom(admin, admin.indexOf("document.getElementById('editCustSaveBtn').addEventListener"));
       check('S85', 'and set BEFORE the customer record is written',
         save.indexOf('requoteAppliedAt') <
-          save.indexOf("updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates)"),
+          save.indexOf("updateDoc(doc(db,'jobAddresses', savingCustomerId), addrUpdates)"),
         'the block that closes the quote runs AFTER that write, so anything added to ' +
         'addrUpdates down there is never saved');
 
@@ -53076,7 +53206,7 @@ suite('299. A referral link, and the $25 that follows it');
   /* ⚠ THE OFFICE MARKING SOMEBODY NO IS THE THIRD DOOR, and it is the one the customer
      never touches — portalRsvp covers the other. */
   check('S299', 'the office marking somebody No takes the referral back',
-    /clawBackReferralIfAny\(editCustomerId/.test(admin),
+    /clawBackReferralIfAny\(savingCustomerId/.test(admin),
     'a customer cancelled over the phone would leave the referrer $25 up for somebody ' +
     'who never had lights');
   const fns = read('functions/index.js');
