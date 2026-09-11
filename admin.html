@@ -16128,7 +16128,7 @@ function renderQuoteRows(filtered){
         const url = await uploadOneToCloudinary(uploadFile);
         photos[idx] = {url: url, original: url, markup: []};
       } catch(err){
-        if(statusEl) statusEl.textContent = 'Upload failed \u2014 ' + ((err && err.message) || 'unknown error') + '.';
+        if(statusEl) statusEl.textContent = uploadFailText(err);
         return;
       }
       input.value = '';
@@ -16596,6 +16596,27 @@ function renderQuoteRows(filtered){
             });
             followQuoteToItsStage(id, {smsOptedOut: true, quoteArchived: true, quoteArchivedReason: 'Replied STOP to a text message'});
           } catch(e){ /* the message below still explains what happened */ }
+        } else if(/authenticat|invalid username|20003|accountsid/i.test(raw)){
+          /* ⭐ THERE IS NO TWILIO ACCOUNT, SO DO NOT SEND ANYONE LOOKING FOR ONE
+             ([[QT-38]], 2026-09-11). Dax, on this exact error: "we doont use twillo we
+             use google voice."
+
+             ⚠ THE RAW WORDING IS THE TRAP. "Twilio send failed: Authentication Error -
+             invalid username" reads as a key that has gone stale, which is a ten-minute
+             job — so whoever reads it goes to find the account, and there is no account
+             to find. QT-38 is recorded precisely because the fix is not a credential and
+             cannot be re-pointed at another sender: Google Voice has no send API to move
+             it to. A row that describes a soluble problem that does not exist costs more
+             than one that says nothing.
+
+             ⚠ THE BUTTON IS LEFT WHERE IT IS, and that is deliberate rather than an
+             omission. Removing it is a decision about what the office is offered, and
+             QT-38 recorded the ruling without taking it — this says what is true and
+             changes nothing else. The service's own words are kept on the end, because
+             the sentence in front of them is an interpretation of them. */
+          msgOut = 'Texting is not wired up — there is no Twilio account, and the number ' +
+            'we use is Google Voice, which has no way to send from here. Nothing was sent. ' +
+            'Send the quote by email, or text them from Google Voice by hand. (' + raw + ')';
         } else {
           msgOut = 'Text failed: ' + raw;
         }
@@ -35012,7 +35033,7 @@ document.getElementById('addExpenseBtn').addEventListener('click', async functio
   let receiptUrl = '';
   if(receiptFile){
     try{ receiptUrl = await uploadOneToCloudinary(receiptFile); }
-    catch(err){ toast('Receipt upload failed — expense saved without it'); }
+    catch(err){ toast('Receipt upload failed, expense saved without it. ' + uploadFailText(err)); }
   }
   await addDoc(collection(db,'expenses'), {
     date: dateVal || toDateStr(new Date()), description: desc, amount: amount, source: method, category: category,
@@ -35179,6 +35200,24 @@ async function uploadOneToCloudinary(file){
    not better than silence; it costs the same day and feels like an answer.
    ⚠ IT NEVER REPLACES THE ORIGINAL, only leads it. The advice is a GUESS made from a
    message; the message is the FACT. Callers print both, in that order. */
+/* ⭐ THE ADVICE, THE REASON, AND EVERY DOOR THAT UPLOADS (2026-09-11, from the Errors
+   folder). uploadFailAdvice was written on 2026-09-09 for the Attach button, because
+   "Nothing uploaded — try again" sent the office to retry a thing that could not work at
+   any hour of any day. It was wired into that one button and nowhere else.
+
+   ⚠ SEVENTEEN PLACES IN THIS FILE UPLOAD A PICTURE AND TWO OF THEM SAID WHY. The rest
+   still answered a switched-off account with "Upload failed", "Upload failed — try
+   again." or "check your Cloudinary settings" — the same worst-available instruction,
+   worded three ways, on the Gallery, the Hero images, the How It Works and Areas photos,
+   an expense receipt and a fix-note photo. A fix that reaches one caller of a shared
+   failure is half a fix, which is this repo's own name for it.
+
+   ⚠ ADVICE FIRST, THE SERVICE'S OWN WORDS AFTER, which is the order the Attach button
+   already used: the advice is a GUESS made from a message, the message is the FACT. */
+function uploadFailText(err){
+  const why = (err && (err.message || err.text)) ? String(err.message || err.text) : '';
+  return uploadFailAdvice(why) + (why ? ' (' + why + ')' : '');
+}
 function uploadFailAdvice(msg){
   const m = String(msg || '');
   if(/disabled/i.test(m)) return 'The picture service account is switched off, so nothing can be uploaded — and the photographs already on quotes will not show either. That is billing on the Cloudinary account, not something Attach can retry.';
@@ -35317,7 +35356,7 @@ document.getElementById('galleryUploadBtn').addEventListener('click', async func
     fileInput.value = '';
     document.getElementById('galleryCaptionInput').value = '';
   } catch(err){
-    toast('Upload failed — check your Cloudinary settings');
+    toast(uploadFailText(err));
   } finally {
     progress.style.display = 'none';
   }
@@ -45249,7 +45288,7 @@ function attachAddressRowHandlers(container){
           panel.querySelector('.note-fixphoto-preview').innerHTML = '<img src="'+esc(url)+'" style="max-width:200px; border-radius:8px; border:1px solid var(--line); display:block;">';
           statusEl.textContent = 'Photo uploaded — click Save Notes to keep it.';
         } catch(err){
-          statusEl.textContent = 'Upload failed — try again.';
+          statusEl.textContent = uploadFailText(err);
         }
       });
       panel.querySelector('.note-save').addEventListener('click', function(){
@@ -62270,7 +62309,7 @@ document.getElementById('howImageUploadBtn').addEventListener('click', async fun
     document.getElementById('howPreview').src = url;
     document.getElementById('howPreview').style.display = 'block';
     toast('How It Works photo updated');
-  } catch(err){ toast('Upload failed'); }
+  } catch(err){ toast(uploadFailText(err)); }
 });
 document.getElementById('areasImageUploadBtn').addEventListener('click', async function(){
   const file = document.getElementById('areasImageFile').files[0];
@@ -62281,7 +62320,7 @@ document.getElementById('areasImageUploadBtn').addEventListener('click', async f
     document.getElementById('areasPreview').src = url;
     document.getElementById('areasPreview').style.display = 'block';
     toast('Areas We Serve photo updated');
-  } catch(err){ toast('Upload failed'); }
+  } catch(err){ toast(uploadFailText(err)); }
 });
 document.getElementById('settingsHeroForm').addEventListener('submit', function(e){
   e.preventDefault();

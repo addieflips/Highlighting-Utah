@@ -48,6 +48,7 @@ const path = require('path');
 const ROOT = __dirname;
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const admin = read('admin.html');
+const NL_ = '\n';
 const index = read('index.html');
 
 let passed = 0, failed = 0;
@@ -837,6 +838,76 @@ console.log('--- emails that did not go out ---');
 /* ===========================================================================
  * 8. Two structural checks, named as such.
  * ========================================================================= */
+/* ---------------------------------------------------------------------------
+ * 9. An upload that cannot work says so, at every door — and a text that can never
+ *    be sent stops describing a problem that does not exist.
+ *
+ * uploadFailAdvice was written on 2026-09-09 for the Attach button, after the picture
+ * account was switched off and the office was told "Nothing uploaded — try again": an
+ * instruction that could not work at any hour of any day, and that reads as a glitch
+ * worth waiting out rather than a bill somebody has to settle. It was wired into that
+ * one button. Sixteen other places in admin.html upload a picture.
+ * ------------------------------------------------------------------------- */
+const UPLOAD_ADVICE_FN = extractFn(admin, 'uploadFailAdvice');
+const UPLOAD_TEXT_FN = extractFn(admin, 'uploadFailText');
+const uploadFailText = new Function(
+  UPLOAD_ADVICE_FN + NL_ + UPLOAD_TEXT_FN + '; return uploadFailText;')();
+
+check('the upload wording was lifted, not described',
+  UPLOAD_ADVICE_FN.indexOf('disabled') !== -1 && UPLOAD_TEXT_FN.indexOf('uploadFailAdvice(') !== -1,
+  'repoint the lift rather than pasting a copy in here');
+
+/* The exact message Cloudinary returned on 2026-09-09. */
+const DISABLED = 'Cloudinary 401: cloud_name is disabled';
+
+check('a switched-off picture account is named as billing, not as a retry',
+  /billing/i.test(uploadFailText({message: DISABLED})) &&
+  !/try again/i.test(uploadFailText({message: DISABLED})),
+  'telling the office to retry a disabled account is the one instruction that cannot work');
+
+check('and it warns that photographs already on quotes will not show either',
+  /will not show/i.test(uploadFailText({message: DISABLED})),
+  'the account being off is wider than the upload that noticed it');
+
+check("the service's own words are kept, after the advice",
+  uploadFailText({message: DISABLED}).indexOf(DISABLED) >
+  uploadFailText({message: DISABLED}).indexOf('billing'),
+  'the advice is a guess made from the message; the message is the fact');
+
+check('a rate limit is still worth retrying, and says so',
+  /wait a minute/i.test(uploadFailText({message: 'Cloudinary 420: rate limit reached'})),
+  'the advice has to stay different for the cases that really are transient');
+
+check('an upload failure with no reason at all still reads as a sentence',
+  uploadFailText(null).length > 0 && uploadFailText(null).indexOf('()') === -1,
+  'an empty bracket on the end is how a message reads as broken');
+
+/* ⚠ STRUCTURAL, and the same trade as the bulk senders below: driving sixteen upload
+   doors for real needs the whole admin DOM and a Cloudinary stub. The claim is about a
+   call being present, which is the one shape a text check reads honestly.
+   ⚠ THE DECLARATION IS NOT A CALLER, AND IT MATCHED ON THE FIRST RUN. `function
+   real call is `uploadFailText(err)`. Counting the bare name finds the function that
+   explains the rule as well as the code that runs it — the trap Suites 58, 274, 275 and
+   300 each hit from the other direction. */
+const adviceCallers = (admin.split('uploadFailText(err)').length - 1) -
+  (admin.indexOf('function uploadFailText(err){') !== -1 ? 1 : 0);
+check('every upload door that tells the office anything says WHY (structural)',
+  adviceCallers === 6,
+  'expected the extra house photo, the expense receipt, the Gallery, the fix-note photo, ' +
+  'How It Works and Areas We Serve; found ' + adviceCallers + '. An upload added later ' +
+  'without this line says "Upload failed" exactly as all of them used to');
+
+/* QT-38, Dax 2026-09-11: "we doont use twillo we use google voice." */
+check('the text failure stops sending anyone to look for a Twilio account',
+  admin.indexOf('Texting is not wired up') !== -1 &&
+  admin.indexOf('invalid username|20003|accountsid') !== -1,
+  'the raw wording reads as a stale key, which is a ten-minute job against an account ' +
+  'that does not exist');
+
+check('and it says what CAN be done instead',
+  /Send the quote by email, or text them from Google Voice by hand/.test(admin),
+  'a row that names no next step is a row that gets read once');
+
 console.log('');
 console.log('--- wiring ---');
 
