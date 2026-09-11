@@ -20455,10 +20455,24 @@ suite('Suite 63. Changing your sides in the Member Portal');
     check('S63', 'there is no separate needs-requote flag',
       !/needsRequote/.test(body),
       'the quote is the record — a flag beside it is a second truth to maintain');
-    /* ⚠ Only on a real change — otherwise every portal visit flags them. */
+    /* ⚠ Only on a real change — otherwise every portal visit flags them.
+       ⚠ REPOINTED 2026-09-10 ([[OPT-06]]), NOT WEAKENED. This matched the literal
+       `updates.houseSides !== before`, which is where the rule happened to SIT rather
+       than what has to be true — so it failed on correct code the moment a swap became
+       a re-quote as well and the comparison moved behind a name. What must be true is
+       that the flag is decided by the shared rule and not written unconditionally. */
     check('S63', 'a save that changes nothing does not flag anyone',
-      /if \(updates\.houseSides !== before\) \{/.test(body),
+      /if \(houseSidesChangedServer\(/.test(body) &&
+      /const houseSidesChangedServer = function/.test(body),
       'flagging on every save would fill the office list with people who changed nothing');
+    /* ⭐ AND A SWAP DOES FLAG THEM NOW, which is the ruling itself ([[OPT-06]]): "A swap
+       will be a requote cause we need to remark it." The rule is RUN against all three
+       copies further down this file; what is asserted here is that the server's own
+       branch reads the named list and not the count alone. */
+    check('S63', 'and the flag reads the named sides, not only how many',
+      /canonical\(oldData\.houseSidesList\)/.test(body),
+      'a swap hangs the same number of strands on a different roofline, and a rule ' +
+      'that only counts them cannot see it');
     /* ⚠ AND BOTH SIDES OF THAT COMPARISON GO THROUGH THE SAME READER. The old note
        here was about sorting two lists; a count needs no sorting, but it does need the
        stored value read the same way as the incoming one — otherwise a member whose
@@ -20544,6 +20558,129 @@ suite('Suite 313. Which sides, by name — sanitized server-side, and the list w
   check('S313', 'an empty result after sanitizing deletes the list rather than storing junk',
     /delete updates\.houseSidesList;/.test(body));
 
+  /* ⭐ ONE RULE FOR WHAT COUNTS AS A CHANGE, THREE COPIES, SWEPT (2026-09-10,
+     [[OPT-06]]). Addie: "A swap will be a requote cause we need to remark it."
+
+     This decides whether somebody is re-quoted, so it gets the money-parity treatment:
+     the three copies are lifted out of the three files and RUN side by side over every
+     combination, and the sweep asserts they are RIGHT as well as equal — two copies
+     wrong in the same way agree perfectly.
+
+     ⚠ THE TWO CLAUSES PULL OPPOSITE WAYS AND BOTH ARE HERS. A swap at the same count IS
+     a change ([[OPT-06]]); naming sides for a count that was already right is NOT
+     ([[OPT-02]], and the clause that keeps [[OPT-07]]'s auto-fill from posting ~956
+     quote cards). A copy that got either backwards would pass a check written about the
+     other, which is why the sweep runs both directions rather than sampling. */
+  {
+    const idxSrc = read('index.html');
+    const fnsSrc = read('functions/index.js');
+    const adminSrc = read('admin.html').replace(/\r/g, '');
+
+    const copies = {};
+    copies.admin = new Function('return ' + extractFn(adminSrc, 'houseSidesChanged') +
+      ';houseSidesChanged')();
+    copies.portal = new Function('return ' + extractFn(idxSrc, 'portalSidesChanged') +
+      ';portalSidesChanged')();
+    /* ⚠ THE SERVER COPY IS A `const` ARROW-FREE FUNCTION EXPRESSION INSIDE the sides
+       branch, so extractFn (which looks for `function NAME(`) cannot see it — it is
+       sliced by name instead. Stubbing it here would make this whole sweep decorative. */
+    copies.server = (function () {
+      const s = fnsSrc.indexOf('const houseSidesChangedServer = function (');
+      const e = s > 0 ? fnsSrc.indexOf('\n    };', s) : -1;
+      return s > 0 && e > s
+        ? new Function(fnsSrc.slice(s, e + '\n    };'.length) + '\nreturn houseSidesChangedServer;')()
+        : null;
+    })();
+    check('S313', 'all three copies of the sides-change rule were found',
+      typeof copies.admin === 'function' && typeof copies.portal === 'function' &&
+      typeof copies.server === 'function',
+      'a missing copy read as a stub would make this sweep decorative');
+
+    if (copies.admin && copies.portal && copies.server) {
+      const LISTS = [[], ['Front'], ['Front', 'Right'], ['Front', 'Left'],
+        ['Front', 'Left', 'Right'], ['Front', 'Left', 'Right', 'Back']];
+      let disagreed = 0, cases = 0;
+      for (const a of LISTS) for (const b of LISTS) {
+        for (const ac of [1, 2, 3, 4]) for (const bc of [1, 2, 3, 4]) {
+          cases++;
+          const r = [copies.admin(a, ac, b, bc), copies.portal(a, ac, b, bc),
+            copies.server(a, ac, b, bc)];
+          if (r[0] !== r[1] || r[1] !== r[2]) disagreed++;
+        }
+      }
+      check('S313', 'the office, the portal and the server agree on every combination',
+        disagreed === 0 && cases === 576,   // 6 lists x 6 lists x 4 counts x 4 counts
+        'they decide whether a customer is re-quoted; two of them disagreeing means ' +
+        'the portal warns somebody the office never flags, or the reverse');
+
+      /* ⚠ AND THAT THEY ARE RIGHT, not merely equal. */
+      const rule = copies.admin;
+      check('S313', 'a swap at the same count is a change',
+        rule(['Front', 'Left'], 2, ['Front', 'Right'], 2) === true,
+        'Addie, reversing OPT-04: "A swap will be a requote cause we need to remark it"');
+      check('S313', 'naming the sides of a house that had none is not',
+        rule([], 2, ['Front', 'Right'], 2) === false,
+        'an answer arriving where there was none is not a decision reversed — and ' +
+        'without this clause the office auto-fill posts a quote card for the whole book');
+      check('S313', 'and neither is losing them, so a blanked list raises nothing either',
+        rule(['Front', 'Right'], 2, [], 2) === false,
+        'the same asymmetry pointing the other way: an answer going missing is not a ' +
+        'customer changing their mind');
+      check('S313', 'a count change is a change whatever the names say',
+        rule(['Front'], 1, ['Front', 'Right'], 2) === true &&
+        rule([], 1, [], 3) === true,
+        'this is the original OPT-01 rule and it must survive the reversal on top of it');
+      check('S313', 'and the identical answer twice is not a change',
+        rule(['Front', 'Left'], 2, ['Front', 'Left'], 2) === false,
+        'flagging on every save fills the office list with people who changed nothing');
+    }
+  }
+
+  /* ⭐ AND WHAT THE OFFICE WRITES REACHES THE MEMBER PORTAL, BOTH WAYS (2026-09-10,
+     [[OPT-08]]). Addie: "any changes to what side on member portal should go to requote
+     and update in costumer. And vice versa any changes in costumer should show in member
+     portal."
+
+     ⚠ THE PORTAL DIRECTION IS A WHITELIST, AND A WHITELIST IS THE WHOLE OF WHAT REACHES
+     THE BROWSER. `houseSidesList` dropping out of PORTAL_READ_FIELDS would not throw
+     anywhere: the Sides tab would simply open with nothing ticked for every customer,
+     which reads exactly like a customer who has never answered — so the office would
+     set the sides, the customer would see none, and both would think the other was
+     wrong. That is the shape portal-fields.test.js exists for, asserted here for this
+     one field because it is the half of her ruling with no other reader. */
+  {
+    const fnsSrc = read('functions/index.js');
+    check('S313', 'the office\u2019s sides reach the customer\u2019s own portal',
+      /'houseSides', 'houseSidesList',/.test(fnsSrc),
+      'without it the Sides tab opens blank for everybody and the two screens ' +
+      'silently disagree about one house');
+    check('S313', 'and the portal writes back to the same field the office reads',
+      /sides:\s+\['houseSides', 'houseSidesList'\],/.test(fnsSrc),
+      'one field both ways is what makes "and vice versa" true without a sync step');
+    const adminSrc = read('admin.html').replace(/\r/g, '');
+    check('S313', 'and Edit Customer reads that field rather than a copy of its own',
+      /houseSidesListFromValue\(d\.houseSidesList\)/.test(adminSrc),
+      'a second field for the office would be two answers about one roofline');
+  }
+
+  /* ⭐ AND THE PORTAL WRITES THE TWO COUNTS THE OFFICE CARD READS (2026-09-10,
+     [[OPT-05]]). quoteKindLabel says New side or Fewer sides off `oldSideCount` /
+     `newSideCount`; oldSides/newSides beside them are a sentence built for a person
+     ("Front, Left (2 sides)"), and a label comparing sentences would call a
+     Left-for-Right swap an addition. Both routes into a sides re-quote write the pair,
+     so one card renderer covers both — and this is the half with no other reader: the
+     office side is exercised in Suite 108, and a red-check that stopped index.html
+     writing them was caught by nothing at all. */
+  {
+    const idx = read('index.html');
+    const at2 = idx.indexOf("what: 'sides',");
+    const note = at2 > 0 ? idx.slice(at2, idx.indexOf('},', at2)) : '';
+    check('S313', 'the portal re-quote carries both side counts as numbers',
+      /oldSideCount: beforeCount,/.test(note) && /newSideCount: pickedCount,/.test(note),
+      'without them a portal-raised sides re-quote falls back to the old House ' +
+      'addition pill and never says which way the sides moved');
+  }
+
   function run(updates, oldData) {
     var fn = new Function('updates', 'oldData', 'section',
       body + '\nreturn updates;');
@@ -20586,57 +20723,275 @@ suite('Suite 313. Which sides, by name — sanitized server-side, and the list w
       'a save from before this shipped, or one that never touches the list field, must not change shape');
   }
 
-  /* ⭐ THE OTHER HALF, IN admin.html (2026-09-07). The office cannot edit the named
-     list — it is shown read-only beside the count — but it CAN move the count, and a
-     stored list of two names under a count of three is a claim that cannot be true.
-     Left alone it is not merely untidy: the portal ticks from the LIST and compares
-     against the COUNT, so the customer opens the Sides tab, changes nothing, saves,
-     and is shown the "we will need to RE-QUOTE you" confirm with a Now and a New line
-     reading identically — and accepting it files a re-quote and silently moves the
-     count back.
+  /* ⭐ THE OTHER HALF, IN admin.html — AND THE OFFICE WRITES IT NOW (2026-09-10,
+     [[OPT-05]]). Addie: "in costumers it says sides of house 1234 which we can keep
+     but can we also choose which sides like front,left side, right side, back in
+     costumers?", then "Then sides will automatically choose based on how many sides
+     we chose", then "if I choose a new side on someones house which should be
+     multiple choose then it will send the house to requote indicating New Side."
 
-     ⚠ THE COUNT WINS HERE AND THE LIST WINS ON THE SERVER, AND BOTH ARE RIGHT: each
-     defers to whichever answer was given most recently. A check that made the two
-     agree in direction would be asserting the bug.
+     ⚠ THIS SUPERSEDES THE READ-ONLY HALF OF [[OPT-02]] and the checks below were
+     REWRITTEN, not weakened — the old ones proved that a count the office moved
+     CLEARED a stored list, which was right while this form could not write one and
+     is now describing a design she replaced. What survives untouched is the reason
+     that guard existed: a stored list of two names under a count of three is a claim
+     that cannot be true, and it is not merely untidy — the portal ticks from the LIST
+     and compares against the COUNT, so the customer opens the Sides tab, changes
+     nothing, saves, and is shown the "we will need to RE-QUOTE you" confirm with a Now
+     and a New line reading identically. That state is now unreachable from this form
+     for a better reason than clearing: the two controls are wired together, so the
+     count and the ticks cannot be left disagreeing in the first place.
 
-     RUN, NOT MATCHED, for the same reason as the branch above: every claim here is
-     about what ends up in the write. */
+     ⚠ THE COUNT STILL WINS ON THE OFFICE SIDE AND THE LIST STILL WINS ON THE SERVER,
+     and both are still right: each defers to whichever answer was given most recently.
+     A check that made the two agree in direction would be asserting the bug.
+
+     RUN, NOT MATCHED: every claim here is about what ends up in the write, or about
+     which box is ticked on screen. The save block and the four helpers are lifted out
+     of admin.html and executed against a jsdom document holding the real markup. */
   {
     const admin = read('admin.html').replace(/\r/g, '');
+
+    /* The helpers, lifted rather than stubbed (CLAUDE.md §3): a stub of
+       houseSidesListFromValue would keep this suite green through a change to which
+       names the office may write, which is the one thing it exists to protect. */
+    /* ⚠ THE THREE CONSTANTS ARE READ OUT OF admin.html, NEVER TYPED HERE. Seven
+       fixtures in this repo held their own copy of CN_DOUBLE_BIN_FEET and went on
+       passing against a rule the app no longer had; the two side orders are exactly
+       that shape, and the whole point of the fill checks below is which name lands
+       in which box. */
+    const sidesConsts = (admin.match(/^const HOUSE_SIDES?_[A-Z_]+ = .*$/gm) || []).join('\n');
+    check('S313', 'the side-order constants and the default were read out of admin.html',
+      /HOUSE_SIDE_NAMES/.test(sidesConsts) && /HOUSE_SIDE_FILL_ORDER/.test(sidesConsts) &&
+      /HOUSE_SIDES_DEFAULT/.test(sidesConsts));
+    const sidesSrc = sidesConsts + '\n' +
+      ['houseSideCount', 'houseSidesListFromValue', 'houseSidesAutoFill',
+      'houseSidesPickedList', 'houseSidesShowList', 'houseSidesShowCount', 'houseSidesWords',
+      'houseSidesChanged']
+      .map(function (n) { return extractFn(admin, n); }).join('\n');
+    check('S313', 'the eight office-side sides helpers were found',
+      sidesSrc.split('function ').length - 1 === 8);
+
     const at = admin.indexOf('const storedSidesList =');
-    const end = admin.indexOf('addrUpdates.houseSidesList = null;', at);
-    const guard = at > 0 && end > at
-      ? admin.slice(at, end + 'addrUpdates.houseSidesList = null;'.length)
+    /* ⚠ THE END ANCHOR IS THE WRITE, NOT THE BRANCH AROUND IT. Anchored on the whole
+       `else if(storedSidesList)` line, a red-check that disabled that branch broke the
+       SLICE instead, and the failure that came back was "the write was found" rather
+       than the behavioural check that is meant to catch it — a check reporting the
+       wrong thing is a check nobody can act on. */
+    const end2 = admin.indexOf('addrUpdates.houseSidesList = null;', at);
+    const guard = at > 0 && end2 > at
+      ? admin.slice(at, end2 + 'addrUpdates.houseSidesList = null;'.length)
       : '';
-    check('S313', 'the office-side stale-list guard was found in the Edit Customer save',
-      !!guard,
+    check('S313', 'the Edit Customer sides write was found', !!guard,
       'without it a count the office moves leaves a named list it no longer fits');
 
-    function office(storedList, newCount) {
-      const addrUpdates = {};
-      new Function('item', 'newHouseSides', 'addrUpdates', guard)(
-        { data: storedList === null ? {} : { houseSidesList: storedList } },
-        newCount, addrUpdates);
-      return addrUpdates;
-    }
+    /* The four tick boxes as the page really draws them, read out of admin.html rather
+       than written here — a fixture carrying its own copy of the markup proves the copy
+       works and says nothing about the form somebody actually uses. */
+    const boxRow = (function () {
+      const s = admin.indexOf('<div class="pill-check-row" id="editCustHouseSideNames"');
+      const e = s > 0 ? admin.indexOf('</div>', s) : -1;
+      return s > 0 && e > s ? admin.slice(s, e + 6) : '';
+    })();
+    const countRow = (function () {
+      const s = admin.indexOf('<div class="pill-check-row" id="editCustHouseSides"');
+      const e = s > 0 ? admin.indexOf('</div>', s) : -1;
+      return s > 0 && e > s ? admin.slice(s, e + 6) : '';
+    })();
+    check('S313', 'the four named side boxes are in the Edit Customer markup',
+      /value="Front"/.test(boxRow) && /value="Left"/.test(boxRow) &&
+      /value="Right"/.test(boxRow) && /value="Back"/.test(boxRow),
+      'Addie asked to choose which sides in Customers, not only how many');
+    check('S313', 'and they are drawn in her counting order, front then right then left then back',
+      boxRow.indexOf('value="Front"') < boxRow.indexOf('value="Right"') &&
+      boxRow.indexOf('value="Right"') < boxRow.indexOf('value="Left"') &&
+      boxRow.indexOf('value="Left"') < boxRow.indexOf('value="Back"'),
+      'a fill that visibly skips the second box reads as a bug and gets reported as one');
 
-    if (guard) {
-      check('S313', 'moving the count away from the stored list clears the list',
-        office(['Front', 'Left'], 3).houseSidesList === null,
-        'two names under a count of three is the state that shows the customer an ' +
-        'identical Now/New line and then files a re-quote nobody asked for');
-      check('S313', 'a count that still matches the stored list leaves it alone',
-        !Object.prototype.hasOwnProperty.call(office(['Front', 'Left'], 2), 'houseSidesList'),
-        'writing it on every save posts a change-log row for every customer whose ' +
-        'sides nobody touched');
-      check('S313', 'a customer who has no list on file is not given one, or a null',
-        !Object.prototype.hasOwnProperty.call(office(null, 3), 'houseSidesList'),
-        'most of the book has never opened that tab; a null written over nothing is ' +
-        'a change-log row about a change that did not happen');
-      check('S313', 'and it clears rather than trimming the list to fit',
-        guard.indexOf('slice(') === -1 && guard.indexOf('.length !== newHouseSides') > 0,
-        '"which sides is not on file" is a question somebody can ask them; a list ' +
-        'trimmed to fit is an answer nobody gave');
+    /* ⚠ GATED ON THE MODULE-LEVEL JSDOM, which Suite 5 sets once — and a run without
+       it already refuses to say it is safe to push, so these do not degrade to a note
+       that nobody can read as missing coverage. */
+    if (guard && boxRow && countRow && JSDOM) {
+
+      /* One office form, built from the real markup, with the helpers running against
+         it. `ticks` is what is on screen when Save is pressed. */
+      function office(storedList, ticks) {
+        const dom = new JSDOM('<div class="editcust-popup">' + countRow + boxRow + '</div>');
+        const addrUpdates = {};
+        new Function('document', 'item', 'addrUpdates', 'ticks',
+          sidesSrc + '\n' +
+          "houseSidesShowList('editcust', ticks);\n" +
+          guard + '\n')(
+            dom.window.document,
+            { data: storedList === null ? {} : { houseSidesList: storedList } },
+            addrUpdates, ticks);
+        return addrUpdates;
+      }
+
+      check('S313', 'the sides the office ticked are what gets written',
+        office(null, ['Front', 'Back']).houseSidesList.join(',') === 'Front,Back',
+        'Addie asked to choose which sides here; a form that collects an answer and ' +
+        'does not save it is the shape this repo has shipped once already');
+      check('S313', 'and they are written in canonical order however they were ticked',
+        office(null, ['Back', 'Front']).houseSidesList.join(',') === 'Front,Back',
+        'the portal and the server both sanitize to this order; a third order here ' +
+        'makes two lists for one house compare unequal without either being wrong');
+      check('S313', 'clearing every box on a customer who had a list clears the field',
+        office(['Front', 'Left'], []).houseSidesList === null,
+        '"which sides is not on file" has to remain something the office can say');
+      check('S313', 'a customer who has no list on file and no box ticked is not given one, or a null',
+        !Object.prototype.hasOwnProperty.call(office(null, []), 'houseSidesList'),
+        'most of the book has never been asked; a null written over nothing is a ' +
+        'change-log row about a change that did not happen');
+
+      /* ⚠ THE AUTO-FILL IS THE HALF SHE ASKED FOR SECOND, and it is a claim about what
+         is ON SCREEN, so it is RUN against the real boxes rather than matched. */
+      function filled(n) {
+        const dom = new JSDOM('<div>' + countRow + boxRow + '</div>');
+        const out = new Function('document', 'n',
+          sidesSrc + '\n' +
+          "houseSidesShowList('editcust', houseSidesAutoFill(n));\n" +
+          "return houseSidesPickedList('editcust');\n")(dom.window.document, n);
+        return out.join(',');
+      }
+      check('S313', 'one side fills in the front', filled(1) === 'Front');
+      check('S313', 'two fills in the front and the right',
+        filled(2) === 'Front,Right',
+        'her own convention, 2026-08-18: "3 sides then front of house, right side of ' +
+        'house and left side of house is all checked" — so two is front and right');
+      check('S313', 'three adds the left', filled(3) === 'Front,Left,Right');
+      check('S313', 'four is the whole house', filled(4) === 'Front,Left,Right,Back');
+
+      /* ⚠ AND THE WIRING IS THE REAL LISTENER, LIFTED — NOT A COPY OF IT. The first
+         version of these two checks re-implemented "ticking boxes moves the count"
+         inline here, so a red-check that disabled it in admin.html went straight
+         through: the fixture was proving its own copy worked and saying nothing about
+         the page. That is the vacuous-fixture trap this file names in five places, and
+         it is why the handler body is sliced out and executed below. */
+      const wiring = (function () {
+        const s = admin.indexOf("  if(t.matches('.addcust-side-pick, .editcust-side-pick')){");
+        if (s < 0) return '';
+        let e = s, depth = 1;                       // we start inside the listener body
+        for (; e < admin.length; e++) {
+          if (admin[e] === '{') depth++;
+          else if (admin[e] === '}') { depth--; if (!depth) break; }
+        }
+        return admin.slice(s, e);
+      })();
+      check('S313', 'the count/names wiring was found to run', !!wiring,
+        'without it these checks would be proving a copy written in this file');
+
+      /* `start` is what is on screen before the change; `hit` names the control the
+         office actually touched. Returns the count radio and the ticks afterwards. */
+      function afterChange(start, hit) {
+        const dom = new JSDOM('<div>' + countRow + boxRow + '</div>');
+        return new Function('document', 'start', 'hit',
+          sidesSrc + '\n' +
+          "houseSidesShowCount('editcust', start.count);\n" +
+          "houseSidesShowList('editcust', start.ticks || []);\n" +
+          "var t;\n" +
+          "if(hit.kind === 'count'){\n" +
+          "  t = document.querySelector('.editcust-side-pick[value=\"' + hit.value + '\"]');\n" +
+          "  document.querySelectorAll('.editcust-side-pick').forEach(function(r){ r.checked = r === t; });\n" +
+          "} else {\n" +
+          "  t = document.querySelector('.editcust-side-name[value=\"' + hit.value + '\"]');\n" +
+          "  t.checked = hit.on;\n" +
+          "}\n" +
+          /* ⚠ WRAPPED IN A FUNCTION, because the real handler `return`s after the count
+             branch — inlined, that return would leave this harness before it could read
+             anything back, which reads as the wiring throwing rather than working. */
+          "(function(){\n" + wiring + "\n})();\n" +
+          "var on = document.querySelector('.editcust-side-pick:checked');\n" +
+          "return {count: on ? Number(on.value) : 0, ticks: houseSidesPickedList('editcust').join(',')};\n"
+        )(dom.window.document, start, hit);
+      }
+
+      check('S313', 'picking a count ticks the sides that count means',
+        afterChange({count: 1, ticks: ['Front']}, {kind: 'count', value: 3}).ticks
+          === 'Front,Left,Right',
+        'Addie: "sides will automatically choose based on how many sides we chose"');
+      check('S313', 'ticking a third box puts the count on 3',
+        afterChange({count: 2, ticks: ['Front', 'Right']}, {kind: 'name', value: 'Back', on: true}).count === 3,
+        'the count is what the price and the re-quote flag read; a stored list of ' +
+        'three under a count of one is the claim this whole pairing exists to prevent');
+      /* ⚠ THIS PROVES THE GUARANTEE, NOT THE GUARD, AND SAYS SO. A red-check that
+         removed the `if(picked.length)` in front of houseSidesShowCount left this green,
+         and that is the correct answer rather than a hole: houseSideCount(0) returns
+         HOUSE_SIDES_DEFAULT, so the count lands on 1 either way, and a single checkbox
+         toggle can never take the ticks from several to none in one event. The guard is
+         belt-and-braces over a default that already does the job. What is asserted — and
+         what actually matters — is that the count never reads nought. */
+      check('S313', 'and unticking the last box leaves the count on a real number, never nought',
+        afterChange({count: 1, ticks: ['Front']}, {kind: 'name', value: 'Front', on: false}).count === 1,
+        'nought is not a house — every house has a front — and an empty list is ' +
+        'this form saying WHICH sides are not on file, not how many there are');
+
+      /* ⭐ AND WHAT OPENING A RECORD DOES, WHICH IS THE HALF WITH NO OTHER READER.
+         Suite 108 runs the SAVE handler, so a red-check that made openEditCustomerModal
+         auto-fill on open sailed through every check in this file — the form would have
+         invented an answer for every record somebody opened to fix a phone number, and
+         nothing anywhere would have said so. Asserted separately from the mechanism,
+         the same reason the house-tab strip's four calls had to be. */
+      /* ⚠ THE SLICE REACHES THE NOTE, not just the ticks. Ending it at the
+         houseSidesShowList line cut the block in half and the note checks below failed
+         on code that is right — the block is one decision (what to show and what to say
+         about it) and testing half of it proves half of it. */
+      const openSides = (function () {
+        const s = admin.indexOf('const onFileSides = houseSidesListFromValue(d.houseSidesList);');
+        if (s < 0) return '';
+        const marker = admin.indexOf('sidesNote.textContent = sidesOnFile', s);
+        if (marker < 0) return '';
+        const e = admin.indexOf('\n    }', marker);
+        return e > s ? admin.slice(s, e + '\n    }'.length) : '';
+      })();
+      check('S313', 'the open-modal sides block was found to run', !!openSides);
+
+      function onOpen(record, n) {
+        const dom = new JSDOM('<div>' + countRow + boxRow + '</div>');
+        return new Function('document', 'd', 'n',
+          sidesSrc + '\n' + openSides + '\n' +
+          "return houseSidesPickedList('editcust').join(',');")(dom.window.document, record, n);
+      }
+      /* ⚠ REWRITTEN 2026-09-10 ([[OPT-07]]), NOT WEAKENED. These asserted that opening
+         a record ticked NOTHING, which was right for the few hours that was the design
+         and is now describing something Addie replaced: "can you fix record fills
+         nothing in?" What is asserted instead is the pair that makes a fill affordable —
+         it follows the count, and the line under the boxes says it is a fill rather
+         than something anybody said. */
+      check('S313', 'opening a record with no list on file fills the boxes from the count',
+        onOpen({}, 3) === 'Front,Left,Right',
+        'Addie: "can you fix record fills nothing in?"');
+      check('S313', 'opening one with a list that fits the count shows what they said',
+        onOpen({houseSidesList: ['Back', 'Front']}, 2) === 'Front,Back',
+        'a real answer must never be overwritten by the fill');
+      check('S313', 'and a stored list that does not fit the count is replaced by the fill',
+        onOpen({houseSidesList: ['Front', 'Left']}, 3) === 'Front,Left,Right',
+        'two names under a count of three is a claim that cannot be true, and the ' +
+        'count is the answer the office gave most recently');
+      /* ⚠ AND THE NOTE IS THE OTHER HALF OF THE TRADE. A guess that looks identical to
+         an answer is how a crew hangs the wrong side of a house on our say-so — so this
+         is asserted as hard as the ticks are, and it is RUN, because a check that the
+         words exist in the source proves only that they exist. */
+      function openNote(record, n) {
+        const dom = new JSDOM('<div>' + countRow + boxRow +
+          '<p id="editCustSidesListNote"></p></div>');
+        return new Function('document', 'd', 'n',
+          sidesSrc + '\n' + openSides + '\n' +
+          "return document.getElementById('editCustSidesListNote').textContent;")(
+            dom.window.document, record, n);
+      }
+      check('S313', 'a filled-in record says nobody has said which sides',
+        /Nobody has said which sides/.test(openNote({}, 3)),
+        'without this the fill is exactly the guess OPT-01 refused, wearing the words ' +
+        'of an answer');
+      check('S313', 'and a record with a real answer says it is what is on file',
+        /what is on file/.test(openNote({houseSidesList: ['Front', 'Back']}, 2)) &&
+        !/Nobody has said/.test(openNote({houseSidesList: ['Front', 'Back']}, 2)),
+        'calling their own answer a guess is the same fault pointing the other way');
+      check('S313', 'and both say which way round left and right are read',
+        /street/.test(openNote({}, 3)) &&
+        /street/.test(openNote({houseSidesList: ['Front', 'Left']}, 2)),
+        'OPT-03: Left here and Left in the portal must not be opposite sides of one house');
     }
   }
 }
@@ -20995,8 +21350,14 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
        not requote." The guard itself is unchanged and is the point of this check: while
        a re-quote is being APPLIED, the new price IS the answer to it, so raising another
        for the change that just resolved the last one never terminates. */
+    /* ⚠ REPOINTED, NOT WEAKENED (2026-09-10, [[OPT-05]]). This matched the whole
+       condition literally — that is, it was pinned to the LIST of triggers rather than
+       to the guarantee — so it failed on correct code the moment a fourth trigger
+       (`sidesChanged`) joined it, which is the §7 slow-fuse shape S82, S129 and the
+       folder-names suite have each already been caught by. What must be true is that
+       whatever raises a re-quote is inside the `!requoteBeingConverted` guard. */
     check('S65', 'applying a re-quote does not raise another one',
-      /if\(\(feetChanged \|\| addressChanged \|\| priceWantsRequote\) && !requoteBeingConverted\)/.test(body),
+      /if\(\([^)]*feetChanged[^)]*\) && !requoteBeingConverted\)/.test(body),
       'the re-quote in hand IS this change; raising another for it never terminates');
     check('S65', 'and a price change is never even asked about while one is being applied',
       /if\(priceChanged && !feetChanged && !addressChanged && !requoteBeingConverted\)/.test(body),
@@ -26825,8 +27186,10 @@ suite('Suite 115. A price change asks');
     /if\(priceChanged && !feetChanged && !addressChanged && !requoteBeingConverted\)/.test(body),
     'the feet or the address moving raises one anyway, so a second question about the ' +
     'same edit is noise; and during a conversion the new price IS the answer');
+  /* ⚠ REPOINTED FOR THE SAME REASON AS S65 ABOVE (2026-09-10) — it asserts that the
+     price answer is one of the triggers, not that it is the last of exactly three. */
   check('S115', 'answering yes is what puts it on the re-quote condition',
-    /\(feetChanged \|\| addressChanged \|\| priceWantsRequote\)/.test(body));
+    /if\(\([^)]*priceWantsRequote[^)]*\) && !requoteBeingConverted\)/.test(body));
   check('S115', 'and the card records that it was the price that moved',
     /\{what:'price', oldPrice:/.test(body) && /newPrice: Number\(newHousePrice \|\| 0\)/.test(body),
     'a re-quote with the same feet and the same address and no reason is a card ' +
@@ -27825,14 +28188,29 @@ suite('Suite 108. The Edit Customer save, actually run');
     /* And what went into the customer's history — one entry per save, so the checks
        below can read the sentence rather than trusting the call was there. */
     const logged = [];
+    /* ⚠ SELECTOR-AWARE, so the colour tick boxes can be driven. Everything else still
+       answers with an empty list exactly as before.
+       ⚠ AND IT ANSWERS FOR THE FOUR SIDE BOXES NOW (2026-09-10, [[OPT-05]]). `o.sides`
+       is what is ticked on screen when Save is pressed, and the COUNT radio is DERIVED
+       from it here for the same reason the real form derives it — the two controls are
+       wired together, so a fixture able to set them apart would be testing a state the
+       page cannot be in. A fixture that leaves it out gets no ticks and a null radio,
+       which is exactly what an untouched form gives, so every existing check is
+       unaffected. */
+    const fakeDoc = {
+      getElementById: elm,
+      querySelectorAll: (sel) => {
+        const s = String(sel);
+        if (s.indexOf('editcust-color-check') !== -1) return (o.ticked || []).map((v) => ({value: v}));
+        if (s.indexOf('editcust-side-name') !== -1) return (o.sides || []).map((v) => ({value: v}));
+        return [];
+      },
+      querySelector: (sel) => (String(sel).indexOf('editcust-side-pick') !== -1 && (o.sides || []).length
+        ? {value: String((o.sides || []).length)} : null),
+      createElement: () => elm('_t')
+    };
     const ctx = {
-      /* ⚠ SELECTOR-AWARE NOW, so the colour tick boxes can be driven. Everything
-         else still answers with an empty list exactly as before. */
-      document: {getElementById: elm,
-                 querySelectorAll: (sel) => (String(sel).indexOf('editcust-color-check') !== -1
-                   ? (o.ticked || []).map((v) => ({value: v})) : []),
-                 querySelector: () => null,
-                 createElement: () => elm('_t')},
+      document: fakeDoc,
       /* ⚠ THE ASSUMED SEASON, LIFTED RATHER THAN TYPED (2026-08-31). The save handler
          reads it when the Which season box is left empty, so a sandbox without it dies
          with a bare ReferenceError and takes every suite after it down — and a copy
@@ -27892,7 +28270,26 @@ suite('Suite 108. The Edit Customer save, actually run');
         '\nreturn carriedPaymentOnBillToChange;')(),
       extractCleanCity: () => 'Highland', generatePortalToken: () => 'tok',
       geocodeAddress: async () => ({lat: 40, lng: -111}),
-      houseSideCount: () => 1, quoteStage: () => 'send',
+      quoteStage: () => 'send',
+      /* ⚠ THE FOUR SIDES HELPERS, LIFTED — NOT STUBBED (2026-09-10, [[OPT-05]]). This
+         list is the extraction trap CLAUDE.md names by number: the save handler now
+         calls houseSidesPickedList and houseSideCount to decide whether a side was
+         added, and a sandbox missing either dies with a bare ReferenceError that names
+         28 unrelated checks and not the missing function. houseSideCount was `() => 1`
+         here until today, which was harmless while nothing branched on it and is not
+         now — a stub returning a constant makes "the office added a side" a branch no
+         test can reach while every check around it stays green. The two constants are
+         read out of admin.html for the same reason: a typed copy of the fill order
+         would go on passing against an order the app no longer has. */
+      ...(function () {
+        const consts = (admin.match(/^const HOUSE_SIDES?_[A-Z_]+ = .*$/gm) || []).join('\n');
+        const names = ['houseSideCount', 'houseSidesListFromValue', 'houseSidesPickedList',
+          'houseSidesWords', 'houseSidesChanged'];
+        const made = new Function('document',
+          consts + '\n' + names.map(n => extractFn(admin, n)).join('\n') +
+          '\nreturn {' + names.join(',') + '};');
+        return made(fakeDoc);
+      })(),
       removeCustomerFromUpcomingRoutes: async () => {},
       resyncSavedRouteStops: async () => {}, syncPayerInvoice: async () => {},
       requoteRestoreSaveLabel: () => {},
@@ -28048,8 +28445,13 @@ suite('Suite 108. The Edit Customer save, actually run');
     return fn(...names.map(n => ctx[n])).then(function(){
       const cust = writes.find(w => w.col === 'jobAddresses' && w.op === 'update');
       const quote = writes.find(w => w.col === 'quotes');
-      return {writes: writes, errs: errs, cust: cust, quote: quote, asked: asked,
-              logged: logged,
+      /* ⚠ THE RAISED CARD, NOT THE CLOSED ONE. `quote` above is the first write to
+         quotes, which on the default fixture is the re-quote being ANSWERED; a new
+         re-quote is an addDoc, and reading the two off one name is how a check about
+         raising one passes on a save that only closed one. */
+      const raised = writes.find(w => w.col === 'quotes' && w.op === 'add');
+      return {writes: writes, errs: errs, cust: cust, quote: quote, raised: raised,
+              asked: asked, logged: logged,
               status: (els.editCustStatus || {}).textContent || ''};
     });
   }
@@ -28169,6 +28571,100 @@ suite('Suite 108. The Edit Customer save, actually run');
     check('S108', 'and moves them onto the number series the footage needs',
       !!ok.cust && ok.cust.payload.customerNumber === '5001',
       '400 ft is 2 bins, which is a 5000-series bin');
+
+    /* ⭐ WHICH SIDES, WRITTEN AND RE-QUOTED FROM THE OFFICE (2026-09-10, [[OPT-05]]).
+       Addie, in three messages: "can we also choose which sides like front,left side,
+       right side, back in costumers?", "Then sides will automatically choose based on
+       how many sides we chose", and "if I choose a new side on someones house which
+       should be multiple choose then it will send the house to requote indicating New
+       Side."
+
+       ⚠ noRequote ON ALL OF THESE, deliberately: the default fixture is already a
+       re-quote being APPLIED, and that guard suppresses raising another one — so
+       without it every check below would pass on a handler that raises nothing at all.
+       That is the vacuous-fixture trap this file names in five other places.
+
+       ⚠ AND THE FIXTURE'S measuredFeet MATCHES THE FORM'S 400, so the feet are not
+       what raises the card. With the record left on 0 these would pass whether the
+       sides were a trigger or not. */
+    const addedSide = await runSave({noRequote: true, cust: {measuredFeet: 400, houseSides: 1},
+      sides: ['Front', 'Right', 'Left']});
+    check('S108', 'the sides the office ticked are written onto the customer',
+      !!addedSide.cust && Array.isArray(addedSide.cust.payload.houseSidesList) &&
+      addedSide.cust.payload.houseSidesList.join(',') === 'Front,Left,Right' &&
+      addedSide.cust.payload.houseSides === 3,
+      'a form that collects an answer and does not save it is a shape this repo has ' +
+      'shipped once already');
+    check('S108', 'and adding a side raises a re-quote',
+      !!addedSide.raised && addedSide.raised.payload.changed &&
+      addedSide.raised.payload.changed.what === 'sides',
+      'Addie: "it will send the house to requote indicating New Side"');
+    check('S108', 'the card carries both counts so it can say which way it moved',
+      !!addedSide.raised && addedSide.raised.payload.changed.oldSideCount === 1 &&
+      addedSide.raised.payload.changed.newSideCount === 3,
+      'oldSides/newSides are a sentence for a person; comparing sentences would call ' +
+      'a Left-for-Right swap an addition');
+    check('S108', 'and says the office did it, so nobody assumes the customer knows',
+      !!addedSide.raised && addedSide.raised.payload.changed.by === 'office',
+      'the portal tells the customer they will be re-quoted; Edit Customer tells them ' +
+      'nothing, and the card has to say which happened');
+    /* ⚠ RUN THROUGH THE REAL LABEL, not asserted as a string here — the pill is the
+       "indicating New Side" half of what she asked for, and a check that read the
+       counts and stopped would prove nothing about what the office sees. */
+    check('S108', 'and the quote card calls it a New side',
+      new Function('d', extractFn(admin, 'quoteKindLabel') + 'return quoteKindLabel(d);')(
+        addedSide.raised ? addedSide.raised.payload : {}) === 'New side');
+
+    /* ⭐ AND A STRAIGHT SWAP IS A RE-QUOTE TOO (2026-09-10, [[OPT-06]]). Addie: "A swap
+       will be a requote cause we need to remark it."
+       ⚠ THIS CHECK PREVIOUSLY ASSERTED THE OPPOSITE, on [[OPT-04]] — "For left and
+       right side of the house on quoting those should usually be the same" — and it was
+       REWRITTEN rather than deleted, because the pair below is what the reversal
+       actually turns on: a swap is a re-quote, and filling in a blank still is not. The
+       old ruling was about the PRICE and is still true; hers is about the crew needing
+       to be told, which no price rule can carry. */
+    const swapped = await runSave({noRequote: true,
+      cust: {measuredFeet: 400, houseSides: 2, houseSidesList: ['Front', 'Left']},
+      sides: ['Front', 'Right']});
+    check('S108', 'swapping left for right at the same count raises a re-quote',
+      !!swapped.raised && swapped.raised.payload.changed.what === 'sides',
+      'Addie: "A swap will be a requote cause we need to remark it" — the crew hangs a ' +
+      'different roofline and a re-quote is the only thing here that tells them');
+    check('S108', 'and the swap is saved',
+      !!swapped.cust && swapped.cust.payload.houseSidesList.join(',') === 'Front,Right',
+      'the crew reads this to find the right side of the house');
+    /* ⚠ THE PILL SAYS NEITHER New side NOR Fewer sides on a swap, because neither is
+       true — the counts match. It falls back to her own 2026-08-18 wording. */
+    check('S108', 'and a swap is not labelled New side, because nothing was added',
+      new Function('d', extractFn(admin, 'quoteKindLabel') + 'return quoteKindLabel(d);')(
+        swapped.raised ? swapped.raised.payload : {}) === 'House addition',
+      'a pill claiming a side was added over a card showing two sides both ways is the ' +
+      'label contradicting the card underneath it');
+
+    /* ⭐ AND FILLING IN A BLANK IS NOT A CHANGE — the clause that makes [[OPT-07]]'s
+       auto-fill affordable. Without it, opening and saving a record would raise a
+       re-quote for every one of the ~956 houses nobody has ever been asked, with no
+       price to change on any of them. */
+    const named = await runSave({noRequote: true,
+      cust: {measuredFeet: 400, houseSides: 2},
+      sides: ['Front', 'Right']});
+    check('S108', 'naming the sides of a house that had none raises no re-quote',
+      !named.raised,
+      'an answer arriving where there was none is not a decision being reversed — and ' +
+      'this is the commonest save in the book');
+    check('S108', 'but the names are still written',
+      !!named.cust && named.cust.payload.houseSidesList.join(',') === 'Front,Right',
+      'not re-quoting it is not the same as not recording it');
+
+    /* ⚠ AND AN UNTOUCHED FORM STILL WRITES NOTHING. The auto-fill happens when a record
+       is OPENED, which this sandbox does not do — it runs the save handler alone — so a
+       fixture with no ticks is a form nobody filled in, and that must stay silent. */
+    const untouched = await runSave({noRequote: true, cust: {measuredFeet: 400}});
+    check('S108', 'a save with no sides ticked at all leaves the field absent',
+      !!untouched.cust &&
+      !Object.prototype.hasOwnProperty.call(untouched.cust.payload, 'houseSidesList'),
+      'a null written over nothing is a change-log row about a change that did not happen');
+    check('S108', 'and raises no re-quote', !untouched.raised);
 
     /* ⚠ AND ONE FAILING WRITE TO THE NUMBER POOL USED TO LOSE ALL OF IT. Those two
        pool writes run BEFORE the customer is written and the first was unguarded, so a

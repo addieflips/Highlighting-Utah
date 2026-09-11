@@ -1912,13 +1912,15 @@ wrong," it is a second, narrower question the first one never claimed to answer.
   had been asked before the day it shipped. The Edit Customer note repeats the convention
   whenever a side that has a hand is named, or Left there and Left in the portal are
   opposite sides of one house.
-- ⭐ **AND SWAPPING LEFT FOR RIGHT IS NOT A RE-QUOTE** (2026-09-07, OPT-04). Addie: *"For
-  left and right side of the house on quoting those should usually be the same."* Once
-  sides could be NAMED, a same-count swap became a change to which roofline is hung, and
-  the open question was whether the price follows it. It does not. So a names-only change
-  raises no quote and sends nothing to the inbox — but it is not silent: it is one row on
-  that customer's change log. A genuinely lopsided house is a re-quote the office raises,
-  not a rule change here.
+- ⛔ **SWAPPING LEFT FOR RIGHT WAS NOT A RE-QUOTE, AND NOW IT IS** (OPT-04 on 2026-09-07,
+  reversed by OPT-06 on 2026-09-10). Both are Addie's. The old ruling — *"For left and
+  right side of the house on quoting those should usually be the same"* — is kept here
+  because it is still right about what it was asked: the PRICE does not move, two sides
+  of one house being near enough the same length. The new one answers a different
+  question with the same words: *"A swap will be a requote cause we need to remark it."*
+  A swap changes which roofline the crew hangs, somebody has to be told, and a re-quote
+  is the only thing in this system that tells them. The *usually* in the old ruling was
+  carrying the whole exception, and the exception turned out to be the common case.
 - **The portal's Sides tab is checkboxes, not radios.** `tabPanel-sides` now shows
   four ticks (`class="portal-side-pick"`, `value="Front"` etc.) instead of the old
   four-radio count picker. `portalSidesPickedList()` reads the ticks and
@@ -1949,6 +1951,82 @@ wrong," it is a second, narrower question the first one never claimed to answer.
   member portal," and those three sit over records nobody has been asked, where a
   default or an invented list is exactly the mistake 2026-08-19 was written to
   avoid.
+- ⭐ **AND THEN THE OFFICE GOT THE SAME FOUR BOXES** (2026-09-10, OPT-05). Addie: *"in
+  costumers it says sides of house 1234 which we can keep but can we also choose which
+  sides like front,left side, right side, back in costumers?"*, then *"Then sides will
+  automatically choose based on how many sides we chose"*, then *"if I choose a new side
+  on someones house which should be multiple choose then it will send the house to
+  requote indicating New Side."* **This supersedes the bullet above** — Add Customer and
+  Edit Customer now write `houseSidesList`, and Edit Customer's read-only "From their
+  Member Portal" line is gone, replaced by four tick boxes. The old reasoning is kept
+  because it is still the guard: nothing is filled in by OPENING a record, so a phone
+  number corrected on a house nobody has been asked about still saves with no list.
+  - **The count and the four names are one answer.** Picking a count ticks the sides
+    that count means; ticking boxes moves the count to match. The count is what drives
+    the price and the re-quote flag, so it can never be left saying something the ticks
+    contradict — the state that shows a customer an identical Now/New line in their own
+    portal and then files a re-quote nobody asked for. Unticking everything leaves the
+    count alone: nought is not a house, and an empty list is the form saying *which*
+    sides are not on file, not how many there are.
+  - **The fill order is Addie's own, from 2026-08-18**: *"3 sides then front of house,
+    right side of house and left side of house is all checked."* Front, then right, then
+    left, then back — the same order `rbSidesFromNote` already reads her sheet in
+    (`RB_SIDE_ORDER`). ⚠ The boxes are DRAWN in that order rather than in the canonical
+    storage order, because a fill that visibly skips the second box reads as a bug. What
+    is STORED is still canonical `Front/Left/Right/Back`, the order the portal and the
+    server both sanitize to.
+  - ⚠ **An auto-fill is not the guess 2026-08-19 refused, and the difference is that a
+    person can see it.** A count picked in the office moves four boxes on screen in front
+    of whoever picked it, and they can change any of them before saving. What that
+    ruling refused was a list invented for records nobody had been asked about — which
+    is why opening a record still fills in nothing.
+  - **Adding or removing a side raises a re-quote from the office**, labelled **New
+    side** (or **Fewer sides**) on the quote card, and the card says *the office changed
+    this — they have not been told*, because Edit Customer tells the customer nothing
+    while the portal warns them. ⚠ **A same-count swap does not** — OPT-04 stands, and
+    the office condition is the count, exactly the condition the server applies to the
+    portal's own sides save, so the two routes into a re-quote cannot disagree about
+    which changes cost money.
+  - ⚠ **A stored list that does not fit the count is not shown and is cleared on save.**
+    That state was reachable before this form could write the list. The count wins here
+    and the list wins on the server, and both are right: each defers to whichever answer
+    was given most recently.
+  - ⭐ **AND THE BOXES OPEN FILLED IN** (2026-09-10, OPT-07). Addie: *"can you fix record
+    fills nothing in?"* A house with no names on file opens showing the sides its count
+    means, front first. **This reverses what shipped hours earlier**, and the reversed
+    reasoning is kept because it names the real cost: this form is opened dozens of times
+    a day for reasons that have nothing to do with lights, so a saved record now carries
+    a front-first guess unless somebody corrects it. Two things make that affordable and
+    **neither is optional** — filling in a blank does not count as a change (so none of
+    it raises a re-quote; without that clause it would post a quote card for the whole
+    book), and the line under the boxes says *nobody has said which sides — these follow
+    the number above*, so a guess never wears the words of an answer. A stored list that
+    fits the count is shown as-is and the note then says it is what is on file.
+  - ⭐ **WHAT COUNTS AS A CHANGE IS ONE RULE IN THREE FILES** — `houseSidesChanged`
+    (admin.html), `portalSidesChanged` (index.html), `houseSidesChangedServer`
+    (functions/index.js). A count change is a change; a swap at the same count is a
+    change (OPT-06); filling in a blank, or losing a list, is not. ⚠ It decides whether
+    somebody is re-quoted, so the three copies are **swept against each other over 576
+    combinations** in Suite 313, the way money-parity sweeps the invoice maths, and the
+    sweep asserts they are RIGHT as well as equal. Change one, change the other two, in
+    the same push. ⚠ All three compare the lists as joined strings, so every caller
+    sanitizes to canonical order first.
+  - ⭐ **AND IT IS ONE FIELD BOTH WAYS** (2026-09-10, OPT-08). Addie: *"any changes to
+    what side on member portal should go to requote and update in costumer. And vice
+    versa any changes in costumer should show in member portal."* This was already true
+    and is now asserted: `portalSave` writes `houseSidesList` onto the customer record
+    and Edit Customer reads it straight back, and the field is in `PORTAL_READ_FIELDS`
+    so the office's own answer ticks the customer's boxes. ⚠ **That whitelist fails
+    silently** — drop the field and the Sides tab opens blank for everybody, which reads
+    exactly like a customer who has never answered, so the office would set the sides,
+    the customer would see none, and each would think the other was wrong. Checked by
+    name for that reason.
+  - Proved by Suite 313 (the four boxes, the fill order, the wiring, the open-modal read
+    AND its note, the three-way sweep and the two-way field, all *run* against jsdom
+    holding the page's own markup) and Suite 108 (the save handler, *run*: the list is
+    written, a new side raises a re-quote carrying both counts and `by: 'office'`, a swap
+    raises one too but is not labelled *New side*, naming a blank house raises none, and
+    an untouched form writes nothing).
 - Proved by Suite 63 (repointed for the checkbox UI and the count-vs-list save
   logic) and the new Suite 309 (the server-side sanitize step, *run*, not regexed:
   canonical ordering, dedup, the list overriding a mismatched count, and the

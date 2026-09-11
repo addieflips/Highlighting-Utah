@@ -1940,8 +1940,41 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
        section." The quote the portal opens IS the record of it — a second flag
        saying the same thing is a second thing to keep in step, and the one that
        goes stale is the one nobody is looking at. */
+    /* ⭐ A SWAP IS A RE-QUOTE TOO (2026-09-10, [[OPT-06]]). Addie: "A swap will be a
+       requote cause we need to remark it." This reverses [[OPT-04]] — "For left and
+       right side of the house on quoting those should usually be the same" — and R-024
+       applies. That reasoning was about the PRICE and is still true; she is answering a
+       different question with the same words. A swap changes which roofline the crew
+       hangs, so somebody has to be told, and this flag is what tells them.
+
+       ⚠ FILLING IN A BLANK IS STILL NOT A CHANGE. A house with a count and no names on
+       file is most of the book, and the first save from this tab is an answer arriving
+       where there was none. Without that clause every customer opening the Sides tab
+       once would be flagged Needs Changes for a change nobody made — and the office
+       auto-fill in Edit Customer would do the same on every save.
+
+       ⚠ ONE RULE, THREE COPIES: this, `houseSidesChanged` in admin.html and
+       `portalSidesChanged` in index.html. Swept against each other in run-all.js Suite
+       313, because they decide whether somebody is re-quoted. Change one and change the
+       other two, in the same push.
+       ⚠ BOTH LISTS MUST ALREADY BE CANONICAL — it compares them as joined strings, and
+       both sides here have been through SIDE_NAMES. */
+    const houseSidesChangedServer = function (beforeList, beforeCount, afterList, afterCount) {
+      if (Number(beforeCount) !== Number(afterCount)) return true;
+      const was = (beforeList || []).join(',');
+      const now = (afterList || []).join(',');
+      if (!was || !now) return false;
+      return was !== now;
+    };
+    const canonical = function (v) {
+      const picked = {};
+      (Array.isArray(v) ? v : []).forEach((s) => { if (SIDE_NAMES.indexOf(s) !== -1) picked[s] = true; });
+      return SIDE_NAMES.filter((s) => picked[s]);
+    };
     const before = asCount(oldData.houseSides);
-    if (updates.houseSides !== before) {
+    if (houseSidesChangedServer(canonical(oldData.houseSidesList), before,
+      canonical(updates.houseSidesList !== undefined ? updates.houseSidesList : oldData.houseSidesList),
+      updates.houseSides)) {
       updates.seasonStatus = 'needs_changes';
     }
   }

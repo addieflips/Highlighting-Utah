@@ -1554,6 +1554,16 @@
               <label class="pill-check"><input type="radio" name="addcust-sides" class="addcust-side-pick" value="3"> 3 sides</label>
               <label class="pill-check"><input type="radio" name="addcust-sides" class="addcust-side-pick" value="4"> 4 sides</label>
             </div>
+            <!-- ⭐ AND WHICH ONES (2026-09-10, OPT-05) — see the same block in Edit
+                 Customer above. Asked here too so a customer added by hand or converted
+                 from a quote carries the same field as one edited later. -->
+            <div class="pill-check-row" id="addCustHouseSideNames" style="margin-top:10px;">
+              <label class="pill-check"><input type="checkbox" class="addcust-side-name" value="Front"> Front</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-side-name" value="Right"> Right side</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-side-name" value="Left"> Left side</label>
+              <label class="pill-check"><input type="checkbox" class="addcust-side-name" value="Back"> Back</label>
+            </div>
+            <p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">Picking a number above ticks them front first, then right, then left, then back &mdash; change any of them. Left and right are as you stand on the street facing the house.</p>
           </div>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <div class="form-row" style="max-width:180px;"><label>Wire Color</label>
@@ -2274,14 +2284,27 @@
               <label class="pill-check"><input type="radio" name="editcust-sides" class="editcust-side-pick" value="4"> 4 sides</label>
             </div>
             <p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">A house nobody has been asked about counts as one side.</p>
-            <!-- ⭐ WHICH SIDES, BY NAME (2026-09-06). Read-only — the count above is
-                 still what the office sets and what drives pricing/re-quotes.
-                 houseSidesList only ever comes from the customer themselves, tapping
-                 Front/Left/Right/Back in their own Member Portal, so there is nothing
-                 for the office to edit here; this just shows what they said. Blank
-                 for anybody who has never opened that tab — most of the book, until
-                 they do. -->
-            <p id="editCustSidesListNote" style="font-size:12px; color:var(--ink); margin:8px 0 0; display:none;"></p>
+            <!-- ⭐ AND WHICH ONES, PICKABLE HERE (2026-09-10, OPT-05). Addie: "in
+                 costumers it says sides of house 1234 which we can keep but can we also
+                 choose which sides like front,left side, right side, back in costumers?",
+                 then "Then sides will automatically choose based on how many sides we
+                 chose."
+                 ⚠ THIS REVERSES HALF OF OPT-02, which said this field is the customer's
+                 own answer and read-only here. The old reasoning is kept in the questions
+                 map because it is still the argument for the guard in the save handler:
+                 inventing a list for the ~956 records nobody has ever been asked about is
+                 the mistake the count-only design was written to avoid.
+                 ⚠ DRAWN IN HER COUNTING ORDER (front, right, left, back — 2026-08-18,
+                 "3 sides then front of house, right side of house and left side of house
+                 is all checked"), NOT in the order it is stored, so the auto-fill never
+                 appears to skip a box. The stored list is canonical either way. -->
+            <div class="pill-check-row" id="editCustHouseSideNames" style="margin-top:10px;">
+              <label class="pill-check"><input type="checkbox" class="editcust-side-name" value="Front"> Front</label>
+              <label class="pill-check"><input type="checkbox" class="editcust-side-name" value="Right"> Right side</label>
+              <label class="pill-check"><input type="checkbox" class="editcust-side-name" value="Left"> Left side</label>
+              <label class="pill-check"><input type="checkbox" class="editcust-side-name" value="Back"> Back</label>
+            </div>
+            <p id="editCustSidesListNote" style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">Picking a number above ticks them front first, then right, then left, then back &mdash; change any of them. Left and right are as you stand on the street facing the house. Leave them all blank if nobody has said.</p>
           </div>
           <!-- ⭐ OTHER BUILDINGS, ADDABLE AFTER THE FACT (2026-09-03). Addie: "in edit
                customer we need to have add a building set up there as well in case they
@@ -8143,11 +8166,14 @@ const CUSTOMER_FIELD_LABELS = {
   housePrice: {label: 'House price', kind: 'money'},
   measuredFeet: {label: 'Measured feet', kind: 'number'},
   houseSides: {label: 'Sides of the house', kind: 'number'},
-  /* ⭐ ADDED 2026-09-06 with houseSidesList itself. The office form does not WRITE this
-     field — it is the customer's own answer from their Member Portal, shown read-only
-     beside the count — but the label has to exist here anyway, because change-log.test.js
-     requires the two tables to cover the same portal-writable fields in the same words.
-     Two tables spelling one save differently is the drift that gate exists to stop. */
+  /* ⭐ ADDED 2026-09-06 with houseSidesList itself, and it EARNS its place twice over
+     now. It went in because change-log.test.js requires the two tables to cover the same
+     portal-writable fields in the same words — two tables spelling one save differently
+     is the drift that gate exists to stop — and at the time the office form could not
+     write this field at all.
+     ⚠ IT CAN SINCE 2026-09-10 ([[OPT-05]]): Add and Edit Customer both write it, so this
+     row is now what puts an office change of WHICH sides into that customer's history.
+     Do not read the older note and conclude the label is only there for the gate. */
   houseSidesList: {label: 'Which sides', kind: 'list'},
   /* ⭐ ADDED 2026-09-03 with the Edit Customer property list. The change-log gate asked
      for this and it is right to: without a label, adding or removing a building is
@@ -13841,10 +13867,18 @@ function fillAddCustFromQuote(quoteId, d){
      customer saved before 2026-08-19 — houseSideCount reads both. */
   {
     const n = houseSideCount(d.houseSides);
-    document.querySelectorAll('.addcust-side-pick').forEach(function(rb){
-      rb.checked = (String(rb.value || '') === (n ? String(n) : ''));
-      const w = rb.closest('.pill-check'); if(w) w.classList.toggle('checked', rb.checked);
-    });
+    houseSidesShowCount('addcust', n);
+    /* ⭐ AND THE NAMES, WHERE THE QUOTE HAS THEM (2026-09-10, [[OPT-05]]). A re-quote
+       raised from the Sides tab of the Member Portal carries houseSidesList, so the
+       customer's own answer must not be thrown away and replaced by the auto-fill on
+       the way through the conversion. Where the quote has none — every quote raised
+       before that tab existed, and every public one — the count fills them in, which is
+       the same thing the office would get by picking the count by hand.
+       ⚠ THE STORED LIST WINS OVER THE FILL, and only when it fits the count: a list of
+       two under a count of three is the impossible claim the Edit Customer open guards
+       against, and it must not be laundered into a customer record here. */
+    const quoteSidesList = houseSidesListFromValue(d.houseSidesList);
+    houseSidesShowList('addcust', quoteSidesList.length === n ? quoteSidesList : houseSidesAutoFill(n));
   }
   const colors = d.lightColors || [];
   document.querySelectorAll('.addcust-color-check').forEach(function(cb){
@@ -15057,7 +15091,23 @@ function showConvertQuoteChoice(quoteId, d){
 function quoteKindLabel(d){
   const q = d || {};
   const what = (q.changed && q.changed.what) || '';
-  if(what === 'sides') return 'House addition';
+  /* ⭐ WHICH WAY THE SIDES MOVED, IN THE PILL (2026-09-10, [[OPT-05]]). Addie, on the
+     office being able to add a side: "then it will send the house to requote indicating
+     New Side."
+     ⚠ "House addition" IS HER OWN 2026-08-18 WORDING and is kept as the fallback rather
+     than retired: every sides re-quote raised before today carries no counts on its
+     `changed` note, and there is nothing to derive a direction from. Guessing "New side"
+     for one that took a side AWAY would be the pill contradicting the card underneath it.
+     ⚠ AND IT READS THE COUNTS, NOT THE WORDS. oldSides/newSides are a sentence built for
+     a person ("Front, Left (2 sides)"); comparing those strings would call a Left-for-
+     Right swap an addition. */
+  if(what === 'sides'){
+    const wasCount = Number(q.changed && q.changed.oldSideCount) || 0;
+    const nowCount = Number(q.changed && q.changed.newSideCount) || 0;
+    if(wasCount && nowCount && nowCount > wasCount) return 'New side';
+    if(wasCount && nowCount && nowCount < wasCount) return 'Fewer sides';
+    return 'House addition';
+  }
   /* ⚠ NO "Colour change" LABEL, deliberately. Owner, 2026-08-18: "actually we
      dont want to requote color changes so that shouldnt be a label."
      A colour change costs the same to hang, so there is nothing to re-price —
@@ -15167,7 +15217,16 @@ function renderQuoteRows(filtered){
               : d.changed.what === 'sides'
               ? '<div style="margin-top:4px;">Sides changed from <strong>'+esc(d.changed.oldSides || 'none recorded')+'</strong> to <strong>'+esc(d.changed.newSides || 'none')+'</strong>'+
                 (d.changed.oldPrice ? '. They were paying '+fmtMoney(d.changed.oldPrice)+'.' : '.')+
-                '<div style="margin-top:4px;">They asked for this in the Member Portal and were told they would be re-quoted.</div>'+
+                /* ⚠ IT NO LONGER CLAIMS EVERY SIDES RE-QUOTE CAME FROM THE PORTAL
+                   (2026-09-10, [[OPT-05]]). The office can change the sides in Edit
+                   Customer now, and that customer has been told nothing — so the old
+                   sentence would send somebody to price a job the customer is not
+                   expecting a new number for, and worse, not to ring them. `by` is
+                   stamped by whichever side raised it; a card with none is a portal one
+                   from before this existed. */
+                '<div style="margin-top:4px;">'+(d.changed.by === 'office'
+                  ? 'The office changed this in Edit Customer &mdash; <strong>they have not been told</strong>, so the new price still needs sending to them.'
+                  : 'They asked for this in the Member Portal and were told they would be re-quoted.')+'</div>'+
                 /* ⭐ WHAT THEY ALREADY HAVE, AND WHAT TO DO WITH IT.
                    Owner, 2026-08-18: "their should be a clear way to tell this
                    isnt a new quote so we dont accidentally build the house
@@ -35844,6 +35903,41 @@ document.addEventListener('change', function(e){
     e.target.closest('.pill-check').classList.toggle('checked', e.target.checked);
   }
 });
+/* ⭐ THE COUNT AND THE FOUR NAMES ARE ONE ANSWER (2026-09-10, [[OPT-05]]), and
+   either control may be the one somebody reaches for. Picking a count fills the
+   boxes — Addie: "sides will automatically choose based on how many sides we
+   chose". Ticking boxes moves the count to match, so the office can say "the
+   front and the back" without also having to remember that is two.
+
+   ⚠ THE COUNT MUST NEVER BE LEFT SAYING SOMETHING THE TICKS CONTRADICT. It is
+   the field that drives the price and the re-quote flag (functions/index.js,
+   section 'sides'), and a stored list of two under a count of three is the state
+   that shows the customer an identical Now/New line in their own portal and then
+   files a re-quote nobody asked for. Wiring the two together is what stops that
+   state being reachable from this form at all, rather than cleaning it up after.
+
+   ⚠ UNTICKING EVERYTHING LEAVES THE COUNT ALONE. Nought is not a house — every
+   house has a front, which is why HOUSE_SIDES_DEFAULT is 1 — and an empty list is
+   this form's way of saying WHICH sides are not on file, a different statement
+   from how many there are.
+
+   ⚠ DELEGATED, NOT BOUND PER OPEN. openEditCustomerModal runs again on every
+   house-tab click without closing the form, so a listener attached there would
+   stack one per open — the 2815-write Inbox leak, in a new place. */
+document.addEventListener('change', function(e){
+  const t = e.target;
+  if(!t || !t.matches) return;
+  if(t.matches('.addcust-side-pick, .editcust-side-pick')){
+    houseSidesShowList(t.classList.contains('addcust-side-pick') ? 'addcust' : 'editcust',
+      houseSidesAutoFill(t.value));
+    return;
+  }
+  if(t.matches('.addcust-side-name, .editcust-side-name')){
+    const which = t.classList.contains('addcust-side-name') ? 'addcust' : 'editcust';
+    const picked = houseSidesPickedList(which);
+    if(picked.length) houseSidesShowCount(which, picked.length);
+  }
+});
 document.addEventListener('click', function(e){
   const btn = e.target.closest && e.target.closest('.label-presets button');
   if(!btn) return;
@@ -35932,6 +36026,12 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
   const email2 = document.getElementById('addCustEmail2').value.trim();
   /* A count, and 0 means nobody has said — which is not the same as "none". */
   const selectedSides = houseSideCount((document.querySelector('.addcust-side-pick:checked') || {}).value);
+  /* ⭐ AND WHICH ONES (2026-09-10, [[OPT-05]]). Null rather than [] when nothing is
+     ticked: an empty array is a claim that no side of the house is lit, which is not a
+     house, whereas null is this field's own "nobody has said" — the same value the Edit
+     Customer save writes when the office clears the boxes, so one absent answer has one
+     spelling wherever it is written. */
+  const selectedSidesList = houseSidesPickedList('addcust');
   const selectedColors = Array.from(document.querySelectorAll('.addcust-color-check:checked')).map(el => el.value);
   // The free-text "Additional Notes" input under Lights was removed from the
   // form, so the description is just the colours now. Crew-facing detail lives
@@ -36253,7 +36353,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
          it. The warehouse clears the flag when the bundle is made. */
       lat: coords.lat, lng: coords.lng, needsGeocode: pinFailed, needsLightBuild: true,
       lightsQueuedAt: serverTimestamp(),
-      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, useEaves: useEaves, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, houseSides: selectedSides, buildings: addCustBuildingsFromQuote(), customerNumber: customerNumber
+      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, useEaves: useEaves, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, houseSides: selectedSides, houseSidesList: selectedSidesList.length ? selectedSidesList : null, buildings: addCustBuildingsFromQuote(), customerNumber: customerNumber
     }, billingElsewhere ? {billToPhone: billToPhone} : {}));
     // If this number was sitting in the available pool, it isn't available anymore.
     if(customerNumber){
@@ -36403,7 +36503,13 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     document.getElementById('addCustEmail2').value = '';
     /* Back to the default rather than to nothing: one side is what an unrecorded
        house counts as, so the form should show what it is about to save. */
-    document.querySelectorAll('.addcust-side-pick').forEach(function(rb){ rb.checked = (String(rb.value) === String(HOUSE_SIDES_DEFAULT)); const w = rb.closest('.pill-check'); if(w) w.classList.toggle('checked', rb.checked); });
+    houseSidesShowCount('addcust', HOUSE_SIDES_DEFAULT);
+    /* ⚠ THE BOXES FOLLOW THE COUNT HERE, and that is not the same as inventing an
+       answer: a count of one already SAYS the front and nothing else (it is the only
+       side one can mean), so ticking Front adds no claim the default did not already
+       make. Leaving them blank while the count reads 1 would put the form in the one
+       state the wiring exists to keep it out of. */
+    houseSidesShowList('addcust', houseSidesAutoFill(HOUSE_SIDES_DEFAULT));
     document.querySelectorAll('.addcust-color-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
     document.getElementById('addCustWireColor').value = 'White';
     document.getElementById('addCustInstallPref').value = 'Normal Schedule';
@@ -37696,6 +37802,128 @@ function houseSideCount(v){
 function houseSideWords(v){
   const n = houseSideCount(v);
   return n + ' side' + (n === 1 ? '' : 's');
+}
+/* ⭐ WHICH SIDES, AND THE COUNT FILLS THEM IN (2026-09-10, [[OPT-05]]). Addie:
+   "in costumers it says sides of house 1234 which we can keep but can we also
+   choose which sides like front,left side, right side, back in costumers?", and
+   then, unprompted: "Then sides will automatically choose based on how many sides
+   we chose."
+
+   ⚠ THIS REVERSES HALF OF [[OPT-02]], which ruled that houseSidesList "only ever
+   comes from the customer themselves" and is read-only in the office. R-024
+   applies — her newer answer wins — and this note is the "say so when you apply
+   it" half of that rule. The old reasoning is not wrong and is not deleted: an
+   invented list for the ~956 records nobody has ever been asked about is exactly
+   the guess [[OPT-01]]'s count-only design refused. What makes the auto-fill
+   something different from that guess is that a PERSON picks the count, the four
+   boxes visibly move on screen in front of them, and they can change any of them
+   before saving. A filled box somebody can see and correct is not a silent claim.
+
+   ⚠ SO NOTHING IS FILLED IN BY OPENING A RECORD. openEditCustomerModal shows what
+   is on file and nothing else; a phone number corrected on a house nobody has been
+   asked about still saves with no list. The fill is on the COUNT CHANGE, which is
+   somebody deciding.
+
+   ⚠ TWO ORDERS, DIFFERENT ON PURPOSE, AND NEITHER IS DECORATION.
+   HOUSE_SIDE_NAMES is how a list is STORED and read back, and it is the same
+   canonical order the customer's own portal and the server both sanitize to
+   (PORTAL_SIDE_NAMES in index.html, SIDE_NAMES in portalSave's 'sides' branch) —
+   so one house reads the same words in the same order on every screen, and two
+   lists can be compared for equality without sorting first.
+   HOUSE_SIDE_FILL_ORDER is Addie's own counting convention, given 2026-08-18 and
+   already relied on by rbSidesFromNote: "when notes says something like 3 sides
+   ... front of house, right side of house and left side of house is all checked".
+   Front, then right, then left, then back. The boxes are DRAWN in that order for
+   one reason: a fill that skips the second box on screen reads as a bug and gets
+   reported as one.
+
+   ⚠ AND LEFT/RIGHT ARE FROM THE STREET ([[OPT-03]]) — the mirror image of the same
+   four words read from the front door, so both forms say which way round in as
+   many words. */
+const HOUSE_SIDE_NAMES = ['Front', 'Left', 'Right', 'Back'];
+const HOUSE_SIDE_FILL_ORDER = ['Front', 'Right', 'Left', 'Back'];
+/* Reduced to the four names this app knows, in canonical order — the office copy
+   of portalSidesListFromValue, so a stray value on an old or hand-edited record
+   cannot tick a box nobody offers any more. */
+function houseSidesListFromValue(v){
+  if(!Array.isArray(v)) return [];
+  const picked = {};
+  v.forEach(function(s){ if(HOUSE_SIDE_NAMES.indexOf(s) !== -1) picked[s] = true; });
+  return HOUSE_SIDE_NAMES.filter(function(s){ return picked[s]; });
+}
+/* The n sides that a count of n means, in her order, handed back canonical. */
+function houseSidesAutoFill(n){
+  return houseSidesListFromValue(HOUSE_SIDE_FILL_ORDER.slice(0, houseSideCount(n)));
+}
+/* ⭐ WHAT COUNTS AS A CHANGE TO THE SIDES (2026-09-10, [[OPT-06]]). Addie, asked
+   whether swapping Left for Right at the same count should re-quote: "A swap will be a
+   requote cause we need to remark it."
+
+   ⭐ THIS REVERSES [[OPT-04]], which said a swap is not a re-quote because "For left
+   and right side of the house on quoting those should usually be the same". R-024
+   applies and this note is the "say so out loud" half of it. The old reasoning was
+   about the PRICE and it is still true — two sides of one house are near enough the
+   same length — but she is answering a different question with the same words: a swap
+   changes which roofline the crew hangs, so somebody has to be told, and a re-quote is
+   the only thing in this system that tells them. "We need to remark it" is that, in
+   her own words.
+
+   ⚠ FILLING IN A BLANK IS NOT A CHANGE, AND THAT CLAUSE IS LOAD-BEARING. A house with
+   a count and no names on file is most of the book; the first time anybody names its
+   sides — the office opening a record, or the customer opening their Sides tab — that
+   is an answer arriving where there was none, not a decision being reversed. Without
+   this clause the auto-fill of [[OPT-05]] would raise a re-quote for every customer
+   whose record is opened and saved: ~956 quote cards nobody asked for, with no price
+   to change on any of them. It is also exactly the rule [[OPT-02]] already settled for
+   the portal's own first save.
+
+   ⚠ AND IT NEEDS BOTH LISTS ALREADY CANONICAL. It compares them as joined strings, so
+   a caller handing it a raw stored array would read Back,Front as different from
+   Front,Back. Every caller goes through houseSidesListFromValue first.
+
+   ⚠ THREE COPIES, ONE RULE: this, `portalSidesChanged` in index.html and
+   `houseSidesChangedServer` in functions/index.js. It decides whether somebody is
+   re-quoted, so the three are swept against each other in run-all.js Suite 313 the way
+   money-parity sweeps the invoice maths. Change one and change the other two, in the
+   same push. */
+function houseSidesChanged(beforeList, beforeCount, afterList, afterCount){
+  if(Number(beforeCount) !== Number(afterCount)) return true;
+  const was = (beforeList || []).join(',');
+  const now = (afterList || []).join(',');
+  if(!was || !now) return false;
+  return was !== now;
+}
+/* The office copy of portalSidesWords — the SAME sentence the customer was shown
+   in their own portal when they made this change, so the Now/New lines on the
+   quote card and the ones in the confirm they agreed to cannot read differently
+   about one house. */
+function houseSidesWords(list, count){
+  const named = houseSidesListFromValue(list);
+  if(named.length) return named.join(', ') + ' (' + named.length + ' side' + (named.length === 1 ? '' : 's') + ')';
+  const c = Number(count) || 0;
+  return c ? (c + ' side' + (c === 1 ? '' : 's') + ' (which ones is not on file)') : 'not on file';
+}
+/* ⚠ ONE PAIR OF READERS FOR BOTH FORMS. Add Customer and Edit Customer ask the
+   identical question, and a second copy is how the two start disagreeing about
+   what "2 sides" ticks. `which` is the class prefix: 'addcust' or 'editcust'. */
+function houseSidesPickedList(which){
+  const out = [];
+  document.querySelectorAll('.' + which + '-side-name:checked').forEach(function(cb){ out.push(cb.value); });
+  return houseSidesListFromValue(out);
+}
+function houseSidesShowList(which, list){
+  const want = houseSidesListFromValue(list);
+  document.querySelectorAll('.' + which + '-side-name').forEach(function(cb){
+    cb.checked = want.indexOf(cb.value) !== -1;
+    const w = cb.closest('.pill-check'); if(w) w.classList.toggle('checked', cb.checked);
+  });
+}
+function houseSidesShowCount(which, n){
+  const want = String(houseSideCount(n));
+  document.querySelectorAll('.' + which + '-side-pick').forEach(function(rb){
+    rb.checked = (String(rb.value || '') === want);
+    const w = rb.closest('.pill-check'); if(w) w.classList.toggle('checked', rb.checked);
+  });
 }
 /* ⚠ RETURNS A COUNT NOW, not a list of side names. Owner, 2026-08-19: "we need it
    to say 1, 2, 3, or 4 sides of the house so then it can just be connected and we
@@ -50885,35 +51113,42 @@ function openEditCustomerModal(id){
       if(box) box.focus();
     });
   }
-  document.querySelectorAll('.editcust-side-pick').forEach(function(rb){
-      rb.checked = (String(rb.value || '') === (n ? String(n) : ''));
-      const w = rb.closest('.pill-check'); if(w) w.classList.toggle('checked', rb.checked);
-    });
-    /* ⭐ WHICH SIDES, BY NAME (2026-09-06). Sanitized the same way portalSave
-       sanitizes it server-side — reduced to the four names the app knows, in
-       order — so a stray value on an old or hand-edited record cannot print
-       something nobody offers any more. */
-    const sidesListNote = document.getElementById('editCustSidesListNote');
-    if(sidesListNote){
-      const SIDE_NAMES = ['Front', 'Left', 'Right', 'Back'];
-      const raw = Array.isArray(d.houseSidesList) ? d.houseSidesList : [];
-      const picked = {};
-      raw.forEach(function(s){ if(SIDE_NAMES.indexOf(s) !== -1) picked[s] = true; });
-      const named = SIDE_NAMES.filter(function(s){ return picked[s]; });
-      if(named.length){
-        /* ⚠ THE NOTE SAYS WHICH WAY ROUND, EVERY TIME (2026-09-07, OPT-03). Addie:
-           "we should be calculating left or right from the street not the front door."
-           The customer was told that when they ticked the boxes; the office reading
-           it back has to be told the same thing, or Left here and Left there are the
-           opposite sides of the same house. It is only worth saying when a side that
-           HAS a hand is named — Front and Back read the same from either viewpoint. */
-        const handed = named.indexOf('Left') !== -1 || named.indexOf('Right') !== -1;
-        sidesListNote.textContent = 'From their Member Portal: ' + named.join(', ') + '.' +
-          (handed ? ' Left and right are as you stand on the street facing the house.' : '');
-        sidesListNote.style.display = '';
-      } else {
-        sidesListNote.style.display = 'none';
-      }
+  houseSidesShowCount('editcust', n);
+    /* ⭐ THE BOXES OPEN FILLED IN (2026-09-10, [[OPT-07]]). Addie, shown that opening a
+       record ticked nothing: "can you fix record fills nothing in?" So a house with no
+       names on file opens showing the sides its COUNT means, front first, exactly as if
+       somebody had just picked that count.
+
+       ⚠ THIS REVERSES WHAT SHIPPED HOURS EARLIER, and the reasoning it reverses is kept
+       because it names the real cost: this form is opened dozens of times a day for
+       reasons that have nothing to do with lights, and a fill on open means a saved
+       record now carries a front-first GUESS unless somebody corrects it. Two things
+       make that affordable and neither is optional. (1) `houseSidesChanged` does not
+       count filling in a blank as a change, so none of this raises a re-quote — without
+       that clause this alone would post ~956 quote cards. (2) The line under the boxes
+       SAYS it is a fill rather than something anybody said, so nobody reads a guess as
+       an answer. Take either away and this becomes the guess [[OPT-01]] refused.
+
+       ⚠ SANITIZED ON THE WAY IN, the same way portalSave sanitizes it server-side, so a
+       stray value on an old or hand-edited record cannot tick a box nobody offers.
+
+       ⚠ AND A STORED LIST THAT DOES NOT FIT THE COUNT IS REPLACED BY THE FILL, NOT
+       SHOWN. Two names under a count of three is a claim that cannot be true — a state
+       records could already be in before this form could write the list — and THE COUNT
+       WINS HERE, which is the opposite of portalSave's "the list wins the count" and
+       right for the same reason: each defers to whichever answer was given most
+       recently, and here the count is what the office set. A list trimmed to fit would
+       be an answer nobody gave. */
+    const onFileSides = houseSidesListFromValue(d.houseSidesList);
+    const sidesOnFile = onFileSides.length === n;
+    houseSidesShowList('editcust', sidesOnFile ? onFileSides : houseSidesAutoFill(n));
+    /* ⚠ AND IT SAYS WHICH IT IS. A guess that looks identical to an answer is how a
+       crew ends up hanging the wrong side of a house on our say-so. */
+    const sidesNote = document.getElementById('editCustSidesListNote');
+    if(sidesNote){
+      sidesNote.textContent = sidesOnFile
+        ? 'This is what is on file for them. Left and right are as you stand on the street facing the house.'
+        : 'Nobody has said which sides \u2014 these follow the number above, front first. Correct them if you know better. Left and right are as you stand on the street facing the house.';
     }
   }
   document.getElementById('editCustInstallPref').value = d.installPreference || 'Normal Schedule';
@@ -51904,7 +52139,9 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        for every customer whose sides nobody touched. */
     {
       const storedSidesList = Array.isArray(item.data.houseSidesList) ? item.data.houseSidesList : null;
-      if(storedSidesList && storedSidesList.length !== newHouseSides) addrUpdates.houseSidesList = null;
+      const pickedSidesList = houseSidesPickedList('editcust');
+      if(pickedSidesList.length) addrUpdates.houseSidesList = pickedSidesList;
+      else if(storedSidesList) addrUpdates.houseSidesList = null;
     }
 
     /* ⭐ WHAT THEY HAD ALREADY PAID WHEN THEIR HOUSE MOVED ONTO SOMEBODY ELSE'S
@@ -52457,6 +52694,24 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        existingCustomerId, which is what makes the card show "Old house" and use
        the ReQuotes wording instead of the new-customer one. */
     const feetChanged = Number(d.measuredFeet || 0) !== Number(newMeasuredFeet || 0);
+    /* ⭐ A SIDE ADDED OR TAKEN AWAY IS A RE-QUOTE (2026-09-10, [[OPT-05]]). Addie: "if I
+       choose a new side on someones house which should be multiple choose then it will
+       send the house to requote indicating New Side."
+
+       ⚠ A SWAP COUNTS TOO SINCE [[OPT-06]] (2026-09-10) — "A swap will be a requote
+       cause we need to remark it" — so this is no longer the count alone. What counts
+       as a change lives entirely in `houseSidesChanged`, including the clause that
+       keeps FILLING IN A BLANK from raising one; read that function for why each half
+       is there. The portal and the server hold the same rule and all three are swept
+       against each other, so the routes into a re-quote cannot start disagreeing about
+       which changes cost money.
+
+       ⚠ AND houseSideCount READS BOTH SHAPES on the left-hand side: every customer saved
+       before 2026-08-19 holds an ARRAY there, and Number() of an array is NaN. Comparing
+       the raw field would raise a re-quote for all of them on the first save. */
+    const sidesChanged = houseSidesChanged(
+      houseSidesListFromValue(d.houseSidesList), houseSideCount(d.houseSides),
+      houseSidesListFromValue(addrUpdates.houseSidesList), newHouseSides);
     const addressChanged = String(d.address || '').trim().toLowerCase() !== String(newAddress || '').trim().toLowerCase();
     /* ⭐ THE PENDING MOVE IS CLEARED BY THE SAVE THAT ACTS ON IT (2026-09-10).
 
@@ -52711,7 +52966,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     }
     /* ⚠ NOT while a re-quote is being applied. The re-quote in hand IS this
        change; raising another for it is a loop the office cannot finish. */
-    if((feetChanged || addressChanged || priceWantsRequote) && !requoteBeingConverted){
+    if((feetChanged || addressChanged || sidesChanged || priceWantsRequote) && !requoteBeingConverted){
       try{
         const already = quotesCache.find(function(q){
           return q.data.existingCustomerId === editCustomerId && quoteStage(q.data) === 'new';
@@ -52720,6 +52975,18 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
           ? {what:'feet', oldFeet: Number(d.measuredFeet || 0), newFeet: Number(newMeasuredFeet || 0), oldPrice: Number(d.housePrice || 0)}
           : addressChanged
           ? {what:'address', oldAddress: String(d.address || '')}
+          : sidesChanged
+          /* ⚠ THE SAME FIVE KEYS THE PORTAL WRITES, so one card renderer covers both
+             routes in. oldSides/newSides are the sentence a person reads; the two
+             COUNTS beside them are what quoteKindLabel reads to say New side rather
+             than Fewer sides, and comparing the sentences instead would call a
+             Left-for-Right swap an addition. `by` is what stops the card telling
+             whoever prices it that the customer already knows. */
+          ? {what:'sides', by:'office',
+             oldSides: houseSidesWords(d.houseSidesList, houseSideCount(d.houseSides)),
+             newSides: houseSidesWords(addrUpdates.houseSidesList, newHouseSides),
+             oldSideCount: houseSideCount(d.houseSides), newSideCount: newHouseSides,
+             oldPrice: Number(d.housePrice || 0)}
           /* A price on its own. The card has to say what moved, or somebody picking it
              up sees a re-quote with the same feet and the same address and no reason. */
           : {what:'price', oldPrice: Number(d.housePrice || 0), newPrice: Number(newHousePrice || 0),
