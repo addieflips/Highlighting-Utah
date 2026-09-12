@@ -3892,17 +3892,29 @@ because the folder earning its keep within two days is the argument for it.
     answers `400 Upload preset not found` rather than `401 cloud_name is disabled`, and
     delivery returns 200. This is the wording for the next time, not a fix for that
     outage — which was settled on the billing account, exactly as the advice says.
-- ⭐ **AND "Twilio send failed: Authentication Error — invalid username" STOPPED SENDING
-  ANYBODY TO FIND THE ACCOUNT** (2026-09-11). [[QT-38]], Dax: *"we doont use twillo we use
-  google voice."* The raw wording reads as a key that has gone stale, which is a
-  ten-minute job — so whoever reads the row goes looking for a Twilio account, and there
-  is none to find. The fix is not a credential and cannot be re-pointed: Google Voice has
-  no send API to move it to. The quote card now says texting is not wired up, that
-  nothing was sent, and what to do instead (email, or Google Voice by hand), keeping the
-  service's words in brackets on the end.
-  - ⚠ **THE BUTTON IS LEFT WHERE IT IS.** Removing it is a decision about what the office
-    is offered; QT-38 recorded the ruling without taking it, and this says what is true
-    and changes nothing else.
+- ⭐ **"Twilio send failed: Authentication Error — invalid username" — AND THERE IS AN
+  ACCOUNT NOW** ([[QT-39]], 2026-09-11, superseding [[QT-38]]). The earlier ruling was Dax's
+  *"we doont use twillo we use google voice"*, and for about a day the quote card said so:
+  texting is not wired up, there is no account, use email or Google Voice by hand. **He set
+  an account up the same evening**, so that wording became false and was repointed rather
+  than deleted.
+  - ⭐ **NOTHING IN THE CODE WAS EVER MISSING.** `exports.sendSms` has always posted to the
+    Twilio Messages API with the account SID and auth token as basic auth. What was missing
+    was the three Firebase secrets holding real values — all three existed at version 1 with
+    placeholders, and `invalid username` is precisely what that produces, because Twilio uses
+    the **account SID** as the basic-auth username. So the word "username" was sending
+    whoever read it hunting a login this system does not have.
+  - ⚠ **THE FIX IS A CREDENTIAL PLUS A REDEPLOY, AND THE REDEPLOY IS THE HALF THAT GETS
+    MISSED.** Setting a secret alone looks like it worked and changes nothing until the
+    functions are deployed again. The message on the card names both, and says the secrets
+    live outside this app.
+  - ⚠ **TWO THINGS RESUME THAT HAVE NOT RUN FOR MONTHS**, neither of them asked for:
+    `sendNightlyInvoices` texts `alertPhone` from `settings/nightlyInvoiceAutomation` after
+    every 7 PM run, and the STOP handler (Twilio error 21610) can fire again — archiving a
+    quote and setting `smsOptedOut` the first time somebody who once replied STOP is texted.
+    Check that alert number before the next nightly run.
+  - ⚠ **THE BUTTON IS STILL WHERE IT WAS.** #412 left it on the card while texting could not
+    work; now it can, so there is nothing to reconsider.
 - ⚠ **An "Unhandled promise: Missing or insufficient permissions" row is not necessarily
   an auth fault** — §5 records that the same wording is what Firestore returns when a
   `messages` write breaks the 5,000-character cap. Check the rule's CONTENT conditions

@@ -897,15 +897,27 @@ check('every upload door that tells the office anything says WHY (structural)',
   'How It Works and Areas We Serve; found ' + adviceCallers + '. An upload added later ' +
   'without this line says "Upload failed" exactly as all of them used to');
 
-/* QT-38, Dax 2026-09-11: "we doont use twillo we use google voice." */
-check('the text failure stops sending anyone to look for a Twilio account',
-  admin.indexOf('Texting is not wired up') !== -1 &&
-  admin.indexOf('invalid username|20003|accountsid') !== -1,
-  'the raw wording reads as a stale key, which is a ten-minute job against an account ' +
-  'that does not exist');
+/* ⚠ REPOINTED 2026-09-11, NOT WEAKENED ([[QT-39]] superseding [[QT-38]]). These asserted
+   the words "Texting is not wired up" and the Google Voice sentence, which were correct for
+   about a day — QT-38 recorded Dax saying "we doont use twillo we use google voice", and he
+   set an account up the same evening. A check pinned to wording that a ruling can reverse
+   fails on correct code the moment it does, which is the slow-fuse shape S82 and S129 both
+   already carry. The GUARANTEE has not moved and is what is asserted now: Twilio's own
+   "invalid username" must never reach the office on its own, because it names the ACCOUNT
+   SID as a username and sends whoever reads it hunting a login this system does not have. */
+check('the raw Twilio wording never reaches the office unexplained',
+  admin.indexOf('invalid username|20003|accountsid') !== -1 &&
+  /The text service refused our details/.test(admin),
+  'on its own, "Authentication Error - invalid username" describes a login that does not ' +
+  'exist anywhere in this system');
 
-check('and it says what CAN be done instead',
-  /Send the quote by email, or text them from Google Voice by hand/.test(admin),
+check('and it names where the credentials actually live',
+  /Firebase secrets/.test(admin) && /redeploy/i.test(admin),
+  'they are not in this app, and setting one without a redeploy looks like it worked and ' +
+  'changes nothing — which is the step most easily missed');
+
+check('and it still names something the office can do now',
+  /Send the quote by email in the meantime/.test(admin),
   'a row that names no next step is a row that gets read once');
 
 console.log('');
