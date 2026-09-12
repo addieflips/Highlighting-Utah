@@ -58601,7 +58601,12 @@ suite('328. Inbound texts, and the STOP nobody was watching for');
      "PAYPAL_CLIENT_ID is not defined" attributed to whichever suite happened to be
      current when the async settled. An explicit end anchor instead, asserted, so a
      reorder fails here by name rather than dragging in the next function silently. */
-  const afterInbound = fns.indexOf('// capture (e.g. the customer closed the tab right after paying)');
+  /* ⚠ RE-BOUNDED 2026-09-11, SECOND TIME. This ends at whatever function happens to sit
+     next in the file, and the Telnyx send block was then inserted into that gap — so the
+     lift swallowed it and died on a bare "onCall is not defined", attributed to whichever
+     suite was current when the async settled. Anchored on the block that actually follows
+     recordInboundText now, and asserted, so the next insertion fails here by name. */
+  const afterInbound = fns.indexOf('/* ⭐ SENDING, THROUGH A PAID PROVIDER ON A SECOND NUMBER');
   check('S328', 'the end of the inbound endpoint is findable',
     afterInbound > expStart,
     'the anchor that bounds the lift has moved — repoint it, or the sandbox quietly swallows the next function');
@@ -58765,4 +58770,138 @@ suite('328. Inbound texts, and the STOP nobody was watching for');
       back.updates.filter(u => u.smsOptedOut === false).length >= 1,
       'got ' + JSON.stringify(back.updates));
   })());
+}
+
+suite('329. The paid number: who may be texted, and who may tell us something happened');
+{
+  const fns = read('functions/index.js');
+  const NODE_CRYPTO = require('crypto');
+
+  /* ⚠ THE TELNYX BLOCK IS BOUNDED BY THE COMMENT THAT OPENS IT AND THE ONE THAT
+     FOLLOWS IT, both asserted. Suite 328 was silently swallowed by a neighbouring
+     function twice before this pattern was adopted; an unasserted slice does not fail,
+     it drags in whatever moved next door and dies somewhere unrelated. */
+  const tStart = fns.indexOf('/* ⭐ SENDING, THROUGH A PAID PROVIDER ON A SECOND NUMBER');
+  const tEnd = fns.indexOf('// capture (e.g. the customer closed the tab right after paying)');
+  check('S329', 'the paid-number block is findable and bounded',
+    tStart > -1 && tEnd > tStart,
+    'renamed or moved — repoint both anchors rather than widening the slice');
+  const telnyxSrc = fns.slice(tStart, tEnd);
+
+  /* ── shaping a number for the provider ── */
+  const e164 = new Function('digitsOnly',
+    fns.slice(fns.indexOf('function toE164Server'), fns.indexOf('/* Posts one message to Telnyx')) +
+    'return toE164Server;')(function(r){ return String(r || '').split('').filter(function(c){ return c >= '0' && c <= '9'; }).join(''); });
+  check('S329', 'a ten-digit number is shaped for the provider',
+    e164('801-555-1234') === '+18015551234', 'got ' + e164('801-555-1234'));
+  check('S329', 'and one that cannot be shaped is refused, not guessed at',
+    e164('555-1234') === null && e164('') === null,
+    'a malformed number sent to a provider is a charge for a message nobody receives');
+
+  /* ── the opt-out backstop ── */
+  function runSend(opts){
+    const o = opts || {};
+    const added = [];
+    const ctx = {
+      digitsOnly: function(r){ return String(r || '').split('').filter(function(c){ return c >= '0' && c <= '9'; }).join(''); },
+      findByPhone: async function(){ return o.customer ? {id: 'h1', data: o.customer} : null; },
+      sendTextRaw: async function(to, body){
+        ctx.__sent.push({to: to, body: body});
+        return o.providerOk === false ? {ok: false, error: 'carrier rejected it'} : {ok: true, id: 'msg1'};
+      },
+      __sent: [],
+      admin: {firestore: {FieldValue: {serverTimestamp: function(){ return '__ts__'; }}}},
+      db: {collection: function(name){ return {add: async function(r){ added.push(Object.assign({__col: name}, r)); }}; }},
+      console: {error: function(){}}
+    };
+    const names = Object.keys(ctx);
+    const fn = new Function(...names, telnyxSrc.slice(telnyxSrc.indexOf('async function sendTextToCustomer'),
+      telnyxSrc.indexOf('// One text, from the admin panel')) + 'return sendTextToCustomer;')(...names.map(function(k){ return ctx[k]; }));
+    return fn(o.to || '8015551234', o.body || 'hello').then(function(r){
+      return {result: r, sent: ctx.__sent, added: added};
+    });
+  }
+
+  pendingAsync.push((async () => {
+    /* ⛔ THE BACKSTOP, AND THE REASON IT IS NOT ONLY ON THE SCREEN. Every texting button
+       in admin.html already refuses an opted-out customer. That is not enough: a loop, a
+       scheduled run, or a screen built next year each have to remember, and the one that
+       forgets texts somebody who asked us to stop — from a REGISTERED number, which is
+       the kind of complaint that ends a campaign. */
+    const no = await runSend({customer: {name: 'Dana', smsOptedOut: true}});
+    check('S329', 'an opted-out customer is refused before the provider is ever called',
+      no.result.ok === false && no.result.optedOut === true && no.sent.length === 0,
+      'got ' + JSON.stringify(no.result) + ' with ' + no.sent.length + ' provider calls');
+
+    const yes = await runSend({customer: {name: 'Dana'}});
+    check('S329', 'an ordinary customer is texted and the send is written down',
+      yes.result.ok === true && yes.sent.length === 1 &&
+      yes.added.length === 1 && yes.added[0].__col === 'outboundTexts' &&
+      yes.added[0].ok === true && yes.added[0].status === 'sent',
+      'got ' + JSON.stringify(yes.added));
+
+    /* ⛔ RECORDED EVEN WHEN IT FAILED. A ledger that only holds successes answers
+       "did we text them?" wrongly in the single case anybody ever asks about it. */
+    const bad = await runSend({customer: {name: 'Dana'}, providerOk: false});
+    check('S329', 'a send the provider refused is still written down, marked failed',
+      bad.added.length === 1 && bad.added[0].ok === false && bad.added[0].status === 'failed' &&
+      /carrier rejected/.test(bad.added[0].error || ''),
+      'got ' + JSON.stringify(bad.added) + ' — a silent failure here is a text nobody knows did not go');
+  })());
+
+  /* ── who may tell us a text arrived ── */
+  const pair = NODE_CRYPTO.generateKeyPairSync('ed25519');
+  const pubB64 = pair.publicKey.export({format: 'der', type: 'spki'}).slice(12).toString('base64');
+  function mkVerifier(publicKeyB64){
+    return new Function('crypto', 'TELNYX_PUBLIC_KEY', 'console', 'Buffer', 'Date', 'Math', 'Number',
+      telnyxSrc.slice(telnyxSrc.indexOf('function telnyxSignatureOk'),
+        telnyxSrc.indexOf('exports.telnyxWebhook')) + 'return telnyxSignatureOk;')(
+      NODE_CRYPTO, {value: function(){ return publicKeyB64; }}, {error: function(){}},
+      Buffer, Date, Math, Number);
+  }
+  function signedReq(bodyObj, opts){
+    const o = opts || {};
+    const raw = Buffer.from(JSON.stringify(bodyObj));
+    const ts = String(o.ts || Math.floor(Date.now() / 1000));
+    const key = o.wrongKey ? NODE_CRYPTO.generateKeyPairSync('ed25519').privateKey : pair.privateKey;
+    const sig = NODE_CRYPTO.sign(null, Buffer.concat([Buffer.from(ts + '|'), raw]), key);
+    return {
+      headers: {'telnyx-signature-ed25519': sig.toString('base64'), 'telnyx-timestamp': ts},
+      rawBody: raw, body: bodyObj
+    };
+  }
+
+  const verify = mkVerifier(pubB64);
+  const good = signedReq({data: {event_type: 'message.received'}});
+  check('S329', 'a genuinely signed webhook is accepted',
+    verify(good) === true,
+    'a real Ed25519 signature over "<timestamp>|<raw body>" must verify, or nothing gets through at all');
+
+  /* ⛔ AN OPEN WEBHOOK IS A WAY TO OPT OUT THE ENTIRE BOOK. This endpoint reaches
+     recordInboundText, which writes smsOptedOut — so anybody who can POST a fake
+     "STOP" to it can stop us texting every customer we have, and nothing would look
+     wrong until a season of messages had silently gone nowhere. */
+  check('S329', 'a webhook signed with the wrong key is refused',
+    verify(signedReq({data: {}}, {wrongKey: true})) === false,
+    'anybody who can POST could otherwise opt out the whole book with a fake STOP');
+  check('S329', 'an unsigned webhook is refused',
+    verify({headers: {}, body: {}}) === false,
+    'a missing signature must fail closed, not fall through to accepting it');
+
+  /* ⚠ AND A CAPTURED ONE CANNOT BE REPLAYED LATER — which matters in BOTH directions:
+     replaying a STOP re-opts somebody out, and replaying an older START undoes an
+     opt-out that was made after it. */
+  check('S329', 'a correctly signed but stale webhook is refused',
+    verify(signedReq({data: {}}, {ts: Math.floor(Date.now() / 1000) - 4000})) === false,
+    'a captured webhook replayed a day later could re-opt somebody out, or undo an opt-out made since');
+  check('S329', 'and the freshness window is not so tight that clock drift breaks it',
+    verify(signedReq({data: {}}, {ts: Math.floor(Date.now() / 1000) - 60})) === true,
+    'a minute of drift between Telnyx and Google is ordinary — refusing it would drop real replies');
+
+  /* ⚠ THE RAW BODY, NOT THE RE-SERIALISED ONE. JSON.stringify on the parsed object
+     reorders keys, and the signature then never matches — which presents as "Telnyx is
+     sending bad signatures" and sends somebody debugging the wrong system entirely. */
+  check('S329', 'the signature is checked against the raw body',
+    /req\.rawBody/.test(telnyxSrc),
+    'without rawBody a re-serialised payload silently stops verifying');
 }

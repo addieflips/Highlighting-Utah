@@ -578,46 +578,28 @@ exports.paypalCaptureOrder = onCall(
   }
 );
 
-/* ⛔ THERE IS NO SMS ON THIS SERVER, AND ADDING ONE BACK IS NOT A SMALL CHANGE.
+/* ⚠ THE SMS ON THIS SERVER IS A SECOND NUMBER, NOT THE GOOGLE VOICE ONE.
  *
- * A `sendSms` callable and a `twilioSendRaw` helper used to live here, both posting
- * to api.twilio.com against TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER.
- * Highlighting Utah has never had a Twilio account, so every call came back 20003
- * "Authentication Error - invalid username" — the customer-facing one loudly, in front
- * of the office, and the two owner alerts silently, because the helper swallowed it.
- * Removed 2026-09-11. Dax: "we dont want twillo we want to use google voice".
+ * A `sendSms` callable and a `twilioSendRaw` helper used to live here, both posting to
+ * api.twilio.com against an account Highlighting Utah has never had, so every call came
+ * back 20003 "Authentication Error - invalid username" — the customer-facing one loudly,
+ * in front of the office, and the two owner alerts silently. Removed 2026-09-11. Dax:
+ * "we dont want twillo we want to use google voice".
  *
- * ⚠ GOOGLE VOICE HAS NO SEND API. This is not a missing integration to be filled in
- * later: there is no supported way for a Cloud Function to put a text on the wire
- * through it. The office texts from a real signed-in Google Voice session, and the
- * admin panel hands messages to it rather than sending them (see showQuoteTextBox).
+ * ⛔ AND GOOGLE VOICE STILL CANNOT SEND FROM HERE, AT ANY PRICE OR TIER. It has no API,
+ * its Acceptable Use Policy prohibits "sending messages via an automated process, such
+ * as a script", and the penalty is suspension of the account. Nothing below texts from
+ * the 801 number, and nothing may be made to: see the Telnyx block further down for why
+ * that would mean porting the number and losing the office's inbox with it.
  *
- * ⚠ SO AN ALERT FROM THE SERVER IS A NOTE, NOT A TEXT. Both owner alerts now raise a
- * System note in `messages`, which recordUnmatchedPayment had already chosen on its
- * own reasoning: "a text is gone the moment you look away; a note keeps until somebody
- * deals with it". Anything that needs to reach a phone has to be sent by a person.
- */
-
-/* ⭐ INBOUND TEXTS — THE HALF OF GOOGLE VOICE THAT CAN BE AUTOMATED (added 2026-09-11).
+ * So there are three channels and they must not be confused:
+ *   • EMAIL — EmailJS, for everything. 950 of 960 customers have an address.
+ *   • GOOGLE VOICE — by hand, one to one, from the number customers know. admin.html
+ *     hands messages to it (handToGoogleVoice) and never sends them.
+ *   • THE PAID NUMBER — sendTextToCustomer below, for what the app sends by itself.
  *
- * Nothing here sends; see the block above. But Google Voice will forward every inbound
- * text to email — Settings → Messages → "Forward messages to email" — which is a
- * supported setting rather than a workaround, and an Apps Script on that mailbox posts
- * them here. `tools/google-voice-inbound.gs` is that script.
- *
- * ⚠ THE PARSING DELIBERATELY LIVES IN THE SCRIPT, NOT HERE. The shape of a forwarded
- * Google Voice email is Google's to change without telling anybody, so the brittle part
- * sits where it can be fixed and re-run in a minute, and this function is handed a
- * number and a body it can trust. Everything below is testable without an email at all.
- *
- * ⚠ AND THIS IS WHAT MAKES STOP WORK AGAIN. Twilio used to refuse an opted-out number
- * with 21610 and the quote screen recorded that; with Twilio gone, a STOP reply is an
- * ordinary message somebody has to notice. Nobody was watching. This watches.
- *
- * Setup (once):
- *   firebase functions:secrets:set INBOUND_TEXT_TOKEN     (any long random string)
- *   firebase deploy --only functions:inboundText
- *   put the printed URL and the same token into the Apps Script's Script Properties.
+ * Inbound from BOTH text channels lands in recordInboundText, which is the only thing
+ * that reads a STOP now that Twilio's 21610 is gone.
  */
 const INBOUND_TEXT_TOKEN = defineSecret('INBOUND_TEXT_TOKEN');
 
@@ -682,13 +664,35 @@ exports.inboundText = onRequest(
       if (!ok) { res.status(401).send('no'); return; }
 
       const body = req.body || {};
-      const messageId = String(body.messageId || '').trim();
-      const fromDigits = digitsOnly(body.fromNumber);
-      const text = String(body.text || '');
-      if (!messageId || !fromDigits) {
+      const out = await recordInboundText({
+        messageId: String(body.messageId || '').trim(),
+        fromDigits: digitsOnly(body.fromNumber),
+        text: String(body.text || '')
+      });
+      if (out.badRequest) {
         res.status(400).send('messageId and fromNumber are required');
         return;
       }
+      res.status(200).json(out);
+    } catch (err) {
+      console.error('[HU] inboundText failed:', err);
+      /* 500 on purpose: the caller retries on any non-200, and a text dropped for a
+         transient Firestore error is a STOP nobody ever sees. */
+      res.status(500).send('failed');
+    }
+  }
+);
+
+/* ⚠ ONE COPY, TWO DOORS. The Apps Script on the Google Voice mailbox and the Telnyx
+   webhook on the paid number both arrive here. Two copies of a STOP rule is one copy
+   nobody updates, and the one that goes stale keeps texting somebody who asked us to
+   stop — so the doors do authentication and shape, and everything that DECIDES lives
+   here. Never throws for a caller; returns what happened. */
+async function recordInboundText(opts) {
+  const messageId = String((opts && opts.messageId) || '').trim();
+  const fromDigits = digitsOnly(opts && opts.fromDigits);
+  const text = String((opts && opts.text) || '');
+  if (!messageId || !fromDigits) return { ok: false, badRequest: true };
 
       /* ⚠ ONE ROW PER MESSAGE, KEYED ON THE MESSAGE'S OWN ID. The script retries on any
          non-200, so without this a slow write would post a second note for the same
@@ -703,8 +707,7 @@ exports.inboundText = onRequest(
           receivedAt: admin.firestore.FieldValue.serverTimestamp()
         });
       } catch (dupErr) {
-        res.status(200).json({ ok: true, duplicate: true });
-        return;
+        return { ok: true, duplicate: true };
       }
 
       const stopping = isStopMessage(text);
@@ -765,13 +768,193 @@ exports.inboundText = onRequest(
         createdAt: admin.firestore.FieldValue.serverTimestamp()
       });
 
-      res.status(200).json({
-        ok: true, matched: !!(customer || quote), stopped: stopping, topic: topic
-      });
+  return { ok: true, matched: !!(customer || quote), stopped: stopping, topic: topic };
+}
+
+/* ⭐ SENDING, THROUGH A PAID PROVIDER ON A SECOND NUMBER (added 2026-09-11).
+ *
+ * ⚠ THIS DOES NOT TEXT FROM THE GOOGLE VOICE NUMBER AND CANNOT BE MADE TO. A phone
+ * number is hosted by exactly one provider, Google does not offer text-enabling on
+ * Voice numbers, and there is no API on a Google Voice number at any price or tier.
+ * Using the 801 number here would mean PORTING it out, which ends Google Voice for it
+ * and takes the office's texting inbox with it. Dax chose the cheap shape instead:
+ * Google Voice stays exactly as it is for conversations, and this second number carries
+ * only what the app sends by itself. Two numbers is the price of that, deliberately.
+ *
+ * ⚠ AND A2P REGISTRATION IS NOT OPTIONAL. Since February 2025 the US carriers BLOCK
+ * unregistered application-to-person SMS outright — not throttle, block. A toll-free
+ * number is verified rather than 10DLC-registered, which is why it was chosen: it
+ * avoids the monthly campaign fee on a line that sends rarely.
+ *
+ * Setup (once):
+ *   firebase functions:secrets:set TELNYX_API_KEY
+ *   firebase functions:secrets:set TELNYX_FROM_NUMBER             (+1... , E.164)
+ *   firebase functions:secrets:set TELNYX_MESSAGING_PROFILE_ID
+ *   firebase functions:secrets:set TELNYX_PUBLIC_KEY              (Portal → the key used to sign webhooks)
+ *   firebase deploy --only functions:sendText,functions:telnyxWebhook
+ *   then paste the telnyxWebhook URL into the Telnyx messaging profile's webhook field.
+ */
+const TELNYX_API_KEY = defineSecret('TELNYX_API_KEY');
+const TELNYX_FROM_NUMBER = defineSecret('TELNYX_FROM_NUMBER');
+const TELNYX_MESSAGING_PROFILE_ID = defineSecret('TELNYX_MESSAGING_PROFILE_ID');
+const TELNYX_PUBLIC_KEY = defineSecret('TELNYX_PUBLIC_KEY');
+
+function toE164Server(raw) {
+  const d = digitsOnly(raw);
+  if (d.length === 10) return '+1' + d;
+  if (d.length === 11 && d.charAt(0) === '1') return '+' + d;
+  return null;
+}
+
+/* Posts one message to Telnyx. Never throws — returns {ok, id, error} — because every
+   caller is either a loop that must not stop on one bad number, or a screen that needs
+   to say which one failed. */
+async function sendTextRaw(to, body) {
+  const toNumber = toE164Server(to);
+  if (!toNumber) return { ok: false, error: 'That phone number does not look valid.' };
+  if (!String(body || '').trim()) return { ok: false, error: 'There is no message to send.' };
+  try {
+    const res = await fetch('https://api.telnyx.com/v2/messages', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + TELNYX_API_KEY.value(),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: TELNYX_FROM_NUMBER.value(),
+        to: toNumber,
+        text: String(body),
+        messaging_profile_id: TELNYX_MESSAGING_PROFILE_ID.value()
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const first = (data.errors && data.errors[0]) || {};
+      return { ok: false, error: first.detail || first.title || ('Telnyx returned ' + res.status) };
+    }
+    return { ok: true, id: (data.data && data.data.id) || '' };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+}
+
+/* ⛔ THE OPT-OUT IS CHECKED HERE AND NOT ONLY ON THE SCREEN. Every texting button in
+   admin.html already refuses an opted-out customer, and that is not enough: a loop, a
+   scheduled run or a future screen would each have to remember, and the one that forgets
+   texts somebody who asked us to stop. One refusal, on the path the message actually
+   takes. Returns the same shape as sendTextRaw so callers need no special case. */
+async function sendTextToCustomer(to, body) {
+  const digits = digitsOnly(to);
+  const customer = await findByPhone(digits);
+  if (customer && customer.data.smsOptedOut) {
+    return { ok: false, error: 'They have asked not to be texted.', optedOut: true };
+  }
+  const sent = await sendTextRaw(to, body);
+  /* ⚠ RECORDED EVEN WHEN IT FAILS. "Did we text this person?" has never been answerable
+     for anything but a quote, and a row written only on success answers it wrong in the
+     one case that matters — the send that did not arrive. */
+  try {
+    await db.collection('outboundTexts').add({
+      to: digits,
+      body: String(body || '').slice(0, 2000),
+      providerId: sent.id || '',
+      ok: !!sent.ok,
+      error: sent.ok ? '' : (sent.error || ''),
+      status: sent.ok ? 'sent' : 'failed',
+      customerId: customer ? customer.id : '',
+      sentAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+  } catch (e) {
+    console.error('[HU] could not record an outbound text:', e);
+  }
+  return sent;
+}
+
+// One text, from the admin panel. The panel names who it is for; this decides whether
+// they may be texted at all.
+exports.sendText = onCall(
+  { secrets: [TELNYX_API_KEY, TELNYX_FROM_NUMBER, TELNYX_MESSAGING_PROFILE_ID] },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in.');
+    const { to, body } = request.data || {};
+    if (!to || !body) throw new HttpsError('invalid-argument', 'Missing to or body.');
+    const sent = await sendTextToCustomer(to, body);
+    if (!sent.ok) {
+      throw new HttpsError(sent.optedOut ? 'permission-denied' : 'internal', sent.error || 'The text did not send.');
+    }
+    return { success: true, id: sent.id };
+  }
+);
+
+/* ⚠ THE SIGNATURE IS CHECKED, AND IT HAS TO BE. This endpoint can opt a customer out,
+   so an open one is a way for anybody to stop us texting the whole book. Telnyx signs
+   with Ed25519 over "<timestamp>|<raw body>".
+   ⚠ THE RAW BODY, NOT THE PARSED ONE — re-serialising req.body reorders keys and the
+   signature stops matching, which presents as "Telnyx is sending bad signatures". */
+function telnyxSignatureOk(req) {
+  try {
+    const sig = req.headers['telnyx-signature-ed25519'];
+    const ts = req.headers['telnyx-timestamp'];
+    const pub = TELNYX_PUBLIC_KEY.value();
+    if (!sig || !ts || !pub) return false;
+    /* Five minutes, so a captured webhook cannot be replayed later to re-opt somebody
+       out — or worse, to undo an opt-out. */
+    if (Math.abs(Date.now() / 1000 - Number(ts)) > 300) return false;
+    const raw = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(req.body || {}));
+    /* Node needs a DER-wrapped SPKI key; Telnyx hands out the bare 32 bytes base64. */
+    const key = crypto.createPublicKey({
+      key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from(pub, 'base64')]),
+      format: 'der',
+      type: 'spki'
+    });
+    return crypto.verify(null, Buffer.concat([Buffer.from(ts + '|'), raw]), key, Buffer.from(sig, 'base64'));
+  } catch (err) {
+    console.error('[HU] telnyx signature check failed:', err);
+    return false;
+  }
+}
+
+exports.telnyxWebhook = onRequest(
+  { secrets: [TELNYX_PUBLIC_KEY] },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') { res.status(405).send('POST only'); return; }
+      if (!telnyxSignatureOk(req)) { res.status(401).send('no'); return; }
+      const event = (req.body && req.body.data) || {};
+      const p = event.payload || {};
+
+      if (event.event_type === 'message.received') {
+        const from = (p.from && p.from.phone_number) || '';
+        await recordInboundText({
+          messageId: 'telnyx-' + (p.id || event.id || ''),
+          fromDigits: digitsOnly(from),
+          text: String(p.text || '')
+        });
+        res.status(200).json({ ok: true });
+        return;
+      }
+
+      /* A terminal delivery state. This is the half Google Voice could never give us:
+         whether the message actually arrived. */
+      if (event.event_type === 'message.finalized') {
+        const dest = (p.to && p.to[0]) || {};
+        const snap = await db.collection('outboundTexts')
+          .where('providerId', '==', String(p.id || '')).limit(1).get();
+        if (!snap.empty) {
+          await snap.docs[0].ref.update({
+            status: dest.status || 'unknown',
+            deliveredAt: admin.firestore.FieldValue.serverTimestamp(),
+            error: (p.errors && p.errors.length) ? String(p.errors[0].detail || p.errors[0].title || '') : ''
+          });
+        }
+        res.status(200).json({ ok: true });
+        return;
+      }
+
+      /* Anything else is acknowledged rather than retried forever. */
+      res.status(200).json({ ok: true, ignored: event.event_type || 'unknown' });
     } catch (err) {
-      console.error('[HU] inboundText failed:', err);
-      /* 500 on purpose: the script retries on any non-200, and a text that was dropped
-         because of a transient Firestore error is a STOP nobody ever sees. */
+      console.error('[HU] telnyxWebhook failed:', err);
       res.status(500).send('failed');
     }
   }

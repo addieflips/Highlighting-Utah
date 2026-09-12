@@ -1322,6 +1322,15 @@ check('the path still has every step in it',
        in the Inbox, which carries its own createdAt — but it is not a stage of the
        work. The one inbound text that DOES change the record is a STOP, and that
        writes smsOptedOutAt, which is already accounted for above. */
+    /* ⚠ AND NEITHER IS "WE TEXTED THEM", WHICH IS THE TEMPTING ONE. The outboundTexts
+       ledger holds one row PER MESSAGE, so a customer we have texted eleven times would
+       get eleven identical-looking rows on their history, which is the thing rsvpSentAt
+       above is kept off the path to avoid. The journey step is what the text was ABOUT
+       — quoteSmsSentAt for a quote — and that is already on the path. */
+    sentAt: 'when one text was handed to the provider, on an outboundTexts row — a ' +
+      'record of a message, not a stage of the work, and there is one per message',
+    deliveredAt: 'when the carrier confirmed that same text arrived, on the same ' +
+      'outboundTexts row — the delivery receipt for a message, not a customer milestone',
     receivedAt: 'when a forwarded Google Voice email reached inboundText, on the ' +
       'inboundTexts ledger — a row about one email, kept only so a retried post cannot ' +
       'raise the same note twice, and about no customer at all',
