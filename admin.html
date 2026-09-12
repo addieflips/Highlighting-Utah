@@ -16597,26 +16597,29 @@ function renderQuoteRows(filtered){
             followQuoteToItsStage(id, {smsOptedOut: true, quoteArchived: true, quoteArchivedReason: 'Replied STOP to a text message'});
           } catch(e){ /* the message below still explains what happened */ }
         } else if(/authenticat|invalid username|20003|accountsid/i.test(raw)){
-          /* ⭐ THERE IS NO TWILIO ACCOUNT, SO DO NOT SEND ANYONE LOOKING FOR ONE
-             ([[QT-38]], 2026-09-11). Dax, on this exact error: "we doont use twillo we
-             use google voice."
+          /* ⚠ THIS BRANCH SAID "THERE IS NO TWILIO ACCOUNT" FOR ONE DAY, AND THAT IS NO
+             LONGER TRUE ([[QT-39]], 2026-09-11, superseding [[QT-38]]). Dax set one up the
+             same evening. The wording it replaced was right for the world it was written in
+             and is wrong now, which is exactly the shape a superseded ruling takes — kept
+             here rather than deleted, because whoever reads this next needs to know the
+             message used to send people away from a fix that now exists.
 
-             ⚠ THE RAW WORDING IS THE TRAP. "Twilio send failed: Authentication Error -
-             invalid username" reads as a key that has gone stale, which is a ten-minute
-             job — so whoever reads it goes to find the account, and there is no account
-             to find. QT-38 is recorded precisely because the fix is not a credential and
-             cannot be re-pointed at another sender: Google Voice has no send API to move
-             it to. A row that describes a soluble problem that does not exist costs more
-             than one that says nothing.
+             ⚠ THE BRANCH ITSELF IS STILL WORTH HAVING, because the raw wording is still
+             useless on its own: "Authentication Error - invalid username" is Twilio
+             refusing the ACCOUNT SID, which it uses as the basic-auth username — so the
+             word "username" sends whoever reads it looking for a login that does not exist
+             anywhere in this system. What it actually means is that the three secrets are
+             wrong, empty, or from a different account.
 
-             ⚠ THE BUTTON IS LEFT WHERE IT IS, and that is deliberate rather than an
-             omission. Removing it is a decision about what the office is offered, and
-             QT-38 recorded the ruling without taking it — this says what is true and
-             changes nothing else. The service's own words are kept on the end, because
-             the sentence in front of them is an interpretation of them. */
-          msgOut = 'Texting is not wired up — there is no Twilio account, and the number ' +
-            'we use is Google Voice, which has no way to send from here. Nothing was sent. ' +
-            'Send the quote by email, or text them from Google Voice by hand. (' + raw + ')';
+             ⚠ AND IT NAMES WHERE THEY LIVE, because they are not in this app at all. They
+             are Firebase secrets (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN /
+             TWILIO_PHONE_NUMBER) and changing one needs a redeploy before it takes effect —
+             which is the step most easily missed, since setting a secret alone looks like it
+             worked and changes nothing. The service's own words stay on the end. */
+          msgOut = 'The text service refused our details — nothing was sent. That is the ' +
+            'Twilio account SID, token or number, which live as Firebase secrets rather than ' +
+            'in this app, and they only take effect after the functions are redeployed. ' +
+            'Send the quote by email in the meantime. (' + raw + ')';
         } else {
           msgOut = 'Text failed: ' + raw;
         }
