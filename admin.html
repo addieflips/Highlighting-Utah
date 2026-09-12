@@ -11212,6 +11212,14 @@ document.getElementById('sendBulkUpdateEmailBtn')?.addEventListener('click', asy
   const failedRecipients = [];
   for(const item of withEmail){
     const d = item.data;
+    /* ⚠ AN ADDRESS THAT CANNOT BE SENT TO COSTS NOTHING HERE (the corrupted-address fault, 2026-09-12). Recorded with
+       its reason rather than spent on a 422 that says only "corrupted". */
+    const skipWhy = emailSendSkipReason(d);
+    if(skipWhy){
+      failed++;
+      failedRecipients.push({ id: item.id, name: d.name || '', email: d.email || '', why: skipWhy });
+      continue;
+    }
     /* Key-based lookup, not phone-based — see the note in the single-send
        handler above. This amount is emailed to a real customer. */
     const inv = allCustInvoiceFor(item);
@@ -11333,6 +11341,15 @@ document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async fun
   const failedRecipients = [];
   for(const item of withEmail){
     const d = item.data;
+    /* ⚠ AN ADDRESS THAT CANNOT BE SENT TO COSTS NOTHING HERE (the corrupted-address fault, 2026-09-12). It matters most
+       on this send: under confirmed-only a customer who was never asked is a customer
+       nobody is sent to, so a silent 422 is a house with no crew. */
+    const skipWhy = emailSendSkipReason(d);
+    if(skipWhy){
+      failed++;
+      failedRecipients.push({ id: item.id, name: d.name || '', email: d.email || '', why: skipWhy });
+      continue;
+    }
     const footer = await buildOutgoingEmailFooter(d.phone, 0, {includePortal: document.getElementById('rsvpIncludePortal')?.checked, includeVenmo: false, includeMessages: document.getElementById('rsvpIncludeMessages')?.checked});
     /* A payer with several houses on one bill is being asked to commit for the
        season without being told which houses that covers. Appended rather than
@@ -11559,6 +11576,14 @@ document.getElementById('pibSendUnpaidBtn')?.addEventListener('click', async fun
   /* WHO failed, not only how many (EM-09). */
   const failedRecipients = [];
   for(const row of withEmail){
+    /* ⚠ AN ADDRESS THAT CANNOT BE SENT TO COSTS NOTHING HERE (the corrupted-address fault, 2026-09-12). This is the
+       INVOICE run — a bill that never arrives is money nobody chases. */
+    const skipWhy = emailSendSkipReason(row);
+    if(skipWhy){
+      failed++;
+      failedRecipients.push({ id: row.id || '', name: row.name || '', email: row.email || '', why: skipWhy });
+      continue;
+    }
     const footer = await buildOutgoingEmailFooter(row.phone, row.amount, {includePortal: document.getElementById('pibUnpaidIncludePortal')?.checked, includeVenmo: document.getElementById('pibUnpaidIncludeVenmo')?.checked, includeMessages: document.getElementById('pibUnpaidIncludeMessages')?.checked});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount), row.phone, row.amount) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
@@ -11646,6 +11671,13 @@ document.getElementById('pibSendPaidBtn')?.addEventListener('click', async funct
   /* WHO failed, not only how many (EM-09). */
   const failedRecipients = [];
   for(const row of withEmail){
+    /* ⚠ AN ADDRESS THAT CANNOT BE SENT TO COSTS NOTHING HERE (the corrupted-address fault, 2026-09-12). */
+    const skipWhy = emailSendSkipReason(row);
+    if(skipWhy){
+      failed++;
+      failedRecipients.push({ id: row.id || '', name: row.name || '', email: row.email || '', why: skipWhy });
+      continue;
+    }
     const footer = await buildOutgoingEmailFooter(row.phone, 0, {includePortal: document.getElementById('pibPaidIncludePortal')?.checked, includeVenmo: false, includeMessages: document.getElementById('pibPaidIncludeMessages')?.checked});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount), row.phone, 0) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
@@ -18892,11 +18924,23 @@ function etRenderRecipientList(){
      do-not-send list, and somebody with no email would otherwise be hidden from the
      one screen that could release them — stuck on the list for ever with no way to
      reach the button. */
-  let noEmailHidden = 0;
+  /* ⚠ COUNTED AS TWO THINGS, NOT ONE (the Errors folder, 2026-09-12). "No email address on file"
+     and "the address on file is not an address" need different work from the office —
+     one is go and get an address, the other is go and correct the one we have — and the
+     second is the one that can be pressed at for ever, because the failure card's Send
+     again button reaches it and the send is refused identically every time. Rolled into
+     one number the fix reads as the wrong one for half of them. */
+  let noEmailHidden = 0, badEmailHidden = 0;
   if(!manageMode){
-    const beforeNoEmail = members.length;
-    members = members.filter(m => custCanBeEmailed(m.data));
-    noEmailHidden = beforeNoEmail - members.length;
+    const reachable = [];
+    members.forEach(function(m){
+      if(custCanBeEmailed(m.data)){ reachable.push(m); return; }
+      /* Which of the two it is, decided off the record rather than by a second copy of
+         the rule: an address is there and unusable, or there is no address at all. */
+      if(String((m.data || {}).email || '').trim()) badEmailHidden++;
+      else noEmailHidden++;
+    });
+    members = reachable;
   }
   /* ⚠ THE TICKS ARE PRUNED TO THE AUDIENCE HERE — after the do-not-send list and the
      no-email split, not before either of them. Somebody ticked a minute ago and put on
@@ -18925,6 +18969,10 @@ function etRenderRecipientList(){
          wrong and not what to do about it; the filter that lists these people by name
          already exists, so the sentence points at it. */
       if(noEmailHidden) msg += ' — ' + noEmailHidden + ' left out: no email address on file. Find them under Customers → Filters → Email.';
+      /* ⚠ ITS OWN SENTENCE, AND IT SAYS THE SEND NEVER LEAVES (the corrupted-address fault, 2026-09-12). Folded into
+         the line above it reads as "we have no address for them", which is the one thing
+         it is not — the address is right there on the record, and it is wrong. */
+      if(badEmailHidden) msg += ' — ' + badEmailHidden + ' left out: the address on file is not one we can send to, so nothing is attempted. Find them under Customers → Filters → Email and correct it.';
       /* ⚠ THIS NOTE USED TO NAME THE WRONG CAUSE, and naming the wrong cause is worse
          than saying nothing: it read "no saved snapshot from last season yet … until
          Start New Season saves one", which told the office to run a season reset to fix
@@ -18964,8 +19012,14 @@ function etRenderRecipientList(){
          which two of them just went blank. */
       : (lastYearMissing
           ? '<div class="empty-note">The invoices have not finished loading, so the <strong>' + esc(lastYearFilterName) + '</strong> filter cannot answer yet — it reads what each customer still owes from last season. Give it a moment and pick the filter again, or set it back to <strong>All</strong> to see the list meanwhile.</div>'
-          : noEmailHidden
-          ? '<div class="empty-note">No one left to send to. '+noEmailHidden+' matched these filters but '+(noEmailHidden===1?'has':'have')+' no email address on file — find '+(noEmailHidden===1?'them':'them')+' under Customers &rarr; Filters &rarr; Email.</div>'
+          /* ⚠ BOTH REASONS REACH THIS BRANCH (the corrupted-address fault, 2026-09-12). An audience emptied entirely by
+             unusable addresses is still an audience that MATCHED, so falling through to
+             "no members match these filters" would be the same lie this branch was
+             written to stop — and it would send somebody hunting for a broken filter. */
+          : (noEmailHidden + badEmailHidden)
+          ? '<div class="empty-note">No one left to send to. '+(noEmailHidden + badEmailHidden)+' matched these filters but '+((noEmailHidden + badEmailHidden)===1?'has':'have')+
+            (badEmailHidden && noEmailHidden ? ' no usable email address' : (badEmailHidden ? ' an address we cannot send to' : ' no email address on file'))+
+            ' — find them under Customers &rarr; Filters &rarr; Email.</div>'
           : '<div class="empty-note">No members match these filters.</div>');
     etUpdateSelectionUi(0);
     return;
@@ -19242,8 +19296,54 @@ function contactPrefsNote(d){
    which is the exact failure this filter was asked for.
    ⚠ ONE ANSWER, TWO READERS — the Customers filter and the chip on the row — so the
    list and the badge can never contradict each other about one customer. */
+/* ⭐ AND A FILLED BOX IS NOT AN ADDRESS (2026-09-12, from the Errors folder).
+   Two rows a day apart: "1 of 258 failed. The email service said: The recipients address
+   is corrupted", then "1 of 1 failed" with the same words. That pair IS the bug — the
+   422 came back from a whole-book send, the failure card offered "Send again to the ones
+   it missed", and the re-send spent another request on the same unsendable address. It
+   can be pressed for ever, because nothing anywhere says the address itself is the thing
+   that is wrong.
+
+   ⚠ THE RULE ALREADY EXISTED AND ONE SIDE OF THE APP HAD IT. `quotesToNudge` has read
+   `emailAddressProblem` since it was written, and says why in as many words: "An address
+   EmailJS will reject is not someone we can nudge. Left in, one bad address turned into
+   one more line in the failure list every run, with the same unreadable corrupted wording
+   each time." That is this fault, described on the quotes side, never applied to
+   customers. One rule now, both sides.
+
+   ⚠ IT REFUSES WHAT CANNOT BE AN ADDRESS, NEVER WHAT MERELY LOOKS ODD. Two addresses in
+   one box, a space, a missing @, a domain with no ending. It is NOT the typo detector —
+   `emailTypoSuggestion` guesses that gmai.com meant gmail.com and deliberately only ever
+   warns, because a guess about somebody else's address must not block a real send. This
+   one is structural, and an address it turns down is one EmailJS has already been
+   refusing.
+
+   ⚠ AND NOBODY IS DROPPED IN SILENCE, which is the only thing that makes refusing safe.
+   The recipient count line names how many were held back and which screen lists them, the
+   row carries a chip saying what is wrong with the address, and the Customers → Email
+   filter finds them. The way round the guard is to correct the record — which is the one
+   thing that was never asked for while EmailJS's own wording was all anybody saw. */
 function custCanBeEmailed(d){
-  return !!String((d || {}).email || '').trim();
+  const raw = String((d || {}).email || '').trim();
+  if(!raw) return false;
+  return !emailAddressProblem(raw);
+}
+/* ⭐ THE SAME ANSWER, IN WORDS A SENDER CAN FILE (the Errors folder, 2026-09-12). Every bulk
+   sender already builds `failedRecipients` and hands it to saveEmailSendFailures, which
+   draws the "Some emails did not go out" card with a Send again button on it. This is
+   what goes in the `why` when the send is never attempted.
+   ⚠ IT CANNOT DISAGREE WITH custCanBeEmailed, because both ask emailAddressProblem and
+   neither holds a second opinion. Two rules about who is reachable is how the count line
+   and the send start describing different audiences.
+   ⚠ AND IT NAMES THE FIX, NOT ONLY THE FAULT. "The recipients address is corrupted" is
+   EmailJS's wording and it sent the office round the Send-again loop twice in two days:
+   the record is the thing to change, and nothing said so. */
+function emailSendSkipReason(rec){
+  const raw = String((rec || {}).email || '').trim();
+  if(!raw) return 'no email address on file';
+  const problem = emailAddressProblem(raw);
+  if(!problem) return '';
+  return problem + ' Nothing was sent — correct the address on their record, then send again.';
 }
 /* The one case that looks like a mistake on screen: no primary, but a secondary
    sitting right there on the record. Without this the row reads "no email" beside a
@@ -19251,6 +19351,14 @@ function custCanBeEmailed(d){
 function custEmailChip(d){
   const rec = d || {};
   if(custCanBeEmailed(rec)) return '';
+  /* ⚠ THE ADDRESS THAT IS THERE AND CANNOT BE USED GETS ITS OWN WORDS, for exactly the
+     reason the branch below it exists: "No email" printed beside a visible address reads
+     as a bug in the badge rather than as a record somebody has to correct. It names the
+     problem, so the fix is readable off the row without opening anything. */
+  if(String(rec.email || '').trim()){
+    return ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">Can&rsquo;t be emailed &mdash; ' +
+           esc(emailAddressProblem(rec.email)) + '</span>';
+  }
   if(String(rec.email2 || '').trim()){
     return ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Secondary email only &mdash; move it up</span>';
   }
@@ -19989,6 +20097,26 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
        by a stale tick. Counted separately from `failed`, because a deliberate
        exclusion is not a failure and reading it as one hides both. */
     if(etNoAutomationEmails(member.data)) { optedOut++; continue; }
+    /* ⭐ AND THE ADDRESS ITSELF IS THE OTHER LAST GATE (the Errors folder, 2026-09-12). This is
+       the sender the Errors folder caught twice: "1 of 258 failed. The email service
+       said: The recipients address is corrupted", then "1 of 1 failed" the next day with
+       the same words — the failure card's own Send again button, arriving back here and
+       spending a second request on an address that can never be accepted. That loop has
+       no end while EmailJS's wording is all anybody sees.
+       ⚠ IT IS REACHED BY THE RE-SEND EVEN THOUGH THE LIST CANNOT OFFER ONE. The recipient
+       list prunes on custCanBeEmailed, so nobody can TICK a bad address — but the re-send
+       hands ids straight out of the saved failure list, which is where the people this
+       fault already caught are sitting. Guarding only the list would fix every send
+       except the one that was actually going round in circles.
+       ⚠ AND IT IS COUNTED AS A FAILURE, NOT AS AN OPT-OUT. Nobody chose this; it is work
+       for the office, and it belongs on the card that names it. */
+    const addrWhy = emailSendSkipReason(member.data);
+    if(addrWhy){
+      failed++;
+      failedRecipients.push({ id: member.id, name: member.data.name || '',
+                              email: member.data.email || '', why: addrWhy });
+      continue;
+    }
     // Generate quote token if template uses quote buttons
     /* ⚠ THE TOKEN PREFIX IS BUILT, NOT WRITTEN OUT, and it is not fussiness. Suites lift
        a function by counting braces from its signature, so two unbalanced opening braces

@@ -986,13 +986,20 @@ console.log('--- wiring ---');
      the whole lesson of the 392. */
   const named = admin.split('failedRecipients.push(').length - 1;
   const saved = (admin.split('await saveEmailSendFailures(').length - 1);
+  /* ⚠ 11 → 16 ON 2026-09-12, and the five new ones are the point rather than noise.
+     Each sender now asks `emailSendSkipReason` before it spends a request, and files the
+     person with the reason when the answer is no — so an address EmailJS would refuse is
+     named on the failure card instead of coming back as "The recipients address is
+     corrupted", which names nothing and nothing to do. The Errors folder caught that
+     wording twice in two days: "1 of 258 failed", then "1 of 1 failed" the next day,
+     which is the card's own Send again button arriving back at the same address. */
   check('every bulk sender records WHO it failed for, not just how many',
-    named === 11 && saved === 7,
-    'expected 11 pushes — three in the RSVP runner (no email, refused, untried after a ' +
-    'stop) and two in each of the four others — and 7 saves: one per sender, the ' +
-    'whole-RSVP button, and the retry rewriting the list. Found ' + named + ' push(es), ' +
-    saved + ' save(s). A sender that only counts leaves those customers invisible, which ' +
-    'is the whole lesson of the 392');
+    named === 16 && saved === 7,
+    'expected 16 pushes — four in the RSVP runner (no email, an address we cannot send ' +
+    'to, refused, untried after a stop) and three in each of the four others — and 7 ' +
+    'saves: one per sender, the whole-RSVP button, and the retry rewriting the list. ' +
+    'Found ' + named + ' push(es), ' + saved + ' save(s). A sender that only counts ' +
+    'leaves those customers invisible, which is the whole lesson of the 392');
 
   /* ⚠ THE RULE IS IN TWO PLACES AND THAT IS A DELIBERATE, NAMED COST. The RSVP runner
      keeps its own inline copy because it was already shipped and working, and Addie's
