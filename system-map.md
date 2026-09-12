@@ -3496,6 +3496,19 @@ come around later and want another building."*
   rather than hidden: a hidden row is how a feature comes back by accident.
 - **The side count** — moved, not dropped. It drives the footage and so the price, so it
   is now asked on the **Install Details** form, after they have approved.
+- **One of the two contact boxes** (2026-09-12, [[QT-40]]). Addie: *"on contact form we
+  should be able to put email as an option."* This was the only one of the three public
+  forms that demanded a phone **and** an email, both `required` — so somebody with no
+  email address could not ask for a quote at all: a lost lead, silently, with nothing
+  anywhere recording it. Get In Touch and Send a Message have taken either through one
+  `contact` box since they were written, so the form she *named* already did it. It is one
+  box now, through the same `splitPhoneOrEmail`, and both fields are still written with one
+  of them blank — every reader downstream already copes with that. ⚠ The **Preferred
+  Contact Method** select hides and stops being `required` the moment an @ is typed: Call
+  and Text are nonsense once the only detail we hold is an address, and a hidden `required`
+  select blocks submission with a browser message pointing at an invisible field. ⚠ The
+  cost, accepted: a quote can now arrive with no email, so the quote email waits until the
+  office types one on the card. Better than the lead never arriving. Suite 330.
 
 **Then the property list went too, one day later.** Dax, 2026-09-04: *"get rid of the add
 a building on the property button on free quote but keep it in all customers."* So the
