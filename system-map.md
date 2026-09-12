@@ -5310,6 +5310,24 @@ out of ~950 is a report. `clearStaleInstallBookingsRun` now clears an orphaned s
 as an out-for-the-season one, so the next sweep re-homes them and the date comes right on its
 own. The pill stays as the thing that says so on screen; it still never writes.
 
+⭐ **THE ROW'S HANG DATE COMES FROM THE SCHEDULE, NOT THE ROUTES SYSTEM** (2026-09-12,
+[[SCH-77]]). Addie, after two earlier fixes had not touched it: *"person still says they are
+scheduled for Oct 16 but Oct 16 is not in schedules."*
+
+`scheduled` / `scheduledDate` are written in seven places and **every one is on the
+crew-routes side** — the Schedule plan has never written that field. The reconcile sweep
+builds its own days, so Oct 16 was a day it invented and a route for it really existed;
+both earlier fixes asked "is there a crew route?", got yes, and correctly did nothing.
+
+⛔ **That field cannot be repointed.** The sweep reads `d.scheduled` in four places to decide
+who still needs a day — it is that system's own bookkeeping. Writing plan dates into it would
+make the sweep re-home everybody every fifteen minutes.
+
+⭐ So nothing about the field changed. The Schedule publishes what it holds
+(`window.schedulePlanBookings`) and the row reads that instead. ⚠ The stamp is still the
+fallback for when the plan cannot answer — it returns null until the Schedule tab has been
+opened, and blanking ~950 rows until somebody clicks Schedule would read as a broken column.
+
 ⭐ **AND SCHEDULE IS NOW A TAB OF ROUTES** (2026-09-11, [[SCH-76]]). Addie: *"Can we
 organize this better so schedule can be a part of routes?"* It leads the Routes tab bar,
 ahead of List View / Generate Route / Calendar / Map View / Take Downs. **Nothing was

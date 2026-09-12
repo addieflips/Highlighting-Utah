@@ -51095,11 +51095,40 @@ function allCustInvoiceFor(addrItem){
    in that case — see the note there, which is the whole reason this is worth
    reading before "tidying" it.
    Pure and top-level so run-all.js can run the picking rules for real. */
-function nextVisitFor(d, todayStr){
+/* ⭐ THE HANG DATE COMES FROM THE SCHEDULE, NOT FROM THE ROUTES SYSTEM ([[SCH-77]],
+   2026-09-12). Addie, after [[SCH-74]] shipped and the row STILL said Oct 16: "person still
+   says they are scheduled for Oct 16 but Oct 16 is not in schedules."
+   ⛔ THE FIELD WAS NEVER ANSWERING HER QUESTION. `scheduled` / `scheduledDate` are written
+   in seven places and every one is on the crew-routes side; the Schedule plan has never
+   written that field in its life. Worse, the reconcile sweep BUILDS ITS OWN DAYS — Oct 16
+   is a day it invented — so the row has always reported a season the office never looks at.
+   ⛔ AND THE FIELD CANNOT SIMPLY BE REPOINTED, which is the trap here and was very nearly
+   shipped: the sweep READS `d.scheduled` in four places to decide who still needs a day.
+   It is that system's own bookkeeping for "is this house on one of my routes". Writing the
+   plan's dates into it would make the sweep re-home everybody every fifteen minutes — a
+   worse loop than the one being fixed. So the field is left exactly as it is, and what
+   changes is WHICH question the row asks.
+   ⚠ THE STAMP IS STILL THE FALLBACK, and that is deliberate rather than tidy. The plan
+   answers null when it has not loaded — which is every render before the Schedule tab is
+   first opened — and a row that went blank for the whole book until somebody clicked
+   Schedule would read as the column being broken. Same three-answer shape as
+   `scheduledDayIsReal` and `cnFreePool`: cannot-tell draws what it always drew. */
+function planHangDateFor(custId){
+  if(!custId) return null;
+  if(typeof window === 'undefined' || typeof window.schedulePlanBookings !== 'function') return null;
+  const plan = window.schedulePlanBookings();
+  if(!plan) return null;
+  /* ⚠ A REAL MAP THAT DOES NOT HOLD THEM IS AN ANSWER — "the schedule has no day for this
+     house" — and it has to be distinguishable from "cannot say". '' is that answer. */
+  return (plan[custId] && plan[custId].date) || '';
+}
+function nextVisitFor(d, todayStr, custId){
   const today = todayStr || toDateStr(new Date());
   const out = [];
-  if(d && d.scheduled && d.scheduledDate && !d.completed){
-    out.push({kind:'Hang', date:String(d.scheduledDate)});
+  const planned = planHangDateFor(custId);
+  const hangDate = planned === null ? (d && d.scheduledDate) : planned;
+  if(d && hangDate && !d.completed){
+    out.push({kind:'Hang', date:String(hangDate)});
   }
   if(d && d.removalScheduled && d.removalScheduledDate && !d.removalDone){
     out.push({kind:'Takedown', date:String(d.removalScheduledDate)});
@@ -51159,7 +51188,9 @@ function scheduledDayIsReal(custId, dateStr){
    unavailable, and in some browsers is still a tab stop, neither of which is
    true of a date. cursor:default stops it inviting a click it will not answer. */
 function nextVisitChip(d, custId){
-  const v = nextVisitFor(d);
+  /* ⚠ THE ID GOES THROUGH, or nextVisitFor cannot ask the plan and every row silently
+     falls back to the routes system's stamp — which is the whole bug ([[SCH-77]]). */
+  const v = nextVisitFor(d, null, custId);
   /* ⚠ ALWAYS DRAWS SOMETHING, and that is deliberate — do not "optimise" the
      empty case back out.
      It shipped on 2026-08-15 rendering nothing when no day was booked, on the
@@ -70079,6 +70110,54 @@ function planCustomerFor(h){
   if(typeof hlxResolvePlanHouse === 'function') return hlxResolvePlanHouse(h);
   return (typeof customerForHouse === 'function') ? customerForHouse(h) : null;
 }
+/* ⭐ WHAT THE PLAN SAYS EACH HOUSE IS BOOKED FOR ([[SCH-77]], 2026-09-12). Addie, after
+   [[SCH-74]] shipped and Darlene STILL read Oct 16: "person still says they are scheduled
+   for Oct 16 but Oct 16 is not in schedules."
+   ⛔ SCH-74 FIXED THE WRONG HALF AND THIS IS WHY. `scheduled` / `scheduledDate` are written
+   in SEVEN places and every one of them is on the crew-routes side — this plan has never
+   written that field in its life. So the row has always reported the reconcile sweep's
+   idea of the season, and the sweep BUILDS ITS OWN DAYS. Oct 16 is a day it invented; a
+   `scheduledRoutes` document for it genuinely exists, so SCH-74's "is there a crew route
+   holding them?" correctly answered yes and cleared nothing.
+   ⭐ SO THE PLAN STAMPS NOW, and this is the door it does it through. Declared here beside
+   `seasonCustomerIds`, which already walks the same days for the same reason.
+   ⚠ IT RETURNS null FOR "I CANNOT SAY", NEVER AN EMPTY MAP. An empty map is a perfectly
+   good answer meaning "nobody is booked", and the caller ACTS on it by clearing — so a
+   plan that has not loaded yet, or failed to, would wipe every booking in the book. Three
+   ways to be unable to answer and all three return null. */
+window.schedulePlanBookings = function(){
+  try{
+    if(typeof SEASON === 'undefined' || !Array.isArray(SEASON) || !SEASON.length) return null;
+    if(typeof installDays !== 'function' || typeof crewHousesFor !== 'function') return null;
+    const days = installDays();
+    if(!days.length) return null;
+    const out = {};
+    days.forEach(function(day){
+      const dt = dayDate(day);
+      if(!dt) return;
+      const ds = isoOf(dt);
+      crewIndexes().forEach(function(i){
+        (crewHousesFor(i, day) || []).forEach(function(h){
+          /* A takedown and a fix are copies made from an install house and carry their own
+             fields; stamping the install date from one would book a crew twice. */
+          if(!h || h.isTakedown || h.isFix) return;
+          const cust = planCustomerFor(h);
+          if(!cust || !cust.id) return;
+          /* ⚠ FIRST DAY WINS. A house should be on exactly one install day, but an imported
+             plan can carry it twice — and silently taking the LAST one would move somebody
+             the office is not looking at. Earliest is the one the crew reaches first. */
+          if(!out[cust.id]) out[cust.id] = {date: ds, crew: String(i + 1)};
+        });
+      });
+    });
+    return out;
+  }catch(err){
+    /* ⚠ null, NOT {}. Throwing here must read as "cannot say", never as "nobody is booked",
+       for the same reason the three guards above do. */
+    console.error('[HU] could not read the plan\'s bookings', err);
+    return null;
+  }
+};
 function seasonCustomerIds(){
   const have = new Set();
   if(typeof SEASON === 'undefined') return have;
