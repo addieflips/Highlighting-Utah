@@ -52580,6 +52580,156 @@ suite('299. A referral link, and the $25 that follows it');
           }
         }
 
+        /* ---- 4b. a retired link earns nothing either (REF-42) ------------
+         * ⛔ Addie, 2026-09-12: *"No an old link should not work but there should be a
+         * button to start new season which will update everyones payments again and
+         * update new referall links for everyone."* Until this, a retired link was
+         * refused the $30 waiver (REF-25) and still paid the referrer the $25 — one link,
+         * two answers. The button she names already existed and already did both halves;
+         * what was missing was this.
+         * ⚠ RUN, NOT READ. Every claim here is about money reaching a bill, and the
+         * comment this replaced sat directly above the line it described — a source check
+         * would have matched the prose while the behaviour went the other way. */
+        {
+          const year = new Date().getFullYear();
+          const stale = () => referrer({
+            referralToken: 'tok-dana-new', referralTokenSeason: year,
+            referralTokensPast: [{token: 'tok-dana-old', season: year - 1,
+                                  retiredAt: year}]
+          });
+
+          const w = world({
+            customers: [stale(), {id: 'NEW1', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill()},
+            quotes: {q1: {}}
+          });
+          const res = await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana-old', __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com'});
+          const inv = w.invoices['8015550111'];
+          const ref1 = w.customers.find(c => c.id === 'REF1');
+          check('S299', 'last season’s link earns the referrer nothing',
+            res.ok === false && inv.credits === 0 &&
+            !((inv.creditNotes || []).some(c => c.kind === 'referral')),
+            'got ok=' + res.ok + ', credits=' + inv.credits + ' — a link that no ' +
+            'longer waives the friend’s $30 must not still pay the referrer $25, ' +
+            'which is the split REF-25 left behind');
+          /* ⚠ THE LEDGER IS THE HALF THAT WOULD SURVIVE A WRONG FIX. Refusing the bill
+             line while still pushing the entry leaves the count moving and every later
+             rebuild putting the $25 back — REF-24’s two-copies failure. */
+          check('S299', 'and nothing is written into referralCredits for it',
+            !((ref1.data.referralCredits || []).length),
+            'an entry here is $25 the next invoice rebuild puts back on the bill');
+          check('S299', 'the refusal is recorded on the referrer, like the other three',
+            Array.isArray(ref1.data.referralBlocks) && ref1.data.referralBlocks.length === 1,
+            'their own Refer a friend row reads the block list — without this it says ' +
+            'nobody has joined through the link after somebody has');
+          /* ⭐ AND IT NAMES THE YEAR. This is what the referralHolderFor fix shipped with
+             this is for: a past entry stores its year as `season`, the reader asked for
+             `referralTokenSeason`, so the year came back null and every stale link could
+             only ever be called "an old one". */
+          check('S299', 'and it names WHICH season the dead link was from',
+            new RegExp(String(year - 1)).test(String((ref1.data.referralBlocks[0] || {}).why)),
+            'got ' + JSON.stringify((ref1.data.referralBlocks[0] || {}).why) +
+            ' — referralHolderFor reads a retired entry’s year out of `season`; ' +
+            'asking it for `referralTokenSeason` returns null for every one of them');
+          /* ⛔ AND THE NOTE MUST NOT REPEAT THE OTHER THREE REFUSALS’ CLOSING LINE.
+             "Nothing is wrong with the link" is true of an own-link, a self-referral and
+             a duplicate. Here the link IS dead and the fix is to send the new one. */
+          const note = w.notes.find(n => /Referral Blocked/.test(String(n.topic || '')));
+          check('S299', 'and the note sends them to the current link rather than saying the link is fine',
+            !!note && /current link/.test(String(note.message || '')) &&
+            !/Nothing is wrong with the link/.test(String(note.message || '')),
+            'got ' + JSON.stringify(note && note.message) + ' — telling the referrer ' +
+            'nothing is wrong is what stops the one action that fixes it');
+          check('S299', 'and the quote is stamped, so the refusal is not retried for ever',
+            w.writes.some(x => x.collection === 'quotes' && x.id === 'q1' &&
+                               x.updates && x.updates.referralCredited === true),
+            'every other refusal stamps it; an unstamped one runs again on the next save');
+
+          /* ⭐ THE NO-REGRESSION HALF, AND IT IS THE ONE THAT PROTECTS REAL PEOPLE. A
+             CURRENT link must still pay, and an UNDATED one is current by definition —
+             every link minted before the season stamp existed carries no year, so a rule
+             that compared years rather than asking `holder.current` would kill live links
+             for the whole book. That is REF-28’s argument on the fee side, and this is
+             the same trap one function along. */
+          {
+            const live = world({
+              customers: [stale(), {id: 'NEW2', data: {name: 'Pat New'}}],
+              invoices: {'8015550111': bill()}, quotes: {q2: {}}
+            });
+            const ok = await live.api.creditReferralIfAny(
+              {referredByToken: 'tok-dana-new', __quoteId: 'q2'},
+              'NEW2', {name: 'Pat New', phone: '8015558888'});
+            check('S299', 'their CURRENT link still pays, with a retired one sitting beside it',
+              ok.ok === true && live.invoices['8015550111'].credits === 25,
+              'got ok=' + ok.ok + ', credits=' + live.invoices['8015550111'].credits +
+              ' — the refusal must key on which token this is, not on the customer ' +
+              'having any retired token at all');
+          }
+          {
+            const undated = world({
+              customers: [referrer({referralToken: 'tok-undated'}),
+                          {id: 'NEW3', data: {name: 'Sam New'}}],
+              invoices: {'8015550111': bill()}, quotes: {q3: {}}
+            });
+            const ok = await undated.api.creditReferralIfAny(
+              {referredByToken: 'tok-undated', __quoteId: 'q3'},
+              'NEW3', {name: 'Sam New', phone: '8015557777'});
+            check('S299', 'and an undated link still pays, because undated means this season',
+              ok.ok === true && undated.invoices['8015550111'].credits === 25,
+              'got ok=' + ok.ok + ' — a year comparison instead of holder.current ' +
+              'would refuse every link minted before the stamp existed, which is the book');
+          }
+
+          /* ⛔ AND A RETIRED LINK CARRYING NO YEAR IS STILL RETIRED. This is the one case
+             where `holder.current` and a year comparison give different answers, and it
+             is not a corner: `referralRotationUpdates` stamps a past entry with whatever
+             the customer had, so EVERY link minted before the season stamp existed
+             becomes a past entry with `season: null`. A year test reads null as "not old"
+             and pays out on a dead link. Added because the red-check found the year
+             sabotage passing — the fixtures, not the rule, were what was thin. */
+          {
+            const noYear = world({
+              customers: [referrer({
+                referralToken: 'tok-fresh', referralTokenSeason: year,
+                referralTokensPast: [{token: 'tok-nodate', season: null, retiredAt: year}]
+              }), {id: 'NEW4', data: {name: 'Lee New'}}],
+              invoices: {'8015550111': bill()}, quotes: {q5: {}}
+            });
+            const r = await noYear.api.creditReferralIfAny(
+              {referredByToken: 'tok-nodate', __quoteId: 'q5'},
+              'NEW4', {name: 'Lee New', phone: '8015556666'});
+            const blocks = (noYear.customers.find(c => c.id === 'REF1')
+              .data.referralBlocks || []);
+            check('S299', 'a retired link with no year on it is still refused, and says so vaguely',
+              r.ok === false && noYear.invoices['8015550111'].credits === 0 &&
+              /an old one/.test(String((blocks[0] || {}).why)),
+              'got ok=' + r.ok + ', why=' + JSON.stringify((blocks[0] || {}).why) +
+              ' — a year comparison reads a null year as “not old” and pays out on a ' +
+              'dead link, and rotation gives every pre-stamp link exactly this shape');
+          }
+
+          /* ⚠ MOST-SPECIFIC REASON WINS, and the order of the four refusals is the only
+             thing that decides it — all four end in no credit. Somebody using their own
+             retired link should be told they used their own link, because that is the fact
+             still true after they share the new one. */
+          {
+            const self = world({
+              customers: [stale()], invoices: {'8015550111': bill()}, quotes: {q4: {}}
+            });
+            await self.api.creditReferralIfAny(
+              {referredByToken: 'tok-dana-old', __quoteId: 'q4'},
+              'REF1', {name: 'Dana Referrer', phone: '8015550111'});
+            const why = String(((self.customers.find(c => c.id === 'REF1')
+              .data.referralBlocks || [])[0] || {}).why);
+            check('S299', 'their own retired link is refused as their own link, not as an old one',
+              /own link/.test(why),
+              'got ' + JSON.stringify(why) + ' — "old link" sends them to share the ' +
+              'new one, which is refused again for the reason nobody mentioned');
+          }
+        }
+
         /* ---- 5. two referrals are one line, not two -------------------- */
         {
           const w = world({

@@ -12194,7 +12194,23 @@ function referralHolderFor(token){
     const past = Array.isArray((list[i].data || {}).referralTokensPast) ? list[i].data.referralTokensPast : [];
     for(let n = 0; n < past.length; n++){
       if(String((past[n] || {}).token || '') === t){
-        return {item: list[i], current: false, season: referralTokenSeasonOf(past[n])};
+        /* ⚠ A RETIRED ENTRY KEEPS ITS YEAR UNDER `season`, WHICH IS NOT THE FIELD NAME IT
+           HAS ON A CUSTOMER RECORD (fixed 2026-09-12 alongside REF-42).
+           `referralRotationUpdates` writes {token, season, retiredAt};
+           `referralTokenSeasonOf` asks for `referralTokenSeason`, which a past entry has
+           never had — so EVERY retired link reported its year as null, and the one
+           sentence that names it (`quoteSetupFeeReason`'s last-season wording, and now
+           the refusal note) could only ever give the vague version.
+           ⚠ DORMANT, NOT VISIBLE: REF-27 records that nobody holds a retired link yet, so
+           this has never been wrong on a real screen — it would have shipped broken the
+           first time Start New Season ran. The fixtures that cover this path write
+           `season`, and the checks around them only ever asserted charged-or-not, so
+           nothing could see it.
+           ⚠ AND IT DOES NOT FALL BACK TO THE OTHER SPELLING. One writer fills this shape;
+           accepting a second field name would be inventing a shape nobody writes. */
+        const retiredIn = Number((past[n] || {}).season);
+        return {item: list[i], current: false,
+                season: (isFinite(retiredIn) && retiredIn > 0) ? retiredIn : null};
       }
     }
   }
@@ -12530,11 +12546,14 @@ async function creditReferralIfAny(quoteData, customerId, customerData){
     const token = String(q.referredByToken || '').trim();
     if(!token) return { ok:false, why:'no token' };
     if(q.referralCredited === true) return { ok:false, why:'already credited' };
-    /* ⚠ LAST SEASON'S LINK STILL CREDITS THE $25, AND THAT IS THE UNCHANGED HALF.
-       REF-28 rotates the token every season and REF-25 makes a stale one pay the fee;
-       it says nothing about the referrer's own credit, so nothing here changes and the
-       past tokens are searched too. If that is not what Addie wants, this is the one
-       line to change — `holder.current` is already the answer. */
+    /* ⛔ A RETIRED LINK EARNS NOTHING EITHER (REF-42, 2026-09-12) — the guard is below,
+       after the three refusals that name a more specific reason. This comment used to
+       say the opposite and named itself as the line to change if Addie ever disagreed:
+       "REF-28 rotates the token every season and REF-25 makes a stale one pay the fee;
+       it says nothing about the referrer's own credit." She has now answered it — "No
+       an old link should not work" — so the two halves finally agree, and `holder` is
+       still resolved through the PAST tokens on purpose: that is the only way to know
+       WHOSE dead link it was, and the referrer is the one person who needs telling. */
     const holder = referralHolderFor(token);
     const referrer = holder && holder.item;
     /* ⚠ AN UNKNOWN TOKEN IS NOT AN ERROR. A link can outlive the customer who made
@@ -12562,6 +12581,39 @@ async function creditReferralIfAny(quoteData, customerId, customerData){
       return await referralBlocked(q, referrer, blockedWho,
         'they have already been counted as a referral for this customer' +
         (dupe.referredName ? ' (' + dupe.referredName + ')' : ''));
+    }
+    /* ⛔ AND THE LINK HAS TO BE THE ONE THEY HOLD TODAY (REF-42, 2026-09-12). Addie:
+       "No an old link should not work but there should be a button to start new season
+       which will update everyones payments again and update new referall links for
+       everyone." So a retired link now earns nothing, which closes the split REF-25 left
+       behind — the friend was already charged the $30 on a stale link, while the
+       referrer went on collecting the $25 for it.
+
+       ⛔ IT IS `holder.current`, NOT A DATE COMPARISON, for the reason REF-28 already
+       gives on the fee side: a link minted before the season stamp existed carries no
+       year at all, and comparing years would read those as stale and kill a live link.
+       `current` means this string IS the token on that record right now — the same fact
+       `quoteChargesSetupFee` asks, so the fee and the credit can no longer disagree
+       about one link, which is the whole of what she asked for.
+
+       ⚠ IT IS LAST OF THE FOUR REFUSALS ON PURPOSE, and the order is the only thing it
+       decides — every one of them ends in no credit. Most-specific-reason wins: somebody
+       using their own retired link should be told they used their own link, because that
+       is the fact that will still be true after they share the new one. Moving this
+       above them changes no money and makes the Inbox note less useful.
+
+       ⚠ AND IT AFFECTS NOBODY UNTIL Start New Season IS PRESSED. `referralTokensPast` is
+       only ever filled by that button, so a book whose customers each hold one live link
+       has no retired ones for this to refuse — it is forward-looking by construction,
+       not a rule that reaches back over referrals already earned. */
+    if(!holder.current){
+      const yr = holder.season;
+      return await referralBlocked(q, referrer, blockedWho,
+        'the link they used is ' + (yr ? yr + '’s' : 'an old one') +
+        ' and has been replaced since',
+        {tail: 'Their link changed when the season was started, so the old one no longer ' +
+               'counts for anybody. Send them their current link from their customer card ' +
+               'and it will work again.'});
     }
     entries.push({
       referredCustomerId: customerId,
@@ -12624,9 +12676,15 @@ async function creditReferralIfAny(quoteData, customerId, customerData){
    NOTED. Addie left that second half open and leaned towards noting it; a refusal
    nobody can see is indistinguishable from the link not working, and a pattern of
    them is the only thing this feature has instead of verification. */
-async function referralBlocked(quoteData, referrer, customerData, why){
+async function referralBlocked(quoteData, referrer, customerData, why, opts){
   /* ⭐ THE REFUSAL GOES ON THE REFERRER'S RECORD (2026-09-08) — see referralBlockCount
      for why their own screen was the one place it could not be seen.
+     ⛔ AND THE CLOSING SENTENCE IS THE CALLER'S, BECAUSE ONE OF THE FOUR REFUSALS IS NOT
+     LIKE THE OTHERS (REF-42, 2026-09-12). "Nothing is wrong with the link — it still
+     works for somebody else" is true of an own-link, a self-referral and a duplicate,
+     and FALSE of a retired one: that link is dead and the referrer has a new one to
+     share. Telling them nothing is wrong is what would stop the one action that fixes
+     it. The default is unchanged, so the three older callers are untouched.
      ⚠ BEST EFFORT, AND FIRST. Wrapped in its own catch so a failed write can never cost
      the two traces that already worked: the stamp below is what stops the refusal being
      run again for ever, and the Inbox note is what the office actually reads.
@@ -12657,8 +12715,9 @@ async function referralBlocked(quoteData, referrer, customerData, why){
   await referralNote('Referral Blocked', referrer,
     ((referrer.data.name || 'A customer') + '\u2019s referral link was used by ' +
      ((customerData && customerData.name) || 'a new customer') + ', but no credit was given because ' +
-     why + '. Nothing has been added to anybody\u2019s bill. Nothing is wrong with the link — ' +
-     'it still works for somebody else.'));
+     why + '. Nothing has been added to anybody\u2019s bill. ' +
+     ((opts && opts.tail) ||
+      'Nothing is wrong with the link — it still works for somebody else.')));
   return { ok:false, why:'blocked' };
 }
 /* The idempotency stamp. Written for a credit AND for a refusal, so neither is
