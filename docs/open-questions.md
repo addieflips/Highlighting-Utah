@@ -2025,7 +2025,18 @@ red-checked, ten caught.
 
 **Resulting map change.** PR-07.
 
-## Q-029 · intent · OPEN · raised 2026-09-08
+## Q-029 · intent · ANSWERED · raised 2026-09-08
+
+**ANSWERED 2026-09-12 — option 1, roll it forward.** Addie: *"For someone who
+doesn't book for this year but refered someone should have that referal discount added
+for next year."*
+
+Built DERIVED rather than as a migration, which answers the sub-question this entry
+raised ("what happens if they come back to Yes afterwards") for free: the stamp is left
+exactly as it was earned and only the season it COMES OFF is decided, so coming back
+needs no second write and there is nothing a half-run migration could lose.
+
+**Resulting map change: [[REF-38]].**
 
 **A referral earned while they were in the season, by somebody who then drops out.**
 
@@ -2064,7 +2075,17 @@ this case has been built; today's change is the earn-time rule only.
 
 **Resulting map change.** Named in REF-23 as the case it deliberately leaves open.
 
-## Q-030 · intent · OPEN · raised 2026-09-08
+## Q-030 · intent · ANSWERED · raised 2026-09-08
+
+**ANSWERED 2026-09-12 — option 1, onto the bill they are actually on.** Addie: *"It
+should follow the money to the payer."* She took the named cost knowingly: the bill that
+drops by $25 is the payer's, not the referrer's.
+
+Building it surfaced a second fault this entry had not seen — the credit rebuild drops
+every referral line and writes them back from one house's entries, so on a shared bill it
+would have DELETED a sibling's credits. The rebuild now gathers every house on the bill.
+
+**Resulting map change: [[REF-39]].**
 
 **A referral earned by somebody whose house is billed to another person.**
 
@@ -2105,7 +2126,18 @@ CLAIMS when the credit reaches no bill. Where the credit should land is this que
 
 **Resulting map change.** Named in REF-30 as the case it deliberately leaves open.
 
-## Q-031 · intent · OPEN · raised 2026-09-08
+## Q-031 · intent · ANSWERED · raised 2026-09-08
+
+**ANSWERED 2026-09-12 — option 2, one discount per address.** Addie: *"we should not
+allow two address's to exist on the costumers at the same time. So they would only get a
+$25 dollar discount."*
+
+The asymmetry this entry warned about is handled by reusing `custAddrKey` rather than
+writing a cleverer matcher: it does not expand Ln to Lane, so it matches only where two
+typed addresses genuinely agree, and its failure mode is allowing two rather than
+silently refusing a real referral.
+
+**Resulting map change: [[REF-40]].**
 
 **Two different people at the same address, both through one referral link.**
 
@@ -2146,7 +2178,20 @@ two impossible to refer.
 
 **Resulting map change.** Named in REF-31 as the case it deliberately leaves open.
 
-## Q-032 · intent · OPEN · raised 2026-09-09
+## Q-032 · intent · ANSWERED · raised 2026-09-09
+
+**ANSWERED 2026-09-12 — the waiver must hold; the banner is still not built.** Addie:
+*"we need to make sure referals are getting there 30 dollar installation fee waived since
+that is what we promised them."*
+
+The substance was checked rather than assumed and it works: `quoteChargesSetupFee` waives
+the fee for a token the referrer currently holds, and Suite 312 runs the whole path. What
+her answer does NOT resolve is this entry's actual obstacle — the page cannot tell a real
+token from an invented one — so the banner needs the small public callable of option 2,
+which is its own change with its own security review and was deliberately not shipped
+beside three money rules.
+
+**Resulting map change: [[REF-41]], status Decided — not built.**
 
 **A banner on the quote page promising the friend their fee is waived — when the page
 cannot tell whether it is true.**
