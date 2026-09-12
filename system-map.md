@@ -3793,10 +3793,30 @@ to move a notice between them.
 [[MSG-24]]). Addie: *"Inbox gets deleted and badge stays with all error messages underneath
 it."* The badge's list is an in-memory array in a script that runs before Firebase, so a
 reload emptied it — which is why the stored copy was added in the first place. Once messages
-land, `flushAdminErrors` pushes the stored errors back onto the badge (newest first, capped
-at 25, stamped with the date, naming who hit it). ⚠ A fault already on screen from this
-session is not added twice. ⚠ **This is the half that has to work before the Errors folders
-can leave the Inbox** — that removal is deliberately a separate change.
+land, `flushAdminErrors` pushes the stored errors back onto the badge (newest first, stamped
+with the date, naming who hit it). ⚠ A fault already on screen from this session is not added
+twice. ⚠ **This was the half that had to work before the Errors folders could leave the
+Inbox**, and they have now — see below.
+
+⭐ **AND THE ERRORS SECTION HAS LEFT THE INBOX** (2026-09-12, [[MSG-26]]). Addie: *"get rid of
+error inbox's altogether ... and just have all emails go to the red errors badge instead"*,
+then *"Inbox gets deleted and badge stays with all error messages underneath it."*
+⛔ **Nothing is deleted from the database.** Every error report is still written to `messages`
+and still classified by `commRowMatches(d, 'errors', …)` — the red badge reads it, and so does
+the Dashboard's **System Health** button, which now OPENS that badge instead of a section that
+no longer exists. What went is one place to read them, not the records.
+⛔ **Removing the section was only half of it.** An error is not `filedByHand` and is not a
+SYSTEM notice, so every one of them was ALSO sitting in the main Inbox list *and* on its unread
+badge. A badge counting rows no section can draw is a number that can never come down — which
+is [[MSG-22]]'s bug rebuilt in a new place a day later. `msgOnInboxBadge` is the one rule the
+badge counts through, and it leaves out the routine route sweep and errors alike.
+⭐ **"All" meant raising the cap.** 25 stored errors was right while the folders held the
+history behind them; with those gone it would have made the 26th-oldest error unreachable.
+⚠ Two ceilings have to agree — the module's hand-over and the plain script's seeder — or the
+lower one silently wins and the panel drops the oldest rows without a word.
+⛔ **Existing folder documents are left alone**, deliberately: deleting them is a destructive
+write against her own filing, and anything she dragged into Errors by hand is still reachable
+under "Your folders". `seedErrorFolders` is kept in the file and simply not called.
 
 ⭐ **THE SECTION CONTROLS ARE ALWAYS VISIBLE NOW** (2026-09-11, [[MSG-23]]). Addie: *"not
 able to add to each section and delete from each section."* Both buttons — `✎` to rename a

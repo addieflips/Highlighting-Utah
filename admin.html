@@ -1216,7 +1216,13 @@
     try{
       if(seededOnce || !lines || !lines.length) return;
       seededOnce = true;
-      for(var i = 0; i < lines.length && caught.length < 40; i++){
+      /* ⚠ THIS CEILING HAS TO CLEAR ERR_BADGE_MAX_STORED OR THE NEW CAP IS A LIE. It was 40
+         while the module handed over 25; with 200 coming across, 40 here would silently drop
+         the oldest 160 and the panel would go on claiming to hold all of them. The runaway
+         guard in add() below keeps its own 40, and rightly — that one is about a page that
+         is failing in a loop right now, which is a different problem from a season of
+         history. */
+      for(var i = 0; i < lines.length && caught.length < 240; i++){
         var t = String(lines[i] || '').trim();
         if(!t) continue;
         /* ⚠ THE LIVE ONE WINS. A fault still happening this session is already in the list
@@ -21563,7 +21569,15 @@ function flushAdminErrors(){
    other places. ⚠ AND IT READS THE SAME `msgFacets` TYPE THE SECTIONS USED, never a folder
    name — the folders are what this change removes, so keying on one would stop finding
    anything the moment they go. */
-const ERR_BADGE_MAX_STORED = 25;
+/* ⭐ ALL OF THEM, NOT THE LAST HANDFUL ([[MSG-26]], 2026-09-12). Addie: "badge stays with
+   ALL error messages underneath it." This was 25 while the Inbox folders still held the
+   history behind it; with those gone, a cap of 25 would make the twenty-sixth-oldest error
+   unreachable — losing something she has today, which is not what she asked for.
+   ⚠ 200 IS A MEMORY GUARD, NOT A DISPLAY RULE. The panel's list already scrolls, so the
+   ceiling only exists so a book with a pathological number of rows cannot fill the array;
+   the dedupe on the WRITE side (one fingerprint per ERROR_REPEAT_HOURS) is what actually
+   keeps this list about distinct faults rather than repeats. */
+const ERR_BADGE_MAX_STORED = 200;
 function errBadgeStoredLines(){
   if(typeof allMessages === 'undefined' || !Array.isArray(allMessages)) return [];
   const rows = allMessages.filter(function(m){
@@ -21654,13 +21668,17 @@ function loadMessageFolders(){
       for(const name of missing){
         await addDoc(collection(db,'messageFolders'), {name: name, parentId: null, createdAt: serverTimestamp()});
       }
-      /* ⚠ SEEDED SEPARATELY BECAUSE IT IS A TREE. The loop above creates every name FLAT
-         (parentId null); Errors is a parent with two children, and a child needs an id that
-         may not have existed a line ago. It is read back off the write rather than waited
-         for in the next snapshot — that snapshot arrives with foldersSeeded already true,
-         so the children would never be created at all. */
-      try{ await seedErrorFolders(messageFolders); }
-      catch(err){ console.error('Could not create the Errors folders:', err); }
+      /* ⛔ THE ERRORS FOLDERS ARE NO LONGER CREATED ([[MSG-26]], 2026-09-12). Addie asked for
+         the error Inbox to go and the badge to hold them, so making the folders on every
+         fresh book would be building the thing that was just removed.
+         ⛔ AND EXISTING ONES ARE LEFT ALONE, DELIBERATELY. Deleting folder documents is a
+         destructive write against her own filing — if she ever dragged something into
+         Errors by hand it is `filedByHand` and still reachable under "Your folders". An
+         empty folder costs a line in a list; a deleted one costs whatever was in it.
+         ⚠ `seedErrorFolders` IS KEPT AND NOT CALLED. It is the only record of how that tree
+         was built, and this repo has already re-learned once that deleting the mechanism
+         along with the decision is what makes a reversal expensive. Do not wire it back in
+         without asking her — the whole point is that errors live on the badge now. */
     }
     /* ⭐ renderCommNav, NOT renderFolderSidebar (2026-09-09). The Communication Centre
        replaced the folder sidebar and took its renderer with it; these two calls were
@@ -22128,6 +22146,26 @@ function noticeIsRoutine(d){
   if(d.topic !== ROUTINE_NOTICE_TOPIC) return false;
   return String(d.message || '').indexOf('⚠') === -1;
 }
+/* ⭐ WHAT THE INBOX BADGE COUNTS — ONE RULE ([[MSG-26]], 2026-09-12). Its own function so
+   a test can RUN it rather than restate it: a copy in a suite agrees with itself and proves
+   nothing about the number on the screen.
+   ⛔ AN ERROR IS NOT ON THIS BADGE ANY MORE, and leaving it on was the hole this change
+   would otherwise have opened. Errors are shown by no section now, so a badge that went on
+   counting them would be a number that CAN NEVER COME DOWN however many messages she marks
+   responded — which is precisely the bug [[MSG-22]] was raised for, rebuilt in a new place
+   a day later. comm-centre.test.js's reachability invariant is what caught it.
+   ⚠ THEY ARE NOT UNCOUNTED, THEY ARE COUNTED SOMEWHERE ELSE. The red badge in the corner
+   holds every one of them, which is the whole of what she asked for — so this is a number
+   moving, not a number disappearing. */
+function msgOnInboxBadge(d){
+  d = d || {};
+  if(d.read) return false;
+  if(noticeIsRoutine(d)) return false;
+  try{ if(msgFacets(d).type === MSG_TYPE_ERROR) return false; }
+  catch(e){ /* a row this build cannot classify still counts — the safe direction is a
+               number that is one too high, never a message nobody is told about. */ }
+  return true;
+}
 /* =========================================================================
    ⭐ THE COMMUNICATION CENTRE — TYPE, STATUS, CATEGORY, PRIORITY (2026-09-09).
 
@@ -22522,9 +22560,19 @@ const COMM_SECTIONS = [
   {key:'system', icon:'⚙️', label:'System Messages',
    tabs:[['all','All'],['activity','Customer Activity'],['payments','Payments'],
          ['scheduling','Scheduling'],['notifications','Notifications']]},
-  {key:'errors', icon:'\u{1F6A8}', label:'System Errors',
-   tabs:[['all','All Errors'],['critical','Critical'],['warnings','Warnings'],
-         ['review','Needs Review'],['resolved','Resolved']]},
+  /* ⛔ THE ERRORS SECTION IS GONE ([[MSG-26]], 2026-09-12). Addie: "can we get rid of error
+     inbox's altogether ... and just have all emails go to the red errors badge instead",
+     then, asked which way: "Inbox gets deleted and badge stays with all error messages
+     underneath it."
+     ⚠ NOTHING IS DELETED FROM THE DATABASE. Every error report is still written to
+     `messages` exactly as it was, and `commRowMatches(d, 'errors', …)` still classifies
+     them — the Dashboard's System Health button reads it, and so does the badge. What went
+     is one place to READ them, not the records. That is why this is a comment and not a
+     deletion of the rule below it.
+     ⚠ AND THE BADGE HAD TO BE ABLE TO CARRY THEM FIRST. [[MSG-24]] built that half a day
+     earlier for exactly this — it reads `msgFacets().type`, never a folder name, so it goes
+     on finding them now the folders are not being made. Removing the section before that
+     existed would have thrown away every error she was not watching happen. */
   /* ⭐ THE NOs GET THEIR OWN SECTION ([[RS-59]], 2026-09-11). Addie: "can we have no emails
      be there own section and it will go in the folder with the response they choose", then
      "I mean No RSVPs."
@@ -22833,6 +22881,14 @@ function commRowMatches(d, section, tab){
      ⚠ AND NOTHING IS STRANDED BY IT: renderCommNav lists any folder holding filed mail that
      no section claims, under "Your folders", so a message can always be got back to. */
   if(msgIsFiledAway(d)) return false;
+  /* ⛔ AN ERROR IS NOT SOMEBODY'S MESSAGE ([[MSG-26]]). Removing the section was only half
+     of it: an error report is not `filedByHand` and is not a SYSTEM notice, so every one of
+     them was ALSO sitting in the main Inbox list — and deleting the section alone would
+     have left them there, which is the opposite of what she asked for.
+     ⚠ IT IS TESTED BEFORE THE TAB BRANCHES, NOT IN THE LINE AT THE BOTTOM. Those return
+     early, so an error would go on matching Unread, Need Reply and Urgent and go on being
+     counted by the tiles above the list. */
+  if(f.type === MSG_TYPE_ERROR) return false;
   if(tab === 'unread')      return f.status === 'unread';
   if(tab === 'needs_reply') return f.status === 'needs_reply';
   if(tab === 'waiting')     return f.status === 'waiting' || f.status === 'in_progress';
@@ -23430,25 +23486,36 @@ function renderCommDash(){
     ['inbox','unread','Unread', commCount('inbox','unread')],
     ['inbox','needs_reply','Need Reply', commRows('inbox','needs_reply').length],
     ['inbox','waiting','Waiting', commRows('inbox','waiting').length],
-    ['inbox','urgent','Urgent', commRows('inbox','urgent').length],
-    ['errors','all','System Errors', commCount('errors','all')]
+    ['inbox','urgent','Urgent', commRows('inbox','urgent').length]
   ];
   let html = '';
   tiles.forEach(function(t){
     html += '<button type="button" class="comm-tile' + (t[3] ? '' : ' quiet') +
-      (t[0] === 'errors' && t[3] ? ' bad' : '') + '" data-dashsec="' + t[0] +
+      '" data-dashsec="' + t[0] +
       '" data-dashtab="' + t[1] + '"><b>' + t[3] + '</b><span>' + esc(t[2]) + '</span></button>';
   });
   /* ⚠ HEALTH IS ABOUT UNRESOLVED ERRORS, NOT UNREAD ONES. "All systems operational" while
      two critical errors sit there having been clicked once would be the panel lying. */
   const crit = commRows('errors','critical').filter(function(m){ return msgSeverityOf(m.data) !== 'resolved'; }).length;
   const warn = commRows('errors','warnings').length;
+  /* ⭐ AND THIS IS NOW THE DOOR TO THE BADGE ([[MSG-26]]). It used to open the errors
+     section, which no longer exists — a button that reads "2 Critical" and goes nowhere is
+     worse than no button. Its COUNTS are unchanged and still come from `commRows('errors',…)`,
+     the same records the badge lists, so the two cannot disagree about how many there are. */
   html += '<button type="button" class="comm-health' + (crit ? ' bad' : warn ? ' warn' : ' good') +
-    '" data-dashsec="errors" data-dashtab="' + (crit ? 'critical' : 'all') + '">' +
+    '" data-openerrbadge="1">' +
     '<span>System Health</span><b>' + (crit ? '\u{1F534} ' + crit + ' Critical' :
       warn ? '\u{1F7E0} ' + warn + ' Warning' + (warn === 1 ? '' : 's') :
       '\u{1F7E2} All Systems Operational') + '</b></button>';
   host.innerHTML = html;
+  const errBtn = host.querySelector('[data-openerrbadge]');
+  /* ⚠ CALLED OFF `window`, never as a bare name. errCatchToggle lives in the plain script at
+     the top of this page, not in this module, so a direct reference is a ReferenceError that
+     takes the whole dashboard render with it. */
+  if(errBtn) errBtn.addEventListener('click', function(){
+    try{ if(typeof window.errCatchToggle === 'function') window.errCatchToggle(); }
+    catch(e){ console.error('[HU] could not open the problems list', e); }
+  });
   host.querySelectorAll('[data-dashsec]').forEach(function(b){
     b.addEventListener('click', function(){
       commView = {section: b.dataset.dashsec, tab: b.dataset.dashtab};
@@ -23565,7 +23632,7 @@ function renderMessagesList(){
      the sweep as well, so the badge read 91 while the list beneath it — which has
      never shown System notes, see the folder filter above — held a fraction of that,
      and a real message arriving moved the number by one and nobody could tell. */
-  const unreadCount = allMessages.filter(m => !m.data.read && !noticeIsRoutine(m.data)).length;
+  const unreadCount = allMessages.filter(m => msgOnInboxBadge(m.data)).length;
   document.getElementById('badgeMessages').style.display = unreadCount ? 'inline-block' : 'none';
   document.getElementById('badgeMessages').textContent = unreadCount;
   if(!filtered.length){

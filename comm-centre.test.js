@@ -174,10 +174,26 @@ check('the Inbox keeps system notices out unless All is asked for',
   sb.matches(notice, 'inbox', 'all') === false &&
   sb.matches(memberQ, 'inbox', 'all') === true,
   '"System messages should generally not appear mixed into the main member list"');
+/* ⚠ REPOINTED, NOT WEAKENED ([[MSG-26]]). Urgent was proved with `payErr` — an ERROR — and
+   errors no longer appear in the Inbox at all, so that fixture failed on correct code the
+   moment the section went. The CLAIM is unchanged: the Urgent tab holds what is urgent. It is
+   proved with an urgent MEMBER message now, which is what that tab is for, and the error's
+   own exclusion is asserted on its own below rather than folded in here. */
 check('Unread, Needs Reply and Urgent each hold what they say',
   sb.matches({topic:'General Question', read:false, message:'x'}, 'inbox', 'unread') === true &&
   sb.matches(memberQ, 'inbox', 'needs_reply') === true &&
-  sb.matches(payErr, 'inbox', 'urgent') === true);
+  sb.matches({topic:'Report an Issue', read:false, priority:'urgent',
+              message:'no lights on the whole street'}, 'inbox', 'urgent') === true);
+/* ⛔ AND AN ERROR IS NOT IN THE INBOX AT ALL ([[MSG-26]]). Addie: "get rid of error inbox's
+   altogether ... just have all emails go to the red errors badge instead."
+   ⚠ EVERY TAB, NOT JUST All. An error is not `filedByHand` and is not a SYSTEM notice, so the
+   tab branches would each have gone on matching it — and the tiles above the list count
+   through the same rule, so one missed tab is a number that still cannot come down. */
+['all','unread','needs_reply','urgent'].forEach(function(tab){
+  check('an error stays out of the Inbox — ' + tab,
+    sb.matches(payErr, 'inbox', tab) === false,
+    'she asked for errors to leave the Inbox; the badge holds them now');
+});
 check('System Errors → Critical holds only critical ones',
   sb.matches(payErr, 'errors', 'critical') === true &&
   sb.matches({topic:'Admin Error', read:false, message:'a template was empty'}, 'errors', 'critical') === false);
@@ -1320,13 +1336,26 @@ console.log('--- a counted message is a reachable message ---');
 {
   /* The badge's own rule, lifted rather than restated: every unread message except the
      routine route-sweep notice. A copy here would agree with itself and prove nothing. */
+  /* ⚠ THE REAL BADGE RULE, LIFTED ([[MSG-26]]). This used to hand-roll
+     `!d.read && !routine(d)` here, which was the badge's rule at the time — so when the rule
+     gained a clause the suite went on testing the OLD one and the invariant below quietly
+     stopped describing the screen. It runs `msgOnInboxBadge` itself now, which is why that
+     is its own function in admin.html rather than an expression inline at the badge. */
+  /* ⚠ BUILT THE SAME WAY `sb` IS, PARAMETERS AND ALL. `msgOnInboxBadge` asks `msgFacets`,
+     which needs the whole SRC preamble — and SRC's own `MESSAGE_HOME_FOLDER` reads
+     MEMBER_ERROR_TOPIC/ADMIN_ERROR_TOPIC, which arrive as arguments rather than lifts. The
+     first version prepended SRC alone and died on a bare `MEMBER_ERROR_TOPIC is not
+     defined`: the extraction-list trap, one level down, exactly as CLAUDE.md describes. */
   const badgeSb = {};
-  new Function(liftConst('ROUTINE_NOTICE_TOPIC') + liftFn('noticeIsRoutine') +
-    'this.routine = noticeIsRoutine;').call(badgeSb);
+  new Function('MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'commSections',
+    'let __cs = commSections;' + SRC.replace(/\bcommSections\b(?!\s*[,)])/g, '__cs') +
+    liftConst('ROUTINE_NOTICE_TOPIC') + liftFn('noticeIsRoutine') +
+    liftFn('msgOnInboxBadge') + 'this.onBadge = msgOnInboxBadge;')
+    .call(badgeSb, 'Member Error', 'Admin Error', {custom: [], hidden: [], builtIn: {}});
 
   const SECTIONS = new Function(commSectionsSrc() + 'return COMM_SECTIONS;')()
     .map(function(x){ return x.key; });
-  const counted = function(d){ return !d.read && !badgeSb.routine(d); };
+  const counted = function(d){ return badgeSb.onBadge(d); };
   const reachable = function(d){
     return SECTIONS.some(function(k){ return sb.matches(d, k, 'all'); });
   };
@@ -1341,11 +1370,30 @@ console.log('--- a counted message is a reachable message ---');
       read:false, folder:'System', message:'\u26A0 29 moved, nobody has been told'}],
     ['a scheduling System notice', {topic:'Moved To Another Day', read:false, folder:'System',
       message:'moved from Tuesday to Wednesday'}],
+  ];
+  /* ⛔ THE TWO ERROR ROWS LEFT THIS LIST ([[MSG-26]]) AND THAT IS THE CHANGE, NOT A GAP.
+     They used to be here proving the Inbox badge counted them AND some section drew them —
+     both true, and both deliberately no longer true: she asked for errors to leave the Inbox
+     entirely. Deleting them outright would have retired the coverage with the design, so the
+     opposite claim is asserted below instead: off the Inbox badge, and still classified as
+     errors so the red badge and the Dashboard's System Health can find them.
+     ⚠ THE INVARIANT ITSELF IS UNTOUCHED and is what made this change safe to make — it went
+     red the moment the section was removed, because the badge was still counting rows nothing
+     could draw. That is exactly the number-that-cannot-come-down bug it was written for. */
+  const ERRS = [
     ['a member error', {topic:'Member Error', read:false, folder:'Errors/Member Errors',
       message:'the RSVP link failed'}],
     ['an admin error', {topic:'Admin Error', read:false, folder:'Errors/Admin Errors',
       message:'something threw'}]
   ];
+  ERRS.forEach(function(pair){
+    check('the Inbox badge does NOT count ' + pair[0],
+      !counted(pair[1]),
+      'no section draws an error now, so counting one is a number that can never come down');
+    check('and ' + pair[0] + ' is still classified as an error, so the red badge finds it',
+      sb.matches(pair[1], 'errors', 'all') === true,
+      'the badge and the Dashboard health both read this rule — losing it loses the errors');
+  });
   /* ⚠ EACH ROW STATES WHETHER IT SHOULD BE COUNTED, and that is not decoration. The first
      version read `if(!counted(d)) return;` — so a sabotage that stopped the badge counting
      these rows made every check SKIP rather than fail, and the red-check reported it as a
