@@ -598,6 +598,27 @@ exports.paypalCaptureOrder = onCall(
  *
  * Then deploy with:
  *   firebase deploy --only functions
+ *
+ * ⚠ THE DEPLOY IS NOT HOUSEKEEPING — IT IS WHAT SWITCHES THE CREDENTIALS OVER
+ * ([[QT-39]], 2026-09-11). `functions:secrets:set` creates a NEW VERSION of the secret;
+ * it does not change the one the running code reads. Every deployed function pins the
+ * version it was deployed with, visible in its own service config:
+ *
+ *   secretEnvironmentVariables: [{ secret: 'TWILIO_ACCOUNT_SID', version: '1' }, ...]
+ *
+ * So a secret set and not deployed leaves the old value live INDEFINITELY. This is not a
+ * cache that expires, and nothing anywhere reports it: setting the secret succeeds, the
+ * console shows the new version, and the texts go on failing exactly as before.
+ *
+ * ⚠ AND `Authentication Error - invalid username` IS WHAT AN UNSET SID LOOKS LIKE, because
+ * Twilio uses the ACCOUNT SID as the basic-auth username. The word "username" sends whoever
+ * reads it hunting a login this system does not have — admin.html's quote text handler says
+ * so in as many words now, rather than passing Twilio's wording through.
+ *
+ * ⚠ ON THIS WINDOWS MACHINE THE HAND-DEPLOY ABOVE FAILS at the analysis step
+ * ("Cannot determine backend specification. Timeout after 10000") — a CLI handshake bug,
+ * not a fault in this file; CLAUDE.md §1 has the workaround. The route that works is a
+ * commit touching functions/**, which deploys from CI in a clean environment.
  */
 
 const TWILIO_ACCOUNT_SID = defineSecret('TWILIO_ACCOUNT_SID');

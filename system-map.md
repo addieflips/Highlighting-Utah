@@ -3908,6 +3908,20 @@ because the folder earning its keep within two days is the argument for it.
     MISSED.** Setting a secret alone looks like it worked and changes nothing until the
     functions are deployed again. The message on the card names both, and says the secrets
     live outside this app.
+  - ⛔ **AND IT IS STRONGER THAN A CACHE: THE VERSION IS PINNED INTO EACH FUNCTION.**
+    `functions:secrets:set` creates a NEW VERSION of the secret and does not touch the one
+    the running code reads — every deployed function carries the version it was deployed
+    with, in its own service config: `secretEnvironmentVariables: [{ secret:
+    'TWILIO_ACCOUNT_SID', version: '1' }, …]`. So a secret set and never deployed leaves the
+    old value live **indefinitely**, and nothing anywhere reports it: the set succeeds, the
+    console shows the new version, and the texts go on failing exactly as before. All three
+    Twilio secrets were pinned at version 1 on 2026-09-11, which is why creating the account
+    changed nothing on its own.
+  - ⚠ **THE HAND-DEPLOY FAILS ON THE OFFICE MACHINE** — `firebase deploy --only functions`
+    dies at the analysis step with *"Cannot determine backend specification. Timeout after
+    10000"*, the CLI handshake bug §1 of CLAUDE.md records. It is not a fault in the source.
+    The route that works is a commit touching `functions/**`, which deploys from CI in a
+    clean environment.
   - ⚠ **TWO THINGS RESUME THAT HAVE NOT RUN FOR MONTHS**, neither of them asked for:
     `sendNightlyInvoices` texts `alertPhone` from `settings/nightlyInvoiceAutomation` after
     every 7 PM run, and the STOP handler (Twilio error 21610) can fire again — archiving a
