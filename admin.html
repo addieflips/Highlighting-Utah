@@ -4030,6 +4030,7 @@
             <!-- ⭐ THE SUMMARY AT THE TOP, AND EVERY NUMBER ON IT IS A FILTER (blueprint
                  §10): "Clicking '5 Need Reply' immediately filters the inbox to those five."
                  A count you cannot act on is a count nobody reads. -->
+            <div id="msgAlertOffNote"></div>
             <div id="commDash" class="comm-dash"></div>
             <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
               <select id="msgFilterSelect" style="border-radius:999px; border:1px solid var(--line); padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--snow);">
@@ -23396,6 +23397,46 @@ function renderCommDash(){
     });
   });
 }
+/* ⭐ WHEN NOTHING IS REACHING THE GMAIL, THE INBOX SAYS SO (2026-09-12, [[MSG-25]]).
+   Addie, having sent herself a test: "Also my message when to admin portal not gmail."
+   ⚠ THE CODE WAS ALREADY RIGHT AND THE DETECTOR WAS IN THE WRONG ROOM. [[MSG-17]] settled
+   that everything a member types or does is emailed to the Gmail, and all twelve
+   `notifyBusinessOfMessage` call sites in index.html already do it. What stops the email is
+   `settings/emailjs` being incomplete — and `notifyBusinessOfMessage` handles that by
+   returning early with a console.warn, on a public page nobody has a console open on. The
+   office-side detector is Health Check's `notifyOff` row, and [[HC-03]] is her saying she
+   does not open Health Check. A detector she never reads is not a detector.
+   ⭐ SO IT IS SAID IN THE INBOX, which is where she was standing when she asked — looking
+   at the message that had just arrived here and nowhere else. It explains the exact thing
+   in front of her rather than making her go and compare six boxes on another screen.
+   ⚠ THREE ANSWERS, AND `null` DRAWS NOTHING. `hcNotifyCfg` is null both before the read
+   lands and when it fails, and announcing that the alerts are off because a read has not
+   finished is a false alarm on the one line that must not cry wolf — `cnFreePool`'s rule.
+   Only a settings document we have actually read can accuse anybody.
+   ⚠ IT NAMES THE BLANK BOX RATHER THAN SAYING "EmailJS is misconfigured", the same
+   argument the Health Check row makes: the second sends somebody to compare six fields.
+   ⛔ AND IT CANNOT SEE THE OTHER HALF, WHICH IS SAID OUT LOUD RATHER THAN LEFT IMPLIED.
+   [[MSG-17]] records that the destination is the *To Email* on the EmailJS template, which
+   lives on emailjs.com and is invisible from this repo entirely. So a filled-in settings
+   card means the alert was SENT, never that it arrived — the same distinction the test
+   invoice already draws ("handed to the mail service"). The note says where to look next
+   when all three boxes are full, because "everything looks right" with no next step is
+   what sends somebody hunting for a bug in code that is working. */
+function msgAlertOffNoteHtml(cfg){
+  if(!cfg) return '';
+  const missing = [];
+  if(!cfg.serviceId) missing.push('EmailJS Service ID');
+  if(!cfg.notifyTemplateId) missing.push('Message Notification Template ID');
+  if(!cfg.publicKey) missing.push('EmailJS Public Key');
+  if(!missing.length) return '';
+  return '<div style="background:#FDECEA; border:1px solid #F3C8C2; border-left:4px solid ' +
+    'var(--ember); border-radius:10px; padding:12px 14px; margin-bottom:14px; font-size:13px; ' +
+    'line-height:1.55;"><b>Nothing here is being emailed to your Gmail.</b><br>' +
+    'Messages still arrive in this Inbox, but the website cannot send you the heads-up ' +
+    'email, because ' + (missing.length === 1 ? 'this box is blank' : 'these boxes are blank') +
+    ' under <b>Automation Emails \u2192 Email Setup</b>: <b>' + missing.join('</b>, <b>') + '</b>.' +
+    '</div>';
+}
 function renderMessagesList(){
   /* ⭐ THE NAV AND THE SUMMARY ARE DRAWN FROM THE SAME PASS AS THE LIST, so a message
      arriving, being read or being resolved moves the counts at the same moment it moves
@@ -23403,6 +23444,8 @@ function renderMessagesList(){
      thing happened, which is the state the folder badge was in before 2026-08-25. */
   if(typeof renderCommNav === 'function') renderCommNav();
   if(typeof renderCommDash === 'function') renderCommDash();
+  const alertNote = document.getElementById('msgAlertOffNote');
+  if(alertNote) alertNote.innerHTML = msgAlertOffNoteHtml(hcNotifyCfg);
   const list = document.getElementById('messagesList');
   /* ⭐ THE VIEW DECIDES THE LIST (2026-09-09, [[MSG-11]]). The folder tree still works and
      still filters — picking one sets `commView.section` to 'folder' — but the FIRST

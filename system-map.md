@@ -42,7 +42,7 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
 
    **Light colours are REQUIRED, on both forms.** Owner's rule, 2026-08-15. The customer's own detail form has always refused to submit without one; Add a Customer now refuses too. It is the single field on that form that cannot be waved through with "add them without these" — everything else genuinely can wait (the photo gets taken next week, the price is still being agreed), but a customer with no colours is invisible to the Warehouse, because the build queue is keyed off the light description. They never reach Dad and no screen says so. Knock-on: **Convert automatically is disabled** for a quote with no colours, and says why, rather than letting you click it and get an error back — that quote has to go through **Fill in manually**, which has the colour picker on it.
 
-   **Light colours are never free text.** Owner's rule, 2026-08-15: *"it should never have to guess because it should never be in typed format."* Every way a light description can be written is a picker — the customer's own detail form on the public site, the colour boxes on Add a Customer and Edit Customer, the colour change in the Member Portal, and **the Warehouse's own "Add to Queue" form**, whose Pattern field is a row of colour buttons: clicking a colour appends it, clicking it twice repeats it (that is how `Warm White, Red, Red, Warm White` is built), and each chip has an × to remove that position. `#whExtraPattern` survives as a *hidden* input because the rest of that form reads and writes it — everything now goes through `whSetExtraPattern()` so the chips and the saved value cannot drift apart. Two free-text boxes used to exist and both are gone: `.quoteLightsInput` on the admin quote card, and the Warehouse Pattern box. run-all.js fails if either comes back. The bulk importer is the one remaining way typed text can arrive, because it pastes a spreadsheet column.
+   **Light colours are never free text.** Owner's rule, 2026-08-15: *"it should never have to guess because it should never be in typed format."* Every way a light description can be written is a picker — the customer's own detail form on the public site, the colour boxes on Add a Customer and Edit Customer, the colour change in the Member Portal, and **the Warehouse's own "Add to Queue" form**, whose Pattern field is a row of colour buttons: clicking a colour appends it, clicking it twice repeats it (that is how `Warm White, Red, Red, Warm White` is built), and each chip has an × to remove that position. `#whExtraPattern` survives as a *hidden* input because the rest of that form reads and writes it — everything now goes through `whSetExtraPattern()` so the chips and the saved value cannot drift apart. Two free-text boxes used to exist and both are gone: `.quoteLightsInput` on the admin quote card, and the Warehouse Pattern box. run-all.js fails if either comes back. The bulk importer is the one remaining way typed text can arrive, because it pastes a spreadsheet column. ⭐ **And on the public site the picker is tick boxes, not a hold-Ctrl list** (2026-09-12, [[OPT-10]]): both colour pickers in `index.html` — the quick quote box and Get In Touch — are nine `.color-check` pills with a swatch each. Nothing about what is submitted changed; `fd.getAll('colors')` gathers checkboxes exactly as it gathered the old `<select multiple>`, which is why Suite 329 guards the control itself.
 
    Records that still contain words are OLD data, from before that was true. Health Check lists them under **"Customer whose light colours are written as words"**, naming the exact part it could not read, so they get re-picked once instead of interpreted forever. That row deliberately has **no Fix button**: guessing what "red with tinsel" meant would change what the crew physically builds. The list should only ever shrink — a recently-added customer appearing on it means something has started writing free text again.
 
@@ -4238,10 +4238,24 @@ shows the account holder.
 was doing two jobs; the names are now the only thing keeping them apart, and opening the
 wrong one to edit customer copy re-breaks the alerts silently.
 
-⚠ **THE FAILURE IS STILL CONSOLE-ONLY.** `notifyBusinessOfMessage` logs a refusal and
-nothing else — which is why this sat broken and looked like customers not writing in. It
-does NOT file into Errors → Admin Errors the way other faults do. That is the gap worth
-closing next; until it is, a rejected alert is indistinguishable from silence.
+⭐ **HALF OF THIS IS CLOSED (2026-09-12, [[MSG-25]]), and it is the half that keeps
+happening.** Addie sent herself a test, read it in the Inbox, and no Gmail came:
+`notifyBusinessOfMessage` returns early with a `console.warn` whenever any of Service ID,
+Message Notification Template ID or Public Key is blank — a warning on a PUBLIC page nobody
+has a console open on. Health Check’s `notifyOff` row already named the exact blank box,
+and [[HC-03]] is her saying she does not open Health Check. So `msgAlertOffNoteHtml` now says
+it **in the Inbox**, above the messages that were not emailed, naming the box and where to
+fill it in. `null` (read not landed, or failed) draws nothing — announcing the alerts are
+off because a read has not finished is a false alarm on the one line that must not cry wolf.
+
+⚠ **THE OTHER HALF IS STILL CONSOLE-ONLY.** A send that is ATTEMPTED and then refused by
+EmailJS — bad template variables, over quota, a *To Email* pointing somewhere else —
+still logs and nothing more, and does NOT file into Errors → Admin Errors the way other
+faults do. That is the gap worth closing next. ⛔ **And the destination itself is invisible
+from this repo by construction**: the params carry no recipient, so where the alert lands is
+the *To Email* on the EmailJS template, set on emailjs.com. Three filled boxes mean the alert
+was SENT, never that it arrived — the "handed to the mail service" distinction the test
+invoice already draws.
 
 ⭐ **And both directions are now driven in a real browser.** `test/address-move.spec.js`
 presses the button and reads the alert back, and presses **Save Information** on My Info and

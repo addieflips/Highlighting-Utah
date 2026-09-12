@@ -1071,18 +1071,18 @@
           </select>
           <div class="color-picker-box" id="quickColorBox" style="display:none;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Which colors would you like?</label>
-            <select name="colors" multiple size="5">
-              <option value="Warm White">Warm White</option>
-              <option value="Pure White">Pure White</option>
-              <option value="Red">Red</option>
-              <option value="Green">Green</option>
-              <option value="Blue">Blue</option>
-              <option value="Purple">Purple</option>
-              <option value="Orange">Orange</option>
-              <option value="Pink">Pink</option>
-              <option value="Multi">Multi</option>
-            </select>
-            <p class="form-note">Hold Ctrl (Windows) or Cmd (Mac) to pick more than one.</p>
+            <div class="color-check-row">
+              <label class="color-check"><input type="checkbox" name="colors" value="Warm White"><span class="color-dot" style="background:#F6DFAE"></span>Warm White</label>
+              <label class="color-check"><input type="checkbox" name="colors" value="Pure White"><span class="color-dot" style="background:#FFFFFF; border:1px solid #D6DDE6"></span>Pure White</label>
+              <label class="color-check"><input type="checkbox" name="colors" value="Red"><span class="color-dot" style="background:#D7263D"></span>Red</label>
+              <label class="color-check"><input type="checkbox" name="colors" value="Green"><span class="color-dot" style="background:#2E7D32"></span>Green</label>
+              <label class="color-check"><input type="checkbox" name="colors" value="Blue"><span class="color-dot" style="background:#1E5FBF"></span>Blue</label>
+              <label class="color-check"><input type="checkbox" name="colors" value="Purple"><span class="color-dot" style="background:#7B3FA0"></span>Purple</label>
+              <label class="color-check"><input type="checkbox" name="colors" value="Orange"><span class="color-dot" style="background:#E8751A"></span>Orange</label>
+              <label class="color-check"><input type="checkbox" name="colors" value="Pink"><span class="color-dot" style="background:#E86BA0"></span>Pink</label>
+              <label class="color-check"><input type="checkbox" name="colors" value="Multi"><span class="color-dot" style="background-image:linear-gradient(135deg,#D7263D 0 25%,#2E7D32 25% 50%,#1E5FBF 50% 75%,#E8751A 75% 100%)"></span>Multi</label>
+            </div>
+            <p class="form-note">Tick as many as you like — or leave them all blank if you are not sure yet.</p>
           </div>
           <div class="form-grid-2">
             <input type="text" name="name" placeholder="Full Name" required>
@@ -1338,18 +1338,18 @@
             </div>
             <div class="color-picker-box" id="contactColorBox" style="display:none;">
               <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Which colors would you like?</label>
-              <select name="colors" multiple size="5">
-                <option value="Warm White">Warm White</option>
-                <option value="Pure White">Pure White</option>
-                <option value="Red">Red</option>
-                <option value="Green">Green</option>
-                <option value="Blue">Blue</option>
-                <option value="Purple">Purple</option>
-                <option value="Orange">Orange</option>
-                <option value="Pink">Pink</option>
-                <option value="Multi">Multi</option>
-              </select>
-              <p class="form-note">Hold Ctrl (Windows) or Cmd (Mac) to pick more than one.</p>
+              <div class="color-check-row">
+                <label class="color-check"><input type="checkbox" name="colors" value="Warm White"><span class="color-dot" style="background:#F6DFAE"></span>Warm White</label>
+                <label class="color-check"><input type="checkbox" name="colors" value="Pure White"><span class="color-dot" style="background:#FFFFFF; border:1px solid #D6DDE6"></span>Pure White</label>
+                <label class="color-check"><input type="checkbox" name="colors" value="Red"><span class="color-dot" style="background:#D7263D"></span>Red</label>
+                <label class="color-check"><input type="checkbox" name="colors" value="Green"><span class="color-dot" style="background:#2E7D32"></span>Green</label>
+                <label class="color-check"><input type="checkbox" name="colors" value="Blue"><span class="color-dot" style="background:#1E5FBF"></span>Blue</label>
+                <label class="color-check"><input type="checkbox" name="colors" value="Purple"><span class="color-dot" style="background:#7B3FA0"></span>Purple</label>
+                <label class="color-check"><input type="checkbox" name="colors" value="Orange"><span class="color-dot" style="background:#E8751A"></span>Orange</label>
+                <label class="color-check"><input type="checkbox" name="colors" value="Pink"><span class="color-dot" style="background:#E86BA0"></span>Pink</label>
+                <label class="color-check"><input type="checkbox" name="colors" value="Multi"><span class="color-dot" style="background-image:linear-gradient(135deg,#D7263D 0 25%,#2E7D32 25% 50%,#1E5FBF 50% 75%,#E8751A 75% 100%)"></span>Multi</label>
+              </div>
+              <p class="form-note">Tick as many as you like — or leave them all blank if you are not sure yet.</p>
             </div>
             <div class="form-row"><label>Full Name <span class="req">*</span></label><input type="text" name="name" required></div>
             <div class="form-row">
