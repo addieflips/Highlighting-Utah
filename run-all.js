@@ -47245,7 +47245,10 @@ if (!JSDOM) {
        as every name above it: left out, the whole suite dies on a bare ReferenceError
        inside the renderer rather than failing a named check. */
     'referralPendingQuotes', 'referralTokensOf',
-    'referralEntrySeason', 'referralEntryCountsIn', 'referralSeasonOr',
+    /* ⚠ `referralSeasonForBill` IS LIFTED, NEVER STUBBED ([[REF-38]]). It decides
+       which season a credit comes off, so a stub here would keep this suite green
+       through a change to who gets $25 — the one thing it exists to protect. */
+    'referralEntrySeason', 'referralSeasonForBill', 'referralEntryCountsIn', 'referralSeasonOr',
     'referralLinkFromToken',
     'referralShareLinkFromToken'];
   const bodies = NAMES.map(function (n) { return extractFn(admin, n); });
@@ -51971,6 +51974,22 @@ suite('299. A referral link, and the $25 that follows it');
        repo green — they all read the other one. Lifted, so the checks below exercise
        the shipped rule rather than a second opinion. */
     ['referralEntryCountsIn', false], ['referralSeasonOr', false],
+    /* ⚠ THE FOUR THE 2026-09-12 RULINGS ADDED, ALL LIFTED RATHER THAN STUBBED, for
+       the reason written above them: every one of these decides who gets $25 or
+       which bill it lands on, so a stub keeps this suite green through exactly the
+       change it exists to catch. `referralSeasonForBill` is the roll-forward
+       ([[REF-38]]); `referralBillKey` and `referralNotesForBill` follow the money to
+       the payer and gather every house on that bill ([[REF-39]]); `custAddrKey` is
+       the one-discount-per-address match ([[REF-40]]) and is the repo's existing
+       normaliser, not a second one. */
+    /* ⚠ AND `billedHousesFor` WITH IT, lifted rather than typeof-guarded at the call
+       site. A `typeof fn === 'function'` guard there would let a sandbox that never
+       supplied it silently SKIP the group gather and still answer — which is the
+       exact trap isOutForSeason's exemption already sprang once, reporting 3 where
+       the truth was 2. If it is missing the suite must say so, and it did. */
+    ['billingGroupsByPayer', false], ['billedHousesFor', false],
+    ['referralSeasonForBill', false], ['referralBillKey', false],
+    ['referralNotesForBill', false], ['custAddrKey', false],
     ['referralIsSelfReferral', false], ['referralClawbackAllowed', false],
     /* ⚠ AND THE ONE THAT STOPS ONE FRIEND EARNING TWICE (REF-31). LIFTED, NOT STUBBED:
        a stub of this decides who gets paid, which is the whole of what this suite
@@ -59404,3 +59423,146 @@ suite('Suite 327. A declined RSVP tells somebody');
     }
   }
 }
+
+/* =============================================================================
+ * ⭐ SUITE 328 — THE THREE REFERRAL RULINGS OF 2026-09-12
+ * Addie, in one message, answering three questions that had been open since the 8th:
+ *   [[REF-38]] "For someone who doesn't book for this year but refered someone should
+ *              have that referal discount added for next year."
+ *   [[REF-39]] "It should follow the money to the payer."
+ *   [[REF-40]] "we should not allow two address's to exist on the costumers at the same
+ *              time. So they would only get a $25 dollar discount."
+ *
+ * ⚠ THESE RUN THE SHIPPED RULES, never a copy. Every claim is about WHO GETS $25 and
+ *    WHICH BILL IT COMES OFF, and a second opinion written here would agree with itself
+ *    and prove nothing — the failure money-parity exists for, in a smaller place.
+ * ============================================================================= */
+suite('328. The referral rulings of 2026-09-12');
+/* ⚠ AN IIFE, BECAUSE `suite()` IS A HEADER PRINTER AND NOT A RUNNER. Passing a
+   callback to it is silently accepted and never called — the suite prints its title
+   and scores nothing, which reads exactly like a suite that passed. Caught here by
+   the checks simply not appearing in the output. */
+(function () {
+  const lift = (n) => {
+    const i = admin.indexOf('function ' + n + '(');
+    if (i < 0) return '';
+    let d = 0; const j = admin.indexOf('{', i);
+    for (let k = j; k < admin.length; k++) {
+      if (admin[k] === '{') d++;
+      else if (admin[k] === '}') { d--; if (!d) return admin.slice(i, k + 1) + '\n'; }
+    }
+    return '';
+  };
+  const NEEDED = ['referralEntrySeason', 'referralSeasonForBill', 'referralEntryCountsIn',
+    'referralSeasonOr', 'referralLiveCount', 'referralHeldCount', 'custAddrKey',
+    'referralAlreadyCreditedFor', 'referralBillKey'];
+  const missing = NEEDED.filter(n => !lift(n));
+  check('S328', 'every rule this suite is about is findable in admin.html',
+    missing.length === 0,
+    'missing: ' + missing.join(', ') + ' — a renamed rule must fail loudly here, ' +
+    'never skip: a suite that cannot find its target must not report green');
+  if (missing.length) return;
+
+  const box = {};
+  new Function('houseIsOnTheBill', 'custInvoiceKey',
+    NEEDED.map(lift).join('') +
+    'this.live = referralLiveCount; this.held = referralHeldCount;' +
+    'this.dupe = referralAlreadyCreditedFor; this.key = referralBillKey;')
+    .call(box,
+      /* the real rule's shape: out only when sitting the season out AND never worked on */
+      d => { const s = String((d || {}).rsvpStatus || '').trim().toLowerCase();
+             if ((d || {}).completed === true) return true;
+             return !(s === 'no' || s === 'backnextyear' || (d || {}).maybeNextYear); },
+      d => String((d || {}).phone || '').replace(/\D/g, ''));
+
+  const Y = new Date().getFullYear();
+  const IN = {rsvpStatus: 'yes'}, OUT = {rsvpStatus: 'backnextyear'};
+  const earned = [{referredCustomerId: 'c1', season: Y}];
+
+  /* ---- [[REF-38]] a credit earned then sat out rolls forward ---------------- */
+  check('S328', 'a referrer who is in the season is credited this season',
+    box.live(earned, Y, IN) === 1,
+    'the ordinary case must be untouched by the roll-forward');
+  check('S328', 'a referrer who has dropped out is NOT credited this season',
+    box.live(earned, Y, OUT) === 0,
+    'they have no bill this season for it to come off');
+  /* ⚠ THE HALF THAT IS THE RULING. Before this, the entry stayed stamped for the season
+     it was earned in and [[REF-14]] then refused it in every later one — so the $25 was
+     on the record and worth nothing, which is the harm [[REF-23]] exists to prevent. */
+  check('S328', 'and IS credited the season after, which is the whole ruling',
+    box.live(earned, Y + 1, OUT) === 1,
+    'earned while in the season then sat out — the discount moves to next year');
+  check('S328', 'the box that says a credit is held reads it the same way',
+    box.held(earned, Y, OUT) === 1,
+    'a held credit the screen cannot see is the bill and the box disagreeing');
+  /* ⚠ DERIVED, SO COMING BACK NEEDS NO SECOND WRITE AND NOTHING TO UNDO. A migration
+     would have had to be reversed here, and a half-run reversal loses the entry. */
+  check('S328', 'and answering Yes again puts it back on this season, with no migration',
+    box.live(earned, Y, IN) === 1,
+    'a stamp moved by a write would have to be moved back; derived, it simply is');
+  check('S328', 'a caller that does not name the referrer is unchanged',
+    box.live(earned, Y) === 1,
+    'the referrer is optional — without it this must answer exactly as it always did');
+
+  /* ---- [[REF-39]] the credit follows the money ----------------------------- */
+  check('S328', 'an ordinary customer is credited on their own bill',
+    box.key({phone: '(801) 555-0111'}) === '8015550111',
+    'the common case must not move');
+  /* ⚠ THIS IS THE RULING. Their own key on a billed-elsewhere house is a ZEROED
+     leftover no screen reads, so the $25 came off nothing at all. */
+  check('S328', 'a house that bills elsewhere is credited on the PAYER’s bill',
+    box.key({phone: '8015550999', billToPhone: '(801) 555-0111'}) === '8015550111',
+    'the credit follows the money, so it shows where that referrer reads their balance');
+  check('S328', 'and the payer is matched on digits, never the raw stored string',
+    box.key({phone: '8015550999', billToPhone: '801-555-0111'}) === '8015550111',
+    'an imported record keeps whatever the office typed; comparing raw strings is what ' +
+    'quietly duplicated the whole book once');
+
+  /* ---- [[REF-40]] one discount per address -------------------------------- */
+  const look = id => ({c1: {phone: '8015550001', email: 'a@x.com',
+    address: '1 Elm St', city: 'Lehi'}}[id] || {});
+  const one = [{referredCustomerId: 'c1'}];
+  check('S328', 'two people at ONE address are one discount, not two',
+    !!box.dupe(one, {phone: '8015550002', email: 'b@x.com',
+      address: '1 Elm St', city: 'Lehi'}, look),
+    'her ruling: one $25 where two customers share an address');
+  check('S328', 'two people at DIFFERENT addresses still earn one each',
+    !box.dupe(one, {phone: '8015550003', email: 'c@x.com',
+      address: '9 Oak Ave', city: 'Lehi'}, look),
+    '[[REF-31]] is narrowed by the address, not replaced — two real houses are two referrals');
+  /* ⚠ THE TOWN IS PART OF THE KEY AND HAS TO BE. Utah County repeats street names, so
+     without it two different 100 Main St houses read as one and the second is refused. */
+  check('S328', 'the same street in a different town is a different address',
+    !box.dupe(one, {phone: '8015550004', email: 'd@x.com',
+      address: '1 Elm St', city: 'Orem'}, look),
+    'Utah County repeats street names — dropping the town refuses real referrals');
+  /* ⚠ AND THE MATCH FAILS IN THE RECOVERABLE DIRECTION ON PURPOSE. custAddrKey does not
+     expand Ln to Lane, so a spelling difference allows two ($25 too much, visible on the
+     bill with an × beside it) rather than refusing one (silent, and it lands on the
+     customer most likely to bring us another). Asserted so nobody "improves" it. */
+  check('S328', 'a differently-spelt street is allowed through rather than silently refused',
+    !box.dupe(one, {phone: '8015550005', email: 'e@x.com',
+      address: '1 Elm Street', city: 'Lehi'}, look),
+    'refusing a real referral is silent and unrecoverable; $25 too much has an × beside it');
+  check('S328', 'and the phone and email matches still work',
+    !!box.dupe(one, {phone: '8015550001', email: 'zz@x.com', address: '', city: ''}, look) &&
+    !!box.dupe(one, {phone: '', email: 'a@x.com', address: '', city: ''}, look),
+    '[[REF-31]] matched on contact and that half is unchanged');
+
+  /* ⚠ AND THE REBUILD MUST GATHER EVERY HOUSE ON THE BILL. `applyReferralCreditLine`
+     drops every referral line and writes them back from what it is handed, so once two
+     houses can share one invoice, doing that from ONE house's entries DELETES the
+     other's — the four Andersons on 8013721805 are exactly this shape. */
+  {
+    const at = admin.indexOf('function referralNotesForBill(');
+    const body = at === -1 ? '' : admin.slice(at, admin.indexOf('\n}', at));
+    check('S328', 'the credit rebuild gathers every house on that bill',
+      /billedHousesFor\(/.test(body),
+      'rebuilding from one house wipes a sibling’s referral credits off a shared bill');
+    check('S328', 'and it takes the referrer’s own entries from the object in hand',
+      body.indexOf('referrerItem.data') !== -1 &&
+      body.indexOf('String(h.id || \'\') === me') !== -1,
+      'the book can still hold the copy from before the entry was written, and the ' +
+      'referrer must never be counted twice');
+  }
+})();

@@ -1348,9 +1348,35 @@ written into that customer's history.
     to this season's credits would take money off a bill they are not for, and leaving them
     invisible makes a referral earned while sitting out look exactly like one that never
     counted.
-    ⚠ **One case is deliberately open**: somebody who earns a credit while they are IN the
-    season and answers no afterwards keeps a credit stamped for a season they are no longer
-    billed for. `docs/open-questions.md` Q-029.
+    ⭐ **THAT LAST CASE IS ANSWERED — the credit moves to next season** (2026-09-12,
+    [[REF-38]]). Addie: *"For someone who doesn't book for this year but refered someone
+    should have that referal discount added for next year."* Somebody who earns a credit
+    while they are IN the season and answers Back Next Year afterwards no longer loses it:
+    `referralSeasonForBill` rolls it forward, so it comes off next season's bill instead.
+    ⚠ **It is DERIVED, not migrated.** The stamp stays exactly as it was earned — that is
+    REF-14's rule — and only the season it comes OFF is decided. So a customer who answers
+    Yes again is billed for it this season with no second write and nothing to reverse, and
+    no entry can be lost by a roll-forward that half ran. It cannot take a credit off a bill
+    somebody has already been shown either, because off the bill there is no invoice.
+    ⭐ **AND THE CREDIT NOW FOLLOWS THE MONEY** (2026-09-12, [[REF-39]]). Addie: *"It should
+    follow the money to the payer."* A referral earned by a house that bills elsewhere used
+    to land on that house's own key — a zeroed leftover no screen reads — so it came off
+    nothing. `referralBillKey` sends it to the payer's bill. ⚠ **The cost, taken knowingly:**
+    the bill that drops is the payer's, not the referrer's. ⛔ **And the rebuild had to learn
+    about shared bills:** it drops every referral line and writes them back, so from one
+    house's entries it would have DELETED a sibling's credits — `referralNotesForBill`
+    gathers every house on that bill.
+    ⭐ **AND TWO PEOPLE AT ONE ADDRESS ARE ONE DISCOUNT** (2026-09-12, [[REF-40]]). Addie:
+    *"we should not allow two address's to exist on the costumers at the same time. So they
+    would only get a $25 dollar discount."* This narrows REF-31, whose wording always had
+    both halves in it. ⚠ **It matches through `custAddrKey`, which does not expand Ln to
+    Lane** — so it only matches where two typed addresses genuinely agree, and it fails in
+    the recoverable direction: $25 too much has an × beside it on the bill, whereas refusing
+    a real referral is silent and lands on your best advocate.
+    ⚠ **The $30 fee waiver itself was checked, not assumed** ([[REF-41]]): `quoteChargesSetupFee`
+    waives it for a link the referrer holds now, and Suite 312 runs that path. The banner on
+    the quote page the link LANDS on is still not built — the page cannot tell a real token
+    from an invented one. `docs/open-questions.md` Q-032.
   - ⚠ **No late fee is charged today.** The rule is decided and unbuilt ($25 if they have
     paid something, $40 if they have not — PROC-32). The × is built against the ledger
     rather than against a named fee, so a late fee written later is waivable the day

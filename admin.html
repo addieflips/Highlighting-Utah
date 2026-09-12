@@ -11983,13 +11983,13 @@ function referralCreditSeason(referrerData, now){
    count claims beyond the entries becomes ONE collapsed line, exactly as before, so a
    customer credited by hand is unchanged. That is also the whole of the Add Customer
    path, where no entry can exist yet. */
-function referralCreditNotes(entries, count, seasonYear){
+function referralCreditNotes(entries, count, seasonYear, referrerData){
   const season = referralSeasonOr(seasonYear);
   /* ⚠ THE SAME PREDICATE THE COUNT USES, never a second copy of it. See
      referralEntryCountsIn: a copy here put held credits on this season's bill and no
      check anywhere could see it, because every one of them read the other copy. */
   const live = (Array.isArray(entries) ? entries : [])
-    .filter(function(e){ return referralEntryCountsIn(e, season); });
+    .filter(function(e){ return referralEntryCountsIn(e, season, referrerData); });
   const out = live.map(function(e){
     const who = String(e.referredName || '').trim();
     return { amount: REFERRAL_CREDIT,
@@ -12012,11 +12012,14 @@ function referralCreditNotes(entries, count, seasonYear){
    to be able to see that the $25 exists, or a referral earned while somebody was sitting
    the season out looks exactly like one that never counted. Read by the Refer a friend
    row in Edit Customer. */
-function referralHeldCount(entries, seasonYear){
+function referralHeldCount(entries, seasonYear, referrerData){
   const season = referralSeasonOr(seasonYear);
   return (Array.isArray(entries) ? entries : []).filter(function(e){
     if(!e || e.revoked || e.waived) return false;
-    const y = referralEntrySeason(e);
+    /* ⚠ THE SAME ROLL-FORWARD THE COUNT USES ([[REF-38]]) — a credit held for next
+       season has to read as held on the screen that says so, or the box and the bill
+       disagree about one customer. */
+    const y = referralSeasonForBill(e, referrerData);
     return y !== null && y > season;
   }).length;
 }
@@ -12050,19 +12053,48 @@ function referralLastBlockWhy(blocks){
    older reasons a referral stops counting are unchanged by REF-14 and REF-23.
    ⚠ AND AN UNDATEABLE ENTRY COUNTS NOW. Wrongly dropping $25 somebody earned is the
    expensive mistake; wrongly keeping one costs $25. */
-function referralEntryCountsIn(e, season){
+/* ⭐ A CREDIT EARNED AND THEN SAT OUT MOVES TO NEXT SEASON ([[REF-38]], 2026-09-12).
+   Addie, asked directly: "For someone who doesn't book for this year but refered
+   someone should have that referal discount added for next year."
+   ⚠ THIS IS THE CASE [[REF-23]] NAMED AND COULD NOT CLOSE, and that comment said so in
+   as many words: somebody who earns a credit while they are IN the season and answers
+   no afterwards was left holding one stamped for a season they are no longer billed
+   for, so it came off nothing this year and was refused next year too. The $25 was
+   still on the record and worth nothing — the same harm REF-23 exists to prevent,
+   reached by the other door.
+   ⭐ DERIVED, NOT MIGRATED, which is what makes it safe both ways. The stamp stays
+   exactly as `referralEntrySeason` recorded it — that is REF-14's rule and the reason
+   the field exists — and this only decides which season it COMES OFF. So a customer
+   who later answers Yes again is billed for it this season with no second write and no
+   migration to undo, and no entry can ever be lost by a roll-forward that half ran.
+   ⚠ AND IT CANNOT TAKE A CREDIT OFF A BILL SOMEBODY HAS ALREADY BEEN SHOWN, which is
+   the objection REF-14 raised against re-deriving. It only moves a credit when the
+   referrer is OFF the bill — and off the bill there is no invoice this season for it to
+   have appeared on. `houseIsOnTheBill` is the same rule `referralCreditSeason` asks at
+   earn time, never a second opinion, and never `isOutForSeason` (see REF-23's note).
+   ⚠ THE REFERRER IS OPTIONAL. Without it this answers exactly as it always did, so a
+   caller that does not know whose credits these are is unchanged rather than guessing. */
+function referralSeasonForBill(e, referrerData, now){
+  const stamped = referralEntrySeason(e);
+  if(stamped === null) return null;
+  if(!referrerData) return stamped;
+  const year = (now instanceof Date ? now : new Date()).getFullYear();
+  if(stamped === year && !houseIsOnTheBill(referrerData)) return year + 1;
+  return stamped;
+}
+function referralEntryCountsIn(e, season, referrerData){
   if(!e || e.revoked || e.waived) return false;
-  const y = referralEntrySeason(e);
+  const y = referralSeasonForBill(e, referrerData);
   return y === null || y === season;
 }
 function referralSeasonOr(seasonYear){
   return Number.isFinite(Number(seasonYear))
     ? Number(seasonYear) : new Date().getFullYear();
 }
-function referralLiveCount(entries, seasonYear){
+function referralLiveCount(entries, seasonYear, referrerData){
   const season = referralSeasonOr(seasonYear);
   return (Array.isArray(entries) ? entries : [])
-    .filter(function(e){ return referralEntryCountsIn(e, season); }).length;
+    .filter(function(e){ return referralEntryCountsIn(e, season, referrerData); }).length;
 }
 /* ⭐ THE MEMBER'S OWN REFERRAL LINK, FROM THE OFFICE SIDE (2026-09-04, REF-07).
    Addie: the link belongs at the top of Edit Customer, and it has to be able to go out
@@ -12324,11 +12356,30 @@ function referralIsSelfReferral(referrer, referred){
    genuine re-join earns it properly. A WAIVED one does block: the office crossed that $25
    off on purpose, and re-crediting it on a second conversion would quietly undo her
    decision. Both are recoverable by typing the count up, and the refusal says so. */
+/* ⭐ ONE DISCOUNT PER ADDRESS ([[REF-40]], 2026-09-12). Addie, asked whether two
+   roommates who each come through one link earn $25 or $50: "we should not allow two
+   address's to exist on the costumers at the same time. So they would only get a $25
+   dollar discount."
+   ⭐ THIS NARROWS [[REF-31]], which settled "two separate people AND addresses" and was
+   read as people alone — so two roommates at 1 Elm St earned $50. Her wording always
+   had both halves in it; this is the half that was not built.
+   ⚠ IT REUSES `custAddrKey` RATHER THAN NORMALISING AGAIN, and that choice is the whole
+   safety argument. That key lowercases and strips punctuation and does NOT expand Ln to
+   Lane — so it matches only where two typed addresses genuinely agree, and the failure
+   it can produce is allowing two where she wanted one. THAT IS THE RECOVERABLE
+   DIRECTION: $25 too much is a line on a bill with an × beside it, whereas refusing a
+   real referral is silent and lands on the customer most likely to bring us another.
+   A cleverer matcher would trade that asymmetry the wrong way — the "Red Cedar Ln" vs
+   "Red Cedar Lane" guess this repo already removed from the re-quote flow by name.
+   ⚠ AND THE TOWN IS PART OF THE KEY, deliberately: Utah County repeats street names, so
+   without it two different 100 Main St houses would read as one and the second referral
+   would be refused. */
 function referralAlreadyCreditedFor(entries, referred, lookup){
   const b = referred || {};
   const bPhone = String(b.phone || '').replace(/\D/g,'');
   const bMail  = String(b.email || '').trim().toLowerCase();
   const bId    = String(b.__customerId || '');
+  const bAddr  = custAddrKey(b.address, b.city);
   const list = Array.isArray(entries) ? entries : [];
   for(let i = 0; i < list.length; i++){
     const e = list[i];
@@ -12337,13 +12388,22 @@ function referralAlreadyCreditedFor(entries, referred, lookup){
     /* The contact stamped on the entry, else whatever that customer's record says. */
     let ePhone = String(e.referredPhone || '').replace(/\D/g,'');
     let eMail  = String(e.referredEmail || '').trim().toLowerCase();
-    if(!ePhone && !eMail && typeof lookup === 'function'){
+    /* ⚠ THE ADDRESS IS ONLY EVER ON THE RECORD, never stamped on the entry — an entry
+       carries the contact the friend typed, and a house can be corrected afterwards.
+       So it is looked up whenever we can, rather than added as a fourth stamped field
+       that would go stale the first time somebody fixes a street name. */
+    let eAddr = '';
+    if(typeof lookup === 'function'){
       const rec = lookup(String(e.referredCustomerId || '')) || {};
-      ePhone = String(rec.phone || '').replace(/\D/g,'');
-      eMail  = String(rec.email || '').trim().toLowerCase();
+      if(!ePhone && !eMail){
+        ePhone = String(rec.phone || '').replace(/\D/g,'');
+        eMail  = String(rec.email || '').trim().toLowerCase();
+      }
+      eAddr = custAddrKey(rec.address, rec.city);
     }
     if(bPhone && ePhone && bPhone === ePhone) return e;
     if(bMail  && eMail  && bMail  === eMail)  return e;
+    if(bAddr  && eAddr  && bAddr  === eAddr)  return e;
   }
   return null;
 }
@@ -12366,9 +12426,58 @@ function referralAlreadyCreditedFor(entries, referred, lookup){
    owns `referral`, syncPayerInvoice owns `carried`, and the manual box owns `manual`.
    ⚠ AND THE TOTAL IS REBUILT FROM THE LINES, never incremented — a running total that
    drifts from the notes under it is a bill that does not add up. */
+/* ⭐ THE CREDIT FOLLOWS THE MONEY ([[REF-39]], 2026-09-12). Addie, asked where a
+   referral earned by somebody whose house bills elsewhere should land: "It should
+   follow the money to the payer."
+   ⚠ IT USED TO GO ONTO THEIR OWN KEY, WHICH ON THOSE HOUSES IS A ZEROED LEFTOVER no
+   screen reads — so a tenant or a child at a parent's address earned $25 that came off
+   nothing. `billToPhone || custInvoiceKey` is the same resolution `getLiveInvoiceStatus`
+   and `billedHousesFor` already make, so the discount appears exactly where that
+   referrer reads their balance.
+   ⚠ THE COST SHE ACCEPTED, said plainly: the person whose bill drops by $25 is then the
+   PAYER, not the referrer — a landlord banking a tenant's referral. That is her ruling
+   and the line naming the referrer is what keeps it visible on the invoice. */
+function referralBillKey(d){
+  const data = d || {};
+  return String(data.billToPhone || '').replace(/\D/g,'') || custInvoiceKey(data);
+}
+/* ⭐ EVERY HOUSE ON THAT BILL, NOT JUST THIS ONE ([[REF-39]]). The rebuild below drops
+   every `referral` line and writes them back from the entries it is handed, so once two
+   houses can share one invoice, doing that from ONE house's entries DELETES the other
+   house's credits — the four Andersons on 8013721805 are exactly this shape. Gathering
+   the whole group is what makes following the money safe rather than lossy.
+   ⚠ EACH HOUSE IS ASKED ABOUT ITS OWN ROLL-FORWARD ([[REF-38]]), because they can be in
+   and out of the season independently — one sibling sitting the year out must not drag
+   the other's credit into next season. */
+function referralNotesForBill(referrerItem){
+  /* ⚠ THE REFERRER'S OWN ENTRIES COME FROM THE OBJECT IN HAND, NEVER FROM THE BOOK.
+     `creditReferralIfAny` writes the new entry onto `referrer.data` and then calls this;
+     `billedHousesFor` reads `jobAddresses`, which may still hold the copy from before
+     that write. Taking the group's version would rebuild the line from entries that do
+     not include the referral being credited — $0 on the bill, silently. Same optimistic
+     mirror hazard the Schedule tick already documents. */
+  const me = String(referrerItem.id || '');
+  const mine = referrerItem.data || {};
+  /* ⚠ `undefined`, NEVER `null`, FOR THE SEASON. `referralSeasonOr` asks
+     Number.isFinite(Number(seasonYear)) — and Number(null) is 0, which IS finite, so a
+     null here silently means season ZERO and every credit stops counting. undefined
+     gives NaN and falls through to this year, which is what every existing caller
+     relies on by omitting the argument. */
+  let out = referralCreditNotes(mine.referralCredits,
+    referralLiveCount(mine.referralCredits, undefined, mine), undefined, mine);
+  /* ⚠ AND THE SIBLINGS ARE ADDED BY ID, so the referrer can never be counted twice
+     whether or not the book happens to hold the very same object. */
+  billedHousesFor(mine).forEach(function(h){
+    if(!h || String(h.id || '') === me) return;
+    const hd = h.data || {};
+    out = out.concat(referralCreditNotes(hd.referralCredits,
+      referralLiveCount(hd.referralCredits, undefined, hd), undefined, hd));
+  });
+  return out;
+}
 async function applyReferralCreditLine(referrerItem){
   if(!referrerItem || !referrerItem.data) return false;
-  const key = custInvoiceKey(referrerItem.data);
+  const key = referralBillKey(referrerItem.data);
   if(!key) return false;
   const ref = doc(db,'invoices', key);
   const snap = await getDoc(ref);
@@ -12379,8 +12488,7 @@ async function applyReferralCreditLine(referrerItem){
   /* ⚠ ONE LINE PER REFERRAL, NAMED (REF-24). The count is derived from the entries here
      rather than read off `referralCount`, so the automatic path never invents a collapsed
      remainder line — that only exists for a number the office typed by hand. */
-  const notes = kept.concat(referralCreditNotes(referrerItem.data.referralCredits,
-    referralLiveCount(referrerItem.data.referralCredits)));
+  const notes = kept.concat(referralNotesForBill(referrerItem));
   const credits = notes.reduce(function(sum, c){ return sum + (Number(c && c.amount) || 0); }, 0);
   const updates = {
     creditNotes: notes, credits: credits,
