@@ -59566,3 +59566,55 @@ suite('328. The referral rulings of 2026-09-12');
       'referrer must never be counted twice');
   }
 })();
+
+// =====================================================================
+// 329. PICKING COLOURS IS TICKING BOXES, NOT HOLDING CTRL
+// =====================================================================
+/* ⭐ [[OPT-10]], 2026-09-12. Addie, on the colour picker: "can we make it more
+   optional choice instead having to push control to push on multiple."
+   ⚠ THE TWO PICKERS ARE IDENTICAL MARKUP IN TWO PLACES — the quick quote box and
+   the Get In Touch form — and the previous round of work on this file proved what
+   happens when only one of a pair is guarded: a red-check deleting the column from
+   the OTHER build sheet passed. Both are named here.
+   ⚠ NOTHING ABOUT WHAT IS SUBMITTED CHANGED, which is why this is a UX check and
+   not a data one: both readers already use `fd.getAll('colors')`, which walks
+   every control named colors whether it is a <select multiple> or nine checkboxes.
+   So a "tidy-up" back to a select would break NO behavioural test anywhere — it
+   would simply put the Ctrl key back in front of a customer. That is the whole
+   reason this suite exists, the same shape as the doubled quote buttons. */
+suite('329. Picking colours is ticking boxes, not holding Ctrl');
+{
+  const idx = read('index.html');
+  const COLOURS = ['Warm White','Pure White','Red','Green','Blue','Purple','Orange','Pink','Multi'];
+
+  check('S329', 'no colour picker is a hold-Ctrl multi-select any more',
+    !/<select[^>]*name=["']colors["'][^>]*multiple/i.test(idx) &&
+    !/<select[^>]*multiple[^>]*name=["']colors["']/i.test(idx),
+    'Addie asked for this by name; a select multiple needs Ctrl and a phone cannot press it');
+
+  check('S329', 'and the Ctrl/Cmd instruction is gone with it',
+    !/Hold Ctrl/i.test(idx),
+    'an instruction for a control that no longer exists is worse than none');
+
+  /* Both boxes, counted separately — one picker fixed and one missed is exactly the
+     failure this repo has already shipped once. */
+  const boxes = ['quickColorBox','contactColorBox'];
+  boxes.forEach(function(id){
+    const at = idx.indexOf('id="' + id + '"');
+    const body = at === -1 ? '' : idx.slice(at, idx.indexOf('</div>', idx.indexOf('color-check-row', at)));
+    const ticks = COLOURS.filter(function(c){
+      return body.indexOf('type="checkbox" name="colors" value="' + c + '"') !== -1;
+    });
+    check('S329', id + ' offers all nine colours as tick boxes',
+      at !== -1 && ticks.length === COLOURS.length,
+      'missing: ' + COLOURS.filter(function(c){ return ticks.indexOf(c) === -1; }).join(', '));
+  });
+
+  /* ⚠ THE READER IS THE HALF THAT MAKES THE SWAP SAFE, and it is asserted rather
+     than assumed: getAll gathers every control of that name, so nine checkboxes
+     arrive as the same array the select produced. Reading .value instead would
+     take one colour and silently drop the rest. */
+  check('S329', 'both submit handlers still gather every ticked colour',
+    (idx.match(/fd\.getAll\(['"]colors['"]\)/g) || []).length >= 2,
+    'fd.get would take the first tick and throw the others away, with no error');
+}
