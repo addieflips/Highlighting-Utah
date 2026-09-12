@@ -10619,7 +10619,16 @@ check('cap', 'the sweep still reports as changed when all it did was even days o
  */
 suite('19. All Customers: the next visit');
 {
-  const src = admin.slice(admin.indexOf('function nextVisitFor(d, todayStr)'),
+  /* ⚠ ANCHORED ON THE NAME, NOT THE ARGUMENT LIST ([[SCH-77]]). This matched
+     `function nextVisitFor(d, todayStr)` exactly, so adding the customer id — which is what
+     lets it ask the SCHEDULE rather than the routes system's stamp — made the slice come
+     back empty and the whole suite report "not findable" on code that is right. A signature
+     is not a structural anchor; a name is. Same slow-fuse shape as S44 and S82.
+     ⚠ AND IT STARTS AT planHangDateFor, which nextVisitFor now calls — lifting the caller
+     without it is the extraction trap, and here it would not even throw: `planHangDateFor`
+     undefined makes every fixture fall back to the stamp and the new checks would pass for
+     the wrong reason. */
+  const src = admin.slice(admin.indexOf('function planHangDateFor('),
                           admin.indexOf('function allCustRouteStatus'));
   if (!src) {
     check('nextvisit', 'the next-visit helpers are findable', false,
@@ -10655,8 +10664,13 @@ suite('19. All Customers: the next visit');
                return v && v.overdue === true && v.date === '2026-11-02'; })(),
       'that is a house the crew missed — hiding it until somebody tidies it up is ' +
       'exactly how it stays missed');
+    /* ⚠ NULL-SAFE SINCE [[SCH-77]], AND THAT IS A REAL FIX RATHER THAN A STYLE ONE. This
+       dereferenced the result directly, so any change that made nextVisitFor answer null
+       threw a TypeError and Suite 19 CRASHED — which stops the whole run and every suite
+       after it never scores. A red-check found it: the failure was reported as "crashed
+       partway through" with 1169 of 6829 checks run, instead of one clean red line. */
     check('nextvisit', 'today itself counts as coming up, not as missed',
-      api.next({ scheduled: true, scheduledDate: T }, T).overdue === false,
+      (api.next({ scheduled: true, scheduledDate: T }, T) || {}).overdue === false,
       'off-by-one here tells the office they missed a house they are driving to this morning');
     check('nextvisit', 'an upcoming visit always beats a missed one',
       (() => { const v = api.next({ scheduled: true, scheduledDate: '2026-11-02',
@@ -10691,6 +10705,102 @@ suite('19. All Customers: the next visit');
       api.chip({}) !== api.chip({ scheduled: true, scheduledDate: '2099-01-02' }) &&
       /dashed/.test(api.chip({})),
       'a dashed outline reads as "nothing here yet" rather than as a booking');
+
+    /* ---- THE DAY COMES FROM THE SCHEDULE ([[SCH-77]], 2026-09-12) -------
+       Addie, after [[SCH-73]] and [[SCH-74]] had both shipped and the row STILL said Oct 16:
+       "person still says they are scheduled for Oct 16 but Oct 16 is not in schedules."
+       ⛔ BOTH EARLIER FIXES PASSED THEIR OWN CHECKS AND NEITHER WORKED, which is the reason
+       these exist. They asked whether a CREW ROUTE backed the stamp — and one did, because
+       the reconcile sweep builds its own days and Oct 16 was one of them. The question she
+       is asking is about the SCHEDULE, a different set of days, and the only one that gets
+       printed and driven.
+       ⚠ RUN, NOT MATCHED, and against the PLAN rather than the stamp: the claim is which
+       date reaches the pill, and every source check in the world would have gone on passing
+       while the answer came from the wrong planner. */
+    {
+      const planned = {};
+      const withPlan = function(map){
+        global.window = {schedulePlanBookings: function(){ return map; }};
+      };
+      const BOOKED = {scheduled: true, scheduledDate: '2026-10-16'};
+
+      withPlan({'darlene': {date: '2026-11-03', crew: '1'}});
+      check('nextvisit', 'the day shown is the one the schedule has, not the one stamped on',
+        (function(){ const v = api.next(BOOKED, '2026-09-12', 'darlene');
+                     return v && v.date === '2026-11-03'; })(),
+        'the stamp is the crew-routes system\'s own bookkeeping and the sweep invents days ' +
+        'for it — reporting it is how a row promised Oct 16 while the schedule had no such day');
+
+      withPlan({'somebody-else': {date: '2026-11-03', crew: '1'}});
+      check('nextvisit', 'and a house the schedule has no day for claims none',
+        api.next(BOOKED, '2026-09-12', 'darlene') === null,
+        'Darlene\'s own case: a real map that does not hold her IS an answer, and it is no');
+
+      /* ⛔ THE GUARD THAT KEEPS THE COLUMN USABLE. The plan answers null until the Schedule
+         tab has been opened, which is every render on a fresh login — treating that as "no
+         day" blanks the date on all ~950 rows and reads as the column being broken. */
+      global.window = {schedulePlanBookings: function(){ return null; }};
+      check('nextvisit', 'but while the plan cannot answer it still shows the stamp',
+        (function(){ const v = api.next(BOOKED, '2026-09-12', 'darlene');
+                     return v && v.date === '2026-10-16'; })(),
+        'cannot-tell must draw what it always drew — the cnFreePool rule');
+      /* ⚠ AND NO PLAN AT ALL IS THE SAME ANSWER, which is what every suite that lifts this
+         function alone actually hits. */
+      global.window = {};
+      check('nextvisit', 'and with no schedule widget loaded at all, likewise',
+        (function(){ const v = api.next(BOOKED, '2026-09-12', 'darlene');
+                     return v && v.date === '2026-10-16'; })());
+      delete global.window;
+
+      /* ⛔ AND THE ROW HANDS THE ID OVER. Without it planHangDateFor cannot ask, every row
+         silently falls back to the stamp, and all of the above passes while nothing on
+         screen changed — the shape this repo has shipped three times. */
+      check('nextvisit', 'and the row passes the customer id through to the lookup',
+        /const v = nextVisitFor\(d, null, custId\);/.test(admin),
+        'without it the plan is never consulted and this whole fix is dead code');
+    }
+
+    /* ⛔ AND THE PUBLISHER'S OWN CONTRACT, RUN ([[SCH-77]]). Every check above STUBS
+       schedulePlanBookings, so none of them can see what the real one answers — a red-check
+       swapping its `return null` for `return {}` sailed straight through all of them. That
+       distinction is the whole safety of this design: null means "cannot say" and the pill
+       keeps showing the stamp, while an empty map is a real answer meaning "nobody is
+       booked" and blanks the date on every row in the book. */
+    {
+      const src = admin.slice(admin.indexOf('window.schedulePlanBookings = function(){'),
+                              admin.indexOf('function seasonCustomerIds('));
+      /* ⚠ THE TRAILING () IS THE POINT. The sandbox RETURNS the published function; calling
+         it is what produces the map. Without it `pub(...) === null` compares a function to
+         null, which is false for every case — so all three checks failed on correct code
+         and the red-check reported a miss it had nothing to do with. */
+      const pub = function(season, days){
+        const g = new Function('SEASON', 'installDays', 'crewHousesFor', 'dayDate', 'isoOf',
+          'crewIndexes', 'planCustomerFor', 'console', 'window',
+          src + 'return window.schedulePlanBookings;');
+        return g(season,
+          function(){ return days; },
+          function(i, day){ return (day && day.houses) || []; },
+          function(day){ return day && day._date; },
+          function(dt){ return dt.toISOString().slice(0, 10); },
+          function(){ return [0]; },
+          function(h){ return {id: h.id}; },
+          { error: function(){} }, {})();
+      };
+      check('nextvisit', 'a plan that has not loaded says "cannot say", never "nobody"',
+        pub(undefined, []) === null && pub([], []) === null,
+        'an empty map is a real answer and the pill acts on it — every row in the book ' +
+        'would lose its date the moment somebody opened admin before the plan loaded');
+      check('nextvisit', 'and a season with no install days says the same',
+        pub([{}], []) === null,
+        'takedowns-only is not the same as nobody being booked');
+      check('nextvisit', 'while a real day answers with the houses on it',
+        (function(){
+          const day = {_date: new Date('2026-11-03T00:00:00Z'), houses: [{id: 'darlene'}]};
+          const got = pub([day], [day]);
+          return got && got.darlene && got.darlene.date === '2026-11-03';
+        })(),
+        'the whole point is that the row can be told which day the schedule has them on');
+    }
 
     /* ---- IS THAT DAY REAL? ([[SCH-73]], 2026-09-11) ---------------------
        Addie, on Darlene Price #680: "It says shes scheduled for Oct 16 but I
