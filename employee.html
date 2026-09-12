@@ -1,6 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><link rel="manifest" href="/manifest-crew.json">
+<head>
+<!-- ⛔ NOT A PUBLIC PAGE. Nothing here should ever appear in a search result.
+     ⚠ AND IT IS noindex RATHER THAN A robots.txt Disallow, which is the half that
+     is easy to get backwards: Disallow stops the crawler FETCHING the page, and a
+     page it may not fetch is a page whose noindex it can never read - so Google
+     stays free to list the bare URL it was told not to look at. Allowed + noindex
+     is what actually keeps it out, and robots.txt deliberately does not name these
+     three files. -->
+<meta name="robots" content="noindex, nofollow">
+<link rel="manifest" href="/manifest-crew.json">
 <meta name="theme-color" content="#0b1e3d">
 <script>
   if ('serviceWorker' in navigator) {
