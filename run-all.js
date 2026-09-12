@@ -35354,7 +35354,13 @@ suite('Suite 128. The do-not-send list — automation emails only');
       /* ⚠ LIFTED REAL, NOT STUBBED. The renderer takes the no-email people out at the
          end and counts them, and this is the rule that decides who those are — a stub
          would make the count untestable while reporting green (CLAUDE.md §3). */
-      const canEmailSrc = extractFn(admin, 'custCanBeEmailed') || '';
+      /* ⚠ AND THE RULE IT ASKS (the Errors folder, 2026-09-12). custCanBeEmailed calls
+         emailAddressProblem, so lifting it alone dies on a bare ReferenceError and takes
+         the whole suite down unscored — the extraction-list trap, caught by this suite
+         within a minute of the change. Lifted real, never stubbed: a stub would decide
+         who is reachable, which is the one thing these checks are about. */
+      const canEmailSrc = (extractFn(admin, 'emailAddressProblem') || '') +
+                          (extractFn(admin, 'custCanBeEmailed') || '');
       /* ⚠ THE SELECTION UI PAINTER IS LIFTED REAL TOO, not stubbed. It reads
          `etSelectedRecipientIds`, and the fake document below answers null for every id
          it asks for — which is exactly the guarded path the shipped function takes when
@@ -35500,6 +35506,52 @@ suite('Suite 128. The do-not-send list — automation emails only');
       check('S128', 'an empty list explains itself when everyone lacked an address',
         /no email address on file/.test(r.html) && r.html.indexOf('No members match') === -1,
         'they did match — saying they did not sends the office looking at the filters');
+    }
+
+    /* ⭐ AND THE OTHER REASON IS COUNTED SEPARATELY (the Errors folder, 2026-09-12). Holding a bad
+       address back is only safe while it is SAID — a guard that silently shrinks an
+       audience is the failure this whole count line exists to prevent, and under
+       confirmed-only a customer who is never asked is a house no crew is sent to.
+       ⚠ THE TWO NUMBERS ARE DELIBERATELY NOT ONE. "We have no address for them" and "the
+       address we have is wrong" are different jobs — find one, or correct one — and the
+       second is the one that can be pressed at for ever through the Send again button. */
+    {
+      const r = render([
+        { id: 'g7', data: { name: 'Gil Twoaddresses', phone: '7', email: 'gil@x.com, gil2@x.com' } },
+        { id: 'h8', data: { name: 'Hal Noaddress', phone: '8' } },
+        { id: 'i9', data: { name: 'Ivy Fine', phone: '9', email: 'ivy@x.com' } }
+      ], 'hide');
+      check('S128', 'an address that cannot be sent to is held back',
+        r.html.indexOf('Gil Twoaddresses') === -1,
+        'EmailJS answers this one with 422 "The recipients address is corrupted" — ' +
+        'spending the request only produces a failure row nobody can act on');
+      check('S128', 'and everybody sendable is still there',
+        r.html.indexOf('Ivy Fine') !== -1,
+        'refusing a real address is worse than the 422 it prevents');
+      check('S128', 'the count line names the bad-address group on its own line',
+        /1 left out: the address on file is not one we can send to/.test(r.count),
+        'folded into the no-address note it reads as "we have no address", which is ' +
+        'the one thing it is not — the address is right there and it is wrong');
+      check('S128', 'and still names the no-address group separately',
+        /1 left out: no email address on file/.test(r.count),
+        'two causes, two fixes — one number cannot say which applies to whom');
+      check('S128', 'and tells her to correct the record',
+        /correct it/.test(r.count),
+        '"The recipients address is corrupted" is what she read twice in two days ' +
+        'and it names nothing to do');
+      check('S128', 'the people who DID match are still counted correctly',
+        /^1 member matches these filters\./.test(r.count),
+        'the exclusion notes annotate the count, they do not replace it');
+    }
+
+    /* ⚠ AND AN AUDIENCE EMPTIED ENTIRELY BY BAD ADDRESSES STILL EXPLAINS ITSELF. Without
+       this it falls through to "No members match these filters", which is the same lie
+       the check above it was written to stop. */
+    {
+      const r = render([{ id: 'j1', data: { name: 'Jan Bad', phone: '1', email: 'jan@x' } }], 'hide');
+      check('S128', 'an empty list explains itself when the addresses were unusable too',
+        r.html.indexOf('No members match') === -1 && /No one left to send to/.test(r.html),
+        'they matched — the addresses are what stopped them');
     }
 
     /* ---- 3. the control that adds somebody, and where it sits ---- */
@@ -35758,12 +35810,16 @@ suite('Suite 128. The do-not-send list — automation emails only');
   {
     const canSrc = extractFn(admin, 'custCanBeEmailed');
     const chipSrc = extractFn(admin, 'custEmailChip');
+    /* ⚠ LIFTED, NOT STUBBED (the corrupted-address fault, 2026-09-12). Both of these now ask emailAddressProblem —
+       that IS the rule under test here — so a stub would answer for it and every check
+       below would prove the stub. */
+    const probSrc128 = extractFn(admin, 'emailAddressProblem');
     check('S128', 'the can-we-email-them rule and its chip are findable',
-      !!canSrc && !!chipSrc,
+      !!canSrc && !!chipSrc && !!probSrc128,
       'renamed — the Customers filter and the row badge both read these');
 
-    if (canSrc && chipSrc) {
-      const api = new Function('esc', canSrc + chipSrc +
+    if (canSrc && chipSrc && probSrc128) {
+      const api = new Function('esc', probSrc128 + canSrc + chipSrc +
         ';return {can: custCanBeEmailed, chip: custEmailChip};')(s => String(s == null ? '' : s));
 
       check('S128', 'a customer with an email can be emailed',
@@ -35788,6 +35844,93 @@ suite('Suite 128. The do-not-send list — automation emails only');
       check('S128', 'somebody reachable gets no chip at all',
         api.chip({ email: 'a@b.com' }) === '',
         'a badge on every row is a badge nobody reads');
+
+      /* ⭐ AN ADDRESS EMAILJS REFUSES IS NOT A REACHABLE CUSTOMER (the Errors folder, 2026-09-12,
+         from the Errors folder). Two rows a day apart — "1 of 258 failed … The recipients
+         address is corrupted", then "1 of 1 failed" with the same words, which is the
+         failure card's Send again button arriving back at the same unsendable address.
+         `quotesToNudge` has read this rule since it was written and says why in as many
+         words; the customers side never did. RUN, not matched: the claim is about which
+         side of the line one address falls. */
+      check('S128', 'two addresses in one box cannot be emailed',
+        api.can({ email: 'a@b.com, c@d.com' }) === false,
+        'to_email takes exactly one address — this is the commonest cause of the 422');
+      check('S128', 'an address with a space in it cannot be emailed',
+        api.can({ email: 'sam smith@gmail.com' }) === false);
+      check('S128', 'an address with no @ cannot be emailed',
+        api.can({ email: 'sam.gmail.com' }) === false);
+      check('S128', 'an address whose domain has no ending cannot be emailed',
+        api.can({ email: 'sam@gmail' }) === false);
+      /* ⚠ THE HALF THAT MATTERS MORE. A guard that refuses a real address silently drops
+         a customer from every send, and under confirmed-only that is a house no crew is
+         sent to. These are ordinary addresses that must survive. */
+      ['sam@gmail.com', 'sam+lights@gmail.com', "o'brien@example.co.uk",
+       'first.last@sub.domain.org', 'SAM@Gmail.Com', '  sam@gmail.com  '].forEach(function (ok) {
+        check('S128', 'an ordinary address is still reachable: ' + ok.trim(),
+          api.can({ email: ok }) === true,
+          'refusing a real address is worse than the 422 it prevents — there is no way round it');
+      });
+      /* ⚠ AND IT IS NOT THE TYPO DETECTOR. emailTypoSuggestion GUESSES that gmai.com meant
+         gmail.com and only ever warns, because a guess about somebody else's address must
+         not block a real send. A one-letter-wrong domain is a perfectly valid address and
+         has to stay sendable here. */
+      check('S128', 'a domain that is merely misspelt is still sent to',
+        api.can({ email: 'sam@gmai.com' }) === true,
+        'blocking on a typo GUESS is the one thing the no-auto-fix rule forbids');
+      /* ⚠ THE ROW HAS TO SAY WHICH IT IS. "No email" printed beside a visible address
+         reads as a bug in the badge — the chip's own comment makes that argument for the
+         secondary-only case, and this is the same shape. */
+      check('S128', 'a bad address is badged as one, not as "No email"',
+        /Can/.test(api.chip({ email: 'a@b.com, c@d.com' })) &&
+        !/No email/.test(api.chip({ email: 'a@b.com, c@d.com' })),
+        'the address is on the record and wrong — saying we have none sends her hunting');
+    }
+
+    /* ⭐ AND EVERY SENDER ASKS BEFORE SPENDING A REQUEST (the corrupted-address fault, 2026-09-12). The rule above keeps
+       a bad address out of the recipient LIST; this is what stops the re-send, which takes
+       its ids straight from the saved failure list and never goes near that list. */
+    {
+      const skipSrc = extractFn(admin, 'emailSendSkipReason');
+      check('S128', 'the skip-reason rule is findable',
+        !!skipSrc, 'renamed — every bulk sender files its `why` from this');
+      if (skipSrc && probSrc128) {
+        const skip = new Function(probSrc128 + skipSrc + ';return emailSendSkipReason;')();
+        check('S128', 'a usable address is not skipped',
+          skip({ email: 'sam@gmail.com' }) === '');
+        check('S128', 'a blank one says so plainly',
+          /no email address on file/.test(skip({})));
+        /* ⚠ THE REASON NAMES THE FIX. EmailJS's own "The recipients address is corrupted"
+           is what the office read twice in two days and it names no part of the problem
+           and nothing to do about it. */
+        check('S128', 'a bad address names the record as the thing to correct',
+          /correct the address on their record/.test(skip({ email: 'a@b.com, c@d.com' })),
+          'the Send again button can be pressed for ever otherwise');
+      }
+      /* ⚠ NAMED ONE BY ONE, and the anchors are each sender's own loop. A file-wide
+         search for the helper passes with four of the five left unguarded, which is
+         exactly how the bins column shipped on one of two build sheets. */
+      [['bulkUpdateEmailStatus', 'the Automation-tab bulk update'],
+       ['rsvpEmailTemplate', 'the RSVP-tab send'],
+       ['pibUnpaidSendStatus', 'the unpaid-invoice send'],
+       ['pibPaidSendStatus', 'the receipt send']].forEach(function (pair) {
+        const at = admin.indexOf(pair[0]);
+        const body = at === -1 ? '' : sectionFrom(admin, at);
+        check('S128', pair[1] + ' asks before it sends',
+          /emailSendSkipReason\(/.test(body),
+          'one bad address costs a request and a failure row every single run');
+      });
+      const runSrc = extractFn(admin, 'etSendTemplateRun') || '';
+      check('S128', 'and so does the template sender the re-send goes back through',
+        /emailSendSkipReason\(member\.data\)/.test(runSrc),
+        'this is the one the Errors folder caught twice — 1 of 258, then 1 of 1');
+      /* ⚠ AFTER THE OPT-OUT, NEVER BEFORE IT. Somebody who asked for no automation email
+         is not a bad-address problem, and reporting them as a failure puts work on the
+         office for a choice the customer made. */
+      check('S128', 'the opted-out check still comes first',
+        runSrc.indexOf('etNoAutomationEmails(member.data)') !== -1 &&
+        runSrc.indexOf('etNoAutomationEmails(member.data)') <
+          runSrc.indexOf('emailSendSkipReason(member.data)'),
+        'an opt-out is a decision, not a failure to report');
     }
 
     const render = sectionFrom(admin, admin.indexOf('function renderAllCustomersTable()'));
@@ -55623,6 +55766,10 @@ suite('Suite 307. Filter, then select everyone under the filter');
         }
       };
       const env = new Function('document', 'MEMBERS', 'TERM', 'PAYMENT', 'MODE', 'PICKED', 'PAIDLAST', 'HASLAST',
+        /* ⚠ emailAddressProblem COMES WITH IT (the corrupted-address fault, 2026-09-12) — custCanBeEmailed calls it,
+           and lifting one without the other is a bare ReferenceError that takes the
+           whole suite down rather than failing a check. */
+        (extractFn(admin, 'emailAddressProblem') || '') +
         (extractFn(admin, 'custCanBeEmailed') || '') +
         (extractFn(admin, 'etNoAutomationEmails') || '') +
         selUiSrc307 +
