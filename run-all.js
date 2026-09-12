@@ -45139,9 +45139,15 @@ suite('263. Priced is not sent - the card stays in Quotes');
       /followQuoteToItsStage\(id, \{quotedPrice: price, quoteToken: token, quoteSentAt: quoteSentNowStamp\(\)/.test(rows),
       'without it the card sits in Quotes until the snapshot lands and then jumps ' +
       'out of the tab she is looking at, which reads as the send having eaten it');
-    check('S263', 'and so do the other three ways of sending it',
-      (rows.match(/followQuoteToItsStage\(id, \{quoteSentAt: quoteSentNowStamp\(\), quoteManuallySent: true\}\)/g) || []).length === 3,
-      'sendQuoteEmailNow, the email preview box and the text - a new send path ' +
+    /* ⚠ THREE BECAME TWO ON 2026-09-12 ([[QT-41]]), and the count moved with the code
+       rather than the guarantee being weakened. The third was the TEXT send, which called
+       Twilio; there is no Twilio account, so that button could never work and it is gone —
+       the quote card now copies the message and opens the Google Voice thread, and a copy
+       is not a send, so it files nothing and stamps nothing. If a real send path is ever
+       added back, this number goes up with it. */
+    check('S263', 'and so do the other two ways of sending it',
+      (rows.match(/followQuoteToItsStage\(id, \{quoteSentAt: quoteSentNowStamp\(\), quoteManuallySent: true\}\)/g) || []).length === 2,
+      'sendQuoteEmailNow and the email preview box - a new send path ' +
       'that skips this is a card that vanishes');
     check('S263', 'saying you sent it yourself files it too, and undoing files it back',
       /followQuoteToItsStage\(id, \{quoteManuallySent: true\}\)/.test(rows) &&
@@ -59795,7 +59801,7 @@ suite('329. Picking colours is ticking boxes, not holding Ctrl');
 // =====================================================================
 // 330. A PHONE OR AN EMAIL — ONE BOX, ON ALL THREE PUBLIC FORMS
 // =====================================================================
-/* ⭐ [[QT-40]], 2026-09-12. Addie: "on contact form we should be able to put email as
+/* ⭐ [[QT-41]], 2026-09-12. Addie: "on contact form we should be able to put email as
    an option."
    ⚠ SHE WAS RIGHT ABOUT THE GAP AND IT WAS ON A THIRD FORM. Get In Touch and Send a
    Message have taken either through one `contact` box since they were written; the FREE
