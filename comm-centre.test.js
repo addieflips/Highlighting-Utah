@@ -1483,6 +1483,63 @@ console.log('--- nothing here hides until you hover ---');
     'a button with no handler is indistinguishable from one that works, until it is pressed');
 }
 
+/* ⭐ WHEN NOTHING IS REACHING THE GMAIL, THE INBOX SAYS SO ([[MSG-25]], 2026-09-12).
+   Addie: "Also my message when to admin portal not gmail."
+   ⚠ EVERY CLAIM HERE IS A LINE ON A SCREEN, so the rule is RUN rather than matched — a
+   regex over the source passes on a note that is built and never drawn, which is the
+   failure this repo has shipped three times. */
+{
+  const html = new Function(liftFn('msgAlertOffNoteHtml') +
+    'return msgAlertOffNoteHtml;')();
+
+  /* ⚠ null IS "WE HAVE NOT READ THE SETTINGS", not "the alerts are off". hcNotifyCfg is
+     null before the read lands AND when it fails, and accusing on either is a false alarm
+     on the one line that must not cry wolf. cnFreePool's three-answer rule. */
+  check('settings we have not read yet accuse nobody',
+    html(null) === '',
+    'a note drawn while the read is still in flight is a false alarm every single login');
+
+  check('a complete setup says nothing at all',
+    html({serviceId:'service_x', notifyTemplateId:'template_x', publicKey:'pk_x'}) === '',
+    'a banner that is always there is one nobody reads');
+
+  /* ⚠ IT NAMES THE BLANK BOX. "EmailJS is misconfigured" sends somebody to compare six
+     fields; the Health Check row it borrows this from makes the same argument. */
+  const only = html({serviceId:'service_x', notifyTemplateId:'', publicKey:'pk_x'});
+  check('a blank notify template is named, and it alone',
+    only.indexOf('Message Notification Template ID') !== -1 &&
+    only.indexOf('EmailJS Service ID') === -1 &&
+    only.indexOf('EmailJS Public Key') === -1,
+    'this is the box she had just filled in on emailjs.com and never pasted here');
+
+  check('and it says where to go',
+    /Automation Emails/.test(only),
+    'a fault with no next step sends somebody hunting for a bug in working code');
+
+  /* ⚠ AND IT MUST NOT READ AS THE MESSAGE BEING LOST. The Inbox write is unconditional and
+     separate; only the nudge fails. Saying otherwise would start a hunt for missing
+     customer messages that are all present. */
+  check('it says the messages themselves still arrived',
+    /still arrive in this Inbox/.test(only),
+    'the message saved fine — it is the heads-up email that did not go');
+
+  const all = html({});
+  ['EmailJS Service ID','Message Notification Template ID','EmailJS Public Key']
+    .forEach(function(box){
+      check('an empty settings document names ' + box,
+        all.indexOf(box) !== -1,
+        'one blank box named and two missed is the same silence in a smaller size');
+    });
+
+  /* ⚠ DRAWN IS NOT WIRED — the recycle "bin says" box rendered perfectly and saved
+     nothing. Asserted separately from the rule, because this suite calls the renderer from
+     its own harness and would stay green with the call deleted from the real page. */
+  check('the Inbox actually draws it',
+    /msgAlertOffNoteHtml\(hcNotifyCfg\)/.test(admin) &&
+    /id="msgAlertOffNote"/.test(admin),
+    'a note nothing calls is indistinguishable on screen from no note');
+}
+
 
 Promise.all(pendingChecks).then(function(){
   console.log('');

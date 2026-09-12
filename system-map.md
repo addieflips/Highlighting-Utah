@@ -4238,10 +4238,24 @@ shows the account holder.
 was doing two jobs; the names are now the only thing keeping them apart, and opening the
 wrong one to edit customer copy re-breaks the alerts silently.
 
-⚠ **THE FAILURE IS STILL CONSOLE-ONLY.** `notifyBusinessOfMessage` logs a refusal and
-nothing else — which is why this sat broken and looked like customers not writing in. It
-does NOT file into Errors → Admin Errors the way other faults do. That is the gap worth
-closing next; until it is, a rejected alert is indistinguishable from silence.
+⭐ **HALF OF THIS IS CLOSED (2026-09-12, [[MSG-25]]), and it is the half that keeps
+happening.** Addie sent herself a test, read it in the Inbox, and no Gmail came:
+`notifyBusinessOfMessage` returns early with a `console.warn` whenever any of Service ID,
+Message Notification Template ID or Public Key is blank — a warning on a PUBLIC page nobody
+has a console open on. Health Check’s `notifyOff` row already named the exact blank box,
+and [[HC-03]] is her saying she does not open Health Check. So `msgAlertOffNoteHtml` now says
+it **in the Inbox**, above the messages that were not emailed, naming the box and where to
+fill it in. `null` (read not landed, or failed) draws nothing — announcing the alerts are
+off because a read has not finished is a false alarm on the one line that must not cry wolf.
+
+⚠ **THE OTHER HALF IS STILL CONSOLE-ONLY.** A send that is ATTEMPTED and then refused by
+EmailJS — bad template variables, over quota, a *To Email* pointing somewhere else —
+still logs and nothing more, and does NOT file into Errors → Admin Errors the way other
+faults do. That is the gap worth closing next. ⛔ **And the destination itself is invisible
+from this repo by construction**: the params carry no recipient, so where the alert lands is
+the *To Email* on the EmailJS template, set on emailjs.com. Three filled boxes mean the alert
+was SENT, never that it arrived — the "handed to the mail service" distinction the test
+invoice already draws.
 
 ⭐ **And both directions are now driven in a real browser.** `test/address-move.spec.js`
 presses the button and reads the alert back, and presses **Save Information** on My Info and
