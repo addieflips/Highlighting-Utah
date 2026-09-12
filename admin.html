@@ -6569,7 +6569,11 @@ function __setEl(id, path, val){
 const auth = getAuth(app);
 const db = getFirestore(app);
 const fbFunctions = getFunctions(app);
-const sendSmsFn = httpsCallable(fbFunctions, 'sendSms');
+/* ⛔ `sendSms` HAS NO CALLER IN THIS FILE ANY MORE ([[QT-41]]). Its one caller was the quote
+   card's Send the text button, which could never work — there is no Twilio account. The Cloud
+   Function is LEFT DEPLOYED on purpose: the nightly owner-alert still reaches Twilio through
+   `twilioSendRaw` on the server, and deleting a callable is a deploy-time decision rather than
+   a tidy-up. If an account is ever set up, this is the line to bring back. */
 const sendInvoicesNowFn = httpsCallable(fbFunctions, 'sendInvoicesNow');
 const runQuoteNudgesNowFn = httpsCallable(fbFunctions, 'runQuoteNudgesNow');
 /* Job 4: the fix photo is destroyed when the fix is done. Server-side because
@@ -7163,6 +7167,50 @@ function newQuoteToken(){
 
    ⚠ IT CARRIES ?p= WHEN THERE IS ONE, under the same name the long link uses,
    so an existing member is still let straight in. */
+/* ⭐ THE GOOGLE VOICE THREAD FOR ONE NUMBER ([[QT-41]], 2026-09-12). Dax: "I want it so when
+   you click the button it copys it and opens a link so all you need to do is paste where it
+   sends you and you dont need to do anything else."
+
+   ⚠ IT IS A LINK ON AN <a>, NEVER `window.open` — and that is the whole reason this works.
+   A popup opened from script after an `await` has lost its user gesture and is blocked by
+   default in Chrome, silently: the message copies, no tab appears, and it reads as the button
+   half working. A real anchor navigates natively and cannot be blocked, so the copy and the
+   opening ride the same click.
+
+   ⚠ NO `/u/0/` IN THE PATH. That pins the FIRST signed-in Google account, and the office
+   keeps Google Voice on its own profile — so a hard-coded index opens somebody else's
+   messages, or an account with no Voice at all. Left off, Google picks the account itself.
+
+   ⚠ AND IT NEEDS E.164. Voice matches a thread on the full +1 number; "(801) 555-1234" finds
+   nothing and lands on an empty search. Anything that is not ten or eleven digits returns '',
+   and the caller then renders a plain copy button rather than a link to a page that cannot
+   find anybody — an empty thread reads as the customer having no history, which is worse than
+   no link at all. */
+/* ⭐ WHICH GOOGLE ACCOUNT HOLDS THE VOICE NUMBER ([[QT-41]], confirmed by Dax 2026-09-12).
+   Measured rather than assumed, and the measurement is the reason this constant exists: the
+   link was built without it, opened in a browser signed in as addiechichia@gmail.com, and
+   Google answered with **that** account's Voice — which has no number at all and offers to
+   sell you one. Nothing failed; it just quietly opened the wrong inbox.
+
+   ⚠ `authuser` TAKES THE EMAIL, NEVER AN INDEX. `/u/0/` and `/u/1/` are positions in whatever
+   order that browser happens to have signed in, so they point at different people on different
+   machines — and the office keeps Voice on a profile of its own.
+
+   ⛔ AND IT IS A FALL-BACK, NOT A GUARANTEE, which is the part worth knowing before trusting
+   it: if this account is not signed into the browser at all, Google does NOT stop and ask —
+   it silently serves the default account instead. Measured on 2026-09-12, with authuser set
+   to this very address on a browser that did not have it. So the link gets the office to the
+   right place when they are signed in, and cannot rescue them when they are not. */
+const GOOGLE_VOICE_ACCOUNT = 'service@highlightingutah.com';
+function googleVoiceThreadUrl(phone){
+  const digits = String(phone == null ? '' : phone).replace(/\D/g, '');
+  let e164 = '';
+  if(digits.length === 10) e164 = '+1' + digits;
+  else if(digits.length === 11 && digits.charAt(0) === '1') e164 = '+' + digits;
+  if(!e164) return '';
+  return 'https://voice.google.com/messages?authuser=' + encodeURIComponent(GOOGLE_VOICE_ACCOUNT) +
+    '&itemId=' + encodeURIComponent('t.' + e164);
+}
 function quoteShortLink(d){
   const portal = quotePortalParam(d);          /* '&p=...' or '' */
   return 'highlightingutah.com/q/' + (d.quoteToken || '') +
@@ -16713,6 +16761,7 @@ function renderQuoteRows(filtered){
       .trim();
     if(msg.indexOf(link) === -1) msg += '\n\n' + link;
     const segs = smsSegments(msg);
+    const voiceUrl = googleVoiceThreadUrl(d.phone);
     resultEl.innerHTML =
       '<div style="font-size:11.5px; background:#EEF1FF; border:1px solid #C7CEF5; border-radius:8px; padding:9px 11px; margin-bottom:10px; color:#33397a; line-height:1.5;">'+
         'Text, pulled live from <strong>Automation Emails &rarr; Templates &rarr; '+esc(tmplName)+'</strong>. '+
@@ -16725,88 +16774,67 @@ function renderQuoteRows(filtered){
         msg.length+' characters &middot; billed as '+segs+' message'+(segs === 1 ? '' : 's')+
         (segs > 1 ? ' \u2014 trim the template to get under 160.' : '')+
       '</div>'+
+      /* \u26a0 SAID ON SCREEN, NOT ONLY IN THE BUTTON LABELS. Numbering three controls 1-2-3 shows
+         the ORDER and not the REASON, and the reason is the part that stops somebody hunting
+         for the one-click version: Google Voice cannot be opened straight onto a new message,
+         so two pastes is the floor rather than a rough edge waiting to be tidied. */
+      '<div class="rtext" style="margin-top:10px; color:var(--slate);">Google Voice cannot be ' +
+        'opened straight onto a new message, so it is two pastes \u2014 the number, then the text.</div>'+
       '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">'+
-        '<button type="button" class="btn btn-gold btn-sm quotetext-send-btn">Send the text</button>'+
+        /* ⚠ COPY, NOT SEND — THERE IS NO TWILIO ACCOUNT ([[QT-41]]). This was `Send the text`,
+           calling `sendSms`. Dax, having set an account up and changed his mind the same night:
+           "we cant use twillo." A button that can only ever fail is worse than no button.
+
+           ⛔ AND GOOGLE VOICE HAS NO DEEP LINK THAT OPENS A COMPOSE WINDOW. Measured, not
+           assumed: `?itemId=t.+1<number>` was built, shipped to Dax to try against a real
+           customer, and reported back — "the link takes me to my google voice not to the exact
+           spot where I can copy and paste". `itemId` resolves a conversation that ALREADY
+           exists; there is no parameter that starts a new one. So the button cannot land the
+           office in the message box, and pretending otherwise is what the first version did.
+
+           ⭐ SO THE TWO PASTES ARE MADE EXPLICIT AND PUT IN VOICE'S OWN ORDER. Voice asks for
+           the RECIPIENT first and the MESSAGE second, and a clipboard holds one thing — so one
+           button cannot do both, however it is worded. Number first, message second, numbered
+           on screen, with the link in the middle where it is actually needed.
+
+           ⚠ THE ITEM LINK IS KEPT ANYWAY. It costs nothing when there is no thread — Voice
+           lands on the message list, which is where the office is going regardless — and when
+           the customer HAS been texted before it opens their conversation and step 1 is already
+           done. What changed is that nothing promises it will. */
+        '<button type="button" class="btn btn-outline btn-sm quotetext-copy-num">1 · Copy the number</button>'+
+        (voiceUrl
+          ? '<a class="btn btn-outline btn-sm" href="'+esc(voiceUrl)+'" target="_blank" rel="noopener">2 · Open Google Voice</a>'
+          : '')+
+        '<button type="button" class="btn btn-gold btn-sm quotetext-copy-msg">3 · Copy the message</button>'+
         '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+id+'">Show the email instead</button>'+
       '</div>'+
       '<div class="quoteemail-sendstatus rtext" style="margin-top:6px;"></div>';
     const again = resultEl.querySelector('[data-copyquoteemail]');
     if(again) again.addEventListener('click', function(){ showQuoteEmailBox(id, 'quote'); });
-    resultEl.querySelector('.quotetext-send-btn').addEventListener('click', async function(){
-      const btn = this;
-      const statusEl = resultEl.querySelector('.quoteemail-sendstatus');
-      if(quoteSendInFlight.has(id)){ statusEl.textContent = 'Already sending \u2014 give it a second.'; return; }
-      quoteSendInFlight.add(id);
-      btn.disabled = true;
-      statusEl.style.color = 'var(--slate)';
-      statusEl.textContent = 'Sending\u2026';
-      try{
-        await sendSmsFn({to: d.phone, body: msg});
-        const updates = {
-          quoteSentVia: 'sms', quoteSmsSentAt: serverTimestamp(),
-          quoteSentAt: serverTimestamp(),
-          quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
-        };
-        await updateDoc(doc(db,'quotes', id), updates);
-        quoteSendResults.set(id, {ok:true, text:'\u2713 Text sent to ' + d.phone + '.'});
-        followQuoteToItsStage(id, {quoteSentAt: quoteSentNowStamp(), quoteManuallySent: true});
-        repaintQuoteSendResults();
-        toast('Text sent to ' + d.phone + '.');
-      } catch(err){
-        const raw = (err && (err.message || err.text)) ? (err.message || err.text) : String(err);
-        /* Twilio blocks anyone who has replied STOP and reports 21610 on the
-           next attempt. Record it on the quote so nothing texts them again,
-           and archive the card. STOP withdraws permission to TEXT, not
-           necessarily interest in the quote, so the reason is stored and the
-           card stays restorable rather than being deleted. */
-        let msgOut;
-        if(/21610/.test(raw)){
-          msgOut = 'They replied STOP to a text, so this number can\'t be texted. Archived \u2014 restore it from Closed \u2192 Archived if you want to reach them by email.';
-          try{
-            await updateDoc(doc(db,'quotes', id), {
-              smsOptedOut: true, smsOptedOutAt: serverTimestamp(),
-              quoteArchived: true, quoteArchivedAt: serverTimestamp(),
-              quoteArchivedReason: 'Replied STOP to a text message'
-            });
-            followQuoteToItsStage(id, {smsOptedOut: true, quoteArchived: true, quoteArchivedReason: 'Replied STOP to a text message'});
-          } catch(e){ /* the message below still explains what happened */ }
-        } else if(/authenticat|invalid username|20003|accountsid/i.test(raw)){
-          /* ⚠ THIS BRANCH SAID "THERE IS NO TWILIO ACCOUNT" FOR ONE DAY, AND THAT IS NO
-             LONGER TRUE ([[QT-39]], 2026-09-11, superseding [[QT-38]]). Dax set one up the
-             same evening. The wording it replaced was right for the world it was written in
-             and is wrong now, which is exactly the shape a superseded ruling takes — kept
-             here rather than deleted, because whoever reads this next needs to know the
-             message used to send people away from a fix that now exists.
-
-             ⚠ THE BRANCH ITSELF IS STILL WORTH HAVING, because the raw wording is still
-             useless on its own: "Authentication Error - invalid username" is Twilio
-             refusing the ACCOUNT SID, which it uses as the basic-auth username — so the
-             word "username" sends whoever reads it looking for a login that does not exist
-             anywhere in this system. What it actually means is that the three secrets are
-             wrong, empty, or from a different account.
-
-             ⚠ AND IT NAMES WHERE THEY LIVE, because they are not in this app at all. They
-             are Firebase secrets (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN /
-             TWILIO_PHONE_NUMBER) and changing one needs a redeploy before it takes effect —
-             which is the step most easily missed, since setting a secret alone looks like it
-             worked and changes nothing. The service's own words stay on the end. */
-          msgOut = 'The text service refused our details — nothing was sent. That is the ' +
-            'Twilio account SID, token or number, which live as Firebase secrets rather than ' +
-            'in this app, and they only take effect after the functions are redeployed. ' +
-            'Send the quote by email in the meantime. (' + raw + ')';
-        } else {
-          msgOut = 'Text failed: ' + raw;
-        }
-        quoteSendResults.set(id, {ok:false, text: msgOut});
-        repaintQuoteSendResults();
-        statusEl.style.color = 'var(--ember)';
-        statusEl.textContent = msgOut;
-        btn.disabled = false;
-        console.error('Quote text send failed:', err);
-      } finally {
-        quoteSendInFlight.delete(id);
-      }
-    });
+    /* ⚠ THE LINK IS LEFT TO NAVIGATE ITSELF — no handler, no preventDefault, no `window.open`.
+       A popup opened from script after an `await` has lost its user gesture and Chrome blocks it
+       silently, which reads as the button doing nothing. An anchor cannot be blocked.
+       ⚠ AND NOTHING IS WRITTEN TO THE QUOTE. The send this replaced stamped `quoteTextSentAt`;
+       there is no success to detect when a person does the sending, and a stamp written on a
+       COPY would claim we texted somebody whose message is still on a clipboard. */
+    function quoteTextCopy(sel, value, said){
+      const btn = resultEl.querySelector(sel);
+      if(!btn) return;
+      btn.addEventListener('click', function(){
+        const statusEl = resultEl.querySelector('.quoteemail-sendstatus');
+        navigator.clipboard.writeText(value).then(function(){
+          if(statusEl){ statusEl.style.color = 'var(--slate)'; statusEl.textContent = '\u2713 ' + said; }
+        }).catch(function(err){
+          console.error('Quote text copy failed:', err);
+          if(statusEl){
+            statusEl.style.color = 'var(--ember)';
+            statusEl.textContent = 'Could not copy \u2014 select it above and copy it by hand.';
+          }
+        });
+      });
+    }
+    quoteTextCopy('.quotetext-copy-num', String(d.phone || ''), 'Number copied \u2014 paste it into To in Google Voice.');
+    quoteTextCopy('.quotetext-copy-msg', msg, 'Message copied \u2014 paste it into the message box.');
   }
   /* Downloads the photo currently on screen, not blindly the first one. */
   async function downloadQuotePhoto(id){

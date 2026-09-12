@@ -3986,6 +3986,27 @@ because the folder earning its keep within two days is the argument for it.
     answers `400 Upload preset not found` rather than `401 cloud_name is disabled`, and
     delivery returns 200. This is the wording for the next time, not a fix for that
     outage — which was settled on the billing account, exactly as the advice says.
+- ⛔ **AND THE QUOTE CARD DOES NOT SEND A TEXT AT ALL ANY MORE** ([[QT-41]], 2026-09-12,
+  superseding [[QT-39]] and restoring [[QT-38]]'s position). Dax ruled it out hours after
+  setting the account up: *"we cant use twillo so we need to just set it up so its easy to copy
+  to bulk text in google voice"*, then *"I want it so when you click the button it copys it and
+  opens a link so all you need to do is paste where it sends you"*. **Copy & open Google Voice**
+  replaces **Send the text**: one press puts the message on the clipboard and opens that
+  customer's Voice thread.
+  - ⭐ **IT IS AN ANCHOR, AND THAT IS THE WHOLE TRICK.** A popup opened from script after an
+    `await` has lost its user gesture and Chrome blocks it **silently** — the message copies,
+    no tab appears, and the button reads as half working. A real `<a>` navigates natively and
+    cannot be blocked, so the copy and the opening ride one click.
+  - ⚠ **NO `/u/0/` IN THE LINK** — that pins the first signed-in Google account, and the office
+    keeps Voice on its own profile. Voice matches a thread on the full E.164 number, so a phone
+    that is not ten or eleven digits yields no link and the button falls back to a plain copy:
+    an empty Voice search reads as the customer having no history with us.
+  - ⛔ **NOTHING IS WRITTEN ON A COPY.** The send stamped `quoteTextSentAt`; a stamp on a copy
+    would claim we texted somebody whose message is still on a clipboard. The card is not filed
+    either, which is why S263 counts two send paths now instead of three.
+  - ⚠ **SO NOTHING DETECTS A STOP.** Twilio's 21610 was the only thing that ever set
+    `smsOptedOut`; it is still read by the RSVP text list and is now set only by hand. Already
+    true while the send was broken — true by design now.
 - ⭐ **"Twilio send failed: Authentication Error — invalid username" — AND THERE IS AN
   ACCOUNT NOW** ([[QT-39]], 2026-09-11, superseding [[QT-38]]). The earlier ruling was Dax's
   *"we doont use twillo we use google voice"*, and for about a day the quote card said so:
