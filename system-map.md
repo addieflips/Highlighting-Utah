@@ -1920,6 +1920,41 @@ text/email."*
 dollar fee. They should use there new referal link every year which should give new
 referal links every year."* This narrows the rule directly above it.
 
+⛔ **AND AN EXPIRED LINK NOW DOES NOTHING AT ALL** (2026-09-12, REF-42). Addie, asked
+whether the person who SHARED a retired link should still earn their $25: *"No an old
+link should not work but there should be a button to start new season which will update
+everyones payments again and update new referall links for everyone."*
+
+- ⭐ **The button she names already existed and already did both halves.** Start New
+  Season resets the invoices and rotates every link (REF-28, directly below). Nothing was
+  built for that half; what was missing was the credit.
+- ⛔ **REF-25 settled the FEE and was silent about the $25**, so a retired link
+  half-worked: the friend was charged the $30 and the referrer went on collecting the $25
+  for the same link. One link, two answers. `creditReferralIfAny` refuses it now, through
+  the same door as the other three refusals — recorded on the referrer's own record,
+  stamped on the quote, and named in the Inbox.
+- ⚠ **The Inbox note does NOT say "nothing is wrong with the link".** That sentence is
+  true of the other three refusals and false of this one: the link is dead and the fix is
+  to send the current one. Saying nothing is wrong is what would stop the one action that
+  works, so the closing line is the caller's.
+- ⚠ **It asks `holder.current`, never a year** — REF-28's own argument, one function
+  along. Rotation stamps a past entry with whatever the customer had, so every link minted
+  before the season stamp existed becomes a past entry carrying NO year; a year comparison
+  reads that as "not old" and pays out on a dead link. A red-check caught exactly that
+  sabotage passing, and the fixture for it was added rather than the check weakened.
+- ⚠ **It is last of the four refusals, and the order only decides the wording** — all four
+  end in no credit. Most-specific wins: somebody using their own retired link is told they
+  used their own link, which is the fact still true after they share the new one.
+- ⚠ **It reaches back over nobody.** REF-27 records that no customer holds a retired link
+  yet, and `referralTokensPast` is filled only by that button, so this is forward-looking
+  by construction rather than a rule applied to referrals already earned.
+- ⚠ **A dormant bug was fixed with it.** `referralRotationUpdates` stores a retired
+  entry's year as `season`; `referralHolderFor` read it back through
+  `referralTokenSeasonOf`, which asks for `referralTokenSeason` — a field a past entry has
+  never had. So every retired link reported its year as **null**, and the one sentence
+  that names it could only ever give the vague wording. Invisible today because nobody
+  holds a retired link; it would have shipped broken the first time the button ran.
+
 - ⭐ **Start New Season is what hands out the new links** (REF-28). Addie: *"Can we just
   have a button we can push that says start new season and it will update everything?"*
   One press rotates every customer's referral link, stamps it with the season, and keeps
