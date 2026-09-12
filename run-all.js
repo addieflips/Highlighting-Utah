@@ -50012,9 +50012,32 @@ suite('287. The routine route sweep does not bury the notice that matters');
      and no renderer consults changes nothing on screen. */
   {
     const navBadge = (admin.split('function renderMessagesList(){')[1] || '').split('function ')[0];
-    check('S287', 'the nav badge leaves the routine sweep out of its count',
-      /allMessages\.filter\([^)]*!noticeIsRoutine\(m\.data\)/.test(navBadge.replace(/\s+/g, ' ')),
+    /* ⚠ REPOINTED 2026-09-12, NOT WEAKENED ([[MSG-26]]). This matched the literal
+       `!noticeIsRoutine(m.data)` INSIDE the badge line — that is, where the rule happened to
+       sit — so it failed on correct code the moment that expression moved behind a name.
+       The same slow-fuse shape as S82, S129 and the folder-names suite.
+       ⚠ AND THE RULE GREW A SECOND CLAUSE, which is why it moved: errors are off this badge
+       now ([[MSG-26]]) and a second expression written inline at the badge would have been a
+       second place to keep that true. What must hold is that the badge counts THROUGH the one
+       rule; what the rule then says is proved by RUNNING it, in comm-centre.test.js's
+       reachability invariant and in the checks below. */
+    check('S287', 'the nav badge counts through the one shared rule',
+      /allMessages\.filter\([^)]*msgOnInboxBadge\(m\.data\)/.test(navBadge.replace(/\s+/g, ' ')),
       'it read 91 while the list underneath it — which never shows System notes — held far fewer');
+    /* ⚠ AND THAT RULE STILL ASKS noticeIsRoutine, scoped to its own body — a badge wired to a
+       shared rule that quietly stopped excluding the sweep is the original bug wearing a
+       tidier name. */
+    {
+      const at = admin.indexOf('function msgOnInboxBadge(');
+      const body = at === -1 ? '' : admin.slice(at, admin.indexOf('\n}', at));
+      check('S287', 'and that rule still leaves the routine sweep out',
+        /noticeIsRoutine\(d\)/.test(body),
+        'the sweep fires every fifteen minutes — counting it is how the number became noise');
+      check('S287', 'and leaves errors out too, now nothing draws them',
+        /MSG_TYPE_ERROR/.test(body),
+        '[[MSG-26]] — an error counted by a badge no section can clear is a number that ' +
+        'can never come down');
+    }
 
     const sysTab = (admin.split('function renderSystemMessagesTab(){')[1] || '').split(NL287 + 'function ')[0];
     check('S287', 'the System tab splits the two piles',

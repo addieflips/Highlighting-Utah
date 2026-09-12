@@ -1232,6 +1232,45 @@ console.log('--- wiring ---');
  * The async folder checks have to finish before the summary, or a failure scores
  * after the total is printed and can never fail the build.
  * ------------------------------------------------------------------------- */
+/* ⭐ ALL OF THEM, NOT THE LAST HANDFUL ([[MSG-26]], 2026-09-12). Addie, choosing between
+   two designs: "Inbox gets deleted and badge stays with ALL error messages underneath it."
+   ⛔ THE TWO CAPS HAVE TO AGREE OR THE SECOND ONE SILENTLY WINS, and that is the whole
+   reason this is checked at all rather than left to the constants. The module hands over at
+   most ERR_BADGE_MAX_STORED lines; the plain-script seeder at the top of the page then takes
+   them only `while(caught.length < N)`. Raise one and leave the other and the panel drops the
+   oldest rows without a word — which reads exactly like the errors never having been kept,
+   the thing the folder removal was supposed to be safe because of.
+   ⚠ A RED-CHECK IS WHAT SAID THIS WAS MISSING. Reverting the cap to 25 passed every other
+   check in the repo, because nothing anywhere asserted the half she asked for by name. */
+{
+  const m = /const ERR_BADGE_MAX_STORED = (\d+)/.exec(admin);
+  const stored = m ? Number(m[1]) : 0;
+  check('the badge is handed more than a screenful of stored errors',
+    stored >= 100,
+    'the Inbox folders held the whole history; with those gone a small cap makes the ' +
+    'oldest errors unreachable, which is a loss she did not ask for');
+
+  /* ⚠ SCOPED TO THE SEEDER, not the file. `caught.length < 40` appears TWICE — the other is
+     the runaway guard inside add(), which is about a page failing in a loop right now and is
+     deliberately still small. A file-wide match would read that one and pass. */
+  const at = admin.indexOf('window.__huErrCatchSeed = function(lines){');
+  const body = at === -1 ? '' : admin.slice(at, admin.indexOf('\n  };', at));
+  const sm = /caught\.length < (\d+)/.exec(body);
+  const ceiling = sm ? Number(sm[1]) : 0;
+  check('and the seeder ceiling clears that hand-over',
+    at !== -1 && ceiling > stored,
+    'seeder ceiling ' + ceiling + ' vs hand-over ' + stored +
+    ' — the lower of the two is what actually decides, silently');
+
+  /* ⚠ AND THE RUNAWAY GUARD IS UNCHANGED, asserted so raising the ceiling above never
+     quietly raises this one too: a page erroring in a loop must still stop filling memory. */
+  const addAt = admin.indexOf('  function add(text){');
+  const addBody = addAt === -1 ? '' : admin.slice(addAt, admin.indexOf('\n  }', addAt));
+  check('while the runaway guard inside add() stays small',
+    /caught\.length >= 40/.test(addBody),
+    'that one is about a page failing right now, not about a season of history');
+}
+
 seedChecks.then(() => {
   console.log('');
   console.log('=== When something goes wrong, somebody is told ===');
