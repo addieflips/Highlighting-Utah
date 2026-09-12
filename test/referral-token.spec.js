@@ -76,8 +76,10 @@ async function submitQuote(page, stub) {
      contact-method select, without which the browser blocks submission and the spec
      fails for a reason that has nothing to do with referrals. */
   await page.locator('#quoteForm [name="name"]').fill('Kyle New');
-  await page.locator('#quoteForm [name="phone"]').fill('8015559999');
-  await page.locator('#quoteForm [name="email"]').fill('kyle@example.com');
+  /* ⚠ ONE BOX SINCE [[QT-40]] — phone or email, not both. A phone is used here on
+     purpose: it is the branch that keeps the contact-method select on screen and
+     required, so the submission still exercises that field. */
+  await page.locator('#quoteForm [name="contact"]').fill('8015559999');
   await page.locator('#quoteForm [name="street"]').fill('1 Elm St');
   await page.locator('#quoteForm [name="city"]').fill('Lehi');
   await page.locator('#quoteForm [name="zip"]').fill('84043');

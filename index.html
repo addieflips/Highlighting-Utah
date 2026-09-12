@@ -1393,16 +1393,21 @@
         <form id="quoteForm" name="quote-request" method="POST" data-netlify="true">
           <input type="hidden" name="form-name" value="quote-request">
           <div class="form-row"><label>Full Name <span class="req">*</span></label><input type="text" name="name" required></div>
-          <div class="form-grid-2">
-            <div class="form-row"><label>Phone Number <span class="req">*</span></label><input type="tel" name="phone" required></div>
-            <div class="form-row"><label for="infoEmail">Email Address <span class="req">*</span></label><input type="email" name="email" required></div>
-          </div>
+          <!-- ⭐ ONE BOX, EITHER WILL DO ([[QT-40]], 2026-09-12). Addie: "on contact form we
+               should be able to put email as an option." This was the only form of the three
+               that demanded BOTH, so somebody with no email address could not ask for a quote
+               at all. Get In Touch and Send a Message have taken either through one field for
+               a while; this now matches them, through the same `splitPhoneOrEmail`. -->
+          <div class="form-row"><label for="quoteContactInput">Phone Number or Email <span class="req">*</span></label><input type="text" id="quoteContactInput" name="contact" placeholder="Phone Number or Email" required></div>
           <div class="form-row"><label>Street Address <span class="req">*</span></label><input type="text" id="quoteAddressInput" name="street" placeholder="123 Main St" required></div>
           <div class="form-grid-2">
             <div class="form-row"><label>City <span class="req">*</span></label><input type="text" id="quoteCityInput" name="city" placeholder="e.g. Lehi" required></div>
             <div class="form-row"><label>Zip Code <span class="req">*</span></label><input type="text" id="quoteZipInput" name="zip" placeholder="84043" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" required></div>
           </div>
-          <div class="form-row">
+          <!-- ⚠ Call and Text are nonsense once the only contact detail is an email, so this
+               row hides and stops being required the moment an @ is typed — the same rule the
+               other two forms already run. -->
+          <div class="form-row" id="quoteContactMethodWrap">
             <label>Preferred Contact Method <span class="req">*</span></label>
             <select name="contact_method" id="quoteContactMethod" required>
               <option value="" disabled selected>Select&hellip;</option>
@@ -3459,6 +3464,11 @@ var QUOTE_MAIN_BUILDING_NAME = 'Main house';
 quoteFormEl.addEventListener('submit', async function(e){
   e.preventDefault();
   var fd = new FormData(quoteFormEl);
+  /* ⚠ BOTH FIELDS ARE STILL WRITTEN, one of them blank — every reader downstream
+     (quoteAlreadyACustomer, the dedupe, the quote card) already copes with one being
+     empty, and collapsing them into a single stored value would be a schema change
+     where a form change was asked for. */
+  var quoteSplit = splitPhoneOrEmail(fd.get('contact'));
   var street = fd.get('street'), city = fd.get('city'), zip = fd.get('zip');
   var fullAddress = street + ', ' + city + ' ' + zip;
   var submitBtn = quoteFormEl.querySelector('button[type="submit"]');
@@ -3477,10 +3487,10 @@ quoteFormEl.addEventListener('submit', async function(e){
   var buildingsPayload = [{name: QUOTE_MAIN_BUILDING_NAME, isMain: true}];
 
   addDoc(collection(db,'quotes'), Object.assign(referralQuoteFields(), {
-    name: fd.get('name'), phone: fd.get('phone'), email: fd.get('email'),
+    name: fd.get('name'), phone: quoteSplit.phone, email: quoteSplit.email,
     street: street, city: city, zip: zip,
     address: street + ', ' + city + ' ' + zip,
-    contactMethod: fd.get('contact_method'),
+    contactMethod: quoteSplit.email ? 'Email' : (fd.get('contact_method') || ''),
     /* ⭐ NO houseSides ON A FRESH QUOTE (2026-09-03). The question moved to the Install
        Details form.
 
@@ -3616,6 +3626,18 @@ if(contactContactInputEl){
     contactMethodWrapEl.style.display = isEmail ? 'none' : 'block';
     contactMethodRow2El.required = !isEmail;
     if(isEmail) contactMethodRow2El.value = '';
+  });
+}
+
+var quoteContactInputEl = document.getElementById('quoteContactInput');
+var quoteContactMethodWrapEl = document.getElementById('quoteContactMethodWrap');
+var quoteContactMethodEl = document.getElementById('quoteContactMethod');
+if(quoteContactInputEl && quoteContactMethodWrapEl && quoteContactMethodEl){
+  quoteContactInputEl.addEventListener('input', function(){
+    var isEmail = quoteContactInputEl.value.indexOf('@') !== -1;
+    quoteContactMethodWrapEl.style.display = isEmail ? 'none' : 'block';
+    quoteContactMethodEl.required = !isEmail;
+    if(isEmail) quoteContactMethodEl.value = '';
   });
 }
 

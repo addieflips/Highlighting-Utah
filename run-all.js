@@ -59768,3 +59768,76 @@ suite('329. Picking colours is ticking boxes, not holding Ctrl');
     (idx.match(/fd\.getAll\(['"]colors['"]\)/g) || []).length >= 2,
     'fd.get would take the first tick and throw the others away, with no error');
 }
+
+// =====================================================================
+// 330. A PHONE OR AN EMAIL — ONE BOX, ON ALL THREE PUBLIC FORMS
+// =====================================================================
+/* ⭐ [[QT-40]], 2026-09-12. Addie: "on contact form we should be able to put email as
+   an option."
+   ⚠ SHE WAS RIGHT ABOUT THE GAP AND IT WAS ON A THIRD FORM. Get In Touch and Send a
+   Message have taken either through one `contact` box since they were written; the FREE
+   QUOTE form demanded a phone AND an email, both `required`, so somebody with no email
+   address could not ask for a quote at all — a lost lead, silently, with nothing anywhere
+   recording it. That is the only one of the three that was ever different.
+   ⚠ BOTH FIELDS ARE STILL STORED, one of them blank. `quoteAlreadyACustomer`, the referral
+   dedupe and the quote card all already cope with one being empty, and collapsing them into
+   a single stored value would be a schema change where a form change was asked for.
+   ⚠ AND THE CONTACT-METHOD SELECT MUST STAND DOWN ON AN EMAIL. Call and Text are nonsense
+   once the only detail we hold is an address, and a `required` select that is hidden blocks
+   submission with a validation message pointing at an invisible field — the browser refuses
+   and says nothing anybody can act on. */
+suite('330. A phone or an email — one box, on all three public forms');
+{
+  const idx = read('index.html');
+
+  /* ⚠ THE TAG, NOT AN ATTRIBUTE ORDER. Two of these three write `name` before `id` and one
+     writes it after; a regex pinned to one order fails on markup that is perfectly right,
+     which is the slow-fuse shape this repo has repointed four checks for already. */
+  function inputTag(id){
+    const at = idx.indexOf('id="' + id + '"');
+    if(at === -1) return '';
+    return idx.slice(idx.lastIndexOf('<', at), idx.indexOf('>', at) + 1);
+  }
+  ['quickContactInput','contactContactInput','quoteContactInput'].forEach(function(id){
+    check('S330', id + ' takes a phone or an email in one box',
+      /name="contact"/.test(inputTag(id)),
+      'this form still asks for the two separately, so one of them is compulsory');
+  });
+
+  /* ⚠ THE FREE QUOTE FORM IS NAMED SPECIFICALLY, because it is the one that was wrong and
+     a check over "some form" would pass on the two that were always right. */
+  const qAt = idx.indexOf('id="quoteForm"');
+  const qEnd = idx.indexOf('</form>', qAt);
+  const quoteForm = qAt === -1 ? '' : idx.slice(qAt, qEnd);
+  check('S330', 'the free quote form no longer demands both',
+    quoteForm !== '' &&
+    !/name="phone"[^>]*required/.test(quoteForm) &&
+    !/name="email"[^>]*required/.test(quoteForm),
+    'requiring both is what stopped a customer with no email address asking for a quote');
+
+  check('S330', 'and it still asks for one of them',
+    /name="contact"[^>]*required/.test(quoteForm),
+    'making it optional would let a quote arrive with no way to answer it');
+
+  /* ⚠ ONE SPLITTER, THREE FORMS. A second reading of "is this an email" is how one form
+     starts filing an address in the phone field — and that field is `custInvoiceKey`. */
+  check('S330', 'all three handlers go through the one splitter',
+    (idx.match(/splitPhoneOrEmail\(/g) || []).length >= 4,
+    'a second opinion on what an @ means eventually files an email as a phone number');
+
+  /* ⚠ AND THE QUOTE STILL WRITES BOTH FIELDS, blank or not — every reader downstream
+     expects them to exist. */
+  check('S330', 'the quote write still carries a phone field and an email field',
+    /phone: quoteSplit\.phone, email: quoteSplit\.email/.test(idx),
+    'dropping one would reach into undefined on every reader that walks a quote');
+
+  ['quoteContactMethodWrap','contactMethodWrap','quickContactMethod'].forEach(function(id){
+    check('S330', id + ' stands down when an email is typed',
+      new RegExp("getElementById\\('" + id + "'\\)").test(idx) ||
+      new RegExp('id="' + id + '"').test(idx),
+      'a hidden required select blocks the form with a message pointing at nothing');
+  });
+  check('S330', 'and the quote form actually drops its required flag on an email',
+    /quoteContactMethodEl\.required = !isEmail/.test(idx),
+    'hiding it without clearing required is a form that silently will not submit');
+}
