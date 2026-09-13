@@ -54250,11 +54250,46 @@ document.getElementById('editCustCancelBtn').addEventListener('click', function(
 });
 document.getElementById('editCustSaveBtn').addEventListener('click', async function(){
   if(!editCustomerId) return;
+  /* ⭐ THE ID IS CAPTURED HERE, AND EVERY WRITE BELOW USES THE CAPTURED ONE
+     (2026-09-12). `editCustomerId` is module level and this handler is async: the
+     guard on the line above runs ONCE, and the eleven reads underneath it all sit
+     downstream of an await — the fresh-record read, the geocode, the pool reads and
+     syncPayerInvoice. The popup is still on screen throughout, so its own buttons
+     are live the whole time, and two of them move this variable underneath a save
+     that is already running.
+
+     ⚠ CANCEL AND REMOVE SET IT TO `null`, AND THAT IS THE CRASH IN THE ERROR LOG.
+     Firestore's doc() validates its SECOND argument and nothing else — the trailing
+     path segments go straight into ResourcePath.fromString, which calls .indexOf on
+     each one (@firebase/firestore 4.6.3, the build firebase-firestore.js ships). So
+     doc(db,'jobAddresses', null) throws "null is not an object (evaluating
+     's.indexOf')" in Safari and "Cannot read properties of null (reading 'indexOf')"
+     in Chrome — both of which reached the Errors folder on 2026-09-09, from two
+     different users, with nothing in either message naming a line of ours.
+
+     ⛔ AND THE TAB STRIP IS WORSE, BECAUSE IT IS SILENT. A tab click calls
+     openEditCustomerModal, which REPOINTS this variable at the sibling house rather
+     than clearing it — so the updateDoc below would write THIS house's form values
+     onto THAT house's record, overwriting a customer nobody was editing, with no
+     error anywhere. The crash is the half that reported itself.
+
+     ⚠ THE SAVE STILL FINISHES, DELIBERATELY. Pressing Cancel half way through does
+     not abort a write already in flight — that would leave the customer half saved,
+     which is the one outcome worse than either fault above. It finishes against the
+     customer it started on, which is what was asked for when Save was pressed.
+
+     ⚠ SAME FIX, SAME VARIABLE, AS THE PHOTO HANDLER (2026-08-26) — "everything after
+     the await re-read editCustomerId, so a slow upload finishing after a tab click
+     painted 'Photo saved' on the wrong house". That one was fixed and this one, eleven
+     times over in the same handler, was not. The tail below still clears the MODULE
+     variable on purpose: that is global state being reset, not a document being
+     addressed. */
+  const savingCustomerId = editCustomerId;
   const statusEl = document.getElementById('editCustStatus');
   /* A failure from the last attempt is still on screen in red; clear it, or a save
      that works looks like the one that did not. */
   statusEl.style.color = '';
-  const item = jobAddresses.find(a => a.id === editCustomerId);
+  const item = jobAddresses.find(a => a.id === savingCustomerId);
   if(!item) return;
   const d = item.data;
   const newName = document.getElementById('editCustName').value.trim();
@@ -54384,7 +54419,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
      may not have delivered the other change yet, and the whole point is to see
      something the cache might not know about. */
   try{
-    const freshSnap = await getDoc(doc(db,'jobAddresses', editCustomerId));
+    const freshSnap = await getDoc(doc(db,'jobAddresses', savingCustomerId));
     const freshAt = freshSnap.exists() ? (freshSnap.data().updatedAt || null) : null;
     const openedMs = editCustOpenedWithUpdatedAt && editCustOpenedWithUpdatedAt.toMillis ? editCustOpenedWithUpdatedAt.toMillis() : 0;
     const freshMs = freshAt && freshAt.toMillis ? freshAt.toMillis() : 0;
@@ -55195,12 +55230,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       addrUpdates.scheduleHeldReason = 'Sent to the warehouse';
     }
     const custChanges = describeCustomerChanges(item.data, addrUpdates);
-    await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
+    await updateDoc(doc(db,'jobAddresses', savingCustomerId), addrUpdates);
     /* ⚠ NOT AWAITED, like every other logActivity call: a note about a change must
        never be able to break the change. It carries its own catch. */
     if(custChanges.length){
       logActivity(customerChangeSentence(newName || item.data.name, custChanges),
-        'customers', editCustomerId);
+        'customers', savingCustomerId);
     }
     /* ⭐ A WAIVED FEE IS A DECISION, AND IT LEFT NO TRACE AT ALL (added 2026-08-29).
        `lightFeeWaived` is a LOCAL VARIABLE. It decides whether the $30 is charged and then
@@ -55231,7 +55266,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       logActivity('Waived the ' + fmtMoney(lightChange.feeAmount) + ' light-change fee for ' +
         (newName || item.data.name || 'a customer') +
         (lightChange.feeReason ? ' \u2014 ' + lightChange.feeReason : ''),
-        'customers', editCustomerId);
+        'customers', savingCustomerId);
     }
     /* Pool bookkeeping, after the record is safely written. Each half is
        guarded on its own: a pool write that fails must not undo a save that
@@ -55296,7 +55331,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     if((feetChanged || addressChanged || sidesChanged || priceWantsRequote) && !requoteBeingConverted){
       try{
         const already = quotesCache.find(function(q){
-          return q.data.existingCustomerId === editCustomerId && quoteStage(q.data) === 'new';
+          return q.data.existingCustomerId === savingCustomerId && quoteStage(q.data) === 'new';
         });
         const changeNote = feetChanged
           ? {what:'feet', oldFeet: Number(d.measuredFeet || 0), newFeet: Number(newMeasuredFeet || 0), oldPrice: Number(d.housePrice || 0)}
@@ -55330,7 +55365,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
             name: newName, phone: newPhone, email: (newEmail || '').toLowerCase(),
             address: newAddress, frontPhotoUrl: d.frontPhotoUrl || '',
             estimatedFeet: Number(newMeasuredFeet || 0) || '',
-            existingCustomerId: editCustomerId,
+            existingCustomerId: savingCustomerId,
             existingCustomerNumber: d.customerNumber || '',
             changed: changeNote,
             quoteToken: generatePortalToken(), formCompleted: false,
@@ -55360,7 +55395,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       try{
         await updateDoc(doc(db,'quotes', answeredQuoteId), {
           status: 'closed', convertedToCustomerAt: serverTimestamp(),
-          convertedToCustomerId: editCustomerId
+          convertedToCustomerId: savingCustomerId
         });
       } catch(err){
         console.error('Saved the customer but could not close the re-quote:', err);
@@ -55378,7 +55413,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       if(rqReferral){
         await creditReferralIfAny(
           Object.assign({}, rqReferral.data, {__quoteId: answeredQuoteId}),
-          editCustomerId,
+          savingCustomerId,
           {name: newName, phone: newPhone, email: newEmail});
       }
     }
@@ -55387,7 +55422,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        Without this, correcting an address or gate code never reaches a crew
        that's already been scheduled. Only upcoming routes are touched — past
        routes stay as they were on the day. */
-    await resyncSavedRouteStops(editCustomerId, {
+    await resyncSavedRouteStops(savingCustomerId, {
       name: newName, phone: newPhone, address: newAddress, gateCode: newGateCode,
       specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes,
       customerNumber: addrUpdates.customerNumber, lat: addrUpdates.lat, lng: addrUpdates.lng
@@ -55401,7 +55436,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        link had (fixed in functions/index.js's portalRsvp). */
     if((seasonMaybeChosen && !item.data.maybeNextYear) ||
        (newRsvp === 'no' && item.data.rsvpStatus !== 'no')){
-      await removeCustomerFromUpcomingRoutes(editCustomerId);
+      await removeCustomerFromUpcomingRoutes(savingCustomerId);
     }
     /* ⭐ AND CANCELLING BEFORE THE LIGHTS GO UP TAKES BACK THE REFERRAL THAT BROUGHT
        THEM IN (2026-09-03). Addie's rule: a referral that reached an install is earned,
@@ -55419,7 +55454,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        whether the credit is earned, and the stale cached copy is what the rule reads
        without this. */
     if(newRsvp === 'no' && item.data.rsvpStatus !== 'no'){
-      await clawBackReferralIfAny(editCustomerId, Object.assign({}, item.data, addrUpdates));
+      await clawBackReferralIfAny(savingCustomerId, Object.assign({}, item.data, addrUpdates));
     }
     let inv = allCustInvoiceFor(item);
     let resyncPayerAfter = null;
