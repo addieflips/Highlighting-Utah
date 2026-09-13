@@ -305,7 +305,14 @@ if (describe) {
  * ------------------------------------------------------------------------- */
 if (H) {
   const iDiff = H.indexOf('describeCustomerChanges(item.data, addrUpdates)');
-  const iWrite = H.indexOf("updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates)");
+  /* ⚠ REPOINTED, NOT WEAKENED (2026-09-12). This was anchored on the literal
+     `editCustomerId` — on which VARIABLE happened to name the customer, not on the
+     write itself. The save now captures the id before its first await (the module
+     variable moves underneath it when Cancel or a house tab is pressed mid-save), so
+     the name changed and these two ordering checks failed on code that is right.
+     The claim was always about WHERE the customer write sits, so that is what it
+     matches now. Same slow-fuse shape as S82, S129 and the folder-names suite. */
+  const iWrite = H.indexOf("updateDoc(doc(db,'jobAddresses', ");
   const iLog = H.indexOf('customerChangeSentence(');
   check('the save handler takes the diff', iDiff > -1,
     'without this call nothing is ever logged and the whole gate above proves nothing');
