@@ -60204,3 +60204,91 @@ suite('330. A phone or an email — one box, on all three public forms');
     /quoteContactMethodEl\.required = !isEmail/.test(idx),
     'hiding it without clearing required is a form that silently will not submit');
 }
+
+suite('331. The colours a customer ticked reach the Gmail alert');
+{
+  const idx = read('index.html');
+  const fn  = extractFn(idx, 'notifyBusinessOfMessage');
+
+  check('S331', 'notifyBusinessOfMessage is still there to lift', !!fn,
+    'renamed or gone — this is the one funnel all twelve message paths call');
+
+  /* ⭐ RUN IT, NEVER MATCH IT. Every claim below is about what lands in the EMAIL,
+     and a source check for the fold stays green with the whole thing wrapped in
+     if(false) — the failure this repo has shipped three times. The real function is
+     lifted and driven against a fake EmailJS that captures the payload it is handed,
+     so the checks read what would actually be sent. */
+  function sentFor(params){
+    let got = null;
+    const make = new Function('capture', `
+      var emailjsSettings = { serviceId:'s', notifyTemplateId:'t', publicKey:'p' };
+      var window   = { emailjs: true };
+      var emailjs  = { init: function(){},
+                       send: function(svc, tpl, p){ capture(p); return { catch: function(){} }; } };
+      var console  = { warn: function(){}, error: function(){} };
+      ${fn}
+      return notifyBusinessOfMessage;
+    `)(function(p){ got = p; });
+    make(params);
+    return got;
+  }
+
+  const withColors = sentFor({ customer_name:'Addie', customer_phone:'3853584716',
+    customer_email:'', topic:'Change My Light Colors', message:'Change lights',
+    colors:['Warm White','Red'] });
+
+  check('S331', 'the alert is sent at all when the settings are complete',
+    !!withColors,
+    'the lifted function refused a fully configured send — the fixture is wrong, not the app');
+
+  check('S331', 'a ticked colour reaches the email',
+    !!withColors && /Warm White/.test(withColors.message || ''),
+    'the office reads "Change lights" and cannot tell which colours were asked for — the bug this closes');
+
+  check('S331', 'every ticked colour reaches it, not just the first',
+    !!withColors && /Red/.test(withColors.message || ''),
+    'a customer who ticked two gets half an answer, which is worse than none');
+
+  check('S331', 'and they are labelled rather than dumped on the end',
+    !!withColors && /Colors requested:/.test(withColors.message || ''),
+    'a bare list under their message reads as part of what they typed');
+
+  check('S331', 'what the customer actually typed survives the fold',
+    !!withColors && /Change lights/.test(withColors.message || ''),
+    'appending must never replace their own words');
+
+  /* ⛔ ONE COPY, NOT TWO. Left on the payload, `colors` is a second source for the
+     same fact and the day somebody adds {{colors}} to the template the office reads
+     the list twice — the two-places problem this repo names in four other entries. */
+  check('S331', 'colors is not also sent as its own template variable',
+    !!withColors && withColors.colors === undefined,
+    'the list would print twice the moment a template adds {{colors}}');
+
+  /* ⚠ THE QUIET CASE MATTERS AS MUCH AS THE LOUD ONE. Most messages carry no colours
+     at all, so a fold that always fires leaves a dangling label on every alert. */
+  const noColors = sentFor({ customer_name:'Addie', customer_phone:'3853584716',
+    customer_email:'', topic:'Billing Question', message:'My payment looks wrong' });
+
+  check('S331', 'a message with no colours gains nothing',
+    !!noColors && (noColors.message || '') === 'My payment looks wrong',
+    'every ordinary alert would carry an empty "Colors requested:" line');
+
+  const emptyPicks = sentFor({ customer_name:'A', customer_phone:'1', customer_email:'',
+    topic:'X', message:'hello', colors:[] });
+
+  check('S331', 'an empty tick list is treated as no colours',
+    !!emptyPicks && (emptyPicks.message || '') === 'hello',
+    'a form submitted with nothing ticked hands over an empty array, not a missing key');
+
+  /* ⚠ THE WIRING IS ASSERTED SEPARATELY FROM THE MECHANISM, because the sandbox above
+     calls the function itself: delete `colors` from the two form handlers and every
+     behavioural check here stays green while nothing reaches a real inbox. That is the
+     exact miss red-checking found on the Edit Customer tab strip. */
+  [['contactFormEl',      'the home-page contact form'],
+   ['quickMessageFormEl', 'the home-page Send a Message form']].forEach(function(pair){
+    const body = sectionFrom(idx, idx.indexOf('var ' + pair[0]));
+    check('S331', pair[1] + ' hands its ticked colours to the alert',
+      /notifyBusinessOfMessage\(\{[\s\S]*colors:\s*fd\.getAll\('colors'\)/.test(body),
+      'this form collects colours, stores them, and still tells the email nothing');
+  });
+}

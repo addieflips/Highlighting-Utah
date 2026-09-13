@@ -4271,8 +4271,20 @@ colour and outlet timer. They are filed as notices because the app wrote the sen
 are member ACTIONS, which is what decides this. Do not "tidy" them out of the alert by
 reading the folder.
 
+⭐ **THE COLOURS A CUSTOMER TICKED TRAVEL INSIDE `message`** (2026-09-13, [[MSG-27]]). Both
+home-page forms offer the nine colour tick boxes, both store the list on the message record,
+and the Inbox row has always drawn it (`Colors requested: ...`) — but the ALERT dropped it, so
+the office read "Change lights" and had to open the admin to learn which. `notifyBusinessOfMessage`
+now folds the list onto the end of `message`, labelled, and deletes `colors` from the payload.
+⛔ **NOT A `{{colors}}` TEMPLATE VARIABLE**, deliberately: the notify template is hand-written on
+emailjs.com, so a variable only works in a template that remembers it, and one edited later drops
+the colours again silently. Every other caller already puts its own detail inside `message`, so this
+follows them. ⚠ **It is done in the funnel, not in the two forms**, so a form added later gets it by
+passing `colors` and nothing else — and the fold is skipped entirely when nothing was ticked, or
+every ordinary alert would carry a dangling label.
+
 ⚠ **The recipient address is not in this repo.** The params carry name, phone, email, topic
-and message and no destination, so the *To Email* lives on the EmailJS template named by
+and message (colours folded into that message, above) and no destination, so the *To Email* lives on the EmailJS template named by
 `settings/emailjs.notifyTemplateId` (Admin → Automation Emails → Notify Template ID).
 Nothing here can see it, and no test can prove where the mail went.
 
