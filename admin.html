@@ -9175,7 +9175,41 @@ async function getOrCreatePortalToken(phone){
   let token = match.data.portalToken;
   if(!token){
     token = generatePortalToken();
-    try{ await updateDoc(doc(db,'jobAddresses',match.id), {portalToken: token}); match.data.portalToken = token; } catch(err){ /* still use the generated token even if the save failed */ }
+    /* ⛔ A TOKEN THAT WAS NOT SAVED IS NEVER PUT IN AN EMAIL (2026-09-13). This used to
+       swallow the failure and return the token anyway — "still use the generated token even
+       if the save failed" — so a refused write produced a live-looking RSVP link belonging to
+       NOBODY. The customer taps Yes, findByToken matches no record, and the Errors row can
+       only say "no customer matches this link", which is what every RSVP row in the 8-11
+       September log said. It is silent at both ends: the office reads a green Sent, and to
+       the customer it looks like they already answered.
+
+       ⭐ THE SERVER ALREADY HAD THE RIGHT RULE AND WROTE IT DOWN. `ensureToken` in
+       functions/index.js re-reads after a failed write — somebody else may have minted one in
+       the meantime, and theirs is the one that is stored — and failing that sends a link with
+       NO token "rather than one that cannot work". This is that rule in the copy that did
+       not have it. Change one and change the other; Suite 332 runs both.
+
+       ⚠ NULL IS ALREADY A HANDLED ANSWER at all four callers, each of which writes
+       `(token ? ('?token='+token) : '')`, so the customer gets the plain portal address and
+       signs in with their phone and surname exactly as they would from the website. A
+       working sign-in beats a link that silently records nothing.
+
+       ⚠ AND IT SAYS SO OUT LOUD. console.error here reaches the Errors folder through
+       __huAdminErrorSink, so a send that could not mint tokens is reported rather than
+       leaving the office to hear about it from a customer weeks later. */
+    try{
+      await updateDoc(doc(db,'jobAddresses',match.id), {portalToken: token});
+      match.data.portalToken = token;
+    } catch(err){
+      try{
+        const fresh = await getDoc(doc(db,'jobAddresses',match.id));
+        const saved = fresh.exists() ? ((fresh.data() || {}).portalToken || '') : '';
+        if(saved){ match.data.portalToken = String(saved); return String(saved); }
+      } catch(e){ /* the re-read is a second chance, not a requirement — fall through to no token */ }
+      console.error('[HU] could not save a portal token for ' + (match.data.name || match.id) +
+        ' — sending them a link with no token rather than one that cannot work', err);
+      return null;
+    }
   }
   return token;
 }

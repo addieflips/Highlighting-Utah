@@ -60292,3 +60292,152 @@ suite('331. The colours a customer ticked reach the Gmail alert');
       'this form collects colours, stores them, and still tells the email nothing');
   });
 }
+
+/* ⭐ SUITE 332. A TOKEN NOBODY HAS IS NEVER PUT IN AN EMAIL (2026-09-13).
+ *
+ * From the Errors folder, 8-11 September: every RSVP failure row ends "no customer matches
+ * this link (…xxxxxx)". The tail is extracted correctly — the row prints it — so the link
+ * really did carry a portal token that belongs to no record in the book.
+ *
+ * `getOrCreatePortalToken` in admin.html is a way to produce exactly that. It mints a token,
+ * writes it, and USED TO swallow a failed write and return the minted token anyway ("still
+ * use the generated token even if the save failed"). That token then goes into a real
+ * customer's RSVP email as a live-looking link. They tap Yes, findByToken matches nothing,
+ * and to them it looks like they already answered.
+ *
+ * ⭐ THE SERVER COPY ALREADY HAD THE RIGHT RULE AND WROTE IT DOWN: `ensureToken` in
+ * functions/index.js re-reads after a failure — somebody else may have minted one meanwhile,
+ * and theirs is the one that is stored — and failing that sends a link with NO token "rather
+ * than one that cannot work". One rule, two copies, so this RUNS BOTH over the same four
+ * situations, the money-parity shape applied to a link instead of a sum.
+ *
+ * ⚠ RUN, NOT READ. The claim is about the VALUE handed back when a write is refused, which
+ * no regex can see — and the old code contained the word `return token` just as the new one
+ * does.
+ * ⚠ AND THE TWO ARE NOT ASSERTED IDENTICAL, because they are not: the browser one looks a
+ * customer up by phone in a loaded cache and answers null when there is no match, the server
+ * one is handed the id and the record. What must agree is the REFUSAL — neither may hand back
+ * a token it failed to save.
+ */
+suite('Suite 332. A portal token nobody has never reaches an email');
+
+{
+  /* ⚠ extractFn matches "function NAME(" and so drops the `async` keyword, turning a body
+     full of bare `await` into a parse error that kills the whole suite as one unattributable
+     crash (CLAUDE.md §5). Both of these are async, so they are lifted the long way round. */
+  const liftAsync = (src, name) => {
+    const at = src.indexOf('async function ' + name + '(');
+    if (at < 0) return '';
+    let b = src.indexOf('{', at), d = 0, e = b;
+    for (;; e++) { if (src[e] === '{') d++; else if (src[e] === '}') { d--; if (!d) break; } }
+    return src.slice(at, e + 1);
+  };
+  const fnsSrc = read('functions/index.js');
+  const officeSrc = liftAsync(admin, 'getOrCreatePortalToken');
+  const serverSrc = liftAsync(fnsSrc, 'ensureToken');
+  check('S332', 'the office token minter was found to run', !!officeSrc);
+  check('S332', 'and the server one was too', !!serverSrc);
+
+  /* A fake Firestore whose write refuses on demand, and whose re-read answers with
+     whatever is stored at that moment — which is how a second sender's token arrives. */
+  function office(opts) {
+    const o = opts || {};
+    const rec = {id: 'c1', data: {name: 'Ashley Wray', phone: '8016160714'}};
+    if (o.stored) rec.data.portalToken = o.stored;
+    const writes = [];
+    const said = [];
+    const store = {portalToken: o.readBack || ''};
+    const fn = new Function('jobAddresses', 'updateDoc', 'getDoc', 'doc', 'db',
+      'generatePortalToken', 'console',
+      'return ' + officeSrc + ';getOrCreatePortalToken')(
+      [rec],
+      async (r, p) => { if (o.writeFails) throw new Error('Missing or insufficient permissions.'); writes.push(p); store.portalToken = p.portalToken; },
+      async () => ({exists: () => true, data: () => ({portalToken: store.portalToken})}),
+      () => ({}), {}, () => 'MINTEDmintedMINTED', {error: (m) => said.push(String(m)), log(){}, warn(){}});
+    return fn('8016160714').then(t => ({token: t, writes: writes, said: said, rec: rec}));
+  }
+  function server(opts) {
+    const o = opts || {};
+    const said = [];
+    const store = {portalToken: o.readBack || ''};
+    const fakeDb = {collection: () => ({doc: () => ({
+      update: async (p) => { if (o.writeFails) throw new Error('Missing or insufficient permissions.'); store.portalToken = p.portalToken; },
+      get: async () => ({exists: true, data: () => ({portalToken: store.portalToken})})
+    })})};
+    const fn = new Function('db', 'generatePortalToken', 'console',
+      'return ' + serverSrc + ';ensureToken')(
+      fakeDb, () => 'MINTEDmintedMINTED', {error: (m) => said.push(String(m)), log(){}, warn(){}});
+    return fn('c1', o.stored ? {portalToken: o.stored} : {}).then(t => ({token: t, said: said}));
+  }
+
+  pendingAsync.push((async () => {
+    /* 1. Nothing changes about the ordinary case. */
+    const okO = await office({});
+    const okS = await server({});
+    check('S332', 'a freshly minted token that saves is the one that is used',
+      okO.token === 'MINTEDmintedMINTED' && okS.token === 'MINTEDmintedMINTED',
+      'the common path must be untouched, or every email loses its link');
+    check('S332', 'and it is written to the record',
+      okO.writes.length === 1 && okO.writes[0].portalToken === 'MINTEDmintedMINTED',
+      'a token used but never stored is the whole bug this closes');
+    check('S332', 'and the cached record carries it, so the next email reuses it',
+      okO.rec.data.portalToken === 'MINTEDmintedMINTED',
+      'without the mirror the next template mints a second token and writes again');
+
+    const hadO = await office({stored: 'alreadyHADalreadyHAD'});
+    const hadS = await server({stored: 'alreadyHADalreadyHAD'});
+    check('S332', 'a customer who already has one is not given a new one',
+      hadO.token === 'alreadyHADalreadyHAD' && hadS.token === 'alreadyHADalreadyHAD' &&
+      hadO.writes.length === 0,
+      'minting over a live token kills every link already sitting in their inbox');
+
+    /* 2. ⛔ THE BUG. The write is refused and nothing is stored. */
+    const badO = await office({writeFails: true});
+    const badS = await server({writeFails: true});
+    check('S332', 'a token that could not be saved is NOT handed back by the office copy',
+      !badO.token && badO.token !== 'MINTEDmintedMINTED',
+      'it used to return the minted token, so a real customer was emailed an RSVP link ' +
+      'that matches no record — they tap Yes, nothing is recorded, and to them it looks ' +
+      'like they already answered');
+    check('S332', 'nor by the server copy',
+      !badS.token && badS.token !== 'MINTEDmintedMINTED',
+      'the two must refuse the same way or one sender keeps producing dead links');
+    check('S332', 'and the office says so rather than failing quietly',
+      badO.said.some(m => /portal token/i.test(m)),
+      'console.error reaches the Errors folder through __huAdminErrorSink — a send that ' +
+      'could not mint tokens has to be reported, not discovered from a customer weeks later');
+    check('S332', 'and the server does too',
+      badS.said.some(m => /portal token/i.test(m)),
+      'its own comment is that it sends no token rather than one that cannot work');
+
+    /* 3. Somebody else minted one in the gap — theirs is the stored one, so theirs is
+          the one the email must carry. Not a nicety: two senders can run at once. */
+    const raceO = await office({writeFails: true, readBack: 'theirsTHEIRStheirs'});
+    const raceS = await server({writeFails: true, readBack: 'theirsTHEIRStheirs'});
+    check('S332', 'a refused write falls back to whatever is actually stored',
+      raceO.token === 'theirsTHEIRStheirs' && raceS.token === 'theirsTHEIRStheirs',
+      'the stored token is the one findByToken can match; ours is not');
+    check('S332', 'and that is preferred over sending no link at all',
+      raceO.token !== null && raceS.token !== '',
+      'a customer who has a usable token should get their one-tap link');
+
+    /* ⚠ AND THE CALLERS ARE ASSERTED SEPARATELY FROM THE RULE, because this suite calls the
+       function from its own harness: a caller that pasted the token in unconditionally would
+       leave every check above green while still emailing `?token=null`. */
+    /* ⚠ EVERY use, not four of them, and COMMENTS STRIPPED. The first version of this
+       counted guarded uses and asked for `>= 4`; there are FIVE (the RSVP block builds two
+       URLs), so deleting a guard left four and it passed — and the sixth match was this
+       fix's own explanatory comment, which quotes the guarded form. That is the
+       comment-in-a-check trap Suites 58, 274, 275 and 300 each had to learn, in my own
+       check. Total must EQUAL guarded: a use that is not guarded is a caller putting
+       `?token=null` in a real customer's email. */
+    const bare = stripComments(admin);
+    const uses = (bare.match(/'\?token='\+(?:token|rsvpToken)/g) || []).length;
+    const guarded = (bare.match(/\((?:token|rsvpToken) \? \('\?token='\+(?:token|rsvpToken)/g) || []).length;
+    check('S332', 'every caller still guards the token before putting it in a URL',
+      uses >= 5 && guarded === uses,
+      'null is only a safe answer because each caller falls back to the plain portal ' +
+      'address, which signs the customer in with their phone and surname. Found ' + uses +
+      ' uses and ' + guarded + ' guarded');
+  })());
+}
