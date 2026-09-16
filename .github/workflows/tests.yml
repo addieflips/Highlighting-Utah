@@ -211,6 +211,13 @@ jobs:
       # stamped is dropped from the routes, the build queue and the schedule.
       - name: The RSVP goes out a few hundred a morning
         run: npm run test:rsvp-daily
+      # ⭐ BLUEPRINT MAPS — the batch is whatever is showing. Named separately because
+      # what it guards is a SHEET somebody drives away with: a tile dropped between pages,
+      # a saved copy count quietly read as 1, or a map still ticked after the office
+      # unchecked it are all invisible on screen and only show up as a crew standing in
+      # front of a house with no drawing for it.
+      - name: Blueprint maps (the batch and the sheet)
+        run: npm run test:blueprint
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 

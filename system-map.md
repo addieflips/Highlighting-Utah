@@ -4706,6 +4706,85 @@ a fake Firestore rather than reading their source; 16 sabotages red-checked.
 
 ---
 
+## 6a. Blueprint Maps — the drawing, photographed and printed small
+
+**What it is for.** Crews draw a blueprint of each house by hand — the roofline, where the
+runs go, the bulb counts. Those drawings lived on paper only, so a crew either carried the
+original or worked from memory. This panel keeps the photograph on the house's own record
+and prints any set of them **eight to a page**, small enough that a whole route fits in a
+pocket.
+
+**Where to find it.** Employee Tools → **Blueprint Maps**.
+
+**The one idea, and everything follows from it.** There is no *add to print run* step. The
+batch **is** whatever is currently filtered, minus what has been unchecked, at each map's
+saved copy count. Filter, then print. If you ever find yourself building a list before you
+can print it, something has been changed that should not have been.
+
+**What is stored.** `blueprintMaps` — an array on the existing `jobAddresses` document, so
+a customer with two properties has two sets and nothing new has to be joined to anything.
+One to three entries per house, never dozens. Each entry carries:
+
+| Field | What it is |
+|---|---|
+| `id` | Stable within the house. The print key, and what an update targets. |
+| `label` | What this drawing is — "Front elevation", "Detached garage", "Back patio". |
+| `url` | The Cloudinary address of the photograph. |
+| `publicId` | Read back out of that URL, so a replacement can find the old image. |
+| `copies` | How many copies this house normally needs. **This is the number the screen loads with, every time.** A three-crew house saved at 3 prints 3 without anybody setting it again. |
+| `orientation` | `landscape` or `portrait`, detected from the photo on upload. Decides which grid a printed page uses. |
+| `note` | Free text for the crew — ladder access, a tricky gable, what changed this year. |
+| `updatedAt` / `updatedBy` | Set on every upload. |
+
+⚠ **A house with no drawing still appears**, under the **No map yet** filter, with a prompt
+instead of a picture — so what is outstanding can be seen rather than inferred from an
+absence.
+
+**What is NOT stored.** The filter, the search box, the copy overrides and which maps have
+been unchecked are all session-only. They are the batch, and a finished batch throws itself
+away: when the print dialog closes, every override goes back to its saved count and every
+unchecked map is selected again. The filter and the search box are deliberately left
+alone, so the same route can be printed twice without re-filtering.
+
+**The three tags on a card, and where each comes from.** Nothing new is stored for these —
+they are read off the status each record already carries:
+
+- **Requote** — there is an **open** re-quote against this house. A closed one is history
+  and leaves the house Returning. ⚠ A quote is joined to a house by its `existingCustomerId`
+  first; failing that, by phone **and** address together, never phone alone — 17 numbers in
+  the real book are shared and 14 of those are a parent and a child at two houses.
+- **New quote** — `audienceNeverAsked`, the same union rule the RSVP audience and the New
+  Hang badge already use (the $30 fee box **or** a closed, converted, non-re-quote quote
+  from this calendar year). ⚠ Not the fee box alone: somebody who joined this year with the
+  fee waived still joined this year. This page must never grow a third definition of "new".
+- **Returning** — everything else, and what everything reads as while the quote list is
+  still loading.
+
+**The printed sheet.** Walk the filtered list in order; push each selected map once per
+copy; chunk by the per-page setting. Nine maps at 8 per page is two pages, the second
+holding one tile. Each tile is the drawing with a caption beneath it: the customer's name
+on the left, and on the right the map's label when the house has several drawings,
+otherwise the street. ⚠ **A page that is mostly portrait photographs is laid out four
+across by two down** instead of two across by four, so portrait drawings are not cropped —
+decided per page, because one route can hold both.
+
+**If something is not working.**
+
+| Symptom | Where to look |
+|---|---|
+| The grid is empty | Check the filter button — it opens on **Has a map**. "No maps match" means the filter, not the data; a failed read says so in its own words instead. |
+| A customer is not in the name list | The list is every house in `jobAddresses`. If they are not there they are not a customer yet. |
+| A map prints the wrong number of times | The stepper is this session only. The number that survives is **Usual copies** in the detail dialog. |
+| The count on the bar does not match the sheet | It should not be possible — both are built from the same queue. If it happens, `npm run test:blueprint` is the gate that should have caught it. |
+| An upload fails | The dialog stays open and names the reason. A switched-off picture account reads the same here as it does on a quote. |
+| Nav, buttons or page labels print | The print rules are scoped to `body.bpm-printing`, added just before the dialog opens and removed on `afterprint`. |
+
+⚠ **Printer setup, checked once on the office printer**: headers and footers **off** (or
+Chrome stamps the URL and the date on every sheet), scale at **100%** rather than "fit to
+page", and background graphics **on**.
+
+---
+
 ## 7. The three portals
 
 ### Public site + Member Portal (`index.html`)
@@ -4766,7 +4845,7 @@ a fake Firestore rather than reading their source; 16 sabotages red-checked.
 - **Cloud Functions it calls**: `portalLookup` (the one entry point for all lookups — token or phone/email+lastname, rate-limited), `portalSave` (whitelisted writes per section, mirrors changes onto the invoice, resyncs upcoming routes), `portalRsvp`, `portalSetGateCode`, `portalChangeAddress` (records a move as PENDING; applies nothing), `portalInvoice` (sanitized invoice read), `quoteRespond`, `publicQuoteLookup`, `paypalCreateOrder`/`paypalCaptureOrder`, `publicConfig` (public-safe EmailJS keys for the contact form).
 
 ### Admin dashboard (`admin.html`)
-Customers · Quote Requests · Customer Messages · Routes · Responsibilities (staff/crew/timecards) · Warehouse · Customer Numbers · Dashboard (Finance: Invoices, Business Credit Cards, Financial Overview) · Per Foot Pricing · Time Logs · Import Center / Member Export · Health Check · Automation (Email/SMS/nightly invoicing) · Reviews/Gallery/Hero Images/FAQ/Site Settings · Project To-Do / Test Checklist.
+Customers · Quote Requests · Customer Messages · Routes · Responsibilities (staff/crew/timecards) · Warehouse · Customer Numbers · **Blueprint Maps** · Dashboard (Finance: Invoices, Business Credit Cards, Financial Overview) · Per Foot Pricing · Time Logs · Import Center / Member Export · Health Check · Automation (Email/SMS/nightly invoicing) · Reviews/Gallery/Hero Images/FAQ/Site Settings · Project To-Do / Test Checklist.
 
 ### Crew/Warehouse Portal (`employee.html`)
 Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Card · Warehouse (Checklist/Lights/Recycle/Timers/Pull/Tomorrow subtabs) · More menu (role-gated: Warehouse, Add a Customer, Quotes, Messages, All Routes, Layout Maps, Crew Assignments, view-only Dashboard/Pricing/Time Logs) · Notes and requests to the office.

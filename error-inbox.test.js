@@ -892,10 +892,15 @@ check('an upload failure with no reason at all still reads as a sentence',
 const adviceCallers = (admin.split('uploadFailText(err)').length - 1) -
   (admin.indexOf('function uploadFailText(err){') !== -1 ? 1 : 0);
 check('every upload door that tells the office anything says WHY (structural)',
-  adviceCallers === 6,
+  adviceCallers === 7,
   'expected the extra house photo, the expense receipt, the Gallery, the fix-note photo, ' +
-  'How It Works and Areas We Serve; found ' + adviceCallers + '. An upload added later ' +
-  'without this line says "Upload failed" exactly as all of them used to');
+  'How It Works, Areas We Serve and the Blueprint Maps drawing; found ' + adviceCallers +
+  '. An upload added later without this line says "Upload failed" exactly as all of them used to');
+/* ⚠ 6 → 7 ON 2026-09-16, and the census is what asked. Blueprint Maps is a seventh door
+   a phone photographs a drawing through, and it went in reading the shared advice from the
+   first line rather than inventing an eighth wording for a switched-off picture account.
+   Moving this number is the whole point of the check firing — it is a decision somebody
+   makes, not a total that drifts. */
 
 /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED ([[QT-39]] superseding [[QT-38]]). These asserted
    the words "Texting is not wired up" and the Google Voice sentence, which were correct for
