@@ -8543,7 +8543,22 @@ function changeValueText(v, kind){
      the record stores false — the same answer, spelt two ways — so read as "(blank) → no"
      every save of every customer reported a row of tick boxes changing. Found by running
      the diff, not by reading it. */
-  if(kind === 'yesno' || typeof v === 'boolean') return v ? 'yes' : 'no';
+  if(kind === 'yesno' || typeof v === 'boolean'){
+    if(typeof v === 'boolean') return v ? 'yes' : 'no';
+    /* ⛔ A TICK BOX HAS THREE SPELLINGS, NOT TWO. This line used to read
+       `v ? 'yes' : 'no'`, which answers 'yes' for the STRING 'No' — a non-empty string is
+       truthy. The portal posts 'Yes'/'No' for specificOutlet, so it was wrong in BOTH
+       directions: No → Yes produced no row at all, and a record holding boolean `false`
+       saved against a posted 'No' reported "no → yes" with nobody having touched it.
+       ⚠ THE BLANK-VERSUS-FALSE TRAP ABOVE STAYS CLOSED — '' and false must both still
+       mean no — so blank, 'no', 'false' and '0' are no, and anything else is yes.
+       ⚠ PAIRED WITH portalChangeValueText in functions/index.js: change one and change
+       the other in the same push. change-log.test.js runs both over the same values.
+       This comment is longer than the fix on purpose: the one-liner it replaces read as
+       obviously correct, which is why it survived. */
+    const s = String(v === null || v === undefined ? '' : v).trim().toLowerCase();
+    return (s === '' || s === 'no' || s === 'false' || s === '0') ? 'no' : 'yes';
+  }
   if(v === null || v === undefined || v === '') return '(blank)';
   if(kind === 'money') return fmtMoney(Number(v) || 0);
   if(kind === 'list') return Array.isArray(v) ? (v.join(', ') || '(blank)') : String(v);
@@ -13709,20 +13724,36 @@ async function loadPortalChangeEmailSettings(){
       };
     }
   } catch(err){ /* not saved yet — the card shows its off-by-default state */ }
-  renderPortalChangeEmailCard();
+  renderPortalChangeEmailCard({syncFromSaved:true});
 }
-function renderPortalChangeEmailCard(){
+/* ⛔ A REDRAW MUST NOT THROW AWAY WHAT SHE HAS JUST TICKED (fixed 2026-09-16, and it was
+   a real bug rather than a hypothetical one). This is wired into the emailTemplates
+   snapshot so the picker follows a rename — and the snapshot fires on EVERY template edit,
+   which is exactly what she is doing while this card is open: press “Write me one to start
+   from”, go and reword the template in the list below, come back and press Save. The first
+   version reset the tick box and the picker from the SAVED settings on every one of those
+   redraws, so the save that followed wrote enabled:false over the box she had ticked and
+   the card stayed off with nothing on screen saying why.
+   ⚠ SO A REDRAW ONLY EVER REBUILDS THE OPTIONS. `syncFromSaved` is passed on the two
+   occasions the stored value really is the truth — the first load, and straight after a
+   Save — and `pickTemplateId` by the button that has just made one. Same trap as the
+   Communication Centre's section editor and the email-typo note's Use-it button, both of
+   which have their own paragraph about it. */
+function renderPortalChangeEmailCard(opts){
+  opts = opts || {};
   const on = document.getElementById('pceOn');
   const sel = document.getElementById('pceTemplate');
   if(!on || !sel) return;
-  on.checked = portalChangeEmailCfg.enabled === true;
-  const chosen = portalChangeEmailCfg.templateId || '';
+  if(opts.syncFromSaved) on.checked = portalChangeEmailCfg.enabled === true;
+  const chosen = opts.pickTemplateId
+    || (opts.syncFromSaved ? portalChangeEmailCfg.templateId : (sel.value || portalChangeEmailCfg.templateId))
+    || '';
   let html = '<option value="">— none picked —</option>';
   emailTemplates.forEach(function(t){
     const n = t.data.name || '(no name)';
     html += '<option value="'+esc(t.id)+'"'+(t.id === chosen ? ' selected' : '')+'>'+esc(n)+'</option>';
   });
-  /* ⚠ A DELETED TEMPLATE IS NAMED, NOT QUIETLY UNPICKED. Dropping back to "none picked"
+  /* ⚠ A DELETED TEMPLATE IS NAMED, NOT QUIETLY UNPICKED. Dropping back to “none picked”
      would show her a card that reads exactly like one she never set up, on a feature whose
      only symptom is an email nobody receives. */
   if(chosen && !emailTemplates.some(t => t.id === chosen)){
@@ -13732,9 +13763,23 @@ function renderPortalChangeEmailCard(){
   sel.innerHTML = html;
   renderPortalChangeEmailStatus();
 }
+/* ⚠ THE STATUS LINE DESCRIBES WHAT MEMBERS ACTUALLY GET, which is the SAVED settings and
+   never what is currently on screen — a line reading “On” because a box is ticked would be
+   the card claiming an email is going out that nothing has switched on yet. When the two
+   differ it says so instead, because a card that silently ignores a tick is the same
+   complaint from the other end. */
 function renderPortalChangeEmailStatus(){
   const el = document.getElementById('pceStatus');
-  if(!el) return;
+  const on = document.getElementById('pceOn');
+  const sel = document.getElementById('pceTemplate');
+  if(!el || !on || !sel) return;
+  const unsaved = (on.checked !== (portalChangeEmailCfg.enabled === true)) ||
+                  ((sel.value || '') !== (portalChangeEmailCfg.templateId || ''));
+  if(unsaved){
+    el.style.color = 'var(--gold-deep, #8a6d1f)';
+    el.textContent = 'Not saved yet — press Save to make this the one members get.';
+    return;
+  }
   const picked = portalChangeEmailCfg.templateId &&
     emailTemplates.some(t => t.id === portalChangeEmailCfg.templateId);
   if(!portalChangeEmailCfg.enabled){
@@ -13752,9 +13797,13 @@ function renderPortalChangeEmailStatus(){
     return;
   }
   el.style.color = '#2E6B3E';
-  el.textContent = 'On — members get "' + (portalChangeEmailCfg.templateName || 'your template') +
-    '" when they change something about their house.';
+  el.textContent = 'On — members get “' + (portalChangeEmailCfg.templateName || 'your template') +
+    '” when they change something about their house.';
 }
+/* ⚠ AND THE TWO CONTROLS REPORT THEMSELVES THE MOMENT THEY MOVE, so “Not saved yet” appears
+   while she is looking at them rather than after the next unrelated redraw. */
+document.getElementById('pceOn')?.addEventListener('change', renderPortalChangeEmailStatus);
+document.getElementById('pceTemplate')?.addEventListener('change', renderPortalChangeEmailStatus);
 /* The starting wording, in her voice and saying the thing she asked for. It is a STARTING
    POINT and not a fallback: nothing sends this unless she has picked the template it was
    written into, so editing or replacing it is an ordinary template edit. */
@@ -13776,11 +13825,14 @@ document.getElementById('pceMakeTmplBtn')?.addEventListener('click', async funct
     if(existing){
       /* ⚠ IT NEVER OVERWRITES ONE SHE HAS EDITED. Pressing this twice must not throw away
          her wording — the second press just picks the one that is already there. */
-      portalChangeEmailCfg.templateId = existing.id;
-      portalChangeEmailCfg.templateName = name;
-      renderPortalChangeEmailCard();
+      /* ⛔ IT PICKS THE TEMPLATE ON SCREEN AND WRITES NOTHING TO portalChangeEmailCfg.
+         That object mirrors what is SAVED and nothing else — the status line decides
+         whether to warn “Not saved yet” by comparing the two, so moving it here would
+         make the card claim a pick had been saved the instant this button was pressed,
+         and a page reload would then lose it with nothing having said so. */
+      renderPortalChangeEmailCard({pickTemplateId: existing.id});
       el.style.color = 'var(--slate)';
-      el.textContent = 'You already have one called “' + name + '”, so it is picked. Press Save to keep that.';
+      el.textContent = 'You already have one called “' + name + '”, so it is picked. Press Save to switch it on.';
       return;
     }
     let folderId = emailTemplateFolders.find(f => f.name === 'Member Portal')?.id;
@@ -13794,9 +13846,8 @@ document.getElementById('pceMakeTmplBtn')?.addEventListener('click', async funct
       body: DEFAULT_PORTAL_CHANGE_BODY,
       createdAt: serverTimestamp()
     });
-    portalChangeEmailCfg.templateId = ref.id;
-    portalChangeEmailCfg.templateName = name;
-    renderPortalChangeEmailCard();
+    /* ⛔ Picked on screen only — see the note above: portalChangeEmailCfg is what is saved. */
+    renderPortalChangeEmailCard({pickTemplateId: ref.id});
     el.style.color = '#2E6B3E';
     el.textContent = 'Made “' + name + '” and picked it. Edit the wording in the list below, then press Save here.';
   } catch(err){
@@ -13820,7 +13871,7 @@ document.getElementById('pceSaveBtn')?.addEventListener('click', async function(
   try{
     await setDoc(doc(db,'settings','portalChangeEmail'), next, {merge:true});
     portalChangeEmailCfg = next;
-    renderPortalChangeEmailCard();
+    renderPortalChangeEmailCard({syncFromSaved:true});
     if(next.enabled && next.templateId && hit){
       el.style.color = '#2E6B3E';
       el.textContent = 'Saved. Members now get “' + (next.templateName || 'your template') + '” when they change something.';

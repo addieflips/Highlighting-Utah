@@ -414,6 +414,19 @@ check('the card is loaded at login',
    that has been renamed or deleted — the failure the quote pickers already have a line for. */
 check('the picker refills when the template list changes',
   adminBare.indexOf("renderPortalChangeEmailCard === 'function'") !== -1);
+/* ⛔ AND IT REFILLS IN PRESERVE MODE, which is the half a behavioural check cannot see.
+   The renderer can keep an unsaved tick perfectly and the bug still be back, because the
+   SNAPSHOT is what decides which mode it runs in — pass syncFromSaved here and every
+   template edit resets the card again, with the jsdom checks above still green. The
+   red-check proved exactly that: sabotaging this one call was the only one of twenty-one
+   that got through, until this line existed. Wiring is asserted separately from mechanism. */
+const tplSnapCall = (function () {
+  const at = adminBare.indexOf("renderPortalChangeEmailCard === 'function'");
+  return at < 0 ? '' : adminBare.slice(at, adminBare.indexOf('\n', at));
+})();
+check('and the snapshot redraw never resyncs from the saved settings',
+  tplSnapCall.indexOf('syncFromSaved') === -1 && /renderPortalChangeEmailCard\(\s*\)/.test(tplSnapCall),
+  'the template snapshot calls it as: ' + tplSnapCall.trim());
 /* ⭐ BY ID, NOT BY NAME — [[EM-16]]'s lesson. A template she renames would be found on this
    screen and not on the server, so the card would look set up and every member change would
    silently go unanswered. */
@@ -421,9 +434,192 @@ const saveHandler = adminBare.slice(adminBare.indexOf("pceSaveBtn')?.addEventLis
                                     adminBare.indexOf("pceSaveBtn')?.addEventListener") + 1400);
 check('the card stores the template by id',
   /templateId:\s*id/.test(saveHandler), saveHandler.slice(0, 300));
+/* ⛔ `portalChangeEmailCfg` MIRRORS WHAT IS SAVED AND NOTHING ELSE. The status line decides
+   whether to warn "Not saved yet" by comparing that object with the two controls, so a
+   handler that writes to it before saving makes the card claim a pick has been stored the
+   instant the button is pressed — and a reload then loses it with nothing having said so.
+   The "write me one to start from" button picks its template ON SCREEN only. */
+const makeHandler = (function () {
+  const at = adminBare.indexOf("pceMakeTmplBtn')?.addEventListener");
+  if (at < 0) return '';
+  const end = adminBare.indexOf("pceSaveBtn')?.addEventListener", at);
+  return stripComments(adminBare.slice(at, end > at ? end : adminBare.length));
+})();
+check('the make-a-template button was found', !!makeHandler);
+check('and it never writes to the saved-settings object',
+  makeHandler.indexOf('portalChangeEmailCfg.templateId =') === -1 &&
+  makeHandler.indexOf('portalChangeEmailCfg.templateName =') === -1,
+  'it assigns to portalChangeEmailCfg, so the card would claim the pick was already saved');
+
 check('the server loads the template by that id, never by name',
   /emailTemplates'\)\.doc\(String\(cfg\.templateId\)\)/.test(fnsBare),
   'a name lookup here is a second opinion about which of her emails this is');
+
+
+/* ============================================================================
+   1b. A TICK BOX HAS THREE SPELLINGS — the bug this feature nearly shipped on
+   ========================================================================= */
+console.log('\n=== Yes/No fields are read the same way whichever spelling arrives ===');
+
+/* ⛔ FOUND BY RUNNING THE DIFF, NOT BY READING IT (2026-09-16). `portalChangeValueText`
+   answered `v ? 'yes' : 'no'` for the `yesno` kind, and the STRING 'No' is truthy — so
+   `specificOutlet`, whose radios in index.html post 'Yes'/'No', was wrong in BOTH
+   directions at once:
+     - a real switch from No to Yes produced NO history row and NO line in this email;
+     - a record holding boolean `false`, saved against a posted 'No' with nobody touching
+       anything, reported "no → yes" EVERY time — which on this path is an email to a
+       customer about a change they did not make, the exact failure the whole gate exists
+       to prevent.
+   Both directions are checked here, and so is the original blank-versus-false trap the
+   old line was written to close, because the fix had to keep that closed to be a fix. */
+if (labelsOf && describeOf) {
+  eq('a real outlet switch No → Yes is seen',
+    labelsOf({ specificOutlet: 'No' }, { specificOutlet: 'Yes' }), ['Which outlet we plug into']);
+  eq('and Yes → No is seen too',
+    labelsOf({ specificOutlet: 'Yes' }, { specificOutlet: 'No' }), ['Which outlet we plug into']);
+  eq('a record holding boolean false, saved against a posted No, is NOT a change',
+    labelsOf({ specificOutlet: false }, { specificOutlet: 'No' }), []);
+  eq('a record holding boolean true, saved against a posted Yes, is NOT a change',
+    labelsOf({ specificOutlet: true }, { specificOutlet: 'Yes' }), []);
+  /* ⚠ THE ORIGINAL TRAP MUST STAY CLOSED. '' and false are the same answer spelt two
+     ways; reading them as different reported every customer's tick boxes changing on
+     every save, which is what the line being fixed was written to prevent. */
+  eq('blank and false are still the same answer',
+    labelsOf({ specificOutlet: false }, { specificOutlet: '' }), []);
+  eq('and the office history agrees about the real switch',
+    describeOf({ specificOutlet: 'No' }, { specificOutlet: 'Yes' }), ['Specific outlet: no → yes']);
+}
+
+/* ⚠ PAIRED RULE. admin.html's `changeValueText` is the office copy of the same decision and
+   change-log.test.js already requires the two to agree; this asserts the FIX reached both,
+   because a fix in one of a pair is half a fix and the half that is missed is silent. */
+/* ⚠ WALKED TO THE CLOSING BRACE, NEVER A FIXED WINDOW. The first version of this check
+   took "the next 1200 characters" and failed on a correct file the moment the fix arrived
+   with its explanation attached — CLAUDE.md §7 bans a magic length by name and run-all.js
+   enforces it, and writing one anyway is how that rule keeps earning its place. */
+const officeYesNo = (function () {
+  const at = admin.indexOf('function changeValueText(');
+  if (at < 0) return '';
+  let k = admin.indexOf('{', at), d = 0;
+  for (; k < admin.length; k++) {
+    if (admin[k] === '{') d++;
+    else if (admin[k] === '}') { d--; if (!d) break; }
+  }
+  return stripComments(admin.slice(at, k + 1));
+})();
+check('the office copy of the Yes/No rule was fixed too',
+  /'false'/.test(officeYesNo) && /toLowerCase\(\)/.test(officeYesNo),
+  'admin.html still reads the truthiness of the string');
+
+/* ============================================================================
+   4. THE CARD, RUN AGAINST jsdom — a redraw must not throw away her tick
+   ========================================================================= */
+console.log('\n=== The card keeps what she has typed ===');
+
+let JSDOM = null;
+try { JSDOM = require('jsdom').JSDOM; } catch (e) { /* reported below, never skipped silently */ }
+check('jsdom is installed so the card can actually be drawn', !!JSDOM,
+  'run npm install — a gate that silently skips is a gate that reports green for the wrong reason');
+
+if (JSDOM) {
+  function liftAdmin(name) {
+    const start = admin.indexOf('function ' + name + '(');
+    if (start < 0) return '';
+    let k = admin.indexOf('{', start), d = 0;
+    for (; k < admin.length; k++) {
+      if (admin[k] === '{') d++;
+      else if (admin[k] === '}') { d--; if (!d) break; }
+    }
+    return admin.slice(start, k + 1);
+  }
+  const rCard = liftAdmin('renderPortalChangeEmailCard');
+  const rStatus = liftAdmin('renderPortalChangeEmailStatus');
+  check('both card renderers were found in admin.html', !!rCard && !!rStatus,
+    'missing: ' + [!rCard && 'renderPortalChangeEmailCard', !rStatus && 'renderPortalChangeEmailStatus']
+      .filter(Boolean).join(', '));
+
+  if (rCard && rStatus) {
+    /* ⚠ THE MARKUP IS CUT OUT OF admin.html, never hand-written here. A fixture carrying its
+       own copy of the card proves the copy works and says nothing at all about the card the
+       office opens — the vacuous-fixture trap this repo names in four other places. */
+    const cardStart = admin.indexOf('<div class="card" id="portalChangeEmailCard"');
+    const cardHtml = cardStart > -1 ? admin.slice(cardStart, admin.indexOf('</div>', admin.indexOf('id="pceStatus"'))) + '</div></div>' : '';
+    check('the real card markup was lifted out of admin.html', !!cardHtml);
+
+    function makeCard(cfg, templates) {
+      const dom = new JSDOM('<body>' + cardHtml + '</body>');
+      const doc = dom.window.document;
+      const sandbox = {
+        document: doc,
+        esc: (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
+          (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),
+        emailTemplates: templates,
+        portalChangeEmailCfg: cfg
+      };
+      const fn = new Function(...Object.keys(sandbox),
+        rStatus + '\n' + rCard + '\nreturn renderPortalChangeEmailCard;')(...Object.values(sandbox));
+      return { doc, render: fn };
+    }
+    const TPLS = [{ id: 'tpl1', data: { name: 'Member Portal Change' } },
+                  { id: 'tpl2', data: { name: 'Something Else' } }];
+    const SAVED_OFF = { enabled: false, templateId: '', templateName: '' };
+
+    /* ⛔ THE BUG THIS EXISTS FOR. The card is wired into the emailTemplates snapshot so the
+       picker follows a rename — and that snapshot fires on every template edit, which is
+       exactly what she is doing while this card is open. The first version reset both
+       controls from the SAVED settings on every redraw, so the Save that followed wrote
+       enabled:false over the box she had just ticked. */
+    {
+      const c = makeCard(SAVED_OFF, TPLS);
+      c.render({ syncFromSaved: true });
+      c.doc.getElementById('pceOn').checked = true;
+      c.doc.getElementById('pceTemplate').value = 'tpl1';
+      c.render();                       // a template elsewhere was edited
+      check('a redraw keeps a tick box she has not saved yet',
+        c.doc.getElementById('pceOn').checked === true,
+        'the redraw unticked it — the next Save would store enabled:false');
+      check('a redraw keeps a template she has picked but not saved',
+        c.doc.getElementById('pceTemplate').value === 'tpl1',
+        'got ' + c.doc.getElementById('pceTemplate').value);
+      check('and it says out loud that the change is not saved yet',
+        /not saved yet/i.test(c.doc.getElementById('pceStatus').textContent),
+        c.doc.getElementById('pceStatus').textContent);
+    }
+    /* ⚠ AND THE OTHER DIRECTION, or "preserve everything" would pass this file while making
+       the card unable to show what is actually stored. */
+    {
+      const c = makeCard({ enabled: true, templateId: 'tpl2', templateName: 'Something Else' }, TPLS);
+      c.render({ syncFromSaved: true });
+      check('loading from the stored settings does set the tick box',
+        c.doc.getElementById('pceOn').checked === true);
+      check('and does pick the stored template',
+        c.doc.getElementById('pceTemplate').value === 'tpl2',
+        c.doc.getElementById('pceTemplate').value);
+      check('with the status naming it rather than warning',
+        /Something Else/.test(c.doc.getElementById('pceStatus').textContent),
+        c.doc.getElementById('pceStatus').textContent);
+    }
+    /* ⚠ A DELETED TEMPLATE IS NAMED, not quietly unpicked — otherwise the card reads exactly
+       like one she never set up, on a feature whose only symptom is an email nobody gets. */
+    {
+      const c = makeCard({ enabled: true, templateId: 'gone', templateName: 'The Old One' }, TPLS);
+      c.render({ syncFromSaved: true });
+      const txt = c.doc.getElementById('pceTemplate').textContent;
+      check('a deleted template is still named on the card', /The Old One/.test(txt), txt);
+      check('and the status says nothing is being sent',
+        /deleted/i.test(c.doc.getElementById('pceStatus').textContent),
+        c.doc.getElementById('pceStatus').textContent);
+    }
+    /* ⚠ ON WITH NOTHING PICKED IS THE STATE THAT LOOKS FINE AND SENDS NOTHING. */
+    {
+      const c = makeCard({ enabled: true, templateId: '', templateName: '' }, TPLS);
+      c.render({ syncFromSaved: true });
+      check('on with no template picked says so',
+        /no template is picked/i.test(c.doc.getElementById('pceStatus').textContent),
+        c.doc.getElementById('pceStatus').textContent);
+    }
+  }
+}
 
 Promise.all(pendingChecks).then(function () {
   console.log('');

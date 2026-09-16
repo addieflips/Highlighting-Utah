@@ -1803,7 +1803,22 @@ const PORTAL_CHANGE_LABELS = {
    boxes changing. */
 function portalChangeValueText(v, kind) {
   if (kind === 'present') return v ? 'saved' : 'none';
-  if (kind === 'yesno' || typeof v === 'boolean') return v ? 'yes' : 'no';
+  if (kind === 'yesno' || typeof v === 'boolean') {
+    if (typeof v === 'boolean') return v ? 'yes' : 'no';
+    /* ⛔ A TICK BOX HAS THREE SPELLINGS, NOT TWO, and this line used to read
+       `v ? 'yes' : 'no'` — which answers 'yes' for the STRING 'No', because a non-empty
+       string is truthy. The portal's own radios post 'Yes'/'No' (index.html, the
+       changes_specific_outlet pair), so `specificOutlet` was wrong in BOTH directions at
+       once and had been all along: switching it from No to Yes produced NO history row,
+       while a record storing boolean `false` saved against a posted 'No' — nobody
+       touching anything — reported "no → yes" every single time. Measured by running the
+       diff, not by reading it, the same way the blank-versus-false trap below was found.
+       ⚠ THE ORIGINAL TRAP STAYS CLOSED, which is the whole difficulty: '' and false must
+       still both mean no, or every save of every customer reports its tick boxes
+       changing. So blank, 'no', 'false' and '0' are all no, and anything else is yes. */
+    const s = String(v === null || v === undefined ? '' : v).trim().toLowerCase();
+    return (s === '' || s === 'no' || s === 'false' || s === '0') ? 'no' : 'yes';
+  }
   if (v === null || v === undefined || v === '') return '(blank)';
   if (kind === 'money') return '$' + (Number(v) || 0).toFixed(2);
   if (kind === 'list') return Array.isArray(v) ? (v.join(', ') || '(blank)') : String(v);
