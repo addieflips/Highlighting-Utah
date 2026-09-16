@@ -60,3 +60,28 @@
 
 /
   Cache-Control: no-cache
+
+# The six marketing paths (added 2026-09-12). Each one is a Netlify rewrite to
+# index.html — see _redirects — so it is the app answering under another
+# address, and it needs the same no-cache as /index.html and / above for exactly
+# the reason spelled out at the top of this file: a cached copy of one of these
+# is a stale copy of the whole app, served to somebody who arrived from a search
+# result. They match neither /index.html nor / , so without these lines they are
+# the addresses a browser is free to hold on to.
+/how-it-works
+  Cache-Control: no-cache
+
+/gallery
+  Cache-Control: no-cache
+
+/reviews
+  Cache-Control: no-cache
+
+/areas
+  Cache-Control: no-cache
+
+/faq
+  Cache-Control: no-cache
+
+/contact
+  Cache-Control: no-cache

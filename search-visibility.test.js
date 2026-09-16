@@ -14,7 +14,12 @@
  * goes on telling Google about 29 towns that no longer match the 30 on screen. The
  * test is the only thing that can notice.
  *
- * ⚠ AND ONE CHECK IS A REFUSAL. The Google Business Profile carries 4.9 from 198
+ * ⭐ SECTION 7 WAS ADDED 2026-09-12, when six of those sections stopped being hash
+ * routes and became real paths. The list of them is written down in FOUR files —
+ * PATH_ROUTES, _redirects, sitemap.xml, _headers — and every pair of those can
+ * drift silently, each in a different direction. That section is the comparison.
+ *
+ * ⚠ AND TWO CHECKS ARE A REFUSAL. The Google Business Profile carries 4.9 from 198
  * reviews. Putting that in aggregateRating markup here would be a lie about where
  * it came from, and Google's own guidelines call it out by name — review markup
  * describes reviews collected BY this site. The temptation is real and recurring,
@@ -53,7 +58,7 @@ check('sitemap.xml exists', !!sitemap);
 if (index) {
   check('the page names one canonical URL',
     new RegExp('<link rel="canonical" href="' + CANON + '">').test(index),
-    'every section is a hash route on this one document, so one canonical is the whole site');
+    'this is the HOME answer. Six sections now answer on real paths and the router\n     rewrites this tag per route (applyRouteMeta), so the tag in the file has to stay\n     the homepage — hard-coding a section URL here would make all seven canonical to it');
   ['og:type', 'og:title', 'og:description', 'og:url', 'og:image'].forEach(p => {
     check('share card carries ' + p, new RegExp('property="' + p + '"').test(index),
       'a link pasted into a text message renders bare without it, on a business that runs on referral');
@@ -164,6 +169,207 @@ if (sitemap) {
     locs.every(u => u.indexOf('#') === -1),
     'a fragment is not a separate page and a sitemap claiming otherwise reports pages ' +
     'that do not exist');
+  check('and lists no /quote, /payment, /quote-details or /share',
+    !locs.some(u => /\/(quote|quote-details|payment|share)$/.test(u)),
+    'those four are a form, an account and a private link, not search results. They are ' +
+    'hash-only routes with no address to list, and publishing one invites Google to crawl ' +
+    'a screen that exists to be reached from an email.');
+}
+
+/* ============================================================================
+ * 7. THE SIX REAL PATHS, WHICH FOUR FILES HAVE TO AGREE ABOUT (2026-09-12)
+ *
+ * ⭐ THIS IS THE CHECK THAT EARNS ITS PLACE. Until this change the site was one
+ * URL: every section was a hash route, and a fragment is not a page. Six of them
+ * now answer on a real path, and that one list is written down in FOUR places —
+ * PATH_ROUTES in index.html, the rewrites in _redirects, the <loc>s in
+ * sitemap.xml, and the no-cache entries in _headers. Every pair can drift, and
+ * each drift fails in a different and quiet way:
+ *
+ *   in sitemap, not in _redirects  -> a 404 we asked Google to crawl
+ *   in PATH_ROUTES, not in _redirects -> the nav works, a typed URL 404s
+ *   in _redirects, not in sitemap  -> a page that works and is never found
+ *   missing from _headers          -> a stale app served to a searcher
+ *
+ * Nothing but a comparison can see any of those, because each file is valid on
+ * its own. This section is that comparison.
+ *
+ * ⚠ AND ONE OF THESE IS A REFUSAL, like the aggregateRating one above. /quote,
+ * /quote-details, /payment and /share must NOT become real paths. They are a
+ * form, an account and a private link; they stay hash-only so there is no URL to
+ * index, and the money paths stay untouched by routing work. Adding one here
+ * would publish a customer account screen.
+ * ========================================================================== */
+const redirects = read('_redirects');
+const headers = read('_headers');
+check('_redirects exists', !!redirects, 'without it every real path 404s on Netlify');
+check('_headers exists', !!headers);
+
+const PATH_ROUTES = (() => {
+  const m = index && index.match(/var PATH_ROUTES = \[([^\]]*)\];/);
+  if (!m) return [];
+  return m[1].split(',').map(x => x.trim().replace(/^'|'$/g, '')).filter(Boolean);
+})();
+
+/* The guard, for the same reason the town list has one: if the declaration is
+   renamed this parses to [] and every comparison below passes vacuously. */
+check('PATH_ROUTES was found in index.html', PATH_ROUTES.length === 7,
+  'parsed ' + PATH_ROUTES.length + ' routes ' + JSON.stringify(PATH_ROUTES) +
+  ' — expected 7 (/ plus the six marketing pages). If a route was deliberately ' +
+  'added or removed, change this number in the same commit; otherwise the ' +
+  'declaration has been renamed and every check below is comparing empty lists.');
+check('and / is one of them', PATH_ROUTES.indexOf('/') !== -1);
+
+const TRANSACTIONAL = ['/quote', '/quote-details', '/payment', '/share'];
+check('and none of the four private routes is a real path',
+  !TRANSACTIONAL.some(r => PATH_ROUTES.indexOf(r) !== -1),
+  'found ' + TRANSACTIONAL.filter(r => PATH_ROUTES.indexOf(r) !== -1).join(', ') +
+  ' in PATH_ROUTES. Those screens are reached from an email or a form, never from ' +
+  'a search result, and giving one an address publishes it. See the header.');
+
+const marketing = PATH_ROUTES.filter(r => r !== '/');
+
+/* ------------------------------------------- every path is actually served */
+if (redirects) {
+  const rewritten = (redirects.match(/^(\/\S*)\s+\/index\.html\s+200\s*$/gm) || [])
+    .map(l => l.trim().split(/\s+/)[0]);
+  check('_redirects has a rewrite for every marketing path',
+    marketing.every(r => rewritten.indexOf(r) !== -1),
+    'missing: [' + marketing.filter(r => rewritten.indexOf(r) === -1).join(', ') + ']\n        ' +
+    'Netlify has no file at that address, so without the rewrite it is a 404 — for ' +
+    'a URL the sitemap is telling Google to crawl.');
+  check('and it is not a catch-all', rewritten.indexOf('/*') === -1,
+    'a /* rewrite answers 200 to every mistyped address on the domain, which turns ' +
+    'every typo into a soft 404 and hides real broken links from us as well. ' +
+    'An unknown path should 404.');
+}
+
+if (headers) {
+  const noCache = (headers.match(/^(\/\S*)\s*$/gm) || []).map(l => l.trim());
+  check('_headers keeps every marketing path out of the browser cache',
+    marketing.every(r => noCache.indexOf(r) !== -1),
+    'missing: [' + marketing.filter(r => noCache.indexOf(r) === -1).join(', ') + ']\n        ' +
+    'Each one is a rewrite to index.html, so it is the app under another address. ' +
+    'It matches neither /index.html nor / , which is the same gap /q/* had to be ' +
+    'added for: a cached copy is a stale copy of the whole app.');
+}
+
+/* ------------------------------------ the sitemap names exactly these paths */
+if (sitemap && PATH_ROUTES.length === 7) {
+  const locs2 = (sitemap.match(/<loc>([^<]+)<\/loc>/g) || []).map(x => x.replace(/<\/?loc>/g, ''));
+  const expected = PATH_ROUTES.map(r => CANON + (r === '/' ? '' : r.slice(1))).sort();
+  check('the sitemap names exactly the real paths and nothing else',
+    locs2.slice().sort().join('|') === expected.join('|'),
+    'sitemap: [' + locs2.join(', ') + ']\n        expected: [' + expected.join(', ') + ']\n        ' +
+    'These are one list written twice. A URL here that is not a route is a page ' +
+    'that does not exist; a route missing here is a page nothing will find.');
+  note(locs2.length + ' URLs published, one per real path.');
+}
+
+/* -------------------------- and each of them says something different */
+if (index && PATH_ROUTES.length === 7) {
+  const metaBlock = (index.match(/var ROUTE_META = \{([\s\S]*?)\n\};/) || [])[1] || '';
+  check('ROUTE_META was found', metaBlock.length > 200,
+    'without it the per-route title and description checks below are vacuous');
+
+  const entry = route => {
+    const key = "'" + route + "': {";
+    const at = metaBlock.indexOf(key);
+    if (at === -1) return null;
+    let rest = metaBlock.slice(at + key.length);
+    const end = rest.search(/\n  '/);
+    if (end !== -1) rest = rest.slice(0, end);
+    /* ⚠ \b ON BOTH KEYS, AND THE RED-CHECK IS WHY. Without it `desc:` matches
+       inside `notdesc:` — so renaming the key to anything ending in "desc" was
+       read as a description of whatever followed, and the missing-description
+       check stayed green while the length check failed instead. A check that
+       goes red for the wrong reason sends the next person to the wrong line.
+       Same trap waits on `title:` inside `subtitle:`. */
+    return {
+      title: (rest.match(/\btitle:\s*'((?:[^'\\]|\\.)*)'/) || [])[1],
+      desc: (rest.match(/\bdesc:\s*'((?:[^'\\]|\\.)*)'/) || [])[1]
+    };
+  };
+
+  const entries = marketing.map(r => ({ route: r, meta: entry(r) }));
+  const missing = entries.filter(e => !e.meta || !e.meta.title || !e.meta.desc);
+  check('every marketing path has its own title and description',
+    missing.length === 0,
+    'without one: [' + missing.map(e => e.route).join(', ') + ']\n        ' +
+    'Seven URLs serving this one document are seven duplicates unless each says ' +
+    'something different. This is the half of the change that makes the paths worth ' +
+    'having, and a route added without these two strings is a route Google will fold ' +
+    'back into the homepage.');
+
+  if (missing.length === 0) {
+    const titles = entries.map(e => e.meta.title);
+    const descs = entries.map(e => e.meta.desc);
+    check('and no two of them are the same title',
+      new Set(titles).size === titles.length,
+      'duplicate titles are the single clearest signal to Google that two URLs are ' +
+      'the same page');
+    check('and no two of them are the same description',
+      new Set(descs).size === descs.length);
+    const longT = entries.filter(e => e.meta.title.length > 65);
+    check('and every title fits a search result',
+      longT.length === 0,
+      'over 65 characters: ' + longT.map(e => e.route + ' (' + e.meta.title.length + ')').join(', ') +
+      ' — Google truncates it, so the end of the sentence is written for nobody');
+    const badD = entries.filter(e => e.meta.desc.length < 70 || e.meta.desc.length > 170);
+    check('and every description is a usable length',
+      badD.length === 0,
+      'outside 70-170 characters: ' +
+      badD.map(e => e.route + ' (' + e.meta.desc.length + ')').join(', '));
+    note('7 URLs, each with its own title, description and canonical.');
+  }
+
+  /* -------------- the head is rewritten per route, not left on the homepage */
+  ['document.title =', 'link[rel="canonical"]', 'og:url'].forEach(bit => {
+    check('applyRouteMeta updates ' + bit,
+      index.indexOf(bit) !== -1 && /function applyRouteMeta/.test(index),
+      'the static tags in the head describe the homepage; if the router does not ' +
+      'rewrite them, all seven URLs claim to be the homepage');
+  });
+  check('and the static canonical is still the homepage',
+    new RegExp('<link rel="canonical" href="' + CANON + '">').test(index),
+    'the tag in the file is the home answer and the router edits it per route. ' +
+    'Hard-coding a section URL here would make every route canonical to that one.');
+
+  /* ------------------------- nothing is reachable only from the sitemap */
+  const orphans = marketing.filter(r => index.indexOf('href="' + r + '"') === -1);
+  check('and every marketing path is linked from the page itself',
+    orphans.length === 0,
+    'linked from nowhere: [' + orphans.join(', ') + ']\n        ' +
+    'A URL only a sitemap knows about is an orphan: it gets crawled and carries no ' +
+    'internal weight. These used to be href="#/faq", which a crawler does not follow ' +
+    'at all — converting them is what makes the nav and footer real links.');
+
+  /* ------- and the private routes are still hash links, which is what keeps
+             every quote and portal link already sent to a customer working */
+  const leaked = TRANSACTIONAL.filter(r => index.indexOf('href="' + r + '"') !== -1);
+  check('and the private routes are still linked by hash, not by path',
+    leaked.length === 0,
+    'found a path link to: [' + leaked.join(', ') + ']. Those must stay href="#' + '/..." — ' +
+    'the hash is what every quote email, RSVP button and referral link in a ' +
+    'customer inbox already uses, and what navigate() reads first.');
+}
+
+/* ----------------------------------- the FAQ markup, generated not retyped */
+if (index) {
+  check('the FAQ markup is generated from the FAQ the page shows',
+    /function syncFaqSchema/.test(index) && /mainEntity: FAQS\.map/.test(index),
+    'FAQS is replaced wholesale by the Firestore snapshot, so a hand-written copy ' +
+    'of the questions would describe last season to Google with nothing able to ' +
+    'notice. Building it from FAQS is what makes that impossible.');
+  check('and it is only published on /faq',
+    /route !== '\/faq'/.test(index),
+    'this block sits in the head of a document that answers on seven URLs — left ' +
+    'in place it claims the homepage and the gallery are FAQ pages too');
+  const faqBlock = (index.match(/function syncFaqSchema[\s\S]*?\n\}/) || [])[0] || '';
+  check('and it carries no rating either',
+    faqBlock.length > 100 && !/aggregateRating|reviewRating/.test(faqBlock),
+    'same refusal as the business block: a rating here would still be describing ' +
+    'reviews this site did not collect');
 }
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed, ' + notes + ' notes');
