@@ -897,28 +897,100 @@ check('every upload door that tells the office anything says WHY (structural)',
   'How It Works and Areas We Serve; found ' + adviceCallers + '. An upload added later ' +
   'without this line says "Upload failed" exactly as all of them used to');
 
-/* ⚠ REPOINTED 2026-09-11, NOT WEAKENED ([[QT-39]] superseding [[QT-38]]). These asserted
-   the words "Texting is not wired up" and the Google Voice sentence, which were correct for
-   about a day — QT-38 recorded Dax saying "we doont use twillo we use google voice", and he
-   set an account up the same evening. A check pinned to wording that a ruling can reverse
-   fails on correct code the moment it does, which is the slow-fuse shape S82 and S129 both
-   already carry. The GUARANTEE has not moved and is what is asserted now: Twilio's own
-   "invalid username" must never reach the office on its own, because it names the ACCOUNT
-   SID as a username and sends whoever reads it hunting a login this system does not have. */
-check('the raw Twilio wording never reaches the office unexplained',
-  admin.indexOf('invalid username|20003|accountsid') !== -1 &&
-  /The text service refused our details/.test(admin),
-  'on its own, "Authentication Error - invalid username" describes a login that does not ' +
-  'exist anywhere in this system');
+/* ⛔ THREE CHECKS CAME OUT HERE ON 2026-09-12 ([[QT-41]]), WITH THE CODE THEY COVERED.
+   They guarded the wording of the Twilio authentication failure on the quote card — added
+   2026-09-11 when an account existed, repointed hours later when it turned out it did not.
+   The quote card no longer sends a text at all: there is no Twilio account, so the button
+   copies the message and opens the Google Voice thread instead, and there is no auth error
+   left to word. Section 10 below is what replaced them.
+   ⚠ THIS IS NOT A GAP. A check kept alive over deleted code is the decoration this repo
+   names in four other places — it passes for ever and proves nothing. */
 
-check('and it names where the credentials actually live',
-  /Firebase secrets/.test(admin) && /redeploy/i.test(admin),
-  'they are not in this app, and setting one without a redeploy looks like it worked and ' +
-  'changes nothing — which is the step most easily missed');
+/* ---------------------------------------------------------------------------
+ * 10. The quote text copies and opens, because it cannot send.
+ *
+ * [[QT-41]], Dax 2026-09-12: "we cant use twillo so we need to just set it up so its easy to
+ * copy to bulk text in google voice", then "I want it so when you click the button it copys it
+ * and opens a link so all you need to do is paste where it sends you."
+ * ------------------------------------------------------------------------- */
+const GV_FN = extractFn(admin, 'googleVoiceThreadUrl');
+const GV_ACCOUNT = (admin.match(/const GOOGLE_VOICE_ACCOUNT = '[^']+';/) || [''])[0];
+const gvUrl = new Function(GV_ACCOUNT + ';' + GV_FN + '; return googleVoiceThreadUrl;')();
 
-check('and it still names something the office can do now',
-  /Send the quote by email in the meantime/.test(admin),
-  'a row that names no next step is a row that gets read once');
+check('the Google Voice link builder was lifted, not described',
+  GV_FN.indexOf('itemId') !== -1,
+  'repoint the lift rather than pasting a copy in here');
+
+check('a number the office typed by hand still opens the right thread',
+  gvUrl('(801) 555-1234') === gvUrl('8015551234') &&
+  gvUrl('(801) 555-1234') === gvUrl('+1 801 555 1234'),
+  'the book stores phones exactly as somebody typed them — brackets, spaces and dashes are ' +
+  'the normal case, not the exception');
+
+check('and it is E.164, which is the only shape Voice matches a thread on',
+  /itemId=t\.%2B18015551234$/.test(gvUrl('801-555-1234')),
+  'a raw ten-digit number lands on an empty search, which reads as the customer having no ' +
+  'history with us');
+
+check('a number Voice cannot open returns nothing rather than a broken link',
+  gvUrl('801-555-12') === '' && gvUrl('') === '' && gvUrl(null) === '',
+  'the caller renders a plain copy button on \'\' — a link to a page that finds nobody is ' +
+  'worse than no link');
+
+/* ⚠ THE REAL NUMBER THAT CAUGHT msgContactFor, not an invented one. Stripping punctuation
+   alone turns "(801) 555-0999 ext 4" into eleven digits that dial a stranger. */
+check('an extension is refused, not dialled',
+  gvUrl('(801) 555-0999 ext 4') === '',
+  'eleven digits that do not start with a 1 are not a phone number');
+
+/* ⚠ MEASURED, NOT ASSUMED (2026-09-12). Built without authuser and opened for real, Google
+   served addiechichia@gmail.com's Voice — an account with no number, which offers to sell you
+   one. Nothing failed; it opened the wrong inbox quietly. */
+check('the link names the account that actually holds the Voice number',
+  /authuser=service%40highlightingutah.com/.test(gvUrl('8015551234')),
+  'without it Google serves whichever account happens to be the browser default, and the one ' +
+  'the office uses for Voice is not the one admin is usually signed in as');
+
+check('and it is targeted by EMAIL, never by account index',
+  GV_ACCOUNT.indexOf('@') !== -1 && !/authuser=[0-9]/.test(gvUrl('8015551234')),
+  '/u/0/ and authuser=1 are positions in whatever order that browser signed in, so they point ' +
+  'at different people on different machines');
+
+check('the account index is left out of the path',
+  GV_FN.indexOf('/u/0/') === -1 && /voice\.google\.com\/messages/.test(gvUrl('8015551234')),
+  'the office keeps Google Voice on its own profile, so a hard-coded /u/0/ opens somebody ' +
+  'else\'s messages');
+
+/* ⚠ STRUCTURAL, and it is the half a behavioural check cannot see: the link has to be an
+   ANCHOR. A popup opened from script after an await has lost its user gesture and Chrome
+   blocks it silently — the message copies, no tab appears, and the button reads as half
+   working. */
+check('the link is an anchor, never window.open (structural)',
+  /2 · Open Google Voice<\/a>/.test(admin) && admin.indexOf('window.open(voiceUrl') === -1,
+  'a blocked popup is indistinguishable from a button that did nothing');
+
+/* ⛔ THE THREE STEPS ARE IN VOICE'S OWN ORDER, and the order is the whole of the fix.
+   Measured on 2026-09-12: `?itemId=` opens a conversation that ALREADY exists and there is no
+   parameter that starts a new one, so the office lands on the message list and has to pick the
+   recipient themselves. Voice asks for the RECIPIENT first and the MESSAGE second, and a
+   clipboard holds one thing — so one button cannot do both, however it is worded. A later
+   session tempted to merge these back into a single "copy everything" button will produce a
+   flow where the number is pasted into the message box. */
+check('the number is offered before the message, because that is the order Voice asks',
+  admin.indexOf('1 · Copy the number') < admin.indexOf('3 · Copy the message') &&
+  admin.indexOf('1 · Copy the number') !== -1,
+  'pasting in the other order puts a phone number in the message box');
+
+check('and the screen says WHY it is two pastes, not just what order',
+  /Google Voice cannot be /.test(admin) && /straight onto a new message/.test(admin),
+  'numbered buttons show the order and not the reason — and the reason is what stops ' +
+  'somebody hunting for the one-click version that does not exist');
+
+check('and the dead Twilio send is gone with its caller',
+  admin.indexOf('quotetext-send-btn') === -1 &&
+  admin.indexOf("httpsCallable(fbFunctions, 'sendSms')") === -1,
+  'a button that can only ever fail spends the office\'s time and files an error nobody ' +
+  'can act on');
 
 console.log('');
 console.log('--- wiring ---');
