@@ -3473,6 +3473,28 @@
           <div id="rsvpCheckListReport" style="font-size:13px;"></div>
         </div>
       </div>
+      <!-- ⭐ AUTO-REPLY WHEN A MEMBER CHANGES SOMETHING (2026-09-16, [[EM-18]]).
+           Addie: "can we get an automation email set up for someone who makes a change in
+           the member portal. Like saying something like we'll make sure to make this change
+           on your house."
+           ⚠ IT SITS UNDER TEMPLATES BECAUSE IT IS A TEMPLATE PICKER. The wording lives in
+           the list directly below it, so the card that chooses which one to send belongs
+           beside them rather than on a tab of its own — the same reason the Send the whole
+           RSVP card stays here. -->
+      <div class="card" id="portalChangeEmailCard" style="margin-bottom:22px;">
+        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128231; Auto-reply when a member changes something</h3>
+        <p class="form-note" style="margin:0 0 12px;">When somebody changes their <b>light colours</b>, <b>wire colour</b>, <b>timer</b>, <b>outlet</b>, <b>when they want it hung</b>, their <b>note</b> or <b>which sides</b> in the Member Portal, this emails them back to say we have got it. You already get the Gmail alert &mdash; this is the other direction. <b>My Info</b> changes (phone, email, gate code) and cancellations deliberately send nothing.</p>
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin-bottom:12px; cursor:pointer;">
+          <input type="checkbox" id="pceOn" style="width:auto; margin:0;"> Send this auto-reply
+        </label>
+        <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end;">
+          <div class="form-row" style="margin:0; min-width:260px;"><label style="font-size:11.5px;">Which template does it send?</label><select id="pceTemplate" style="font-size:13px; padding:8px 10px;"></select></div>
+          <button type="button" class="btn btn-outline btn-sm" id="pceMakeTmplBtn" style="width:auto;">Write me one to start from</button>
+          <button type="button" class="btn btn-gold btn-sm" id="pceSaveBtn" style="width:auto;">Save</button>
+        </div>
+        <p class="form-note" style="margin:10px 0 0;">Put <code>{{change}}</code> where you want the list of what they changed, <code>{{name}}</code> for their first name, and <code>{{portal_button}}</code> for a button back into their account. If you delete <code>{{change}}</code> the list is added at the bottom anyway, so the email can never fail to say what it is about.</p>
+        <div id="pceStatus" style="font-size:12.5px; color:var(--slate); margin-top:8px;"></div>
+      </div>
       <!-- Main Templates View -->
       <div style="display:grid; grid-template-columns:200px minmax(0,1fr); gap:20px; margin-bottom:30px;">
         <!-- Folders Sidebar -->
@@ -11933,6 +11955,7 @@ function initData(){
   loadEmailjsSettings();
   loadQuoteTemplateSettings();
   loadQuoteNudgeSettings();
+  loadPortalChangeEmailSettings();
   loadNightlyInvoiceSettings();
   loadNightlyInvoiceLog();
   loadPerFootRate();
@@ -13660,6 +13683,153 @@ document.getElementById('qMakeTextTmplBtn')?.addEventListener('click', async fun
   } catch(err){
     statusEl.style.color = 'var(--ember)';
     statusEl.textContent = 'Could not create them: ' + (err && err.message ? err.message : 'try again.');
+  }
+});
+/* ⭐ THE AUTO-REPLY WHEN A MEMBER CHANGES SOMETHING (2026-09-16, [[EM-18]]).
+   Addie: "can we get an automation email set up for someone who makes a change in the member
+   portal. Like saying something like we'll make sure to make this change on your house."
+   The email itself is sent by `portalSave` in functions/index.js — this card only records
+   WHETHER to send it and WHICH of her templates to use.
+   ⚠ BY ID, NOT BY NAME, which is [[EM-16]]'s lesson written down in the one other place it
+   applies. The quote pickers above store names because the browser resolves them against a
+   list it is already holding; this one is read by a Cloud Function, and a template she
+   renames would be found on this screen and not on the server — so the card would look set
+   up and every member change would silently go unanswered. The name is stored ALONGSIDE the
+   id, for the screen to show and for nothing to resolve. */
+let portalChangeEmailCfg = {enabled:false, templateId:'', templateName:''};
+async function loadPortalChangeEmailSettings(){
+  try{
+    const snap = await getDoc(doc(db,'settings','portalChangeEmail'));
+    if(snap.exists()){
+      const d = snap.data() || {};
+      portalChangeEmailCfg = {
+        enabled: d.enabled === true,
+        templateId: typeof d.templateId === 'string' ? d.templateId : '',
+        templateName: typeof d.templateName === 'string' ? d.templateName : ''
+      };
+    }
+  } catch(err){ /* not saved yet — the card shows its off-by-default state */ }
+  renderPortalChangeEmailCard();
+}
+function renderPortalChangeEmailCard(){
+  const on = document.getElementById('pceOn');
+  const sel = document.getElementById('pceTemplate');
+  if(!on || !sel) return;
+  on.checked = portalChangeEmailCfg.enabled === true;
+  const chosen = portalChangeEmailCfg.templateId || '';
+  let html = '<option value="">— none picked —</option>';
+  emailTemplates.forEach(function(t){
+    const n = t.data.name || '(no name)';
+    html += '<option value="'+esc(t.id)+'"'+(t.id === chosen ? ' selected' : '')+'>'+esc(n)+'</option>';
+  });
+  /* ⚠ A DELETED TEMPLATE IS NAMED, NOT QUIETLY UNPICKED. Dropping back to "none picked"
+     would show her a card that reads exactly like one she never set up, on a feature whose
+     only symptom is an email nobody receives. */
+  if(chosen && !emailTemplates.some(t => t.id === chosen)){
+    html += '<option value="'+esc(chosen)+'" selected>'+
+      esc(portalChangeEmailCfg.templateName || 'the template you picked')+' (deleted — pick another)</option>';
+  }
+  sel.innerHTML = html;
+  renderPortalChangeEmailStatus();
+}
+function renderPortalChangeEmailStatus(){
+  const el = document.getElementById('pceStatus');
+  if(!el) return;
+  const picked = portalChangeEmailCfg.templateId &&
+    emailTemplates.some(t => t.id === portalChangeEmailCfg.templateId);
+  if(!portalChangeEmailCfg.enabled){
+    el.style.color = 'var(--slate)';
+    el.textContent = 'Off — nobody is emailed when they change something.';
+    return;
+  }
+  /* ⚠ ON WITH NO TEMPLATE IS THE ONE STATE THAT LOOKS FINE AND SENDS NOTHING, so it is the
+     one the card says out loud. The server refuses the same way and logs the same reason. */
+  if(!picked){
+    el.style.color = 'var(--ember)';
+    el.textContent = portalChangeEmailCfg.templateId
+      ? 'On, but the template it points at has been deleted — nothing is being sent. Pick another and Save.'
+      : 'On, but no template is picked — nothing is being sent. Pick one and Save.';
+    return;
+  }
+  el.style.color = '#2E6B3E';
+  el.textContent = 'On — members get "' + (portalChangeEmailCfg.templateName || 'your template') +
+    '" when they change something about their house.';
+}
+/* The starting wording, in her voice and saying the thing she asked for. It is a STARTING
+   POINT and not a fallback: nothing sends this unless she has picked the template it was
+   written into, so editing or replacing it is an ordinary template edit. */
+const DEFAULT_PORTAL_CHANGE_BODY =
+  'Hi {{name}},<br><br>' +
+  'Thanks for letting us know — we’ve got this down:<br>' +
+  '{{change}}<br><br>' +
+  'We’ll make sure that’s what goes up on your house. There’s nothing else you need to do.<br><br>' +
+  'If any of that doesn’t look right, just reply to this email or give us a ring and we’ll put it straight.<br><br>' +
+  '{{portal_button}}<br><br>' +
+  '— Highlighting Utah';
+document.getElementById('pceMakeTmplBtn')?.addEventListener('click', async function(){
+  const el = document.getElementById('pceStatus');
+  el.style.color = 'var(--slate)';
+  el.textContent = 'Working…';
+  try{
+    const name = 'Member Portal Change';
+    const existing = emailTemplates.find(t => t.data.name === name);
+    if(existing){
+      /* ⚠ IT NEVER OVERWRITES ONE SHE HAS EDITED. Pressing this twice must not throw away
+         her wording — the second press just picks the one that is already there. */
+      portalChangeEmailCfg.templateId = existing.id;
+      portalChangeEmailCfg.templateName = name;
+      renderPortalChangeEmailCard();
+      el.style.color = 'var(--slate)';
+      el.textContent = 'You already have one called “' + name + '”, so it is picked. Press Save to keep that.';
+      return;
+    }
+    let folderId = emailTemplateFolders.find(f => f.name === 'Member Portal')?.id;
+    if(!folderId){
+      const fRef = await addDoc(collection(db,'emailTemplateFolders'), {name:'Member Portal', createdAt: serverTimestamp()});
+      folderId = fRef.id;
+    }
+    const ref = await addDoc(collection(db,'emailTemplates'), {
+      name: name, folderId: folderId,
+      subject: 'We’ve got your change',
+      body: DEFAULT_PORTAL_CHANGE_BODY,
+      createdAt: serverTimestamp()
+    });
+    portalChangeEmailCfg.templateId = ref.id;
+    portalChangeEmailCfg.templateName = name;
+    renderPortalChangeEmailCard();
+    el.style.color = '#2E6B3E';
+    el.textContent = 'Made “' + name + '” and picked it. Edit the wording in the list below, then press Save here.';
+  } catch(err){
+    el.style.color = 'var(--ember)';
+    el.textContent = 'Could not make it: ' + (err && err.message ? err.message : 'try again.');
+  }
+});
+document.getElementById('pceSaveBtn')?.addEventListener('click', async function(){
+  const el = document.getElementById('pceStatus');
+  const sel = document.getElementById('pceTemplate');
+  const id = sel ? sel.value : '';
+  const hit = emailTemplates.find(t => t.id === id);
+  const next = {
+    enabled: document.getElementById('pceOn').checked === true,
+    templateId: id,
+    /* ⚠ THE NAME IS TAKEN FROM THE TEMPLATE, NEVER FROM THE OPTION TEXT. A deleted one
+       renders its option as "… (deleted — pick another)", and saving that string would put
+       those words on the card for ever as if they were the template's real name. */
+    templateName: hit ? (hit.data.name || '') : (id === portalChangeEmailCfg.templateId ? portalChangeEmailCfg.templateName : '')
+  };
+  try{
+    await setDoc(doc(db,'settings','portalChangeEmail'), next, {merge:true});
+    portalChangeEmailCfg = next;
+    renderPortalChangeEmailCard();
+    if(next.enabled && next.templateId && hit){
+      el.style.color = '#2E6B3E';
+      el.textContent = 'Saved. Members now get “' + (next.templateName || 'your template') + '” when they change something.';
+    } else {
+      renderPortalChangeEmailStatus();
+    }
+  } catch(err){
+    el.style.color = 'var(--ember)';
+    el.textContent = 'Could not save — try again.';
   }
 });
 async function loadQuoteNudgeSettings(){
@@ -17762,6 +17932,10 @@ function loadEmailTemplates(){
     /* The quote-email pickers list real templates, so they have to refill
        whenever the template list itself changes. */
     if(typeof renderQuoteTemplatePickers === 'function') renderQuoteTemplatePickers();
+    /* ⚠ AND THIS ONE, for the same reason — it lists real templates, so a rename,
+       a deletion or one made by the button on that card has to reach it. Left out, the
+       card goes on naming a template that is no longer there. */
+    if(typeof renderPortalChangeEmailCard === 'function') renderPortalChangeEmailCard();
   });
 }
 function getEmailTemplateByName(name){

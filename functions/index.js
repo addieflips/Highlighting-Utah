@@ -1812,14 +1812,24 @@ function portalChangeValueText(v, kind) {
   return s.length > 60 ? s.slice(0, 60) + '\u2026' : s;
 }
 const PORTAL_CHANGE_EMPTY_TEXTS = ['(blank)', 'no', 'none', '0', '$0.00'];
-function describePortalChanges(before, updates) {
+/* ⭐ WHICH FIELDS A PORTAL SAVE ACTUALLY CHANGED — ONE ANSWER (split out 2026-09-16,
+   [[EM-18]]). This was the first half of describePortalChanges and is now its own function
+   because the member's auto-reply has to ask the identical question: the office history and
+   the email we send the customer cannot disagree about whether somebody changed their wire
+   colour. Two copies of this test is how the activity log records a change the confirmation
+   email never mentions.
+   ⚠ AND THE TWO SUBTLETIES BELOW ARE WHY A SECOND COPY WOULD BE WRONG RATHER THAN MERELY
+   DUPLICATED. A hand-rolled `String(a) !== String(b)` gets both of them backwards: an
+   unticked box arrives as '' while the record stores `false`, so every save of every
+   customer would report the tick boxes changing — which, on the auto-reply, is an email to
+   the whole book saying they changed something they never touched. */
+function portalChangedFieldNames(before, updates) {
   const out = [];
   if (!updates) return out;
   const was = before || {};
   Object.keys(PORTAL_CHANGE_LABELS).forEach(function (f) {
     if (!Object.prototype.hasOwnProperty.call(updates, f)) return;
     const spec = PORTAL_CHANGE_LABELS[f];
-    const label = typeof spec === 'string' ? spec : spec.label;
     const kind = typeof spec === 'string' ? '' : spec.kind;
     const a = portalChangeValueText(was[f], kind);
     const b = portalChangeValueText(updates[f], kind);
@@ -1829,9 +1839,19 @@ function describePortalChanges(before, updates) {
        touches it, which would put a row of noise on the history of the whole book. */
     if (!Object.prototype.hasOwnProperty.call(was, f) &&
         PORTAL_CHANGE_EMPTY_TEXTS.indexOf(b) !== -1) return;
-    out.push(label + ': ' + a + ' \u2192 ' + b);
+    out.push(f);
   });
   return out;
+}
+function describePortalChanges(before, updates) {
+  const was = before || {};
+  return portalChangedFieldNames(was, updates).map(function (f) {
+    const spec = PORTAL_CHANGE_LABELS[f];
+    const label = typeof spec === 'string' ? spec : spec.label;
+    const kind = typeof spec === 'string' ? '' : spec.kind;
+    return label + ': ' + portalChangeValueText(was[f], kind) +
+      ' \u2192 ' + portalChangeValueText(updates[f], kind);
+  });
 }
 /* ⚠ ONE ROW PER SAVE, capped, and SAYING it is capped — the same rule and the same number
    as the office copy, for the same reason: a save is one event, and a row per field turns
@@ -1865,6 +1885,197 @@ async function logPortalChange(custId, changes) {
     console.error('[HU] portal activity log write failed', what, err);
     return null;
   }
+}
+
+/* ⭐ AN AUTO-REPLY WHEN A MEMBER CHANGES SOMETHING ABOUT THEIR HOUSE (2026-09-16, [[EM-18]]).
+ * Addie: "can we get an automation email set up for someone who makes a change in the member
+ * portal. Like saying something like we'll make sure to make this change on your house."
+ *
+ * ⚠ THE OFFICE WAS ALREADY TOLD AND THE CUSTOMER WAS NOT. Every one of these changes has
+ * raised an Inbox note and a Gmail nudge since [[MSG-17]] — so WE knew, and the person who
+ * made the change got a grey "Saved!" that vanishes after 1.5 seconds and nothing else. This
+ * is the other direction, and it is the only email in this file that goes to the member
+ * because of something the member did.
+ *
+ * ⛔ THE DIFF IS COMPUTED AGAINST THE RECORD, NEVER FROM WHICH KEYS ARRIVED. The preferences
+ * form posts all six of its fields on every save whether they were touched or not, so
+ * `updates` is NOT a list of changes — reading it as one would email every customer
+ * "you changed your wire colour" every time they corrected a note. `portalChangeLabels`
+ * compares each field with what the record already held, and an empty list sends nothing,
+ * which is also what makes a re-save of an untouched form silent for free.
+ *
+ * ⛔ THREE SECTIONS, AND THE OTHER TWO ARE EXCLUDED ON PURPOSE. 'info' is name, phone, email
+ * and gate code — not a change to the house, and [[MSG-18]] already settled that an ordinary
+ * My Info save is deliberately quiet ("changing gate code or phone number should not notify
+ * us"); a customer correcting a typo does not need "we'll make this change on your house".
+ * 'cancel' is somebody leaving, and thanking them for a change we are going to make is the
+ * wrong thing to send to the one person who just said no.
+ *
+ * ⚠ SIDES DO NOT PROMISE A PRICE. Changing which sides are lit raises a re-quote, so its
+ * line says an updated price is coming rather than letting the template's closing sentence
+ * promise work at the old figure.
+ */
+const PORTAL_CHANGE_EMAIL_SECTIONS = ['lights', 'preferences', 'sides'];
+const PORTAL_CHANGE_EMAIL_QUIET_MINUTES = 30;
+
+/* ⭐ THE SAME CHANGES, IN WORDS THE MEMBER WOULD RECOGNISE. The office history says
+   "Wire colour: white → green" because the office wants the before as well as the after;
+   the customer already knows what they just picked and wants to read that we got it. Two
+   renderings of one detection — the same shape as the build badge's chip and its printed
+   label, and for the same reason: a coloured pill and a line in an email cannot share a
+   renderer but must never make different claims.
+   ⚠ IT NAMES ONLY THE HOUSE. Every field portalChangedFieldNames can return is listed
+   below or deliberately absent: name, phone, email, address and gate code belong to the
+   'info' section this never runs for, and cancellationReason belongs to 'cancel'. A field
+   added to PORTAL_CHANGE_LABELS later and not added here is SILENT rather than wrong — the
+   email simply will not mention it, which is why the gate in run-all.js counts them. */
+function portalChangeLabels(oldData, updates) {
+  const fields = portalChangedFieldNames(oldData, updates);
+  const has = function (f) { return fields.indexOf(f) !== -1; };
+  /* Their own words go into an email they will read, so a long value is cut rather than
+     pasted whole — and `notes` is not echoed at all, for the same reason. */
+  const shown = function (f, blank) {
+    const v = updates && updates[f];
+    const s = Array.isArray(v) ? v.filter(Boolean).join(', ') : String(v === undefined || v === null ? '' : v).replace(/\s+/g, ' ').trim();
+    if (!s) return blank;
+    return s.length > 80 ? s.slice(0, 77) + '\u2026' : s;
+  };
+  const out = [];
+  if (has('lightsDescription')) {
+    out.push('The light colours on your house \u2014 now ' + shown('lightsDescription', 'not set'));
+  }
+  if (has('wireColor')) {
+    out.push('Your wire colour \u2014 now ' + shown('wireColor', 'not set'));
+  }
+  if (has('outletTimer')) {
+    out.push('Whether we fit an outlet timer \u2014 now ' + shown('outletTimer', 'not set'));
+  }
+  /* ⚠ ONE LINE FOR THE PAIR. specificOutlet and specificOutletNotes are one answer stored
+     in two fields, and ticking the box while typing the note changes both — two lines would
+     tell the member they made two changes when they made one. The sides pair below is the
+     same shape, for the same reason. */
+  if (has('specificOutlet') || has('specificOutletNotes')) {
+    out.push('Which outlet we plug into');
+  }
+  if (has('installPreference')) {
+    out.push('When you would like your lights hung \u2014 now ' + shown('installPreference', 'no preference'));
+  }
+  if (has('notes')) {
+    out.push('The note you have left us');
+  }
+  /* ⚠ SIDES PROMISE NOTHING ABOUT THE PRICE. Changing which sides are lit raises a
+     re-quote, so this line says an updated price is coming rather than letting the
+     template's closing sentence promise the work at the old figure. */
+  if (has('houseSides') || has('houseSidesList')) {
+    out.push('Which sides of your house we light \u2014 we will send you an updated price before anything changes');
+  }
+  return out;
+}
+
+/* ⚠ BEST EFFORT, AND IT NEVER THROWS. Every caller has already written the change; an email
+   that cannot be sent must not turn a save that worked into an error on the member's screen.
+   The reason is returned rather than swallowed so the log says which of the seven quiet exits
+   it took — "nothing was sent" and "nothing was sent because the template was deleted" need
+   different actions, and a bare silence needs somebody to guess. */
+async function sendPortalChangeEmail(custId, d, labels) {
+  if (!labels || !labels.length) return { sent: false, why: 'nothing actually changed' };
+
+  const to = String((d && d.email) || '').trim();
+  if (!to) return { sent: false, why: 'no email address on file' };
+
+  const cfgSnap = await db.collection('settings').doc('portalChangeEmail').get();
+  const cfg = cfgSnap.exists ? (cfgSnap.data() || {}) : {};
+  /* ⚠ OFF UNTIL SHE TURNS IT ON. This mails real customers the moment it works, so it must
+     not start doing that on the deploy that adds it. */
+  if (cfg.enabled !== true) return { sent: false, why: 'the auto-reply is switched off' };
+  if (!cfg.templateId) {
+    return { sent: false, why: 'no template is picked under Automation Emails > Templates' };
+  }
+
+  /* ⚠ THE SAME CHANGE TWICE IN HALF AN HOUR IS ONE EMAIL, and it is fingerprinted on the
+     WORDING rather than on which fields moved. Fingerprinting the fields would suppress a
+     real red-then-blue correction and leave the member holding an email that names the
+     colour they backed out of — a stale confirmation is worse than a second one. This way
+     only a genuinely identical re-save is quiet, and every different outcome is confirmed.
+     Same dedupe shape as the error folders' repeat window. */
+  const fingerprint = labels.join(' | ');
+  const lastAt = d && d.portalChangeEmailAt;
+  if (d && d.portalChangeEmailKey === fingerprint && lastAt && typeof lastAt.toMillis === 'function') {
+    const mins = (Date.now() - lastAt.toMillis()) / 60000;
+    if (mins >= 0 && mins < PORTAL_CHANGE_EMAIL_QUIET_MINUTES) {
+      return { sent: false, why: 'the same change was already confirmed a few minutes ago' };
+    }
+  }
+
+  /* ⚠ BY ID, AND A DELETED TEMPLATE SENDS NOTHING RATHER THAN INVENTED WORDING. [[EM-16]]'s
+     lesson: a name lookup is a second opinion about which of her emails this is, and a
+     built-in fallback body is wording she never wrote going out over her name with nothing
+     on any screen saying it happened. */
+  const tplSnap = await db.collection('emailTemplates').doc(String(cfg.templateId)).get();
+  if (!tplSnap.exists) {
+    return { sent: false, why: 'the picked template has been deleted — pick one again' };
+  }
+  const tpl = tplSnap.data() || {};
+
+  const mailSnap = await db.collection('settings').doc('emailjs').get();
+  const mail = mailSnap.exists ? (mailSnap.data() || {}) : {};
+  if (!mail.serviceId || !mail.templateId || !mail.privateKey) {
+    return { sent: false, why: 'EmailJS is not set up on the server (Automation Emails > EmailJS Setup)' };
+  }
+
+  const token = await ensureToken(custId, d);
+  const portalUrl = 'https://highlightingutah.com/#/payment' + (token ? ('?token=' + token) : '');
+  const btn = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none;'
+    + ' font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
+  const list = '<ul style="margin:10px 0 0; padding-left:20px;">'
+    + labels.map(function (l) { return '<li style="margin:4px 0;">' + escServer(l) + '</li>'; }).join('')
+    + '</ul>';
+
+  let body = String(tpl.body || '');
+  body = body.split('{{name}}').join(properNameServer(d.name) || 'there');
+  body = body.split('{{portal_link}}').join(portalUrl);
+  body = body.split('{{portal_button}}').join(
+    '<a href="' + portalUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">See my account</a>');
+  /* ⭐ THE LIST IS APPENDED WHEN THE TOKEN IS NOT THERE, which is [[MSG-27]]'s rule applied to
+     a template SHE edits. The whole point of this email is saying WHICH change we have got
+     down; a body edited later that happens to drop {{change}} would send "we'll make sure to
+     make this change on your house" naming no change at all — this same bug re-armed, with
+     nothing anywhere going red. So the token positions it, and its absence cannot lose it. */
+  if (body.indexOf('{{change}}') !== -1) {
+    body = body.split('{{change}}').join(list);
+  } else {
+    body = body + list;
+  }
+
+  const subject = templateSubjectOr(tpl, 'We have got your change')
+    .split('{{name}}').join(properNameServer(d.name) || 'there');
+
+  const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      service_id: mail.serviceId,
+      template_id: mail.templateId,
+      user_id: mail.publicKey || '',
+      accessToken: mail.privateKey,
+      template_params: {
+        to_email: to, to_name: d.name || '',
+        subject: subject, body: body, message: body
+      }
+    })
+  });
+  if (!res.ok) {
+    const text = (await res.text()).slice(0, 200);
+    return { sent: false, why: 'the mail service refused it: ' + text };
+  }
+
+  /* ⚠ STAMPED ONLY AFTER THE SEND SUCCEEDS, so a refusal does not start a quiet window that
+     suppresses the retry as well as the send that never happened. */
+  await db.collection('jobAddresses').doc(custId).update({
+    portalChangeEmailAt: admin.firestore.FieldValue.serverTimestamp(),
+    portalChangeEmailKey: fingerprint
+  });
+  return { sent: true, why: '' };
 }
 
 /* --- portalSave -----------------------------------------------------------
@@ -2389,6 +2600,23 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
       }
     } catch (err) {
       console.error('[HU] portal route resync failed:', err);
+    }
+  }
+
+  /* ⭐ AND THE MEMBER IS TOLD WE HAVE GOT IT ([[EM-18]]). Last thing in the handler, after
+     every write above has landed, so the email can never describe a change that did not
+     save. ⚠ WRAPPED, BECAUSE A REFUSED EMAIL MUST NOT BECOME A FAILED SAVE — the record is
+     already correct by this line and the office already has its Inbox note, so the worst a
+     throw here could do is tell the member their change did not work when it did. */
+  if (PORTAL_CHANGE_EMAIL_SECTIONS.indexOf(section) !== -1) {
+    try {
+      const changeLabels = portalChangeLabels(oldData, updates);
+      const outcome = await sendPortalChangeEmail(match.id, Object.assign({}, oldData, updates), changeLabels);
+      if (!outcome.sent && changeLabels.length) {
+        console.log('[HU] no portal-change auto-reply sent: ' + outcome.why);
+      }
+    } catch (err) {
+      console.error('[HU] portal-change auto-reply failed:', err);
     }
   }
 
