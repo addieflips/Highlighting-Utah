@@ -1808,6 +1808,20 @@
         </div>
         <div id="cTestSweepReport" style="margin-top:12px; font-size:13px;"></div>
       </div>
+
+      <!-- ⭐ WIRE COLOURS NOBODY WROTE DOWN (2026-09-16, [[WH-36]]). It lives HERE rather
+           than in Danger Zone because it reads the master sheet, and the sheet is connected
+           on this tab — a tool that needs a file handle belongs beside the button that
+           grants it. -->
+      <div class="card">
+        <h3 style="margin:0 0 6px;">Wire colours nobody wrote down</h3>
+        <p style="font-size:13px; margin:0 0 12px;">The Member Portal used to fill in <strong>White</strong> by itself for anyone with no wire colour on file, so some records now claim a colour nobody picked. This finds every customer whose record says White while your master sheet records nothing for them, and clears it &mdash; so the warehouse reads <strong>Check lights</strong> and somebody sets it for good next time they are at the bin. <strong>It only ever clears, only ever White, and never touches a customer the sheet has no row for.</strong></p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <button type="button" class="btn btn-outline btn-sm" id="cWireSweepDryBtn">Check first &mdash; who would be cleared</button>
+          <button type="button" class="btn btn-gold btn-sm" id="cWireSweepBtn" style="display:none;">Clear them</button>
+        </div>
+        <div id="cWireSweepReport" style="margin-top:12px; font-size:13px;"></div>
+      </div>
 <!-- Fill in a missing town from the map pin. Not a nice-to-have: every
      scheduling decision in this app is made per town, so a customer whose town
      is blank cannot go on a route at all, and the bulk import left ~374 of them
@@ -14206,6 +14220,187 @@ function testSweepSummary(f){
   add(f.planHouses.reduce(function(n, p){ return n + p.count; }, 0), 'day on the schedule', 'stops on the schedule');
   return bits.length ? bits.join(', ') : 'nothing';
 }
+/* ⭐ A WIRE COLOUR NOBODY WROTE DOWN (2026-09-16, [[WH-36]]).
+   Addie, asked why 637 of 955 people have no wire colour on the master sheet:
+   "Blank means we just didn't put it in becuase there bin is already made and couldn't go
+   through each bin and sort out colors. But we will update it little at a time thats why
+   we don't want to automatically assume someone should be white."
+
+   ⛔ SO A STORED White THAT THE SHEET DOES NOT CORROBORATE IS EXACTLY THE ASSUMPTION SHE
+   REFUSED. The portal's Changes tab used to prefill White whenever the record held nothing
+   and write it back on any save ([[OPT-11]]), so a customer who went in to edit their NOTE
+   came out with White on their record — a colour nobody chose, indistinguishable on screen
+   from one the office picked. [[WH-35]] made the UNRECORDED ones say "Check lights"; this
+   is the other half, the ones where a colour was invented and stored.
+
+   ⚠ THE SHEET IS THE CORROBORATION, AND IT NEEDS NO HISTORY ARCHAEOLOGY. The change log
+   only reaches back to 28 August while the portal bug shipped on 29 July, so a month has
+   no log at all — but the Wire column is where the office records what it picked, for
+   every period. Measured on the real workbook: 190 White, 126 Green, 637 with nothing.
+
+   ⛔ IT ONLY EVER CLEARS, AND ONLY EVER White. The bug could only write White, so a Green
+   on a record was put there by a person and is never touched. Nothing here writes a wire
+   colour onto anybody — the whole point is to stop a colour being claimed.
+
+   ⚠ A CUSTOMER WITH NO SHEET ROW AT ALL IS LEFT ALONE. The sheet being incomplete is not
+   evidence that a record is wrong; only a row that EXISTS with an empty Wire cell is
+   evidence the office recorded nothing. Somebody added from a quote and never typed onto
+   the sheet would otherwise be cleared on the strength of a gap in the wrong document.
+
+   ⚠ AND AN AMBIGUOUS NAME IS NO MATCH, not a weak one — six names on the real sheet belong
+   to two rows, and this repo's rule is already written down: two candidates is no match. */
+async function wireSweepFind(){
+  const handle = await hlxSheetHandleLoad();
+  if(!handle) throw new Error('No master sheet is connected on this computer. Press "Use my master sheet" above first.');
+  const state = await hlxSheetPermission(handle, true);
+  if(state !== 'granted') throw new Error('The browser would not let me read the sheet — press "Use my master sheet" above and allow it.');
+  const all = await hlxWorkbookRowsAllSheets(await handle.getFile());
+  const rows = (all && all.rows) || [];
+  const header = (rows[0] || []).map(function(v){ return String(v == null ? '' : v).trim(); });
+  const col = {};
+  header.forEach(function(h, i){ if(h && col[h] == null) col[h] = i; });
+  if(col['Name'] == null || col['Wire'] == null){
+    throw new Error('That workbook has no Name or Wire column — it may be the wrong file.');
+  }
+
+  /* Two different questions, kept apart on purpose: does the sheet KNOW this customer,
+     and does it RECORD a wire for them. Clearing needs both answers. */
+  const rowByNum = {}, wireByNum = {}, nameCount = {}, wireByName = {};
+  const cell = function(r, key){ return col[key] == null ? '' : String(r[col[key]] == null ? '' : r[col[key]]).trim(); };
+  for(let i = 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const nm = dupNormName(cell(r, 'Name'));
+    const cu = cell(r, 'CU #');
+    const w  = rbNormalizeWire(cell(r, 'Wire'));
+    if(nm){ nameCount[nm] = (nameCount[nm] || 0) + 1; if(w && !wireByName[nm]) wireByName[nm] = w; }
+    if(cu){ rowByNum[cu] = true; if(w && !wireByNum[cu]) wireByNum[cu] = w; }
+  }
+
+  const found = wireSweepClassify(jobAddresses, {rowByNum: rowByNum, wireByNum: wireByNum,
+                                                 nameCount: nameCount, wireByName: wireByName});
+  found.sheetRows = Math.max(0, rows.length - 1);
+  return found;
+}
+
+/* ⭐ THE DECISION, ON ITS OWN, so a test can RUN it rather than match its source — the
+   same reason rmCommitPayload and whTimerOnlyQueue are their own functions. Every claim
+   worth making here is about WHICH LIST a customer lands in, which a regex cannot see.
+   ⚠ IT READS THE SHEET INDEX AND NOTHING ELSE: no file handle, no Firestore, no DOM. */
+function wireSweepClassify(customers, sheet){
+  const found = {clear: [], agrees: 0, conflict: [], notOnSheet: [], sheetRows: 0};
+  (customers || []).forEach(function(c){
+    const d = (c && c.data) || {};
+    /* ⛔ White ONLY. Green was typed by a person and the bug could never produce it, so
+       clearing one would destroy a real answer to tidy up after a different mistake. */
+    if(String(d.wireColor || '').trim() !== 'White') return;
+    const cu = String(d.customerNumber || '').trim();
+    const nm = dupNormName(d.name);
+    let known = false, sheetWire = '';
+    if(cu && sheet.rowByNum[cu]){ known = true; sheetWire = sheet.wireByNum[cu] || ''; }
+    /* ⚠ A NAME THAT TWO ROWS ANSWER TO IS NO MATCH. Six names on the real sheet belong to
+       two rows, and this repo's rule is already written down: two candidates is no match. */
+    else if(nm && sheet.nameCount[nm] === 1){ known = true; sheetWire = sheet.wireByName[nm] || ''; }
+    const row = {id: c.id, name: d.name || '(no name)', address: d.address || '', number: cu};
+    /* ⛔ THE SHEET BEING INCOMPLETE IS NOT EVIDENCE A RECORD IS WRONG. Only a row that
+       EXISTS with an empty Wire cell says the office recorded nothing. */
+    if(!known){ found.notOnSheet.push(row); return; }
+    if(sheetWire === 'White'){ found.agrees++; return; }
+    if(sheetWire){ row.sheetWire = sheetWire; found.conflict.push(row); return; }
+    found.clear.push(row);
+  });
+  return found;
+}
+
+/* ⚠ ONLY EVER CLEARS WHAT THE DRY RUN SHOWED. Re-finding here would touch records she
+   never saw, which is the whole reason they are listed first — the test sweep's own rule.
+   ⚠ AND A DIRECT updateDoc QUEUES NO REBUILD: warehouseRebuildFields runs inside the Edit
+   Customer save handler, not on a Firestore write, so clearing a colour nobody chose does
+   not put ~600 houses onto the warehouse list. */
+async function wireSweepClear(found){
+  let done = 0; const failed = [];
+  for(const row of (found.clear || [])){
+    try{
+      await updateDoc(doc(db, 'jobAddresses', row.id), {wireColor: ''});
+      done++;
+    }catch(err){
+      console.error('[HU] could not clear the wire colour for ' + row.name, err);
+      failed.push(row.name);
+    }
+  }
+  return {done: done, failed: failed};
+}
+(function wireWireSweep(){
+  const dryBtn = document.getElementById('cWireSweepDryBtn');
+  const goBtn  = document.getElementById('cWireSweepBtn');
+  const out    = document.getElementById('cWireSweepReport');
+  if(!dryBtn || !goBtn || !out) return;
+  let pending = null;
+  const names = function(list){
+    return list.map(function(r){
+      return esc(r.name) + (r.number ? ' <span style="color:var(--slate);">#' + esc(r.number) + '</span>' : '') +
+        (r.sheetWire ? ' <span style="color:var(--slate);">— sheet says ' + esc(r.sheetWire) + '</span>' : '');
+    }).join('<br>');
+  };
+  dryBtn.addEventListener('click', async function(){
+    dryBtn.disabled = true;
+    out.textContent = 'Reading your sheet…';
+    goBtn.style.display = 'none';
+    try{
+      pending = await wireSweepFind();
+      let html = '<div><strong>' + pending.clear.length + '</strong> ' +
+        (pending.clear.length === 1 ? 'customer says White with nothing on the sheet' :
+                                      'customers say White with nothing on the sheet') + '.</div>';
+      /* ⚠ WHAT IS BEING LEFT ALONE IS REPORTED TOO. A sweep that names only what it would
+         touch reads as though it looked at nothing else, and the counts are what say the
+         sheet was actually read rather than silently failing to match anybody. */
+      html += '<div style="margin-top:4px; color:var(--slate); font-size:12.5px;">' +
+        'Left alone: ' + pending.agrees + ' the sheet also calls White, ' +
+        pending.conflict.length + ' where the sheet says something else, and ' +
+        pending.notOnSheet.length + ' not on the sheet at all. ' +
+        'Read ' + pending.sheetRows + ' sheet rows.</div>';
+      if(pending.conflict.length){
+        html += '<div style="margin-top:8px;"><strong>The sheet disagrees about these — not touched.</strong> ' +
+          'Use <em>Compare</em> above to settle them.<br><span style="font-size:12.5px;">' +
+          names(pending.conflict) + '</span></div>';
+      }
+      if(pending.clear.length){
+        html += '<div style="margin-top:8px; font-size:12.5px;">' + names(pending.clear) + '</div>';
+        goBtn.style.display = '';
+      } else {
+        html += '<div style="margin-top:8px; color:#2E6B3E;">Nothing to clear — every White on a record is one the sheet backs up.</div>';
+        pending = null;
+      }
+      out.innerHTML = html;
+    }catch(err){
+      console.error('Wire sweep could not look:', err);
+      out.innerHTML = '<span style="color:var(--ember);">Could not look — ' + esc((err && err.message) || err) + '</span>';
+      pending = null;
+    }
+    dryBtn.disabled = false;
+  });
+  goBtn.addEventListener('click', async function(){
+    if(!pending || !pending.clear.length){ out.textContent = 'Press “Check first” before clearing anything.'; return; }
+    const typed = prompt('Clear the wire colour on ' + pending.clear.length + ' customer(s)?\n\n' +
+      'They will read "Check lights" in the warehouse until somebody looks in the bin and sets it.\n' +
+      'Nothing else on their record changes.\n\nType CLEAR to go ahead.');
+    if(String(typed || '').trim().toUpperCase() !== 'CLEAR') return;
+    goBtn.disabled = true;
+    out.textContent = 'Clearing…';
+    try{
+      const res = await wireSweepClear(pending);
+      out.innerHTML = '<span style="color:#2E6B3E;">Cleared ' + res.done + '.</span>' +
+        (res.failed.length ? '<div style="color:var(--ember); margin-top:4px;">Could not clear: ' +
+          esc(res.failed.join(', ')) + '</div>' : '') +
+        '<div style="margin-top:4px; color:var(--slate); font-size:12.5px;">They now read “Check lights” in the warehouse.</div>';
+      pending = null;
+      goBtn.style.display = 'none';
+    }catch(err){
+      console.error('Wire sweep could not clear:', err);
+      out.innerHTML = '<span style="color:var(--ember);">Could not clear — ' + esc((err && err.message) || err) + '</span>';
+    }
+    goBtn.disabled = false;
+  });
+})();
 (function wireTestSweep(){
   const dryBtn = document.getElementById('cTestSweepDryBtn');
   const goBtn = document.getElementById('cTestSweepBtn');

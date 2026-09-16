@@ -219,6 +219,14 @@ jobs:
       # which looks exactly like a switch that was never turned on.
       - name: The member-portal auto-reply
         run: npm run test:pce
+      # ⭐ CLEARING A WIRE COLOUR NOBODY WROTE DOWN. Named separately because this one
+      # writes to customer records in BULK, and every way it can go wrong is silent:
+      # clearing a colour the office really picked because the sheet is merely incomplete,
+      # clearing a Green the bug could never have written, matching the wrong customer on
+      # a shared name — or matching nobody at all and reporting a clean book, which is
+      # exactly how a broken sheet reader would look.
+      - name: Wire colours nobody wrote down
+        run: npm run test:wiresweep
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 
