@@ -4814,7 +4814,7 @@
                house, same as the pattern. -->
           <div class="form-row" id="whExtraWireRow" style="max-width:260px;"><label for="whExtraWire">Wire Color</label>
             <select id="whExtraWire">
-              <option value="">Not set &mdash; buffer stock</option>
+              <option value="">Not chosen &mdash; buffer stock, or check the lights</option>
               <option value="White">White</option>
               <option value="Green">Green</option>
             </select>
@@ -49038,9 +49038,36 @@ document.getElementById('dashRsvpFilterPayment').addEventListener('change', func
    A build is only "the same" if the colours AND the wire match. Two houses in
    Warm White are different builds if one is on white wire and one on green, so
    the wire is part of the group key, not just something shown on the row. */
+/* ⭐ A WIRE NOBODY RECORDED IS “CHECK LIGHTS”, NEVER “White” (2026-09-16, [[WH-35]]).
+   Addie: “in the warehouse in changing lights we are allowed to choose wire color but don't
+   have too and anyone that says white wire in warehouse right now lets get rid of that
+   completley and just show them as Check lights which means check lights to see what there
+   wire color currently is.”
+   ⛔ THIS LINE WAS INVENTING AN ANSWER FOR THE WHOLE BOOK. It read `w || 'White'`, so every
+   house with nothing on file was SHOWN as White wire and, because whGroupKey calls this,
+   was BUILT into the White pile — a claim nobody made, on the one screen where somebody acts
+   on it. rbNormalizeWire returns '' for anything the master sheet spelt oddly, so that is a
+   real population, not an edge case. It is the same shape as the portal dropdown that
+   prefilled White ([[OPT-11]]) and it predates it.
+   ⚠ THE HONEST ANSWER IS TO SEND SOMEBODY TO LOOK, which is what she asked for: they are
+   holding the bundle anyway. A house that really is White still reads White, so confirming
+   one is an ordinary edit and the row stops asking — it heals rather than nagging for ever.
+   ⚠ AND IT CHANGES THE GROUP, deliberately. whGroupKey is built on this, so unconfirmed
+   houses become their own pile instead of being mixed into the White one. Two piles that
+   might need different wire must not be handed to one person as a single heading.
+   ⚠ BUFFER STOCK IS NOT TOUCHED: a warehouseExtras row with no wire takes its own heading
+   (“buffer stock (wire not set)”) and never reaches this default.
+   ⛔ AND IT STORES NOTHING. Nobody's record is rewritten — this is what the warehouse is
+   TOLD, not what is kept, so it is reversible in one line and cannot lose a real answer.
+   Same rule as printSidesCell: where the record does not know, say so.
+   ⚠ AND THE WORDS ARE WRITTEN OUT INSIDE THIS FUNCTION, not held in a constant beside it.
+   Five sandboxes lift whWireLabel ALONE into a bare scope — whGroupKey calls it, so the
+   recycle queue, both build sheets and the crew sheet all reach it — and a named constant
+   outside the body is a bare ReferenceError in every one of them. Same rule, and the same
+   reason, as houseInstallPriority naming no constant outside itself. */
 function whWireLabel(wire){
   const w = String(wire || '').trim();
-  return w || 'White';
+  return w || 'Check lights';
 }
 /* Put a colour list into a canonical order so the SAME pattern typed in a
  * different order lands in ONE warehouse group. Before this, "Red, Green" and
