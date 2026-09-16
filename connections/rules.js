@@ -32,7 +32,12 @@ const AREAS = {
   /* ⚠ NOT `MSG`. That family is the Inbox — post arriving. This one is mail going OUT:
      who a send reached, who it did not, and getting to the second group. They fail in
      opposite directions and filing them together would hide both. */
-  EM: 'Sending email'
+  EM: 'Sending email',
+  /* ⚠ NOT `EM`. That family is mail we SEND to people who are already customers. This
+     one is the opposite direction: somebody who has never heard of us, typing into
+     Google. Different audience, different artifacts — the profile, the markup,
+     robots.txt — and filing them together would hide both. */
+  SEO: 'Being found'
 };
 
 /* The map's own Status column is the honest starting state. A person confirming a block

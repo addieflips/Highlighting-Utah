@@ -490,6 +490,14 @@ the docs record it as settled but no dated quote survives — treat those as wea
 
 ---
 
+## Being found — the public site and search
+
+| # | Question | Her answer | Decided | Where it's proved | Status |
+|---|---|---|---|---|---|
+| SEO-01 | Does Highlighting Utah do COMMERCIAL work, or only homes? The public site says homeowners throughout, and one of the paused Google Ads campaign's eleven keyword themes is `commercial christmas light installation` — so the site and the ad money disagreed, and whichever was wrong was costing something. | **Both — commercial work is real.** Dax, 2026-09-12, asked directly because the two artifacts contradicted each other: *"yes"*. ⭐ **THE ADS THEME STAYS.** It was on a list to be removed as waste on the strength of the site's own wording; removing it would have turned off the only thing pointing at half the business. ⚠ **THE SITE IS THE THING THAT IS WRONG, AND ONLY TWO OF ITS SEVEN CLAIMS ARE FIXED.** `<meta name="description">` and the JSON-LD `description` said *for homeowners* and now say *for homes and businesses*; `knowsAbout` names both jobs. The other five live in body copy — the hero badge (*5-Star Rated by Utah Valley Homeowners*), both FAQ intros and the reviews heading — and are marketing wording, not search markup, so they were deliberately left for a person. ⚠ **DO NOT READ THIS AS A DECISION TO CHASE COMMERCIAL WORK.** It records that the work exists, so nothing describes the business more narrowly than it is. What share of it to advertise for is a separate question and was not asked. | 2026-09-12 | `search-visibility.test.js`; the two head claims in index.html | Standing |
+
+---
+
 ## Open questions live somewhere else
 
 ⚠ **Do not start a second list here.** `docs/open-questions.md` already owns open
