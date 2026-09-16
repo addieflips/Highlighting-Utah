@@ -13818,17 +13818,21 @@ function renderPortalChangeEmailStatus(){
    while she is looking at them rather than after the next unrelated redraw. */
 document.getElementById('pceOn')?.addEventListener('change', renderPortalChangeEmailStatus);
 document.getElementById('pceTemplate')?.addEventListener('change', renderPortalChangeEmailStatus);
-/* The starting wording, in her voice and saying the thing she asked for. It is a STARTING
-   POINT and not a fallback: nothing sends this unless she has picked the template it was
-   written into, so editing or replacing it is an ordinary template edit. */
+/* ⭐ HER OWN WORDING, pasted in 2026-09-16, rather than a draft written for her. Two things
+   are added and neither is a rewrite: the greeting, because her text opens straight into the
+   thank-you, and {{change}} on the line under it, because naming what they changed is the whole
+   of [[EM-18]] and “the changes you requested” is the sentence it belongs to. Her closing note
+   “This is auto- Reply” is rendered as the grey footer line rather than sent as typed.
+   ⚠ IT IS A STARTING POINT AND NOT A FALLBACK: nothing sends this unless she has picked the
+   template it was written into, so editing or replacing it is an ordinary template edit. */
 const DEFAULT_PORTAL_CHANGE_BODY =
   'Hi {{name}},<br><br>' +
-  'Thanks for letting us know — we’ve got this down:<br>' +
+  'Thank you for reaching out! We’ve received your request and will make sure the changes you requested are taken care of.<br>' +
   '{{change}}<br><br>' +
-  'We’ll make sure that’s what goes up on your house. There’s nothing else you need to do.<br><br>' +
-  'If any of that doesn’t look right, just reply to this email or give us a ring and we’ll put it straight.<br><br>' +
-  '{{portal_button}}<br><br>' +
-  '— Highlighting Utah';
+  'We’ll get everything updated on our end and get your home scheduled for this season. We’ll be in touch once your home is scheduled!<br><br>' +
+  'Best,<br>' +
+  'Highlighting Utah<br><br>' +
+  '<span style="color:#777;font-size:12px;">This is an automatic reply.</span>';
 document.getElementById('pceMakeTmplBtn')?.addEventListener('click', async function(){
   const el = document.getElementById('pceStatus');
   el.style.color = 'var(--slate)';

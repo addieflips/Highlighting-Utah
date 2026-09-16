@@ -451,6 +451,29 @@ check('and it never writes to the saved-settings object',
   makeHandler.indexOf('portalChangeEmailCfg.templateName =') === -1,
   'it assigns to portalChangeEmailCfg, so the card would claim the pick was already saved');
 
+/* ⭐ THE STARTING WORDING IS HERS (2026-09-16) AND IS ASSERTED, because it is what the first
+   email she ever sends actually says. It is not a fallback — nothing sends it unless she picks
+   the template it was written into — but it IS the wording she will most likely send as typed,
+   so losing {{change}} out of it would mean an auto-reply that thanks somebody and never names
+   what they changed. `sendPortalChangeEmail` appends the list when the body places no token,
+   and that is the safety net rather than the design. */
+const defaultBody = (function () {
+  const at = adminBare.indexOf('const DEFAULT_PORTAL_CHANGE_BODY =');
+  if (at < 0) return '';
+  /* ⚠ CUT AT THE NEXT DECLARATION, NOT AT A CHARACTER COUNT — §7 bans fixed-length windows,
+     and the body grows every time she rewords it. */
+  const end = adminBare.indexOf('document.getElementById(', at);
+  return adminBare.slice(at, end > at ? end : adminBare.length);
+})();
+check('the starting wording was found', !!defaultBody);
+check('and it names what changed', defaultBody.indexOf('{{change}}') !== -1,
+  'her draft thanks them for "the changes you requested" and would never say which');
+check('and it greets them by name', defaultBody.indexOf('{{name}}') !== -1, defaultBody.slice(0, 200));
+/* ⚠ THE BUTTON MUST WRITE THE CONSTANT, NOT A STRING OF ITS OWN. An inline body here means
+   editing the wording above changes nothing anybody receives. */
+check('and "write me one to start from" writes exactly that constant',
+  /body:\s*DEFAULT_PORTAL_CHANGE_BODY/.test(makeHandler), makeHandler.slice(0, 400));
+
 check('the server loads the template by that id, never by name',
   /emailTemplates'\)\.doc\(String\(cfg\.templateId\)\)/.test(fnsBare),
   'a name lookup here is a second opinion about which of her emails this is');
