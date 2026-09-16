@@ -5243,12 +5243,21 @@ suite('8. Quote decline / maybe next year');
      a dropdown CHANGED to Back Next Year now counts as choosing it, because reading an
      unticked box as "bringing them back in" was silently wiping the office's own
      answer. The ordering this checks is unchanged and is what matters. */
-  check('quoteresp', 'saving applies the season fields after the rest',
-    admin.indexOf('addrUpdates.maybeNextYear = seasonMaybeChosen') >
-      admin.indexOf('addrUpdates.needsLightBuild = newLightsDescription') &&
-    admin.indexOf('addrUpdates.maybeNextYear = seasonMaybeChosen') <
-      admin.indexOf("await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates)"),
-    'the RSVP dropdown or the build flag would overwrite it and leave a half state');
+  /* ⚠ SCOPED TO THE HANDLER AND NO LONGER NAMING THE ID VARIABLE (2026-09-12). The
+     customer write was anchored on the literal `editCustomerId`, which the save stopped
+     using when it began capturing the id before its first await — so this failed on code
+     that is right. A bare file-wide anchor cannot replace it: there are fifty-one
+     `await updateDoc(doc(db,'jobAddresses', ` in admin.html and the first is nowhere
+     near this handler, so the slice is what makes the ordering claim mean anything. */
+  {
+    const seasonSave = sectionFrom(admin, admin.indexOf("editCustSaveBtn').addEventListener('click'"));
+    const iSeason = seasonSave.indexOf('addrUpdates.maybeNextYear = seasonMaybeChosen');
+    const iBuild = seasonSave.indexOf('addrUpdates.needsLightBuild = newLightsDescription');
+    const iSave = seasonSave.indexOf("await updateDoc(doc(db,'jobAddresses', ");
+    check('quoteresp', 'saving applies the season fields after the rest',
+      iSeason > -1 && iBuild > -1 && iSave > -1 && iSeason > iBuild && iSeason < iSave,
+      'the RSVP dropdown or the build flag would overwrite it and leave a half state');
+  }
   /* ⭐ REPOINTED FROM ITS OPPOSITE (2026-09-02). This used to require the stale-dropdown
      rescue — "if the dropdown still says backnextyear, blank it" — which could only fire
      while a second control could disagree with the dropdown. With one control that line
@@ -5859,8 +5868,11 @@ suite('10d. Activity log, and losing somebody else’s edit');
   check('conflict', 'the customer save checks whether anyone else changed the record',
     /editCustOpenedWithUpdatedAt/.test(saveSrc) && /freshMs > openedMs/.test(saveSrc),
     'a save silently replaced the other person’s work with a stale snapshot');
+  /* ⚠ THE NAME OF THE ID IS NOT THE CLAIM (repointed 2026-09-12): what matters is that
+     this read goes to Firestore rather than to jobAddresses. The save captures the id
+     before its first await now, so the old anchor failed on correct code. */
   check('conflict', 'it re-reads from the server, not from the cache',
-    /getDoc\(doc\(db,'jobAddresses', editCustomerId\)\)/.test(saveSrc),
+    /getDoc\(doc\(db,'jobAddresses', [A-Za-z_$][\w$]*\)\)/.test(saveSrc),
     'the listener may not have delivered the other change yet — the cache is the thing that might not know');
   check('conflict', 'overwriting is possible but has to be chosen',
     /Save anyway and overwrite\?/.test(saveSrc),
@@ -8206,9 +8218,14 @@ if (!JSDOM) {
        suite. */
     const ecEnd = ecStart > -1 ? admin.indexOf('\n});', ecStart) : -1;
     const ecSrc = ecStart > -1 ? admin.slice(ecStart, ecEnd > -1 ? ecEnd : admin.length) : admin;
+    /* ⚠ THE ID NAME IS READ OFF THE CUSTOMER WRITE (repointed 2026-09-12) rather than
+       typed as `editCustomerId`, which the save stopped using when it began capturing
+       the id before its first await. Tying the two together keeps the original claim —
+       the sweep is handed THIS customer — without pinning it to a spelling. */
+    const ecIdName = (ecSrc.match(/updateDoc\(doc\(db,'jobAddresses', ([A-Za-z_$][\w$]*)\)/) || [])[1];
     check('rsvp-routes', 'Edit Customer removes the customer from upcoming routes when RSVP is set to No',
-      /newRsvp === 'no' && item\.data\.rsvpStatus !== 'no'/.test(ecSrc) &&
-      (ecSrc.match(/removeCustomerFromUpcomingRoutes\(editCustomerId\)/g) || []).length >= 1,
+      /newRsvp === 'no' && item\.data\.rsvpStatus !== 'no'/.test(ecSrc) && !!ecIdName &&
+      (ecSrc.match(new RegExp('removeCustomerFromUpcomingRoutes\\(' + ecIdName + '\\)', 'g')) || []).length >= 1,
       'setting RSVP straight to No from the dropdown had the same gap as the portal link — the crew still turns up');
   })());
 })();
@@ -28809,19 +28826,61 @@ suite('Suite 108. The Edit Customer save, actually run');
   const handlerSrc = at > 0 ? admin.slice(brace + 1, k) : '';
   check('S108', 'the save handler was found to run', !!handlerSrc);
 
+  /* ⭐ AND NO READ OF THE MODULE VARIABLE IS LEFT IN IT (2026-09-12). The checks further
+     down RUN the save with the id moving underneath it, which proves the mechanism —
+     but a fixture can only witness a read it happens to reach, and the red-check found
+     four it could not: the waived-fee log, the open-card lookup, the stamp on the card
+     being closed and the referral credit, each behind a branch this sandbox does not
+     enter. Twelve of these accumulated one at a time, and ONE left behind is the whole
+     bug, so the claim worth asserting is the absolute one.
+
+     THREE ARE ALLOWED AND NAMED: the entry guard, the capture itself, and the tail that
+     clears the module variable when the form closes. Anything else reading it after an
+     await is either a crash (Cancel, Remove) or a silent write onto the sibling house a
+     tab click repointed it at.
+     ⚠ COMMENTS STRIPPED, the rule Suites 58, 274, 275 and 300 each had to learn — the
+     capture's own note names the variable five times over. */
+  {
+     const bare = stripComments(handlerSrc);
+     const reads = (bare.match(/\beditCustomerId\b/g) || []).length;
+     check('S108', 'and no read of the module-level id is left anywhere in it',
+       reads === 3,
+       'expected exactly three: `if(!editCustomerId) return;`, the capture it feeds, ' +
+       'and the tail that clears it — found ' + reads + '. Every other read must use ' +
+       'the captured id, or a Cancel pressed mid-save crashes it and a house tab ' +
+       'silently writes onto the sibling');
+  }
+
   const AsyncFn = Object.getPrototypeOf(async function(){}).constructor;
 
   /* Ashley's own situation: 300 ft against a regular number, a re-quote in hand, and
      recycle-old-build-new chosen on the popup. */
   function runSave(opts) {
     const o = opts || {};
+    /* ⭐ WHERE THE MODULE-LEVEL `editCustomerId` LIVES FOR THIS RUN. `moves` is set by
+       a fixture that wants it to change part way through the save — `null` for Cancel
+       or Remove, another id for a house-tab click. */
+    const moves = Object.prototype.hasOwnProperty.call(o, 'moveIdTo');
+    const idBox = {v: 'c894'};
+    /* ⚠ WHAT THE HOOK ACTUALLY DID, recorded rather than assumed: a hook that has
+       silently stopped firing leaves the id where it started, every check below
+       passes on the UNFIXED handler too, and nothing says so. A red-check disabling
+       the move went straight through until this was here — the vacuous-fixture trap
+       CLAUDE.md records in four other places, in my own harness. */
+    const idSeen = [];
+    const routeCalls = [];
+    const idScope = new Proxy(idBox, {
+      has: (t, k) => k === 'editCustomerId',
+      get: (t, k) => (k === 'editCustomerId' ? t.v : undefined),
+      set: (t, k, val) => { if (k === 'editCustomerId') t.v = val; return true; }
+    });
     const FIELDS = {editCustName: 'Ashley Wray', editCustPhone: '8016160714',
       editCustEmail: 'wraynash@gmail.com', editCustAddress: '9991 Red Cedar Ln, Highland, UT',
       /* ⚠ 400 FT, NOT 300 ([[WH-29]]). This fixture exists to prove the save MOVES them onto
          the 5000 series, and 300 stopped being two bins when the cutoff went to 320 — it would
          have gone on passing while proving the opposite. */
       editCustHousePrice: '600', editCustFeet: '400', editCustNumber: '894',
-      editCustRsvp: 'yes'};
+      editCustRsvp: o.rsvp || 'yes'};
     const els = {};
     const elm = (id) => els[id] || (els[id] = {id: id,
       value: FIELDS[id] !== undefined ? FIELDS[id] : '', textContent: '', innerHTML: '',
@@ -28873,7 +28932,12 @@ suite('Suite 108. The Edit Customer save, actually run');
       },
       deleteDoc: async (r) => { writes.push({op:'delete', col:r.col, id:r.id}); },
       addDoc: async (r, p) => { writes.push({op:'add', col:r.col, payload:p}); return {id:'n1'}; },
-      getDoc: async () => ({exists: () => false, data: () => ({})}),
+      /* ⚠ THE FRESHNESS READ IS THE HOOK, because it is the FIRST await in the handler
+         and it always runs — so a fixture moving the id here is modelling the earliest
+         realistic moment somebody can press Cancel or a house tab, with the whole save
+         still ahead of it. Later awaits would leave the early reads untested. */
+      getDoc: async () => { if (moves) { idBox.v = o.moveIdTo; idSeen.push(idBox.v); }
+        return {exists: () => false, data: () => ({})}; },
       serverTimestamp: () => 'NOW', db: {},
       editCustomerId: 'c894', editCustOpenedWithUpdatedAt: null,
       requoteBeingConverted: o.noRequote ? null : 'q1',
@@ -28938,8 +29002,14 @@ suite('Suite 108. The Edit Customer save, actually run');
           '\nreturn {' + names.join(',') + '};');
         return made(fakeDoc);
       })(),
-      removeCustomerFromUpcomingRoutes: async () => {},
-      resyncSavedRouteStops: async () => {}, syncPayerInvoice: async () => {},
+      /* ⚠ THEY RECORD WHICH CUSTOMER THEY WERE HANDED (2026-09-12). Both took their id
+         and threw it away, so reverting either one to the module-level `editCustomerId`
+         was a sabotage nothing could see — a crew sent to the wrong house, or a stop left
+         pointing at the old address, with every check green. Stubs still, because what
+         they DO is proved elsewhere; it is the argument that had no witness. */
+      removeCustomerFromUpcomingRoutes: async (id) => { routeCalls.push({fn: 'remove', id: id}); },
+      resyncSavedRouteStops: async (id) => { routeCalls.push({fn: 'resync', id: id}); },
+      syncPayerInvoice: async () => {},
       requoteRestoreSaveLabel: () => {},
       /* ⭐ THE REAL COLOUR-CHANGE RULE, LIFTED OUT OF js/money.js — not a stub.
          A stub here would make every fee branch below untestable while reporting
@@ -29132,8 +29202,23 @@ suite('Suite 108. The Edit Customer save, actually run');
       )(ctx.getDoc, ctx.doc, ctx.setDoc, ctx.db, ctx.serverTimestamp, ctx.computeInvoiceStatus);
     }
     const names = Object.keys(ctx);
-    const fn = new AsyncFn(...names, handlerSrc);
-    return fn(...names.map(n => ctx[n])).then(function(){
+    /* ⭐ `editCustomerId` IS MOVED UNDERNEATH THE SAVE THROUGH A `with` PROXY, NOT A
+       GLOBAL (2026-09-12). The claim under test is that a save started on one customer
+       finishes on that customer even though the module-level id moves mid-flight — so
+       the harness has to be able to MOVE it, which a parameter binding cannot do.
+       A global could, and would be flaky: the blocks below are pushed onto pendingAsync
+       and run CONCURRENTLY, so two runs would share one global and the failure would
+       come and go. The proxy is per run and cannot collide.
+       ⚠ ITS `has` TRAP ANSWERS FOR THAT ONE NAME AND NOTHING ELSE, so every other
+       identifier in the handler resolves down the ordinary scope chain to the
+       parameters exactly as it does in every other run. A blanket `has` would put the
+       whole handler behind the proxy and change what thirty other checks are running.
+       ⚠ AND IT IS ONLY BUILT WHEN A FIXTURE ASKS FOR IT: every existing run goes
+       through the untouched path below. */
+    const fn = moves
+      ? new AsyncFn(...names, '__idScope', 'with(__idScope){' + handlerSrc + '}')
+      : new AsyncFn(...names, handlerSrc);
+    return (moves ? fn(...names.map(n => ctx[n]), idScope) : fn(...names.map(n => ctx[n]))).then(function(){
       const cust = writes.find(w => w.col === 'jobAddresses' && w.op === 'update');
       const quote = writes.find(w => w.col === 'quotes');
       /* ⚠ THE RAISED CARD, NOT THE CLOSED ONE. `quote` above is the first write to
@@ -29142,7 +29227,8 @@ suite('Suite 108. The Edit Customer save, actually run');
          raising one passes on a save that only closed one. */
       const raised = writes.find(w => w.col === 'quotes' && w.op === 'add');
       return {writes: writes, errs: errs, cust: cust, quote: quote, raised: raised,
-              asked: asked, logged: logged,
+              asked: asked, logged: logged, idAtEnd: idBox.v, idSeen: idSeen,
+              routeCalls: routeCalls,
               status: (els.editCustStatus || {}).textContent || ''};
     });
   }
@@ -29620,6 +29706,99 @@ suite('Suite 108. The Edit Customer save, actually run');
     check('S108', 'and does not flag the warehouse',
       !!plain.cust && plain.cust.payload.needsLightRecycle !== true,
       'the recycle flag belongs to the re-quote choice, not to every save');
+  })());
+
+  /* ⭐ THE SAVE FINISHES ON THE CUSTOMER IT STARTED ON (2026-09-12).
+     Two admin errors on 2026-09-09, to two different users, an hour apart:
+     "Edit Customer save failed: null is not an object (evaluating 's.indexOf')" in
+     Safari and "Cannot read properties of null (reading 'indexOf')" in Chrome. Nothing
+     in either message named a line of ours, and all four bare `.indexOf` calls in
+     admin.html are guarded — so it is vendor code being handed a null.
+
+     ⚠ SETTLED BY READING THE SHIPPED SDK, NOT BY REASONING ABOUT IT. @firebase/firestore
+     4.6.3 (what firebase-firestore.js 10.12.2 carries) validates doc()'s SECOND argument
+     with __PRIVATE_validateNonEmptyArgument and passes every trailing segment straight
+     into ResourcePath.fromString, whose loop opens `if (n.indexOf("//") >= 0)`. So
+     doc(db,'jobAddresses', null) throws exactly those two messages, one per engine.
+
+     ⛔ AND THE HANDLER HANDS IT ONE. `editCustomerId` is module level, this handler is
+     async, and its `if(!editCustomerId) return;` runs ONCE — while twelve reads sat
+     downstream of an await. The popup stays on screen throughout, so Cancel, the X and
+     Remove are all live and all set it to null; the house-tab strip is worse, because
+     openEditCustomerModal REPOINTS it and the customer write then lands on a sibling
+     house with no error at all. The crash is the half that reported itself.
+
+     ⚠ RUN, NOT READ, AND THE RUN IS THE ONLY THING THAT PROVES IT. A source check that
+     the capture exists passes while one read underneath still says editCustomerId, and
+     that one read is the whole bug — which is how twelve of them accumulated. */
+  if (handlerSrc) pendingAsync.push((async () => {
+    const cancelled = await runSave({noRequote: true, moveIdTo: null});
+    check('S108', 'pressing Cancel mid-save does not crash the save',
+      !cancelled.errs.some(e => /indexOf|not an object|Cannot read propert/i.test(String(e))),
+      'this is the Safari/Chrome pair from the Errors folder on 2026-09-09, and it ' +
+      'reached the customer as five grey words');
+    check('S108', 'and the customer is still written',
+      !!cancelled.cust,
+      'the save was already in flight; abandoning it half way leaves the record part ' +
+      'saved, which is worse than either fault this closes');
+    check('S108', 'and written to the customer it started on',
+      !!cancelled.cust && cancelled.cust.id === 'c894',
+      'the id is captured before the first await, so a button pressed during it ' +
+      'cannot move the target');
+
+    /* ⛔ THE SILENT HALF. A house tab moves the id rather than clearing it, so the
+       write is perfectly well formed and lands on the wrong person. Nothing goes red,
+       nobody is told, and the customer overwritten was not open on anybody's screen. */
+    const switched = await runSave({noRequote: true, moveIdTo: 'c999'});
+    check('S108', 'switching house tab mid-save does not write onto the sibling',
+      !!switched.cust && switched.cust.id === 'c894',
+      'this one throws nothing at all — it overwrites a customer nobody was editing');
+    check('S108', 'and every other write of the save goes to that same customer',
+      switched.writes.filter(w => w.col === 'jobAddresses').every(w => w.id === 'c894'),
+      'one read left on the module variable is the whole bug, so the claim has to be ' +
+      'about all of them rather than about the one the fixture happens to reach');
+    /* ⚠ AND THE TWO THINGS THE SAVE FILES UNDER THE CUSTOMER RATHER THAN WRITING TO
+       THEM. Both were MISSED by the first red-check pass: the history entry would have
+       been filed against a customer nobody edited, and the new re-quote card would have
+       carried the sibling's id — so answering it later would apply one house's price to
+       another. Neither throws, and neither had a witness until now. */
+    check('S108', 'the history entry is filed against the customer that was saved',
+      switched.logged.length > 0 && switched.logged.every(e => e.refId === 'c894'),
+      'a change filed against the sibling is a history of something that never ' +
+      'happened to them, on the one screen that is meant to answer why');
+    check('S108', 'and a re-quote raised by the save points back at that customer',
+      !!switched.raised && switched.raised.payload.existingCustomerId === 'c894',
+      'answering that card later applies this house\u2019s new price to the other one');
+
+    /* ⚠ AND THE TWO ROUTE SWEEPS, WHICH WRITE NOTHING THIS SANDBOX CAN SEE. A red-check
+       reverting resyncSavedRouteStops to the module variable was MISSED until their
+       stubs started recording what they were handed — the crew would have been sent to
+       one house with another house's gate code, and nothing would have gone red. */
+    const swept = await runSave({noRequote: true, moveIdTo: 'c999',
+      cust: {rsvpStatus: 'yes'}, rsvp: 'no'});
+    check('S108', 'and so do the route sweeps',
+      swept.routeCalls.some(c => c.fn === 'resync') &&
+      swept.routeCalls.some(c => c.fn === 'remove') &&
+      swept.routeCalls.every(c => c.id === 'c894'),
+      'a stop resynced against the sibling puts one house\u2019s gate code on another');
+
+    /* ⚠ AND THE FIXTURE HAS TO BE ABLE TO FAIL. If the proxy never moved anything,
+       every check above would pass on the unfixed handler too — the vacuous-fixture trap
+       this file records in four other places. The tail of the save clears the module
+       variable on purpose, so seeing it back at null is not proof; seeing the MOVED
+       value arrive is. */
+    const moved = await runSave({noRequote: true, moveIdTo: 'c999'});
+    check('S108', 'the fixture really does move the id underneath the save',
+      moved.idSeen.length === 1 && moved.idSeen[0] === 'c999',
+      'a hook that had stopped firing would leave the id where it started and every ' +
+      'check above would pass on the unfixed handler too');
+    check('S108', 'and the fixture really is wired into the handler\u2019s own scope',
+      moved.idAtEnd === null,
+      'the hook sets idBox DIRECTLY, so finding c999 there at the end would mean the\n' +
+      '      handler had been reading and writing a parameter the whole time and all five\n' +
+      '      checks above were vacuous. Only the save\u2019s own closing line can put it back to\n' +
+      '      null, and it can only do that THROUGH the proxy — which is the same trap object\n' +
+      '      that serves every read');
   })());
 }
 
@@ -30287,9 +30466,13 @@ suite('Suite 85. Nobody is left off the sheet, and who counts as confirmed');
         /addrUpdates\.requoteAppliedAt = serverTimestamp\(\);/.test(admin),
         'requotedAt is a field on the quote, not the customer');
       const save = sectionFrom(admin, admin.indexOf("document.getElementById('editCustSaveBtn').addEventListener"));
+      /* ⚠ REPOINTED OFF THE ID VARIABLE (2026-09-12), already scoped to this handler:
+         the claim is where the customer write SITS, not what names its id. */
       check('S85', 'and set BEFORE the customer record is written',
+        save.indexOf('requoteAppliedAt') > -1 &&
+        save.indexOf("updateDoc(doc(db,'jobAddresses', ") > -1 &&
         save.indexOf('requoteAppliedAt') <
-          save.indexOf("updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates)"),
+          save.indexOf("updateDoc(doc(db,'jobAddresses', "),
         'the block that closes the quote runs AFTER that write, so anything added to ' +
         'addrUpdates down there is never saved');
 
@@ -35365,7 +35548,13 @@ suite('Suite 128. The do-not-send list — automation emails only');
       /* ⚠ LIFTED REAL, NOT STUBBED. The renderer takes the no-email people out at the
          end and counts them, and this is the rule that decides who those are — a stub
          would make the count untestable while reporting green (CLAUDE.md §3). */
-      const canEmailSrc = extractFn(admin, 'custCanBeEmailed') || '';
+      /* ⚠ AND THE RULE IT ASKS (the Errors folder, 2026-09-12). custCanBeEmailed calls
+         emailAddressProblem, so lifting it alone dies on a bare ReferenceError and takes
+         the whole suite down unscored — the extraction-list trap, caught by this suite
+         within a minute of the change. Lifted real, never stubbed: a stub would decide
+         who is reachable, which is the one thing these checks are about. */
+      const canEmailSrc = (extractFn(admin, 'emailAddressProblem') || '') +
+                          (extractFn(admin, 'custCanBeEmailed') || '');
       /* ⚠ THE SELECTION UI PAINTER IS LIFTED REAL TOO, not stubbed. It reads
          `etSelectedRecipientIds`, and the fake document below answers null for every id
          it asks for — which is exactly the guarded path the shipped function takes when
@@ -35511,6 +35700,52 @@ suite('Suite 128. The do-not-send list — automation emails only');
       check('S128', 'an empty list explains itself when everyone lacked an address',
         /no email address on file/.test(r.html) && r.html.indexOf('No members match') === -1,
         'they did match — saying they did not sends the office looking at the filters');
+    }
+
+    /* ⭐ AND THE OTHER REASON IS COUNTED SEPARATELY (the Errors folder, 2026-09-12). Holding a bad
+       address back is only safe while it is SAID — a guard that silently shrinks an
+       audience is the failure this whole count line exists to prevent, and under
+       confirmed-only a customer who is never asked is a house no crew is sent to.
+       ⚠ THE TWO NUMBERS ARE DELIBERATELY NOT ONE. "We have no address for them" and "the
+       address we have is wrong" are different jobs — find one, or correct one — and the
+       second is the one that can be pressed at for ever through the Send again button. */
+    {
+      const r = render([
+        { id: 'g7', data: { name: 'Gil Twoaddresses', phone: '7', email: 'gil@x.com, gil2@x.com' } },
+        { id: 'h8', data: { name: 'Hal Noaddress', phone: '8' } },
+        { id: 'i9', data: { name: 'Ivy Fine', phone: '9', email: 'ivy@x.com' } }
+      ], 'hide');
+      check('S128', 'an address that cannot be sent to is held back',
+        r.html.indexOf('Gil Twoaddresses') === -1,
+        'EmailJS answers this one with 422 "The recipients address is corrupted" — ' +
+        'spending the request only produces a failure row nobody can act on');
+      check('S128', 'and everybody sendable is still there',
+        r.html.indexOf('Ivy Fine') !== -1,
+        'refusing a real address is worse than the 422 it prevents');
+      check('S128', 'the count line names the bad-address group on its own line',
+        /1 left out: the address on file is not one we can send to/.test(r.count),
+        'folded into the no-address note it reads as "we have no address", which is ' +
+        'the one thing it is not — the address is right there and it is wrong');
+      check('S128', 'and still names the no-address group separately',
+        /1 left out: no email address on file/.test(r.count),
+        'two causes, two fixes — one number cannot say which applies to whom');
+      check('S128', 'and tells her to correct the record',
+        /correct it/.test(r.count),
+        '"The recipients address is corrupted" is what she read twice in two days ' +
+        'and it names nothing to do');
+      check('S128', 'the people who DID match are still counted correctly',
+        /^1 member matches these filters\./.test(r.count),
+        'the exclusion notes annotate the count, they do not replace it');
+    }
+
+    /* ⚠ AND AN AUDIENCE EMPTIED ENTIRELY BY BAD ADDRESSES STILL EXPLAINS ITSELF. Without
+       this it falls through to "No members match these filters", which is the same lie
+       the check above it was written to stop. */
+    {
+      const r = render([{ id: 'j1', data: { name: 'Jan Bad', phone: '1', email: 'jan@x' } }], 'hide');
+      check('S128', 'an empty list explains itself when the addresses were unusable too',
+        r.html.indexOf('No members match') === -1 && /No one left to send to/.test(r.html),
+        'they matched — the addresses are what stopped them');
     }
 
     /* ---- 3. the control that adds somebody, and where it sits ---- */
@@ -35769,12 +36004,16 @@ suite('Suite 128. The do-not-send list — automation emails only');
   {
     const canSrc = extractFn(admin, 'custCanBeEmailed');
     const chipSrc = extractFn(admin, 'custEmailChip');
+    /* ⚠ LIFTED, NOT STUBBED (the corrupted-address fault, 2026-09-12). Both of these now ask emailAddressProblem —
+       that IS the rule under test here — so a stub would answer for it and every check
+       below would prove the stub. */
+    const probSrc128 = extractFn(admin, 'emailAddressProblem');
     check('S128', 'the can-we-email-them rule and its chip are findable',
-      !!canSrc && !!chipSrc,
+      !!canSrc && !!chipSrc && !!probSrc128,
       'renamed — the Customers filter and the row badge both read these');
 
-    if (canSrc && chipSrc) {
-      const api = new Function('esc', canSrc + chipSrc +
+    if (canSrc && chipSrc && probSrc128) {
+      const api = new Function('esc', probSrc128 + canSrc + chipSrc +
         ';return {can: custCanBeEmailed, chip: custEmailChip};')(s => String(s == null ? '' : s));
 
       check('S128', 'a customer with an email can be emailed',
@@ -35799,6 +36038,93 @@ suite('Suite 128. The do-not-send list — automation emails only');
       check('S128', 'somebody reachable gets no chip at all',
         api.chip({ email: 'a@b.com' }) === '',
         'a badge on every row is a badge nobody reads');
+
+      /* ⭐ AN ADDRESS EMAILJS REFUSES IS NOT A REACHABLE CUSTOMER (the Errors folder, 2026-09-12,
+         from the Errors folder). Two rows a day apart — "1 of 258 failed … The recipients
+         address is corrupted", then "1 of 1 failed" with the same words, which is the
+         failure card's Send again button arriving back at the same unsendable address.
+         `quotesToNudge` has read this rule since it was written and says why in as many
+         words; the customers side never did. RUN, not matched: the claim is about which
+         side of the line one address falls. */
+      check('S128', 'two addresses in one box cannot be emailed',
+        api.can({ email: 'a@b.com, c@d.com' }) === false,
+        'to_email takes exactly one address — this is the commonest cause of the 422');
+      check('S128', 'an address with a space in it cannot be emailed',
+        api.can({ email: 'sam smith@gmail.com' }) === false);
+      check('S128', 'an address with no @ cannot be emailed',
+        api.can({ email: 'sam.gmail.com' }) === false);
+      check('S128', 'an address whose domain has no ending cannot be emailed',
+        api.can({ email: 'sam@gmail' }) === false);
+      /* ⚠ THE HALF THAT MATTERS MORE. A guard that refuses a real address silently drops
+         a customer from every send, and under confirmed-only that is a house no crew is
+         sent to. These are ordinary addresses that must survive. */
+      ['sam@gmail.com', 'sam+lights@gmail.com', "o'brien@example.co.uk",
+       'first.last@sub.domain.org', 'SAM@Gmail.Com', '  sam@gmail.com  '].forEach(function (ok) {
+        check('S128', 'an ordinary address is still reachable: ' + ok.trim(),
+          api.can({ email: ok }) === true,
+          'refusing a real address is worse than the 422 it prevents — there is no way round it');
+      });
+      /* ⚠ AND IT IS NOT THE TYPO DETECTOR. emailTypoSuggestion GUESSES that gmai.com meant
+         gmail.com and only ever warns, because a guess about somebody else's address must
+         not block a real send. A one-letter-wrong domain is a perfectly valid address and
+         has to stay sendable here. */
+      check('S128', 'a domain that is merely misspelt is still sent to',
+        api.can({ email: 'sam@gmai.com' }) === true,
+        'blocking on a typo GUESS is the one thing the no-auto-fix rule forbids');
+      /* ⚠ THE ROW HAS TO SAY WHICH IT IS. "No email" printed beside a visible address
+         reads as a bug in the badge — the chip's own comment makes that argument for the
+         secondary-only case, and this is the same shape. */
+      check('S128', 'a bad address is badged as one, not as "No email"',
+        /Can/.test(api.chip({ email: 'a@b.com, c@d.com' })) &&
+        !/No email/.test(api.chip({ email: 'a@b.com, c@d.com' })),
+        'the address is on the record and wrong — saying we have none sends her hunting');
+    }
+
+    /* ⭐ AND EVERY SENDER ASKS BEFORE SPENDING A REQUEST (the corrupted-address fault, 2026-09-12). The rule above keeps
+       a bad address out of the recipient LIST; this is what stops the re-send, which takes
+       its ids straight from the saved failure list and never goes near that list. */
+    {
+      const skipSrc = extractFn(admin, 'emailSendSkipReason');
+      check('S128', 'the skip-reason rule is findable',
+        !!skipSrc, 'renamed — every bulk sender files its `why` from this');
+      if (skipSrc && probSrc128) {
+        const skip = new Function(probSrc128 + skipSrc + ';return emailSendSkipReason;')();
+        check('S128', 'a usable address is not skipped',
+          skip({ email: 'sam@gmail.com' }) === '');
+        check('S128', 'a blank one says so plainly',
+          /no email address on file/.test(skip({})));
+        /* ⚠ THE REASON NAMES THE FIX. EmailJS's own "The recipients address is corrupted"
+           is what the office read twice in two days and it names no part of the problem
+           and nothing to do about it. */
+        check('S128', 'a bad address names the record as the thing to correct',
+          /correct the address on their record/.test(skip({ email: 'a@b.com, c@d.com' })),
+          'the Send again button can be pressed for ever otherwise');
+      }
+      /* ⚠ NAMED ONE BY ONE, and the anchors are each sender's own loop. A file-wide
+         search for the helper passes with four of the five left unguarded, which is
+         exactly how the bins column shipped on one of two build sheets. */
+      [['bulkUpdateEmailStatus', 'the Automation-tab bulk update'],
+       ['rsvpEmailTemplate', 'the RSVP-tab send'],
+       ['pibUnpaidSendStatus', 'the unpaid-invoice send'],
+       ['pibPaidSendStatus', 'the receipt send']].forEach(function (pair) {
+        const at = admin.indexOf(pair[0]);
+        const body = at === -1 ? '' : sectionFrom(admin, at);
+        check('S128', pair[1] + ' asks before it sends',
+          /emailSendSkipReason\(/.test(body),
+          'one bad address costs a request and a failure row every single run');
+      });
+      const runSrc = extractFn(admin, 'etSendTemplateRun') || '';
+      check('S128', 'and so does the template sender the re-send goes back through',
+        /emailSendSkipReason\(member\.data\)/.test(runSrc),
+        'this is the one the Errors folder caught twice — 1 of 258, then 1 of 1');
+      /* ⚠ AFTER THE OPT-OUT, NEVER BEFORE IT. Somebody who asked for no automation email
+         is not a bad-address problem, and reporting them as a failure puts work on the
+         office for a choice the customer made. */
+      check('S128', 'the opted-out check still comes first',
+        runSrc.indexOf('etNoAutomationEmails(member.data)') !== -1 &&
+        runSrc.indexOf('etNoAutomationEmails(member.data)') <
+          runSrc.indexOf('emailSendSkipReason(member.data)'),
+        'an opt-out is a decision, not a failure to report');
     }
 
     const render = sectionFrom(admin, admin.indexOf('function renderAllCustomersTable()'));
@@ -53388,10 +53714,20 @@ suite('299. A referral link, and the $25 that follows it');
 
   /* ⚠ THE OFFICE MARKING SOMEBODY NO IS THE THIRD DOOR, and it is the one the customer
      never touches — portalRsvp covers the other. */
-  check('S299', 'the office marking somebody No takes the referral back',
-    /clawBackReferralIfAny\(editCustomerId/.test(admin),
-    'a customer cancelled over the phone would leave the referrer $25 up for somebody ' +
-    'who never had lights');
+  /* ⚠ THE ID IS DERIVED FROM THE HANDLER, NOT TYPED (repointed 2026-09-12). This named
+     `editCustomerId`, which the save stopped using when it began capturing the id before
+     its first await — so it failed on correct code. Reading the name off the customer
+     write and requiring the claw-back to be handed THAT is strictly stronger than the
+     old literal: it survives a rename, and it still refuses a claw-back handed some
+     other id, which is the thing that would take $25 off the wrong person. */
+  {
+    const clawSave = sectionFrom(admin, admin.indexOf("editCustSaveBtn').addEventListener('click'"));
+    const idName = (clawSave.match(/updateDoc\(doc\(db,'jobAddresses', ([A-Za-z_$][\w$]*)\)/) || [])[1];
+    check('S299', 'the office marking somebody No takes the referral back',
+      !!idName && new RegExp('clawBackReferralIfAny\\(' + idName + '\\b').test(clawSave),
+      'a customer cancelled over the phone would leave the referrer $25 up for somebody ' +
+      'who never had lights');
+  }
   const fns = read('functions/index.js');
   check('S299', 'and so does a customer declining in their own portal',
     /await clawBackReferralServer\(match\.id/.test(fns),
@@ -55634,6 +55970,10 @@ suite('Suite 307. Filter, then select everyone under the filter');
         }
       };
       const env = new Function('document', 'MEMBERS', 'TERM', 'PAYMENT', 'MODE', 'PICKED', 'PAIDLAST', 'HASLAST',
+        /* ⚠ emailAddressProblem COMES WITH IT (the corrupted-address fault, 2026-09-12) — custCanBeEmailed calls it,
+           and lifting one without the other is a bare ReferenceError that takes the
+           whole suite down rather than failing a check. */
+        (extractFn(admin, 'emailAddressProblem') || '') +
         (extractFn(admin, 'custCanBeEmailed') || '') +
         (extractFn(admin, 'etNoAutomationEmails') || '') +
         selUiSrc307 +
@@ -59893,4 +60233,241 @@ suite('330. A phone or an email — one box, on all three public forms');
   check('S330', 'and the quote form actually drops its required flag on an email',
     /quoteContactMethodEl\.required = !isEmail/.test(idx),
     'hiding it without clearing required is a form that silently will not submit');
+}
+
+suite('331. The colours a customer ticked reach the Gmail alert');
+{
+  const idx = read('index.html');
+  const fn  = extractFn(idx, 'notifyBusinessOfMessage');
+
+  check('S331', 'notifyBusinessOfMessage is still there to lift', !!fn,
+    'renamed or gone — this is the one funnel all twelve message paths call');
+
+  /* ⭐ RUN IT, NEVER MATCH IT. Every claim below is about what lands in the EMAIL,
+     and a source check for the fold stays green with the whole thing wrapped in
+     if(false) — the failure this repo has shipped three times. The real function is
+     lifted and driven against a fake EmailJS that captures the payload it is handed,
+     so the checks read what would actually be sent. */
+  function sentFor(params){
+    let got = null;
+    const make = new Function('capture', `
+      var emailjsSettings = { serviceId:'s', notifyTemplateId:'t', publicKey:'p' };
+      var window   = { emailjs: true };
+      var emailjs  = { init: function(){},
+                       send: function(svc, tpl, p){ capture(p); return { catch: function(){} }; } };
+      var console  = { warn: function(){}, error: function(){} };
+      ${fn}
+      return notifyBusinessOfMessage;
+    `)(function(p){ got = p; });
+    make(params);
+    return got;
+  }
+
+  const withColors = sentFor({ customer_name:'Addie', customer_phone:'3853584716',
+    customer_email:'', topic:'Change My Light Colors', message:'Change lights',
+    colors:['Warm White','Red'] });
+
+  check('S331', 'the alert is sent at all when the settings are complete',
+    !!withColors,
+    'the lifted function refused a fully configured send — the fixture is wrong, not the app');
+
+  check('S331', 'a ticked colour reaches the email',
+    !!withColors && /Warm White/.test(withColors.message || ''),
+    'the office reads "Change lights" and cannot tell which colours were asked for — the bug this closes');
+
+  check('S331', 'every ticked colour reaches it, not just the first',
+    !!withColors && /Red/.test(withColors.message || ''),
+    'a customer who ticked two gets half an answer, which is worse than none');
+
+  check('S331', 'and they are labelled rather than dumped on the end',
+    !!withColors && /Colors requested:/.test(withColors.message || ''),
+    'a bare list under their message reads as part of what they typed');
+
+  check('S331', 'what the customer actually typed survives the fold',
+    !!withColors && /Change lights/.test(withColors.message || ''),
+    'appending must never replace their own words');
+
+  /* ⛔ ONE COPY, NOT TWO. Left on the payload, `colors` is a second source for the
+     same fact and the day somebody adds {{colors}} to the template the office reads
+     the list twice — the two-places problem this repo names in four other entries. */
+  check('S331', 'colors is not also sent as its own template variable',
+    !!withColors && withColors.colors === undefined,
+    'the list would print twice the moment a template adds {{colors}}');
+
+  /* ⚠ THE QUIET CASE MATTERS AS MUCH AS THE LOUD ONE. Most messages carry no colours
+     at all, so a fold that always fires leaves a dangling label on every alert. */
+  const noColors = sentFor({ customer_name:'Addie', customer_phone:'3853584716',
+    customer_email:'', topic:'Billing Question', message:'My payment looks wrong' });
+
+  check('S331', 'a message with no colours gains nothing',
+    !!noColors && (noColors.message || '') === 'My payment looks wrong',
+    'every ordinary alert would carry an empty "Colors requested:" line');
+
+  const emptyPicks = sentFor({ customer_name:'A', customer_phone:'1', customer_email:'',
+    topic:'X', message:'hello', colors:[] });
+
+  check('S331', 'an empty tick list is treated as no colours',
+    !!emptyPicks && (emptyPicks.message || '') === 'hello',
+    'a form submitted with nothing ticked hands over an empty array, not a missing key');
+
+  /* ⚠ THE WIRING IS ASSERTED SEPARATELY FROM THE MECHANISM, because the sandbox above
+     calls the function itself: delete `colors` from the two form handlers and every
+     behavioural check here stays green while nothing reaches a real inbox. That is the
+     exact miss red-checking found on the Edit Customer tab strip. */
+  [['contactFormEl',      'the home-page contact form'],
+   ['quickMessageFormEl', 'the home-page Send a Message form']].forEach(function(pair){
+    const body = sectionFrom(idx, idx.indexOf('var ' + pair[0]));
+    check('S331', pair[1] + ' hands its ticked colours to the alert',
+      /notifyBusinessOfMessage\(\{[\s\S]*colors:\s*fd\.getAll\('colors'\)/.test(body),
+      'this form collects colours, stores them, and still tells the email nothing');
+  });
+}
+
+/* ⭐ SUITE 332. A TOKEN NOBODY HAS IS NEVER PUT IN AN EMAIL (2026-09-13).
+ *
+ * From the Errors folder, 8-11 September: every RSVP failure row ends "no customer matches
+ * this link (…xxxxxx)". The tail is extracted correctly — the row prints it — so the link
+ * really did carry a portal token that belongs to no record in the book.
+ *
+ * `getOrCreatePortalToken` in admin.html is a way to produce exactly that. It mints a token,
+ * writes it, and USED TO swallow a failed write and return the minted token anyway ("still
+ * use the generated token even if the save failed"). That token then goes into a real
+ * customer's RSVP email as a live-looking link. They tap Yes, findByToken matches nothing,
+ * and to them it looks like they already answered.
+ *
+ * ⭐ THE SERVER COPY ALREADY HAD THE RIGHT RULE AND WROTE IT DOWN: `ensureToken` in
+ * functions/index.js re-reads after a failure — somebody else may have minted one meanwhile,
+ * and theirs is the one that is stored — and failing that sends a link with NO token "rather
+ * than one that cannot work". One rule, two copies, so this RUNS BOTH over the same four
+ * situations, the money-parity shape applied to a link instead of a sum.
+ *
+ * ⚠ RUN, NOT READ. The claim is about the VALUE handed back when a write is refused, which
+ * no regex can see — and the old code contained the word `return token` just as the new one
+ * does.
+ * ⚠ AND THE TWO ARE NOT ASSERTED IDENTICAL, because they are not: the browser one looks a
+ * customer up by phone in a loaded cache and answers null when there is no match, the server
+ * one is handed the id and the record. What must agree is the REFUSAL — neither may hand back
+ * a token it failed to save.
+ */
+suite('Suite 332. A portal token nobody has never reaches an email');
+
+{
+  /* ⚠ extractFn matches "function NAME(" and so drops the `async` keyword, turning a body
+     full of bare `await` into a parse error that kills the whole suite as one unattributable
+     crash (CLAUDE.md §5). Both of these are async, so they are lifted the long way round. */
+  const liftAsync = (src, name) => {
+    const at = src.indexOf('async function ' + name + '(');
+    if (at < 0) return '';
+    let b = src.indexOf('{', at), d = 0, e = b;
+    for (;; e++) { if (src[e] === '{') d++; else if (src[e] === '}') { d--; if (!d) break; } }
+    return src.slice(at, e + 1);
+  };
+  const fnsSrc = read('functions/index.js');
+  const officeSrc = liftAsync(admin, 'getOrCreatePortalToken');
+  const serverSrc = liftAsync(fnsSrc, 'ensureToken');
+  check('S332', 'the office token minter was found to run', !!officeSrc);
+  check('S332', 'and the server one was too', !!serverSrc);
+
+  /* A fake Firestore whose write refuses on demand, and whose re-read answers with
+     whatever is stored at that moment — which is how a second sender's token arrives. */
+  function office(opts) {
+    const o = opts || {};
+    const rec = {id: 'c1', data: {name: 'Ashley Wray', phone: '8016160714'}};
+    if (o.stored) rec.data.portalToken = o.stored;
+    const writes = [];
+    const said = [];
+    const store = {portalToken: o.readBack || ''};
+    const fn = new Function('jobAddresses', 'updateDoc', 'getDoc', 'doc', 'db',
+      'generatePortalToken', 'console',
+      'return ' + officeSrc + ';getOrCreatePortalToken')(
+      [rec],
+      async (r, p) => { if (o.writeFails) throw new Error('Missing or insufficient permissions.'); writes.push(p); store.portalToken = p.portalToken; },
+      async () => ({exists: () => true, data: () => ({portalToken: store.portalToken})}),
+      () => ({}), {}, () => 'MINTEDmintedMINTED', {error: (m) => said.push(String(m)), log(){}, warn(){}});
+    return fn('8016160714').then(t => ({token: t, writes: writes, said: said, rec: rec}));
+  }
+  function server(opts) {
+    const o = opts || {};
+    const said = [];
+    const store = {portalToken: o.readBack || ''};
+    const fakeDb = {collection: () => ({doc: () => ({
+      update: async (p) => { if (o.writeFails) throw new Error('Missing or insufficient permissions.'); store.portalToken = p.portalToken; },
+      get: async () => ({exists: true, data: () => ({portalToken: store.portalToken})})
+    })})};
+    const fn = new Function('db', 'generatePortalToken', 'console',
+      'return ' + serverSrc + ';ensureToken')(
+      fakeDb, () => 'MINTEDmintedMINTED', {error: (m) => said.push(String(m)), log(){}, warn(){}});
+    return fn('c1', o.stored ? {portalToken: o.stored} : {}).then(t => ({token: t, said: said}));
+  }
+
+  pendingAsync.push((async () => {
+    /* 1. Nothing changes about the ordinary case. */
+    const okO = await office({});
+    const okS = await server({});
+    check('S332', 'a freshly minted token that saves is the one that is used',
+      okO.token === 'MINTEDmintedMINTED' && okS.token === 'MINTEDmintedMINTED',
+      'the common path must be untouched, or every email loses its link');
+    check('S332', 'and it is written to the record',
+      okO.writes.length === 1 && okO.writes[0].portalToken === 'MINTEDmintedMINTED',
+      'a token used but never stored is the whole bug this closes');
+    check('S332', 'and the cached record carries it, so the next email reuses it',
+      okO.rec.data.portalToken === 'MINTEDmintedMINTED',
+      'without the mirror the next template mints a second token and writes again');
+
+    const hadO = await office({stored: 'alreadyHADalreadyHAD'});
+    const hadS = await server({stored: 'alreadyHADalreadyHAD'});
+    check('S332', 'a customer who already has one is not given a new one',
+      hadO.token === 'alreadyHADalreadyHAD' && hadS.token === 'alreadyHADalreadyHAD' &&
+      hadO.writes.length === 0,
+      'minting over a live token kills every link already sitting in their inbox');
+
+    /* 2. ⛔ THE BUG. The write is refused and nothing is stored. */
+    const badO = await office({writeFails: true});
+    const badS = await server({writeFails: true});
+    check('S332', 'a token that could not be saved is NOT handed back by the office copy',
+      !badO.token && badO.token !== 'MINTEDmintedMINTED',
+      'it used to return the minted token, so a real customer was emailed an RSVP link ' +
+      'that matches no record — they tap Yes, nothing is recorded, and to them it looks ' +
+      'like they already answered');
+    check('S332', 'nor by the server copy',
+      !badS.token && badS.token !== 'MINTEDmintedMINTED',
+      'the two must refuse the same way or one sender keeps producing dead links');
+    check('S332', 'and the office says so rather than failing quietly',
+      badO.said.some(m => /portal token/i.test(m)),
+      'console.error reaches the Errors folder through __huAdminErrorSink — a send that ' +
+      'could not mint tokens has to be reported, not discovered from a customer weeks later');
+    check('S332', 'and the server does too',
+      badS.said.some(m => /portal token/i.test(m)),
+      'its own comment is that it sends no token rather than one that cannot work');
+
+    /* 3. Somebody else minted one in the gap — theirs is the stored one, so theirs is
+          the one the email must carry. Not a nicety: two senders can run at once. */
+    const raceO = await office({writeFails: true, readBack: 'theirsTHEIRStheirs'});
+    const raceS = await server({writeFails: true, readBack: 'theirsTHEIRStheirs'});
+    check('S332', 'a refused write falls back to whatever is actually stored',
+      raceO.token === 'theirsTHEIRStheirs' && raceS.token === 'theirsTHEIRStheirs',
+      'the stored token is the one findByToken can match; ours is not');
+    check('S332', 'and that is preferred over sending no link at all',
+      raceO.token !== null && raceS.token !== '',
+      'a customer who has a usable token should get their one-tap link');
+
+    /* ⚠ AND THE CALLERS ARE ASSERTED SEPARATELY FROM THE RULE, because this suite calls the
+       function from its own harness: a caller that pasted the token in unconditionally would
+       leave every check above green while still emailing `?token=null`. */
+    /* ⚠ EVERY use, not four of them, and COMMENTS STRIPPED. The first version of this
+       counted guarded uses and asked for `>= 4`; there are FIVE (the RSVP block builds two
+       URLs), so deleting a guard left four and it passed — and the sixth match was this
+       fix's own explanatory comment, which quotes the guarded form. That is the
+       comment-in-a-check trap Suites 58, 274, 275 and 300 each had to learn, in my own
+       check. Total must EQUAL guarded: a use that is not guarded is a caller putting
+       `?token=null` in a real customer's email. */
+    const bare = stripComments(admin);
+    const uses = (bare.match(/'\?token='\+(?:token|rsvpToken)/g) || []).length;
+    const guarded = (bare.match(/\((?:token|rsvpToken) \? \('\?token='\+(?:token|rsvpToken)/g) || []).length;
+    check('S332', 'every caller still guards the token before putting it in a URL',
+      uses >= 5 && guarded === uses,
+      'null is only a safe answer because each caller falls back to the plain portal ' +
+      'address, which signs the customer in with their phone and surname. Found ' + uses +
+      ' uses and ' + guarded + ' guarded');
+  })());
 }

@@ -4121,7 +4121,10 @@ contactFormEl.addEventListener('submit', function(e){
     document.getElementById('contactSuccess').classList.add('show');
     notifyBusinessOfMessage({
       customer_name: fd.get('name') || '', customer_phone: split.phone,
-      customer_email: split.email, topic: topicVal, message: fd.get('message') || ''
+      customer_email: split.email, topic: topicVal, message: fd.get('message') || '',
+      /* The same list the Inbox row draws — folded into the message by
+         notifyBusinessOfMessage, never sent as its own template variable. */
+      colors: fd.getAll('colors')
     });
   }).catch(function(){
     alert('Something went wrong sending your message. Please call (801) 901-0011 instead.');
@@ -4158,7 +4161,10 @@ if(quickMessageFormEl){
       document.getElementById('quickMessageSuccess').classList.add('show');
       notifyBusinessOfMessage({
         customer_name: fd.get('name') || '', customer_phone: split.phone,
-        customer_email: split.email, topic: topicVal, message: fd.get('message') || ''
+        customer_email: split.email, topic: topicVal, message: fd.get('message') || '',
+        /* The same list the Inbox row draws — folded into the message by
+           notifyBusinessOfMessage, never sent as its own template variable. */
+        colors: fd.getAll('colors')
       });
     }).catch(function(){
       alert('Something went wrong sending your message. Please call (801) 901-0011 instead.');
@@ -4212,6 +4218,30 @@ callPortalFn('publicConfig', {}).then(function(res){
   if(res && res.configured) emailjsSettings = res;
 }).catch(function(){ /* not configured yet, notifications just won't send */ });
 function notifyBusinessOfMessage(params){
+  /* ⭐ THE COLOURS ARE FOLDED INTO THE MESSAGE, NOT SENT AS A SIXTH VARIABLE
+     (2026-09-13, MSG-27). Both home-page forms collect them as tick boxes, both
+     store them, and the Inbox row has always drawn them ("Colors requested: ..."),
+     so the data was never lost — the EMAIL dropped them, and Addie read an alert
+     saying "Change lights" with no way to tell which. [[MSG-17]]'s rule is that
+     anything a member typed reaches the Gmail, and these were typed.
+     ⛔ A {{colors}} VARIABLE WOULD ONLY WORK IN A TEMPLATE THAT REMEMBERS IT.
+     The notify template is written by hand on emailjs.com, so one edited later —
+     or a replacement made in a hurry — silently drops them again, which is this
+     same bug re-armed with nothing anywhere going red. Every other caller already
+     puts its own detail inside `message` (the wire colour, the timer, the old and
+     new address), so this follows them rather than inventing a second channel.
+     ⚠ AND IT IS DONE HERE, in the one funnel all twelve callers go through, so a
+     form added later gets it by passing `colors` and nothing else.
+     ⚠ `colors` IS REMOVED AFTER FOLDING. Left on the payload it is a second copy
+     of the same fact, and the day somebody adds {{colors}} to the template the
+     office reads the list twice. */
+  var pickedColors = (params && Array.isArray(params.colors))
+    ? params.colors.filter(Boolean) : [];
+  if(pickedColors.length){
+    params.message = (params.message || '') +
+      '\n\nColors requested: ' + pickedColors.join(', ');
+  }
+  if(params) delete params.colors;
   /* ⚠ THE THREE SILENT EXITS BELOW ARE THE REAL FAILURE, not the catch. When
      settings/emailjs is unset — or, as happened once, readable only by staff so the
      public site was denied it — EVERY "you have a new message" email stops, for every

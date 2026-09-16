@@ -9183,7 +9183,41 @@ async function getOrCreatePortalToken(phone){
   let token = match.data.portalToken;
   if(!token){
     token = generatePortalToken();
-    try{ await updateDoc(doc(db,'jobAddresses',match.id), {portalToken: token}); match.data.portalToken = token; } catch(err){ /* still use the generated token even if the save failed */ }
+    /* ⛔ A TOKEN THAT WAS NOT SAVED IS NEVER PUT IN AN EMAIL (2026-09-13). This used to
+       swallow the failure and return the token anyway — "still use the generated token even
+       if the save failed" — so a refused write produced a live-looking RSVP link belonging to
+       NOBODY. The customer taps Yes, findByToken matches no record, and the Errors row can
+       only say "no customer matches this link", which is what every RSVP row in the 8-11
+       September log said. It is silent at both ends: the office reads a green Sent, and to
+       the customer it looks like they already answered.
+
+       ⭐ THE SERVER ALREADY HAD THE RIGHT RULE AND WROTE IT DOWN. `ensureToken` in
+       functions/index.js re-reads after a failed write — somebody else may have minted one in
+       the meantime, and theirs is the one that is stored — and failing that sends a link with
+       NO token "rather than one that cannot work". This is that rule in the copy that did
+       not have it. Change one and change the other; Suite 332 runs both.
+
+       ⚠ NULL IS ALREADY A HANDLED ANSWER at all four callers, each of which writes
+       `(token ? ('?token='+token) : '')`, so the customer gets the plain portal address and
+       signs in with their phone and surname exactly as they would from the website. A
+       working sign-in beats a link that silently records nothing.
+
+       ⚠ AND IT SAYS SO OUT LOUD. console.error here reaches the Errors folder through
+       __huAdminErrorSink, so a send that could not mint tokens is reported rather than
+       leaving the office to hear about it from a customer weeks later. */
+    try{
+      await updateDoc(doc(db,'jobAddresses',match.id), {portalToken: token});
+      match.data.portalToken = token;
+    } catch(err){
+      try{
+        const fresh = await getDoc(doc(db,'jobAddresses',match.id));
+        const saved = fresh.exists() ? ((fresh.data() || {}).portalToken || '') : '';
+        if(saved){ match.data.portalToken = String(saved); return String(saved); }
+      } catch(e){ /* the re-read is a second chance, not a requirement — fall through to no token */ }
+      console.error('[HU] could not save a portal token for ' + (match.data.name || match.id) +
+        ' — sending them a link with no token rather than one that cannot work', err);
+      return null;
+    }
   }
   return token;
 }
@@ -11220,6 +11254,14 @@ document.getElementById('sendBulkUpdateEmailBtn')?.addEventListener('click', asy
   const failedRecipients = [];
   for(const item of withEmail){
     const d = item.data;
+    /* ⚠ AN ADDRESS THAT CANNOT BE SENT TO COSTS NOTHING HERE (the corrupted-address fault, 2026-09-12). Recorded with
+       its reason rather than spent on a 422 that says only "corrupted". */
+    const skipWhy = emailSendSkipReason(d);
+    if(skipWhy){
+      failed++;
+      failedRecipients.push({ id: item.id, name: d.name || '', email: d.email || '', why: skipWhy });
+      continue;
+    }
     /* Key-based lookup, not phone-based — see the note in the single-send
        handler above. This amount is emailed to a real customer. */
     const inv = allCustInvoiceFor(item);
@@ -11341,6 +11383,15 @@ document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async fun
   const failedRecipients = [];
   for(const item of withEmail){
     const d = item.data;
+    /* ⚠ AN ADDRESS THAT CANNOT BE SENT TO COSTS NOTHING HERE (the corrupted-address fault, 2026-09-12). It matters most
+       on this send: under confirmed-only a customer who was never asked is a customer
+       nobody is sent to, so a silent 422 is a house with no crew. */
+    const skipWhy = emailSendSkipReason(d);
+    if(skipWhy){
+      failed++;
+      failedRecipients.push({ id: item.id, name: d.name || '', email: d.email || '', why: skipWhy });
+      continue;
+    }
     const footer = await buildOutgoingEmailFooter(d.phone, 0, {includePortal: document.getElementById('rsvpIncludePortal')?.checked, includeVenmo: false, includeMessages: document.getElementById('rsvpIncludeMessages')?.checked});
     /* A payer with several houses on one bill is being asked to commit for the
        season without being told which houses that covers. Appended rather than
@@ -11567,6 +11618,14 @@ document.getElementById('pibSendUnpaidBtn')?.addEventListener('click', async fun
   /* WHO failed, not only how many (EM-09). */
   const failedRecipients = [];
   for(const row of withEmail){
+    /* ⚠ AN ADDRESS THAT CANNOT BE SENT TO COSTS NOTHING HERE (the corrupted-address fault, 2026-09-12). This is the
+       INVOICE run — a bill that never arrives is money nobody chases. */
+    const skipWhy = emailSendSkipReason(row);
+    if(skipWhy){
+      failed++;
+      failedRecipients.push({ id: row.id || '', name: row.name || '', email: row.email || '', why: skipWhy });
+      continue;
+    }
     const footer = await buildOutgoingEmailFooter(row.phone, row.amount, {includePortal: document.getElementById('pibUnpaidIncludePortal')?.checked, includeVenmo: document.getElementById('pibUnpaidIncludeVenmo')?.checked, includeMessages: document.getElementById('pibUnpaidIncludeMessages')?.checked});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount), row.phone, row.amount) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
@@ -11654,6 +11713,13 @@ document.getElementById('pibSendPaidBtn')?.addEventListener('click', async funct
   /* WHO failed, not only how many (EM-09). */
   const failedRecipients = [];
   for(const row of withEmail){
+    /* ⚠ AN ADDRESS THAT CANNOT BE SENT TO COSTS NOTHING HERE (the corrupted-address fault, 2026-09-12). */
+    const skipWhy = emailSendSkipReason(row);
+    if(skipWhy){
+      failed++;
+      failedRecipients.push({ id: row.id || '', name: row.name || '', email: row.email || '', why: skipWhy });
+      continue;
+    }
     const footer = await buildOutgoingEmailFooter(row.phone, 0, {includePortal: document.getElementById('pibPaidIncludePortal')?.checked, includeVenmo: false, includeMessages: document.getElementById('pibPaidIncludeMessages')?.checked});
     const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, row.name || 'there').replace(/\{\{amount\}\}/g, row.amount), row.phone, 0) + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
@@ -18900,11 +18966,23 @@ function etRenderRecipientList(){
      do-not-send list, and somebody with no email would otherwise be hidden from the
      one screen that could release them — stuck on the list for ever with no way to
      reach the button. */
-  let noEmailHidden = 0;
+  /* ⚠ COUNTED AS TWO THINGS, NOT ONE (the Errors folder, 2026-09-12). "No email address on file"
+     and "the address on file is not an address" need different work from the office —
+     one is go and get an address, the other is go and correct the one we have — and the
+     second is the one that can be pressed at for ever, because the failure card's Send
+     again button reaches it and the send is refused identically every time. Rolled into
+     one number the fix reads as the wrong one for half of them. */
+  let noEmailHidden = 0, badEmailHidden = 0;
   if(!manageMode){
-    const beforeNoEmail = members.length;
-    members = members.filter(m => custCanBeEmailed(m.data));
-    noEmailHidden = beforeNoEmail - members.length;
+    const reachable = [];
+    members.forEach(function(m){
+      if(custCanBeEmailed(m.data)){ reachable.push(m); return; }
+      /* Which of the two it is, decided off the record rather than by a second copy of
+         the rule: an address is there and unusable, or there is no address at all. */
+      if(String((m.data || {}).email || '').trim()) badEmailHidden++;
+      else noEmailHidden++;
+    });
+    members = reachable;
   }
   /* ⚠ THE TICKS ARE PRUNED TO THE AUDIENCE HERE — after the do-not-send list and the
      no-email split, not before either of them. Somebody ticked a minute ago and put on
@@ -18933,6 +19011,10 @@ function etRenderRecipientList(){
          wrong and not what to do about it; the filter that lists these people by name
          already exists, so the sentence points at it. */
       if(noEmailHidden) msg += ' — ' + noEmailHidden + ' left out: no email address on file. Find them under Customers → Filters → Email.';
+      /* ⚠ ITS OWN SENTENCE, AND IT SAYS THE SEND NEVER LEAVES (the corrupted-address fault, 2026-09-12). Folded into
+         the line above it reads as "we have no address for them", which is the one thing
+         it is not — the address is right there on the record, and it is wrong. */
+      if(badEmailHidden) msg += ' — ' + badEmailHidden + ' left out: the address on file is not one we can send to, so nothing is attempted. Find them under Customers → Filters → Email and correct it.';
       /* ⚠ THIS NOTE USED TO NAME THE WRONG CAUSE, and naming the wrong cause is worse
          than saying nothing: it read "no saved snapshot from last season yet … until
          Start New Season saves one", which told the office to run a season reset to fix
@@ -18972,8 +19054,14 @@ function etRenderRecipientList(){
          which two of them just went blank. */
       : (lastYearMissing
           ? '<div class="empty-note">The invoices have not finished loading, so the <strong>' + esc(lastYearFilterName) + '</strong> filter cannot answer yet — it reads what each customer still owes from last season. Give it a moment and pick the filter again, or set it back to <strong>All</strong> to see the list meanwhile.</div>'
-          : noEmailHidden
-          ? '<div class="empty-note">No one left to send to. '+noEmailHidden+' matched these filters but '+(noEmailHidden===1?'has':'have')+' no email address on file — find '+(noEmailHidden===1?'them':'them')+' under Customers &rarr; Filters &rarr; Email.</div>'
+          /* ⚠ BOTH REASONS REACH THIS BRANCH (the corrupted-address fault, 2026-09-12). An audience emptied entirely by
+             unusable addresses is still an audience that MATCHED, so falling through to
+             "no members match these filters" would be the same lie this branch was
+             written to stop — and it would send somebody hunting for a broken filter. */
+          : (noEmailHidden + badEmailHidden)
+          ? '<div class="empty-note">No one left to send to. '+(noEmailHidden + badEmailHidden)+' matched these filters but '+((noEmailHidden + badEmailHidden)===1?'has':'have')+
+            (badEmailHidden && noEmailHidden ? ' no usable email address' : (badEmailHidden ? ' an address we cannot send to' : ' no email address on file'))+
+            ' — find them under Customers &rarr; Filters &rarr; Email.</div>'
           : '<div class="empty-note">No members match these filters.</div>');
     etUpdateSelectionUi(0);
     return;
@@ -19250,8 +19338,54 @@ function contactPrefsNote(d){
    which is the exact failure this filter was asked for.
    ⚠ ONE ANSWER, TWO READERS — the Customers filter and the chip on the row — so the
    list and the badge can never contradict each other about one customer. */
+/* ⭐ AND A FILLED BOX IS NOT AN ADDRESS (2026-09-12, from the Errors folder).
+   Two rows a day apart: "1 of 258 failed. The email service said: The recipients address
+   is corrupted", then "1 of 1 failed" with the same words. That pair IS the bug — the
+   422 came back from a whole-book send, the failure card offered "Send again to the ones
+   it missed", and the re-send spent another request on the same unsendable address. It
+   can be pressed for ever, because nothing anywhere says the address itself is the thing
+   that is wrong.
+
+   ⚠ THE RULE ALREADY EXISTED AND ONE SIDE OF THE APP HAD IT. `quotesToNudge` has read
+   `emailAddressProblem` since it was written, and says why in as many words: "An address
+   EmailJS will reject is not someone we can nudge. Left in, one bad address turned into
+   one more line in the failure list every run, with the same unreadable corrupted wording
+   each time." That is this fault, described on the quotes side, never applied to
+   customers. One rule now, both sides.
+
+   ⚠ IT REFUSES WHAT CANNOT BE AN ADDRESS, NEVER WHAT MERELY LOOKS ODD. Two addresses in
+   one box, a space, a missing @, a domain with no ending. It is NOT the typo detector —
+   `emailTypoSuggestion` guesses that gmai.com meant gmail.com and deliberately only ever
+   warns, because a guess about somebody else's address must not block a real send. This
+   one is structural, and an address it turns down is one EmailJS has already been
+   refusing.
+
+   ⚠ AND NOBODY IS DROPPED IN SILENCE, which is the only thing that makes refusing safe.
+   The recipient count line names how many were held back and which screen lists them, the
+   row carries a chip saying what is wrong with the address, and the Customers → Email
+   filter finds them. The way round the guard is to correct the record — which is the one
+   thing that was never asked for while EmailJS's own wording was all anybody saw. */
 function custCanBeEmailed(d){
-  return !!String((d || {}).email || '').trim();
+  const raw = String((d || {}).email || '').trim();
+  if(!raw) return false;
+  return !emailAddressProblem(raw);
+}
+/* ⭐ THE SAME ANSWER, IN WORDS A SENDER CAN FILE (the Errors folder, 2026-09-12). Every bulk
+   sender already builds `failedRecipients` and hands it to saveEmailSendFailures, which
+   draws the "Some emails did not go out" card with a Send again button on it. This is
+   what goes in the `why` when the send is never attempted.
+   ⚠ IT CANNOT DISAGREE WITH custCanBeEmailed, because both ask emailAddressProblem and
+   neither holds a second opinion. Two rules about who is reachable is how the count line
+   and the send start describing different audiences.
+   ⚠ AND IT NAMES THE FIX, NOT ONLY THE FAULT. "The recipients address is corrupted" is
+   EmailJS's wording and it sent the office round the Send-again loop twice in two days:
+   the record is the thing to change, and nothing said so. */
+function emailSendSkipReason(rec){
+  const raw = String((rec || {}).email || '').trim();
+  if(!raw) return 'no email address on file';
+  const problem = emailAddressProblem(raw);
+  if(!problem) return '';
+  return problem + ' Nothing was sent — correct the address on their record, then send again.';
 }
 /* The one case that looks like a mistake on screen: no primary, but a secondary
    sitting right there on the record. Without this the row reads "no email" beside a
@@ -19259,6 +19393,14 @@ function custCanBeEmailed(d){
 function custEmailChip(d){
   const rec = d || {};
   if(custCanBeEmailed(rec)) return '';
+  /* ⚠ THE ADDRESS THAT IS THERE AND CANNOT BE USED GETS ITS OWN WORDS, for exactly the
+     reason the branch below it exists: "No email" printed beside a visible address reads
+     as a bug in the badge rather than as a record somebody has to correct. It names the
+     problem, so the fix is readable off the row without opening anything. */
+  if(String(rec.email || '').trim()){
+    return ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">Can&rsquo;t be emailed &mdash; ' +
+           esc(emailAddressProblem(rec.email)) + '</span>';
+  }
   if(String(rec.email2 || '').trim()){
     return ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Secondary email only &mdash; move it up</span>';
   }
@@ -19997,6 +20139,26 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
        by a stale tick. Counted separately from `failed`, because a deliberate
        exclusion is not a failure and reading it as one hides both. */
     if(etNoAutomationEmails(member.data)) { optedOut++; continue; }
+    /* ⭐ AND THE ADDRESS ITSELF IS THE OTHER LAST GATE (the Errors folder, 2026-09-12). This is
+       the sender the Errors folder caught twice: "1 of 258 failed. The email service
+       said: The recipients address is corrupted", then "1 of 1 failed" the next day with
+       the same words — the failure card's own Send again button, arriving back here and
+       spending a second request on an address that can never be accepted. That loop has
+       no end while EmailJS's wording is all anybody sees.
+       ⚠ IT IS REACHED BY THE RE-SEND EVEN THOUGH THE LIST CANNOT OFFER ONE. The recipient
+       list prunes on custCanBeEmailed, so nobody can TICK a bad address — but the re-send
+       hands ids straight out of the saved failure list, which is where the people this
+       fault already caught are sitting. Guarding only the list would fix every send
+       except the one that was actually going round in circles.
+       ⚠ AND IT IS COUNTED AS A FAILURE, NOT AS AN OPT-OUT. Nobody chose this; it is work
+       for the office, and it belongs on the card that names it. */
+    const addrWhy = emailSendSkipReason(member.data);
+    if(addrWhy){
+      failed++;
+      failedRecipients.push({ id: member.id, name: member.data.name || '',
+                              email: member.data.email || '', why: addrWhy });
+      continue;
+    }
     // Generate quote token if template uses quote buttons
     /* ⚠ THE TOKEN PREFIX IS BUILT, NOT WRITTEN OUT, and it is not fussiness. Suites lift
        a function by counting braces from its signature, so two unbalanced opening braces
@@ -54130,11 +54292,46 @@ document.getElementById('editCustCancelBtn').addEventListener('click', function(
 });
 document.getElementById('editCustSaveBtn').addEventListener('click', async function(){
   if(!editCustomerId) return;
+  /* ⭐ THE ID IS CAPTURED HERE, AND EVERY WRITE BELOW USES THE CAPTURED ONE
+     (2026-09-12). `editCustomerId` is module level and this handler is async: the
+     guard on the line above runs ONCE, and the eleven reads underneath it all sit
+     downstream of an await — the fresh-record read, the geocode, the pool reads and
+     syncPayerInvoice. The popup is still on screen throughout, so its own buttons
+     are live the whole time, and two of them move this variable underneath a save
+     that is already running.
+
+     ⚠ CANCEL AND REMOVE SET IT TO `null`, AND THAT IS THE CRASH IN THE ERROR LOG.
+     Firestore's doc() validates its SECOND argument and nothing else — the trailing
+     path segments go straight into ResourcePath.fromString, which calls .indexOf on
+     each one (@firebase/firestore 4.6.3, the build firebase-firestore.js ships). So
+     doc(db,'jobAddresses', null) throws "null is not an object (evaluating
+     's.indexOf')" in Safari and "Cannot read properties of null (reading 'indexOf')"
+     in Chrome — both of which reached the Errors folder on 2026-09-09, from two
+     different users, with nothing in either message naming a line of ours.
+
+     ⛔ AND THE TAB STRIP IS WORSE, BECAUSE IT IS SILENT. A tab click calls
+     openEditCustomerModal, which REPOINTS this variable at the sibling house rather
+     than clearing it — so the updateDoc below would write THIS house's form values
+     onto THAT house's record, overwriting a customer nobody was editing, with no
+     error anywhere. The crash is the half that reported itself.
+
+     ⚠ THE SAVE STILL FINISHES, DELIBERATELY. Pressing Cancel half way through does
+     not abort a write already in flight — that would leave the customer half saved,
+     which is the one outcome worse than either fault above. It finishes against the
+     customer it started on, which is what was asked for when Save was pressed.
+
+     ⚠ SAME FIX, SAME VARIABLE, AS THE PHOTO HANDLER (2026-08-26) — "everything after
+     the await re-read editCustomerId, so a slow upload finishing after a tab click
+     painted 'Photo saved' on the wrong house". That one was fixed and this one, eleven
+     times over in the same handler, was not. The tail below still clears the MODULE
+     variable on purpose: that is global state being reset, not a document being
+     addressed. */
+  const savingCustomerId = editCustomerId;
   const statusEl = document.getElementById('editCustStatus');
   /* A failure from the last attempt is still on screen in red; clear it, or a save
      that works looks like the one that did not. */
   statusEl.style.color = '';
-  const item = jobAddresses.find(a => a.id === editCustomerId);
+  const item = jobAddresses.find(a => a.id === savingCustomerId);
   if(!item) return;
   const d = item.data;
   const newName = document.getElementById('editCustName').value.trim();
@@ -54264,7 +54461,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
      may not have delivered the other change yet, and the whole point is to see
      something the cache might not know about. */
   try{
-    const freshSnap = await getDoc(doc(db,'jobAddresses', editCustomerId));
+    const freshSnap = await getDoc(doc(db,'jobAddresses', savingCustomerId));
     const freshAt = freshSnap.exists() ? (freshSnap.data().updatedAt || null) : null;
     const openedMs = editCustOpenedWithUpdatedAt && editCustOpenedWithUpdatedAt.toMillis ? editCustOpenedWithUpdatedAt.toMillis() : 0;
     const freshMs = freshAt && freshAt.toMillis ? freshAt.toMillis() : 0;
@@ -55075,12 +55272,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       addrUpdates.scheduleHeldReason = 'Sent to the warehouse';
     }
     const custChanges = describeCustomerChanges(item.data, addrUpdates);
-    await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
+    await updateDoc(doc(db,'jobAddresses', savingCustomerId), addrUpdates);
     /* ⚠ NOT AWAITED, like every other logActivity call: a note about a change must
        never be able to break the change. It carries its own catch. */
     if(custChanges.length){
       logActivity(customerChangeSentence(newName || item.data.name, custChanges),
-        'customers', editCustomerId);
+        'customers', savingCustomerId);
     }
     /* ⭐ A WAIVED FEE IS A DECISION, AND IT LEFT NO TRACE AT ALL (added 2026-08-29).
        `lightFeeWaived` is a LOCAL VARIABLE. It decides whether the $30 is charged and then
@@ -55111,7 +55308,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       logActivity('Waived the ' + fmtMoney(lightChange.feeAmount) + ' light-change fee for ' +
         (newName || item.data.name || 'a customer') +
         (lightChange.feeReason ? ' \u2014 ' + lightChange.feeReason : ''),
-        'customers', editCustomerId);
+        'customers', savingCustomerId);
     }
     /* Pool bookkeeping, after the record is safely written. Each half is
        guarded on its own: a pool write that fails must not undo a save that
@@ -55176,7 +55373,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     if((feetChanged || addressChanged || sidesChanged || priceWantsRequote) && !requoteBeingConverted){
       try{
         const already = quotesCache.find(function(q){
-          return q.data.existingCustomerId === editCustomerId && quoteStage(q.data) === 'new';
+          return q.data.existingCustomerId === savingCustomerId && quoteStage(q.data) === 'new';
         });
         const changeNote = feetChanged
           ? {what:'feet', oldFeet: Number(d.measuredFeet || 0), newFeet: Number(newMeasuredFeet || 0), oldPrice: Number(d.housePrice || 0)}
@@ -55210,7 +55407,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
             name: newName, phone: newPhone, email: (newEmail || '').toLowerCase(),
             address: newAddress, frontPhotoUrl: d.frontPhotoUrl || '',
             estimatedFeet: Number(newMeasuredFeet || 0) || '',
-            existingCustomerId: editCustomerId,
+            existingCustomerId: savingCustomerId,
             existingCustomerNumber: d.customerNumber || '',
             changed: changeNote,
             quoteToken: generatePortalToken(), formCompleted: false,
@@ -55240,7 +55437,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       try{
         await updateDoc(doc(db,'quotes', answeredQuoteId), {
           status: 'closed', convertedToCustomerAt: serverTimestamp(),
-          convertedToCustomerId: editCustomerId
+          convertedToCustomerId: savingCustomerId
         });
       } catch(err){
         console.error('Saved the customer but could not close the re-quote:', err);
@@ -55258,7 +55455,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       if(rqReferral){
         await creditReferralIfAny(
           Object.assign({}, rqReferral.data, {__quoteId: answeredQuoteId}),
-          editCustomerId,
+          savingCustomerId,
           {name: newName, phone: newPhone, email: newEmail});
       }
     }
@@ -55267,7 +55464,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        Without this, correcting an address or gate code never reaches a crew
        that's already been scheduled. Only upcoming routes are touched — past
        routes stay as they were on the day. */
-    await resyncSavedRouteStops(editCustomerId, {
+    await resyncSavedRouteStops(savingCustomerId, {
       name: newName, phone: newPhone, address: newAddress, gateCode: newGateCode,
       specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes,
       customerNumber: addrUpdates.customerNumber, lat: addrUpdates.lat, lng: addrUpdates.lng
@@ -55281,7 +55478,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        link had (fixed in functions/index.js's portalRsvp). */
     if((seasonMaybeChosen && !item.data.maybeNextYear) ||
        (newRsvp === 'no' && item.data.rsvpStatus !== 'no')){
-      await removeCustomerFromUpcomingRoutes(editCustomerId);
+      await removeCustomerFromUpcomingRoutes(savingCustomerId);
     }
     /* ⭐ AND CANCELLING BEFORE THE LIGHTS GO UP TAKES BACK THE REFERRAL THAT BROUGHT
        THEM IN (2026-09-03). Addie's rule: a referral that reached an install is earned,
@@ -55299,7 +55496,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        whether the credit is earned, and the stale cached copy is what the rule reads
        without this. */
     if(newRsvp === 'no' && item.data.rsvpStatus !== 'no'){
-      await clawBackReferralIfAny(editCustomerId, Object.assign({}, item.data, addrUpdates));
+      await clawBackReferralIfAny(savingCustomerId, Object.assign({}, item.data, addrUpdates));
     }
     let inv = allCustInvoiceFor(item);
     let resyncPayerAfter = null;
