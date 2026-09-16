@@ -41771,12 +41771,12 @@ async function hlxWorkbookRowsAllSheets(file){
   const main = entries.filter(function(e){ return /^xl\/worksheets\/sheet1\.xml$/.test(e.name); })[0];
   if(!main) throw new Error("That workbook has no readable sheet.");
   const rows = hlxReadSheet(dec.decode(main.data), ss);
-  if(!rows.length) return {rows: rows, added: 0, fromSheets: {}};
+  if(!rows.length) return {rows: rows, added: 0, fromSheets: {}, people: 0};
 
   const header = (rows[0] || []).map(function(v){ return String(v == null ? "" : v).trim(); });
   const col = {};
   header.forEach(function(h, i){ if(h && col[h] == null) col[h] = i; });
-  if(col["Name"] == null) return {rows: rows, added: 0, fromSheets: {}};
+  if(col["Name"] == null) return {rows: rows, added: 0, fromSheets: {}, people: 0};
 
   const claimed = {};
   /* ⭐ AND HOW MANY PEOPLE ANSWER TO EACH NAME. A side sheet row often carries a
@@ -41832,7 +41832,15 @@ async function hlxWorkbookRowsAllSheets(file){
       added++;
     }
   }
-  return {rows: rows, added: added, fromSheets: fromSheets};
+  /* ⭐ HOW MANY PEOPLE, counted AFTER the side sheets have been folded in, so a person
+     who only exists on Recycle is one of them. A row with no Name is not a customer — that
+     is already this tool’s own rule a few hundred lines down, and it is what makes the
+     headline honest: Excel keeps formatted-but-empty rows at the bottom of a sheet for ever. */
+  let people = 0;
+  for(let i = 1; i < rows.length; i++){
+    if(String((rows[i] || [])[col["Name"]] == null ? "" : rows[i][col["Name"]]).trim()) people++;
+  }
+  return {rows: rows, added: added, fromSheets: fromSheets, people: people};
 }
 async function hlxWorkbookRows(file){
   const z = await hlxUnzip(await file.arrayBuffer());
@@ -41948,7 +41956,7 @@ async function hlxLoadConnectedSheet(ask){
   /* Say where the extra rows came from. "962 rows" when the sheet has 940 reads as a
      miscount unless it also says 22 of them were on the side sheets. */
   return {rows: rows.length, name: handle.name || "", when: file.lastModified || 0,
-          usable: usable, added: all.added, fromSheets: all.fromSheets};
+          usable: usable, added: all.added, fromSheets: all.fromSheets, people: all.people};
 }
 /* ⭐ FOUR WAYS TO RECOGNISE THE SAME PERSON, STRONGEST FIRST.
    Owner, 2026-08-18, reading a list of customers the comparison said were not
@@ -43784,6 +43792,35 @@ document.getElementById('rbFixNumbersBtn')?.addEventListener('click', function()
    ⚠ showOpenFilePicker only opens from a real click, so this cannot be done
    for the office automatically — the one press is the browser's rule, not a
    design choice. */
+/* ⭐ HOW MANY PEOPLE, NOT HOW MANY ROWS (2026-09-16). Addie’s own workbook reads as
+   “1058 rows” and holds 961 customers: Excel keeps 96 formatted-but-empty rows at the
+   bottom of the 2025 tab, the headings are a row too, and one person exists only on
+   Recycle. A headline counting all of that invites the one reading that costs something —
+   that the app is missing a hundred people — and this file already records what a
+   confident row count naming the wrong thing costs (“924 rows of the wrong thing”, in
+   hlxLoadConnectedSheet just above).
+   ⚠ THE RAW COUNT IS KEPT, NEVER REPLACED. It is the half that says the whole file was
+   read, so dropping it trades one unexplained number for another; it moves into its own
+   sentence and says what the difference is made of.
+   ⚠ AND IT FALLS BACK TO ROWS when nothing counted people — a workbook with no Name
+   column returns people: 0, and “0 people” about a file that plainly read is worse than
+   the old wording. That is the wrong-workbook case, which has its own message. */
+function hlxSheetCountText(res){
+  const raw = Number(res && res.rows) || 0;
+  const people = Number(res && res.people) || 0;
+  if(!people) return raw + " rows";
+  let out = people + (people === 1 ? " person" : " people");
+  const extra = Number(res && res.added) || 0;
+  if(extra) out += " (" + extra + " of them only on a side sheet)";
+  return out;
+}
+function hlxSheetRowsNote(res){
+  const raw = Number(res && res.rows) || 0;
+  const people = Number(res && res.people) || 0;
+  if(!people || raw <= people) return "";
+  return " " + raw + " rows were read — the rest are the headings and blank rows at the "
+    + "bottom of the sheet, which Excel keeps whether or not anything was ever in them.";
+}
 function rbShowSheetStatus(text, warn){
   const el = document.getElementById("rbConnectSheetStatus");
   if(!el) return;
@@ -43825,8 +43862,9 @@ document.getElementById('rbConnectSheetBtn')?.addEventListener('click', onceAtAT
        is the customer list is ever written here. Remembering an unusable one
        would send every other computer to pick the same wrong file. */
     await hlxSheetRemember(res);
-    rbShowSheetStatus("Connected to " + (res.name || "your sheet") + " \u2014 " + res.rows +
-      " rows. Remembered for every computer. It is read where it sits; nothing is copied or downloaded.");
+    rbShowSheetStatus("Connected to " + (res.name || "your sheet") + " \u2014 " + hlxSheetCountText(res) +
+      "." + hlxSheetRowsNote(res) +
+      " Remembered for every computer. It is read where it sits; nothing is copied or downloaded.");
   } catch(err){
     rbShowSheetStatus("Could not read that file: " + ((err && err.message) || "unknown error"), true);
   }
@@ -43889,7 +43927,8 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', async fun
       const live = await hlxLoadConnectedSheet(true);
       if(live.rows){
         usedConnected = true;
-        rbShowSheetStatus("Read " + live.rows + " rows straight from " + (live.name || "your sheet") + ".");
+        rbShowSheetStatus("Read " + hlxSheetCountText(live) + " straight from " +
+          (live.name || "your sheet") + "." + hlxSheetRowsNote(live));
       } else if(live.reason === "permission"){
         rbShowSheetStatus("Chrome would not let me read the file. Press Compare again and choose " +
           "\u201cAllow on every visit\u201d in the box Chrome shows \u2014 that is the setting that stops it " +
