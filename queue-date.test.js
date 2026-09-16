@@ -1184,14 +1184,21 @@ check('the path still has every step in it',
     receiptSentAt: 'a receipt follows a payment, and the payment is already a row',
     receiptErrorAt: 'a receipt that failed to send is an office problem, not a stage of ' +
       'the customer\'s journey — it belongs in the error log',
-    smsOptedOutAt: 'a contact preference, not a stage — it changes how we reach them, ' +
-      'not where they are',
+    /* ⛔ smsOptedOutAt AND quoteSmsSentAt CAME OFF THIS LIST ON 2026-09-12 ([[QT-41]]), and
+       this note is here so nobody puts them back by reflex. Both were written only inside
+       the quote card's "Send the text" handler, which called Twilio; there is no Twilio
+       account, so that button could never work and it is gone. Nothing writes either field
+       any more, and this gate is right that a standing excuse for a field that no longer
+       exists will quietly cover the next one that looks like it.
+       ⚠ THE CONSEQUENCE IS REAL AND IS NOT THIS FILE'S TO FIX: with the send gone, nothing
+       DETECTS a STOP reply — Twilio's 21610 was the only thing that ever set smsOptedOut.
+       The flag still exists, is still read by the RSVP text list, and is now set only by a
+       person ticking it on the customer record. */
     followUpAt: 'a flag on a QUOTE that the office needs to look at it, cleared by ' +
       'followUpClearedAt; it is a to-do, not something that happened to the customer',
     followUpClearedAt: 'the other end of that to-do',
     quoteManuallySentAt: 'the office sending a quote by hand — quoteSentAt is the step, and ' +
       'two rows for one email would read as two emails',
-    quoteSmsSentAt: 'the same quote going out as a text as well; still one quote sent',
     quoteArchivedAt: 'a quote being filed away is housekeeping on the quote, not a stage — ' +
       'and the customer-facing halves (declined, back next year) are stages of their own',
     /* ⚠ THE SAME SHAPE AS quoteArchivedAt ABOVE, and it earns its own entry because it

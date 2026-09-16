@@ -401,6 +401,14 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
 
     ⚠ **The button charges nothing and changes no colours.** The $30 is reached by editing the colour boxes and pressing Save Changes; this only tells the warehouse to make the set up. It also reads the SAVED record rather than the ticked boxes — the boxes may be half-edited and unsaved, and handing the warehouse a set the customer's own record does not agree with is how two screens start disagreeing about one house.
 
+    ⛔ **The save finishes on the customer it started on** (2026-09-12). Two admin errors on 2026-09-09, an hour apart, to two different users: *"Edit Customer save failed: null is not an object (evaluating 's.indexOf')"* in Safari and *"Cannot read properties of null (reading 'indexOf')"* in Chrome. Neither message named a line of ours, because the throw is inside Firestore: `doc()` checks its **second** argument and passes every trailing path segment straight into `ResourcePath.fromString`, whose loop opens `n.indexOf("//")` — so `doc(db,'jobAddresses', null)` produces exactly those two sentences, one per browser engine.
+
+    The null came from us. `editCustomerId` is a module-level variable, this handler is **async**, and its `if(!editCustomerId) return;` guard runs **once** — while twelve later reads all sat downstream of an await (the freshness read, the geocode, the number-pool reads, `syncPayerInvoice`). The popup stays on screen for all of it, so **Cancel, the ✕ and Remove are live the whole time** and every one of them sets that variable to `null` underneath a save that is already running.
+
+    ⛔ **And the house-tab strip was the worse half, because it is silent.** A tab click calls `openEditCustomerModal`, which **repoints** that variable at the sibling house rather than clearing it — so `updateDoc` would write **this** house's form values onto **that** house's record. A well-formed write, landing on a customer nobody had open, with no error anywhere. The crash is the half that reported itself.
+
+    The id is **captured once, before the first await**, and every write below uses the captured one. This is the same fix the photo handler got in August, for the same variable, in the same form — that one was fixed and this one, eleven times over in the same handler, was not. ⚠ **The save still finishes**, deliberately: pressing Cancel half way through does not abort a write already in flight, because a half-saved customer is worse than either fault above. The handler's closing line still clears the **module** variable, which is global state being reset rather than a document being addressed. ⚠ Suite 108 **runs** this rather than reading it — it moves the id underneath a real save through a per-run proxy and asserts every `jobAddresses` write still lands on the customer Save was pressed for, because a source check that the capture exists passes happily while one read underneath still says `editCustomerId`, and that one read is the whole bug.
+
     ⭐ **Fixed in passing:** the three buttons at the bottom of Edit Customer each disable themselves when pressed so they cannot be double-pressed, and **nothing ever re-enabled them** — so queueing a build for one customer left *Build Them A New Set* greyed out for every customer opened afterwards, until the page was reloaded. `openEditCustomerModal` puts all three back. Found while adding the third button, which would have inherited the same bug.
 
 ---
@@ -3986,6 +3994,27 @@ because the folder earning its keep within two days is the argument for it.
     answers `400 Upload preset not found` rather than `401 cloud_name is disabled`, and
     delivery returns 200. This is the wording for the next time, not a fix for that
     outage — which was settled on the billing account, exactly as the advice says.
+- ⛔ **AND THE QUOTE CARD DOES NOT SEND A TEXT AT ALL ANY MORE** ([[QT-41]], 2026-09-12,
+  superseding [[QT-39]] and restoring [[QT-38]]'s position). Dax ruled it out hours after
+  setting the account up: *"we cant use twillo so we need to just set it up so its easy to copy
+  to bulk text in google voice"*, then *"I want it so when you click the button it copys it and
+  opens a link so all you need to do is paste where it sends you"*. **Copy & open Google Voice**
+  replaces **Send the text**: one press puts the message on the clipboard and opens that
+  customer's Voice thread.
+  - ⭐ **IT IS AN ANCHOR, AND THAT IS THE WHOLE TRICK.** A popup opened from script after an
+    `await` has lost its user gesture and Chrome blocks it **silently** — the message copies,
+    no tab appears, and the button reads as half working. A real `<a>` navigates natively and
+    cannot be blocked, so the copy and the opening ride one click.
+  - ⚠ **NO `/u/0/` IN THE LINK** — that pins the first signed-in Google account, and the office
+    keeps Voice on its own profile. Voice matches a thread on the full E.164 number, so a phone
+    that is not ten or eleven digits yields no link and the button falls back to a plain copy:
+    an empty Voice search reads as the customer having no history with us.
+  - ⛔ **NOTHING IS WRITTEN ON A COPY.** The send stamped `quoteTextSentAt`; a stamp on a copy
+    would claim we texted somebody whose message is still on a clipboard. The card is not filed
+    either, which is why S263 counts two send paths now instead of three.
+  - ⚠ **SO NOTHING DETECTS A STOP.** Twilio's 21610 was the only thing that ever set
+    `smsOptedOut`; it is still read by the RSVP text list and is now set only by hand. Already
+    true while the send was broken — true by design now.
 - ⭐ **"Twilio send failed: Authentication Error — invalid username" — AND THERE IS AN
   ACCOUNT NOW** ([[QT-39]], 2026-09-11, superseding [[QT-38]]). The earlier ruling was Dax's
   *"we doont use twillo we use google voice"*, and for about a day the quote card said so:
@@ -4263,8 +4292,20 @@ colour and outlet timer. They are filed as notices because the app wrote the sen
 are member ACTIONS, which is what decides this. Do not "tidy" them out of the alert by
 reading the folder.
 
+⭐ **THE COLOURS A CUSTOMER TICKED TRAVEL INSIDE `message`** (2026-09-13, [[MSG-27]]). Both
+home-page forms offer the nine colour tick boxes, both store the list on the message record,
+and the Inbox row has always drawn it (`Colors requested: ...`) — but the ALERT dropped it, so
+the office read "Change lights" and had to open the admin to learn which. `notifyBusinessOfMessage`
+now folds the list onto the end of `message`, labelled, and deletes `colors` from the payload.
+⛔ **NOT A `{{colors}}` TEMPLATE VARIABLE**, deliberately: the notify template is hand-written on
+emailjs.com, so a variable only works in a template that remembers it, and one edited later drops
+the colours again silently. Every other caller already puts its own detail inside `message`, so this
+follows them. ⚠ **It is done in the funnel, not in the two forms**, so a form added later gets it by
+passing `colors` and nothing else — and the fold is skipped entirely when nothing was ticked, or
+every ordinary alert would carry a dangling label.
+
 ⚠ **The recipient address is not in this repo.** The params carry name, phone, email, topic
-and message and no destination, so the *To Email* lives on the EmailJS template named by
+and message (colours folded into that message, above) and no destination, so the *To Email* lives on the EmailJS template named by
 `settings/emailjs.notifyTemplateId` (Admin → Automation Emails → Notify Template ID).
 Nothing here can see it, and no test can prove where the mail went.
 
@@ -4771,6 +4812,9 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
 - **Owing money from last season keeps you out of the season too**, on top of the RSVP rule and independently of it — a yes is not a payment. Start New Season carries the unpaid balance onto the new bill as its own `kind: 'arrears'` line, and `isOutForSeason` holds them until the whole of that amount is covered by payment or credit. They are listed under **Schedule → Owes from last year** (§3, MON-31, RS-24).
 - **And the RSVP says so to their face rather than promising a crew** (2026-09-01). A yes from a debtor used to end on *"We'll get you scheduled!"*, which is the one thing that was never going to happen for them. It now names the amount and the season and says the install cannot be booked until it is settled — on both screens, because the follow-on message is where that promise actually lived. Their yes is still recorded, nothing is sent (so it is not MON-34's chase), and an invoice that cannot be read reports nought and leaves the old wording alone. Full reasoning in §3.
 - A legacy customer record without a `portalToken` gets one minted automatically the first time they're looked up.
+  - ⛔ **And a token that could not be SAVED is never put in an email** (2026-09-13). Minting is a write, and a write can be refused. `getOrCreatePortalToken` in `admin.html` used to swallow that and hand the freshly minted token back anyway — so the office sent a real customer an RSVP link that belongs to **no record at all**. They tap Yes, `findByToken` matches nothing, and to them it looks exactly like they already answered. It is silent at both ends: the office reads a green *Sent*, and the Errors row can only say *"no customer matches this link"* — which is what every RSVP failure row in the 8–11 September log says.
+  - ⭐ **The server already had the right rule and wrote it down.** `ensureToken` in `functions/index.js` re-reads after a failed write — somebody else may have minted one in the gap, and *theirs* is the one that is stored — and failing that sends a link with **no token** *"rather than one that cannot work"*. The browser copy now does the same. Change one and change the other; **Suite 332** runs both against the same refused write.
+  - ⚠ **No token is a safe answer, and that is why this works.** All four callers already write `(token ? ('?token='+token) : '')`, so the customer gets the plain portal address and signs in with their phone and surname exactly as they would from the website. A working sign-in beats a one-tap link that records nothing. The failure is reported through `console.error` → `__huAdminErrorSink` → the Errors folder, rather than being discovered from a customer weeks later.
 - Nightly-run failures/results text the owner via Twilio — a separate channel from email, so it still works if email itself breaks.
 
 ---
@@ -5208,6 +5252,10 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
   - ⚠ **Only the primary `email` field counts.** Every sender reads `d.email` — the nightly invoice run, both automation-email senders, the quote nudge. `email2` exists so a customer can *sign in* to the portal with it and is never written to, so a record holding only a secondary address cannot be emailed by anything at all. Those rows get an amber **Secondary email only — move it up** chip instead, because "No email" beside a visibly present address reads as a bug rather than as a field to fix.
   - **Automation Emails → Preview & Send says it too, at the moment of sending.** The recipient list used to drop these people on its first line, before any filter ran, so the count read *"312 members match these filters"* whether it had dropped nobody or forty — an RSVP that missed forty people looked exactly like one that reached everybody. They now flow through every filter and are removed at the end, and the count line reports it: *"— 40 left out: no email address on file. Find them under Customers → Filters → Email."* Nobody's mail changed; they were already excluded and should be.
   - ⚠ The exclusion is **not** applied in the do-not-send **manage view**, or somebody with no email who is also on that list would be hidden from the one screen that could take them off it. And an empty recipient list says they matched but cannot be written to, rather than "no members match these filters", which would send the office back to check filters that were fine.
+  - ⭐ **A filled box is not an address** (2026-09-12, from the Errors folder). `custCanBeEmailed` used to ask only whether the field was non-blank, so a record holding something EmailJS refuses — two addresses in one box, a space, a missing `@` — counted as reachable. The Errors folder caught what that costs, twice in two days: *"1 of 258 failed. The email service said: The recipients address is corrupted"*, then the next day *"1 of 1 failed"* with the same words. That second row is the failure card's own **Send again to the ones it missed** button arriving back at the same unsendable address, and it can be pressed for ever, because EmailJS's wording names no part of the problem and nothing to do about it. The rule now asks `emailAddressProblem` — the same structural check the quote card and `quotesToNudge` have always used, so both halves of the app finally agree about who is reachable.
+    - It refuses what **cannot** be an address, never what merely looks odd. It is *not* `emailTypoSuggestion`, which guesses that `gmai.com` meant `gmail.com` and deliberately only ever warns — a guess about somebody else's address must not block a real send, so `sam@gmai.com` is still sent to.
+    - **Nobody is dropped in silence**, which is the only thing that makes refusing safe. The count line reports the two causes separately — *"— 1 left out: the address on file is not one we can send to … correct it"* beside the existing *"no email address on file"* — because one means go and find an address and the other means go and correct the one we have. The row carries a red **Can't be emailed —** chip naming the actual problem rather than "No email", which beside a visible address reads as a bug in the badge.
+    - **All five bulk senders ask before spending a request** (`emailSendSkipReason`), and the person is recorded in `failedRecipients` with the reason, so the *"Some emails did not go out"* card names the record to fix. The check in `etSendTemplateRun` is the one that ends the loop: the re-send takes its ids straight from the saved failure list and never goes near the recipient list, so guarding the list alone would have fixed every send except the one actually going round in circles.
   - Health Check's *"Customer with a phone but no email address"* answers a related but different question: it groups by **payer** and skips anyone who RSVP'd no, because it is about whether a **bill** can go out. The Customers filter is per-customer and includes everybody.
 - ⚠ **Every select in the All Customers filter panel must be named in the change-listener array** (`['allCustFilterCity', …].forEach`). `allCustFilterLights` was missing from it from the day it shipped until 2026-08-21: the filter logic was correct and unreachable, so picking "On soft (needs switching)" redrew nothing unless you happened to touch another filter afterwards. Suite 73 passed throughout, because it lifts the filter block and runs it directly and never asked whether the control was connected. Suite 128 now asserts every select is wired, and that Clear Filters resets every one of them.
 - **One-time notes**: there used to be two disconnected fields — `oneTimeNotes` (plural, written by Add/Edit Customer, read by nothing) and `oneTimeNote` (singular, the one actually shown on route stops, read by the Crew Portal, and cleared when a stop is marked Done). Fixed in this pass — Add/Edit Customer now writes the singular field too, so a note entered there actually reaches the crew.
