@@ -79,6 +79,52 @@ const importOf = new Function(base + fn('rbNormalizeColors') + 'return rbNormali
 const splitter = new Function(base + fn('rbNormalizeColors') + fn('rbDetectColorsAndPattern') +
   'return rbDetectColorsAndPattern;')();
 const lightsOf = new Function(fn('houseLightsText') + 'return houseLightsText;')();
+const wireLabelOf = new Function(fn('whWireLabel') + 'return whWireLabel;')();
+const groupKeyOf = new Function(fn('whWireLabel') + fn('whNormalizeLights') + base +
+  grab(admin, RE.vocab) + fn('whColorsFromWords') + grab(admin, RE.sep) + fn('whSplitAllKnown') +
+  fn('whOrderColors') + fn('whGroupKey') + 'return whGroupKey;')();
+
+// ---------------------------------------------------------------------------
+// 0. A WIRE NOBODY RECORDED IS "CHECK LIGHTS", NEVER "White"  ([[WH-35]])
+// ---------------------------------------------------------------------------
+/* ⭐ Addie, 2026-09-16: "in the warehouse in changing lights we are allowed to choose wire
+   color but don't have too and anyone that says white wire in warehouse right now lets get
+   rid of that completley and just show them as Check lights which means check lights to see
+   what there wire color currently is."
+
+   ⛔ THE LINE SHE IS DESCRIBING WAS INVENTING AN ANSWER FOR THE WHOLE BOOK. whWireLabel
+   read `w || 'White'`, so every house with nothing on file was SHOWN as White wire and,
+   because whGroupKey is built on it, was BUILT into the White pile. rbNormalizeWire returns
+   '' for anything the master sheet spelt oddly, so that is a real population rather than an
+   edge case — and the claim was made on the one screen where somebody acts on it.
+
+   ⚠ THESE CHECKS RUN THE REAL FUNCTIONS. Every claim here is about a WORD the warehouse
+   reads off a screen or a sheet, and the group key is arithmetic on that word. */
+{
+  check('a house with no wire on file says Check lights, never White',
+    wireLabelOf('') === 'Check lights', 'got ' + JSON.stringify(wireLabelOf('')));
+  check('and so does one whose wire is blank space or missing entirely',
+    wireLabelOf('   ') === 'Check lights' && wireLabelOf(undefined) === 'Check lights' &&
+    wireLabelOf(null) === 'Check lights',
+    'got ' + JSON.stringify([wireLabelOf('   '), wireLabelOf(undefined), wireLabelOf(null)]));
+  /* ⚠ A REAL ANSWER STILL READS AS ITSELF, or confirming a house would change nothing on
+     screen and the row would ask for ever — the cries-wolf failure this repo names in four
+     other places. This is what makes it heal: set the wire, the row stops asking. */
+  check('a house that really is White still says White',
+    wireLabelOf('White') === 'White', 'got ' + JSON.stringify(wireLabelOf('White')));
+  check('and Green is untouched',
+    wireLabelOf('Green') === 'Green', 'got ' + JSON.stringify(wireLabelOf('Green')));
+  /* ⛔ AND IT CHANGES THE PILE, deliberately. Two houses that might need different wire
+     must not be handed to one person under a single heading — which is exactly what the old
+     default did by folding every unrecorded house into the White group. */
+  const unknown = groupKeyOf('Warm White', '');
+  const white   = groupKeyOf('Warm White', 'White');
+  check('an unconfirmed house is its own build group, not the White one',
+    unknown !== white && /Check lights/.test(unknown),
+    'unconfirmed: ' + JSON.stringify(unknown) + '  white: ' + JSON.stringify(white));
+  check('and the White group is still the White group',
+    /White wire/.test(white), 'got ' + JSON.stringify(white));
+}
 
 // ---------------------------------------------------------------------------
 // 1. COLOURS LIVE IN TWO FIELDS, AND EVERY READER MUST READ BOTH

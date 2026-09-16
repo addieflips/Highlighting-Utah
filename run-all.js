@@ -1525,7 +1525,8 @@ const RETIRED_CHECKLIST_TERMS = [
       219,  // the Overdue list read against the real book, after the invoice-date fix
       220,  // the house tabs on a real shared bill - layout, and real record shapes
       221,  // whether a flagged email is REALLY wrong for that customer, in the live book
-      222   // a real charge to real customers, and only she knows if they paid
+      222,  // a real charge to real customers, and only she knows if they paid
+      223   // a real auto-reply arriving, and whether it reads the way she would say it
     ];
     const have = SEED_ROWS.map(function (r) { return r[0]; });
     const missing = MANUAL_ONLY_IDS.filter(function (id) { return !have.includes(id); });
@@ -60446,4 +60447,103 @@ suite('Suite 332. A portal token nobody has never reaches an email');
       'address, which signs the customer in with their phone and surname. Found ' + uses +
       ' uses and ' + guarded + ' guarded');
   })());
+}
+
+suite('Suite 333. The sheet says how many PEOPLE it holds, not how many rows');
+
+{
+  /* ⭐ WHY THIS EXISTS. Addie connected her own workbook on 2026-09-16 and the line read
+     "Read 1058 rows straight from 2026 Client List (CURRENT - USE THIS ONE).xlsx." She has
+     961 customers. The other ~97 are the headings and the formatted-but-empty rows Excel
+     keeps at the bottom of a sheet for ever — and a headline that counts them invites the
+     one reading that costs something: that the app cannot see a hundred people.
+     ⚠ THIS FILE ALREADY RECORDS WHAT A CONFIDENT ROW COUNT COSTS — hlxLoadConnectedSheet's
+     own comment is about being told "924 rows" for the wrong workbook entirely. */
+  const countSrc = extractFn(admin, 'hlxSheetCountText');
+  const noteSrc  = extractFn(admin, 'hlxSheetRowsNote');
+  check('S333', 'both wordings were found to run', !!countSrc && !!noteSrc);
+
+  const countText = new Function('return ' + countSrc + ';hlxSheetCountText')();
+  const rowsNote  = new Function('return ' + noteSrc  + ';hlxSheetRowsNote')();
+
+  /* Her real numbers, measured off the workbook she sent: 960 named rows on the 2025 tab,
+     96 blank ones under them, one person who exists only on Recycle, plus the headings. */
+  const hers = {rows: 1058, people: 961, added: 1};
+  check('S333', 'her own sheet is reported as people, not rows',
+    countText(hers).indexOf('961 people') === 0, countText(hers));
+  check('S333', 'and the side-sheet person is accounted for',
+    /\(1 of them only on a side sheet\)/.test(countText(hers)), countText(hers));
+  /* ⚠ THE RAW COUNT IS KEPT, NOT REPLACED. It is the half that says the whole file was
+     read; dropping it trades one unexplained number for another. */
+  check('S333', 'and the raw row count still appears, with what the difference is made of',
+    rowsNote(hers).indexOf('1058 rows were read') !== -1 &&
+    /blank rows/.test(rowsNote(hers)), rowsNote(hers));
+
+  /* ⚠ NO NOTE WHERE THERE IS NOTHING TO EXPLAIN. A sheet with no slack would otherwise
+     carry a sentence about blank rows it does not have. */
+  check('S333', 'a sheet with no blank rows gets no note at all',
+    rowsNote({rows: 40, people: 40, added: 0}) === '', rowsNote({rows: 40, people: 40, added: 0}));
+  check('S333', 'and one person reads as a person, not "1 people"',
+    countText({rows: 2, people: 1, added: 0}) === '1 person', countText({rows: 2, people: 1, added: 0}));
+  /* ⛔ AND IT FALLS BACK TO ROWS WHEN NOTHING COUNTED PEOPLE. A workbook with no Name column
+     returns people: 0 — that is the wrong-workbook case, which has its own message naming
+     the columns it could not find. Saying "0 people" about a file that plainly read would
+     be worse than the old wording, and would read as an empty customer list. */
+  check('S333', 'a workbook with no Name column still reports its rows',
+    countText({rows: 924, people: 0}) === '924 rows' && rowsNote({rows: 924, people: 0}) === '',
+    countText({rows: 924, people: 0}));
+
+  /* ⚠ AND THE READER HAS TO SUPPLY THE NUMBER ON EVERY WAY OUT. Two of the three returns in
+     hlxWorkbookRowsAllSheets are early exits (an empty workbook, and one with no Name
+     column); a `people` missing from either is `undefined`, which the wording reads as
+     nought and quietly falls back to rows on exactly the files it was written for. */
+  const readerSrc = (function () {
+    const at = admin.indexOf('async function hlxWorkbookRowsAllSheets(');
+    if (at < 0) return '';
+    let b = admin.indexOf('{', at), d = 0, e = b;
+    for (;; e++) { if (admin[e] === '{') d++; else if (admin[e] === '}') { d--; if (!d) break; } }
+    return stripComments(admin.slice(at, e + 1));
+  })();
+  check('S333', 'the sheet reader was found', !!readerSrc);
+  const returns = (readerSrc.match(/return \{rows:/g) || []).length;
+  const withPeople = (readerSrc.match(/return \{rows:[^;]*people:/g) || []).length;
+  check('S333', 'every way out of the reader carries a people count',
+    returns >= 3 && withPeople === returns,
+    'found ' + returns + ' returns and ' + withPeople + ' carrying people — an early exit ' +
+    'without it reads as nought and silently reverts to counting rows');
+  /* ⚠ SCOPED TO THE COUNTING LOOP, and the red-check is why. The first version asked
+     whether `col["Name"]` appeared ANYWHERE in the reader — it appears half a dozen times,
+     in the header map and in the side-sheet merge — so a sabotage that counted every row
+     went straight through it. Cut the loop out first. */
+  const countLoop = (function () {
+    const at = readerSrc.indexOf('let people = 0;');
+    if (at < 0) return '';
+    const fo = readerSrc.indexOf('{', readerSrc.indexOf('for', at));
+    let d = 0, e = fo;
+    for (;; e++) { if (readerSrc[e] === '{') d++; else if (readerSrc[e] === '}') { d--; if (!d) break; } }
+    return readerSrc.slice(at, e + 1);
+  })();
+  check('S333', 'the counting loop was found', !!countLoop);
+  check('S333', 'and it counts rows that carry a NAME, never every row',
+    /col\["Name"\]/.test(countLoop),
+    'a count of every row is the number this suite exists to stop showing: ' + countLoop);
+  /* ⚠ COUNTED AFTER THE SIDE SHEETS ARE FOLDED IN, or the person who exists only on Recycle
+     is read off the sheet and then left out of the total that describes it. */
+  check('S333', 'and it counts AFTER the side sheets have been merged in',
+    readerSrc.lastIndexOf('people++') > readerSrc.lastIndexOf('added++'),
+    'counted first, a side-sheet-only customer is added to the rows and missing from the count');
+
+  /* ⚠ AND THE TWO PLACES THAT SPEAK TO HER MUST ASK THE WORDING, not the raw field. This is
+     the check that would have caught the original: the helper can be perfect and unused. */
+  const bare = stripComments(admin);
+  check('S333', 'the Compare line asks the wording',
+    /rbShowSheetStatus\("Read " \+ hlxSheetCountText\(live\)/.test(bare),
+    'it used to read `live.rows + " rows"`, which is where 1058 came from');
+  check('S333', 'and so does the line shown when the sheet is first connected',
+    /"Connected to " \+ \(res\.name \|\| "your sheet"\) \+ " \\u2014 " \+ hlxSheetCountText\(res\)/.test(bare),
+    'two lines reporting one file must not disagree about how many people are in it');
+  check('S333', 'and neither of them prints a bare row count beside the file name any more',
+    !/hlxLoadConnectedSheet[\s\S]{0,4000}?rbShowSheetStatus\("Read " \+ live\.rows/.test(bare) &&
+    bare.indexOf('res.name || "your sheet") + " \\u2014 " + res.rows +') === -1,
+    'a second place spelling the count out for itself is how the two start disagreeing');
 }

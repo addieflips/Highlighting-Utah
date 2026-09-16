@@ -1253,6 +1253,15 @@ check('the path still has every step in it',
       'the RSVP answer, which is already a step. It exists because nothing recorded who ' +
       'the send had reached, so 392 customers Gmail refused could not be told apart from ' +
       'the ones who got it (EM-04)',
+    /* ⚠ THE CHANGE ITSELF IS ALREADY IN THE HISTORY, and not through this field.
+       `logPortalChange` writes an activity row the moment the member saves — "They changed
+       it themselves in their portal — Wire colour: white → green" — so the thing that
+       happened to this customer is recorded, dated and readable. This is the quiet-window
+       guard that stops the SAME confirmation going out twice in half an hour. */
+    portalChangeEmailAt: 'the quiet-window guard on the member-portal auto-reply — the ' +
+      'arrearsRsvpEmailAt shape exactly: it records that WE wrote back to them, not ' +
+      'anything the customer did. Their side of it is the change itself, which ' +
+      'logPortalChange already puts in the history as its own dated row (EM-18)',
     /* ⚠ THE CHARGE IS ALREADY IN THE HISTORY, AND NOT THROUGH THIS FIELD. The 1 April
        batch writes the fee as a `changeFeeNotes` entry with kind 'late', so
        historyNoteRows renders it as "Late fee $25.00 — Unpaid after 28 February" against

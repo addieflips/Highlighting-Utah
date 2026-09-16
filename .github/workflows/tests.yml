@@ -211,6 +211,22 @@ jobs:
       # stamped is dropped from the routes, the build queue and the schedule.
       - name: The RSVP goes out a few hundred a morning
         run: npm run test:rsvp-daily
+      # ⭐ THE AUTO-REPLY WHEN A MEMBER CHANGES SOMETHING. Named separately because both
+      # ways it fails are invisible from here and land only in a customer's inbox: fire it
+      # on an untouched form and the whole book is emailed about changes nobody made (the
+      # preferences form posts all six fields every save, and an unticked box arrives as ''
+      # while the record stores false); break it the other way and it silently never sends,
+      # which looks exactly like a switch that was never turned on.
+      - name: The member-portal auto-reply
+        run: npm run test:pce
+      # ⭐ CLEARING A WIRE COLOUR NOBODY WROTE DOWN. Named separately because this one
+      # writes to customer records in BULK, and every way it can go wrong is silent:
+      # clearing a colour the office really picked because the sheet is merely incomplete,
+      # clearing a Green the bug could never have written, matching the wrong customer on
+      # a shared name — or matching nobody at all and reporting a clean book, which is
+      # exactly how a broken sheet reader would look.
+      - name: Wire colours nobody wrote down
+        run: npm run test:wiresweep
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 

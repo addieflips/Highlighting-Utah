@@ -1808,6 +1808,20 @@
         </div>
         <div id="cTestSweepReport" style="margin-top:12px; font-size:13px;"></div>
       </div>
+
+      <!-- ⭐ WIRE COLOURS NOBODY WROTE DOWN (2026-09-16, [[WH-36]]). It lives HERE rather
+           than in Danger Zone because it reads the master sheet, and the sheet is connected
+           on this tab — a tool that needs a file handle belongs beside the button that
+           grants it. -->
+      <div class="card">
+        <h3 style="margin:0 0 6px;">Wire colours nobody wrote down</h3>
+        <p style="font-size:13px; margin:0 0 12px;">The Member Portal used to fill in <strong>White</strong> by itself for anyone with no wire colour on file, so some records now claim a colour nobody picked. This finds every customer whose record says White while your master sheet records nothing for them, and clears it &mdash; so the warehouse reads <strong>Check lights</strong> and somebody sets it for good next time they are at the bin. <strong>It only ever clears, only ever White, and never touches a customer the sheet has no row for.</strong></p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <button type="button" class="btn btn-outline btn-sm" id="cWireSweepDryBtn">Check first &mdash; who would be cleared</button>
+          <button type="button" class="btn btn-gold btn-sm" id="cWireSweepBtn" style="display:none;">Clear them</button>
+        </div>
+        <div id="cWireSweepReport" style="margin-top:12px; font-size:13px;"></div>
+      </div>
 <!-- Fill in a missing town from the map pin. Not a nice-to-have: every
      scheduling decision in this app is made per town, so a customer whose town
      is blank cannot go on a route at all, and the bulk import left ~374 of them
@@ -3473,6 +3487,28 @@
           <div id="rsvpCheckListReport" style="font-size:13px;"></div>
         </div>
       </div>
+      <!-- ⭐ AUTO-REPLY WHEN A MEMBER CHANGES SOMETHING (2026-09-16, [[EM-18]]).
+           Addie: "can we get an automation email set up for someone who makes a change in
+           the member portal. Like saying something like we'll make sure to make this change
+           on your house."
+           ⚠ IT SITS UNDER TEMPLATES BECAUSE IT IS A TEMPLATE PICKER. The wording lives in
+           the list directly below it, so the card that chooses which one to send belongs
+           beside them rather than on a tab of its own — the same reason the Send the whole
+           RSVP card stays here. -->
+      <div class="card" id="portalChangeEmailCard" style="margin-bottom:22px;">
+        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128231; Auto-reply when a member changes something</h3>
+        <p class="form-note" style="margin:0 0 12px;">When somebody changes their <b>light colours</b>, <b>wire colour</b>, <b>timer</b>, <b>outlet</b>, <b>when they want it hung</b>, their <b>note</b> or <b>which sides</b> in the Member Portal, this emails them back to say we have got it. You already get the Gmail alert &mdash; this is the other direction. <b>My Info</b> changes (phone, email, gate code) and cancellations deliberately send nothing.</p>
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin-bottom:12px; cursor:pointer;">
+          <input type="checkbox" id="pceOn" style="width:auto; margin:0;"> Send this auto-reply
+        </label>
+        <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end;">
+          <div class="form-row" style="margin:0; min-width:260px;"><label style="font-size:11.5px;">Which template does it send?</label><select id="pceTemplate" style="font-size:13px; padding:8px 10px;"></select></div>
+          <button type="button" class="btn btn-outline btn-sm" id="pceMakeTmplBtn" style="width:auto;">Write me one to start from</button>
+          <button type="button" class="btn btn-gold btn-sm" id="pceSaveBtn" style="width:auto;">Save</button>
+        </div>
+        <p class="form-note" style="margin:10px 0 0;">Put <code>{{change}}</code> where you want the list of what they changed, <code>{{name}}</code> for their first name, and <code>{{portal_button}}</code> for a button back into their account. If you delete <code>{{change}}</code> the list is added at the bottom anyway, so the email can never fail to say what it is about.</p>
+        <div id="pceStatus" style="font-size:12.5px; color:var(--slate); margin-top:8px;"></div>
+      </div>
       <!-- Main Templates View -->
       <div style="display:grid; grid-template-columns:200px minmax(0,1fr); gap:20px; margin-bottom:30px;">
         <!-- Folders Sidebar -->
@@ -4792,7 +4828,7 @@
                house, same as the pattern. -->
           <div class="form-row" id="whExtraWireRow" style="max-width:260px;"><label for="whExtraWire">Wire Color</label>
             <select id="whExtraWire">
-              <option value="">Not set &mdash; buffer stock</option>
+              <option value="">Not chosen &mdash; buffer stock, or check the lights</option>
               <option value="White">White</option>
               <option value="Green">Green</option>
             </select>
@@ -8569,7 +8605,22 @@ function changeValueText(v, kind){
      the record stores false — the same answer, spelt two ways — so read as "(blank) → no"
      every save of every customer reported a row of tick boxes changing. Found by running
      the diff, not by reading it. */
-  if(kind === 'yesno' || typeof v === 'boolean') return v ? 'yes' : 'no';
+  if(kind === 'yesno' || typeof v === 'boolean'){
+    if(typeof v === 'boolean') return v ? 'yes' : 'no';
+    /* ⛔ A TICK BOX HAS THREE SPELLINGS, NOT TWO. This line used to read
+       `v ? 'yes' : 'no'`, which answers 'yes' for the STRING 'No' — a non-empty string is
+       truthy. The portal posts 'Yes'/'No' for specificOutlet, so it was wrong in BOTH
+       directions: No → Yes produced no row at all, and a record holding boolean `false`
+       saved against a posted 'No' reported "no → yes" with nobody having touched it.
+       ⚠ THE BLANK-VERSUS-FALSE TRAP ABOVE STAYS CLOSED — '' and false must both still
+       mean no — so blank, 'no', 'false' and '0' are no, and anything else is yes.
+       ⚠ PAIRED WITH portalChangeValueText in functions/index.js: change one and change
+       the other in the same push. change-log.test.js runs both over the same values.
+       This comment is longer than the fix on purpose: the one-liner it replaces read as
+       obviously correct, which is why it survived. */
+    const s = String(v === null || v === undefined ? '' : v).trim().toLowerCase();
+    return (s === '' || s === 'no' || s === 'false' || s === '0') ? 'no' : 'yes';
+  }
   if(v === null || v === undefined || v === '') return '(blank)';
   if(kind === 'money') return fmtMoney(Number(v) || 0);
   if(kind === 'list') return Array.isArray(v) ? (v.join(', ') || '(blank)') : String(v);
@@ -11981,6 +12032,7 @@ function initData(){
   loadEmailjsSettings();
   loadQuoteTemplateSettings();
   loadQuoteNudgeSettings();
+  loadPortalChangeEmailSettings();
   loadNightlyInvoiceSettings();
   loadNightlyInvoiceLog();
   loadPerFootRate();
@@ -13710,6 +13762,193 @@ document.getElementById('qMakeTextTmplBtn')?.addEventListener('click', async fun
     statusEl.textContent = 'Could not create them: ' + (err && err.message ? err.message : 'try again.');
   }
 });
+/* ⭐ THE AUTO-REPLY WHEN A MEMBER CHANGES SOMETHING (2026-09-16, [[EM-18]]).
+   Addie: "can we get an automation email set up for someone who makes a change in the member
+   portal. Like saying something like we'll make sure to make this change on your house."
+   The email itself is sent by `portalSave` in functions/index.js — this card only records
+   WHETHER to send it and WHICH of her templates to use.
+   ⚠ BY ID, NOT BY NAME, which is [[EM-16]]'s lesson written down in the one other place it
+   applies. The quote pickers above store names because the browser resolves them against a
+   list it is already holding; this one is read by a Cloud Function, and a template she
+   renames would be found on this screen and not on the server — so the card would look set
+   up and every member change would silently go unanswered. The name is stored ALONGSIDE the
+   id, for the screen to show and for nothing to resolve. */
+let portalChangeEmailCfg = {enabled:false, templateId:'', templateName:''};
+async function loadPortalChangeEmailSettings(){
+  try{
+    const snap = await getDoc(doc(db,'settings','portalChangeEmail'));
+    if(snap.exists()){
+      const d = snap.data() || {};
+      portalChangeEmailCfg = {
+        enabled: d.enabled === true,
+        templateId: typeof d.templateId === 'string' ? d.templateId : '',
+        templateName: typeof d.templateName === 'string' ? d.templateName : ''
+      };
+    }
+  } catch(err){ /* not saved yet — the card shows its off-by-default state */ }
+  renderPortalChangeEmailCard({syncFromSaved:true});
+}
+/* ⛔ A REDRAW MUST NOT THROW AWAY WHAT SHE HAS JUST TICKED (fixed 2026-09-16, and it was
+   a real bug rather than a hypothetical one). This is wired into the emailTemplates
+   snapshot so the picker follows a rename — and the snapshot fires on EVERY template edit,
+   which is exactly what she is doing while this card is open: press “Write me one to start
+   from”, go and reword the template in the list below, come back and press Save. The first
+   version reset the tick box and the picker from the SAVED settings on every one of those
+   redraws, so the save that followed wrote enabled:false over the box she had ticked and
+   the card stayed off with nothing on screen saying why.
+   ⚠ SO A REDRAW ONLY EVER REBUILDS THE OPTIONS. `syncFromSaved` is passed on the two
+   occasions the stored value really is the truth — the first load, and straight after a
+   Save — and `pickTemplateId` by the button that has just made one. Same trap as the
+   Communication Centre's section editor and the email-typo note's Use-it button, both of
+   which have their own paragraph about it. */
+function renderPortalChangeEmailCard(opts){
+  opts = opts || {};
+  const on = document.getElementById('pceOn');
+  const sel = document.getElementById('pceTemplate');
+  if(!on || !sel) return;
+  if(opts.syncFromSaved) on.checked = portalChangeEmailCfg.enabled === true;
+  const chosen = opts.pickTemplateId
+    || (opts.syncFromSaved ? portalChangeEmailCfg.templateId : (sel.value || portalChangeEmailCfg.templateId))
+    || '';
+  let html = '<option value="">— none picked —</option>';
+  emailTemplates.forEach(function(t){
+    const n = t.data.name || '(no name)';
+    html += '<option value="'+esc(t.id)+'"'+(t.id === chosen ? ' selected' : '')+'>'+esc(n)+'</option>';
+  });
+  /* ⚠ A DELETED TEMPLATE IS NAMED, NOT QUIETLY UNPICKED. Dropping back to “none picked”
+     would show her a card that reads exactly like one she never set up, on a feature whose
+     only symptom is an email nobody receives. */
+  if(chosen && !emailTemplates.some(t => t.id === chosen)){
+    html += '<option value="'+esc(chosen)+'" selected>'+
+      esc(portalChangeEmailCfg.templateName || 'the template you picked')+' (deleted — pick another)</option>';
+  }
+  sel.innerHTML = html;
+  renderPortalChangeEmailStatus();
+}
+/* ⚠ THE STATUS LINE DESCRIBES WHAT MEMBERS ACTUALLY GET, which is the SAVED settings and
+   never what is currently on screen — a line reading “On” because a box is ticked would be
+   the card claiming an email is going out that nothing has switched on yet. When the two
+   differ it says so instead, because a card that silently ignores a tick is the same
+   complaint from the other end. */
+function renderPortalChangeEmailStatus(){
+  const el = document.getElementById('pceStatus');
+  const on = document.getElementById('pceOn');
+  const sel = document.getElementById('pceTemplate');
+  if(!el || !on || !sel) return;
+  const unsaved = (on.checked !== (portalChangeEmailCfg.enabled === true)) ||
+                  ((sel.value || '') !== (portalChangeEmailCfg.templateId || ''));
+  if(unsaved){
+    el.style.color = 'var(--gold-deep, #8a6d1f)';
+    el.textContent = 'Not saved yet — press Save to make this the one members get.';
+    return;
+  }
+  const picked = portalChangeEmailCfg.templateId &&
+    emailTemplates.some(t => t.id === portalChangeEmailCfg.templateId);
+  if(!portalChangeEmailCfg.enabled){
+    el.style.color = 'var(--slate)';
+    el.textContent = 'Off — nobody is emailed when they change something.';
+    return;
+  }
+  /* ⚠ ON WITH NO TEMPLATE IS THE ONE STATE THAT LOOKS FINE AND SENDS NOTHING, so it is the
+     one the card says out loud. The server refuses the same way and logs the same reason. */
+  if(!picked){
+    el.style.color = 'var(--ember)';
+    el.textContent = portalChangeEmailCfg.templateId
+      ? 'On, but the template it points at has been deleted — nothing is being sent. Pick another and Save.'
+      : 'On, but no template is picked — nothing is being sent. Pick one and Save.';
+    return;
+  }
+  el.style.color = '#2E6B3E';
+  el.textContent = 'On — members get “' + (portalChangeEmailCfg.templateName || 'your template') +
+    '” when they change something about their house.';
+}
+/* ⚠ AND THE TWO CONTROLS REPORT THEMSELVES THE MOMENT THEY MOVE, so “Not saved yet” appears
+   while she is looking at them rather than after the next unrelated redraw. */
+document.getElementById('pceOn')?.addEventListener('change', renderPortalChangeEmailStatus);
+document.getElementById('pceTemplate')?.addEventListener('change', renderPortalChangeEmailStatus);
+/* ⭐ HER OWN WORDING, pasted in 2026-09-16, rather than a draft written for her. Two things
+   are added and neither is a rewrite: the greeting, because her text opens straight into the
+   thank-you, and {{change}} on the line under it, because naming what they changed is the whole
+   of [[EM-18]] and “the changes you requested” is the sentence it belongs to. Her closing note
+   “This is auto- Reply” is rendered as the grey footer line rather than sent as typed.
+   ⚠ IT IS A STARTING POINT AND NOT A FALLBACK: nothing sends this unless she has picked the
+   template it was written into, so editing or replacing it is an ordinary template edit. */
+const DEFAULT_PORTAL_CHANGE_BODY =
+  'Hi {{name}},<br><br>' +
+  'Thank you for reaching out! We’ve received your request and will make sure the changes you requested are taken care of.<br>' +
+  '{{change}}<br><br>' +
+  'We’ll get everything updated on our end and get your home scheduled for this season. We’ll be in touch once your home is scheduled!<br><br>' +
+  'Best,<br>' +
+  'Highlighting Utah<br><br>' +
+  '<span style="color:#777;font-size:12px;">This is an automatic reply.</span>';
+document.getElementById('pceMakeTmplBtn')?.addEventListener('click', async function(){
+  const el = document.getElementById('pceStatus');
+  el.style.color = 'var(--slate)';
+  el.textContent = 'Working…';
+  try{
+    const name = 'Member Portal Change';
+    const existing = emailTemplates.find(t => t.data.name === name);
+    if(existing){
+      /* ⚠ IT NEVER OVERWRITES ONE SHE HAS EDITED. Pressing this twice must not throw away
+         her wording — the second press just picks the one that is already there. */
+      /* ⛔ IT PICKS THE TEMPLATE ON SCREEN AND WRITES NOTHING TO portalChangeEmailCfg.
+         That object mirrors what is SAVED and nothing else — the status line decides
+         whether to warn “Not saved yet” by comparing the two, so moving it here would
+         make the card claim a pick had been saved the instant this button was pressed,
+         and a page reload would then lose it with nothing having said so. */
+      renderPortalChangeEmailCard({pickTemplateId: existing.id});
+      el.style.color = 'var(--slate)';
+      el.textContent = 'You already have one called “' + name + '”, so it is picked. Press Save to switch it on.';
+      return;
+    }
+    let folderId = emailTemplateFolders.find(f => f.name === 'Member Portal')?.id;
+    if(!folderId){
+      const fRef = await addDoc(collection(db,'emailTemplateFolders'), {name:'Member Portal', createdAt: serverTimestamp()});
+      folderId = fRef.id;
+    }
+    const ref = await addDoc(collection(db,'emailTemplates'), {
+      name: name, folderId: folderId,
+      subject: 'We’ve got your change',
+      body: DEFAULT_PORTAL_CHANGE_BODY,
+      createdAt: serverTimestamp()
+    });
+    /* ⛔ Picked on screen only — see the note above: portalChangeEmailCfg is what is saved. */
+    renderPortalChangeEmailCard({pickTemplateId: ref.id});
+    el.style.color = '#2E6B3E';
+    el.textContent = 'Made “' + name + '” and picked it. Edit the wording in the list below, then press Save here.';
+  } catch(err){
+    el.style.color = 'var(--ember)';
+    el.textContent = 'Could not make it: ' + (err && err.message ? err.message : 'try again.');
+  }
+});
+document.getElementById('pceSaveBtn')?.addEventListener('click', async function(){
+  const el = document.getElementById('pceStatus');
+  const sel = document.getElementById('pceTemplate');
+  const id = sel ? sel.value : '';
+  const hit = emailTemplates.find(t => t.id === id);
+  const next = {
+    enabled: document.getElementById('pceOn').checked === true,
+    templateId: id,
+    /* ⚠ THE NAME IS TAKEN FROM THE TEMPLATE, NEVER FROM THE OPTION TEXT. A deleted one
+       renders its option as "… (deleted — pick another)", and saving that string would put
+       those words on the card for ever as if they were the template's real name. */
+    templateName: hit ? (hit.data.name || '') : (id === portalChangeEmailCfg.templateId ? portalChangeEmailCfg.templateName : '')
+  };
+  try{
+    await setDoc(doc(db,'settings','portalChangeEmail'), next, {merge:true});
+    portalChangeEmailCfg = next;
+    renderPortalChangeEmailCard({syncFromSaved:true});
+    if(next.enabled && next.templateId && hit){
+      el.style.color = '#2E6B3E';
+      el.textContent = 'Saved. Members now get “' + (next.templateName || 'your template') + '” when they change something.';
+    } else {
+      renderPortalChangeEmailStatus();
+    }
+  } catch(err){
+    el.style.color = 'var(--ember)';
+    el.textContent = 'Could not save — try again.';
+  }
+});
 async function loadQuoteNudgeSettings(){
   try{
     const snap = await getDoc(doc(db,'settings','quoteNudgeAutomation'));
@@ -14033,6 +14272,187 @@ function testSweepSummary(f){
   add(f.planHouses.reduce(function(n, p){ return n + p.count; }, 0), 'day on the schedule', 'stops on the schedule');
   return bits.length ? bits.join(', ') : 'nothing';
 }
+/* ⭐ A WIRE COLOUR NOBODY WROTE DOWN (2026-09-16, [[WH-36]]).
+   Addie, asked why 637 of 955 people have no wire colour on the master sheet:
+   "Blank means we just didn't put it in becuase there bin is already made and couldn't go
+   through each bin and sort out colors. But we will update it little at a time thats why
+   we don't want to automatically assume someone should be white."
+
+   ⛔ SO A STORED White THAT THE SHEET DOES NOT CORROBORATE IS EXACTLY THE ASSUMPTION SHE
+   REFUSED. The portal's Changes tab used to prefill White whenever the record held nothing
+   and write it back on any save ([[OPT-11]]), so a customer who went in to edit their NOTE
+   came out with White on their record — a colour nobody chose, indistinguishable on screen
+   from one the office picked. [[WH-35]] made the UNRECORDED ones say "Check lights"; this
+   is the other half, the ones where a colour was invented and stored.
+
+   ⚠ THE SHEET IS THE CORROBORATION, AND IT NEEDS NO HISTORY ARCHAEOLOGY. The change log
+   only reaches back to 28 August while the portal bug shipped on 29 July, so a month has
+   no log at all — but the Wire column is where the office records what it picked, for
+   every period. Measured on the real workbook: 190 White, 126 Green, 637 with nothing.
+
+   ⛔ IT ONLY EVER CLEARS, AND ONLY EVER White. The bug could only write White, so a Green
+   on a record was put there by a person and is never touched. Nothing here writes a wire
+   colour onto anybody — the whole point is to stop a colour being claimed.
+
+   ⚠ A CUSTOMER WITH NO SHEET ROW AT ALL IS LEFT ALONE. The sheet being incomplete is not
+   evidence that a record is wrong; only a row that EXISTS with an empty Wire cell is
+   evidence the office recorded nothing. Somebody added from a quote and never typed onto
+   the sheet would otherwise be cleared on the strength of a gap in the wrong document.
+
+   ⚠ AND AN AMBIGUOUS NAME IS NO MATCH, not a weak one — six names on the real sheet belong
+   to two rows, and this repo's rule is already written down: two candidates is no match. */
+async function wireSweepFind(){
+  const handle = await hlxSheetHandleLoad();
+  if(!handle) throw new Error('No master sheet is connected on this computer. Press "Use my master sheet" above first.');
+  const state = await hlxSheetPermission(handle, true);
+  if(state !== 'granted') throw new Error('The browser would not let me read the sheet — press "Use my master sheet" above and allow it.');
+  const all = await hlxWorkbookRowsAllSheets(await handle.getFile());
+  const rows = (all && all.rows) || [];
+  const header = (rows[0] || []).map(function(v){ return String(v == null ? '' : v).trim(); });
+  const col = {};
+  header.forEach(function(h, i){ if(h && col[h] == null) col[h] = i; });
+  if(col['Name'] == null || col['Wire'] == null){
+    throw new Error('That workbook has no Name or Wire column — it may be the wrong file.');
+  }
+
+  /* Two different questions, kept apart on purpose: does the sheet KNOW this customer,
+     and does it RECORD a wire for them. Clearing needs both answers. */
+  const rowByNum = {}, wireByNum = {}, nameCount = {}, wireByName = {};
+  const cell = function(r, key){ return col[key] == null ? '' : String(r[col[key]] == null ? '' : r[col[key]]).trim(); };
+  for(let i = 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const nm = dupNormName(cell(r, 'Name'));
+    const cu = cell(r, 'CU #');
+    const w  = rbNormalizeWire(cell(r, 'Wire'));
+    if(nm){ nameCount[nm] = (nameCount[nm] || 0) + 1; if(w && !wireByName[nm]) wireByName[nm] = w; }
+    if(cu){ rowByNum[cu] = true; if(w && !wireByNum[cu]) wireByNum[cu] = w; }
+  }
+
+  const found = wireSweepClassify(jobAddresses, {rowByNum: rowByNum, wireByNum: wireByNum,
+                                                 nameCount: nameCount, wireByName: wireByName});
+  found.sheetRows = Math.max(0, rows.length - 1);
+  return found;
+}
+
+/* ⭐ THE DECISION, ON ITS OWN, so a test can RUN it rather than match its source — the
+   same reason rmCommitPayload and whTimerOnlyQueue are their own functions. Every claim
+   worth making here is about WHICH LIST a customer lands in, which a regex cannot see.
+   ⚠ IT READS THE SHEET INDEX AND NOTHING ELSE: no file handle, no Firestore, no DOM. */
+function wireSweepClassify(customers, sheet){
+  const found = {clear: [], agrees: 0, conflict: [], notOnSheet: [], sheetRows: 0};
+  (customers || []).forEach(function(c){
+    const d = (c && c.data) || {};
+    /* ⛔ White ONLY. Green was typed by a person and the bug could never produce it, so
+       clearing one would destroy a real answer to tidy up after a different mistake. */
+    if(String(d.wireColor || '').trim() !== 'White') return;
+    const cu = String(d.customerNumber || '').trim();
+    const nm = dupNormName(d.name);
+    let known = false, sheetWire = '';
+    if(cu && sheet.rowByNum[cu]){ known = true; sheetWire = sheet.wireByNum[cu] || ''; }
+    /* ⚠ A NAME THAT TWO ROWS ANSWER TO IS NO MATCH. Six names on the real sheet belong to
+       two rows, and this repo's rule is already written down: two candidates is no match. */
+    else if(nm && sheet.nameCount[nm] === 1){ known = true; sheetWire = sheet.wireByName[nm] || ''; }
+    const row = {id: c.id, name: d.name || '(no name)', address: d.address || '', number: cu};
+    /* ⛔ THE SHEET BEING INCOMPLETE IS NOT EVIDENCE A RECORD IS WRONG. Only a row that
+       EXISTS with an empty Wire cell says the office recorded nothing. */
+    if(!known){ found.notOnSheet.push(row); return; }
+    if(sheetWire === 'White'){ found.agrees++; return; }
+    if(sheetWire){ row.sheetWire = sheetWire; found.conflict.push(row); return; }
+    found.clear.push(row);
+  });
+  return found;
+}
+
+/* ⚠ ONLY EVER CLEARS WHAT THE DRY RUN SHOWED. Re-finding here would touch records she
+   never saw, which is the whole reason they are listed first — the test sweep's own rule.
+   ⚠ AND A DIRECT updateDoc QUEUES NO REBUILD: warehouseRebuildFields runs inside the Edit
+   Customer save handler, not on a Firestore write, so clearing a colour nobody chose does
+   not put ~600 houses onto the warehouse list. */
+async function wireSweepClear(found){
+  let done = 0; const failed = [];
+  for(const row of (found.clear || [])){
+    try{
+      await updateDoc(doc(db, 'jobAddresses', row.id), {wireColor: ''});
+      done++;
+    }catch(err){
+      console.error('[HU] could not clear the wire colour for ' + row.name, err);
+      failed.push(row.name);
+    }
+  }
+  return {done: done, failed: failed};
+}
+(function wireWireSweep(){
+  const dryBtn = document.getElementById('cWireSweepDryBtn');
+  const goBtn  = document.getElementById('cWireSweepBtn');
+  const out    = document.getElementById('cWireSweepReport');
+  if(!dryBtn || !goBtn || !out) return;
+  let pending = null;
+  const names = function(list){
+    return list.map(function(r){
+      return esc(r.name) + (r.number ? ' <span style="color:var(--slate);">#' + esc(r.number) + '</span>' : '') +
+        (r.sheetWire ? ' <span style="color:var(--slate);">— sheet says ' + esc(r.sheetWire) + '</span>' : '');
+    }).join('<br>');
+  };
+  dryBtn.addEventListener('click', async function(){
+    dryBtn.disabled = true;
+    out.textContent = 'Reading your sheet…';
+    goBtn.style.display = 'none';
+    try{
+      pending = await wireSweepFind();
+      let html = '<div><strong>' + pending.clear.length + '</strong> ' +
+        (pending.clear.length === 1 ? 'customer says White with nothing on the sheet' :
+                                      'customers say White with nothing on the sheet') + '.</div>';
+      /* ⚠ WHAT IS BEING LEFT ALONE IS REPORTED TOO. A sweep that names only what it would
+         touch reads as though it looked at nothing else, and the counts are what say the
+         sheet was actually read rather than silently failing to match anybody. */
+      html += '<div style="margin-top:4px; color:var(--slate); font-size:12.5px;">' +
+        'Left alone: ' + pending.agrees + ' the sheet also calls White, ' +
+        pending.conflict.length + ' where the sheet says something else, and ' +
+        pending.notOnSheet.length + ' not on the sheet at all. ' +
+        'Read ' + pending.sheetRows + ' sheet rows.</div>';
+      if(pending.conflict.length){
+        html += '<div style="margin-top:8px;"><strong>The sheet disagrees about these — not touched.</strong> ' +
+          'Use <em>Compare</em> above to settle them.<br><span style="font-size:12.5px;">' +
+          names(pending.conflict) + '</span></div>';
+      }
+      if(pending.clear.length){
+        html += '<div style="margin-top:8px; font-size:12.5px;">' + names(pending.clear) + '</div>';
+        goBtn.style.display = '';
+      } else {
+        html += '<div style="margin-top:8px; color:#2E6B3E;">Nothing to clear — every White on a record is one the sheet backs up.</div>';
+        pending = null;
+      }
+      out.innerHTML = html;
+    }catch(err){
+      console.error('Wire sweep could not look:', err);
+      out.innerHTML = '<span style="color:var(--ember);">Could not look — ' + esc((err && err.message) || err) + '</span>';
+      pending = null;
+    }
+    dryBtn.disabled = false;
+  });
+  goBtn.addEventListener('click', async function(){
+    if(!pending || !pending.clear.length){ out.textContent = 'Press “Check first” before clearing anything.'; return; }
+    const typed = prompt('Clear the wire colour on ' + pending.clear.length + ' customer(s)?\n\n' +
+      'They will read "Check lights" in the warehouse until somebody looks in the bin and sets it.\n' +
+      'Nothing else on their record changes.\n\nType CLEAR to go ahead.');
+    if(String(typed || '').trim().toUpperCase() !== 'CLEAR') return;
+    goBtn.disabled = true;
+    out.textContent = 'Clearing…';
+    try{
+      const res = await wireSweepClear(pending);
+      out.innerHTML = '<span style="color:#2E6B3E;">Cleared ' + res.done + '.</span>' +
+        (res.failed.length ? '<div style="color:var(--ember); margin-top:4px;">Could not clear: ' +
+          esc(res.failed.join(', ')) + '</div>' : '') +
+        '<div style="margin-top:4px; color:var(--slate); font-size:12.5px;">They now read “Check lights” in the warehouse.</div>';
+      pending = null;
+      goBtn.style.display = 'none';
+    }catch(err){
+      console.error('Wire sweep could not clear:', err);
+      out.innerHTML = '<span style="color:var(--ember);">Could not clear — ' + esc((err && err.message) || err) + '</span>';
+    }
+    goBtn.disabled = false;
+  });
+})();
 (function wireTestSweep(){
   const dryBtn = document.getElementById('cTestSweepDryBtn');
   const goBtn = document.getElementById('cTestSweepBtn');
@@ -17790,6 +18210,10 @@ function loadEmailTemplates(){
     /* The quote-email pickers list real templates, so they have to refill
        whenever the template list itself changes. */
     if(typeof renderQuoteTemplatePickers === 'function') renderQuoteTemplatePickers();
+    /* ⚠ AND THIS ONE, for the same reason — it lists real templates, so a rename,
+       a deletion or one made by the button on that card has to reach it. Left out, the
+       card goes on naming a template that is no longer there. */
+    if(typeof renderPortalChangeEmailCard === 'function') renderPortalChangeEmailCard();
   });
 }
 function getEmailTemplateByName(name){
@@ -41375,12 +41799,12 @@ async function hlxWorkbookRowsAllSheets(file){
   const main = entries.filter(function(e){ return /^xl\/worksheets\/sheet1\.xml$/.test(e.name); })[0];
   if(!main) throw new Error("That workbook has no readable sheet.");
   const rows = hlxReadSheet(dec.decode(main.data), ss);
-  if(!rows.length) return {rows: rows, added: 0, fromSheets: {}};
+  if(!rows.length) return {rows: rows, added: 0, fromSheets: {}, people: 0};
 
   const header = (rows[0] || []).map(function(v){ return String(v == null ? "" : v).trim(); });
   const col = {};
   header.forEach(function(h, i){ if(h && col[h] == null) col[h] = i; });
-  if(col["Name"] == null) return {rows: rows, added: 0, fromSheets: {}};
+  if(col["Name"] == null) return {rows: rows, added: 0, fromSheets: {}, people: 0};
 
   const claimed = {};
   /* ⭐ AND HOW MANY PEOPLE ANSWER TO EACH NAME. A side sheet row often carries a
@@ -41436,7 +41860,15 @@ async function hlxWorkbookRowsAllSheets(file){
       added++;
     }
   }
-  return {rows: rows, added: added, fromSheets: fromSheets};
+  /* ⭐ HOW MANY PEOPLE, counted AFTER the side sheets have been folded in, so a person
+     who only exists on Recycle is one of them. A row with no Name is not a customer — that
+     is already this tool’s own rule a few hundred lines down, and it is what makes the
+     headline honest: Excel keeps formatted-but-empty rows at the bottom of a sheet for ever. */
+  let people = 0;
+  for(let i = 1; i < rows.length; i++){
+    if(String((rows[i] || [])[col["Name"]] == null ? "" : rows[i][col["Name"]]).trim()) people++;
+  }
+  return {rows: rows, added: added, fromSheets: fromSheets, people: people};
 }
 async function hlxWorkbookRows(file){
   const z = await hlxUnzip(await file.arrayBuffer());
@@ -41552,7 +41984,7 @@ async function hlxLoadConnectedSheet(ask){
   /* Say where the extra rows came from. "962 rows" when the sheet has 940 reads as a
      miscount unless it also says 22 of them were on the side sheets. */
   return {rows: rows.length, name: handle.name || "", when: file.lastModified || 0,
-          usable: usable, added: all.added, fromSheets: all.fromSheets};
+          usable: usable, added: all.added, fromSheets: all.fromSheets, people: all.people};
 }
 /* ⭐ FOUR WAYS TO RECOGNISE THE SAME PERSON, STRONGEST FIRST.
    Owner, 2026-08-18, reading a list of customers the comparison said were not
@@ -43388,6 +43820,35 @@ document.getElementById('rbFixNumbersBtn')?.addEventListener('click', function()
    ⚠ showOpenFilePicker only opens from a real click, so this cannot be done
    for the office automatically — the one press is the browser's rule, not a
    design choice. */
+/* ⭐ HOW MANY PEOPLE, NOT HOW MANY ROWS (2026-09-16). Addie’s own workbook reads as
+   “1058 rows” and holds 961 customers: Excel keeps 96 formatted-but-empty rows at the
+   bottom of the 2025 tab, the headings are a row too, and one person exists only on
+   Recycle. A headline counting all of that invites the one reading that costs something —
+   that the app is missing a hundred people — and this file already records what a
+   confident row count naming the wrong thing costs (“924 rows of the wrong thing”, in
+   hlxLoadConnectedSheet just above).
+   ⚠ THE RAW COUNT IS KEPT, NEVER REPLACED. It is the half that says the whole file was
+   read, so dropping it trades one unexplained number for another; it moves into its own
+   sentence and says what the difference is made of.
+   ⚠ AND IT FALLS BACK TO ROWS when nothing counted people — a workbook with no Name
+   column returns people: 0, and “0 people” about a file that plainly read is worse than
+   the old wording. That is the wrong-workbook case, which has its own message. */
+function hlxSheetCountText(res){
+  const raw = Number(res && res.rows) || 0;
+  const people = Number(res && res.people) || 0;
+  if(!people) return raw + " rows";
+  let out = people + (people === 1 ? " person" : " people");
+  const extra = Number(res && res.added) || 0;
+  if(extra) out += " (" + extra + " of them only on a side sheet)";
+  return out;
+}
+function hlxSheetRowsNote(res){
+  const raw = Number(res && res.rows) || 0;
+  const people = Number(res && res.people) || 0;
+  if(!people || raw <= people) return "";
+  return " " + raw + " rows were read — the rest are the headings and blank rows at the "
+    + "bottom of the sheet, which Excel keeps whether or not anything was ever in them.";
+}
 function rbShowSheetStatus(text, warn){
   const el = document.getElementById("rbConnectSheetStatus");
   if(!el) return;
@@ -43429,8 +43890,9 @@ document.getElementById('rbConnectSheetBtn')?.addEventListener('click', onceAtAT
        is the customer list is ever written here. Remembering an unusable one
        would send every other computer to pick the same wrong file. */
     await hlxSheetRemember(res);
-    rbShowSheetStatus("Connected to " + (res.name || "your sheet") + " \u2014 " + res.rows +
-      " rows. Remembered for every computer. It is read where it sits; nothing is copied or downloaded.");
+    rbShowSheetStatus("Connected to " + (res.name || "your sheet") + " \u2014 " + hlxSheetCountText(res) +
+      "." + hlxSheetRowsNote(res) +
+      " Remembered for every computer. It is read where it sits; nothing is copied or downloaded.");
   } catch(err){
     rbShowSheetStatus("Could not read that file: " + ((err && err.message) || "unknown error"), true);
   }
@@ -43493,7 +43955,8 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', async fun
       const live = await hlxLoadConnectedSheet(true);
       if(live.rows){
         usedConnected = true;
-        rbShowSheetStatus("Read " + live.rows + " rows straight from " + (live.name || "your sheet") + ".");
+        rbShowSheetStatus("Read " + hlxSheetCountText(live) + " straight from " +
+          (live.name || "your sheet") + "." + hlxSheetRowsNote(live));
       } else if(live.reason === "permission"){
         rbShowSheetStatus("Chrome would not let me read the file. Press Compare again and choose " +
           "\u201cAllow on every visit\u201d in the box Chrome shows \u2014 that is the setting that stops it " +
@@ -48841,9 +49304,36 @@ document.getElementById('dashRsvpFilterPayment').addEventListener('change', func
    A build is only "the same" if the colours AND the wire match. Two houses in
    Warm White are different builds if one is on white wire and one on green, so
    the wire is part of the group key, not just something shown on the row. */
+/* ⭐ A WIRE NOBODY RECORDED IS “CHECK LIGHTS”, NEVER “White” (2026-09-16, [[WH-35]]).
+   Addie: “in the warehouse in changing lights we are allowed to choose wire color but don't
+   have too and anyone that says white wire in warehouse right now lets get rid of that
+   completley and just show them as Check lights which means check lights to see what there
+   wire color currently is.”
+   ⛔ THIS LINE WAS INVENTING AN ANSWER FOR THE WHOLE BOOK. It read `w || 'White'`, so every
+   house with nothing on file was SHOWN as White wire and, because whGroupKey calls this,
+   was BUILT into the White pile — a claim nobody made, on the one screen where somebody acts
+   on it. rbNormalizeWire returns '' for anything the master sheet spelt oddly, so that is a
+   real population, not an edge case. It is the same shape as the portal dropdown that
+   prefilled White ([[OPT-11]]) and it predates it.
+   ⚠ THE HONEST ANSWER IS TO SEND SOMEBODY TO LOOK, which is what she asked for: they are
+   holding the bundle anyway. A house that really is White still reads White, so confirming
+   one is an ordinary edit and the row stops asking — it heals rather than nagging for ever.
+   ⚠ AND IT CHANGES THE GROUP, deliberately. whGroupKey is built on this, so unconfirmed
+   houses become their own pile instead of being mixed into the White one. Two piles that
+   might need different wire must not be handed to one person as a single heading.
+   ⚠ BUFFER STOCK IS NOT TOUCHED: a warehouseExtras row with no wire takes its own heading
+   (“buffer stock (wire not set)”) and never reaches this default.
+   ⛔ AND IT STORES NOTHING. Nobody's record is rewritten — this is what the warehouse is
+   TOLD, not what is kept, so it is reversible in one line and cannot lose a real answer.
+   Same rule as printSidesCell: where the record does not know, say so.
+   ⚠ AND THE WORDS ARE WRITTEN OUT INSIDE THIS FUNCTION, not held in a constant beside it.
+   Five sandboxes lift whWireLabel ALONE into a bare scope — whGroupKey calls it, so the
+   recycle queue, both build sheets and the crew sheet all reach it — and a named constant
+   outside the body is a bare ReferenceError in every one of them. Same rule, and the same
+   reason, as houseInstallPriority naming no constant outside itself. */
 function whWireLabel(wire){
   const w = String(wire || '').trim();
-  return w || 'White';
+  return w || 'Check lights';
 }
 /* Put a colour list into a canonical order so the SAME pattern typed in a
  * different order lands in ONE warehouse group. Before this, "Red, Green" and

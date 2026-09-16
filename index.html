@@ -2157,6 +2157,11 @@
               </div>
               <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Wire Color</label>
               <select id="wireColorSelect" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;">
+                <!-- ⛔ THE PLACEHOLDER IS WHY THIS SELECT CAN BE HONEST. Without it there is no
+                     way to show "we have not recorded one", so the prefill invented White — see
+                     the note beside the prefill. `disabled` lets the page select it while stopping
+                     a customer choosing it, so nobody can blank a wire colour that IS recorded. -->
+                <option value="" disabled>&mdash; not recorded &mdash;</option>
                 <option value="White">White</option>
                 <option value="Green">Green</option>
               </select>
@@ -3888,7 +3893,21 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
       document.getElementById('addEmail2Link').style.display = 'none';
     }
     document.getElementById('schedSelect').value = addrDoc.installPreference || 'Normal Schedule';
-    document.getElementById('wireColorSelect').value = addrDoc.wireColor || 'White';
+    /* ⛔ NOT `|| 'White'`, AND THIS IS THE SAME TRAP THE TIMER BELOW ALREADY AVOIDS.
+       `wireColor` is one of the three WAREHOUSE_BUILD_FIELDS, so whatever this control reads
+       at save time can queue a rebuild. Prefilled with White, a customer whose record has NO
+       wire colour — rbNormalizeWire returns '' for anything the sheet spelt oddly — opened
+       this tab to change their NOTE, and the save silently wrote White, queued a bundle
+       rebuild nobody asked for, and (once the auto-reply is on) emailed them to say their
+       wire colour had changed. Worse the other way: a record holding a wire the select cannot
+       show fell to selectedIndex -1, so the save wrote '' and ERASED it, rebuild and all.
+       ⚠ Both were measured by running warehouseRebuildFields, not reasoned about.
+       The rule the radios below already follow: an untouched control must never read as a
+       change. Nothing recorded selects the disabled placeholder, and the save falls back to
+       what the record holds. */
+    var loadedWireColor = (addrDoc.wireColor === 'White' || addrDoc.wireColor === 'Green')
+      ? addrDoc.wireColor : '';
+    document.getElementById('wireColorSelect').value = loadedWireColor;
     var loadedOutletTimer = addrDoc.outletTimer === 'Yes' ? 'Yes' : (addrDoc.outletTimer === 'No' ? 'No' : '');
     document.querySelectorAll('input[name="changes_outlet_timer"]').forEach(function(r){
       r.checked = r.value === loadedOutletTimer;
@@ -8235,7 +8254,13 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
   var btn = document.getElementById('changesSaveBtn');
   if(!currentLookupRecord && !currentJobAddressId){ statusEl.textContent = 'Please look up your invoice first.'; return; }
   var newPref = document.getElementById('schedSelect').value;
-  var newWireColor = document.getElementById('wireColorSelect').value;
+  /* ⚠ FALLS BACK TO THE RECORD, exactly like the timer and the outlet below it. An empty
+     select here means "we have never recorded one" — not "set it to blank" — so writing ''
+     would erase a wire colour the office may hold in a spelling this control cannot show. */
+  var wireColorEl = document.getElementById('wireColorSelect');
+  var newWireColor = (wireColorEl && wireColorEl.value)
+    ? wireColorEl.value
+    : ((currentJobAddressData && currentJobAddressData.wireColor) || '');
   /* ⭐ NEITHER RADIO HAS A DEFAULT, SO NEITHER IS ALWAYS ANSWERED (2026-09-10, from the Errors folder).
      `querySelector(':checked')` returns null when nothing is ticked, and `.value` on that
      throws — which took the whole save down before a single field was read. Found in the
