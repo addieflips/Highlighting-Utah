@@ -19170,6 +19170,45 @@ function houseOwesFromLastSeason(d){
   if(!inv) return false;
   return owesFromLastSeason(inv.data);
 }
+/* ⭐ MONEY ON THE BILL IS AN ANSWER (2026-09-17, [[SCH-79]]). Addie, asked what should
+   happen to somebody who has paid but never pressed a button: "If they already paid for
+   there lights they should be marked as confirmed and scheduled."
+
+   ⛔ THE DEPOSIT, NEVER THE STATUS. `computeInvoiceStatus` answers "Paid in Full" for a
+   bill covered entirely by CREDITS as well as one covered by money — and a referral
+   credit or a goodwill write-off is emphatically not somebody paying. Read off the
+   status, a customer handed a credit that covers their whole bill would be confirmed and
+   sent a crew having neither replied nor paid a penny. The deposit is the only field that
+   means money arrived.
+
+   ⚠ AND IT IS SAFE ONLY BECAUSE Start New Season WRITES `deposit: 0` ON EVERY INVOICE.
+   Verified in that reset before this shipped. If that ever stops, last season's payment
+   reads as this season's and this line confirms the entire book, for ever, in silence —
+   which is the same standing dependency Q-013's `completed` test carries.
+
+   ⚠ A PART PAYMENT COUNTS, deliberately. Somebody who puts a deposit down has told us
+   what they want at least as plainly as a button press, and Addie's word was "paid", not
+   "paid in full". What they still owe is a different question, asked by
+   houseOwesFromLastSeason above — and that one is about LAST season, so it still holds
+   them whatever they have paid towards this one.
+
+   ⚠ IT READS THE BILL THE HOUSE IS ACTUALLY ON, the payer's included — the same
+   resolution as houseOwesFromLastSeason directly above, so the hold and the confirmation
+   can never name different people. A parent who has paid confirms the child's house,
+   which is the whole point of one bill covering several.
+
+   ⚠ NO INVOICE IS NOT A PAYMENT. Answering true for a missing invoice would confirm
+   every customer the nightly run has not reached yet, which before the season starts is
+   nearly the whole book — the exact shape of failure this rule exists to prevent. */
+function housePaidThisSeason(d){
+  if(!d) return false;
+  if(typeof invoiceById === 'undefined' || !invoiceById) return false;
+  const key = String(d.billToPhone || '').replace(/\D/g,'') || custInvoiceKey(d);
+  if(!key) return false;
+  const inv = invoiceById.get(key) || null;
+  if(!inv) return false;
+  return (Number(inv.data.deposit) || 0) > 0;
+}
 /* How much they still owe from last season, for the screens that have to say it in
    money. Same resolution as above so the list and the hold can never name different
    people; returns 0 for anybody who is clear. */
@@ -37396,6 +37435,19 @@ function isOutForSeason(d){
        above return before this line, so a new hang who says no is still out. This only
        covers somebody who has said nothing because nothing was asked. */
     if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)) return false;
+    /* ⭐ AND MONEY IS AN ANSWER ([[SCH-79]], 2026-09-17). Addie: "If they already paid
+       for there lights they should be marked as confirmed and scheduled." Somebody who
+       has put money down has told us what they want; holding them off a crew for the want
+       of a button press is the complaint this whole branch keeps producing.
+       ⚠ IT IS INSIDE THIS BRANCH, WHICH IS THE WHOLE OF ITS SAFETY. Said no, back next
+       year, Maybe Next Year, a queued recycle and last season's unpaid bill all return
+       ABOVE, so paying can only ever override "has not replied" — never an answer, and
+       never the arrears hold. A paid customer who then says no is still out, which is
+       Addie's own "they can change there decisions" rule pointing the same way.
+       ⚠ AND IT CANNOT CONFIRM THE BOOK BY ACCIDENT: housePaidThisSeason reads the
+       DEPOSIT off the bill this house is on, never the status, and Start New Season zeroes
+       that field on every invoice. Read its own note before changing either half. */
+    if(typeof housePaidThisSeason === 'function' && housePaidThisSeason(d)) return false;
     return !(String(d.rsvpStatus || '').toLowerCase() === 'yes' && !!d.rsvpRespondedAt);
   }
   return false;

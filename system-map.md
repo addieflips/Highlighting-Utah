@@ -360,6 +360,23 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    `arrearsOutstanding` — *last* season's debt — so a current bill never touches the
    season badge. Her $946 was this year's.
 
+   ⭐ **AND MONEY IS NOW AN ANSWER IN ITS OWN RIGHT** (2026-09-17, [[SCH-79]]). Addie:
+   *"If they already paid for there lights they should be marked as confirmed and
+   scheduled."* `housePaidThisSeason` reads the **deposit** off the bill this house is
+   on — the payer's where they bill elsewhere — and a customer with money against their
+   name is Confirmed and scheduled without ever pressing a button. A part payment counts.
+
+   ⛔ **The deposit, never the status.** `computeInvoiceStatus` answers *Paid in Full* for
+   a bill cleared entirely by **credits** as well as one cleared by money, and a referral
+   or goodwill credit is not somebody paying. Read off the status, that customer would be
+   sent a crew having neither replied nor paid a penny.
+
+   ⚠ **An answer still outranks money.** Said no, Back Next Year, Maybe Next Year, a
+   queued recycle and last season's unpaid bill are all tested **above** it, so paying can
+   only ever override *"has not replied"* — somebody who pays and then cancels is still
+   out. ⚠ And it holds only because **Start New Season writes `deposit: 0`** on every
+   invoice; if that ever stops, last season's payment confirms the whole book for ever.
+
    ⚠ **And the emailed Yes does work**, bill outstanding or not:
    `test/rsvp-unpaid-this-year.spec.js` drives it in a real browser and the badge goes
    Confirmed. A record still on **On hold** never received that write.

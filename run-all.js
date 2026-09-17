@@ -60728,3 +60728,81 @@ suite('Suite 334. Somebody who leaves the season comes off the plan on its own')
     /leftSeason\.dropped\[0\]\.name/.test(sync) && /out for the season/.test(sync),
     '"somebody left Tuesday" with no explanation is how the office stops trusting the plan');
 }
+
+suite('Suite 335. Money on the bill is an answer');
+/* ⭐ [[SCH-79]]. Addie, 2026-09-17: "If they already paid for there lights they should be
+   marked as confirmed and scheduled."
+
+   ⚠ EVERY CLAIM IS RUN. This is a rule about who gets a crew, and the failure it is most
+   likely to have is one of ORDER — money quietly outranking an answer, or the arrears
+   hold. A regex cannot see which branch returned first. */
+{
+  const paidSrc = extractFn(admin, 'housePaidThisSeason');
+  check('S335', 'the rule is in admin.html', !!paidSrc,
+    'housePaidThisSeason — renamed? repoint this suite rather than deleting it');
+
+  /* ⚠ THE RULE MUST BE LIVE OR THE WHOLE BRANCH IS SKIPPED, and every check below would
+     pass against a season rule that never ran — the vacuous-fixture trap this file names
+     in four other places. seasonRuleLiveSrc is what turns it on.
+     ⚠ AND houseOwesFromLastSeason IS THE ONE THING STUBBED. The claim being tested is the
+     ORDER — that an unpaid last season still holds somebody who has paid this one — so
+     what matters is that the arrears rule ANSWERS first, not how it decides. Its own
+     decision has its own coverage. */
+  const INV = [
+    ['8015550111', { install: 400, removal: 0, deposit: 100, credits: 0, changeFees: 0 }],
+    ['8015550222', { install: 400, removal: 0, deposit: 0, credits: 400, changeFees: 0 }],
+    ['8015550333', { install: 400, removal: 0, deposit: 400, credits: 0, changeFees: 0 }]
+  ];
+  const F = new Function('INVOICES',
+    seasonRuleLiveSrc() + custInvoiceKeySrc +
+    'const invoiceById = new Map(INVOICES.map(function(p){ return [p[0], {id:p[0], data:p[1]}]; }));\n' +
+    'function houseOwesFromLastSeason(d){ return !!d.__owes; }\n' +
+    paidSrc + extractFn(admin, 'isOutForSeason') + extractFn(admin, 'seasonBadgeKey') +
+    'return {out:isOutForSeason, badge:seasonBadgeKey, paid:housePaidThisSeason};')(INV);
+
+  const partPayer  = { phone: '8015550111' };                 // put a deposit down, never replied
+  const creditOnly = { phone: '8015550222' };                 // bill cleared by a credit, no money in
+  const noInvoice  = { phone: '8015559999' };                 // never billed
+  const fullPayer  = { phone: '8015550333' };
+
+  check('S335', 'somebody who paid and never replied is in the season',
+    F.out(partPayer) === false,
+    'this is the ruling — a deposit says what they want as plainly as a button press');
+  check('S335', 'and the badge follows without being told separately',
+    F.badge(partPayer) === 'confirmed',
+    'seasonBadgeKey delegates, so a second opinion here is what brings the disagreement back');
+  check('S335', 'somebody who has neither paid nor replied is still out',
+    F.out(noInvoice) === true,
+    'if this passes for everybody the confirmed-only rule has been switched off entirely');
+
+  /* ⛔ THE CHECK THIS WHOLE DESIGN TURNS ON. Read off computeInvoiceStatus instead of the
+     deposit, this customer reads "Paid in Full" and is scheduled having paid nothing. */
+  check('S335', 'a bill cleared by CREDITS alone is not somebody paying',
+    F.out(creditOnly) === true && F.paid(creditOnly) === false,
+    'a referral or goodwill credit is not a payment — the status cannot tell the two apart');
+
+  /* ⚠ AN ANSWER OUTRANKS MONEY, ALWAYS, and this is the ordering that would cost a crew. */
+  check('S335', 'a paid customer who said no is still out',
+    F.out({ phone: '8015550333', rsvpStatus: 'no' }) === true,
+    'paying then cancelling is a cancellation — sending a crew there is the expensive mistake');
+  check('S335', 'and so is one marked Back Next Year by the office',
+    F.out({ phone: '8015550333', maybeNextYear: true }) === true,
+    'the office flag and the customer answer are one fact; money must not override either');
+  check('S335', 'and so is one whose bundle is queued to be taken apart',
+    F.out({ phone: '8015550333', needsLightRecycle: true }) === true,
+    'by the time a crew arrived there would be nothing to hang');
+
+  /* ⚠ LAST SEASON'S DEBT IS A DIFFERENT BILL AND STILL HOLDS THEM. Addie, 2026-08-31:
+     "If they didn't pay last year they should not be scheduled to be hung." */
+  check('S335', 'paying this season does not clear last season',
+    F.out({ phone: '8015550333', __owes: true }) === true,
+    'two different bills — and the arrears hold is tested above this one for that reason');
+
+  /* ⚠ THE PAYER'S BILL, which is the half a phone-keyed fixture alone cannot see. */
+  check('S335', 'a house billed to somebody who paid is in the season too',
+    F.out({ phone: '8015557777', billToPhone: '(801) 555-0333' }) === false,
+    'one bill covering several houses is the whole reason billToPhone exists');
+  check('S335', 'and the payer key is read through the digits, not compared raw',
+    F.paid({ phone: '8015557777', billToPhone: '(801) 555-0333' }) === true,
+    'stored phones are not all digits-only — comparing raw strings is how this app duplicated its book once');
+}
