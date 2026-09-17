@@ -729,6 +729,106 @@ console.log('  ' + w('value', 26) + w('import reads', 28) + 'warehouse groups as
   }
 }
 
+/* ⚠ THIS BLOCK SAT AFTER `process.exit` FOR ITS FIRST DRAFT and therefore never ran —
+   appended to the end of the file, which is where the summary lives. All five of its
+   red-checks reported MISSED and the gate was worth exactly nothing. Second time in one
+   day; the tell is a new section that passes the instant it is written. */
+
+/* ============================================================================
+   ⭐ NOBODY MAY INVENT A WIRE COLOUR — A CENSUS, NOT A COUNT (added 2026-09-17)
+   ============================================================================
+   Addie, after the question had already been taken off every form: "I still see that white
+   wire is still showing in warehouse." It was, and the records were right to show it: FOUR
+   MORE doors were still writing or printing White after [[OPT-12]] closed five. They were
+   found one at a time, by eye, over two days — which is exactly the failure this repo's own
+   §6 says to answer by promoting a `read` rule to `code`.
+
+   ⛔ THE ONE THAT MATTERED was `openEditCustomerModal`, which filled the box with
+   `d.wireColor || 'White'`. That form is opened dozens of times a day, so the book REFILLED
+   WITH WHITE as she worked and a sweep would have been undone one save at a time, silently.
+
+   TWO RULES, and the second is the one that scales:
+     1. No source file may default a wire colour to White.
+     2. Every place a stored wireColor reaches a PERSON goes through `whWireLabel`, so
+        "nobody has looked" reads as Check lights rather than as a colour or as a blank.
+
+   ⚠ NAMED, NEVER COUNTED. A ceiling ("no more than N raw reads") is the gate this repo has
+   rejected twice: it goes up for good reasons as often as bad, and within a week somebody
+   raises it to get past a red build. Every legitimate raw read is listed here with its
+   reason, so a NEW one fails and has to be classified by whoever added it. */
+console.log('\n=== Nobody may invent a wire colour ===');
+{
+  const FILES = ['admin.html', 'index.html', 'functions/index.js'];
+  const bare = {};
+  FILES.forEach(f => {
+    bare[f] = fs.readFileSync(path.join(__dirname, f), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/<!--[\s\S]*?-->/g, ' ');
+  });
+
+  /* RULE 1 — nothing defaults to White. The two test-record builders are the only writes
+     allowed to name it, because a test customer is meant to have one. */
+  FILES.forEach(f => {
+    const hits = (bare[f].match(/\|\|\s*'White'/g) || []).length;
+    check('no wire colour defaults to White in ' + f, hits === 0,
+      'found ' + hits + " occurrence(s) of `|| 'White'`. That is how a colour nobody chose " +
+      'gets onto a record: the control opens on it, nobody touches it, and Save writes it.');
+  });
+
+  /* ⚠ AN `ALLOWED` LIST OF RAW READS WAS WRITTEN HERE AND DELETED BEFORE IT SHIPPED. It
+     enumerated every line that touches wireColor without whWireLabel, with a reason each —
+     and NOTHING READ IT. A list that claims a protection the gate does not implement is
+     worse than no list, which is this repo's own rule about whitelist comments, and I had
+     just written one. What follows checks the render sites directly instead, which is the
+     half that can actually put an invented colour in front of somebody. */
+  /* ⚠ THE INTERESTING HALF IS THE RENDER SITES, so they are checked directly rather than
+     trusted to the list above: anything building HTML out of a wire colour must label it. */
+  const RENDERS = /(?:esc|innerHTML|html \+=|push)\([^\n]*wireColor/g;
+  /* ⚠ RULE 2 IS admin.html ONLY, and that is a scope with a reason rather than a hole.
+     index.html shows a wire colour nowhere (the field left PORTAL_READ_FIELDS with the
+     control), and functions/index.js has exactly one render — the auto-reply's own
+     "Your wire colour — now …" line, which already says 'not set' for a blank rather than
+     inventing anything, and which cannot fire at all now that the portal may not write the
+     field. `whWireLabel` is an admin.html function and does not exist on the server; if a
+     second server render ever appears, the right answer is a server copy of the label, not
+     a wider regex here. */
+  ['admin.html'].forEach(f => {
+    const lines = bare[f].split(/\r?\n/);
+    const raw = [];
+    lines.forEach((l, i) => {
+      if (!/wireColor/.test(l)) return;
+      if (!RENDERS.test(l)) { RENDERS.lastIndex = 0; return; }
+      RENDERS.lastIndex = 0;
+      /* A render is fine when the value goes through the label, or when it is only shown
+         because there IS one (a presence test can never print an invented colour). */
+      if (/whWireLabel\s*\(/.test(l)) return;
+      /* A presence test can never print an invented colour: it shows the value only when
+         there IS one. Both spellings — the ternary and a leading `if (…)` guard. */
+      if (/wireColor\s*\?/.test(l)) return;
+      if (/if\s*\(\s*[\w.]*wireColor\s*\)/.test(l)) return;
+      raw.push((i + 1) + ': ' + l.trim().slice(0, 110));
+    });
+    check('every wire colour shown to a person in ' + f + ' goes through whWireLabel',
+      raw.length === 0,
+      'these print a stored wire colour raw, so a house nobody has looked at reads as a ' +
+      'colour or as a blank instead of Check lights:\n        ' + raw.join('\n        '));
+  });
+
+  /* ⚠ AND THE TWO FORMS OPEN BLANK. Asserted on the OPENERS, not the markup: a blank first
+     option is worthless if the code that fills the form writes White over it, which is
+     precisely what happened. */
+  check('Edit Customer opens a blank wire colour blank',
+    /editCustWireColor'\)\.value = d\.wireColor \|\| ''/.test(bare['admin.html']),
+    'this is the door that refilled the book with White as she worked');
+  check('and the Add Customer form resets to blank',
+    /addCustWireColor'\)\.value = ''/.test(bare['admin.html']),
+    'a reset to White means the form opens on a colour nobody chose');
+  check('and converting a quote does not invent one either',
+    /addCustWireColor'\)\.value = d\.wireColor \|\| ''/.test(bare['admin.html']),
+    'a quote carries no wire colour at all now, so a fallback here would record White on ' +
+    'every single conversion');
+}
+
 console.log('');
 failures.forEach(f => console.log('  FAIL  ' + f));
 console.log((failures.length ? '\n' : '') + pass + ' passed, ' + fail + ' failed\n');
