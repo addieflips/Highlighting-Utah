@@ -6091,6 +6091,21 @@ function portalCallMissed(err){
   var code = String((err && (err.code || err.status)) || '').toLowerCase();
   return code === 'functions/not-found' || code === 'not-found';
 }
+/* ⭐ A REFUSAL THE SERVER WROTE FOR THE MEMBER IS SHOWN, NOT REPLACED (2026-09-17,
+   [[MEM-02]]). `failed-precondition` is the one code this app throws with wording aimed at
+   the CUSTOMER rather than at us — the arrears hold ("There is still a balance owing from
+   the 2025 season. Once that is paid you can make changes here again."), "Nothing due to
+   charge." and "That quote has not been approved." are all three of them, and all three
+   name the next step. Swapping any of those for "Something went wrong — please call us"
+   throws away an answer they could have acted on alone and turns a rule doing its job into
+   a phone call.
+   ⚠ EVERY OTHER CODE KEEPS THE APOLOGY. A message written for a developer must never reach
+   a customer, so this reads `message` for that ONE code and nothing else. */
+function portalServerRefusal(err){
+  var code = String((err && (err.code || err.status)) || '').toLowerCase();
+  if(code !== 'failed-precondition' && code !== 'functions/failed-precondition') return '';
+  return String((err && err.message) || '').trim();
+}
 /* ⭐ `doing` IS WHAT THE OFFICE READS, and it is why the report is raised HERE rather than
    at each of the eight catch blocks that call this. Every portal failure the customer can
    see already funnels through this one function to be turned into an apology; raising it
@@ -6098,6 +6113,12 @@ function portalCallMissed(err){
    caller passes what they were doing because this function cannot know it. */
 function portalCallFailedText(err, thing, doing){
   if(err) console.error('[HU] portal call failed', err);
+  /* ⛔ A REFUSAL IS NOT AN ERROR, AND IS RETURNED BEFORE THE REPORT. The arrears hold is
+     the system working exactly as Dax asked; filing one in Member Errors every time a
+     customer who owes money opens a tab is the cries-wolf failure this file names in four
+     other places, and it would bury the real faults the folder exists to surface. */
+  var refusal = portalServerRefusal(err);
+  if(refusal) return refusal;
   reportMemberError(doing || ('using their ' + thing), err);
   if(err && !portalCallMissed(err)){
     return "Something went wrong — please call or text us at (801) 901-0011 " +
@@ -7161,7 +7182,7 @@ async function saveLightsPattern(){
     showLightsFeeNote(saveRes && saveRes.lightFee);
     if(lightsActuallyChanged) notifyLightsChange(newLightsDescription);
   } catch(err){
-    statusEl.textContent = 'Something went wrong — please try again.';
+    statusEl.textContent = portalCallFailedText(err, 'account', 'Changing their light colours');
   } finally {
     if(saveBtn) saveBtn.disabled = false;
   }
@@ -7989,7 +8010,13 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
     } catch(err){
       /* The sides ARE saved and the record IS flagged by now, so a failure
          here loses the quote card, not the change. Say so rather than
-         claiming success. */
+         claiming success.
+         ⚠ REPORTED BY HAND RATHER THAN THROUGH portalCallFailedText, because this is the
+         one portal failure where the wording must NOT be replaced: that function's apology
+         reads as "nothing saved", and the sides did save. The office still has to hear
+         about it — a member sitting on a re-quote that was never raised is invisible
+         otherwise, which is the whole reason Member Errors exists. */
+      reportMemberError('Opening a re-quote after changing which sides they want lit', err);
       statusEl.textContent = 'Saved, but we could not open your re-quote automatically — please call (801) 901-0011.';
       return;
     }
@@ -8006,7 +8033,7 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
     });
     statusEl.textContent = "Saved. We will be in touch with your new quote.";
   } catch(err){
-    statusEl.textContent = "Could not save that — please call (801) 901-0011.";
+    statusEl.textContent = portalCallFailedText(err, 'account', 'Changing which sides of their house we light');
   }
 });
 document.getElementById('infoSaveBtn').addEventListener('click', async function(){
@@ -8063,7 +8090,7 @@ document.getElementById('infoSaveBtn').addEventListener('click', async function(
        `addressChanged`; nothing acts on it, here or anywhere. */
     statusEl.textContent = 'Saved!';
   } catch(err){
-    statusEl.textContent = 'Something went wrong — please call (801) 901-0011 instead.';
+    statusEl.textContent = portalCallFailedText(err, 'account', 'Changing their own contact details');
   }
 });
 
@@ -8321,7 +8348,7 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
       });
     }
   } catch(err){
-    statusEl.textContent = 'Something went wrong — please try again.';
+    statusEl.textContent = portalCallFailedText(err, 'account', 'Changing their install preferences');
   } finally {
     btn.disabled = false;
   }
@@ -8389,7 +8416,10 @@ document.getElementById('cancelFinalBtn').addEventListener('click', async functi
     document.getElementById('cancelConfirmMsg').style.display = 'block';
   } catch(err){
     btn.disabled = false;
-    statusEl.textContent = 'Something went wrong — please call/text us at (801) 901-0011.';
+    /* ⚠ THIS IS THE ONE PATH THE ARREARS HOLD LETS THROUGH, on purpose — somebody trying
+       to LEAVE must never be told to pay first. So a failure here is the one nobody would
+       ever ring about: they assume they have cancelled and simply stop replying. */
+    statusEl.textContent = portalCallFailedText(err, 'account', 'Telling us they are not having lights this season');
   }
 });
 
@@ -8421,7 +8451,7 @@ document.getElementById('portalContactSendBtn').addEventListener('click', async 
     document.getElementById('portalContactSuccess').style.display = 'block';
   } catch(err){
     btn.disabled = false;
-    statusEl.textContent = 'Something went wrong — please call/text us at (801) 901-0011.';
+    statusEl.textContent = portalCallFailedText(err, 'account', 'Sending us a message from their account');
   }
 });
 
@@ -8489,7 +8519,7 @@ document.getElementById('quoteApproveBtn').addEventListener('click', async funct
     quoteDetailToken = (currentQuoteData && currentQuoteData.quoteToken) || quoteDetailToken || null;
     window.location.hash = '/quote-details';
   } catch(err){
-    statusEl.textContent = 'Something went wrong — please call/text us at (801) 901-0011.';
+    statusEl.textContent = portalCallFailedText(err, 'quote', 'Approving their quote from their account');
   }
 });
 document.getElementById('quoteMaybeBtn').addEventListener('click', async function(){
@@ -8519,7 +8549,7 @@ document.getElementById('quoteMaybeBtn').addEventListener('click', async functio
     document.getElementById('quoteDeclineBtn').style.display = 'none';
     document.getElementById('quoteMaybeMsg').style.display = 'block';
   } catch(err){
-    statusEl.textContent = 'Something went wrong — please try again.';
+    statusEl.textContent = portalCallFailedText(err, 'quote', 'Asking us to hold their quote until next year');
   }
 });
 document.getElementById('quoteDeclineBtn').addEventListener('click', async function(){
@@ -8550,7 +8580,7 @@ document.getElementById('quoteDeclineBtn').addEventListener('click', async funct
     document.getElementById('quoteDeclineBtn').style.display = 'none';
     document.getElementById('quoteDeclinedMsg').style.display = 'block';
   } catch(err){
-    statusEl.textContent = 'Something went wrong — please try again.';
+    statusEl.textContent = portalCallFailedText(err, 'quote', 'Declining their quote');
   }
 });
 </script>
