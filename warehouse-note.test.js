@@ -51,6 +51,13 @@ head('The rule exists and is one rule');
 const NEEDED = ['whNoteText', 'whNotesCell', 'whSheetRowsForBuild', 'whBuildQueueGroups',
                 'printNeedsBuildList', 'whBinsForHouse', 'whPutIntoLabel', 'houseLightsText',
                 'printLightColor', 'printYesNo', 'whBuildReasonKey', 'whBuildReasonLabel',
+                /* ⚠ LIFTED, NOT STUBBED, AND IT ARRIVED BY MERGE. [[WH-35]] made the printed
+                   build sheet read its wire colour through whWireLabel too, so a stub here
+                   would let this gate keep passing while the two sheets said different
+                   things about the same house — which is the very claim this file holds.
+                   The sandbox died with a bare "whWireLabel is not defined" the moment main
+                   landed: the extraction-list trap, arriving from somebody else's branch. */
+                'whWireLabel',
                 'whWhoLabel', 'isOutForSeason'];
 const src = {};
 const missing = [];
@@ -198,15 +205,15 @@ const binsSrc = 'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= ' + 
 const needSrc = 'function houseBundleNeed(d){ return {bundles: 1, estimated: false, topUp: false}; }\n';
 
 /* The warehouse tab's own sheet. */
-const whRows = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'whWireLabel',
+const whRows = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
   'WH_BUILD_COLUMNS', 'isOutForSeason',
-  binsSrc + needSrc + src.houseLightsText + src.whBinsForHouse + src.whWhoLabel +
+  binsSrc + needSrc + src.whWireLabel + src.houseLightsText + src.whBinsForHouse + src.whWhoLabel +
   src.whPutIntoLabel + src.whNoteText + src.whNotesCell +
   (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] +
   src.whBuildReasonKey + src.whBuildReasonLabel + src.whBuildQueueGroups + src.whSheetRowsForBuild +
   'return whSheetRowsForBuild();');
 const whOut = whRows([{id: 'a1', data: CUST}], [], (p, w) => p + '|' + (w || ''),
-  (w) => String(w || 'white'), [{key: 'notes', label: 'Notes'}], () => false);
+  [{key: 'notes', label: 'Notes'}], () => false);
 const whRow = whOut.rows.filter(r => r.type !== 'Blocked')[0];
 check('the warehouse tab builds a row for that house', !!whRow,
   'nothing below is proved without one');
@@ -214,7 +221,8 @@ check('the warehouse tab builds a row for that house', !!whRow,
 /* The printing tab's sheet. */
 const prRows = new Function('jobAddresses', 'isOutForSeason', 'whBinsForHouse', 'whPutIntoLabel',
   'houseBundleNeed', 'printLightColor', 'printYesNo', 'whBuildReasonKey', 'whBuildReasonLabel',
-  src.whNoteText + src.whNotesCell + src.printNeedsBuildList + 'return printNeedsBuildList();');
+  src.whWireLabel + src.whNoteText + src.whNotesCell + src.printNeedsBuildList +
+  'return printNeedsBuildList();');
 const prOut = prRows([{id: 'a1', data: CUST}], () => false,
   new Function('d', binsSrc + src.whBinsForHouse + 'return whBinsForHouse(d);'),
   new Function('d', src.whPutIntoLabel + 'return whPutIntoLabel(d);'),
