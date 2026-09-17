@@ -2522,7 +2522,7 @@ check('flow', 'every newly added house is flagged for the warehouse',
    staleness CLAUDE.md §7 names by hand. What is claimed is that the season guard and
    the blocked push live in the same builder, in that order. */
 {
-  const q = extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups');
+  const q = extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildQueueGroups');
   check('flow', 'and the waiting-on-colours block is still what catches the ones with none',
     /isOutForSeason\(d\)\)\) return;/.test(q) &&
       q.indexOf('blocked.push(item)') > q.indexOf('isOutForSeason(d))) return;'),
@@ -25064,8 +25064,16 @@ suite('Suite 104. The Printing tab');
        goes wrong in a warehouse. It is blank on every ordinary row, so the ones that
        need it stand out. NOT written into the blank column on the right, which is where
        the warehouse ticks the row off. */
-    check('S104', 'and says whose bin a top-up bundle goes into',
-      keys('build') === 'number,name,bins,reason,lights,wire,timer,bundles,putInto',
+    /* ⭐ AND NOTES IS LAST (2026-09-17, [[WH-37]]). Addie: "on costumers we need to be
+       able to add notes to warehouse that updates when we print off warehouse pages."
+       This sheet had no notes column at all, so a note meant for the warehouse showed on
+       the tab and vanished on the pages printed from the Printing tab.
+       ⚠ IT GOES LAST ON PURPOSE. Notes is the wide free-text column and anything after it
+       is lost against a wall of writing — the same argument that fixes Timer's position on
+       every crew sheet. Asserted as the WHOLE list in order, not as "contains notes",
+       because the position is the half that matters. */
+    check('S104', 'and says whose bin a top-up bundle goes into, with notes last',
+      keys('build') === 'number,name,bins,reason,lights,wire,timer,bundles,putInto,notes',
       'got ' + keys('build'));
     check('S104', 'the daily warehouse list is only number and name',
       keys('warehouse') === 'number,name',
@@ -26901,12 +26909,32 @@ suite('Suite 107. Pricing a re-quote from the popup');
   /* ⚠ AND A FINISHED BUILD IS NOT A TOP-UP ANY MORE. The extra bundle is in the bin,
      so the bin holds their full footage. Left set, every future build for that house
      would read as "they already have 180 ft" for ever. */
-  check('S107', 'Mark Done clears the top-up as well as the build flag',
-    /needsLightBuild:false, buildTopUpFromFeet:null/.test(admin),
-    'the single Mark Done button on the warehouse row');
-  check('S107', 'and so does marking a whole group done',
-    (admin.match(/buildTopUpFromFeet:null/g) || []).length >= 2,
-    'the bulk button writes its own update and would otherwise leave it behind');
+  /* ⚠ REPOINTED 2026-09-17, NOT WEAKENED ([[WH-38]]). These two matched the literal
+     `needsLightBuild:false, buildTopUpFromFeet:null` and counted its occurrences — that
+     is, they were pinned to the exact spelling of a write and to there being TWO of it.
+     Both Mark Done paths now share `whBuiltUpdates`, so the spelling changed and the
+     count went to one, and they failed on code that is right. The §7 slow-fuse shape,
+     and the fix is to assert the GUARANTEE: what that one rule writes, and that both
+     buttons go through it. RUN rather than matched — a regex cannot see what an object
+     actually contains. */
+  {
+    const built = new Function('serverTimestamp',
+      extractFn(admin, 'whBuiltUpdates') + 'return whBuiltUpdates();')(function(){ return 'TS'; });
+    check('S107', 'Mark Done clears the top-up as well as the build flag',
+      built.needsLightBuild === false && built.buildTopUpFromFeet === null,
+      'got ' + JSON.stringify(built));
+    check('S107', 'and it still records WHEN the bundle was made',
+      built.lightsMarkedBuiltAt === 'TS',
+      'the one field that answers "when was this house built": ' + JSON.stringify(built));
+    /* ⚠ THE WIRING IS ASSERTED APART FROM THE RULE. whBuiltUpdates can be perfect and
+       reach neither button; this repo has shipped exactly that shape before. */
+    const wh = admin.slice(admin.indexOf("btn.dataset.whdonehouse"),
+                           admin.indexOf("const WH_BUILD_COLUMNS = ["));
+    check('S107', 'and so does marking a whole group done',
+      (wh.match(/whBuiltUpdates\(\)/g) || []).length >= 2,
+      'both Mark Done paths — one house and a whole colour group — must go through the ' +
+      'one rule, or a field cleared on one is left behind on the other');
+  }
   /* ⚠ IT MOVED WITH THE SPLIT. Clearing the add-on belongs to whichever button queues
      a WHOLE set, and after 2026-08-21 that is Build Them A New Set, not Recycle. */
   check('S107', 'and queueing a whole set by hand clears it too',
@@ -27007,7 +27035,7 @@ suite('Suite 107. Pricing a re-quote from the popup');
     const q = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'houseBundleNeed',
       'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice',
       seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
     const B = (book) => q(book, [], (p, w) => p + '|' + (w || ''),
       (d) => ({feet: Number(d.measuredFeet) || 0, bundles: 1}), 100, 2, (p, r) => p / r);
 
@@ -27068,7 +27096,7 @@ suite('Suite 107. Pricing a re-quote from the popup');
       'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= ' + CN_DOUBLE_BIN_FEET +
         ' ? 1 : Math.ceil(f / ' + CN_DOUBLE_BIN_FEET + '); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const rows = sheet([{id: 'a894', data: {name: 'Ashley Wray', customerNumber: '894',
                                             address: '9873 N Sunnybank Pl',
@@ -28170,7 +28198,7 @@ suite('Suite 116. Deleting the test records');
     const status = new Function('item', 'jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed',
 seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
       'return whHouseBuildStatus(item);');
     const ask = function(d, extras){
       const item = {id: 'a', data: d};
@@ -28576,6 +28604,12 @@ suite('Suite 112. The number on the bin');
       new Function('d', extractFn(admin, 'whBinNumberFor') + 'return whBinNumberFor(d);'),
       new Function('d', extractFn(admin, 'whBinNumberMoved') + 'return whBinNumberMoved(d);'),
       []).rows;
+  /* ⚠ whNoteText/whNotesCell ARE LIFTED INTO EVERY whSheetRowsForBuild SANDBOX,
+     never stubbed ([[WH-37]]). That pair decides what the Notes cell says on BOTH
+     build sheets, so a stub would let the warehouse tab and the printed page start
+     disagreeing about it with these suites still green - which is the whole reason
+     it is one function. Two sandboxes here died with a bare "whNotesCell is not
+     defined" the moment it was added: the extraction-list trap, working as intended. */
   /* ⭐ AN ADD-ON HAS TO LOOK LIKE AN ADD-ON. Owner, 2026-08-21: "when it builds an add on
      it should somehow indicate to the warehouse that what they built needs to go into a
      bin that already exists." The Put into column already named the bin, but the row
@@ -28590,7 +28624,7 @@ suite('Suite 112. The number on the bin');
       'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= ' + CN_DOUBLE_BIN_FEET +
         ' ? 1 : Math.ceil(f / ' + CN_DOUBLE_BIN_FEET + '); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const build = function(cust){
       return rows([{id: 'a1', data: cust}], [], (p, w) => p + '|' + (w || ''),
@@ -28765,10 +28799,18 @@ suite('Suite 112. The number on the bin');
   check('S112', 'Mark Recycled clears the label, because the bin is empty now',
     /binLabelNumber: null,/.test(admin),
     'a stale label would send somebody to a bin that is already back');
-  check('S112', 'and finishing a build clears it too',
-    /needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null/.test(admin) &&
-    (admin.match(/binLabelNumber:null/g) || []).length >= 2,
-    'both the single Mark Done and the bulk one write their own update');
+  /* ⚠ REPOINTED 2026-09-17, NOT WEAKENED ([[WH-38]]). This matched the literal inline
+     write and counted TWO of it — pinned to the spelling and to there being a copy per
+     button. Both Mark Done paths share `whBuiltUpdates` now, so it failed on correct
+     code. It RUNS the rule instead: a regex cannot see what an object contains, and
+     "both buttons go through the one rule" is asserted in S107 beside it. */
+  {
+    const built = new Function('serverTimestamp',
+      extractFn(admin, 'whBuiltUpdates') + 'return whBuiltUpdates();')(function(){ return 'TS'; });
+    check('S112', 'and finishing a build clears it too',
+      built.binLabelNumber === null,
+      'a stale label sends somebody to a bin that has already been rebuilt: ' + JSON.stringify(built));
+  }
 
   /* ⭐ AND CONVERTING MOVES THE NUMBER WITHOUT ASKING. Owner: "when I click convert to
      customer, if the number changes that happens automatically so I dont have to manaily

@@ -168,9 +168,17 @@ const runFilters = new Function('inSeason', 'houseLightsText',
  * The concern this answers, in the owner's words: three sites is what was found, not a
  * proof. A ninth appearing through a path nobody read fails this check by name.
  * ------------------------------------------------------------------------- */
+/* ⭐ THE TWO MARK DONE SITES BECAME ONE, 2026-09-17 ([[WH-38]]). "One house marked done"
+   and "a whole colour group marked finished" wrote the same object out separately, which
+   was survivable while it was three fields nobody was adding to. It stopped being
+   survivable the moment a note had to be CLEARED there: a one-time warehouse note cleared
+   on one path and left behind on the other is an instruction that outlives the build it
+   belonged to, and the warehouse goes on obeying it. Both now call `whBuiltUpdates`, which
+   is the single site below.
+   ⚠ SO THE COUNT WENT 12 → 11 AND THAT IS A MERGE, NOT A LOSS. A site DISAPPEARING from
+   this census is exactly as interesting as one appearing, which is why it is written down
+   here rather than the number being quietly lowered. */
 const CLEAR_SITES = [
-  { file: 'admin.html', fn: 'renderWarehouseQueue', stamps: true,
-    why: 'one house marked done — a bundle was made' },
   /* ⭐ ADDED 2026-09-03 — "Not needed", the companion to Mark Done. Addie found a
      customer on the build list whose lights had never changed, and Mark Done was the
      only way off: it stamps, so clearing a wrongly-queued house meant recording a build
@@ -198,8 +206,15 @@ const CLEAR_SITES = [
     why: 'the local copy, so the row does not spring back before the write lands. Not a build.' },
   { file: 'admin.html', fn: 'renderWarehouseQueue', stamps: false,
     why: 'the office saying this house only ever needed a timer. Nothing was built, so no date.' },
-  { file: 'admin.html', fn: 'renderWarehouseQueue', stamps: true,
-    why: 'a whole colour group marked finished — bundles were made' },
+  /* ⭐ THE ONE PLACE THAT SAYS WHAT "the bundle is made" WRITES. Both Mark Done buttons —
+     one house, and a whole colour group — call it, so the build flag, the top-up figure,
+     the bin label, the build date and the one-time warehouse note can never be handled
+     one way on one path and another way on the other.
+     ⚠ IT MUST STAMP. This is the only clear site in admin.html that describes a bundle
+     actually being made; if it ever stops, the field that answers "when was this house's
+     lights built" goes quiet for every build the office records. */
+  { file: 'admin.html', fn: 'whBuiltUpdates', stamps: true,
+    why: 'a bundle was made — both Mark Done paths write this and nothing else does' },
   { file: 'admin.html', fn: 'editCustSaveBtn handler', stamps: false,
     why: 'Back Next Year from the Edit Customer save. Sitting the season out is not a build.' },
   { file: 'admin.html', fn: 'setCustomerSeason', stamps: false,
@@ -300,8 +315,15 @@ found.forEach(function (site, i) {
    real stamp and it must notice; leave a commented one behind and it must NOT be
    satisfied by it. */
 {
-  const sabotaged = adminRaw.replace(/,\s*\n\s*lightsMarkedBuiltAt: serverTimestamp\(\)\}\)/,
-    '})  /* lightsMarkedBuiltAt: serverTimestamp() */');
+  /* ⚠ REPOINTED 2026-09-17, BY THIS VERY CHECK. The two Mark Done writes moved into
+     `whBuiltUpdates`, so the old pattern — which matched the stamp at the end of an
+     inline updateDoc — stopped matching anything and this block would have gone on
+     "passing" while sabotaging nothing at all. That is the failure the check below
+     names, and it is why it exists: a red-check whose sabotage silently stops applying
+     is the worst kind of green. */
+  const sabotaged = adminRaw.replace(
+    /\n\s*lightsMarkedBuiltAt: serverTimestamp\(\), warehouseOneTimeNote: ''\};/,
+    "\n          warehouseOneTimeNote: ''};  /* lightsMarkedBuiltAt: serverTimestamp() */");
   check('the census can actually go red',
     sabotaged !== adminRaw,
     'the sabotage pattern no longer matches the real write — repoint it, or this file ' +
