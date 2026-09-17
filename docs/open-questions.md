@@ -2404,7 +2404,7 @@ are recorded here to close them. The three that remain change nothing until she 
 
 ### Still hers — defaults taken, named so they can be overturned
 
-5. **ANSWERED 2026-09-17 — see [[BPM-04]]. No: the filter stays, and Clear filters is the way out.** ~~Default taken: yes,
+5. **ANSWERED 2026-09-17 — see [[BPM-05]]. No: the filter stays, and Clear filters is the way out.** ~~Default taken: yes,
    it clears every tick.** The spec recommended it and the alternative is demonstrably
    worse — choosing a returning customer while "New quotes" is ticked shows nothing at all,
    and a screen that has quietly filtered itself to empty reads as broken rather than
@@ -2421,7 +2421,7 @@ are recorded here to close them. The three that remain change nothing until she 
    is for would have been unbuildable. The card stepper stays session-only exactly as
    specified: mixing the two would turn every stepper click into a Firestore write.
 
-7. **ANSWERED 2026-09-17 — see [[BPM-05]]. No: the map, the name, and the label or street.**
+7. **ANSWERED 2026-09-17 — see [[BPM-06]]. No: the map, the name, and the label or street.**
    *Addie: "Map blueprint should only be maps being printed and that’s it."* The default below was confirmed, not changed.
    **Default taken (now confirmed): no.** The caption is the customer's name and either
    the map label or the street, as specified. Bulb counts are drawn *on* the blueprint
