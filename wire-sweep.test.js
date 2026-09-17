@@ -60,14 +60,16 @@ function lift(name) {
 
 console.log('\n=== Which list each customer lands in ===');
 
-const parts = [lift('dupNormName'), lift('wireSweepClassify')];
+const parts = [lift('dupNormName'), lift('wireSweepSources'), lift('wireSweepClassify')];
 check('both pieces were found in admin.html', parts.every(Boolean),
   'a gate that cannot find its target must never report green. Missing: ' +
-  ['dupNormName', 'wireSweepClassify'].filter((n, i) => !parts[i]).join(', '));
+  ['dupNormName', 'wireSweepSources', 'wireSweepClassify'].filter((n, i) => !parts[i]).join(', '));
 
 let classify = null;
+let sources = null;
 if (parts.every(Boolean)) {
   classify = new Function(parts.join('\n') + '\nreturn wireSweepClassify;')();
+  sources  = new Function(parts.join('\n') + '\nreturn wireSweepSources;')();
 }
 
 if (classify) {
@@ -83,7 +85,7 @@ if (classify) {
     wireByName: { 'annlee': 'White' }
   };
   const cust = (id, data) => ({ id, data });
-  const run = (list) => classify(list, sheet);
+  const run = (list, src) => classify(list, sheet, src);
 
   /* ⭐ EVERY STORED White IS CLEARED (2026-09-17). Addie: "can we sweep all whites but in
      the future if they do save that they want white wire we will save it for [them]."
@@ -110,6 +112,57 @@ if (classify) {
   const off = run([cust('d', { name: 'Not On It', customerNumber: '4242', wireColor: 'White' })]);
   eq('a customer the sheet has never heard of is cleared too', off.clear.map(r => r.id), ['d']);
   check('and counted', off.notOnSheet === 1);
+
+  /* ⭐ A WHITE THEY PICKED ON THEIR QUOTE IS KEPT — AND ONLY THAT (2026-09-17, [[OPT-18]]).
+     Addie, after the member-portal half had been built and its one weakness was put to her:
+     "just get rid of all whites then unless its a quote or requote."
+     ⛔ THE PORTAL EXEMPTION EXISTED FOR ONE COMMIT AND IS GONE ON PURPOSE. Its trail — the
+     `Wire Color Change` Inbox message — cannot tell a customer's answer from the bug,
+     because the portal ALSO invented White ([[OPT-11]]) and saving that wrote the very same
+     message. Keeping on it would spare records nobody chose while CALLING them chosen.
+     ⭐ A QUOTE CAN TELL, which is the whole reason this one survives: that form's default
+     was `Any`, on the browser and on the server alike, so a White on a quote is a customer
+     ticking White. */
+  {
+    const q = (custId, wire) => ({ id: 'q' + custId, data: { existingCustomerId: custId, wireColor: wire } });
+    const book = [
+      cust('office',   { name: 'Office One', customerNumber: '27', wireColor: 'White', phone: '8015550001' }),
+      cust('quoted',   { name: 'Quote Two',  customerNumber: '27', wireColor: 'White', phone: '8015550002' }),
+      cust('requoted', { name: 'Req Three',  customerNumber: '27', wireColor: 'White', phone: '8015550003' }),
+      cust('portal',   { name: 'Portal Four',customerNumber: '27', wireColor: 'White', phone: '8015550004' }),
+      cust('anyquote', { name: 'Any Five',   customerNumber: '27', wireColor: 'White', phone: '8015550005' }),
+      cust('oldlink',  { name: 'Old Six',    customerNumber: '27', wireColor: 'White', phone: '8015550006' })
+    ];
+    const src = sources([
+      q('quoted', 'White'),
+      /* a RE-quote is an ordinary second quote against the same record */
+      q('requoted', 'Green'), { id: 'q9', data: { existingCustomerId: 'requoted', wireColor: 'White' } },
+      /* ⛔ `Any` IS NOT A CHOICE. It was the form's own default, so it is exactly the
+         customer not answering — the case the whole sweep exists for. */
+      q('anyquote', 'Any'),
+      /* ⚠ THE OLDER LINK FIELD. Quotes raised before `existingCustomerId` replaced it carry
+         `convertedToCustomerId`; reading one spelling sweeps everybody converted earlier. */
+      { id: 'q10', data: { convertedToCustomerId: 'oldlink', wireColor: 'White' } }
+    ]);
+    const out = classify(book, sheet, src);
+    eq('a White nobody picked on a quote is cleared',
+      out.clear.map(r => r.id), ['office', 'portal', 'anyquote']);
+    eq('a White on their quote or a re-quote is kept',
+      out.keptQuote.map(r => r.id), ['quoted', 'requoted', 'oldlink']);
+    /* ⛔ THE REVERSAL, ASSERTED RATHER THAN LEFT AS AN ABSENCE. A portal-sourced White is
+       swept now; a check that merely stopped mentioning the portal would pass whether the
+       exemption had been removed or quietly left in. */
+    check('a White changed in the Member Portal is NOT kept any more',
+      out.clear.some(r => r.id === 'portal') && !('keptPortal' in out),
+      'the portal invented White too, so its trail cannot tell an answer from the bug');
+
+    /* ⚠ AND NO SOURCES AT ALL FALLS BACK TO SWEEPING, not to keeping. A caller that forgets
+       to pass them must not silently spare the whole book — the sweep would look like it
+       ran and changed nothing. */
+    const bare = classify(book, sheet);
+    eq('with no provenance supplied, nothing is kept',
+      [bare.clear.length, bare.keptQuote.length], [6, 0]);
+  }
 
   /* ⛔ GREEN IS NEVER TOUCHED ([[OPT-13]]). Addie: "If they are in the green categorie than
      we will not worry about those." Nothing in the app has ever written Green by itself, so
@@ -202,11 +255,45 @@ const wiring = stripComments(admin.slice(admin.indexOf('(function wireWireSweep(
    own sentence ("Type CLEAR to go ahead") satisfies — so deleting the guard and leaving the
    instruction behind passed. Suite 58's lesson: a check must read the code, not the prose
    beside it. Caught by the red-check as the one sabotage that got through. */
+/* ⚠ SLICED TO A REAL ANCHOR, NOT 4000 CHARACTERS. §7 bans a fixed-length extraction window
+   by name and run-all enforces it, and this pair had one — which went stale the moment the
+   report grew, failing on code that was right. Cut at the end of the IIFE instead. */
+const wiringAll = (function () {
+  const at = admin.indexOf('(function wireWireSweep(');
+  if (at < 0) return '';
+  let d = 0, k = admin.indexOf('{', at);
+  for (;; k++) { if (admin[k] === '{') d++; else if (admin[k] === '}') { d--; if (!d) break; } }
+  return stripComments(admin.slice(at, k + 1));
+})();
+check('the sweep wiring was found whole', !!wiringAll && wiringAll.length > 1000);
 check('clearing needs CLEAR actually typed, not merely mentioned',
-  /!==\s*'CLEAR'/.test(wiring.slice(0, 4000)),
+  /!==\s*'CLEAR'/.test(wiringAll),
   'the confirmation no longer compares against CLEAR');
 check('and the clear button is hidden until the dry run has run',
-  /goBtn\.style\.display = 'none'/.test(wiring.slice(0, 4000)));
+  /goBtn\.style\.display = 'none'/.test(wiringAll));
+/* ⭐ AND WHAT IS KEPT IS NAMED ON SCREEN, not merely counted. The whole of her rule is that
+   some of these Whites are somebody's own answer, so she has to be able to SEE which — a
+   sweep that only says how many it spared is one nobody can check. */
+check('the report names the ones it kept, not just how many',
+  /names\(pending\.keptQuote\)/.test(wiringAll),
+  'a count alone cannot be checked against anything');
+/* ⛔ AND THE PORTAL IS NOT OFFERED AS A REASON ANY MORE — asserted, because a leftover
+   "Changed in the Member Portal" block would tell her records were spared for a reason the
+   rule no longer applies. */
+check('and it no longer claims anything was kept for the Member Portal',
+  !/keptPortal/.test(wiringAll),
+  'that exemption was removed: the portal invented White too');
+/* ⛔ AND THE TRAIL IT RESTED ON IS NOT READ AT ALL. Asserted on `wireSweepSources` rather
+   than on the classifier, because the red-check showed why: putting the `portalWhite` branch
+   back into the classifier alone is a NO-OP — nothing supplies that key, so the branch can
+   never fire and the sabotage passed. What would really bring the exemption back is this
+   function scanning the Inbox again, so that is what must stay gone. */
+const srcFn = stripComments(lift('wireSweepSources'));
+check('and the sweep no longer reads the Inbox for a wire change at all',
+  !/Wire Color Change/.test(srcFn) && !/messages/i.test(srcFn),
+  'the portal message cannot tell a customer\'s answer from the invented White, so ' +
+  'reading it is what would spare records nobody chose while calling them chosen');
+check('it looks only at quotes', /quotes/.test(srcFn) && /wireColor/.test(srcFn), srcFn.slice(0, 200));
 
 /* =========================================================================
    EITHER ROUTE IN — the connected file, or the pasted sheet
