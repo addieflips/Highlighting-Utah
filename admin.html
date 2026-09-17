@@ -74176,6 +74176,14 @@ function bpmEmptyHtml(){
     msg = 'Nothing is waiting for a drawing. Every house quoted or re-quoted this year already has one on file.';
   } else if(!anyMaps){
     msg = 'No blueprint maps on file yet. Press <b>Add a map</b>, pick the customer, and photograph their drawing.';
+  } else if(bpmQuery && bpmHouses().some(function(h){ return String(h.name || '') === String(bpmQuery); })){
+    /* ⭐ A NAME THAT IS FILTERED OUT SAYS SO, AND SAYS WHOSE ([[BPM-05]]). This is the case
+       the old clear-the-filter-on-pick default existed to avoid: you search somebody, the
+       filter hides them, and a bare "No maps match" reads as the search being broken. It is
+       answered by SAYING it rather than by changing her filter underneath her. The name is
+       escaped — it is a customer's own name going into innerHTML. */
+    msg = esc(bpmQuery) + ' does not match the filters you have on. ' +
+          'Clear them to see their card, or pick a different name.';
   } else if(bpmFilter.has('mapped')){
     msg = 'No maps match. <b>Has a map</b> is ticked, so houses with nothing on file yet are hidden.';
   } else {
@@ -74335,7 +74343,17 @@ function bpmChoosePerson(id){
   const box = bpmEl('bpmSearch');
   if(box) box.value = h.name;
   bpmQuery = h.name;
-  bpmFilter.clear();
+  /* ⛔ PICKING A NAME LEAVES THE FILTER ALONE (2026-09-17, [[BPM-05]]). Addie: "picking a
+     costumer name should not clear the filter but we should be able to clear the filter a
+     different way." This REVERSES the default Q-035 item 5 took, and that default was not
+     silly — it was guarding against picking somebody the filter then hides, which draws an
+     empty grid and reads as the screen being broken. That guard is kept; what changed is
+     WHERE it lives. Clearing her filter under her to avoid an empty grid is the screen
+     deciding it knows better; `bpmEmptyHtml` names the person instead and offers the way
+     out, which is [[BPM-01]]'s own rule — an empty grid must carry its reason and its exit.
+     ⚠ THE OTHER WAY OUT ALREADY EXISTED and is what she is asking for: `bpmClearFilters`
+     ("Clear filters — show everyone") in the filter menu, plus the Show everyone button in
+     the empty grid itself. Neither was added here; do not add a third. */
   bpmPickIdx = -1;
   bpmOpenPick(false);
   bpmRender();

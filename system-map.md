@@ -4890,6 +4890,31 @@ page", and background graphics **on**.
       - ⭐ **One rule per side**: `quoteAnswerMayClearStatusServer` (both server sites) and `quoteAnswerMayClearStatus` (the office delete). It asks about **`pendingAddress`** — the same field the banner reads and the same field the Save clears once the address has moved — and deliberately **not about the status word**: there is only one `seasonStatus` field, so a move can be outstanding while the pill shows `needs_changes` because something else wrote last.
       - ⭐ **The hold is bounded, which is the whole argument for it.** The hole the clearing closed is a customer sitting in Needs Changes for ever with nothing anywhere to clear it; here there IS something left — the move, which the office applies, and that save clears `pendingAddress` and raises the re-quote that answers the badge properly. **It reports nothing and flags nothing**: the badge still reading Needs Changes is the honest answer while a move is outstanding, and a follow-up raised for correct behaviour is how the office learns to click past the ones that matter.
       - ⚠ **All three sites, not the one that prompted it** — "a fix in one direction is half a fix". Proved where each half can be: the **behaviour** in run-all.js Suites 137 and 138, which already drive both decline paths against a fake Firestore (the status survives, and an `address_changed` with **no** pending move still clears); the **agreement** in §5 of `address-move.test.js`, which RUNS the two copies side by side over every shape a record can be in, money-parity's argument applied to a badge. 6 sabotages red-checked.
+- ⭐ **THE PRINTED TILE IS THE MAP AND NOTHING ELSE** (2026-09-17, [[BPM-06]]). Addie, asked
+  whether it should carry a bulb count, a crew name or a date: *"Map blueprint should only be
+  maps being printed and that's it."* The tile prints the customer's name and either the map
+  label or the street — two things, and no more.
+  - **No code changed** — this confirms the default Q-035 item 7 took. It is written down and
+    held as code anyway, because a confirmed default with nothing holding it is one somebody
+    helpfully overturns later, and the screen fills up a field at a time.
+  - **Why:** a bulb count is already drawn *on* the blueprint, so a second one on the tile is
+    a number that can disagree with the picture beside it. A crew name or a date belongs to
+    the run rather than to the house, and printing one makes the sheet stale the day after —
+    the same argument the route sheets are built on.
+
+- ⭐ **PICKING A NAME LEAVES THE FILTER ALONE** (2026-09-17, [[BPM-05]]). Addie: *"picking a
+  costumer name should not clear the filter but we should be able to clear the filter a
+  different way."* This overturns the default Q-035 item 5 took.
+  - **The old default was guarding something real, and that guard is kept.** It cleared the
+    filter so picking somebody the filter then hides could never draw an empty grid. That is
+    now handled by SAYING so: the empty grid names them — *"Trent Halliday does not match the
+    filters you have on"* — and still carries **Show everyone** and **Add a map**.
+  - ⚠ **Only for a real customer.** A name nobody has is a typo, not a filter problem.
+  - **The other way out already existed**: *Clear filters — show everyone* in the filter menu,
+    and *Show everyone* in the empty grid. Nothing was added.
+  - ⚠ **Nothing asserted either of them worked** until a red-check gutted the Clear filters
+    branch and the gate stayed green. It is the only way out of a filter now, so it is checked.
+
 - ⭐ **WHY A SAVE WAS REFUSED, IN WORDS THE MEMBER CAN ACT ON** (2026-09-17, [[MEM-02]]).
   Addie, testing the change auto-reply, hit *"Could not save that — please call (801) 901-0011."*
   and there was no way to find out why.

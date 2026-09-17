@@ -80,6 +80,7 @@ const lift = n => liftFrom(adminIx, n);
    growing a third answer to "is this customer new". */
 const NEEDED = [
   'bpmMapsOf', 'bpmNewMapId', 'bpmSavedCopies', 'bpmHasMap',
+  'bpmHouses',
   'bpmOpenRequoteFor', 'bpmRequoteAppliedThisYear', 'bpmRequoteApproved', 'bpmStageOf', 'bpmItems',
   'bpmCopiesFor', 'bpmIsTicked', 'bpmMatchesQuery', 'bpmMatches', 'bpmShown', 'bpmShownMapped', 'bpmCountFor',
   'bpmIsPending', 'bpmPendingItems', 'bpmEmptyHtml', 'bpmApplyDefaultFilter', 'bpmPaintViewChrome',
@@ -238,6 +239,10 @@ const QUOTES = [
   {id: 'q3', data: {status: 'new', requoteCount: 1, quotedPrice: 300, approvalStatus: 'pending',
     quoteSentAt: {seconds: 1}, phone: '8015550777', address: '480 Oak Ave'}}
 ];
+/* A REAL customer in the book who has NO drawing — so 'Has a map' hides them. A made-up
+   name would prove nothing here: the point of [[BPM-05]] is telling a person the filter is
+   hiding from a name that is simply a typo. */
+const REAL_UNMAPPED_NAME = 'Trent Halliday';
 const clone = x => JSON.parse(JSON.stringify(x));
 
 function load(book, quotes) {
@@ -531,6 +536,7 @@ check('the tile caption names the drawing when a house has several',
   S.bpmTileRight(items.filter(i => i.key === keyOf('h-whitlock', 'b'))[0]) === 'Detached garage');
 check('and the street when it has one',
   S.bpmTileRight(items.filter(i => i.key === sorensenKey)[0]) === '367 W 400 S');
+
 check('the street is the part before the first comma',
   S.bpmStreetOf('842 N 1200 E, Pleasant Grove, UT') === '842 N 1200 E' && S.bpmStreetOf('') === '');
 
@@ -758,6 +764,7 @@ check('"Clear filters" closes the menu, and ticking an option does not',
   /bpmClearFilters'\)\)\{[\s\S]{0,260}fMenu\.hidden = true/.test(strip(admin)),
   'a menu left open over the grid it has just changed covers the one thing you pressed it to see');
 
+
 /* ⚠ PICKING A NAME LEAVES THE BOX FOCUSED, so clicking it again fires no focus event and
    the list never comes back — the control silently stops working after its first use. */
 check('the customer list opens on a click as well as on focus',
@@ -852,6 +859,28 @@ S.bpmFilter.clear();
 const emptyNoFilter = S.bpmEmptyHtml();
 check('and drops that sentence once the filter is off',
   emptyNoFilter.indexOf('is ticked') === -1, emptyNoFilter.slice(0, 160));
+
+/* ⭐ A NAME THE FILTER IS HIDING SAYS SO, AND SAYS WHOSE (2026-09-17, [[BPM-05]]). Addie:
+   "picking a costumer name should not clear the filter but we should be able to clear the
+   filter a different way." Picking a name used to wipe her filter so the card could never
+   be hidden; it no longer does, so the empty grid is what stands between her and a screen
+   that reads as broken. RUN against the real renderer — the whole claim is a sentence on
+   screen, which is what this file's header says a text match cannot see. */
+load();
+S.bpmFilter.clear();
+S.bpmFilter.add('mapped');
+S.setQuery(REAL_UNMAPPED_NAME);
+const emptyNamed = S.bpmEmptyHtml();
+check('a real customer hidden by the filter is named, not left as "no maps match"',
+  emptyNamed.indexOf(REAL_UNMAPPED_NAME) !== -1,
+  emptyNamed.slice(0, 200));
+check('and it says the filter is what is hiding them, so the way out is obvious',
+  /does not match the filters/.test(emptyNamed), emptyNamed.slice(0, 200));
+check('and that wording is NOT used for a name nobody has',
+  (function(){ S.setQuery('nobody by this name at all'); const e = S.bpmEmptyHtml();
+    return !/does not match the filters/.test(e); })(),
+  'a name that matches no customer is a typo, not a filter problem');
+S.setQuery('');
 
 /* ---------------------------------------------------------------------------
  * PENDING MAPS — WHAT IS STILL OWED.
@@ -1161,6 +1190,43 @@ check('the picker is not closed by the button that just opened it',
   docWire.slice(-220));
 
 const pendWire = sliceBetween('const pendingBtn', "const search = bpmEl('bpmSearch')");
+
+/* ⛔ AND IT ACTUALLY CLEARS ([[BPM-05]]). Nothing asserted this until a red-check gutted the
+   branch and the whole gate stayed green. It matters more since Addie's ruling than it did
+   before: picking a name no longer wipes the filter, so this button and the empty grid's
+   Show everyone are now the ONLY ways out of one. A dead Clear filters is a screen you can
+   filter into and not get back out of. */
+{
+  const clearBranch = sliceBetween("if(e.target.closest('#bpmClearFilters'))", 'bpmRender();');
+  check('"Clear filters" really empties the filter and repaints',
+    /bpmFilter\.clear\(\)/.test(strip(clearBranch)),
+    'the branch runs but clears nothing — the button reads as broken and there is no other way back');
+  const showAll = sliceBetween("if(e.target.closest('[data-bpmshowall]'))", 'bpmRender();');
+  check('and so does Show everyone in the empty grid',
+    /bpmFilter\.clear\(\)/.test(strip(showAll)) && /bpmQuery = ''/.test(strip(showAll)),
+    'the empty grid is where somebody lands when the filter hides everything; its way out has to work');
+}
+
+/* ⛔ AND THE PRINTED TILE CARRIES NOTHING ELSE (2026-09-17, [[BPM-06]]). Addie, asked
+   whether it should show a bulb count, crew name or date: "Map blueprint should only be
+   maps being printed and that's it." That CONFIRMS the default Q-035 item 7 took, so no
+   code changed — but a ruling with nothing holding it is one somebody helpfully overturns
+   six months from now, which is the whole reason this file exists. The tile strip is the
+   customer's name and ONE other thing, and that thing is the label or the street.
+   ⚠ Bulb counts are drawn ON the blueprint already; a crew name or a date belongs to the
+   RUN rather than to the house, and printing one makes the sheet stale the day after. */
+check('the printed tile answers with the label or the street, and nothing else',
+  /return it\.of > 1 \? it\.label : bpmStreetOf\(it\.addr\);/.test(strip(lift('bpmTileRight'))),
+  'anything more here is a second claim on a tile that is meant to be a picture of a roof');
+{
+  const strip_ = strip(admin);
+  const at = strip_.indexOf('<div class="bpm-strip">');
+  const row = at === -1 ? '' : strip_.slice(at, strip_.indexOf('</div>', at));
+  check('and the tile strip itself prints only those two',
+    at !== -1 && (row.match(/esc\(/g) || []).length === 2 &&
+    /esc\(it\.name\)/.test(row) && /esc\(bpmTileRight\(it\)\)/.test(row),
+    'found: ' + row.slice(0, 160));
+}
 check('the Pending button handler was found', pendWire.length > 0);
 check('the Pending button flips the view', /bpmView = \(bpmView === 'pending'\) \? 'print' : 'pending'/.test(pendWire),
   pendWire.slice(0, 200));
@@ -1181,6 +1247,13 @@ check('picking a name reads the add flag BEFORE the picker is closed',
   readAt !== -1 && closeAt !== -1 && readAt < closeAt,
   'read at ' + readAt + ', picker closed at ' + closeAt);
 check('and opens the drawing when it was set', /if\(adding\) bpmStartAddFor\(id\)/.test(chooseSrc));
+
+/* ⛔ AND IT NEVER CLEARS HER FILTER ([[BPM-05]]). Stripped, because the comment that
+   replaced the call explains what it used to do and names it. */
+check('picking a name does not wipe the filter',
+  chooseCode.indexOf('bpmFilter.clear()') === -1,
+  'Q-035 item 5 took the opposite default and she overturned it: clearing her filter to ' +
+  'avoid an empty grid is the screen deciding it knows better than she does');
 
 const beginSrc = lift('bpmBeginAdd');
 check('bpmBeginAdd is still in admin.html', !!beginSrc);
