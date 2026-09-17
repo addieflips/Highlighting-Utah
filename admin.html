@@ -13730,6 +13730,40 @@ function quoteTemplateFor(d, kind){
   if(kind === 'nudge') return quoteTemplateNames.nudge;
   return isRequote(d) ? quoteTemplateNames.requote : quoteTemplateNames.newQuote;
 }
+/* ⭐ AND WHICH BUILT-IN WORDING IT FALLS BACK TO WHEN THAT TEMPLATE IS MISSING
+   (2026-09-17, [[QT-42]]). Addie: "Can you also check why requote emails aren't
+   getting sent out".
+
+   ⛔ THEY WERE NOT BEING SENT AT ALL, AND NOTHING WAS BROKEN ABOUT THE EMAIL ITSELF.
+   The template is looked up by EXACT name — getEmailTemplateByName is
+   `t.data.name === name` — against quoteTemplateNames.requote, which ships as the
+   string "ReQuotes". A template named "Requotes", "Re-Quotes" or anything else is
+   simply not found, and a re-quote raised off an EXISTING CUSTOMER then refused to
+   send outright. Every other route degrades instead: a first quote falls back to a
+   built-in body, so those kept going out while re-quotes silently did not. That
+   asymmetry is the whole bug, and it is the shape rsvp-daily-send was already caught
+   by — a template found on the screen and not by the thing that sends.
+
+   ⚠ THE RIGHT WORDS ALREADY EXISTED AND NOTHING READ THEM. DEFAULT_REQUOTE_BODY has
+   been in this file the whole time, used ONLY by the button that seeds the templates,
+   while buildQuoteEmailHtml fell back to DEFAULT_QUOTE_TEMPLATE_BODY for everything.
+   So a re-quote that DID get through — one raised by the button, with no
+   existingCustomerId — was sent the first-quote wording: "here's your quote" to
+   somebody who already has one.
+
+   ⚠ A MISSING TEMPLATE IS STILL SAID OUT LOUD, it just no longer stops the send.
+   Refusing is what a guard does when it has nothing to offer; there is a correct
+   re-quote body sitting right here, so refusing cost her the send AND left her on a
+   card with nothing to press. The send now names which wording went out and where to
+   pick a template — "nothing should fail quietly" pointing the other way.
+
+   ⚠ THE NUDGE IS DELIBERATELY UNTOUCHED. Its body is rendered twice, here and inline
+   in runQuoteNudgeBatch on the server, and Suite 33 fails if the two disagree. A
+   fallback added on one side only is exactly what that gate exists to catch. */
+function quoteDefaultBodyFor(d, kind){
+  if(kind === 'nudge') return DEFAULT_QUOTE_NUDGE_BODY;
+  return isRequote(d) ? DEFAULT_REQUOTE_BODY : DEFAULT_QUOTE_TEMPLATE_BODY;
+}
 /* Same idea for the text versions. Kept separate from the email ones on
    purpose: an email body is HTML and would arrive on a phone as raw code, so
    the two must never share a template. */
@@ -17477,7 +17511,7 @@ function renderQuoteRows(filtered){
   /* Builds exactly what the customer receives - shared by the preview and the
      one-press send, so what you see and what goes out cannot drift apart. */
   async function buildQuoteEmailHtml(d, kind, template){
-    const body = template ? template.data.body : DEFAULT_QUOTE_TEMPLATE_BODY;
+    const body = template ? template.data.body : quoteDefaultBodyFor(d, kind);
     /* Real HTML, not flattened to plain text - that flattening is what turned
        the approve/maybe/decline buttons into spelled-out web addresses. The
        house photo rides along as an <img> pointing at the copy already on
@@ -17542,10 +17576,10 @@ function renderQuoteRows(filtered){
     if(!template && !d.existingCustomerId){
       template = getEmailTemplateByName(quoteTemplateNames.newQuote);
     }
-    if(!template && d.existingCustomerId){
-      say('Can\'t find a template called \u201C'+tmplName+'\u201D \u2014 pick one in Quote email settings.', 'var(--ember)');
-      return;
-    }
+    /* ⭐ NO LONGER A DEAD END — see quoteDefaultBodyFor. The built-in re-quote
+       wording is used and the send says so, rather than refusing on a setting she
+       has never opened and leaving nothing on the card to press. */
+    const quoteUsedBuiltInBody = !template;
     const cfg = await getEmailjsConfig();
     const missing = emailjsMissingParts(cfg);
     if(missing.length){ say('Missing ' + missing.join(', ') + ' \u2014 check EmailJS Setup.', 'var(--ember)'); return; }
@@ -17563,7 +17597,8 @@ function renderQuoteRows(filtered){
       await updateDoc(doc(db,'quotes', id), {
         quoteSentAt: serverTimestamp(), quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
       });
-      quoteSendResults.set(id, {ok:true, text:'\u2713 Sent to ' + d.email + '. Chasing is automatic from here.'});
+      quoteSendResults.set(id, {ok:true, text:'\u2713 Sent to ' + d.email + '. Chasing is automatic from here.' +
+        (quoteUsedBuiltInBody ? ' Used the built-in ' + (isRequote(d) ? 're-quote' : 'quote') + ' wording \u2014 there is no template called \u201C' + tmplName + '\u201D. Pick one in Quote email settings to use your own.' : '')});
       followQuoteToItsStage(id, {quoteSentAt: quoteSentNowStamp(), quoteManuallySent: true});
       repaintQuoteSendResults();
       toast('Quote sent to ' + d.email + '.');
@@ -17629,7 +17664,10 @@ function renderQuoteRows(filtered){
       tmplName = quoteTemplateNames.newQuote;
       template = getEmailTemplateByName(tmplName);
     }
-    if(!template && !(kind === 'quote' && !d.existingCustomerId)){
+    /* ⚠ SCOPED TO THE NUDGE NOW. A quote with no template renders the built-in body,
+       which is exactly what the send does, so the preview has to show it rather than
+       refusing — a preview that disagrees with the send is worse than no preview. */
+    if(!template && kind !== 'quote'){
       resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">Can\'t find a template called &ldquo;'+esc(tmplName)+'&rdquo;. '+
         'Open <strong>Quote email settings</strong> at the top of this page and pick the right one.</div>';
       return;
@@ -17639,7 +17677,13 @@ function renderQuoteRows(filtered){
     const subject = built.subject;
     resultEl.innerHTML =
       '<div style="font-size:11.5px; background:#EEF1FF; border:1px solid #C7CEF5; border-radius:8px; padding:9px 11px; margin-bottom:10px; color:#33397a; line-height:1.5;">'+
-        'Pulled live from <strong>Automation Emails &rarr; Templates &rarr; '+esc(tmplName)+'</strong>. Change the wording there and it changes here.'+
+        /* ⚠ THE PROVENANCE LINE HAS TO BE TRUE. It named the template unconditionally,
+           so once a quote with no template started rendering the built-in body it would
+           have pointed her at a template that does not exist — the one screen that was
+           meant to explain the send telling her to go and edit nothing. */
+        (template
+          ? 'Pulled live from <strong>Automation Emails &rarr; Templates &rarr; '+esc(tmplName)+'</strong>. Change the wording there and it changes here.'
+          : 'Using the <strong>built-in '+(isRequote(d) ? 're-quote' : 'quote')+' wording</strong> — there is no template called &ldquo;'+esc(tmplName)+'&rdquo;. This is what will be sent. To use your own, pick a template under <strong>Quote email settings</strong>.')+
       '</div>'+
       '<div class="rtext" style="margin-bottom:6px;">To: <strong>'+esc(d.email||'')+'</strong> &middot; Subject: '+esc(subject)+'</div>'+
       '<div class="quoteemail-preview" style="border:1px solid var(--line); border-radius:10px; background:#fff; padding:18px; font-family:Arial,sans-serif; font-size:14px; color:#222; line-height:1.55; max-height:520px; overflow:auto;">'+html+'</div>'+
@@ -73717,8 +73761,51 @@ function bpmOpenRequoteFor(houseId, d){
   }
   return null;
 }
-function bpmStageOf(houseId, d){
-  if(bpmOpenRequoteFor(houseId, d)) return 'requote';
+/* ---------------- has the re-quote been ANSWERED (BPM-04) ----------------
+   ⭐ Addie, shown two houses sitting on Pending maps: "I see Rachel Oslund is on
+   there and Ashley Wray but they are quotes and requotes", then the rule itself:
+   "Once they approve requote then we should have that come up to put in there map."
+
+   ⚠ SO AN OPEN RE-QUOTE IS NOT WORK YET, WHICH IS THE WHOLE CORRECTION. A house
+   being re-quoted right now may take the new price or may not, and if they decline
+   there is nothing to draw. Listing it puts a job on somebody's list before anybody
+   has agreed to it — the cries-wolf failure [[BPM-02]] already names, arriving from
+   the other direction.
+
+   ⛔ AND THE APPROVAL HAS TO OUTLIVE THE QUOTE, or the feature is a dead end on the
+   day it ships — [[BPM-01]]'s own lesson. The customer approves, the office applies
+   the re-quote, and applying CLOSES it: bpmOpenRequoteFor stops finding it within the
+   day, the house reads Returning and drops off the list at exactly the moment the
+   drawing is owed. requoteAppliedAt is stamped on the CUSTOMER when it is applied, so
+   it is the half that survives.
+
+   ⚠ AND IT EXPIRES, which is MON-07's rule and audienceNeverAsked's. requoteAppliedAt
+   is a STAMP, not a flag — nothing anywhere clears it, Start New Season included — so
+   without the year a house re-quoted in 2026 is still owing a drawing in 2029, and the
+   list grows until it covers everybody ever re-quoted.
+
+   ⚠ IT FAILS TOWARDS NOT PENDING. A closed re-quote with no stamp (declined, or
+   applied before the stamp existed) leaves the house alone. An extra house on this
+   list is the failure that empties it of meaning; a missing one is a drawing somebody
+   notices is absent the next time they look the house up. */
+function bpmRequoteAppliedThisYear(d){
+  if(typeof enrollmentYearOf !== 'function') return false;
+  const y = enrollmentYearOf(d && d.requoteAppliedAt);
+  return y !== null && y === new Date().getFullYear();
+}
+function bpmRequoteApproved(d, openQuote){
+  if(bpmRequoteAppliedThisYear(d)) return true;
+  const qd = (openQuote && openQuote.data) || null;
+  return !!(qd && qd.approvalStatus === 'approved');
+}
+/* ⚠ THE OPEN QUOTE IS PASSED IN WHERE THE CALLER ALREADY HAS IT. bpmOpenRequoteFor
+   walks the whole of quotesCache, and bpmItems needs the same answer twice per house —
+   once for the badge and once for the approval — so finding it twice doubles the
+   heaviest pass on the page. Omitted, it still finds its own, which is what keeps every
+   existing caller and every check honest. */
+function bpmStageOf(houseId, d, openQuote){
+  const open = (openQuote === undefined) ? bpmOpenRequoteFor(houseId, d) : openQuote;
+  if(open || bpmRequoteAppliedThisYear(d)) return 'requote';
   if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)) return 'new';
   return 'returning';
 }
@@ -73734,13 +73821,15 @@ function bpmItems(){
   jobAddresses.forEach(function(item){
     const d = item.data || {};
     const maps = bpmMapsOf(d);
-    const stage = bpmStageOf(item.id, d);
+    const openRq = bpmOpenRequoteFor(item.id, d);
+    const stage = bpmStageOf(item.id, d, openRq);
     const base = {
       houseId: item.id,
       name: d.name || '(no name)',
       addr: d.address || '',
       city: d.city || '',
-      stage: stage
+      stage: stage,
+      requoteApproved: bpmRequoteApproved(d, openRq)
     };
     if(!maps.length){
       out.push(Object.assign({}, base, {key: item.id + '::', map: null, label: 'Front elevation', index: 1, of: 0}));
@@ -73779,8 +73868,14 @@ function bpmItems(){
    drawing is left out: whether that older drawing is now stale is a judgement about
    this season's work that nothing on the record can answer, and inventing one would
    put houses on a worklist nobody put there. Named as a default in Q-035. */
+/* ⛔ AND A RE-QUOTE NOBODY HAS SAID YES TO IS NOT PENDING — see bpmRequoteApproved
+   above for Addie's ruling and why the approval has to outlive the quote. A NEW quote
+   needs no such test: audienceNeverAsked is already a CLOSED, CONVERTED quote, so that
+   house has joined and the drawing is plainly owed. */
 function bpmIsPending(it){
-  return !bpmHasMap(it) && (it.stage === 'new' || it.stage === 'requote');
+  if(bpmHasMap(it)) return false;
+  if(it.stage === 'requote') return !!it.requoteApproved;
+  return it.stage === 'new';
 }
 function bpmPendingItems(){ return bpmItems().filter(bpmIsPending); }
 
