@@ -434,11 +434,18 @@ const saveHandler = adminBare.slice(adminBare.indexOf("pceSaveBtn')?.addEventLis
                                     adminBare.indexOf("pceSaveBtn')?.addEventListener") + 1400);
 check('the card stores the template by id',
   /templateId:\s*id/.test(saveHandler), saveHandler.slice(0, 300));
-/* ⛔ `portalChangeEmailCfg` MIRRORS WHAT IS SAVED AND NOTHING ELSE. The status line decides
-   whether to warn "Not saved yet" by comparing that object with the two controls, so a
-   handler that writes to it before saving makes the card claim a pick has been stored the
-   instant the button is pressed — and a reload then loses it with nothing having said so.
-   The "write me one to start from" button picks its template ON SCREEN only. */
+/* ⭐ ONE PRESS, NOT FOUR (2026-09-17). Addie: "I already gave you a template to work with."
+   She had, twice, and being walked back through supplying it is the complaint — so the
+   button creates the template, picks it, ticks the box and SAVES, in one go.
+   ⚠ THIS REVERSES AN INVARIANT THIS FILE USED TO HOLD, and the old checks are repointed
+   rather than deleted so the reversal is deliberate and visible. They asserted the handler
+   never wrote `portalChangeEmailCfg`, because back then it only PICKED a template on screen
+   and a card claiming a saved pick that a reload would lose is a lie. It really saves now,
+   so the claim is true — what has to be asserted instead is that it saves BEFORE it says so.
+   ⚠ AND NOTE THE OLD CHECKS WOULD HAVE PASSED ANYWAY: they matched the literal
+   `portalChangeEmailCfg.templateId =`, and the new code writes `portalChangeEmailCfg = next`.
+   A check pinned to the spelling of an assignment rather than to what must be true — the
+   S82/S129 shape, in my own file. */
 const makeHandler = (function () {
   const at = adminBare.indexOf("pceMakeTmplBtn')?.addEventListener");
   if (at < 0) return '';
@@ -446,17 +453,42 @@ const makeHandler = (function () {
   return stripComments(adminBare.slice(at, end > at ? end : adminBare.length));
 })();
 check('the make-a-template button was found', !!makeHandler);
-check('and it never writes to the saved-settings object',
-  makeHandler.indexOf('portalChangeEmailCfg.templateId =') === -1 &&
-  makeHandler.indexOf('portalChangeEmailCfg.templateName =') === -1,
-  'it assigns to portalChangeEmailCfg, so the card would claim the pick was already saved');
+check('one press really does switch it on',
+  /enabled:\s*true/.test(makeHandler) && /setDoc\(/.test(makeHandler),
+  'the whole point is that she does not have to press this, then tick, then Save');
+/* ⛔ SAVED BEFORE IT SAYS SO. The card claiming it is on while the write is still in
+   flight — or failed — is the same lie the old invariant was protecting against, pointing
+   the other way: she would walk away believing members are being answered. */
+/* ⚠ AND THE CHECK IS THAT IT LOOKS ONE UP, not that a guard is SHAPED right. The first
+   version asserted `if (!hit)` existed and that the create sat after it — a sabotage
+   replacing the lookup with `let hit = null` left both true and sailed straight through,
+   so it proved the punctuation and not the behaviour. Caught by the red-check. */
+check('an existing template is found before anything is created',
+  makeHandler.indexOf('emailTemplates.find(') !== -1 &&
+  makeHandler.indexOf('emailTemplates.find(') < makeHandler.indexOf('addDoc('),
+  'without the lookup, pressing this twice writes the built-in wording back over hers: ' +
+  makeHandler.slice(0, 300));
+check('and it saves before it claims to have',
+  makeHandler.indexOf('setDoc(') < makeHandler.indexOf('Members who change something now get it'),
+  'the success line must sit after the await, not before it');
+check('and a failed save says so instead',
+  /catch[\s\S]{0,120}Could not switch it on/.test(makeHandler),
+  'a silent failure here leaves her thinking every member is getting an answer');
+/* ⚠ AND IT NEVER OVERWRITES WORDING SHE HAS EDITED. Pressing it twice, or after she has
+   reworded the template, must switch the EXISTING one on rather than writing the built-in
+   copy back over her words. */
+check('and an existing template is switched on, never rewritten',
+  /if\s*\(!hit\)/.test(makeHandler) && makeHandler.indexOf('body: DEFAULT_PORTAL_CHANGE_BODY') > makeHandler.indexOf('if (!hit)'),
+  'the create branch must sit INSIDE the not-found guard: ' + makeHandler.slice(0, 300));
 
-/* ⭐ THE STARTING WORDING IS HERS (2026-09-16) AND IS ASSERTED, because it is what the first
-   email she ever sends actually says. It is not a fallback — nothing sends it unless she picks
-   the template it was written into — but it IS the wording she will most likely send as typed,
-   so losing {{change}} out of it would mean an auto-reply that thanks somebody and never names
-   what they changed. `sendPortalChangeEmail` appends the list when the body places no token,
-   and that is the safety net rather than the design. */
+/* ⭐ THE STARTING WORDING IS HERS (pasted 2026-09-16, and again 2026-09-17) AND IS ASSERTED,
+   because it is what the first email she ever sends actually says. `Write me one to start
+   from` writes exactly this, so losing {{change}} out of it would mean an auto-reply that
+   thanks somebody and never names what they changed. `sendPortalChangeEmail` appends the
+   list when the body places no token, and that is the safety net rather than the design.
+   ⚠ THESE FOUR WERE SILENTLY LOST ONCE, in the edit that rewrote the makeHandler block
+   just above — the replaced region ran past them to the same anchor, the count went 96 → 95,
+   and it read as the repoint costing one check. Check what a large replacement swallows. */
 const defaultBody = (function () {
   const at = adminBare.indexOf('const DEFAULT_PORTAL_CHANGE_BODY =');
   if (at < 0) return '';
@@ -471,8 +503,30 @@ check('and it names what changed', defaultBody.indexOf('{{change}}') !== -1,
 check('and it greets them by name', defaultBody.indexOf('{{name}}') !== -1, defaultBody.slice(0, 200));
 /* ⚠ THE BUTTON MUST WRITE THE CONSTANT, NOT A STRING OF ITS OWN. An inline body here means
    editing the wording above changes nothing anybody receives. */
-check('and "write me one to start from" writes exactly that constant',
-  /body:\s*DEFAULT_PORTAL_CHANGE_BODY/.test(makeHandler), makeHandler.slice(0, 400));
+/* ⚠ SCOPED TO THE addDoc CALL, and the red-check is why. The handler also MIRRORS the new
+   template into the local `emailTemplates` list, and that mirror carries
+   `body: DEFAULT_PORTAL_CHANGE_BODY` too — so a file-wide test was satisfied by the mirror
+   while the real write had been sabotaged to an inline string. A check that passes on the
+   copy of a thing rather than the thing. */
+const addDocCall = (function () {
+  const at = makeHandler.indexOf('addDoc(collection(db,\'emailTemplates\')');
+  if (at < 0) return '';
+  let d = 0, k = makeHandler.indexOf('(', at);
+  for (;; k++) { if (makeHandler[k] === '(') d++; else if (makeHandler[k] === ')') { d--; if (!d) break; } }
+  return makeHandler.slice(at, k + 1);
+})();
+check('the template write was found', !!addDocCall, makeHandler.slice(0, 400));
+check('and "use the wording you gave us" writes exactly that constant',
+  /body:\s*DEFAULT_PORTAL_CHANGE_BODY/.test(addDocCall), addDocCall.slice(0, 400));
+/* ⛔ AND IT DOES NOT LABEL ITSELF AN AUTOMATIC REPLY. Her first paste ended "This is auto-
+   Reply" and a grey footer saying so was added; she pasted the wording again the next day
+   WITHOUT that line, which is the answer — it was her labelling the message to me, not copy
+   for a customer. Checked so a later session does not helpfully put it back. */
+check('and it does not announce itself as an automatic reply',
+  !/automatic reply/i.test(defaultBody) && !/auto-\s*reply/i.test(defaultBody),
+  'she removed that line herself on the second paste: ' + defaultBody.slice(-200));
+check('and it ends on her sign-off',
+  /'Best,<br>' \+[\s\S]{0,40}'Highlighting Utah';/.test(defaultBody), defaultBody.slice(-200));
 
 check('the server loads the template by that id, never by name',
   /emailTemplates'\)\.doc\(String\(cfg\.templateId\)\)/.test(fnsBare),

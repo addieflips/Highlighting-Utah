@@ -85,49 +85,76 @@ if (classify) {
   const cust = (id, data) => ({ id, data });
   const run = (list) => classify(list, sheet);
 
-  /* ⛔ THE ONE IT EXISTS FOR: the sheet knows them and records no wire, so the White on
-     their record is the assumption she refused. */
+  /* ⭐ EVERY STORED White IS CLEARED (2026-09-17). Addie: "can we sweep all whites but in
+     the future if they do save that they want white wire we will save it for [them]."
+     ⚠ WIDER THAN THE FIRST VERSION, and the reason is [[OPT-12]]: that one cleared a White
+     only where the sheet held a row with an empty Wire cell, which was a corroboration rule
+     written while the belief was that ONE door had invented the colour. Five had. A stored
+     White is not evidence of anything, so there is nothing left worth corroborating — and
+     these checks are REVERSED rather than deleted so the reversal is deliberate and visible. */
   eq('a White the sheet has no wire for is cleared',
     run([cust('a', { name: 'Someone', customerNumber: '27', wireColor: 'White' })]).clear.map(r => r.id),
     ['a']);
-
-  /* ⚠ AND THE THREE THAT MUST NOT BE. */
-  eq('a White the sheet also calls White is left alone',
-    run([cust('b', { name: 'X', customerNumber: '14', wireColor: 'White' })]).clear, []);
-  check('and it is counted as agreeing rather than silently dropped',
-    run([cust('b', { name: 'X', customerNumber: '14', wireColor: 'White' })]).agrees === 1);
+  eq('a White the sheet ALSO calls White is cleared too — this is the reversal',
+    run([cust('b', { name: 'X', customerNumber: '14', wireColor: 'White' })]).clear.map(r => r.id),
+    ['b']);
+  check('and the sheet agreeing is still counted, because it is what the sweep costs',
+    run([cust('b', { name: 'X', customerNumber: '14', wireColor: 'White' })]).sheetSaysWhite === 1,
+    'a breakdown is the only thing left saying how many real answers go with the invented ones');
 
   const conf = run([cust('c', { name: 'Y', customerNumber: '20', wireColor: 'White' })]);
-  eq('a White where the sheet says Green is a conflict, not a clear', conf.clear, []);
-  eq('and the conflict names what the sheet says', conf.conflict.map(r => r.sheetWire), ['Green']);
+  eq('a White where the sheet says Green is cleared as well', conf.clear.map(r => r.id), ['c']);
+  eq('and it is named, so Compare can put the real colour back',
+    conf.sheetSaysOther.map(r => r.sheetWire), ['Green']);
 
-  /* ⛔ THE SHEET BEING INCOMPLETE IS NOT EVIDENCE. Somebody added from a quote and never
-     typed onto the sheet would otherwise be cleared on a gap in the wrong document. */
   const off = run([cust('d', { name: 'Not On It', customerNumber: '4242', wireColor: 'White' })]);
-  eq('a customer with no sheet row at all is left alone', off.clear, []);
-  eq('and is reported rather than silently skipped', off.notOnSheet.map(r => r.id), ['d']);
+  eq('a customer the sheet has never heard of is cleared too', off.clear.map(r => r.id), ['d']);
+  check('and counted', off.notOnSheet === 1);
 
-  /* ⛔ GREEN IS NEVER TOUCHED. The bug could only ever write White. */
-  eq('a Green is never cleared, even with nothing on the sheet',
+  /* ⛔ GREEN IS NEVER TOUCHED ([[OPT-13]]). Addie: "If they are in the green categorie than
+     we will not worry about those." Nothing in the app has ever written Green by itself, so
+     a Green was typed by a person — that asymmetry is the whole argument for why sweeping
+     every White is safe and sweeping every wire colour would not be. */
+  eq('a Green is never cleared, whatever the sheet says',
     run([cust('e', { name: 'Green Person', customerNumber: '27', wireColor: 'Green' })]).clear, []);
   eq('and a record with no wire at all is not touched either',
     run([cust('f', { name: 'Blank', customerNumber: '27', wireColor: '' })]).clear, []);
+  /* ⚠ AND NOT A LOOK-ALIKE. Only the exact stored word, trimmed — 'Whitish' or 'off white'
+     is somebody's own note and clearing it would be the invented-colour mistake in reverse. */
+  eq('a wire colour that merely contains the word white is left alone',
+    run([cust('g2', { name: 'Odd', customerNumber: '27', wireColor: 'Off White' })]).clear, []);
+  eq('while a White with stray spaces is still cleared',
+    run([cust('h2', { name: 'Spaced', customerNumber: '27', wireColor: '  White  ' })]).clear.map(r => r.id),
+    ['h2']);
 
-  /* ⚠ TWO CANDIDATES IS NO MATCH — this repo's own rule, and here it protects a stranger's
-     record from being cleared on a shared name. */
-  eq('an ambiguous name with no customer number is left alone',
-    run([cust('g', { name: 'Two People', wireColor: 'White' })]).clear, []);
-  eq('while a unique name with no number still matches',
-    run([cust('h', { name: 'Jo Smith', wireColor: 'White' })]).clear.map(r => r.id), ['h']);
+  /* ⭐ AND IT NEEDS NO SHEET AT ALL, which is what finally makes it usable on her machine:
+     the sheet decides nothing now, so a null one costs the breakdown and nothing else. */
+  const noSheet = classify([
+    cust('n1', { name: 'A', customerNumber: '27', wireColor: 'White' }),
+    cust('n2', { name: 'B', wireColor: 'Green' })
+  ], null);
+  eq('with no sheet at all, every White is still cleared', noSheet.clear.map(r => r.id), ['n1']);
+  check('and Green is still safe, and the breakdown is simply empty',
+    noSheet.sheetSaysWhite === 0 && noSheet.sheetSaysNothing === 0 &&
+    noSheet.sheetSaysOther.length === 0 && noSheet.notOnSheet === 0,
+    'a breakdown invented without a sheet would read as corroboration nobody has');
+
+  /* ⚠ THE AMBIGUOUS-NAME RULE SURVIVES, and it now protects the BREAKDOWN rather than the
+     decision — counting a stranger's row as agreement would overstate what the sweep costs. */
+  const amb = run([cust('g', { name: 'Two People', wireColor: 'White' })]);
+  eq('an ambiguous name is still cleared, because every White is', amb.clear.map(r => r.id), ['g']);
+  check('but it counts as not-on-the-sheet rather than as agreement',
+    amb.notOnSheet === 1 && amb.sheetSaysWhite === 0,
+    'two candidates is no match — this repo\'s own rule, applied to the count');
 
   /* ⚠ THE NUMBER WINS OVER THE NAME. A customer number is the one key meant to be unique;
      reading the name first would let a renamed row answer for somebody else. */
-  eq('the customer number decides when both could match',
-    run([cust('i', { name: 'Ann Lee', customerNumber: '27', wireColor: 'White' })]).clear.map(r => r.id),
-    ['i']);
+  const both = run([cust('i', { name: 'Ann Lee', customerNumber: '27', wireColor: 'White' })]);
+  check('the customer number decides the breakdown when both could match',
+    both.sheetSaysNothing === 1 && both.sheetSaysWhite === 0,
+    'by number #27 records nothing; by name Ann Lee says White');
 
-  /* ⚠ A MIXED BOOK SORTS INTO ALL FOUR LISTS IN ONE PASS, because a sweep that only ever
-     sees one shape of record proves nothing about the one that matters. */
+  /* ⚠ A MIXED BOOK: every White cleared, Green untouched, and the breakdown adding up. */
   const mixed = run([
     cust('1', { name: 'A', customerNumber: '27', wireColor: 'White' }),
     cust('2', { name: 'B', customerNumber: '14', wireColor: 'White' }),
@@ -135,9 +162,14 @@ if (classify) {
     cust('4', { name: 'D', customerNumber: '777', wireColor: 'White' }),
     cust('5', { name: 'E', customerNumber: '27', wireColor: 'Green' })
   ]);
-  eq('a mixed book sorts into clear / agrees / conflict / not-on-sheet',
-    [mixed.clear.length, mixed.agrees, mixed.conflict.length, mixed.notOnSheet.length],
-    [1, 1, 1, 1]);
+  eq('a mixed book clears all four Whites and leaves the Green',
+    [mixed.clear.length, mixed.sheetSaysNothing, mixed.sheetSaysWhite,
+     mixed.sheetSaysOther.length, mixed.notOnSheet],
+    [4, 1, 1, 1, 1]);
+  check('and the breakdown accounts for every cleared record, none twice',
+    mixed.sheetSaysNothing + mixed.sheetSaysWhite + mixed.sheetSaysOther.length +
+    mixed.notOnSheet === mixed.clear.length,
+    'a breakdown that does not add up to the list is one nobody can check');
 }
 
 console.log('\n=== It only ever clears, and says so in code ===');
@@ -258,19 +290,38 @@ const pendingAsync = [];
   })());
 }
 
-/* ⛔ A WIRE COLUMN THAT ARRIVED EMPTY IS THE ONE THAT COSTS MONEY-SHAPED DAMAGE HERE.
-   Hidden, filtered out, or a copy that stopped short — all three give a Wire heading with
-   nothing under it, and on that reading every customer with a row looks like somebody the
-   office never recorded, so the sweep would clear every real White in the book. */
+/* ⚠ A WIRE COLUMN THAT ARRIVED EMPTY NO LONGER REFUSES THE SWEEP — it decides nothing now
+   — but it must not be reported as CORROBORATION either. Hidden, filtered out, or a copy
+   that stopped short all give a Wire heading with nothing under it, and a breakdown built on
+   that reads as though the office had recorded nothing for anybody.
+   ⚠ THE PREVIOUS VERSION OF THIS CHECK WENT VACUOUS THE MOMENT THE GUARD STOPPED THROWING,
+   and it is worth knowing how: it asserted `indexOf('not one wire colour') < indexOf(...)`,
+   and indexOf returns -1 for a phrase that is GONE — so -1 < anything passed, for ever, on a
+   guard that no longer existed in that form. Compare against -1 explicitly, or assert what
+   must be true rather than where a string sits. */
 {
   const findSrcRaw = stripComments(lift('wireSweepFind'));
-  check('the sweep refuses a sheet whose Wire column is entirely empty',
-    /wireByName\)\.length && !Object\.keys\(wireByNum\)\.length/.test(findSrcRaw),
-    'without this, a Wire column that did not survive the copy clears every White there is');
-  check('and it refuses BEFORE anything is classified',
-    findSrcRaw.indexOf('not one wire colour') < findSrcRaw.indexOf('wireSweepClassify('),
-    'a refusal after the list is built is a list she can still press Clear on');
-  check('and the report says which sheet it actually read',
+  const emptyAt = findSrcRaw.indexOf('!Object.keys(wireByName).length && !Object.keys(wireByNum).length');
+  check('the empty-Wire-column case is still recognised', emptyAt !== -1,
+    'an empty column must still be told apart from a sheet that genuinely records none');
+  const noteAt = findSrcRaw.indexOf('sheetNote =', emptyAt);
+  check('and it is reported as no comparison, not as agreement',
+    emptyAt !== -1 && noteAt !== -1 && noteAt - emptyAt < 400,
+    'it has to set sheetNote inside that branch, or the breakdown claims corroboration ' +
+    'from a column that never arrived');
+  check('and it no longer refuses the sweep over it',
+    !/throw new Error\([^)]*not one wire colour/.test(findSrcRaw),
+    'the sheet decides nothing now, so refusing over it would block a sweep that does not need it');
+  /* ⭐ AND THE SHEET IS OPTIONAL END TO END. A sheet it cannot read costs the breakdown and
+     nothing else — the half that makes this usable where a file handle is impossible. */
+  check('a sheet that cannot be read is caught and the sweep still runs',
+    /catch\s*\(err\)\s*\{[\s\S]{0,400}sheetNote =/.test(findSrcRaw) &&
+    findSrcRaw.indexOf('wireSweepClassify(') > findSrcRaw.indexOf('catch'),
+    'a throw here would put the whole tool back behind a sheet she cannot always connect');
+  check('and what went wrong is said, never swallowed',
+    /err && err\.message/.test(findSrcRaw),
+    '"nothing should fail quietly" — a missing breakdown must not read as a sheet that agreed');
+check('and the report says which sheet it actually read',
     /sheetFrom/.test(stripComments(admin.slice(admin.indexOf('(function wireWireSweep(')))),
     'reading a stale paste and a live file must never look identical on screen');
 }
