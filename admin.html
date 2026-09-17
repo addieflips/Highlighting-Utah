@@ -2063,7 +2063,7 @@
            grants it. -->
       <div class="card">
         <h3 style="margin:0 0 6px;">Clear the White wire colours</h3>
-        <p style="font-size:13px; margin:0 0 12px;"><strong>White</strong> used to be written by itself at nine different doors &mdash; the quote form, the server behind it, Add Customer, Edit Customer, the form reset, the conversion prefill and more &mdash; so a lot of records claim a colour nobody picked. This clears those, so the houses read <strong>Check lights</strong> and somebody sets it for good next time they are at the bin. <strong>A White they picked on their quote or a re-quote is kept</strong>, and listed so you can see it was spared. <strong>Green is never touched.</strong> Nothing invents White any more, so one chosen from now on is kept too. It needs no master sheet; if one is connected or pasted it will also say how many the sheet happens to agree with.</p>
+        <p style="font-size:13px; margin:0 0 12px;"><strong>White</strong> used to be written by itself at nine different doors, so a lot of records claim a colour nobody picked. This clears it for the <strong>houses in the warehouse right now</strong> &mdash; the ones somebody is about to build &mdash; so they read <strong>Check lights</strong> and whoever is at the shelf sets it for good. Everybody else keeps theirs until their bundle comes round. <strong>A White they picked on their quote or a re-quote is kept</strong>, and listed so you can see it was spared. <strong>Green is never touched.</strong> Nothing invents White any more, so one chosen from now on is kept too.</p>
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
           <button type="button" class="btn btn-outline btn-sm" id="cWireSweepDryBtn">Check first &mdash; who would be cleared</button>
           <button type="button" class="btn btn-gold btn-sm" id="cWireSweepBtn" style="display:none;">Clear them</button>
@@ -14743,7 +14743,7 @@ async function wireSweepFind(){
   /* ⚠ THE TWO CACHES ARE READ HERE, not inside the rule, so the rule stays runnable
      from a test with no Firestore behind it. Both are already loaded for their own panels. */
   const sources = wireSweepSources(typeof quotesCache !== 'undefined' ? quotesCache : []);
-  const found = wireSweepClassify(jobAddresses, sheet, sources);
+  const found = wireSweepClassify(jobAddresses, sheet, sources, wireSweepOnWarehouse());
   found.sheetRows = sheetRows;
   found.sheetFrom = sheetFrom;
   found.sheetNote = sheetNote;
@@ -14772,6 +14772,38 @@ async function wireSweepFind(){
    the houses that are already wrong ([[WH-28]]'s rule).
    ⛔ AND `Any` IS NOT A CHOICE. It was the default, so it is exactly the customer not
    answering — the case the sweep exists for. */
+/* ⭐ WHO IS ACTUALLY IN THE WAREHOUSE RIGHT NOW (2026-09-17). Addie, reading a dry run that
+   listed most of the book: "it looks like its everyone that has whites that we would loose
+   there whites. I only want people that are currently in warehouse with white lights to be
+   refreshed."
+   ⭐ AND SHE IS RIGHT ABOUT THE COST. A wrong wire colour only matters to somebody about to
+   MAKE a bundle — those are the houses where Check lights gets answered, because a person is
+   already standing at the shelf. Clearing the other ~900 asks a question nobody is in a
+   position to answer, and empties records that were at least a guess.
+   ⚠ IT ASKS `whBuildQueueGroups` — THE TAB'S OWN ANSWER — rather than testing
+   `needsLightBuild` for itself. A second opinion about who is in the warehouse is how this
+   sweep and the screen it is named after start disagreeing, which is the fault this whole
+   two-day thread has been about.
+   ⚠ CALLED ONCE, NOT PER HOUSE. `whHouseBuildStatus` answers this for ONE house by building
+   the whole queue, so asking it per customer is the ~950,000-comparison shape this file
+   already warns about; the ids are collected in a single pass instead.
+   ⚠ AND IT INCLUDES THE BLOCKED BLOCK. Those houses are on the tab, in front of somebody,
+   waiting on an answer — which is exactly the row where a wrong wire is worth correcting. */
+function wireSweepOnWarehouse(){
+  const on = {};
+  if(typeof whBuildQueueGroups !== 'function') return on;
+  const built = whBuildQueueGroups();
+  (built.keys || []).forEach(function(key){
+    const g = (built.groups || {})[key] || {};
+    (g.houses || []).forEach(function(h){ if(h && h.id) on[h.id] = true; });
+  });
+  /* ⚠ Buffer stock (`extras`) is deliberately NOT here: a warehouse extra has no customer
+     record to clear, so it can neither be swept nor be spared. */
+  [built.blocked, built.timerHouses, built.timerRemovals].forEach(function(list){
+    (list || []).forEach(function(h){ if(h && h.id) on[h.id] = true; });
+  });
+  return on;
+}
 function wireSweepSources(quotes){
   const quoteWhite = {};
   (quotes || []).forEach(function(q){
@@ -14785,7 +14817,7 @@ function wireSweepSources(quotes){
   });
   return {quoteWhite: quoteWhite};
 }
-function wireSweepClassify(customers, sheet, sources){
+function wireSweepClassify(customers, sheet, sources, onWarehouse){
   /* ⛔ ONLY THE WHITES NOBODY CHOSE (2026-09-17). Addie, having seen what a full sweep
      would take: "Quotes should definetly keep what they put on the form."
      ⚠ THIS NARROWS [[OPT-14]]’S "sweep all whites" AND THE REASON IS THE SAME EVIDENCE.
@@ -14797,12 +14829,17 @@ function wireSweepClassify(customers, sheet, sources){
      ⚠ AND THE SHEET IS STILL ONLY A DESCRIPTION — it decides nothing, so this needs no
      connected file and no paste. */
   const src = sources || {quoteWhite: {}};
-  const found = {clear: [], keptQuote: [], sheetSaysWhite: 0,
+  const found = {clear: [], keptQuote: [], notInWarehouse: 0, sheetSaysWhite: 0,
                  sheetSaysNothing: 0, sheetSaysOther: [], notOnSheet: 0,
                  sheetRows: 0, sheetFrom: ''};
   (customers || []).forEach(function(c){
     const d = (c && c.data) || {};
     if(String(d.wireColor || '').trim() !== 'White') return;
+    /* ⛔ ONLY WHAT IS IN THE WAREHOUSE NOW. Everybody else keeps their White until their
+       bundle comes round — see wireSweepOnWarehouse for why. A missing map means the caller
+       did not supply one, and that sweeps nobody rather than everybody: a sweep that runs
+       on a forgotten argument is the one mistake here with no undo. */
+    if(!onWarehouse || !onWarehouse[c.id]){ found.notInWarehouse++; return; }
     const row = {id: c.id, name: d.name || '(no name)', address: d.address || '',
                  number: String(d.customerNumber || '').trim()};
     /* ⛔ THE QUOTE IS THE ONLY THING THAT KEEPS A WHITE. See the note on wireSweepSources
@@ -14864,10 +14901,18 @@ async function wireSweepClear(found){
       pending = await wireSweepFind();
       const kept = pending.keptQuote.length;
       let html = '<div><strong>' + pending.clear.length + '</strong> ' +
-        (pending.clear.length === 1 ? 'customer says White that nobody chose' :
-                                      'customers say White that nobody chose') + '.' +
+        (pending.clear.length === 1 ? 'house in the warehouse says White that nobody chose' :
+                                      'houses in the warehouse say White that nobody chose') + '.' +
         (kept ? ' <strong>' + kept + '</strong> more say White and are KEPT, because they picked it on their quote.' : '') +
         '</div>';
+      /* ⚠ WHAT IS OUT OF SCOPE IS SAID, NOT LEFT AS SILENCE. A sweep that names only the
+         handful it touches reads as though the rest of the book had no White on it — and
+         the whole point of the scope is that those records are being LEFT, not missed. */
+      if(pending.notInWarehouse){
+        html += '<div style="margin-top:4px; color:var(--slate); font-size:12.5px;">' +
+          pending.notInWarehouse + ' other customer(s) say White and are not in the warehouse right now, ' +
+          'so they are left alone. They come up here when their bundle is next queued.</div>';
+      }
       /* ⚠ THE SHEET IS A DESCRIPTION, NOT A DECISION, and the wording has to say so or the
          breakdown reads as though some of these were spared. It is still worth printing:
          the count the sheet AGREES with is the honest measure of what this sweep costs. */
@@ -14899,7 +14944,7 @@ async function wireSweepClear(found){
         html += '<div style="margin-top:8px; font-size:12.5px;">' + names(pending.clear) + '</div>';
         goBtn.style.display = '';
       } else {
-        html += '<div style="margin-top:8px; color:#2E6B3E;">Nothing to clear — no record says White.</div>';
+        html += '<div style="margin-top:8px; color:#2E6B3E;">Nothing to clear — no house in the warehouse says a White nobody chose.</div>';
         pending = null;
       }
       out.innerHTML = html;
@@ -14912,7 +14957,7 @@ async function wireSweepClear(found){
   });
   goBtn.addEventListener('click', async function(){
     if(!pending || !pending.clear.length){ out.textContent = 'Press “Check first” before clearing anything.'; return; }
-    const typed = prompt('Clear the wire colour on ' + pending.clear.length + ' customer(s) who say White?\r\n\r\n' +
+    const typed = prompt('Clear the wire colour on ' + pending.clear.length + ' house(s) in the warehouse?\r\n\r\n' +
       'Only the ones NOBODY CHOSE. A White they picked on their quote or a re-quote is kept\r\n' +
       'and is listed above.\r\n\r\n' +
       'They will read "Check lights" in the warehouse until somebody looks in the bin and sets it.\r\n' +
