@@ -85,7 +85,11 @@ if (classify) {
     wireByName: { 'annlee': 'White' }
   };
   const cust = (id, data) => ({ id, data });
-  const run = (list, src) => classify(list, sheet, src);
+  /* ⭐ THE WAREHOUSE MAP, and by default EVERY fixture house is on the tab — otherwise every
+     check above would be testing the scope rather than the rule it was written for. The
+     scope gets its own checks below, where it can actually be broken. */
+  const allOn = (list) => list.reduce((m, c) => (m[c.id] = true, m), {});
+  const run = (list, src) => classify(list, sheet, src, allOn(list));
 
   /* ⭐ EVERY STORED White IS CLEARED (2026-09-17). Addie: "can we sweep all whites but in
      the future if they do save that they want white wire we will save it for [them]."
@@ -144,7 +148,7 @@ if (classify) {
          `convertedToCustomerId`; reading one spelling sweeps everybody converted earlier. */
       { id: 'q10', data: { convertedToCustomerId: 'oldlink', wireColor: 'White' } }
     ]);
-    const out = classify(book, sheet, src);
+    const out = classify(book, sheet, src, allOn(book));
     eq('a White nobody picked on a quote is cleared',
       out.clear.map(r => r.id), ['office', 'portal', 'anyquote']);
     eq('a White on their quote or a re-quote is kept',
@@ -159,9 +163,62 @@ if (classify) {
     /* ⚠ AND NO SOURCES AT ALL FALLS BACK TO SWEEPING, not to keeping. A caller that forgets
        to pass them must not silently spare the whole book — the sweep would look like it
        ran and changed nothing. */
-    const bare = classify(book, sheet);
+    const bare = classify(book, sheet, null, allOn(book));
     eq('with no provenance supplied, nothing is kept',
       [bare.clear.length, bare.keptQuote.length], [6, 0]);
+  }
+
+  /* ⭐ AND ONLY THE HOUSES IN THE WAREHOUSE RIGHT NOW (2026-09-17, [[OPT-19]]). Addie,
+     reading a dry run that listed most of the book: "it looks like its everyone that has
+     whites that we would loose there whites. I only want people that are currently in
+     warehouse with white lights to be refreshed."
+     ⭐ A wrong wire colour only costs anything to somebody about to MAKE a bundle — those are
+     the houses where Check lights gets answered, because a person is already at the shelf.
+     Clearing the rest asks a question nobody is in a position to answer. */
+  {
+    const book = [
+      cust('inwh',  { name: 'In Warehouse', customerNumber: '27', wireColor: 'White' }),
+      cust('notwh', { name: 'Not In It',    customerNumber: '27', wireColor: 'White' })
+    ];
+    const scoped = classify(book, sheet, { quoteWhite: {} }, { inwh: true });
+    eq('only a house in the warehouse is cleared', scoped.clear.map(r => r.id), ['inwh']);
+    check('and the rest are counted, not silently dropped', scoped.notInWarehouse === 1,
+      'a sweep that names only the handful it touches reads as though the rest of the book ' +
+      'had no White on it — the point of the scope is that those are LEFT, not missed');
+
+    /* ⛔ A MISSING MAP SWEEPS NOBODY, NOT EVERYBODY. A caller that forgets the argument must
+       not clear the whole book: that is the one mistake here with no undo, and failing the
+       other way would look exactly like the sweep working. */
+    const noMap = classify(book, sheet, { quoteWhite: {} });
+    eq('with no warehouse map at all, nothing is cleared', noMap.clear, []);
+    check('and every one of them is reported as out of scope', noMap.notInWarehouse === 2);
+
+    /* ⚠ THE SCOPE IS ASKED FIRST, so a kept-on-quote count can never include somebody who is
+       not even on the tab — the report would otherwise say it spared houses nobody was
+       going to touch. */
+    const q = { quoteWhite: { notwh: true } };
+    const order = classify(book, sheet, q, { inwh: true });
+    eq('a quote does not drag somebody back into scope', order.keptQuote, []);
+    eq('and they are still counted as out of the warehouse', order.notInWarehouse, 1);
+  }
+
+  /* ⚠ AND THE MAP COMES FROM THE TAB'S OWN ANSWER, not a second opinion. A sweep that
+     decided for itself who is in the warehouse is how it and the screen it is named after
+     start disagreeing — the fault this whole thread has been about. */
+  {
+    const onSrc = stripComments(lift('wireSweepOnWarehouse'));
+    check('the warehouse map was found', !!onSrc);
+    check('and it asks whBuildQueueGroups rather than reading flags itself',
+      /whBuildQueueGroups\(\)/.test(onSrc) && !/needsLightBuild/.test(onSrc),
+      'testing needsLightBuild here would be a second definition of "in the warehouse"');
+    check('and it builds the queue ONCE, not per customer',
+      (onSrc.match(/whBuildQueueGroups\(\)/g) || []).length === 1,
+      'whHouseBuildStatus answers this for one house by building the whole queue — asking ' +
+      'it per customer is the ~950,000-comparison shape this repo already locked a screen on');
+    check('and it includes the blocked block and both timer lists',
+      /blocked/.test(onSrc) && /timerHouses/.test(onSrc) && /timerRemovals/.test(onSrc),
+      'those houses are on the tab in front of somebody, which is exactly where a wrong ' +
+      'wire is worth correcting');
   }
 
   /* ⛔ GREEN IS NEVER TOUCHED ([[OPT-13]]). Addie: "If they are in the green categorie than
@@ -182,10 +239,11 @@ if (classify) {
 
   /* ⭐ AND IT NEEDS NO SHEET AT ALL, which is what finally makes it usable on her machine:
      the sheet decides nothing now, so a null one costs the breakdown and nothing else. */
-  const noSheet = classify([
+  const noSheetBook = [
     cust('n1', { name: 'A', customerNumber: '27', wireColor: 'White' }),
     cust('n2', { name: 'B', wireColor: 'Green' })
-  ], null);
+  ];
+  const noSheet = classify(noSheetBook, null, { quoteWhite: {} }, allOn(noSheetBook));
   eq('with no sheet at all, every White is still cleared', noSheet.clear.map(r => r.id), ['n1']);
   check('and Green is still safe, and the breakdown is simply empty',
     noSheet.sheetSaysWhite === 0 && noSheet.sheetSaysNothing === 0 &&
