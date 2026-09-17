@@ -1526,7 +1526,8 @@ const RETIRED_CHECKLIST_TERMS = [
       220,  // the house tabs on a real shared bill - layout, and real record shapes
       221,  // whether a flagged email is REALLY wrong for that customer, in the live book
       222,  // a real charge to real customers, and only she knows if they paid
-      223   // a real auto-reply arriving, and whether it reads the way she would say it
+      223,  // a real auto-reply arriving, and whether it reads the way she would say it
+      224   // a phone camera on a pencil drawing, and eight of them read off paper
     ];
     const have = SEED_ROWS.map(function (r) { return r[0]; });
     const missing = MANUAL_ONLY_IDS.filter(function (id) { return !have.includes(id); });
