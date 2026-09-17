@@ -234,6 +234,11 @@ jobs:
       # front of a house with no drawing for it.
       - name: Blueprint maps (the batch and the sheet)
         run: npm run test:blueprint
+      # Named on its own because the failure it catches is a sheet that prints
+      # without something the office typed for the warehouse — invisible on screen,
+      # and only noticed by somebody standing at a shelf with the wrong paper.
+      - name: Warehouse note (both build sheets carry it)
+        run: npm run test:whnote
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 

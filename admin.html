@@ -1909,6 +1909,13 @@
             <div class="form-row"><label>One-Time Notes</label><textarea id="addCustOneTimeNotes" rows="2" placeholder="e.g. gate is broken this year, park on the street" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 12px;">For this season only.</p>
             <div class="form-row"><label>Permanent Notes</label><textarea id="addCustNotes" rows="2" placeholder="Roof height, steep pitch, dog in the yard, etc." style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+            <!-- ⭐ ITS OWN BOX, NOT A SECOND USE OF Permanent Notes (2026-09-17). Addie:
+                 "on costumers we need to be able to add notes to warehouse that updates
+                 when we print off warehouse pages." Permanent Notes is read by the CREW
+                 on their route sheet, so a message about which shelf a bin is on would
+                 ride out in a van with it. Two audiences, two boxes. -->
+            <div class="form-row"><label>Notes for the warehouse (this build only)</label><textarea id="addCustWarehouseOneTime" rows="2" placeholder="Just for this build - e.g. they asked for the old bin back, check the wire before you start" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+            <div class="form-row"><label>Notes for the warehouse</label><textarea id="addCustWarehouseNote" rows="2" placeholder="Use the short strands, bin is on the top shelf, check the wire before you build..." style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Sticks with the house year after year, on every route card.</p>
           </div>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
@@ -2703,6 +2710,8 @@
             <div class="form-row"><label>One-Time Notes</label><textarea id="editCustOneTimeNotes" rows="2" placeholder="e.g. gate is broken this year, park on the street" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 12px;">For this season only.</p>
             <div class="form-row"><label>Permanent Notes</label><textarea id="editCustNotes" rows="2" placeholder="Roof height, dog in backyard, ladder goes on the north side..." style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+            <div class="form-row"><label>Notes for the warehouse (this build only)</label><textarea id="editCustWarehouseOneTime" rows="2" placeholder="Just for this build - e.g. they asked for the old bin back, check the wire before you start" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
+            <div class="form-row"><label>Notes for the warehouse</label><textarea id="editCustWarehouseNote" rows="2" placeholder="Use the short strands, bin is on the top shelf, check the wire before you build..." style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
             <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Sticks with the house year after year, on every route card.</p>
           </div>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
@@ -8866,6 +8875,8 @@ const CUSTOMER_FIELD_LABELS = {
   smsOptedOut: {label: 'Opted out of texts', kind: 'yesno'},
   noAutomationEmails: {label: 'Opted out of automatic emails', kind: 'yesno'},
   notes: {label: 'Notes', kind: 'text'}, oneTimeNote: {label: 'One-time note', kind: 'text'},
+  warehouseNote: {label: 'Notes for the warehouse', kind: 'text'},
+  warehouseOneTimeNote: {label: 'Warehouse note (this build only)', kind: 'text'},
   /* ⚠ THE PORTAL IS THE ONLY THING THAT WRITES IT, and it is here so the two copies of
      this table AGREE. `describePortalChangesServer`'s scope is exactly PORTAL_WRITE_FIELDS,
      and change-log.test.js runs both over every one of them — a field one table knows and
@@ -38850,6 +38861,8 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     ? document.getElementById('addCustSpecificOutletNotes').value.trim()
     : '';
   const custNotes = document.getElementById('addCustNotes').value.trim();
+  const warehouseNote = document.getElementById('addCustWarehouseNote').value.trim();
+  const warehouseOneTimeNote = document.getElementById('addCustWarehouseOneTime').value.trim();
   const oneTimeNote = document.getElementById('addCustOneTimeNotes').value.trim();
   const invoiceNotes = document.getElementById('addCustInvoiceNotes').value.trim();
   const referralCount = Math.max(0, parseInt(document.getElementById('addCustReferralCount').value, 10) || 0);
@@ -39060,6 +39073,15 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       // read and clear on completion — this used to be a differently-named
       // field (oneTimeNotes) that nothing downstream ever looked at.
       oneTimeNote: oneTimeNote,
+      /* ⚠ NOT ONE OF THE WAREHOUSE_BUILD_FIELDS, deliberately. A note is not glass:
+         adding it to that list would queue a bundle rebuild every time somebody
+         corrected a typo in it, and the warehouse would make a second set for a house
+         that already has one. */
+      warehouseNote: warehouseNote,
+      /* Cleared the moment the bundle is marked made — whBuiltUpdates is the one place
+         that decides what "made" writes, so it cannot be cleared in one of the two
+         Mark Done paths and left behind in the other. */
+      warehouseOneTimeNote: warehouseOneTimeNote,
       referralCount: referralCount,
       /* ⭐ WE NEVER ASSUME THEY APPROVED (changed 2026-08-22). Owner: "We shouldn't
          assume they approved we should always know they approved."
@@ -50887,9 +50909,7 @@ function renderWarehouseQueue(){
          ⚠ THE CREW PORTAL DOES NOT STAMP IT. whToggleLightsNew in employee.html clears
          the same flag and is deliberately left alone — owner, 2026-08-27: not using the
          crew portal this year. A house ticked there reads "no build recorded". */
-      updateDoc(doc(db,'jobAddresses', btn.dataset.whdonehouse),
-        {needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null,
-         lightsMarkedBuiltAt: serverTimestamp()})
+      updateDoc(doc(db,'jobAddresses', btn.dataset.whdonehouse), whBuiltUpdates())
         /* ⚠ THE ROW STAYING PUT IS NOT A MESSAGE. Somebody who has just built a
            bundle presses this and watches the house stay on the list, which reads
            as the button doing nothing — so they press it again, and then work
@@ -51086,9 +51106,7 @@ function renderWarehouseQueue(){
         if(remaining <= 0) break;
         // Same clear as the single Mark Done above - see the note there.
         try{
-          await updateDoc(doc(db,'jobAddresses', h.id),
-            {needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null,
-             lightsMarkedBuiltAt: serverTimestamp()});
+          await updateDoc(doc(db,'jobAddresses', h.id), whBuiltUpdates());
         } catch(err){
           missedHouses.push((h.data && h.data.name) || h.id);
           console.error('[HU] could not mark that build done', h.id, err);
@@ -51540,11 +51558,8 @@ function whSheetRowsForBuild(){
         timer: String(d.outletTimer || '').trim() === 'Yes' ? 'YES' : '',
         putInto: whPutIntoLabel(d),
         /* Said in words as well as in the Type column, because Notes is what gets read
-           when a row looks unusual. Their own note still travels with it. */
-        notes: (need.topUp
-          ? ('GOES INTO THE BIN THEY ALREADY HAVE' +
-             (d.notes ? ' \u2014 ' + String(d.notes).trim() : ''))
-          : (d.notes ? String(d.notes).trim() : ''))
+           when a row looks unusual. Their own notes still travel with it. */
+        notes: whNotesCell(d, need.topUp)
       });
     });
     g.extras.forEach(function(e){
@@ -51756,6 +51771,52 @@ function whOpenPrintWindow(title, sections, emptyNote){
   // Give the new window a moment to lay the table out before the print dialog
   // measures it, or the first page can come out with the rows half-drawn.
   setTimeout(function(){ w.focus(); w.print(); }, 300);
+}
+/* ⭐ WHAT THE NOTES CELL SAYS, ON BOTH BUILD SHEETS (2026-09-17, [[WH-37]]). Addie: "on
+   costumers we need to be able to add notes to warehouse that updates when we print off
+   warehouse pages."
+   ⚠ THE WAREHOUSE NOTE COMES FIRST, because it is the one written FOR the person holding
+   the sheet. Permanent Notes still follows it — that is what this cell has always carried
+   and somebody is relying on it; dropping it to make room would be answering her request
+   by taking something away.
+   ⚠ ONE FUNCTION, TWO SHEETS. The Warehouse tab's sheet and the Printing tab's are built
+   by different code and this repo has already been caught twice by two sheets deciding
+   the same thing separately — the bins count, and the put-into wording. */
+/* ⭐ TWO WAREHOUSE NOTES, THE SAME PAIR THE CUSTOMER NOTES ALREADY ARE (2026-09-17,
+   [[WH-38]]). Addie: "it needs to have permanent notes or one time notes."
+   ⚠ THE ONE-TIME NOTE LEADS AND IS LABELLED. It is the only line in the cell that is
+   true this morning and false next week, so it is the reason somebody is reading the
+   cell at all — the same argument the crew sheet makes by printing "(this visit only)"
+   in its own colour. Unlabelled it is indistinguishable from a standing instruction and
+   would go on being obeyed after the bundle it belonged to was made. */
+function whNoteText(d){
+  const parts = [];
+  const once = String((d && d.warehouseOneTimeNote) || '').trim();
+  const w = String((d && d.warehouseNote) || '').trim();
+  const n = String((d && d.notes) || '').trim();
+  if(once) parts.push('THIS BUILD ONLY: ' + once);
+  if(w) parts.push(w);
+  if(n) parts.push(n);
+  return parts.join(' \u2014 ');
+}
+/* ⚠ THE TOP-UP LINE IS NOT A NOTE AND MUST NOT BE LOST BEHIND ONE. It is the instruction
+   that stops somebody making a whole new bin for a house that already has one, so it
+   leads the cell whatever anybody has typed. */
+/* ⭐ WHAT "THE BUNDLE IS MADE" WRITES, IN ONE PLACE (2026-09-17). Two Mark Done paths —
+   one house, and a whole group — wrote this object out separately, which was survivable
+   while it was three fields nobody was adding to. It stopped being survivable the moment
+   a note had to be CLEARED here: a one-time note cleared on one path and left behind on
+   the other is an instruction that outlives the build it belonged to, and the warehouse
+   goes on obeying it. ⚠ The crew portal's whToggleLightsNew is still deliberately outside
+   this — it clears the flag and stamps nothing, and that is recorded where it lives. */
+function whBuiltUpdates(){
+  return {needsLightBuild: false, buildTopUpFromFeet: null, binLabelNumber: null,
+          lightsMarkedBuiltAt: serverTimestamp(), warehouseOneTimeNote: ''};
+}
+function whNotesCell(d, isTopUp){
+  const t = whNoteText(d);
+  if(isTopUp) return 'GOES INTO THE BIN THEY ALREADY HAVE' + (t ? ' \u2014 ' + t : '');
+  return t;
 }
 const WH_BUILD_COLUMNS = [
   {key:'group', label:'Group'},
@@ -54416,6 +54477,8 @@ function openEditCustomerModal(id){
      'false' that an old import could leave behind. */
   document.getElementById('editCustRushInstall').checked = (typeof isRushInstall === 'function') ? isRushInstall(d) : (d.rushInstall === true);
   document.getElementById('editCustNotes').value = d.notes || '';
+  document.getElementById('editCustWarehouseNote').value = d.warehouseNote || '';
+  document.getElementById('editCustWarehouseOneTime').value = d.warehouseOneTimeNote || '';
   document.getElementById('editCustPhotoFile').value = '';
   document.getElementById('editCustPhotoStatus').textContent = '';
   renderEditCustPhotoThumb(d);
@@ -55453,6 +55516,8 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newInstallPref = document.getElementById('editCustInstallPref').value;
   const newRushInstall = document.getElementById('editCustRushInstall').checked;
   const newHouseNotes = document.getElementById('editCustNotes').value.trim();
+  const newWarehouseNote = document.getElementById('editCustWarehouseNote').value.trim();
+  const newWarehouseOneTime = document.getElementById('editCustWarehouseOneTime').value.trim();
   if(!newName || (!newPhone && !newEmail)){ statusEl.textContent = 'Name plus a phone number or email are required.'; return; }
   /* ⚠ HAS ANYBODY ELSE TOUCHED THIS RECORD WHILE THE MODAL WAS OPEN?
      This handler writes ~30 fields from the snapshot taken when it opened —
@@ -55590,6 +55655,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        never be turned off again. */
     addrUpdates.rushInstall = newRushInstall === true;
     addrUpdates.notes = newHouseNotes;
+    /* ⚠ A BLANK REALLY DOES CLEAR IT, exactly as Permanent Notes does. The
+       blank-never-wipes rule belongs to the importers, which write from a spreadsheet
+       that may simply not have the column; this is a person looking at the box they are
+       emptying. */
+    addrUpdates.warehouseNote = newWarehouseNote;
+    addrUpdates.warehouseOneTimeNote = newWarehouseOneTime;
     // Same field the route/dispatch note editor and the crew portal already
     // read and clear on completion — this used to write a differently-named
     // field (oneTimeNotes) that nothing downstream ever looked at.
@@ -72764,7 +72835,14 @@ const PRINT_COLUMNS = {
                  being asked to do. A top-up shows the ADD-ON's bundles, not the whole
                  house's — that is the number they are making today. */
               {k: 'timer', label: 'Timer'}, {k: 'bundles', label: 'Bundles'},
-              {k: 'putInto', label: 'When built, put into'}],
+              {k: 'putInto', label: 'When built, put into'},
+              /* ⚠ THIS REVERSES PART OF HER OWN 2026-08-24 TRIM OF THIS SHEET, and the
+                 older reasoning is kept a few lines up because it is still right about
+                 width: she cut this sheet down herself so it would read on landscape
+                 paper. R-024 — the newer answer wins, and it is said out loud rather
+                 than applied quietly. Notes goes LAST, where a wide free-text column
+                 cannot push a scannable one off the edge. */
+              {k: 'notes', label: 'Notes'}],
   warehouse: [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'}],
   /* ⭐ TIMER SITS BEFORE NOTES ON EVERY CREW SHEET (added 2026-08-20). Owner: "i
      forgot to include on everything crew related printing it need to include
@@ -72911,7 +72989,13 @@ function printNeedsBuildList(){
                  sheets of the same job saying it two ways is how one of them stops
                  being read. */
               putInto: (isTopUp && typeof whPutIntoLabel === 'function')
-                ? ('EXISTING BIN \u2014 ' + whPutIntoLabel(d)) : ''};
+                ? ('EXISTING BIN \u2014 ' + whPutIntoLabel(d)) : '',
+              /* ⭐ AND THE NOTE REACHES THE PAPER (2026-09-17, [[WH-37]]). This sheet had
+                 NO notes column at all, so anything typed for the warehouse was visible
+                 on the tab and invisible on the pages printed from here — which is what
+                 "add notes to warehouse that updates when we print off warehouse pages"
+                 turned out to mean. Same rule as the warehouse tab's own sheet. */
+              notes: (typeof whNotesCell === 'function') ? whNotesCell(d, isTopUp) : ''};
     })
     .sort(function(x, y){ return String(x.name).localeCompare(String(y.name)); });
 }
