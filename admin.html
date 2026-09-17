@@ -1166,6 +1166,233 @@
     .proj-areajump{ margin-left:0; width:100%; }
     .proj-areahead{ flex-wrap:wrap; }
   }
+  /* ==================== BLUEPRINT MAPS (bpm-*) ====================
+     The crews draw a blueprint of each house by hand. This panel keeps the
+     photograph of that drawing on the house's own record and prints any set of
+     them small, eight to a page, so a route fits in a pocket.
+     ⚠ EVERY NAME HERE IS PREFIXED bpm-. Nothing above is renamed, reused or
+     restyled — this block only adds. The approved mockup carries its own blue
+     palette; the ROLES are mapped onto the tokens this page already declares
+     (--dusk for the accent, --gold for focus, --slate for quiet text) so the
+     panel reads as part of the portal rather than a page bolted onto it.
+     Layout and behaviour follow the mockup exactly; only the colours move. */
+  .bpm-row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .bpm-row + .bpm-row{ margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+  .bpm-spacer{ flex:1; }
+  .bpm-filterwrap{ position:relative; flex:0 0 auto; }
+  .bpm-filterbtn{
+    display:flex; align-items:center; gap:9px; background:#fff; color:var(--ink);
+    border:1px solid var(--line); border-radius:10px; padding:8px 13px;
+    font-weight:600; font-size:13.5px; min-width:230px; text-align:left;
+  }
+  .bpm-filterbtn:hover{ border-color:var(--dusk); }
+  .bpm-filterbtn[aria-expanded="true"]{ border-color:var(--dusk); box-shadow:0 0 0 1px var(--dusk); }
+  .bpm-filterbtn .bpm-sum{ flex:1; font-weight:500; color:var(--slate); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bpm-filterbtn .bpm-sum.on{ color:var(--ink); font-weight:600; }
+  .bpm-filterbtn .bpm-badge{
+    background:var(--dusk); color:#fff; border-radius:999px; min-width:20px; text-align:center;
+    font-size:12px; font-weight:700; padding:1px 6px; font-variant-numeric:tabular-nums;
+  }
+  .bpm-caret{ color:var(--slate); font-size:10px; }
+  .bpm-menu{
+    position:absolute; top:calc(100% + 6px); left:0; z-index:30; min-width:290px;
+    background:#fff; border:1px solid var(--line); border-radius:12px;
+    box-shadow:var(--shadow); padding:6px;
+  }
+  .bpm-menu[hidden]{ display:none; }
+  .bpm-menu .bpm-group{ font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;
+    color:var(--slate); padding:8px 10px 3px; margin:0; }
+  .bpm-opt{
+    display:flex; align-items:center; gap:10px; width:100%; background:none; border:0;
+    padding:7px 10px; border-radius:8px; font-weight:500; font-size:13.5px; color:var(--ink);
+  }
+  .bpm-opt:hover{ background:var(--paper); }
+  .bpm-opt .bpm-box{
+    width:17px; height:17px; flex:0 0 17px; border:1.5px solid var(--line); border-radius:5px;
+    display:flex; align-items:center; justify-content:center; font-size:11px; color:transparent;
+  }
+  .bpm-opt[aria-checked="true"] .bpm-box{ background:var(--dusk); border-color:var(--dusk); color:#fff; }
+  .bpm-opt .bpm-lbl{ flex:1; text-align:left; }
+  .bpm-opt .bpm-n{ color:var(--slate); font-variant-numeric:tabular-nums; font-size:13px; }
+  .bpm-divider{ height:1px; background:var(--line); margin:5px 0; }
+  .bpm-clear{ display:block; width:100%; text-align:left; background:none; border:0; padding:7px 10px;
+    color:var(--slate); font-weight:500; border-radius:8px; font-size:13.5px; }
+  .bpm-clear:hover{ background:var(--paper); color:var(--dusk); }
+  .bpm-searchwrap{ position:relative; flex:1 1 260px; min-width:190px; }
+  .bpm-search{
+    width:100%; background:var(--snow); border:1px solid var(--line); border-radius:10px;
+    padding:8px 12px; font-size:13.5px; color:var(--ink);
+  }
+  .bpm-picklist{
+    position:absolute; top:calc(100% + 6px); left:0; right:0; z-index:35; max-height:300px; overflow:auto;
+    background:#fff; border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); padding:5px;
+  }
+  .bpm-picklist[hidden]{ display:none; }
+  .bpm-pitem{
+    display:flex; align-items:baseline; gap:9px; width:100%; background:none; border:0;
+    padding:7px 10px; border-radius:8px; text-align:left; font-size:13.5px; color:var(--ink);
+  }
+  .bpm-pitem:hover, .bpm-pitem.active{ background:var(--paper); }
+  .bpm-pitem .bpm-pn{ font-weight:600; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bpm-pitem .bpm-pa{ color:var(--slate); font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }
+  .bpm-pitem .bpm-pc{ color:var(--dusk); font-size:12.5px; font-weight:600; white-space:nowrap; }
+  .bpm-picklist .bpm-none{ padding:10px; color:var(--slate); font-size:13.5px; margin:0; }
+  .bpm-picklist .bpm-all{ display:block; width:100%; text-align:left; background:none; border:0;
+    padding:7px 10px; border-radius:8px; color:var(--slate); font-weight:500; font-size:13.5px; }
+  .bpm-picklist .bpm-all:hover{ background:var(--paper); color:var(--dusk); }
+  .bpm-inline{ font-size:13px; color:var(--slate); display:flex; align-items:center; gap:7px; }
+  .bpm-inline select{ background:var(--snow); border:1px solid var(--line); border-radius:10px; padding:7px 9px; color:var(--ink); }
+  /* ---- the card grid ---- */
+  .bpm-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(258px,1fr)); gap:14px; }
+  .bpm-card{
+    background:#fff; border:1px solid var(--line); border-radius:var(--radius);
+    box-shadow:var(--shadow); overflow:hidden; display:flex; flex-direction:column; min-width:0;
+  }
+  .bpm-card.queued{ border-color:var(--dusk); box-shadow:0 0 0 1px var(--dusk), var(--shadow); }
+  .bpm-card.off{ opacity:.5; }
+  .bpm-card.off .bpm-thumb{ filter:grayscale(.4); }
+  .bpm-thumbwrap{ position:relative; }
+  .bpm-thumb{
+    position:relative; aspect-ratio:4/3; background:var(--paper); width:100%;
+    border:0; border-bottom:1px solid var(--line); padding:0; display:block;
+  }
+  .bpm-thumb img{ width:100%; height:100%; display:block; object-fit:cover; }
+  .bpm-thumb.empty{ display:flex; align-items:center; justify-content:center; color:var(--slate);
+    font-size:13px; text-align:center; padding:14px; }
+  .bpm-tag{
+    position:absolute; top:8px; left:8px; font-size:11.5px; font-weight:700; letter-spacing:.03em;
+    text-transform:uppercase; padding:3px 8px; border-radius:6px;
+    background:#fff; border:1px solid var(--line); color:var(--slate);
+  }
+  .bpm-tag.new{ border-color:var(--gold-dim); color:var(--gold-dim); }
+  .bpm-tag.requote{ border-color:var(--dusk-2); color:var(--dusk-2); }
+  .bpm-check{
+    position:absolute; top:8px; right:8px; width:27px; height:27px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center; font-size:14px; line-height:1;
+    background:#fff; border:1.5px solid var(--line); color:transparent; padding:0;
+    box-shadow:0 1px 4px rgba(30,59,44,.18);
+  }
+  .bpm-check[aria-checked="true"]{ background:var(--dusk); border-color:var(--dusk); color:#fff; }
+  .bpm-check:hover{ border-color:var(--dusk); }
+  .bpm-meta{ padding:10px 12px; flex:1; min-width:0; }
+  .bpm-name{ font-weight:600; margin:0; font-size:14px; }
+  .bpm-addr{ color:var(--slate); font-size:12.5px; margin:1px 0 0; }
+  .bpm-maplabel{ font-size:13px; font-weight:600; color:var(--dusk); margin:4px 0 0; }
+  .bpm-foot{ display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:9px 12px; border-top:1px solid var(--line); }
+  .bpm-copies-lbl{ font-size:12.5px; color:var(--slate); }
+  .bpm-stepper{ display:flex; align-items:center; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .bpm-stepper button{ background:#fff; border:0; padding:3px 10px; font-size:15px; line-height:1.3; color:var(--slate); }
+  .bpm-stepper button:hover{ background:var(--paper); color:var(--dusk); }
+  .bpm-stepper .bpm-val{ min-width:32px; text-align:center; font-variant-numeric:tabular-nums;
+    font-weight:700; border-left:1px solid var(--line); border-right:1px solid var(--line);
+    padding:3px 0; font-size:14px; color:var(--ink); }
+  .bpm-empty{ grid-column:1/-1; text-align:center; padding:44px 20px; color:var(--slate);
+    border:1px dashed var(--line); border-radius:var(--radius); }
+  /* ---- what prints ---- */
+  .bpm-sheetwrap{ margin-top:26px; }
+  /* ⚠ THE PREVIEW IS THE SHAPE OF THE PAGE, and that is not decoration: the line above
+     it says "this is exactly what comes out of the printer", so a preview with page-tall
+     tiles on screen and postcard-sized ones on paper is the screen making a claim it does
+     not keep. 8.5 by 11 at the 816px cap is a letter sheet at 96dpi. Dropped in print,
+     where the real height takes over. */
+  .bpm-sheet{
+    background:#fff; color:#1E3B2C; border:1px solid var(--line);
+    width:100%; max-width:816px; margin:0 auto 16px; padding:24px;
+    aspect-ratio:8.5 / 11;
+    display:grid; gap:10px; box-shadow:var(--shadow);
+  }
+  .bpm-cell{ border:1px solid #b9c6d6; border-radius:4px; overflow:hidden; display:flex;
+    flex-direction:column; background:#fff; min-height:0; }
+  .bpm-cell img{ width:100%; display:block; flex:1; min-height:0; object-fit:cover; }
+  .bpm-cell .bpm-strip{
+    display:flex; justify-content:space-between; gap:6px; align-items:baseline;
+    border-top:1px solid #b9c6d6; padding:3px 6px; font-size:11.5px; line-height:1.25;
+  }
+  .bpm-cell .bpm-strip b{ font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bpm-cell .bpm-strip span{ color:#5d6e86; white-space:nowrap; }
+  .bpm-pagelabel{ color:var(--slate); text-align:center; margin:0 0 6px; font-size:12.5px; }
+  /* Sticky, never fixed: a fixed bar floats out of view inside a scrolling
+     container, which is what the mockup hit before it was changed. */
+  .bpm-printbar{
+    position:sticky; bottom:0; z-index:40; margin:24px -40px 0;
+    background:#fff; border-top:1px solid var(--line);
+    box-shadow:0 -8px 24px -20px rgba(30,59,44,.8);
+  }
+  .bpm-printbar .bpm-inner{ padding:11px 40px; display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+  .bpm-count{ font-size:16px; font-weight:700; }
+  .bpm-count span{ color:var(--slate); font-weight:500; }
+  /* ---- the detail dialog ---- */
+  #bpmDialog{
+    border:1px solid var(--line); border-radius:var(--radius); background:#fff; color:var(--ink);
+    padding:0; max-width:660px; width:calc(100% - 32px); box-shadow:0 30px 60px -30px rgba(30,59,44,.6);
+  }
+  #bpmDialog::backdrop{ background:rgba(30,59,44,.55); }
+  .bpm-dlg-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px;
+    padding:14px 18px; border-bottom:1px solid var(--line); }
+  .bpm-dlg-body{ padding:18px; max-height:60vh; overflow:auto; }
+  .bpm-dlg-map{ background:var(--paper); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .bpm-dlg-map img{ width:100%; display:block; }
+  .bpm-dlg-foot{ display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+    padding:12px 18px; border-top:1px solid var(--line); }
+  .bpm-x{ background:none; border:0; font-size:22px; line-height:1; color:var(--slate); padding:2px 6px; }
+  .bpm-field{ display:block; margin-top:12px; font-size:12.5px; font-weight:600; color:var(--slate); }
+  .bpm-field input, .bpm-field textarea{
+    display:block; width:100%; margin-top:4px; background:var(--snow); color:var(--ink);
+    border:1px solid var(--line); border-radius:10px; padding:8px 11px; font-size:13.5px;
+  }
+  .bpm-field textarea{ min-height:64px; resize:vertical; }
+  .bpm-said{ font-size:13px; margin:10px 0 0; min-height:1.2em; }
+  .bpm-said.bad{ color:var(--rose); }
+  .bpm-said.good{ color:var(--emerald); }
+  .bpm-pick{ display:flex; align-items:center; gap:7px; font-size:13.5px; font-weight:500; color:var(--ink); }
+  .bpm-pick input{ width:16px; height:16px; accent-color:var(--dusk); margin:0; }
+  .bpm-filterbtn:focus-visible, .bpm-opt:focus-visible, .bpm-check:focus-visible,
+  .bpm-pitem:focus-visible, .bpm-thumb:focus-visible, .bpm-stepper button:focus-visible{
+    outline:2px solid var(--gold); outline-offset:2px;
+  }
+  /* ⚠ THE BAR BLEEDS TO THE EDGE BY PULLING AGAINST .main's PADDING, so the two numbers
+     have to be the same number. .main drops to 18px at 900px, and -20px against 18px is
+     two pixels of horizontal scroll on a phone — measured in a browser, not guessed. */
+  @media (max-width:900px){
+    .bpm-printbar{ margin-left:-18px; margin-right:-18px; }
+    .bpm-printbar .bpm-inner{ padding:10px 18px; }
+  }
+  /* ⭐ PRINTING IS SCOPED TO A BODY CLASS, ON PURPOSE. Two other things in this
+     page already print — the Routes sheet and the Customer Numbers list — and both
+     have @media print rules of their own. An unscoped block here would join in on
+     their prints as well, so every rule below sits under body.bpm-printing, which
+     is added immediately before window.print() and taken off again on afterprint.
+     ⚠ AND @page CANNOT BE SCOPED BY A SELECTOR, which is why this uses a NAMED
+     page. body.bpm-printing takes `page: bpmsheet`, so the letter/portrait/0.4in
+     setup below reaches these sheets and nothing else. A browser that does not
+     support named pages simply falls back to its own default margins — the sheets
+     still print, which is the safe direction. */
+  @page bpmsheet{ size:letter portrait; margin:.4in; }
+  @media print{
+    body.bpm-printing{ page:bpmsheet; background:#fff; }
+    body.bpm-printing .sidebar,
+    body.bpm-printing .menu-toggle-mobile,
+    body.bpm-printing .toast,
+    body.bpm-printing .panel:not(#panel-blueprintmaps),
+    body.bpm-printing #panel-blueprintmaps .panel-head,
+    body.bpm-printing #panel-blueprintmaps .card,
+    body.bpm-printing #bpmGrid,
+    body.bpm-printing .bpm-printbar,
+    body.bpm-printing .bpm-sheetwrap h3,
+    body.bpm-printing #bpmSheetNote,
+    body.bpm-printing .bpm-pagelabel{ display:none !important; }
+    body.bpm-printing .main{ padding:0; max-width:none; }
+    body.bpm-printing .bpm-sheetwrap{ margin:0; }
+    body.bpm-printing .bpm-sheet{
+      border:0; box-shadow:none; padding:0; margin:0; max-width:none;
+      aspect-ratio:auto; height:10.1in; break-after:page; page-break-after:always; gap:.12in;
+    }
+    body.bpm-printing .bpm-sheet:last-child{ break-after:auto; page-break-after:auto; }
+    /* The drawings are line art, so nothing here may depend on colour to be
+       readable — the borders and the caption strip are all greyscale already. */
+    body.bpm-printing .bpm-cell{ break-inside:avoid; page-break-inside:avoid; }
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM"></script>
@@ -1411,6 +1638,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h1v6H9zM14 9h1v6h-1z"/></svg>
       <span class="nav-label">Customer Numbers</span>
     <span class="nav-pin-icon" data-pinpanel="customer-numbers" data-pinlabel="Customer Numbers" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
+    <button class="nav-item" data-panel="blueprintmaps" title="">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5 9 3l6 2.5L21 3v15.5L15 21l-6-2.5L3 21z"/><path d="M9 3v15.5M15 5.5V21"/></svg>
+      <span class="nav-label">Blueprint Maps</span>
+    <span class="nav-pin-icon" data-pinpanel="blueprintmaps" data-pinlabel="Blueprint Maps" title="Pin to Favorites"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l1 6 3 2v2H5v-2l3-2z"/></svg></span></button>
     </div>
     </div>
     <div class="nav-section" data-section="finance">
@@ -4994,6 +5225,56 @@
       </div>
       <div id="cnPrintArea" style="display:none;"></div>
     </div>
+    <!-- ⭐ BLUEPRINT MAPS. The photographed hand-drawn roofline of each house, printed
+         small enough that a crew can carry a route in a pocket. Everything showing is
+         already in the batch at its saved count — there is deliberately NO add-to-list
+         step, which is the one idea this screen is built around. -->
+    <div class="panel" id="panel-blueprintmaps">
+      <div class="panel-head"><div><h2>Blueprint Maps</h2><p>Every map we have drawn, with its photo. Filter or search to the houses a crew needs. Everything showing is already selected, at the count it is saved with &mdash; uncheck the corner of any map you do not want, change any number, print eight to a page.</p></div></div>
+      <div class="card" style="padding:14px;">
+        <div class="bpm-row">
+          <div class="bpm-filterwrap">
+            <button type="button" class="bpm-filterbtn" id="bpmFilterBtn" aria-expanded="false" aria-haspopup="true">
+              <span class="bpm-sum" id="bpmFilterSummary">Everyone</span>
+              <span class="bpm-badge" id="bpmFilterBadge" hidden>0</span>
+              <span class="bpm-caret" aria-hidden="true">&#9660;</span>
+            </button>
+            <div class="bpm-menu" id="bpmFilterMenu" role="group" aria-label="Filter maps" hidden></div>
+          </div>
+          <div class="bpm-searchwrap">
+            <input class="bpm-search" id="bpmSearch" type="text" autocomplete="off" placeholder="Start typing a customer name"
+                   aria-label="Find a customer" aria-autocomplete="list" aria-expanded="false">
+            <div class="bpm-picklist" id="bpmPicklist" hidden></div>
+          </div>
+        </div>
+        <div class="bpm-row">
+          <label class="bpm-inline">Maps per page
+            <select id="bpmPerPage">
+              <option value="4">4 &mdash; half page each</option>
+              <option value="8" selected>8 &mdash; two columns</option>
+              <option value="12">12 &mdash; three columns</option>
+            </select>
+          </label>
+          <button type="button" class="btn btn-outline btn-sm" id="bpmSelectAll">Unselect all</button>
+          <button type="button" class="btn btn-outline btn-sm" id="bpmCopyMode">1 copy each</button>
+          <div class="bpm-spacer"></div>
+          <button type="button" class="btn btn-gold btn-sm" id="bpmPrintTop">Print sheets</button>
+        </div>
+      </div>
+      <div class="bpm-grid" id="bpmGrid"></div>
+      <section class="bpm-sheetwrap" id="bpmSheetWrap">
+        <h3>What prints</h3>
+        <p id="bpmSheetNote"></p>
+        <div id="bpmSheets"></div>
+      </section>
+      <div class="bpm-printbar" id="bpmPrintBar">
+        <div class="bpm-inner">
+          <div class="bpm-count" id="bpmCount">0 maps <span>&middot; 0 pages</span></div>
+          <div class="bpm-spacer"></div>
+          <button type="button" class="btn btn-gold btn-sm" id="bpmPrintBtn">Print sheets</button>
+        </div>
+      </div>
+    </div>
     <div class="panel" id="panel-memberexport">
       <div class="panel-head"><div><h2>Member Export</h2><p>Export new customers to Excel &mdash; one row per member, every stored field included.</p></div></div>
       <div class="card">
@@ -6392,6 +6673,44 @@
           </div>
         </div>
       </div>
+<!-- ⚠ THE BLUEPRINT DIALOG SITS OUT HERE, NOT INSIDE ITS PANEL. `.panel` is
+     display:none until its nav item is clicked, and showModal() on a dialog with a
+     display:none ancestor opens nothing at all — silently, which is the failure
+     mode this file already records for missing markup. -->
+<dialog id="bpmDialog" aria-labelledby="bpmDlgName">
+  <div class="bpm-dlg-head">
+    <div>
+      <p class="bpm-name" id="bpmDlgName" style="font-size:18px;"></p>
+      <p class="bpm-addr" id="bpmDlgAddr"></p>
+    </div>
+    <button type="button" class="bpm-x" id="bpmDlgClose" aria-label="Close">&times;</button>
+  </div>
+  <div class="bpm-dlg-body">
+    <div class="bpm-dlg-map" id="bpmDlgMap"></div>
+    <label class="bpm-field">What this drawing is
+      <input type="text" id="bpmDlgLabel" maxlength="60" placeholder="Front elevation">
+    </label>
+    <label class="bpm-field">Note for the crew
+      <textarea id="bpmDlgNote" maxlength="400" placeholder="Ladder access, a tricky gable, what changed this year&hellip;"></textarea>
+    </label>
+    <label class="bpm-field">How many copies this house usually needs
+      <input type="number" id="bpmDlgSaved" min="1" max="20" step="1" style="max-width:110px;">
+    </label>
+    <p class="bpm-said" id="bpmDlgSaid"></p>
+    <p class="bpm-addr" id="bpmDlgWhen" style="margin-top:8px;"></p>
+  </div>
+  <div class="bpm-dlg-foot">
+    <label class="bpm-pick"><input type="checkbox" id="bpmDlgPick"> Print this map</label>
+    <div class="bpm-stepper" id="bpmDlgStep"></div>
+    <div class="bpm-spacer"></div>
+    <button type="button" class="btn btn-outline btn-sm" id="bpmDlgRemove">Remove this map</button>
+    <button type="button" class="btn btn-outline btn-sm" id="bpmDlgAdd">Add another map</button>
+    <label class="btn btn-outline btn-sm" style="margin:0;">Upload / replace
+      <input type="file" id="bpmDlgFile" accept="image/*" hidden>
+    </label>
+    <button type="button" class="btn btn-gold btn-sm" id="bpmDlgSave">Save details</button>
+  </div>
+</dialog>
 <div class="toast" id="toast"></div>
 <script type="module">
 import {
@@ -46795,7 +47114,13 @@ const RENDER_PANEL = {
      pointing at a panel that no longer exists is the SAFE direction here — an unmapped
      render always draws — but it would quietly undo the deferral this map exists for,
      and Suite 38 fails on a panel name that is not a real panel. */
-  scheduleSync: 'routes'
+  scheduleSync: 'routes',
+  /* ⭐ THE HEAVIEST RENDER ON THE PAGE, SO IT WAITS FOR ITS PANEL. One card per map with
+     a photograph in each, plus a sheet preview holding the same pictures again — drawn on
+     every customer change for a tab nobody had opened, that is the exact cost this map
+     exists to stop. The DATA is untouched: jobAddresses still updates on every write, so
+     the grid is correct the instant it draws. */
+  blueprintMaps: 'blueprintmaps'
 };
 const pendingRenders = new Map();   // label -> the function to run when its panel opens
 function adminPanelIsOpen(panelName){
@@ -46988,6 +47313,10 @@ function renderJobAddressPanels(){
        and do it the moment the tab is opened. */
     safeRender('scheduleSync', typeof window.scheduleSyncFromCustomers === 'function'
       ? function(){ window.scheduleSyncFromCustomers({quiet:true}); } : null);
+    /* Blueprint Maps reads the same book — a house that has just had its first drawing
+       photographed, or a customer whose name has changed, has to reach the grid and the
+       sheet preview underneath it. Deferred like everything else here. */
+    safeRender('blueprintMaps', typeof bpmRender === 'function' ? bpmRender : null);
 }
 /* Draw 250ms after the last change, but never let more than 2.5s of continuous
    writing pass without drawing, so a long import still shows progress rather
@@ -73004,6 +73333,979 @@ function exportCSV(){
   const __p=document.getElementById("panel-routes");
   if(__p && __p.classList.contains("active")) __start();
 }catch(err){ console.error("Schedule tab init failed:", err); } })();
+/* ============================ BLUEPRINT MAPS ============================
+   ⭐ THE HAND-DRAWN ROOFLINE, PHOTOGRAPHED ONTO THE HOUSE AND PRINTED SMALL.
+   Crews draw a blueprint map of each house by hand — the roofline, where the runs
+   go, the bulb counts. Those drawings lived on paper only. This panel keeps the
+   photograph on the house's own record, lets the office pull up any set of them,
+   and prints them eight to a page so a route fits in a pocket.
+
+   ⭐ THERE IS NO "ADD TO PRINT RUN" STEP, AND THAT IS THE WHOLE DESIGN. The batch
+   IS whatever is currently filtered, minus what has been unchecked, at each map's
+   saved copy count. Filter, then print. Any change that reintroduces a build-a-list
+   step has missed the point of this screen — it is the difference between this and
+   an ordinary shopping cart, and every other decision here follows from it.
+
+   ⚠ MAPS HANG OFF THE HOUSE, NOT THE CUSTOMER. A customer with two properties has
+   two sets, and a front elevation and a detached garage are two separate drawings of
+   one property, either of which might be wanted on its own. They are an ARRAY on the
+   existing jobAddresses document rather than a collection of their own: a house has
+   one to three of them, never dozens, so an array renders from the query this page
+   already makes, with no join and no second listener.
+   ⚠ WHICH MEANS EVERY WRITE IS A WHOLE-ARRAY WRITE. There is no way to update one
+   element of a Firestore array, so bpmSaveMaps reads the current array, replaces the
+   one entry and writes the lot. Two people editing two maps of the SAME house at the
+   same moment is last-write-wins — the same trade settings/commSections already makes,
+   and the reason the panel writes only when somebody presses a button.
+   ⚠ AND `updatedAt` IS A CLIENT Timestamp, NOT serverTimestamp(). Firestore refuses
+   a sentinel inside an array outright, so the whole write would be rejected — losing
+   the upload, not just the date.
+   ======================================================================= */
+
+/* ---------------- what a map is ---------------- */
+/* Anything that is not an array reads as "no maps yet", which is the honest answer
+   for a house nobody has photographed and for a field somebody has damaged alike. */
+function bpmMapsOf(d){
+  return (d && Array.isArray(d.blueprintMaps)) ? d.blueprintMaps.filter(function(m){ return m && typeof m === 'object'; }) : [];
+}
+function bpmNewMapId(){
+  return 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+/* ⚠ THE SAVED COUNT NEVER READS AS ZERO. A house saved at 0 would load already
+   printing nothing, which is indistinguishable from one somebody had unchecked, and
+   nothing on screen would say which. A missing or junk count is one copy. */
+function bpmSavedCopies(it){
+  if(!it || !it.map) return 0;
+  const n = parseInt(it.map.copies, 10);
+  return (isNaN(n) || n < 1) ? 1 : n;
+}
+function bpmHasMap(it){ return !!(it && it.map && it.map.url); }
+
+/* ---------------- session state (§4) ----------------
+   Nothing below is written to Firestore. The saved copy count on the map IS the
+   persistent part; these three are the batch, and the batch is thrown away when the
+   printer has had it. */
+const bpmFilter = new Set(['mapped']);   // which dropdown options are ticked
+const bpmCopies = Object.create(null);   // map key -> a count set by hand this session
+const bpmUnticked = new Set();           // map keys deliberately left out of this batch
+let bpmQuery = '';
+let bpmPerPage = 8;
+let bpmPickIdx = -1;
+let bpmOpenKey = null;
+let bpmLoadFailed = '';
+/* ⚠ A SECOND DRAWING IS HELD HERE UNTIL ITS PHOTO ARRIVES, never written as an empty
+   array entry. An entry with a label and no url would render as a "No map yet" card for
+   a house that already has one — the screen inventing outstanding work that nobody has. */
+let bpmPendingNew = null;
+
+const BPM_FILTER_GROUPS = [
+  {group:'Quote stage', keys:[
+    {k:'new',       label:'New quotes'},
+    {k:'requote',   label:'Requotes'},
+    {k:'returning', label:'Returning customers'}
+  ]},
+  {group:'Map status', keys:[
+    {k:'mapped', label:'Has a map'},
+    {k:'nomap',  label:'No map yet'}
+  ]}
+];
+const BPM_STAGE_KEYS = ['new','requote','returning'];
+const BPM_MAP_KEYS = ['mapped','nomap'];
+const BPM_STAGE_TEXT = {new:'New quote', requote:'Requote', returning:'Returning'};
+
+/* ---------------- which stage a HOUSE is in (§3) ----------------
+   ⭐ NOTHING NEW IS STORED FOR THIS, WHICH WAS THE SPEC'S OWN INSTRUCTION: read the
+   status each record already carries and do not invent a flag. Two rules already in
+   this file answer it between them, and both are the ones the rest of the app uses.
+
+   ⚠ "REQUOTE" IS THE LIVE STATE AND SO IT IS TESTED FIRST. A house with an OPEN
+   re-quote against it is being quoted again right now; that is what the Re-quotes
+   folder shows and what the office is looking for when it ticks the box. A closed
+   re-quote is history and leaves the house Returning, which is what it is.
+
+   ⚠ "NEW QUOTE" IS `audienceNeverAsked`, NOT THE $30 FEE BOX. That distinction is
+   already recorded in this file twice over: printIsNewHang and the RSVP audience both
+   found the fee box too narrow, because somebody who joined this year with the fee
+   waived still joined this year. audienceNeverAsked is the union rule those two
+   settled on — the fee box OR a closed, converted, non-re-quote quote from this
+   calendar year — and reusing it is what stops a THIRD definition of "new" appearing
+   in a page that has already had two.
+
+   ⚠ AND IT FAILS TOWARDS Returning. quotesCache may not have landed yet; answering
+   "returning" for a moment shows every house, whereas answering "new" would file the
+   whole book under a tag nobody chose. */
+function bpmOpenRequoteFor(houseId, d){
+  if(typeof quotesCache === 'undefined' || !Array.isArray(quotesCache)) return null;
+  const digits = String((d && d.phone) || '').replace(/\D/g, '');
+  const addr = (typeof quoteMatchAddress === 'function') ? quoteMatchAddress((d && d.address) || '') : '';
+  for(let i = 0; i < quotesCache.length; i++){
+    const q = quotesCache[i];
+    const qd = (q && q.data) || {};
+    if(typeof isRequote !== 'function' || !isRequote(qd)) continue;
+    if(typeof quoteStage === 'function' && quoteStage(qd) === 'closed') continue;
+    /* The explicit link wins. A quote naming a customer id is answering the question
+       outright, and a quote naming a DIFFERENT one has already answered it too. */
+    if(qd.existingCustomerId) {
+      if(String(qd.existingCustomerId) === String(houseId)) return q;
+      continue;
+    }
+    /* ⚠ PHONE ALONE IS NOT A MATCH. 17 numbers in the real book are shared and 14 of
+       those are a parent and a child at two different houses, so a phone-only join
+       would badge the parent Requote because the child is being re-quoted. Both sides
+       must carry an address and the two must agree. */
+    if(!digits || String(qd.phone || '').replace(/\D/g, '') !== digits) continue;
+    const qa = (typeof quoteMatchAddress === 'function') ? quoteMatchAddress(qd.address || '') : '';
+    if(!addr || !qa || qa !== addr) continue;
+    return q;
+  }
+  return null;
+}
+function bpmStageOf(houseId, d){
+  if(bpmOpenRequoteFor(houseId, d)) return 'requote';
+  if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)) return 'new';
+  return 'returning';
+}
+
+/* ---------------- one printable item per map (§8) ----------------
+   A house with two drawings is two cards. A house with NONE is still one row, so the
+   office can see what is outstanding under "No map yet" — that row carries map:null
+   and can never be printed or selected. */
+function bpmItems(){
+  const out = [];
+  if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)) return out;
+  jobAddresses.forEach(function(item){
+    const d = item.data || {};
+    const maps = bpmMapsOf(d);
+    const stage = bpmStageOf(item.id, d);
+    const base = {
+      houseId: item.id,
+      name: d.name || '(no name)',
+      addr: d.address || '',
+      city: d.city || '',
+      stage: stage
+    };
+    if(!maps.length){
+      out.push(Object.assign({}, base, {key: item.id + '::', map: null, label: 'Front elevation', index: 1, of: 0}));
+      return;
+    }
+    maps.forEach(function(m, i){
+      out.push(Object.assign({}, base, {
+        key: item.id + '::' + (m.id || ('i' + i)),
+        map: m,
+        label: m.label || 'Front elevation',
+        index: i + 1,
+        of: maps.length
+      }));
+    });
+  });
+  out.sort(function(a, b){
+    const n = String(a.name).localeCompare(String(b.name));
+    return n !== 0 ? n : a.index - b.index;
+  });
+  return out;
+}
+
+/* ---------------- the batch (§4, §8) ---------------- */
+function bpmCopiesFor(it){
+  if(!it || !it.map) return 0;
+  return Object.prototype.hasOwnProperty.call(bpmCopies, it.key) ? bpmCopies[it.key] : bpmSavedCopies(it);
+}
+function bpmIsTicked(it){ return bpmHasMap(it) && !bpmUnticked.has(it.key); }
+
+/* ⚠ THE TWO GROUPS COMBINE DIFFERENTLY AND THAT IS THE RULE, NOT A DETAIL. Two options
+   ticked INSIDE one group widen the results (OR); options in DIFFERENT groups narrow
+   them (AND). "New quotes" plus "Has a map" gives only new quotes that have a map.
+   Nothing ticked in a group means that group is not asking anything. */
+function bpmMatches(it){
+  const q = String(bpmQuery || '').trim().toLowerCase();
+  if(q){
+    const hay = (it.name + ' ' + it.addr + ' ' + it.city + ' ' + it.label).toLowerCase();
+    if(hay.indexOf(q) === -1) return false;
+  }
+  const stages = BPM_STAGE_KEYS.filter(function(k){ return bpmFilter.has(k); });
+  if(stages.length && stages.indexOf(it.stage) === -1) return false;
+  const maps = BPM_MAP_KEYS.filter(function(k){ return bpmFilter.has(k); });
+  if(maps.length){
+    const ok = (maps.indexOf('mapped') !== -1 && bpmHasMap(it)) ||
+               (maps.indexOf('nomap') !== -1 && !bpmHasMap(it));
+    if(!ok) return false;
+  }
+  return true;
+}
+function bpmShown(){ return bpmItems().filter(bpmMatches); }
+function bpmShownMapped(){ return bpmShown().filter(bpmHasMap); }
+
+/* ⚠ COUNTED AGAINST EVERY MAP, NOT THE FILTERED SET. A count that shrank as you ticked
+   would answer the wrong question: it is there to say how many there ARE of a thing
+   before you go looking for them. */
+function bpmCountFor(k){
+  return bpmItems().filter(function(it){
+    if(k === 'mapped') return bpmHasMap(it);
+    if(k === 'nomap') return !bpmHasMap(it);
+    return it.stage === k;
+  }).length;
+}
+
+/* ---------------- the two toggle buttons (§9) ----------------
+   Both relabel themselves to say what pressing them will DO, and both act only on
+   what is currently showing, so nothing off-screen is disturbed. */
+function bpmAllSelected(){
+  const l = bpmShownMapped();
+  return l.length > 0 && l.every(bpmIsTicked);
+}
+function bpmAllAtOne(){
+  const l = bpmShownMapped();
+  return l.length > 0 && l.every(function(it){ return bpmCopiesFor(it) === 1; });
+}
+function bpmSavedDiffers(){
+  return bpmShownMapped().some(function(it){ return bpmSavedCopies(it) !== 1; });
+}
+/* ⚠ IF EVERY MAP SHOWING IS SAVED AT 1 THE BUTTON STAYS ON "1 copy each". There is no
+   meaningful restore to offer, and a button that would change nothing is worse than
+   one that is simply not there. */
+function bpmCopyModeIsRestore(){ return bpmAllAtOne() && bpmSavedDiffers(); }
+
+/* ---------------- the sheet (§11) ----------------
+   Walk the filtered list in order; push each selected map once per copy, consecutively;
+   chunk by the per-page value. Nine maps at 8 per page is two pages, the second holding
+   one tile. */
+function bpmBuildQueue(list){
+  const q = [];
+  (list || []).forEach(function(it){
+    if(!bpmIsTicked(it)) return;
+    const n = bpmCopiesFor(it);
+    for(let i = 0; i < n; i++) q.push(it);
+  });
+  return q;
+}
+function bpmChunkPages(queue, perPage){
+  const size = parseInt(perPage, 10) > 0 ? parseInt(perPage, 10) : 8;
+  const pages = [];
+  for(let i = 0; i < queue.length; i += size) pages.push(queue.slice(i, i + size));
+  return pages;
+}
+function bpmOrientationOf(it){
+  return (it && it.map && it.map.orientation === 'portrait') ? 'portrait' : 'landscape';
+}
+/* ⭐ A PAGE OF PORTRAIT PHOTOGRAPHS TURNS THE GRID ON ITS SIDE. Two across by four down
+   is right for a landscape drawing and crops the top and bottom off a portrait one, so
+   when MOST of a page is portrait the 8-up becomes four across by two down instead.
+   ⚠ DECIDED PER PAGE, from the orientation stored at upload — a route can hold both,
+   and one page's shape must not be dictated by another's. 4-up and 12-up are left
+   alone: the spec gives the rule for the eight only, and inventing the other two would
+   be guessing at a layout nobody has looked at. */
+function bpmPageGrid(page, perPage){
+  const size = parseInt(perPage, 10) || 8;
+  const rows = page || [];
+  if(size === 4) return {cols: 2, rows: 2};
+  if(size === 12) return {cols: 3, rows: 4};
+  const portrait = rows.filter(function(it){ return bpmOrientationOf(it) === 'portrait'; }).length;
+  return (rows.length && portrait > rows.length / 2) ? {cols: 4, rows: 2} : {cols: 2, rows: 4};
+}
+/* The caption's right-hand side answers "which of this house's drawings is this" when
+   there is more than one, and "which house" when there is not. */
+function bpmStreetOf(addr){ return String(addr || '').split(',')[0].trim(); }
+function bpmTileRight(it){ return it.of > 1 ? it.label : bpmStreetOf(it.addr); }
+
+/* ⭐ A FINISHED BATCH RESETS ITSELF (§11). Every copy override goes back to the saved
+   count and every unselected map is selected again.
+   ⚠ THE FILTER AND THE SEARCH BOX ARE DELIBERATELY LEFT ALONE, so the same route can
+   be printed twice without re-filtering — which is the commonest thing anybody does
+   with a printed sheet. */
+function bpmResetBatch(){
+  Object.keys(bpmCopies).forEach(function(k){ delete bpmCopies[k]; });
+  bpmUnticked.clear();
+}
+
+/* ---------------- drawing it ---------------- */
+function bpmEl(id){ return document.getElementById(id); }
+function bpmMapImg(it, width, alt){
+  if(!bpmHasMap(it)) return '';
+  const src = (typeof cloudThumb === 'function') ? cloudThumb(it.map.url, width) : it.map.url;
+  return '<img src="' + esc(src) + '" alt="' + esc(alt || ('Blueprint map for ' + it.name)) + '" loading="lazy">';
+}
+function bpmStepperHtml(key, n, saved){
+  return '<button type="button" data-bpmstep="-1" data-bpmkey="' + esc(key) + '" aria-label="One less copy">&minus;</button>' +
+    '<button type="button" class="bpm-val" data-bpmreset="' + esc(key) + '" title="Back to the saved count (' + saved + ')">' + n + '</button>' +
+    '<button type="button" data-bpmstep="1" data-bpmkey="' + esc(key) + '" aria-label="One more copy">+</button>';
+}
+function bpmMenuHtml(){
+  return BPM_FILTER_GROUPS.map(function(g){
+    return '<p class="bpm-group">' + esc(g.group) + '</p>' + g.keys.map(function(f){
+      return '<button type="button" class="bpm-opt" role="checkbox" data-bpmf="' + f.k + '" aria-checked="' + (bpmFilter.has(f.k) ? 'true' : 'false') + '">' +
+        '<span class="bpm-box" aria-hidden="true">&#10003;</span>' +
+        '<span class="bpm-lbl">' + esc(f.label) + '</span>' +
+        '<span class="bpm-n">' + bpmCountFor(f.k) + '</span></button>';
+    }).join('');
+  }).join('<div class="bpm-divider"></div>') +
+  '<div class="bpm-divider"></div><button type="button" class="bpm-clear" id="bpmClearFilters">Clear filters &mdash; show everyone</button>';
+}
+function bpmPaintFilterButton(){
+  const sum = bpmEl('bpmFilterSummary');
+  const badge = bpmEl('bpmFilterBadge');
+  if(!sum || !badge) return;
+  const picks = Array.from(bpmFilter);
+  if(!picks.length){
+    sum.textContent = 'Everyone';
+    sum.classList.remove('on');
+    badge.hidden = true;
+    return;
+  }
+  const labelOf = function(k){
+    for(let i = 0; i < BPM_FILTER_GROUPS.length; i++){
+      const f = BPM_FILTER_GROUPS[i].keys.filter(function(x){ return x.k === k; })[0];
+      if(f) return f.label;
+    }
+    return k;
+  };
+  sum.textContent = picks.map(labelOf).join(', ');
+  sum.classList.add('on');
+  badge.hidden = picks.length < 2;
+  badge.textContent = String(picks.length);
+}
+function bpmCardHtml(it){
+  const n = bpmCopiesFor(it);
+  const on = bpmIsTicked(it);
+  const mapped = bpmHasMap(it);
+  const tagClass = it.stage === 'new' ? ' new' : it.stage === 'requote' ? ' requote' : '';
+  return '<article class="bpm-card' + (on && n ? ' queued' : '') + (on ? '' : ' off') + '">' +
+    '<div class="bpm-thumbwrap">' +
+      '<button type="button" class="bpm-thumb' + (mapped ? '' : ' empty') + '" data-bpmopen="' + esc(it.key) + '" ' +
+        'aria-label="Open ' + esc(it.label) + ' for ' + esc(it.name) + '">' +
+        (mapped ? bpmMapImg(it, 400) : 'No map on file yet &mdash; tap to add a photo') +
+        '<span class="bpm-tag' + tagClass + '">' + esc(BPM_STAGE_TEXT[it.stage] || it.stage) + '</span>' +
+      '</button>' +
+      /* ⚠ A HOUSE WITH NO MAP GETS NO CHECKMARK AT ALL: nothing to print, nothing to
+         select, and a control that can never do anything reads as broken. */
+      (mapped ? '<button type="button" class="bpm-check" data-bpmtick="' + esc(it.key) + '" role="checkbox" aria-checked="' + (on ? 'true' : 'false') + '" ' +
+        'aria-label="' + (on ? 'Leave this map out of the batch' : 'Put this map back in the batch') + '" ' +
+        'title="' + (on ? 'Printing — click to leave out' : 'Left out — click to include') + '">&#10003;</button>' : '') +
+    '</div>' +
+    '<div class="bpm-meta">' +
+      '<p class="bpm-name">' + esc(it.name) + '</p>' +
+      '<p class="bpm-addr">' + esc(it.addr) + (it.city ? esc(', ' + it.city) : '') + '</p>' +
+      '<p class="bpm-maplabel">' + esc(it.label) + (it.of > 1 ? ' &middot; map ' + it.index + ' of ' + it.of : '') + '</p>' +
+    '</div>' +
+    '<div class="bpm-foot">' +
+      (mapped
+        ? '<span class="bpm-copies-lbl">' + (on ? 'Copies' : 'Not printing') + '</span>' +
+          '<div class="bpm-stepper">' + bpmStepperHtml(it.key, n, bpmSavedCopies(it)) + '</div>'
+        : '<span class="bpm-copies-lbl">No map on file yet</span>') +
+    '</div>' +
+  '</article>';
+}
+function bpmBuildSheets(list){
+  const host = bpmEl('bpmSheets');
+  const note = bpmEl('bpmSheetNote');
+  if(!host || !note) return;
+  const queue = bpmBuildQueue(list);
+  if(!queue.length){
+    host.innerHTML = '<div class="bpm-empty">Nothing selected to print. Select a map above, or raise a count above zero.</div>';
+    note.textContent = '';
+    return;
+  }
+  const pages = bpmChunkPages(queue, bpmPerPage);
+  note.textContent = queue.length + ' map' + (queue.length === 1 ? '' : 's') + ' across ' + pages.length +
+    ' page' + (pages.length === 1 ? '' : 's') + '. This is exactly what comes out of the printer.';
+  host.innerHTML = pages.map(function(pg, i){
+    const grid = bpmPageGrid(pg, bpmPerPage);
+    return '<p class="bpm-pagelabel">Page ' + (i + 1) + ' of ' + pages.length + '</p>' +
+      /* ⚠ THE ROWS ARE SPELLED OUT, NOT LEFT TO AUTO. A last page holding two tiles on an
+         auto grid stretches them to fill the sheet, so the same drawing prints postcard
+         sized on page one and half a page on page two — and a crew comparing two sheets
+         has no way to know they are the same scale. Every page is laid out as the FULL
+         grid; a short one simply leaves its bottom rows empty, which is what a page of
+         eight with two on it should look like. */
+      '<div class="bpm-sheet" style="grid-template-columns:repeat(' + grid.cols + ',1fr); grid-template-rows:repeat(' + grid.rows + ',1fr);">' +
+        pg.map(function(it){
+          return '<div class="bpm-cell">' + bpmMapImg(it, 1200) +
+            '<div class="bpm-strip"><b>' + esc(it.name) + '</b><span>' + esc(bpmTileRight(it)) + '</span></div></div>';
+        }).join('') +
+      '</div>';
+  }).join('');
+}
+function bpmRender(){
+  const grid = bpmEl('bpmGrid');
+  if(!grid) return;
+  const menu = bpmEl('bpmFilterMenu');
+  if(menu) menu.innerHTML = bpmMenuHtml();
+  bpmPaintFilterButton();
+
+  /* ⚠ A FIRESTORE READ THAT FAILED MUST NOT RENDER AS AN EMPTY GRID. "No maps match"
+     over a book of nine hundred houses is a lie, and it reads as an answer. */
+  if(bpmLoadFailed){
+    grid.innerHTML = '<div class="bpm-empty">The customer list could not be read, so this is not an empty grid &mdash; it is a grid with nothing in it yet. ' + esc(bpmLoadFailed) + '</div>';
+  } else {
+    const list = bpmShown();
+    grid.innerHTML = list.length
+      ? list.map(bpmCardHtml).join('')
+      : '<div class="bpm-empty">No maps match. Clear a filter or empty the search box.</div>';
+  }
+
+  const list = bpmLoadFailed ? [] : bpmShown();
+  const queue = bpmBuildQueue(list);
+  const pages = bpmChunkPages(queue, bpmPerPage).length;
+  const people = new Set(list.filter(bpmIsTicked).map(function(it){ return it.houseId; })).size;
+  const selectAll = bpmEl('bpmSelectAll');
+  if(selectAll) selectAll.textContent = bpmAllSelected() ? 'Unselect all' : 'Select all';
+  const cm = bpmEl('bpmCopyMode');
+  if(cm){
+    cm.textContent = bpmCopyModeIsRestore() ? 'Back to saved counts' : '1 copy each';
+    cm.disabled = !bpmShownMapped().length;
+  }
+  const count = bpmEl('bpmCount');
+  if(count){
+    count.innerHTML = queue.length + ' map' + (queue.length === 1 ? '' : 's') +
+      ' <span>&middot; ' + people + ' customer' + (people === 1 ? '' : 's') +
+      ' &middot; ' + pages + ' page' + (pages === 1 ? '' : 's') + ' at ' + bpmPerPage + ' per page</span>';
+  }
+  bpmBuildSheets(list);
+}
+
+/* ---------------- the customer picker (§7) ----------------
+   Not a plain search box: clicking in it drops down the customer list, typing narrows
+   it, and the rows say how many maps each house has. Filtering is client-side over the
+   list already in memory — no Firestore read per keystroke. */
+function bpmHouses(){
+  if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)) return [];
+  return jobAddresses.map(function(item){
+    return {
+      id: item.id,
+      name: (item.data && item.data.name) || '(no name)',
+      addr: (item.data && item.data.address) || '',
+      city: (item.data && item.data.city) || '',
+      maps: bpmMapsOf(item.data).length
+    };
+  }).sort(function(a, b){ return String(a.name).localeCompare(String(b.name)); });
+}
+function bpmHousesMatching(){
+  const box = bpmEl('bpmSearch');
+  const t = String((box && box.value) || '').trim().toLowerCase();
+  return bpmHouses().filter(function(h){
+    return !t || (h.name + ' ' + h.addr + ' ' + h.city).toLowerCase().indexOf(t) !== -1;
+  }).slice(0, 60);
+}
+function bpmPaintPicklist(){
+  const pick = bpmEl('bpmPicklist');
+  const box = bpmEl('bpmSearch');
+  if(!pick || !box) return;
+  const list = bpmHousesMatching();
+  const showAll = String(box.value || '').trim()
+    ? '<button type="button" class="bpm-all" data-bpmall="1">Show everyone instead</button>' : '';
+  pick.innerHTML = (list.length
+    ? list.map(function(h, i){
+        return '<button type="button" class="bpm-pitem' + (i === bpmPickIdx ? ' active' : '') + '" data-bpmperson="' + esc(h.id) + '">' +
+          '<span class="bpm-pn">' + esc(h.name) + '</span>' +
+          '<span class="bpm-pa">' + esc(h.addr) + '</span>' +
+          '<span class="bpm-pc">' + h.maps + ' map' + (h.maps === 1 ? '' : 's') + '</span></button>';
+      }).join('')
+    : '<p class="bpm-none">No customer by that name.</p>') + showAll;
+}
+function bpmOpenPick(open){
+  const pick = bpmEl('bpmPicklist');
+  const box = bpmEl('bpmSearch');
+  if(!pick || !box) return;
+  pick.hidden = !open;
+  box.setAttribute('aria-expanded', String(!!open));
+  if(open) bpmPaintPicklist();
+}
+/* ⭐ PICKING A NAME CLEARS THE TICKS. Without it, choosing a returning customer while
+   "New quotes" is ticked shows nothing at all, and the screen looks broken rather than
+   filtered — the name and the dropdown quietly fighting each other. The name becomes
+   the whole filter, the button goes back to reading "Everyone", and both facts are on
+   screen rather than inferred. */
+function bpmChoosePerson(id){
+  const h = bpmHouses().filter(function(x){ return String(x.id) === String(id); })[0];
+  if(!h) return;
+  const box = bpmEl('bpmSearch');
+  if(box) box.value = h.name;
+  bpmQuery = h.name;
+  bpmFilter.clear();
+  bpmPickIdx = -1;
+  bpmOpenPick(false);
+  bpmRender();
+}
+
+/* ---------------- the detail dialog and the upload (§10) ---------------- */
+function bpmItemByKey(key){
+  return bpmItems().filter(function(it){ return it.key === key; })[0] || null;
+}
+/* ⚠ THE DIALOG IS NOT ALWAYS LOOKING AT A ROW OF THE GRID. "Add another map" opens a
+   drawing that does not exist yet, so it has no key to find — asking bpmItemByKey for it
+   answers null and the upload button quietly does nothing. The pending one wins while
+   it is in hand. */
+function bpmDialogItem(){
+  if(bpmPendingNew) return bpmPendingNew;
+  return bpmOpenKey ? bpmItemByKey(bpmOpenKey) : null;
+}
+function bpmSaid(msg, kind){
+  const el = bpmEl('bpmDlgSaid');
+  if(!el) return;
+  el.textContent = msg || '';
+  el.className = 'bpm-said' + (kind ? ' ' + kind : '');
+}
+function bpmPaintDialogControls(it){
+  const step = bpmEl('bpmDlgStep');
+  if(step) step.innerHTML = bpmHasMap(it) ? bpmStepperHtml(it.key, bpmCopiesFor(it), bpmSavedCopies(it)) : '';
+  const pick = bpmEl('bpmDlgPick');
+  if(pick){
+    pick.checked = bpmIsTicked(it);
+    pick.disabled = !bpmHasMap(it);
+  }
+  const remove = bpmEl('bpmDlgRemove');
+  if(remove) remove.disabled = !it.map;
+}
+function bpmOpenDialog(key){
+  const it = bpmItemByKey(key);
+  const dlg = bpmEl('bpmDialog');
+  if(!it || !dlg) return;
+  bpmOpenKey = key;
+  bpmPendingNew = null;
+  const name = bpmEl('bpmDlgName');
+  if(name) name.textContent = it.of > 1 ? (it.name + ' — ' + it.label) : it.name;
+  const addr = bpmEl('bpmDlgAddr');
+  if(addr) addr.textContent = it.addr + (it.city ? ', ' + it.city : '');
+  const map = bpmEl('bpmDlgMap');
+  if(map){
+    map.innerHTML = bpmHasMap(it)
+      ? bpmMapImg(it, 1200, 'Blueprint map for ' + it.name)
+      : '<p style="padding:40px 16px; text-align:center; color:var(--slate); margin:0;">No map on file. Upload a photo of the drawing to attach it here.</p>';
+  }
+  const label = bpmEl('bpmDlgLabel');
+  if(label) label.value = it.label || '';
+  const note = bpmEl('bpmDlgNote');
+  if(note) note.value = (it.map && it.map.note) || '';
+  const saved = bpmEl('bpmDlgSaved');
+  if(saved) saved.value = it.map ? bpmSavedCopies(it) : 1;
+  const when = bpmEl('bpmDlgWhen');
+  if(when) when.textContent = bpmUpdatedText(it);
+  bpmSaid('');
+  bpmPaintDialogControls(it);
+  dlg.showModal();
+}
+function bpmUpdatedText(it){
+  if(!it || !it.map || !it.map.updatedAt) return '';
+  const raw = it.map.updatedAt;
+  let dt = null;
+  if(raw && typeof raw.toDate === 'function') dt = raw.toDate();
+  else if(raw instanceof Date) dt = raw;
+  else if(typeof raw === 'number') dt = new Date(raw);
+  if(!dt || isNaN(dt.getTime())) return '';
+  return 'Last updated ' + dt.toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'}) +
+    (it.map.updatedBy ? ' by ' + it.map.updatedBy : '');
+}
+function bpmWhoAmI(){
+  try{
+    if(typeof auth !== 'undefined' && auth && auth.currentUser){
+      return auth.currentUser.displayName || auth.currentUser.email || auth.currentUser.uid || '';
+    }
+  }catch(e){ /* quiet on purpose: this only ever decorates "last updated by". A sign-in
+                object that is not ready yet must never stop a drawing being saved. */ }
+  return '';
+}
+/* ⚠ EVERY WRITE IS THE WHOLE ARRAY (see the header). The local cache is mirrored
+   BEFORE the write is awaited, because this panel repaints from jobAddresses rather
+   than re-reading Firestore — without the mirror an upload visibly springs back and
+   somebody presses the button a second time. */
+async function bpmSaveMaps(houseId, maps){
+  const row = (typeof jobAddresses !== 'undefined' && Array.isArray(jobAddresses))
+    ? jobAddresses.filter(function(x){ return x.id === houseId; })[0] : null;
+  if(row && row.data) row.data.blueprintMaps = maps;
+  bpmRender();
+  await updateDoc(doc(db, 'jobAddresses', houseId), {blueprintMaps: maps});
+}
+function bpmMapsForHouse(houseId){
+  const row = (typeof jobAddresses !== 'undefined' && Array.isArray(jobAddresses))
+    ? jobAddresses.filter(function(x){ return x.id === houseId; })[0] : null;
+  return bpmMapsOf(row && row.data).map(function(m){ return Object.assign({}, m); });
+}
+/* Detected from the image itself rather than asked for, because nobody photographing a
+   drawing on a phone is going to answer a question about it. */
+function bpmOrientationOfFile(file){
+  return new Promise(function(resolve){
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = function(){
+      URL.revokeObjectURL(url);
+      resolve(img.naturalHeight > img.naturalWidth ? 'portrait' : 'landscape');
+    };
+    img.onerror = function(){
+      URL.revokeObjectURL(url);
+      /* Landscape is the honest default: it is what a roofline drawing is, and it is
+         the grid the 8-up already uses, so an undetected photo changes no layout. */
+      resolve('landscape');
+    };
+    img.src = url;
+  });
+}
+/* ⭐ THE PUBLIC ID IS READ BACK OUT OF THE URL RATHER THAN FETCHED AGAIN. The shared
+   uploader answers with secure_url alone, and §13's rule is that there is ONE upload
+   path — so this parses what came back instead of adding a second request or a second
+   helper that could drift from it. Anything that is not one of our own Cloudinary URLs
+   gives '' rather than a guess. */
+function bpmPublicIdFromUrl(url){
+  const s = String(url || '');
+  const marker = '/image/upload/';
+  const at = s.indexOf(marker);
+  if(at === -1) return '';
+  let rest = s.slice(at + marker.length);
+  rest = rest.replace(/^v\d+\//, '');
+  return rest.replace(/\.[A-Za-z0-9]+$/, '');
+}
+async function bpmUploadInto(it, file){
+  const dlgMap = bpmEl('bpmDlgMap');
+  const preview = URL.createObjectURL(file);
+  /* Shown at once from an object URL so the phone does not sit on a blank panel while
+     the upload runs; swapped for the Cloudinary URL the moment it comes back. */
+  if(dlgMap) dlgMap.innerHTML = '<img src="' + esc(preview) + '" alt="The photo just taken, still uploading">';
+  bpmSaid('Uploading the drawing…');
+  try{
+    const orientation = await bpmOrientationOfFile(file);
+    const ready = (typeof shrinkImageFileIfTooLarge === 'function')
+      ? await shrinkImageFileIfTooLarge(file, 9.5 * 1024 * 1024, 2400, 0.86)
+      : file;
+    const url = await uploadOneToCloudinary(ready);
+    const maps = bpmMapsForHouse(it.houseId);
+    const mine = it.map ? maps.filter(function(m){ return m.id === it.map.id; })[0] : null;
+    const stamp = Timestamp.now();
+    const by = bpmWhoAmI();
+    if(mine){
+      mine.url = url;
+      mine.publicId = bpmPublicIdFromUrl(url);
+      mine.orientation = orientation;
+      mine.updatedAt = stamp;
+      if(by) mine.updatedBy = by;
+    } else {
+      /* Uploading to a house with no maps creates the first entry (§10). */
+      const labelBox = bpmEl('bpmDlgLabel');
+      const typed = String((labelBox && labelBox.value) || '').trim();
+      const fresh = {
+        id: bpmNewMapId(),
+        label: typed || it.label || 'Front elevation',
+        url: url,
+        publicId: bpmPublicIdFromUrl(url),
+        copies: 1,
+        orientation: orientation,
+        note: ''
+      };
+      fresh.updatedAt = stamp;
+      if(by) fresh.updatedBy = by;
+      maps.push(fresh);
+      bpmOpenKey = it.houseId + '::' + fresh.id;
+      bpmPendingNew = null;
+    }
+    await bpmSaveMaps(it.houseId, maps);
+    URL.revokeObjectURL(preview);
+    bpmSaid('Saved to this house.', 'good');
+    const again = bpmItemByKey(bpmOpenKey);
+    if(again){
+      if(dlgMap) dlgMap.innerHTML = bpmMapImg(again, 1200);
+      bpmPaintDialogControls(again);
+      const when = bpmEl('bpmDlgWhen');
+      if(when) when.textContent = bpmUpdatedText(again);
+    }
+  }catch(err){
+    URL.revokeObjectURL(preview);
+    /* ⚠ NEVER REVERT SILENTLY (§12). The dialog stays open, the picture that failed
+       stays on screen, and the message names what went wrong and what to do about it —
+       uploadFailText is the shared advice every other uploader in this file uses, so a
+       switched-off picture account reads the same here as it does on a quote. */
+    bpmSaid('The drawing was NOT saved. ' + ((typeof uploadFailText === 'function') ? uploadFailText(err) : String((err && err.message) || err)), 'bad');
+    console.error('[HU] blueprint map upload failed', err);
+  }
+}
+
+/* ---------------- printing (§11, §12) ---------------- */
+function bpmDoPrint(){
+  const queue = bpmBuildQueue(bpmShown());
+  if(!queue.length){
+    /* Saying so and NOT opening the print dialog: a print dialog over an empty sheet
+       wastes paper and reads as the screen having agreed to something. */
+    if(typeof toast === 'function') toast('Nothing selected to print. Select a map, or raise a count above zero.');
+    bpmBuildSheets(bpmShown());
+    return;
+  }
+  bpmBuildSheets(bpmShown());
+  document.body.classList.add('bpm-printing');
+  /* A beat so the images and the grid are laid out before the dialog measures them —
+     the same reason whOpenPrintWindow waits. */
+  setTimeout(function(){ window.print(); }, 80);
+}
+
+/* ---------------- wiring ----------------
+   Every lookup is guarded: a missing node has crashed this script before, and a
+   selector that matches nothing fails silently. */
+(function bpmWire(){
+  const fBtn = bpmEl('bpmFilterBtn');
+  const fMenu = bpmEl('bpmFilterMenu');
+  if(fBtn && fMenu){
+    fBtn.addEventListener('click', function(){
+      const open = fMenu.hidden;
+      fMenu.hidden = !open;
+      fBtn.setAttribute('aria-expanded', String(open));
+    });
+    fMenu.addEventListener('click', function(e){
+      /* ⚠ CLEARING CLOSES THE MENU, ticking does not. They are different gestures: a tick
+         is one of several you are still making, and "show everyone" is the end of the
+         decision. Leaving it open after a clear puts an empty menu over the grid it has
+         just changed, so the one thing you pressed it to see is covered up. Caught by
+         driving it in a browser; every source check passed. */
+      if(e.target.closest('#bpmClearFilters')){
+        bpmFilter.clear();
+        fMenu.hidden = true;
+        fBtn.setAttribute('aria-expanded', 'false');
+        bpmRender();
+        return;
+      }
+      const o = e.target.closest('[data-bpmf]');
+      if(!o) return;
+      const k = o.dataset.bpmf;
+      if(bpmFilter.has(k)) bpmFilter.delete(k); else bpmFilter.add(k);
+      bpmRender();
+    });
+  }
+  /* ⚠ THE MENU IS REBUILT ON EVERY TICK, so the node that was clicked is detached by
+     the time this runs and `closest('.bpm-filterwrap')` finds nothing — which closed
+     the menu on every single tick. The isConnected guard is the fix. */
+  document.addEventListener('click', function(e){
+    if(!e.target || !e.target.isConnected) return;
+    if(fMenu && !fMenu.hidden && !e.target.closest('.bpm-filterwrap')){
+      fMenu.hidden = true;
+      if(fBtn) fBtn.setAttribute('aria-expanded', 'false');
+    }
+    const pick = bpmEl('bpmPicklist');
+    if(pick && !pick.hidden && !e.target.closest('.bpm-searchwrap')) bpmOpenPick(false);
+  });
+  document.addEventListener('keydown', function(e){
+    if(e.key !== 'Escape') return;
+    if(fMenu && !fMenu.hidden){
+      fMenu.hidden = true;
+      if(fBtn){ fBtn.setAttribute('aria-expanded', 'false'); fBtn.focus(); }
+    }
+  });
+
+  const perPage = bpmEl('bpmPerPage');
+  if(perPage) perPage.addEventListener('change', function(e){ bpmPerPage = parseInt(e.target.value, 10) || 8; bpmRender(); });
+
+  const selectAll = bpmEl('bpmSelectAll');
+  if(selectAll) selectAll.addEventListener('click', function(){
+    const dropThem = bpmAllSelected();
+    bpmShown().forEach(function(it){
+      if(dropThem) bpmUnticked.add(it.key); else bpmUnticked.delete(it.key);
+    });
+    bpmRender();
+  });
+  const copyMode = bpmEl('bpmCopyMode');
+  if(copyMode) copyMode.addEventListener('click', function(){
+    const restore = bpmCopyModeIsRestore();
+    bpmShownMapped().forEach(function(it){
+      if(restore) delete bpmCopies[it.key]; else bpmCopies[it.key] = 1;
+    });
+    bpmRender();
+  });
+
+  const panel = bpmEl('panel-blueprintmaps');
+  if(panel) panel.addEventListener('click', function(e){
+    const step = e.target.closest('[data-bpmstep]');
+    if(step){
+      bpmStepBy(step.dataset.bpmkey, parseInt(step.dataset.bpmstep, 10));
+      return;
+    }
+    const reset = e.target.closest('[data-bpmreset]');
+    if(reset){ bpmResetOne(reset.dataset.bpmreset); return; }
+    const tick = e.target.closest('[data-bpmtick]');
+    if(tick){
+      const key = tick.dataset.bpmtick;
+      if(bpmUnticked.has(key)) bpmUnticked.delete(key); else bpmUnticked.add(key);
+      bpmRender();
+      if(bpmOpenKey === key){
+        const it = bpmItemByKey(key);
+        if(it) bpmPaintDialogControls(it);
+      }
+      return;
+    }
+    const open = e.target.closest('[data-bpmopen]');
+    if(open) bpmOpenDialog(open.dataset.bpmopen);
+  });
+
+  const search = bpmEl('bpmSearch');
+  const picklist = bpmEl('bpmPicklist');
+  if(search){
+    /* ⚠ focus IS NOT ENOUGH, AND ONLY A REAL BROWSER SHOWED IT. Picking a name leaves the
+       box FOCUSED, so clicking it a second time fires no focus event at all and the list
+       does not come back — the control silently stops working after its first use, which
+       is the commonest thing anybody does with it. Both events open it; bpmOpenPick is
+       idempotent, so the pair firing together on a first click costs nothing. */
+    const openList = function(){ bpmPickIdx = -1; bpmOpenPick(true); };
+    search.addEventListener('focus', openList);
+    search.addEventListener('click', openList);
+    search.addEventListener('input', function(){
+      bpmQuery = search.value;
+      bpmPickIdx = -1;
+      bpmOpenPick(true);
+      bpmRender();
+    });
+    search.addEventListener('keydown', function(e){
+      const list = bpmHousesMatching();
+      if(e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+        e.preventDefault();
+        if(picklist && picklist.hidden) bpmOpenPick(true);
+        bpmPickIdx += (e.key === 'ArrowDown' ? 1 : -1);
+        if(bpmPickIdx < 0) bpmPickIdx = list.length - 1;
+        if(bpmPickIdx >= list.length) bpmPickIdx = 0;
+        bpmPaintPicklist();
+        const el = picklist ? picklist.querySelector('.bpm-pitem.active') : null;
+        if(el) el.scrollIntoView({block:'nearest'});
+      } else if(e.key === 'Enter'){
+        if(picklist && !picklist.hidden && list[bpmPickIdx]){ e.preventDefault(); bpmChoosePerson(list[bpmPickIdx].id); }
+        else bpmOpenPick(false);
+      } else if(e.key === 'Escape'){
+        bpmOpenPick(false);
+      }
+    });
+  }
+  if(picklist) picklist.addEventListener('click', function(e){
+    if(e.target.closest('[data-bpmall]')){
+      if(search) search.value = '';
+      bpmQuery = '';
+      bpmOpenPick(false);
+      bpmRender();
+      return;
+    }
+    const b = e.target.closest('[data-bpmperson]');
+    if(b) bpmChoosePerson(b.dataset.bpmperson);
+  });
+
+  const printTop = bpmEl('bpmPrintTop');
+  if(printTop) printTop.addEventListener('click', bpmDoPrint);
+  const printBtn = bpmEl('bpmPrintBtn');
+  if(printBtn) printBtn.addEventListener('click', bpmDoPrint);
+  window.addEventListener('afterprint', function(){
+    if(!document.body.classList.contains('bpm-printing')) return;
+    document.body.classList.remove('bpm-printing');
+    bpmResetBatch();
+    bpmRender();
+  });
+
+  /* ---- dialog ---- */
+  const dlg = bpmEl('bpmDialog');
+  const dlgClose = bpmEl('bpmDlgClose');
+  if(dlg && dlgClose) dlgClose.addEventListener('click', function(){ dlg.close(); });
+  if(dlg) dlg.addEventListener('close', function(){ bpmOpenKey = null; bpmPendingNew = null; });
+  if(dlg) dlg.addEventListener('click', function(e){
+    const step = e.target.closest('[data-bpmstep]');
+    if(step){ bpmStepBy(step.dataset.bpmkey, parseInt(step.dataset.bpmstep, 10)); return; }
+    const reset = e.target.closest('[data-bpmreset]');
+    if(reset){ bpmResetOne(reset.dataset.bpmreset); return; }
+  });
+  const dlgPick = bpmEl('bpmDlgPick');
+  if(dlgPick) dlgPick.addEventListener('change', function(e){
+    if(!bpmOpenKey) return;
+    if(e.target.checked) bpmUnticked.delete(bpmOpenKey); else bpmUnticked.add(bpmOpenKey);
+    bpmRender();
+  });
+  const dlgFile = bpmEl('bpmDlgFile');
+  if(dlgFile) dlgFile.addEventListener('change', async function(e){
+    const f = e.target.files && e.target.files[0];
+    /* Cleared straight away so photographing the same drawing twice still fires a
+       change event the second time. */
+    e.target.value = '';
+    if(!f) return;
+    const it = bpmDialogItem();
+    if(it) await bpmUploadInto(it, f);
+  });
+  const dlgSave = bpmEl('bpmDlgSave');
+  if(dlgSave) dlgSave.addEventListener('click', async function(){
+    const it = bpmDialogItem();
+    if(!it || !it.map){ bpmSaid('There is no drawing here yet — upload one first.', 'bad'); return; }
+    const label = bpmEl('bpmDlgLabel');
+    const note = bpmEl('bpmDlgNote');
+    const saved = bpmEl('bpmDlgSaved');
+    const maps = bpmMapsForHouse(it.houseId);
+    const mine = maps.filter(function(m){ return m.id === it.map.id; })[0];
+    if(!mine){ bpmSaid('That drawing is no longer on this house — close and reopen it.', 'bad'); return; }
+    mine.label = String((label && label.value) || '').trim() || 'Front elevation';
+    mine.note = String((note && note.value) || '').trim();
+    const n = parseInt((saved && saved.value) || '1', 10);
+    mine.copies = (isNaN(n) || n < 1) ? 1 : Math.min(n, 20);
+    try{
+      await bpmSaveMaps(it.houseId, maps);
+      bpmSaid('Saved.', 'good');
+    }catch(err){
+      bpmSaid('Not saved — ' + String((err && err.message) || err), 'bad');
+      console.error('[HU] blueprint map details not saved', err);
+    }
+  });
+  const dlgAdd = bpmEl('bpmDlgAdd');
+  if(dlgAdd) dlgAdd.addEventListener('click', function(){
+    const it = bpmDialogItem();
+    if(!it) return;
+    /* Nothing is written until the photo arrives. Name it first, then photograph it —
+       the label box is what the new map gets called. */
+    bpmPendingNew = {
+      houseId: it.houseId, key: it.houseId + '::pending', map: null,
+      label: '', name: it.name, addr: it.addr, city: it.city,
+      index: it.of + 1, of: it.of
+    };
+    const label = bpmEl('bpmDlgLabel');
+    if(label){ label.value = ''; label.focus(); }
+    const note = bpmEl('bpmDlgNote');
+    if(note) note.value = '';
+    const saved = bpmEl('bpmDlgSaved');
+    if(saved) saved.value = 1;
+    const map = bpmEl('bpmDlgMap');
+    if(map) map.innerHTML = '<p style="padding:40px 16px; text-align:center; color:var(--slate); margin:0;">No map on file. Upload a photo of the drawing to attach it here.</p>';
+    const when = bpmEl('bpmDlgWhen');
+    if(when) when.textContent = '';
+    bpmSaid('Name this drawing, then press Upload / replace to photograph it. It is saved as a second map on ' + it.name + '.');
+    bpmPaintDialogControls(bpmPendingNew);
+  });
+  const dlgRemove = bpmEl('bpmDlgRemove');
+  if(dlgRemove) dlgRemove.addEventListener('click', async function(){
+    const it = bpmDialogItem();
+    if(!it || !it.map) return;
+    /* ⚠ THE ONLY DESTRUCTIVE THING ON THIS SCREEN, so it asks first and says exactly
+       what goes. The PHOTOGRAPH stays in Cloudinary — destroying one needs the API
+       secret, and a secret in this page is a secret published to anybody who opens it.
+       What is removed is this house's reference to it. */
+    if(!window.confirm('Remove "' + (it.label || 'this map') + '" from ' + it.name + '?\n\nThe drawing comes off this house. The photograph itself stays in the picture library.')) return;
+    const maps = bpmMapsForHouse(it.houseId).filter(function(m){ return m.id !== it.map.id; });
+    try{
+      await bpmSaveMaps(it.houseId, maps);
+      const dlgEl = bpmEl('bpmDialog');
+      if(dlgEl) dlgEl.close();
+      if(typeof toast === 'function') toast('Map removed');
+    }catch(err){
+      bpmSaid('Not removed — ' + String((err && err.message) || err), 'bad');
+      console.error('[HU] blueprint map not removed', err);
+    }
+  });
+})();
+
+/* ⭐ RAISING A COUNT ABOVE ZERO SELECTS THE MAP AGAIN — changing the number implies
+   wanting it, and having to change a number and then tick a box for the same intention
+   is the kind of second step this screen exists without. Counts cannot go below zero. */
+function bpmStepBy(key, delta){
+  const it = bpmItemByKey(key);
+  if(!it || !it.map) return;
+  bpmCopies[key] = Math.max(0, bpmCopiesFor(it) + (delta || 0));
+  if(bpmCopies[key] > 0) bpmUnticked.delete(key);
+  bpmRender();
+  if(bpmOpenKey === key){
+    const again = bpmItemByKey(key);
+    if(again) bpmPaintDialogControls(again);
+  }
+}
+/* Clicking the number itself puts that ONE map back to its saved count — the hover
+   title names the number it will return to, so it is not a mystery button. */
+function bpmResetOne(key){
+  delete bpmCopies[key];
+  bpmRender();
+  if(bpmOpenKey === key){
+    const again = bpmItemByKey(key);
+    if(again) bpmPaintDialogControls(again);
+  }
+}
 </script>
 </body>
 </html>
