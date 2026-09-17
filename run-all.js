@@ -21891,15 +21891,27 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
 
       /* ⚠ A RE-QUOTE IS IN EXACTLY ONE FOLDER. Subtracted from the ordinary tabs
          rather than shown in both: a card in two places is a job two people do, or
-         - far more likely - a job each of them assumes the other did. */
-      check('S65', 'an open re-quote goes to Re-quotes at every stage',
+         - far more likely - a job each of them assumes the other did.
+         ⭐ REPOINTED 2026-09-17 ([[QT-43]]), AND ONLY HALF OF IT MOVED. Addie:
+         "Everything on requotes that is awaiting response should go under awaiting
+         response." A SENT re-quote now files under 'send' with every other card the
+         office is chasing. The sentence above is kept because it is still the rule
+         these checks hold: exactly one folder, never two — what changed is WHICH.
+         ⚠ THE OLD ASSERTION WAS "at every stage" AND THAT PART IS GENUINELY REVERSED.
+         Its reasoning was that a priced re-quote must not "fall back into the ordinary
+         pipeline half way through", which is right about CONVERTING — that is why the
+         'form' stage below still stays in Re-quotes — and was wrong about chasing. */
+      check('S65', 'an open re-quote stays in Re-quotes until it has gone out',
         f({existingCustomerId: 'c1'}) === 'requote' &&
-        f({existingCustomerId: 'c1', quotedPrice: 400}) === 'requote' &&
         f({existingCustomerId: 'c1', quotedPrice: 400, approvalStatus: 'approved', formCompleted: true}) === 'requote',
-        'a re-quote that is priced must not fall back into the ordinary pipeline half way through');
+        'unsent, and ready-to-convert, are both jobs for us rather than waits on the customer');
+      check('S65', 'and a sent one joins Awaiting Response',
+        f({existingCustomerId: 'c1', quotedPrice: 400}) === 'send',
+        'a re-quote waiting on a reply is chased from the same list as everybody else');
       check('S65', 'including one raised by hand off an existing quote',
-        f({requoteCount: 1, quotedPrice: 400}) === 'requote',
-        'both kinds of re-quote are the same job and belong in the same place');
+        f({requoteCount: 1, quotedPrice: 400}) === 'send' &&
+        f({requoteCount: 1}) === 'requote',
+        'both kinds of re-quote are the same job and must move together');
 
       /* ⚠ CLOSED IS STILL ONE FOLDER, deliberately. History is looked up in one
          place; splitting it means checking both every time and finding it in
@@ -45458,10 +45470,17 @@ suite('263. Priced is not sent - the card stays in Quotes');
   /* ---- and the folder, which is the tab she is actually looking at --- */
   check('S263', 'the Quotes TAB is where an unsent priced quote is filed',
     folder({ quotedPrice: 600 }) === 'new');
-  check('S263', 'a re-quote still goes to Re-quotes, sent or not',
-    folder({ quotedPrice: 600, existingCustomerId: 'c1' }) === 'requote' &&
-    folder({ quotedPrice: 600, existingCustomerId: 'c1', quoteSentAt: ts() }) === 'requote',
-    'the re-quote folder was never about how far along the card is');
+  /* ⭐ REPOINTED 2026-09-17 ([[QT-43]]). This read "a re-quote still goes to Re-quotes,
+     sent or not — the re-quote folder was never about how far along the card is", and
+     that is exactly what Addie changed: "Everything on requotes that is awaiting response
+     should go under awaiting response." Sent is now the whole of what decides it, so the
+     two halves are asserted apart rather than the check being dropped. */
+  check('S263', 'an unsent re-quote is still filed under Re-quotes',
+    folder({ quotedPrice: 600, existingCustomerId: 'c1' }) === 'requote',
+    'nothing has gone out, so nobody is being waited on — that is a job for us');
+  check('S263', 'and a sent one is filed under Awaiting Response',
+    folder({ quotedPrice: 600, existingCustomerId: 'c1', quoteSentAt: ts() }) === 'send',
+    'one list of everyone the office is chasing, which is the whole of the ruling');
 
   /* ⚠ THE TEST-CARD BUILDER HAS TO AGREE. It stages a card into a named tab by
      writing fields; if "sent" stops meaning what it writes, Build Test Customer
@@ -60597,4 +60616,332 @@ suite('Suite 333. The sheet says how many PEOPLE it holds, not how many rows');
     !/hlxLoadConnectedSheet[\s\S]{0,4000}?rbShowSheetStatus\("Read " \+ live\.rows/.test(bare) &&
     bare.indexOf('res.name || "your sheet") + " \\u2014 " + res.rows +') === -1,
     'a second place spelling the count out for itself is how the two start disagreeing');
+}
+
+suite('Suite 334. Somebody who leaves the season comes off the plan on its own');
+/* ⭐ [[SCH-78]]. Addie, 2026-09-17: "Linda Hunley still shows as scheduled even though I
+   switched her to pending ... I'm also noticing a lot of people are scheduled but say no
+   on the schedule like Miko Johnson."
+
+   ⛔ THE RULE WAS NEVER MISSING — ONLY ONE DOOR RAN IT. rebuildSeasonDays has dropped
+   out-of-season houses since 2026-08-22, and that is ⚙ Recalculate everything. The
+   five-minute sync only ever added and corrected, so a customer who answered no sat on a
+   crew's day until somebody happened to press a button.
+
+   ⚠ EVERY BEHAVIOURAL CLAIM HERE IS RUN, NOT MATCHED. They are all about which houses
+   are left on a day afterwards, and a regex cannot see an array. The two WIRING claims —
+   that the sync calls it at all, and that its counts reach the early return — are
+   asserted separately, because this suite calls the sweep from its own harness and would
+   stay green with the call deleted from the page. That is the exact shape this repo has
+   shipped before. */
+{
+  const dropSrc = extractFn(admin, 'dropHousesWhoLeftSeason');
+
+  /* isOutForSeason is LIFTED, never stubbed: the one claim worth more than all the
+     others is that this sweep asks the same rule the route generator and the build
+     queue ask. A stub here would decide the very thing under test. */
+  const run = (season, book, locked) => new Function('SEASON', 'jobAddresses', '__locked',
+    seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
+    'function dayDate(d){ return d._date; }\n' +
+    'function isoOf(dt){ return dt.toISOString().slice(0,10); }\n' +
+    'function routeDayIsLocked(iso){ return __locked.indexOf(iso) !== -1; }\n' +
+    'function planCustomerFor(h){ return jobAddresses.find(function(a){ return a.id === h.custId; }) || null; }\n' +
+    dropSrc + '\nreturn dropHousesWhoLeftSeason();'
+  )(season, book, locked || []);
+
+  const day = (iso, houses) => ({ _date: new Date(iso + 'T12:00:00Z'), houses: houses });
+  const house = (name, custId, extra) => Object.assign({ id: name, name: name, custId: custId }, extra || {});
+  const cust = (id, data) => ({ id: id, data: data });
+  const IN = { rsvpStatus: 'yes', rsvpRespondedAt: new Date() };
+  const OUT = { rsvpStatus: 'no' };
+
+  {
+    const d = day('2026-11-03', [house('Miko Johnson', 'c1'), house('Stays', 'c2')]);
+    const out = run([d], [cust('c1', OUT), cust('c2', IN)]);
+    check('S334', 'somebody who answered no comes off the day',
+      d.houses.length === 1 && d.houses[0].name === 'Stays',
+      'this is the complaint — a house on a crew sheet for a customer who said no');
+    check('S334', 'and the one who is coming is left exactly where they were',
+      out.dropped.length === 1 && out.dropped[0].name === 'Miko Johnson',
+      'a sweep that empties a day is worse than one that never ran');
+  }
+
+  /* ⚠ THE OFFICE DOOR AND THE CUSTOMER DOOR ARE THE SAME FACT, and the office one is
+     what Addie actually pressed. maybeNextYear is set by the Edit Customer toggle while
+     portalRsvp writes the status alone — isOutForSeason reads both, and a sweep reading
+     one of them misses exactly half the people. */
+  {
+    const d = day('2026-11-03', [house('Linda Hunley', 'c1')]);
+    run([d], [cust('c1', { maybeNextYear: true })]);
+    check('S334', 'and so does somebody the OFFICE switched, not just somebody who answered',
+      d.houses.length === 0,
+      'Linda was switched in Customers — a rule reading rsvpStatus alone would leave her on');
+  }
+
+  /* ⚠ NO RECORD, NO OPINION. An imported CSV row need never match a customer. */
+  {
+    const d = day('2026-11-03', [house('Imported row', 'nobody')]);
+    run([d], [cust('c1', IN)]);
+    check('S334', 'a house with no customer behind it is left alone',
+      d.houses.length === 1,
+      'reading "not found" as "not coming" would empty an imported plan on the first tick');
+  }
+
+  /* ⚠ AND AN EMPTY BOOK IS NOT AN EMPTY SEASON — this one runs on a timer with nobody
+     watching, so the failure would be silent and total.
+     ⚠ THE INVARIANT IS REAL AND THE SABOTAGE FOR IT IS A NO-OP, said plainly rather than
+     counted as a catch. Deleting the empty-book guard changes nothing, because
+     planCustomerFor answers null against an empty book and the no-record guard above
+     returns first. The guard stays — it is the fail-safe this sweep is documented on and
+     it saves a whole SEASON walk — but the only thing standing between an empty listener
+     and an emptied plan is the line above, and that is what this check really holds. */
+  {
+    const d = day('2026-11-03', [house('Anybody', 'c1')]);
+    const out = run([d], []);
+    check('S334', 'an empty customer book removes nobody at all',
+      d.houses.length === 1 && out.dropped.length === 0,
+      'jobAddresses is empty for a moment after login and again if the listener fails');
+  }
+
+  /* ⚠ A PRINTED SHEET IS NOT SOMETHING A BACKGROUND SWEEP CAN UN-PRINT. */
+  {
+    const d = day('2026-11-03', [house('On the truck', 'c1')]);
+    const out = run([d], [cust('c1', OUT)], ['2026-11-03']);
+    check('S334', 'a day inside the 48-hour lock is reported, never emptied',
+      d.houses.length === 1 && out.locked.length === 1 && out.dropped.length === 0,
+      'the crew is holding that sheet — that is a phone call, not a silent edit');
+  }
+
+  /* ⚠ SOMEBODY SITTING THE SEASON OUT STILL HAS LIGHTS TO COME DOWN. */
+  {
+    const d = day('2026-11-03', [house('Takedown', 'c1', { isTakedown: true }),
+                                 house('Fix', 'c1', { isFix: true }),
+                                 house('Done already', 'c1', { done: true })]);
+    run([d], [cust('c1', OUT)]);
+    check('S334', 'takedowns, fixes and finished work are never swept',
+      d.houses.length === 3,
+      'all three are work on lights that are already up, or already done');
+  }
+
+  /* ---- the wiring, which the harness above cannot see ---- */
+  const syncStart = admin.indexOf('window.scheduleSyncFromCustomers=function(opts){');
+  const syncEnd = admin.indexOf('function __startSyncTimer()', syncStart);
+  const sync = (syncStart > -1 && syncEnd > syncStart) ? stripComments(admin.slice(syncStart, syncEnd)) : '';
+  check('S334', 'the periodic sync actually calls it',
+    /leftSeason=dropHousesWhoLeftSeason\(\)/.test(sync),
+    'every behavioural check above passes with the call deleted from the page');
+  check('S334', 'and before the three sweeps that move or place anybody',
+    sync.indexOf('dropHousesWhoLeftSeason()') < sync.indexOf('placeUnscheduledOnNextDay()') &&
+    sync.indexOf('dropHousesWhoLeftSeason()') < sync.indexOf('enforceInstallTiming()'),
+    're-homing and re-timing a house that is about to come off is work thrown away');
+  /* ⚠ THE ONE THAT DECIDES WHETHER ANY OF THIS REACHES FIRESTORE. A tick whose only
+     finding is a drop returns before renderAll and scheduleSave, so the house comes off
+     in memory and goes straight back on at the next reload. */
+  check('S334', 'and a drop-only tick still saves the plan',
+    /!leftSeason\.dropped\.length[\s\S]{0,80}!leftSeason\.locked\.length/.test(sync),
+    'left out of the early return, the whole fix is invisible after a refresh');
+  check('S334', 'a failure in the sweep cannot take the rest of the sync down',
+    /catch\(err\)\{ console\.error\('Season drop sweep failed:'/.test(sync),
+    'the towns and timings it just pulled across matter more than this');
+  check('S334', 'and the office is told, by name when it is one person',
+    /leftSeason\.dropped\[0\]\.name/.test(sync) && /out for the season/.test(sync),
+    '"somebody left Tuesday" with no explanation is how the office stops trusting the plan');
+}
+
+suite('Suite 335. Money on the bill is an answer');
+/* ⭐ [[SCH-79]]. Addie, 2026-09-17: "If they already paid for there lights they should be
+   marked as confirmed and scheduled."
+
+   ⚠ EVERY CLAIM IS RUN. This is a rule about who gets a crew, and the failure it is most
+   likely to have is one of ORDER — money quietly outranking an answer, or the arrears
+   hold. A regex cannot see which branch returned first. */
+{
+  const paidSrc = extractFn(admin, 'housePaidThisSeason');
+  check('S335', 'the rule is in admin.html', !!paidSrc,
+    'housePaidThisSeason — renamed? repoint this suite rather than deleting it');
+
+  /* ⚠ THE RULE MUST BE LIVE OR THE WHOLE BRANCH IS SKIPPED, and every check below would
+     pass against a season rule that never ran — the vacuous-fixture trap this file names
+     in four other places. seasonRuleLiveSrc is what turns it on.
+     ⚠ AND houseOwesFromLastSeason IS THE ONE THING STUBBED. The claim being tested is the
+     ORDER — that an unpaid last season still holds somebody who has paid this one — so
+     what matters is that the arrears rule ANSWERS first, not how it decides. Its own
+     decision has its own coverage. */
+  const INV = [
+    ['8015550111', { install: 400, removal: 0, deposit: 100, credits: 0, changeFees: 0 }],
+    ['8015550222', { install: 400, removal: 0, deposit: 0, credits: 400, changeFees: 0 }],
+    ['8015550333', { install: 400, removal: 0, deposit: 400, credits: 0, changeFees: 0 }]
+  ];
+  const F = new Function('INVOICES',
+    seasonRuleLiveSrc() + custInvoiceKeySrc +
+    'const invoiceById = new Map(INVOICES.map(function(p){ return [p[0], {id:p[0], data:p[1]}]; }));\n' +
+    'function houseOwesFromLastSeason(d){ return !!d.__owes; }\n' +
+    paidSrc + extractFn(admin, 'isOutForSeason') + extractFn(admin, 'seasonBadgeKey') +
+    'return {out:isOutForSeason, badge:seasonBadgeKey, paid:housePaidThisSeason};')(INV);
+
+  const partPayer  = { phone: '8015550111' };                 // put a deposit down, never replied
+  const creditOnly = { phone: '8015550222' };                 // bill cleared by a credit, no money in
+  const noInvoice  = { phone: '8015559999' };                 // never billed
+  const fullPayer  = { phone: '8015550333' };
+
+  check('S335', 'somebody who paid and never replied is in the season',
+    F.out(partPayer) === false,
+    'this is the ruling — a deposit says what they want as plainly as a button press');
+  check('S335', 'and the badge follows without being told separately',
+    F.badge(partPayer) === 'confirmed',
+    'seasonBadgeKey delegates, so a second opinion here is what brings the disagreement back');
+  check('S335', 'somebody who has neither paid nor replied is still out',
+    F.out(noInvoice) === true,
+    'if this passes for everybody the confirmed-only rule has been switched off entirely');
+
+  /* ⛔ THE CHECK THIS WHOLE DESIGN TURNS ON. Read off computeInvoiceStatus instead of the
+     deposit, this customer reads "Paid in Full" and is scheduled having paid nothing. */
+  check('S335', 'a bill cleared by CREDITS alone is not somebody paying',
+    F.out(creditOnly) === true && F.paid(creditOnly) === false,
+    'a referral or goodwill credit is not a payment — the status cannot tell the two apart');
+
+  /* ⚠ AN ANSWER OUTRANKS MONEY, ALWAYS, and this is the ordering that would cost a crew. */
+  check('S335', 'a paid customer who said no is still out',
+    F.out({ phone: '8015550333', rsvpStatus: 'no' }) === true,
+    'paying then cancelling is a cancellation — sending a crew there is the expensive mistake');
+  check('S335', 'and so is one marked Back Next Year by the office',
+    F.out({ phone: '8015550333', maybeNextYear: true }) === true,
+    'the office flag and the customer answer are one fact; money must not override either');
+  check('S335', 'and so is one whose bundle is queued to be taken apart',
+    F.out({ phone: '8015550333', needsLightRecycle: true }) === true,
+    'by the time a crew arrived there would be nothing to hang');
+
+  /* ⚠ LAST SEASON'S DEBT IS A DIFFERENT BILL AND STILL HOLDS THEM. Addie, 2026-08-31:
+     "If they didn't pay last year they should not be scheduled to be hung." */
+  check('S335', 'paying this season does not clear last season',
+    F.out({ phone: '8015550333', __owes: true }) === true,
+    'two different bills — and the arrears hold is tested above this one for that reason');
+
+  /* ⚠ THE PAYER'S BILL, which is the half a phone-keyed fixture alone cannot see. */
+  check('S335', 'a house billed to somebody who paid is in the season too',
+    F.out({ phone: '8015557777', billToPhone: '(801) 555-0333' }) === false,
+    'one bill covering several houses is the whole reason billToPhone exists');
+  check('S335', 'and the payer key is read through the digits, not compared raw',
+    F.paid({ phone: '8015557777', billToPhone: '(801) 555-0333' }) === true,
+    'stored phones are not all digits-only — comparing raw strings is how this app duplicated its book once');
+}
+
+suite('Suite 336. The office sees the colours the member just picked');
+/* ⭐ [[WH-39]]. Addie, 2026-09-17: "When someone makes a change in member portal for lights
+   it should automatically change/add lights in costumers."
+
+   ⛔ portalSave writes `lightsDescription` and nothing else, so after a member changes their
+   colours the record holds the NEW ones in the description and the OLD ones in `lightColors`.
+   Edit Customer read the list first and ticked last year's colours.
+
+   ⚠ IT RUNS THE SHIPPED LINE, NOT A COPY OF IT. The two statements are sliced out of
+   openEditCustomerModal and evaluated against the real houseLightsText and parseCustLights —
+   a reimplementation here would pass whatever the page does, which is the trap this file
+   names in four other places. */
+{
+  const a = admin.indexOf("  const parsedLights = parseCustLights(");
+  const b = admin.indexOf("  document.querySelectorAll('.editcust-color-check')", a);
+  const slice = (a > -1 && b > a) ? admin.slice(a, b) : '';
+  check('S336', 'the colour-ticking rule is findable in Edit Customer',
+    !!slice && /custColors/.test(slice),
+    'openEditCustomerModal restructured — repoint this slice rather than deleting the suite');
+
+  if (slice) {
+    /* ⚠ houseLightsText IS LIFTED, NEVER STUBBED. "Which of the two fields wins" is the
+       entire question, and a stub would answer it for us. */
+    const ticked = new Function('d',
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'parseCustLights') +
+      slice + '\nreturn custColors;');
+
+    /* ⚠ THE FIXTURE IS THE REAL SHAPE: the two fields DISAGREEING. One carrying both in
+       step passes whether the fix is there or not. */
+    const afterPortalChange = ticked({ lightsDescription: 'Red, Green', lightColors: ['Warm White'] });
+    check('S336', 'a portal colour change is what the boxes show',
+      afterPortalChange.indexOf('Red') !== -1 && afterPortalChange.indexOf('Green') !== -1 &&
+      afterPortalChange.indexOf('Warm White') === -1,
+      'this is the complaint — the office saw last year’s colours and the change looked lost');
+
+    check('S336', 'and a house with no description still shows its list',
+      ticked({ lightsDescription: '', lightColors: ['Warm White'] }).join() === 'Warm White',
+      'an ordinary house keeps its colours in lightColors and its description empty — see houseLightsText');
+
+    check('S336', 'a note in brackets is not ticked as a colour',
+      ticked({ lightsDescription: 'Warm White (every third bulb)', lightColors: [] }).join() === 'Warm White',
+      'parseCustLights splits the note off; ticking "every third bulb" would tick nothing at all');
+
+    check('S336', 'a strand keeps every position it was written with',
+      ticked({ lightsDescription: 'Red, Green, Red, Green', lightColors: ['Red'] }).length === 4,
+      'order carries information — rr means two reds, and the list cannot say that');
+
+    check('S336', 'and a house with nothing on file ticks nothing',
+      ticked({}).length === 0,
+      'nothing ticked is how the form says nobody has been asked');
+  }
+
+  /* ⚠ THE WIRING, which the harness above cannot see: the slice could be perfect and the
+     boxes could be ticked from something else entirely two lines later. */
+  const fill = admin.slice(admin.indexOf('  const parsedLights = parseCustLights('),
+                           admin.indexOf('  editCustLightsRaw = String('));
+  check('S336', 'the tick boxes are filled from that answer and nothing else',
+    /cb\.checked = custColors\.includes\(cb\.value\)/.test(fill),
+    'a second source for the ticks is how this screen starts disagreeing with itself again');
+  check('S336', 'and what was on file is still read description-first below them',
+    /editCustLightsRaw = String\(d\.lightsDescription \|\| ''\)\.trim\(\)/.test(admin),
+    'the guard and the ticks must agree about which field wins, or a save refuses for the wrong reason');
+}
+
+suite('Suite 337. A re-quote waiting on a reply waits with everybody else');
+/* ⭐ [[QT-43]]. Addie, 2026-09-17: "Everything on requotes that is awaiting response should
+   go under awaiting response."
+
+   ⚠ RUN, NOT MATCHED. Every claim here is about which tab a card lands on, and quoteFolder
+   is a composition of quoteStage and isRequote — both LIFTED, because "is this a re-quote"
+   and "has it been sent" are the two things the answer turns on and a stub would decide
+   them for us. */
+{
+  /* ⚠ quoteWasSentOut IS LIFTED TOO, AND THE FIRST DRAFT WITHOUT IT CRASHED THE WHOLE
+     SUITE with a bare ReferenceError — the extraction-list trap this file records nine
+     times over. Lifted, never stubbed: "has this gone out" is half of what decides the
+     tab, so a stub would answer the question under test. */
+  const F = new Function('d',
+    extractFn(admin, 'isRequote') + extractFn(admin, 'quoteWasSentOut') +
+    extractFn(admin, 'quoteStage') + extractFn(admin, 'quoteFolder') +
+    'return quoteFolder(d);');
+
+  /* Priced AND sent is what quoteStage calls 'send' — the Awaiting Response tab. */
+  const sentRequote  = { quotedPrice: 400, quoteManuallySent: true, existingCustomerId: 'c1' };
+  const sentFirst    = { quotedPrice: 400, quoteManuallySent: true };
+  const unsentRequote= { quotedPrice: 400, existingCustomerId: 'c1' };
+  const newRequote   = { existingCustomerId: 'c1' };
+
+  check('S337', 'a sent re-quote sits under Awaiting Response',
+    F(sentRequote) === 'send',
+    'this is the ruling — one list of everyone the office is chasing');
+  check('S337', 'and an ordinary sent quote is unmoved',
+    F(sentFirst) === 'send',
+    'if this changed, the tab it is being moved INTO is what broke');
+
+  /* ⚠ RE-QUOTES WITH SOMETHING LEFT TO DO STAY WHERE THEY ARE — that is what the tab is
+     for now, and moving them would empty it. */
+  check('S337', 'a re-quote that has not gone out yet stays in Re-quotes',
+    F(unsentRequote) === 'requote',
+    'priced but unsent is not waiting on the customer, it is waiting on us');
+  check('S337', 'and so does one nobody has priced',
+    F(newRequote) === 'requote',
+    'quoteStage calls that "new" — there is nothing for the customer to answer');
+
+  /* ⚠ CLOSED IS STILL ONE FOLDER. History is looked up in one place; splitting it means
+     checking both every time and finding it in neither when the guess is wrong. */
+  check('S337', 'a closed re-quote is still filed with every other closed quote',
+    F({ status: 'closed', existingCustomerId: 'c1' }) === 'closed',
+    'that rule predates this one and is untouched by it');
+
+  /* ⛔ THE HALF OF THE OLD RULE THAT WAS LOAD-BEARING. A card in two places is a job each
+     of two people assumes the other has done. quoteFolder returns ONE string, so this is
+     structural rather than a matter of care — asserted so a future "show it in both"
+     cannot pass quietly. */
+  const all = [sentRequote, sentFirst, unsentRequote, newRequote].map(F);
+  check('S337', 'every card is still in exactly one folder',
+    all.every(f => typeof f === 'string' && f.length > 0),
+    'the old ruling this narrows was about double-listing, and that part still stands');
 }

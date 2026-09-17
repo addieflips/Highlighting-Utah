@@ -13667,6 +13667,23 @@ function collapseClosedByHouse(items){
 function quoteFolder(d){
   const stage = quoteStage(d);
   if(stage === 'closed') return 'closed';
+  /* ⭐ A RE-QUOTE WAITING ON A REPLY WAITS WITH EVERYBODY ELSE (2026-09-17, [[QT-43]]).
+     Addie: "Everything on requotes that is awaiting response should go under awaiting
+     response."
+
+     ⛔ ONE LIST OF EVERYONE WE ARE CHASING. Awaiting Response is the tab the office works
+     down — it carries the quiet-days filter, the bulk nudge and the nudge ladder — and a
+     re-quote that has been priced and sent is in exactly that state. Held back in its own
+     tab it was chased by a different person on a different day, or not at all.
+
+     ⚠ IT IS STILL IN EXACTLY ONE FOLDER, which is the half of the old rule that was load
+     bearing and is kept: a card in two places is a job each of two people assumes the
+     other has done. What changed is WHICH folder, not how many.
+
+     ⚠ AND ONLY WHEN IT IS ACTUALLY SENT. `quoteStage` returns 'send' for priced AND sent
+     — a re-quote still being written stays in Re-quotes, which is what that tab is for
+     now: the ones with something left to do before they go out. */
+  if(stage === 'send') return 'send';
   return isRequote(d) ? 'requote' : stage;
 }
 /* ⭐ WHAT A RE-QUOTED HOUSE ALREADY HAS, READ OFF THE CUSTOMER (2026-08-30).
@@ -19213,6 +19230,45 @@ function houseOwesFromLastSeason(d){
   const inv = invoiceById.get(key) || null;
   if(!inv) return false;
   return owesFromLastSeason(inv.data);
+}
+/* ⭐ MONEY ON THE BILL IS AN ANSWER (2026-09-17, [[SCH-79]]). Addie, asked what should
+   happen to somebody who has paid but never pressed a button: "If they already paid for
+   there lights they should be marked as confirmed and scheduled."
+
+   ⛔ THE DEPOSIT, NEVER THE STATUS. `computeInvoiceStatus` answers "Paid in Full" for a
+   bill covered entirely by CREDITS as well as one covered by money — and a referral
+   credit or a goodwill write-off is emphatically not somebody paying. Read off the
+   status, a customer handed a credit that covers their whole bill would be confirmed and
+   sent a crew having neither replied nor paid a penny. The deposit is the only field that
+   means money arrived.
+
+   ⚠ AND IT IS SAFE ONLY BECAUSE Start New Season WRITES `deposit: 0` ON EVERY INVOICE.
+   Verified in that reset before this shipped. If that ever stops, last season's payment
+   reads as this season's and this line confirms the entire book, for ever, in silence —
+   which is the same standing dependency Q-013's `completed` test carries.
+
+   ⚠ A PART PAYMENT COUNTS, deliberately. Somebody who puts a deposit down has told us
+   what they want at least as plainly as a button press, and Addie's word was "paid", not
+   "paid in full". What they still owe is a different question, asked by
+   houseOwesFromLastSeason above — and that one is about LAST season, so it still holds
+   them whatever they have paid towards this one.
+
+   ⚠ IT READS THE BILL THE HOUSE IS ACTUALLY ON, the payer's included — the same
+   resolution as houseOwesFromLastSeason directly above, so the hold and the confirmation
+   can never name different people. A parent who has paid confirms the child's house,
+   which is the whole point of one bill covering several.
+
+   ⚠ NO INVOICE IS NOT A PAYMENT. Answering true for a missing invoice would confirm
+   every customer the nightly run has not reached yet, which before the season starts is
+   nearly the whole book — the exact shape of failure this rule exists to prevent. */
+function housePaidThisSeason(d){
+  if(!d) return false;
+  if(typeof invoiceById === 'undefined' || !invoiceById) return false;
+  const key = String(d.billToPhone || '').replace(/\D/g,'') || custInvoiceKey(d);
+  if(!key) return false;
+  const inv = invoiceById.get(key) || null;
+  if(!inv) return false;
+  return (Number(inv.data.deposit) || 0) > 0;
 }
 /* How much they still owe from last season, for the screens that have to say it in
    money. Same resolution as above so the list and the hold can never name different
@@ -37440,6 +37496,19 @@ function isOutForSeason(d){
        above return before this line, so a new hang who says no is still out. This only
        covers somebody who has said nothing because nothing was asked. */
     if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)) return false;
+    /* ⭐ AND MONEY IS AN ANSWER ([[SCH-79]], 2026-09-17). Addie: "If they already paid
+       for there lights they should be marked as confirmed and scheduled." Somebody who
+       has put money down has told us what they want; holding them off a crew for the want
+       of a button press is the complaint this whole branch keeps producing.
+       ⚠ IT IS INSIDE THIS BRANCH, WHICH IS THE WHOLE OF ITS SAFETY. Said no, back next
+       year, Maybe Next Year, a queued recycle and last season's unpaid bill all return
+       ABOVE, so paying can only ever override "has not replied" — never an answer, and
+       never the arrears hold. A paid customer who then says no is still out, which is
+       Addie's own "they can change there decisions" rule pointing the same way.
+       ⚠ AND IT CANNOT CONFIRM THE BOOK BY ACCIDENT: housePaidThisSeason reads the
+       DEPOSIT off the bill this house is on, never the status, and Start New Season zeroes
+       that field on every invoice. Read its own note before changing either half. */
+    if(typeof housePaidThisSeason === 'function' && housePaidThisSeason(d)) return false;
     return !(String(d.rsvpStatus || '').toLowerCase() === 'yes' && !!d.rsvpRespondedAt);
   }
   return false;
@@ -54478,8 +54547,44 @@ function openEditCustomerModal(id){
   document.getElementById('editCustWantsMailed').checked = !!d.wantsMailedInvoice;
   document.getElementById('editCustWantsTexted').checked = !!d.wantsTextedInvoice;
   // Lights, house areas, install timing, notes and photo — all edited here now.
-  const parsedLights = parseCustLights(d.lightsDescription || '');
-  const custColors = (d.lightColors && d.lightColors.length) ? d.lightColors : parsedLights.colors;
+  /* ⭐ THE BOXES SHOW WHAT `houseLightsText` SAYS, NOT `lightColors` FIRST (2026-09-17,
+     [[WH-39]]). Addie: "When someone makes a change in member portal for lights it should
+     automatically change/add lights in costumers."
+
+     ⛔ THE CHANGE WAS ARRIVING AND THIS FORM WAS DRAWING THE OLD ONE. `portalSave` writes
+     `lightsDescription` and nothing else — `lightColors` is not in the lights section's
+     write list and there is no colour parser on the server to fill it — so after a member
+     picks new colours the record holds the NEW ones in the description and the OLD ones in
+     the list. This line read the list first, so the office opened the record and saw last
+     year's colours ticked, which is indistinguishable from the portal change never having
+     happened.
+
+     ⚠ THE DESCRIPTION WAS NEVER LOST, which is why nothing anywhere went red. Saving over
+     it keeps the stored wording (`keptStoredWording` below, because the ticks matched what
+     was drawn) — so the warehouse, the fee and the printed sheets have had the new colours
+     the whole time and only this screen disagreed. That is worse than losing it, not
+     better: the one person who could correct it was the one being shown the wrong answer.
+
+     ⚠ IT IS THE ONE ANSWER EVERY OTHER READER ALREADY USES. `houseLightsText` prefers the
+     description precisely because it carries the ORDER, and the five warehouse callers, the
+     $30 light-change fee and both printed sheets all ask it. This form was the last reader
+     still deciding for itself — the same shape as [[WH-28]], where the fee read one field
+     of the two and the whole imported book could change its lights for free.
+
+     ⚠ AND `lightColors` COMES BACK INTO STEP ON THE NEXT OFFICE SAVE, which is what makes
+     this the whole fix rather than half of one: the save writes both fields from the ticks,
+     and the ticks are now right. A second writer on the server would mean a colour parser
+     living in two places, which is the parity pair this repo pays for twice already. */
+  /* ⚠ ONE ANSWER, AND NO SECOND FALL-BACK BESIDE IT. houseLightsText ALREADY returns the
+     joined colour list when there is no description, so a `|| d.lightColors` here would be a
+     second copy of the rule it is being asked for. A red-check proved that is not merely
+     untidy: with the fall-back present, deleting the houseLightsText call changed no answer
+     for any fixture, so the one line this fix turns on was not being tested at all.
+     ⚠ The typeof guard falls back to the description alone rather than to nothing, because
+     an unreadable form is worse than a stale one. */
+  const parsedLights = parseCustLights(
+    (typeof houseLightsText === 'function') ? houseLightsText(d) : (d.lightsDescription || ''));
+  const custColors = parsedLights.colors;
   document.querySelectorAll('.editcust-color-check').forEach(function(cb){
     cb.checked = custColors.includes(cb.value);
     cb.closest('.pill-check').classList.toggle('checked', cb.checked);
@@ -71708,6 +71813,66 @@ function rehomeMovedHouses(ids){
   });
   return out;
 }
+/* ⭐ AND ANYBODY WHO HAS LEFT THE SEASON COMES OFF THE PLAN WITHOUT A BUTTON BEING
+   PRESSED (2026-09-17, [[SCH-78]]). Addie: "Linda Hunley still shows as scheduled even
+   though I switched her to pending ... I'm also noticing a lot of people are scheduled
+   but say no on the schedule like Miko Johnson."
+
+   ⛔ THE RULE EXISTED AND ONLY ONE DOOR RAN IT. `rebuildSeasonDays` has dropped
+   out-of-season houses since 2026-08-22 — but that is ⚙ Recalculate everything, a button
+   nobody should have to know to press for a customer who has just answered no. The
+   five-minute sync has only ever ADDED (placeUnscheduledOnNextDay) and CORRECTED
+   (syncHousesFromCustomers, enforceInstallTiming); nothing in it has ever taken a house
+   off a day. So from the moment somebody answers no, or the office switches them to
+   pending, they sit on a crew's sheet until the next rebuild — which is exactly the
+   state she is reading off the screen.
+
+   ⚠ IT ASKS isOutForSeason AND DOES NOT RE-DECIDE, the same reason
+   customersMissingFromSeason and placeUnscheduledOnNextDay both defer to it. A second
+   opinion about who is coming, living in the schedule, is how the plan and the crew
+   start holding different lists.
+
+   ⚠ NO RECORD, NO OPINION. An imported CSV row need not match a customer at all, and
+   reading "nobody found" as "not coming" would empty most of an imported plan on the
+   first tick. rebuildSeasonDays drops those separately, where the office is standing in
+   front of it; a sweep that runs every five minutes on a timer must not.
+
+   ⚠ AND AN EMPTY BOOK IS NOT AN EMPTY SEASON. jobAddresses is empty for a moment after
+   login and empty again if the listener fails, and an ungated version would read that as
+   "nobody is a customer" and clear the whole plan with nobody watching.
+
+   ⚠ A LOCKED DAY IS REPORTED, NEVER EMPTIED. Inside 48 hours the sheet is printed and
+   the truck is loaded, and un-printing paper is not something a background sweep can do.
+   The office is told instead, so they ring the crew rather than finding out from them.
+
+   ⚠ AND TAKEDOWNS AND FIXES STAY. Both are work on lights that are already up, so
+   somebody sitting the season out may still need theirs taking down — the same exemption
+   rebuildSeasonDays makes, for the same reason. */
+function dropHousesWhoLeftSeason(){
+  const out = {dropped: [], locked: []};
+  if(typeof SEASON === 'undefined' || !SEASON.length) return out;
+  if(typeof isOutForSeason !== 'function') return out;
+  if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses) || !jobAddresses.length) return out;
+  const dayStr = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : null; };
+  SEASON.filter(function(d){ return !d.isFixRoute && !d.isTakedown && dayStr(d); })
+        .forEach(function(day){
+    const here = dayStr(day);
+    (day.houses || []).slice().forEach(function(h){
+      if(h.isFix || h.isTakedown || h.done) return;
+      const cust = planCustomerFor(h);
+      const cd = (cust && cust.data) || null;
+      if(!cd) return;
+      if(!isOutForSeason(cd)) return;
+      if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(here)){
+        out.locked.push({name: h.name || '(no name)', date: here});
+        return;
+      }
+      day.houses = day.houses.filter(function(x){ return x !== h; });
+      out.dropped.push({name: h.name || '(no name)', date: here});
+    });
+  });
+  return out;
+}
 /* ---------- customers the plan has never heard of ----------
    ⭐ A NEW CUSTOMER IS IN THE SEASON WITHOUT ANYBODY RE-IMPORTING ANYTHING
    (added 2026-08-20). Owner: "rachel oslund is a new customer but when i click
@@ -73495,6 +73660,13 @@ function exportCSV(){
        Runs FIRST of the three sweeps: it operates on houses already on the plan, and
        putting it ahead of the timing sweep means a house re-homed here is held to its
        own timing in the same pass rather than sitting wrong until the next tick. */
+    /* ⭐ BEFORE ANY OF THE THREE SWEEPS BELOW ([[SCH-78]]). Re-homing, placing and
+       re-timing a house that is about to come off the plan is work thrown away, and
+       placeUnscheduledOnNextDay would otherwise hand a day to somebody this pass is
+       removing. Dropping first means the other three only ever see people who are
+       actually coming. */
+    let leftSeason={dropped:[],locked:[]};
+    try{ leftSeason=dropHousesWhoLeftSeason(); }catch(err){ console.error('Season drop sweep failed:',err); }
     let rehome={moved:[],stuck:[],locked:[]};
     try{ rehome=rehomeMovedHouses(moved.filter(function(c){ return c.field==='town'; })
                                        .map(function(c){ return c.id; })); }
@@ -73503,8 +73675,13 @@ function exportCSV(){
     try{ rejoin=placeUnscheduledOnNextDay(); }catch(err){ console.error("Rejoin placement failed:",err); }
     let timing={moved:[],stuck:[]};
     try{ timing=enforceInstallTiming(); }catch(err){ console.error("Timing sweep failed:",err); }
+    /* ⚠ THE DROP COUNTS BELONG HERE OR THE WHOLE FIX IS DEAD. A tick whose only
+       finding is that somebody left the season would return before renderAll and
+       scheduleSave, so the house would come off the plan in memory and go straight
+       back on at the next reload — the change never reaching Firestore at all. */
     if(!moved.length && !timing.moved.length && !timing.stuck.length
        && !rejoin.placed.length && !rejoin.stuck.length
+       && !leftSeason.dropped.length && !leftSeason.locked.length
        && !rehome.moved.length && !rehome.stuck.length && !rehome.locked.length) return 0;
     /* ⭐ A HOUSE THAT HAS JUST CHANGED DAY OR TOWN IS SITTING OUT OF ORDER.
        enforceInstallTiming puts it on the END of its new day, and a corrected
@@ -73538,6 +73715,17 @@ function exportCSV(){
         : (rejoin.placed.length+" back in \u2014 scheduled on the next day with room"));
       if(rejoin.stuck.length) bits.push(rejoin.stuck.length+
         " back in but no day has room \u2014 press Recalculate everything");
+      /* ⚠ NAMED FOR THE SAME REASON A MOVE IS ([[SCH-78]]). "Somebody left Tuesday" with
+         no explanation is how the office stops trusting the plan, and this one is a
+         customer they may well have been about to ring. */
+      if(leftSeason.dropped.length) bits.push(leftSeason.dropped.length===1
+        ? (leftSeason.dropped[0].name+" is out for the season \u2014 taken off "+leftSeason.dropped[0].date)
+        : (leftSeason.dropped.length+" out for the season \u2014 taken off their days"));
+      /* ⚠ AND THE ONES NOTHING CAN BE DONE ABOUT ARE SAID OUT LOUD RATHER THAN SKIPPED.
+         A day inside 48 hours is printed and loaded, so the crew is still holding this
+         house — that is a phone call, not a silence. */
+      if(leftSeason.locked.length) bits.push(leftSeason.locked.length+
+        " out for the season but still on a day the crew has \u2014 ring them");
       /* ⚠ A MOVE IS NAMED, ALWAYS. "Somebody left Tuesday" with no explanation is how
          the office stops trusting the plan — and a house that changed TOWN is the one
          the crew would otherwise have driven to the wrong address for. */

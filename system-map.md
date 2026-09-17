@@ -30,6 +30,7 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    - **A link that no longer matches a quote says so.** `quoteRespond` and `portalRsvp` report a miss by *throwing*, which makes the call **reject** on the customer's end — so until 2026-08-31 every such link showed "Something went wrong", the wording meant for a server fault, and the accurate "we couldn't find your quote" line could never appear. An out-of-date link is ordinary (the quote was deleted, or re-sent), so it now says the link may be out of date and to ask for a fresh one. `portalCallFailedText` is the one place that wording lives, and all six branches ask it.
    - ⚠ **A genuine outage still reads as one.** Anything that is not a not-found keeps the generic message, and the real error is logged to the console — calling every failure a stale link would hide a real fault behind a reassuring sentence.
    - ⚠ **Approved is not the same as Ready to Convert.** That folder means approved **and** the install-details form completed, so nothing lands there half-filled. A new customer approving gets that form. An **existing member does not** — they are asked "anything changing this year?" instead — so an approved re-quote stays in **Awaiting Response** until the office presses Mark Approved. Known gap, not yet decided.
+   - ⭐ **A SENT RE-QUOTE SITS ON Awaiting Response, NOT ON Re-quotes** (2026-09-17, [[QT-43]]). Addie: *"Everything on requotes that is awaiting response should go under awaiting response."* Awaiting Response is the tab the office works down — it carries the quiet-days filter, the bulk nudge and the nudge ladder — and a re-quote that has been priced and sent is in exactly that state. ⚠ **Still in exactly one folder**, which is the half of the old rule that was load-bearing: a card in two places is a job each of two people assumes the other has done. What changed is *which* folder. ⚠ **And only once it has actually gone out** — a re-quote still being written stays in **Re-quotes**, which is what that tab is for now: the ones with something left to do before they go.
 4. **Convert to customer** — a staff member clicks "Convert to Customer" on the approved quote and is asked which way:
    - **Convert automatically** — saves them there and then, using everything the quote already holds, without leaving the Quotes tab. The popup lists anything the quote is missing *before* it runs, and the result is reported in a toast (customer number, bin count, whether they reached the Warehouse, whether the $30 fee was charged, and anything still missing).
    - **Fill in manually** — opens the Add a Customer form already filled in, so the gaps can be typed in first. This is what the button used to do on its own.
@@ -360,6 +361,23 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    `arrearsOutstanding` — *last* season's debt — so a current bill never touches the
    season badge. Her $946 was this year's.
 
+   ⭐ **AND MONEY IS NOW AN ANSWER IN ITS OWN RIGHT** (2026-09-17, [[SCH-79]]). Addie:
+   *"If they already paid for there lights they should be marked as confirmed and
+   scheduled."* `housePaidThisSeason` reads the **deposit** off the bill this house is
+   on — the payer's where they bill elsewhere — and a customer with money against their
+   name is Confirmed and scheduled without ever pressing a button. A part payment counts.
+
+   ⛔ **The deposit, never the status.** `computeInvoiceStatus` answers *Paid in Full* for
+   a bill cleared entirely by **credits** as well as one cleared by money, and a referral
+   or goodwill credit is not somebody paying. Read off the status, that customer would be
+   sent a crew having neither replied nor paid a penny.
+
+   ⚠ **An answer still outranks money.** Said no, Back Next Year, Maybe Next Year, a
+   queued recycle and last season's unpaid bill are all tested **above** it, so paying can
+   only ever override *"has not replied"* — somebody who pays and then cancels is still
+   out. ⚠ And it holds only because **Start New Season writes `deposit: 0`** on every
+   invoice; if that ever stops, last season's payment confirms the whole book for ever.
+
    ⚠ **And the emailed Yes does work**, bill outstanding or not:
    `test/rsvp-unpaid-this-year.spec.js` drives it in a real browser and the badge goes
    Confirmed. A record still on **On hold** never received that write.
@@ -446,6 +464,25 @@ any upcoming route in the same pass.
 up, and somebody sitting the season out still needs theirs taking down. ⚠ And
 only where there is something to clear — writing false over false on ~950 records
 says nothing and stamps `updatedAt` on every one.
+
+⭐ **AND THE SCHEDULE NO LONGER WAITS FOR THAT BUTTON** (2026-09-17, [[SCH-78]]).
+Addie: *"Linda Hunley still shows as scheduled even though I switched her to
+pending... a lot of people are scheduled but say no on the schedule like Miko
+Johnson."* Dropping an out-of-season house lived **only** in Recalculate
+everything; the five-minute customer sync had only ever added people
+(`placeUnscheduledOnNextDay`) and corrected the ones already there
+(`syncHousesFromCustomers`, `enforceInstallTiming`). So from the moment somebody
+answered no, or the office switched them to pending, they stayed on a crew's day
+until a button nobody should have to know about was pressed.
+`dropHousesWhoLeftSeason` now runs on every sync, **before** the three sweeps that
+move or place anybody.
+
+⚠ **It asks `isOutForSeason` and does not re-decide** — the same rule the route
+generator and the build queue read. ⚠ **No record, no opinion:** an imported CSV
+row need not match a customer, and reading "not found" as "not coming" would empty
+an imported plan on the first tick. ⚠ **A day inside the 48-hour lock is reported,
+never emptied** — the sheet is printed and the truck is loaded, so that is a phone
+call, not a silent edit. ⚠ And the office is told by name when it is one person.
 
 ⭐ **AND A PLAN ROW THAT IS NOT A CUSTOMER COMES OFF THE SEASON** (2026-09-01).
 Measured on the real plan: one customer badged Confirmed, sixteen houses on the
@@ -4607,6 +4644,23 @@ charged people for filling in what looked like a blank.
 the server copies has been passing correctly the whole time. What was wrong is what the caller
 handed it. `houseLightsText` is the one answer to *"what colours does this house have"*, and
 the fee is the sixth reader brought to it.
+
+⭐ **AND EDIT CUSTOMER WAS THE SEVENTH** (2026-09-17, [[WH-39]]). Addie: *"When someone makes a
+change in member portal for lights it should automatically change/add lights in costumers."*
+`portalSave` writes `lightsDescription` and nothing else — `lightColors` is not in that
+section's write list, and there is no colour parser on the server to fill it — so after a
+member picks new colours the record holds the **new** ones in the description and the **old**
+ones in the list. Edit Customer read the list first and ticked last year's colours.
+
+⛔ **The description was never lost, which is why nothing went red.** The warehouse, the fee
+and both printed sheets ask `houseLightsText` and have had the new colours the whole time.
+Only this screen disagreed — and it is the one screen that could have put it right, so the
+person being shown the wrong answer was the only person able to correct it.
+
+⚠ **No second writer was added.** `lightColors` comes back into step on the next office save,
+which writes both fields from the ticks — and the ticks are now right. Filling it on the
+server would mean a colour parser living in two places, which is a parity pair this repo
+already pays for twice.
 
 **And how they asked to be reached** ([[MSG-16]], 2026-09-10). Addie: *"we can no longer see how
 someone prefers to be contacted."* It had not been removed — it was sitting in the small grey
