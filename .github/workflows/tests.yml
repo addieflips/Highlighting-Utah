@@ -239,6 +239,14 @@ jobs:
       # and only noticed by somebody standing at a shelf with the wrong paper.
       - name: Warehouse note (both build sheets carry it)
         run: npm run test:whnote
+      # Named on its own because the failure it catches is a send that does not
+      # happen. The re-quote template is looked up by EXACT name, so a template
+      # called anything but "ReQuotes" made every re-quote off an existing customer
+      # refuse — while first quotes fell back to a built-in body and kept going out.
+      # One kind of email silently missing is not something a generic npm test
+      # failure should be allowed to bury.
+      - name: Re-quote emails (the send has no dead end)
+        run: npm run test:requote-email
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 

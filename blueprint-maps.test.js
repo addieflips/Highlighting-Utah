@@ -80,7 +80,7 @@ const lift = n => liftFrom(adminIx, n);
    growing a third answer to "is this customer new". */
 const NEEDED = [
   'bpmMapsOf', 'bpmNewMapId', 'bpmSavedCopies', 'bpmHasMap',
-  'bpmOpenRequoteFor', 'bpmStageOf', 'bpmItems',
+  'bpmOpenRequoteFor', 'bpmRequoteAppliedThisYear', 'bpmRequoteApproved', 'bpmStageOf', 'bpmItems',
   'bpmCopiesFor', 'bpmIsTicked', 'bpmMatchesQuery', 'bpmMatches', 'bpmShown', 'bpmShownMapped', 'bpmCountFor',
   'bpmIsPending', 'bpmPendingItems', 'bpmEmptyHtml', 'bpmApplyDefaultFilter', 'bpmPaintViewChrome',
   'bpmMatchesStage', 'bpmMatchesMapStatus', 'bpmGroupsForView', 'bpmActiveFilterKeys', 'bpmCountBase',
@@ -225,9 +225,12 @@ const BOOK = [
     phone: '8015550777', blueprintMaps: [map('a', 'Front elevation', 1)]}}
 ];
 const QUOTES = [
-  // an OPEN re-quote against Marcus Reyes, named by customer id
+  /* An OPEN re-quote against Marcus Reyes, named by customer id, and one the customer
+     has APPROVED. ⚠ THE ANSWER IS WHAT MAKES IT PENDING — see [[BPM-04]]: an open
+     re-quote nobody has said yes to is not work yet, so a fixture whose only re-quote
+     is unanswered cannot prove anything about the pending list at all. */
   {id: 'q1', data: {status: 'new', existingCustomerId: 'h-reyes', quotedPrice: 640,
-    approvalStatus: 'pending', quoteSentAt: {seconds: 1}, phone: '8015550003', address: '1590 Canyon Rd'}},
+    approvalStatus: 'approved', quoteSentAt: {seconds: 1}, phone: '8015550003', address: '1590 Canyon Rd'}},
   // a CLOSED re-quote against the Sorensens — history, so they are Returning
   {id: 'q2', data: {status: 'closed', existingCustomerId: 'h-sorensen', quotedPrice: 400,
     approvalStatus: 'approved', phone: '8015550001', address: '367 W 400 S'}},
@@ -879,6 +882,83 @@ check('the fixture holds a new or re-quoted house that DOES have a drawing',
   mappedNew.length > 0, 'the has-a-map half of the rule needs one to bite');
 check('and having one takes it off the pending list',
   mappedNew.every(i => !S.bpmIsPending(i)));
+
+/* ---------------------------------------------------------------------------
+ * ⭐ A RE-QUOTE COUNTS ONCE THEY HAVE SAID YES ([[BPM-04]], 2026-09-17).
+ * Addie, shown two houses on this list: "I see Rachel Oslund is on there and Ashley
+ * Wray but they are quotes and requotes", then the rule: "Once they approve requote
+ * then we should have that come up to put in there map."
+ * ------------------------------------------------------------------------- */
+const RQ_BOOK = [
+  {id: 'h-oslund', data: {name: 'Rachel Oslund', address: '77 S Maple Dr', city: 'Lehi',
+    phone: '8015550111'}},
+  {id: 'h-wray', data: {name: 'Ashley Wray', address: '210 E Center St', city: 'Lehi',
+    phone: '8015550222'}}
+];
+const openRq = (id, phone, addr, answer) => ({id: 'rq-' + id, data: {
+  status: 'new', existingCustomerId: id, quotedPrice: 500, approvalStatus: answer,
+  quoteSentAt: {seconds: 1}, phone: phone, address: addr}});
+
+load(RQ_BOOK, [openRq('h-oslund', '8015550111', '77 S Maple Dr', 'pending'),
+               openRq('h-wray', '8015550222', '210 E Center St', 'approved')]);
+const rqPend = S.bpmPendingItems().map(i => i.houseId);
+/* ⚠ BOTH HOUSES MUST READ Requote, or this pair proves nothing: if the badge differed
+   the exclusion below could be the STAGE doing the work rather than the answer. */
+check('both houses read Requote, so it is not the badge deciding',
+  S.bpmStageOf('h-oslund', RQ_BOOK[0].data) === 'requote' &&
+  S.bpmStageOf('h-wray', RQ_BOOK[1].data) === 'requote',
+  S.bpmStageOf('h-oslund', RQ_BOOK[0].data) + ' / ' + S.bpmStageOf('h-wray', RQ_BOOK[1].data));
+check('an open re-quote nobody has answered is NOT pending',
+  rqPend.indexOf('h-oslund') === -1, 'pending: ' + rqPend.join(', '));
+check('and one they have approved is', rqPend.indexOf('h-wray') !== -1,
+  'pending: ' + rqPend.join(', '));
+
+/* ⛔ AND THE APPROVAL HAS TO OUTLIVE THE QUOTE. Applying a re-quote CLOSES it, so
+   bpmOpenRequoteFor stops finding it within the day — the house would read Returning
+   and drop off this list at exactly the moment the drawing is owed. [[BPM-01]]'s own
+   failure, which is why requoteAppliedAt on the CUSTOMER is the half that is read. */
+const APPLIED_BOOK = [{id: 'h-wray', data: {name: 'Ashley Wray', address: '210 E Center St',
+  city: 'Lehi', phone: '8015550222', requoteAppliedAt: new Date(YEAR, 5, 1)}}];
+const CLOSED_RQ = [{id: 'rq-done', data: {status: 'closed', existingCustomerId: 'h-wray',
+  quotedPrice: 500, approvalStatus: 'approved', phone: '8015550222', address: '210 E Center St'}}];
+load(APPLIED_BOOK, CLOSED_RQ);
+check('the quote really has closed, so there is nothing open left to find',
+  S.bpmOpenRequoteFor('h-wray', APPLIED_BOOK[0].data) === null,
+  'without this the two checks below could be passing on the still-open half');
+check('an APPLIED re-quote still reads Requote',
+  S.bpmStageOf('h-wray', APPLIED_BOOK[0].data) === 'requote',
+  'got ' + S.bpmStageOf('h-wray', APPLIED_BOOK[0].data));
+check('and is still pending — which is the whole point of reading the stamp',
+  S.bpmPendingItems().map(i => i.houseId).indexOf('h-wray') !== -1);
+
+/* ⚠ AND IT EXPIRES. requoteAppliedAt is a STAMP and nothing anywhere clears it, Start
+   New Season included, so without the year the list grows for ever. */
+const OLD_APPLIED = [{id: 'h-wray', data: Object.assign({}, APPLIED_BOOK[0].data,
+  {requoteAppliedAt: new Date(YEAR - 2, 5, 1)})}];
+load(OLD_APPLIED, CLOSED_RQ);
+check('a re-quote applied two years ago is not outstanding work now',
+  S.bpmStageOf('h-wray', OLD_APPLIED[0].data) === 'returning' &&
+  S.bpmPendingItems().length === 0,
+  'stage ' + S.bpmStageOf('h-wray', OLD_APPLIED[0].data) + ', ' + S.bpmPendingItems().length + ' pending');
+
+/* ⚠ IT FAILS TOWARDS NOT PENDING. A closed re-quote with no stamp — declined, or
+   applied before the stamp existed — leaves the house exactly as it was. */
+const NO_STAMP = [{id: 'h-wray', data: {name: 'Ashley Wray', address: '210 E Center St',
+  city: 'Lehi', phone: '8015550222'}}];
+load(NO_STAMP, CLOSED_RQ);
+check('a closed re-quote carrying no applied stamp leaves the house alone',
+  S.bpmPendingItems().length === 0,
+  'an extra house here is what empties this list of its meaning');
+
+/* ⚠ A NEW QUOTE NEEDS NO SUCH TEST, and asserting that is what stops the approval
+   rule being quietly widened onto it. audienceNeverAsked is ALREADY a closed,
+   converted quote — that house has joined, and the drawing is plainly owed. */
+const NEW_ONLY = [{id: 'h-nandi', data: {name: 'Priya Nandi', address: '9 Larch Way',
+  city: 'Lehi', phone: '8015550333', chargeNewMemberFee: true}}];
+load(NEW_ONLY, []);
+check('a new quote is pending with no approval anywhere in sight',
+  S.bpmPendingItems().length === 1 && S.bpmPendingItems()[0].stage === 'new',
+  S.bpmPendingItems().length + ' pending');
 
 /* The view is what she asked for by name: a place the pending ones are sent. */
 load(NO_MAPS);
