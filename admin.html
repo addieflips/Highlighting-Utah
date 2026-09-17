@@ -2055,8 +2055,8 @@
            on this tab — a tool that needs a file handle belongs beside the button that
            grants it. -->
       <div class="card">
-        <h3 style="margin:0 0 6px;">Wire colours nobody wrote down</h3>
-        <p style="font-size:13px; margin:0 0 12px;">The Member Portal used to fill in <strong>White</strong> by itself for anyone with no wire colour on file, so some records now claim a colour nobody picked. This finds every customer whose record says White while your master sheet records nothing for them, and clears it &mdash; so the warehouse reads <strong>Check lights</strong> and somebody sets it for good next time they are at the bin. <strong>It only ever clears, only ever White, and never touches a customer the sheet has no row for.</strong> It reads whichever master sheet you have to hand &mdash; the file connected above on Chrome or Edge, or, on a tablet or in Safari where a browser cannot hold onto a file at all, whatever is in the &ldquo;Paste the whole sheet&rdquo; box above.</p>
+        <h3 style="margin:0 0 6px;">Clear the White wire colours</h3>
+        <p style="font-size:13px; margin:0 0 12px;"><strong>White</strong> used to be written by itself at five different doors &mdash; the quote form, the server behind it, Add Customer, Edit Customer and the conversion prefill &mdash; so a record saying White is usually nobody&rsquo;s answer. This clears <strong>every</strong> White, so those houses read <strong>Check lights</strong> and somebody sets it for good next time they are at the bin. <strong>Nothing invents White any more, so one you choose from now on is kept.</strong> &mdash; and <strong>Green is never touched</strong>: nothing in this app has ever written Green by itself, so a Green was typed by a person. It needs no master sheet; if one is connected or pasted it will also say how many the sheet happens to agree with.</p>
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
           <button type="button" class="btn btn-outline btn-sm" id="cWireSweepDryBtn">Check first &mdash; who would be cleared</button>
           <button type="button" class="btn btn-gold btn-sm" id="cWireSweepBtn" style="display:none;">Clear them</button>
@@ -3749,7 +3749,7 @@
         </label>
         <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end;">
           <div class="form-row" style="margin:0; min-width:260px;"><label style="font-size:11.5px;">Which template does it send?</label><select id="pceTemplate" style="font-size:13px; padding:8px 10px;"></select></div>
-          <button type="button" class="btn btn-outline btn-sm" id="pceMakeTmplBtn" style="width:auto;">Write me one to start from</button>
+          <button type="button" class="btn btn-outline btn-sm" id="pceMakeTmplBtn" style="width:auto;">Use the wording you gave us, and switch it on</button>
           <button type="button" class="btn btn-gold btn-sm" id="pceSaveBtn" style="width:auto;">Save</button>
         </div>
         <p class="form-note" style="margin:10px 0 0;">Put <code>{{change}}</code> where you want the list of what they changed, <code>{{name}}</code> for their first name, and <code>{{portal_button}}</code> for a button back into their account. If you delete <code>{{change}}</code> the list is added at the bottom anyway, so the email can never fail to say what it is about.</p>
@@ -14209,7 +14209,9 @@ document.getElementById('pceTemplate')?.addEventListener('change', renderPortalC
    are added and neither is a rewrite: the greeting, because her text opens straight into the
    thank-you, and {{change}} on the line under it, because naming what they changed is the whole
    of [[EM-18]] and “the changes you requested” is the sentence it belongs to. Her closing note
-   “This is auto- Reply” is rendered as the grey footer line rather than sent as typed.
+   ⚠ HER FIRST PASTE ENDED “This is auto- Reply” and this used to render that as a grey
+   footer. She pasted the wording again on 2026-09-17 WITHOUT it, which is the answer: it
+   was her labelling the message to me, not copy for a customer. The footer is gone.
    ⚠ IT IS A STARTING POINT AND NOT A FALLBACK: nothing sends this unless she has picked the
    template it was written into, so editing or replacing it is an ordinary template edit. */
 const DEFAULT_PORTAL_CHANGE_BODY =
@@ -14218,46 +14220,58 @@ const DEFAULT_PORTAL_CHANGE_BODY =
   '{{change}}<br><br>' +
   'We’ll get everything updated on our end and get your home scheduled for this season. We’ll be in touch once your home is scheduled!<br><br>' +
   'Best,<br>' +
-  'Highlighting Utah<br><br>' +
-  '<span style="color:#777;font-size:12px;">This is an automatic reply.</span>';
+  'Highlighting Utah';
+/* ⭐ ONE PRESS, NOT FOUR (2026-09-17). Addie, told to press this and then tick a box and
+   then Save: "I already gave you a template to work with." She had — twice — and being
+   walked back through supplying it is the complaint. This makes the template, picks it,
+   ticks the box and SAVES, in one press.
+   ⛔ THE PRESS IS STILL HERS, AND THAT IS THE LINE. Seeding it automatically on load would
+   mean real customers start getting email because a page rendered; the button says plainly
+   what it switches on, so the send is something she did. The tick box above still turns it
+   straight back off.
+   ⚠ AND IT NEVER OVERWRITES WORDING SHE HAS EDITED — an existing template of that name is
+   picked and switched on as it stands, never rewritten from the built-in copy. */
 document.getElementById('pceMakeTmplBtn')?.addEventListener('click', async function(){
   const el = document.getElementById('pceStatus');
   el.style.color = 'var(--slate)';
   el.textContent = 'Working…';
   try{
     const name = 'Member Portal Change';
-    const existing = emailTemplates.find(t => t.data.name === name);
-    if(existing){
-      /* ⚠ IT NEVER OVERWRITES ONE SHE HAS EDITED. Pressing this twice must not throw away
-         her wording — the second press just picks the one that is already there. */
-      /* ⛔ IT PICKS THE TEMPLATE ON SCREEN AND WRITES NOTHING TO portalChangeEmailCfg.
-         That object mirrors what is SAVED and nothing else — the status line decides
-         whether to warn “Not saved yet” by comparing the two, so moving it here would
-         make the card claim a pick had been saved the instant this button was pressed,
-         and a page reload would then lose it with nothing having said so. */
-      renderPortalChangeEmailCard({pickTemplateId: existing.id});
-      el.style.color = 'var(--slate)';
-      el.textContent = 'You already have one called “' + name + '”, so it is picked. Press Save to switch it on.';
-      return;
+    let hit = emailTemplates.find(t => t.data.name === name);
+    let madeIt = false;
+    if(!hit){
+      let folderId = emailTemplateFolders.find(f => f.name === 'Member Portal')?.id;
+      if(!folderId){
+        const fRef = await addDoc(collection(db,'emailTemplateFolders'), {name:'Member Portal', createdAt: serverTimestamp()});
+        folderId = fRef.id;
+      }
+      const ref = await addDoc(collection(db,'emailTemplates'), {
+        name: name, folderId: folderId,
+        subject: 'We’ve got your change',
+        body: DEFAULT_PORTAL_CHANGE_BODY,
+        createdAt: serverTimestamp()
+      });
+      /* ⚠ THE LOCAL LIST IS MIRRORED BEFORE IT IS USED. The templates listener will report
+         this write back in its own time, and the save below reads `emailTemplates` to get
+         the name for the card — without the mirror it saves an empty templateName and the
+         card reads as though the pick had not stuck. */
+      hit = {id: ref.id, data: {name: name, folderId: folderId, body: DEFAULT_PORTAL_CHANGE_BODY}};
+      emailTemplates.push(hit);
+      madeIt = true;
     }
-    let folderId = emailTemplateFolders.find(f => f.name === 'Member Portal')?.id;
-    if(!folderId){
-      const fRef = await addDoc(collection(db,'emailTemplateFolders'), {name:'Member Portal', createdAt: serverTimestamp()});
-      folderId = fRef.id;
-    }
-    const ref = await addDoc(collection(db,'emailTemplates'), {
-      name: name, folderId: folderId,
-      subject: 'We’ve got your change',
-      body: DEFAULT_PORTAL_CHANGE_BODY,
-      createdAt: serverTimestamp()
-    });
-    /* ⛔ Picked on screen only — see the note above: portalChangeEmailCfg is what is saved. */
-    renderPortalChangeEmailCard({pickTemplateId: ref.id});
+    const next = {enabled: true, templateId: hit.id, templateName: name};
+    await setDoc(doc(db,'settings','portalChangeEmail'), next, {merge:true});
+    portalChangeEmailCfg = next;
+    /* ⚠ syncFromSaved, so the tick and the picker are drawn from what was actually stored
+       rather than left showing whatever was on screen before the press. */
+    renderPortalChangeEmailCard({syncFromSaved:true});
     el.style.color = '#2E6B3E';
-    el.textContent = 'Made “' + name + '” and picked it. Edit the wording in the list below, then press Save here.';
+    el.textContent = (madeIt ? 'Made “' + name + '”, switched it on. ' : 'Switched “' + name + '” on. ') +
+      'Members who change something now get it. Edit the wording in the list below any time — ' +
+      'or untick Send this auto-reply to stop it.';
   } catch(err){
     el.style.color = 'var(--ember)';
-    el.textContent = 'Could not make it: ' + (err && err.message ? err.message : 'try again.');
+    el.textContent = 'Could not switch it on: ' + (err && err.message ? err.message : 'try again.');
   }
 });
 document.getElementById('pceSaveBtn')?.addEventListener('click', async function(){
@@ -14671,41 +14685,54 @@ async function wireSweepSheetRows(){
   return {rows: grid.slice(head.index), from: 'the sheet pasted above'};
 }
 async function wireSweepFind(){
-  const src = await wireSweepSheetRows();
-  const rows = src.rows;
-  const header = (rows[0] || []).map(function(v){ return String(v == null ? '' : v).trim(); });
-  const col = {};
-  header.forEach(function(h, i){ if(h && col[h] == null) col[h] = i; });
-  if(col['Name'] == null || col['Wire'] == null){
-    throw new Error('That workbook has no Name or Wire column — it may be the wrong file.');
+  /* ⭐ THE SHEET IS OPTIONAL NOW (2026-09-17). Since every stored White is cleared whatever
+     the sheet says, a sheet it cannot reach is no longer a reason to refuse — it only costs
+     the breakdown. That is what finally makes this tool usable on a tablet, where a file
+     handle is impossible and a paste is a chore. */
+  let sheet = null, sheetRows = 0, sheetFrom = '', sheetNote = '';
+  try{
+    const src = await wireSweepSheetRows();
+    const rows = src.rows;
+    const header = (rows[0] || []).map(function(v){ return String(v == null ? '' : v).trim(); });
+    const col = {};
+    header.forEach(function(h, i){ if(h && col[h] == null) col[h] = i; });
+    if(col['Name'] == null || col['Wire'] == null){
+      sheetNote = 'the sheet it read has no Name or Wire column, so there is no comparison below';
+    } else {
+      const rowByNum = {}, wireByNum = {}, nameCount = {}, wireByName = {};
+      const cell = function(r, key){ return col[key] == null ? '' : String(r[col[key]] == null ? '' : r[col[key]]).trim(); };
+      for(let k = 1; k < rows.length; k++){
+        const r = rows[k] || [];
+        const nm = dupNormName(cell(r, 'Name'));
+        const cu = cell(r, 'CU #');
+        const w  = rbNormalizeWire(cell(r, 'Wire'));
+        if(nm){ nameCount[nm] = (nameCount[nm] || 0) + 1; if(w && !wireByName[nm]) wireByName[nm] = w; }
+        if(cu){ rowByNum[cu] = true; if(w && !wireByNum[cu]) wireByNum[cu] = w; }
+      }
+      /* ⚠ A WIRE COLUMN THAT ARRIVED EMPTY NO LONGER REFUSES THE SWEEP — it decides nothing
+         now — but it must not be reported as corroboration either. Hidden, filtered out or a
+         copy that stopped short all give a Wire heading with nothing under it, and a
+         breakdown built on that would read as though the office had recorded nothing for
+         anybody. Her real sheet carries 318 wire colours. */
+      if(!Object.keys(wireByName).length && !Object.keys(wireByNum).length){
+        sheetNote = 'the sheet it read has a Wire column with nothing in it — probably hidden, '
+          + 'filtered out, or a copy that stopped short — so there is no comparison below';
+      } else {
+        sheet = {rowByNum: rowByNum, wireByNum: wireByNum, nameCount: nameCount, wireByName: wireByName};
+        sheetRows = Math.max(0, rows.length - 1);
+        sheetFrom = src.from;
+      }
+    }
+  }catch(err){
+    /* ⚠ SAID, NEVER SWALLOWED — "nothing should fail quietly". The sweep still runs, and
+       the report names what it could not read so a missing breakdown never reads as a
+       sheet that simply agreed with everything. */
+    sheetNote = (err && err.message) ? err.message : 'the master sheet could not be read';
   }
-
-  /* Two different questions, kept apart on purpose: does the sheet KNOW this customer,
-     and does it RECORD a wire for them. Clearing needs both answers. */
-  const rowByNum = {}, wireByNum = {}, nameCount = {}, wireByName = {};
-  const cell = function(r, key){ return col[key] == null ? '' : String(r[col[key]] == null ? '' : r[col[key]]).trim(); };
-  for(let i = 1; i < rows.length; i++){
-    const r = rows[i] || [];
-    const nm = dupNormName(cell(r, 'Name'));
-    const cu = cell(r, 'CU #');
-    const w  = rbNormalizeWire(cell(r, 'Wire'));
-    if(nm){ nameCount[nm] = (nameCount[nm] || 0) + 1; if(w && !wireByName[nm]) wireByName[nm] = w; }
-    if(cu){ rowByNum[cu] = true; if(w && !wireByNum[cu]) wireByNum[cu] = w; }
-  }
-
-  /* ⛔ A WIRE COLUMN THAT ARRIVED EMPTY IS INDISTINGUISHABLE FROM ONE THAT DID NOT ARRIVE,
-     and the difference is every real White in the book. A hidden column, a filtered view or
-     a copy that stopped short all produce a Wire heading with nothing under it — and on that
-     reading every customer with a row looks like somebody the office never recorded. Her real
-     sheet has 318 wire colours on it, so a sheet with NONE is not a sheet worth acting on.
-     ⚠ This can only bite the paste route; a file handle reads the column or has no column. */
-  if(!Object.keys(wireByName).length && !Object.keys(wireByNum).length){
-    throw new Error('That sheet has a Wire column and not one wire colour in it. That usually means the column was hidden, filtered out, or the copy stopped short — and I cannot tell it apart from a sheet that genuinely records none, which would clear every White you have. Nothing has been touched. Check the Wire column came across, then press this again.');
-  }
-  const found = wireSweepClassify(jobAddresses, {rowByNum: rowByNum, wireByNum: wireByNum,
-                                                 nameCount: nameCount, wireByName: wireByName});
-  found.sheetRows = Math.max(0, rows.length - 1);
-  found.sheetFrom = src.from;
+  const found = wireSweepClassify(jobAddresses, sheet);
+  found.sheetRows = sheetRows;
+  found.sheetFrom = sheetFrom;
+  found.sheetNote = sheetNote;
   return found;
 }
 
@@ -14714,26 +14741,43 @@ async function wireSweepFind(){
    worth making here is about WHICH LIST a customer lands in, which a regex cannot see.
    ⚠ IT READS THE SHEET INDEX AND NOTHING ELSE: no file handle, no Firestore, no DOM. */
 function wireSweepClassify(customers, sheet){
-  const found = {clear: [], agrees: 0, conflict: [], notOnSheet: [], sheetRows: 0};
+  /* ⭐ EVERY STORED White IS CLEARED (2026-09-17). Addie: "can we sweep all whites but in
+     the future if they do save that they want white wire we will save it for [them]."
+     ⚠ THIS IS WIDER THAN THE FIRST VERSION AND THE REASON IS [[OPT-12]]. That one cleared a
+     White only where the master sheet held a row with an empty Wire cell — a corroboration
+     rule, written while the belief was that ONE door (the portal) had invented the colour.
+     Five had. The quote form, the server, Add Customer, Edit Customer and the conversion
+     prefill all wrote White by default, so a stored White is not evidence of anything and
+     there is nothing left worth corroborating.
+     ⛔ GREEN IS STILL NEVER TOUCHED ([[OPT-13]]). Nothing in this app has ever written Green
+     by itself, so a Green was typed by a person. That asymmetry is the whole argument, and
+     it is why "sweep all whites" is safe while "sweep all wire colours" would not be.
+     ⚠ AND THE SHEET IS NOW ONLY A DESCRIPTION. It no longer decides anything — it says how
+     many of the cleared ones it happens to agree with, which is worth reading and is not a
+     gate. So this tool needs no connected file and no paste at all, which is what makes it
+     usable on the machine the office actually has. */
+  const found = {clear: [], sheetSaysWhite: 0, sheetSaysNothing: 0, sheetSaysOther: [],
+                 notOnSheet: 0, sheetRows: 0, sheetFrom: ''};
   (customers || []).forEach(function(c){
     const d = (c && c.data) || {};
-    /* ⛔ White ONLY. Green was typed by a person and the bug could never produce it, so
-       clearing one would destroy a real answer to tidy up after a different mistake. */
     if(String(d.wireColor || '').trim() !== 'White') return;
-    const cu = String(d.customerNumber || '').trim();
+    const row = {id: c.id, name: d.name || '(no name)', address: d.address || '',
+                 number: String(d.customerNumber || '').trim()};
+    found.clear.push(row);
+    if(!sheet) return;
+    const cu = row.number;
     const nm = dupNormName(d.name);
     let known = false, sheetWire = '';
     if(cu && sheet.rowByNum[cu]){ known = true; sheetWire = sheet.wireByNum[cu] || ''; }
     /* ⚠ A NAME THAT TWO ROWS ANSWER TO IS NO MATCH. Six names on the real sheet belong to
-       two rows, and this repo's rule is already written down: two candidates is no match. */
+       two rows, and this repo's rule is already written down: two candidates is no match.
+       It decides nothing now, but a breakdown that quietly counted the wrong customer would
+       be worse than one that admits it cannot tell. */
     else if(nm && sheet.nameCount[nm] === 1){ known = true; sheetWire = sheet.wireByName[nm] || ''; }
-    const row = {id: c.id, name: d.name || '(no name)', address: d.address || '', number: cu};
-    /* ⛔ THE SHEET BEING INCOMPLETE IS NOT EVIDENCE A RECORD IS WRONG. Only a row that
-       EXISTS with an empty Wire cell says the office recorded nothing. */
-    if(!known){ found.notOnSheet.push(row); return; }
-    if(sheetWire === 'White'){ found.agrees++; return; }
-    if(sheetWire){ row.sheetWire = sheetWire; found.conflict.push(row); return; }
-    found.clear.push(row);
+    if(!known){ found.notOnSheet++; return; }
+    if(sheetWire === 'White'){ found.sheetSaysWhite++; return; }
+    if(sheetWire){ row.sheetWire = sheetWire; found.sheetSaysOther.push(row); return; }
+    found.sheetSaysNothing++;
   });
   return found;
 }
@@ -14775,26 +14819,32 @@ async function wireSweepClear(found){
     try{
       pending = await wireSweepFind();
       let html = '<div><strong>' + pending.clear.length + '</strong> ' +
-        (pending.clear.length === 1 ? 'customer says White with nothing on the sheet' :
-                                      'customers say White with nothing on the sheet') + '.</div>';
-      /* ⚠ WHAT IS BEING LEFT ALONE IS REPORTED TOO. A sweep that names only what it would
-         touch reads as though it looked at nothing else, and the counts are what say the
-         sheet was actually read rather than silently failing to match anybody. */
-      html += '<div style="margin-top:4px; color:var(--slate); font-size:12.5px;">' +
-        'Left alone: ' + pending.agrees + ' the sheet also calls White, ' +
-        pending.conflict.length + ' where the sheet says something else, and ' +
-        pending.notOnSheet.length + ' not on the sheet at all. ' +
-        'Read ' + pending.sheetRows + ' sheet rows from ' + esc(pending.sheetFrom || 'your sheet') + '.</div>';
-      if(pending.conflict.length){
-        html += '<div style="margin-top:8px;"><strong>The sheet disagrees about these — not touched.</strong> ' +
-          'Use <em>Compare</em> above to settle them.<br><span style="font-size:12.5px;">' +
-          names(pending.conflict) + '</span></div>';
+        (pending.clear.length === 1 ? 'customer says White' : 'customers say White') +
+        ' — all of them would be cleared.</div>';
+      /* ⚠ THE SHEET IS A DESCRIPTION, NOT A DECISION, and the wording has to say so or the
+         breakdown reads as though some of these were spared. It is still worth printing:
+         the count the sheet AGREES with is the honest measure of what this sweep costs. */
+      if(pending.sheetNote){
+        html += '<div style="margin-top:4px; color:var(--slate); font-size:12.5px;">No comparison — ' +
+          esc(pending.sheetNote) + '. The sweep does not need one.</div>';
+      } else if(pending.sheetRows){
+        html += '<div style="margin-top:4px; color:var(--slate); font-size:12.5px;">' +
+          'Of those, your sheet also says White for ' + pending.sheetSaysWhite + ', records nothing for ' +
+          pending.sheetSaysNothing + ', says something else for ' + pending.sheetSaysOther.length +
+          ', and has no row at all for ' + pending.notOnSheet + '. ' +
+          'Read ' + pending.sheetRows + ' sheet rows from ' + esc(pending.sheetFrom || 'your sheet') + '.</div>';
+      }
+      if(pending.sheetSaysOther.length){
+        html += '<div style="margin-top:8px;"><strong>Your sheet says something else for these.</strong> ' +
+          'They are cleared too — White is not what the sheet holds — and <em>Compare</em> above will put the ' +
+          'sheet\u2019s own answer back on them.<br><span style="font-size:12.5px;">' +
+          names(pending.sheetSaysOther) + '</span></div>';
       }
       if(pending.clear.length){
         html += '<div style="margin-top:8px; font-size:12.5px;">' + names(pending.clear) + '</div>';
         goBtn.style.display = '';
       } else {
-        html += '<div style="margin-top:8px; color:#2E6B3E;">Nothing to clear — every White on a record is one the sheet backs up.</div>';
+        html += '<div style="margin-top:8px; color:#2E6B3E;">Nothing to clear — no record says White.</div>';
         pending = null;
       }
       out.innerHTML = html;
@@ -14807,9 +14857,11 @@ async function wireSweepClear(found){
   });
   goBtn.addEventListener('click', async function(){
     if(!pending || !pending.clear.length){ out.textContent = 'Press “Check first” before clearing anything.'; return; }
-    const typed = prompt('Clear the wire colour on ' + pending.clear.length + ' customer(s)?\n\n' +
-      'They will read "Check lights" in the warehouse until somebody looks in the bin and sets it.\n' +
-      'Nothing else on their record changes.\n\nType CLEAR to go ahead.');
+    const typed = prompt('Clear the wire colour on ' + pending.clear.length + ' customer(s) who say White?\r\n\r\n' +
+      'EVERY White goes, including ones your sheet agrees with — White was written by itself at five\r\n' +
+      'different doors, so it is not evidence of anything.\r\n\r\n' +
+      'They will read "Check lights" in the warehouse until somebody looks in the bin and sets it.\r\n' +
+      'Green is not touched. Nothing else on their record changes.\r\n\r\nType CLEAR to go ahead.');
     if(String(typed || '').trim().toUpperCase() !== 'CLEAR') return;
     goBtn.disabled = true;
     out.textContent = 'Clearing…';
