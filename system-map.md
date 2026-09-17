@@ -4761,6 +4761,41 @@ One to three entries per house, never dozens. Each entry carries:
 instead of a picture — so what is outstanding can be seen rather than inferred from an
 absence.
 
+### Adding a drawing
+
+**+ Add a map**, at the top of the panel, is the way in: press it, start typing a customer
+name, pick them, and their drawing opens ready for a photograph. A house that already has
+one goes straight into *Add another map*, so a second drawing is always named before it is
+taken.
+
+You can also just tap any card — a house with no drawing reads *No map on file yet — tap to
+add a photo*. Both routes end at the same dialog.
+
+⚠ **The panel opens filtered to "Has a map" ONLY once the book holds at least one drawing.**
+That is worked out fresh each time rather than stored. It shipped on 2026-09-16 hard-wired
+to *Has a map*, which on a book with no drawings hid every house — and since every route to
+the upload dialog runs through a card, there was no way to add the first one at all. If the
+grid is ever empty it now says why and carries two buttons: **Show everyone** and **Add a
+map**.
+
+### Pending maps
+
+**Pending maps · N**, beside Add a map, is the worklist: houses that still owe a drawing.
+
+A house is pending when it has **no drawing at all** AND it is either a **new quote this
+year** or an **open re-quote**. Returning customers with no drawing are deliberately left
+out — nearly the whole book has never been photographed, and listing all of them would bury
+the dozen houses somebody actually has to go and draw.
+
+Inside the list the dropdown narrows it to **New quotes** or **Requotes**. Nothing else is
+offered there: *Has a map* and *Returning customers* could each only ever empty it, and an
+empty pending list reads as no work outstanding. The printing controls step out of the way
+while it is up, because no row on it has anything to print.
+
+⚠ **A re-quoted house that already has an older drawing is NOT pending.** Whether that
+drawing is now stale is a judgement nothing on the record can make. See `docs/open-questions.md`
+Q-035 item 8 — it is a named default, not an oversight.
+
 **What is NOT stored.** The filter, the search box, the copy overrides and which maps have
 been unchecked are all session-only. They are the batch, and a finished batch throws itself
 away: when the print dialog closes, every override goes back to its saved count and every
