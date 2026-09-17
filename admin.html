@@ -1632,7 +1632,16 @@
           </div>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <div class="form-row" style="max-width:180px;"><label>Wire Color</label>
+              <!-- ⭐ BLANK FIRST, AND BLANK BY DEFAULT (2026-09-17). Addie: "don't add what
+                   wire color they want but push check lights then warehouse chooses what wire
+                   they have on file and will make it based on what wire they have."
+                   ⛔ THIS SELECT USED TO OPEN ON White WITH NO WAY TO SAY "nobody has looked",
+                   so every customer added through the office was recorded as White whether or
+                   not anybody had been near their bin. That is the same invented colour the
+                   portal was blamed for in [[OPT-11]], at a door nobody had checked — and it is
+                   why [[WH-35]]’s "Check lights" could almost never appear for a new customer. -->
               <select id="addCustWireColor">
+                <option value="" selected>&mdash; not chosen, warehouse will check &mdash;</option>
                 <option value="White">White</option>
                 <option value="Green">Green</option>
               </select>
@@ -2407,7 +2416,12 @@
             <p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">A shop, shed or guest house they also want lit. The main house is not listed here &mdash; it is this record.</p>
           </div>
           <div class="form-row" style="max-width:180px;"><label>Wire Color</label>
+            <!-- ⭐ BLANK FIRST, same rule as Add Customer above (2026-09-17) — and here it is
+                 also what lets the office TAKE a wire colour back off a record they know was
+                 never really checked, which is the only route to that now the sweep needs a
+                 sheet this office cannot always connect. -->
             <select id="editCustWireColor">
+              <option value="" selected>&mdash; not chosen, warehouse will check &mdash;</option>
               <option value="White">White</option>
               <option value="Green">Green</option>
             </select>
@@ -15082,7 +15096,11 @@ function fillAddCustFromQuote(quoteId, d){
   const rawLights = d.lightsDescription || colors.join(', ');
   addCustQuoteLightsPattern = rbDetectColorsAndPattern(rawLights).pattern || rawLights.trim();
   addCustQuoteColorsSnapshot = colors.slice();
-  document.getElementById('addCustWireColor').value = d.wireColor || 'White';
+  /* ⛔ NOT `|| 'White'`. A quote carries no wire colour at all now, so that fallback would
+     have made every single conversion record White — the invented colour moving from the
+     form we just closed to the door right behind it. Blank is the honest answer and reads
+     as Check lights. */
+  document.getElementById('addCustWireColor').value = d.wireColor || '';
   document.getElementById('addCustInstallPref').value = d.installPreference || 'Normal Schedule';
   document.getElementById('addCustGateCode').value = d.gateCode || '';
   // These were being collected on the quote and then dropped. The crew's

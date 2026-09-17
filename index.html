@@ -1548,15 +1548,6 @@
               <p class="form-note">Not sure? Leave it on Any &mdash; we'll reach out with timing options.</p>
             </div>
             <div class="form-row">
-              <label>Wire Color</label>
-              <select name="wire_color">
-                <option value="Any" selected>Any</option>
-                <option value="White">White</option>
-                <option value="Green">Green</option>
-              </select>
-              <p class="form-note">The color of the cord itself, not the bulbs &mdash; leave on Any and we'll pick whichever blends best with your roofline.</p>
-            </div>
-            <div class="form-row">
               <label>Would you like an outlet timer?</label>
               <div class="radio-row">
                 <label class="radio-pill"><input type="radio" name="outlet_timer" value="Yes"> Yes</label>
@@ -2155,16 +2146,13 @@
                   <p class="form-note" id="portalRsvpReasonStatus" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
                 </div>
               </div>
-              <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Wire Color</label>
-              <select id="wireColorSelect" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;">
-                <!-- ⛔ THE PLACEHOLDER IS WHY THIS SELECT CAN BE HONEST. Without it there is no
-                     way to show "we have not recorded one", so the prefill invented White — see
-                     the note beside the prefill. `disabled` lets the page select it while stopping
-                     a customer choosing it, so nobody can blank a wire colour that IS recorded. -->
-                <option value="" disabled>&mdash; not recorded &mdash;</option>
-                <option value="White">White</option>
-                <option value="Green">Green</option>
-              </select>
+              <!-- ⛔ THE WIRE COLOUR IS NOT ASKED HERE ANY MORE (2026-09-17). Addie: "keep what
+                   lights they want but don't add what wire color they want but push check lights
+                   then warehouse chooses what wire they have on file and will make it based on
+                   what wire they have." This select is where the invented White came from
+                   ([[OPT-11]]), and the honest version of it — a "not recorded" placeholder —
+                   was still a question we do not need a customer to answer. The light COLOURS
+                   they choose are untouched; only the cord is ours to decide. -->
 
               <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px; margin-top:18px; padding-top:14px; border-top:1px solid var(--line);">Installation Timing</label>
               <select id="schedSelect" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;">
@@ -3410,7 +3398,6 @@ function qdPrefillFromMember(memberDetails){
     renderQdSimpleColors();
   }
 
-  setSelect('wire_color', md.wireColor);
   setSelect('install_month', md.installPreference);
   setRadio('outlet_timer', md.outletTimer);
   setRadio('specific_outlet', md.specificOutlet);
@@ -3549,7 +3536,13 @@ quoteDetailFormEl.addEventListener('submit', async function(e){
   var detailPayload = {
     lightColors: lightColors,
     lightsDescription: lightsDescription,
-    wireColor: fd.get('wire_color') || 'Any',
+    /* ⛔ NO WIRE COLOUR IS COLLECTED HERE ANY MORE (2026-09-17). Addie: "keep what
+       lights they want but don't add what wire color they want but push check lights then
+       warehouse chooses what wire they have on file and will make it based on what wire
+       they have." It used to default to 'Any' for anybody who did not touch the box — a
+       wire colour on the record that nobody chose, which is the whole fault [[WH-35]] was
+       written to stop the warehouse ACTING on. A quote now carries none, the customer
+       reads Check lights, and somebody at the bin records what is really there. */
     /* ⭐ A YES/NO WITH NO ANSWER STAYS BLANK (changed 2026-08-20). Owner: "yes and
        no questions dont have a default answer though just leave those blank if
        unanswered."
@@ -3893,22 +3886,7 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
       document.getElementById('addEmail2Link').style.display = 'none';
     }
     document.getElementById('schedSelect').value = addrDoc.installPreference || 'Normal Schedule';
-    /* ⛔ NOT `|| 'White'`, AND THIS IS THE SAME TRAP THE TIMER BELOW ALREADY AVOIDS.
-       `wireColor` is one of the three WAREHOUSE_BUILD_FIELDS, so whatever this control reads
-       at save time can queue a rebuild. Prefilled with White, a customer whose record has NO
-       wire colour — rbNormalizeWire returns '' for anything the sheet spelt oddly — opened
-       this tab to change their NOTE, and the save silently wrote White, queued a bundle
-       rebuild nobody asked for, and (once the auto-reply is on) emailed them to say their
-       wire colour had changed. Worse the other way: a record holding a wire the select cannot
-       show fell to selectedIndex -1, so the save wrote '' and ERASED it, rebuild and all.
-       ⚠ Both were measured by running warehouseRebuildFields, not reasoned about.
-       The rule the radios below already follow: an untouched control must never read as a
-       change. Nothing recorded selects the disabled placeholder, and the save falls back to
-       what the record holds. */
-    var loadedWireColor = (addrDoc.wireColor === 'White' || addrDoc.wireColor === 'Green')
-      ? addrDoc.wireColor : '';
-    document.getElementById('wireColorSelect').value = loadedWireColor;
-    var loadedOutletTimer = addrDoc.outletTimer === 'Yes' ? 'Yes' : (addrDoc.outletTimer === 'No' ? 'No' : '');
+        var loadedOutletTimer = addrDoc.outletTimer === 'Yes' ? 'Yes' : (addrDoc.outletTimer === 'No' ? 'No' : '');
     document.querySelectorAll('input[name="changes_outlet_timer"]').forEach(function(r){
       r.checked = r.value === loadedOutletTimer;
       r.closest('.radio-pill').classList.toggle('selected', r.checked);
@@ -8254,13 +8232,6 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
   var btn = document.getElementById('changesSaveBtn');
   if(!currentLookupRecord && !currentJobAddressId){ statusEl.textContent = 'Please look up your invoice first.'; return; }
   var newPref = document.getElementById('schedSelect').value;
-  /* ⚠ FALLS BACK TO THE RECORD, exactly like the timer and the outlet below it. An empty
-     select here means "we have never recorded one" — not "set it to blank" — so writing ''
-     would erase a wire colour the office may hold in a spelling this control cannot show. */
-  var wireColorEl = document.getElementById('wireColorSelect');
-  var newWireColor = (wireColorEl && wireColorEl.value)
-    ? wireColorEl.value
-    : ((currentJobAddressData && currentJobAddressData.wireColor) || '');
   /* ⭐ NEITHER RADIO HAS A DEFAULT, SO NEITHER IS ALWAYS ANSWERED (2026-09-10, from the Errors folder).
      `querySelector(':checked')` returns null when nothing is ticked, and `.value` on that
      throws — which took the whole save down before a single field was read. Found in the
@@ -8300,21 +8271,22 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
   var contactPhone = (currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || '';
   var contactEmail = (currentLookupRecord && currentLookupRecord.email) || (currentJobAddressData && currentJobAddressData.email) || '';
   try{
-    var wireColorChanged = currentJobAddressData && currentJobAddressData.wireColor !== newWireColor;
     var notesChanged = currentJobAddressData && (currentJobAddressData.notes || '') !== (newNotes || '');
     var outletTimerChanged = currentJobAddressData && (currentJobAddressData.outletTimer || 'No') !== newOutletTimer;
     await callPortalFn('portalSave', {
       token: getActivePortalToken(),
       section: 'preferences',
       data: {
-        installPreference: newPref, wireColor: newWireColor,
+        /* ⛔ NO wireColor. The customer is not asked for one any more (2026-09-17), and
+           the server no longer accepts it under this section either — so a field sent from
+           here would be dropped in silence rather than refused, which is worse. */
+        installPreference: newPref,
         outletTimer: newOutletTimer, specificOutlet: newSpecificOutlet,
         specificOutletNotes: newSpecificOutletNotes, notes: newNotes
       }
     });
     if(currentJobAddressData){
       currentJobAddressData.installPreference = newPref;
-      currentJobAddressData.wireColor = newWireColor;
       currentJobAddressData.outletTimer = newOutletTimer;
       currentJobAddressData.specificOutlet = newSpecificOutlet;
       currentJobAddressData.specificOutletNotes = newSpecificOutletNotes;
@@ -8322,19 +8294,6 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
     }
     statusEl.textContent = 'Saved!';
     setTimeout(function(){ statusEl.textContent = ''; }, 1500);
-    if(wireColorChanged){
-      await addDoc(collection(db,'messages'), {
-        topic: 'Wire Color Change', folder: 'System',
-        name: contactName, phone: contactPhone, email: contactEmail,
-        contactMethod: '', message: 'Changed their wire color to: ' + newWireColor,
-        createdAt: serverTimestamp()
-      });
-      notifyBusinessOfMessage({
-        customer_name: contactName, customer_phone: contactPhone,
-        customer_email: contactEmail, topic: 'Wire Color Change',
-        message: 'Changed their wire color to: ' + newWireColor
-      });
-    }
     if(notesChanged && newNotes){
       await addDoc(collection(db,'messages'), {
         topic: 'Note Added', folder: 'Inbox', important: true,

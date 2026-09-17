@@ -87,7 +87,13 @@ const REMOVED_IDS = {
            'in themselves. Addie: "I don\'t want a venmo QR code anymore."',
   paypalOrNote: 'the "— or pay with Venmo —" divider, deleted 2026-09-01. It ' +
                 'announced Venmo as an equal alternative, which is the opposite ' +
-                'of the last resort Addie asked for.'
+                'of the last resort Addie asked for.',
+  wireColorSelect: 'the wire colour dropdown on the Changes tab, deleted 2026-09-17. ' +
+                   'Addie: "don\'t add what wire color they want but push check lights then ' +
+                   'warehouse chooses what wire they have on file." It is where the invented ' +
+                   'White came from, and the whole question is ours rather than a customer\'s ' +
+                   '— so wire-colour.spec.js now asserts the control is GONE and that a ' +
+                   'preferences save carries no wireColor at all.'
 };
 
 /* Same idea for data-testid. These are created by a test double rather than

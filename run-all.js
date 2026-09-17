@@ -32521,7 +32521,6 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
             '<form id="f">' +
             '<div id="qdSimpleColorsRow"></div><div id="qdSequenceBuilderWrap"></div>' +
             '<input type="checkbox" id="qdSpecificPatternToggle">' +
-            '<select name="wire_color"><option value="Any"></option><option value="White"></option><option value="Green"></option></select>' +
             '<select name="install_month"><option value="Normal Schedule"></option><option value="October"></option><option value="November"></option></select>' +
             '<label class="radio-pill"><input type="radio" name="outlet_timer" value="Yes"></label>' +
             '<label class="radio-pill"><input type="radio" name="outlet_timer" value="No"></label>' +
@@ -32550,7 +32549,6 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
             (box.seq || []).join(', ') === 'Pure White, Pure White, Red',
             '"White, White, Red" shown as two ticked circles is a different set of lights');
           check('S70', 'the wire colour, timing and timer they already have are filled in',
-            fd.querySelector('[name="wire_color"]').value === 'Any' &&
             fd.querySelector('[name="install_month"]').value === 'October' &&
             fd.querySelector('input[name="outlet_timer"][value="Yes"]').checked === true);
           check('S70', 'and the outlet box is opened because they use a specific one',
@@ -32568,15 +32566,12 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
             fd.getElementById('qdSpecificPatternToggle').checked === false &&
             (box.simple || []).join(', ') === 'Red, Green',
             'two different colours is a set, not a repeating pattern');
-          /* ⚠ THE 'Any' CASE ABOVE CANNOT PROVE THE WIRE COLOUR IS WRITTEN, and the
-             fixture is not at fault — 'Any' is the FIRST option and carries `selected`
-             on the real page too, so a select nobody touched already reads 'Any'.
-             Deleting the wire-colour line entirely left that check green. This one
-             asserts a value only the prefill can produce. */
-          check('S70', 'and the wire colour is really written, not just left on its default',
-            fd.querySelector('[name="wire_color"]').value === 'Green',
-            'filling it in and not filling it in are indistinguishable on the default ' +
-            'value, so this is the assertion that actually holds the line');
+          /* ⛔ THE WIRE COLOUR CHECKS THAT LIVED HERE ARE GONE WITH THE QUESTION (2026-09-17).
+             Addie: "don't add what wire color they want but push check lights then warehouse
+             chooses what wire they have on file." They proved the prefill wrote a real value
+             rather than resting on the 'Any' default — a good check about a form that no
+             longer asks, so it is REMOVED rather than repaired (the quote-card.test.js
+             precedent), and replaced by the one below asserting the question is really gone. */
           /* ⚠ THE TWO DEFENSIVE PATHS, which every fixture above walks straight past.
              Both were red-checked and neither was caught until these existed. */
           box.fill({lightColors: ['Red','Green'],
@@ -32588,12 +32583,19 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
             'so the description has to be read first — but mining colours out of a ' +
             'sentence would drop the half that matters, so an unreadable one falls ' +
             'back to the ticked list rather than guessing at it');
-          fd.querySelector('[name="wire_color"]').value = 'White';
           box.fill({lightColors: ['Red'], lightsDescription: 'Red', wireColor: 'Purple'});
-          check('S70', 'a wire colour the form does not offer is refused, not written blank',
-            fd.querySelector('[name="wire_color"]').value === 'White',
-            'assigning a select a value it has no option for leaves it showing NOTHING, ' +
-            'which then saves as a blank wire colour over a real one');
+          /* ⛔ AND THE QUESTION IS REALLY GONE, from the page AND from what the form posts.
+             Asserted on the SOURCE rather than the sandbox, because the sandbox only holds
+             the markup this suite hands it: a check there would prove nothing about what a
+             real customer is shown. */
+          check('S70', 'the quote form no longer asks anybody for a wire colour',
+            idx.indexOf('name="wire_color"') === -1,
+            'Addie took the question off on 2026-09-17: the cord is ours to pick, and a ' +
+            'default of Any is how every record ended up claiming a colour nobody chose');
+          check('S70', 'and the detail form posts none either',
+            !/wireColor:\s*fd\.get/.test(idx),
+            'a field still posted would be stamped on the quote and carried to the customer ' +
+            'by conversion, which is the invented colour arriving by a different door');
         }
       }
 
