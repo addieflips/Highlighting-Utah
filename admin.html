@@ -1863,7 +1863,16 @@
           </div>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <div class="form-row" style="max-width:180px;"><label>Wire Color</label>
+              <!-- ⭐ BLANK FIRST, AND BLANK BY DEFAULT (2026-09-17). Addie: "don't add what
+                   wire color they want but push check lights then warehouse chooses what wire
+                   they have on file and will make it based on what wire they have."
+                   ⛔ THIS SELECT USED TO OPEN ON White WITH NO WAY TO SAY "nobody has looked",
+                   so every customer added through the office was recorded as White whether or
+                   not anybody had been near their bin. That is the same invented colour the
+                   portal was blamed for in [[OPT-11]], at a door nobody had checked — and it is
+                   why [[WH-35]]’s "Check lights" could almost never appear for a new customer. -->
               <select id="addCustWireColor">
+                <option value="" selected>&mdash; not chosen, warehouse will check &mdash;</option>
                 <option value="White">White</option>
                 <option value="Green">Green</option>
               </select>
@@ -2046,7 +2055,7 @@
            grants it. -->
       <div class="card">
         <h3 style="margin:0 0 6px;">Wire colours nobody wrote down</h3>
-        <p style="font-size:13px; margin:0 0 12px;">The Member Portal used to fill in <strong>White</strong> by itself for anyone with no wire colour on file, so some records now claim a colour nobody picked. This finds every customer whose record says White while your master sheet records nothing for them, and clears it &mdash; so the warehouse reads <strong>Check lights</strong> and somebody sets it for good next time they are at the bin. <strong>It only ever clears, only ever White, and never touches a customer the sheet has no row for.</strong></p>
+        <p style="font-size:13px; margin:0 0 12px;">The Member Portal used to fill in <strong>White</strong> by itself for anyone with no wire colour on file, so some records now claim a colour nobody picked. This finds every customer whose record says White while your master sheet records nothing for them, and clears it &mdash; so the warehouse reads <strong>Check lights</strong> and somebody sets it for good next time they are at the bin. <strong>It only ever clears, only ever White, and never touches a customer the sheet has no row for.</strong> It reads whichever master sheet you have to hand &mdash; the file connected above on Chrome or Edge, or, on a tablet or in Safari where a browser cannot hold onto a file at all, whatever is in the &ldquo;Paste the whole sheet&rdquo; box above.</p>
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
           <button type="button" class="btn btn-outline btn-sm" id="cWireSweepDryBtn">Check first &mdash; who would be cleared</button>
           <button type="button" class="btn btn-gold btn-sm" id="cWireSweepBtn" style="display:none;">Clear them</button>
@@ -2638,7 +2647,12 @@
             <p style="font-size:11.5px; color:var(--slate); margin:6px 0 0;">A shop, shed or guest house they also want lit. The main house is not listed here &mdash; it is this record.</p>
           </div>
           <div class="form-row" style="max-width:180px;"><label>Wire Color</label>
+            <!-- ⭐ BLANK FIRST, same rule as Add Customer above (2026-09-17) — and here it is
+                 also what lets the office TAKE a wire colour back off a record they know was
+                 never really checked, which is the only route to that now the sweep needs a
+                 sheet this office cannot always connect. -->
             <select id="editCustWireColor">
+              <option value="" selected>&mdash; not chosen, warehouse will check &mdash;</option>
               <option value="White">White</option>
               <option value="Green">Green</option>
             </select>
@@ -14620,13 +14634,39 @@ function testSweepSummary(f){
 
    ⚠ AND AN AMBIGUOUS NAME IS NO MATCH, not a weak one — six names on the real sheet belong
    to two rows, and this repo's rule is already written down: two candidates is no match. */
+/* ⭐ EITHER ROUTE IN — THE CONNECTED FILE, OR THE PASTED SHEET (2026-09-17). Addie:
+   "The master sheet won’t add", and the screen was telling her why: connecting a FILE
+   needs `window.showOpenFilePicker`, which exists in Chrome and Edge on a COMPUTER and
+   nowhere else — not Safari, not Firefox, and not on a tablet, which is the machine this
+   office has already been caught out by once (the Inbox drag, [[MSG-05]]).
+   ⚠ SO THE FIRST VERSION OF THIS SWEEP WAS UNREACHABLE FOR HER ENTIRELY, and said so in
+   words that read like a missing step ("press Use my master sheet above first") rather
+   than a browser she cannot change. Compare has always accepted a PASTE for exactly this
+   reason; the sweep asking for a file handle alone was my omission, not a rule.
+   ⚠ A PASTE IS THE WEAKER SOURCE AND IT FAILS SAFE. It carries one tab, so somebody who
+   only exists on Recycle has no row — and no row means LEFT ALONE, never cleared. A
+   partial paste is the same shape: fewer people are reachable, none is wrongly cleared. */
+async function wireSweepSheetRows(){
+  const handle = hlxSheetSupported() ? await hlxSheetHandleLoad() : null;
+  if(handle){
+    const state = await hlxSheetPermission(handle, true);
+    if(state !== 'granted') throw new Error('The browser would not let me read the sheet — press "Use my master sheet" above and allow it.');
+    const all = await hlxWorkbookRowsAllSheets(await handle.getFile());
+    return {rows: (all && all.rows) || [], from: 'the sheet connected on this computer'};
+  }
+  /* The whole-sheet paste box, read the same way Compare reads it — headings found
+     wherever they sit, because a sheet can open with a title or a blank line. */
+  const box = document.getElementById('rbSheetArea');
+  const grid = rbParseSheetGrid(box ? box.value : '');
+  const head = grid.length ? rbFindHeadingRow(grid) : null;
+  if(!head){
+    throw new Error('There is no master sheet for me to read. On Chrome or Edge on a computer, press "Use my master sheet" above. On anything else — a tablet, Safari — copy the whole sheet INCLUDING its heading row into the “Paste the whole sheet” box above, then press this again.');
+  }
+  return {rows: grid.slice(head.index), from: 'the sheet pasted above'};
+}
 async function wireSweepFind(){
-  const handle = await hlxSheetHandleLoad();
-  if(!handle) throw new Error('No master sheet is connected on this computer. Press "Use my master sheet" above first.');
-  const state = await hlxSheetPermission(handle, true);
-  if(state !== 'granted') throw new Error('The browser would not let me read the sheet — press "Use my master sheet" above and allow it.');
-  const all = await hlxWorkbookRowsAllSheets(await handle.getFile());
-  const rows = (all && all.rows) || [];
+  const src = await wireSweepSheetRows();
+  const rows = src.rows;
   const header = (rows[0] || []).map(function(v){ return String(v == null ? '' : v).trim(); });
   const col = {};
   header.forEach(function(h, i){ if(h && col[h] == null) col[h] = i; });
@@ -14647,9 +14687,19 @@ async function wireSweepFind(){
     if(cu){ rowByNum[cu] = true; if(w && !wireByNum[cu]) wireByNum[cu] = w; }
   }
 
+  /* ⛔ A WIRE COLUMN THAT ARRIVED EMPTY IS INDISTINGUISHABLE FROM ONE THAT DID NOT ARRIVE,
+     and the difference is every real White in the book. A hidden column, a filtered view or
+     a copy that stopped short all produce a Wire heading with nothing under it — and on that
+     reading every customer with a row looks like somebody the office never recorded. Her real
+     sheet has 318 wire colours on it, so a sheet with NONE is not a sheet worth acting on.
+     ⚠ This can only bite the paste route; a file handle reads the column or has no column. */
+  if(!Object.keys(wireByName).length && !Object.keys(wireByNum).length){
+    throw new Error('That sheet has a Wire column and not one wire colour in it. That usually means the column was hidden, filtered out, or the copy stopped short — and I cannot tell it apart from a sheet that genuinely records none, which would clear every White you have. Nothing has been touched. Check the Wire column came across, then press this again.');
+  }
   const found = wireSweepClassify(jobAddresses, {rowByNum: rowByNum, wireByNum: wireByNum,
                                                  nameCount: nameCount, wireByName: wireByName});
   found.sheetRows = Math.max(0, rows.length - 1);
+  found.sheetFrom = src.from;
   return found;
 }
 
@@ -14728,7 +14778,7 @@ async function wireSweepClear(found){
         'Left alone: ' + pending.agrees + ' the sheet also calls White, ' +
         pending.conflict.length + ' where the sheet says something else, and ' +
         pending.notOnSheet.length + ' not on the sheet at all. ' +
-        'Read ' + pending.sheetRows + ' sheet rows.</div>';
+        'Read ' + pending.sheetRows + ' sheet rows from ' + esc(pending.sheetFrom || 'your sheet') + '.</div>';
       if(pending.conflict.length){
         html += '<div style="margin-top:8px;"><strong>The sheet disagrees about these — not touched.</strong> ' +
           'Use <em>Compare</em> above to settle them.<br><span style="font-size:12.5px;">' +
@@ -15365,7 +15415,11 @@ function fillAddCustFromQuote(quoteId, d){
   const rawLights = d.lightsDescription || colors.join(', ');
   addCustQuoteLightsPattern = rbDetectColorsAndPattern(rawLights).pattern || rawLights.trim();
   addCustQuoteColorsSnapshot = colors.slice();
-  document.getElementById('addCustWireColor').value = d.wireColor || 'White';
+  /* ⛔ NOT `|| 'White'`. A quote carries no wire colour at all now, so that fallback would
+     have made every single conversion record White — the invented colour moving from the
+     form we just closed to the door right behind it. Blank is the honest answer and reads
+     as Check lights. */
+  document.getElementById('addCustWireColor').value = d.wireColor || '';
   document.getElementById('addCustInstallPref').value = d.installPreference || 'Normal Schedule';
   document.getElementById('addCustGateCode').value = d.gateCode || '';
   // These were being collected on the quote and then dropped. The crew's

@@ -717,7 +717,16 @@ exports.paypalWebhook = onRequest(
 // them. Anything not listed here can never be written from the public site.
 const PORTAL_WRITE_FIELDS = {
   info:        ['name', 'phone', 'email', 'address', 'phone2', 'email2', 'gateCode'],
-  preferences: ['installPreference', 'wireColor', 'outletTimer', 'specificOutlet',
+  /* ⛔ wireColor WAS HERE AND IS DELIBERATELY GONE (2026-09-17). Addie: "keep what lights
+     they want but don't add what wire color they want but push check lights then warehouse
+     chooses what wire they have on file and will make it based on what wire they have."
+     The control is off the portal, and taking the field off this list is what makes that
+     TRUE rather than merely unwired — this object is the whole of what the public site can
+     ever write, so a field left here is a door nothing uses and anybody can still push on.
+     ⚠ Removing it cannot erase anything: portalSave only copies a field when it ARRIVES
+     (`incoming[f] !== undefined`), so a wire colour already on a record is untouched, and
+     the office keeps its own box on Add and Edit Customer. */
+  preferences: ['installPreference', 'outletTimer', 'specificOutlet',
                 'specificOutletNotes', 'notes'],
   lights:      ['lightsDescription'],
   /* ⭐ Which sides they want lit. Its own section, not folded into
@@ -736,7 +745,11 @@ const PORTAL_WRITE_FIELDS = {
 // flag, don't-install-before date, crew notes — never leaves the server.
 const PORTAL_READ_FIELDS = [
   'name', 'phone', 'email', 'address', 'phone2', 'email2', 'gateCode',
-  'lightsDescription', 'installPreference', 'wireColor', 'outletTimer',
+  /* ⛔ wireColor LEFT THIS LIST 2026-09-17, with the control that read it. Nothing in
+     index.html looks at it any more, and a field sent to every customer's browser and
+     never read is exactly what portal-fields.test.js exists to refuse — the office keeps
+     it, the warehouse prints it, and the customer has no use for it. */
+  'lightsDescription', 'installPreference', 'outletTimer',
   'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus', 'houseSides', 'houseSidesList',
   /* ⚠ THE WORD ON ITS OWN IS NOT AN ANSWER, so the portal needs the stamp too
      (added 2026-09-02). A stored yes with nothing behind it is an import or the
@@ -4489,7 +4502,13 @@ exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
   await db.collection('quotes').doc(quoteId).update({
     lightColors: colors,
     lightsDescription: str(details.lightsDescription, 400),
-    wireColor: str(details.wireColor, 40) || 'Any',
+    /* ⛔ NO WIRE COLOUR IS WRITTEN HERE ANY MORE (2026-09-17), and this was the SERVER'S
+       OWN COPY of the default the browser form used to apply — the emailed-link path is
+       the common one, so taking the question off index.html and leaving this line would
+       have gone on stamping 'Any' on most quotes with nothing on any screen saying so.
+       Addie, 2026-09-17: "don't add what wire color they want but push check lights then
+       warehouse chooses what wire they have on file". A field nobody sends and nothing
+       defaults is simply absent, which is what Check lights reads. */
     outletTimer: yesNo(details.outletTimer),
     specificOutlet: specific,
     specificOutletNotes: specific === 'Yes' ? str(details.specificOutletNotes, 500) : '',

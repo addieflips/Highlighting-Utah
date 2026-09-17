@@ -1,31 +1,27 @@
 /*
- * THE WIRE COLOUR DROPDOWN, IN THE REAL PORTAL
+ * THE WIRE COLOUR IS NOT ASKED OF A CUSTOMER, AND CANNOT BE WRITTEN BY ONE
  *
- * Found reviewing the member-portal auto-reply, 2026-09-16, and it is older than that
- * feature by a long way.
+ * Addie, 2026-09-17: "keep what lights they want but don't add what wire color they want
+ * but push check lights then warehouse chooses what wire they have on file and will make
+ * it based on what wire they have."
  *
- * The Changes tab prefilled this select with `addrDoc.wireColor || 'White'`, and the save
- * read the select back with no fallback. `wireColor` is one of the three
- * WAREHOUSE_BUILD_FIELDS, so whatever this control reads at save time can queue a bundle
- * rebuild. Two silent faults came out of that, measured by running warehouseRebuildFields
- * rather than reasoned about:
+ * ⚠ THIS FILE USED TO TEST THE DROPDOWN ITSELF, and that control is gone. It is rewritten
+ * rather than repaired, for the reason CLAUDE.md records about quote-card.test.js: a test
+ * describing a design that has been replaced is not broken-but-correct, it is describing
+ * something that no longer exists. What is KEPT is the guarantee underneath it, which
+ * outlived the control — a customer editing their note must never change their wire colour.
  *
- *   - A customer with NO wire colour on file — rbNormalizeWire returns '' for anything the
- *     master sheet spelt oddly — opened this tab to change their NOTE, and the save wrote
- *     'White'. A colour nobody chose, a rebuild nobody asked for, and once the auto-reply
- *     is switched on, an email telling them their wire colour had changed.
- *   - A record holding a wire the select cannot show fell to selectedIndex -1, so the save
- *     wrote '' and ERASED it — rebuild and all. That one is data loss.
+ * THE HISTORY, because it is why the guarantee is worth a browser spec at all. That select
+ * was prefilled `addrDoc.wireColor || 'White'` and read back on save with no fallback, and
+ * `wireColor` is one of the three WAREHOUSE_BUILD_FIELDS — so whatever it read could queue a
+ * bundle rebuild. Two silent faults came out of it: a customer with nothing on file who
+ * opened this tab to change their NOTE had 'White' written to their record, and a record
+ * holding a wire the select could not show fell to `selectedIndex -1` and was ERASED. Both
+ * were fixed on 2026-09-16 ([[OPT-11]]); the question was removed outright the next day.
  *
- * The radios directly below this select already avoid exactly this: an untouched control
- * must never read as a change, so nothing is checked when nothing is recorded and the save
- * falls back to the record. This brings the select to the same rule.
- *
- * ⚠ WHY A BROWSER SPEC. Every claim here is about what a <select> DOES — what it displays
- * for a value that is not one of its options, and what .value reads back. A source check
- * cannot see selectedIndex -1, and it is precisely that behaviour that erased the field.
- * This repo's oldest lesson, paid for by the Add Folder Enter key, the Use-it button and
- * the recycle "bin says" box: a line in the source is not a control on the screen.
+ * ⚠ AND IT IS STILL A BROWSER SPEC, not a source check. "There is no such control" and "the
+ * save posts no such field" are both claims about what the real page DOES, and this repo has
+ * been caught three times by a source check passing over a control that could never run.
  */
 
 const { test, expect } = require('@playwright/test');
@@ -35,18 +31,12 @@ const { CUSTOMERS } = require('./fixtures');
 const BLOCKED = /Failed to load resource|net::ERR_|ERR_TUNNEL|ERR_CONNECTION/;
 const CUST = CUSTOMERS.standard;
 
-async function openChanges(page, wireColor) {
-  /* ⚠ THE OVERRIDE IS `customers`, KEYED BY FIXTURE NAME — the stub merges whole customer
-     entries, not bare records, and passing `record` silently changes nothing and leaves the
-     standard fixture's own 'White' in place. Which is how the first run of this file
-     "passed" two checks against a customer it was not testing. */
-  const stub = await installFirebaseStub(page, {
-    customers: {
-      standard: Object.assign({}, CUST, {
-        record: Object.assign({}, CUST.record, { wireColor: wireColor })
-      })
-    }
-  });
+async function openChanges(page) {
+  /* ⛔ NOTHING TO OVERRIDE ANY MORE, and that is the point: `wireColor` is no longer in
+     PORTAL_READ_FIELDS, so the browser is never handed one whatever the record says. The
+     earlier version of this helper took a colour and pushed it into the fixture, which was
+     the only way to test a control that prefilled itself from it. */
+  const stub = await installFirebaseStub(page);
   const thrown = [];
   page.on('pageerror', e => thrown.push('pageerror: ' + e));
   page.on('console', m => { if (m.type() === 'error' && !BLOCKED.test(m.text())) thrown.push('console: ' + m.text()); });
@@ -56,66 +46,69 @@ async function openChanges(page, wireColor) {
   return stub;
 }
 
-/** What the page actually posted for wireColor on the last portalSave. */
-async function savedWire(stub) {
+/** The data object the page actually posted on the last portalSave. */
+async function lastSave(stub) {
   const calls = await stub.calls();
   const saves = calls.filter(c => c.name === 'portalSave');
   expect(saves.length).toBeGreaterThan(0);
-  return (saves[saves.length - 1].payload.data || {}).wireColor;
+  return saves[saves.length - 1].payload.data || {};
 }
 
-test.describe('The wire colour dropdown', () => {
-  /* ⛔ THE BUG. Nothing is recorded, the customer touches only their note, and the save
-     must not invent a colour. Before the fix this posted 'White'. */
-  test('a customer with none on file does not get one invented for them', async ({ page }) => {
-    const stub = await openChanges(page, '');
-    await expect(page.locator('#wireColorSelect')).toHaveValue('');
+test.describe('The wire colour is ours, not theirs', () => {
+  test('there is no wire colour control on the Changes tab at all', async ({ page }) => {
+    await openChanges(page);
+    await expect(page.locator('#wireColorSelect')).toHaveCount(0);
+    /* ⚠ AND NOT BY ANY OTHER NAME. A control renamed rather than removed would pass the
+       check above while asking the same question. */
+    await expect(page.getByText(/wire colou?r/i)).toHaveCount(0);
+  });
+
+  /* ⛔ THE GUARANTEE THAT OUTLIVED THE CONTROL. A customer who came here to change their
+     note must not touch their wire colour — not invent one, not erase one. It is now true
+     by construction rather than by a fallback, and this is what proves the construction. */
+  test('a save from this tab carries no wire colour, for a customer who has none', async ({ page }) => {
+    const stub = await openChanges(page);
     await page.locator('#changesNotes').fill('Please ring before you come');
     await page.locator('#changesSaveBtn').click();
     await expect(page.locator('#changesSaveStatus')).toHaveText(/saved/i);
-    expect(await savedWire(stub)).toBe('');
+    const data = await lastSave(stub);
+    expect('wireColor' in data).toBe(false);
     expect(stub.thrown).toEqual([]);
   });
 
-  /* ⛔ AND THE DATA-LOSS DIRECTION. The office holds a wire this select has no option for,
-     so the select shows nothing — and the save must leave the record's value alone rather
-     than writing the blank back over it. */
-  test('a wire colour the dropdown cannot show is never erased by an unrelated save', async ({ page }) => {
-    const stub = await openChanges(page, 'Brown');
-    await expect(page.locator('#wireColorSelect')).toHaveValue('');
-    await page.locator('#changesNotes').fill('Gate sticks, give it a shove');
+  /* ⛔ AND THE BROWSER IS NEVER GIVEN ONE TO SEND BACK — wireColor left PORTAL_READ_FIELDS
+     with the control, so the page could not return one even if it tried. That claim is NOT
+     tested here, deliberately, and this note is where the next person looks for it:
+     `portal-fields.test.js` already fails the build on any whitelisted field the portal does
+     not read, which is the same guarantee from the side that can actually see the whitelist.
+     ⚠ TWO DRAFTS OF IT LIVED HERE AND BOTH WERE WORTHLESS. The first read the stub's call
+     log, which records `{name, payload}` and no RESULT — so it compared an empty string and
+     passed whatever the server sent. The second read `window.currentJobAddressData`, which
+     does not exist: index.html's portal script is ONE ES MODULE, so a top-level `var` is
+     module-scoped and never reaches `window`. A browser is the wrong instrument for this
+     one; §9.1's rule is not to duplicate a check across the three systems anyway. */
+
+  /* ⚠ THE NO-REGRESSION HALF. "Send nothing at all" would pass both checks above while
+     breaking the tab, so the fields this form is still FOR must still arrive. */
+  test('everything the tab is still for still saves', async ({ page }) => {
+    const stub = await openChanges(page);
+    await page.locator('#schedSelect').selectOption('October');
+    await page.locator('#changesNotes').fill('Back gate, not the front');
     await page.locator('#changesSaveBtn').click();
     await expect(page.locator('#changesSaveStatus')).toHaveText(/saved/i);
-    expect(await savedWire(stub)).toBe('Brown');
+    const data = await lastSave(stub);
+    expect(data.installPreference).toBe('October');
+    expect(data.notes).toBe('Back gate, not the front');
     expect(stub.thrown).toEqual([]);
   });
 
-  /* ⚠ AND THE ORDINARY CASE STILL WORKS BOTH WAYS, or "never write anything" would pass
-     the two checks above while making the control useless. */
-  test('a recorded colour is shown and survives a save', async ({ page }) => {
-    const stub = await openChanges(page, 'Green');
-    await expect(page.locator('#wireColorSelect')).toHaveValue('Green');
-    await page.locator('#changesNotes').fill('anything');
-    await page.locator('#changesSaveBtn').click();
-    await expect(page.locator('#changesSaveStatus')).toHaveText(/saved/i);
-    expect(await savedWire(stub)).toBe('Green');
-    expect(stub.thrown).toEqual([]);
-  });
-
-  test('and choosing one really does save it', async ({ page }) => {
-    const stub = await openChanges(page, '');
-    await page.locator('#wireColorSelect').selectOption('Green');
-    await page.locator('#changesSaveBtn').click();
-    await expect(page.locator('#changesSaveStatus')).toHaveText(/saved/i);
-    expect(await savedWire(stub)).toBe('Green');
-    expect(stub.thrown).toEqual([]);
-  });
-
-  /* ⚠ THE PLACEHOLDER IS WHAT LETS THIS SELECT BE HONEST, and it must stay unchoosable —
-     otherwise a customer can blank a wire colour the office really does hold, which is the
-     erasure above with a person's finger on it instead of a prefill. */
-  test('the "not recorded" placeholder cannot be chosen by a customer', async ({ page }) => {
-    await openChanges(page, 'Green');
-    await expect(page.locator('#wireColorSelect option[value=""]')).toBeDisabled();
+  /* ⛔ AND THE LIGHT COLOURS ARE UNTOUCHED. Her sentence begins "keep what lights they
+     want" — the cord is ours to choose and the bulbs are not, and a change that quietly
+     took both away would be the opposite of what was asked for. */
+  test('the light colours are still theirs to change', async ({ page }) => {
+    await openChanges(page);
+    /* ⚠ PINNED TO THE CONTROL THAT EXISTS, not an or-list — a three-way selector passes on
+       whichever one happens to be there and would go on passing if the real one left. */
+    await expect(page.locator('.portal-tab-btn[data-tab="lights"]')).toBeVisible();
   });
 });
