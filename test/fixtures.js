@@ -40,7 +40,10 @@ const CUSTOMERS = {
       gateCode: '4417',
       lightsDescription: 'Warm White',
       installPreference: 'Any',
-      wireColor: 'White',
+      /* ⛔ NO wireColor. It left PORTAL_READ_FIELDS on 2026-09-17 with the control that
+         read it, and these fixtures are that list verbatim — a fixture carrying a field
+         production no longer sends is the STALE-FAKE trap this repo has already been
+         caught by once, and that one went green while proving the opposite of the rule. */
       outletTimer: 'Yes',
       specificOutlet: 'Front porch, left of door',
       specificOutletNotes: 'Behind the planter',
@@ -74,7 +77,6 @@ const CUSTOMERS = {
       address: '18 Canyon Rd, Lindon, UT 84042',
       lightsDescription: 'Warm White, Red',
       installPreference: 'October',
-      wireColor: 'Green',
       outletTimer: 'No',
       rsvpStatus: 'yes',
       seasonStatus: 'active',

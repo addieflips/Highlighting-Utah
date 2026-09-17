@@ -176,6 +176,106 @@ check('clearing needs CLEAR actually typed, not merely mentioned',
 check('and the clear button is hidden until the dry run has run',
   /goBtn\.style\.display = 'none'/.test(wiring.slice(0, 4000)));
 
+/* =========================================================================
+   EITHER ROUTE IN — the connected file, or the pasted sheet
+   ⭐ Addie, 2026-09-17: "The master sheet won't add", and the screen was telling her why:
+   connecting a FILE needs window.showOpenFilePicker, which exists in Chrome and Edge on a
+   computer and nowhere else. The first version of this sweep asked for a file handle alone,
+   so on her machine it was unreachable — and said so in words that read like a missing step
+   rather than a browser she cannot change. Compare has always taken a paste.
+   ⚠ RUN, NOT READ. Every claim here is about which source a function REACHES FOR and what
+   it does when that source is not there; a regex cannot see a fallback that never fires.
+   ========================================================================= */
+console.log('\n=== It reads whichever sheet she has to hand ===');
+const pendingAsync = [];
+{
+  const rowsSrc = lift('wireSweepSheetRows');
+  check('the sheet reader was found to run', !!rowsSrc);
+
+  /* A grid the way rbParseSheetGrid really returns one: a title line ABOVE the headings,
+     because a sheet that opens with one is exactly what rbFindHeadingRow exists for. */
+  const PASTED = [
+    ['2026 Client List', '', '', ''],
+    ['CU #', 'Name', 'Wire', 'Phone'],
+    ['14', 'Jo Smith', 'White', '8015550001'],
+    ['20', 'Pat Jones', '', '8015550002']
+  ];
+  function build(opts) {
+    const o = opts || {};
+    const asked = { handleLoads: 0, files: 0 };
+    const fn = new Function(
+      'hlxSheetSupported', 'hlxSheetHandleLoad', 'hlxSheetPermission',
+      'hlxWorkbookRowsAllSheets', 'document', 'rbParseSheetGrid', 'rbFindHeadingRow',
+      'return ' + rowsSrc + ';wireSweepSheetRows')(
+      () => o.supported !== false,
+      async () => { asked.handleLoads++; return o.handle === undefined ? { getFile: async () => ({}) } : o.handle; },
+      async () => o.permission || 'granted',
+      async () => { asked.files++; return { rows: o.fileRows || [['CU #', 'Name', 'Wire']] }; },
+      { getElementById: () => (o.pasted === undefined ? null : { value: o.pasted }) },
+      () => (o.pasted ? PASTED : []),
+      g => (g.length ? { index: 1, match: { mapped: ['a', 'b'] } } : null)
+    );
+    return { fn, asked };
+  }
+
+  /* ⚠ ONE AWAITED BLOCK, NOT nested setTimeouts. The first draft scored these AFTER the
+     summary had printed and process.exit had run — eight checks that could never fail the
+     build, which is the trap CLAUDE.md names by name about Suite 10. */
+  pendingAsync.push((async () => {
+    /* 1. A connected file still wins, and the paste is not even looked at. */
+    const b1 = build({ fileRows: [['CU #', 'Name', 'Wire'], ['14', 'Jo Smith', 'White']], pasted: 'x' });
+    const r1 = await b1.fn();
+    check('a connected file is still what it reads when there is one',
+      r1.rows.length === 2 && b1.asked.files === 1, JSON.stringify(r1));
+    check('and it says so, so a stale paste can never be mistaken for the live file',
+      /connected on this computer/.test(r1.from), r1.from);
+
+    /* 2. ⛔ THE CASE SHE HIT. No showOpenFilePicker at all — a tablet, or Safari. */
+    const b2 = build({ supported: false, pasted: 'x' });
+    const r2 = await b2.fn();
+    check('a browser that cannot hold onto a file falls back to the pasted sheet',
+      r2.rows.length === 3, JSON.stringify(r2));
+    check('and it never even asks for a handle it cannot have',
+      b2.asked.handleLoads === 0 && b2.asked.files === 0,
+      'asking IndexedDB for a handle on a browser with no picker is a wasted round trip, ' +
+      'and in a stack trace it reads like the feature half working');
+    /* ⚠ THE HEADINGS ARE FOUND WHEREVER THEY SIT. Slicing from row 0 would make the title
+       line the header and every column name would come back blank. */
+    check('and the headings are found wherever they sit, not assumed to be row one',
+      r2.rows[0][1] === 'Name', JSON.stringify(r2.rows[0]));
+    check('and it says it read the pasted one', /pasted/.test(r2.from), r2.from);
+
+    /* 3. Neither one. It must REFUSE, and name both ways in — not send her to a button
+       that does not exist in her browser, which is what the first version did. */
+    let r3 = null, t3 = null;
+    try { r3 = await build({ supported: false, pasted: undefined }).fn(); }
+    catch (e) { t3 = e; }
+    check('with neither a file nor a paste it refuses rather than sweeping nothing',
+      !r3 && !!t3, JSON.stringify(r3));
+    check('and the refusal names BOTH ways in, including the one that works on a tablet',
+      !!t3 && /paste/i.test(t3.message) && /Use my master sheet/.test(t3.message),
+      'the first version named only the button: ' + (t3 && t3.message));
+  })());
+}
+
+/* ⛔ A WIRE COLUMN THAT ARRIVED EMPTY IS THE ONE THAT COSTS MONEY-SHAPED DAMAGE HERE.
+   Hidden, filtered out, or a copy that stopped short — all three give a Wire heading with
+   nothing under it, and on that reading every customer with a row looks like somebody the
+   office never recorded, so the sweep would clear every real White in the book. */
+{
+  const findSrcRaw = stripComments(lift('wireSweepFind'));
+  check('the sweep refuses a sheet whose Wire column is entirely empty',
+    /wireByName\)\.length && !Object\.keys\(wireByNum\)\.length/.test(findSrcRaw),
+    'without this, a Wire column that did not survive the copy clears every White there is');
+  check('and it refuses BEFORE anything is classified',
+    findSrcRaw.indexOf('not one wire colour') < findSrcRaw.indexOf('wireSweepClassify('),
+    'a refusal after the list is built is a list she can still press Clear on');
+  check('and the report says which sheet it actually read',
+    /sheetFrom/.test(stripComments(admin.slice(admin.indexOf('(function wireWireSweep(')))),
+    'reading a stale paste and a live file must never look identical on screen');
+}
+
+Promise.all(pendingAsync).then(function () {
 console.log('');
 failures.forEach(f => console.log('  FAIL  ' + f));
 console.log((failures.length ? '\n' : '') + pass + ' passed, ' + fail + ' failed\n');
@@ -185,3 +285,4 @@ if (fail) {
   console.log('something anybody would notice from a screen.\n');
 }
 process.exit(fail ? 1 : 0);
+});
