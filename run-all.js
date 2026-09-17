@@ -28655,6 +28655,12 @@ suite('Suite 112. The number on the bin');
         extractFn(money, 'cnBinsForFeet').replace('export ', '') +
         'const CN_DOUBLE_BIN_FEET = ' +
           (/CN_DOUBLE_BIN_FEET = (\d+)/.exec(money) || [0, '260'])[1] + ';' +
+        /* ⚠ whWireLabel IS LIFTED, NOT STUBBED (2026-09-17). The sheet's Wire column went
+           through it so a house nobody has looked at prints "Check lights" instead of a
+           blank cell — and this sandbox died with a bare ReferenceError until the real one
+           was given to it. The extraction-list trap, for the ninth time in this file; a stub
+           would keep the suite green through a change to what the warehouse is told. */
+        extractFn(admin, 'whWireLabel') +
         extractFn(admin, 'printNeedsBuildList') + 'return printNeedsBuildList();');
       const out = list(
         [{id: 'x', data: {name: 'Ashley Wray', customerNumber: '894',
