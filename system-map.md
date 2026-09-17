@@ -4836,9 +4836,23 @@ map**.
 **Pending maps · N**, beside Add a map, is the worklist: houses that still owe a drawing.
 
 A house is pending when it has **no drawing at all** AND it is either a **new quote this
-year** or an **open re-quote**. Returning customers with no drawing are deliberately left
-out — nearly the whole book has never been photographed, and listing all of them would bury
-the dozen houses somebody actually has to go and draw.
+year** or a **re-quote they have said yes to**. Returning customers with no drawing are
+deliberately left out — nearly the whole book has never been photographed, and listing all
+of them would bury the dozen houses somebody actually has to go and draw.
+
+⚠ **A re-quote nobody has answered yet does NOT count.** It shipped on 2026-09-16 counting
+any **open** re-quote, and Addie read the result straight away: *"I see Rachel Oslund is on
+there and Ashley Wray but they are quotes and requotes"*, then set the rule — *"Once they
+approve requote then we should have that come up to put in there map."* A house being
+re-quoted right now may take the new price or may decline, and if they decline there is
+nothing to draw. See [[BPM-04]].
+
+⚠ **And it keeps counting after the office applies it.** Applying a re-quote **closes** the
+quote, so the open-quote test stops finding it within the day. `requoteAppliedAt` on the
+customer record is what the list reads from then on — without it the house would read
+*Returning* and drop off at exactly the moment the drawing is owed. That stamp is never
+cleared, so it is only honoured **for the current year**; otherwise the list would grow
+until it covered everybody ever re-quoted.
 
 ⚠ **The number beside each filter option says what pressing it will show** — it answers to
 the search box and to the other group, not to the whole book. It shipped on 2026-09-16 as a
@@ -4863,10 +4877,13 @@ alone, so the same route can be printed twice without re-filtering.
 **The three tags on a card, and where each comes from.** Nothing new is stored for these —
 they are read off the status each record already carries:
 
-- **Requote** — there is an **open** re-quote against this house. A closed one is history
-  and leaves the house Returning. ⚠ A quote is joined to a house by its `existingCustomerId`
-  first; failing that, by phone **and** address together, never phone alone — 17 numbers in
-  the real book are shared and 14 of those are a parent and a child at two houses.
+- **Requote** — there is an **open** re-quote against this house, **or** one was applied to
+  it this year (`requoteAppliedAt`). A closed re-quote carrying no such stamp is history and
+  leaves the house Returning, and so does one applied in an earlier year. ⚠ A quote is joined
+  to a house by its `existingCustomerId` first; failing that, by phone **and** address
+  together, never phone alone — 17 numbers in the real book are shared and 14 of those are a
+  parent and a child at two houses. ⚠ The badge says the house **was** re-quoted; whether
+  that re-quote has been agreed is a separate question, and only the Pending list asks it.
 - **New quote** — `audienceNeverAsked`, the same union rule the RSVP audience and the New
   Hang badge already use (the $30 fee box **or** a closed, converted, non-re-quote quote
   from this calendar year). ⚠ Not the fee box alone: somebody who joined this year with the
@@ -4888,6 +4905,7 @@ decided per page, because one route can hold both.
 |---|---|
 | The grid is empty | Check the filter button — it opens on **Has a map**. "No maps match" means the filter, not the data; a failed read says so in its own words instead. |
 | A customer is not in the name list | The list is every house in `jobAddresses`. If they are not there they are not a customer yet. |
+| A re-quoted house is not on **Pending maps** | They have not approved it yet — that is the rule, not a fault ([[BPM-04]]). It appears once they approve, and stays until somebody draws it. |
 | A map prints the wrong number of times | The stepper is this session only. The number that survives is **Usual copies** in the detail dialog. |
 | The count on the bar does not match the sheet | It should not be possible — both are built from the same queue. If it happens, `npm run test:blueprint` is the gate that should have caught it. |
 | An upload fails | The dialog stays open and names the reason. A switched-off picture account reads the same here as it does on a quote. |
@@ -4925,6 +4943,30 @@ page", and background graphics **on**.
       - ⭐ **One rule per side**: `quoteAnswerMayClearStatusServer` (both server sites) and `quoteAnswerMayClearStatus` (the office delete). It asks about **`pendingAddress`** — the same field the banner reads and the same field the Save clears once the address has moved — and deliberately **not about the status word**: there is only one `seasonStatus` field, so a move can be outstanding while the pill shows `needs_changes` because something else wrote last.
       - ⭐ **The hold is bounded, which is the whole argument for it.** The hole the clearing closed is a customer sitting in Needs Changes for ever with nothing anywhere to clear it; here there IS something left — the move, which the office applies, and that save clears `pendingAddress` and raises the re-quote that answers the badge properly. **It reports nothing and flags nothing**: the badge still reading Needs Changes is the honest answer while a move is outstanding, and a follow-up raised for correct behaviour is how the office learns to click past the ones that matter.
       - ⚠ **All three sites, not the one that prompted it** — "a fix in one direction is half a fix". Proved where each half can be: the **behaviour** in run-all.js Suites 137 and 138, which already drive both decline paths against a fake Firestore (the status survives, and an `address_changed` with **no** pending move still clears); the **agreement** in §5 of `address-move.test.js`, which RUNS the two copies side by side over every shape a record can be in, money-parity's argument applied to a badge. 6 sabotages red-checked.
+- ⭐ **WHY A SAVE WAS REFUSED, IN WORDS THE MEMBER CAN ACT ON** (2026-09-17, [[MEM-02]]).
+  Addie, testing the change auto-reply, hit *"Could not save that — please call (801) 901-0011."*
+  and there was no way to find out why.
+  - **Seven of the nine portal handlers threw the reason away.** Each caught its own failure
+    and printed one fixed sentence — so the server's explanation never reached the customer,
+    and because `portalCallFailedText` was never called, the **Member Error row was never
+    filed either**. The office was told nothing. Lights, Sides, My Info, Changes, Cancel, the
+    in-account contact form and all three quote buttons were all like this; only the *moved*
+    tab was already right, and it is the model the rest now follow.
+  - **A refusal the server wrote for the member is shown word for word.** `failed-precondition`
+    is the one code this app throws with wording aimed at the customer, and all three name the
+    next step — the arrears hold (*"There is still a balance owing from the 2025 season. Once
+    that is paid you can make changes here again."*), *"Nothing due to charge."* and *"That
+    quote has not been approved."* Every other code keeps the apology and never quotes the
+    error, so a developer's message can never go out over her name.
+  - ⛔ **A refusal is not an error and is never filed as one.** The arrears hold is the system
+    working; a Member Error every time somebody who owes money opens a tab would bury the real
+    faults the folder exists to surface.
+  - ⚠ **One path keeps its own wording**: on the Sides tab the sides *do* save and only the
+    re-quote card fails, so the shared apology would read as "nothing saved" and be untrue. It
+    reports by hand and keeps the accurate sentence.
+  - `portalServerRefusal` / `portalCallFailedText` in index.html; `error-inbox.test.js`, eight
+    sabotages red-checked.
+
 - ⭐ **STAYING SIGNED IN, AND STILL BEING ABLE TO LEAVE** (2026-09-11, [[MEM-01]]). Addie:
   *"make sure when someone logs into member portal they stay logged in but they can still go
   back to home page with a go back button or something in top right corner."*
@@ -6932,6 +6974,7 @@ are the two copies of the rule — change one, change the other, in the same pus
 ## 11. If X isn't working, check Y
 
 - **The whole admin page is dead, and the console names an error nowhere near anything you changed** → read the FIRST error, not the loudest one, and look at the line it names. On 2026-09-09 the log read `ReferenceError: Can't find variable: async  at admin.html:20204`, then twice `Cannot access uninitialized variable.  at admin.html:42670`. One cause: a stray `async` left alone on line 20204 by an edit that removed the function it belonged to. On its own that word is just a name JavaScript cannot find, so the script stops there — and the two errors twenty thousand lines lower are simply the things it never got as far as creating. A whole script dying part-way always looks like several unrelated faults at once; the one to fix is the first. `npm run verify` now refuses this before it can be pushed.
+- **Re-quote emails are not going out, while ordinary quotes are** → the template is looked up by **exact name**. `getEmailTemplateByName` is a plain `name === name` match, and it is asked for whatever **Quote email settings → Re-quote template** holds — which ships as the literal string **"ReQuotes"**. A template called *Requotes*, *Re-Quotes* or anything else is not found. Until 2026-09-17 a re-quote raised off an **existing customer** then refused outright, while a first quote with no template fell back to a built-in body and went out — which is exactly why it read as *re-quotes being broken* rather than a setting being wrong. ⚠ **The send no longer stops.** It uses the built-in re-quote wording (`DEFAULT_REQUOTE_BODY`, which had been in the file all along and was read only by the seed-the-templates button) and **says so** on the card, naming the template it could not find. So if a customer reports wording that is not hers, read that line — it is telling you to pick a template. The **Check my setup** button in Quote email settings lists which of the three names it can actually find, and is the fastest way to see this. [[QT-42]]
 - **A quote email shows "(quote token not found)" where the Approve / Maybe / Decline buttons should be** → the quote those buttons belong to has no `quoteToken`, so there is no link to put behind them. A token is normally minted in the customer's own browser when the public quote form is submitted, and until 2026-09-11 the PORTAL's re-quote — raised when a member changes how many sides of their house are lit — never minted one at all. Miko Johnson's is the one that reached the office that way. Two halves are fixed: the portal create writes a token like every other quote, and the email renderer mints one on demand, which is what rescues every quote already sitting in the book without one. ⚠ **AND IT WAS PICKING THE WRONG QUOTE AS WELL.** The renderer took the FIRST quote sharing the customer's phone number, in cache order — Addie's own number carries five quotes and every one is CLOSED — so a live email could carry the token of a quote answered weeks ago, inviting the customer to re-answer history while the quote actually in front of them stayed untouched. `quoteForButtons` now skips closed and archived quotes and takes the newest of what is left, and returns nothing at all when there is no open quote, because buttons pointing at an answered quote are worse than no buttons.
 - **A route/customer list is empty with no error** → check `firestore.rules` first for that collection. A collection missing a rules entry is denied by default and fails *silently* in a listener (no console error a non-coder would notice).
 - **A field the portal should show is blank or stuck at 0** → check whether that field is in the relevant Cloud Function's *read whitelist* (`PORTAL_READ_FIELDS`, `INVOICE_READ_FIELDS`, `QUOTE_READ_FIELDS` in `functions/index.js`). The portal only ever sees a function's sanitized output, never the raw document — a field can be correctly written and still invisible to the customer if it's not on that list.

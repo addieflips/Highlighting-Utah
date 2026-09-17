@@ -207,6 +207,7 @@ check('the lifted blocks really are the code they claim to be',
   ADMIN_BLOCK.indexOf('window.__huAdminErrorSink') !== -1 &&
   MEMBER_BLOCK.indexOf('function reportMemberError(') !== -1 &&
   MEMBER_BLOCK.indexOf('function portalCallFailedText(') !== -1 &&
+  MEMBER_BLOCK.indexOf('function portalServerRefusal(') !== -1 &&
   MEMBER_BLOCK.indexOf('function redactTokens(') !== -1,
   'the window found something, but not the whole of what these checks then drive');
 
@@ -277,7 +278,8 @@ function memberHarness(opts) {
   };
   const names = Object.keys(scope);
   const body = MEMBER_BLOCK + '\n' +
-    'return {reportMemberError, redactTokens, portalCallFailedText, quoteAnswerWords,' +
+    'return {reportMemberError, redactTokens, portalCallFailedText, portalServerRefusal,' +
+    ' quoteAnswerWords,' +
     ' memberErrorScreenMatters, sent(){ return memberErrorCount; }};';
   const api = new Function(...names, body)(...names.map(n => scope[n]));
   api.writes = io.writes;
@@ -472,6 +474,92 @@ console.log('--- the member half ---');
   check('and the customer still gets the apology they always got',
     /call or text us/.test(text),
     'the report is in addition to the apology, never instead of it');
+}
+
+/* ⭐ A REFUSAL THE SERVER WROTE FOR THE MEMBER IS SHOWN, AND IS NOT AN ERROR
+   (2026-09-17, [[MEM-02]]). Addie hit "Could not save that — please call (801) 901-0011."
+   on the Sides tab and had no way to know why, because that handler printed one fixed
+   sentence and threw the reason away. Seven of the nine portal handlers did the same, so a
+   customer who owes money — the case the server writes a whole explanatory sentence for —
+   was told to ring the office, AND no Member Error was ever filed, so nobody here knew it
+   had happened at all.
+   ⚠ RUN, NOT MATCHED. Every claim below is about the string a customer READS and whether a
+   row is written, which is exactly what this file's header says a text check cannot see. */
+{
+  const h = memberHarness();
+  const owed = { code: 'functions/failed-precondition',
+    message: 'There is still a balance owing from the 2025 season. Once that is paid you can make changes here again.' };
+  const text = h.portalCallFailedText(owed, 'account', 'Changing their light colours');
+  check('a refusal the server wrote for the member is shown word for word',
+    text === owed.message,
+    'got: ' + JSON.stringify(text) + ' — the arrears sentence names the next step, and the ' +
+    'apology that replaced it turns a rule doing its job into a phone call');
+  check('and a refusal is NOT filed as a Member Error',
+    h.writes.length === 0,
+    'got ' + h.writes.length + ' write(s) — the arrears hold is the system working, and a ' +
+    'row every time a debtor opens a tab buries the real faults the folder exists for');
+}
+{
+  /* ⚠ THE OTHER DIRECTION IS THE HALF THAT COULD ROT. If `failed-precondition` were read
+     too widely, a developer's message would go out over Addie's name to a customer. */
+  const h = memberHarness();
+  const text = h.portalCallFailedText({ code: 'internal', message: 'TypeError: x is not a function' },
+    'account', 'Changing their light colours');
+  check('any other code keeps the apology and never quotes the error',
+    /call or text us/.test(text) && text.indexOf('TypeError') === -1,
+    'got: ' + JSON.stringify(text));
+  check('and that one IS reported',
+    h.writes.length === 1,
+    'got ' + h.writes.length + ' write(s) — a real fault is the whole point of the folder');
+}
+{
+  /* The helper alone, so a caller added later cannot be what proves the rule. */
+  const h = memberHarness();
+  check('the refusal rule reads the message for that ONE code',
+    h.portalServerRefusal({ code: 'failed-precondition', message: 'Nothing due to charge.' }) === 'Nothing due to charge.' &&
+    h.portalServerRefusal({ code: 'functions/failed-precondition', message: 'That quote has not been approved.' }) === 'That quote has not been approved.' &&
+    h.portalServerRefusal({ code: 'not-found', message: 'Account not found.' }) === '' &&
+    h.portalServerRefusal({ code: 'internal', message: 'boom' }) === '' &&
+    h.portalServerRefusal(new Error('boom')) === '' &&
+    h.portalServerRefusal(null) === '',
+    'both spellings of the code are real — the client prefixes it "functions/", the server does not');
+  check('and a refusal with no message falls back to the apology rather than a blank screen',
+    h.portalCallFailedText({ code: 'failed-precondition' }, 'account', 'Changing their light colours')
+      .indexOf('call or text us') !== -1,
+    'an empty sentence tells the customer nothing at all');
+}
+
+/* ⭐ AND NO PORTAL HANDLER SWALLOWS ITS OWN FAILURE. This is the check that would have
+   answered Addie's question for her, and it is STRUCTURAL and says so: it asserts that
+   every `catch` in the portal's own handlers routes through the one funnel, rather than
+   driving nine click handlers. The funnel itself is RUN above.
+   ⚠ IT SCANS THE HANDLERS, NOT THE FILE. The public quote form, the contact form and the
+   PayPal panes legitimately write their own wording — they are not the member's account
+   and there is no token to report against. */
+{
+  const PORTAL_HANDLERS = between(index, "document.getElementById('lightsSaveBtn')", '</script>',
+    'the portal account handlers');
+  /* A catch that assigns an apology and never calls the funnel is the shape being
+     refused. Comments are stripped first — this repo has been caught four times by a
+     check that found its own explanation and called it code. */
+  const stripped = PORTAL_HANDLERS
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  const catches = stripped.split(/\bcatch\s*\(/).slice(1);
+  const swallowed = catches.filter(function (body) {
+    const upToClose = body.slice(0, body.indexOf('\n  }') === -1 ? body.length : body.indexOf('\n  }'));
+    if (upToClose.indexOf('statusEl.textContent') === -1) return false;
+    return upToClose.indexOf('portalCallFailedText') === -1 &&
+           upToClose.indexOf('reportMemberError') === -1;
+  });
+  check('no portal handler tells the customer it failed without telling the office too',
+    swallowed.length === 0,
+    swallowed.length + ' catch block(s) print an apology and report nothing. That is the ' +
+    'bug this entry is about: the customer gets no reason and the Inbox gets no row.');
+  check('and the funnel is reached from every one of them',
+    (PORTAL_HANDLERS.match(/portalCallFailedText\(err/g) || []).length >= 9,
+    'found ' + (PORTAL_HANDLERS.match(/portalCallFailedText\(err/g) || []).length +
+    ' — lights, sides, info, moved, changes, cancel, contact, quote approve, maybe, decline');
 }
 
 {
