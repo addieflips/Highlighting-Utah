@@ -60598,3 +60598,133 @@ suite('Suite 333. The sheet says how many PEOPLE it holds, not how many rows');
     bare.indexOf('res.name || "your sheet") + " \\u2014 " + res.rows +') === -1,
     'a second place spelling the count out for itself is how the two start disagreeing');
 }
+
+suite('Suite 334. Somebody who leaves the season comes off the plan on its own');
+/* ⭐ [[SCH-78]]. Addie, 2026-09-17: "Linda Hunley still shows as scheduled even though I
+   switched her to pending ... I'm also noticing a lot of people are scheduled but say no
+   on the schedule like Miko Johnson."
+
+   ⛔ THE RULE WAS NEVER MISSING — ONLY ONE DOOR RAN IT. rebuildSeasonDays has dropped
+   out-of-season houses since 2026-08-22, and that is ⚙ Recalculate everything. The
+   five-minute sync only ever added and corrected, so a customer who answered no sat on a
+   crew's day until somebody happened to press a button.
+
+   ⚠ EVERY BEHAVIOURAL CLAIM HERE IS RUN, NOT MATCHED. They are all about which houses
+   are left on a day afterwards, and a regex cannot see an array. The two WIRING claims —
+   that the sync calls it at all, and that its counts reach the early return — are
+   asserted separately, because this suite calls the sweep from its own harness and would
+   stay green with the call deleted from the page. That is the exact shape this repo has
+   shipped before. */
+{
+  const dropSrc = extractFn(admin, 'dropHousesWhoLeftSeason');
+
+  /* isOutForSeason is LIFTED, never stubbed: the one claim worth more than all the
+     others is that this sweep asks the same rule the route generator and the build
+     queue ask. A stub here would decide the very thing under test. */
+  const run = (season, book, locked) => new Function('SEASON', 'jobAddresses', '__locked',
+    seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
+    'function dayDate(d){ return d._date; }\n' +
+    'function isoOf(dt){ return dt.toISOString().slice(0,10); }\n' +
+    'function routeDayIsLocked(iso){ return __locked.indexOf(iso) !== -1; }\n' +
+    'function planCustomerFor(h){ return jobAddresses.find(function(a){ return a.id === h.custId; }) || null; }\n' +
+    dropSrc + '\nreturn dropHousesWhoLeftSeason();'
+  )(season, book, locked || []);
+
+  const day = (iso, houses) => ({ _date: new Date(iso + 'T12:00:00Z'), houses: houses });
+  const house = (name, custId, extra) => Object.assign({ id: name, name: name, custId: custId }, extra || {});
+  const cust = (id, data) => ({ id: id, data: data });
+  const IN = { rsvpStatus: 'yes', rsvpRespondedAt: new Date() };
+  const OUT = { rsvpStatus: 'no' };
+
+  {
+    const d = day('2026-11-03', [house('Miko Johnson', 'c1'), house('Stays', 'c2')]);
+    const out = run([d], [cust('c1', OUT), cust('c2', IN)]);
+    check('S334', 'somebody who answered no comes off the day',
+      d.houses.length === 1 && d.houses[0].name === 'Stays',
+      'this is the complaint — a house on a crew sheet for a customer who said no');
+    check('S334', 'and the one who is coming is left exactly where they were',
+      out.dropped.length === 1 && out.dropped[0].name === 'Miko Johnson',
+      'a sweep that empties a day is worse than one that never ran');
+  }
+
+  /* ⚠ THE OFFICE DOOR AND THE CUSTOMER DOOR ARE THE SAME FACT, and the office one is
+     what Addie actually pressed. maybeNextYear is set by the Edit Customer toggle while
+     portalRsvp writes the status alone — isOutForSeason reads both, and a sweep reading
+     one of them misses exactly half the people. */
+  {
+    const d = day('2026-11-03', [house('Linda Hunley', 'c1')]);
+    run([d], [cust('c1', { maybeNextYear: true })]);
+    check('S334', 'and so does somebody the OFFICE switched, not just somebody who answered',
+      d.houses.length === 0,
+      'Linda was switched in Customers — a rule reading rsvpStatus alone would leave her on');
+  }
+
+  /* ⚠ NO RECORD, NO OPINION. An imported CSV row need never match a customer. */
+  {
+    const d = day('2026-11-03', [house('Imported row', 'nobody')]);
+    run([d], [cust('c1', IN)]);
+    check('S334', 'a house with no customer behind it is left alone',
+      d.houses.length === 1,
+      'reading "not found" as "not coming" would empty an imported plan on the first tick');
+  }
+
+  /* ⚠ AND AN EMPTY BOOK IS NOT AN EMPTY SEASON — this one runs on a timer with nobody
+     watching, so the failure would be silent and total.
+     ⚠ THE INVARIANT IS REAL AND THE SABOTAGE FOR IT IS A NO-OP, said plainly rather than
+     counted as a catch. Deleting the empty-book guard changes nothing, because
+     planCustomerFor answers null against an empty book and the no-record guard above
+     returns first. The guard stays — it is the fail-safe this sweep is documented on and
+     it saves a whole SEASON walk — but the only thing standing between an empty listener
+     and an emptied plan is the line above, and that is what this check really holds. */
+  {
+    const d = day('2026-11-03', [house('Anybody', 'c1')]);
+    const out = run([d], []);
+    check('S334', 'an empty customer book removes nobody at all',
+      d.houses.length === 1 && out.dropped.length === 0,
+      'jobAddresses is empty for a moment after login and again if the listener fails');
+  }
+
+  /* ⚠ A PRINTED SHEET IS NOT SOMETHING A BACKGROUND SWEEP CAN UN-PRINT. */
+  {
+    const d = day('2026-11-03', [house('On the truck', 'c1')]);
+    const out = run([d], [cust('c1', OUT)], ['2026-11-03']);
+    check('S334', 'a day inside the 48-hour lock is reported, never emptied',
+      d.houses.length === 1 && out.locked.length === 1 && out.dropped.length === 0,
+      'the crew is holding that sheet — that is a phone call, not a silent edit');
+  }
+
+  /* ⚠ SOMEBODY SITTING THE SEASON OUT STILL HAS LIGHTS TO COME DOWN. */
+  {
+    const d = day('2026-11-03', [house('Takedown', 'c1', { isTakedown: true }),
+                                 house('Fix', 'c1', { isFix: true }),
+                                 house('Done already', 'c1', { done: true })]);
+    run([d], [cust('c1', OUT)]);
+    check('S334', 'takedowns, fixes and finished work are never swept',
+      d.houses.length === 3,
+      'all three are work on lights that are already up, or already done');
+  }
+
+  /* ---- the wiring, which the harness above cannot see ---- */
+  const syncStart = admin.indexOf('window.scheduleSyncFromCustomers=function(opts){');
+  const syncEnd = admin.indexOf('function __startSyncTimer()', syncStart);
+  const sync = (syncStart > -1 && syncEnd > syncStart) ? stripComments(admin.slice(syncStart, syncEnd)) : '';
+  check('S334', 'the periodic sync actually calls it',
+    /leftSeason=dropHousesWhoLeftSeason\(\)/.test(sync),
+    'every behavioural check above passes with the call deleted from the page');
+  check('S334', 'and before the three sweeps that move or place anybody',
+    sync.indexOf('dropHousesWhoLeftSeason()') < sync.indexOf('placeUnscheduledOnNextDay()') &&
+    sync.indexOf('dropHousesWhoLeftSeason()') < sync.indexOf('enforceInstallTiming()'),
+    're-homing and re-timing a house that is about to come off is work thrown away');
+  /* ⚠ THE ONE THAT DECIDES WHETHER ANY OF THIS REACHES FIRESTORE. A tick whose only
+     finding is a drop returns before renderAll and scheduleSave, so the house comes off
+     in memory and goes straight back on at the next reload. */
+  check('S334', 'and a drop-only tick still saves the plan',
+    /!leftSeason\.dropped\.length[\s\S]{0,80}!leftSeason\.locked\.length/.test(sync),
+    'left out of the early return, the whole fix is invisible after a refresh');
+  check('S334', 'a failure in the sweep cannot take the rest of the sync down',
+    /catch\(err\)\{ console\.error\('Season drop sweep failed:'/.test(sync),
+    'the towns and timings it just pulled across matter more than this');
+  check('S334', 'and the office is told, by name when it is one person',
+    /leftSeason\.dropped\[0\]\.name/.test(sync) && /out for the season/.test(sync),
+    '"somebody left Tuesday" with no explanation is how the office stops trusting the plan');
+}

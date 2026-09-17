@@ -71664,6 +71664,66 @@ function rehomeMovedHouses(ids){
   });
   return out;
 }
+/* ⭐ AND ANYBODY WHO HAS LEFT THE SEASON COMES OFF THE PLAN WITHOUT A BUTTON BEING
+   PRESSED (2026-09-17, [[SCH-78]]). Addie: "Linda Hunley still shows as scheduled even
+   though I switched her to pending ... I'm also noticing a lot of people are scheduled
+   but say no on the schedule like Miko Johnson."
+
+   ⛔ THE RULE EXISTED AND ONLY ONE DOOR RAN IT. `rebuildSeasonDays` has dropped
+   out-of-season houses since 2026-08-22 — but that is ⚙ Recalculate everything, a button
+   nobody should have to know to press for a customer who has just answered no. The
+   five-minute sync has only ever ADDED (placeUnscheduledOnNextDay) and CORRECTED
+   (syncHousesFromCustomers, enforceInstallTiming); nothing in it has ever taken a house
+   off a day. So from the moment somebody answers no, or the office switches them to
+   pending, they sit on a crew's sheet until the next rebuild — which is exactly the
+   state she is reading off the screen.
+
+   ⚠ IT ASKS isOutForSeason AND DOES NOT RE-DECIDE, the same reason
+   customersMissingFromSeason and placeUnscheduledOnNextDay both defer to it. A second
+   opinion about who is coming, living in the schedule, is how the plan and the crew
+   start holding different lists.
+
+   ⚠ NO RECORD, NO OPINION. An imported CSV row need not match a customer at all, and
+   reading "nobody found" as "not coming" would empty most of an imported plan on the
+   first tick. rebuildSeasonDays drops those separately, where the office is standing in
+   front of it; a sweep that runs every five minutes on a timer must not.
+
+   ⚠ AND AN EMPTY BOOK IS NOT AN EMPTY SEASON. jobAddresses is empty for a moment after
+   login and empty again if the listener fails, and an ungated version would read that as
+   "nobody is a customer" and clear the whole plan with nobody watching.
+
+   ⚠ A LOCKED DAY IS REPORTED, NEVER EMPTIED. Inside 48 hours the sheet is printed and
+   the truck is loaded, and un-printing paper is not something a background sweep can do.
+   The office is told instead, so they ring the crew rather than finding out from them.
+
+   ⚠ AND TAKEDOWNS AND FIXES STAY. Both are work on lights that are already up, so
+   somebody sitting the season out may still need theirs taking down — the same exemption
+   rebuildSeasonDays makes, for the same reason. */
+function dropHousesWhoLeftSeason(){
+  const out = {dropped: [], locked: []};
+  if(typeof SEASON === 'undefined' || !SEASON.length) return out;
+  if(typeof isOutForSeason !== 'function') return out;
+  if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses) || !jobAddresses.length) return out;
+  const dayStr = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : null; };
+  SEASON.filter(function(d){ return !d.isFixRoute && !d.isTakedown && dayStr(d); })
+        .forEach(function(day){
+    const here = dayStr(day);
+    (day.houses || []).slice().forEach(function(h){
+      if(h.isFix || h.isTakedown || h.done) return;
+      const cust = planCustomerFor(h);
+      const cd = (cust && cust.data) || null;
+      if(!cd) return;
+      if(!isOutForSeason(cd)) return;
+      if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(here)){
+        out.locked.push({name: h.name || '(no name)', date: here});
+        return;
+      }
+      day.houses = day.houses.filter(function(x){ return x !== h; });
+      out.dropped.push({name: h.name || '(no name)', date: here});
+    });
+  });
+  return out;
+}
 /* ---------- customers the plan has never heard of ----------
    ⭐ A NEW CUSTOMER IS IN THE SEASON WITHOUT ANYBODY RE-IMPORTING ANYTHING
    (added 2026-08-20). Owner: "rachel oslund is a new customer but when i click
@@ -73451,6 +73511,13 @@ function exportCSV(){
        Runs FIRST of the three sweeps: it operates on houses already on the plan, and
        putting it ahead of the timing sweep means a house re-homed here is held to its
        own timing in the same pass rather than sitting wrong until the next tick. */
+    /* ⭐ BEFORE ANY OF THE THREE SWEEPS BELOW ([[SCH-78]]). Re-homing, placing and
+       re-timing a house that is about to come off the plan is work thrown away, and
+       placeUnscheduledOnNextDay would otherwise hand a day to somebody this pass is
+       removing. Dropping first means the other three only ever see people who are
+       actually coming. */
+    let leftSeason={dropped:[],locked:[]};
+    try{ leftSeason=dropHousesWhoLeftSeason(); }catch(err){ console.error('Season drop sweep failed:',err); }
     let rehome={moved:[],stuck:[],locked:[]};
     try{ rehome=rehomeMovedHouses(moved.filter(function(c){ return c.field==='town'; })
                                        .map(function(c){ return c.id; })); }
@@ -73459,8 +73526,13 @@ function exportCSV(){
     try{ rejoin=placeUnscheduledOnNextDay(); }catch(err){ console.error("Rejoin placement failed:",err); }
     let timing={moved:[],stuck:[]};
     try{ timing=enforceInstallTiming(); }catch(err){ console.error("Timing sweep failed:",err); }
+    /* ⚠ THE DROP COUNTS BELONG HERE OR THE WHOLE FIX IS DEAD. A tick whose only
+       finding is that somebody left the season would return before renderAll and
+       scheduleSave, so the house would come off the plan in memory and go straight
+       back on at the next reload — the change never reaching Firestore at all. */
     if(!moved.length && !timing.moved.length && !timing.stuck.length
        && !rejoin.placed.length && !rejoin.stuck.length
+       && !leftSeason.dropped.length && !leftSeason.locked.length
        && !rehome.moved.length && !rehome.stuck.length && !rehome.locked.length) return 0;
     /* ⭐ A HOUSE THAT HAS JUST CHANGED DAY OR TOWN IS SITTING OUT OF ORDER.
        enforceInstallTiming puts it on the END of its new day, and a corrected
@@ -73494,6 +73566,17 @@ function exportCSV(){
         : (rejoin.placed.length+" back in \u2014 scheduled on the next day with room"));
       if(rejoin.stuck.length) bits.push(rejoin.stuck.length+
         " back in but no day has room \u2014 press Recalculate everything");
+      /* ⚠ NAMED FOR THE SAME REASON A MOVE IS ([[SCH-78]]). "Somebody left Tuesday" with
+         no explanation is how the office stops trusting the plan, and this one is a
+         customer they may well have been about to ring. */
+      if(leftSeason.dropped.length) bits.push(leftSeason.dropped.length===1
+        ? (leftSeason.dropped[0].name+" is out for the season \u2014 taken off "+leftSeason.dropped[0].date)
+        : (leftSeason.dropped.length+" out for the season \u2014 taken off their days"));
+      /* ⚠ AND THE ONES NOTHING CAN BE DONE ABOUT ARE SAID OUT LOUD RATHER THAN SKIPPED.
+         A day inside 48 hours is printed and loaded, so the crew is still holding this
+         house — that is a phone call, not a silence. */
+      if(leftSeason.locked.length) bits.push(leftSeason.locked.length+
+        " out for the season but still on a day the crew has \u2014 ring them");
       /* ⚠ A MOVE IS NAMED, ALWAYS. "Somebody left Tuesday" with no explanation is how
          the office stops trusting the plan — and a house that changed TOWN is the one
          the crew would otherwise have driven to the wrong address for. */

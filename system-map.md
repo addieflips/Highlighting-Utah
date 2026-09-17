@@ -447,6 +447,25 @@ up, and somebody sitting the season out still needs theirs taking down. ⚠ And
 only where there is something to clear — writing false over false on ~950 records
 says nothing and stamps `updatedAt` on every one.
 
+⭐ **AND THE SCHEDULE NO LONGER WAITS FOR THAT BUTTON** (2026-09-17, [[SCH-78]]).
+Addie: *"Linda Hunley still shows as scheduled even though I switched her to
+pending... a lot of people are scheduled but say no on the schedule like Miko
+Johnson."* Dropping an out-of-season house lived **only** in Recalculate
+everything; the five-minute customer sync had only ever added people
+(`placeUnscheduledOnNextDay`) and corrected the ones already there
+(`syncHousesFromCustomers`, `enforceInstallTiming`). So from the moment somebody
+answered no, or the office switched them to pending, they stayed on a crew's day
+until a button nobody should have to know about was pressed.
+`dropHousesWhoLeftSeason` now runs on every sync, **before** the three sweeps that
+move or place anybody.
+
+⚠ **It asks `isOutForSeason` and does not re-decide** — the same rule the route
+generator and the build queue read. ⚠ **No record, no opinion:** an imported CSV
+row need not match a customer, and reading "not found" as "not coming" would empty
+an imported plan on the first tick. ⚠ **A day inside the 48-hour lock is reported,
+never emptied** — the sheet is printed and the truck is loaded, so that is a phone
+call, not a silent edit. ⚠ And the office is told by name when it is one person.
+
 ⭐ **AND A PLAN ROW THAT IS NOT A CUSTOMER COMES OFF THE SEASON** (2026-09-01).
 Measured on the real plan: one customer badged Confirmed, sixteen houses on the
 schedule — and the sixteen were rows left over from an imported schedule file,
