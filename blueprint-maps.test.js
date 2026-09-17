@@ -81,7 +81,9 @@ const lift = n => liftFrom(adminIx, n);
 const NEEDED = [
   'bpmMapsOf', 'bpmNewMapId', 'bpmSavedCopies', 'bpmHasMap',
   'bpmOpenRequoteFor', 'bpmStageOf', 'bpmItems',
-  'bpmCopiesFor', 'bpmIsTicked', 'bpmMatches', 'bpmShown', 'bpmShownMapped', 'bpmCountFor',
+  'bpmCopiesFor', 'bpmIsTicked', 'bpmMatchesQuery', 'bpmMatches', 'bpmShown', 'bpmShownMapped', 'bpmCountFor',
+  'bpmIsPending', 'bpmPendingItems', 'bpmEmptyHtml', 'bpmApplyDefaultFilter', 'bpmPaintViewChrome',
+  'bpmMatchesStage', 'bpmGroupsForView', 'bpmActiveFilterKeys', 'bpmCountBase',
   'bpmAllSelected', 'bpmAllAtOne', 'bpmSavedDiffers', 'bpmCopyModeIsRestore',
   'bpmBuildQueue', 'bpmChunkPages', 'bpmOrientationOf', 'bpmPageGrid',
   'bpmStreetOf', 'bpmTileRight', 'bpmResetBatch', 'bpmPublicIdFromUrl',
@@ -118,7 +120,14 @@ const constSrc = [
   lifted(/const BPM_FILTER_GROUPS = \[[\s\S]*?\n\];/, 'the filter groups table'),
   lifted(/const BPM_STAGE_KEYS = \[[^\]]*\];/, 'the quote-stage keys'),
   lifted(/const BPM_MAP_KEYS = \[[^\]]*\];/, 'the map-status keys'),
-  lifted(/const BPM_STAGE_TEXT = \{[^}]*\};/, 'the stage wording')
+  lifted(/const BPM_STAGE_TEXT = \{[^}]*\};/, 'the stage wording'),
+  /* ⚠ THE OPENING FILTER IS LIFTED, NEVER RETYPED HERE. It IS the bug this section
+     exists for — the panel shipped opening on "Has a map", which hid every house on a
+     book with no drawings yet and left no route to the upload dialog at all. A sandbox
+     holding its own copy would go on proving the fix against a default the page no
+     longer has. */
+  lifted(/const bpmFilter = new Set\(\[[^\]]*\]\);/, 'the opening filter'),
+  lifted(/const BPM_PENDING_STAGE_KEYS = \[[^\]]*\];/, 'the stages a pending row can be')
 ].join('\n');
 
 if (fail) {
@@ -138,8 +147,16 @@ if (fail) {
    mechanism-without-wiring shape this repo has been caught by before, here in the gate
    rather than in the page. Two elements is all the builder touches. */
 function fakeDoc() {
-  const mk = () => ({innerHTML: '', textContent: ''});
+  const mk = () => ({
+    innerHTML: '', textContent: '', disabled: false, style: {},
+    _attr: {}, setAttribute(k, v) { this._attr[k] = v; }
+  });
   const nodes = {bpmSheets: mk(), bpmSheetNote: mk(), bpmGrid: mk()};
+  /* The chrome bpmPaintViewChrome puts out of reach while the Pending list is up. Real
+     nodes rather than a source check, because the claim is that the print controls
+     STOP BEING REACHABLE — a regex cannot see a style that was never applied. */
+  ['bpmSheetWrap', 'bpmPrintBar', 'bpmSelectAll', 'bpmCopyMode', 'bpmPrintTop',
+   'bpmPerPage', 'bpmFilterBtn', 'bpmPendingBtn'].forEach(id => { nodes[id] = mk(); });
   return {getElementById: id => nodes[id] || null, _nodes: nodes};
 }
 
@@ -148,7 +165,7 @@ function sandbox(extra) {
     'let jobAddresses = [], quotesCache = [];\n' +
     'let bpmQuery = "", bpmPerPage = 8, bpmPickIdx = -1, bpmOpenKey = null;\n' +
     'let bpmPendingNew = null, bpmLoadFailed = "";\n' +
-    'const bpmFilter = new Set(["mapped"]);\n' +
+    'let bpmItemsCache = null, bpmView = "print", bpmAddMode = false, bpmFilterDefaulted = false;\n' +
     'const bpmCopies = Object.create(null);\n' +
     'const bpmUnticked = new Set();\n' +
     'const CLOUDINARY_CLOUD = "highlighting-utah";\n' +
@@ -159,6 +176,9 @@ function sandbox(extra) {
     'return {jobAddresses, quotesCache, bpmFilter, bpmCopies, bpmUnticked,' +
     ' setBook(b){ jobAddresses = b; }, setQuotes(q){ quotesCache = q; },' +
     ' setQuery(q){ bpmQuery = q; }, setPerPage(n){ bpmPerPage = n; }, perPage(){ return bpmPerPage; },' +
+    ' setView(v){ bpmView = v; }, view(){ return bpmView; },' +
+    ' clearSnapshot(){ bpmItemsCache = null; }, snapshotHeld(){ return bpmItemsCache !== null; },' +
+    ' forgetDefault(){ bpmFilterDefaulted = false; }, defaultSettled(){ return bpmFilterDefaulted; },' +
     ' ' + NEEDED.filter(n => n !== 'esc').join(', ') + '};\n';
   return new Function('document', 'window', body);
 }
@@ -224,6 +244,12 @@ function load(book, quotes) {
   S.setPerPage(8);
   S.bpmFilter.clear(); S.bpmFilter.add('mapped');
   S.bpmResetBatch();
+  S.setView('print');
+  S.forgetDefault();
+  /* ⚠ THE SNAPSHOT IS PER RENDER, AND THIS WHOLE FILE RUNS IN ONE TICK. In the page
+     bpmRender clears it before every paint; here the fixtures change underneath it, so
+     without this every check after the first would be answered from the first book. */
+  S.clearSnapshot();
 }
 const keyOf = (house, mapId) => house + '::' + mapId;
 
@@ -756,6 +782,339 @@ const barPull = (admin.match(/\.bpm-printbar\{ margin-left:-(\d+)px/) || [])[1];
 check('the sticky bar pulls against exactly the padding the page has at that width',
   !!mainPad && mainPad === barPull,
   'main padding ' + mainPad + 'px vs bar pull ' + barPull + 'px');
+
+/* ---------------------------------------------------------------------------
+ * THE SCREEN CAN ADD THE FIRST MAP.
+ * ⛔ THE PANEL SHIPPED AS A DEAD END ON DAY ONE. Every route to the upload dialog runs
+ * through a card in the grid, and the grid opened filtered to "Has a map" — so with
+ * nothing photographed yet it drew "No maps match" and there was no way in at all. The
+ * filter is right once there are maps and a wall before that, so it is DERIVED.
+ * ------------------------------------------------------------------------- */
+head('The screen can add the first map');
+
+const NO_MAPS = BOOK.map(h => {
+  const c = clone(h);
+  delete c.data.blueprintMaps;
+  return c;
+});
+
+load(NO_MAPS);
+check('the panel still OPENS on "Has a map"', S.bpmFilter.has('mapped'),
+  'that is the right default once the book holds drawings — the fix is that it is ' +
+  'reconsidered, not that it is gone');
+check('and with nothing on file that would show nothing at all',
+  S.bpmItems().filter(S.bpmMatches).length === 0,
+  'this is the dead end, asserted so the fix below is measured against it');
+
+S.bpmApplyDefaultFilter();
+check('so on a book with no drawings the filter stands itself down', !S.bpmFilter.has('mapped'));
+check('and there is now a card to tap for every house', S.bpmShown().length === NO_MAPS.length,
+  'saw ' + S.bpmShown().length + ' of ' + NO_MAPS.length);
+
+load();
+S.bpmApplyDefaultFilter();
+check('on a book that HAS drawings the filter is left ticked', S.bpmFilter.has('mapped'),
+  'standing it down there would bury the print list under every unmapped house');
+
+/* ⚠ ONCE, AND ONLY AFTER THE BOOK HAS LANDED. Run on every paint it would fight anybody
+   who ticked the box by hand; run before the customers arrive it would read an empty
+   list as "no maps anywhere" and clear the filter for a season that has hundreds. */
+load(NO_MAPS);
+S.bpmApplyDefaultFilter();
+S.bpmFilter.add('mapped');
+S.bpmApplyDefaultFilter();
+check('it decides once and then leaves the box alone', S.bpmFilter.has('mapped'),
+  'a rule that re-ran would untick it again under somebody who had just ticked it');
+
+load([]);
+S.bpmApplyDefaultFilter();
+check('and it does not decide at all while the book is still empty', !S.defaultSettled(),
+  'an unloaded list is not an answer about how many maps exist');
+check('so the opening filter survives a book that has not arrived yet', S.bpmFilter.has('mapped'));
+
+/* The empty grid has to carry the way out, not merely describe itself. */
+load(NO_MAPS);
+const emptyNoMaps = S.bpmEmptyHtml();
+check('an empty grid offers a way to add a map', emptyNoMaps.indexOf('data-bpmaddmap') !== -1);
+check('and a way to clear the filter', emptyNoMaps.indexOf('data-bpmshowall') !== -1);
+check('and with nothing on file anywhere it says so in those words',
+  /No blueprint maps on file yet/.test(emptyNoMaps), emptyNoMaps.slice(0, 120));
+
+load();
+S.setQuery('nobody by this name');
+const emptyFiltered = S.bpmEmptyHtml();
+check('with drawings on file it names the filter that is hiding houses',
+  /Has a map<\/b> is ticked/.test(emptyFiltered), emptyFiltered.slice(0, 160));
+S.bpmFilter.clear();
+const emptyNoFilter = S.bpmEmptyHtml();
+check('and drops that sentence once the filter is off',
+  emptyNoFilter.indexOf('is ticked') === -1, emptyNoFilter.slice(0, 160));
+
+/* ---------------------------------------------------------------------------
+ * PENDING MAPS — WHAT IS STILL OWED.
+ * ⭐ Addie: "make a place were it sends pending maps which will only show for new
+ * costumers that were quoted this year or requoted."
+ * ------------------------------------------------------------------------- */
+head('Pending maps — what is still owed');
+
+load(NO_MAPS);
+const pend = S.bpmPendingItems();
+const pendStages = new Set(pend.map(p => p.stage));
+check('a pending row is a NEW QUOTE or a REQUOTE and nothing else',
+  pend.length > 0 && [...pendStages].every(s => s === 'new' || s === 'requote'),
+  pend.length + ' pending, stages: ' + [...pendStages].join(', '));
+check('and the list is not vacuous — the fixture really holds both kinds',
+  pendStages.has('new') && pendStages.has('requote'), [...pendStages].join(', '));
+
+/* ⚠ THE EXCLUSION IS THE FEATURE. Nearly the whole book has no drawing; listing every
+   one would bury the dozen houses somebody has to go and draw. */
+const returningNoMap = S.bpmItems().filter(i => i.stage === 'returning' && !S.bpmHasMap(i));
+check('the fixture holds returning customers with no drawing', returningNoMap.length > 0,
+  'without one, the exclusion below is proved by nothing');
+check('and NONE of them is pending', returningNoMap.every(i => !S.bpmIsPending(i)));
+
+load();
+const mappedNew = S.bpmItems().filter(i => S.bpmHasMap(i) && (i.stage === 'new' || i.stage === 'requote'));
+check('the fixture holds a new or re-quoted house that DOES have a drawing',
+  mappedNew.length > 0, 'the has-a-map half of the rule needs one to bite');
+check('and having one takes it off the pending list',
+  mappedNew.every(i => !S.bpmIsPending(i)));
+
+/* The view is what she asked for by name: a place the pending ones are sent. */
+load(NO_MAPS);
+S.setView('pending');
+check('the Pending view shows exactly the pending list',
+  S.bpmShown().length === S.bpmPendingItems().length &&
+  S.bpmShown().every(S.bpmIsPending),
+  S.bpmShown().length + ' vs ' + S.bpmPendingItems().length);
+
+/* ⭐ Addie: "filter pending maps for new quote or requotes." The quote-stage half of the
+   dropdown DOES narrow this list. */
+S.bpmFilter.clear(); S.bpmFilter.add('new');
+const pendNew = S.bpmShown();
+check('ticking New quotes narrows the pending list to new quotes',
+  pendNew.length > 0 && pendNew.every(i => i.stage === 'new'),
+  pendNew.length + ' rows, stages: ' + [...new Set(pendNew.map(i => i.stage))].join(', '));
+check('and it really narrowed — it is not simply the whole list',
+  pendNew.length < S.bpmPendingItems().length,
+  pendNew.length + ' of ' + S.bpmPendingItems().length);
+
+S.bpmFilter.clear(); S.bpmFilter.add('requote');
+const pendReq = S.bpmShown();
+check('ticking Requotes narrows it to re-quotes',
+  pendReq.length > 0 && pendReq.every(i => i.stage === 'requote'), pendReq.length + ' rows');
+
+S.bpmFilter.clear(); S.bpmFilter.add('new'); S.bpmFilter.add('requote');
+check('and both together are the whole pending list',
+  S.bpmShown().length === S.bpmPendingItems().length,
+  'two ticks inside one group widen, they do not cancel');
+
+/* ⚠ THE MAP-STATUS HALF IS THE ONE THAT CANNOT CROSS OVER. Every pending row has no
+   drawing by definition, so "Has a map" would empty the list outright — and an empty
+   pending list reads as no work outstanding. It is not shown at all rather than shown
+   and ignored. */
+S.bpmFilter.clear(); S.bpmFilter.add('mapped');
+check('a stale Has-a-map tick cannot empty the pending list',
+  S.bpmShown().length === S.bpmPendingItems().length, 'saw ' + S.bpmShown().length);
+check('and that group is not offered while the pending list is up',
+  S.bpmGroupsForView().every(g => g.group !== 'Map status') &&
+  S.bpmMenuHtml().indexOf('Has a map') === -1,
+  'a tick that silently does nothing is the quiet failure this repo argues against');
+check('nor does the button claim it as a live filter', S.bpmActiveFilterKeys().length === 0,
+  'summarising a filter that is not being applied is the button lying');
+/* ⚠ AND "Returning customers" IS NOT OFFERED EITHER — by construction it could only
+   ever read 0 and could only ever empty the list. */
+check('Returning customers is not offered on a list it could only empty',
+  S.bpmMenuHtml().indexOf('Returning customers') === -1, S.bpmMenuHtml().replace(/\s+/g, ' ').slice(0, 160));
+S.bpmFilter.clear(); S.bpmFilter.add('returning');
+check('and a stale Returning tick cannot empty the pending list',
+  S.bpmShown().length === S.bpmPendingItems().length, 'saw ' + S.bpmShown().length);
+/* Back to the Has-a-map tick, which is what the next check is about. */
+S.bpmFilter.clear(); S.bpmFilter.add('mapped');
+S.setView('print');
+check('but the tick itself survives for when the print list comes back',
+  S.bpmFilter.has('mapped') && S.bpmActiveFilterKeys().indexOf('mapped') !== -1);
+check('and the group is offered again there',
+  S.bpmGroupsForView().some(g => g.group === 'Map status'));
+S.setView('pending');
+S.bpmFilter.clear();
+
+/* The tallies beside each option answer the list you are looking at.
+   ⚠ AND THE FIXTURE HAS TO BE THE BOOK THAT HOLDS DRAWINGS. On a book with none, every
+   New quote is pending and the two counts are equal whatever the code does — the first
+   draft of this check was vacuous for exactly that reason. */
+load();
+S.setView('pending');
+check('the counts beside the options are counted over the pending list',
+  S.bpmCountFor('new') === S.bpmPendingItems().filter(i => i.stage === 'new').length &&
+  S.bpmCountFor('new') < S.bpmItems().filter(i => i.stage === 'new').length,
+  'a count of every New quote in the book beside a list of six answers a question ' +
+  'nobody asked');
+S.setView('print');
+check('and over the whole book while printing',
+  S.bpmCountFor('new') === S.bpmItems().filter(i => i.stage === 'new').length);
+S.setView('pending');
+
+/* The search box DOES narrow it — that is the one control that still means something.
+   ⚠ BACK ON THE BOOK WITH NO DRAWINGS, which is the one that has several pending rows;
+   narrowing a list of one proves nothing about narrowing. */
+load(NO_MAPS);
+S.setView('pending');
+S.bpmFilter.clear();
+const firstPending = S.bpmPendingItems()[0];
+check('the fixture has more than one pending row to narrow', S.bpmPendingItems().length > 1,
+  'saw ' + S.bpmPendingItems().length);
+S.setQuery(firstPending.name);
+check('but the search box still narrows it',
+  S.bpmShown().length > 0 && S.bpmShown().length < S.bpmPendingItems().length &&
+  S.bpmShown().every(i => i.name === firstPending.name),
+  'searched "' + firstPending.name + '", saw ' + S.bpmShown().length);
+
+/* ⚠ RUN, NOT MATCHED: the claim is that the print controls stop being reachable. */
+load(NO_MAPS);
+S.setView('pending');
+S.bpmPaintViewChrome();
+check('the Pending view puts the printing controls out of reach',
+  DOC._nodes.bpmPrintBar.style.display === 'none' &&
+  DOC._nodes.bpmSheetWrap.style.display === 'none' &&
+  DOC._nodes.bpmPrintTop.disabled === true &&
+  DOC._nodes.bpmSelectAll.disabled === true,
+  'a print bar reading "0 maps" over a list of houses with no drawings reads as a ' +
+  'broken screen rather than an empty batch');
+check('and the button says how to get back', DOC._nodes.bpmPendingBtn.textContent === 'Back to printing',
+  DOC._nodes.bpmPendingBtn.textContent);
+/* ⚠ THE DROPDOWN IS THE ONE CONTROL THAT STAYS, because filtering the pending list by
+   quote stage is what it was asked for. */
+check('and the quote-stage dropdown stays usable', DOC._nodes.bpmFilterBtn.disabled === false,
+  'disabling it would take away the filter this list exists to be narrowed by');
+
+S.setView('print');
+S.bpmPaintViewChrome();
+check('and going back gives every one of them back',
+  DOC._nodes.bpmPrintBar.style.display === '' &&
+  DOC._nodes.bpmSheetWrap.style.display === '' &&
+  DOC._nodes.bpmPrintTop.disabled === false);
+check('and the button carries the count while printing',
+  DOC._nodes.bpmPendingBtn.textContent === 'Pending maps · ' + S.bpmPendingItems().length,
+  DOC._nodes.bpmPendingBtn.textContent);
+
+/* ---------------------------------------------------------------------------
+ * ONE SNAPSHOT PER RENDER.
+ * bpmItems() is asked for ~10 times in a single paint and each pass walks quotesCache
+ * for every house. On the real book that is millions of comparisons per keystroke.
+ * ------------------------------------------------------------------------- */
+head('One snapshot per render');
+
+load();
+check('bpmItems hands back one snapshot within a tick', S.bpmItems() === S.bpmItems(),
+  'ten rebuilds a paint is the shape that has locked this page up before');
+check('and it says it is holding one', S.snapshotHeld());
+
+const itemsSrc = srcs['bpmItems'];
+check('the snapshot is dropped again on the next microtask',
+  /Promise\.resolve\(\)\.then\(function\(\)\{ bpmItemsCache = null; \}\)/.test(itemsSrc),
+  'nothing outside a render may ever read a stale list');
+
+/* ⚠ AND THE RENDER MUST DROP IT BEFORE IT READS ANYTHING. bpmSaveMaps mirrors the new
+   array into the cache and calls bpmRender in the SAME synchronous task, so a render
+   that reused the snapshot would paint the drawing that was just saved as still absent. */
+const renderSrc = lift('bpmRender');
+check('bpmRender is still in admin.html', !!renderSrc);
+const clearAt = renderSrc.indexOf('bpmItemsCache = null');
+const firstRead = Math.min(
+  ...['bpmApplyDefaultFilter(', 'bpmShown(', 'bpmMenuHtml(', 'bpmPaintViewChrome(']
+    .map(s => { const i = renderSrc.indexOf(s); return i === -1 ? Infinity : i; })
+);
+check('and it drops the snapshot BEFORE it reads anything',
+  clearAt !== -1 && firstRead !== Infinity && clearAt < firstRead,
+  'clear at ' + clearAt + ', first read at ' + firstRead);
+
+/* ---------------------------------------------------------------------------
+ * THE WIRING, ASSERTED APART FROM THE MECHANISM.
+ * Every rule above can be perfect and reach no screen at all — this repo has shipped
+ * exactly that, twice.
+ * ------------------------------------------------------------------------- */
+head('The new controls are wired to the page');
+
+check('the header carries an Add a map button', admin.indexOf('id="bpmAddBtn"') !== -1);
+check('and it is the same data hook the empty grid uses',
+  /id="bpmAddBtn"[^>]*data-bpmaddmap/.test(admin),
+  'two ways to start an upload is two sets of rules about what a blank map is called');
+check('the header carries a Pending maps button', admin.indexOf('id="bpmPendingBtn"') !== -1);
+
+const sliceBetween = (from, to) => {
+  const a = adminCode.indexOf(from);
+  const b = adminCode.indexOf(to, a + 1);
+  return (a === -1 || b === -1) ? '' : adminCode.slice(a, b);
+};
+const panelWire = sliceBetween("bpmEl('panel-blueprintmaps')", 'const pendingBtn');
+check('the panel click handler was found', panelWire.length > 0);
+/* ⚠ THE GUARD MUST BE THE closest() CALL AND NOTHING ELSE. A plain search for the hook
+   name survives `if(false && e.target.closest(...))` — the text stays exactly where it
+   was while the branch can never run, and the red-check caught this file passing over
+   precisely that. Pinning the shape of the test is what makes it a check. */
+check('the panel handles a press of Add a map',
+  /if\(e\.target\.closest\('\[data-bpmaddmap\]'\)\)\{/.test(panelWire), panelWire.slice(0, 80));
+check('and a press of Show everyone',
+  /if\(e\.target\.closest\('\[data-bpmshowall\]'\)\)\{/.test(panelWire));
+check('and Show everyone really clears the filter rather than only the search box',
+  /data-bpmshowall[\s\S]{0,260}bpmFilter\.clear\(\)/.test(panelWire));
+/* ⚠ AND PUTS THE NAME LIST AWAY. That button lives in the empty grid, so the render
+   destroys the node that was clicked and the close-on-click-outside rule bails on a
+   detached target — the list stayed open over the houses that had just come back. */
+check('and puts the name list away',
+  /data-bpmshowall[\s\S]{0,320}bpmOpenPick\(false\)/.test(panelWire));
+
+/* ⚠ THE CLOSE-ON-CLICK-OUTSIDE RULE MUST EXEMPT THE BUTTON THAT OPENS THE PICKER.
+   "+ Add a map" sits outside .bpm-searchwrap, so without the exemption the document
+   handler closed the list the same click had just opened — the control did nothing at
+   all, and every source check here was green over it because the list really was built.
+   Found by driving a real browser, which is the only thing that could have. */
+/* ⚠ ANCHORED ON SOMETHING ONLY THIS HANDLER SAYS. The first draft sliced from the first
+   `document.addEventListener('click'` in a 74,000-line file — there are eight, and the
+   panel's is the last. It failed on correct code, which is the honest direction, but it
+   was only noticed because the whole run was read rather than its last three lines. */
+const docWire = sliceBetween("!e.target.closest('.bpm-filterwrap')", "addEventListener('keydown'");
+check('the document click handler was found', docWire.length > 0);
+check('the picker is not closed by the button that just opened it',
+  /!e\.target\.closest\('\.bpm-searchwrap'\) && !e\.target\.closest\('\[data-bpmaddmap\]'\)/.test(docWire),
+  docWire.slice(-220));
+
+const pendWire = sliceBetween('const pendingBtn', "const search = bpmEl('bpmSearch')");
+check('the Pending button handler was found', pendWire.length > 0);
+check('the Pending button flips the view', /bpmView = \(bpmView === 'pending'\) \? 'print' : 'pending'/.test(pendWire),
+  pendWire.slice(0, 200));
+check('and repaints', pendWire.indexOf('bpmRender()') !== -1);
+
+const chooseSrc = lift('bpmChoosePerson');
+check('bpmChoosePerson is still in admin.html', !!chooseSrc);
+/* ⚠ CLOSING THE PICKER CLEARS THE FLAG, so reading it afterwards reads false every time
+   and "+ Add a map" would silently only ever filter.
+   ⚠ AND THIS CHECK IS RUN OVER STRIPPED SOURCE. Its first draft failed on correct code:
+   the comment ABOVE the rule names the very call it is ordering against, so the plain
+   search found the explanation and called it the code. Suites 58, 274, 275 and 300 each
+   had to learn this, and so did the leak check in comm-centre. */
+const chooseCode = strip(chooseSrc);
+const readAt = chooseCode.indexOf('const adding = bpmAddMode');
+const closeAt = chooseCode.indexOf('bpmOpenPick(false)');
+check('picking a name reads the add flag BEFORE the picker is closed',
+  readAt !== -1 && closeAt !== -1 && readAt < closeAt,
+  'read at ' + readAt + ', picker closed at ' + closeAt);
+check('and opens the drawing when it was set', /if\(adding\) bpmStartAddFor\(id\)/.test(chooseSrc));
+
+const beginSrc = lift('bpmBeginAdd');
+check('bpmBeginAdd is still in admin.html', !!beginSrc);
+check('and it sets the flag the picker reads', /bpmAddMode = true/.test(beginSrc));
+
+const startSrc = lift('bpmStartAddFor');
+check('bpmStartAddFor is still in admin.html', !!startSrc);
+check('a house with no drawing opens its own empty row',
+  /bpmOpenDialog\(houseId \+ '::'\)/.test(startSrc));
+/* ⚠ A SECOND DRAWING GOES THROUGH "Add another map", never round it — that button is
+   the one path that decides what a blank one is called and when it is written. */
+check('and a house that already has one goes through Add another map',
+  /bpmEl\('bpmDlgAdd'\)/.test(startSrc) && startSrc.indexOf('bpmPendingNew') === -1,
+  'minting a pending map here would be a second set of those rules');
 
 /* Every id the script asks for must exist in the markup — a missing node under
    optional chaining is a silent no-op, and this file has shipped one before. */

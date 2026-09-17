@@ -2429,6 +2429,18 @@ are recorded here to close them. The three that remain change nothing until she 
    sheets deliberately avoid. One line in `bpmTileRight` and one in the sheet builder if she
    wants more.
 
+8. **Is a re-quoted house that ALREADY has a drawing still "pending"?** *(raised 2026-09-17,
+   with the Pending list.)* **Default taken: no — pending means no drawing at all.**
+   Addie asked for *"a place were it sends pending maps which will only show for new
+   costumers that were quoted this year or requoted"*, and the literal reading of *pending*
+   is *not done yet*. But a re-quote is often a house that moved or extended, so the drawing
+   on file may describe a roofline that no longer exists — and nothing on the record can say
+   whether it does. Comparing `map.updatedAt` against the quote's date would be the system
+   guessing that an older drawing is wrong, and putting houses on a worklist nobody put
+   there. ⚠ **The cost of the default is the opposite mistake**: a moved house with a stale
+   drawing is silently absent from the list. It is one clause in `bpmIsPending` if she wants
+   re-quotes with older drawings included.
+
 **Resulting map change:** `system-map.md` §6a (the whole panel, what is stored, and the
 if-X-isn't-working table). No questions-map row — no ruling was given this session; these
 are defaults taken in her absence and they belong here until she rules on them.

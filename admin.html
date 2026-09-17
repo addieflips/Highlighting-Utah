@@ -1289,6 +1289,7 @@
     padding:3px 0; font-size:14px; color:var(--ink); }
   .bpm-empty{ grid-column:1/-1; text-align:center; padding:44px 20px; color:var(--slate);
     border:1px dashed var(--line); border-radius:var(--radius); }
+  .bpm-emptyways{ margin-top:14px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
   /* ---- what prints ---- */
   .bpm-sheetwrap{ margin-top:26px; }
   /* ⚠ THE PREVIEW IS THE SHAPE OF THE PAGE, and that is not decoration: the line above
@@ -5255,6 +5256,11 @@
               <option value="12">12 &mdash; three columns</option>
             </select>
           </label>
+          <!-- ⭐ THE WAY IN ON DAY ONE. Every other route to the upload dialog goes
+               through a card, and the grid opens filtered to "Has a map" — so with
+               nothing photographed yet there was no route at all. -->
+          <button type="button" class="btn btn-outline btn-sm" id="bpmAddBtn" data-bpmaddmap="1">+ Add a map</button>
+          <button type="button" class="btn btn-outline btn-sm" id="bpmPendingBtn">Pending maps</button>
           <button type="button" class="btn btn-outline btn-sm" id="bpmSelectAll">Unselect all</button>
           <button type="button" class="btn btn-outline btn-sm" id="bpmCopyMode">1 copy each</button>
           <div class="bpm-spacer"></div>
@@ -73449,6 +73455,20 @@ let bpmLoadFailed = '';
    array entry. An entry with a label and no url would render as a "No map yet" card for
    a house that already has one — the screen inventing outstanding work that nobody has. */
 let bpmPendingNew = null;
+/* Which of the two lists is showing: the print batch, or the houses that still owe a
+   drawing. Session only — it is a way of looking, not a fact about anybody. */
+let bpmView = 'print';
+/* True between pressing "+ Add a map" and picking a name, so the picker knows to open
+   the dialog rather than merely filter to that house. */
+let bpmAddMode = false;
+let bpmFilterDefaulted = false;
+/* ⚠ ONE SNAPSHOT PER RENDER. bpmItems() is asked for ~10 times in a single paint (the
+   grid, the queue, the page count, and once per filter tally) and each pass asks
+   bpmStageOf about every house, which walks quotesCache. On the real book that is
+   millions of comparisons per keystroke — the shape that has locked this page up
+   before. Cleared at the top of every render and again on the next microtask, so
+   nothing outside a render can ever read a stale list. */
+let bpmItemsCache = null;
 
 const BPM_FILTER_GROUPS = [
   {group:'Quote stage', keys:[
@@ -73523,6 +73543,7 @@ function bpmStageOf(houseId, d){
    office can see what is outstanding under "No map yet" — that row carries map:null
    and can never be printed or selected. */
 function bpmItems(){
+  if(bpmItemsCache) return bpmItemsCache;
   const out = [];
   if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)) return out;
   jobAddresses.forEach(function(item){
@@ -73554,8 +73575,29 @@ function bpmItems(){
     const n = String(a.name).localeCompare(String(b.name));
     return n !== 0 ? n : a.index - b.index;
   });
+  bpmItemsCache = out;
+  Promise.resolve().then(function(){ bpmItemsCache = null; });
   return out;
 }
+
+/* ---------------- what is still owed (the Pending list) ----------------
+   ⭐ Addie: "make a place were it sends pending maps which will only show for new
+   costumers that were quoted this year or requoted."
+
+   ⚠ A RETURNING CUSTOMER WITH NO MAP IS NOT PENDING, and that exclusion is the whole
+   point of the list rather than a limitation of it. Nearly the whole book has no
+   drawing on file; listing all of them would bury the dozen houses somebody actually
+   has to go and draw, which is the cries-wolf failure this file names in four other
+   places. What is outstanding is a house we have just quoted or re-quoted.
+
+   ⚠ AND IT IS "NO MAP", NOT "NO RECENT MAP". A re-quoted house that already carries a
+   drawing is left out: whether that older drawing is now stale is a judgement about
+   this season's work that nothing on the record can answer, and inventing one would
+   put houses on a worklist nobody put there. Named as a default in Q-035. */
+function bpmIsPending(it){
+  return !bpmHasMap(it) && (it.stage === 'new' || it.stage === 'requote');
+}
+function bpmPendingItems(){ return bpmItems().filter(bpmIsPending); }
 
 /* ---------------- the batch (§4, §8) ---------------- */
 function bpmCopiesFor(it){
@@ -73568,14 +73610,29 @@ function bpmIsTicked(it){ return bpmHasMap(it) && !bpmUnticked.has(it.key); }
    ticked INSIDE one group widen the results (OR); options in DIFFERENT groups narrow
    them (AND). "New quotes" plus "Has a map" gives only new quotes that have a map.
    Nothing ticked in a group means that group is not asking anything. */
-function bpmMatches(it){
+function bpmMatchesQuery(it){
   const q = String(bpmQuery || '').trim().toLowerCase();
-  if(q){
-    const hay = (it.name + ' ' + it.addr + ' ' + it.city + ' ' + it.label).toLowerCase();
-    if(hay.indexOf(q) === -1) return false;
-  }
-  const stages = BPM_STAGE_KEYS.filter(function(k){ return bpmFilter.has(k); });
-  if(stages.length && stages.indexOf(it.stage) === -1) return false;
+  if(!q) return true;
+  const hay = (it.name + ' ' + it.addr + ' ' + it.city + ' ' + it.label).toLowerCase();
+  return hay.indexOf(q) !== -1;
+}
+/* ⭐ Addie: "filter pending maps for new quote or requotes." So the quote-stage half of
+   the dropdown is its own rule, because BOTH lists ask it — the print batch and the
+   pending list alike. The map-status half is the one that cannot cross over: every row
+   of the pending list has no drawing by definition, so "Has a map" would empty it
+   outright and an empty pending list reads as no work outstanding. */
+/* ⚠ IT READS THE KEYS THIS VIEW ACTUALLY OFFERS, not every tick in the set. A stale
+   "Returning customers" tick carried in from the print list would otherwise empty the
+   pending list outright — the same way "Has a map" would — and an empty pending list
+   reads as no work outstanding. */
+function bpmMatchesStage(it){
+  const active = bpmActiveFilterKeys();
+  const stages = BPM_STAGE_KEYS.filter(function(k){ return active.indexOf(k) !== -1; });
+  return !stages.length || stages.indexOf(it.stage) !== -1;
+}
+function bpmMatches(it){
+  if(!bpmMatchesQuery(it)) return false;
+  if(!bpmMatchesStage(it)) return false;
   const maps = BPM_MAP_KEYS.filter(function(k){ return bpmFilter.has(k); });
   if(maps.length){
     const ok = (maps.indexOf('mapped') !== -1 && bpmHasMap(it)) ||
@@ -73584,14 +73641,48 @@ function bpmMatches(it){
   }
   return true;
 }
-function bpmShown(){ return bpmItems().filter(bpmMatches); }
+/* The pending list narrows by SEARCH and by QUOTE STAGE — new quotes on their own, or
+   re-quotes on their own — and by nothing else. */
+function bpmShown(){
+  if(bpmView === 'pending') return bpmPendingItems().filter(bpmMatchesQuery).filter(bpmMatchesStage);
+  return bpmItems().filter(bpmMatches);
+}
+/* ⚠ A GROUP THAT CANNOT APPLY IS NOT SHOWN, RATHER THAN SHOWN AND IGNORED. A tick that
+   silently does nothing is the quiet failure this file argues against everywhere else;
+   hiding the group also keeps the button's summary honest, and the tick itself survives
+   untouched for when the print list comes back. */
+/* ⚠ AND "Returning customers" GOES TOO. A pending row is a new quote or a re-quote by
+   construction, so that option could only ever read 0 and could only ever empty the
+   list — the same argument as the checkmark a house with no drawing does not get. */
+const BPM_PENDING_STAGE_KEYS = ['new', 'requote'];
+function bpmGroupsForView(){
+  if(bpmView !== 'pending') return BPM_FILTER_GROUPS;
+  return BPM_FILTER_GROUPS
+    .filter(function(g){ return g.group !== 'Map status'; })
+    .map(function(g){
+      return {group: g.group, keys: g.keys.filter(function(f){
+        return BPM_PENDING_STAGE_KEYS.indexOf(f.k) !== -1;
+      })};
+    });
+}
+function bpmActiveFilterKeys(){
+  const keys = [];
+  bpmGroupsForView().forEach(function(g){
+    g.keys.forEach(function(f){ if(bpmFilter.has(f.k)) keys.push(f.k); });
+  });
+  return keys;
+}
+/* The base the tallies are counted against — the whole book while printing, what is
+   still owed while the pending list is up. A count of 400 New quotes beside a list of
+   six is a number answering a question nobody asked. */
+function bpmCountBase(){ return bpmView === 'pending' ? bpmPendingItems() : bpmItems(); }
 function bpmShownMapped(){ return bpmShown().filter(bpmHasMap); }
 
 /* ⚠ COUNTED AGAINST EVERY MAP, NOT THE FILTERED SET. A count that shrank as you ticked
    would answer the wrong question: it is there to say how many there ARE of a thing
    before you go looking for them. */
 function bpmCountFor(k){
-  return bpmItems().filter(function(it){
+  return bpmCountBase().filter(function(it){
     if(k === 'mapped') return bpmHasMap(it);
     if(k === 'nomap') return !bpmHasMap(it);
     return it.stage === k;
@@ -73682,7 +73773,7 @@ function bpmStepperHtml(key, n, saved){
     '<button type="button" data-bpmstep="1" data-bpmkey="' + esc(key) + '" aria-label="One more copy">+</button>';
 }
 function bpmMenuHtml(){
-  return BPM_FILTER_GROUPS.map(function(g){
+  return bpmGroupsForView().map(function(g){
     return '<p class="bpm-group">' + esc(g.group) + '</p>' + g.keys.map(function(f){
       return '<button type="button" class="bpm-opt" role="checkbox" data-bpmf="' + f.k + '" aria-checked="' + (bpmFilter.has(f.k) ? 'true' : 'false') + '">' +
         '<span class="bpm-box" aria-hidden="true">&#10003;</span>' +
@@ -73696,7 +73787,7 @@ function bpmPaintFilterButton(){
   const sum = bpmEl('bpmFilterSummary');
   const badge = bpmEl('bpmFilterBadge');
   if(!sum || !badge) return;
-  const picks = Array.from(bpmFilter);
+  const picks = bpmActiveFilterKeys();
   if(!picks.length){
     sum.textContent = 'Everyone';
     sum.classList.remove('on');
@@ -73776,9 +73867,76 @@ function bpmBuildSheets(list){
       '</div>';
   }).join('');
 }
+/* ⚠ AN EMPTY GRID MUST CARRY THE WAY OUT, NOT MERELY DESCRIBE ITSELF. Every route to
+   the upload dialog runs through a card, so a grid with no cards in it was a dead end —
+   and on the day this shipped, with nothing photographed yet, it was the ONLY thing the
+   screen could show. It names the reason it is empty and offers the two ways on. */
+function bpmEmptyHtml(){
+  const anyMaps = bpmItems().some(bpmHasMap);
+  let msg;
+  if(bpmView === 'pending'){
+    msg = 'Nothing is waiting for a drawing. Every house quoted or re-quoted this year already has one on file.';
+  } else if(!anyMaps){
+    msg = 'No blueprint maps on file yet. Press <b>Add a map</b>, pick the customer, and photograph their drawing.';
+  } else if(bpmFilter.has('mapped')){
+    msg = 'No maps match. <b>Has a map</b> is ticked, so houses with nothing on file yet are hidden.';
+  } else {
+    msg = 'No maps match. Clear a filter or empty the search box.';
+  }
+  const ways = bpmView === 'pending' ? '' :
+    '<div class="bpm-emptyways">' +
+      '<button type="button" class="btn btn-outline btn-sm" data-bpmshowall="1">Show everyone</button>' +
+      '<button type="button" class="btn btn-gold btn-sm" data-bpmaddmap="1">Add a map</button>' +
+    '</div>';
+  return '<div class="bpm-empty">' + msg + ways + '</div>';
+}
+
+/* ⭐ "HAS A MAP" IS THE RIGHT DEFAULT ONCE THERE ARE MAPS AND A WALL BEFORE THAT, so it
+   is DERIVED rather than typed: ticked when the book holds at least one drawing, left
+   off when it holds none. Nothing is stored and nothing needs undoing if the answer
+   changes — the same argument the Communication Centre's facets are built on.
+   ⚠ DECIDED ONCE, AND ONLY AFTER jobAddresses HAS LANDED. Run before the customers
+   arrive it would read an empty book as "no maps anywhere" and clear the filter for a
+   season that has hundreds; run on every paint it would fight anybody who ticked it. */
+function bpmApplyDefaultFilter(){
+  if(bpmFilterDefaulted) return;
+  if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses) || !jobAddresses.length) return;
+  bpmFilterDefaulted = true;
+  if(!bpmItems().some(bpmHasMap)) bpmFilter.delete('mapped');
+}
+
+/* The printing controls mean nothing while the Pending list is showing — there is by
+   definition no drawing on any row of it — so they are put out of reach rather than
+   left to report "0 maps", which reads as a broken screen rather than an empty batch. */
+function bpmPaintViewChrome(){
+  const pending = bpmView === 'pending';
+  const show = function(id, on){
+    const el = bpmEl(id);
+    if(el) el.style.display = on ? '' : 'none';
+  };
+  show('bpmSheetWrap', !pending);
+  show('bpmPrintBar', !pending);
+  /* ⚠ bpmFilterBtn IS DELIBERATELY NOT IN THIS LIST. The pending list is filtered by
+     quote stage — that is what it was asked for — so the dropdown has to stay usable;
+     what changes is that it offers only the group that can apply. */
+  ['bpmSelectAll','bpmCopyMode','bpmPrintTop','bpmPerPage'].forEach(function(id){
+    const el = bpmEl(id);
+    if(el) el.disabled = pending;
+  });
+  const btn = bpmEl('bpmPendingBtn');
+  if(btn){
+    const n = bpmPendingItems().length;
+    btn.textContent = pending ? 'Back to printing' : ('Pending maps \u00b7 ' + n);
+    btn.setAttribute('aria-pressed', String(pending));
+  }
+}
+
 function bpmRender(){
   const grid = bpmEl('bpmGrid');
   if(!grid) return;
+  bpmItemsCache = null;
+  bpmApplyDefaultFilter();
+  bpmPaintViewChrome();
   const menu = bpmEl('bpmFilterMenu');
   if(menu) menu.innerHTML = bpmMenuHtml();
   bpmPaintFilterButton();
@@ -73791,7 +73949,7 @@ function bpmRender(){
     const list = bpmShown();
     grid.innerHTML = list.length
       ? list.map(bpmCardHtml).join('')
-      : '<div class="bpm-empty">No maps match. Clear a filter or empty the search box.</div>';
+      : bpmEmptyHtml();
   }
 
   const list = bpmLoadFailed ? [] : bpmShown();
@@ -73811,7 +73969,9 @@ function bpmRender(){
       ' <span>&middot; ' + people + ' customer' + (people === 1 ? '' : 's') +
       ' &middot; ' + pages + ' page' + (pages === 1 ? '' : 's') + ' at ' + bpmPerPage + ' per page</span>';
   }
-  bpmBuildSheets(list);
+  /* Nothing to lay out while the Pending list is showing, and the sheet section is
+     hidden anyway — building it would only be work nobody can see. */
+  if(bpmView !== 'pending') bpmBuildSheets(list);
 }
 
 /* ---------------- the customer picker (§7) ----------------
@@ -73869,6 +74029,11 @@ function bpmOpenPick(open){
 function bpmChoosePerson(id){
   const h = bpmHouses().filter(function(x){ return String(x.id) === String(id); })[0];
   if(!h) return;
+  /* ⚠ READ BEFORE bpmOpenPick(false), which clears it. Both ways of picking a name —
+     the mouse and the Enter key — come through here, so the add rule lives in one
+     place rather than on each handler. */
+  const adding = bpmAddMode;
+  bpmAddMode = false;
   const box = bpmEl('bpmSearch');
   if(box) box.value = h.name;
   bpmQuery = h.name;
@@ -73876,6 +74041,32 @@ function bpmChoosePerson(id){
   bpmPickIdx = -1;
   bpmOpenPick(false);
   bpmRender();
+  /* The grid is left filtered to that house either way, so even if the dialog could not
+     be opened their card is on screen and one tap from the same thing. */
+  if(adding) bpmStartAddFor(id);
+}
+/* "+ Add a map" is the name picker with one extra promise: the name you choose opens
+   its drawing straight away. */
+function bpmBeginAdd(){
+  bpmAddMode = true;
+  bpmQuery = '';
+  bpmPickIdx = -1;
+  const box = bpmEl('bpmSearch');
+  if(box){ box.value = ''; box.focus(); }
+  bpmRender();
+  bpmOpenPick(true);
+}
+/* ⚠ A HOUSE THAT ALREADY HAS A DRAWING GOES THROUGH "Add another map", NOT ROUND IT.
+   Opening its existing map and pressing that button is the one path that exists for a
+   second drawing; a second way of starting one is a second set of rules about what a
+   blank one is called and when it is written. */
+function bpmStartAddFor(houseId){
+  const maps = bpmMapsForHouse(houseId);
+  if(!maps.length){ bpmOpenDialog(houseId + '::'); return; }
+  const last = maps[maps.length - 1];
+  bpmOpenDialog(houseId + '::' + (last.id || ('i' + (maps.length - 1))));
+  const add = bpmEl('bpmDlgAdd');
+  if(add) add.click();
 }
 
 /* ---------------- the detail dialog and the upload (§10) ---------------- */
@@ -74126,7 +74317,14 @@ function bpmDoPrint(){
       if(fBtn) fBtn.setAttribute('aria-expanded', 'false');
     }
     const pick = bpmEl('bpmPicklist');
-    if(pick && !pick.hidden && !e.target.closest('.bpm-searchwrap')) bpmOpenPick(false);
+    /* ⚠ THE BUTTON THAT OPENS THE PICKER IS EXEMPT, and it has to be named HERE rather
+       than fixed with stopPropagation at the other end. "+ Add a map" sits outside
+       .bpm-searchwrap, so this rule closed the list the same click had just opened —
+       the control did nothing at all, and every source check was green over it because
+       the list really was built. A stopPropagation in the panel handler would have
+       worked and would also have stopped the filter menu closing, which is a second
+       rule broken to fix the first. */
+    if(pick && !pick.hidden && !e.target.closest('.bpm-searchwrap') && !e.target.closest('[data-bpmaddmap]')) bpmOpenPick(false);
   });
   document.addEventListener('keydown', function(e){
     if(e.key !== 'Escape') return;
@@ -74176,8 +74374,28 @@ function bpmDoPrint(){
       }
       return;
     }
+    if(e.target.closest('[data-bpmaddmap]')){ bpmBeginAdd(); return; }
+    if(e.target.closest('[data-bpmshowall]')){
+      bpmFilter.clear();
+      bpmQuery = '';
+      const box = bpmEl('bpmSearch');
+      if(box) box.value = '';
+      /* ⚠ AND THE NAME LIST IS PUT AWAY. This button lives in the empty grid, so the
+         render below destroys the node that was clicked — the close-on-click-outside
+         rule bails on a detached target and the list was left open over the houses
+         that had just come back, still reading "No customer by that name". */
+      bpmOpenPick(false);
+      bpmRender();
+      return;
+    }
     const open = e.target.closest('[data-bpmopen]');
     if(open) bpmOpenDialog(open.dataset.bpmopen);
+  });
+
+  const pendingBtn = bpmEl('bpmPendingBtn');
+  if(pendingBtn) pendingBtn.addEventListener('click', function(){
+    bpmView = (bpmView === 'pending') ? 'print' : 'pending';
+    bpmRender();
   });
 
   const search = bpmEl('bpmSearch');
