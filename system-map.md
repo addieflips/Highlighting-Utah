@@ -4872,6 +4872,30 @@ page", and background graphics **on**.
       - ⭐ **One rule per side**: `quoteAnswerMayClearStatusServer` (both server sites) and `quoteAnswerMayClearStatus` (the office delete). It asks about **`pendingAddress`** — the same field the banner reads and the same field the Save clears once the address has moved — and deliberately **not about the status word**: there is only one `seasonStatus` field, so a move can be outstanding while the pill shows `needs_changes` because something else wrote last.
       - ⭐ **The hold is bounded, which is the whole argument for it.** The hole the clearing closed is a customer sitting in Needs Changes for ever with nothing anywhere to clear it; here there IS something left — the move, which the office applies, and that save clears `pendingAddress` and raises the re-quote that answers the badge properly. **It reports nothing and flags nothing**: the badge still reading Needs Changes is the honest answer while a move is outstanding, and a follow-up raised for correct behaviour is how the office learns to click past the ones that matter.
       - ⚠ **All three sites, not the one that prompted it** — "a fix in one direction is half a fix". Proved where each half can be: the **behaviour** in run-all.js Suites 137 and 138, which already drive both decline paths against a fake Firestore (the status survives, and an `address_changed` with **no** pending move still clears); the **agreement** in §5 of `address-move.test.js`, which RUNS the two copies side by side over every shape a record can be in, money-parity's argument applied to a badge. 6 sabotages red-checked.
+- ⭐ **WHY A SAVE WAS REFUSED, IN WORDS THE MEMBER CAN ACT ON** (2026-09-17, [[MEM-02]]).
+  Addie, testing the change auto-reply, hit *"Could not save that — please call (801) 901-0011."*
+  and there was no way to find out why.
+  - **Seven of the nine portal handlers threw the reason away.** Each caught its own failure
+    and printed one fixed sentence — so the server's explanation never reached the customer,
+    and because `portalCallFailedText` was never called, the **Member Error row was never
+    filed either**. The office was told nothing. Lights, Sides, My Info, Changes, Cancel, the
+    in-account contact form and all three quote buttons were all like this; only the *moved*
+    tab was already right, and it is the model the rest now follow.
+  - **A refusal the server wrote for the member is shown word for word.** `failed-precondition`
+    is the one code this app throws with wording aimed at the customer, and all three name the
+    next step — the arrears hold (*"There is still a balance owing from the 2025 season. Once
+    that is paid you can make changes here again."*), *"Nothing due to charge."* and *"That
+    quote has not been approved."* Every other code keeps the apology and never quotes the
+    error, so a developer's message can never go out over her name.
+  - ⛔ **A refusal is not an error and is never filed as one.** The arrears hold is the system
+    working; a Member Error every time somebody who owes money opens a tab would bury the real
+    faults the folder exists to surface.
+  - ⚠ **One path keeps its own wording**: on the Sides tab the sides *do* save and only the
+    re-quote card fails, so the shared apology would read as "nothing saved" and be untrue. It
+    reports by hand and keeps the accurate sentence.
+  - `portalServerRefusal` / `portalCallFailedText` in index.html; `error-inbox.test.js`, eight
+    sabotages red-checked.
+
 - ⭐ **STAYING SIGNED IN, AND STILL BEING ABLE TO LEAVE** (2026-09-11, [[MEM-01]]). Addie:
   *"make sure when someone logs into member portal they stay logged in but they can still go
   back to home page with a go back button or something in top right corner."*
