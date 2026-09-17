@@ -758,7 +758,12 @@ console.log('  ' + w('value', 26) + w('import reads', 28) + 'warehouse groups as
    reason, so a NEW one fails and has to be classified by whoever added it. */
 console.log('\n=== Nobody may invent a wire colour ===');
 {
-  const FILES = ['admin.html', 'index.html', 'functions/index.js'];
+  /* ⚠ employee.html ADDED 2026-09-17. It was left out when this census was written, and
+     the omission cost exactly what the census exists to prevent: its own copy of
+     whWireLabel still returned 'White' for a blank, and one render skipped the label
+     altogether. Dormant is not harmless — silent-failures.test.js sweeps this file for
+     the same reason. */
+  const FILES = ['admin.html', 'index.html', 'functions/index.js', 'employee.html'];
   const bare = {};
   FILES.forEach(f => {
     bare[f] = fs.readFileSync(path.join(__dirname, f), 'utf8')
@@ -792,7 +797,12 @@ console.log('\n=== Nobody may invent a wire colour ===');
      field. `whWireLabel` is an admin.html function and does not exist on the server; if a
      second server render ever appears, the right answer is a server copy of the label, not
      a wider regex here. */
-  ['admin.html'].forEach(f => {
+  /* ⚠ AND employee.html, for the same reason as rule 1. The scope note above reasons
+     about index.html and the server and never mentions the crew portal at all — an
+     omission rather than a decision, and the file DOES render wire colours (five places,
+     one of which printed the raw field). It has its own whWireLabel, so the rule applies
+     unchanged. */
+  ['admin.html', 'employee.html'].forEach(f => {
     const lines = bare[f].split(/\r?\n/);
     const raw = [];
     lines.forEach((l, i) => {
@@ -813,6 +823,29 @@ console.log('\n=== Nobody may invent a wire colour ===');
       'these print a stored wire colour raw, so a house nobody has looked at reads as a ' +
       'colour or as a blank instead of Check lights:\n        ' + raw.join('\n        '));
   });
+
+  /* ⛔ THE TWO COPIES OF whWireLabel MUST AGREE, and this is the check that was missing.
+     The crew portal carries its own copy, and the colour comparison further up this file
+     LIFTS it as a dependency of whNormalizeLights while only ever exercising the COLOUR
+     half — so when [[WH-35]] changed the office copy to say 'Check lights' and the crew
+     copy was left saying 'White', every check in this file stayed green.
+     ⚠ IT RUNS BOTH, over the blank that is the whole point plus the shapes a real record
+     arrives in. A source comparison would pass on two copies that are spelled alike and
+     say different things, and fail on two that are spelled differently and agree. */
+  const officeWire = new Function(fn('whWireLabel') + 'return whWireLabel;')();
+  const crewWire = new Function(empFn('whWireLabel') + 'return whWireLabel;')();
+  const WIRE_INPUTS = ['', '   ', null, undefined, 'White', 'Green', ' Green ', 'white'];
+  const wireDiffer = WIRE_INPUTS.filter(t => officeWire(t) !== crewWire(t));
+  check('the crew portal labels a wire colour exactly as the office does',
+    wireDiffer.length === 0,
+    'this label is half the build group key, so the two screens would file one house in ' +
+    'two different piles. They disagree about: ' +
+    JSON.stringify(wireDiffer.map(t => ({input: t, office: officeWire(t), crew: crewWire(t)}))));
+  /* ⚠ AND THE BLANK IS ASSERTED OUTRIGHT, not only that they match: two copies could
+     agree perfectly on 'White' and both be wrong, which is the state this just left. */
+  check('and a wire nobody recorded reads as a question, on both screens',
+    officeWire('') === 'Check lights' && crewWire('') === 'Check lights',
+    'office=' + officeWire('') + ' crew=' + crewWire(''));
 
   /* ⚠ AND THE TWO FORMS OPEN BLANK. Asserted on the OPENERS, not the markup: a blank first
      option is worthless if the code that fills the form writes White over it, which is
