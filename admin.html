@@ -54486,8 +54486,44 @@ function openEditCustomerModal(id){
   document.getElementById('editCustWantsMailed').checked = !!d.wantsMailedInvoice;
   document.getElementById('editCustWantsTexted').checked = !!d.wantsTextedInvoice;
   // Lights, house areas, install timing, notes and photo — all edited here now.
-  const parsedLights = parseCustLights(d.lightsDescription || '');
-  const custColors = (d.lightColors && d.lightColors.length) ? d.lightColors : parsedLights.colors;
+  /* ⭐ THE BOXES SHOW WHAT `houseLightsText` SAYS, NOT `lightColors` FIRST (2026-09-17,
+     [[WH-39]]). Addie: "When someone makes a change in member portal for lights it should
+     automatically change/add lights in costumers."
+
+     ⛔ THE CHANGE WAS ARRIVING AND THIS FORM WAS DRAWING THE OLD ONE. `portalSave` writes
+     `lightsDescription` and nothing else — `lightColors` is not in the lights section's
+     write list and there is no colour parser on the server to fill it — so after a member
+     picks new colours the record holds the NEW ones in the description and the OLD ones in
+     the list. This line read the list first, so the office opened the record and saw last
+     year's colours ticked, which is indistinguishable from the portal change never having
+     happened.
+
+     ⚠ THE DESCRIPTION WAS NEVER LOST, which is why nothing anywhere went red. Saving over
+     it keeps the stored wording (`keptStoredWording` below, because the ticks matched what
+     was drawn) — so the warehouse, the fee and the printed sheets have had the new colours
+     the whole time and only this screen disagreed. That is worse than losing it, not
+     better: the one person who could correct it was the one being shown the wrong answer.
+
+     ⚠ IT IS THE ONE ANSWER EVERY OTHER READER ALREADY USES. `houseLightsText` prefers the
+     description precisely because it carries the ORDER, and the five warehouse callers, the
+     $30 light-change fee and both printed sheets all ask it. This form was the last reader
+     still deciding for itself — the same shape as [[WH-28]], where the fee read one field
+     of the two and the whole imported book could change its lights for free.
+
+     ⚠ AND `lightColors` COMES BACK INTO STEP ON THE NEXT OFFICE SAVE, which is what makes
+     this the whole fix rather than half of one: the save writes both fields from the ticks,
+     and the ticks are now right. A second writer on the server would mean a colour parser
+     living in two places, which is the parity pair this repo pays for twice already. */
+  /* ⚠ ONE ANSWER, AND NO SECOND FALL-BACK BESIDE IT. houseLightsText ALREADY returns the
+     joined colour list when there is no description, so a `|| d.lightColors` here would be a
+     second copy of the rule it is being asked for. A red-check proved that is not merely
+     untidy: with the fall-back present, deleting the houseLightsText call changed no answer
+     for any fixture, so the one line this fix turns on was not being tested at all.
+     ⚠ The typeof guard falls back to the description alone rather than to nothing, because
+     an unreadable form is worse than a stale one. */
+  const parsedLights = parseCustLights(
+    (typeof houseLightsText === 'function') ? houseLightsText(d) : (d.lightsDescription || ''));
+  const custColors = parsedLights.colors;
   document.querySelectorAll('.editcust-color-check').forEach(function(cb){
     cb.checked = custColors.includes(cb.value);
     cb.closest('.pill-check').classList.toggle('checked', cb.checked);

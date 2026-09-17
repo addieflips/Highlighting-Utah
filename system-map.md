@@ -4644,6 +4644,23 @@ the server copies has been passing correctly the whole time. What was wrong is w
 handed it. `houseLightsText` is the one answer to *"what colours does this house have"*, and
 the fee is the sixth reader brought to it.
 
+⭐ **AND EDIT CUSTOMER WAS THE SEVENTH** (2026-09-17, [[WH-39]]). Addie: *"When someone makes a
+change in member portal for lights it should automatically change/add lights in costumers."*
+`portalSave` writes `lightsDescription` and nothing else — `lightColors` is not in that
+section's write list, and there is no colour parser on the server to fill it — so after a
+member picks new colours the record holds the **new** ones in the description and the **old**
+ones in the list. Edit Customer read the list first and ticked last year's colours.
+
+⛔ **The description was never lost, which is why nothing went red.** The warehouse, the fee
+and both printed sheets ask `houseLightsText` and have had the new colours the whole time.
+Only this screen disagreed — and it is the one screen that could have put it right, so the
+person being shown the wrong answer was the only person able to correct it.
+
+⚠ **No second writer was added.** `lightColors` comes back into step on the next office save,
+which writes both fields from the ticks — and the ticks are now right. Filling it on the
+server would mean a colour parser living in two places, which is a parity pair this repo
+already pays for twice.
+
 **And how they asked to be reached** ([[MSG-16]], 2026-09-10). Addie: *"we can no longer see how
 someone prefers to be contacted."* It had not been removed — it was sitting in the small grey
 line with the date, which is the line that stopped carrying anything you needed once the phone

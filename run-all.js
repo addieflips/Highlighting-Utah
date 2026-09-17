@@ -60806,3 +60806,67 @@ suite('Suite 335. Money on the bill is an answer');
     F.paid({ phone: '8015557777', billToPhone: '(801) 555-0333' }) === true,
     'stored phones are not all digits-only — comparing raw strings is how this app duplicated its book once');
 }
+
+suite('Suite 336. The office sees the colours the member just picked');
+/* ⭐ [[WH-39]]. Addie, 2026-09-17: "When someone makes a change in member portal for lights
+   it should automatically change/add lights in costumers."
+
+   ⛔ portalSave writes `lightsDescription` and nothing else, so after a member changes their
+   colours the record holds the NEW ones in the description and the OLD ones in `lightColors`.
+   Edit Customer read the list first and ticked last year's colours.
+
+   ⚠ IT RUNS THE SHIPPED LINE, NOT A COPY OF IT. The two statements are sliced out of
+   openEditCustomerModal and evaluated against the real houseLightsText and parseCustLights —
+   a reimplementation here would pass whatever the page does, which is the trap this file
+   names in four other places. */
+{
+  const a = admin.indexOf("  const parsedLights = parseCustLights(");
+  const b = admin.indexOf("  document.querySelectorAll('.editcust-color-check')", a);
+  const slice = (a > -1 && b > a) ? admin.slice(a, b) : '';
+  check('S336', 'the colour-ticking rule is findable in Edit Customer',
+    !!slice && /custColors/.test(slice),
+    'openEditCustomerModal restructured — repoint this slice rather than deleting the suite');
+
+  if (slice) {
+    /* ⚠ houseLightsText IS LIFTED, NEVER STUBBED. "Which of the two fields wins" is the
+       entire question, and a stub would answer it for us. */
+    const ticked = new Function('d',
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'parseCustLights') +
+      slice + '\nreturn custColors;');
+
+    /* ⚠ THE FIXTURE IS THE REAL SHAPE: the two fields DISAGREEING. One carrying both in
+       step passes whether the fix is there or not. */
+    const afterPortalChange = ticked({ lightsDescription: 'Red, Green', lightColors: ['Warm White'] });
+    check('S336', 'a portal colour change is what the boxes show',
+      afterPortalChange.indexOf('Red') !== -1 && afterPortalChange.indexOf('Green') !== -1 &&
+      afterPortalChange.indexOf('Warm White') === -1,
+      'this is the complaint — the office saw last year’s colours and the change looked lost');
+
+    check('S336', 'and a house with no description still shows its list',
+      ticked({ lightsDescription: '', lightColors: ['Warm White'] }).join() === 'Warm White',
+      'an ordinary house keeps its colours in lightColors and its description empty — see houseLightsText');
+
+    check('S336', 'a note in brackets is not ticked as a colour',
+      ticked({ lightsDescription: 'Warm White (every third bulb)', lightColors: [] }).join() === 'Warm White',
+      'parseCustLights splits the note off; ticking "every third bulb" would tick nothing at all');
+
+    check('S336', 'a strand keeps every position it was written with',
+      ticked({ lightsDescription: 'Red, Green, Red, Green', lightColors: ['Red'] }).length === 4,
+      'order carries information — rr means two reds, and the list cannot say that');
+
+    check('S336', 'and a house with nothing on file ticks nothing',
+      ticked({}).length === 0,
+      'nothing ticked is how the form says nobody has been asked');
+  }
+
+  /* ⚠ THE WIRING, which the harness above cannot see: the slice could be perfect and the
+     boxes could be ticked from something else entirely two lines later. */
+  const fill = admin.slice(admin.indexOf('  const parsedLights = parseCustLights('),
+                           admin.indexOf('  editCustLightsRaw = String('));
+  check('S336', 'the tick boxes are filled from that answer and nothing else',
+    /cb\.checked = custColors\.includes\(cb\.value\)/.test(fill),
+    'a second source for the ticks is how this screen starts disagreeing with itself again');
+  check('S336', 'and what was on file is still read description-first below them',
+    /editCustLightsRaw = String\(d\.lightsDescription \|\| ''\)\.trim\(\)/.test(admin),
+    'the guard and the ticks must agree about which field wins, or a save refuses for the wrong reason');
+}
