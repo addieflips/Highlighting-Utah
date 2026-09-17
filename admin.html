@@ -2056,7 +2056,7 @@
            grants it. -->
       <div class="card">
         <h3 style="margin:0 0 6px;">Clear the White wire colours</h3>
-        <p style="font-size:13px; margin:0 0 12px;"><strong>White</strong> used to be written by itself at five different doors &mdash; the quote form, the server behind it, Add Customer, Edit Customer and the conversion prefill &mdash; so a record saying White is usually nobody&rsquo;s answer. This clears <strong>every</strong> White, so those houses read <strong>Check lights</strong> and somebody sets it for good next time they are at the bin. <strong>Nothing invents White any more, so one you choose from now on is kept.</strong> &mdash; and <strong>Green is never touched</strong>: nothing in this app has ever written Green by itself, so a Green was typed by a person. It needs no master sheet; if one is connected or pasted it will also say how many the sheet happens to agree with.</p>
+        <p style="font-size:13px; margin:0 0 12px;"><strong>White</strong> used to be written by itself at nine different doors &mdash; the quote form, the server behind it, Add Customer, Edit Customer, the form reset, the conversion prefill and more &mdash; so a lot of records claim a colour nobody picked. This clears those, so the houses read <strong>Check lights</strong> and somebody sets it for good next time they are at the bin. <strong>A White the customer actually chose is kept</strong>: if it came from their quote, a re-quote, or a change they made in the Member Portal, it stays and is listed so you can see it was kept. <strong>Green is never touched.</strong> Nothing invents White any more, so one chosen from now on is kept too. It needs no master sheet; if one is connected or pasted it will also say how many the sheet happens to agree with.</p>
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
           <button type="button" class="btn btn-outline btn-sm" id="cWireSweepDryBtn">Check first &mdash; who would be cleared</button>
           <button type="button" class="btn btn-gold btn-sm" id="cWireSweepBtn" style="display:none;">Clear them</button>
@@ -14729,7 +14729,12 @@ async function wireSweepFind(){
        sheet that simply agreed with everything. */
     sheetNote = (err && err.message) ? err.message : 'the master sheet could not be read';
   }
-  const found = wireSweepClassify(jobAddresses, sheet);
+  /* ⚠ THE TWO CACHES ARE READ HERE, not inside the rule, so the rule stays runnable
+     from a test with no Firestore behind it. Both are already loaded for their own panels. */
+  const sources = wireSweepSources(jobAddresses,
+    (typeof quotesCache !== 'undefined' ? quotesCache : []),
+    (typeof allMessages !== 'undefined' ? allMessages : []));
+  const found = wireSweepClassify(jobAddresses, sheet, sources);
   found.sheetRows = sheetRows;
   found.sheetFrom = sheetFrom;
   found.sheetNote = sheetNote;
@@ -14740,29 +14745,87 @@ async function wireSweepFind(){
    same reason rmCommitPayload and whTimerOnlyQueue are their own functions. Every claim
    worth making here is about WHICH LIST a customer lands in, which a regex cannot see.
    ⚠ IT READS THE SHEET INDEX AND NOTHING ELSE: no file handle, no Firestore, no DOM. */
-function wireSweepClassify(customers, sheet){
-  /* ⭐ EVERY STORED White IS CLEARED (2026-09-17). Addie: "can we sweep all whites but in
-     the future if they do save that they want white wire we will save it for [them]."
-     ⚠ THIS IS WIDER THAN THE FIRST VERSION AND THE REASON IS [[OPT-12]]. That one cleared a
-     White only where the master sheet held a row with an empty Wire cell — a corroboration
-     rule, written while the belief was that ONE door (the portal) had invented the colour.
-     Five had. The quote form, the server, Add Customer, Edit Customer and the conversion
-     prefill all wrote White by default, so a stored White is not evidence of anything and
-     there is nothing left worth corroborating.
-     ⛔ GREEN IS STILL NEVER TOUCHED ([[OPT-13]]). Nothing in this app has ever written Green
-     by itself, so a Green was typed by a person. That asymmetry is the whole argument, and
-     it is why "sweep all whites" is safe while "sweep all wire colours" would not be.
-     ⚠ AND THE SHEET IS NOW ONLY A DESCRIPTION. It no longer decides anything — it says how
-     many of the cleared ones it happens to agree with, which is worth reading and is not a
-     gate. So this tool needs no connected file and no paste at all, which is what makes it
-     usable on the machine the office actually has. */
-  const found = {clear: [], sheetSaysWhite: 0, sheetSaysNothing: 0, sheetSaysOther: [],
-                 notOnSheet: 0, sheetRows: 0, sheetFrom: ''};
+/* ⭐ WHERE A WHITE CAME FROM (2026-09-17). Addie: "Everyone should not have there whites
+   sweeped. Quotes should definetly keep what they put on the form. The only whites that
+   should be swept is the ones that didn’t come from member portal, quotes, requotes."
+   ⚠ NOTHING EVER RECORDED WHERE A WIRE COLOUR CAME FROM — the same wall `lightsChangedVia`
+   had to be built to get over for light colours. But unlike that case the trail already
+   exists in two collections nobody has to be asked for:
+     • THE QUOTE ITSELF still holds the `wireColor` the customer picked, and every quote and
+       re-quote against a customer names them (`existingCustomerId`). ⭐ A quote saying White
+       is a REAL choice, because the form’s own default was `Any` — never White — on both the
+       browser and the server. That is what makes this readable at all.
+     • THE PORTAL WROTE AN INBOX MESSAGE on every wire change: topic `Wire Color Change`,
+       body "Changed their wire color to: X", carrying the customer’s name, phone and email.
+   ⚠ IT READS THE RECORDS ALREADY FILED rather than needing a new field, which is the only
+   reason this can reach the houses that are already wrong — a fix that cannot reach the case
+   that prompted it is not finished ([[WH-28]]’s rule).
+   ⚠ AND IT FAILS TOWARDS KEEPING. An ambiguous phone or email KEEPS the White for everybody
+   it could mean: a kept one is visible on screen and can be cleared later, while a wrongly
+   cleared one costs a trip through Compare. */
+function wireSweepSources(customers, quotes, messages){
+  const quoteWhite = {}, portalWhite = {};
+  (quotes || []).forEach(function(q){
+    const d = (q && q.data) || q || {};
+    if(String(d.wireColor || '').trim() !== 'White') return;
+    const id = String(d.existingCustomerId || d.convertedToCustomerId || '').trim();
+    if(id) quoteWhite[id] = true;
+  });
+  /* The portal messages carry contact details, not an id — they were written by the public
+     site, which has no customer document to point at. Matched the way everything else in
+     this app matches a person: digits-only phone, lowercased email, never a raw compare. */
+  const byPhone = {}, byEmail = {};
+  (customers || []).forEach(function(c){
+    const d = (c && c.data) || {};
+    const ph = String(d.phone || '').replace(/\D/g, '');
+    const em = String(d.email || '').trim().toLowerCase();
+    if(ph){ (byPhone[ph] = byPhone[ph] || []).push(c.id); }
+    if(em){ (byEmail[em] = byEmail[em] || []).push(c.id); }
+  });
+  (messages || []).forEach(function(m){
+    const d = (m && m.data) || m || {};
+    if(String(d.topic || '') !== 'Wire Color Change') return;
+    if(!/white/i.test(String(d.message || ''))) return;
+    const ph = String(d.phone || '').replace(/\D/g, '');
+    const em = String(d.email || '').trim().toLowerCase();
+    /* ⚠ BOTH KEYS, AND EVERY CANDIDATE. Two households on one phone both keep their White
+       rather than neither — see the note above about which way this fails. */
+    (byPhone[ph] || []).forEach(function(id){ portalWhite[id] = true; });
+    (byEmail[em] || []).forEach(function(id){ portalWhite[id] = true; });
+  });
+  return {quoteWhite: quoteWhite, portalWhite: portalWhite};
+}
+/* ⭐ THE DECISION, ON ITS OWN, so a test can RUN it rather than match its source — the
+   same reason rmCommitPayload and whTimerOnlyQueue are their own functions. Every claim
+   worth making here is about WHICH LIST a customer lands in, which a regex cannot see.
+   ⚠ IT READS THE SHEET INDEX AND THE PROVENANCE AND NOTHING ELSE: no file handle, no
+   Firestore, no DOM. */
+function wireSweepClassify(customers, sheet, sources){
+  /* ⛔ ONLY THE WHITES NOBODY CHOSE (2026-09-17). Addie, having seen what a full sweep
+     would take: "Quotes should definetly keep what they put on the form."
+     ⚠ THIS NARROWS [[OPT-14]]’S "sweep all whites" AND THE REASON IS THE SAME EVIDENCE.
+     That ruling rested on a stored White being worthless as evidence, which is true of the
+     ones the OFFICE doors invented — the form reset, the Edit Customer prefill, the
+     conversion fallback. It was never true of a quote: that form defaulted to `Any`, so a
+     White on one is a customer ticking White.
+     ⛔ GREEN IS STILL NEVER TOUCHED ([[OPT-13]]).
+     ⚠ AND THE SHEET IS STILL ONLY A DESCRIPTION — it decides nothing, so this needs no
+     connected file and no paste. */
+  const src = sources || {quoteWhite: {}, portalWhite: {}};
+  const found = {clear: [], keptQuote: [], keptPortal: [], sheetSaysWhite: 0,
+                 sheetSaysNothing: 0, sheetSaysOther: [], notOnSheet: 0,
+                 sheetRows: 0, sheetFrom: ''};
   (customers || []).forEach(function(c){
     const d = (c && c.data) || {};
     if(String(d.wireColor || '').trim() !== 'White') return;
     const row = {id: c.id, name: d.name || '(no name)', address: d.address || '',
                  number: String(d.customerNumber || '').trim()};
+    /* ⚠ THE QUOTE IS CHECKED FIRST because it is the stronger evidence: a quote records
+       what the customer typed, while a portal message can also be the invented White of
+       [[OPT-11]] being saved back. Both keep the record either way; the order only decides
+       which reason is shown, and the honest one to show is the better one. */
+    if(src.quoteWhite && src.quoteWhite[c.id]){ found.keptQuote.push(row); return; }
+    if(src.portalWhite && src.portalWhite[c.id]){ found.keptPortal.push(row); return; }
     found.clear.push(row);
     if(!sheet) return;
     const cu = row.number;
@@ -14770,9 +14833,7 @@ function wireSweepClassify(customers, sheet){
     let known = false, sheetWire = '';
     if(cu && sheet.rowByNum[cu]){ known = true; sheetWire = sheet.wireByNum[cu] || ''; }
     /* ⚠ A NAME THAT TWO ROWS ANSWER TO IS NO MATCH. Six names on the real sheet belong to
-       two rows, and this repo's rule is already written down: two candidates is no match.
-       It decides nothing now, but a breakdown that quietly counted the wrong customer would
-       be worse than one that admits it cannot tell. */
+       two rows, and this repo’s rule is already written down: two candidates is no match. */
     else if(nm && sheet.nameCount[nm] === 1){ known = true; sheetWire = sheet.wireByName[nm] || ''; }
     if(!known){ found.notOnSheet++; return; }
     if(sheetWire === 'White'){ found.sheetSaysWhite++; return; }
@@ -14818,9 +14879,12 @@ async function wireSweepClear(found){
     goBtn.style.display = 'none';
     try{
       pending = await wireSweepFind();
+      const kept = pending.keptQuote.length + pending.keptPortal.length;
       let html = '<div><strong>' + pending.clear.length + '</strong> ' +
-        (pending.clear.length === 1 ? 'customer says White' : 'customers say White') +
-        ' — all of them would be cleared.</div>';
+        (pending.clear.length === 1 ? 'customer says White that nobody chose' :
+                                      'customers say White that nobody chose') + '.' +
+        (kept ? ' <strong>' + kept + '</strong> more say White and are KEPT, because they chose it.' : '') +
+        '</div>';
       /* ⚠ THE SHEET IS A DESCRIPTION, NOT A DECISION, and the wording has to say so or the
          breakdown reads as though some of these were spared. It is still worth printing:
          the count the sheet AGREES with is the honest measure of what this sweep costs. */
@@ -14833,6 +14897,21 @@ async function wireSweepClear(found){
           pending.sheetSaysNothing + ', says something else for ' + pending.sheetSaysOther.length +
           ', and has no row at all for ' + pending.notOnSheet + '. ' +
           'Read ' + pending.sheetRows + ' sheet rows from ' + esc(pending.sheetFrom || 'your sheet') + '.</div>';
+      }
+      /* ⚠ WHAT IS KEPT IS NAMED, NOT JUST COUNTED. The whole of her rule is that some of
+         these Whites are somebody's own answer, so the list has to show her which — a
+         sweep that only says how many it spared is one nobody can check. */
+      if(pending.keptQuote.length || pending.keptPortal.length){
+        html += '<div style="margin-top:8px;"><strong>Kept — they chose it themselves.</strong>';
+        if(pending.keptQuote.length){
+          html += '<div style="margin-top:4px; font-size:12.5px;">On their quote or a re-quote (' +
+            pending.keptQuote.length + '):<br>' + names(pending.keptQuote) + '</div>';
+        }
+        if(pending.keptPortal.length){
+          html += '<div style="margin-top:4px; font-size:12.5px;">Changed in the Member Portal (' +
+            pending.keptPortal.length + '):<br>' + names(pending.keptPortal) + '</div>';
+        }
+        html += '</div>';
       }
       if(pending.sheetSaysOther.length){
         html += '<div style="margin-top:8px;"><strong>Your sheet says something else for these.</strong> ' +
@@ -14858,8 +14937,8 @@ async function wireSweepClear(found){
   goBtn.addEventListener('click', async function(){
     if(!pending || !pending.clear.length){ out.textContent = 'Press “Check first” before clearing anything.'; return; }
     const typed = prompt('Clear the wire colour on ' + pending.clear.length + ' customer(s) who say White?\r\n\r\n' +
-      'EVERY White goes, including ones your sheet agrees with — White was written by itself at five\r\n' +
-      'different doors, so it is not evidence of anything.\r\n\r\n' +
+      'Only the ones NOBODY CHOSE. A White from their quote, a re-quote or the Member Portal\r\n' +
+      'is kept and is listed above.\r\n\r\n' +
       'They will read "Check lights" in the warehouse until somebody looks in the bin and sets it.\r\n' +
       'Green is not touched. Nothing else on their record changes.\r\n\r\nType CLEAR to go ahead.');
     if(String(typed || '').trim().toUpperCase() !== 'CLEAR') return;

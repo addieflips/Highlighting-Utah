@@ -60,14 +60,16 @@ function lift(name) {
 
 console.log('\n=== Which list each customer lands in ===');
 
-const parts = [lift('dupNormName'), lift('wireSweepClassify')];
+const parts = [lift('dupNormName'), lift('wireSweepSources'), lift('wireSweepClassify')];
 check('both pieces were found in admin.html', parts.every(Boolean),
   'a gate that cannot find its target must never report green. Missing: ' +
-  ['dupNormName', 'wireSweepClassify'].filter((n, i) => !parts[i]).join(', '));
+  ['dupNormName', 'wireSweepSources', 'wireSweepClassify'].filter((n, i) => !parts[i]).join(', '));
 
 let classify = null;
+let sources = null;
 if (parts.every(Boolean)) {
   classify = new Function(parts.join('\n') + '\nreturn wireSweepClassify;')();
+  sources  = new Function(parts.join('\n') + '\nreturn wireSweepSources;')();
 }
 
 if (classify) {
@@ -83,7 +85,7 @@ if (classify) {
     wireByName: { 'annlee': 'White' }
   };
   const cust = (id, data) => ({ id, data });
-  const run = (list) => classify(list, sheet);
+  const run = (list, src) => classify(list, sheet, src);
 
   /* ⭐ EVERY STORED White IS CLEARED (2026-09-17). Addie: "can we sweep all whites but in
      the future if they do save that they want white wire we will save it for [them]."
@@ -110,6 +112,76 @@ if (classify) {
   const off = run([cust('d', { name: 'Not On It', customerNumber: '4242', wireColor: 'White' })]);
   eq('a customer the sheet has never heard of is cleared too', off.clear.map(r => r.id), ['d']);
   check('and counted', off.notOnSheet === 1);
+
+  /* ⭐ AND A WHITE THE CUSTOMER CHOSE IS KEPT (2026-09-17, [[OPT-17]]). Addie: "Everyone
+     should not have there whites sweeped. Quotes should definetly keep what they put on the
+     form. The only whites that should be swept is the ones that didn't come from member
+     portal, quotes, requotes."
+     ⚠ THIS NARROWS [[OPT-14]] ON THE SAME EVIDENCE THAT WIDENED IT. "A stored White is not
+     evidence of anything" is true of the ones the OFFICE doors invented and was never true
+     of a quote: that form's default was `Any`, on the browser AND on the server, so a White
+     on a quote is a customer ticking White. */
+  {
+    const q = (custId, wire) => ({ id: 'q' + custId, data: { existingCustomerId: custId, wireColor: wire } });
+    const msg = (topic, phone, email, body) => ({ data: { topic, phone, email, message: body } });
+    const book = [
+      cust('office',   { name: 'Office One', customerNumber: '27', wireColor: 'White', phone: '8015550001' }),
+      cust('quoted',   { name: 'Quote Two',  customerNumber: '27', wireColor: 'White', phone: '8015550002' }),
+      cust('requoted', { name: 'Req Three',  customerNumber: '27', wireColor: 'White', phone: '8015550003' }),
+      cust('portal',   { name: 'Portal Four',customerNumber: '27', wireColor: 'White', phone: '(801) 555-0004' }),
+      cust('anyquote', { name: 'Any Five',   customerNumber: '27', wireColor: 'White', phone: '8015550005' })
+    ];
+    const src = sources(book,
+      [q('quoted', 'White'),
+       /* a RE-quote is an ordinary second quote against the same record */
+       q('requoted', 'Green'), { id: 'q9', data: { existingCustomerId: 'requoted', wireColor: 'White' } },
+       /* ⛔ AND `Any` IS NOT A CHOICE. It was the form's own default, so it is exactly the
+          customer not answering — the case the whole sweep exists for. */
+       q('anyquote', 'Any')],
+      [msg('Wire Color Change', '8015550004', '', 'Changed their wire color to: White'),
+       /* noise that must not match: a different topic, and a different colour */
+       msg('Note Added', '8015550001', '', 'Changed their wire color to: White'),
+       msg('Wire Color Change', '8015550005', '', 'Changed their wire color to: Green')]);
+    const out = classify(book, sheet, src);
+    eq('a White nobody chose is the only one cleared', out.clear.map(r => r.id), ['office', 'anyquote']);
+    eq('a White on their quote is kept', out.keptQuote.map(r => r.id), ['quoted', 'requoted']);
+    eq('and a White they set in the Member Portal is kept', out.keptPortal.map(r => r.id), ['portal']);
+    /* ⚠ THE PHONE IS MATCHED ON DIGITS, never raw — the portal customer's number is stored
+       "(801) 555-0004" the way the office types it, and a raw compare finds nobody. That is
+       the trap that quietly duplicated this whole book once. */
+    check('the portal match works on a formatted phone number',
+      out.keptPortal.length === 1,
+      'stored as "(801) 555-0004" against a message carrying digits');
+    /* ⛔ AND THE NOISE DID NOT MATCH. Without these the two checks above pass on a rule that
+       keeps everything it sees. */
+    check('a message on another topic does not keep anybody',
+      out.clear.some(r => r.id === 'office'),
+      'the body says White but the topic is Note Added — that is not a wire change');
+    check('and a portal change to GREEN does not keep a White',
+      out.clear.some(r => r.id === 'anyquote'),
+      'the message must be about White, not merely about the wire');
+
+    /* ⚠ AND NO SOURCES AT ALL FALLS BACK TO SWEEPING, not to keeping. A caller that forgets
+       to pass them must not silently spare the whole book — the sweep would look like it
+       ran and changed nothing. */
+    const bare = classify(book, sheet);
+    eq('with no provenance supplied, nothing is kept',
+      [bare.clear.length, bare.keptQuote.length, bare.keptPortal.length], [5, 0, 0]);
+
+    /* ⚠ AN AMBIGUOUS PHONE KEEPS EVERY CANDIDATE, not none. A kept White is visible and can
+       be cleared later; a wrongly cleared one costs a trip through Compare. Seventeen numbers
+       in the real book are shared. */
+    const shared = [
+      cust('h1', { name: 'Parent', wireColor: 'White', phone: '8015559999' }),
+      cust('h2', { name: 'Child',  wireColor: 'White', phone: '8015559999' })
+    ];
+    const sharedSrc = sources(shared, [],
+      [msg('Wire Color Change', '8015559999', '', 'Changed their wire color to: White')]);
+    const sharedOut = classify(shared, sheet, sharedSrc);
+    eq('a shared phone keeps both households rather than neither',
+      sharedOut.keptPortal.map(r => r.id), ['h1', 'h2']);
+    eq('and clears neither', sharedOut.clear, []);
+  }
 
   /* ⛔ GREEN IS NEVER TOUCHED ([[OPT-13]]). Addie: "If they are in the green categorie than
      we will not worry about those." Nothing in the app has ever written Green by itself, so
@@ -202,11 +274,29 @@ const wiring = stripComments(admin.slice(admin.indexOf('(function wireWireSweep(
    own sentence ("Type CLEAR to go ahead") satisfies — so deleting the guard and leaving the
    instruction behind passed. Suite 58's lesson: a check must read the code, not the prose
    beside it. Caught by the red-check as the one sabotage that got through. */
+/* ⚠ SLICED TO A REAL ANCHOR, NOT 4000 CHARACTERS. §7 bans a fixed-length extraction window
+   by name and run-all enforces it, and this pair had one — which went stale the moment the
+   report grew, failing on code that was right. Cut at the end of the IIFE instead. */
+const wiringAll = (function () {
+  const at = admin.indexOf('(function wireWireSweep(');
+  if (at < 0) return '';
+  let d = 0, k = admin.indexOf('{', at);
+  for (;; k++) { if (admin[k] === '{') d++; else if (admin[k] === '}') { d--; if (!d) break; } }
+  return stripComments(admin.slice(at, k + 1));
+})();
+check('the sweep wiring was found whole', !!wiringAll && wiringAll.length > 1000);
 check('clearing needs CLEAR actually typed, not merely mentioned',
-  /!==\s*'CLEAR'/.test(wiring.slice(0, 4000)),
+  /!==\s*'CLEAR'/.test(wiringAll),
   'the confirmation no longer compares against CLEAR');
 check('and the clear button is hidden until the dry run has run',
-  /goBtn\.style\.display = 'none'/.test(wiring.slice(0, 4000)));
+  /goBtn\.style\.display = 'none'/.test(wiringAll));
+/* ⭐ AND WHAT IS KEPT IS NAMED ON SCREEN, not merely counted. The whole of her rule is that
+   some of these Whites are somebody's own answer, so she has to be able to SEE which — a
+   sweep that only says how many it spared is one nobody can check. */
+check('the report names the ones it kept, and why',
+  /keptQuote/.test(wiringAll) && /keptPortal/.test(wiringAll) &&
+  /names\(pending\.keptQuote\)/.test(wiringAll) && /names\(pending\.keptPortal\)/.test(wiringAll),
+  'a count alone cannot be checked against anything');
 
 /* =========================================================================
    EITHER ROUTE IN — the connected file, or the pasted sheet
