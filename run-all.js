@@ -21891,15 +21891,27 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
 
       /* ⚠ A RE-QUOTE IS IN EXACTLY ONE FOLDER. Subtracted from the ordinary tabs
          rather than shown in both: a card in two places is a job two people do, or
-         - far more likely - a job each of them assumes the other did. */
-      check('S65', 'an open re-quote goes to Re-quotes at every stage',
+         - far more likely - a job each of them assumes the other did.
+         ⭐ REPOINTED 2026-09-17 ([[QT-43]]), AND ONLY HALF OF IT MOVED. Addie:
+         "Everything on requotes that is awaiting response should go under awaiting
+         response." A SENT re-quote now files under 'send' with every other card the
+         office is chasing. The sentence above is kept because it is still the rule
+         these checks hold: exactly one folder, never two — what changed is WHICH.
+         ⚠ THE OLD ASSERTION WAS "at every stage" AND THAT PART IS GENUINELY REVERSED.
+         Its reasoning was that a priced re-quote must not "fall back into the ordinary
+         pipeline half way through", which is right about CONVERTING — that is why the
+         'form' stage below still stays in Re-quotes — and was wrong about chasing. */
+      check('S65', 'an open re-quote stays in Re-quotes until it has gone out',
         f({existingCustomerId: 'c1'}) === 'requote' &&
-        f({existingCustomerId: 'c1', quotedPrice: 400}) === 'requote' &&
         f({existingCustomerId: 'c1', quotedPrice: 400, approvalStatus: 'approved', formCompleted: true}) === 'requote',
-        'a re-quote that is priced must not fall back into the ordinary pipeline half way through');
+        'unsent, and ready-to-convert, are both jobs for us rather than waits on the customer');
+      check('S65', 'and a sent one joins Awaiting Response',
+        f({existingCustomerId: 'c1', quotedPrice: 400}) === 'send',
+        'a re-quote waiting on a reply is chased from the same list as everybody else');
       check('S65', 'including one raised by hand off an existing quote',
-        f({requoteCount: 1, quotedPrice: 400}) === 'requote',
-        'both kinds of re-quote are the same job and belong in the same place');
+        f({requoteCount: 1, quotedPrice: 400}) === 'send' &&
+        f({requoteCount: 1}) === 'requote',
+        'both kinds of re-quote are the same job and must move together');
 
       /* ⚠ CLOSED IS STILL ONE FOLDER, deliberately. History is looked up in one
          place; splitting it means checking both every time and finding it in
@@ -45458,10 +45470,17 @@ suite('263. Priced is not sent - the card stays in Quotes');
   /* ---- and the folder, which is the tab she is actually looking at --- */
   check('S263', 'the Quotes TAB is where an unsent priced quote is filed',
     folder({ quotedPrice: 600 }) === 'new');
-  check('S263', 'a re-quote still goes to Re-quotes, sent or not',
-    folder({ quotedPrice: 600, existingCustomerId: 'c1' }) === 'requote' &&
-    folder({ quotedPrice: 600, existingCustomerId: 'c1', quoteSentAt: ts() }) === 'requote',
-    'the re-quote folder was never about how far along the card is');
+  /* ⭐ REPOINTED 2026-09-17 ([[QT-43]]). This read "a re-quote still goes to Re-quotes,
+     sent or not — the re-quote folder was never about how far along the card is", and
+     that is exactly what Addie changed: "Everything on requotes that is awaiting response
+     should go under awaiting response." Sent is now the whole of what decides it, so the
+     two halves are asserted apart rather than the check being dropped. */
+  check('S263', 'an unsent re-quote is still filed under Re-quotes',
+    folder({ quotedPrice: 600, existingCustomerId: 'c1' }) === 'requote',
+    'nothing has gone out, so nobody is being waited on — that is a job for us');
+  check('S263', 'and a sent one is filed under Awaiting Response',
+    folder({ quotedPrice: 600, existingCustomerId: 'c1', quoteSentAt: ts() }) === 'send',
+    'one list of everyone the office is chasing, which is the whole of the ruling');
 
   /* ⚠ THE TEST-CARD BUILDER HAS TO AGREE. It stages a card into a named tab by
      writing fields; if "sent" stops meaning what it writes, Build Test Customer
@@ -60869,4 +60888,60 @@ suite('Suite 336. The office sees the colours the member just picked');
   check('S336', 'and what was on file is still read description-first below them',
     /editCustLightsRaw = String\(d\.lightsDescription \|\| ''\)\.trim\(\)/.test(admin),
     'the guard and the ticks must agree about which field wins, or a save refuses for the wrong reason');
+}
+
+suite('Suite 337. A re-quote waiting on a reply waits with everybody else');
+/* ⭐ [[QT-43]]. Addie, 2026-09-17: "Everything on requotes that is awaiting response should
+   go under awaiting response."
+
+   ⚠ RUN, NOT MATCHED. Every claim here is about which tab a card lands on, and quoteFolder
+   is a composition of quoteStage and isRequote — both LIFTED, because "is this a re-quote"
+   and "has it been sent" are the two things the answer turns on and a stub would decide
+   them for us. */
+{
+  /* ⚠ quoteWasSentOut IS LIFTED TOO, AND THE FIRST DRAFT WITHOUT IT CRASHED THE WHOLE
+     SUITE with a bare ReferenceError — the extraction-list trap this file records nine
+     times over. Lifted, never stubbed: "has this gone out" is half of what decides the
+     tab, so a stub would answer the question under test. */
+  const F = new Function('d',
+    extractFn(admin, 'isRequote') + extractFn(admin, 'quoteWasSentOut') +
+    extractFn(admin, 'quoteStage') + extractFn(admin, 'quoteFolder') +
+    'return quoteFolder(d);');
+
+  /* Priced AND sent is what quoteStage calls 'send' — the Awaiting Response tab. */
+  const sentRequote  = { quotedPrice: 400, quoteManuallySent: true, existingCustomerId: 'c1' };
+  const sentFirst    = { quotedPrice: 400, quoteManuallySent: true };
+  const unsentRequote= { quotedPrice: 400, existingCustomerId: 'c1' };
+  const newRequote   = { existingCustomerId: 'c1' };
+
+  check('S337', 'a sent re-quote sits under Awaiting Response',
+    F(sentRequote) === 'send',
+    'this is the ruling — one list of everyone the office is chasing');
+  check('S337', 'and an ordinary sent quote is unmoved',
+    F(sentFirst) === 'send',
+    'if this changed, the tab it is being moved INTO is what broke');
+
+  /* ⚠ RE-QUOTES WITH SOMETHING LEFT TO DO STAY WHERE THEY ARE — that is what the tab is
+     for now, and moving them would empty it. */
+  check('S337', 'a re-quote that has not gone out yet stays in Re-quotes',
+    F(unsentRequote) === 'requote',
+    'priced but unsent is not waiting on the customer, it is waiting on us');
+  check('S337', 'and so does one nobody has priced',
+    F(newRequote) === 'requote',
+    'quoteStage calls that "new" — there is nothing for the customer to answer');
+
+  /* ⚠ CLOSED IS STILL ONE FOLDER. History is looked up in one place; splitting it means
+     checking both every time and finding it in neither when the guess is wrong. */
+  check('S337', 'a closed re-quote is still filed with every other closed quote',
+    F({ status: 'closed', existingCustomerId: 'c1' }) === 'closed',
+    'that rule predates this one and is untouched by it');
+
+  /* ⛔ THE HALF OF THE OLD RULE THAT WAS LOAD-BEARING. A card in two places is a job each
+     of two people assumes the other has done. quoteFolder returns ONE string, so this is
+     structural rather than a matter of care — asserted so a future "show it in both"
+     cannot pass quietly. */
+  const all = [sentRequote, sentFirst, unsentRequote, newRequote].map(F);
+  check('S337', 'every card is still in exactly one folder',
+    all.every(f => typeof f === 'string' && f.length > 0),
+    'the old ruling this narrows was about double-listing, and that part still stands');
 }

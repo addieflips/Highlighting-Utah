@@ -13667,6 +13667,23 @@ function collapseClosedByHouse(items){
 function quoteFolder(d){
   const stage = quoteStage(d);
   if(stage === 'closed') return 'closed';
+  /* ⭐ A RE-QUOTE WAITING ON A REPLY WAITS WITH EVERYBODY ELSE (2026-09-17, [[QT-43]]).
+     Addie: "Everything on requotes that is awaiting response should go under awaiting
+     response."
+
+     ⛔ ONE LIST OF EVERYONE WE ARE CHASING. Awaiting Response is the tab the office works
+     down — it carries the quiet-days filter, the bulk nudge and the nudge ladder — and a
+     re-quote that has been priced and sent is in exactly that state. Held back in its own
+     tab it was chased by a different person on a different day, or not at all.
+
+     ⚠ IT IS STILL IN EXACTLY ONE FOLDER, which is the half of the old rule that was load
+     bearing and is kept: a card in two places is a job each of two people assumes the
+     other has done. What changed is WHICH folder, not how many.
+
+     ⚠ AND ONLY WHEN IT IS ACTUALLY SENT. `quoteStage` returns 'send' for priced AND sent
+     — a re-quote still being written stays in Re-quotes, which is what that tab is for
+     now: the ones with something left to do before they go out. */
+  if(stage === 'send') return 'send';
   return isRequote(d) ? 'requote' : stage;
 }
 /* ⭐ WHAT A RE-QUOTED HOUSE ALREADY HAS, READ OFF THE CUSTOMER (2026-08-30).
