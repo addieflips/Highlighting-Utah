@@ -39257,7 +39257,10 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
        state the wiring exists to keep it out of. */
     houseSidesShowList('addcust', houseSidesAutoFill(HOUSE_SIDES_DEFAULT));
     document.querySelectorAll('.addcust-color-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
-    document.getElementById('addCustWireColor').value = 'White';
+    /* ⛔ BLANK, NOT White (2026-09-17). This reset is the fourth door that was quietly
+       writing a colour nobody chose: the form opens on it, nobody touches it, and Save
+       records White. [[OPT-12]] closed the other doors and missed this one. */
+    document.getElementById('addCustWireColor').value = '';
     document.getElementById('addCustInstallPref').value = 'Normal Schedule';
     document.getElementById('addCustOneTimeNotes').value = '';
     document.getElementById('addCustInvoiceNotes').value = '';
@@ -54187,7 +54190,13 @@ function openEditCustomerModal(id){
   const ecFeetNote = document.getElementById('editCustFeetNote');
   if(ecFeetNote) ecFeetNote.textContent = '';
   document.getElementById('editCustHousePrice').value = d.housePrice || '';
-  document.getElementById('editCustWireColor').value = d.wireColor || 'White';
+  /* ⛔ THE WORST OF THE DOORS, AND THE LAST ONE FOUND (2026-09-17). Addie: "I still see
+     that white wire is still showing in warehouse." Every customer with no wire on file
+     opened here showing White, and this form is opened dozens of times a day — so the book
+     REFILLED WITH WHITE as she worked, and a sweep would have been undone one save at a
+     time with nothing anywhere saying so. Blank is the honest answer and reads as Check
+     lights, exactly as the select's own first option now says. */
+  document.getElementById('editCustWireColor').value = d.wireColor || '';
   document.getElementById('editCustBillTo').value = d.billToPhone || '';
   document.getElementById('editCustGateCode').value = d.gateCode || '';
   document.getElementById('editCustOutletTimer').value = d.outletTimer || '';
@@ -61188,7 +61197,7 @@ function renderRouteOrderedList(ordered){
       (hd.notes ? '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">&#128221; '+esc(hd.notes)+'</div>' : '')+
       (hd.specificOutlet === 'Yes' && hd.specificOutletNotes ? '<div style="font-size:12.5px; color:#4338CA; margin-top:2px;">&#128268; Outlet: '+esc(hd.specificOutletNotes)+'</div>' : '')+
       (hd.lightsDescription ? '<div style="font-size:12.5px; color:var(--dusk); font-weight:600; margin-top:2px;">&#127875; Light Colors: '+esc(hd.lightsDescription)+'</div>' : '')+
-      '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">Wire: '+esc(hd.wireColor || 'White')+(hd.outletTimer ? ' &middot; Timer: '+esc(hd.outletTimer) : '')+(hd.useEaves ? ' &middot; Eaves: '+esc(hd.useEaves) : '')+'</div>'+
+      '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">Wire: '+esc(whWireLabel(hd.wireColor))+(hd.outletTimer ? ' &middot; Timer: '+esc(hd.outletTimer) : '')+(hd.useEaves ? ' &middot; Eaves: '+esc(hd.useEaves) : '')+'</div>'+
       (hd.oneTimeNote ? '<div style="font-size:12.5px; color:var(--ember); margin-top:2px;">&#128221; (this visit only) '+esc(hd.oneTimeNote)+'</div>' : '')+
       (needsFix && (hd.fixNote || hd.fixPhotoUrl) ? (
         '<div style="background:#FDECEA; border:1px solid #f0b3ac; border-radius:8px; padding:10px 12px; margin-top:8px;">'+
@@ -72818,7 +72827,10 @@ function printNeedsBuildList(){
       const need = (typeof houseBundleNeed === 'function') ? houseBundleNeed(d) : null;
       const isTopUp = !!(need && need.topUp);
       return {number: d.customerNumber || '', name: d.name || '',
-              lights: printLightColor(d), wire: d.wireColor || '',
+              /* ⚠ whWireLabel, NOT a bare read. A blank cell on paper says nothing at all,
+                 and the one thing this row needs to say is GO AND LOOK. The screen has read
+                 Check lights since [[WH-35]]; the sheet printed from it was still blank. */
+              lights: printLightColor(d), wire: whWireLabel(d.wireColor),
               timer: printYesNo(d.outletTimer),
               /* ⚠ On a top-up `need.bundles` is already the ADD-ON's count, not the
                  whole house's — houseBundleNeed does that subtraction. The + marks it

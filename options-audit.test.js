@@ -483,7 +483,13 @@ function check(label, ok, detail) {
           src: fnOf('printNeedsBuildList'),
           by: {
             lightsDescription: /lights: printLightColor\(d\)/,
-            wireColor:         /wire: d\.wireColor/,
+            /* ⚠ REPOINTED 2026-09-17, NOT WEAKENED. The sheet read `wire: d.wireColor`, which
+               printed a BLANK cell for a house nobody has looked at — and a blank on paper
+               says nothing, when the one thing that row needs to say is go and look. It goes
+               through whWireLabel now, like every other wire colour a person sees, so it
+               reads Check lights. The option still reaches the sheet; what changed is that
+               it arrives legible. */
+            wireColor:         /wire: whWireLabel\(d\.wireColor\)/,
             outletTimer:       /timer: printYesNo\(d\.outletTimer\)/,
             measuredFeet:      /bundles: need/,
             /* ⭐ ASKED AND ANSWERED, 2026-08-24. The Warehouse tab's list shows a bins
