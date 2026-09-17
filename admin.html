@@ -73630,16 +73630,17 @@ function bpmMatchesStage(it){
   const stages = BPM_STAGE_KEYS.filter(function(k){ return active.indexOf(k) !== -1; });
   return !stages.length || stages.indexOf(it.stage) !== -1;
 }
+/* The map-status half, as its own rule for the same reason the stage half is one: the
+   tallies beside the options have to ask each group WITHOUT the group being counted. */
+function bpmMatchesMapStatus(it){
+  const active = bpmActiveFilterKeys();
+  const maps = BPM_MAP_KEYS.filter(function(k){ return active.indexOf(k) !== -1; });
+  if(!maps.length) return true;
+  return (maps.indexOf('mapped') !== -1 && bpmHasMap(it)) ||
+         (maps.indexOf('nomap') !== -1 && !bpmHasMap(it));
+}
 function bpmMatches(it){
-  if(!bpmMatchesQuery(it)) return false;
-  if(!bpmMatchesStage(it)) return false;
-  const maps = BPM_MAP_KEYS.filter(function(k){ return bpmFilter.has(k); });
-  if(maps.length){
-    const ok = (maps.indexOf('mapped') !== -1 && bpmHasMap(it)) ||
-               (maps.indexOf('nomap') !== -1 && !bpmHasMap(it));
-    if(!ok) return false;
-  }
-  return true;
+  return bpmMatchesQuery(it) && bpmMatchesStage(it) && bpmMatchesMapStatus(it);
 }
 /* The pending list narrows by SEARCH and by QUOTE STAGE — new quotes on their own, or
    re-quotes on their own — and by nothing else. */
@@ -73678,11 +73679,28 @@ function bpmActiveFilterKeys(){
 function bpmCountBase(){ return bpmView === 'pending' ? bpmPendingItems() : bpmItems(); }
 function bpmShownMapped(){ return bpmShown().filter(bpmHasMap); }
 
-/* ⚠ COUNTED AGAINST EVERY MAP, NOT THE FILTERED SET. A count that shrank as you ticked
-   would answer the wrong question: it is there to say how many there ARE of a thing
-   before you go looking for them. */
+/* ⛔ THE NUMBER SAYS WHAT TICKING THAT OPTION WILL SHOW. Addie, 2026-09-17: "brought up
+   new quotes and requotes and shows a number next to them but when I push them no one
+   pulls up." Reproduced in a browser before anything was changed: a book with two houses
+   photographed and the new quotes not, opening on its own "Has a map" default, offered
+   **New quotes 1** and drew NOTHING when it was pressed.
+   ⚠ THIS REVERSES THIS FUNCTION'S OWN EARLIER REASONING, kept here because it is the
+   argument that has to be met: "counted against every map, not the filtered set — a count
+   that shrank as you ticked would answer the wrong question: it is there to say how many
+   there ARE of a thing before you go looking for them." That is true of a count read as a
+   census and false of one read as a promise, and a number sitting ON the button is read as
+   a promise every time. The two groups combine with AND, so the census figure can never be
+   what pressing it produces.
+   ⭐ SO EVERY OTHER FILTER STILL APPLIES — the search box and the OTHER group — and only
+   this option's own group is set aside. Nought now means nought.
+   ⚠ ITS OWN GROUP MUST BE SET ASIDE, or every unticked option in a group that has a tick
+   reads 0 and the whole group looks empty the moment you narrow it. Two ticks in one group
+   are a union, so each number is what that option contributes on top of the rest. */
 function bpmCountFor(k){
+  const isMapKey = BPM_MAP_KEYS.indexOf(k) !== -1;
   return bpmCountBase().filter(function(it){
+    if(!bpmMatchesQuery(it)) return false;
+    if(isMapKey ? !bpmMatchesStage(it) : !bpmMatchesMapStatus(it)) return false;
     if(k === 'mapped') return bpmHasMap(it);
     if(k === 'nomap') return !bpmHasMap(it);
     return it.stage === k;

@@ -83,7 +83,7 @@ const NEEDED = [
   'bpmOpenRequoteFor', 'bpmStageOf', 'bpmItems',
   'bpmCopiesFor', 'bpmIsTicked', 'bpmMatchesQuery', 'bpmMatches', 'bpmShown', 'bpmShownMapped', 'bpmCountFor',
   'bpmIsPending', 'bpmPendingItems', 'bpmEmptyHtml', 'bpmApplyDefaultFilter', 'bpmPaintViewChrome',
-  'bpmMatchesStage', 'bpmGroupsForView', 'bpmActiveFilterKeys', 'bpmCountBase',
+  'bpmMatchesStage', 'bpmMatchesMapStatus', 'bpmGroupsForView', 'bpmActiveFilterKeys', 'bpmCountBase',
   'bpmAllSelected', 'bpmAllAtOne', 'bpmSavedDiffers', 'bpmCopyModeIsRestore',
   'bpmBuildQueue', 'bpmChunkPages', 'bpmOrientationOf', 'bpmPageGrid',
   'bpmStreetOf', 'bpmTileRight', 'bpmResetBatch', 'bpmPublicIdFromUrl',
@@ -1115,6 +1115,88 @@ check('a house with no drawing opens its own empty row',
 check('and a house that already has one goes through Add another map',
   /bpmEl\('bpmDlgAdd'\)/.test(startSrc) && startSrc.indexOf('bpmPendingNew') === -1,
   'minting a pending map here would be a second set of those rules');
+
+/* ---------------------------------------------------------------------------
+ * THE NUMBER BESIDE AN OPTION SAYS WHAT PRESSING IT SHOWS.
+ * ⛔ Addie, 2026-09-17: "brought up new quotes and requotes and shows a number next to
+ * them but when I push them no one pulls up." The tallies were counted over the whole
+ * book while the list ALSO applied the other group, so on her own opening default —
+ * "Has a map" ticked, her new quotes not yet photographed — the menu offered
+ * "New quotes 1" and the grid drew nothing.
+ * ------------------------------------------------------------------------- */
+head('The number beside an option says what pressing it shows');
+
+/* Her book, in the shape that produced it: a couple of houses photographed, the new
+ * quotes and re-quotes not. ⚠ A FIXTURE WHERE THE NEW QUOTE HAPPENS TO HAVE A MAP
+ * CANNOT SEE THIS AT ALL — the first attempt to reproduce it used exactly that and came
+ * back green. */
+const HER_BOOK = BOOK.map(h => {
+  const c = clone(h);
+  if (c.id !== 'h-sorensen') delete c.data.blueprintMaps;
+  return c;
+});
+
+load(HER_BOOK);
+S.bpmApplyDefaultFilter();
+check('the fixture reproduces her opening state — Has a map ticked', S.bpmFilter.has('mapped'),
+  'without a photographed house the filter stands down and the bug cannot appear');
+
+const stageKeys = ['new', 'requote', 'returning'];
+stageKeys.forEach(k => {
+  const promised = S.bpmCountFor(k);
+  S.bpmFilter.clear(); S.bpmFilter.add('mapped'); S.bpmFilter.add(k);
+  const delivered = S.bpmShown().length;
+  check('"' + k + '" shows what its number promised', promised === delivered,
+    'the menu said ' + promised + ' and the grid drew ' + delivered +
+    ' — a number sitting on a button is read as a promise, every time');
+  S.bpmFilter.clear(); S.bpmFilter.add('mapped');
+});
+
+/* ⚠ AND IT IS NOT VACUOUS: on this book at least one stage really does count zero once
+   the other group is applied, which is the case that was reported. */
+S.bpmFilter.clear(); S.bpmFilter.add('mapped');
+check('at least one option honestly reads nought here',
+  stageKeys.some(k => S.bpmCountFor(k) === 0),
+  'if every count is positive this section proves nothing about the reported case');
+check('and the same options are NOT all zero over the book itself',
+  stageKeys.some(k => S.bpmItems().filter(i => i.stage === k).length > 0),
+  'the census figures are still non-zero — which is exactly why the old count misled');
+
+/* ⚠ ITS OWN GROUP IS SET ASIDE, or every unticked option in a group that has a tick
+   reads 0 and the whole group looks empty the moment you narrow it. */
+load();
+S.bpmFilter.clear(); S.bpmFilter.add('new');
+check('an option is not counted against its own group',
+  S.bpmCountFor('requote') > 0,
+  'ticking New quotes must not make Requotes read nought — the group would look empty');
+
+/* ⚠ AND A TICK THE PENDING VIEW DOES NOT OFFER MUST NOT REACH THE TALLIES EITHER. The
+   list there never consults the map-status group, so a rule that read the raw tick set
+   rather than the offered one would count every pending row out and print a column of
+   noughts beside a list that plainly has rows in it. The red-check found this uncovered:
+   the sabotage is invisible in the print view, where offered and ticked are the same. */
+load(HER_BOOK);
+S.setView('pending');
+S.bpmFilter.clear(); S.bpmFilter.add('mapped');
+check('a stale Has-a-map tick does not zero the pending tallies',
+  ['new', 'requote'].every(k =>
+    S.bpmCountFor(k) === S.bpmPendingItems().filter(i => i.stage === k).length),
+  'new ' + S.bpmCountFor('new') + ', requote ' + S.bpmCountFor('requote') +
+  ' against a list of ' + S.bpmShown().length);
+check('and the fixture really has pending rows for that to be wrong about',
+  S.bpmShown().length > 0, 'saw ' + S.bpmShown().length);
+S.bpmFilter.clear();
+S.setView('print');
+
+/* The search box narrows the tallies too: it narrows the list. */
+load();
+S.bpmFilter.clear();
+const someName = S.bpmItems()[0].name;
+S.setQuery(someName);
+check('the tallies answer to the search box as well',
+  S.bpmCountFor('new') + S.bpmCountFor('requote') + S.bpmCountFor('returning') === S.bpmShown().length,
+  'the three stages together are the whole list, so they must add up to it');
+S.setQuery('');
 
 /* Every id the script asks for must exist in the markup — a missing node under
    optional chaining is a silent no-op, and this file has shipped one before. */

@@ -4787,6 +4787,11 @@ year** or an **open re-quote**. Returning customers with no drawing are delibera
 out — nearly the whole book has never been photographed, and listing all of them would bury
 the dozen houses somebody actually has to go and draw.
 
+⚠ **The number beside each filter option says what pressing it will show** — it answers to
+the search box and to the other group, not to the whole book. It shipped on 2026-09-16 as a
+plain census, so with *Has a map* ticked and a new quote not yet photographed the menu
+offered *New quotes · 1* and the grid drew nothing. A nought there now means nought.
+
 Inside the list the dropdown narrows it to **New quotes** or **Requotes**. Nothing else is
 offered there: *Has a map* and *Returning customers* could each only ever empty it, and an
 empty pending list reads as no work outstanding. The printing controls step out of the way
