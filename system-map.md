@@ -7043,6 +7043,26 @@ are the two copies of the rule — change one, change the other, in the same pus
   parent and a child, so the newest open quote on a number can be the OTHER
   household's, and the email would ask a parent to approve their child's price.
 
+  ⛔ **AND THE "Send me a test" BUTTON PRINTED THE SAME WORDS, FOR A DIFFERENT REASON
+  ([[QT-44]], 2026-09-17).** It is sample data with no quote behind it, so it handed the
+  renderer nothing and all three buttons came out as the developer text — on the one
+  email whose whole job is to say whether the buttons arrive as BUTTONS (that is the
+  EmailJS triple-brace setting, and its own success line tells the office to judge
+  exactly that). It was answering its own question wrongly.
+
+  ⚠ **THREE TOKENS, NOT ONE.** It also passed no `setupFeeLine`, so a template using that
+  token mailed the raw `{{setup_fee_line}}`, and it bolted a photo onto the end instead of
+  running `applyQuotePhotoBlock`, so `{{photo}}` survived as text. A test that does not
+  build what the real send builds cannot answer the question it is asked.
+
+  ⭐ **IT IS A SAMPLE QUOTE AND THE EMAIL SAYS SO** — real buttons on a quote that does not
+  exist lead to "quote not found", which reads as a broken website rather than sample data.
+  ⛔ **The sample token is unspellable by `newQuoteToken`** (`QUOTE_TOKEN_ALPHABET` holds no
+  hyphen), which is the check that matters most: these links carry `action=approve`, so a
+  collision would let a test email answer a real customer's quote. ⛔ **And a sample is
+  never written to the book** — the on-demand mint writes by `quote.id`, so without the
+  `sample` guard a test send would create a `quotes/__sample_quote__` nobody cleans up.
+
   ⭐ **THE FIX IS THAT THE SEND HANDS ITS OWN QUOTE IN.** `resolveLinkTokens` takes
   `opts.quote`, and `buildQuoteEmailHtml` (both callers: the one-press send and the
   preview) and the bulk nudge pass the cache item they are already holding.
