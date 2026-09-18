@@ -26695,6 +26695,44 @@ suite('Suite 107. Pricing a re-quote from the popup');
       r.choice().haveFeet === 180,
       'one field and one subtraction, so correcting the footage later still corrects ' +
       'the build');
+
+    /* ⭐ AN ADDITION DOES NOT ARRIVE WITH THE FULL REBUILD PRE-PICKED (2026-09-11).
+       Dax: "dont build the entire house again because we only need the added on part
+       to be build then just thrown into the bin." Recycle was BOTH the default and
+       the fallback, so on a re-quote raised as an addition the answer that throws a
+       working set back into stock was one Enter away.
+       ⚠ [[QT-07]] IS UNCHANGED and these checks assert that too: the add-on is still
+       not pre-picked either, because its footage is typed. An addition simply arrives
+       with NO answer chosen. */
+    const addQ = {name: 'Added A Side', estimatedFeet: 300, quotedPrice: 600,
+                  address: '12 Same St, Lehi, UT', requoteKind: 'addition'};
+    const ra = run(addQ, grew, 2);
+    check('S107', 'an addition pre-picks neither the rebuild nor the add-on',
+      ra.el('requoteBuildRecycle').checked === false &&
+      ra.el('requoteBuildTopUp').checked === false &&
+      ra.el('requoteBuildNone').checked === false,
+      'recycling a working set and rebuilding the whole house is never the answer a ' +
+      'press should inherit on a quote raised because somebody ADDED to their house');
+    check('S107', 'and it says why the rebuild is not the pre-picked one',
+      /NOT pre-picked/.test(ra.html()),
+      'an option that stopped being the default with no word said reads as a bug');
+
+    /* ⚠ AND THE FALLBACK IS CLOSED. Anything that was not Nothing and not the add-on
+       used to fall through to recycle, so "no answer" meant the expensive answer. */
+    ra.el('applyRequoteBtn').fire('click');
+    check('S107', 'pressing Apply with no answer chosen is refused, not recycled',
+      ra.choice() === null && ra.opened() === null &&
+      ra.toasts.some(function(t){ return /what the warehouse does/i.test(t); }),
+      'nothing parked and nothing opened — a silent recycle here pulls a working set ' +
+      'off a house nobody asked to strip');
+
+    /* ⚠ AND A STATED ADDITION STILL LETS HER CHOOSE THE REBUILD, because an addition
+       and a move can arrive together. Not pre-picked is not forbidden. */
+    ra.el('requoteBuildRecycle').checked = true;
+    ra.el('applyRequoteBtn').fire('click');
+    check('S107', 'and the rebuild is still available when she picks it herself',
+      !!ra.choice() && ra.choice().mode === 'recycle',
+      'the guard is about what a press INHERITS, never about removing an answer');
     check('S107', 'and the re-quote is still marked as being converted',
       r.converting() === 'q1');
   }
@@ -27373,8 +27411,15 @@ suite('Suite 107. Pricing a re-quote from the popup');
       /Build only the add-on/.test(addition.html()),
       'Ln against Lane is a typing difference, not a house move, and the guess ' +
       'could not tell');
+    /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. This matched the sentence
+       "Raised as an addition to the same house" — that is, it was pinned to the exact
+       words that happened to be there rather than to what must be true. The line was
+       rewritten when the rebuild stopped being pre-picked for an addition, so the old
+       match failed on code that is right: the §7 slow-fuse shape, the same one S82,
+       S129 and the folder-names suite each hit. It asserts the CLAIM now — the popup
+       says this was raised as an addition — wherever that sentence goes next. */
     check('S114', 'and says it was raised as an addition',
-      /Raised as an addition to the same house/.test(addition.html()));
+      /Raised as an addition/.test(addition.html()));
 
     /* Older re-quotes carry no kind, so the address comparison still decides. */
     const legacy = run({name: 'Old One', estimatedFeet: 300, quotedPrice: 600,
@@ -60453,7 +60498,7 @@ suite('329. Picking colours is ticking boxes, not holding Ctrl');
    once the only detail we hold is an address, and a `required` select that is hidden blocks
    submission with a validation message pointing at an invisible field — the browser refuses
    and says nothing anybody can act on. */
-suite('330. A phone or an email — one box, on all three public forms');
+suite('330. One box on the two contact forms; phone AND email on the free quote form');
 {
   const idx = read('index.html');
 
@@ -60465,48 +60510,58 @@ suite('330. A phone or an email — one box, on all three public forms');
     if(at === -1) return '';
     return idx.slice(idx.lastIndexOf('<', at), idx.indexOf('>', at) + 1);
   }
-  ['quickContactInput','contactContactInput','quoteContactInput'].forEach(function(id){
+  /* ⭐ QT-40 STILL STANDS FOR THESE TWO. [[QT-45]] narrowed it to the free quote form only. */
+  ['quickContactInput','contactContactInput'].forEach(function(id){
     check('S330', id + ' takes a phone or an email in one box',
       /name="contact"/.test(inputTag(id)),
       'this form still asks for the two separately, so one of them is compulsory');
   });
 
-  /* ⚠ THE FREE QUOTE FORM IS NAMED SPECIFICALLY, because it is the one that was wrong and
-     a check over "some form" would pass on the two that were always right. */
+  /* ⭐ THE FREE QUOTE FORM ASKS FOR BOTH ([[QT-45]], Dax 2026-09-18: "make it so phone number
+     and email are both required in free quote"). Named specifically, because a check over
+     "some form" would pass on the two one-box forms beside it. */
   const qAt = idx.indexOf('id="quoteForm"');
   const qEnd = idx.indexOf('</form>', qAt);
   const quoteForm = qAt === -1 ? '' : idx.slice(qAt, qEnd);
-  check('S330', 'the free quote form no longer demands both',
-    quoteForm !== '' &&
-    !/name="phone"[^>]*required/.test(quoteForm) &&
-    !/name="email"[^>]*required/.test(quoteForm),
-    'requiring both is what stopped a customer with no email address asking for a quote');
+  check('S330', 'the free quote form was found', quoteForm !== '',
+    'renamed or gone — every check below would pass vacuously on an empty slice');
+  check('S330', 'the free quote form requires a phone number',
+    /<input[^>]*name="phone"[^>]*required/.test(quoteForm),
+    'an optional phone lets a quote arrive that nobody can ring about');
+  check('S330', 'the free quote form requires an email address',
+    /<input[^>]*name="email"[^>]*required/.test(quoteForm),
+    'the quote is priced and answered by email, so without one it cannot be sent');
+  check('S330', 'and the email box is a real email field',
+    /<input[^>]*type="email"[^>]*name="email"/.test(quoteForm),
+    'type="email" is what makes the browser refuse "gmail.com" typed on its own');
+  check('S330', 'the one-box contact field is gone from the quote form',
+    !/name="contact"/.test(quoteForm),
+    'a leftover one-box field would be a third required input nobody can satisfy sensibly');
 
-  check('S330', 'and it still asks for one of them',
-    /name="contact"[^>]*required/.test(quoteForm),
-    'making it optional would let a quote arrive with no way to answer it');
-
-  /* ⚠ ONE SPLITTER, THREE FORMS. A second reading of "is this an email" is how one form
-     starts filing an address in the phone field — and that field is `custInvoiceKey`. */
-  check('S330', 'all three handlers go through the one splitter',
-    (idx.match(/splitPhoneOrEmail\(/g) || []).length >= 4,
+  /* ⚠ ONE SPLITTER, TWO FORMS. A second reading of "is this an email" is how one form
+     starts filing an address in the phone field — and that field is `custInvoiceKey`.
+     The definition plus the two contact handlers. */
+  check('S330', 'the two one-box handlers go through the one splitter',
+    (idx.match(/splitPhoneOrEmail\(/g) || []).length >= 3,
     'a second opinion on what an @ means eventually files an email as a phone number');
 
-  /* ⚠ AND THE QUOTE STILL WRITES BOTH FIELDS, blank or not — every reader downstream
-     expects them to exist. */
-  check('S330', 'the quote write still carries a phone field and an email field',
-    /phone: quoteSplit\.phone, email: quoteSplit\.email/.test(idx),
+  /* ⚠ AND THE QUOTE STILL WRITES BOTH FIELDS — every reader downstream expects them. */
+  check('S330', 'the quote write carries the phone box and the email box',
+    /phone: quotePhone, email: quoteEmail/.test(idx),
     'dropping one would reach into undefined on every reader that walks a quote');
 
-  ['quoteContactMethodWrap','contactMethodWrap','quickContactMethod'].forEach(function(id){
+  ['contactMethodWrap','quickContactMethod'].forEach(function(id){
     check('S330', id + ' stands down when an email is typed',
       new RegExp("getElementById\\('" + id + "'\\)").test(idx) ||
       new RegExp('id="' + id + '"').test(idx),
       'a hidden required select blocks the form with a message pointing at nothing');
   });
-  check('S330', 'and the quote form actually drops its required flag on an email',
-    /quoteContactMethodEl\.required = !isEmail/.test(idx),
-    'hiding it without clearing required is a form that silently will not submit');
+  /* ⚠ THE QUOTE FORM'S SELECT NEVER HIDES NOW. A leftover listener would still hide it
+     and drop `required` the moment the EMAIL box got an @ — which is every submission. */
+  check('S330', 'the quote form contact method is required and nothing stands it down',
+    /<select[^>]*id="quoteContactMethod"[^>]*required/.test(quoteForm) &&
+      !/quoteContactMethodEl\.required\s*=/.test(idx),
+    'a select that hides on every email would make the preference optional for everybody');
 }
 
 suite('331. The colours a customer ticked reach the Gmail alert');

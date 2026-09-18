@@ -1628,20 +1628,22 @@
         <form id="quoteForm" name="quote-request" method="POST" data-netlify="true">
           <input type="hidden" name="form-name" value="quote-request">
           <div class="form-row"><label>Full Name <span class="req">*</span></label><input type="text" name="name" required></div>
-          <!-- ⭐ ONE BOX, EITHER WILL DO ([[QT-40]], 2026-09-12). Addie: "on contact form we
-               should be able to put email as an option." This was the only form of the three
-               that demanded BOTH, so somebody with no email address could not ask for a quote
-               at all. Get In Touch and Send a Message have taken either through one field for
-               a while; this now matches them, through the same `splitPhoneOrEmail`. -->
-          <div class="form-row"><label for="quoteContactInput">Phone Number or Email <span class="req">*</span></label><input type="text" id="quoteContactInput" name="contact" placeholder="Phone Number or Email" required></div>
+          <!-- ⭐ PHONE AND EMAIL, BOTH REQUIRED ([[QT-45]], 2026-09-18). Dax: "make it so phone
+               number and email are both required in free quote." This narrows [[QT-40]] for THIS
+               form only: Get In Touch and Send a Message still take either through one box. A
+               quote is priced and answered by email, so a lead with no address could not be sent
+               one until the office typed it in by hand.
+               ⚠ THE COST, ACCEPTED KNOWINGLY: somebody with no email address cannot ask for a
+               quote here and has to ring or use Get In Touch instead — the lost lead QT-40 fixed. -->
+          <div class="form-row"><label for="quotePhoneInput">Phone Number <span class="req">*</span></label><input type="tel" id="quotePhoneInput" name="phone" placeholder="(801) 555-1234" autocomplete="tel" required></div>
+          <div class="form-row"><label for="quoteEmailInput">Email <span class="req">*</span></label><input type="email" id="quoteEmailInput" name="email" placeholder="you@example.com" autocomplete="email" required></div>
           <div class="form-row"><label>Street Address <span class="req">*</span></label><input type="text" id="quoteAddressInput" name="street" placeholder="123 Main St" required></div>
           <div class="form-grid-2">
             <div class="form-row"><label>City <span class="req">*</span></label><input type="text" id="quoteCityInput" name="city" placeholder="e.g. Lehi" required></div>
             <div class="form-row"><label>Zip Code <span class="req">*</span></label><input type="text" id="quoteZipInput" name="zip" placeholder="84043" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" required></div>
           </div>
-          <!-- ⚠ Call and Text are nonsense once the only contact detail is an email, so this
-               row hides and stops being required the moment an @ is typed — the same rule the
-               other two forms already run. -->
+          <!-- ⚠ ALWAYS SHOWN AND ALWAYS REQUIRED since [[QT-45]]: with both a phone and an email
+               on the form, Call, Text and Email are all real answers, so nothing hides it. -->
           <div class="form-row" id="quoteContactMethodWrap">
             <label>Preferred Contact Method <span class="req">*</span></label>
             <select name="contact_method" id="quoteContactMethod" required>
@@ -3932,11 +3934,10 @@ var QUOTE_MAIN_BUILDING_NAME = 'Main house';
 quoteFormEl.addEventListener('submit', async function(e){
   e.preventDefault();
   var fd = new FormData(quoteFormEl);
-  /* ⚠ BOTH FIELDS ARE STILL WRITTEN, one of them blank — every reader downstream
-     (quoteAlreadyACustomer, the dedupe, the quote card) already copes with one being
-     empty, and collapsing them into a single stored value would be a schema change
-     where a form change was asked for. */
-  var quoteSplit = splitPhoneOrEmail(fd.get('contact'));
+  /* ⭐ TWO BOXES, BOTH REQUIRED ([[QT-45]]) — stored exactly as typed, the same as the
+     one-box version stored them, so every reader downstream sees the shape it always has. */
+  var quotePhone = String(fd.get('phone') || '').trim();
+  var quoteEmail = String(fd.get('email') || '').trim();
   var street = fd.get('street'), city = fd.get('city'), zip = fd.get('zip');
   var fullAddress = street + ', ' + city + ' ' + zip;
   var submitBtn = quoteFormEl.querySelector('button[type="submit"]');
@@ -3955,10 +3956,10 @@ quoteFormEl.addEventListener('submit', async function(e){
   var buildingsPayload = [{name: QUOTE_MAIN_BUILDING_NAME, isMain: true}];
 
   addDoc(collection(db,'quotes'), Object.assign(referralQuoteFields(), {
-    name: fd.get('name'), phone: quoteSplit.phone, email: quoteSplit.email,
+    name: fd.get('name'), phone: quotePhone, email: quoteEmail,
     street: street, city: city, zip: zip,
     address: street + ', ' + city + ' ' + zip,
-    contactMethod: quoteSplit.email ? 'Email' : (fd.get('contact_method') || ''),
+    contactMethod: fd.get('contact_method') || '',
     /* ⭐ NO houseSides ON A FRESH QUOTE (2026-09-03). The question moved to the Install
        Details form.
 
@@ -4103,17 +4104,8 @@ if(contactContactInputEl){
   });
 }
 
-var quoteContactInputEl = document.getElementById('quoteContactInput');
-var quoteContactMethodWrapEl = document.getElementById('quoteContactMethodWrap');
-var quoteContactMethodEl = document.getElementById('quoteContactMethod');
-if(quoteContactInputEl && quoteContactMethodWrapEl && quoteContactMethodEl){
-  quoteContactInputEl.addEventListener('input', function(){
-    var isEmail = quoteContactInputEl.value.indexOf('@') !== -1;
-    quoteContactMethodWrapEl.style.display = isEmail ? 'none' : 'block';
-    quoteContactMethodEl.required = !isEmail;
-    if(isEmail) quoteContactMethodEl.value = '';
-  });
-}
+/* The free quote form's contact-method select no longer stands down on an @ — it has
+   its own phone AND email boxes since [[QT-45]], so there is nothing to react to. */
 
 var contactFormEl = document.getElementById('contactForm');
 contactFormEl.addEventListener('submit', function(e){
@@ -8450,6 +8442,20 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
            the public form knows one — which is the whole reason quoteRespond
            never trades it for a portal session. */
         quoteToken: generatePortalToken(),
+        /* ⭐ ADDING A SIDE IS AN ADDITION, AND SAYING SO IS WHAT STOPS THE WHOLE
+           HOUSE BEING REBUILT (2026-09-11). `requoteKind` was written only by the
+           office's own re-quote flow, so a re-quote the CUSTOMER raised from their
+           portal arrived with no kind at all — and the apply popup pre-selects
+           "recycle their old set and build the new one" for anything whose kind it
+           does not know. Dax: "dont build the entire house again because we only
+           need the added on part to be build then just thrown into the bin."
+           ⚠ ONLY WHEN THE COUNT WENT UP. Sides can come DOWN, and that is not an
+           add-on — there is nothing extra to make and their old set genuinely does
+           come back. A blind 'addition' would put the wrong answer in front of the
+           office for exactly the customers who are having lights REMOVED, which is
+           this fix pointing the other way. A reduction leaves the kind unset and
+           the office decides, which is what happens today. */
+        requoteKind: (Number(pickedCount) > Number(beforeCount)) ? 'addition' : null,
         existingCustomerId: currentJobAddressId || null,
         /* ⭐ EVERYTHING THE OLD RECORD KNEW, CARRIED ON THE QUOTE.
            Owner, 2026-08-18: "we should be able to find what their old # was no
