@@ -50,8 +50,37 @@ function grab(name) {
   throw new Error('unbalanced: ' + name);
 }
 
+/* ---- slice a module-level declaration out of the page, verbatim ----
+   Same argument as grab() above: PATH_ROUTES and ROUTE_META decide what
+   navigate() resolves and what it writes into the head, so a hand-typed copy
+   here is a second answer that goes stale the first time a route is added.
+   Lifted, not retyped. */
+function grabVar(name) {
+  const at = src.indexOf('\nvar ' + name + ' = ');
+  if (at === -1) throw new Error('not found in index.html: var ' + name);
+  const start = at + 1;
+  let i = src.indexOf('=', start) + 1;
+  while (src[i] === ' ' || src[i] === '\t') i++;
+  const open = src[i];
+  if (open !== '{' && open !== '[') return src.slice(start, src.indexOf('\n', start));
+  const close = open === '{' ? '}' : ']';
+  let depth = 0;
+  for (; i < src.length; i++) {
+    if (src[i] === open) depth++;
+    else if (src[i] === close) { depth--; if (!depth) return src.slice(start, src.indexOf(';', i) + 1); }
+  }
+  throw new Error('unbalanced: var ' + name);
+}
+
 const REAL = [
   'navigate',
+  /* The real-path routing added 2026-09-12. navigate() calls applyRouteMeta on
+     every route change, so without these four it throws ReferenceError and every
+     scenario below fails for a reason that has nothing to do with the portal. */
+  'normalisePathRoute',
+  'routePathFromLocation',
+  'applyRouteMeta',
+  'syncFaqSchema',
   'loadPortalByToken',
   'tryShowQuoteReview',
   'hideLoginPrompt',
@@ -102,6 +131,22 @@ window.pageIds = {
   '/areas': 'page-areas', '/faq': 'page-faq', '/contact': 'page-contact', '/quote': 'page-quote',
   '/quote-details': 'page-quote-details', '/payment': 'page-payment'
 };
+
+/* ---- what the real-path routing reads (2026-09-12) ----
+   PATH_ROUTES, ROUTE_META and CANON_BASE are LIFTED so this harness cannot
+   disagree with the page about which paths exist. HOME_TITLE and HOME_DESC are
+   read off this very document, exactly as the page reads them, because in the
+   page they are captured at load from the tags that are in the file we parsed.
+   FAQS is empty on purpose: syncFaqSchema returns early on an empty list, and
+   what it builds is gated structurally by search-visibility.test.js — this gate
+   is about where the portal ROUTES to, not about markup. */
+window.eval([grabVar('PATH_ROUTES'), grabVar('CANON_BASE'), grabVar('ROUTE_META')].join('\n'));
+window.HOME_TITLE = document.title;
+window.HOME_DESC = (function () {
+  const m = document.querySelector('meta[name="description"]');
+  return m ? m.getAttribute('content') : '';
+})();
+window.FAQS = [];
 
 /* ---- load the real code into that window ---- */
 window.eval(REAL.map(grab).join('\n\n'));

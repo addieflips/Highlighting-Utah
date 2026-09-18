@@ -2316,6 +2316,44 @@ made. This clears the flag and the queue date, stamps nothing, asks first, and w
 reason to the activity log. It leaves `buildTopUpFromFeet` and `binLabelNumber` alone —
 those describe a bundle actually made or a bin actually labelled.
 
+
+⭐ **AN ADD-ON IS NOT A REBUILD, AND NEITHER ANSWER IS PRE-PICKED NOW** (2026-09-11,
+[[QT-46]]). Dax: *"if they approve also, it should go into build for just how many feet
+the system measured dont build the entire house again because we only need the added on
+part to be build then just thrown into the bin"*, and *"it should be set up the same as
+the other quotes"* — so a re-quote the customer raised still travels the ordinary quote
+path (they approve, the office applies it), and what changes is only what the warehouse
+is told to make at the end of it.
+  - ⚠ **THE PORTAL NEVER SAID WHICH KIND IT WAS.** `requoteKind` was written only by
+    the office’s own `askRequoteKind`, so a re-quote raised from the portal’s own sides
+    picker arrived carrying no kind at all — and the apply popup pre-selects **recycle
+    their old set and build a new one** for anything whose kind it does not know. Approve
+    one added side and the warehouse was told to rebuild the whole house, which is the
+    sentence above written as code.
+  - ⭐ **`requoteKind: 'addition'` IS WRITTEN AT THE PORTAL’S OWN CREATE, AND ONLY WHEN
+    THE COUNT WENT UP.** Sides can come DOWN, and that is not an add-on: nothing extra is
+    made and their old set genuinely does come back. A blind `addition` would put the
+    wrong answer in front of the office for exactly the customers having lights REMOVED,
+    which is this fix pointing the other way. A reduction leaves the kind unset and the
+    office decides, which is what happens today.
+  - ⛔ **AND AN ADDITION PRE-PICKS NOTHING AT ALL.** [[QT-07]] is NOT reversed — the
+    add-on’s footage is still TYPED rather than calculated, so pre-selecting the add-on
+    would tick a radio whose box is empty and then refuse the button, which is a worse
+    start than no answer. What changed is that the REBUILD is no longer pre-picked
+    either, and the note beside it says why: *"Raised as an addition, so this is NOT
+    pre-picked — it would rebuild the whole house."* It stays one click away for the
+    office that knows their old set is coming back too.
+  - ⛔ **PRESSING APPLY WITH NO ANSWER CHOSEN IS REFUSED, NEVER SILENTLY RECYCLED.** With
+    neither radio pre-picked, the old fall-through would have recycled and rebuilt by
+    default — the one outcome this change exists to stop, reached by nobody deciding
+    anything. It names the three answers and puts the cursor in the add-on box.
+  - ⚠ **NOTHING ELSE MOVED.** A price-only re-quote still pre-picks Nothing, a move still
+    pre-picks recycle-and-rebuild, and `askRequoteKind` is untouched. Suite S107 RUNS the
+    popup against a fake DOM rather than matching its source, because every claim here is
+    about which radio is ticked on screen; S114 was REPOINTED, not weakened — it was
+    pinned to the exact sentence *"Raised as an addition to the same house"*, which this
+    change rewrites, so it reads `/Raised as an addition/` now. The §7 slow-fuse shape
+    again. 2 sabotages red-checked, each proving admin.html came back byte-for-byte.
 **Last season's unpaid bill is carried, not written off** (2026-08-31, MON-31/MON-32).
 Start New Season used to write `install: newInstall, deposit: 0` over every invoice, so a
 customer who never paid opened the new season owing this year's charge and nothing else —
@@ -7182,7 +7220,17 @@ are the two copies of the rule — change one, change the other, in the same pus
 2. **Google Ads** — account **288-126-7540**, "Brian Petersen - HighLighting Utah 10$ ADWX", under highlightingutah@gmail.com. It **exists and is CANCELED**: three campaigns, zero impressions, zero spend. ⛔ One of them, the Smart campaign, is preloaded at **$41.54/day — $1,262.82/month**. Anybody who reactivates that account to "see what happens" starts spending at that rate. Reactivating is a money decision and belongs to Addie, not to a session.
 3. **Google Analytics** — `G-44SCT38S6E` sits in the Firebase config in index.html and **nothing ever initialises it**. There is no `getAnalytics`, no gtag.js, no tag manager, in any of the four HTML files. The property exists and has **never received a single hit**, so any question of the form "how many people visited" currently has no answer at all.
 
-⚠ **The site is one URL and every section is a hash route.** Areas We Serve, Gallery, How It Works and the FAQ all live at `#/areas`, `#/gallery`, `#/how`, `#/faq` inside the one document. Search engines do not treat a fragment as a separate page, so the 29 towns on Areas We Serve are 29 towns on the homepage — not 29 pages that could each rank for their own town. That is the ceiling on organic search as the site is built, and lifting it means real routes, not more markup.
+⭐ **The site is SEVEN URLs now, not one** (changed 2026-09-12, later the same day). The line here used to read *"the site is one URL and every section is a hash route… that is the ceiling on organic search as the site is built, and lifting it means real routes, not more markup"* — and it was right, which is why it was acted on rather than left. `/how-it-works`, `/gallery`, `/reviews`, `/areas`, `/faq` and `/contact` are real addresses: Netlify rewrites each to index.html (`_redirects`), and the router reads the route from `location.pathname` when there is no hash. Each one sets its own `<title>`, description and canonical as it opens, so the seven are seven pages rather than seven copies of the homepage.
+
+  - ⚠ **THE HASH STILL WINS, AND THAT IS THE SAFETY ARGUMENT.** Every link already in a customer's hands carries one — the quote link in an email, the three RSVP buttons, the referral link, and the `/q/` `/r/` `/s/` rewrites, which replaceState themselves into a hash on arrival. `navigate()` reads the hash FIRST and only falls back to the path, so not one of those changed behaviour. A path is an extra way in, never a replacement.
+  - ⛔ **`/quote`, `/quote-details`, `/payment` and `/share` are deliberately NOT real paths** and must stay that way. They are a form, an account and somebody's private link — not search results. They are absent from `PATH_ROUTES`, from `_redirects` and from `sitemap.xml`, which is what kept the money paths untouched by this, and `search-visibility.test.js` fails if one is added to any of them.
+  - ⚠ **The same list of six is written down in FOUR files** — `PATH_ROUTES` in index.html, the rewrites in `_redirects`, the `<loc>`s in `sitemap.xml`, the no-cache entries in `_headers` — and every pair can drift silently in a different direction. A path in the sitemap with no rewrite is a 404 we *asked* Google to crawl; one missing from `_headers` is a stale app served to somebody arriving from a search result. Section 7 of `search-visibility.test.js` compares all four. Add a route and add it in every one.
+  - ⚠ **A real path is not "root", and missing that would have been a bug in front of every returning customer.** `/faq` and `/areas` carry no hash, so the saved-login redirect read them as the bare site and would have sent anybody with a remembered sign-in straight into their account instead of the page they clicked in Google. Same shape as the `rsvp=back` redirect fault, arriving by a different door.
+  - ⚠ **What this does NOT do:** there is still no page per town. The 29 towns are 29 names on one `/areas` page, which is far better than 29 names on the homepage and is not the same as 29 pages. Twenty-nine thin town pages would be doorway pages, which Google penalises by name — real pages with something different on each is the only honest version of that, and it is a content job, not a routing one.
+
+⚠ **The gallery and the reviews on the site are placeholder content.** `GALLERY` in index.html is nine hand-drawn SVG gradients of a generic house, and `REVIEWS` is six invented testimonials ("Kaitlyn R.", "Trevor M."). Firestore overrides both when the Website tab has real rows. For a business whose work is entirely visual this is the biggest remaining gap in what search and a visitor actually see — real photographs of real rooflines, with captions, would do more for both than any markup. ⛔ **And the invented testimonials must never be marked up as reviews** — that is the same refusal as the 4.9 above, with the added problem that they are not real.
+
+⚠ **Terms & Conditions and Privacy Policy in the footer both link to `href="#"`.** They go nowhere. Worth knowing before anybody reactivates Google Ads, which asks for a privacy policy.
 
 ⚠ **The staff screens were indexable until now.** admin.html, employee.html and connections.html each carry `<meta name="robots" content="noindex, nofollow">`, and robots.txt deliberately does **not** Disallow them — a page a crawler may not fetch is a page whose noindex it can never read. `/q/`, `/r/` and `/s/` **are** Disallowed, because those rewrites carry a customer portal token in the path.
 

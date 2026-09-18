@@ -1,4 +1,36 @@
+# Netlify rewrites. Every line here serves index.html under another address —
+# a 200, never a 301, because the app decides what to show from the address it
+# was given.
+#
+# ⭐ THE SIX MARKETING PATHS (added 2026-09-12). These are what make the site
+# more than one page to a search engine. Each section used to be reachable only
+# as a hash route (#/faq), and a fragment is not a page: the whole site was the
+# single URL https://highlightingutah.com/. With these rewrites /faq is a real
+# address that Netlify answers, and the router reads it from location.pathname.
+#
+# ⚠ THEY ARE LISTED ONE BY ONE RATHER THAN AS /* ON PURPOSE. A catch-all would
+# answer 200 to every mistyped address on the domain, so every typo becomes a
+# page serving the homepage — a soft 404, which Google treats as a quality
+# problem and which hides real broken links from us as well. An unknown path
+# SHOULD 404, so only the routes that exist are listed.
+#
+# ⚠ AND THEY ARE THE SAME LIST AS PATH_ROUTES IN index.html AND THE <loc>s IN
+# sitemap.xml. A path in the sitemap with no rewrite here is a 404 we asked
+# Google to crawl. search-visibility.test.js compares all three and fails if
+# they drift; add a route and add it in every one.
+/how-it-works  /index.html  200
+/gallery       /index.html  200
+/reviews       /index.html  200
+/areas         /index.html  200
+/faq           /index.html  200
+/contact       /index.html  200
+
+# /home forces the real homepage past the saved-login redirect — for staff
+# checking the site, not customers who want to land on their pending item.
 /home  /index.html  200
+
+# The customer token links. The token in the path IS the credential, which is
+# why robots.txt Disallows all three.
 /q/*  /index.html  200
 /r/*  /index.html  200
 /s/*  /index.html  200
