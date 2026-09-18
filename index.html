@@ -1625,6 +1625,15 @@
   <section class="page-block">
     <div class="wrap">
       <div class="form-shell">
+        <!-- ⭐ THE REFERRAL WAIVER, AND NOTHING UNDER IT ([[REF-41]], Q-032 option 2).
+             Addie, 2026-09-09, on a draft that carried a second explanatory line: "lets just
+             do your 30 dollar installation fee is waived. Nothing more to add under that."
+             ⛔ HIDDEN UNTIL THE SERVER SAYS YES. Nothing in this page can tell a real token
+             from one typed into the address bar, and a link Start New Season has rotated away
+             is deliberately still charged ([[REF-25]]) — so drawn on the strength of the
+             token alone this is a written promise the office then breaks. refreshReferralBanner
+             asks referralWaiverCheck and unhides it only on a yes. -->
+        <div id="referralWaiverNote" hidden style="margin:0 0 16px; padding:11px 14px; border-radius:11px; background:#fdf6e6; border:1px solid var(--gold); color:#8a5a12; font-weight:650; font-size:14.5px;"></div>
         <form id="quoteForm" name="quote-request" method="POST" data-netlify="true">
           <input type="hidden" name="form-name" value="quote-request">
           <div class="form-row"><label>Full Name <span class="req">*</span></label><input type="text" name="name" required></div>
@@ -3116,6 +3125,10 @@ function navigate(){
   Object.values(pageIds).forEach(function(id){ document.getElementById(id).classList.remove('active'); });
   document.getElementById(pageIds[hash]).classList.add('active');
   applyRouteMeta(hash);
+  /* ⚠ CALLED FOR EVERY ROUTE, NOT FROM A `/quote` BRANCH. S308 counts the router's
+     `hash === '…'` tests and fails on a repeat, and the function has to run on the way OUT
+     of the quote page as well to hide the line again. It decides internally. */
+  refreshReferralBanner(hash);
   document.querySelectorAll('.nav-links a').forEach(function(a){
     a.classList.toggle('active', a.getAttribute('data-route')===hash);
   });
@@ -3311,6 +3324,43 @@ function rememberReferralToken(token){
     localStorage.setItem(REFERRAL_LINK_KEY, t);
     localStorage.setItem(REFERRAL_LINK_AT_KEY, String(Date.now()));
   }catch(e){ /* Same refusal, and it costs only the come-back-tomorrow case — the link itself still carries the token. */ }
+}
+/* ⭐ THE BANNER IS DRAWN ONLY WHEN THE SERVER SAYS THE LINK IS LIVE ([[REF-41]], 2026-09-18).
+   Q-032 left three ways out and Addie's answer picked the middle one: ask the server, and
+   show the line only on yes. `referralWaiverCheck` answers one boolean and names nobody.
+   ⚠ IT HIDES FIRST, ON EVERY ROUTE CHANGE. The page is one document with seven addresses,
+   so a banner left showing follows the visitor onto the gallery and the FAQ.
+   ⚠ AND A LATE ANSWER IS DROPPED. The call is asynchronous and a visitor can leave the quote
+   page while it is in flight; without the guard the reply unhides a line on whatever they
+   are looking at instead. The counter lives ON THE FUNCTION rather than in a `var` beside
+   it, deliberately: this is one ES module, a function declaration hoists and is usable
+   before its own line while a `var` hoists as undefined — [[MEM-01]] records that exact
+   trap costing a feature that silently never worked.
+   ⚠ A REFUSAL DRAWS NOTHING AND SAYS NOTHING. Q-032: the two errors are not symmetric — a
+   banner that fails to appear costs nothing, because the quote card waives the fee either
+   way, and an error on screen costs a customer. */
+function refreshReferralBanner(hash){
+  var el = document.getElementById('referralWaiverNote');
+  if(!el) return;
+  el.hidden = true;
+  refreshReferralBanner._seq = (refreshReferralBanner._seq || 0) + 1;
+  var mine = refreshReferralBanner._seq;
+  if(hash !== '/quote') return;
+  var token = readReferralToken();
+  if(!token) return;
+  callPortalFn('referralWaiverCheck', {token: token}).then(function(res){
+    if(mine !== refreshReferralBanner._seq) return;
+    if(!res || !res.waived) return;
+    /* ⚠ THE AMOUNT IS READ FROM `NEW_MEMBER_FEE`, NEVER TYPED, and the markup carries no
+       figure at all — S312 fails any page that spells the set-up fee out, and its own note
+       says an empty slot is what a page should show if the script never runs. */
+    el.textContent = 'Your $' + NEW_MEMBER_FEE + ' installation fee is waived.';
+    el.hidden = false;
+  }).catch(function(err){
+    /* Console only. There is nothing for the visitor to do about it and the fee is waived
+       by the quote card regardless of what this line said. */
+    console.error('[HU] referral waiver check failed', err);
+  });
 }
 function readReferralToken(){
   /* This visit wins: it is the most recent thing the friend actually did. */

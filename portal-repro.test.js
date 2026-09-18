@@ -81,6 +81,17 @@ const REAL = [
   'routePathFromLocation',
   'applyRouteMeta',
   'syncFaqSchema',
+  /* The referral banner added 2026-09-18 ([[REF-41]]). navigate() calls it on EVERY route
+     change — deliberately, so it can hide the line on the way out of /quote — so without
+     it every scenario here dies on a bare ReferenceError naming nothing to do with the
+     portal. The extraction-list trap, for the eleventh time in this repo.
+     ⚠ `callPortalFn` is NOT lifted and does not need to be: refreshReferralBanner returns
+     before reaching it on any hash but '/quote', which this harness never visits. It is
+     also an `async function`, and grab() above matches `\nfunction NAME(` only — so if a
+     scenario here is ever pointed at /quote, that lifter needs widening first rather than
+     the call being stubbed. */
+  'refreshReferralBanner',
+  'readReferralToken',
   'loadPortalByToken',
   'tryShowQuoteReview',
   'hideLoginPrompt',

@@ -2178,7 +2178,22 @@ two impossible to refer.
 
 **Resulting map change.** Named in REF-31 as the case it deliberately leaves open.
 
-## Q-032 · intent · ANSWERED · raised 2026-09-09
+## Q-032 · intent · ANSWERED · BUILT 2026-09-18 · raised 2026-09-09
+
+**BUILT 2026-09-18 — option 2, the one her answer picked.** `referralWaiverCheck`
+(functions/index.js) answers a single `waived` boolean for a token and names nobody;
+`refreshReferralBanner` (index.html) hides the line on every route change and unhides it
+only on a yes. It matches `referralToken` — the CURRENT one — and never
+`referralTokensPast`, so a rotated link answers no on both sides and [[REF-25]] still
+holds. Gated by `referral-banner.test.js`.
+
+⚠ **IT IS A NEW PUBLIC ENDPOINT** and that trade is Addie's to accept, not mine: a
+referral token is eight characters of a 32-letter alphabet (~2^40), not the twenty of a
+portal token, so it is rate limited per caller — which the sign-in note above
+`checkRateLimit` explicitly does not do for token links, and says why.
+
+**Resulting map change: [[REF-41]] and [[REF-37]], both now Standing.**
+
 
 **ANSWERED 2026-09-12 — the waiver must hold; the banner is still not built.** Addie:
 *"we need to make sure referals are getting there 30 dollar installation fee waived since

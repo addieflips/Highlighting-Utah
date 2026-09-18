@@ -56729,8 +56729,15 @@ suite('308. Sharing the referral link, not opening it');
     const routeMetaAt = idx308.indexOf('var ROUTE_META = {');
     const routeMetaSrc = routeMetaAt === -1 ? '' :
       idx308.slice(routeMetaAt, idx308.indexOf('\n};', routeMetaAt) + 3);
+    /* ⚠ AND THE REFERRAL BANNER JOINED IT ON 2026-09-18 ([[REF-41]]), for the ninth
+       time. navigate() calls refreshReferralBanner on EVERY route change — deliberately,
+       so the line is hidden again on the way out of /quote — so this sandbox died on a
+       bare `refreshReferralBanner is not defined`. Lifted with its one helper, never
+       stubbed: a stub would keep this green through a change to whether a stranger is
+       promised a $30 waiver the office then charges. */
     const routeMetaFns = ['normalisePathRoute', 'routePathFromLocation',
-      'applyRouteMeta', 'syncFaqSchema'].map(n => extractFn(idx308, n) || '');
+      'applyRouteMeta', 'syncFaqSchema', 'refreshReferralBanner',
+      'readReferralToken'].map(n => extractFn(idx308, n) || '');
     const metaSrc = pathRoutesSrc + '\n' + canonBaseSrc + '\n' + routeMetaSrc + '\n' +
       "var HOME_TITLE = '', HOME_DESC = '', FAQS = [];\n" + routeMetaFns.join('\n');
     check('S308', 'the router and its page map are findable',
