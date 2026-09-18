@@ -151,13 +151,35 @@ export const OPTIONS = [
   },
   {
     id: 'wireColor',
+    /* ⛔ NOBODY OUTSIDE THE OFFICE IS ASKED THIS ANY MORE (2026-09-17). Addie:
+       "keep what lights they want but don't add what wire color they want but push
+       check lights then warehouse chooses what wire they have on file and will make
+       it based on what wire they have."
+       So `quote` is off the consumer list — the public form no longer carries the
+       question and quoteSaveDetails no longer stamps a default — and the portal can
+       no longer write it either (it is out of PORTAL_WRITE_FIELDS).
+       ⚠ `required` IS NOW FALSE AND THERE IS NO DEFAULT, which is the load-bearing
+       half. A default of 'Any' and a required flag are exactly how every record ended
+       up claiming a colour nobody picked, and a blank is a real answer here: it means
+       nobody has looked in the bin yet, which the warehouse reads as Check lights
+       ([[WH-35]]). ⚠ 'Any' is off the choices for the same reason — it was a way of
+       saying "no opinion" that got stored as though it were one. */
     label: 'Wire colour',
     type: 'choice',
-    choices: ['Any', 'White', 'Green'],
-    default: 'Any',
-    required: true,
+    choices: ['White', 'Green'],
+    required: false,
+    /* ⭐ INTERNAL FROM 2026-09-17, which is the declared way to say what she decided
+       rather than a way round the audit: R-003's stated exception is an option that is
+       the OFFICE'S and not the customer's, and that is now exactly what the cord is.
+       Without this the audit is right to call it a hole — a customer-facing option
+       nobody is asked for is one nobody can answer. */
+    internal: true,
     affectsPrice: false,
-    consumers: ['quote', 'confirmation', 'customer', 'pullList'],
+    /* ⛔ AND NOT `confirmation`. An internal option is one the customer is never shown,
+       and the audit enforces that pair rather than letting a list drift: telling somebody
+       in an email which cord we chose invites an answer to a question we stopped asking.
+       It was a declared GAP even before this — no RSVP token has ever carried it. */
+    consumers: ['customer', 'pullList'],
   },
   {
     id: 'outletTimer',

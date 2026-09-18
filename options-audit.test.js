@@ -152,7 +152,15 @@ function check(label, ok, detail) {
   const AGREED = {
     measuredFeet:      ['quote', 'confirmation', 'customer', 'pullList', 'invoice'],
     lightsDescription: ['quote', 'confirmation', 'customer', 'pullList'],
-    wireColor:         ['quote', 'confirmation', 'customer', 'pullList'],
+    /* ⛔ 'quote' AND 'confirmation' REMOVED 2026-09-17 — the one change to this frozen
+       map since it was agreed, and it is hers: "don't add what wire color they want but
+       push check lights then warehouse chooses what wire they have on file". The public
+       form no longer asks, the server no longer defaults it, and the portal can no longer
+       write it. The cord is the office's now, so it is `internal` in the registry — and
+       an internal option is one the customer is never SHOWN either, which is what takes
+       `confirmation` with it. That was a declared gap in any case: no RSVP token has ever
+       carried a wire colour. */
+    wireColor:         ['customer', 'pullList'],
     outletTimer:       ['quote', 'confirmation', 'customer', 'crewSheet', 'pullList'],
     useEaves:          ['quote', 'customer', 'crewSheet'],
     specificOutlet:    ['quote', 'confirmation', 'customer', 'crewSheet'],
@@ -475,7 +483,13 @@ function check(label, ok, detail) {
           src: fnOf('printNeedsBuildList'),
           by: {
             lightsDescription: /lights: printLightColor\(d\)/,
-            wireColor:         /wire: d\.wireColor/,
+            /* ⚠ REPOINTED 2026-09-17, NOT WEAKENED. The sheet read `wire: d.wireColor`, which
+               printed a BLANK cell for a house nobody has looked at — and a blank on paper
+               says nothing, when the one thing that row needs to say is go and look. It goes
+               through whWireLabel now, like every other wire colour a person sees, so it
+               reads Check lights. The option still reaches the sheet; what changed is that
+               it arrives legible. */
+            wireColor:         /wire: whWireLabel\(d\.wireColor\)/,
             outletTimer:       /timer: printYesNo\(d\.outletTimer\)/,
             measuredFeet:      /bundles: need/,
             /* ⭐ ASKED AND ANSWERED, 2026-08-24. The Warehouse tab's list shows a bins
@@ -596,7 +610,6 @@ function check(label, ok, detail) {
           src: idxBlock("quoteDetailFormEl.addEventListener('submit'"),
           by: {
             lightsDescription:  /var lightsDescription = qdFinalSequence\.join/,
-            wireColor:          /wireColor: fd\.get\('wire_color'\)/,
             outletTimer:        /outletTimer: fd\.get\('outlet_timer'\)/,
             specificOutlet:     /specificOutlet: fd\.get\('specific_outlet'\)/,
             gateCode:           /gateCode: fd\.get\('gate_code'\)/,
@@ -684,7 +697,6 @@ function check(label, ok, detail) {
           by: {
             measuredFeet: { gap: 'no token — the RSVP email carries NONE of the eight; it is a greeting and three buttons', wired: /\{\{[a-z_]*(feet)[a-z_]*\}\}/ },
             lightsDescription: { gap: 'no token — they are never told which colours we hold for them', wired: /\{\{[a-z_]*(lights)[a-z_]*\}\}/ },
-            wireColor:         { gap: 'no token', wired: /\{\{[a-z_]*wire[a-z_]*\}\}/ },
             outletTimer:       { gap: 'no token', wired: /\{\{[a-z_]*timer[a-z_]*\}\}/ },
             specificOutlet:    { gap: 'no token', wired: /\{\{[a-z_]*outlet[a-z_]*\}\}/ },
             gateCode:          { gap: 'no token — and this is the one they most often need to correct', wired: /\{\{[a-z_]*gate[a-z_]*\}\}/ },
