@@ -39,14 +39,29 @@ const AUTOMATION = [
     where: 'Cloud Function, on a cron',
     when: 'every night at 7 PM Mountain',
     does: 'Bills every house that is finished and not yet invoiced, adds the $30 join fee ' +
-      'and any carried charge, takes credits off, emails the invoice and texts the office ' +
-      'a summary.',
+      'and any carried charge, takes credits off and emails the invoice. A run that needs a ' +
+      'person leaves a Nightly Billing Needs You note in the Inbox ([[QT-48]]).',
     touches: ['invoices', 'jobAddresses', 'messages', 'nightlyInvoiceLog'],
     watched: true,
     /* ⚠ THE ONE THAT COSTS MONEY IF IT STOPS, which is why it is the only automatic run
-       that reports to a person every time rather than only when something is wrong. */
-    ifItStopped: 'Nobody is billed, and the only sign is a text that does not arrive. ' +
+       that reports to a person at all. Since 2026-09-18 that is an Inbox note, and only when a
+       person is needed; it used to be a text through Twilio that never arrived. */
+    ifItStopped: 'Nobody is billed, and no run appears on Automation → Last 10 nightly runs. ' +
       'The stale-run banner on the Dashboard is what catches it.'
+  },
+  {
+    id: 'cloudinaryUsageWatch',
+    title: 'The photo storage check',
+    where: 'Cloud Function, on a cron',
+    when: 'every morning at 8 AM Mountain',
+    does: 'Reads how much of this month’s Cloudinary credits are used, and leaves one ' +
+      'Photo Storage Needs You note at 80% and again at 95%, or on the day the account is switched off ([[PROC-34]]).',
+    touches: ['messages'],
+    /* ⚠ NOT WATCHED. It is the watcher: a morning it fails to run looks exactly like a morning with
+       nothing to say, which is the right answer on nearly every morning of the month. */
+    watched: false,
+    ifItStopped: 'Nothing warns before Cloudinary runs out of credits. The first sign is an upload ' +
+      'failing with cloud_name is disabled, which is what happened on 9/9.'
   },
   {
     id: 'sendQuoteNudges',
