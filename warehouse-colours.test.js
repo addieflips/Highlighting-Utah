@@ -58,7 +58,8 @@ const RE = {
 
 const NEEDED = ['rbNormalizeColors', 'rbDetectColorsAndPattern', 'rbLooksMulti',
                 'rbLetterRun', 'whColorsFromWords', 'whSplitAllKnown', 'whOrderColors',
-                'whNormalizeLights', 'whWireLabel', 'houseLightsText'];
+                'whNormalizeLights', 'whWireLabel', 'whCheckLightsKey',
+                'houseLightsText'];
 const missing = NEEDED.filter(n => !fn(n))
   .concat(Object.keys(RE).filter(k => !grab(admin, RE[k])).map(k => 'const ' + k));
 if (missing.length) {
@@ -83,6 +84,10 @@ const wireLabelOf = new Function(fn('whWireLabel') + 'return whWireLabel;')();
 const groupKeyOf = new Function(fn('whWireLabel') + fn('whNormalizeLights') + base +
   grab(admin, RE.vocab) + fn('whColorsFromWords') + grab(admin, RE.sep) + fn('whSplitAllKnown') +
   fn('whOrderColors') + fn('whGroupKey') + 'return whGroupKey;')();
+const checkKeyOf = new Function(fn('whWireLabel') + fn('whNormalizeLights') + base +
+  grab(admin, RE.vocab) + fn('whColorsFromWords') + grab(admin, RE.sep) + fn('whSplitAllKnown') +
+  fn('whOrderColors') + fn('whGroupKey') + fn('whCheckLightsKey') +
+  'return whCheckLightsKey;')();
 
 // ---------------------------------------------------------------------------
 // 0. A WIRE NOBODY RECORDED IS "CHECK LIGHTS", NEVER "White"  ([[WH-35]])
@@ -124,6 +129,82 @@ const groupKeyOf = new Function(fn('whWireLabel') + fn('whNormalizeLights') + ba
     'unconfirmed: ' + JSON.stringify(unknown) + '  white: ' + JSON.stringify(white));
   check('and the White group is still the White group',
     /White wire/.test(white), 'got ' + JSON.stringify(white));
+}
+
+// ---------------------------------------------------------------------------
+// 0b. AND COLOURS NOBODY SAVED ARE "CHECK LIGHTS" TOO  ([[WH-41]])
+// ---------------------------------------------------------------------------
+/* ⭐ Addie, 2026-09-18: "On warehouse Waiting on light colours should not be a thing. We
+   just add if they want a new wire with the light colors they have saved or just save wire
+   color with check lights if thats not saved or add timer. There should not be a Waiting on
+   light colours section though."
+
+   ⛔ THIS NARROWS [[WH-18]] AND REVERSES NONE OF [[WH-20]]. Nobody is dropped and nothing
+   is hidden. What goes is the CLAIM the block made — "Nothing can be made up until somebody
+   fills them in" — which is false about the job she actually does: a wire change builds the
+   colours already on file, and a house whose colours are not on file is somebody walking
+   over to look at the bundle. The house is an ordinary build with an ordinary Mark Done.
+
+   ⚠ THE WORDS ARE [[WH-35]]'S, WHICH IS WHY THIS SITS BESIDE IT. One instruction, one
+   vocabulary: the warehouse has read "Check lights" for an unrecorded wire since
+   2026-09-16 and it means the same thing on the colour half.
+
+   ⚠ RUN, NOT MATCHED. Every claim here is a heading somebody reads, and a heading is
+   arithmetic over two words — a source search cannot see which of them came out. */
+{
+  /* ⚠ THE WIRE HALF SURVIVES. "Check lights" on the colours must not swallow the one
+     thing the record DOES say, or two piles that need different wire become one — the
+     [[WH-35]] failure arriving from the other side. */
+  const greenWire = checkKeyOf('Green');
+  check('a house with no colours but a known wire keeps its wire on the heading',
+    /Check lights/.test(greenWire) && /Green wire/.test(greenWire),
+    'got ' + JSON.stringify(greenWire));
+  check('and two such houses on different wire are two piles',
+    checkKeyOf('Green') !== checkKeyOf('White'),
+    'got ' + JSON.stringify([checkKeyOf('Green'), checkKeyOf('White')]));
+  /* ⛔ AND IT IS SAID ONCE WHERE BOTH HALVES ARE UNKNOWN. whGroupKey composes
+     "<colours> — <wire> wire", so the obvious implementation heads that pile
+     "Check lights — Check lights wire", which reads as a rendering fault rather than an
+     instruction. Two thirds of the real book has no wire on file ([[WH-36]]), so this is
+     the commonest of these headings, not an edge case. */
+  const neither = checkKeyOf('');
+  check('a house with neither colours nor wire is told once, not twice',
+    neither === 'Check lights',
+    'got ' + JSON.stringify(neither) + ' — one walk answers both questions');
+  check('and blank, missing and whitespace wire all reach that same one pile',
+    checkKeyOf(undefined) === neither && checkKeyOf(null) === neither &&
+    checkKeyOf('   ') === neither,
+    'got ' + JSON.stringify([checkKeyOf(undefined), checkKeyOf(null), checkKeyOf('   ')]));
+  /* ⚠ AND IT CAN NEVER COLLIDE WITH A REAL BUILD. A colour group always carries its
+     " — X wire" tail, so the bare phrase is unreachable by any real pattern — but a house
+     really could be recorded with the words in its description, and that house must land
+     in the same pile rather than a second one spelt the same way. */
+  check('a real colour group is never mistaken for one of these',
+    groupKeyOf('Warm White', 'Green') !== greenWire &&
+    groupKeyOf('Warm White', '') !== neither,
+    'a heading that means "go and look" must not be reachable by a house that was answered');
+  check('and the phrase normalises to itself, so the pile cannot split in two',
+    groupOf('Check lights') === 'Check lights',
+    'got ' + JSON.stringify(groupOf('Check lights')));
+  /* ⛔ AND THE BLOCK IS ACTUALLY GONE FROM THE SCREEN. She asked for the section not to
+     exist; a grouping change that left the heading rendered above it would be every check
+     here passing over the thing she reported. */
+  /* ⚠ COMMENTS STRIPPED, the rule Suites 58, 274, 275 and 300 each had to learn the hard
+     way — and it bit here on the first run. Both halves of this change EXPLAIN themselves
+     by quoting the heading they removed, so a plain search reads the explanation as the
+     code and fails a file that is right. Block comments are enough: every quotation of it
+     is in one. */
+  const adminCode = admin.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  check('the Waiting on light colours block is gone from the warehouse tab',
+    adminCode.indexOf('Waiting on light colours</strong>') === -1 &&
+    adminCode.indexOf('Nothing can be made up until somebody fills them in') === -1,
+    'the heading she named is still being drawn');
+  /* ⚠ AND OFF THE PRINTED SHEET, which is the half nobody would notice: the tab is
+     looked at daily and the build sheet is printed once a morning. */
+  check('and off the printed build sheet',
+    adminCode.indexOf("group: 'Waiting on light colours'") === -1 &&
+    adminCode.indexOf('NO LIGHT COLOURS ON FILE') === -1,
+    'the sheet would go on printing a Blocked row for a house that is now an ordinary build');
 }
 
 // ---------------------------------------------------------------------------
@@ -446,6 +527,7 @@ console.log('  ' + w('value', 26) + w('import reads', 28) + 'warehouse groups as
     const sb = {};
     new Function('jobAddresses', 'warehouseExtras', 'isOutForSeason', 'houseLightsText',
       'whGroupKey', 'houseBundleNeed', 'whBinsForHouse', 'whBuildReasonKey', 'cnBinsForFeet',
+      fn('whWireLabel') + fn('whCheckLightsKey') +
       fn('whBuildQueueGroups') + 'this.run = whBuildQueueGroups;')
       .call(sb, houses, [], () => false,
         (d) => d.lightsDescription || '', (l, w) => l + '|' + w,
@@ -460,28 +542,48 @@ console.log('  ' + w('value', 26) + w('import reads', 28) + 'warehouse groups as
                       lightsDescription:'Red, Warm White'}}
   ]);
   const timerNames = (out.timerHouses || []).map(i => i.data.name);
-  const blockedNames = (out.blocked || []).map(i => i.data.name);
+  const groupHolding = (r, id) => Object.keys(r.groups || {}).find(
+    (k) => ((r.groups[k].houses || []).some((h) => h.id === id)));
 
   check('a house waiting on colours still reaches the timer list',
     timerNames.indexOf('Kate Johnson') !== -1,
     'she asked for a timer, the record says Yes, and before this nobody was told to put ' +
     'one in — the early return sat ahead of the timer push. Got: ' + timerNames.join(', '));
 
-  /* ⚠ AND IT IS STILL BLOCKED FOR THE BUILD. The timer is the half that can proceed; the
-     glass genuinely cannot be made until somebody fills the colours in. Moving the house
-     out of the blocked block to "fix" this would order bulbs nobody chose. */
-  check('and is still blocked for the build itself',
-    blockedNames.indexOf('Kate Johnson') !== -1,
-    'the colours are still missing; only the timer stopped waiting');
+  /* ⭐ AND SHE IS AN ORDINARY BUILD NOW ([[WH-41]], 2026-09-18). Addie: "There should not
+     be a Waiting on light colours section though. We just add if they want a new wire with
+     the light colors they have saved or just save wire color with check lights if thats not
+     saved." She is not parked and not hidden — she heads a Check lights pile, which names
+     the job somebody actually does. ⚠ THE HEADING IS RUN, NOT MATCHED: the claim is about
+     the words on a heading, and a text search cannot see which houses landed under it. */
+  const kateKey = groupHolding(out, 'kate');
+  check('and she is in a build group, not parked in a block of her own',
+    !!kateKey && /Check lights/.test(kateKey),
+    'got ' + JSON.stringify(kateKey) + ' — a house with no colours heads a Check lights pile');
+  /* ⛔ AND NOTHING HANDS BACK AN EMPTY `blocked` LIST. Left in place, every reader that
+     still asked for it would go on "working" and silently show nobody — which is the
+     quiet half of this change and the half no screen would report. */
+  check('and whBuildQueueGroups no longer returns a blocked list at all',
+    out.blocked === undefined,
+    'got ' + JSON.stringify(out.blocked));
+  /* ⛔ AND SHE IS NOT FOLDED INTO A REAL COLOUR PILE. Two builds that might need
+     different glass handed to one person under one heading is the [[WH-35]] failure. */
+  check('and not mixed in with the house that does have colours',
+    !!kateKey && kateKey !== groupHolding(out, 'ok'),
+    'got ' + JSON.stringify([kateKey, groupHolding(out, 'ok')]));
 
   check('a house with no timer is not put on the timer list',
     runQueue([{id:'n', data:{name:'No Timer', needsLightBuild:true, wireColor:'White'}}])
       .timerHouses.length === 0,
     'blank means no timer — a third state would put one in every bin');
 
-  check('the blocked row says the timer can go in now',
-    /Timer can go in their bin now/.test(admin),
-    'a fix nobody can see on the sheet they are holding is not finished');
+  /* ⚠ AND THE WAY OUT MOVED WITH HER ([[WH-41]]). The block that carried “Only needed a
+     timer” is gone; the case it answers is not, so the button rides the build row now.
+     ⚠ THE GUARD IS PART OF WHAT IS ASSERTED — offered on every row it would be a control
+     that means nothing on the ~900 houses whose colours are on file. */
+  check('the way out for a house that only wanted a timer rides its build row',
+    /!houseLightsText\(h\.data\) && String\(h\.data\.outletTimer[^\r\n]*'Yes'[\s\S]{0,240}data-whtimeronly=/.test(admin),
+    'a fix nobody can reach from the row they are looking at is not finished');
 
   /* ⚠ THE CAUSE IS NAMED so nobody "fixes" the symptom by dropping outletTimer from
      WAREHOUSE_BUILD_FIELDS — the timer list is DERIVED from the build queue, so a house
@@ -505,12 +607,11 @@ console.log('  ' + w('value', 26) + w('import reads', 28) + 'warehouse groups as
     check('a house queued for a timer alone still reaches the timer list',
       (only.timerHouses || []).map(i => i.data.name).indexOf('Timer Only') !== -1,
       'the timer is the whole of what that house needs');
-    check('and is NOT waiting on light colours',
-      (only.blocked || []).length === 0,
-      'nobody is waiting on any colours, because nobody asked for lights: ' +
-      (only.blocked || []).map(i => i.data.name).join(', '));
-    check('and nothing is built for them',
-      only.keys.length === 0, 'a timer is not a bundle');
+    /* ⛔ AND NO Check lights PILE EITHER ([[WH-41]] does not reach this house). Nobody
+       asked for lights, so there is nothing to walk over and look up — sending somebody
+       to do it is [[WH-27]]'s own complaint in the new vocabulary. */
+    check('and heads no build group, Check lights or otherwise',
+      only.keys.length === 0, 'a timer is not a bundle: ' + JSON.stringify(only.keys));
 
     /* ⚠ THE EXPENSIVE DIRECTION, asserted on its own. A real build must never be
        suppressed by the timer flag — the flags are an OR and the build wins. A stale
@@ -521,7 +622,8 @@ console.log('  ' + w('value', 26) + w('import reads', 28) + 'warehouse groups as
                      outletTimer:'Yes', wireColor:'White'}}
     ]);
     check('a house carrying BOTH flags is a build, not a timer job',
-      (both.blocked || []).map(i => i.data.name).indexOf('Both') !== -1,
+      both.keys.length === 1 &&
+      (both.groups[both.keys[0]].houses || []).some((h) => h.id === 'b'),
       'the build flag wins on its own: ' + JSON.stringify(both.keys));
 
     /* ⚠ AND THE FLAG CANNOT DRAG SOMEBODY BACK INTO THE SEASON. isOutForSeason is asked
@@ -531,6 +633,7 @@ console.log('  ' + w('value', 26) + w('import reads', 28) + 'warehouse groups as
       const sb = {};
       new Function('jobAddresses', 'warehouseExtras', 'isOutForSeason', 'houseLightsText',
         'whGroupKey', 'houseBundleNeed', 'whBinsForHouse', 'whBuildReasonKey', 'cnBinsForFeet',
+        fn('whWireLabel') + fn('whCheckLightsKey') +
         fn('whBuildQueueGroups') + 'this.run = whBuildQueueGroups;')
         .call(sb, [{id:'o', data:{name:'Gone', needsTimerOnly:true, outletTimer:'Yes'}}], [],
           () => true, (d) => d.lightsDescription || '', (l, w) => l + '|' + w,
@@ -538,7 +641,7 @@ console.log('  ' + w('value', 26) + w('import reads', 28) + 'warehouse groups as
       return sb.run();
     })();
     check('a timer-only house sitting the season out is on no list',
-      (outQ.timerHouses || []).length === 0 && (outQ.blocked || []).length === 0,
+      (outQ.timerHouses || []).length === 0 && outQ.keys.length === 0,
       'nothing gets built OR fitted for somebody who is not having lights this year');
 
     /* ⚠ AND THE WAY OUT OF THE LIST EXISTS. A timer-only house is in no colour group, so
@@ -549,9 +652,9 @@ console.log('  ' + w('value', 26) + w('import reads', 28) + 'warehouse groups as
       'no colour group means no Mark Done — it needs one of its own');
     /* ⚠ AND THE HOUSES ALREADY PARKED CAN BE MOVED. The write-site fix only reaches the
        NEXT one; a fix that cannot reach the case that prompted it is not finished. */
-    check('an already-parked house can be marked timer-only from the blocked row',
+    check('an already-parked house can be marked timer-only from its build row',
       /data-whtimeronly=/.test(admin),
-      'the five she was looking at carry no flag and would stay blocked for ever');
+      'the five she was looking at carry no flag and would sit under Check lights for ever');
 
     /* ⚠ AND THE WRITE-SIDE RULE IS RUN, NOT READ. It is its own function precisely so it
        can be: written inline in the ~36,000-character save handler the only thing a suite
@@ -633,8 +736,8 @@ console.log('  ' + w('value', 26) + w('import reads', 28) + 'warehouse groups as
 
     check('a removal alone on a colourless house is the whole job',
       removalQ({outletTimer:'Yes'}, {outletTimer:'No'}, ['outletTimer'], '') === true,
-      'nothing is being made up for them, so parking them in Waiting on light colours ' +
-      'sends the office to chase an answer that does not exist — [[WH-27]] in reverse');
+      'nothing is being made up for them, so putting them in a build group at all ' +
+      'sends somebody to look up colours nobody asked for — [[WH-27]] in reverse');
     check('but on a house that HAS colours it is still a build',
       removalQ({outletTimer:'Yes'}, {outletTimer:'No'}, ['outletTimer'], 'Red, Warm White') === false,
       'holes C and D stay unreversed; that house is in a real build group and always was');
@@ -659,11 +762,10 @@ console.log('  ' + w('value', 26) + w('import reads', 28) + 'warehouse groups as
     check('and is NOT on the Timers list',
       (rem.timerHouses || []).length === 0,
       'that list means "put one in"; this house asked for the opposite');
-    check('and is not waiting on light colours',
-      (rem.blocked || []).length === 0,
-      'nobody asked for lights, so there are no colours to wait for');
-    check('and nothing is built for them',
-      rem.keys.length === 0, 'taking a timer out is not a bundle');
+    check('and heads no build group, Check lights or otherwise',
+      rem.keys.length === 0,
+      'nobody asked for lights, so there is nothing to walk over and look up: ' +
+      JSON.stringify(rem.keys));
 
     /* ⚠ BOTH JOBS, BOTH LISTS. A house having a set made AND an old timer pulled is two
        different jobs done by two different pairs of hands — dropping either is a bundle
@@ -683,6 +785,7 @@ console.log('  ' + w('value', 26) + w('import reads', 28) + 'warehouse groups as
       const sb = {};
       new Function('jobAddresses', 'warehouseExtras', 'isOutForSeason', 'houseLightsText',
         'whGroupKey', 'houseBundleNeed', 'whBinsForHouse', 'whBuildReasonKey', 'cnBinsForFeet',
+        fn('whWireLabel') + fn('whCheckLightsKey') +
         fn('whBuildQueueGroups') + 'this.run = whBuildQueueGroups;')
         .call(sb, [{id:'g', data:{name:'Gone', needsTimerRemoved:true, outletTimer:'No'}}], [],
           () => true, (d) => d.lightsDescription || '', (l, w) => l + '|' + w,

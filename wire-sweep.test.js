@@ -215,8 +215,13 @@ if (classify) {
       (onSrc.match(/whBuildQueueGroups\(\)/g) || []).length === 1,
       'whHouseBuildStatus answers this for one house by building the whole queue — asking ' +
       'it per customer is the ~950,000-comparison shape this repo already locked a screen on');
-    check('and it includes the blocked block and both timer lists',
-      /blocked/.test(onSrc) && /timerHouses/.test(onSrc) && /timerRemovals/.test(onSrc),
+    /* ⚠ REPOINTED 2026-09-18, NOT WEAKENED ([[WH-41]]). It asked for `blocked` as well,
+       which was the siding a house with no colours used to sit on. There is no siding: such
+       a house heads a Check lights group and comes through the group walk above, so the
+       coverage is unchanged and one of the three names simply no longer exists. */
+    check('and it includes both timer lists as well as the groups',
+      /timerHouses/.test(onSrc) && /timerRemovals/.test(onSrc) &&
+      /\(g\.houses \|\| \[\]\)/.test(onSrc),
       'those houses are on the tab in front of somebody, which is exactly where a wrong ' +
       'wire is worth correcting');
   }

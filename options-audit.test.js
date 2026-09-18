@@ -453,15 +453,19 @@ function check(label, ok, detail) {
           by: {
             /* grouped by colour and wire rather than columned — whGroupKey */
             lightsDescription: /group: groupName/,
-            /* ⚠ TWICE, BECAUSE THIS SHEET HAS TWO ROW SHAPES. A house waiting on its
-               colours prints a blocked row, a buildable house prints a real one, and
-               BOTH need the wire and the timer — the warehouse reads one list. A
-               single-occurrence regex passed a sabotage that deleted the field from
-               the real build row, because the blocked row still mentioned it: one
-               branch covering for the other, the same failure as one sheet covering
-               for the other a few lines up. */
-            wireColor:         /wire: whWireLabel\(d\.wireColor\)[\s\S]*wire: whWireLabel\(d\.wireColor\)/,
-            outletTimer:       /timer: String\(d\.outletTimer[\s\S]*timer: String\(d\.outletTimer/,
+            /* ⚠ ONCE, AND IT USED TO BE TWICE — REPOINTED, NOT WEAKENED ([[WH-41]],
+               2026-09-18). This sheet had TWO house shapes: a blocked row for a house
+               waiting on its colours and a real row for a buildable one, and each
+               mentioned the wire and the timer, so a single-occurrence regex passed a
+               sabotage that deleted the field from the real row — one branch covering
+               for the other. The blocked row is gone and there is one house shape now,
+               so a single match IS the real row and nothing can cover for it. The claim
+               is unchanged: both options still have to reach the sheet. ⚠ Do not read
+               the timer-removal and timer-only rows as a second shape — they write
+               `wire: ''` and a literal word on purpose, so they can never stand in.
+               Red-checked both ways: deleting either field from the house row fails. */
+            wireColor:         /wire: whWireLabel\(d\.wireColor\)/,
+            outletTimer:       /timer: String\(d\.outletTimer/,
             /* ⚠ FEET REACHES THE WAREHOUSE AS BUNDLES, deliberately. Owner,
                2026-08-21: "I don't think we need feet and bundles. I think how many
                bundles is fine for warehouse", and 2026-08-24: "on warehouse it should
@@ -474,8 +478,12 @@ function check(label, ok, detail) {
                mapped it to the bundle count as well, which was lazy and wrong — bins
                are what the warehouse LABELS, bundles are what they make, and one is
                not evidence of the other. Mapping two options to one column also means
-               losing that column fails two checks and gaining it passes two. */
-            numberOfBins:      /bins: whBinsForHouse\(d\)[\s\S]*bins: whBinsForHouse\(d\)/,
+               losing that column fails two checks and gaining it passes two.
+               ⚠ ALSO ONCE NOW, for the reason given above — it was doubled against the
+               blocked row, which no longer exists. The timer rows carry bins too, so this
+               one is genuinely weaker than it was; it is the column check beside it in
+               run-all.js (S107) that holds the house row's cell. */
+            numberOfBins:      /bins: whBinsForHouse\(d\)/,
           },
         },
         {

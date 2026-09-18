@@ -13,8 +13,10 @@
  *   1. Both ADD branches set the flag.
  *   2. It is literally `true` — never `pattern ? true : false`. Questions map WH-20:
  *      "we want to build everyone." A row with no colours belongs in the warehouse's own
- *      "Waiting on light colours" block, which is visible and actionable; gating the flag
- *      makes those houses invisible instead, which is the bug being closed.
+ *      Check lights group ([[WH-41]]) — an ordinary pile with an ordinary Mark Done;
+ *      gating the flag makes those houses invisible instead, which is the bug being
+ *      closed. (Until 2026-09-18 that pile was a "Waiting on light colours" block of its
+ *      own; the rule this file holds is about the FLAG and is unchanged either way.)
  *   3. Neither UPDATE branch touches it. This is the most likely thing to go wrong and
  *      the most expensive: an import that matched an existing customer must never
  *      re-queue them, or a 900-row press rebuilds the entire book.
@@ -208,8 +210,8 @@ function flagValue(win) {
     flagValue(win) === 'true',
     'found ' + JSON.stringify(flagValue(win)) + '. Questions map WH-20: ungated, "we ' +
     'want to build everyone." A row with no colours belongs in the warehouse\'s own ' +
-    '"Waiting on light colours" block — gating the flag makes those houses invisible, ' +
-    'which is the bug this closes (WH-17, WH-18)');
+    'Check lights group — gating the flag makes those houses invisible, ' +
+    'which is the bug this closes (WH-17, WH-18, WH-41)');
 });
 
 /* ---------------------------------------------------------------------------
@@ -248,9 +250,9 @@ function flagValue(win) {
  *
  * Addie, 2026-08-21 (questions map WH-17): "big problem, she went to the recycle but not
  * to the build." Blank colours mean the build cannot be DONE yet, not that it is not
- * OWED. That is the whole reason the warehouse has a "Waiting on light colours" block:
- * a house dropped from the flag is in NEITHER list, which is invisible rather than
- * blocked.
+ * OWED. That is the whole reason a house with no colours still heads a Check lights
+ * group ([[WH-41]]): a house dropped from the flag is on NO list, which is invisible
+ * rather than merely unanswered.
  *
  * Edit Customer was fixed that day. The All Customers panel was missed and kept
  * `: false` until 2026-08-26 — one rule, two writers, one repaired. Nothing asserted
@@ -282,8 +284,8 @@ function flagValue(win) {
     check(w.label + ' does not clear the flag when the colour box is empty',
       !/:\s*false\s*$/.test(body.trim()),
       'found a tail of `: false`. WH-17: blank colours mean the build cannot be DONE ' +
-      'yet, not that it is not OWED. A house dropped from the flag appears in neither ' +
-      'the build queue nor the Waiting on light colours block — invisible, not blocked, ' +
+      'yet, not that it is not OWED. A house dropped from the flag appears on no list ' +
+      'at all — invisible rather than merely unanswered, ' +
       'and no bundle is made for it');
 
     /* And prove it by running it, for the case that bit: a house whose build is owed
