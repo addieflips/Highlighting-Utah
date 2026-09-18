@@ -40,6 +40,7 @@ const TESTS_DIR = ['tests', 'test']
 const SPEC_TARGETS = {
   'portal.spec.js': 'index.html',
   'quote-link.spec.js': 'index.html',
+  'quote-wire-choice.spec.js': 'index.html',
   'rsvp-link.spec.js': 'index.html',
   'signed-in-links.spec.js': 'index.html',
   'rsvp-gate-code.spec.js': 'index.html',

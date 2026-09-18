@@ -31165,15 +31165,32 @@ suite('Suite 80. A blank is a blank, and a default is a default');
     "found: " + PREANSWERED.join(" ") + " — all four of these were once ticked on No, so " +
     "a customer who never read the question was recorded as having said no to it. Once " +
     "that is on the record it cannot be told apart from a real answer");
-  /* ⚠ AND THE EXCLUSION IS ITSELF BOUNDED. The only pre-picked radio allowed on this
-     page is the side count; anything else checked is a question somebody has to have
-     thought about, so it fails here and has to be argued for. */
+  /* ⚠ AND THE EXCLUSION IS ITSELF BOUNDED — REPOINTED 2026-09-18, NOT WEAKENED.
+     This read "the side count is the only thing pre-picked at all", a count of tags, and
+     [[OPT-22]] added a second pre-picked radio: the wire colour opens on **Any**, because
+     "keep it at any" only means anything if that is where the form starts.
+     ⛔ THAT IS THE OPPOSITE OF THE FAULT THIS GUARDS, and the difference is the whole
+     ruling: a pre-ticked **No** WRITES an answer nobody gave, while Any writes NOTHING —
+     it is the blank-if-unanswered state wearing a visible label. So the rule is stated as
+     what it always meant: a pre-picked radio must either store nothing (an empty value) or
+     be one she asked for by name. `house_sides` is the second kind ("1 side should be
+     default"); a new one with a real value fails here and has to be argued for. */
+  const PREPICKED_BY_NAME = ['house_sides'];
   const OTHER_CHECKED = (idx.match(/<input type="radio"[^>]*checked[^>]*>/g) || [])
-    .filter(function(tag){ return tag.indexOf('name="house_sides"') === -1; });
-  check('S80', 'and the side count is the only thing pre-picked at all',
+    .filter(function(tag){
+      if(PREPICKED_BY_NAME.some(function(nm){ return tag.indexOf('name="' + nm + '"') !== -1; })) return false;
+      return !/value=""/.test(tag);
+    });
+  check('S80', 'and anything else pre-picked stores nothing at all',
     !OTHER_CHECKED.length,
-    'found: ' + OTHER_CHECKED.join(' ') + ' — a pre-picked answer is a claim that ' +
-    'somebody was asked, and only the side count has earned one');
+    'found: ' + OTHER_CHECKED.join(' ') + ' — a pre-picked answer that gets STORED is a ' +
+    'claim that somebody was asked; only the side count has earned one');
+  /* ⚠ AND THE EMPTY-VALUE ESCAPE IS ITSELF CHECKED, or it becomes a way through: a radio
+     whose value is blank must genuinely reach a guard that drops it. */
+  check('S80', 'and the one that opens blank is guarded where it is read',
+    !/name="wire_color" value="" checked/.test(idx) ||
+    /if\(qdWire\) detailPayload\.wireColor = qdWire/.test(idx),
+    'an empty-valued radio is only safe while nothing writes its value through anyway');
 
   check('S80', 'and an unanswered one is stored blank, not as a No',
     /outletTimer: fd.get\(.outlet_timer.\) \|\| ..,/.test(idx) &&
@@ -32906,14 +32923,27 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
              Asserted on the SOURCE rather than the sandbox, because the sandbox only holds
              the markup this suite hands it: a check there would prove nothing about what a
              real customer is shown. */
-          check('S70', 'the quote form no longer asks anybody for a wire colour',
-            idx.indexOf('name="wire_color"') === -1,
-            'Addie took the question off on 2026-09-17: the cord is ours to pick, and a ' +
-            'default of Any is how every record ended up claiming a colour nobody chose');
-          check('S70', 'and the detail form posts none either',
-            !/wireColor:\s*fd\.get/.test(idx),
-            'a field still posted would be stamped on the quote and carried to the customer ' +
-            'by conversion, which is the invented colour arriving by a different door');
+          /* ⭐ REPOINTED 2026-09-18, NOT WEAKENED — [[OPT-22]]. These two asserted the
+             question was GONE, which was [[OPT-12]]; Addie put it back the next day as
+             "Any, Green, White. With instructions on what to pick." What both checks were
+             really protecting is untouched and is what they assert now: the form can never
+             stamp a colour nobody chose. The old wording is kept below so the reversal is
+             legible rather than looking like a check somebody softened. */
+          check('S70', 'the quote form asks for a wire colour, and offers Any',
+            idx.indexOf('name="wire_color"') !== -1 &&
+            /name="wire_color" value="" checked/.test(idx),
+            'OPT-22 put the question back on the detail form, with Any pre-picked — "keep it at any" only ' +
+            'means anything if that is where the form starts');
+          check('S70', 'and Any can never be posted as a colour',
+            !/value="Any"/i.test(idx) && /function qdWireChoice\(/.test(idx),
+            'a pill that posts the word Any is the invented colour OPT-12 refused, wearing ' +
+            'a label — it would head a warehouse pile "Any wire"');
+          check('S70', 'and the detail form posts no wire colour unless one was picked',
+            !/wireColor:\s*fd\.get/.test(idx) &&
+            /if\(qdWire\) detailPayload\.wireColor = qdWire/.test(idx),
+            'a field posted unconditionally would stamp the quote and be carried to the ' +
+            'customer by conversion — and a posted blank would ERASE a colour a re-quote ' +
+            "prefilled off the member's own record");
         }
       }
 

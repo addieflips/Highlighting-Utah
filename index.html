@@ -1747,6 +1747,37 @@
                 <div id="qdPatternReadout" style="font-size:12.5px; color:var(--slate);"></div>
               </div>
             </div>
+            <!-- ⭐ THE WIRE COLOUR IS ASKED ON THE DETAIL FORM TOO ([[OPT-22]],
+                 2026-09-18). Addie: "They should see Any, Green, White. With instructions on
+                 what to pick. If they click any or keep it at any then it should allow us to
+                 pick and require us to pick the wire."
+
+                 ⚠ THIS REVERSES [[OPT-12]], her own ruling of the day before, which took the
+                 question off this form entirely — R-024, and that row is marked rather than
+                 edited, because its reasoning is exactly what makes this safe. OPT-12 was
+                 about an INVENTED answer: the old version of this control defaulted to 'Any'
+                 and STORED that word, so most quotes carried a wire colour nobody had chosen.
+                 The question was never the fault; the default being written down was.
+
+                 ⛔ SO "ANY" STORES NOTHING AT ALL, and that one line is the whole design.
+                 A blank is what every reader downstream already understands: the warehouse
+                 heading reads "Check lights" ([[WH-35]]), the System Message with a picture
+                 of the house is raised ([[WH-40]]), and the Convert to Customer popup REFUSES
+                 to convert until the office picks one ([[WH-43]]) — which is the second half
+                 of her own sentence. Storing the literal word would put "Any wire" at the head
+                 of a warehouse pile, a cord nobody makes.
+
+                 ⚠ AND THE ORDER IS HERS — Any, Green, White — with Any pre-picked, because
+                 "keep it at any" only means anything if that is where it starts. -->
+            <div class="form-row" id="qdWireRow">
+              <label>What color wire would you like?</label>
+              <p class="form-note" style="margin:0 0 8px;">Pick the one that matches your gutter, so the cord disappears against it. Green gutters take green wire, white gutters take white. Not sure? Leave it on Any and we&rsquo;ll match it for you when we build your lights.</p>
+              <div class="radio-row">
+                <label class="radio-pill"><input type="radio" name="wire_color" value="" checked> Any &mdash; you choose for me</label>
+                <label class="radio-pill"><input type="radio" name="wire_color" value="Green"> Green &mdash; for a green gutter</label>
+                <label class="radio-pill"><input type="radio" name="wire_color" value="White"> White &mdash; for a white gutter</label>
+              </div>
+            </div>
             <!-- ⭐ MOVED HERE FROM THE FREE QUOTE FORM (2026-09-03), and ONE SIDE IS
                  PRE-PICKED. Addie: "side of house should be in detail form, 1 side
                  should be default."
@@ -4023,6 +4054,22 @@ var quoteDetailQuoteId;
 var quoteDetailToken;
 if(typeof quoteDetailQuoteId === 'undefined') quoteDetailQuoteId = null;
 if(typeof quoteDetailToken === 'undefined') quoteDetailToken = null;
+/* ⛔ ONLY THE TWO REAL COLOURS ARE EVER STORED ([[OPT-22]], 2026-09-18). "Any" is a real
+   ANSWER — no preference, you choose — and the way to record it is to store NOTHING,
+   because a blank is what every reader downstream already understands: `whWireLabel` reads
+   it as "Check lights" ([[WH-35]]), the System Message with a picture of the house is
+   raised off it ([[WH-40]]), and the Convert to Customer popup refuses to convert until the
+   office picks one ([[WH-43]]). Storing the word 'Any' would head a warehouse pile
+   "Any wire" — a cord nobody makes, and the invented answer this whole family of rulings
+   exists to stop.
+   ⚠ ITS OWN FUNCTION SO A TEST CAN RUN IT, and so this rule is written once rather than
+   spelled out inside a 60-line submit handler. `quoteWireChoiceServer` in functions/index.js
+   is its pair and must give the same answer — a customer's browser is not what decides
+   which of the two colours reaches the quote. */
+function qdWireChoice(v){
+  var w = String(v == null ? '' : v).trim();
+  return (w === 'White' || w === 'Green') ? w : '';
+}
 quoteDetailFormEl.addEventListener('submit', async function(e){
   e.preventDefault();
   if(!quoteDetailQuoteId && !quoteDetailToken){ alert('Something went wrong — please call/text us at (801) 901-0011.'); return; }
@@ -4041,13 +4088,14 @@ quoteDetailFormEl.addEventListener('submit', async function(e){
   var detailPayload = {
     lightColors: lightColors,
     lightsDescription: lightsDescription,
-    /* ⛔ NO WIRE COLOUR IS COLLECTED HERE ANY MORE (2026-09-17). Addie: "keep what
-       lights they want but don't add what wire color they want but push check lights then
-       warehouse chooses what wire they have on file and will make it based on what wire
-       they have." It used to default to 'Any' for anybody who did not touch the box — a
-       wire colour on the record that nobody chose, which is the whole fault [[WH-35]] was
-       written to stop the warehouse ACTING on. A quote now carries none, the customer
-       reads Check lights, and somebody at the bin records what is really there. */
+    /* ⭐ THE WIRE COLOUR IS BACK ON THIS FORM ([[OPT-22]], 2026-09-18) — see qdWireRow
+       above for her words and for why this reverses [[OPT-12]] safely.
+       ⛔ IT IS NOT IN THIS OBJECT. "Any" must write NOTHING, and the only way to be sure
+       of that is for the key to be absent rather than blank: a `wireColor: ''` posted from
+       here would ERASE a colour a re-quote had prefilled off the member's own record
+       (memberPrefill in functions/index.js copies it onto the quote). That is this file's
+       oldest rule — a blank never wipes what the record has — applied to the one field
+       where a blank is also a legitimate answer. It is added below, only when picked. */
     /* ⭐ A YES/NO WITH NO ANSWER STAYS BLANK (changed 2026-08-20). Owner: "yes and
        no questions dont have a default answer though just leave those blank if
        unanswered."
@@ -4069,6 +4117,10 @@ quoteDetailFormEl.addEventListener('submit', async function(e){
     houseSides: portalSideCount(fd.get('house_sides')),
     wantsMailedInvoice: fd.get('wants_mailed') === 'on'
   };
+  /* ⛔ ONLY WHEN THEY PICKED ONE ([[OPT-22]]). See qdWireChoice for why "Any" sends
+     nothing, and the note above for why it is an ABSENT key rather than a blank one. */
+  var qdWire = qdWireChoice(fd.get('wire_color'));
+  if(qdWire) detailPayload.wireColor = qdWire;
   try{
     if(!quoteDetailToken && quoteDetailQuoteId){
       /* No token means the direct write below, which Firestore will refuse.
