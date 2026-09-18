@@ -183,10 +183,12 @@ const buildQueue = (d) => new Function('jobAddresses', 'warehouseExtras', 'whGro
   'houseBundleNeed', ruleSrc('null') + eligLine + src.houseLightsText + src.isOutForSeason + src.whBuildQueueGroups +
   'return whBuildQueueGroups();')([{ id: 'x', data: d }], [], groupKey, bundleStub);
 
-const onBuildQueue = (d) => {
-  const r = buildQueue(d);
-  return r.keys.length > 0 || (r.blocked || []).length > 0;
-};
+/* ⚠ THERE IS ONE LIST NOW ([[WH-41]], 2026-09-18). This used to add the `blocked` one,
+   which was where a house with no colours on file was parked; such a house heads a Check
+   lights group and comes back in `keys` like anybody else. Left as it was, the `|| []`
+   would have gone on answering false for ever without anything going red — which is
+   exactly the silence this file exists to catch. */
+const onBuildQueue = (d) => buildQueue(d).keys.length > 0;
 
 const onRecycleQueue = (d, archived) => new Function('jobAddresses', 'whArchivedPending',
   'whGroupKey', src.houseLightsText + src.whRecycleGroups + 'return whRecycleGroups();')(

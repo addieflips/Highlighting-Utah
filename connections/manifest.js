@@ -66,7 +66,7 @@ module.exports = [
        the left and where that state lands on the right. */
     states: [
       ['Flagged', 'Shows on the Warehouse Build list'],
-      ['Flagged, no colours yet', 'Shows under Waiting on light colours'],
+      ['Flagged, no colours yet', 'Shows under Check lights, with their wire'],
       ['Bundle marked made', 'Comes off the list'],
       ['Sitting the season out', 'Nothing is built']
     ],
