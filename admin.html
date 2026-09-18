@@ -12393,6 +12393,8 @@ function initData(){
      It is one small settings document, not a collection. */
   loadCommSections();
   loadInvoices();
+  /* Was top-level code that ran before sign-in; see the note on startPaymentImports. */
+  startPaymentImports();
   /* ⭐ The Recycle queue lists people who have already been removed as customers, so
      it needs the archive as well as the book. Only the ones still waiting are watched —
      the archive grows for ever and the working set does not. */
@@ -22899,14 +22901,24 @@ function adminErrorIsNoise(text){
 /* ⚠ NEVER THROWS, AND NEVER RETURNS A PROMISE ANYBODY AWAITS. Every caller is a catch
    block or the global error handler — a reporter that can break the thing it is reporting
    on is worse than no reporter at all. */
-function reportAdminError(text){
+/* ⭐ WHO WAS SIGNED IN WHEN IT HAPPENED, NOT WHEN IT WAS WRITTEN DOWN (2026-09-18). An error
+   caught before messages load is HELD (below) and written later — and the report used to
+   read the signed-in address at WRITE time. So a fault from the login screen, before
+   anybody had signed in, was filed under whoever signed in next. Five "Unhandled promise:
+   Missing or insufficient permissions" rows all read "Signed in as: addiechichia@gmail.com"
+   for exactly that reason, which sent the diagnosis looking at a signed-in session that was
+   never involved. "nobody" is a real answer and the Inbox already shows it as one. */
+function adminErrorWhoNow(){
+  return (auth && auth.currentUser && auth.currentUser.email) || 'nobody';
+}
+function reportAdminError(text, whoAtCatch){
   try{
     text = String(text || '').trim();
     if(!text || adminErrorBusy || adminErrorIsNoise(text)) return;
     if(!adminErrorReady){
       /* Messages have not loaded, so the repeat check cannot run — and writing without it
          duplicates on every reload. HELD, not dropped: flushed the moment they land. */
-      if(adminErrorQueue.length < 20) adminErrorQueue.push(text);
+      if(adminErrorQueue.length < 20) adminErrorQueue.push({ text: text, who: adminErrorWhoNow() });
       return;
     }
     const key = errorKeyFor(ADMIN_ERROR_TOPIC, text);
@@ -22928,7 +22940,7 @@ function reportAdminError(text){
          this address already sits in the body of every one of these rows. No rules deploy.
          ⚠ THE FIELD IS NOT ENOUGH ON ITS OWN — it reaches rows written from here on, and the
          rows she is looking at are older. `msgStaffSignedInAs` reads the body as well. */
-      const signedInAs = ((auth && auth.currentUser && auth.currentUser.email) || 'nobody');
+      const signedInAs = (typeof whoAtCatch === 'string') ? whoAtCatch : adminErrorWhoNow();
       addDoc(collection(db,'messages'), {
         topic: ADMIN_ERROR_TOPIC, folder: ERROR_FOLDER_ADMIN,
         name: '', phone: '', email: '', contactMethod: '',
@@ -22960,7 +22972,7 @@ function flushAdminErrors(){
   try{ errBadgeSeedFromStored(); }
   catch(err){ console.error('[HU] could not put the stored errors on the badge', err); }
   if(!adminErrorQueue.length) return;
-  adminErrorQueue.splice(0, adminErrorQueue.length).forEach(reportAdminError);
+  adminErrorQueue.splice(0, adminErrorQueue.length).forEach(function(q){ reportAdminError(q.text, q.who); });
 }
 /* ⚠ NEWEST FIRST AND CAPPED. The badge panel is a phone-sized list somebody reads in a
    hurry; every error of the season in it is the cries-wolf failure this file names in five
@@ -23016,7 +23028,8 @@ function errBadgeSeedFromStored(force){
 window.__huAdminErrorSink = reportAdminError;
 try{
   if(Array.isArray(window.__huAdminErrorEarly)){
-    window.__huAdminErrorEarly.splice(0, window.__huAdminErrorEarly.length).forEach(reportAdminError);
+    /* One argument on purpose: forEach would hand the INDEX in as whoAtCatch. */
+    window.__huAdminErrorEarly.splice(0, window.__huAdminErrorEarly.length).forEach(function(t){ reportAdminError(t); });
   }
 } catch(err){ /* a boot-time buffer that cannot be read is not worth failing the page over —
                  and every one of those lines is still on the badge. */ }
@@ -40266,10 +40279,23 @@ document.getElementById('paymentImportBtn').addEventListener('click', onceAtATim
   renderInvoicesList();
   loadPaymentImportHistory();
 }, function(){ return document.getElementById('paymentImportBtn'); }));
-// Initialize
-loadPaymentImportFolders();
-if(typeof onSnapshot !== 'undefined'){
-  onSnapshot(collection(db,'paymentImports'), () => loadPaymentImportHistory());
+/* ⭐ STARTED FROM initData, NOT AT PAGE LOAD (2026-09-18). These two lines used to sit
+   here bare, so they ran the moment the script loaded — before anybody had signed in.
+   On any device that opens on the login screen (a phone whose browser forgot the
+   session, a reload after Sign Out) Firestore refused both reads:
+     · the folder read was an async call nobody awaited or caught, so it surfaced as
+       "Unhandled promise: Missing or insufficient permissions." — and because admin
+       errors are HELD until messages load and only written after sign-in, the row was
+       filed under whoever signed in next. That is the row that reached Admin Errors on
+       9/8, 9/10, 9/13, 9/16 and 9/18, every time reading as if Addie were signed in;
+     · the paymentImports listener was refused at the same moment and stayed dead for
+       the whole session, so the import history never updated by itself.
+   initData runs once, after sign-in, which is where every other loader already lives. */
+function startPaymentImports(){
+  loadPaymentImportFolders().catch(function(err){ console.error('[HU] payment import folders read failed', err); });
+  onSnapshot(collection(db,'paymentImports'), function(){
+    loadPaymentImportHistory().catch(function(err){ console.error('[HU] payment import history read failed', err); });
+  });
 }
 /* Counts the way the importer does, which the raw line count did not.
    Trailing empty rows are ignored for every column — pasting two columns out of

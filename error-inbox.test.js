@@ -239,7 +239,7 @@ function adminHarness(opts) {
     db: io.db, collection: io.collection, addDoc: io.addDoc, serverTimestamp: io.serverTimestamp,
     allMessages: opts.allMessages || [],
     toJsDate: ts => (ts instanceof Date ? ts : null),
-    auth: { currentUser: { email: 'office@highlightingutah.com' } },
+    auth: opts.auth || { currentUser: { email: 'office@highlightingutah.com' } },
     location: { hash: '#/dashboard' },
     navigator: { userAgent: 'TestBrowser/1.0' },
     window: win,
@@ -729,6 +729,49 @@ console.log('--- the admin half ---');
   check('the report names who was signed in',
     h.writes[0].data.message.indexOf('office@highlightingutah.com') !== -1,
     'two people use this dashboard; which of them saw it is half the diagnosis');
+}
+
+{
+  /* ⭐ WHO WAS SIGNED IN WHEN IT HAPPENED (2026-09-18). A fault caught on the login screen
+     is held until messages load — which is AFTER somebody signs in — and used to be
+     stamped with that person. Five permission errors read "Signed in as: addiechichia"
+     for exactly that reason. The harness signs somebody in between the catch and the
+     flush, which is the order it happens in on a real page. */
+  const auth = { currentUser: null };
+  const h = adminHarness({ auth: auth });
+  h.reportAdminError('Unhandled promise: Missing or insufficient permissions.');
+  auth.currentUser = { email: 'addiechichia@gmail.com' };
+  h.flushAdminErrors();
+  check('an error caught before sign-in says nobody was signed in',
+    h.writes.length === 1 && /Signed in as: nobody/.test(h.writes[0].data.message) &&
+      h.writes[0].data.staffEmail === 'nobody',
+    'it named whoever signed in afterwards: ' + (h.writes[0] && h.writes[0].data.staffEmail));
+  const h2 = adminHarness({ auth: { currentUser: { email: 'office@highlightingutah.com' } } });
+  h2.flushAdminErrors();
+  h2.reportAdminError('Could not save the invoice');
+  check('and one caught after sign-in still names who it was',
+    h2.writes.length === 1 && h2.writes[0].data.staffEmail === 'office@highlightingutah.com',
+    'the fix must not blank the name for errors that really were somebody\'s');
+}
+
+{
+  /* ⭐ NOTHING READS FIRESTORE BEFORE SIGN-IN (2026-09-18). The payment-import folders
+     read and its listener sat as bare top-level lines and ran on the login screen: the
+     read became the unhandled "Missing or insufficient permissions" and the listener died
+     for the session. They run from initData now, which only runs once signed in. */
+  const initSrc = extractFn(admin, 'initData');
+  check('payment imports start from initData, after sign-in',
+    /startPaymentImports\(\)/.test(initSrc),
+    'initData no longer starts them, so the import history never loads');
+  const startSrc = extractFn(admin, 'startPaymentImports');
+  const topLevel = admin.split(/\r?\n/).filter(l => /^(loadPaymentImportFolders|loadPaymentImportHistory)\(\)/.test(l));
+  const listeners = admin.split("onSnapshot(collection(db,'paymentImports')").length - 1;
+  check('and nothing starts them at page load any more',
+    topLevel.length === 0 && listeners === 1 && startSrc.indexOf("onSnapshot(collection(db,'paymentImports')") !== -1,
+    'a top-level Firestore read runs before sign-in and is refused: ' + topLevel.join(' | ') + ' / listeners: ' + listeners);
+  check('and the folder read cannot escape as an unhandled promise',
+    /loadPaymentImportFolders\(\)\.catch\(/.test(startSrc) && /loadPaymentImportHistory\(\)\.catch\(/.test(startSrc),
+    'an uncaught read here is exactly the row that reached Admin Errors five times');
 }
 
 {
