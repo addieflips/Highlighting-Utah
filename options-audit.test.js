@@ -634,7 +634,11 @@ function check(label, ok, detail) {
                whitelist, and the emailed-link path (the common one) goes through it, so
                a field the browser sends and the function drops is lost with nothing
                going wrong on screen. Asserted separately below. */
-            houseSides:         /houseSides: portalSideCount\(fd\.get\('house_sides'\)\)/,
+            /* ⚠ REPOINTED 2026-09-18 ([[OPT-23]]), not weakened: the form asks WHICH sides
+               now and the count is their length, so it is no longer read off a named radio.
+               The claim is unchanged — houseSides still reaches this stage — and it is
+               pinned to the derivation rather than to the control, which is what has to hold. */
+            houseSides:         /houseSides: portalSideCount\(qdSides\)/,
             /* ⭐ ASKED HERE AGAIN SINCE 2026-09-18 ([[OPT-22]]) — Any, Green, White,
                with Any pre-picked. ⚠ IT IS MATCHED ON THE ASSIGNMENT, NOT ON A KEY IN
                `detailPayload`, and that is the whole shape of the ruling: "Any" adds no
