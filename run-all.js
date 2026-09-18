@@ -6377,10 +6377,22 @@ suite('11. Reliability pass');
     /if\(!lightsDescription\)\{[\s\S]{0,700}isAutoConvert[\s\S]{0,300}toast\(/.test(addForm),
     'the status line it writes to is on the Customers tab, and an automatic ' +
     'convert leaves you on Quotes — it would fail in silence');
+  /* ⚠ REPOINTED 2026-09-18, NOT WEAKENED. This matched the literal
+     `convertQuoteAutoBtn"'+(hasLights ? '' : ' disabled')` — that is, WHERE the disabled
+     state happened to sit. [[WH-43]] made the wire required too, so both reasons are
+     decided together in `refreshConvertWireGate` and the markup carries neither; the old
+     match failed on code that is right. The guarantee is unchanged and is what is asserted:
+     no colours means the automatic button is off, and it still says so. §7's slow fuse. */
+  const convertPopupSrc = extractFn(admin, 'showConvertQuoteChoice') || '';
   check('render', 'the convert popup will not offer automatic without colours',
     /hasLights\s*=\s*!!String\(d\.lightsDescription/.test(admin) &&
-    /convertQuoteAutoBtn"'\+\(hasLights \? '' : ' disabled'\)/.test(admin),
+    /setConvertBtn\(convertAutoBtn,[^\r\n]*!hasLights/.test(convertPopupSrc) &&
+    /no light colours/i.test(convertPopupSrc),
     'clicking Convert automatically would just bounce back an error');
+  check('render', 'and the manual path is still offered when there are none',
+    /setConvertBtn\(convertManualBtn, !picked,/.test(convertPopupSrc) &&
+    !/setConvertBtn\(convertManualBtn,[^\r\n]*hasLights/.test(convertPopupSrc),
+    'it is the door the no-colours message sends her to — closing it leaves no way in');
 
   /* The other door into a light description is the customer's own detail form
      on the public site. It has always refused to submit without a colour —
@@ -60740,12 +60752,18 @@ suite('330. One box on the two contact forms; phone AND email on the free quote 
       new RegExp('id="' + id + '"').test(idx),
       'a hidden required select blocks the form with a message pointing at nothing');
   });
-  /* ⚠ THE QUOTE FORM'S SELECT NEVER HIDES NOW. A leftover listener would still hide it
-     and drop `required` the moment the EMAIL box got an @ — which is every submission. */
-  check('S330', 'the quote form contact method is required and nothing stands it down',
-    /<select[^>]*id="quoteContactMethod"[^>]*required/.test(quoteForm) &&
-      !/quoteContactMethodEl\.required\s*=/.test(idx),
-    'a select that hides on every email would make the preference optional for everybody');
+  /* ⭐ THE QUOTE FORM ASKS NO PREFERRED CONTACT METHOD ([[QT-47]], 2026-09-18). Dax: "in
+     free quote get rid of preferred contact method." The write still carries the key,
+     empty, because admin's quote card and Convert-to-Customer read it. */
+  check('S330', 'the quote form has no preferred contact method select',
+    !/name="contact_method"/.test(quoteForm) && !/<label[^>]*>\s*Preferred Contact/i.test(quoteForm),
+    'a leftover required select would block every quote on a question Dax took off the form');
+  check('S330', 'the quote write still carries contactMethod, empty',
+    /contactMethod: '',\s*\/\* ⭐ NO houseSides/.test(idx),
+    'a quote with no contactMethod key reaches into undefined on the readers that expect it');
+  check('S330', 'the admin quote card prints "Prefers:" only when there is one',
+    /d\.contactMethod \? 'Prefers: '\+esc\(d\.contactMethod\)/.test(read('admin.html')),
+    'every new quote would show a bare "Prefers:" with nothing after it');
 }
 
 suite('331. The colours a customer ticked reach the Gmail alert');

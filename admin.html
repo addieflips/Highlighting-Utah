@@ -15809,11 +15809,17 @@ function goToAddCustomerForm(){
    of the house, and the warehouse still reads “Check lights”. What was missing is that the
    question was ONLY ever asked after the customer existed — the one moment somebody is
    already looking at that house was the one moment nobody was asked.
-   ⚠ IT ASKS, IT NEVER REFUSES, and that is the whole reason [[WH-40]] exists: often there is
-   genuinely nothing to answer from yet — no bin to check, no picture worth looking at. A
-   guard that blocks a legitimate conversion is worse than the thing it prevents, because
-   there is no way round it at all. “Not now” is a real answer and leaves today's behaviour
-   exactly as it was.
+   ⭐ AND IT REFUSES NOW ([[WH-43]], 2026-09-18). Addie, told it only asked: "make it required
+   for us to choose wire before we convert to costumer." So both buttons are held until a wire
+   is picked. ⚠ THIS REVERSES [[WH-42]]'s OWN "ask, never refuse" — R-024, and that row is
+   marked rather than edited, because its reasoning is still the cost being paid: [[WH-40]]
+   exists precisely because there is sometimes nothing to answer from yet, and somebody with
+   no picture and no bin to look at now has to Cancel and come back rather than press on. She
+   was told that twice and asked for it anyway.
+   ⛔ AND IT IS THE POPUP THAT REFUSES, NOT THE FORM. The Add Customer box stays optional and
+   the [[WH-40]] notice stays live behind it — a customer typed in from scratch is not a
+   conversion, and closing that door too would make the System Message unraisable at the one
+   door that raises it, which is [[WH-40]] deleted as a side effect of a different ruling.
    ⚠ AND THE OPTIONS ARE READ OFF THE REAL FORM, never typed here. Add a wire colour to
    `#addCustWireColor` and this picker offers it on the next render; a second list is how the
    popup starts offering a colour the form cannot save. */
@@ -15822,15 +15828,27 @@ function convertWireOptionsHtml(selected){
   if(!real) return '';
   const want = String(selected || '');
   return Array.prototype.map.call(real.options, function(o){
+    /* ⭐ THE BLANK ONE IS RELABELLED, AND ONLY HERE. On the form it is a real answer —
+       "nobody has looked, the warehouse will check" — and it stays that on the form. In this
+       popup it is no longer a way through, so its own words would be a lie.
+       ⛔ RELABELLED RATHER THAN DROPPED, and that is the whole safety of making this
+       required. Dropped, the select opens preselected on the first real colour and one press
+       saves White onto a house nobody looked at — the invented colour [[WH-35]] and
+       [[WH-40]] both exist to stop, arriving by accident through the very change meant to
+       make somebody choose. */
+    const label = o.value ? o.textContent : '— pick one —';
     return '<option value="'+esc(o.value)+'"'+(o.value === want ? ' selected' : '')+'>'+
-      esc(o.textContent)+'</option>';
+      esc(label)+'</option>';
   }).join('');
 }
 /* ⚠ ONE WRITER, TWO PATHS. Convert automatically and Fill in manually both run
    `fillAddCustFromQuote` first, which sets this box from the QUOTE — so the answer given in
    the popup has to be applied AFTER it on both, or whichever path was forgotten silently
    keeps the quote's blank and the picker looks like it does nothing.
-   ⚠ A BLANK IS A REAL ANSWER HERE (“not now”), so this must be able to set one. */
+   ⚠ IT CAN STILL WRITE A BLANK, AND MUST. The popup no longer lets one through ([[WH-43]]),
+   but this is the only writer and a guard here would be a second place deciding the same
+   thing — the rule belongs where the question is asked. `undefined` is what means "nobody
+   was asked", and that is handled by the caller. */
 function applyConvertWirePick(wire){
   const sel = document.getElementById('addCustWireColor');
   if(!sel) return;
@@ -16933,24 +16951,27 @@ function showConvertQuoteChoice(quoteId, d){
        ⚠ IT IS OFFERED WHATEVER THE QUOTE HOLDS, preselected to what it has. A picker that
        appears only on the blank ones makes its own ABSENCE the thing somebody has to
        notice, and nobody notices an absence on a busy screen — `quoteKindLabel`'s own rule,
-       written down a few hundred lines below this. */
+       written down a few hundred lines below this.
+       ⭐ AND IT IS REQUIRED ([[WH-43]]): both buttons below are held until it is answered. */
     '<div style="margin-top:14px; padding-top:13px; border-top:1px solid var(--line);">'+
-      '<label for="convertQuoteWire" style="display:block; font-size:12.5px; font-weight:600; color:var(--dusk); margin-bottom:5px;">Wire colour for this customer</label>'+
+      '<label for="convertQuoteWire" style="display:block; font-size:12.5px; font-weight:600; color:var(--dusk); margin-bottom:5px;">Wire colour for this customer <span style="color:var(--ember);">(required)</span></label>'+
       '<select id="convertQuoteWire" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line);">'+
         convertWireOptionsHtml(d.wireColor)+
       '</select>'+
       '<div id="convertQuoteWireNote" style="font-size:12px; margin-top:6px;"></div>'+
     '</div>'+
     '<div style="display:flex; flex-direction:column; gap:9px; margin-top:14px;">'+
-      /* ONE style attribute — writing a second one when disabled meant the
-         browser kept the first and quietly dropped text-align. */
-      '<button type="button" class="btn btn-gold" id="convertQuoteAutoBtn"'+(hasLights ? '' : ' disabled')+
-        ' style="text-align:left;'+(hasLights ? '' : ' opacity:.45; cursor:not-allowed;')+'">Convert automatically'+
-        '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;">'+
-          (hasLights ? 'Save them now using everything the quote already knows.' : 'Not available — this quote has no light colours.')+
-        '</span></button>'+
+      /* ⚠ NEITHER BUTTON CARRIES ITS OWN disabled STATE ANY MORE, and that is deliberate.
+         The wire ([[WH-43]]) can be answered and un-answered while this popup is open, so
+         the state has to be recomputed anyway — and half of it decided in this string with
+         the other half decided in `refreshConvertWireGate` is how the two start disagreeing
+         about the same button. One place decides, below, and it runs before the first
+         paint. ONE style attribute, for the same reason it always was: a second one meant
+         the browser kept the first and quietly dropped text-align. */
+      '<button type="button" class="btn btn-gold" id="convertQuoteAutoBtn" style="text-align:left;">Convert automatically'+
+        '<span style="display:block; font-weight:500; font-size:12px; opacity:.85; margin-top:2px;"></span></button>'+
       '<button type="button" class="btn btn-outline" id="convertQuoteManualBtn" style="text-align:left;">Fill in manually'+
-        '<span style="display:block; font-weight:500; font-size:12px; color:var(--slate); margin-top:2px;">Open the Add a Customer form, already filled in, so you can finish it.</span></button>'+
+        '<span style="display:block; font-weight:500; font-size:12px; color:var(--slate); margin-top:2px;"></span></button>'+
       '<button type="button" class="btn btn-outline" id="convertQuoteCancelBtn" style="text-align:center; color:var(--slate);">Cancel</button>'+
     '</div>'+
   '</div>';
@@ -16958,27 +16979,55 @@ function showConvertQuoteChoice(quoteId, d){
   function close(){ overlay.remove(); }
   overlay.addEventListener('click', function(e){ if(e.target === overlay) close(); });
   document.getElementById('convertQuoteCancelBtn').addEventListener('click', close);
-  /* ⚠ THE NOTE SAYS WHAT NOT ANSWERING COSTS, and it moves with the box. A picker whose
-     blank option carries no consequence reads as an optional extra rather than as the
-     question [[WH-40]] is otherwise left to ask days later. */
+  /* ⚠ THE NOTE SAYS WHAT IS STILL MISSING, and it moves with the box. A picker whose blank
+     option carries no consequence reads as an optional extra rather than as the question
+     [[WH-40]] is otherwise left to ask days later.
+     ⭐ AND IT HOLDS BOTH BUTTONS ([[WH-43]]). ⚠ BOTH, not only the automatic one: the
+     manual path fills the very box being asked about, so letting it through would make the
+     requirement something a person walks past rather than answers. */
   const convertWireSel = document.getElementById('convertQuoteWire');
   const convertWireNote = document.getElementById('convertQuoteWireNote');
-  function refreshConvertWireNote(){
-    if(!convertWireNote) return;
-    const picked = convertWireSel ? convertWireSel.value : '';
-    convertWireNote.style.color = picked ? 'var(--slate)' : 'var(--ember)';
-    convertWireNote.textContent = picked
-      ? 'Saved onto their record either way, so the warehouse builds on ' + picked + ' wire.'
-      : 'Nothing picked. They are added with no wire colour — the warehouse sees “Check ' +
-        'lights” and a System Message asks you to pick one off their house picture.';
+  const convertAutoBtn = document.getElementById('convertQuoteAutoBtn');
+  const convertManualBtn = document.getElementById('convertQuoteManualBtn');
+  /* ⚠ THE SUB-LABEL SAYS WHY, NOT JUST THAT IT IS OFF. A greyed button with its ordinary
+     wording under it is a button that looks broken. */
+  function setConvertBtn(btn, off, okWhy, offWhy){
+    if(!btn) return;
+    btn.disabled = !!off;
+    btn.style.opacity = off ? '.45' : '';
+    btn.style.cursor = off ? 'not-allowed' : '';
+    const why = btn.querySelector('span');
+    if(why) why.textContent = off ? offWhy : okWhy;
   }
-  if(convertWireSel) convertWireSel.addEventListener('change', refreshConvertWireNote);
-  refreshConvertWireNote();
+  function refreshConvertWireGate(){
+    const picked = convertWireSel ? convertWireSel.value : '';
+    if(convertWireNote){
+      convertWireNote.style.color = picked ? 'var(--slate)' : 'var(--ember)';
+      convertWireNote.textContent = picked
+        ? 'Saved onto their record either way, so the warehouse builds on ' + picked + ' wire.'
+        : 'Pick one before converting. If nobody can tell yet — no picture, nothing to ' +
+          'check — press Cancel and come back to this quote once somebody can.';
+    }
+    setConvertBtn(convertManualBtn, !picked,
+      'Open the Add a Customer form, already filled in, so you can finish it.',
+      'Pick a wire colour above first.');
+    /* The lights reason is named ahead of the wire one when both are missing: it is the one
+       this popup cannot fix, so it is the one that decides what she does next. */
+    setConvertBtn(convertAutoBtn, !picked || !hasLights,
+      'Save them now using everything the quote already knows.',
+      !hasLights ? 'Not available — this quote has no light colours.' : 'Pick a wire colour above first.');
+  }
+  if(convertWireSel) convertWireSel.addEventListener('change', refreshConvertWireGate);
+  refreshConvertWireGate();
   /* ⚠ READ BEFORE close(), on BOTH buttons. `close()` removes the overlay, so the select
      is gone by the time anything below it runs and the answer would read as blank — which
      is itself a legal value here, so it would fail silently rather than throw. */
   document.getElementById('convertQuoteManualBtn').addEventListener('click', function(){
     const wire = convertWireSel ? convertWireSel.value : '';
+    /* ⚠ ASKED AGAIN HERE, because a disabled button is still reachable by keyboard — the
+       same rule the re-quote popup's price box already follows. It returns BEFORE close(),
+       so the popup stays up with the red note on it rather than vanishing silently. */
+    if(!wire){ refreshConvertWireGate(); return; }
     close();
     const carried = fillAddCustFromQuote(quoteId, d);
     applyConvertWirePick(wire);
@@ -16990,6 +17039,7 @@ function showConvertQuoteChoice(quoteId, d){
   });
   document.getElementById('convertQuoteAutoBtn').addEventListener('click', function(){
     const wire = convertWireSel ? convertWireSel.value : '';
+    if(!wire){ refreshConvertWireGate(); return; }
     close();
     autoConvertQuoteToCustomer(quoteId, d, wire);
   });
@@ -17107,9 +17157,12 @@ function renderQuoteRows(filtered){
               '</div>'+
             '</div>'
           : '')+
-        '<div class="rtext">Prefers: '+esc(d.contactMethod)+
-          (formDone && d.outletTimer ? ' &middot; Timer: <strong>'+esc(d.outletTimer)+'</strong>' : '')+
-          (formDone && d.wireColor ? ' &middot; Wire: <strong>'+esc(d.wireColor)+'</strong>' : '')+'</div>'+
+        // ⚠ New quotes carry no preference ([[QT-47]]), so "Prefers:" only shows when one exists.
+        (function(parts){ return parts.length ? '<div class="rtext">'+parts.join(' &middot; ')+'</div>' : ''; })([
+          d.contactMethod ? 'Prefers: '+esc(d.contactMethod) : '',
+          formDone && d.outletTimer ? 'Timer: <strong>'+esc(d.outletTimer)+'</strong>' : '',
+          formDone && d.wireColor ? 'Wire: <strong>'+esc(d.wireColor)+'</strong>' : ''
+        ].filter(Boolean))+
         // ---- Why this is a re-quote --------------------------------------
         ((quoteStage(d) === 'new' && d.existingCustomerId && d.changed) ? (
           '<div style="margin-top:10px; background:#EEF1FF; border:1px solid #C7CEF5; border-radius:9px; padding:10px 12px; font-size:12.5px; color:#33397a; line-height:1.55;">'+

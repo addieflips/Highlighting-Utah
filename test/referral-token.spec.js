@@ -84,7 +84,7 @@ async function submitQuote(page, stub) {
   await page.locator('#quoteForm [name="street"]').fill('1 Elm St');
   await page.locator('#quoteForm [name="city"]').fill('Lehi');
   await page.locator('#quoteForm [name="zip"]').fill('84043');
-  await page.locator('#quoteForm [name="contact_method"]').selectOption({ index: 1 });
+  /* No contact-method select since [[QT-47]]; waiting on one would time out here. */
   await page.locator('#quoteForm button[type="submit"]').click();
   await expect.poll(async () =>
     (await stub.writes()).filter(w => w.op === 'add' && w.ref && /quotes/.test(JSON.stringify(w.ref))).length,
