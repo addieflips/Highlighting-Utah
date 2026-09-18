@@ -239,7 +239,7 @@ function adminHarness(opts) {
     db: io.db, collection: io.collection, addDoc: io.addDoc, serverTimestamp: io.serverTimestamp,
     allMessages: opts.allMessages || [],
     toJsDate: ts => (ts instanceof Date ? ts : null),
-    auth: { currentUser: { email: 'office@highlightingutah.com' } },
+    auth: opts.auth || { currentUser: { email: 'office@highlightingutah.com' } },
     location: { hash: '#/dashboard' },
     navigator: { userAgent: 'TestBrowser/1.0' },
     window: win,
@@ -732,6 +732,49 @@ console.log('--- the admin half ---');
 }
 
 {
+  /* ⭐ WHO WAS SIGNED IN WHEN IT HAPPENED (2026-09-18). A fault caught on the login screen
+     is held until messages load — which is AFTER somebody signs in — and used to be
+     stamped with that person. Five permission errors read "Signed in as: addiechichia"
+     for exactly that reason. The harness signs somebody in between the catch and the
+     flush, which is the order it happens in on a real page. */
+  const auth = { currentUser: null };
+  const h = adminHarness({ auth: auth });
+  h.reportAdminError('Unhandled promise: Missing or insufficient permissions.');
+  auth.currentUser = { email: 'addiechichia@gmail.com' };
+  h.flushAdminErrors();
+  check('an error caught before sign-in says nobody was signed in',
+    h.writes.length === 1 && /Signed in as: nobody/.test(h.writes[0].data.message) &&
+      h.writes[0].data.staffEmail === 'nobody',
+    'it named whoever signed in afterwards: ' + (h.writes[0] && h.writes[0].data.staffEmail));
+  const h2 = adminHarness({ auth: { currentUser: { email: 'office@highlightingutah.com' } } });
+  h2.flushAdminErrors();
+  h2.reportAdminError('Could not save the invoice');
+  check('and one caught after sign-in still names who it was',
+    h2.writes.length === 1 && h2.writes[0].data.staffEmail === 'office@highlightingutah.com',
+    'the fix must not blank the name for errors that really were somebody\'s');
+}
+
+{
+  /* ⭐ NOTHING READS FIRESTORE BEFORE SIGN-IN (2026-09-18). The payment-import folders
+     read and its listener sat as bare top-level lines and ran on the login screen: the
+     read became the unhandled "Missing or insufficient permissions" and the listener died
+     for the session. They run from initData now, which only runs once signed in. */
+  const initSrc = extractFn(admin, 'initData');
+  check('payment imports start from initData, after sign-in',
+    /startPaymentImports\(\)/.test(initSrc),
+    'initData no longer starts them, so the import history never loads');
+  const startSrc = extractFn(admin, 'startPaymentImports');
+  const topLevel = admin.split(/\r?\n/).filter(l => /^(loadPaymentImportFolders|loadPaymentImportHistory)\(\)/.test(l));
+  const listeners = admin.split("onSnapshot(collection(db,'paymentImports')").length - 1;
+  check('and nothing starts them at page load any more',
+    topLevel.length === 0 && listeners === 1 && startSrc.indexOf("onSnapshot(collection(db,'paymentImports')") !== -1,
+    'a top-level Firestore read runs before sign-in and is refused: ' + topLevel.join(' | ') + ' / listeners: ' + listeners);
+  check('and the folder read cannot escape as an unhandled promise',
+    /loadPaymentImportFolders\(\)\.catch\(/.test(startSrc) && /loadPaymentImportHistory\(\)\.catch\(/.test(startSrc),
+    'an uncaught read here is exactly the row that reached Admin Errors five times');
+}
+
+{
   /* ⚠ CLAUDE.md §7 records the Firestore long-poll line as normal reconnection noise
      rather than a fault, and it arrives in bursts — a flaky connection alone would fill
      this folder and teach the office to scroll past the row that matters. */
@@ -745,6 +788,47 @@ console.log('--- the admin half ---');
   check('but a real fault still gets through',
     h.writes.length === 1,
     'an ignore list that swallows real faults is worse than no ignore list at all');
+}
+
+{
+  /* ⭐ THE COMPUTER HAD NO CONNECTION (2026-09-18). Her actual row, twice (9/16 and 9/17):
+     "[HU] could not read nightly billing health Failed to get document because the client
+     is offline." That names the Wi-Fi, not the page, and the read it interrupted runs
+     again on the next ten-minute tick. */
+  const h = adminHarness();
+  h.flushAdminErrors();
+  h.reportAdminError('[HU] could not read nightly billing health Failed to get document because the client is offline.');
+  check('an offline read is not an error report',
+    h.writes.length === 0,
+    'got a row for Firestore saying the computer had no connection');
+  h.reportAdminError('[HU] could not read nightly billing health Missing or insufficient permissions.');
+  check('but the same read failing for a real reason still gets through',
+    h.writes.length === 1,
+    'the offline rule must match the offline wording, not the name of the read');
+}
+
+{
+  /* ⭐ AN UNHANDLED PROMISE SAYS WHERE IT STARTED (2026-09-18). "Unhandled promise: Missing
+     or insufficient permissions." reached the folder five times with nothing naming the
+     read, so the fix could only be guessed at. The stacks below are the two shapes the
+     office's browsers actually produce: Chrome on Windows and Safari on the Mac/iPhone. */
+  const src = extractFn(admin, 'rejectionWhere');
+  const where = new Function(src + '; return rejectionWhere;')();
+  const chrome = { stack: 'FirebaseError: Missing or insufficient permissions.\n' +
+    '    at new n (https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js:1:2345)\n' +
+    '    at async loadNightlyHealth (https://highlightingutah.com/admin.html:10640:18)' };
+  check('a Chrome stack names our function and line, not Firebase\'s',
+    where(chrome) === '\n  at loadNightlyHealth admin.html:10640', JSON.stringify(where(chrome)));
+  const safari = { stack: 'n@https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js:1:2345\n' +
+    'loadActivity@https://highlightingutah.com/admin.html:66410:30' };
+  check('a Safari stack does too',
+    where(safari) === '\n  at loadActivity admin.html:66410', JSON.stringify(where(safari)));
+  check('a stack with none of our frames adds nothing',
+    where({ stack: 'x@https://www.gstatic.com/a.js:1:1' }) === '' && where(null) === '' && where('text') === '',
+    'the line must read exactly as it always did when there is nothing to add');
+  check('and the catcher appends it',
+    /'Unhandled promise: '[^\n]*\+ rejectionWhere\(r\)/.test(admin),
+    'the helper exists but the unhandledrejection line no longer calls it');
 }
 
 {
