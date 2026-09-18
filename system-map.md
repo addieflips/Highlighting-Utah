@@ -3589,6 +3589,16 @@ come around later and want another building."*
   select blocks submission with a browser message pointing at an invisible field. ⚠ The
   cost, accepted: a quote can now arrive with no email, so the quote email waits until the
   office types one on the card. Better than the lead never arriving. Suite 330.
+  ⭐ **REVERSED FOR THIS FORM ON 2026-09-18 ([[QT-45]]).** Dax: *"make it so phone number
+  and email are both required in free quote."* The free quote form is back to **two boxes,
+  both `required`** — `quotePhoneInput` (`name="phone"`, `type="tel"`) and `quoteEmailInput`
+  (`name="email"`, `type="email"`) — and its Preferred Contact Method select is always
+  shown and always required, because with both details on the form every option is a real
+  answer. The listener that hid it on an @ is gone. Both fields are stored exactly as typed,
+  the same shape as before, so no reader downstream changed. ⚠ **Get In Touch and Send a
+  Message are untouched** and still take a phone OR an email through one box, as [[QT-40]]
+  says. ⚠ The cost, accepted knowingly: somebody with no email address cannot ask for a
+  quote on this form — they ring or use Get In Touch. Suite 330.
 
 **Then the property list went too, one day later.** Dax, 2026-09-04: *"get rid of the add
 a building on the property button on free quote but keep it in all customers."* So the
