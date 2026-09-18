@@ -57332,6 +57332,10 @@ suite('Suite 311. The referral offer, RUN rather than read');
        email's Approve button answers, and a stub would keep this suite green
        through it choosing one that was closed weeks ago. */
     'quoteForButtons', 'newQuoteToken', 'quotePortalParam', 'quoteButtonLabels',
+    /* ⚠ THE GREETING, WHICH IS NOT PART OF THE RENDERED BODY AT ALL and so had
+       nothing watching it. It is an EmailJS template parameter, and a blank one
+       mailed out as "Hi ," — see the checks at the foot of this suite. */
+    'properName', 'emailGreetingName',
     'quoteIsAddOn', 'quoteExistingCustomer', 'quoteMatchAddress'];
   const lifted311 = {};
   needed311.forEach(function (n) { lifted311[n] = extractFn(admin, n); });
@@ -57392,7 +57396,7 @@ suite('Suite 311. The referral offer, RUN rather than read');
       'return {resolveLinkTokens: resolveLinkTokens, referralOfferFor: referralOfferFor,',
       '        referralEmailBlock: referralEmailBlock, referralMissingNote: referralMissingNote,',
       '        referralOfferPlacement: referralOfferPlacement, writes: writes, refs: refs,',
-      '        quoteForButtons: quoteForButtons};'
+      '        quoteForButtons: quoteForButtons, emailGreetingName: emailGreetingName};'
     ].join(NL311));
 
     const withTok = { id: 'c1', data: { name: 'Brian Petersen', phone: '8015550111',
@@ -57526,6 +57530,66 @@ suite('Suite 311. The referral offer, RUN rather than read');
     check('S311', 'and somebody with no open quote still gets the honest fallback',
       oq4.indexOf(NOTFOUND) !== -1,
       'silently emitting nothing would hide a template pointed at the wrong audience');
+
+    /* ⭐ THE QUOTE THE OFFICE PRESSED SEND ON IS THE QUOTE THE BUTTONS ANSWER
+       (2026-09-17). Everything above this line asks the renderer to FIND the quote
+       from a phone number. The send does not have to guess — it is holding the
+       card — and two real emails came out wrong because it guessed anyway. */
+
+    /* ⚠ A LEAD WITH NO PHONE NUMBER IS A REAL LEAD NOW. The public form took one
+       box that is a phone OR an email from QT-40 (2026-09-12), so a quote can
+       carry an address and no number — and quoteForButtons returns null the
+       instant the number is empty. That is three copies of the developer text in
+       a priced email with the customer's own house in it. */
+    const qNoPhone = { id: 'q4', data: { name: 'Email Only', phone: '',
+      email: 'e@x.com', status: 'new', quoteToken: 'emailonlytok',
+      createdAt: '2026-09-16T00:00:00Z' } };
+    const eq5 = env311([withTok], [qNoPhone]);
+    const oq5 = await eq5.resolveLinkTokens(BTNS, '', 0,
+      { quote: qNoPhone, name: 'Email Only' });
+    check('S311', 'an email-only lead gets real buttons, because the send hands its quote in',
+      oq5.indexOf('token=emailonlytok') !== -1 && oq5.indexOf(NOTFOUND) === -1,
+      'got: ' + oq5.slice(0, 120) + ' — this is the reported email: a $384 quote with the ' +
+      'customer' + String.fromCharCode(39) + 's own photo in it and the words ' +
+      '"(quote token not found)" where the three buttons belong');
+    /* ⚠ THE SAME FIXTURE WITHOUT THE HAND-IN, so this suite cannot pass on a
+       renderer that quietly went back to the phone lookup. */
+    const eq5b = env311([withTok], [qNoPhone]);
+    const oq5b = await eq5b.resolveLinkTokens(BTNS, '', 0, { name: 'Email Only' });
+    check('S311', 'and the phone lookup alone still cannot find it, which is why the hand-in exists',
+      oq5b.indexOf(NOTFOUND) !== -1,
+      'if this ever passes, the fixture has stopped being the broken case and the ' +
+      'check above proves nothing');
+
+    /* ⚠ AND A SHARED NUMBER MUST NOT OVERRULE THE CARD. Seventeen numbers in the
+       book are shared and fourteen are a parent and a child, so the newest open
+       quote on a number can be the other household's — asking a parent to approve
+       their child's price. addOnEmailBlock already says this about the same
+       function; this is the send path saying it. */
+    const qOther = { id: 'q5', data: { name: 'Child', phone: PHONE_Q, status: 'new',
+      quoteToken: 'childtok', createdAt: '2026-09-01T00:00:00Z' } };
+    const eq6 = env311([withTok], [qOpenNewer, qOther]);
+    const oq6 = await eq6.resolveLinkTokens(BTNS, PHONE_Q, 0,
+      { quote: qOther, name: 'Child' });
+    check('S311', 'the card in hand beats a newer quote sharing the same phone number',
+      oq6.indexOf('token=childtok') !== -1 && oq6.indexOf('newertok') === -1,
+      'got: ' + (oq6.match(/token=[a-z0-9]+/) || ['none'])[0] + ' — the office pressed ' +
+      'Send on one card, and that is the quote the customer is being asked about');
+
+    /* ⚠ AND A HANDED-IN QUOTE WITH NO TOKEN IS STILL MINTED ONE, onto ITSELF.
+       The mint above this line is reached through the phone lookup; a quote
+       handed in must reach it too, or the fix trades one set of not-found words
+       for another. */
+    const qHandNoTok = { id: 'q6', data: { name: 'Email Only', phone: '',
+      email: 'e2@x.com', status: 'new', createdAt: '2026-09-16T00:00:00Z' } };
+    const eq7 = env311([withTok], [qHandNoTok]);
+    const oq7 = await eq7.resolveLinkTokens(BTNS, '', 0,
+      { quote: qHandNoTok, name: 'Email Only' });
+    check('S311', 'a handed-in quote with no token is given one, written to that quote',
+      oq7.indexOf(NOTFOUND) === -1 && oq7.indexOf('action=approve') !== -1 &&
+      eq7.refs.some(function (r) { return r && r.coll === 'quotes' && r.id === 'q6'; }),
+      'got: ' + oq7.slice(0, 120) + ' — a token minted onto the wrong document leaves ' +
+      'the buttons pointing nowhere while the suite reads green');
     })());
 
     const e6 = env311([withTok]);
@@ -57551,6 +57615,29 @@ suite('Suite 311. The referral offer, RUN rather than read');
     check('S311', 'and a template that is not an RSVP gets no offer at all',
       e6.referralOfferPlacement(tplBill) === 'none',
       'a referral offer at the foot of an invoice is not what that email is for');
+
+    /* ⭐ "Hi ," — REPORTED 2026-09-17, on the same quote email as the not-found
+       words above. The greeting is not in the body this suite renders at all: the
+       EmailJS customer template opens "Hi " + to_name + "," and every send in
+       admin.html passed the raw name with an empty-string fallback, so a record
+       with no name on it mailed out as a comma on its own.
+
+       ⚠ RUN, NOT READ, for the helper — and READ for the call sites, because no
+       test in this repo can reach an EmailJS template parameter. The regex below
+       is the only thing standing between a nameless customer and that comma. */
+    check('S311', 'a nameless customer is greeted "there", never with a bare comma',
+      e6.emailGreetingName('') === 'there' && e6.emailGreetingName(null) === 'there' &&
+      e6.emailGreetingName('   ') === 'there',
+      'got: "' + e6.emailGreetingName('') + '" — this is the whole of the reported bug');
+    check('S311', 'and a customer who has a name is still greeted by it',
+      e6.emailGreetingName('Miko Johnson') === 'Miko Johnson' &&
+      e6.emailGreetingName('MIKO JOHNSON') === 'Miko Johnson',
+      'to_name has always carried the full name; this change only closes the blank, ' +
+      'and rewording ~950 invoices and RSVPs is not what it is for');
+    check('S311', 'and no send is left passing the raw name with an empty fallback',
+      !/to_name:\s*[A-Za-z0-9_.]+(?:\.data)?\.name\s*\|\|\s*''/.test(admin),
+      'one missed send site is one customer reading "Hi ," — they are all the same ' +
+      'one-line change and they must not drift apart again');
   }
 }
 
