@@ -1473,7 +1473,7 @@ in a hurry.
 This Date* are untouched, so a November customer who is rushed, or who was missed, is taken
 first on the first **November** day and not one day earlier. The box says so on screen.
 
-### Who counts as a new hang, on the tab and in the builder (changed 2026-09-05, SCH-49)
+### Who counts as a new hang, on the tab and in the builder (changed 2026-09-05, SCH-81)
 
 Two things on the Schedule tab used to answer this differently, and Dax was looking at the
 disagreement: *"one of the top priorites is new hang but I have people with the $30 set up

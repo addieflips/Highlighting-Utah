@@ -1087,7 +1087,7 @@ check('logic', 'admin preview and the nightly function agree on who is new',
  * belongs here when its quote has gone Closed — the status Convert-to-Customer
  * itself sets — matched by phone, since quotes and jobAddresses share no id.
  *
- * ⭐ AND SINCE 2026-09-05 (SCH-49) THE FEE BOX COUNTS AS WELL — the UNION, not a
+ * ⭐ AND SINCE 2026-09-05 (SCH-81) THE FEE BOX COUNTS AS WELL — the UNION, not a
  * swap. Dax: "in schedule one of the top priorites is new hang but I have people
  * with the $30 set up fee aka a new member who arent being treated as a new
  * member in schedule." houseInstallPriority has always given a ticked box tier 10,
@@ -1120,10 +1120,10 @@ check('logic', 'the Schedule tab\'s "new member" still reads a Closed quote',
   'Ashley Wray\'s fee box is not ticked and the closed quote is the only thing that knows she is a new hang — losing this branch loses her NEW badge and her crew photo');
 check('logic', 'the Schedule tab\'s "new member" also reads the set-up fee box, strictly',
   /chargeNewMemberFee === true/.test(stripComments(isNewMemberHouseSrc || '')),
-  'SCH-49 — houseInstallPriority routes a ticked box first, so the badge, the New members count and the crew sheet have to agree with it. A loose truthy test would let an imported string count as a tick');
+  'SCH-81 — houseInstallPriority routes a ticked box first, so the badge, the New members count and the crew sheet have to agree with it. A loose truthy test would let an imported string count as a tick');
 check('logic', 'Start New Season still clears the set-up fee flag, which is what makes the check above safe',
   /chargeNewMemberFee:\s*false/.test(stripComments(admin)),
-  'the 2026-08-14 objection was that the box never clears, so reading it re-flags every past customer. Start New Season clearing it is the whole reason SCH-49 is safe — if this write is gone, revert isNewMemberHouse to the quote alone');
+  'the 2026-08-14 objection was that the box never clears, so reading it re-flags every past customer. Start New Season clearing it is the whole reason SCH-81 is safe — if this write is gone, revert isNewMemberHouse to the quote alone');
 check('logic', 'the dead h.isNew flag is gone from the Schedule tab',
   !/\.isNew\b/.test(stripComments(admin)),
   'a bare .isNew read is back — that flag is never set by the CSV import, so it silently shows nobody as new again');
@@ -41829,7 +41829,7 @@ suite('252. The NEW badge is this house, not just this phone number');
 
     /* The child came through a quote and was converted, so THEIR quote is closed
        and carries the shared number. The parent has been a customer for years. */
-    /* `extra` patches the two customer records — used only by the SCH-49 fee-box
+    /* `extra` patches the two customer records — used only by the SCH-81 fee-box
        checks below, so every existing fixture is byte-for-byte what it was. */
     const build = (quotes, extra) => {
       const e = extra || {};
@@ -41925,14 +41925,14 @@ suite('252. The NEW badge is this house, not just this phone number');
       (both.closedQuoteFor(childHouse) || {}).id === 'qC',
       'returning the first match by phone hands one household the other one\'s quote');
 
-    /* ---- SCH-49: the set-up fee box is the OTHER half of "new hang" ----
+    /* ---- SCH-81: the set-up fee box is the OTHER half of "new hang" ----
        Dax, 2026-09-05: people carrying the fee were not being treated as new
        members in Schedule, while houseInstallPriority routed them first. These
        fixtures carry NO quotes at all, so they can only pass on the fee branch. */
     const feeOnly = build([], { c1: { chargeNewMemberFee: true } });
     check('S252', 'a ticked set-up fee box is a new hang with no quote anywhere',
       feeOnly.isNewMemberHouse(childHouse) === true,
-      'SCH-49 — this is the case he reported: added through Add Customer with the box ticked, never through a quote, so closedQuoteFor can never see them');
+      'SCH-81 — this is the case he reported: added through Add Customer with the box ticked, never through a quote, so closedQuoteFor can never see them');
     check('S252', 'and it does not spill onto the other house on the same phone number',
       feeOnly.isNewMemberHouse(parentHouse) === false,
       'the fee is read off the house\'s OWN resolved customer, so a shared phone cannot badge a five-year customer NEW — the same trap the quote half was fixed for');
