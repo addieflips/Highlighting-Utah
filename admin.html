@@ -23594,7 +23594,25 @@ const RSVP_DECLINE_REASONS = [
   'Not decorating',
   'Other'
 ];
+/* ⭐ THE WIRE COLOUR NOBODY HAS PICKED YET (2026-09-17). Dax: "if they dont answer it
+   then there is a spot in our system messages that shows us a picture of their house and we
+   can mark there wire type there and there is no default color so they dont get assigned a
+   color until we go into system messages and assign them one."
+
+   ⛔ NOTHING ELSE IN THIS APP ASKS FOR THE WIRE AT THE MOMENT THE HOUSE IS NEW. The
+   customer is not asked any more (Addie, 2026-09-17), the office form opens on "not chosen",
+   and [[WH-35]] leaves the warehouse reading "Check lights" — which is the right answer for
+   somebody whose bin already exists and the wrong one for a house that has never been hung,
+   because there is no bin to look in. This notice is the door for that house: a picture of
+   it, and the two answers, in the one place the office already reads every morning.
+
+   ⚠ RAISED AT CREATION ONLY, NEVER SWEPT OVER THE BOOK. ~637 customers have no wire on
+   file and are deliberately left to be answered at the shelf, one at a time, as Addie asked
+   ("we will update it little at a time"). A notice per existing customer would bury the
+   folder that this one has to be noticed in. */
+const WIRE_PICK_TOPIC = 'Pick a Wire Colour';
 const SYSTEM_NOTICE_TOPICS = [
+  WIRE_PICK_TOPIC,
   'Routes Kept Up To Date', 'Moved To Another Day', 'A Route Sheet Is Out Of Date',
   'Lights Changed After Assignment', 'Rejoined After Recycling', 'Customer Number Needs Fixing',
   'A Background Check Has Stopped', 'Carried Debt Written Off', 'Add-On Declined',
@@ -24894,6 +24912,199 @@ function msgAlertOffNoteHtml(cfg){
     ' under <b>Automation Emails \u2192 Email Setup</b>: <b>' + missing.join('</b>, <b>') + '</b>.' +
     '</div>';
 }
+/* ⭐ THE PICK-A-WIRE CARD. Drawn inside a System notice row, by BOTH renderers — the
+   Communication Centre list and the older System tab — because one card written twice is
+   how the two screens start disagreeing about the same notice.
+
+   ⚠ THE ANSWER IS READ OFF THE CUSTOMER, NOT OFF THE NOTICE. The wire can also be set
+   from Edit Customer, the member portal or the master-sheet sync, so a card that trusted its
+   own buttons would go on asking for something already answered, and pressing it would write
+   over a colour a person had since chosen. The customer record is the one copy. */
+const wirePickPhotoCache = new Map();
+function wirePickCustomerFor(d){
+  if(!d || typeof jobAddresses === 'undefined') return null;
+  if(d.customerId){
+    const byId = jobAddresses.find(function(a){ return a.id === d.customerId; });
+    if(byId) return byId;
+  }
+  /* The id is the contract; the phone is the fallback for a notice written before
+     one carried an id, and for a record rebuilt under a new id. */
+  const digits = String((d.phone) || '').replace(/\D/g,'');
+  if(!digits) return null;
+  return jobAddresses.find(function(a){
+    return String((a.data.phone) || '').replace(/\D/g,'') === digits;
+  }) || null;
+}
+/* Only the two real answers count as picked. Anything else — blank, or the old 'Any' —
+   is nobody's answer, which is the whole point of this notice. */
+function wirePickAnswer(cust){
+  const w = cust ? String((cust.data || {}).wireColor || '').trim() : '';
+  return (w === 'White' || w === 'Green') ? w : '';
+}
+function wirePickCardHtml(item){
+  const d = item.data || {};
+  if(d.topic !== WIRE_PICK_TOPIC) return '';
+  const cust = wirePickCustomerFor(d);
+  /* ⚠ A BUTTON THAT CANNOT WORK IS NOT DRAWN. Addie, on buttons generally: "make sure
+     that if i click a button the function that is supposed to happen actually does." */
+  if(!cust) return '<div class="rtext" style="margin-top:6px; color:var(--ember);">' +
+    'This customer is no longer on file — they may have been removed or recycled. ' +
+    'Nothing to pick; delete this notice.</div>';
+  const already = wirePickAnswer(cust);
+  if(already) return '<div class="rtext" style="margin-top:6px; font-weight:600; color:var(--moss);">' +
+    '&#10003; Wire colour set to ' + esc(already) + '. Nothing to do.</div>';
+  return '<div data-wirepick="' + item.id + '" data-wirepickcust="' + esc(cust.id) + '" style="margin-top:8px;">' +
+      '<div data-wirepickphoto="' + esc(cust.id) + '" style="max-width:320px; border:1px solid var(--line); ' +
+        'border-radius:10px; overflow:hidden; background:var(--snow); font-size:12px; color:var(--slate); padding:10px;">' +
+        'Looking for a picture of the house\u2026</div>' +
+      '<div style="margin-top:6px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">' +
+        '<span style="font-size:12.5px; font-weight:600;">Wire colour:</span>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-wireset="White">White</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-wireset="Green">Green</button>' +
+      '</div>' +
+      '<div class="rtext" style="margin-top:4px; font-size:12px; color:var(--slate);">' +
+        'Whichever you press is written straight onto their record. Until then they carry no ' +
+        'wire colour at all and read <strong>Check lights</strong> in the warehouse.</div>' +
+    '</div>';
+}
+/* ⚠ TWO KEYS, DIFFERENT APIS ENABLED. The Maps key in this page's script tag and the
+   Firebase key do not have the same Google APIs turned on — Street View answers on one of
+   them and refuses the other — so this walks the same list rmFetchStatic walks rather than
+   hard-coding either. A refusal is the only reason to try the next key: ZERO_RESULTS means
+   Google has no imagery there and would say so on every key we own. */
+function wirePickHeading(lat, lng, panoLat, panoLng){
+  const toRad = v => v * Math.PI / 180, toDeg = v => v * 180 / Math.PI;
+  const dLng = toRad(lng - panoLng);
+  const y = Math.sin(dLng) * Math.cos(toRad(lat));
+  const x = Math.cos(toRad(panoLat)) * Math.sin(toRad(lat)) -
+            Math.sin(toRad(panoLat)) * Math.cos(toRad(lat)) * Math.cos(dLng);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+async function wirePickStreetView(lat, lng){
+  const keys = (typeof rmMapsKeys === 'function') ? rmMapsKeys() : [];
+  if(!keys.length) return {url: null, note: 'No Google key on this page, so no Street View.'};
+  for(let i = 0; i < keys.length; i++){
+    let meta = null;
+    try{
+      const res = await fetch('https://maps.googleapis.com/maps/api/streetview/metadata?location=' +
+        lat + ',' + lng + '&key=' + keys[i]);
+      meta = await res.json();
+    }catch(err){
+      return {url: null, note: 'Could not reach Google for a picture.'};
+    }
+    if(meta && meta.status === 'OK' && meta.location){
+      const heading = Math.round(wirePickHeading(lat, lng, meta.location.lat, meta.location.lng));
+      return {url: 'https://maps.googleapis.com/maps/api/streetview?size=480x300&location=' +
+        lat + ',' + lng + '&heading=' + heading + '&pitch=0&key=' + keys[i], note: 'Street View'};
+    }
+    if(meta && (meta.status === 'ZERO_RESULTS' || meta.status === 'NOT_FOUND')){
+      return {url: null, note: 'Google has no Street View of this address.'};
+    }
+  }
+  return {url: null, note: 'Google refused the keys on this page for Street View.'};
+}
+async function wirePickPhotoFor(cust){
+  if(wirePickPhotoCache.has(cust.id)) return wirePickPhotoCache.get(cust.id);
+  const d = cust.data || {};
+  let out;
+  /* A photo somebody took of the house beats Street View, which can be years old and
+     can be pointing at the neighbour. */
+  if(d.housePhotoUrl) out = {url: d.housePhotoUrl, note: 'Photo on their record'};
+  else if(typeof d.lat !== 'number' || typeof d.lng !== 'number'){
+    out = {url: null, note: 'No map pin on this customer yet, so there is no Street View to ' +
+      'show — open their card and press Save to find the pin.'};
+  }
+  else out = await wirePickStreetView(d.lat, d.lng);
+  wirePickPhotoCache.set(cust.id, out);
+  return out;
+}
+async function wirePickFillPhoto(box, custId){
+  if(!box) return;
+  const cust = (typeof jobAddresses !== 'undefined')
+    ? jobAddresses.find(function(a){ return a.id === custId; }) : null;
+  if(!cust){ box.textContent = 'That customer is no longer on file.'; return; }
+  let shot;
+  try{ shot = await wirePickPhotoFor(cust); }
+  catch(err){
+    console.error('[HU] could not work out a picture of the house:', err);
+    shot = {url: null, note: 'Could not load a picture of the house.'};
+  }
+  /* ⚠ The list redraws on every message write, so the element this started on may no
+     longer be in the page. Writing to a detached node is harmless but pointless. */
+  if(!box.isConnected) return;
+  const where = esc((cust.data || {}).address || '');
+  box.innerHTML = shot.url
+    ? '<img src="' + esc(shot.url) + '" alt="' + where + '" style="display:block; width:100%; height:auto;">' +
+      '<div style="padding:5px 8px; font-size:11.5px; color:var(--slate);">' + esc(shot.note) +
+      ' — look at the trim and the roofline, then pick the cord that disappears against it.</div>'
+    : esc(shot.note);
+}
+async function wirePickSet(msgId, custId, wire, box){
+  if(wire !== 'White' && wire !== 'Green') return;
+  const cust = (typeof jobAddresses !== 'undefined')
+    ? jobAddresses.find(function(a){ return a.id === custId; }) : null;
+  if(!cust){ toast('That customer is no longer on file — nothing was changed.'); return; }
+  const already = wirePickAnswer(cust);
+  if(already){
+    toast('Their wire colour is already ' + already + ' — nothing was changed.');
+    renderMessagesList();
+    return;
+  }
+  if(box) box.querySelectorAll('[data-wireset]').forEach(function(b){ b.disabled = true; });
+  const updates = {wireColor: wire};
+  /* ⚠ THE SAME REBUILD RULE EDIT CUSTOMER USES, because this IS an edit to one of the
+     three WAREHOUSE_BUILD_FIELDS. A house whose bundle was already made while it read
+     "Check lights" has to be made again now the wire is known; a house still waiting is
+     already flagged and this changes nothing for it. Asking warehouseRebuildFields rather
+     than setting the flag outright is what keeps the two screens agreeing. */
+  try{
+    const whChanged = warehouseRebuildFields(cust.data, updates);
+    if(whChanged.length) updates.needsLightBuild = true;
+    /* ⚠ AND IT DATES THE QUEUE, like every other door that queues one. Without this the
+       house joins the warehouse list carrying no date, and nothing on that screen can tell
+       a job raised this morning from one raised in August. */
+    stampBuildQueued(updates, cust.data.needsLightBuild === true);
+  }catch(err){
+    console.error('[HU] the wire pick could not check the rebuild rule:', err);
+  }
+  try{
+    await updateDoc(doc(db,'jobAddresses', custId), updates);
+  }catch(err){
+    console.error('[HU] could not save the wire colour:', err);
+    toast('Could not save that — ' + ((err && err.message) || 'the write was refused'));
+    if(box) box.querySelectorAll('[data-wireset]').forEach(function(b){ b.disabled = false; });
+    return;
+  }
+  /* Best effort from here down: the answer is on the record, which is the point. A notice
+     left unread is a tidying job, not a lost answer — and the card reads the customer, so
+     it says "set to White" on the next render either way. */
+  try{
+    await updateDoc(doc(db,'messages', msgId),
+      {read: true, responded: true, wirePickedAs: wire, wirePickedAt: serverTimestamp()});
+  }catch(err){
+    console.error('[HU] the wire was saved but its notice could not be closed:', err);
+  }
+  if(typeof logActivity === 'function'){
+    logActivity('Set the wire colour for ' + ((cust.data || {}).name || 'a customer') + ' to ' + wire,
+      'customers', custId);
+  }
+  toast('Wire colour set to ' + wire + '.');
+}
+/* Called by both renderers, over the whole list, so a card in the folded routine block
+   gets its handlers the moment it is shown. */
+function wirePickWireRows(list){
+  if(!list) return;
+  list.querySelectorAll('[data-wirepick]').forEach(function(box){
+    const custId = box.dataset.wirepickcust;
+    wirePickFillPhoto(box.querySelector('[data-wirepickphoto]'), custId);
+    box.querySelectorAll('[data-wireset]').forEach(function(btn){
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        wirePickSet(box.dataset.wirepick, custId, btn.dataset.wireset, box);
+      });
+    });
+  });
+}
 function renderMessagesList(){
   /* ⭐ THE NAV AND THE SUMMARY ARE DRAWN FROM THE SAME PASS AS THE LIST, so a message
      arriving, being read or being resolved moves the counts at the same moment it moves
@@ -25010,6 +25221,7 @@ function renderMessagesList(){
           : d.addedToWarehouseAt
             ? '<div class="rtext" style="margin-top:6px; font-weight:600; color:var(--moss);">&#10003; Sent to the Warehouse'+(d.addedToWarehouseAt.toDate ? ' on '+d.addedToWarehouseAt.toDate().toLocaleDateString() : '')+'</div>'
             : '<button type="button" class="btn btn-outline btn-sm" data-sendtowh="'+item.id+'" style="margin-top:6px;">Send to Warehouse</button>') : '')+
+        wirePickCardHtml(item)+
       '</div>'+
       '<div class="row-actions" style="align-items:center;">'+
         '<button class="star-btn'+(d.important ? ' on' : '')+'" data-star="'+item.id+'" title="Mark important">'+starIcon()+'</button>'+
@@ -25020,6 +25232,7 @@ function renderMessagesList(){
     '</div>';
   });
   list.innerHTML = html;
+  wirePickWireRows(list);
   /* ⚠ PRUNE BEFORE THE TOOLBAR IS DRAWN. A tick on a row that has since been
      filtered out, moved or deleted would still be counted and still be acted on. */
   const shown = new Set(filtered.map(m => m.id));
@@ -39411,6 +39624,34 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       lightsQueuedAt: serverTimestamp(),
       scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, useEaves: useEaves, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, houseSides: selectedSides, houseSidesList: selectedSidesList.length ? selectedSidesList : null, buildings: addCustBuildingsFromQuote(), customerNumber: customerNumber
     }, billingElsewhere ? {billToPhone: billToPhone} : {}));
+    /* ⭐ NOBODY HAS PICKED A WIRE COLOUR, SO THE OFFICE IS ASKED — WITH A PICTURE
+       (2026-09-17, see WIRE_PICK_TOPIC). The customer is never asked for one any more and
+       this form opens on "not chosen", so a new house arrives carrying nothing. Left at
+       that it would simply read "Check lights" in the warehouse for ever, which is an
+       instruction to look in a bin that does not exist yet for a house that has never
+       been hung.
+
+       ⚠ ONLY WHEN IT IS GENUINELY BLANK. A White or a Green typed into the form above is
+       an answer, and an answer raises nothing.
+
+       ⚠ IT CANNOT TAKE THE CUSTOMER DOWN WITH IT. The record is already written by this
+       point; a notice that fails to be written is a question the office is not asked, not a
+       customer that was not added, so it is caught and logged rather than thrown. */
+    if(!wireColor){
+      await addDoc(collection(db,'messages'), {
+        topic: WIRE_PICK_TOPIC, folder: 'System',
+        name: name, phone: phone, email: email, contactMethod: '',
+        customerId: newAddrRef.id,
+        message: (name || 'This customer') + ' has no wire colour on their record' +
+          (addCustFromQuoteId ? ' — it was not picked when their quote was converted' : '') +
+          '. Nothing has been chosen for them: pick White or Green here, from the picture of ' +
+          'their house, and it goes straight onto their record.',
+        autoQueuedToWarehouse: false, needsReassign: false,
+        createdAt: serverTimestamp()
+      }).catch(function(err){
+        console.error('[HU] the customer was added but the wire-colour notice could not be written:', err);
+      });
+    }
     // If this number was sitting in the available pool, it isn't available anymore.
     if(customerNumber){
       await deleteDoc(doc(db,'availableCustomerNumbers', customerNumber)).catch(function(){ /* fine if it was never pooled */ });
@@ -63848,7 +64089,10 @@ const SYSTEM_NOTICE_SECTION_OF = {
   'Outlet Timer Change': 'warehouse',
   'Lights Changed After Assignment': 'warehouse',
   'Rejoined After Recycling': 'warehouse',
-  'Customer Number Needs Fixing': 'warehouse'
+  'Customer Number Needs Fixing': 'warehouse',
+  /* A wire colour is what the bundle is made of, so it files beside the other build
+     questions rather than in Everything else, where nobody looks. */
+  [WIRE_PICK_TOPIC]: 'warehouse'
 };
 function systemNoticeSection(d){
   return SYSTEM_NOTICE_SECTION_OF[(d || {}).topic] || 'other';
@@ -63916,6 +64160,7 @@ function renderSystemMessagesTab(){
     });
   }
   systemNoticeWireRows(list);
+  wirePickWireRows(list);
 }
 /* One notice's card. Pulled out of renderSystemMessagesTab so the folded routine
    list and the list above it are rendered by the same code and cannot drift. */
@@ -63942,6 +64187,7 @@ function systemNoticeRow(item){
            `customerId`, not only a fix one — the field is the contract, so a notice added
            later gets the button by writing that one field. Nothing else writes it today. */
         (d.customerId ? '<button type="button" class="btn btn-outline btn-sm" data-noticecust="'+esc(d.customerId)+'" style="margin-top:6px;">Open their card</button>' : '')+
+        wirePickCardHtml(item)+
       '</div>'+
       '<div class="row-actions" style="align-items:center;">'+
         '<button class="icon-btn" data-sysread="'+item.id+'" data-current="'+(d.read?1:0)+'" title="'+(isUnread?'Mark as read':'Mark as unread')+'">'+(isUnread ? mailIcon() : mailOpenIcon())+'</button>'+

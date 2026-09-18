@@ -51404,18 +51404,23 @@ suite('292. Cancellations, the member portal, and folders in the System tab');
      it. A stub would let this suite stay green through a change to where a fix notice
      lands, which is the one thing it exists to protect. */
   const fixTopic292 = (admin.match(/const FIX_NOTICE_TOPIC = '[^']*';/) || [])[0];
+  /* ⚠ AND THE SAME TRAP AGAIN, from the other computed key: [[WH-40]]'s Pick a Wire
+     Colour notice files itself under Warehouse & Lights through [WIRE_PICK_TOPIC], so this
+     table now needs that constant too. Lifted, never stubbed — a stub would let the suite
+     stay green through a change to where that notice lands. */
+  const wireTopic292 = (admin.match(/const WIRE_PICK_TOPIC = '[^']*';/) || [])[0];
   const folderOf = extractFn(admin, 'messageFolderOf');
   const sectionOf = extractFn(admin, 'systemNoticeSection');
   const secMap = (admin.match(/const SYSTEM_NOTICE_SECTION_OF = \{[\s\S]*?\};/) || [])[0];
   const secList = (admin.match(/const SYSTEM_NOTICE_SECTIONS = \[[\s\S]*?\];/) || [])[0];
   check('S292', 'the two tables and the two rules were all found',
     !!homeMap && !!folderOf && !!sectionOf && !!secMap && !!secList && !!errConsts292 &&
-    !!fixTopic292,
+    !!fixTopic292 && !!wireTopic292,
     'renamed? update this suite rather than deleting it');
 
   if (homeMap && folderOf && sectionOf && secMap && secList) {
     const api = new Function(
-      (errConsts292 || '') + NL292 + (fixTopic292 || '') + NL292 +
+      (errConsts292 || '') + NL292 + (fixTopic292 || '') + NL292 + (wireTopic292 || '') + NL292 +
       homeMap + NL292 + folderOf + NL292 + secMap + NL292 + secList + NL292 + sectionOf + NL292 +
       'return {folderOf: messageFolderOf, sectionOf: systemNoticeSection,' +
       ' sections: SYSTEM_NOTICE_SECTIONS, home: MESSAGE_HOME_FOLDER};')();
