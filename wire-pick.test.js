@@ -375,20 +375,191 @@ check('the card reads the customer record, not the notice, for the answer',
     autoBtn.indexOf('convertWireSel ? convertWireSel.value') < autoBtn.indexOf('close()'),
     'read after close() the select is gone and the answer reads blank, silently');
 
-  /* ⛔ IT ASKS, IT NEVER REFUSES — [[WH-40]] exists because there is often genuinely nothing
-     to answer from yet. A guard that blocks a legitimate conversion has no way round it. */
-  /* \u26a0 AND THE FIRST DRAFT OF THIS CHECK FAILED ON CORRECT CODE, which is worth keeping:
-     it looked for `disabled` within a fixed window of the select, and caught the LIGHTS
-     guard on the Convert automatically button a few lines below. A fixed-length window is
-     banned in this repo by name (\u00a77) and this is why. What has to be true is that neither
-     button turns the wire into a refusal \u2014 so that is what is asserted, on each handler. */
-  check('leaving it unanswered still converts',
-    !/if\s*\(\s*!\s*wire\b/.test(manualBtn) && !/if\s*\(\s*!\s*wire\b/.test(autoBtn) &&
-    !/convertQuoteWire[^\r\n]*disabled|disabled[^\r\n]*convertQuoteWire/.test(popup),
-    'blocking the convert on this is the one thing WH-40 says not to do');
-  check('and the blank option says what not answering costs',
-    /Check[\s\S]{0,40}lights/.test(popup) && /System Message/.test(popup),
-    'a blank with no consequence beside it reads as an optional extra');
+  /* -------------------------------------------------------------------------
+   * ⭐ AND IT REFUSES  ([[WH-43]], 2026-09-18)
+   *
+   * Addie, told the picker only asked: "make it required for us to choose wire before we
+   * convert to costumer."
+   *
+   * ⚠ THIS REVERSES [[WH-42]]'s OWN "ask, never refuse" AND THE CHECK THAT HELD IT, which
+   * read "leaving it unanswered still converts". R-024. The old reasoning is kept rather
+   * than deleted because it is the cost being paid rather than a mistake: [[WH-40]] exists
+   * because there is sometimes genuinely nothing to answer from, and Cancel is now the only
+   * way past that. She was told twice and asked for it anyway.
+   * ⛔ AND IT IS THE POPUP THAT REFUSES, NOT THE ADD CUSTOMER SAVE — asserted below,
+   * because closing that door too would make the [[WH-40]] notice unraisable at the one
+   * door that raises it, which is WH-40 deleted as a side effect of a different ruling.
+   * ----------------------------------------------------------------------- */
+
+  /* ⚠ THE FIRST DRAFT OF THE CHECK THIS REPLACES FAILED ON CORRECT CODE, which is worth
+     keeping: it looked for `disabled` within a fixed window of the select, and caught the
+     LIGHTS guard on the Convert automatically button a few lines below. A fixed-length
+     window is banned in this repo by name (§7) and this is why. Both handlers' own bodies
+     are asserted instead. */
+  check('leaving it unanswered refuses, on both buttons',
+    /if\(!wire\)\{/.test(manualBtn) && /if\(!wire\)\{/.test(autoBtn),
+    'she asked for it to be required, and a disabled button is still reachable by keyboard');
+  /* ⚠ BEFORE close(), OR THE POPUP VANISHES ON A PRESS THAT DID NOTHING — which is a
+     button that looks broken, on the one screen this ruling is about. */
+  check('and a refused press leaves the popup up',
+    manualBtn.indexOf('if(!wire)') < manualBtn.indexOf('close()') &&
+    autoBtn.indexOf('if(!wire)') < autoBtn.indexOf('close()'),
+    'returning after close() removes the popup and says nothing');
+
+  /* ⚠ THE HANDLER IS THE BACKSTOP. What she actually sees is the button being off. */
+  const gate = popup.slice(popup.indexOf('function refreshConvertWireGate'));
+  check('the buttons are held while it is blank',
+    /setConvertBtn\(convertManualBtn, !picked/.test(gate) &&
+    /setConvertBtn\(convertAutoBtn, !picked \|\| !hasLights/.test(gate),
+    'a refusal that only happens on the press is a button that looks broken');
+  check('and the lights refusal still stands beside it',
+    /!hasLights \?/.test(gate),
+    'the wire guard must not swallow the one this popup cannot fix');
+  check('one place decides whether a button is off',
+    !/convertQuoteAutoBtn[^\r\n]*disabled|convertQuoteManualBtn[^\r\n]*disabled/.test(popup),
+    'half in the markup and half in the gate is how the two start disagreeing about a button');
+  check('and it says why it is off, not just that it is',
+    /why\.textContent = off \? offWhy : okWhy/.test(popup),
+    'a greyed button under its ordinary wording is a button that looks broken');
+
+  /* ⛔ THE BLANK OPTION STAYS IN THE LIST AND IS RELABELLED. Dropped, the select opens
+     preselected on the first real colour and one press saves White onto a house nobody
+     looked at — the invented colour WH-35 and WH-40 both exist to stop, arriving by
+     accident through the very change meant to make somebody choose. */
+  /* ⚠ THE FIRST DRAFT OF THIS CHECK WAS WEAK AND THE RED-CHECK CAUGHT IT: it refused
+     `.filter(`, and the sabotage that drops the blank one spells it `Array.prototype
+     .filter.call(` — no literal `.filter(` anywhere in it. What has to be true is that
+     EVERY option the form has is offered, so that is what is asserted: the mapper walks
+     `real.options` itself and nothing narrows it. */
+  check('the blank option survives as a placeholder rather than being dropped',
+    /o\.value \? o\.textContent :/.test(opts) &&
+    /map\.call\(real\.options,/.test(opts) && !/filter/.test(opts) && !/slice/.test(opts),
+    'with no blank to open on, one press silently saves the first colour in the list');
+  check('and it no longer offers itself as a way through',
+    !/warehouse will check/.test(opts),
+    'its own wording describes a route this popup no longer has');
+  check('the note says what is missing rather than what a blank would cost',
+    /Pick one before converting/.test(popup) && !/System Message/.test(popup),
+    'the old wording described a blank reaching the record, which it no longer can');
+
+  /* ⛔ AND THE ADD CUSTOMER SAVE IS DELIBERATELY UNTOUCHED. Its blank-wire branch is what
+     raises the WH-40 System Message, and it is the only door that raises one. A customer
+     typed in from scratch is not a conversion. */
+  /* ⚠ THE STRETCH BETWEEN READING THE BOX AND WRITING THE CUSTOMER — which is the only
+     place a refusal could sit. Anywhere past the write is too late to refuse anything, and
+     that is where the notice's own `if(!wireColor)` lives. */
+  const wireRead = clean.indexOf("getElementById('addCustWireColor').value");
+  const beforeWrite = wireRead < 0 ? ''
+    : clean.slice(wireRead, clean.indexOf('needsDayAssignedAt: serverTimestamp()', wireRead));
+  check('the Add Customer save still lets a blank wire through',
+    !!beforeWrite && !/if\(!wireColor\)/.test(beforeWrite) && /if\(!lightsDescription\)\{/.test(beforeWrite),
+    'requiring it there makes the WH-40 notice unraisable at the one door that raises it');
+
+  /* -------------------------------------------------------------------------
+   * AND IT IS RUN, NOT READ
+   *
+   * ⚠ EVERY CLAIM ABOVE IS ABOUT A BUTTON BEING OFF ON SCREEN, and this repo has been
+   * caught four times by a check that matched the source of something that could never
+   * reach the page. So the real popup is rendered against jsdom and the buttons are
+   * pressed. Without jsdom it NOTEs itself away rather than passing quietly.
+   * ----------------------------------------------------------------------- */
+  let JSDOM = null;
+  try { JSDOM = require('jsdom').JSDOM; } catch (e) { /* not installed — reported below */ }
+  /* ⛔ A MISSING jsdom IS A FAILURE HERE, NOT A SKIP. These are the only checks that prove
+     the buttons are actually off; letting them note themselves away is the silent-skip
+     failure this repo records in four other places. jsdom is a committed devDependency and
+     the whole `npm test` chain already needs `npm install`. */
+  check('jsdom is installed, so the popup below is really driven', !!JSDOM,
+    'run npm install — without it nothing here proves a button is off');
+  if (JSDOM) {
+    /* The real Add Customer select, because the picker reads its options off it. */
+    const dom = new JSDOM('<body><select id="addCustWireColor">' +
+      '<option value="" selected>&mdash; not chosen, warehouse will check &mdash;</option>' +
+      '<option value="White">White</option><option value="Green">Green</option></select></body>');
+    const doc = dom.window.document;
+    const converted = [];
+    /* ⚠ LIFTED, NEVER STUBBED — a stub of `convertWireOptionsHtml` or `applyConvertWirePick`
+       would decide the very thing under test. */
+    const api = new Function('esc', 'jobAddresses', 'quoteChargesSetupFee', 'quotePhotoList',
+      'perFootRate', 'showApplyRequoteChoice', 'fillAddCustFromQuote', 'goToAddCustomerForm',
+      'toast', 'autoConvertQuoteToCustomer', 'fmtMoney', 'NEW_MEMBER_FEE', 'document',
+      [lift('convertWireOptionsHtml'), lift('applyConvertWirePick'), lift('showConvertQuoteChoice')]
+        .join('\n') + '\nreturn {open: showConvertQuoteChoice};')(
+      function (s) {
+        return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+          return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c];
+        });
+      },
+      [], function () { return false; }, function () { return [{}]; }, 2,
+      function () {}, function () { return {photoCount: 1, pricedFrom: 'quote'}; },
+      function () {}, function () {},
+      function () { converted.push([].slice.call(arguments)); },
+      function (n) { return '$' + n; }, 30, doc);
+
+    const quote = {name: 'Test House', street: '1 Elm', city: 'Lehi', phone: '8015550000',
+      email: 'a@b.com', quotedPrice: 400, lightsDescription: 'Warm White', wireColor: ''};
+    api.open('q1', quote);
+    const sel = doc.getElementById('convertQuoteWire');
+    const auto = doc.getElementById('convertQuoteAutoBtn');
+    const man = doc.getElementById('convertQuoteManualBtn');
+    const note = doc.getElementById('convertQuoteWireNote');
+    const why = function (b) { return b.querySelector('span').textContent; };
+    const click = function (el) { el.dispatchEvent(new dom.window.Event('click', {bubbles: true})); };
+
+    check('a quote with no wire opens on the placeholder',
+      sel && sel.value === '' && sel.options.length === 3 &&
+      sel.options[0].textContent === '— pick one —' && sel.options[1].value === 'White',
+      'every option the form has must be offered, with the blank one relabelled');
+    check('and both buttons are off',
+      auto.disabled === true && man.disabled === true,
+      'auto ' + auto.disabled + ', manual ' + man.disabled);
+    check('each saying to pick a wire first',
+      /Pick a wire colour/.test(why(auto)) && /Pick a wire colour/.test(why(man)),
+      'a greyed button under its ordinary wording is a button that looks broken');
+    check('and the note says so too',
+      /Pick one before converting/.test(note.textContent) &&
+      note.style.color.indexOf('ember') > -1,
+      note.textContent);
+    click(man);
+    click(auto);
+    check('pressing either one while blank does nothing and leaves the popup up',
+      converted.length === 0 && !!doc.querySelector('.needsfix-popup-overlay'),
+      'a press that closes the popup and converts nobody is a button that looks broken');
+
+    sel.value = 'Green';
+    sel.dispatchEvent(new dom.window.Event('change', {bubbles: true}));
+    check('picking one turns both buttons on',
+      auto.disabled === false && man.disabled === false,
+      'auto ' + auto.disabled + ', manual ' + man.disabled);
+    check('and gives them their own wording back',
+      /Save them now/.test(why(auto)) && /Add a Customer form/.test(why(man)),
+      why(auto) + ' / ' + why(man));
+    check('and the note names the wire it will save',
+      /Green wire/.test(note.textContent), note.textContent);
+    click(auto);
+    check('and now it converts, carrying the answer',
+      converted.length === 1 && converted[0][2] === 'Green' &&
+      !doc.querySelector('.needsfix-popup-overlay'),
+      JSON.stringify(converted));
+
+    /* ⚠ THE WIRE GUARD MUST NOT SWALLOW THE LIGHTS ONE. A fixture with colours cannot see
+       this, which is why there is a second one without them. */
+    converted.length = 0;
+    api.open('q2', {name: 'No Colours', street: '2 Oak', city: 'Lehi', phone: '8015550001',
+      email: 'c@d.com', quotedPrice: 400, lightsDescription: '', wireColor: 'White'});
+    const auto2 = doc.getElementById('convertQuoteAutoBtn');
+    const man2 = doc.getElementById('convertQuoteManualBtn');
+    check('a quote that already names a wire opens on it',
+      doc.getElementById('convertQuoteWire').value === 'White',
+      doc.getElementById('convertQuoteWire').value);
+    check('so the manual path is open — it is where the no-colours message sends her',
+      man2.disabled === false, man2.disabled);
+    check('but no light colours still holds the automatic one',
+      auto2.disabled === true, auto2.disabled);
+    check('and it names the colours rather than the wire',
+      /no light colours/i.test(why(auto2)),
+      'the reason this popup cannot fix is the one that decides what she does next');
+  }
 
   /* ⚠ AND THE ANSWER IS VISIBLE ON THE PATH THAT NEVER SHOWS HER THE FORM. */
   check('the automatic path names the wire it saved',

@@ -6370,10 +6370,22 @@ suite('11. Reliability pass');
     /if\(!lightsDescription\)\{[\s\S]{0,700}isAutoConvert[\s\S]{0,300}toast\(/.test(addForm),
     'the status line it writes to is on the Customers tab, and an automatic ' +
     'convert leaves you on Quotes — it would fail in silence');
+  /* ⚠ REPOINTED 2026-09-18, NOT WEAKENED. This matched the literal
+     `convertQuoteAutoBtn"'+(hasLights ? '' : ' disabled')` — that is, WHERE the disabled
+     state happened to sit. [[WH-43]] made the wire required too, so both reasons are
+     decided together in `refreshConvertWireGate` and the markup carries neither; the old
+     match failed on code that is right. The guarantee is unchanged and is what is asserted:
+     no colours means the automatic button is off, and it still says so. §7's slow fuse. */
+  const convertPopupSrc = extractFn(admin, 'showConvertQuoteChoice') || '';
   check('render', 'the convert popup will not offer automatic without colours',
     /hasLights\s*=\s*!!String\(d\.lightsDescription/.test(admin) &&
-    /convertQuoteAutoBtn"'\+\(hasLights \? '' : ' disabled'\)/.test(admin),
+    /setConvertBtn\(convertAutoBtn,[^\r\n]*!hasLights/.test(convertPopupSrc) &&
+    /no light colours/i.test(convertPopupSrc),
     'clicking Convert automatically would just bounce back an error');
+  check('render', 'and the manual path is still offered when there are none',
+    /setConvertBtn\(convertManualBtn, !picked,/.test(convertPopupSrc) &&
+    !/setConvertBtn\(convertManualBtn,[^\r\n]*hasLights/.test(convertPopupSrc),
+    'it is the door the no-colours message sends her to — closing it leaves no way in');
 
   /* The other door into a light description is the customer's own detail form
      on the public site. It has always refused to submit without a colour —
