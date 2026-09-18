@@ -1790,14 +1790,37 @@
                  answering for their own house, looking at the question, and the
                  commonest answer by far is the front only. Pre-picking it saves a click
                  and is still their answer, because they can see it and change it. -->
+            <!-- ⭐ WHICH SIDES, NOT HOW MANY ([[OPT-23]], 2026-09-18). Addie: "on quotes/
+                 Requotes can we make front, left, right, back multiple optional choose",
+                 and "is there a place on the quotes form that allows them to choose front,
+                 left, right, back with instructions that this is from the street view?"
+                 ⛔ THE COUNT IS DERIVED FROM THE TICKS, NEVER ASKED SEPARATELY. houseSides
+                 still drives the price and the re-quote flag exactly as before — what
+                 changes is that the customer says WHICH and the count follows, so the two
+                 can never disagree. A list of two under a count of three is the impossible
+                 claim printSidesCell refuses and the conversion guards against; asking both
+                 questions is how a record gets into that state in the first place.
+                 ⚠ FRONT IS TICKED, which is the old radios' "1 side should be default" and
+                 the same thing the note underneath has always said.
+                 ⚠ SAME CONTROL AND SAME WORDING AS THE MEMBER PORTAL'S Sides TAB. Two ways
+                 of asking one question is how the two start meaning different things —
+                 which is exactly what OPT-03 had to correct once already. -->
             <div class="form-row" id="qdSidesRow">
-              <label>How many sides of your house would you like lit?</label>
-              <p class="form-note" style="margin:0 0 8px;">Most people have just the front.</p>
+              <label>Which sides of your house would you like lit?</label>
+              <p class="form-note" style="margin:0 0 4px;">Tick every side you would like lit. Most people have just the front.</p>
+              <!-- ⭐ FROM THE STREET, NOT FROM THE FRONT DOOR ([[OPT-03]], 2026-09-07). Addie:
+                   "we should be calculating left or right from the street not the front door."
+                   ⚠ THE TWO VIEWPOINTS ARE MIRROR IMAGES, so this is not a wording nicety:
+                   standing at the door looking out, your left is the OTHER side of the house
+                   from your left standing at the kerb. Get it the wrong way round and the crew
+                   lights the wrong half of the roof. This is the portal's sentence, word for
+                   word — the same question must not be asked two ways. -->
+              <p class="form-note" style="margin:0 0 10px; font-size:12.5px;">Stand on the street facing your house. <strong>Front</strong> is the side facing you, <strong>Back</strong> is the far side, <strong>Left</strong> is on your left and <strong>Right</strong> is on your right.</p>
               <div style="display:flex; flex-wrap:wrap; gap:10px;">
-                <label class="radio-pill"><input type="radio" name="house_sides" value="1" checked> 1 side</label>
-                <label class="radio-pill"><input type="radio" name="house_sides" value="2"> 2 sides</label>
-                <label class="radio-pill"><input type="radio" name="house_sides" value="3"> 3 sides</label>
-                <label class="radio-pill"><input type="radio" name="house_sides" value="4"> 4 sides</label>
+                <label class="quote-side-pick"><input type="checkbox" class="qd-side-pick" value="Front" checked> Front</label>
+                <label class="quote-side-pick"><input type="checkbox" class="qd-side-pick" value="Left"> Left</label>
+                <label class="quote-side-pick"><input type="checkbox" class="qd-side-pick" value="Right"> Right</label>
+                <label class="quote-side-pick"><input type="checkbox" class="qd-side-pick" value="Back"> Back</label>
               </div>
             </div>
             <div class="form-row">
@@ -4080,6 +4103,19 @@ quoteDetailFormEl.addEventListener('submit', async function(e){
     alert('Please choose at least one light color.');
     return;
   }
+  /* ⛔ AT LEAST ONE SIDE ([[OPT-23]]), refused here beside the light-colour refusal it
+     mirrors, and for the same reason: a house with no sides is not a job anybody can hang.
+     The Member Portal's Sides tab says the same thing in the same words.
+     ⚠ IT IS A REFUSAL, NOT A DEFAULT. Filling in Front for somebody who unticked everything
+     is writing an answer nobody gave — the fault run-all.js already guards on both admin
+     forms, and the reason a fresh quote omits the field rather than storing a 1. */
+  var qdSides = qdPickedSides();
+  if(!qdSides.length){
+    /* ⚠ NO BUTTON RESET, because the button is not disabled yet — that happens below,
+       after every refusal. Same shape as the light-colour refusal directly above. */
+    alert('Please tick at least one side of your house.');
+    return;
+  }
   var lightColors = Array.from(new Set(qdFinalSequence));
   var lightsDescription = qdFinalSequence.join(', ');
   var submitBtn = quoteDetailFormEl.querySelector('button[type="submit"]');
@@ -4111,10 +4147,17 @@ quoteDetailFormEl.addEventListener('submit', async function(e){
     specificOutletNotes: fd.get('specific_outlet') === 'Yes' ? (fd.get('specific_outlet_notes') || '').trim() : '',
     notes: fd.get('notes') || '', gateCode: fd.get('gate_code') || '',
     installPreference: fd.get('install_month') || 'Normal Schedule',
-    /* ⭐ THE SIDE COUNT IS ASKED HERE NOW (2026-09-03) — see qdSidesRow. portalSideCount
-       clamps to 1-4 and answers 1 for anything it cannot read, which is also what a
-       quote raised before this change comes back as. */
-    houseSides: portalSideCount(fd.get('house_sides')),
+    /* ⭐ WHICH SIDES, AND THE COUNT DERIVED FROM THEM ([[OPT-23]], 2026-09-18) — see
+       qdSidesRow. The count still drives the price and the re-quote flag exactly as it did
+       when this asked for a number; what changed is that it can no longer disagree with the
+       names, because there is only one answer and the count is its length.
+       ⚠ THE CONVERSION ALREADY READS houseSidesList OFF A QUOTE and carries it onto the
+       customer — its own note says "every public one" has none today, which is precisely
+       the gap this closes. Nothing new had to be taught to receive it.
+       ⚠ AND portalSideCount STILL CLAMPS, so a tampered post that ticks nothing reaching
+       here answers 1 rather than 0 — a house with no sides is not a thing we can hang. */
+    houseSides: portalSideCount(qdSides),
+    houseSidesList: qdSides,
     wantsMailedInvoice: fd.get('wants_mailed') === 'on'
   };
   /* ⛔ ONLY WHEN THEY PICKED ONE ([[OPT-22]]). See qdWireChoice for why "Any" sends
@@ -8502,10 +8545,22 @@ function portalRenderSides(){
     cb.checked = haveList.indexOf(cb.value) !== -1;
   });
 }
-function portalSidesPickedList(){
+/* ⚠ THE SELECTOR IS A PARAMETER NOW ([[OPT-23]], 2026-09-18), because the Install Details
+   form asks the same question with its own checkboxes. A second copy of this would be a
+   second answer to "what did they tick, in what order" — and the ORDER is not cosmetic:
+   portalSidesListFromValue is what puts Front,Left,Right,Back into the one sequence every
+   reader compares against, so two copies drifting means a swap reads as no change. */
+function portalSidesPickedList(sel){
   var out = [];
-  document.querySelectorAll(".portal-side-pick:checked").forEach(function(cb){ out.push(cb.value); });
+  document.querySelectorAll((sel || ".portal-side-pick") + ":checked").forEach(function(cb){ out.push(cb.value); });
   return portalSidesListFromValue(out);
+}
+/* The Install Details form's own ticks, through the one rule above ([[OPT-23]]). Its own
+   name rather than a bare call at the two sites that want it, because "what did they tick"
+   is asked once per submit and the answer has to be the SAME object both times — the count
+   is its length, and two separate reads could disagree if a box moved between them. */
+function qdPickedSides(){
+  return portalSidesPickedList('.qd-side-pick');
 }
 function portalSidesListsEqual(a, b){
   if(a.length !== b.length) return false;
