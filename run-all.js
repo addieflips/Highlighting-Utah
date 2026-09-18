@@ -56523,8 +56523,27 @@ suite('308. Sharing the referral link, not opening it');
     const pageIdsAt = idx308.indexOf('var pageIds = {');
     const pageIdsSrc = pageIdsAt === -1 ? '' :
       idx308.slice(pageIdsAt, idx308.indexOf('};', pageIdsAt) + 2);
+    /* ⚠ THE REAL-PATH ROUTING JOINED navigate() ON 2026-09-12, and this sandbox
+       died with a bare `applyRouteMeta is not defined` — the extraction-list trap
+       CLAUDE.md records eight times. All four are LIFTED, never stubbed: a stub of
+       applyRouteMeta would keep this suite green through a change to what every
+       route tells Google, which is the one thing those functions exist to do. */
+    const pathRoutesSrc = (idx308.match(/var PATH_ROUTES = \[[^\]]*\];/) || [])[0] || '';
+    const canonBaseSrc = (idx308.match(/var CANON_BASE = '[^']*';/) || [])[0] || '';
+    const routeMetaAt = idx308.indexOf('var ROUTE_META = {');
+    const routeMetaSrc = routeMetaAt === -1 ? '' :
+      idx308.slice(routeMetaAt, idx308.indexOf('\n};', routeMetaAt) + 3);
+    const routeMetaFns = ['normalisePathRoute', 'routePathFromLocation',
+      'applyRouteMeta', 'syncFaqSchema'].map(n => extractFn(idx308, n) || '');
+    const metaSrc = pathRoutesSrc + '\n' + canonBaseSrc + '\n' + routeMetaSrc + '\n' +
+      "var HOME_TITLE = '', HOME_DESC = '', FAQS = [];\n" + routeMetaFns.join('\n');
     check('S308', 'the router and its page map are findable',
       !!navSrc && !!routesSrc && !!pageIdsSrc);
+    check('S308', 'and so is the per-route head it now applies',
+      !!pathRoutesSrc && !!canonBaseSrc && !!routeMetaSrc && routeMetaFns.every(Boolean),
+      'navigate() calls applyRouteMeta on every route change. If one of these cannot ' +
+      'be lifted, this sandbox dies on a bare ReferenceError that names neither the ' +
+      'suite nor the missing function — add it here in the same commit that renames it.');
     if (navSrc && routesSrc && pageIdsSrc && renderShareSrc && linkSrc && canShareSrc) {
       const ids = ['page-home', 'page-how', 'page-gallery', 'page-reviews', 'page-areas',
         'page-faq', 'page-contact', 'page-quote', 'page-quote-details', 'page-payment',
@@ -56542,7 +56561,7 @@ suite('308. Sharing the referral link, not opening it');
       const win308 = {location: {origin: 'https://highlightingutah.com', hash: '#/share?t=abc123'},
                       scrollTo: function () {}};
       new Function('document', 'window', 'URLSearchParams',
-        routesSrc + '\n' + pageIdsSrc + '\n' + linkSrc + '\n' + canShareSrc + '\n' +
+        routesSrc + '\n' + pageIdsSrc + '\n' + metaSrc + '\n' + linkSrc + '\n' + canShareSrc + '\n' +
         renderShareSrc + '\n' + navSrc + '\nreturn navigate();')(doc308, win308, URLSearchParams);
       check('S308', 'the /share address actually draws the share page',
         doc308.getElementById('page-share').classList.contains('active') &&
