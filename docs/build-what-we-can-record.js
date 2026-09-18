@@ -35,7 +35,13 @@ const options = src.split(/\n\s*\{\s*\n?\s*id:/).slice(1).map(b => ({
 const PROSE = {
   measuredFeet:       ['How many feet of roofline you are lighting.', 'the quote form'],
   lightsDescription:  ['Which colours, and the order if they alternate.', 'the quote form and the member portal'],
-  wireColor:          ['White or green wire.', 'the quote form and the member portal'],
+  /* ⛔ NOBODY IS ASKED THIS ANY MORE (2026-09-17). Addie: "keep what lights they want
+     but don't add what wire color they want but push check lights then warehouse chooses
+     what wire they have on file and will make it based on what wire they have."
+     The prose is the ONE hand-written part of this file, so it is also the one part that
+     can go on claiming a question we stopped asking — the destinations below it are read
+     out of the registry and corrected themselves. */
+  wireColor:          ['White or green wire. We choose it; nobody is asked. Blank means nobody has\nlooked in the bin yet, which the warehouse reads as Check lights.', 'nowhere — the office sets it, or the warehouse does when they are at the bin'],
   outletTimer:        ['Whether they want a timer on the outlet.', 'the quote form and the member portal'],
   useEaves:           ['Whether we may use an outlet up in the eaves.', 'the quote form'],
   specificOutlet:     ['Which specific outlet to plug into, in their words.', 'the quote form, and picked out of the Misc column on the master sheet'],
@@ -45,7 +51,7 @@ const PROSE = {
   notes:              ['Anything standing that is always true about the house.', 'the quote form and the office'],
   oneTimeNote:        ['Something true for this visit only.', 'the office'],
   wantsMailedInvoice: ['Whether they want the bill posted rather than emailed.', 'the quote form'],
-  numberOfBins:       ['How many bins their lights fill. Worked out from the feet, never asked.', 'derived — one bin per 260 ft'],
+  numberOfBins:       ['How many bins their lights fill. Worked out from the feet, never asked.', 'derived — one bin per 320 ft'],
   difficulty:         ['How hard the house is to do.', 'the office'],
 };
 

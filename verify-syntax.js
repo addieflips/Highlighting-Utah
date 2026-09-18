@@ -227,5 +227,54 @@ check('no file carries a carriage return that is not a line ending',
       '\n        ever tell you. Strip the extra \\r — do not normalise the whole file.'
     : '');
 
+/* ⭐ A CONTEXTUAL KEYWORD LEFT STRANDED AS ITS OWN STATEMENT (added 2026-09-09,
+   because I shipped one and every gate here passed on it).
+
+   A folder-removal edit cut functions by matching `function NAME(`, which starts the
+   slice AFTER the `async` keyword — so removing `async function addMessageFolder()`
+   left a bare `async` behind, alone on its line in front of the next comment. Live
+   result, from the owner's own error log:
+
+     ReferenceError: Can't find variable: async   at admin.html:20204
+     ReferenceError: Cannot access uninitialized variable.  at admin.html:42670  (x2)
+
+   ⚠ AND IT PARSES, WHICH IS WHY NOTHING CAUGHT IT. `async` is a CONTEXTUAL keyword: on
+   its own it is an ordinary identifier reference, so `node --check` is perfectly happy
+   and gate A went green. It throws at LOAD time, and it takes the whole module with it —
+   the two "uninitialized variable" errors above are the cascade, `RENDER_PANEL` and
+   `pendingRenders` being read by a listener after the script that declares them died
+   twenty thousand lines earlier. One stranded word, three errors, none of them near it.
+
+   ⚠ SCOPED TO THE FOUR THAT ARE CONTEXTUAL: async, static, get, set. Every real keyword
+   that could be stranded the same way — export, return, new, typeof — is a SyntaxError
+   alone and `node --check` already refuses it. These four are the ones that get through.
+
+   ⚠ AND IT IS THE WHOLE LINE, deliberately, rather than "async followed by a newline".
+   The spec-exact rule (`async [no LineTerminator here] function`) needs the file
+   tokenised to apply, and a hand-rolled tokeniser desynchronises on this repo inside
+   three hundred lines — run-all.js's own `/^suite\('/gm` opens a fake string on the
+   apostrophe inside the regex literal, and everything after it is misread. A narrow
+   check that is right beats a broad one that drifts. Measured: zero hits across all
+   nine files, and the real bug is caught. */
+const STRANDED = /^[ \t]*(async|static|get|set)[ \t]*(\/\*[^\n]*?\*\/|\/\/[^\n]*)?[ \t]*\r?$/;
+const stranded = [];
+TEXT_FILES.forEach(file => {
+  const full = path.join(ROOT, file);
+  if (!fs.existsSync(full)) return;
+  fs.readFileSync(full, 'utf8').split('\n').forEach((ln, i) => {
+    const m = ln.match(STRANDED);
+    if (m) stranded.push(file + ':' + (i + 1) + '  a bare `' + m[1] + '` on a line of its own');
+  });
+});
+check('no contextual keyword is left stranded as its own statement',
+  stranded.length === 0,
+  stranded.length
+    ? stranded.join('\n        ') +
+      '\n        This PARSES — node --check cannot see it — and throws ReferenceError the moment' +
+      '\n        the page loads, killing every declaration below it in the same script. It is what' +
+      '\n        an extraction that anchors on `function NAME(` leaves behind. Reattach it to the' +
+      '\n        function it belongs to, or delete it.'
+    : '');
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

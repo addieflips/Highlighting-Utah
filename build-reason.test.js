@@ -215,9 +215,22 @@ const printCols = admin.slice(admin.indexOf("  build:     [{k: 'number'"),
 check('and the Printing tab’s build sheet has one too',
   /k: 'reason'/.test(printCols) && /label: 'Why'/.test(printCols),
   'there are two build sheets and the other one is the one with thinner cover');
+/* ⚠ A CENSUS, AND THE NUMBER MOVING IS THE POINT. It went 3 → 5 on 2026-09-11 when
+   [[WH-34]] put the two timer jobs on paper (Remove timer, and the timer-only rows that
+   had been on no sheet at all). Five row builders now: blocked, Remove timer, Timer only,
+   houses, extras. Raise it only alongside a new builder that genuinely fills the cell —
+   this is what makes a sixth one announce itself instead of shipping a blank Why column. */
 check('every row builder fills the Why cell',
-  (fn('whSheetRowsForBuild').match(/reason:/g) || []).length === 3,
-  'houses, extras and the blocked ones all push rows onto that sheet');
+  (fn('whSheetRowsForBuild').match(/reason:/g) || []).length === 5,
+  'blocked, Remove timer, Timer only, houses and extras all push rows onto that sheet');
+/* ⭐ AND THE TWO TIMER ROWS KEEP THEIRS ([[WH-34]]). A timer job is somebody the office
+   asked for something, so it has a provenance to claim — unlike buffer stock below. */
+check('a Remove timer row keeps its badge',
+  /type: 'REMOVE TIMER',[\s\S]{0,80}reason: whBuildReasonLabel/.test(fn('whSheetRowsForBuild')),
+  'a row saying take a timer out still has to say where the request came from');
+check('and a Timer only row keeps its badge',
+  /type: 'TIMER ONLY',[\s\S]{0,80}reason: whBuildReasonLabel/.test(fn('whSheetRowsForBuild')),
+  'same house, same claim, whichever list it reached the paper through');
 /* ⚠ A BLOCKED ROW KEEPS ITS BADGE — those are the ones somebody has to chase, so losing
    it there is the wrong place to lose it. Buffer stock carries none. */
 const sheet = fn('whSheetRowsForBuild');
@@ -306,10 +319,19 @@ check('and still applies the season rule',
   /isOutForSeason\(d\)/.test(printFilter),
   'the printed sheet once listed people the screen beside it had already dropped');
 /* ⚠ AND THE TAB ASKS THE SAME FLAG. If either side changes, they disagree about who is
-   being built for, and the one on paper is the one nobody can check. */
+   being built for, and the one on paper is the one nobody can check.
+   ⚠ REPOINTED 2026-09-09, NOT WEAKENED. This matched the literal `!d.needsLightBuild ||`,
+   which is where the gate happened to SIT rather than what has to be true — so it failed on
+   correct code the moment [[WH-27]] gave the timer its own queue and the gate became an OR.
+   Same slow-fuse shape as S82, S129 and the folder-names suite. What must hold is that a
+   BUILD is decided by `needsLightBuild` on both sides and by no stamp; that a timer-only
+   house is never built is proved by RUNNING the queue, in warehouse-colours.test.js. */
+const whQueueCode = fn('whBuildQueueGroups')
+  .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
 check('and the warehouse tab asks it too',
-  /!d\.needsLightBuild \|\|/.test(fn('whBuildQueueGroups')),
-  'one flag, both lists');
+  /needsLightBuild/.test(whQueueCode) &&
+  !/chargeNewMemberFee|requoteAppliedAt/.test(whQueueCode),
+  'one flag, both lists — and no stamp may creep in on either side');
 /* ⭐ AND THE PRINTED SHEET SAYS HOW MANY BINS (2026-08-25). Addie: "Everyone needs to
    know how many bins there are for each house so bin # and costumer # does matter."
    ⚠ THIS CHECK ASSERTED THE OPPOSITE YESTERDAY — that the sheet kept a CONDITIONAL note
@@ -340,7 +362,13 @@ check('and the retired conditional note is gone, not orphaned',
 const pager = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'houseBundleNeed',
   'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS', 'whBinsForHouse', 'whWhoLabel',
   'houseLightsText', 'printExtraBinsNote', 'isOutForSeason',
-  reasonsSrc + fn('whBuildReasonKey') + fn('whBuildReasonLabel') +
+  /* ⚠ LIFTED, NEVER STUBBED. whNotesCell decides what the Notes cell on BOTH build
+     sheets says; a stub here would let the two sheets start disagreeing about it with
+     this gate still green — which is the whole reason it is one function. The sandbox
+     died with a bare "whNotesCell is not defined" the moment it was added, which is the
+     extraction-list trap working as intended. */
+  reasonsSrc + fn('whNoteText') + fn('whNotesCell') +
+  fn('whBuildReasonKey') + fn('whBuildReasonLabel') +
   fn('whBuildQueueGroups') + fn('whSheetRowsForBuild') + fn('whBuildSheetPages') +
   'return whBuildSheetPages();');
 const P = function(custs, extras){

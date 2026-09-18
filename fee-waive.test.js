@@ -75,6 +75,12 @@ const FEE_SRC = between(admin,
   'const LEDGERS = {',
   '/* The write. Re-reads fresh', 'the ledger-waive helpers');
 
+/* Block and line comments out, so a check about what the CODE does cannot be satisfied
+   by the paragraph explaining it. Five suites in this repo have been caught that way. */
+const stripComments = s => (s || '')
+  .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+
 check('the lift found the ledger helpers',
   /function ledgerWaiveUpdates/.test(FEE_SRC) && /function ledgerLinesHtml/.test(FEE_SRC) &&
   /function ledgerLineIsWaivable/.test(FEE_SRC),
@@ -167,20 +173,92 @@ async function main() {
   }
 
   /* -------------------------------------------------------------------------
-   * 2. THE ONE THAT MATTERS. An arrears line is not waivable, from either door.
+   * 2. THE CARRIED DEBT. Waivable since 2026-09-07 (MON-67) — and the reason it was
+   *    NOT is now carried by a confirmation instead of a refusal.
+   *
+   * ⚠ REVERSED, NOT RELAXED, AND THE OLD REASONING STILL HOLDS. MON-55 refused this
+   *   line an × because `arrearsOutstanding` is the only thing holding an unpaid
+   *   customer off the schedule, so crossing it off IS the "hang them anyway" button
+   *   Addie turned down in MON-38. Dax reversed it: "make the arrear line have an x".
+   *   There is no version of this that does not release the hold — the hold is derived
+   *   from the debt and nothing else — so what changed is that it can no longer happen
+   *   SILENTLY, which is the harm MON-55 actually recorded (a real debt written off from
+   *   a control labelled "remove light-change fee").
    * ----------------------------------------------------------------------- */
   {
-    check('an arrears line is not waivable',
-      feeNoteIsWaivable(arrears) === false,
-      'waiving last season`s carried debt lifts the schedule hold with it — that is ' +
-      'the "hang them anyway" button Addie was offered and turned down');
+    check('an arrears line is waivable now',
+      feeNoteIsWaivable(arrears) === true,
+      'MON-67 gave the carried debt an × like every other line; a refusal here is the ' +
+      'old MON-55 rule coming back');
     const inv = invoice([arrears, lightA]);
     const out = feeWaiveUpdates(inv, feeNoteKey(arrears));
-    check('and asking to waive one is refused outright',
-      out === null,
-      'it returned ' + JSON.stringify(out) + '. A refusal is the whole guard: with the ' +
-      'debt gone arrearsSettled answers true and a crew is sent to a house that has ' +
-      'not paid for last season.');
+    check('and waiving one takes the debt off and re-totals the bill',
+      !!out && out.removed === arrears &&
+      out.updates.changeFeeNotes.length === 1 &&
+      out.updates.changeFeeNotes[0] === lightA &&
+      out.updates.changeFees === 30,
+      'got ' + JSON.stringify(out && out.updates) + '. Leaving the stored total behind ' +
+      'is a bill carrying a number nothing on it adds up to.');
+    /* ⚠ AND THE PROMPT IS WHAT MAKES IT SAFE, so it is asserted in the shipped source
+       rather than left to a reader: the amount, the season, and the fact that the
+       schedule hold goes with it. Both doors reach it because it lives inside
+       waiveLedgerLine, not in either click handler. */
+    /* ⚠ FROM `admin`, NOT FEE_SRC — that window deliberately stops at "The write", so
+       waiveLedgerLine is outside it and a slice of it comes back empty, which passes a
+       negative check and fails a positive one against code that is right.
+       ⚠ AND BRACE-MATCHED, NOT A FIXED WINDOW: §7 bans those by name, and run-all.js has
+       a meta-check that fails the build for one. */
+    const waiveSrc = (function () {
+      const at = admin.indexOf('async function waiveLedgerLine');
+      if (at === -1) return '';
+      let i = admin.indexOf('{', at), depth = 0;
+      for (; i < admin.length; i++) {
+        if (admin[i] === '{') depth++;
+        else if (admin[i] === '}') { depth--; if (depth === 0) return admin.slice(at, i + 1); }
+      }
+      return '';
+    })();
+    check('waiveLedgerLine is findable',
+      !!waiveSrc && waiveSrc.length > 200,
+      'renamed or moved — repoint this, or the two checks below pass vacuously');
+    /* ⚠ THE CONDITION ITSELF, NOT THE WORDS NEAR IT. The first version of this check
+       tested that `ARREARS_KIND`, `plan.removed` and `confirm(` all APPEARED in the
+       function — and the red-check proved it passed with the guard disabled as
+       `if(false && ...)`, every word still in place and the prompt unreachable. Same
+       shape as the message-in-the-source failures this repo has already shipped three
+       times. It pins the whole condition now. */
+    /* ⭐ ONE PRESS, THE SAME AS EVERY OTHER LINE (MON-69). Dax: "Make it one press like
+       the others — I'd keep the Inbox note either way, so a wrong one is still findable
+       and reversible." This supersedes MON-68's typed unlock, and the risk MON-68 named
+       has not gone away — crossing this line off releases the schedule hold as well as
+       the money. What changed is which side of the trade is paid for: the × is a tool for
+       getting rid of a fee or a discount on somebody's profile, and a row that argues
+       back is one the office learns to work around.
+       ⚠ COMMENTS STRIPPED, because the block above this check explains the history and
+       contains the words `prompt` and `confirm()` — a plain search finds the explanation
+       and calls it the violation, the trap this repo has been caught by five times. */
+    const waiveCode = stripComments(waiveSrc);
+    check('no line is gated behind a dialog, the carried debt included',
+      !/\bprompt\(/.test(waiveCode) && !/\bconfirm\(/.test(waiveCode),
+      'MON-69 made this one press like every other ×; a dialog here is MON-68 coming ' +
+      'back, and on a list of ×s it is one more click rather than protection');
+    /* ⭐ SO THE PROTECTION IS THE RECORD, NOT THE CEREMONY — and that makes these checks
+       load-bearing rather than nice-to-have. Waiving DELETES the line, so without the
+       note there is no trace anywhere that the money was ever owed. */
+    check('a written-off debt leaves a note naming what to type back',
+      /topic: 'Carried Debt Written Off'/.test(waiveSrc) &&
+      /Owed from a previous season/.test(waiveSrc) &&
+      /plan\.removed\.reason/.test(waiveSrc),
+      'a note saying only that something was waived tells the office it has a problem ' +
+      'and not how to undo it');
+    check('and the note is filed where money notices are read',
+      /'Carried Debt Written Off': 'money',/.test(admin),
+      'an unlisted topic falls through to Other silently, which for this one hides the ' +
+      'only trace it leaves');
+    check('a failed note never undoes the write-off',
+      /catch\(e\)\{[\s\S]{0,400}could not record the carried-debt write-off/.test(waiveSrc),
+      'the money is already off the bill by then; throwing here would report a failure ' +
+      'for something that succeeded');
     /* ⚠ AND THE NEIGHBOURING LINE MUST STILL GO. A guard that refused the whole
        invoice because one line is arrears would make every carried-debt customer's
        other fees unwaivable, which reads as the × being broken. */
@@ -259,18 +337,27 @@ async function main() {
   {
     const html = feeLinesHtml([lightA, arrears, manual]);
     const xs = (html.match(/class="fee-waive"/g) || []).length;
-    check('a × is drawn for every waivable line and none for the carried debt',
-      xs === 2,
-      'got ' + xs + ' of an expected 2 — a × on the arrears row is the guard in check 2 ' +
-      'defeated at the only place the office actually presses it');
-    check('the carried-debt row says where it IS edited',
-      /edit below/.test(html),
-      'a row with no × beside rows that have one reads as a bug rather than a rule');
+    check('a × is drawn for every line, the carried debt included',
+      xs === 3,
+      'got ' + xs + ' of an expected 3 — MON-67 gave the arrears row an × at the only ' +
+      'place the office actually presses one');
+    /* ⭐ THE RENDERER AND THE WRITE MUST AGREE, and this is the check that survives a
+       protection being reintroduced: whatever `ledgerLineIsWaivable` says, a row drawn
+       with an × must be one the write will accept, and a row without one must not be.
+       Drawing a × the write refuses is a button that does nothing; withholding one the
+       write would accept hides a line the office is allowed to take off. */
+    [lightA, arrears, manual].forEach(function (n) {
+      const drawn = feeLinesHtml([n]).indexOf('class="fee-waive"') !== -1;
+      const accepted = feeWaiveUpdates(invoice([n]), feeNoteKey(n)) !== null;
+      check('the × drawn for "' + (n.kind || 'light change') + '" matches what the write accepts',
+        drawn === accepted,
+        'drawn=' + drawn + ' accepted=' + accepted + ' — a × the write refuses is a ' +
+        'button that does nothing, and a missing one hides a line that could go');
+    });
     check('each × carries the token for its own line',
       html.indexOf(feeNoteToken(lightA)) !== -1 && html.indexOf(feeNoteToken(manual)) !== -1 &&
-      html.indexOf(feeNoteToken(arrears)) === -1,
-      'the token is what the write matches on; the arrears one must not be on the page ' +
-      'at all, so no hand-made click can reach it');
+      html.indexOf(feeNoteToken(arrears)) !== -1,
+      'the token is what the write matches on, so every drawn × needs its own');
     const nasty = feeLinesHtml([{ amount: 5, reason: '<img src=x onerror=alert(1)>' }]);
     check('a reason is escaped before it reaches the page',
       nasty.indexOf('<img') === -1 && nasty.indexOf('&lt;img') !== -1,
@@ -380,6 +467,99 @@ async function main() {
       ledgerLineLabel('credit', { amount: 5 }) === 'Credit',
       'a kindless CREDIT is a plain credit, not a light-change fee — the two ledgers ' +
       'share a note shape and must not share a vocabulary');
+  }
+
+
+  /* -------------------------------------------------------------------------
+   * 8. ONE LINE PER REFERRAL, AND ONE × PER LINE (2026-09-08, REF-24).
+   *
+   * Addie: *"in discount I cannot currently see who got what discount. That should
+   * show with an x at the right side. the x is something I can waive the discount
+   * or fee."*
+   *
+   * ⚠ THE × WAS ALREADY THERE AND THE NAMES WERE NOT. Every referral collapsed into
+   * a single "Referral — 3 people" line, so the office could see that $75 had come
+   * off and never which three friends earned it — and the one × beside it took all
+   * three off at once.
+   *
+   * ⚠ THIS RUNS THE RENDERER AND THE WAIVER, rather than matching their source.
+   * Every claim here is about a ROW ON A SCREEN and about WHICH MONEY comes off,
+   * and this repo has been caught more than once by a check that matched the source
+   * of something that could never reach the page.
+   * ----------------------------------------------------------------------- */
+  {
+    const refJane = { amount: 25, reason: 'Referral — Jane Smith', kind: 'referral',
+                      ref: 'CUST-JANE', date: '2026-09-02T10:00:00.000Z' };
+    const refBob  = { amount: 25, reason: 'Referral — Bob Ng', kind: 'referral',
+                      ref: 'CUST-BOB', date: '2026-09-05T10:00:00.000Z' };
+    const goodwill = { amount: 40, reason: 'Goodwill', kind: 'manual',
+                       date: '2026-08-01T10:00:00.000Z' };
+    const creditInv = notes => ({
+      install: 500, removal: 0, deposit: 0, changeFees: 0,
+      credits: notes.reduce((s, n) => s + n.amount, 0),
+      creditNotes: notes
+    });
+
+    const html = ledgerLinesHtml('credit', [refJane, refBob, goodwill]);
+    check('each referral is drawn as its own line, naming the friend',
+      html.indexOf('Jane Smith') !== -1 && html.indexOf('Bob Ng') !== -1,
+      'got: ' + html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() +
+      ' — a total the office cannot attribute is the complaint this answers');
+    /* ⚠ THE × IS COUNTED, NOT MERELY LOOKED FOR. One × over three lines is exactly
+       the old behaviour, and it renders a perfectly good-looking row. */
+    check('and every one of them carries its own ×',
+      (html.match(/class="fee-waive"/g) || []).length === 3,
+      'got ' + (html.match(/class="fee-waive"/g) || []).length + ' of 3 — one × over ' +
+      'several referrals is the collapsed line wearing a new shape');
+    /* ⚠ AND EACH × CARRIES A DIFFERENT TOKEN. Three buttons that all fingerprint to
+       the same line is one × in three places: pressing any of them takes off whichever
+       the waiver happens to find first. */
+    const tokens = (html.match(/data-feetoken="([^"]*)"/g) || []);
+    check('and no two × buttons point at the same line',
+      tokens.length === 3 && new Set(tokens).size === 3,
+      'got ' + tokens.length + ' tokens, ' + new Set(tokens).size + ' distinct — a shared ' +
+      'fingerprint is a × that removes the wrong money');
+
+    const inv = creditInv([refJane, refBob, goodwill]);
+    const out = ledgerWaiveUpdates(inv, 'credit', feeNoteKey(refBob));
+    check('crossing off one referral leaves the other standing',
+      !!out && out.updates.creditNotes.length === 2 &&
+      out.updates.creditNotes.indexOf(refJane) !== -1 &&
+      out.updates.creditNotes.indexOf(refBob) === -1,
+      'got ' + JSON.stringify(out && out.updates.creditNotes.map(n => n.reason)) +
+      ' — taking every referral off because one was wrong is what this replaced');
+    check('and the bill is re-totalled from what is left',
+      !!out && out.updates.credits === 65,
+      'got ' + (out && out.updates.credits) + ', expected 65 (one $25 referral and the ' +
+      '$40 goodwill discount)');
+    /* ⚠ THE REMOVED LINE IS HANDED BACK CARRYING ITS `ref`, and that is what the
+       waiver in admin.html marks on the customer record. Without it the × takes the
+       money off the invoice and leaves the entry live, so the next referral through a
+       link recomputes the count and puts the whole discount straight back. */
+    check('and it hands back the line with the referred customer on it',
+      !!out && out.removed && out.removed.ref === 'CUST-BOB',
+      'got ' + JSON.stringify(out && out.removed && out.removed.ref) + ' — without it ' +
+      'the entry stays live on the record and the next referral restores the discount');
+    /* ⚠ AND THE GOODWILL DISCOUNT IS NOT A REFERRAL. A waiver that matched on kind
+       rather than on the line would take an unrelated credit off the same bill. */
+    const outManual = ledgerWaiveUpdates(creditInv([refJane, goodwill]), 'credit', feeNoteKey(goodwill));
+    check('a discount that is not a referral still waives on its own',
+      !!outManual && outManual.updates.credits === 25 &&
+      outManual.removed.kind === 'manual',
+      'got ' + (outManual && outManual.updates.credits) + ' — one rule over the whole ' +
+      'credit ledger, not a referral special case');
+
+    /* ⚠ AND THE OLD COLLAPSED LINE STILL WAIVES. Every invoice written before today
+       holds one "Referral — 3 people" line with no `ref` on it; if that stopped
+       working the office would be unable to cross off any referral on a bill raised
+       before the change. */
+    const oldStyle = { amount: 75, reason: 'Referral — 3 people', kind: 'referral',
+                       date: '2026-08-10T10:00:00.000Z' };
+    const outOld = ledgerWaiveUpdates(creditInv([oldStyle, goodwill]), 'credit', feeNoteKey(oldStyle));
+    check('an old collapsed referral line still comes off',
+      !!outOld && outOld.updates.credits === 40 && !outOld.removed.ref,
+      'got ' + (outOld && outOld.updates.credits) + ' — a bill raised before the change ' +
+      'must not become un-editable, and a line with no ref still means all of them');
   }
 
   /* ------------------------------------------------------------------------- */

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ONE ENTRY, AND THAT IS NOT AN OVERSIGHT. Every section of the public site -
+     Areas We Serve, Gallery, How It Works, FAQ - is a hash route inside this one
+     document (#/areas, #/gallery). Search engines do not treat a fragment as a
+     separate page, so one URL is the truthful map of the site as it stands.
+     Listing invented per-section URLs would report pages that do not exist. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://highlightingutah.com/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

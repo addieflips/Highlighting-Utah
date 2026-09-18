@@ -58,14 +58,21 @@ const columnsSrc = (admin.match(/const PRINT_COLUMNS = \{[\s\S]*?\r?\n\};/) || [
 const fixColSrc  = (admin.match(/const PRINT_FIX_COLUMN = \{[^\n]*\};/) || [''])[0];
 
 const sidesDefSrc = (admin.match(/const HOUSE_SIDES_DEFAULT = \d+;/) || [''])[0];
+/* ⚠ AND THE STORED SIDE NAMES ([[OPT-09]]). printSidesCell puts the list through
+   houseSidesListFromValue before it prints anything, so this sandbox needs the real
+   constant — lifted, never typed, because admin.html also holds a FILL order that
+   differs from the stored one and a hand-typed copy could pick the wrong one. */
+const sideNamesSrc = (admin.match(/const HOUSE_SIDE_NAMES = \[[^\]]*\];/) || [''])[0];
 
 const NEEDED = ['printFixReason', 'printCrewColumns', 'printFixPhotos', 'printCrewRow',
                 'printPhotosHtml', 'printCustData', 'printCrewNotes', 'printGateCode',
-                'printSideCount', 'printYesNo', 'printBinCount', 'houseSideCount', 'esc'];
+                'printSidesCell', 'houseSidesListFromValue', 'printYesNo', 'printBinCount',
+                'houseSideCount', 'esc'];
 const missing = NEEDED.filter(n => !fn(n))
   .concat(columnsSrc ? [] : ['PRINT_COLUMNS'])
   .concat(fixColSrc ? [] : ['PRINT_FIX_COLUMN'])
-  .concat(sidesDefSrc ? [] : ['HOUSE_SIDES_DEFAULT']);
+  .concat(sidesDefSrc ? [] : ['HOUSE_SIDES_DEFAULT'])
+  .concat(sideNamesSrc ? [] : ['HOUSE_SIDE_NAMES']);
 if (missing.length) {
   console.log('\n  FAIL  cannot find in admin.html: ' + missing.join(', '));
   console.log('\n  A rename is a real change and this gate refuses to pass over one.');
@@ -87,9 +94,9 @@ if (missing.length) {
    CLAUDE.md §3 has the long version: a green run does not prove a suite supplied its
    own dependencies. */
 const sb = new Function(
-  columnsSrc + fixColSrc + sidesDefSrc +
+  columnsSrc + fixColSrc + sidesDefSrc + sideNamesSrc +
   fn('esc') + fn('printYesNo') + fn('houseSideCount') +
-  fn('printGateCode') + fn('printSideCount') +
+  fn('printGateCode') + fn('houseSidesListFromValue') + fn('printSidesCell') +
   fn('printBinCount') + fn('printCrewNotes') + fn('printFixReason') +
   fn('printCrewColumns') + fn('printCrewRow') + fn('printFixPhotos') +
   fn('printPhotosHtml') +

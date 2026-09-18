@@ -20,17 +20,27 @@
  * about what someone owes.
  */
 
-/* How many feet fit in one bin. A house needs another bin for every 260 feet:
- * up to 260 is 1 bin, 261-520 is 2, 521-780 is 3, and so on. More than one bin
+/* How many feet fit in one bin. A house needs another bin for every 320 feet:
+ * up to 320 is 1 bin, 321-640 is 2, 641-960 is 3, and so on. More than one bin
  * also means a 5000-series customer number instead of a regular one.
- * Note: some older training notes and UI text say "the 200 ft rule" — 260 is
- * the number the app actually uses.
- * The name is historic — it used to be a single over/under cutoff between one
- * bin and two, because two was as high as it went. The cutoff itself has not
- * moved, so a house on the books keeps the bin count and the number it already
- * has; only houses over 520 feet, which used to be capped at 2 bins, come out
- * differently now. */
-export const CN_DOUBLE_BIN_FEET = 260;
+ *
+ * ⭐ 320 SINCE 2026-09-10, Addie: "lets change feet to 320 feet in order to have two
+ * bins." It was 260 before that, and 200 in some older training notes and UI text —
+ * which is why NOTHING may type this number out for itself. Every screen, every
+ * warning and every test reads it from here; the one place that hard-coded 200 sat
+ * there contradicting the maths for weeks before anybody noticed.
+ *
+ * ⚠ THE BIN COUNT ON A RECORD IS STORED, NOT DERIVED. `numberOfBins` is written by
+ * `cnBinsForFeet` at the moment a footage is saved, so raising this does NOT re-count
+ * the houses already on the books — and it must not, because their bins are physically
+ * labelled and their customer numbers are painted on. A house between 261 and 320 feet
+ * is stored as 2 bins on a 5000-series number and would now be worked out as 1 on a
+ * regular one; it keeps what it has until somebody re-saves its footage deliberately.
+ * That is a decision about real boxes on real shelves, so it is the owner's to make.
+ *
+ * The NAME is historic — it used to be a single over/under cutoff between one bin and
+ * two, because two was as high as it went. */
+export const CN_DOUBLE_BIN_FEET = 320;
 
 /* How many bins a house needs, from its measured feet. Never fewer than 1 —
  * a house with no feet measured yet still gets somewhere to put its lights. */
@@ -149,7 +159,12 @@ export function computeInvoiceStatus(install, removal, deposit, credits, changeF
  * recomputed against this number the next time it syncs, so a customer charged $30
  * before today comes out at $25 — one price for the season, which is the answer
  * that does not need explaining to whoever rings up. */
-export const NEW_MEMBER_FEE = 25;
+/* ⚠ $30 FROM 2026-09-07 (was 25). Dax: "we need to change the instalation fee to $30."
+   The customer-facing name for this is the INSTALLATION FEE — that is what the invoice
+   document, the invoice email and the quote all call it; "new member fee" is only the
+   field name. Change it here and in functions/index.js in the SAME push: two copies of
+   a money constant is what money-parity.test.js exists to catch. */
+export const NEW_MEMBER_FEE = 30;
 export const LIGHT_CHANGE_FEE = 30;
 export const LIGHT_WINDOW_MS = 48 * 60 * 60 * 1000;
 
@@ -350,4 +365,119 @@ export function arrearsOutstanding(inv) {
   if (owed <= 0) return 0;
   const paid = centsOf((inv && inv.deposit) || 0) + centsOf((inv && inv.credits) || 0);
   return Math.max(0, owed - paid) / 100;
+}
+
+/* ⭐ THE INVOICE CALENDAR — ONE ANSWER FOR EVERY DATE ON A BILL (2026-09-11).
+ * Addie: "everyone still receives there invoice after they get installed but now
+ * they have until february to get them paid. We will give them one text reminder
+ * at the end of February than if they don't respond by end of March than they
+ * will get a fee email at beginning of April", and then, on the text: "Feb 1 is
+ * when we will send out Text messages and need to be reminded on Feb 1st to send
+ * those out to everyone that hasn't paid as a pop up on admin portal on feb 1st."
+ *
+ * ⭐ THIS REPLACES A ROLLING 30/60-DAY CLOCK WITH A FIXED CALENDAR, and that is
+ * the whole of the change. Payment terms used to run 30 days from the invoice
+ * DATE, so every house had its own private due date and its own private chase
+ * days — a house done on 3 October was chased in November while its neighbour
+ * done on 20 December was chased in January. Four dates now belong to the SEASON
+ * rather than to the house, so the entire book moves together and the office has
+ * two days in the year to think about rather than nine hundred.
+ *
+ *   due       last day of February   what the customer is told on paper
+ *   text      1 February             the office texts everyone still unpaid
+ *   fee       1 April                the late fee email sends by itself
+ *
+ * ⚠ THE TEXT COMES BEFORE THE DUE DATE, ON PURPOSE, AND IT IS HERS. Asked
+ * directly whether the paper should say Feb 1 to match the text, she chose "Feb
+ * 28 on paper, text Feb 1" — so the text is a reminder that the month to pay has
+ * started, not a chase for a bill that is already late. Do not "fix" the gap by
+ * moving one onto the other: they are answering different questions and she was
+ * shown both readings.
+ *
+ * ⚠ WHICH FEBRUARY IS DECIDED BY THE SEASON, NOT BY THE CALENDAR YEAR. A bill
+ * issued in October 2026 and a bill issued in January 2027 are the same season
+ * and are due the same day — 28 February 2027. Reading the issue year alone
+ * would give the January house until February 2028, fourteen months, because its
+ * invoice happens to carry a different year on it. July is the split: the season
+ * starts hanging in the autumn, so anything from July onwards belongs to the
+ * season now beginning and anything before it to the season just gone.
+ *
+ * ⚠ AND IT CAN NEVER PRINT A DATE THAT HAS ALREADY GONE BY. A bill issued after
+ * its own season's February — a house finished absurdly late, or a record billed
+ * long after the fact — rolls forward to the next one rather than handing the
+ * customer a due date in the past, which is the one output here that is not a
+ * business oddity but a straightforward lie. It buys them an unusually long time
+ * to pay; that is visible on the invoice and is the safe direction.
+ *
+ * ⚠ LAST DAY OF FEBRUARY, NOT "THE 28th". `new Date(y, 2, 0)` is day zero of
+ * March, which is the last day of February and is 29 in a leap year without
+ * anybody having to remember that 2028 is one. Writing 28 out would quietly
+ * shorten one season in four by a day.
+ *
+ * ⚠ functions/index.js carries a twin of every one of these, because the nightly
+ * run stamps the {{due_date}} on the email the customer actually receives and
+ * the April send has to decide who is late without a browser. money-parity.test.js
+ * runs both copies side by side over a sweep of issue dates — this decides what
+ * a customer is told and what they are charged, so the office screen, the paper
+ * and the server must never disagree about one bill. */
+
+/* The season a bill belongs to, from the day it was issued. */
+export function invoiceSeasonYear(issued) {
+  if (!issued) return null;
+  const y = issued.getFullYear();
+  return issued.getMonth() >= 6 ? y : y - 1;
+}
+
+/* The last day of February following the given season — the date printed on the
+ * invoice as "Due", and the day after which a bill is Overdue. */
+export function invoiceDueDate(issued) {
+  if (!issued) return null;
+  const season = invoiceSeasonYear(issued);
+  if (season === null) return null;
+  let due = endOfFebruary(season + 1);
+  /* Never a date already gone by — see the note above. */
+  if (due.getTime() < issued.getTime()) due = endOfFebruary(season + 2);
+  return due;
+}
+
+/* 1 February of the same season — the morning the office is reminded to text
+ * everybody who has not paid. */
+export function invoiceTextChaseDate(issued) {
+  const due = invoiceDueDate(issued);
+  return due ? new Date(due.getFullYear(), 1, 1, 0, 0, 0, 0) : null;
+}
+
+/* 1 April of the same season — the morning the late-fee email sends itself to
+ * anybody who has still not paid by the end of March. */
+export function invoiceFeeChaseDate(issued) {
+  const due = invoiceDueDate(issued);
+  return due ? new Date(due.getFullYear(), 3, 1, 0, 0, 0, 0) : null;
+}
+
+function endOfFebruary(year) {
+  /* Day 0 of March is the last day of February — 29 in a leap year, free. */
+  return new Date(year, 2, 0, 23, 59, 59, 999);
+}
+
+/* ⭐ THE LATE FEE ITSELF (PROC-32, decided 2026-08-29, built 2026-09-11).
+ * $25 if they have paid something, $40 if they have paid nothing. Addie settled
+ * the two numbers before either chase existed — they sat in admin.html as a
+ * "preview only, not built" card for a fortnight — and she has not moved them
+ * since, so this reads them rather than asking her again.
+ *
+ * ⚠ PART PAID IS NOT UNPAID, and the difference is fifteen dollars. Somebody who
+ * has sent something is trying; the smaller fee is the rule saying so. A copy
+ * that tested the BALANCE instead of the payment would charge $40 to a customer
+ * who had paid nearly all of it, which is the opposite of what the split is for.
+ *
+ * ⚠ CREDITS ARE NOT A PAYMENT HERE. A credit is the office deciding money is not
+ * owed, not the customer sending any — reading one as "they paid something"
+ * would let an office discount buy somebody the cheaper fee. `deposit` alone is
+ * money that actually came in. */
+export const LATE_FEE_KIND = 'late';
+export const LATE_FEE_PAID_SOMETHING = 25;
+export const LATE_FEE_PAID_NOTHING = 40;
+export function lateFeeAmount(inv) {
+  const paid = centsOf((inv && inv.deposit) || 0);
+  return paid > 0 ? LATE_FEE_PAID_SOMETHING : LATE_FEE_PAID_NOTHING;
 }

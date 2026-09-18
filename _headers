@@ -34,6 +34,11 @@
 /r/*
   Cache-Control: no-cache
 
+# And /s/<token>, the page the customer opens to SEND that link on, for the
+# third time for the same reason.
+/s/*
+  Cache-Control: no-cache
+
 /js/*
   Cache-Control: no-cache
 

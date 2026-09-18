@@ -16,7 +16,7 @@
  */
 
 const { test, expect } = require('@playwright/test');
-const { installFirebaseStub } = require('./firebase-stub');
+const { installFirebaseStub, tapRsvpConfirm } = require('./firebase-stub');
 const { CUSTOMERS, INVOICES } = require('./fixtures');
 
 const BLOCKED_RESOURCE = /Failed to load resource|net::ERR_|ERR_TUNNEL|ERR_CONNECTION/;
@@ -29,6 +29,8 @@ async function openRsvpYes(page, token, overrides) {
     if (m.type() === 'error' && !BLOCKED_RESOURCE.test(m.text())) thrown.push('console: ' + m.text());
   });
   await page.goto(`/index.html#/payment?token=${token}&rsvp=yes`);
+  /* ⭐ An RSVP link no longer answers on open — one tap confirms it. */
+  await tapRsvpConfirm(page, `/index.html#/payment?token=${token}&rsvp=yes`);
   stub.thrown = thrown;
   return stub;
 }
@@ -289,7 +291,8 @@ test.describe('Gate code on the RSVP yes', () => {
   test('a No answer is never asked for a gate code', async ({ page }) => {
     const stub = await installFirebaseStub(page);
     await page.goto(`/index.html#/payment?token=${CUSTOMERS.standard.token}&rsvp=no`);
-
+    /* ⭐ An RSVP link no longer answers on open — one tap confirms it. */
+    await tapRsvpConfirm(page, `/index.html#/payment?token=${CUSTOMERS.standard.token}&rsvp=no`);
     await expect(page.locator('#rsvpConfirmMsg')).toContainText(/sorry to miss you/i);
     await expect(page.locator('#rsvpGateCodeStep')).toBeHidden();
 

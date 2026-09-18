@@ -717,13 +717,26 @@ exports.paypalWebhook = onRequest(
 // them. Anything not listed here can never be written from the public site.
 const PORTAL_WRITE_FIELDS = {
   info:        ['name', 'phone', 'email', 'address', 'phone2', 'email2', 'gateCode'],
-  preferences: ['installPreference', 'wireColor', 'outletTimer', 'specificOutlet',
+  /* ⛔ wireColor WAS HERE AND IS DELIBERATELY GONE (2026-09-17). Addie: "keep what lights
+     they want but don't add what wire color they want but push check lights then warehouse
+     chooses what wire they have on file and will make it based on what wire they have."
+     The control is off the portal, and taking the field off this list is what makes that
+     TRUE rather than merely unwired — this object is the whole of what the public site can
+     ever write, so a field left here is a door nothing uses and anybody can still push on.
+     ⚠ Removing it cannot erase anything: portalSave only copies a field when it ARRIVES
+     (`incoming[f] !== undefined`), so a wire colour already on a record is untouched, and
+     the office keeps its own box on Add and Edit Customer. */
+  preferences: ['installPreference', 'outletTimer', 'specificOutlet',
                 'specificOutletNotes', 'notes'],
   lights:      ['lightsDescription'],
   /* ⭐ Which sides they want lit. Its own section, not folded into
      'preferences', because changing it changes the PRICE — see the requote
-     flag below — and a section is what decides whether that runs. */
-  sides:       ['houseSides'],
+     flag below — and a section is what decides whether that runs.
+     ⚠ houseSidesList ADDED 2026-09-06. It never drives the re-quote flag or
+     price — houseSides (the count) still does, unchanged — it is the specific
+     names (Front/Left/Right/Back), sanitized server-side below the same way
+     houseSides itself is. */
+  sides:       ['houseSides', 'houseSidesList'],
   cancel:      ['cancellationReason']
 };
 
@@ -732,8 +745,12 @@ const PORTAL_WRITE_FIELDS = {
 // flag, don't-install-before date, crew notes — never leaves the server.
 const PORTAL_READ_FIELDS = [
   'name', 'phone', 'email', 'address', 'phone2', 'email2', 'gateCode',
-  'lightsDescription', 'installPreference', 'wireColor', 'outletTimer',
-  'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus', 'houseSides',
+  /* ⛔ wireColor LEFT THIS LIST 2026-09-17, with the control that read it. Nothing in
+     index.html looks at it any more, and a field sent to every customer's browser and
+     never read is exactly what portal-fields.test.js exists to refuse — the office keeps
+     it, the warehouse prints it, and the customer has no use for it. */
+  'lightsDescription', 'installPreference', 'outletTimer',
+  'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus', 'houseSides', 'houseSidesList',
   /* ⚠ THE WORD ON ITS OWN IS NOT AN ANSWER, so the portal needs the stamp too
      (added 2026-09-02). A stored yes with nothing behind it is an import or the
      assumed yes written at conversion (RS-19) — the office already refuses that
@@ -743,6 +760,28 @@ const PORTAL_READ_FIELDS = [
      would therefore have been put to customers who had already answered it.
      Caught by portal-fields.test.js, which exists for exactly this shape. */
   'rsvpRespondedAt',
+  /* ⭐ THE PENDING MOVE (2026-09-10). A whitelist is the whole of what reaches
+     the browser, so without these the portal cannot tell a customer who has
+     already sent a new address that it is with the office — they would open
+     the tab, see the old address still on file and send it again. The live
+     `address` above is deliberately still the OLD one until the office
+     applies the move.
+     ⚠ TWO OF THE FIVE, NOT ALL FIVE. `pendingCity` and `pendingZip` are already
+     inside the one-line `pendingAddress` the banner prints, and nothing shows
+     the customer WHEN they asked — so sending pendingAddressAt as well would be
+     three more fields in every customer's browser that no line of the page ever
+     looks at. portal-fields.test.js is what said so, which is the whole reason
+     that census exists. The office reads all five; only the portal is narrowed. */
+  'pendingAddress', 'pendingMoveDate',
+  /* ⭐ WHETHER THEY HAVE ALREADY SAID WHY ([[RS-60]], 2026-09-11). The picker is drawn
+     only for somebody who has NOT answered it, and a whitelist is the whole of what
+     reaches the browser — so without this the field reads undefined for everybody and
+     the question is put again to every customer who has already answered it, on every
+     visit. That is the complaint half this file's history is about.
+     ⚠ THE NOTE ITSELF IS NOT SENT. `rsvpDeclineNote` is what they typed and nothing on
+     the page ever draws it back; sending it would be a field in every browser that no
+     line of the page reads, which is what portal-fields.test.js exists to catch. */
+  'rsvpDeclineReason',
   /* ⭐ REFER A FRIEND (2026-09-03). Two fields, and the portal cannot draw that tab
      without either of them — a whitelist is the whole of what reaches the browser, so a
      field left out here is simply undefined on the customer's screen with nothing
@@ -1161,8 +1200,22 @@ async function clawBackReferralServer(customerId, customerData) {
     /* ⚠ `waived` COUNTS AS NOT COUNTED HERE TOO, and it must match referralLiveCount in
        admin.html exactly: that is the office crossing the discount off with the × (MON-56),
        and a server copy that ignores it would put every waived referral back on the bill
-       the first time a customer declines. Change one, change the other. */
-    const live = entries.filter(function (e) { return e && !e.revoked && !e.waived; }).length;
+       the first time a customer declines. Change one, change the other.
+       ⚠ AND THE SEASON TEST IS THE THIRD RULE, added with REF-14 the same day it went
+       into admin.html: a referral is $25 off the season it was earned in. Without it
+       here, one customer declining in their own portal recomputes the count over ALL
+       seasons and puts every expired credit back on the referrer's bill — the exact
+       shape the `waived` note above is warning about, one rule further on. */
+    const thisSeason = new Date().getFullYear();
+    const live = entries.filter(function (e) {
+      if (!e || e.revoked || e.waived) return false;
+      let y = (e.season != null && Number.isFinite(Number(e.season))) ? Number(e.season) : null;
+      if (y === null) {
+        const t = Date.parse(String(e.creditedAt || ''));
+        y = Number.isNaN(t) ? null : new Date(t).getFullYear();
+      }
+      return y === null || y === thisSeason;
+    }).length;
     await db.collection('jobAddresses').doc(referrerId).update({
       referralCredits: entries, referralCount: live,
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -1203,25 +1256,125 @@ function generateReferralToken() {
   }
   return out;
 }
+/* ⭐ THE SEASON'S REFERRAL LINK — MINTED HERE, ROTATED ONLY BY THE BUTTON (REF-28,
+   2026-09-07). Addie: "Can we just have a button we can push that says start new season
+   and it will update everything?"
+
+   ⚠ SO THIS FUNCTION NEVER REPLACES A LIVE TOKEN. It mints one for a customer who has
+   none and returns whatever is already there otherwise. Start New Season in admin.html
+   is the only thing that rotates, and it does every customer in one press.
+
+   ⚠ AN EARLIER VERSION ROTATED HERE TOO, on the calendar year, and that had to go rather
+   than be kept alongside: two things rotating on two different triggers means the button
+   she presses would rarely be the one that actually did it, and the pair could take turns
+   replacing each other's token so a customer's link changed every time anybody looked at
+   it. One rule, one trigger.
+
+   ⚠ THE SEASON STAMP IS WRITTEN AT MINT AND IS DESCRIPTIVE ONLY. Nothing about money
+   reads it — the fee waiver asks whether a token is the one on the record right now,
+   which is a fact rather than a date comparison. It is allowed to be missing: every link
+   minted before 2026-09-07 has none. */
+function referralSeasonNow() { return new Date().getFullYear(); }
 async function ensureReferralToken(id, data) {
-  if (data.referralToken) return data.referralToken;
+  if (data && data.referralToken) return data.referralToken;
   const token = generateReferralToken();
+  const updates = { referralToken: token, referralTokenSeason: referralSeasonNow() };
   try {
-    await db.collection('jobAddresses').doc(id).update({ referralToken: token });
+    await db.collection('jobAddresses').doc(id).update(updates);
   } catch (err) {
     // Use it anyway — worst case their link is replaced on the next visit.
   }
+  /* Mirrored onto the record we were handed, so a later read in the same request sees
+     the token that was actually written rather than minting a second one. */
+  if (data && typeof data === 'object') Object.assign(data, updates);
   return token;
 }
+/* ⚠ THE MIRROR OF admin.html's SHARE_ICON_BUTTON_STYLE, character for character.
+   A second spelling is the same square rendered two different sizes depending on
+   which of the two renderers happened to send that customer's email. */
+const SHARE_ICON_BUTTON_STYLE_SERVER = 'display:inline-block; padding:9px 11px; border-radius:8px; text-decoration:none; font-size:17px; font-weight:bold; line-height:1; margin:0 0 0 4px; background:#D89F3D; color:#1E3B2C; vertical-align:middle;';
+/* ⭐ THE LINK ITSELF, IN A BOX, WITH THE SHARE ICON BESIDE IT (2026-09-07, REF-19).
+   Addie, sent the two-button version and shown a picture of what she meant instead:
+   *"Okay i was thinking it would look like the second picture"* — a bordered box
+   holding the link she can read, one small gold share square beside it, and no gold
+   call-to-action button at all.
+
+   ⚠ IT REPLACES THE BUTTON, IT DOES NOT SIT UNDER IT. Three tappable things in one
+   paragraph is exactly the clutter the picture was drawn to remove. And it is
+   [[REF-17]] finished rather than undone: Dax asked for "a share icon right next to
+   link", and with the link only ever rendered AS a button there was no link for the
+   icon to sit next to.
+
+   ⚠ THE TWO ADDRESSES STAY TWO ADDRESSES ([[REF-13]]). The words are the FRIEND's
+   /r/<token>, because that is the thing being copied out and forwarded — and what it
+   says is where it goes, so a box reading /r/ that quietly opened /s/ would hand the
+   wrong address to anybody who long-pressed it. The ICON carries the customer's own
+   share page, the same /s/<token> the button carried, so the tap Dax asked about still
+   lands on the share sheet.
+
+   ⚠ A TABLE, NOT A FLEX ROW, AND INLINE STYLES ONLY. Outlook has no flexbox and no
+   border-radius; a table degrades to a square box with the link and the icon still side
+   by side, which is the whole of the design.
+
+   ⚠ AND THE SCHEME IS STRIPPED FROM THE WORDS ONLY, never from the href. */
+function referralShareBoxHtmlServer(friendUrl, shareUrl){
+  const link = String(friendUrl || '');
+  const share = String(shareUrl || '');
+  /* No link means no box at all — never an empty box, and never an <a href=""> a
+     customer taps and lands nowhere. The same rule the button this replaces stated. */
+  if(!link || !share) return '';
+  const shown = link.replace(/^https?:\/\//, '');
+  return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate; border:1px solid #E3D9C2; border-radius:12px; background:#FFFDF7; margin:8px 0;">'
+    + '<tr><td style="padding:8px 4px 8px 12px; font-family:Arial,sans-serif; font-size:14px;">'
+    + '<a href="' + link + '" style="color:#1E3B2C; text-decoration:underline; word-break:break-all;">' + shown + '</a>'
+    + '</td><td valign="middle" style="padding:4px 8px 4px 4px;">'
+    + '<a href="' + share + '" style="' + SHARE_ICON_BUTTON_STYLE_SERVER + '" title="Share">\u2191</a>'
+    + '</td></tr></table>';
+}
+/* ⚠ A TOKEN THAT WAS NOT SAVED MUST NOT GO OUT IN AN EMAIL (2026-09-11).
+
+   This used to swallow the write failure and return the freshly minted token anyway, under
+   the comment "worst case they get a fresh one next visit". That is not the worst case and
+   there is no next visit. The token is the whole of the link in the email — findByToken
+   looks for exactly this string in jobAddresses — so a token that never reached Firestore
+   is a link that can NEVER work, for as long as that email sits in their inbox. The
+   customer taps Yes, gets "we couldn't find your account", and their answer is lost.
+
+   ⚠ AND IT WAS INVISIBLE BY CONSTRUCTION. The catch logged nothing at all, so the one
+   failure that silently poisons an outgoing email left no trace anywhere to find it by.
+   That is why the logging below is an error and not a warning.
+
+   ⚠ THE RE-READ IS NOT BELT AND BRACES. The commonest reason this write loses is a race:
+   the nightly batch and a portalLookup can both reach a token-less record within a second
+   of each other, and the loser of that race must send the WINNER's token, not its own. A
+   re-read answers that exactly, and it is also the only way to tell a genuinely failed
+   write from one that landed under a different value.
+
+   ⚠ EMPTY IS A REAL ANSWER AND EVERY CALLER ALREADY HANDLES IT. All three spell their
+   link `(token ? ('?token=' + token) : '')`, so nothing here throws into the middle of the
+   nightly invoice run or the RSVP batch — the customer gets an email whose button lands on
+   the ordinary sign-in page instead of one that lands on an apology. A link that asks them
+   to sign in is a worse email; a link that cannot work is a lost customer answer. */
 async function ensureToken(id, data) {
   if (data.portalToken) return data.portalToken;
   const token = generatePortalToken();
   try {
     await db.collection('jobAddresses').doc(id).update({ portalToken: token });
+    return token;
   } catch (err) {
-    // Use the token anyway — worst case they get a fresh one next visit.
+    console.error('[HU] could not save a portal token for ' + id, err);
   }
-  return token;
+  /* Somebody else may have minted one in the meantime — theirs is the one that is stored,
+     so theirs is the one the email has to carry. */
+  try {
+    const fresh = await db.collection('jobAddresses').doc(id).get();
+    const saved = fresh.exists ? (fresh.data() || {}).portalToken : '';
+    if (saved) return String(saved);
+  } catch (err) {
+    console.error('[HU] could not re-read the portal token for ' + id, err);
+  }
+  console.error('[HU] sending ' + id + ' a link with NO token rather than one that cannot work');
+  return '';
 }
 
 /* --- Who a bill is actually for -------------------------------------------
@@ -1502,6 +1655,24 @@ exports.portalLookup = onCall({ cors: true }, async (request) => {
  * ⚠ ONE RULE, TWO COPIES, ASSERTED IDENTICAL — the browser cannot run the
  * server's. run-all.js runs both over the same table of cases and fails if they
  * ever disagree, the money-parity pattern. */
+/* ⭐ WHAT COLOURS A HOUSE ACTUALLY HAS — BOTH FIELDS ([[WH-28]], 2026-09-10).
+ * The twin of `houseLightsText` in admin.html; run-all.js compares the two.
+ *
+ * ⚠ AN ORDINARY HOUSE KEEPS ITS COLOURS IN `lightColors` AND ITS DESCRIPTION IS EMPTY.
+ * `rbDetectColorsAndPattern`, which the master-sheet sync writes through, only fills
+ * lightsDescription when a colour REPEATS — a repeat is an alternating pattern where the
+ * order matters. Reading the description alone therefore reports every ordinary house as
+ * having no colours, which is what let a member change theirs for free: applyLightChange's
+ * own rule is that filling colours in for the FIRST time is not a change and is not charged.
+ *
+ * ⚠ THE DESCRIPTION WINS WHERE THERE IS ONE, because it carries the ORDER and the list
+ * does not. Same precedence as the admin copy, and the tests hold them together. */
+function houseLightsTextServer(d) {
+  const c = d || {};
+  const desc = String(c.lightsDescription || '').trim();
+  if (desc) return desc;
+  return (Array.isArray(c.lightColors) ? c.lightColors.filter(Boolean).join(', ') : '');
+}
 const WAREHOUSE_BUILD_FIELDS = ['lightsDescription', 'wireColor', 'outletTimer'];
 /* ⭐ THE SERVER HALF OF "WHEN WAS THIS SENT TO THE WAREHOUSE" (added 2026-08-28).
    Change this and change `stampBuildQueued` in admin.html, in the same push — the
@@ -1570,6 +1741,31 @@ function warehouseRebuildFields(oldData, newData) {
   });
 }
 
+/* ⭐ DID THIS SAVE TURN A TIMER OFF? ([[WH-34]], 2026-09-11). Addie: "For people who don't
+ * want a timer anymore we need to put that in warehouse as Remove Timer."
+ *
+ * ⛔ THE PORTAL IS THE COMMONEST WAY THIS HAPPENS, which is why the rule cannot live only in
+ * admin.html. `outletTimer` is one of PORTAL_WRITE_FIELDS' preferences, so a customer turns
+ * their own timer off from their own phone — and if this file does not write the flag, the
+ * warehouse is never told and the timer stays in their bin however good the office screen is.
+ *
+ * ⚠ ONE RULE, TWO COPIES, ASSERTED IDENTICAL — `whTimerCameOff` in admin.html is the other,
+ * and run-all.js runs both over the same table of cases. The browser cannot run this one.
+ *
+ * ⚠ WHAT IS DELIBERATELY *NOT* MIRRORED IS THE ROUTING. admin.html can also route a
+ * timer-only save AWAY from the build queue ([[WH-27]]/[[WH-34]]); this file has never had
+ * `needsTimerOnly` at all and still sets `needsLightBuild` for any warehouse change, in both
+ * directions. That asymmetry pre-dates this and is left exactly as it was rather than widened
+ * by half: what is added here is the flag, which is the part that cannot be re-derived later. */
+function whTimerCameOffServer(oldData, updates, changedFields) {
+  const u = updates || {}, o = oldData || {};
+  if (!Array.isArray(changedFields) || changedFields.indexOf('outletTimer') === -1) return false;
+  /* A blank timer is "No" everywhere, so only a stored Yes can come off. */
+  if (String(o.outletTimer == null ? '' : o.outletTimer).trim() !== 'Yes') return false;
+  const now = Object.prototype.hasOwnProperty.call(u, 'outletTimer') ? u.outletTimer : o.outletTimer;
+  return String(now == null ? '' : now).trim() !== 'Yes';
+}
+
 /* ---- WHAT A CUSTOMER CHANGED IN THEIR OWN PORTAL -------------------------
  *
  * ⭐ THE LAST OF ADDIE'S SIX, AND THE OFFICE HALF WAS ALREADY DONE (added 2026-08-29).
@@ -1605,6 +1801,12 @@ const PORTAL_CHANGE_LABELS = {
   specificOutletNotes: 'Which outlet', notes: { label: 'Notes', kind: 'text' },
   lightsDescription: 'Light colours',
   houseSides: { label: 'Sides of the house', kind: 'number' },
+  /* ⭐ ADDED 2026-09-06 with houseSidesList itself. A portal-writable field with no
+     label here is SILENCE: the customer ticks Front and Back, the record changes, and
+     their history says nothing — which reads exactly like the save never happening.
+     change-log.test.js is what caught it missing, and it requires the office copy in
+     admin.html (CUSTOMER_FIELD_LABELS) to say the same words with the same kind. */
+  houseSidesList: { label: 'Which sides', kind: 'list' },
   cancellationReason: { label: 'Why they are cancelling', kind: 'text' }
 };
 /* ⚠ THE ORDER OF THESE FIRST TWO LINES IS THE RULE, and it is written out in the browser
@@ -1614,7 +1816,22 @@ const PORTAL_CHANGE_LABELS = {
    boxes changing. */
 function portalChangeValueText(v, kind) {
   if (kind === 'present') return v ? 'saved' : 'none';
-  if (kind === 'yesno' || typeof v === 'boolean') return v ? 'yes' : 'no';
+  if (kind === 'yesno' || typeof v === 'boolean') {
+    if (typeof v === 'boolean') return v ? 'yes' : 'no';
+    /* ⛔ A TICK BOX HAS THREE SPELLINGS, NOT TWO, and this line used to read
+       `v ? 'yes' : 'no'` — which answers 'yes' for the STRING 'No', because a non-empty
+       string is truthy. The portal's own radios post 'Yes'/'No' (index.html, the
+       changes_specific_outlet pair), so `specificOutlet` was wrong in BOTH directions at
+       once and had been all along: switching it from No to Yes produced NO history row,
+       while a record storing boolean `false` saved against a posted 'No' — nobody
+       touching anything — reported "no → yes" every single time. Measured by running the
+       diff, not by reading it, the same way the blank-versus-false trap below was found.
+       ⚠ THE ORIGINAL TRAP STAYS CLOSED, which is the whole difficulty: '' and false must
+       still both mean no, or every save of every customer reports its tick boxes
+       changing. So blank, 'no', 'false' and '0' are all no, and anything else is yes. */
+    const s = String(v === null || v === undefined ? '' : v).trim().toLowerCase();
+    return (s === '' || s === 'no' || s === 'false' || s === '0') ? 'no' : 'yes';
+  }
   if (v === null || v === undefined || v === '') return '(blank)';
   if (kind === 'money') return '$' + (Number(v) || 0).toFixed(2);
   if (kind === 'list') return Array.isArray(v) ? (v.join(', ') || '(blank)') : String(v);
@@ -1623,14 +1840,24 @@ function portalChangeValueText(v, kind) {
   return s.length > 60 ? s.slice(0, 60) + '\u2026' : s;
 }
 const PORTAL_CHANGE_EMPTY_TEXTS = ['(blank)', 'no', 'none', '0', '$0.00'];
-function describePortalChanges(before, updates) {
+/* ⭐ WHICH FIELDS A PORTAL SAVE ACTUALLY CHANGED — ONE ANSWER (split out 2026-09-16,
+   [[EM-18]]). This was the first half of describePortalChanges and is now its own function
+   because the member's auto-reply has to ask the identical question: the office history and
+   the email we send the customer cannot disagree about whether somebody changed their wire
+   colour. Two copies of this test is how the activity log records a change the confirmation
+   email never mentions.
+   ⚠ AND THE TWO SUBTLETIES BELOW ARE WHY A SECOND COPY WOULD BE WRONG RATHER THAN MERELY
+   DUPLICATED. A hand-rolled `String(a) !== String(b)` gets both of them backwards: an
+   unticked box arrives as '' while the record stores `false`, so every save of every
+   customer would report the tick boxes changing — which, on the auto-reply, is an email to
+   the whole book saying they changed something they never touched. */
+function portalChangedFieldNames(before, updates) {
   const out = [];
   if (!updates) return out;
   const was = before || {};
   Object.keys(PORTAL_CHANGE_LABELS).forEach(function (f) {
     if (!Object.prototype.hasOwnProperty.call(updates, f)) return;
     const spec = PORTAL_CHANGE_LABELS[f];
-    const label = typeof spec === 'string' ? spec : spec.label;
     const kind = typeof spec === 'string' ? '' : spec.kind;
     const a = portalChangeValueText(was[f], kind);
     const b = portalChangeValueText(updates[f], kind);
@@ -1640,9 +1867,19 @@ function describePortalChanges(before, updates) {
        touches it, which would put a row of noise on the history of the whole book. */
     if (!Object.prototype.hasOwnProperty.call(was, f) &&
         PORTAL_CHANGE_EMPTY_TEXTS.indexOf(b) !== -1) return;
-    out.push(label + ': ' + a + ' \u2192 ' + b);
+    out.push(f);
   });
   return out;
+}
+function describePortalChanges(before, updates) {
+  const was = before || {};
+  return portalChangedFieldNames(was, updates).map(function (f) {
+    const spec = PORTAL_CHANGE_LABELS[f];
+    const label = typeof spec === 'string' ? spec : spec.label;
+    const kind = typeof spec === 'string' ? '' : spec.kind;
+    return label + ': ' + portalChangeValueText(was[f], kind) +
+      ' \u2192 ' + portalChangeValueText(updates[f], kind);
+  });
 }
 /* ⚠ ONE ROW PER SAVE, capped, and SAYING it is capped — the same rule and the same number
    as the office copy, for the same reason: a save is one event, and a row per field turns
@@ -1676,6 +1913,197 @@ async function logPortalChange(custId, changes) {
     console.error('[HU] portal activity log write failed', what, err);
     return null;
   }
+}
+
+/* ⭐ AN AUTO-REPLY WHEN A MEMBER CHANGES SOMETHING ABOUT THEIR HOUSE (2026-09-16, [[EM-18]]).
+ * Addie: "can we get an automation email set up for someone who makes a change in the member
+ * portal. Like saying something like we'll make sure to make this change on your house."
+ *
+ * ⚠ THE OFFICE WAS ALREADY TOLD AND THE CUSTOMER WAS NOT. Every one of these changes has
+ * raised an Inbox note and a Gmail nudge since [[MSG-17]] — so WE knew, and the person who
+ * made the change got a grey "Saved!" that vanishes after 1.5 seconds and nothing else. This
+ * is the other direction, and it is the only email in this file that goes to the member
+ * because of something the member did.
+ *
+ * ⛔ THE DIFF IS COMPUTED AGAINST THE RECORD, NEVER FROM WHICH KEYS ARRIVED. The preferences
+ * form posts all six of its fields on every save whether they were touched or not, so
+ * `updates` is NOT a list of changes — reading it as one would email every customer
+ * "you changed your wire colour" every time they corrected a note. `portalChangeLabels`
+ * compares each field with what the record already held, and an empty list sends nothing,
+ * which is also what makes a re-save of an untouched form silent for free.
+ *
+ * ⛔ THREE SECTIONS, AND THE OTHER TWO ARE EXCLUDED ON PURPOSE. 'info' is name, phone, email
+ * and gate code — not a change to the house, and [[MSG-18]] already settled that an ordinary
+ * My Info save is deliberately quiet ("changing gate code or phone number should not notify
+ * us"); a customer correcting a typo does not need "we'll make this change on your house".
+ * 'cancel' is somebody leaving, and thanking them for a change we are going to make is the
+ * wrong thing to send to the one person who just said no.
+ *
+ * ⚠ SIDES DO NOT PROMISE A PRICE. Changing which sides are lit raises a re-quote, so its
+ * line says an updated price is coming rather than letting the template's closing sentence
+ * promise work at the old figure.
+ */
+const PORTAL_CHANGE_EMAIL_SECTIONS = ['lights', 'preferences', 'sides'];
+const PORTAL_CHANGE_EMAIL_QUIET_MINUTES = 30;
+
+/* ⭐ THE SAME CHANGES, IN WORDS THE MEMBER WOULD RECOGNISE. The office history says
+   "Wire colour: white → green" because the office wants the before as well as the after;
+   the customer already knows what they just picked and wants to read that we got it. Two
+   renderings of one detection — the same shape as the build badge's chip and its printed
+   label, and for the same reason: a coloured pill and a line in an email cannot share a
+   renderer but must never make different claims.
+   ⚠ IT NAMES ONLY THE HOUSE. Every field portalChangedFieldNames can return is listed
+   below or deliberately absent: name, phone, email, address and gate code belong to the
+   'info' section this never runs for, and cancellationReason belongs to 'cancel'. A field
+   added to PORTAL_CHANGE_LABELS later and not added here is SILENT rather than wrong — the
+   email simply will not mention it, which is why the gate in run-all.js counts them. */
+function portalChangeLabels(oldData, updates) {
+  const fields = portalChangedFieldNames(oldData, updates);
+  const has = function (f) { return fields.indexOf(f) !== -1; };
+  /* Their own words go into an email they will read, so a long value is cut rather than
+     pasted whole — and `notes` is not echoed at all, for the same reason. */
+  const shown = function (f, blank) {
+    const v = updates && updates[f];
+    const s = Array.isArray(v) ? v.filter(Boolean).join(', ') : String(v === undefined || v === null ? '' : v).replace(/\s+/g, ' ').trim();
+    if (!s) return blank;
+    return s.length > 80 ? s.slice(0, 77) + '\u2026' : s;
+  };
+  const out = [];
+  if (has('lightsDescription')) {
+    out.push('The light colours on your house \u2014 now ' + shown('lightsDescription', 'not set'));
+  }
+  if (has('wireColor')) {
+    out.push('Your wire colour \u2014 now ' + shown('wireColor', 'not set'));
+  }
+  if (has('outletTimer')) {
+    out.push('Whether we fit an outlet timer \u2014 now ' + shown('outletTimer', 'not set'));
+  }
+  /* ⚠ ONE LINE FOR THE PAIR. specificOutlet and specificOutletNotes are one answer stored
+     in two fields, and ticking the box while typing the note changes both — two lines would
+     tell the member they made two changes when they made one. The sides pair below is the
+     same shape, for the same reason. */
+  if (has('specificOutlet') || has('specificOutletNotes')) {
+    out.push('Which outlet we plug into');
+  }
+  if (has('installPreference')) {
+    out.push('When you would like your lights hung \u2014 now ' + shown('installPreference', 'no preference'));
+  }
+  if (has('notes')) {
+    out.push('The note you have left us');
+  }
+  /* ⚠ SIDES PROMISE NOTHING ABOUT THE PRICE. Changing which sides are lit raises a
+     re-quote, so this line says an updated price is coming rather than letting the
+     template's closing sentence promise the work at the old figure. */
+  if (has('houseSides') || has('houseSidesList')) {
+    out.push('Which sides of your house we light \u2014 we will send you an updated price before anything changes');
+  }
+  return out;
+}
+
+/* ⚠ BEST EFFORT, AND IT NEVER THROWS. Every caller has already written the change; an email
+   that cannot be sent must not turn a save that worked into an error on the member's screen.
+   The reason is returned rather than swallowed so the log says which of the seven quiet exits
+   it took — "nothing was sent" and "nothing was sent because the template was deleted" need
+   different actions, and a bare silence needs somebody to guess. */
+async function sendPortalChangeEmail(custId, d, labels) {
+  if (!labels || !labels.length) return { sent: false, why: 'nothing actually changed' };
+
+  const to = String((d && d.email) || '').trim();
+  if (!to) return { sent: false, why: 'no email address on file' };
+
+  const cfgSnap = await db.collection('settings').doc('portalChangeEmail').get();
+  const cfg = cfgSnap.exists ? (cfgSnap.data() || {}) : {};
+  /* ⚠ OFF UNTIL SHE TURNS IT ON. This mails real customers the moment it works, so it must
+     not start doing that on the deploy that adds it. */
+  if (cfg.enabled !== true) return { sent: false, why: 'the auto-reply is switched off' };
+  if (!cfg.templateId) {
+    return { sent: false, why: 'no template is picked under Automation Emails > Templates' };
+  }
+
+  /* ⚠ THE SAME CHANGE TWICE IN HALF AN HOUR IS ONE EMAIL, and it is fingerprinted on the
+     WORDING rather than on which fields moved. Fingerprinting the fields would suppress a
+     real red-then-blue correction and leave the member holding an email that names the
+     colour they backed out of — a stale confirmation is worse than a second one. This way
+     only a genuinely identical re-save is quiet, and every different outcome is confirmed.
+     Same dedupe shape as the error folders' repeat window. */
+  const fingerprint = labels.join(' | ');
+  const lastAt = d && d.portalChangeEmailAt;
+  if (d && d.portalChangeEmailKey === fingerprint && lastAt && typeof lastAt.toMillis === 'function') {
+    const mins = (Date.now() - lastAt.toMillis()) / 60000;
+    if (mins >= 0 && mins < PORTAL_CHANGE_EMAIL_QUIET_MINUTES) {
+      return { sent: false, why: 'the same change was already confirmed a few minutes ago' };
+    }
+  }
+
+  /* ⚠ BY ID, AND A DELETED TEMPLATE SENDS NOTHING RATHER THAN INVENTED WORDING. [[EM-16]]'s
+     lesson: a name lookup is a second opinion about which of her emails this is, and a
+     built-in fallback body is wording she never wrote going out over her name with nothing
+     on any screen saying it happened. */
+  const tplSnap = await db.collection('emailTemplates').doc(String(cfg.templateId)).get();
+  if (!tplSnap.exists) {
+    return { sent: false, why: 'the picked template has been deleted — pick one again' };
+  }
+  const tpl = tplSnap.data() || {};
+
+  const mailSnap = await db.collection('settings').doc('emailjs').get();
+  const mail = mailSnap.exists ? (mailSnap.data() || {}) : {};
+  if (!mail.serviceId || !mail.templateId || !mail.privateKey) {
+    return { sent: false, why: 'EmailJS is not set up on the server (Automation Emails > EmailJS Setup)' };
+  }
+
+  const token = await ensureToken(custId, d);
+  const portalUrl = 'https://highlightingutah.com/#/payment' + (token ? ('?token=' + token) : '');
+  const btn = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none;'
+    + ' font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
+  const list = '<ul style="margin:10px 0 0; padding-left:20px;">'
+    + labels.map(function (l) { return '<li style="margin:4px 0;">' + escServer(l) + '</li>'; }).join('')
+    + '</ul>';
+
+  let body = String(tpl.body || '');
+  body = body.split('{{name}}').join(properNameServer(d.name) || 'there');
+  body = body.split('{{portal_link}}').join(portalUrl);
+  body = body.split('{{portal_button}}').join(
+    '<a href="' + portalUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">See my account</a>');
+  /* ⭐ THE LIST IS APPENDED WHEN THE TOKEN IS NOT THERE, which is [[MSG-27]]'s rule applied to
+     a template SHE edits. The whole point of this email is saying WHICH change we have got
+     down; a body edited later that happens to drop {{change}} would send "we'll make sure to
+     make this change on your house" naming no change at all — this same bug re-armed, with
+     nothing anywhere going red. So the token positions it, and its absence cannot lose it. */
+  if (body.indexOf('{{change}}') !== -1) {
+    body = body.split('{{change}}').join(list);
+  } else {
+    body = body + list;
+  }
+
+  const subject = templateSubjectOr(tpl, 'We have got your change')
+    .split('{{name}}').join(properNameServer(d.name) || 'there');
+
+  const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      service_id: mail.serviceId,
+      template_id: mail.templateId,
+      user_id: mail.publicKey || '',
+      accessToken: mail.privateKey,
+      template_params: {
+        to_email: to, to_name: d.name || '',
+        subject: subject, body: body, message: body
+      }
+    })
+  });
+  if (!res.ok) {
+    const text = (await res.text()).slice(0, 200);
+    return { sent: false, why: 'the mail service refused it: ' + text };
+  }
+
+  /* ⚠ STAMPED ONLY AFTER THE SEND SUCCEEDS, so a refusal does not start a quiet window that
+     suppresses the retry as well as the send that never happened. */
+  await db.collection('jobAddresses').doc(custId).update({
+    portalChangeEmailAt: admin.firestore.FieldValue.serverTimestamp(),
+    portalChangeEmailKey: fingerprint
+  });
+  return { sent: true, why: '' };
 }
 
 /* --- portalSave -----------------------------------------------------------
@@ -1725,7 +2153,27 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
   if (section === 'info') {
     addressChanged = !!(oldData.address && updates.address &&
                         updates.address !== oldData.address);
-    updates.seasonStatus = addressChanged ? 'address_changed' : 'needs_changes';
+    /* ⭐ AN INFO SAVE NO LONGER WRITES seasonStatus AT ALL (Addie, 2026-09-10:
+       "changing gate code or phone number should not notify us").
+
+       This line used to write the re-quote state on EVERY save of this tab:
+       'address_changed' when the address string differed, 'needs_changes'
+       otherwise. Both are states resolved by answering a quote, and no quote
+       exists for a corrected phone number or a gate code — so fixing a typo
+       parked a customer in Needs Changes for ever. That is the same trap
+       portalSetGateCode was split out of portalSave to avoid (see the note
+       above it); this closes it for the tab itself.
+
+       ⚠ MOVING HOUSE IS NOT THIS PATH ANY MORE. It has its own door —
+       portalChangeAddress below — because the two are not the same event and
+       the string differing cannot tell them apart: adding an apartment number
+       and moving to Springville both just change the text. A move now writes
+       PENDING fields and leaves the live address alone until the office
+       applies it, so the pin, the town and any frozen route stop can never
+       disagree with the address on the screen.
+
+       addressChanged is still computed: it is returned to the browser below
+       and read by nothing that writes. */
   }
 
   /* ⭐ CHANGING WHICH SIDES CHANGES THE PRICE.
@@ -1767,13 +2215,74 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
       return (n >= 1 && n <= 4) ? n : 1;
     };
     updates.houseSides = asCount(updates.houseSides);
+    /* ⭐ WHICH SIDES, BY NAME (2026-09-06). Addie: "how are we supposed to know
+       which sides they want if it just says how many ... that's why we need
+       them to say which side of the house they want done from where their
+       front door stands." Additive, never a replacement — houseSides above is
+       still what raises the re-quote flag below, unchanged.
+
+       ⚠ VALIDATED SERVER-SIDE, same as the count: reduced to the four names the
+       app knows, in one fixed order, deduped and capped at four — anything else
+       (a stray value, a duplicate, more than four) is dropped rather than
+       stored, the same discipline as the four-key reduction just above it.
+
+       ⚠ THE LIST WINS THE COUNT WHEN BOTH ARRIVE. A client that sends three
+       names and a count of two disagreeing with each other is either a stale
+       page or a tampered request; the list is the one a person actually ticked
+       box by box, so it is the one trusted to say how many. */
+    const SIDE_NAMES = ['Front', 'Left', 'Right', 'Back'];
+    if (updates.houseSidesList !== undefined) {
+      const picked = {};
+      (Array.isArray(updates.houseSidesList) ? updates.houseSidesList : [])
+        .forEach((s) => { if (SIDE_NAMES.indexOf(s) !== -1) picked[s] = true; });
+      const sanitized = SIDE_NAMES.filter((s) => picked[s]);
+      if (sanitized.length) {
+        updates.houseSidesList = sanitized;
+        updates.houseSides = sanitized.length;
+      } else {
+        delete updates.houseSidesList;
+      }
+    }
     /* ⚠ NO "needs re-quote" FLAG. Owner, 2026-08-18: "we shouldnt need a flag
        that says needs requote the customer should just appear in the requote
        section." The quote the portal opens IS the record of it — a second flag
        saying the same thing is a second thing to keep in step, and the one that
        goes stale is the one nobody is looking at. */
+    /* ⭐ A SWAP IS A RE-QUOTE TOO (2026-09-10, [[OPT-06]]). Addie: "A swap will be a
+       requote cause we need to remark it." This reverses [[OPT-04]] — "For left and
+       right side of the house on quoting those should usually be the same" — and R-024
+       applies. That reasoning was about the PRICE and is still true; she is answering a
+       different question with the same words. A swap changes which roofline the crew
+       hangs, so somebody has to be told, and this flag is what tells them.
+
+       ⚠ FILLING IN A BLANK IS STILL NOT A CHANGE. A house with a count and no names on
+       file is most of the book, and the first save from this tab is an answer arriving
+       where there was none. Without that clause every customer opening the Sides tab
+       once would be flagged Needs Changes for a change nobody made — and the office
+       auto-fill in Edit Customer would do the same on every save.
+
+       ⚠ ONE RULE, THREE COPIES: this, `houseSidesChanged` in admin.html and
+       `portalSidesChanged` in index.html. Swept against each other in run-all.js Suite
+       313, because they decide whether somebody is re-quoted. Change one and change the
+       other two, in the same push.
+       ⚠ BOTH LISTS MUST ALREADY BE CANONICAL — it compares them as joined strings, and
+       both sides here have been through SIDE_NAMES. */
+    const houseSidesChangedServer = function (beforeList, beforeCount, afterList, afterCount) {
+      if (Number(beforeCount) !== Number(afterCount)) return true;
+      const was = (beforeList || []).join(',');
+      const now = (afterList || []).join(',');
+      if (!was || !now) return false;
+      return was !== now;
+    };
+    const canonical = function (v) {
+      const picked = {};
+      (Array.isArray(v) ? v : []).forEach((s) => { if (SIDE_NAMES.indexOf(s) !== -1) picked[s] = true; });
+      return SIDE_NAMES.filter((s) => picked[s]);
+    };
     const before = asCount(oldData.houseSides);
-    if (updates.houseSides !== before) {
+    if (houseSidesChangedServer(canonical(oldData.houseSidesList), before,
+      canonical(updates.houseSidesList !== undefined ? updates.houseSidesList : oldData.houseSidesList),
+      updates.houseSides)) {
       updates.seasonStatus = 'needs_changes';
     }
   }
@@ -1802,6 +2311,15 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
   {
     const rebuild = warehouseRebuildFields(oldData, updates);
     if (rebuild.length) updates.needsLightBuild = true;
+    /* ⭐ AND A TIMER SWITCHED OFF IS ITS OWN JOB ([[WH-34]]). The line above already queues
+       the rebuild; this is the half a rebuild cannot say, because by the time anybody reads
+       the record `outletTimer` is No and the house looks like the ~900 that never had one.
+       ⚠ AND IT IS TAKEN BACK IF THEY SWITCH IT ON AGAIN before the warehouse has been —
+       nothing has been pulled while the flag is still up, the same shape as a pending
+       recycle being cancelled. Only ever written when it CHANGES something, so an ordinary
+       preferences save never touches the field. */
+    if (whTimerCameOffServer(oldData, updates, rebuild)) updates.needsTimerRemoved = true;
+    else if (rebuild.indexOf('outletTimer') !== -1 && oldData.needsTimerRemoved) updates.needsTimerRemoved = false;
   }
   if (section === 'lights' && updates.lightsDescription !== undefined) {
     const changed = updates.lightsDescription !== (oldData.lightsDescription || '');
@@ -1823,6 +2341,17 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
            Nothing recorded which, so the two could not be told apart. This is the
            portal; admin.html stamps 'office' on its own save. */
         updates.lightsChangedVia = 'portal';
+        /* ⭐ AND ONTO THE WAREHOUSE COLOUR-CHANGE LIST (added 2026-09-10). Dax:
+           "also make sure anyone who gets a color change is directed there." Beside
+           the stamp, inside the same `oldData.lightsDescription` guard, so a
+           first-time colour still does not count as a change here either.
+           ⚠ admin.html sets these three on its own save and functions/index.js sets
+           them at BOTH portal writes. Three doors, one list: miss one and a customer
+           who changed their colours is simply absent from the warehouse's list, which
+           looks exactly like nobody having asked. */
+        updates.needsColorChange = true;
+        updates.colorChangeColors = updates.lightsDescription;
+        updates.colorChangeRequestedAt = admin.firestore.FieldValue.serverTimestamp();
       }
     }
     // Unchanged? Leave the flag alone. Opening the Lights tab and pressing Save
@@ -1913,7 +2442,10 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
         const inv = (invSnap && invSnap.exists) ? invSnap.data() : {};
 
         const d = applyLightChangeServer({
-          oldLights: oldData.lightsDescription,
+          /* ⚠ BOTH FIELDS ([[WH-28]]). The description alone reads as "no colours on file" for
+             every ordinary house, and a first-time fill is deliberately free — so the fee was
+             never charged for exactly the customers the sync had imported. */
+          oldLights: houseLightsTextServer(oldData),
           newLights: updates.lightsDescription,
           lockedUntil: toMillis(cust.lightsLockedUntil),
           invoiceSent: !!cust.invoiceEmailSent,
@@ -1931,6 +2463,12 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
           /* Same stamp, the other portal write path — see the note above. Both have to
              set it or a change made through one door is unattributable. */
           custWrite.lightsChangedVia = 'portal';
+          /* ⭐ The other half of the same rule — see path A above. Both portal
+             writes set it or a change made through one door is invisible to the
+             warehouse. */
+          custWrite.needsColorChange = true;
+          custWrite.colorChangeColors = updates.lightsDescription;
+          custWrite.colorChangeRequestedAt = admin.firestore.FieldValue.serverTimestamp();
         }
         if (d.feeAmount > 0 && d.feeDestination === 'nextSeason') {
           /* ⭐ THE BILL HAS ALREADY GONE, SO THIS RIDES TO NEXT SEASON. Owner:
@@ -2093,6 +2631,23 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
     }
   }
 
+  /* ⭐ AND THE MEMBER IS TOLD WE HAVE GOT IT ([[EM-18]]). Last thing in the handler, after
+     every write above has landed, so the email can never describe a change that did not
+     save. ⚠ WRAPPED, BECAUSE A REFUSED EMAIL MUST NOT BECOME A FAILED SAVE — the record is
+     already correct by this line and the office already has its Inbox note, so the worst a
+     throw here could do is tell the member their change did not work when it did. */
+  if (PORTAL_CHANGE_EMAIL_SECTIONS.indexOf(section) !== -1) {
+    try {
+      const changeLabels = portalChangeLabels(oldData, updates);
+      const outcome = await sendPortalChangeEmail(match.id, Object.assign({}, oldData, updates), changeLabels);
+      if (!outcome.sent && changeLabels.length) {
+        console.log('[HU] no portal-change auto-reply sent: ' + outcome.why);
+      }
+    } catch (err) {
+      console.error('[HU] portal-change auto-reply failed:', err);
+    }
+  }
+
   return {
     ok: true,
     addressChanged: addressChanged,
@@ -2210,6 +2765,26 @@ function seasonYesUpdates(oldData, ts) {
   }
   return updates;
 }
+/* ⭐ THE TWO DECLINE TOPICS AND THE REASONS SOMEBODY MAY GIVE ([[RS-59]]/[[RS-60]]).
+ * ⚠ THE TOPICS ARE THE FOLDER NAMES the Inbox files on, and the REASONS become folder
+ * names too — so all three are spelled identically in admin.html and run-all.js Suite
+ * 323 compares them character for character. One character apart and a note lands in a
+ * section that shows nothing, silently.
+ * ⭐ THE WORDING IS HERS, NOT A PLACEHOLDER. Addie named them: "Should be Moved,
+ * Finances, etc." and "There should also be an option for other". Every one is read by
+ * a customer AND names a folder, so changing a word here means changing it in
+ * admin.html and index.html in the SAME push. */
+const RSVP_NO_TOPIC = 'RSVP \u2014 Not This Year';
+const RSVP_BNY_TOPIC = 'RSVP \u2014 Back Next Year';
+const RSVP_DECLINE_REASONS = [
+  'Moved',
+  'Finances',
+  'Doing it ourselves',
+  'Another company',
+  'Not decorating',
+  'Other'
+];
+
 exports.portalRsvp = onCall({ cors: true }, async (request) => {
   const body = request.data || {};
   const token = body.token ? String(body.token).trim() : '';
@@ -2222,6 +2797,73 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
 
   const match = await findByToken(token);
   if (!match) throw new HttpsError('not-found', 'Account not found.');
+
+  /* ⭐ AND WHY, IF THEY WANT TO SAY ([[RS-60]], 2026-09-11). Addie: "okay i need it to
+     be optional choice", after being told a decline had no reason picker at all.
+
+     ⛔ THE ANSWER IS RECORDED FIRST AND THE REASON ASKED AFTERWARDS, which is the whole
+     shape of this and the reason it is a SECOND call rather than one. A customer who
+     closes the tab on the reason screen has still declined, and their no is already
+     written — asking first would trade a recorded answer for an optional one, on the
+     send that decides who gets a crew.
+     ⚠ SO THIS BRANCH SITS BEFORE EVERYTHING ELSE AND RETURNS. The transition work — the
+     routes pull, the referral clawback, the recycle flag, the note — has already run on
+     the first call and every part of it is guarded on the status actually changing, so
+     falling through would be a second no-op pass at best.
+     ⚠ AND IT NEVER CHANGES THE ANSWER. `response` is still required and validated above
+     so the shape of the call is unchanged, but nothing here writes `rsvpStatus`: a
+     follow-up that could re-answer would let a stale retry overwrite a newer decision.
+     ⚠ THE NOTE IS FOUND BY `custId`, NEVER BY AN ID FROM THE CALLER. This is a public
+     callable, so a message id supplied by the browser is a message id anybody can
+     supply — and moving an arbitrary message into a folder is not something a customer
+     should be able to do. The token proves who they are; the topic keeps it to one of
+     the two decline notes. */
+  if (Object.prototype.hasOwnProperty.call(body, 'declineReason')) {
+    const reason = String(body.declineReason || '').trim().slice(0, 60);
+    /* ⚠ FROM THE LIST, OR NOTHING AT ALL. A free-text reason would become a folder
+       name, and a folder named by whatever a stranger typed is both a mess and a way
+       to write arbitrary strings into the office's sidebar. */
+    if (RSVP_DECLINE_REASONS.indexOf(reason) === -1) {
+      throw new HttpsError('invalid-argument', 'Unknown reason.');
+    }
+    /* ⭐ AND `Other` CARRIES THEIR OWN WORDS ([[RS-60]]). Addie: "There should also be
+       an option for other and if they put other than a note section will show up that
+       they can put in there reason."
+       ⛔ THE NOTE IS NEVER A FOLDER NAME. The reason picked names the folder and is held
+       to the list above; this is free text and is stored as words beside it. Letting it
+       name a folder would let anybody who can reach a public callable write whatever
+       they liked into the office's own sidebar. */
+    const note = String(body.declineNote || '').trim().slice(0, 500);
+    const reasonUpdates = {
+      rsvpDeclineReason: reason,
+      rsvpDeclineReasonAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    /* ⚠ ONLY WRITTEN WHEN THERE IS ONE. A blank stored where an answer goes reads as an
+       answer — the same rule `requoteKind` already follows. */
+    if (note) reasonUpdates.rsvpDeclineNote = note;
+    await db.collection('jobAddresses').doc(match.id).update(reasonUpdates);
+    /* ⭐ AND THE NOTE MOVES INTO THE FOLDER OF THAT REASON — Addie's own words from the
+       day before, "it will go in the folder with the response they choose". The Inbox
+       files on `folder`, so this string IS the folder.
+       ⚠ BEST EFFORT. The reason is already on the customer by this line, which is the
+       part the office can filter and report on; a failed move must not fail the call
+       and lose it. */
+    try {
+      const notes = await db.collection('messages')
+        .where('custId', '==', match.id)
+        .where('topic', 'in', [RSVP_NO_TOPIC, RSVP_BNY_TOPIC])
+        .get();
+      for (const n of notes.docs) {
+        const patch = { folder: reason, rsvpDeclineReason: reason };
+        /* ⚠ APPENDED TO THE NOTE'S OWN WORDS rather than replacing them: the sentence
+           already there says what happens next to this customer, which is what the
+           office acts on. */
+        if (note) patch.message = String(n.data().message || '') + '\n\nThey said why: ' + note;
+        await n.ref.update(patch);
+      }
+    } catch (e) { console.error('[HU] could not file the decline note under its reason:', e); }
+    return { ok: true, reasonSaved: true };
+  }
 
   const oldData = match.data || {};
   /* ⚠ THROUGH THE SHARED RULE (2026-09-03). A clear flag is not proof the bundle was
@@ -2351,6 +2993,54 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
     removedFrom = await removeCustomerFromUpcomingRoutes(match.id);
   }
 
+  /* ⭐ AND SOMEBODY IS TOLD ([[RS-59]], 2026-09-11). Addie: "can we have no emails be there
+     own section and it will go in the folder with the response they choose", then "I mean No
+     RSVPs."
+     ⛔ NOTHING WAS WRITTEN TO THE INBOX AT ALL when somebody declined. The record changed,
+     they came off every upcoming route, their lights were queued for recycling and their
+     referral was taken back — and the one list the office reads every morning said nothing.
+     A customer saying no is the single most consequential answer in the season and it was the
+     quietest thing that could happen.
+     ⚠ THE TOPIC IS THE ANSWER THEY CHOSE, because the Inbox files it into the folder of that
+     name — her "it will go in the folder with the response they choose". Not This Year and
+     Back Next Year are different decisions with different consequences (a recycle and a
+     number back in the pool, against staying on the books for the season after), so one
+     folder for both would hide the difference on the screen where it is acted on.
+     ⚠ ON THE TRANSITION ONLY, the same shape as the recycle flag and the referral clawback
+     above: re-answering the same way must not raise the note again every time somebody
+     re-opens their link, which is how a folder fills with duplicates of one decision.
+     ⚠ AND IT IS BEST EFFORT, guarded on its own. A failed note must never undo an answer
+     that has already been recorded — their RSVP is the thing that matters and it is already
+     written by this line. */
+  if ((response === 'no' || response === 'backnextyear') &&
+      String(oldData.rsvpStatus || '') !== response) {
+    try {
+      await db.collection('messages').add({
+        topic: response === 'no' ? RSVP_NO_TOPIC : RSVP_BNY_TOPIC,
+        folder: 'System',
+        /* ⭐ WHOSE NOTE THIS IS ([[RS-60]]). The reason arrives in a SECOND call a moment
+           later and has to find this row to file it under the reason chosen — by the
+           customer the token proves, never by an id the browser supplies. */
+        custId: match.id,
+        name: oldData.name || '', phone: oldData.phone || '', email: oldData.email || '',
+        contactMethod: '',
+        message: (oldData.name || 'A customer') +
+          (response === 'no'
+            ? ' answered NO to this season\'s RSVP. They are off every upcoming route' +
+              (removedFrom ? ' (' + removedFrom + ' removed)' : '') +
+              ', their lights are queued to be recycled, and their customer number goes back ' +
+              'to the pool once the warehouse has them.'
+            : ' answered BACK NEXT YEAR. They are off every upcoming route' +
+              (removedFrom ? ' (' + removedFrom + ' removed)' : '') +
+              ' and nothing is being built for them this season, but they are still on the ' +
+              'books — they have not cancelled.'),
+        autoQueuedToWarehouse: false,
+        needsReassign: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (e) { console.error('[HU] RSVP decline note failed:', e); }
+  }
+
   /* ⚠ THE GATE CODE RIDES BACK ON THE RSVP ANSWER, and only here. It is in
      PORTAL_READ_FIELDS already, but this screen is reached with no sign-in —
      so it is returned as the value for THIS token, which the write above has
@@ -2379,11 +3069,17 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
      office still has Schedule › Owes from last year either way. */
   const owed = response === 'yes' ? await arrearsForCustomer(oldData) : { outstanding: 0, season: '' };
 
+  /* ⭐ AND WHETHER THEY HAVE ALREADY SAID WHY ([[RS-60]]). The portal opened from an RSVP
+     email link renders from the INVOICE record, which carries no RSVP fields at all — so
+     without this the reason picker is offered again on every visit to somebody who has
+     already used it, which reads as their answer not having saved. The server is the only
+     thing on this path that knows. */
   return { ok: true, rsvpStatus: response,
            rejoinedAfterRecycle: rejoinedAfterRecycle,
            removedFromRoutes: removedFrom,
            arrearsOutstanding: owed.outstanding,
            arrearsSeason: owed.season,
+           declineReason: String(oldData.rsvpDeclineReason || ''),
            gateCode: String(oldData.gateCode || '') };
 });
 
@@ -2393,13 +3089,22 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
  * catch a wrong gate code before a crew is standing at a locked gate.
  *
  * ⚠ WHY THIS IS NOT portalSave. `gateCode` is already in PORTAL_WRITE_FIELDS
- * under the `info` section, so reusing it looks like the obvious move and is
- * WRONG: that section ends with
+ * under the `info` section, so reusing it looks like the obvious move. The
+ * reason it was wrong is now HISTORY and is kept because it is what this
+ * function is for: that section used to end with
  *     updates.seasonStatus = addressChanged ? 'address_changed' : 'needs_changes';
- * which is the RE-QUOTE state. It is resolved by answering a quote, and no
- * quote exists here — so every customer who typed a gate code during their
- * RSVP would be parked in Needs Changes for ever, waiting on a question
- * nobody asked. A gate code is not a change to the job.
+ * which is the RE-QUOTE state, resolved by answering a quote. No quote exists
+ * here, so every customer who typed a gate code during their RSVP would have
+ * been parked in Needs Changes for ever, waiting on a question nobody asked.
+ *
+ * ⭐ THAT LINE IS GONE (2026-09-10) — an info save no longer writes seasonStatus
+ * at all, for exactly the reason this function was carved out, applied to the
+ * whole tab. So the trap is closed on both sides now. This callable is STILL
+ * the right shape and must not be folded back in: it is reached from the RSVP
+ * confirmation with no sign-in, it writes exactly one field so the whitelist
+ * IS the update call (gate-code.test.js holds that), and a gate code is a
+ * different moment from somebody editing their contact details. Folding it
+ * into portalSave would widen an unauthenticated write for no gain.
  *
  * ⚠ SAME TRUST MODEL AS portalRsvp: a valid portalToken IS the credential,
  * there is no separate login, and the token is looked up the same way. It
@@ -2433,6 +3138,168 @@ exports.portalSetGateCode = onCall({ cors: true }, async (request) => {
   return { ok: true, gateCode: gateCode };
 });
 
+/* --- portalChangeAddress --------------------------------------------------
+ * Input: { token, street, city, zip, moveDate }
+ *
+ * ⭐ MOVING HOUSE HAS ITS OWN DOOR (2026-09-10). A customer who has moved
+ * inside Utah does not need to cancel — they need re-quoting, and until now
+ * the only way to tell us was to edit the address on My Info, which could not
+ * tell a move from a corrected typo.
+ *
+ * ⚠ IT DOES NOT WRITE `address`, `city`, `lat` OR `lng`. That is the whole
+ * point of it. There is no geocoder on this server — the Maps key lives in
+ * admin.html and index.html only — and the town is what the season plan groups
+ * a crew-day by, so writing the new address here would leave the customer
+ * sitting at their new address with the old house's pin, on the old town's
+ * day, and with the new address already pushed onto a frozen route stop the
+ * crew is holding. The office APPLYING the move is what commits it, through
+ * the ordinary Edit Customer save, which re-geocodes and re-syncs upcoming
+ * stops in the same press.
+ *
+ * ⚠ IT RAISES NO QUOTE EITHER (Addie, 2026-09-10: "you should have to apply
+ * changes in order for it to go to requote"). The re-quote is raised by that
+ * same admin save, so there is exactly one path that creates one and it is the
+ * one that already carries the old address and the recycle-and-build default
+ * for a mover. What this writes is a REQUEST, not a change.
+ *
+ * ⚠ SAME TRUST MODEL AS portalRsvp AND portalSetGateCode: a valid portalToken
+ * IS the credential, there is no separate login, and every value is bounded
+ * server-side before it reaches the record.
+ */
+exports.portalChangeAddress = onCall({ cors: true }, async (request) => {
+  const body = request.data || {};
+  const token = body.token ? String(body.token).trim() : '';
+  /* The same 200/60 ceilings the office form and quoteSaveDetails use, so the
+     two cannot disagree about what fits. */
+  const street = String(body.street || '').trim().slice(0, 200);
+  const city = String(body.city || '').trim().slice(0, 60);
+  const zip = String(body.zip || '').trim().slice(0, 20);
+  const moveDate = String(body.moveDate || '').trim().slice(0, 40);
+
+  if (!token) throw new HttpsError('invalid-argument', 'Missing portal token.');
+  /* ⚠ BOTH, NOT EITHER. The town is what a crew-day is grouped by, so a street
+     with no town is a move the season planner cannot place; and a town with no
+     street is not an address at all. Refusing here is what stops a half-filled
+     form becoming a pending move nobody can act on. */
+  if (!street || !city) {
+    throw new HttpsError('invalid-argument', 'Street and town are both needed.');
+  }
+
+  const match = await findByToken(token);
+  if (!match) throw new HttpsError('not-found', 'Account not found.');
+
+  /* ⭐ DELIBERATELY NOT BEHIND THE ARREARS HOLD — RULED ON, NOT LEFT OPEN (2026-09-10,
+     QT-36). Addie, answering Q-033 directly: "Yes anyone can report a move but when we
+     requote the person that didn't pay for last year still can't be scheduled until
+     they pay there balance." So do not "fix" this to match portalSave, which refuses
+     every section but `cancel` while last season is unpaid (Dax: "before anything goes
+     into the system"). A move is the exception, and it is hers.
+
+     ⚠ WHAT MAKES IT SAFE IS THE SECOND HALF OF HER SENTENCE, and it is enforced
+     somewhere else entirely: `houseOwesFromLastSeason` inside `isOutForSeason`, tested
+     AHEAD of the rsvpStatus and Confirmed branches. So a debtor may tell us they moved,
+     the office may apply it and re-quote them, and they may APPROVE that re-quote — and
+     they are still off the routes, out of the build queue and off the schedule until
+     the balance is paid. arrears-hold.test.js §4d runs the real `seasonYesUpdates` into
+     the real `isOutForSeason` to prove exactly that, and pins the placer's own guard.
+
+     ⚠ AND THE ASYMMETRY IS WHY SHE RULED THIS WAY. Where somebody lives is a FACT we
+     need whether or not they have paid: refused, the record keeps an address they have
+     left, and the one thing nobody can undo is a crew standing at the wrong house.
+     Accepting it grants nothing — the hold still bars every other change, and the badge
+     only asks the office to look.
+     ⚠ CANCELLING IS EXEMPT FOR THE SAME SHAPE OF REASON: somebody trying to leave must
+     not be told to pay first, or they stop replying and Addie never learns why. */
+  const oldData = match.data || {};
+  const oldAddress = oldData.address || '';
+  const pendingAddress = street + ', ' + city + (zip ? ' ' + zip : '');
+
+  const updates = {
+    pendingAddress: pendingAddress,
+    pendingCity: city,
+    pendingZip: zip,
+    pendingMoveDate: moveDate,
+    pendingAddressAt: admin.firestore.FieldValue.serverTimestamp(),
+    /* The one status this path does write, and the reason it is safe to: it is
+       a real re-quote state, it is the badge on the customer row and the filter
+       the office works from, and it clears when the re-quote raised on Apply is
+       answered (QUOTE_RAISED_STATUSES_SERVER). An info save no longer writes
+       it, so this is now the only way it arrives from the portal. */
+    seasonStatus: 'address_changed'
+  };
+  /* ⭐ A MOVE REPORTED FROM THE DECLINE PICKER PUTS THEM BACK IN ([[RS-60]], 2026-09-11).
+     Addie: "Moved should also give option change address which will keep them and confrim
+     them for that year along with send them to requotes." The re-quote half was already
+     true — `seasonStatus: 'address_changed'` above is what raises one when the office
+     applies it — so what is added here is the keeping and the confirming.
+
+     ⛔ BOTH CONDITIONS, AND THE RECORD IS THE ONE THAT MATTERS. The browser says this came
+     from the decline picker; the RECORD has to actually say they declined. A flag from a
+     public callable cannot confirm anybody on its own, and an ordinary move by somebody who
+     has never answered must not invent a yes for them — inventing an answer nobody gave is
+     the one thing this file refuses everywhere else.
+
+     ⛔ AND IT GOES THROUGH `seasonYesUpdates`, THE ONE RULE FOR WHAT A YES MEANS. A no sets
+     `needsLightRecycle`, so writing `rsvpStatus: 'yes'` by hand here would leave somebody
+     confirmed for the season AND queued to have their lights pulled apart. That rule cancels
+     the recycle, re-queues the build only where the recycle actually happened, clears
+     `maybeNextYear` and stamps the reply — all of which this needs and none of which is
+     worth a second copy. */
+  const declinedNow = ['no', 'backnextyear'].indexOf(String(oldData.rsvpStatus || '').trim().toLowerCase()) !== -1;
+  const seasonConfirmed = !!body.fromDecline && declinedNow;
+  if (seasonConfirmed) {
+    Object.assign(updates, seasonYesUpdates(oldData, () => admin.firestore.FieldValue.serverTimestamp()));
+    /* ⚠ RE-APPLIED AFTER the yes rule, and it is BELT-AND-BRACES TODAY rather than
+       load-bearing: `seasonYesUpdates` writes no `seasonStatus` of its own, so the value
+       set above already survives. Said plainly because the red-check proved it — deleting
+       this line changed no outcome and was correctly reported as a no-op. It is kept
+       because `address_changed` is the whole point of this call (the re-quote she asked
+       for), and the day that rule learns to write a season status it would silently take
+       this one with it. */
+    updates.seasonStatus = 'address_changed';
+  }
+  /* ⚠ THE FOURTH WRITER OF seasonStatus, AND THE STAMP IS WHY THAT HELPER EXISTS.
+     Its own note says a stamp beside any ONE branch would miss the others — so a
+     new writer that sets the status by hand and skips this is the exact hole it
+     was built to close. It is also what puts this on the customer's history:
+     `seasonStatusAt` is a step on the journey and historySeasonWords already
+     reads address_changed as "They told us their address changed", so going
+     through here means the move shows up with no new wording anywhere. */
+  stampSeasonStatusServer(updates, oldData.seasonStatus);
+  await db.collection('jobAddresses').doc(match.id).update(updates);
+
+  /* The office is told through the Inbox, not email. This topic is already
+     routed to the Member Portal folder by messageFolderOf in admin.html
+     (MSG-07), so it files itself alongside the other portal notices instead of
+     landing in the main pile.
+
+     ⚠ BEST EFFORT. The write above is already safely done, and a failed note
+     must never roll it back — the customer has told us they moved either way.
+     The pending fields and the badge are what the office actually works from;
+     this is the nudge that gets them looking. */
+  try {
+    await db.collection('messages').add({
+      topic: 'Existing Customer - Address Changed',
+      folder: 'Member Portal',
+      name: oldData.name || '', phone: oldData.phone || '', email: oldData.email || '',
+      contactMethod: '',
+      message: (oldData.name || 'A customer') + ' has moved from "' +
+               (oldAddress || 'no address on file') + '" to "' + pendingAddress + '"' +
+               (moveDate ? ', in by ' + moveDate : '') + '. Their record still holds the ' +
+               'old address on purpose — nothing has been re-quoted and no pin has moved. ' +
+               'Open them in Customers and press Apply on the move to put the new address ' +
+               'on the record, which re-quotes the new house and re-points their route.',
+      autoQueuedToWarehouse: false, needsReassign: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+  } catch (e) { console.error('[HU] address-change note failed:', e); }
+
+  /* ⚠ `seasonConfirmed` IS REPORTED BACK so the portal can redraw as confirmed rather
+     than going on offering the reason picker to somebody it has just put back in. The
+     browser is told what happened; it never decides it. */
+  return { ok: true, pendingAddress: pendingAddress, seasonConfirmed: seasonConfirmed };
+});
+
 /* The one place that strips a customer out of any route a crew has already
    been handed for today or later. Past routes stay exactly as they are -
    they are history, and rewriting them would change what the crew actually
@@ -2444,7 +3311,16 @@ async function removeCustomerFromUpcomingRoutes(customerId) {
   let removedFrom = 0;
   try {
     const todayStr = todayStrInDenver();
-    const routesSnap = await db.collection('scheduledRoutes').get();
+    /* ⚠ ONLY THE DAYS STILL TO COME (2026-09-11). This read EVERY route document ever
+       written and threw most of them away on the next line — a whole season of days to
+       answer a question about the days ahead. It runs inside portalRsvp, AFTER the
+       customer's answer is written but BEFORE the reply reaches them, so the time it
+       takes is time the customer spends looking at "One moment…" — and when it overran,
+       they were told their answer had failed for an answer we already had.
+       ⚠ THE `continue` BELOW IS KEPT, NOT REPLACED. A document with no `date` at all is
+       excluded by this query and was skipped by that line, so the two agree — but the
+       line is what holds if the query is ever widened again, and it costs nothing. */
+    const routesSnap = await db.collection('scheduledRoutes').where('date', '>=', todayStr).get();
     for (const rDoc of routesSnap.docs) {
       const rd = rDoc.data();
       if ((rd.date || '') < todayStr) continue;
@@ -2724,7 +3600,8 @@ async function declineAsksAboutLastYear(quoteData, quoteId) {
      ⚠ ONLY THOSE TWO VALUES: a cancellation request was put there by something
      that is not this quote, and clearing it would un-cancel somebody. */
   const was = String((cust.data || {}).seasonStatus || '');
-  if (QUOTE_RAISED_STATUSES_SERVER.indexOf(was) !== -1) updates.seasonStatus = 'confirmed';
+  if (QUOTE_RAISED_STATUSES_SERVER.indexOf(was) !== -1 &&
+      quoteAnswerMayClearStatusServer(cust.data)) updates.seasonStatus = 'confirmed';
   /* ⚠ THE THIRD WRITER, and it was missed until a census went looking. Settling a
      customer's changes is as much a status change as asking for them, and undated the
      history can say a re-quote was owed and never that it was answered. `was` is the
@@ -2838,6 +3715,46 @@ function quoteButtonLabelsServer(quoteData) {
  * definition has not happened to one that is being declined. Clearing them
  * "to be safe" would cancel a build the customer never asked to cancel. */
 const QUOTE_RAISED_STATUSES_SERVER = ['needs_changes', 'address_changed'];
+/* ⭐ A QUOTE'S ANSWER MAY NOT CLEAR A MOVE NOBODY HAS APPLIED (2026-09-11, QT-37).
+ * Addie, shown the drift and asked whether to tighten it: "go ahead."
+ *
+ * ⚠ THE LIST'S PREMISE STOPPED BEING TRUE, AND THE OLD REASONING ABOVE IS KEPT
+ * BECAUSE IT IS STILL RIGHT ABOUT WHAT IT REFUSED. It says anything sitting in
+ * seasonStatus was put there by THIS quote, so clearing it is withdrawing this
+ * quote's own question — true of both values when it was written, and still true
+ * of needs_changes. Then portalChangeAddress (QT-35) became a SECOND writer of
+ * address_changed, raised by the customer reporting a move and answered only when
+ * the office APPLIES it. An add-on refusal, a "same as last year" refusal or a
+ * deleted price re-quote does not answer that, and all three were clearing it.
+ *
+ * ⚠ WHAT IT ACTUALLY COST, said accurately so nobody looks for a worse bug:
+ * nothing routed or billed. seasonStatus is read for DISPLAY only — the pill on
+ * the customer row, the history line — and the pending move itself survives
+ * either way, because the office banner reads pendingAddress rather than the
+ * status. What went was the one signal on that row saying a house we have not
+ * re-quoted is not settled.
+ *
+ * ⚠ pendingAddress IS THE SIGNAL, NOT A SECOND OPINION — the same field the Edit
+ * Customer banner reads and the same field that save clears once the address has
+ * moved. Asking "is the status address_changed" instead would be a guess about
+ * which writer put it there, and there is only one seasonStatus field: a move can
+ * be outstanding while the pill shows needs_changes because something else wrote
+ * last. So it holds on the PENDING MOVE, whichever of the two is showing.
+ *
+ * ⭐ AND THE HOLD IS BOUNDED, WHICH IS THE WHOLE ARGUMENT FOR IT. The hole the
+ * clearing was written to close is a customer sitting in Needs Changes "for ever
+ * with nothing left anywhere to clear it". Here there IS something left — the
+ * move, which the office applies, and that save clears pendingAddress and raises
+ * the re-quote that answers the status properly. Not clearing is a wait, not a
+ * dead end, so failing towards the wait is safe in a way it would not otherwise be.
+ *
+ * ⚠ IT IS NOT A FAILURE AND MUST NOT BE REPORTED AS ONE. The status still reading
+ * Needs Changes is the honest answer while a move is outstanding, so this adds no
+ * problem, no follow-up flag and no note — a follow-up raised for correct
+ * behaviour is how the office learns to click past the ones that matter. */
+function quoteAnswerMayClearStatusServer(custData) {
+  return !String((custData && custData.pendingAddress) || '').trim();
+}
 async function declineAddOnOnly(quoteData, quoteId) {
   const problems = [];
   /* ⚠ SAME RULE AS THE SEASON DECLINE: a lookup that could not run is not the
@@ -2854,7 +3771,8 @@ async function declineAddOnOnly(quoteData, quoteId) {
 
   let cleared = false;
   const was = String((cust.data || {}).seasonStatus || '');
-  if (QUOTE_RAISED_STATUSES_SERVER.indexOf(was) !== -1) {
+  if (QUOTE_RAISED_STATUSES_SERVER.indexOf(was) !== -1 &&
+      quoteAnswerMayClearStatusServer(cust.data)) {
     const wrote = await tryFirestore('add-on decline seasonStatus clear', () =>
       db.collection('jobAddresses').doc(cust.id).update({ seasonStatus: 'confirmed' }));
     cleared = wrote.ok;
@@ -3584,7 +4502,13 @@ exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
   await db.collection('quotes').doc(quoteId).update({
     lightColors: colors,
     lightsDescription: str(details.lightsDescription, 400),
-    wireColor: str(details.wireColor, 40) || 'Any',
+    /* ⛔ NO WIRE COLOUR IS WRITTEN HERE ANY MORE (2026-09-17), and this was the SERVER'S
+       OWN COPY of the default the browser form used to apply — the emailed-link path is
+       the common one, so taking the question off index.html and leaving this line would
+       have gone on stamping 'Any' on most quotes with nothing on any screen saying so.
+       Addie, 2026-09-17: "don't add what wire color they want but push check lights then
+       warehouse chooses what wire they have on file". A field nobody sends and nothing
+       defaults is simply absent, which is what Check lights reads. */
     outletTimer: yesNo(details.outletTimer),
     specificOutlet: specific,
     specificOutletNotes: specific === 'Yes' ? str(details.specificOutletNotes, 500) : '',
@@ -4164,9 +5088,65 @@ function computeInvoiceStatusServer(install, removal, deposit, credits, changeFe
    money-parity.test.js runs them side by side — this file cannot import a browser
    module, which is the whole reason there are two. Change one, change the other, in
    the same push. */
-const NEW_MEMBER_FEE = 25;
+/* ⚠ $30 FROM 2026-09-07 (was 25) — the browser's copy is in js/money.js and the two
+   move together, in the same push. See the note there. */
+const NEW_MEMBER_FEE = 30;
 const LIGHT_CHANGE_FEE = 30;
 const LIGHT_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+/* ⭐ THE INVOICE CALENDAR — THE SERVER'S COPY (2026-09-11). js/money.js holds the
+   other one and money-parity.test.js sweeps the two over a range of issue dates.
+   Addie moved payment terms off a rolling 30-day clock and onto fixed dates:
+   due the last day of February, the office texts on 1 February, the late-fee
+   email sends itself on 1 April.
+
+   ⚠ THE SERVER NEEDS ALL THREE, not just the due date. The nightly run stamps
+   the {{due_date}} the customer actually reads, and the April batch has to decide
+   who is late with no browser anywhere near it — so a browser-only rule would
+   leave the one send that CHARGES money guessing. The full argument for each
+   date, and for why July splits the seasons, is in js/money.js; it is not
+   repeated here, because two copies of the reasoning drift exactly the way two
+   copies of the rule would. */
+function invoiceSeasonYearServer(issued) {
+  if (!issued) return null;
+  const y = issued.getFullYear();
+  return issued.getMonth() >= 6 ? y : y - 1;
+}
+function endOfFebruaryServer(year) {
+  return new Date(year, 2, 0, 23, 59, 59, 999);
+}
+function invoiceDueDateServer(issued) {
+  if (!issued) return null;
+  const season = invoiceSeasonYearServer(issued);
+  if (season === null) return null;
+  let due = endOfFebruaryServer(season + 1);
+  if (due.getTime() < issued.getTime()) due = endOfFebruaryServer(season + 2);
+  return due;
+}
+function invoiceTextChaseDateServer(issued) {
+  const due = invoiceDueDateServer(issued);
+  return due ? new Date(due.getFullYear(), 1, 1, 0, 0, 0, 0) : null;
+}
+function invoiceFeeChaseDateServer(issued) {
+  const due = invoiceDueDateServer(issued);
+  return due ? new Date(due.getFullYear(), 3, 1, 0, 0, 0, 0) : null;
+}
+
+/* ⭐ THE LATE FEE (PROC-32). $25 if they have paid something, $40 if nothing.
+   ⚠ `deposit` ALONE IS "PAID SOMETHING" — a credit is the office deciding money
+   is not owed rather than the customer sending any, so counting one here would
+   let an office discount buy somebody the cheaper fee. The browser's copy in
+   js/money.js makes the same choice and parity holds them to it. */
+const LATE_FEE_KIND = 'late';
+const LATE_FEE_PAID_SOMETHING = 25;
+const LATE_FEE_PAID_NOTHING = 40;
+function lateFeeAmountServer(inv) {
+  /* ⚠ centsOf, not a third copy of its expression. This file already has the helper
+     and js/money.js has the matching one; spelling the arithmetic out here would have
+     been a rounding rule in three places, two of them invisible to the parity sweep. */
+  const paid = centsOf((inv && inv.deposit) || 0);
+  return paid > 0 ? LATE_FEE_PAID_SOMETHING : LATE_FEE_PAID_NOTHING;
+}
 
 function applyLightChangeServer(o) {
   const opts = o || {};
@@ -4612,7 +5592,15 @@ async function runInvoiceBatch(triggeredBy) {
               const where = h.data.address || h.data.street || 'This address';
               return '<b>' + where + '</b><br>' + feetLineFor(h.data);
             }).join('<br><br>');
-        const newMemberLine = isNewMember ? 'Installation fee = $30.00' : '';
+        /* ⚠ THE FIGURE COMES FROM THE CONSTANT, NEVER TYPED OUT (fixed 2026-09-07).
+           This line read 'Installation fee = $30.00' as a literal while the fee itself
+           was NEW_MEMBER_FEE = 25 and admin.html's copy of the same email rendered
+           fmtMoney(NEW_MEMBER_FEE) — so the NIGHTLY invoice told every new member $30.00
+           and charged them $25, and its own line items did not add up to its own total,
+           while a hand-sent invoice for the same customer said $25.00. Two renderers,
+           one email, one of them holding a number by hand: the {{photo}} shape, in the
+           one place where it is money on a customer's bill. */
+        const newMemberLine = isNewMember ? ('Installation fee = $' + NEW_MEMBER_FEE.toFixed(2)) : '';
 
         const changeFeesTotal = Number(inv.changeFees) || 0;
         const total = (Number(inv.install) || 0) + (Number(inv.removal) || 0) + changeFeesTotal;
@@ -4666,13 +5654,12 @@ async function runInvoiceBatch(triggeredBy) {
         body = body.split('{{new_member_fee_line}}').join(newMemberLine);
         body = body.split('{{credit_lines}}').join(creditLines);
         body = body.split('{{fee_lines}}').join(feeLines);
-        // Same 30-day rule the printed invoice and the Overdue flag use, worked
-        // out from the invoice's own timestamp so all three always agree.
-        const PAYMENT_TERMS_DAYS = 30;
+        // The same calendar the printed invoice and the Overdue flag read, worked
+        // out from the invoice's own timestamp so all three always agree. This is
+        // the date the CUSTOMER is told, so it is the one that matters most.
         const issuedOn = (inv.invoicedAt && inv.invoicedAt.toDate) ? inv.invoicedAt.toDate()
                        : ((inv.updatedAt && inv.updatedAt.toDate) ? inv.updatedAt.toDate() : new Date());
-        const dueOn = new Date(issuedOn.getTime());
-        dueOn.setDate(dueOn.getDate() + PAYMENT_TERMS_DAYS);
+        const dueOn = invoiceDueDateServer(issuedOn);
         body = body.split('{{due_date}}').join(dueOn.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
         body = body.split('{{amount_due}}').join('$' + amountDue.toFixed(2));
         body = body.split('{{amount_paid}}').join('$' + paid.toFixed(2));
@@ -5151,7 +6138,14 @@ async function runArrearsRsvpBatch(source) {
        admin.html's isTestRecordData uses. */
     if (d.isTestRecord === true) { out.skipped++; continue; }
     if (digitsOnly(d.phone) === '3853912235' && String(d.name || '').trim().toLowerCase() === 'test') { out.skipped++; continue; }
-    if (d.arrearsRsvpEmailAt) { out.skipped++; continue; }
+    /* ⚠ EITHER STAMP, NOT JUST THIS BATCH'S OWN (2026-09-10, EM-16). This read
+       `arrearsRsvpEmailAt` alone, so anybody the office's own send or the daily RSVP
+       drip had already asked would get the Not Paid email on top of the one they had
+       — a second, differently-worded message about the same season, to the people
+       carrying a balance. That is the harassment this block's own header warns about,
+       arriving from the one direction it was not guarding. `rsvpWholePlan` in
+       admin.html has always read both stamps for exactly this reason. */
+    if (d.arrearsRsvpEmailAt || d.rsvpEmailedAt) { out.skipped++; continue; }
     const answered = String(d.rsvpStatus || '').trim();
     if (answered) { out.skipped++; continue; }
     const email = String(d.email || '').trim();
@@ -5161,41 +6155,7 @@ async function runArrearsRsvpBatch(source) {
     if (!(owed.outstanding > 0)) { out.skipped++; continue; }
 
     try {
-      const token = await ensureToken(docSnap.id, d);
-      const base = 'https://highlightingutah.com/#/payment' + (token ? ('?token=' + token) : '');
-      const yesUrl = base + (token ? '&rsvp=yes' : '');
-      const noUrl = base + (token ? '&rsvp=no' : '');
-      const backUrl = 'https://highlightingutah.com/#/' + (token ? ('?token=' + token + '&rsvp=back') : '');
-      /* ⚠ THE SAME THREE BUTTONS admin.html builds, in the same colours and the
-         same order. A chase that looked different from the RSVP email it follows
-         would read as a different question. */
-      const btn = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
-      let body = templateBody;
-      body = body.split('{{name}}').join(properNameServer(d.name) || 'there');
-      body = body.split('{{rsvp_yes_link}}').join(yesUrl);
-      body = body.split('{{rsvp_no_link}}').join(noUrl);
-      body = body.split('{{rsvp_back_link}}').join(backUrl);
-      body = body.split('{{rsvp_yes_button}}').join('<a href="' + yesUrl + '" style="' + btn + ' background:#2E6B3E; color:#ffffff;">Yes</a>');
-      body = body.split('{{rsvp_no_button}}').join('<a href="' + noUrl + '" style="' + btn + ' background:#8A8F9C; color:#ffffff;">No</a>');
-      body = body.split('{{rsvp_back_button}}').join('<a href="' + backUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>');
-      /* ⭐ AND THEIR REFERRAL LINK, RENDERED HERE TOO (2026-09-04, REF-07). The Not Paid
-         RSVP template carries {{referral_button}}, and THIS is the renderer that sends
-         it — so a token resolved only in admin.html would put a literal
-         "{{referral_button}}" in a real customer's inbox. That is the {{photo}} failure
-         this repo already records by name: two renderers, one template, change both in
-         the same push. resolveLinkTokens in admin.html is the other copy.
-         ⚠ THE SAME ADDRESS, CHARACTER FOR CHARACTER, as referralLinkForCustomer and the
-         portal's own portalReferralLink. Two spellings is two ways for a referral to
-         arrive uncounted, and the only symptom would be somebody's $25 never appearing.
-         ⚠ AND $25 OFF IS WORTH MOST TO EXACTLY THE PEOPLE THIS BATCH WRITES TO — they
-         are the ones carrying a balance. */
-      const referToken = await ensureReferralToken(docSnap.id, d);
-      const referUrl = 'https://highlightingutah.com/r/' + encodeURIComponent(referToken);
-      body = body.split('{{referral_link}}').join(referUrl);
-      body = body.split('{{referral_button}}').join(
-        '<a href="' + referUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Refer a Friend — $25 off your bill</a>');
-      body = body.replace(/\n/g, '<br>');
-
+      const body = await rsvpEmailBodyServer(docSnap.id, d, templateBody);
       const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -5225,6 +6185,642 @@ async function runArrearsRsvpBatch(source) {
   }
   return out;
 }
+
+/* ---------------------------------------------------------------------------
+ * ⭐ THE RSVP EMAIL BODY, BUILT ONCE (2026-09-10, EM-16)
+ *
+ * Lifted out of runArrearsRsvpBatch unchanged, so the daily drip below does not
+ * become a THIRD copy of it. The repo already records what two copies of one
+ * renderer cost — the {{photo}} block and {{link:her own words}} each had to be
+ * paired across this file and admin.html, and Suites 33 and 279 exist because of
+ * it. A third would be a third.
+ *
+ * ⚠ IT IS CHARACTER FOR CHARACTER admin.html's resolveLinkTokens for these
+ * tokens: the same /#/payment base, the same three button colours, the same
+ * words. That was already true of the arrears renderer; extracting it keeps the
+ * claim checkable in one place instead of two.
+ *
+ * ⚠ THE TEMPLATE DECIDES THE WORDS, NEVER THIS. It takes the stored body and
+ * fills tokens; it does not know whether it is building the ordinary RSVP or the
+ * Not Paid one, which is exactly why it can be shared.
+ * ------------------------------------------------------------------------- */
+async function rsvpEmailBodyServer(custId, d, templateBody) {
+  const token = await ensureToken(custId, d);
+  const base = 'https://highlightingutah.com/#/payment' + (token ? ('?token=' + token) : '');
+  const yesUrl = base + (token ? '&rsvp=yes' : '');
+  const noUrl = base + (token ? '&rsvp=no' : '');
+  const backUrl = 'https://highlightingutah.com/#/' + (token ? ('?token=' + token + '&rsvp=back') : '');
+  /* ⚠ THE SAME THREE BUTTONS admin.html builds, in the same colours and the
+     same order. A chase that looked different from the RSVP email it follows
+     would read as a different question. */
+  const btn = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
+  let body = templateBody;
+  body = body.split('{{name}}').join(properNameServer(d.name) || 'there');
+  body = body.split('{{rsvp_yes_link}}').join(yesUrl);
+  body = body.split('{{rsvp_no_link}}').join(noUrl);
+  body = body.split('{{rsvp_back_link}}').join(backUrl);
+  body = body.split('{{rsvp_yes_button}}').join('<a href="' + yesUrl + '" style="' + btn + ' background:#2E6B3E; color:#ffffff;">Yes</a>');
+  body = body.split('{{rsvp_no_button}}').join('<a href="' + noUrl + '" style="' + btn + ' background:#8A8F9C; color:#ffffff;">No</a>');
+  body = body.split('{{rsvp_back_button}}').join('<a href="' + backUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>');
+  /* ⭐ AND THEIR REFERRAL LINK, RENDERED HERE TOO (2026-09-04, REF-07). Both RSVP
+     templates carry {{referral_button}}, and THIS is the renderer that sends them —
+     so a token resolved only in admin.html would put a literal "{{referral_button}}"
+     in a real customer's inbox. That is the {{photo}} failure this repo already
+     records by name: two renderers, one template, change both in the same push.
+     resolveLinkTokens in admin.html is the other copy.
+     ⚠ THE SAME ADDRESS, CHARACTER FOR CHARACTER, as referralLinkForCustomer and the
+     portal's own portalReferralLink. Two spellings is two ways for a referral to
+     arrive uncounted, and the only symptom would be somebody's $25 never appearing.
+     ⚠ AND $25 OFF IS WORTH MOST TO EXACTLY THE PEOPLE THE NOT PAID HALF WRITES TO —
+     they are the ones carrying a balance. */
+  /* ⭐ THE BUTTON GOES TO THE SHARE PAGE, THE BARE LINK STAYS THE FRIEND'S
+     (2026-09-05, REF-13). Dax tapped this button in an RSVP and landed on the free
+     quote form: /r/<token> is the address the FRIEND opens, and sending the customer
+     there puts them on the one screen their own link is not for. /s/<token> is their
+     share page, where the phone's share sheet hands the /r/ link to whoever they pick.
+     ⚠ BOTH SPELLINGS MATCH admin.html's referralLinkFromToken and
+     referralShareLinkFromToken character for character. This is the {{photo}} pairing
+     again: two renderers, one template, changed in the same push. */
+  const referToken = await ensureReferralToken(custId, d);
+  const referUrl = 'https://highlightingutah.com/r/' + encodeURIComponent(referToken);
+  const hadReferralToken =
+    body.indexOf('{{referral_button}}') !== -1 || body.indexOf('{{referral_link}}') !== -1;
+  const referShareUrl = 'https://highlightingutah.com/s/' + encodeURIComponent(referToken);
+  body = body.split('{{referral_link}}').join(referUrl);
+  /* ⚠ THE SAME BOX admin.html's resolveLinkTokens sends, byte for byte — the two
+     builders are handed the same pair of addresses and a test RUNS both and compares
+     what comes out. Until 2026-09-05 the two spelled one button's words differently
+     ("$25 Off" here, "$25 off your bill" there), so which words a customer read
+     depended on which renderer happened to send; a shared shape removes the question
+     rather than policing it. REF-19 is why it is a box and no longer a button. */
+  body = body.split('{{referral_button}}').join(
+    referralShareBoxHtmlServer(referUrl, referShareUrl));
+  body = body.replace(/\n/g, '<br>');
+  /* ⚠ AND IF THE SAVED TEMPLATE PLACES NEITHER TOKEN, THE OFFER IS APPENDED
+     (2026-09-07, REF-15). MON-24 means a template already written in Firestore is
+     never rewritten, so the built-in body's {{referral_button}} does not reach the
+     one that is actually stored — and the send silently carries no offer at all.
+     ⚠ THE MIRROR OF referralEmailBlock IN admin.html, and it appends on the SAME
+     test: token present, nothing added; token absent, the block goes on the end.
+     Two renderers, one template — the rule this whole comment block already states.
+     ⚠ AFTER the newline replacement on purpose: this block is already HTML, and
+     running it through that replace would double the breaks it writes itself. */
+  /* ⚠ AND IT POINTS AT THE SHARE PAGE, NOT THE /r/ LINK. Merged 2026-09-07 with the
+     refer-share-sheet work: /r/ is the address the FRIEND opens, so a button carrying
+     it lands the referrer on the free quote form — the bug Dax reported. The appended
+     block is the one path that only appears when the saved template places no token,
+     so it is also the path least likely to be noticed pointing at the wrong page.
+     Same URL and same words as the {{referral_button}} above it, character for
+     character: two spellings of one button is one of them going wrong for whichever
+     half of the book this renderer happens to send. */
+  if (!hadReferralToken) {
+    body += '<br><br>—<br><br>Know somebody who wants lights? Send them your own link '
+      + 'and we take $25 off this season’s bill when they sign up — as many times as '
+      + 'you like.<br><br>'
+      + referralShareBoxHtmlServer(referUrl, referShareUrl);
+  }
+  return body;
+}
+
+/* ---------------------------------------------------------------------------
+ * ⭐ THE RSVP GOES OUT 200 A DAY UNTIL IT IS ALL SENT (2026-09-10, EM-16)
+ *
+ * Addie, after a send of ~950 that Gmail cut off partway and that took a pasted
+ * spreadsheet of 673 names to reconcile: "we need to make sure we don't run into
+ * this situation in the future. Can we make a calendar for RSVP emails that will
+ * only send 200 emails a day until we send them all out?"
+ *
+ * ⛔ THIS DOES NOT DECIDE WHO GETS ASKED, AND THAT IS THE WHOLE DESIGN.
+ * `rsvpSendSkipReason` in admin.html is the one rule, and the seven answers it
+ * gives rest on `audienceNeverAsked`, `audienceQuoteJoinYear`, `isRequote`,
+ * `enrollmentYearOf` and `effectiveRsvpStatus` — none of which exist here. Copying
+ * five rules onto the server to make a drip autonomous would put five new drift
+ * surfaces on the one send that has to reach everybody exactly once, and the
+ * server's copy is always the one nobody looks at. So the browser decides ONCE,
+ * writes the decided queue to `settings/rsvpSendPlan`, and this is a pipe that
+ * sends the names it was handed, in the order it was handed them.
+ *
+ * ⚠ THE QUEUE NAMES THE TEMPLATE PER PERSON, because the ordinary RSVP and the Not
+ * Paid one are chosen by who owes from last season — and that needs the invoices,
+ * which the browser holds in a cache and this would have to read one document at a
+ * time. Deciding it up there is also what lets her SEE the split before a single
+ * email goes, which is what "Check first" already exists for.
+ *
+ * ⚠ NOTHING RECORDS WHICH NAMES ARE DONE. `rsvpEmailedAt` on the customer is the
+ * one record, exactly as it is for the office's own send — a second list in the plan
+ * document would be the derivedDoneFor argument all over again, and the copy that
+ * went stale would either re-mail somebody or skip them for the season.
+ *
+ * ⚠ SO A QUEUE THAT IS ALREADY STAMPED COSTS NOTHING. The plan is walked in order
+ * and stamped names are passed over, which means the same plan can sit there all
+ * season: every morning it skips yesterday's and sends the next 200.
+ *
+ * ⚠ IT SHIPS OFF. `settings/rsvpSendPlan` has no `enabled` until somebody builds a
+ * plan and turns it on, and an absent document sends nothing — the same shape as
+ * the nightly invoice run and the unpaid chase beside it.
+ *
+ * ⚠ AND IT RUNS AT 9 AM, NOT 10. The unpaid chase and the quote nudges are both on
+ * 10:00, and three batches hitting one Gmail account at the same minute is the rate
+ * limit this whole feature exists to stay under.
+ * ------------------------------------------------------------------------- */
+/* ⚠ ONE CONSTANT. Nothing anywhere types 200 out for itself — the cap, the plan
+   document's default, the admin card's arithmetic and the finish date all come from
+   here, which is the rule CN_DOUBLE_BIN_FEET earned the hard way when two screens
+   each held their own copy of a number and one of them moved. */
+const RSVP_DAILY_CAP = 200;
+
+/* ⭐ THE SECOND GATE, APPLIED JUST BEFORE EACH SEND — AND IT CAN ONLY EVER REMOVE.
+ *
+ * A plan can be days old. Somebody on it may have answered since, been marked asked
+ * by hand, had their email removed, or been put on the do-not-send list, and every
+ * one of those means this email must not go. So the queue is a list of CANDIDATES
+ * and this is the refusal.
+ *
+ * ⚠ IT IS NOT A COPY OF `rsvpSendSkipReason`, and must never be read as one. It
+ * tests only plain stored fields — no quote history, no enrolment year — so the one
+ * reason it cannot see is `new`, and it does not need to: somebody who joined after
+ * the plan was built is not on the plan at all. rsvp-daily-send.test.js asserts the
+ * DIRECTION (everything the browser rule refuses for a reason visible here is refused
+ * here too, and nothing the browser rule would send to is refused here) rather than
+ * claiming the two are equal.
+ *
+ * ⚠ THE BARE-YES RULE IS MIRRORED, and it is the one subtle line. `rsvpStatus: 'yes'`
+ * with no `rsvpRespondedAt` is what an imported or hand-edited record looks like, and
+ * admin.html's `effectiveRsvpStatus` deliberately reads it as NOT an answer. Testing
+ * the status alone here would refuse every one of those people — put on the plan and
+ * then silently never sent, which is the exact silence this feature was built to end.
+ *
+ * ⚠ AND THE ORDER MATCHES THE BROWSER'S, so the reason written into the run record is
+ * the same word the office reads on screen for the same customer.
+ */
+function rsvpStillOwedServer(d) {
+  const rec = d || {};
+  /* ⚠ THE TEST RECORD CARRIES ADDIE'S OWN PHONE, so this is not housekeeping — it is
+     the difference between a drip and mailing the owner her own RSVP every morning.
+     The same two conditions admin.html's isTestRecordData uses. */
+  if (rec.isTestRecord === true) return 'test';
+  if (digitsOnly(rec.phone) === '3853912235' && String(rec.name || '').trim().toLowerCase() === 'test') return 'test';
+  let said = String(rec.rsvpStatus || '').trim().toLowerCase();
+  if (said === 'yes' && !rec.rsvpRespondedAt) said = '';
+  if (said || rec.maybeNextYear === true) return 'answered';
+  if (rec.noAutomationEmails === true) return 'optedout';
+  if (!String(rec.email || '').trim()) return 'noemail';
+  if (rec.rsvpEmailedAt || rec.arrearsRsvpEmailAt) return 'emailed';
+  return '';
+}
+
+async function runRsvpDailyBatch(source) {
+  const out = { sent: 0, skipped: 0, errors: [], source: source, stopped: '',
+                cap: RSVP_DAILY_CAP, remaining: 0, standard: 0, arrears: 0 };
+
+  const planSnap = await db.collection('settings').doc('rsvpSendPlan').get();
+  const plan = planSnap.exists ? (planSnap.data() || {}) : null;
+  if (!plan || !Array.isArray(plan.queue) || !plan.queue.length) {
+    out.stopped = 'There is no RSVP send plan. Build one from Automation Emails > Send the RSVP 200 a day.';
+    return out;
+  }
+  /* ⚠ A PLAN FROM LAST SEASON SENDS NOTHING. Start New Season clears every
+     `rsvpEmailedAt`, so a plan left behind would read the whole book as unstamped and
+     re-send last year's RSVP to everybody on it, using last year's split between who
+     owed money and who did not. The year is written when the plan is built and must
+     match; a plan with no year at all is refused rather than assumed to be current. */
+  const thisYear = new Date().getFullYear();
+  if (Number(plan.season) !== thisYear) {
+    out.stopped = 'The saved RSVP plan is for ' + (plan.season || 'an unknown season')
+      + ' and this is ' + thisYear + '. Build it again so it uses this season’s customers.';
+    return out;
+  }
+
+  const cfgSnap = await db.collection('settings').doc('emailjs').get();
+  const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+  if (!cfg.serviceId || !cfg.templateId || !cfg.privateKey) {
+    out.stopped = 'EmailJS is not set up on the server (Automation Emails > EmailJS Setup). '
+      + 'The private key is the one the server needs and the browser does not, so a send that '
+      + 'works from the Send the whole RSVP button can still leave this empty.';
+    return out;
+  }
+
+  /* ⭐ THE PLAN NAMES THE TEMPLATES BY ID, AND THAT IS NOT A CONVENIENCE (2026-09-10).
+     The first version looked them up here by the names "RSVP Email" and "Not Paid RSVP" —
+     a SECOND opinion about which of her emails is which, and one that disagrees with the
+     screen. admin.html's `rsvpWholeTemplates` finds an RSVP template by its CONTENT (any
+     {{rsvp_yes_button}} / {{rsvp_no_link}} token) or by sitting in a folder called RSVP,
+     and then picks the ordinary one by name with an explicit fallback to "any RSVP that is
+     not the Not Paid one". So a template the office has renamed is still found up there and
+     was NOT found down here: the card would show a plan of several hundred and this would
+     refuse every single morning with "missing a template". A calendar that is switched on
+     and silently sends nothing is the exact failure the whole feature exists to prevent.
+     ⚠ SO THE IDS ARE RESOLVED ONCE, ON THE SCREEN THAT CAN SHOW HER WHICH TWO IT PICKED,
+     and stored on the plan. This loads them and nothing else.
+     ⚠ A PLAN FROM BEFORE THE IDS EXISTED IS REFUSED RATHER THAN GUESSED AT. Falling back
+     to the old name lookup here would quietly restore the disagreement for exactly the
+     plans most likely to have it, and the fix is one press of Build the plan. */
+  const tplIds = { standard: String(plan.standardTemplateId || ''), arrears: String(plan.arrearsTemplateId || '') };
+  if (!tplIds.standard || !tplIds.arrears) {
+    out.stopped = 'This plan does not say which of your RSVP emails to send. Press Build '
+      + 'the plan again — it records the two templates by name and id so this run sends '
+      + 'exactly the ones the card shows you.';
+    return out;
+  }
+  const tpls = {};
+  for (const kind of ['standard', 'arrears']) {
+    const snap = await db.collection('emailTemplates').doc(tplIds[kind]).get();
+    /* ⚠ BOTH TEMPLATES OR NEITHER — the same rule the office's own button has, and the
+       argument is stronger here: that button at least leaves a line on screen saying half
+       the book was not asked, whereas nobody is watching a 9 AM schedule. */
+    if (!snap.exists) {
+      out.stopped = 'The ' + (kind === 'arrears' ? '"Not Paid"' : 'ordinary')
+        + ' RSVP email on this plan has been deleted or renamed since the plan was built, '
+        + 'so nothing was sent. Press Build the plan again.';
+      return out;
+    }
+    tpls[kind] = snap.data() || {};
+  }
+  const subjects = {
+    standard: templateSubjectOr(tpls.standard, 'Your Christmas lights this year'),
+    arrears: templateSubjectOr(tpls.arrears, 'Your Christmas lights this year — and last season’s balance')
+  };
+
+  const perDay = Math.max(1, Number(plan.perDay) || RSVP_DAILY_CAP);
+  out.cap = perDay;
+
+  for (const row of plan.queue) {
+    const id = row && row.id;
+    if (!id) { out.skipped++; continue; }
+    /* ⚠ THE CAP IS COUNTED IN SENDS, NEVER IN ROWS WALKED. Counting rows would make a
+       plan whose first 200 names are already stamped send NOTHING on day two, and the
+       drip would stall with no error anywhere — it would simply report 0 sent, which
+       reads as "everybody has been asked". */
+    if (out.sent >= perDay) { out.remaining++; continue; }
+
+    let snap;
+    try {
+      snap = await db.collection('jobAddresses').doc(id).get();
+    } catch (err) {
+      out.errors.push(id + ': could not be read — ' + ((err && err.message) || err));
+      continue;
+    }
+    /* A customer deleted since the plan was built is a skip, not an error: the plan is
+       a list of candidates and somebody leaving the book is an ordinary answer to it. */
+    if (!snap.exists) { out.skipped++; continue; }
+    const d = snap.data() || {};
+    if (rsvpStillOwedServer(d)) { out.skipped++; continue; }
+
+    const kind = (row.t === 'arrears') ? 'arrears' : 'standard';
+    try {
+      const body = await rsvpEmailBodyServer(id, d, tpls[kind].body || '');
+      const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          service_id: cfg.serviceId,
+          template_id: cfg.templateId,
+          user_id: cfg.publicKey || '',
+          accessToken: cfg.privateKey,
+          template_params: {
+            to_email: String(d.email || '').trim(), to_name: d.name || '',
+            subject: String(subjects[kind]).split('{{name}}').join(properNameServer(d.name) || 'there'),
+            body: body, message: body
+          }
+        })
+      });
+      if (!res.ok) {
+        const text = (await res.text()).slice(0, 200);
+        out.errors.push((d.name || id) + ': ' + text);
+        /* ⭐ A REFUSAL STOPS THE RUN RATHER THAN BURNING THE CAP (EM-02's lesson, on a
+           schedule this time). Gmail's limit is on the ACCOUNT, so once it says no the
+           next 199 attempts fail too — and every one of them is a real customer on a
+           real error list somebody then has to read. Nothing is stamped, so tomorrow
+           picks up exactly where this stopped.
+           ⚠ IT STOPS ON ANY REFUSAL, not only on one that names a rate limit. The
+           alternative is matching the wording of somebody else's error message, and the
+           cost of being wrong is 200 failures instead of one. */
+        out.stopped = 'The mail service refused a send, so the rest of today’s batch was '
+          + 'held back — nobody was stamped, and tomorrow carries on from here. Reason: ' + text;
+        break;
+      }
+      /* ⚠ STAMPED ONLY AFTER THE SEND SUCCEEDS. Stamping first loses the customer for
+         the whole season on one bad response from the mail service. */
+      const stamp = { rsvpEmailedAt: admin.firestore.FieldValue.serverTimestamp() };
+      /* ⚠ THE ARREARS HALF IS STAMPED TWICE, ON PURPOSE. `runArrearsRsvpBatch` is a
+         separate schedule reading `arrearsRsvpEmailAt`, and somebody who has just had
+         the Not Paid RSVP from here must not get the identical email from there an hour
+         later. Writing both stamps says "this person has had the Not Paid email" in the
+         one field that chase reads. */
+      if (kind === 'arrears') stamp.arrearsRsvpEmailAt = admin.firestore.FieldValue.serverTimestamp();
+      await snap.ref.update(stamp);
+      out.sent++;
+      out[kind]++;
+    } catch (err) {
+      out.errors.push((d.name || id) + ': ' + ((err && err.message) || err));
+    }
+  }
+
+  /* ⭐ WHAT THE RUN DID, WRITTEN WHERE THE CARD READS IT. A schedule nobody watches has
+     to leave a record, or the only way to know whether it ran is that emails arrived —
+     and the failure worth catching is the one where it ran and sent nothing. */
+  try {
+    await planSnap.ref.set({
+      lastRunAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastRunSource: source,
+      lastSent: out.sent,
+      lastSkipped: out.skipped,
+      lastErrors: out.errors.slice(0, 5),
+      lastStopped: out.stopped || ''
+    }, { merge: true });
+  } catch (err) {
+    /* Logged rather than swallowed (Addie, 2026-08-25: "nothing should fail quietly").
+       The emails have gone; a failure to write a note about them must never be reported
+       as the send failing. */
+    console.error('[HU] could not record the RSVP drip run:', err);
+  }
+
+  /* ⭐ AND THE SEASON IS MARKED THE FIRST TIME ANYTHING ACTUALLY GOES OUT. `rsvpSentAt`
+     is the difference between "they have not replied" and "we have not asked them",
+     which is what makes Schedule > Waiting on RSVP a list of calls rather than a screen
+     full of nothing. The per-customer truth is `rsvpEmailedAt` and always was; this is
+     the season-level fact, and the drip starting IS the RSVP having gone out.
+     ⚠ ONLY WHEN IT IS ABSENT, and only when at least one email left. A send that failed
+     for everybody has asked nobody, and overwriting an existing mark would move the date
+     every morning for however many days the drip runs. */
+  if (out.sent > 0) {
+    try {
+      const seasonRef = db.collection('settings').doc('season');
+      const seasonSnap = await seasonRef.get();
+      if (!seasonSnap.exists || !seasonSnap.data().rsvpSentAt) {
+        await seasonRef.set({
+          rsvpSentAt: admin.firestore.FieldValue.serverTimestamp(),
+          rsvpSentCount: out.sent,
+          rsvpSentBy: 'the daily RSVP drip'
+        }, { merge: true });
+      }
+    } catch (err) {
+      console.error('[HU] could not record that the RSVP has gone out:', err);
+    }
+  }
+  return out;
+}
+
+/* ⭐ THE LATE-FEE EMAIL — 1 APRIL, BY ITSELF (added 2026-09-11) --------------
+ * Addie, setting the new invoice terms: "they have until february to get them
+ * paid. We will give them one text reminder at the end of February than if they
+ * don't respond by end of March than they will get a fee email at beginning of
+ * April", and on 2026-08-29, on this send specifically: "The last email with a
+ * fee should automatically send with new invoice."
+ *
+ * ⭐ THIS IS THE ONLY THING IN THE APP THAT CHARGES A CUSTOMER WITHOUT A PERSON
+ * PRESSING ANYTHING, which is why nearly every line below is a refusal. The $30
+ * fees both have a human or a customer's own action behind them; this one fires
+ * on a date, over the whole book, with nobody watching. Every guard here is
+ * about the same failure: charging somebody twice, or charging somebody who
+ * should not have been charged at all.
+ *
+ * ⚠ "IF THEY DON'T RESPOND" MEANS THEY HAVE NOT PAID IN FULL. Asked directly
+ * whether a customer who replies to the February text but sends no money should
+ * escape the fee, Addie chose "They haven't PAID in full" — the same reading as
+ * her 2026-08-29 wording, "they didn't pay or only partial pay". So there is no
+ * "they answered" flag anywhere in this and there must not be one: a reply is
+ * not a payment, and the only thing this reads is the balance.
+ *
+ * ⚠ STAMPED ONCE, AND THE STAMP IS CHECKED BEFORE THE MONEY MOVES. `lateFeeAt`
+ * on the invoice is what makes this safe to re-run — by hand, or because the
+ * scheduler retried, or because somebody presses Run It Now in April and again
+ * in May. A batch that charged on every pass would quietly add $40 a month to
+ * the customers least able to pay it, and nothing on any screen would say why
+ * their balance kept climbing.
+ *
+ * ⚠ AND THE FEE IS WRITTEN BEFORE THE EMAIL IS SENT, DELIBERATELY, which is the
+ * opposite order to every other send in this file. Those stamp after a
+ * successful send so a bad response from the mail service cannot lose a customer
+ * for the season. Here the stamp guards MONEY: send-then-write means a send that
+ * succeeds and a write that fails leaves the customer told about a fee that is
+ * not on their bill, and the next run charges it again. Write-then-send fails
+ * the other way — the fee is on the bill and the email did not arrive — which is
+ * visible on the invoice, fixable with the × the office already has, and does
+ * not double-charge anybody. The failed send is counted and reported.
+ *
+ * ⚠ THE ARREARS LINE IS NOT A LATE FEE AND MUST NOT BE ONE. Last season's
+ * carried debt already sits in this same ledger, and it reached this bill by
+ * being unpaid — so a rule that charged for an unpaid balance without looking at
+ * WHY would fine somebody in April for a debt this bill was created to carry,
+ * every year, for ever. This charges against THIS season's bill only: an invoice
+ * whose whole outstanding amount is carried arrears is skipped.
+ *
+ * ⚠ IT NEVER RUNS BEFORE ITS OWN DATE. The gate is each invoice's own
+ * `invoiceFeeChaseDateServer`, not "is it April" — a bill issued late enough to
+ * roll into the following February (see js/money.js) has its own later April,
+ * and a calendar check would charge it eleven months early.
+ * ------------------------------------------------------------------------- */
+async function runLateFeeBatch(source, opts) {
+  const o = opts || {};
+  const dryRun = o.dryRun === true;
+  const nowMs = Number(o.nowMs) || Date.now();
+  const out = { charged: 0, wouldCharge: 0, skipped: 0, amount: 0, errors: [],
+                names: [], source: source, dryRun: dryRun, stopped: '' };
+
+  const cfgSnap = await db.collection('settings').doc('emailjs').get();
+  const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+  if (!dryRun && (!cfg.serviceId || !cfg.templateId || !cfg.privateKey)) {
+    out.stopped = 'EmailJS is not set up on the server (Automation Emails > EmailJS Setup).';
+    return out;
+  }
+
+  const tplSnap = await findTemplateSnapByName('Late Fee Notice');
+  const tplData = tplSnap.empty ? null : tplSnap.docs[0].data();
+  /* ⚠ A MISSING TEMPLATE DOES NOT STOP THE RUN, and does not go quiet either.
+     The arrears batch stops dead without its template because nothing is lost by
+     waiting — nobody has been charged. Here the fee is a decision that is due
+     today, so the email goes out from a built-in body and the missing template
+     is reported, rather than the whole book silently going uncharged for a year
+     because somebody renamed a row under Templates. */
+  if (tplSnap.empty) {
+    out.errors.push('There is no email template called "Late Fee Notice" (Automation Emails > Templates > Billing), so a plain built-in wording was used.');
+  }
+  const templateBody = (tplData && tplData.body)
+    || 'Hi {{name}},<br><br>Your Christmas lights invoice was due on {{due_date}} and we have not received payment.<br><br>A late fee of {{late_fee}} has been added to your account, so the amount now due is {{amount_due}}.<br><br>{{pay_button}} {{venmo_button}}<br><br>If you have already paid, or if something is wrong here, please let us know: {{message_link}}<br><br>&mdash; Highlighting Utah';
+  const subject = templateSubjectOr(tplData, 'Your Highlighting Utah invoice is past due');
+
+  const snap = await db.collection('invoices').get();
+  for (const docSnap of snap.docs) {
+    const inv = docSnap.data() || {};
+
+    /* Already charged this season. The one guard that makes a re-run safe. */
+    if (inv.lateFeeAt) { out.skipped++; continue; }
+
+    /* Nothing owing. computeInvoiceStatusServer is the one rule for this — a
+       hand-rolled `total > paid` here is how a screen and a charge start
+       disagreeing about who is settled. */
+    const status = computeInvoiceStatusServer(
+      inv.install, inv.removal || 0, inv.deposit || 0, inv.credits || 0, inv.changeFees || 0);
+    if (status === 'Paid in Full') { out.skipped++; continue; }
+
+    /* Never billed at all — there is no due date to be past. */
+    const issued = (inv.invoicedAt && inv.invoicedAt.toDate) ? inv.invoicedAt.toDate()
+                 : ((inv.updatedAt && inv.updatedAt.toDate) ? inv.updatedAt.toDate() : null);
+    if (!issued) { out.skipped++; continue; }
+    const feeDay = invoiceFeeChaseDateServer(issued);
+    if (!feeDay || nowMs < feeDay.getTime()) { out.skipped++; continue; }
+
+    /* ⚠ AN INVOICE THAT IS ONLY LAST SEASON'S DEBT IS NOT LATE FOR THIS ONE.
+       See the header: charging here would fine the same customer every April for
+       the same carried balance. */
+    const owedNow = Math.max(0,
+      (Number(inv.install) || 0) + (Number(inv.removal) || 0) + (Number(inv.changeFees) || 0)
+      - (Number(inv.credits) || 0) - (Number(inv.deposit) || 0));
+    const carried = arrearsOutstandingServer(inv);
+    /* ⚠ WHOLE CENTS, the same discipline computeInvoiceStatus and arrearsSettled use.
+       Compared as floats, a customer whose only remaining balance is carried debt can
+       come out a fraction above zero and be charged a $40 late fee for last season —
+       exactly what the line below is here to prevent. */
+    if (centsOf(owedNow) - centsOf(carried) <= 0) { out.skipped++; continue; }
+
+    /* ⚠ THE TEST RECORD CARRIES ADDIE'S OWN DETAILS, so skipping it is not
+       housekeeping — it is the difference between a dry run and charging the
+       owner a late fee on a debt she does not have. */
+    if (inv.isTestRecord === true) { out.skipped++; continue; }
+    if (digitsOnly(inv.phone) === '3853912235' && String(inv.name || '').trim().toLowerCase() === 'test') { out.skipped++; continue; }
+
+    const fee = lateFeeAmountServer(inv);
+    const newDue = owedNow + fee;
+
+    if (dryRun) {
+      out.wouldCharge++;
+      out.amount += fee;
+      if (out.names.length < 40) out.names.push((inv.name || docSnap.id) + ' — $' + fee.toFixed(2));
+      continue;
+    }
+
+    try {
+      /* ⚠ THE LEDGER IS THE TOTAL. `changeFees` is a stored sum of
+         `changeFeeNotes`, and the × in Edit Customer rebuilds one from the other
+         — so a fee added to the total without its note cannot be waived, and a
+         note without the total does not reach the bill. Both, in one write. */
+      const notes = Array.isArray(inv.changeFeeNotes) ? inv.changeFeeNotes.slice() : [];
+      notes.push({
+        amount: fee,
+        kind: LATE_FEE_KIND,
+        reason: 'Late fee — invoice unpaid after ' +
+          invoiceDueDateServer(issued).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+        date: new Date().toISOString()
+      });
+      await docSnap.ref.update({
+        changeFeeNotes: notes,
+        changeFees: (Number(inv.changeFees) || 0) + fee,
+        lateFeeAt: admin.firestore.FieldValue.serverTimestamp(),
+        lateFeeAmount: fee,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      out.charged++;
+      out.amount += fee;
+      if (out.names.length < 40) out.names.push((inv.name || docSnap.id) + ' — $' + fee.toFixed(2));
+    } catch (err) {
+      out.errors.push('Could not add the fee for ' + (inv.name || docSnap.id) + ': ' + ((err && err.message) || err));
+      continue;
+    }
+
+    /* The email. A failure here leaves the fee on the bill and is REPORTED —
+       see the header for why that is the right way round. */
+    const email = String(inv.email || '').trim();
+    if (!email) {
+      out.errors.push((inv.name || docSnap.id) + ': the fee was added but there is no email address to tell them about it.');
+      continue;
+    }
+    try {
+      const portalUrl = 'https://highlightingutah.com/#/payment'
+        + (inv.portalToken ? ('?token=' + inv.portalToken) : '');
+      const venmoUrl = 'https://venmo.com/HighLightingUtah?txn=pay&amount='
+        + newDue.toFixed(2) + '&note=' + encodeURIComponent('Christmas Lights');
+      const messagesUrl = 'https://highlightingutah.com/#/contact';
+      const btnStyleGold = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
+
+      let body = templateBody;
+      body = body.split('{{name}}').join(properNameServer(inv.name) || 'there');
+      body = body.split('{{late_fee}}').join('$' + fee.toFixed(2));
+      body = body.split('{{amount_due}}').join('$' + newDue.toFixed(2));
+      body = body.split('{{amount_paid}}').join('$' + (Number(inv.deposit) || 0).toFixed(2));
+      body = body.split('{{due_date}}').join(
+        invoiceDueDateServer(issued).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
+      body = body.split('{{portal_link}}').join(portalUrl);
+      body = body.split('{{portal_button}}').join('<a href="' + portalUrl + '" style="' + btnStyleGold + '">Log Into Your Portal</a>');
+      body = body.split('{{pay_button}}').join('<a href="' + portalUrl + '" style="' + btnStyleGold + '">Pay Your Invoice</a>');
+      body = body.split('{{venmo_link}}').join(venmoUrl);
+      body = body.split('{{venmo_button}}').join('<a href="' + venmoUrl + '" style="' + btnStyleGold + '">Pay with Venmo</a>');
+      body = body.split('{{message_link}}').join(messagesUrl);
+      body = body.split('{{messages_link}}').join(messagesUrl);
+      body = body.replace(/\n/g, '<br>');
+
+      const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          service_id: cfg.serviceId,
+          template_id: cfg.templateId,
+          user_id: cfg.publicKey || '',
+          accessToken: cfg.privateKey,
+          template_params: {
+            to_email: email, to_name: inv.name || '',
+            subject: String(subject).split('{{name}}').join(properNameServer(inv.name) || 'there'),
+            body: body, message: body
+          }
+        })
+      });
+      if (!res.ok) {
+        out.errors.push((inv.name || docSnap.id) + ': the fee was added but the email failed — ' + (await res.text()).slice(0, 120));
+      }
+    } catch (err) {
+      out.errors.push((inv.name || docSnap.id) + ': the fee was added but the email failed — ' + ((err && err.message) || err));
+    }
+  }
+  return out;
+}
+
+/* 1 April, 10 AM Mountain. ⚠ AN HOUR CLEAR OF NOTHING ELSE THAT DAY — the RSVP
+   drip is 9 AM and the arrears/nudge batches are 10 AM, but those only run in
+   the autumn, so April has this hour to itself on one Gmail account. */
+exports.sendLateFeeEmails = onSchedule(
+  { schedule: '0 10 1 4 *', timeZone: 'America/Denver', memory: '512MiB', timeoutSeconds: 540 },
+  async () => {
+    const autoSnap = await db.collection('settings').doc('lateFeeAutomation').get();
+    /* ⚠ DEFAULTS TO OFF, AND THAT IS DELIBERATE FOR THE FIRST SEASON. This is
+       the only automatic charge in the app and it first fires in April 2027;
+       Addie turns it on from Invoices > Nightly Automation once she has seen the
+       dry run. Defaulting ON would mean the first anybody knew of a bug in it was
+       a few hundred customers being charged. */
+    if (!autoSnap.exists || !autoSnap.data().enabled) return;
+    await runLateFeeBatch('schedule');
+  }
+);
+
+/* Preview and manual run, from Invoices. The preview writes nothing. */
+exports.previewLateFees = onCall({ memory: '512MiB', timeoutSeconds: 300 }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required.');
+  return await runLateFeeBatch('preview', { dryRun: true });
+});
+exports.runLateFeesNow = onCall({ memory: '512MiB', timeoutSeconds: 540 }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required.');
+  return await runLateFeeBatch('manual');
+});
+
+exports.sendRsvpDaily = onSchedule(
+  /* 9 AM, an hour clear of the unpaid chase and the quote nudges — see the note above. */
+  { schedule: '0 9 * * *', timeZone: 'America/Denver', memory: '512MiB', timeoutSeconds: 540 },
+  async () => {
+    const planSnap = await db.collection('settings').doc('rsvpSendPlan').get();
+    if (!planSnap.exists || !planSnap.data().enabled) {
+      return; // off — and off is the shipped state. See the block above.
+    }
+    const res = await runRsvpDailyBatch('schedule');
+    if (res.stopped) console.warn('[HU] RSVP drip stopped: ' + res.stopped);
+  }
+);
+
+/* The same run, on demand, whether the switch is on or off — so the office can send
+   today's batch by hand without turning the schedule on, and so the very first batch
+   can be watched rather than waited for. */
+exports.runRsvpDailyNow = onCall({ memory: '512MiB', timeoutSeconds: 540 }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required.');
+  return await runRsvpDailyBatch('manual');
+});
 
 exports.sendArrearsRsvpEmails = onSchedule(
   { schedule: '0 10 * * *', timeZone: 'America/Denver', memory: '512MiB' },

@@ -831,6 +831,100 @@ function seasonResetWrite() {
     /if\(d\.arrearsPaidNoticeAt\) continue;/.test(sweep) &&
     /arrearsPaidNoticeAt: serverTimestamp\(\)/.test(sweep),
     'a note repeated on every payment is one nobody reads');
+
+  /* ⭐ AND "already exists" MEANS IT WAS RAISED, NOT THAT IT FAILED (2026-09-11, from the
+     Errors folder). On 2026-09-09 the folder carried "could not raise the paid-but-not-
+     approved note for Suzette Robins — Document already exists: …/messages/0HcE7pW1ZaAu…".
+     addDoc mints its own random id, so that is not a collision: it is the SDK retrying a
+     write whose acknowledgement was lost, after the first attempt had landed. The throw
+     then skipped the stamp below it, so the note existed and NOTHING recorded that — and
+     the next sweep raised the whole thing again, with a fresh id, for as long as the
+     customer stayed unanswered.
+
+     ⚠ THESE RUN THE SWEEP, they do not read it. The claim is about what a SECOND pass
+     does, which a regex cannot see: the first version of this was a text check for the
+     word `already-exists` and it passed on a branch that stamped nothing. */
+  const sweepFn = new Function(
+    'jobAddresses', 'invoiceById', 'arrearsNoticedThisSession', 'custInvoiceKey',
+    'paidButNotApproved', 'arrearsOnInvoice', 'addDoc', 'collection', 'updateDoc',
+    'doc', 'db', 'serverTimestamp', 'console',
+    sweep + '\nreturn noticeArrearsPaidNotApproved;');
+
+  function runSweep(opts){
+    const notes = [], stamps = [];
+    const rec = { id: 'c1', data: Object.assign({ name: 'Suzette Robins', phone: '8015550101' }, opts.data || {}) };
+    const env = {
+      jobAddresses: [rec],
+      invoiceById: new Map([['8015550101', { data: { install: 400, deposit: 400, arrears: 0 } }]]),
+      seen: new Set(),
+      rec: rec, notes: notes, stamps: stamps
+    };
+    const api = sweepFn(
+      env.jobAddresses, env.invoiceById, env.seen,
+      function(d){ return String(d.phone || ''); },
+      function(){ return true; },
+      function(){ return 0; },
+      async function(_c, data){
+        notes.push(data);
+        if (opts.addDocThrows && notes.length <= (opts.addDocThrows.times || 1)) {
+          /* ⚠ THE MESSAGE FOLLOWS THE CODE, and the first version of this fixture did not
+             — every throw carried Firestore's real "Document already exists" wording, so
+             the permission-denied case matched the already-exists branch on its MESSAGE
+             and the two checks below failed against code that is right. A fixture whose
+             failures all look alike cannot tell two branches apart. */
+          const e = new Error(opts.addDocThrows.code === 'already-exists'
+            ? 'Document already exists: projects/x/databases/(default)/documents/messages/abc'
+            : 'Missing or insufficient permissions.');
+          e.code = opts.addDocThrows.code;
+          throw e;
+        }
+      },
+      function(){ return {}; },
+      async function(_ref, data){
+        if (opts.updateThrows) throw new Error('stamp refused');
+        stamps.push(data); rec.data.arrearsPaidNoticeAt = new Date();
+      },
+      function(){ return {}; },
+      {}, function(){ return 'TS'; },
+      { error(){}, warn(){}, log(){} });
+    return { run: api, env: env };
+  }
+
+  {
+    const h = runSweep({ addDocThrows: { code: 'already-exists', times: 1 } });
+    await h.run();
+    check('a note the SDK retried is treated as raised, and the record is stamped',
+      h.env.notes.length === 1 && h.env.stamps.length === 1,
+      'the throw used to skip the stamp, so nothing recorded that the note existed');
+    h.env.seen.clear();
+    await h.run();
+    check('and a second sweep does not raise it a second time',
+      h.env.notes.length === 1,
+      'a duplicate note about one customer, every sweep, is the crying-wolf failure this ' +
+      'file names in four other places — found ' + h.env.notes.length + ' notes');
+  }
+
+  {
+    /* The other direction, and it is the half that must not be traded away. */
+    const h = runSweep({ addDocThrows: { code: 'permission-denied', times: 99 } });
+    await h.run();
+    check('a note that genuinely failed is NOT stamped, so it is tried again',
+      h.env.stamps.length === 0 && !h.env.rec.data.arrearsPaidNoticeAt,
+      'a raised note with no stamp costs a duplicate, which is visible; a stamp with no ' +
+      'note costs the phone call, which is not');
+    check('and the session marker is released so the retry can happen',
+      h.env.seen.size === 0,
+      'left set, the retry cannot happen until the page is reloaded');
+  }
+
+  {
+    /* already-exists AND the stamp refused: back to retrying, never silently done. */
+    const h = runSweep({ addDocThrows: { code: 'already-exists', times: 1 }, updateThrows: true });
+    await h.run();
+    check('a stamp that cannot be written falls back to retrying, not to silence',
+      h.env.seen.size === 0 && !h.env.rec.data.arrearsPaidNoticeAt,
+      'the note is there but nothing records it, so raising it again is the safe half');
+  }
   /* ⚠ THE CUSTOMER WRITE, NOT THE INVOICE WRITE. seasonResetWrite() slices the invoice
      update; this flag lives on jobAddresses beside the other season-scoped ones, and the
      first version of this check looked in the wrong half of the reset. */
@@ -930,6 +1024,38 @@ function seasonResetWrite() {
     /Unpaid balance from the ' \+ newArrearsSeason \+ ' season/.test(saveArr) &&
     /not a charge for this year/.test(saveArr),
     'a line on a bill with no year on it is exactly what reads as being charged twice');
+
+  /* ---- and crossing that line off has to EMPTY the box -------------------
+     ⭐ Dax, 2026-09-08: "the x in arrears in discount and fees doesnt work." It did
+     work — for about as long as it took to press Save. The box above rebuilds the
+     office's own arrears line on every save of the customer, so a × that took the line
+     off and left $400 sitting in the box wrote the debt back on the next save, with the
+     schedule hold on it, from a screen that had just said “saved”.
+     ⚠ THE PAIR IS THE CLAIM, not either half: `saveArr` above proves the box rebuilds
+     the line, and this proves the × lets go of it. The manual fee, the manual discount
+     and the referral count each already had their half here; the carried debt is the
+     one that was missed, and it is the one that also holds somebody out of a season. */
+  {
+    const waiveAt = admin.indexOf("const kind = res.removed && res.removed.kind;");
+    const clearBlock = waiveAt === -1 ? '' :
+      admin.slice(waiveAt, admin.indexOf('const after = editCustInvoiceNow();', waiveAt));
+    check('the block that empties the boxes after a \u00d7 was found',
+      clearBlock.length > 0 && /editCustReferralCount/.test(clearBlock),
+      'a check that cannot find its target reports green for the worst possible reason');
+    check('a crossed-off carried debt empties the box that would rebuild it',
+      /kind === ARREARS_KIND/.test(clearBlock) &&
+      /getElementById\('editCustArrears'\)\.value = ''/.test(clearBlock),
+      'left in the box, the next Save puts the debt and the schedule hold straight ' +
+      'back — a × that visibly worked and then quietly undid itself');
+    check('and the season box goes back to the assumed season, not the dead debt\'s',
+      /editCustArrearsSeason'\)\.value = ARREARS_ASSUMED_SEASON/.test(clearBlock),
+      'a box still naming 2024 is the next debt typed here silently landing in 2024');
+    check('and the figure under the box is redrawn from the invoice',
+      /updateEditCustArrearsSummary\(d2\.changeFeeNotes/.test(admin),
+      'an automatic carried line is held by no box at all, so the branch above cannot ' +
+      'fix its summary — without this the line still reads “$400 carried by the app” ' +
+      'over a bill that no longer carries it');
+  }
 
   const createOrder = serverSrc.slice(serverSrc.indexOf('exports.paypalCreateOrder'),
                                       serverSrc.indexOf('exports.paypalCaptureOrder'));

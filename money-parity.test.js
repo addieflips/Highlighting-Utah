@@ -681,6 +681,79 @@ for (const s of lifted) {
           ', balanceDueAmount says ' + bad.want : '');
 }
 
+/* ---------------------------------------------------------------------------
+ * ⭐ THE FIGURE THE SCREENS PRINT (2026-09-08). Dax: *"it said $956.00 before and
+ * after i added a discount ... it should say $950 after the discount everywhere"*, and
+ * *"if its a fee the other way where it adds to everything"*.
+ *
+ * ⚠ THE SWEEP ABOVE COULD NOT SEE THE SCREENS. It lifts each site by slicing a named
+ * statement out of the source, and the four places that printed a total to the office
+ * wrote it inline inside an HTML template string — `fmtMoney((d.install||0)+...)` —
+ * which `sliceTo` cannot slice. So the sites this file exists to guard were the four it
+ * was blind to, and all four drifted the same way: never subtracting `credits`. They go
+ * through `billTotalAmount` now, which is what makes them checkable at all.
+ *
+ * ⚠ RUN, NOT READ, AND OVER THE SAME RECORDS AS THE SWEEP. billTotalAmount and
+ * balanceDueAmount are each written out in full in admin.html rather than one calling
+ * the other, because both are lifted BY NAME and compiled ALONE by this file and by
+ * arrears-hold. Two spellings of one sum is exactly what this file exists to catch, so
+ * they are held together here: the second must be the first less what has been paid.
+ * ------------------------------------------------------------------------- */
+const billTotalSrc = extractFn(adminSrc, 'billTotalAmount');
+check('found admin.html billTotalAmount', !!billTotalSrc,
+  'the figure every office screen prints is gone — the four sites that used to build it ' +
+  'by hand inside an HTML string are unguarded again, which is how the discount stopped ' +
+  'coming off');
+if (billTotalSrc) {
+  const billTotal = compile([billTotalSrc], 'billTotalAmount');
+  let badTotal = null, badPair = null, totalCombos = 0;
+  for (const install of AMT) {
+    for (const removal of SML) {
+      for (const deposit of AMT) {
+        for (const credits of SML) {
+          for (const changeFees of FEE) {
+            totalCombos++;
+            const m = { install, removal, changeFees, credits, deposit };
+            const want = Math.max(install + removal + changeFees - credits, 0);
+            const got = billTotal(m);
+            if (!badTotal && Math.abs(got - want) > 1e-9) badTotal = { m, got, want };
+            const pair = Math.max(billTotal(m) - deposit, 0);
+            if (!badPair && Math.abs(pair - reference(m)) > 1e-9)
+              badPair = { m, pair, ref: reference(m) };
+          }
+        }
+      }
+    }
+  }
+  check('billTotalAmount is the charge plus the fees LESS the discounts, floored, across ' +
+        totalCombos.toLocaleString() + ' combinations',
+    !badTotal,
+    badTotal ? JSON.stringify(badTotal.m) + '  →  it says ' + badTotal.got + ', the charge ' +
+      'less the discounts is ' + badTotal.want : '');
+  /* ⚠ THE DEPOSIT IS NOT IN IT, and this is the check that says so. The Invoices row
+     prints “Amount”, “Paid so far” and “Balance” on one line; a deposit inside the first
+     of those is the payment taken off twice and three figures that do not add up. */
+  check('and balanceDueAmount is exactly that figure less what they have paid',
+    !badPair,
+    badPair ? JSON.stringify(badPair.m) + '  →  billTotal minus the deposit is ' +
+      badPair.pair + ', balanceDueAmount says ' + badPair.ref : '');
+}
+
+/* ⚠ AND THE FOUR SCREENS HAVE TO GO THROUGH IT. A source check, deliberately: the thing
+   that went wrong is a total built inline where nothing could lift it, and “is there an
+   inline total here” is a question about the SHAPE of the source. The run checks above
+   prove the rule is right; these prove the screens ask it. */
+[['the Invoices row “Amount”', "Amount: '+fmtMoney(billTotalAmount(d))"],
+ ['the customer row “Price”', "Price: '+fmtMoney(billTotalAmount(matchedInvoice.data))"],
+ ['the All Customers table', 'fmtMoney(billTotalAmount(r.inv.data))'],
+ ['the All Customers export', "'Invoice Total': inv ? billTotalAmount(inv.data) : ''"]
+].forEach(function (pair) {
+  check(pair[0] + ' prints the figure the rule works out',
+    adminSrc.indexOf(pair[1]) !== -1,
+    'it is building a total inline again — which is both wrong the moment there is a ' +
+    'discount AND invisible to every check in this file');
+});
+
 /* The CSV export's floor lives at the point of use, not on the variable the
    comparison above lifts. If someone deletes it, `balance` goes straight into
    the spreadsheet and a credit-heavy invoice exports as a negative amount owed.
@@ -933,6 +1006,131 @@ check('the portal balance is cent-rounded the way the office copy is',
       clientOut({ changeFeeNotes: [{ amount: 30, reason: 'Light change' }], deposit: 0, credits: 0 }) === 0 &&
       serverOut({ changeFeeNotes: [{ amount: 30, reason: 'Light change' }], deposit: 0, credits: 0 }) === 0,
       'that would charge a colour change as though it were an unpaid season');
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * THE INVOICE CALENDAR — the date the customer is TOLD, on both sides.
+ *
+ * Addie moved payment terms off a rolling 30-day clock on 2026-09-11: due the last
+ * day of February, the office texts on 1 February, the late-fee email sends itself
+ * on 1 April. js/money.js holds one copy and functions/index.js the other, and the
+ * server's is the one that stamps {{due_date}} onto the email a customer actually
+ * receives — so a disagreement here is the paper and the screen telling one person
+ * two different deadlines, which is the exact bug invoiceIssuedAt was written to
+ * close, arriving from a new direction.
+ *
+ * ⚠ SWEPT OVER EVERY MONTH, not spot-checked. The July split between seasons and
+ * the roll-forward for a bill issued after its own February are both edge rules,
+ * and a fixture of two autumn dates would pass with either of them deleted.
+ * ------------------------------------------------------------------------- */
+{
+  const clientDueSrc = extractFn(moneySrc, 'invoiceDueDate');
+  const serverDueSrc = extractFn(fnsSrc, 'invoiceDueDateServer');
+  check('both copies of the due-date rule are still findable',
+    !!clientDueSrc && !!serverDueSrc,
+    'a rename must FAIL here rather than skip and report green');
+
+  if (clientDueSrc && serverDueSrc) {
+    const clientDue = compile([
+      extractFn(moneySrc, 'invoiceSeasonYear'), extractFn(moneySrc, 'endOfFebruary'),
+      clientDueSrc], 'invoiceDueDate');
+    const serverDue = compile([
+      extractFn(fnsSrc, 'invoiceSeasonYearServer'), extractFn(fnsSrc, 'endOfFebruaryServer'),
+      serverDueSrc], 'invoiceDueDateServer');
+    const clientText = compile([
+      extractFn(moneySrc, 'invoiceSeasonYear'), extractFn(moneySrc, 'endOfFebruary'),
+      clientDueSrc, extractFn(moneySrc, 'invoiceTextChaseDate')], 'invoiceTextChaseDate');
+    const serverText = compile([
+      extractFn(fnsSrc, 'invoiceSeasonYearServer'), extractFn(fnsSrc, 'endOfFebruaryServer'),
+      serverDueSrc, extractFn(fnsSrc, 'invoiceTextChaseDateServer')], 'invoiceTextChaseDateServer');
+    const clientFee = compile([
+      extractFn(moneySrc, 'invoiceSeasonYear'), extractFn(moneySrc, 'endOfFebruary'),
+      clientDueSrc, extractFn(moneySrc, 'invoiceFeeChaseDate')], 'invoiceFeeChaseDate');
+    const serverFee = compile([
+      extractFn(fnsSrc, 'invoiceSeasonYearServer'), extractFn(fnsSrc, 'endOfFebruaryServer'),
+      serverDueSrc, extractFn(fnsSrc, 'invoiceFeeChaseDateServer')], 'invoiceFeeChaseDateServer');
+
+    const stamp = (d) => d ? (d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate()) : 'null';
+    let runs = 0, mismatch = '';
+    /* Four years, every month, three days in each — leap years included, so the
+       29 February case is swept rather than assumed. */
+    for (let y = 2026; y <= 2029 && !mismatch; y++) {
+      for (let m = 0; m < 12 && !mismatch; m++) {
+        for (const day of [1, 15, 28]) {
+          const issued = new Date(y, m, day);
+          runs++;
+          const pairs = [
+            ['due', stamp(clientDue(issued)), stamp(serverDue(issued))],
+            ['text', stamp(clientText(issued)), stamp(serverText(issued))],
+            ['fee', stamp(clientFee(issued)), stamp(serverFee(issued))]
+          ];
+          const bad = pairs.find(p => p[1] !== p[2]);
+          if (bad) { mismatch = bad[0] + ' date for ' + stamp(issued) + ': browser ' + bad[1] + ', server ' + bad[2]; break; }
+        }
+      }
+    }
+    check('the two copies of the invoice calendar agree, over ' + runs + ' issue dates',
+      !mismatch, mismatch ? 'first disagreement: ' + mismatch : '');
+
+    /* ⚠ EQUAL IS NOT ENOUGH — two copies wrong the same way agree perfectly. These
+       pin the ANSWERS, in Addie's own terms: "they have until february to get them
+       paid", texted on 1 February, fee email at the beginning of April. */
+    check('an autumn bill is due the last day of the following February',
+      stamp(clientDue(new Date(2026, 9, 15))) === '2027-2-28' &&
+      stamp(serverDue(new Date(2026, 9, 15))) === '2027-2-28');
+    check('a January bill is due the February a few weeks away, not fourteen months out',
+      stamp(clientDue(new Date(2027, 0, 10))) === '2027-2-28' &&
+      stamp(serverDue(new Date(2027, 0, 10))) === '2027-2-28',
+      'reading the issue YEAR alone gives this house until 2028 because its invoice ' +
+      'happens to carry a different year on it');
+    check('the last day of February is measured, so a leap year is 29',
+      stamp(clientDue(new Date(2027, 9, 15))) === '2028-2-29' &&
+      stamp(serverDue(new Date(2027, 9, 15))) === '2028-2-29',
+      'writing 28 out would quietly shorten one season in four by a day');
+    check('the text goes out on 1 February and the fee on 1 April',
+      stamp(clientText(new Date(2026, 9, 15))) === '2027-2-1' &&
+      stamp(serverText(new Date(2026, 9, 15))) === '2027-2-1' &&
+      stamp(clientFee(new Date(2026, 9, 15))) === '2027-4-1' &&
+      stamp(serverFee(new Date(2026, 9, 15))) === '2027-4-1');
+    check('a due date is never printed in the past',
+      clientDue(new Date(2027, 4, 1)).getTime() > new Date(2027, 4, 1).getTime() &&
+      serverDue(new Date(2027, 4, 1)).getTime() > new Date(2027, 4, 1).getTime(),
+      'a bill issued after its own season\'s February rolls forward rather than ' +
+      'handing the customer a deadline that has already gone by');
+  }
+
+  /* THE LATE FEE. PROC-32: $25 if they have paid something, $40 if nothing. */
+  const clientLateSrc = extractFn(moneySrc, 'lateFeeAmount');
+  const serverLateSrc = extractFn(fnsSrc, 'lateFeeAmountServer');
+  check('both copies of the late-fee rule are still findable',
+    !!clientLateSrc && !!serverLateSrc);
+  if (clientLateSrc && serverLateSrc) {
+    const clientLate = compile([
+      extractFn(moneySrc, 'centsOf'), extractConst(moneySrc, 'LATE_FEE_PAID_SOMETHING'),
+      extractConst(moneySrc, 'LATE_FEE_PAID_NOTHING'), clientLateSrc], 'lateFeeAmount');
+    /* ⚠ THE SERVER'S OWN centsOf, LIFTED (§3 "lift, not stub"). lateFeeAmountServer
+       rounds through it, so a sandbox without it dies with a bare ReferenceError — and
+       a STUB of it would mean this sweep proved the two fees agree about everything
+       except the rounding, which is the half a money rule is most easily wrong about. */
+    const serverLate = compile([
+      extractFn(fnsSrc, 'centsOf'),
+      extractConst(fnsSrc, 'LATE_FEE_PAID_SOMETHING'),
+      extractConst(fnsSrc, 'LATE_FEE_PAID_NOTHING'), serverLateSrc], 'lateFeeAmountServer');
+    let bad = '';
+    [0, 0.004, 0.01, 1, 25, 399.99, 400, 1000].forEach(function (dep) {
+      const inv = { deposit: dep };
+      if (clientLate(inv) !== serverLate(inv)) bad = bad || ('deposit ' + dep);
+    });
+    check('the two copies of the late fee agree', !bad, bad ? 'first disagreement at ' + bad : '');
+    check('paid nothing is $40 and paid something is $25',
+      clientLate({ deposit: 0 }) === 40 && serverLate({ deposit: 0 }) === 40 &&
+      clientLate({ deposit: 1 }) === 25 && serverLate({ deposit: 1 }) === 25);
+    check('a credit is not a payment for the purposes of the fee',
+      clientLate({ deposit: 0, credits: 500 }) === 40 &&
+      serverLate({ deposit: 0, credits: 500 }) === 40,
+      'a credit is the office deciding money is not owed, not the customer sending ' +
+      'any — counting one here would let an office discount buy the cheaper fee');
   }
 }
 

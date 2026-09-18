@@ -110,11 +110,28 @@ const FAKE_FIRESTORE_MODULE = `
   export function serverTimestamp() { return new Date(window.__HU_FIXTURES__.frozenNow); }
 `;
 
+/* ⭐ THE DECLINE REASONS, READ OUT OF THE REAL SERVER ([[RS-60]]) rather than typed
+ * here. The fake refuses an off-list reason exactly as the server does, and a hand-typed
+ * copy would be a FOURTH list — so a spec could drive a reason the real server throws on
+ * and go green. Reading the shipped constant means this fake cannot drift from it.
+ * ⚠ IT THROWS RATHER THAN FALLING BACK TO A DEFAULT. An empty list would make the fake
+ * refuse every reason, and every spec below would fail with a message about the picker
+ * rather than about a renamed constant — the failure this repo keeps re-learning. */
+const RSVP_DECLINE_REASONS = (function () {
+  const src = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'functions', 'index.js'), 'utf8');
+  const m = /const RSVP_DECLINE_REASONS = \[([\s\S]*?)\];/.exec(src);
+  const out = m ? (m[1].match(/'([^']+)'/g) || []).map(x => x.slice(1, -1)) : [];
+  if (!out.length) throw new Error('firebase-stub: could not read RSVP_DECLINE_REASONS out of functions/index.js');
+  return out;
+})();
+
 /* The four portal callables. This mirrors the real return shapes read out of
  * functions/index.js — portalLookup returns {found, id, token, deactivated,
  * invoiceKey, record}, where record is sanitizeRecord() output. */
 const FAKE_FUNCTIONS_MODULE = `
   const F = window.__HU_FIXTURES__;
+  const STUB_DECLINE_REASONS = ${JSON.stringify(RSVP_DECLINE_REASONS)};
 
   window.__HU_CALLS__ = [];
 
@@ -266,7 +283,10 @@ const FAKE_FUNCTIONS_MODULE = `
        and the whole stub fails to parse -- which reads as "no tests found",
        not as a syntax error in a comment. */
     portalRsvp: function (payload) {
-      const token = String((payload && payload.token) || '').trim();
+      /* let, NOT const -- and no backticks, see the rule directly above: the
+         fail-once sentinel below swaps itself for a real customer's token once it
+         has thrown its one failure. */
+      let token = String((payload && payload.token) || '').trim();
       const response = String((payload && payload.response) || '').trim();
       if (['yes', 'no', 'backnextyear'].indexOf(response) === -1) {
         throw new Error('Unknown RSVP response: ' + response);
@@ -276,11 +296,51 @@ const FAKE_FUNCTIONS_MODULE = `
       if (token === 'forceinternal') {
         const e = new Error('boom'); e.code = 'functions/internal'; throw e;
       }
+      /* ⭐ FAILS ONCE, THEN WORKS — the shape the Errors folder actually showed
+         (2026-09-11). portalRsvp writes the answer FIRST and only then does its slow
+         work, so a timeout or an internal error means the RESPONSE was lost and the write
+         landed. The browser retries for exactly that reason, and a stub that failed
+         every time could not tell a working retry from a broken one. */
+      if (token === 'failoncethenok') {
+        F.__rsvpAttempts = (F.__rsvpAttempts || 0) + 1;
+        if (F.__rsvpAttempts === 1) {
+          const e = new Error('deadline exceeded'); e.code = 'functions/deadline-exceeded'; throw e;
+        }
+        token = (F.customers.standard || {}).token;
+      }
       let hit = null;
       Object.keys(F.customers || {}).forEach(function (k) {
         if (F.customers[k].token === token) hit = F.customers[k];
       });
       if (!hit) { const e = new Error('Account not found.'); e.code = 'functions/not-found'; throw e; }
+      /* ⭐ THE OPTIONAL REASON IS A SECOND CALL ([[RS-60]]), and this fake has to be shaped
+         the same way or a spec proves nothing about the half that matters. The real branch
+         returns EARLY: it writes the reason and touches rsvpStatus not at all, because a
+         retry arriving after somebody changed their mind must not put the old answer back.
+         ⚠ SO IT SITS BEFORE THE ANSWER WRITE BELOW, not after it. Written the other way
+         round the fake would re-answer the RSVP on every reason, and a spec asserting the
+         follow-up leaves the answer alone would be green over a fake that does not. */
+      if (payload && Object.prototype.hasOwnProperty.call(payload, 'declineReason')) {
+        const reason = String(payload.declineReason || '').trim();
+        /* ⚠ REFUSES OFF-LIST, exactly as the server does — a TRIPWIRE FOR A FUTURE SPEC,
+           and said plainly rather than claimed as tested. Nothing today can reach it: the
+           picker only ever offers what it draws from the shared list, so no spec drives an
+           invalid reason and a red-check correctly reported deleting this guard as
+           changing nothing. It is here so that the first spec that hand-writes a reason
+           fails here rather than going green against a server that would have thrown. */
+        if (STUB_DECLINE_REASONS.indexOf(reason) === -1) {
+          const e = new Error('Unknown reason.'); e.code = 'functions/invalid-argument'; throw e;
+        }
+        const note = String((payload.declineNote == null ? '' : payload.declineNote)).trim();
+        if (hit.record) {
+          hit.record.rsvpDeclineReason = reason;
+          hit.record.rsvpDeclineReasonAt = new Date(F.frozenNow).toISOString();
+          /* ⚠ ONLY WHEN THERE IS ONE — a blank stored where an answer goes reads as an
+             answer, which is the rule the server follows. */
+          if (note) hit.record.rsvpDeclineNote = note;
+        }
+        return { ok: true, reasonSaved: true };
+      }
       /* ⚠ AND SO DOES WHAT THEY STILL OWE FROM LAST SEASON, on a yes. The real
          portalRsvp reads the invoice and returns these two so the confirmation can
          stop promising an install to somebody RS-24 holds out of the season. Without
@@ -312,9 +372,21 @@ const FAKE_FUNCTIONS_MODULE = `
           hit.record.maybeNextYear = false;
           hit.record.maybeNextYearAt = null;
         }
-        /* Only a no. A back next year must NOT clear a recycle that was already owed
-           -- that is Hole G, written up in the real function. */
-        if (response === 'no') hit.record.needsLightRecycle = true;
+        /* ⛔ NEITHER ANSWER TOUCHES THEIR LIGHTS, AND THIS FAKE USED TO ([[RS-51]], and
+           confirmed by Addie on 2026-09-11: "they will only be a real no if they cancelled
+           member portal"). A line reading   if (response === 'no') hit.record.needsLightRecycle
+           = true;   sat here long after the real portalRsvp stopped doing it — so this fake
+           was writing a field the server does not write, on the one answer ~960 customers
+           will give, and a spec asserting it passed against a rule the app no longer has.
+           ⚠ THE REAL DOOR IS portalSave's own cancel section — Cancel My Lights, in the
+           member portal — and nothing else. That is the step which takes the bundle apart
+           and hands the customer number back to the pool, and Dax's whole argument for
+           moving it there was that one tap in an email must not set off a destructive,
+           physical act with no confirmation in front of it.
+           ⚠ WHAT THE OLD COMMENT WAS RIGHT ABOUT IS KEPT: a back next year must never
+           CLEAR a recycle that was already owed (Hole G). Neither answer writing the field
+           at all satisfies that too — an owed recycle survives both, which is what the
+           server does and what season-state.test.js holds. */
       }
       let arrearsOutstanding = 0;
       let arrearsSeason = '';
@@ -334,6 +406,11 @@ const FAKE_FUNCTIONS_MODULE = `
       return { ok: true, rsvpStatus: response,
                arrearsOutstanding: arrearsOutstanding,
                arrearsSeason: arrearsSeason,
+               /* ⚠ AND WHETHER A REASON IS ALREADY ON FILE ([[RS-60]]), exactly as the
+                  server returns it — the portal on this route has no other way to know,
+                  and a fake that left it out would let a spec prove the picker is not
+                  re-offered while the real page re-offers it. */
+               declineReason: String((hit.record && hit.record.rsvpDeclineReason) || ''),
                gateCode: String((hit.record && hit.record.gateCode) || '') };
     },
 
@@ -354,6 +431,49 @@ const FAKE_FUNCTIONS_MODULE = `
       if (!hit) { const e = new Error('Account not found.'); e.code = 'functions/not-found'; throw e; }
       if (hit.record) hit.record.gateCode = gateCode;
       return { ok: true, gateCode: gateCode };
+    },
+    /* Mirrors portalChangeAddress (2026-09-10, QT-35): the token is the credential,
+       both the street and the town are required, and an unknown token THROWS
+       not-found like every other portal callable.
+
+       ⚠ NOTE THIS WHOLE BLOCK LIVES INSIDE THE FAKE_FUNCTIONS_MODULE TEMPLATE
+       LITERAL, so no backtick and no dollar-brace may appear anywhere in it — the
+       first backtick closes the template and everything after it becomes code. The
+       first draft of this comment quoted a field name in backticks and turned the
+       rest of the stub into a syntax error.
+
+       ⚠ IT WRITES THE PENDING FIELDS AND LEAVES the live address ALONE, exactly as
+       one does — and that is the half a spec has to be able to see. A stub that
+       helpfully applied the new address would make the page look right while proving
+       the opposite of the rule: the record keeps the old house until the office
+       applies it, which is why the portal shows a banner rather than the new address. */
+    portalChangeAddress: function (payload) {
+      const token = String((payload && payload.token) || '').trim();
+      const street = String((payload && payload.street) || '').trim().slice(0, 200);
+      const city = String((payload && payload.city) || '').trim().slice(0, 60);
+      const zip = String((payload && payload.zip) || '').trim().slice(0, 20);
+      const moveDate = String((payload && payload.moveDate) || '').trim().slice(0, 40);
+      if (token === 'forcemovefail') {
+        const e = new Error('boom'); e.code = 'functions/internal'; throw e;
+      }
+      if (!street || !city) {
+        const e = new Error('Street and town are both needed.');
+        e.code = 'functions/invalid-argument'; throw e;
+      }
+      let hit = null;
+      Object.keys(F.customers || {}).forEach(function (k) {
+        if (F.customers[k].token === token) hit = F.customers[k];
+      });
+      if (!hit) { const e = new Error('Account not found.'); e.code = 'functions/not-found'; throw e; }
+      const pendingAddress = street + ', ' + city + (zip ? ' ' + zip : '');
+      if (hit.record) {
+        hit.record.pendingAddress = pendingAddress;
+        hit.record.pendingCity = city;
+        hit.record.pendingZip = zip;
+        hit.record.pendingMoveDate = moveDate;
+        hit.record.seasonStatus = 'address_changed';
+      }
+      return { ok: true, pendingAddress: pendingAddress };
     },
     portalSave:        () => ({ ok: true, saved: true }),
     publicQuoteLookup: publicQuoteLookup,
@@ -445,7 +565,16 @@ const FAKE_FUNCTIONS_MODULE = `
       return { ok: true };
     },
 
-    publicConfig: () => ({ configured: false })
+    /* ⚠ NOT-CONFIGURED IS STILL THE DEFAULT, and deliberately: it is what keeps
+       notifyBusinessOfMessage returning at its first guard for every spec that has
+       not asked for the nudge, so adding the recorder changed no existing spec.
+       With { emailAlerts: true } it answers configured and the real alert path runs
+       against the fake SDK above. The ids are obvious nonsense so a value of theirs
+       can never be mistaken for a real template. */
+    publicConfig: () => (window.__HU_EMAIL_ALERTS__
+      ? { configured: true, serviceId: 'stub-service',
+          notifyTemplateId: 'stub-notify-template', publicKey: 'stub-public-key' }
+      : { configured: false })
   };
 
   export function getFunctions() { return { __stub: true }; }
@@ -512,13 +641,51 @@ const FAKE_PAYPAL_SDK = `
   };
 `;
 
+/* The EmailJS SDK, faked — and OPT-IN, which is the part to read first.
+ *
+ * ⭐ WHY IT EXISTS. notifyBusinessOfMessage is the "you have a new message" nudge, and
+ * twelve portal actions call it. Until now NO spec could see one: publicConfig is faked
+ * as not-configured, so every call returned at its first guard. That was a deliberate
+ * decision and the comment on that fake records it — but its premise was that there was
+ * no safe way to fake a send. A recorder is that way, so the premise changed rather than
+ * the decision being overruled.
+ *
+ * ⚠ IT RECORDS, IT NEVER SENDS. api.emailjs.com stays on FORBIDDEN_HOSTS and is never
+ * reached, because this fake is served in its place and resolves locally. A spec asserting
+ * an alert went must never be the spec that emails the office.
+ *
+ * ⚠ SERVED ALWAYS, ANNOUNCED ONLY WHEN ASKED FOR. The script tag is unconditional in
+ * index.html, so faking it always is strictly better than letting the request reach
+ * jsdelivr — deterministic, and nothing leaves the machine. What is opt-in is
+ * publicConfig saying "configured": without that flag every caller still returns at its
+ * first guard exactly as before, so the other specs are untouched. Pass
+ * { emailAlerts: true } to installFirebaseStub to turn the nudge on.
+ *
+ * Only the surface index.html uses: init() and send(). */
+const FAKE_EMAILJS_SDK = `
+  window.__HU_ALERTS__ = window.__HU_ALERTS__ || [];
+  window.emailjs = {
+    init: function (key) { window.__HU_EMAILJS_KEY__ = key; },
+    send: function (serviceId, templateId, params) {
+      window.__HU_ALERTS__.push({
+        serviceId: serviceId, templateId: templateId, params: params || {}
+      });
+      return Promise.resolve({ status: 200, text: 'OK (test double)' });
+    }
+  };
+`;
+
 const MODULE_BY_URL = [
   ['firebase-app.js', FAKE_APP_MODULE],
   ['firebase-firestore.js', FAKE_FIRESTORE_MODULE],
   ['firebase-functions.js', FAKE_FUNCTIONS_MODULE],
   /* Checked BEFORE the forbidden-host list, so the fake is served rather than
    * the request being blocked. Order inside the handler matters here. */
-  ['paypal.com/sdk/js', FAKE_PAYPAL_SDK]
+  ['paypal.com/sdk/js', FAKE_PAYPAL_SDK],
+  /* jsdelivr is not on the forbidden list, so without this the request would go
+     out to the real CDN — slow, and different depending on what the network
+     allows. The fake makes it deterministic. */
+  ['@emailjs/browser', FAKE_EMAILJS_SDK]
 ];
 
 /* ---- installation -------------------------------------------------------- */
@@ -537,6 +704,13 @@ async function installFirebaseStub(page, overrides = {}) {
     quotes:   Object.assign({}, QUOTES,   overrides.quotes   || {}),
     frozenNow: FROZEN_NOW.toISOString()
   };
+
+  /* Whether the "you have a new message" nudge is switched on for this spec. Set
+     before any page script so publicConfig can read it on first call. */
+  await page.addInitScript(on => {
+    window.__HU_EMAIL_ALERTS__ = !!on;
+    window.__HU_ALERTS__ = [];
+  }, !!overrides.emailAlerts);
 
   // Fixture data + the two lookup helpers, injected before any page script runs.
   await page.addInitScript(
@@ -618,8 +792,40 @@ async function installFirebaseStub(page, overrides = {}) {
     /** Which callables the page invoked, in order, with their payloads. */
     calls: () => page.evaluate(() => window.__HU_CALLS__ || []),
     /** Firestore writes the page attempted (none are sent anywhere). */
-    writes: () => page.evaluate(() => window.__HU_WRITES__ || [])
+    writes: () => page.evaluate(() => window.__HU_WRITES__ || []),
+    /** The "new message" alerts the page sent, in order. Empty unless the spec
+     *  passed { emailAlerts: true } — see FAKE_EMAILJS_SDK. */
+    alerts: () => page.evaluate(() => window.__HU_ALERTS__ || [])
   };
 }
 
-module.exports = { installFirebaseStub, FORBIDDEN_HOSTS };
+/* ⭐ THE TAP EVERY RSVP LINK NOW NEEDS (2026-09-11). Opening an RSVP link no longer
+   records the answer — a mail-security scanner can open a URL and that used to BE the
+   answer, which is how a confirmed customer nearly got moved to Maybe Next Year (see
+   rsvpAwaitConfirmTap in index.html). A person taps once; a scanner cannot.
+
+   ⚠ SO EVERY SPEC THAT OPENS AN RSVP LINK HAS TO TAP, and they call this rather than
+   each rolling their own — eleven copies of a selector is how one of them keeps passing
+   against a button that has been renamed.
+
+   ⚠ IT WAITS FOR THE BUTTON RATHER THAN ASSUMING IT. The card is drawn by navigate(),
+   which runs on hashchange, so a bare click with no wait is a race that passes on a fast
+   machine and fails in CI.
+
+   ⚠ AND IT IS DELIBERATELY NOT FOLDED INTO installFirebaseStub. That runs BEFORE
+   page.goto; this has to run after. Two steps, because they happen at two times. */
+async function tapRsvpConfirm(page, url) {
+  /* ⚠ IT READS THE URL AND NO-OPS ON ANYTHING THAT IS NOT AN RSVP LINK, so it can be
+     called after every goto in a file without the caller having to know which is which.
+     A helper that had to be applied selectively is one that gets missed. */
+  const m = /[?&]rsvp=([a-z]+)/i.exec(String(url || ''));
+  if (!m) return false;
+  const back = m[1].toLowerCase() === 'back';
+  const row = back ? '#backTapRow' : '#rsvpTapRow';
+  const btn = back ? '#backTapConfirmBtn' : '#rsvpTapConfirmBtn';
+  await page.waitForSelector(row, { state: 'visible', timeout: 15000 });
+  await page.locator(btn).click();
+  return true;
+}
+
+module.exports = { installFirebaseStub, FORBIDDEN_HOSTS, tapRsvpConfirm };

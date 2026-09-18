@@ -331,7 +331,7 @@ repo. The real vocabulary is `measuredFeet`, `lightsDescription` /
 `numberOfBins`, `gateCode`, `oneTimeNote`, `notes`, `difficulty`,
 `installPreference`. The placeholder also encodes business rules that are wrong
 here — a C9 bundle every 25 ft, where the shipped rule is `ceil(feet / 40)` for
-bundles and one bin per 260 ft (`CN_DOUBLE_BIN_FEET`).
+bundles and one bin per 320 ft (`CN_DOUBLE_BIN_FEET`, 260 until 2026-09-10).
 
 There is already a partial, load-bearing registry to derive from rather than
 starting blank: `PORTAL_WRITE_FIELDS` and `PORTAL_READ_FIELDS` in
@@ -1575,7 +1575,21 @@ the file, it was the six wiring commits around it. Those still have to be redone
 against today's admin.html whenever this is answered, and that cost is unchanged.
 What this removes is the pressure to answer quickly to avoid losing the work.
 
-**Resulting map change:** `SCH-25` in `claude/questions-map.md`.
+**Resulting map change:** `SCH-25` in `claude/questions-map.md`, and `SCH-63` for the
+build.
+
+### ⭐ BUILT 2026-09-09 — `js/grid.js` is wired
+
+The container is a block of about twenty adjacent houses. What this question said the
+port had to do, it does: the container came across and the rest was left alone — the
+crew split, the near-empty-day rescue, One Man Installs and both printed sheets are
+untouched, and every rule Addie set between the 24th and the 26th still holds, because
+only the KEY the builder buckets on changed.
+
+The sub-question this file flagged as *"the first thing to put to her when this is
+built"* — what a sheet says when a crew-day is no longer one town — was put to Dax on
+2026-09-09. He chose **the towns it covers**, over a main town plus a count and over
+the nearest cross-streets. See `SCH-63`.
 
 ---
 
@@ -2011,3 +2025,423 @@ red-checked, ten caught.
 
 **Resulting map change.** PR-07.
 
+## Q-029 · intent · ANSWERED · raised 2026-09-08
+
+**ANSWERED 2026-09-12 — option 1, roll it forward.** Addie: *"For someone who
+doesn't book for this year but refered someone should have that referal discount added
+for next year."*
+
+Built DERIVED rather than as a migration, which answers the sub-question this entry
+raised ("what happens if they come back to Yes afterwards") for free: the stamp is left
+exactly as it was earned and only the season it COMES OFF is decided, so coming back
+needs no second write and there is nothing a half-run migration could lose.
+
+**Resulting map change: [[REF-38]].**
+
+**A referral earned while they were in the season, by somebody who then drops out.**
+
+REF-23 settled the case that was losing money: a customer who is already sitting the
+season out when they refer a friend earns the $25 off NEXT season's bill, because they
+have no bill this season for it to come off. That is stamped when the referral is
+earned, which is REF-14's own rule and the reason `season` exists as a field.
+
+What it does not settle is the same thing arriving in the other order:
+
+> They refer a friend in October while they are still down as having lights. The
+> credit is stamped for this season and goes on this season's bill. In November they
+> answer Back Next Year — so there is no bill for it to come off any more, and next
+> season it will not count either, because it is stamped for this one.
+
+Nothing is lost from the record — the entry is still there and the office can see it —
+but the $25 quietly stops being worth anything, which is the same harm REF-23 exists to
+prevent, reached by a different door.
+
+**Three answers, and only Addie can pick one:**
+
+1. **Roll it forward.** When somebody drops out of the season, any referral of theirs
+   still stamped for this season moves to next. Matches REF-23's intent exactly; costs
+   a write on every RSVP change, and needs deciding what happens if they come back to
+   Yes afterwards.
+2. **Leave it where it was earned.** They were in the season when they earned it; if
+   they choose to sit out, the credit sits out with them and lapses. Simplest, and it
+   is what the code does today.
+3. **Never lapse.** A referral is worth $25 off the next bill they ever get. That is
+   the discount-for-life REF-14 was written to stop, so it would need her to say she
+   meant something narrower there.
+
+⚠ **NOT GUESSED AT.** Which of these is right is a decision about real money to real
+customers, and all three are defensible from what she has said so far. Nothing about
+this case has been built; today's change is the earn-time rule only.
+
+**Resulting map change.** Named in REF-23 as the case it deliberately leaves open.
+
+## Q-030 · intent · ANSWERED · raised 2026-09-08
+
+**ANSWERED 2026-09-12 — option 1, onto the bill they are actually on.** Addie: *"It
+should follow the money to the payer."* She took the named cost knowingly: the bill that
+drops by $25 is the payer's, not the referrer's.
+
+Building it surfaced a second fault this entry had not seen — the credit rebuild drops
+every referral line and writes them back from one house's entries, so on a shared bill it
+would have DELETED a sibling's credits. The rebuild now gathers every house on the bill.
+
+**Resulting map change: [[REF-39]].**
+
+**A referral earned by somebody whose house is billed to another person.**
+
+`applyReferralCreditLine` puts the $25 on the invoice found under `custInvoiceKey` —
+the referrer's OWN key. That is right for the ordinary customer, who pays their own
+bill. It is not obviously right for a house that bills elsewhere:
+
+> A tenant, or a child living at a parent's address, has `billToPhone` set. Their own
+> invoice has been zeroed or deleted, because the money moved onto the payer's bill.
+> They share their referral link, a friend joins, and the $25 goes onto their own
+> leftover invoice — which no screen reads — or nowhere at all.
+
+**This is a settled shape, not a fresh inconsistency.** The Edit Customer save resolves
+the same way (`allCustInvoiceFor`, also `custInvoiceKey`), and that is deliberate: it
+needs the house's own invoice in order to find and zero a leftover. So both writers
+agree today. What nobody has decided is where the credit is SUPPOSED to land.
+
+**Three answers, and only Addie can pick one:**
+
+1. **Onto the bill they are actually on.** The credit follows the money, the way
+   `getLiveInvoiceStatus` and `editCustInvoiceNow` already resolve `billToPhone ||
+   custInvoiceKey`. The referrer sees the discount where they read their balance.
+   ⚠ But the person who gets the $25 off is then the PAYER, not the referrer — a
+   landlord banking a tenant's referral, which may be exactly wrong.
+2. **Leave it on their own record and show it there.** Keeps the $25 attached to the
+   person who earned it, which matches how `paidBeforeBillTo` already carries money
+   with a house. Needs somewhere on screen for a credit that is on no live bill.
+3. **Leave it exactly as it is.** Rare enough not to be worth a money change. Today's
+   fix already stops it happening SILENTLY — the Inbox note now says the credit is not
+   on a bill and names Fix Missing Invoices — so the office finds out either way.
+
+⚠ **NOT GUESSED AT.** Seventeen numbers in the real book are shared, and fourteen of
+those are two genuinely different households, so this is not theoretical. Moving a
+credit between two people's bills is a tier-1 money decision under CLAUDE.md §2.
+
+⚠ **AND IT IS NOT WHAT WAS FIXED TODAY.** REF-30 changed only what the Inbox note
+CLAIMS when the credit reaches no bill. Where the credit should land is this question.
+
+**Resulting map change.** Named in REF-30 as the case it deliberately leaves open.
+
+## Q-031 · intent · ANSWERED · raised 2026-09-08
+
+**ANSWERED 2026-09-12 — option 2, one discount per address.** Addie: *"we should not
+allow two address's to exist on the costumers at the same time. So they would only get a
+$25 dollar discount."*
+
+The asymmetry this entry warned about is handled by reusing `custAddrKey` rather than
+writing a cleverer matcher: it does not expand Ln to Lane, so it matches only where two
+typed addresses genuinely agree, and its failure mode is allowing two rather than
+silently refusing a real referral.
+
+**Resulting map change: [[REF-40]].**
+
+**Two different people at the same address, both through one referral link.**
+
+REF-31 settled the pair she named: two separate people at two separate addresses earn
+two $25 discounts, and one friend coming through twice earns one. The rule matches on
+phone or email, so as it stands:
+
+> Two roommates at 1 Elm St each fill in the public form through Dana's link, each with
+> their own phone and email, and both are converted. Dana earns **$50**.
+
+That reads right — two customers, two installs, two bills, two houses' worth of work —
+and it is what the code does today.
+
+But her wording was *"two separate people **and addresses**"*, which can be read as
+requiring BOTH to differ. On that reading the roommates are one referral and Dana
+earns $25.
+
+**Two answers, and only Addie can pick one:**
+
+1. **Two discounts (what it does today).** They are two paying customers; the referral
+   brought in two of them. Matching on the address as well would also refuse a real
+   second referral whenever the two typed addresses merely LOOK alike, which is the
+   "Red Cedar Ln" vs "Red Cedar Lane" guess this repo already removed from the re-quote
+   flow by name.
+2. **One discount per address.** If the intent is one discount per HOUSE rather than
+   per customer, the rule needs an address comparison — and that comparison has to be
+   normalised carefully, or it will refuse referrals that are genuinely separate.
+
+⚠ **NOT GUESSED AT, AND THE ERRORS ARE NOT SYMMETRIC.** Paying $25 too much is
+visible on the bill and can be crossed off with the ×. Refusing a real referral is
+silent to the customer who earned it, and they are the person most likely to tell their
+friends about us. That asymmetry is why the current behaviour was left as it is rather
+than tightened on a reading of one word.
+
+⚠ **AND THE MULTI-UNIT CASE IS THE SAME QUESTION**: a duplex or a basement flat is two
+customers at one street address, and however this is answered it must not make those
+two impossible to refer.
+
+**Resulting map change.** Named in REF-31 as the case it deliberately leaves open.
+
+## Q-032 · intent · ANSWERED · raised 2026-09-09
+
+**ANSWERED 2026-09-12 — the waiver must hold; the banner is still not built.** Addie:
+*"we need to make sure referals are getting there 30 dollar installation fee waived since
+that is what we promised them."*
+
+The substance was checked rather than assumed and it works: `quoteChargesSetupFee` waives
+the fee for a token the referrer currently holds, and Suite 312 runs the whole path. What
+her answer does NOT resolve is this entry's actual obstacle — the page cannot tell a real
+token from an invented one — so the banner needs the small public callable of option 2,
+which is its own change with its own security review and was deliberately not shipped
+beside three money rules.
+
+**Resulting map change: [[REF-41]], status Decided — not built.**
+
+**A banner on the quote page promising the friend their fee is waived — when the page
+cannot tell whether it is true.**
+
+REF-36 put the waiver into the message a friend receives, and that sentence is safe by
+construction: it goes out carrying the sender's own CURRENT link, so what it promises is
+what `quoteChargesSetupFee` will do.
+
+Addie also asked for the promise on the page the link lands on — one line, *"Your $30
+installation fee is waived"*, with nothing under it. That half is **not built**, because
+the page cannot honestly make the claim:
+
+> Nothing in the browser can tell a real token from an invented one. `/r/anything`
+> typed into the address bar stores a token and reaches `#/quote` exactly like a real
+> link — and a link from a season Start New Season has rotated away is *deliberately*
+> still charged the fee ([[REF-25]], her own ruling). In both cases the banner would
+> promise a waiver and the office would then charge $30.
+
+⚠ **THE VALIDATION LIVES IN admin.html, NOT IN THE PAGE.** `referralHolderFor` resolves a
+token against the loaded customer book, which the public site does not have and must not
+have. So the page has no way to ask the question locally.
+
+**Three answers, and only Addie can pick one:**
+
+1. **Soften the wording.** The banner says the friend came in through a referral link
+   without promising the amount — no new server call, and never wrong. It is also the
+   weakest version of the thing she asked for.
+2. **Ask the server first.** A small callable that answers *is this token current* and
+   nothing else, with the banner drawn only on yes. Honest in every case, and it is a
+   new public endpoint on a page anybody can open — so it must answer yes/no and never
+   name the referrer, or it becomes a way to test tokens against the customer book.
+3. **Show it anyway.** Accept that a made-up or retired link sees a promise that is not
+   kept. The cost lands on a person who is not a customer yet, at the moment they are
+   deciding whether to become one, which is the worst possible moment for it.
+
+⚠ **THE ERRORS ARE NOT SYMMETRIC, WHICH IS WHY THIS IS NOT BEING GUESSED.** A banner
+that fails to appear for a genuine referral costs nothing — the fee is waived anyway,
+by the quote card, whether or not the page said so. A banner that appears wrongly is a
+written promise the business then breaks, on the page whose whole job is to turn a
+stranger into a customer.
+
+⚠ **AND THE MESSAGE HALF IS NOT WAITING ON THIS.** It shipped on its own; this question
+blocks only the banner.
+
+**Resulting map change.** Named in REF-37, which records the banner ruling as decided
+and not built.
+
+---
+
+## Q-033 · intent · ANSWERED · raised and answered 2026-09-10
+Should a customer who owes for last season be able to tell us they have moved?
+
+Moving house got its own door on 2026-09-10 (QT-35): `portalChangeAddress` records a
+new address as **pending** and applies nothing, and the office commits it from Edit
+Customer. It is **not** behind the arrears hold, and that needs her ruling rather than
+my assumption.
+
+**Why it is a real question.** `portalSave` refuses every section but `cancel` while
+last season is unpaid — Dax, 2026-09-02: *"make sure it forces them to pay for their
+last year lights before they can do anything and before anything goes into the
+system."* A pending move **does** go into the system, and applying one raises a
+re-quote, so on the letter of that ruling it belongs behind the hold.
+
+**Why it shipped open.** The two failure directions are not symmetric:
+
+- **Refused**, the record keeps an address they have left. Nobody is told the house is
+  wrong, and the one mistake with no undo is a crew standing at the wrong door.
+- **Accepted**, nothing is actually granted. The hold still bars every other change,
+  the badge only asks the office to look, no pin moves, no quote is raised, and
+  `isOutForSeason` keeps a debtor off the routes and out of the build queue anyway —
+  so this cannot get them scheduled.
+
+⚠ **AND `cancel` IS ALREADY EXEMPT FOR THE SAME SHAPE OF REASON** — somebody trying to
+leave must not be told to pay first, or they stop replying and Addie never learns why.
+An address is a fact about where they live rather than a change to what they are
+buying, which is the argument for treating it the same way.
+
+**Three answers:**
+
+1. **Leave it open** (what shipped). A debtor can tell us they moved; nothing else about
+   their account moves. Cheapest, and safest for the crew.
+2. **Hold it like the other sections.** Consistent with Dax's wording, and it means a
+   debtor who moves has no way to say so until they pay — the office finds out when a
+   crew reports an empty house, if at all.
+3. **Accept it but do not badge it** until they have paid, so the information is kept
+   and the office is not asked to act on a customer who is held anyway. Splits the
+   difference; costs a second state nobody has asked for, which is usually how a rule
+   becomes unexplainable.
+
+⚠ **NOTHING ELSE WAITS ON THIS.** The door works either way; only the hold is in
+question, and switching it later is a two-line change with a check already written
+around it.
+
+**ANSWERED 2026-09-10 — option 1, which is what shipped.** Addie: *"Yes anyone can
+report a move but when we requote the person that didn't pay for last year still can't be
+scheduled until they pay there balance."*
+
+⭐ **HER ANSWER SPLITS THE QUESTION IN TWO, AND THE SPLIT IS THE INSIGHT** — the one this
+entry did not make when it was raised. It framed the choice as *hold the door or don't*,
+when the real distinction is between TELLING US and BEING SCHEDULED. Reporting a move is
+information and is never held; being put on a crew day is the thing the money gates. Once
+put that way there is no tension with Dax's *"before anything goes into the system"* at all:
+a pending address grants nothing.
+
+⚠ **AND THE SECOND HALF NEEDED NOTHING BUILT.** It was already true and already pinned:
+`houseOwesFromLastSeason` sits inside `isOutForSeason` AHEAD of the rsvpStatus and Confirmed
+branches, `placeUnscheduledOnNextDay` refuses anybody it holds, and `arrears-hold.test.js`
+§4d already ran the real `seasonYesUpdates` into the real `isOutForSeason` for the email
+approval — which is the same `quoteRespond` path a move re-quote takes. Checked before
+writing anything, rather than assumed either way.
+
+⚠ **WHAT WAS ADDED IS ONLY THE ENFORCEMENT OF THE FIRST HALF.** The exemption looked like
+an oversight next to `portalSave`, so it is now asserted as code — including against a hold
+smuggled in as a silent early return, which would have left every other check green while a
+debtor's move vanished with no error.
+
+**Resulting map change.** **QT-36**, which records the exemption as hers, names where the
+scheduling half is enforced, and is what goes red if somebody "tidies" the door to match
+`portalSave`. QT-35 still describes the door itself and is unchanged — this narrows nothing
+in it, so it is not superseded.
+
+---
+
+## Q-034 · intent · ANSWERED 2026-09-11 · closed
+Does last season's carried debt get charged the 1 April late fee as well?
+
+**Raised while building the new invoice terms (MON-70 to MON-72). Not asked, and
+deliberately not guessed — a default was chosen and it is named here so it can be
+overturned rather than discovered.**
+
+The April run charges a late fee against **this season's bill only**. An invoice whose
+whole outstanding amount is a balance carried from an earlier season is skipped.
+
+**Why that way round.** A carried balance reached this invoice *by* being unpaid. A rule
+that fined any unpaid amount without asking why would charge the same customer $40 every
+April for the same old debt, for ever, adding a line to their fee ledger each year — a
+harm that repeats silently rather than a one-off mistake somebody notices. The other
+reading has an honest argument too, and it is hers: somebody two seasons behind is exactly
+who a late fee is aimed at.
+
+**What it costs today.** Nothing, yet. `Q-051`-style urgency does not apply: the send is
+switched off, it first fires in April 2027, and checklist row 222 puts the dry-run list in
+front of her before the switch is ever turned on — so this can be answered from real names
+rather than in the abstract.
+
+**What changing it takes.** One condition in `runLateFeeBatch` (`owedNow - carried <= 0`)
+and its check in the same file. The guard is commented as hers to move.
+
+⭐ **ANSWERED, and the default was right.** Addie, 2026-09-11: *"No last seasons late bill
+will not get aprils fee. Fees should only be applied once. However the full payment
+including the fee that they did not pay last year will be carried over to the next season
+until that is payed in full. And they will not be allowed to be scheduled until they pay
+last years bill in full."*
+
+She answered more than was asked, and the three extra clauses were all verified as already
+built rather than taken on trust:
+
+- **"Fees should only be applied once"** — `lateFeeAt` is stamped per invoice before the
+  email is sent, and the batch refuses any invoice carrying one. A second, independent
+  guard: an unpaid customer is never scheduled, so they are never hung, never completed
+  and never invoiced again — there is no `invoicedAt` for a later April run to act on.
+- **"the full payment including the fee … carried over"** — true by construction. The fee
+  writes into `changeFees`, and Start New Season carries `balanceDueAmount`, which sums
+  `changeFees`. Nothing needed adding; if it ever needs its own branch, the rule has been
+  implemented twice.
+- **"not allowed to be scheduled until they pay last years bill in full"** — `arrearsSettled`
+  already compares against the WHOLE carried amount, never a proportion, which is her own
+  earlier ruling (billed 800, paid 400, "bill is not cleared and we cannot schedule them").
+
+**Resulting map change.** `MON-73` (no April fee on carried arrears — this default, now
+her ruling), `MON-74` (fees applied once), `MON-75` (the unpaid fee carries forward inside
+the balance), `MON-76` (no scheduling until last season is paid in full).
+
+---
+
+## Q-035 · intent · OPEN · raised 2026-09-16
+Blueprint Maps shipped with seven open questions. Four were factual and are resolved
+below; three are hers and are named here with the default that was taken, so they can be
+overturned rather than discovered.
+
+**The build specification listed seven "answer these with Addie first". CLAUDE.md §4 says
+a factual question should never reach her, so those were resolved by reading the code and
+are recorded here to close them. The three that remain change nothing until she says so.**
+
+### Resolved from the code — do not ask her these
+
+1. **Which Firestore field separates a new quote from a requote?** `isRequote(d)` on the
+   quote — `existingCustomerId || requoteCount > 0`. For a *house*, first-season is
+   `audienceNeverAsked(d)`, the union rule the RSVP audience and the New Hang badge
+   already settled on. No new flag was invented, which was the spec's own instruction.
+   There have already been two definitions of "new customer" in `admin.html`; this is
+   deliberately not a third.
+2. **Are the photographed drawings mostly landscape or portrait?** It does not need
+   answering. `orientation` is detected from each photo on upload and the 8-up grid is
+   decided **per page** from what is actually on it, so a route holding both comes out
+   right without anybody choosing a default.
+3. **Can a crew member with employee access upload maps, or only the office?** `admin.html`
+   has no per-panel role gating at all — everyone who can sign in sees every panel. The
+   answer is the spec's own: the same people who already see Employee Tools. ⚠ If panel
+   gating is ever added, this panel wants to be in the first batch considered: it is the
+   one screen a crew phone would plausibly be handed.
+4. **Does a map ever need deleting outright, or is replacing it always enough?** Replacing
+   is the normal path and is what the dialog leads with. **Remove this map** exists as well,
+   because *Add another map* exists — a way to add with no way to undo a mistake is a
+   one-way door. It confirms first and says exactly what goes. ⚠ It removes the house's
+   reference only; the photograph stays in Cloudinary, because destroying one needs the API
+   secret and a secret in this page is a secret published to anybody who opens it. The
+   server-side `destroyFixPhoto` is the precedent if that is ever wanted, and it is its own
+   job.
+
+### Still hers — defaults taken, named so they can be overturned
+
+5. **ANSWERED 2026-09-17 — see [[BPM-05]]. No: the filter stays, and Clear filters is the way out.** ~~Default taken: yes,
+   it clears every tick.** The spec recommended it and the alternative is demonstrably
+   worse — choosing a returning customer while "New quotes" is ticked shows nothing at all,
+   and a screen that has quietly filtered itself to empty reads as broken rather than
+   filtered. Changing it is one line in `bpmChoosePerson`.
+
+6. **Should the office be able to edit a map's saved copy count from this screen?**
+   **Default taken: yes — in the detail dialog only, never on the card.**
+   ⚠ **This is the one place the build goes past what §13 of the spec asked for** ("the only
+   writes are map uploads and, *if added later*, edits to a saved count"), and it was not
+   done for tidiness. Without an editor the `copies` field can only ever hold 1, which makes
+   the spec's own headline example — *"a three-crew house is saved at 3 and prints 3 every
+   time"* — unreachable; and the same is true of `label` and `note`, so a house could never
+   have a second drawing called "Detached garage" at all. Two of the three things the panel
+   is for would have been unbuildable. The card stepper stays session-only exactly as
+   specified: mixing the two would turn every stepper click into a Firestore write.
+
+7. **ANSWERED 2026-09-17 — see [[BPM-06]]. No: the map, the name, and the label or street.**
+   *Addie: "Map blueprint should only be maps being printed and that’s it."* The default below was confirmed, not changed.
+   **Default taken (now confirmed): no.** The caption is the customer's name and either
+   the map label or the street, as specified. Bulb counts are drawn *on* the blueprint
+   already, and the crew name and date belong to the run rather than to the house — putting
+   them on a tile makes a printed sheet stale the day after it is printed, which the route
+   sheets deliberately avoid. One line in `bpmTileRight` and one in the sheet builder if she
+   wants more.
+
+8. **Is a re-quoted house that ALREADY has a drawing still "pending"?** *(raised 2026-09-17,
+   with the Pending list.)* **Default taken: no — pending means no drawing at all.**
+   Addie asked for *"a place were it sends pending maps which will only show for new
+   costumers that were quoted this year or requoted"*, and the literal reading of *pending*
+   is *not done yet*. But a re-quote is often a house that moved or extended, so the drawing
+   on file may describe a roofline that no longer exists — and nothing on the record can say
+   whether it does. Comparing `map.updatedAt` against the quote's date would be the system
+   guessing that an older drawing is wrong, and putting houses on a worklist nobody put
+   there. ⚠ **The cost of the default is the opposite mistake**: a moved house with a stale
+   drawing is silently absent from the list. It is one clause in `bpmIsPending` if she wants
+   re-quotes with older drawings included.
+
+**Resulting map change:** `system-map.md` §6a (the whole panel, what is stored, and the
+if-X-isn't-working table). No questions-map row — no ruling was given this session; these
+are defaults taken in her absence and they belong here until she rules on them.

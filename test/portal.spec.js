@@ -23,7 +23,7 @@
  */
 
 const { test, expect } = require('@playwright/test');
-const { installFirebaseStub } = require('./firebase-stub');
+const { installFirebaseStub, tapRsvpConfirm } = require('./firebase-stub');
 const { CUSTOMERS, QUOTES } = require('./fixtures');
 
 /* Fresh stub per test. Playwright gives each test its own page, so there is no
@@ -39,6 +39,9 @@ async function open(page, path, overrides) {
   page.on('console', m => { if (m.type() === 'error') pageErrors.push(m.text()); });
 
   await page.goto(path);
+  /* ⭐ An RSVP link no longer answers on open — one tap confirms it. No-ops on any
+     other link. See tapRsvpConfirm. */
+  await tapRsvpConfirm(page, path);
   stub.pageErrors = pageErrors;
   return stub;
 }

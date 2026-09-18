@@ -237,6 +237,82 @@ function report(label, got, expected) {
     document.getElementById('invoiceCard').classList.contains('show') ? 'yes' : 'no', 'yes');
   report('thrown back to sign-in?', inlineHidden('lookupFormWrap') === 'hidden' ? 'no' : 'yes', 'no');
 
+  /* ================= SCENARIO 7 =================
+     The changes form, saved with neither outlet radio ticked.
+
+     ⚠ THIS IS A REAL CUSTOMER'S CRASH, NOT AN INVENTED ONE. From the Errors folder,
+     2026-09-09: "null is not an object (evaluating 'document.querySelector('input
+     [name="changes_outlet_timer"]:checked').value')" — an iPhone, on a page opened from
+     an RSVP link. Neither radio carries `checked` in the markup, so a customer who never
+     touched them took the whole save down before a single field was read.
+
+     ⚠ AND THE CRASH WAS THE SMALL HALF. That page carried `&rsvp=yes`, so their answer
+     went down with it; only people who have answered are scheduled, so nobody is sent to
+     their house. The apology tells them to ring us and to them it looks like they already
+     replied.
+
+     ⚠ IT RUNS THE REAL LINES against the real page's DOM, sliced out of index.html — a
+     check that asserted the SHAPE of the fix would pass on any rewrite that still
+     crashed, and this whole file exists because a passing gate can be checking nothing. */
+  console.log('\nSCENARIO 7 — the changes form saved with neither outlet radio ticked');
+  const radioAt = src.indexOf('var outletTimerEl = document.querySelector(');
+  const radioEnd = src.indexOf('var newSpecificOutletNotes', radioAt);
+  report('the two radio reads were found in index.html',
+    (radioAt !== -1 && radioEnd > radioAt) ? 'yes' : 'no', 'yes');
+  const radioSrc = (radioAt === -1 || radioEnd <= radioAt) ? '' : src.slice(radioAt, radioEnd);
+  const runRadios = function (record) {
+    return new Function('document', 'currentJobAddressData',
+      radioSrc + '\nreturn {timer: newOutletTimer, outlet: newSpecificOutlet};')(document, record);
+  };
+  /* Nothing ticked — exactly the state the crash arrived in. */
+  document.querySelectorAll('input[name="changes_outlet_timer"], input[name="changes_specific_outlet"]')
+    .forEach(function (r) { r.checked = false; });
+
+  let blank = null, threw = '';
+  try { blank = runRadios({}); } catch (e) { threw = String(e && e.message || e); }
+  report('nothing ticked, and the save still gets past the radios', threw ? 'threw: ' + threw : 'no throw', 'no throw');
+  report('an unanswered timer reads as No', blank ? String(blank.timer) : '(crashed)', 'No');
+  report('an unanswered specific-outlet reads as No', blank ? String(blank.outlet) : '(crashed)', 'No');
+
+  /* ⚠ 'No' IS NOT A DEFAULT PLUCKED OUT OF THE AIR — it is what the change comparison
+     below these lines already reads a missing timer as. Any other fallback makes an
+     untouched radio look CHANGED, and `outletTimer` is one of the three
+     WAREHOUSE_BUILD_FIELDS, so that queues a bundle rebuild for a house nobody touched. */
+  const cmp = src.indexOf("(currentJobAddressData.outletTimer || 'No') !== newOutletTimer");
+  report('and that matches what the change test treats as missing', cmp === -1 ? 'no' : 'yes', 'yes');
+
+  /* A value already on file is preserved, never overwritten with the fallback. */
+  let kept = null;
+  try { kept = runRadios({ outletTimer: 'Yes', specificOutlet: 'Yes' }); } catch (e) { kept = null; }
+  report('a timer already on file survives an untouched form', kept ? String(kept.timer) : '(crashed)', 'Yes');
+  report('and so does a specific outlet', kept ? String(kept.outlet) : '(crashed)', 'Yes');
+
+  /* And a real answer still wins over both. */
+  const yesRadio = document.querySelector('input[name="changes_outlet_timer"][value="Yes"]');
+  if (yesRadio) yesRadio.checked = true;
+  let ticked = null;
+  try { ticked = runRadios({ outletTimer: 'No' }); } catch (e) { ticked = null; }
+  report('a ticked radio beats both the record and the fallback',
+    ticked ? String(ticked.timer) : '(crashed)', 'Yes');
+  if (yesRadio) yesRadio.checked = false;
+
+  /* The regression guard, across every page: reading `.value` straight off a
+     `:checked` query is the whole family this bug belongs to. */
+  /* ⚠ COMMENTS OUT FIRST, AND THIS CHECK EARNED THE RULE ON ITS OWN FIRST RUN. The
+     comment added to index.html to EXPLAIN this fix quotes the customer's error message
+     verbatim — which contains the very pattern being banned — so a correct file failed.
+     Suites 58, 274, 275 and 300 each learned this separately; §7 has the general form.
+     Match the code, never the prose describing the code. */
+  const noComments = function (s) {
+    return s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/<!--[\s\S]*?-->/g, ' ');
+  };
+  const unguarded = ['index.html', 'admin.html', 'employee.html'].filter(function (f) {
+    return /:checked'\)\.value|:checked"\)\.value/
+      .test(noComments(fs.readFileSync(path.join(__dirname, f), 'utf8')));
+  });
+  report('no page reads .value straight off a :checked query',
+    unguarded.length ? unguarded.join(', ') : 'none', 'none');
+
   console.log('\n' + (failures ? failures + ' result(s) differed from a working portal' : 'everything behaved'));
   if (failures) {
     console.log('\nThe portal behaved differently from a working one. The scenario above');

@@ -358,6 +358,95 @@ suite('Silent failures — the three ways a failure now keeps');
     'notes again');
 }
 
+/* ⭐ A KEYWORD LEFT STANDING WHERE A DECLARATION WAS DELETED (added 2026-09-09).
+ * Live, on the admin page, at 4:03 PM:
+ *
+ *     Uncaught ReferenceError: async is not defined   at admin:20204
+ *     Unhandled promise: Cannot access 'pendingRenders' before initialization
+ *
+ * ONE FAULT, NOT TWO. A commit removing the message-folder feature cut the line
+ * `async function addMessageFolder(){` mid-declaration and left the word `async`
+ * behind, welded onto the front of the block comment beneath it — so that line read
+ * as the bare word `async` and nothing else.
+ *
+ * ⚠ THAT IS VALID JAVASCRIPT, which is the whole reason this needs a gate. `async`
+ * reads as a bare identifier, automatic semicolon insertion ends the statement, and
+ * the file PARSES — so gate A's `node --check` is green and says nothing at all. It
+ * fails only when the line RUNS, and by then it is the module's top level, so
+ * evaluation stops dead and NOTHING below line 20204 initialises. That is the second
+ * error: `pendingRenders` is declared 22,000 lines further down, so the TDZ
+ * complaint is the wreckage rather than a separate bug. Most of the admin app did
+ * not start.
+ *
+ * ⚠ AND IT SURVIVED BOTH REQUIRED CHECKS ON main. The fast suite and the browser
+ * suite were both green, because neither evaluates admin.html's module top level —
+ * the one thing that would have caught it.
+ *
+ * ⭐ IT LIVES HERE, NOT IN verify-syntax.js, FOR ONE REASON: `blankNoise` above.
+ * Written as its own scanner in gate A it reported three false positives inside a
+ * minute, all from the SAME desync this file has already been fixed for — a quote
+ * inside a regex character class opens a phantom string and everything after it is
+ * read wrong. That fix cost this repo a blind gate once already; a second copy of a
+ * scanner is a second chance to re-earn the same bug.
+ *
+ * ⚠ IT IS NARROW AND IS NOT PRETENDED OTHERWISE. It catches a MODIFIER KEYWORD left
+ * alone on a line, which is the shape a half-deleted declaration leaves behind. It
+ * is not a general "does this module evaluate" check — that needs the whole page
+ * stubbed, which CLAUDE.md records being weighed and turned down twice. Narrow and
+ * real beats broad and unbuilt; the cost of missing this one was the office's
+ * morning. */
+suite('Silent failures — a keyword left standing where a declaration was deleted');
+const ORPHAN_KEYWORDS = ['async', 'function', 'class', 'new', 'typeof', 'void', 'delete', 'extends'];
+function orphanKeywordLines(js) {
+  const hits = [];
+  blankNoise(js).split('\n').forEach((line, idx) => {
+    const t = line.trim();
+    if (t && ORPHAN_KEYWORDS.indexOf(t) !== -1) hits.push({ line: idx + 1, word: t });
+  });
+  return hits;
+}
+
+/* ⚠ THE SCANNER PROVES ITSELF FIRST, for the same reason every other check in this
+   file does: with the repo clean there is nothing left to find, so gutting the
+   detection changes nothing and the run stays green. The innocent fixture carries
+   the two things that fool a naive matcher — the word inside a comment, and the word
+   inside a string. */
+{
+  const q = String.fromCharCode(39);
+  const openC = '/' + '*';
+  const closeC = '*' + '/';
+  const broken = 'function a(){}\nasync ' + openC + ' c ' + closeC + '\nconst x = 1;';
+  const innocent = openC + '\nasync\n' + closeC + '\nconst s = ' + q + 'async' + q + ';' +
+    '\nconst f = async function(){};\nif (typeof g === ' + q + 'function' + q + ') g();';
+  const found = orphanKeywordLines(broken);
+  check('the orphan-keyword scanner still finds one',
+    found.length === 1 && found[0].line === 2 && found[0].word === 'async',
+    'that fixture is the real 2026-09-09 admin.html shape; a scanner that cannot find' +
+    ' it reports every file clean for the wrong reason');
+  check('and reads neither a comment, a string, nor a typeof guard as one',
+    orphanKeywordLines(innocent).length === 0,
+    'the typeof line is in the fixture because a desynced scanner turned three of them' +
+    ' into false positives on the first draft of this check');
+}
+
+const orphans = [];
+FILES.forEach(({ file }) => {
+  const raw = read(file);
+  /* Read as a WHOLE FILE rather than script by script, so the line number reported is
+     the one the browser console prints. HTML prose cannot match — the line has to be
+     the bare keyword and nothing else. */
+  orphanKeywordLines(raw).forEach(h => {
+    orphans.push(file + ':' + h.line + '  a bare `' + h.word + '` on a line of its own');
+  });
+});
+check('no keyword is left standing where a declaration was deleted',
+  orphans.length === 0,
+  orphans.length
+    ? orphans.join('\n          ') +
+      '\n          This PARSES, so no other gate here will ever tell you. It throws when' +
+      '\n          the line RUNS, and at a module top level that stops the page loading.'
+    : '');
+
 console.log('\n' + '='.repeat(55));
 console.log(totals.all + ' catch blocks read, ' + totals.empty + ' of them empty, ' +
   totals.bare + ' without a reason');

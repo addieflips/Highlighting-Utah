@@ -22,6 +22,10 @@ const path = require('path');
 
 const admin = fs.readFileSync(path.join(__dirname, 'admin.html'), 'utf8');
 const emp = fs.readFileSync(path.join(__dirname, 'employee.html'), 'utf8');
+/* The server and the public page, for [[WH-28]]: the $30 fee is decided in three files and
+   all three had to be brought to the same rule about where a house's colours live. */
+const fns = fs.readFileSync(path.join(__dirname, 'functions', 'index.js'), 'utf8');
+const idx = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -75,6 +79,52 @@ const importOf = new Function(base + fn('rbNormalizeColors') + 'return rbNormali
 const splitter = new Function(base + fn('rbNormalizeColors') + fn('rbDetectColorsAndPattern') +
   'return rbDetectColorsAndPattern;')();
 const lightsOf = new Function(fn('houseLightsText') + 'return houseLightsText;')();
+const wireLabelOf = new Function(fn('whWireLabel') + 'return whWireLabel;')();
+const groupKeyOf = new Function(fn('whWireLabel') + fn('whNormalizeLights') + base +
+  grab(admin, RE.vocab) + fn('whColorsFromWords') + grab(admin, RE.sep) + fn('whSplitAllKnown') +
+  fn('whOrderColors') + fn('whGroupKey') + 'return whGroupKey;')();
+
+// ---------------------------------------------------------------------------
+// 0. A WIRE NOBODY RECORDED IS "CHECK LIGHTS", NEVER "White"  ([[WH-35]])
+// ---------------------------------------------------------------------------
+/* ⭐ Addie, 2026-09-16: "in the warehouse in changing lights we are allowed to choose wire
+   color but don't have too and anyone that says white wire in warehouse right now lets get
+   rid of that completley and just show them as Check lights which means check lights to see
+   what there wire color currently is."
+
+   ⛔ THE LINE SHE IS DESCRIBING WAS INVENTING AN ANSWER FOR THE WHOLE BOOK. whWireLabel
+   read `w || 'White'`, so every house with nothing on file was SHOWN as White wire and,
+   because whGroupKey is built on it, was BUILT into the White pile. rbNormalizeWire returns
+   '' for anything the master sheet spelt oddly, so that is a real population rather than an
+   edge case — and the claim was made on the one screen where somebody acts on it.
+
+   ⚠ THESE CHECKS RUN THE REAL FUNCTIONS. Every claim here is about a WORD the warehouse
+   reads off a screen or a sheet, and the group key is arithmetic on that word. */
+{
+  check('a house with no wire on file says Check lights, never White',
+    wireLabelOf('') === 'Check lights', 'got ' + JSON.stringify(wireLabelOf('')));
+  check('and so does one whose wire is blank space or missing entirely',
+    wireLabelOf('   ') === 'Check lights' && wireLabelOf(undefined) === 'Check lights' &&
+    wireLabelOf(null) === 'Check lights',
+    'got ' + JSON.stringify([wireLabelOf('   '), wireLabelOf(undefined), wireLabelOf(null)]));
+  /* ⚠ A REAL ANSWER STILL READS AS ITSELF, or confirming a house would change nothing on
+     screen and the row would ask for ever — the cries-wolf failure this repo names in four
+     other places. This is what makes it heal: set the wire, the row stops asking. */
+  check('a house that really is White still says White',
+    wireLabelOf('White') === 'White', 'got ' + JSON.stringify(wireLabelOf('White')));
+  check('and Green is untouched',
+    wireLabelOf('Green') === 'Green', 'got ' + JSON.stringify(wireLabelOf('Green')));
+  /* ⛔ AND IT CHANGES THE PILE, deliberately. Two houses that might need different wire
+     must not be handed to one person under a single heading — which is exactly what the old
+     default did by folding every unrecorded house into the White group. */
+  const unknown = groupKeyOf('Warm White', '');
+  const white   = groupKeyOf('Warm White', 'White');
+  check('an unconfirmed house is its own build group, not the White one',
+    unknown !== white && /Check lights/.test(unknown),
+    'unconfirmed: ' + JSON.stringify(unknown) + '  white: ' + JSON.stringify(white));
+  check('and the White group is still the White group',
+    /White wire/.test(white), 'got ' + JSON.stringify(white));
+}
 
 // ---------------------------------------------------------------------------
 // 1. COLOURS LIVE IN TWO FIELDS, AND EVERY READER MUST READ BOTH
@@ -118,6 +168,53 @@ check('and a house with genuinely nothing still has nothing',
 /* ⚠ AND THE READERS MUST ASK IT. A helper nothing calls fixed nothing — these four are
    the ones that were wrong, and the colour totals are the expensive one because those
    totals are what gets ORDERED. */
+/* ⭐ AND THE SIXTH READER IS THE $30 FEE ([[WH-28]], 2026-09-10). Addie: "there are member
+   that did light changes but are not showing 30 dollar fee on there account."
+   ⚠ SAME FAULT AS THE FIVE BELOW, IN THE ONE PLACE THAT COSTS MONEY. `oldLightsForBuild` read
+   `lightsDescription` alone, so every ordinary house — colours in `lightColors`, description
+   empty, which is what the master-sheet sync writes — looked as though it had NO colours. And
+   `applyLightChange`'s own rule is that filling colours in for the first time is not a change
+   and is not charged. So the whole imported book could change its lights for free.
+   ⚠ THE RULE ITSELF IS UNTOUCHED and money-parity still sweeps it: what was wrong is what the
+   caller handed it. */
+check('the $30 light-change fee reads both colour fields',
+  /const oldLightsForBuild = houseLightsText\(item\.data\)/.test(admin),
+  'reading lightsDescription alone let every ordinary house change colours for free');
+check('and the server side of the same fee does too',
+  /oldLights: houseLightsTextServer\(oldData\)/.test(fns),
+  'the portal is where a member actually changes them, so this is the half that was live');
+/* ⚠ AND THE TWO COPIES HAVE TO AGREE, or the office and the portal charge different people.
+   Compared as CODE with the comments stripped — the twin of the parity rule for the maths. */
+{
+  /* ⚠ SPACING AROUND PUNCTUATION IS NORMALISED, WORDS ARE NOT. The two files keep different
+     brace styles on purpose (`if(desc)` here, `if (desc)` there), and the claim being made is
+     that they DECIDE the same thing, not that they are typed the same. Space between two word
+     characters is left alone, so `return desc` can never collapse into something else. */
+  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '')
+                        .replace(/\s+/g, ' ')
+                        .replace(/\s*([^\w$\s])\s*/g, '$1').trim();
+  const A = strip(fn('houseLightsText'));
+  const B = strip((function(){
+    const i = fns.indexOf('function houseLightsTextServer(');
+    let j = fns.indexOf('{', i), d = 0;
+    for(; j < fns.length; j++){
+      if(fns[j] === '{') d++;
+      else if(fns[j] === '}'){ d--; if(!d) return fns.slice(i, j + 1); }
+    }
+    return '';
+  })()).replace('houseLightsTextServer', 'houseLightsText');
+  check('the browser and server copies of "what colours has this house" agree',
+    !!A && !!B && A === B,
+    'they decide the same $30:\n    admin : ' + A + '\n    server: ' + B);
+}
+/* ⚠ AND THE PORTAL'S OWN PICKER READS BOTH, which is what makes charging for it FAIR. It
+   filled from the description alone, so a customer with colours opened it showing nothing
+   selected — charging them for "filling in a blank" would have been the same bug wearing a
+   bill. */
+check('the portal colour picker falls back to the colour list',
+  /if\(!parsedColors\.length\)\{[\s\S]{0,400}lightColors/.test(idx),
+  'they must be able to see what they already have before they are charged for changing it');
+
 [['whBuildQueueGroups', 'the build queue'],
  ['computeColorDemand', 'the colour totals — this is what gets ORDERED'],
  ['computePendingHouseCount', 'the pending count'],
@@ -330,6 +427,441 @@ console.log('  ' + w('value', 26) + w('import reads', 28) + 'warehouse groups as
 ['ww', 'soft', 'soft(recycled)', 'rr', 'bbb', 'rrgg', 'rgrg', 'pur', 'rainbow', 'mc', 'wwrr']
   .forEach((t) => console.log('  ' + w(JSON.stringify(t), 26) +
     w(importOf(t).join(', '), 28) + JSON.stringify(groupOf(t))));
+/* ---------------------------------------------------------------------------
+ * ⛔ A TIMER IS NOT WAITING ON THE COLOURS ([[WH-26]], 2026-09-09)
+ *
+ * Addie, reading five houses stuck in Waiting on light colours: "check to see if these
+ * guys just wanted there timer updated. Cause if so we don't need to worry about lights
+ * just about getting a timer in there bin."
+ *
+ * She was right, and the cost was worse than not knowing. `outletTimer` is one of the
+ * three WAREHOUSE_BUILD_FIELDS, so changing a timer ALONE queues a build — and a house
+ * with no colours then lands in the blocked block. That much is only untidy. The damage
+ * was the early `return` in whBuildQueueGroups, which sat AHEAD of the timer push: a
+ * blocked house never reached `timerHouses`, so the one thing that house actually needed
+ * was the one thing no sheet ever asked for.
+ * ------------------------------------------------------------------------- */
+{
+  const runQueue = (houses) => {
+    const sb = {};
+    new Function('jobAddresses', 'warehouseExtras', 'isOutForSeason', 'houseLightsText',
+      'whGroupKey', 'houseBundleNeed', 'whBinsForHouse', 'whBuildReasonKey', 'cnBinsForFeet',
+      fn('whBuildQueueGroups') + 'this.run = whBuildQueueGroups;')
+      .call(sb, houses, [], () => false,
+        (d) => d.lightsDescription || '', (l, w) => l + '|' + w,
+        () => 0, () => 1, () => '', () => 1);
+    return sb.run();
+  };
+
+  /* The row from her screenshot: a Timer chip, no colours on file. */
+  const out = runQueue([
+    {id:'kate', data:{name:'Kate Johnson', needsLightBuild:true, outletTimer:'Yes', wireColor:'White'}},
+    {id:'ok',   data:{name:'Has Colours',  needsLightBuild:true, outletTimer:'Yes', wireColor:'White',
+                      lightsDescription:'Red, Warm White'}}
+  ]);
+  const timerNames = (out.timerHouses || []).map(i => i.data.name);
+  const blockedNames = (out.blocked || []).map(i => i.data.name);
+
+  check('a house waiting on colours still reaches the timer list',
+    timerNames.indexOf('Kate Johnson') !== -1,
+    'she asked for a timer, the record says Yes, and before this nobody was told to put ' +
+    'one in — the early return sat ahead of the timer push. Got: ' + timerNames.join(', '));
+
+  /* ⚠ AND IT IS STILL BLOCKED FOR THE BUILD. The timer is the half that can proceed; the
+     glass genuinely cannot be made until somebody fills the colours in. Moving the house
+     out of the blocked block to "fix" this would order bulbs nobody chose. */
+  check('and is still blocked for the build itself',
+    blockedNames.indexOf('Kate Johnson') !== -1,
+    'the colours are still missing; only the timer stopped waiting');
+
+  check('a house with no timer is not put on the timer list',
+    runQueue([{id:'n', data:{name:'No Timer', needsLightBuild:true, wireColor:'White'}}])
+      .timerHouses.length === 0,
+    'blank means no timer — a third state would put one in every bin');
+
+  check('the blocked row says the timer can go in now',
+    /Timer can go in their bin now/.test(admin),
+    'a fix nobody can see on the sheet they are holding is not finished');
+
+  /* ⚠ THE CAUSE IS NAMED so nobody "fixes" the symptom by dropping outletTimer from
+     WAREHOUSE_BUILD_FIELDS — the timer list is DERIVED from the build queue, so a house
+     that stopped being queued would stop getting a timer at all. */
+  check('a timer change still queues the house, which is what puts it on the list',
+    /WAREHOUSE_BUILD_FIELDS = \['lightsDescription', 'wireColor', 'outletTimer'\]/.test(admin),
+    'drop outletTimer there and a timer added after the bundle is built reaches nobody');
+
+  /* -----------------------------------------------------------------------
+   * ⭐ AND A TIMER ON ITS OWN IS NOT A BUILD AT ALL ([[WH-27]], 2026-09-09)
+   * Addie, shown that those five houses were queued by a timer change: "can you fix
+   * those." The half above stopped the timer being LOST. This half stops the house
+   * being parked: nothing is being made up for them, so there are no colours to wait
+   * for, and "Nothing can be made up until somebody fills them in" was simply false
+   * about them — it sent the office to chase an answer that does not exist.
+   * --------------------------------------------------------------------- */
+  {
+    const only = runQueue([
+      {id:'t', data:{name:'Timer Only', needsTimerOnly:true, outletTimer:'Yes', wireColor:'White'}}
+    ]);
+    check('a house queued for a timer alone still reaches the timer list',
+      (only.timerHouses || []).map(i => i.data.name).indexOf('Timer Only') !== -1,
+      'the timer is the whole of what that house needs');
+    check('and is NOT waiting on light colours',
+      (only.blocked || []).length === 0,
+      'nobody is waiting on any colours, because nobody asked for lights: ' +
+      (only.blocked || []).map(i => i.data.name).join(', '));
+    check('and nothing is built for them',
+      only.keys.length === 0, 'a timer is not a bundle');
+
+    /* ⚠ THE EXPENSIVE DIRECTION, asserted on its own. A real build must never be
+       suppressed by the timer flag — the flags are an OR and the build wins. A stale
+       needsTimerOnly costs one extra row on a list; a build silently dropped costs a
+       crew standing at a house with nothing for it. */
+    const both = runQueue([
+      {id:'b', data:{name:'Both', needsLightBuild:true, needsTimerOnly:true,
+                     outletTimer:'Yes', wireColor:'White'}}
+    ]);
+    check('a house carrying BOTH flags is a build, not a timer job',
+      (both.blocked || []).map(i => i.data.name).indexOf('Both') !== -1,
+      'the build flag wins on its own: ' + JSON.stringify(both.keys));
+
+    /* ⚠ AND THE FLAG CANNOT DRAG SOMEBODY BACK INTO THE SEASON. isOutForSeason is asked
+       before either queue, so a house sitting the season out is on no list whatever it
+       carries — the same rule the build flag has followed since 2026-08-22. */
+    const outQ = (() => {
+      const sb = {};
+      new Function('jobAddresses', 'warehouseExtras', 'isOutForSeason', 'houseLightsText',
+        'whGroupKey', 'houseBundleNeed', 'whBinsForHouse', 'whBuildReasonKey', 'cnBinsForFeet',
+        fn('whBuildQueueGroups') + 'this.run = whBuildQueueGroups;')
+        .call(sb, [{id:'o', data:{name:'Gone', needsTimerOnly:true, outletTimer:'Yes'}}], [],
+          () => true, (d) => d.lightsDescription || '', (l, w) => l + '|' + w,
+          () => 0, () => 1, () => '', () => 1);
+      return sb.run();
+    })();
+    check('a timer-only house sitting the season out is on no list',
+      (outQ.timerHouses || []).length === 0 && (outQ.blocked || []).length === 0,
+      'nothing gets built OR fitted for somebody who is not having lights this year');
+
+    /* ⚠ AND THE WAY OUT OF THE LIST EXISTS. A timer-only house is in no colour group, so
+       the group's Mark Done can never reach it — without a control of its own it would
+       sit there for ever, which is the shape of bug this whole entry is about. */
+    check('a timer-only row can be finished from the timer list',
+      /data-whtimerdone=/.test(admin) && /needsTimerOnly: false/.test(admin),
+      'no colour group means no Mark Done — it needs one of its own');
+    /* ⚠ AND THE HOUSES ALREADY PARKED CAN BE MOVED. The write-site fix only reaches the
+       NEXT one; a fix that cannot reach the case that prompted it is not finished. */
+    check('an already-parked house can be marked timer-only from the blocked row',
+      /data-whtimeronly=/.test(admin),
+      'the five she was looking at carry no flag and would stay blocked for ever');
+
+    /* ⚠ AND THE WRITE-SIDE RULE IS RUN, NOT READ. It is its own function precisely so it
+       can be: written inline in the ~36,000-character save handler the only thing a suite
+       could do was match its text, which this repo has been burned by three times. */
+    const timerOnly = new Function('return ' + fn('whTimerOnlyQueue') + ';whTimerOnlyQueue')();
+    const OLD = {outletTimer:'No'};
+    check('a timer switched on, alone, on a colourless house is a timer job',
+      timerOnly(OLD, {outletTimer:'Yes'}, ['outletTimer'], '') === true);
+    check('a WIRE change is still a build',
+      timerOnly(OLD, {wireColor:'Green'}, ['wireColor'], '') === false,
+      'holes C and D are not reversed — a wire change genuinely needs the bundle remade');
+    /* ⚠ AND THE FIXTURE THAT ACTUALLY BITES. The one above passes whether the field is
+       tested or not, because its record has no timer — so the timer-value test answers
+       first and the check proves nothing about the field name. It takes a house whose
+       timer is ALREADY Yes, having its wire changed: exactly the shape where dropping the
+       field test would route a real rebuild into the timer queue and no bundle would ever
+       be made. Found by the red-check reporting this sabotage as MISSED. */
+    check('a wire change on a house that already has a timer is still a build',
+      timerOnly({outletTimer:'Yes', wireColor:'White'}, {wireColor:'Green'}, ['wireColor'], '') === false,
+      'the field that changed decides, not the value the timer happens to hold');
+    check('a timer change alongside anything else is still a build',
+      timerOnly(OLD, {outletTimer:'Yes', wireColor:'Green'}, ['outletTimer','wireColor'], '') === false);
+    check('a timer change on a house that HAS colours is still a build',
+      timerOnly(OLD, {outletTimer:'Yes'}, ['outletTimer'], 'Red, Warm White') === false,
+      'that house is in a real build group and always was; only the case she reported moves');
+    /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. This check is unchanged and still right: the
+       ADD rule must never claim a removal. What changed is the reason — it used to read
+       "routing a removal here would drop it off every screen silently", which was true
+       while there was nowhere for a removal to go. [[WH-34]] built that somewhere, so a
+       removal now has `whTimerRemovalQueue` and the Remove Timer list of its own, and the
+       two directions must stay in their own lanes. */
+    check('turning a timer OFF is not the ADD rule\u2019s business',
+      timerOnly({outletTimer:'Yes'}, {outletTimer:'No'}, ['outletTimer'], '') === false,
+      'it has its own rule now ([[WH-34]]); this one answering yes would put a house on ' +
+      'the Timers list asking for the timer it just said it did not want');
+    check('and it never fires when a build is already being queued by the same save',
+      timerOnly(OLD, {outletTimer:'Yes', needsLightBuild:true}, ['outletTimer'], '') === false,
+      'a build owed for another reason wins — the flags are an OR and the build is the safe side');
+
+    /* -----------------------------------------------------------------------
+     * ⭐ AND THE OTHER DIRECTION — A TIMER COMING OUT ([[WH-34]], 2026-09-11)
+     *
+     * Addie: "For people who don't want a timer anymore we need to put that in warehouse
+     * as Remove Timer." This is the half [[WH-27]] left open on purpose — its own note
+     * said a removal could not be routed anywhere because "timerHouses only ever collects
+     * Yes and it would drop off every screen silently". There is somewhere now.
+     *
+     * ⛔ THE ASYMMETRY IS THE WHOLE REASON THIS NEEDS A FIELD. "Wants a timer" is readable
+     * off the record for ever, so the Timers list is DERIVED and a missed flag self-heals
+     * on the next render. "USED TO WANT ONE" is readable off nothing at all once the save
+     * lands — that house is then identical to the ~900 that never had one. So every check
+     * below RUNS the rule rather than matching it: a rule that quietly stops writing this
+     * flag cannot be noticed from any screen afterwards.
+     * --------------------------------------------------------------------- */
+    const cameOff = new Function('return ' + fn('whTimerCameOff') + ';whTimerCameOff')();
+    const removalQ = new Function(fn('whTimerCameOff') +
+      ';return ' + fn('whTimerRemovalQueue') + ';')();
+
+    check('a timer switched off is a removal',
+      cameOff({outletTimer:'Yes'}, {outletTimer:'No'}, ['outletTimer']) === true,
+      'this is the only moment it can be written down; afterwards the record says nothing');
+    check('and cleared to blank is the same thing',
+      cameOff({outletTimer:'Yes'}, {outletTimer:''}, ['outletTimer']) === true,
+      'a blank timer is No everywhere else, so it has to be No here too');
+    check('a timer switched ON is not a removal',
+      cameOff({outletTimer:'No'}, {outletTimer:'Yes'}, ['outletTimer']) === false,
+      'that would send the warehouse to undo the job it was just told to do');
+    check('a wire change on a house with a timer is not a removal',
+      cameOff({outletTimer:'Yes', wireColor:'White'}, {wireColor:'Green'}, ['wireColor']) === false,
+      'the field that changed decides, not the value the timer happens to hold');
+    /* ⚠ THE GUARD THAT LOOKS REDUNDANT AND IS NOT. warehouseRebuildFields can only name
+       outletTimer when it really flipped, so the old value is implied — but implied is not
+       checked, and a caller building its own list would turn every save of a timerless
+       house into a work order somebody has to walk to a shelf for. */
+    check('a house that never had a timer cannot have one removed',
+      cameOff({outletTimer:'No'}, {outletTimer:'No'}, ['outletTimer']) === false &&
+      cameOff({}, {outletTimer:''}, ['outletTimer']) === false,
+      'the old value is tested as well as the changed-field list, on purpose');
+
+    check('a removal alone on a colourless house is the whole job',
+      removalQ({outletTimer:'Yes'}, {outletTimer:'No'}, ['outletTimer'], '') === true,
+      'nothing is being made up for them, so parking them in Waiting on light colours ' +
+      'sends the office to chase an answer that does not exist — [[WH-27]] in reverse');
+    check('but on a house that HAS colours it is still a build',
+      removalQ({outletTimer:'Yes'}, {outletTimer:'No'}, ['outletTimer'], 'Red, Warm White') === false,
+      'holes C and D stay unreversed; that house is in a real build group and always was');
+    check('and alongside anything else it is still a build',
+      removalQ({outletTimer:'Yes'}, {outletTimer:'No', wireColor:'Green'},
+        ['outletTimer','wireColor'], '') === false,
+      'a wire change genuinely needs the bundle remade');
+    check('and never when a build is already being queued by the same save',
+      removalQ({outletTimer:'Yes'}, {outletTimer:'No', needsLightBuild:true}, ['outletTimer'], '') === false,
+      'the build is the safe side, exactly as it is for the add rule');
+
+    /* ---- and the queue puts it somewhere somebody will read -------------- */
+    const rem = runQueue([
+      {id:'r', data:{name:'No More Timer', needsTimerRemoved:true, outletTimer:'No', wireColor:'White'}}
+    ]);
+    check('a house queued for a removal reaches the Remove Timer list',
+      (rem.timerRemovals || []).map(i => i.data.name).indexOf('No More Timer') !== -1,
+      'got: ' + JSON.stringify((rem.timerRemovals || []).map(i => i.data.name)));
+    /* ⛔ THE ONE THAT WOULD PUT A TIMER BACK IN. The two lists are opposite instructions
+       about the same shelf, so a removal appearing on Timers is worse than it appearing
+       nowhere — somebody reads it at speed and fits the timer the customer just refused. */
+    check('and is NOT on the Timers list',
+      (rem.timerHouses || []).length === 0,
+      'that list means "put one in"; this house asked for the opposite');
+    check('and is not waiting on light colours',
+      (rem.blocked || []).length === 0,
+      'nobody asked for lights, so there are no colours to wait for');
+    check('and nothing is built for them',
+      rem.keys.length === 0, 'taking a timer out is not a bundle');
+
+    /* ⚠ BOTH JOBS, BOTH LISTS. A house having a set made AND an old timer pulled is two
+       different jobs done by two different pairs of hands — dropping either is a bundle
+       never made or a timer left in a bin all season. */
+    const remBuild = runQueue([
+      {id:'rb', data:{name:'Both Jobs', needsLightBuild:true, needsTimerRemoved:true,
+                      outletTimer:'No', wireColor:'White', lightsDescription:'Red, Warm White'}}
+    ]);
+    check('a house building AND losing its timer is on both lists',
+      (remBuild.timerRemovals || []).map(i => i.data.name).indexOf('Both Jobs') !== -1 &&
+      remBuild.keys.length === 1,
+      'the bundle and the bin are two jobs: ' + JSON.stringify(remBuild.keys));
+
+    /* ⚠ AND IT CANNOT DRAG SOMEBODY BACK INTO THE SEASON, the same rule the build flag
+       and needsTimerOnly both follow — isOutForSeason is asked before any queue. */
+    const remOut = (() => {
+      const sb = {};
+      new Function('jobAddresses', 'warehouseExtras', 'isOutForSeason', 'houseLightsText',
+        'whGroupKey', 'houseBundleNeed', 'whBinsForHouse', 'whBuildReasonKey', 'cnBinsForFeet',
+        fn('whBuildQueueGroups') + 'this.run = whBuildQueueGroups;')
+        .call(sb, [{id:'g', data:{name:'Gone', needsTimerRemoved:true, outletTimer:'No'}}], [],
+          () => true, (d) => d.lightsDescription || '', (l, w) => l + '|' + w,
+          () => 0, () => 1, () => '', () => 1);
+      return sb.run();
+    })();
+    check('a removal for somebody sitting the season out is on no list',
+      (remOut.timerRemovals || []).length === 0,
+      'their bin is not being touched at all this year');
+
+    /* ⚠ THE WAY OFF THE LIST, and it must clear the removal WITHOUT clearing the build —
+       one button finishing somebody else's job is how a bundle goes missing. */
+    check('a Remove Timer row can be finished from that list',
+      /data-whtimerout=/.test(admin) && /needsTimerRemoved: false/.test(admin),
+      'a removal is in no colour group, so no Mark Done can ever reach it');
+    check('and finishing it leaves the build alone',
+      !/needsTimerRemoved: false, needsLightBuild/.test(admin),
+      'a house having a set made as well still needs the set made');
+    /* ⚠ AND IT REACHES PAPER. The crew and the warehouse work off printed sheets this
+       season — "were not using the employee portal this year" — so a job that exists only
+       on screen is a job nobody does. */
+    check('and it is on the printed build sheet',
+      /group: 'Remove timer'/.test(admin) && /timer: 'TAKE OUT'/.test(admin),
+      'a screen-only work order is one nobody standing in the warehouse ever sees');
+    /* ⛔ AND THE SAVE ACTUALLY CALLS IT. [[WH-27]]'s own red-check pass recorded this as
+       one of two sabotages it MISSED — "no check asserted the SAVE calls the rule" — so
+       every behavioural check above can pass while nothing in the real page ever sets the
+       flag. The wiring is asserted separately from the mechanism, deliberately. */
+    check('the Edit Customer save asks the removal rule',
+      /whTimerCameOff\(item\.data, addrUpdates, whChanged\)/.test(admin) &&
+      /addrUpdates\.needsTimerRemoved = true;/.test(admin),
+      'a rule nothing calls is a rule that never runs');
+    check('and takes the removal back if they change their mind',
+      /needsTimerRemoved\) addrUpdates\.needsTimerRemoved = false;/.test(admin),
+      'nothing has been pulled while the flag is up, so switching the timer back on ' +
+      'cancels the job rather than leaving somebody to walk to a shelf for nothing');
+    check('and the removal branch is asked before the plain build escalation',
+      admin.indexOf('whTimerRemovalQueue(item.data, addrUpdates, whChanged') <
+      admin.indexOf('else if(whChanged.length) addrUpdates.needsLightBuild = true;'),
+      'after it, the build wins every time and the carve-out can never fire');
+    check('and the paper never says YES on a removal row',
+      !/group: 'Remove timer',[\s\S]{0,400}timer: 'YES'/.test(admin),
+      'that column means a timer goes IN — this row is the opposite instruction');
+  }
+}
+
+/* ⚠ THIS BLOCK SAT AFTER `process.exit` FOR ITS FIRST DRAFT and therefore never ran —
+   appended to the end of the file, which is where the summary lives. All five of its
+   red-checks reported MISSED and the gate was worth exactly nothing. Second time in one
+   day; the tell is a new section that passes the instant it is written. */
+
+/* ============================================================================
+   ⭐ NOBODY MAY INVENT A WIRE COLOUR — A CENSUS, NOT A COUNT (added 2026-09-17)
+   ============================================================================
+   Addie, after the question had already been taken off every form: "I still see that white
+   wire is still showing in warehouse." It was, and the records were right to show it: FOUR
+   MORE doors were still writing or printing White after [[OPT-12]] closed five. They were
+   found one at a time, by eye, over two days — which is exactly the failure this repo's own
+   §6 says to answer by promoting a `read` rule to `code`.
+
+   ⛔ THE ONE THAT MATTERED was `openEditCustomerModal`, which filled the box with
+   `d.wireColor || 'White'`. That form is opened dozens of times a day, so the book REFILLED
+   WITH WHITE as she worked and a sweep would have been undone one save at a time, silently.
+
+   TWO RULES, and the second is the one that scales:
+     1. No source file may default a wire colour to White.
+     2. Every place a stored wireColor reaches a PERSON goes through `whWireLabel`, so
+        "nobody has looked" reads as Check lights rather than as a colour or as a blank.
+
+   ⚠ NAMED, NEVER COUNTED. A ceiling ("no more than N raw reads") is the gate this repo has
+   rejected twice: it goes up for good reasons as often as bad, and within a week somebody
+   raises it to get past a red build. Every legitimate raw read is listed here with its
+   reason, so a NEW one fails and has to be classified by whoever added it. */
+console.log('\n=== Nobody may invent a wire colour ===');
+{
+  /* ⚠ employee.html ADDED 2026-09-17. It was left out when this census was written, and
+     the omission cost exactly what the census exists to prevent: its own copy of
+     whWireLabel still returned 'White' for a blank, and one render skipped the label
+     altogether. Dormant is not harmless — silent-failures.test.js sweeps this file for
+     the same reason. */
+  const FILES = ['admin.html', 'index.html', 'functions/index.js', 'employee.html'];
+  const bare = {};
+  FILES.forEach(f => {
+    bare[f] = fs.readFileSync(path.join(__dirname, f), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/<!--[\s\S]*?-->/g, ' ');
+  });
+
+  /* RULE 1 — nothing defaults to White. The two test-record builders are the only writes
+     allowed to name it, because a test customer is meant to have one. */
+  FILES.forEach(f => {
+    const hits = (bare[f].match(/\|\|\s*'White'/g) || []).length;
+    check('no wire colour defaults to White in ' + f, hits === 0,
+      'found ' + hits + " occurrence(s) of `|| 'White'`. That is how a colour nobody chose " +
+      'gets onto a record: the control opens on it, nobody touches it, and Save writes it.');
+  });
+
+  /* ⚠ AN `ALLOWED` LIST OF RAW READS WAS WRITTEN HERE AND DELETED BEFORE IT SHIPPED. It
+     enumerated every line that touches wireColor without whWireLabel, with a reason each —
+     and NOTHING READ IT. A list that claims a protection the gate does not implement is
+     worse than no list, which is this repo's own rule about whitelist comments, and I had
+     just written one. What follows checks the render sites directly instead, which is the
+     half that can actually put an invented colour in front of somebody. */
+  /* ⚠ THE INTERESTING HALF IS THE RENDER SITES, so they are checked directly rather than
+     trusted to the list above: anything building HTML out of a wire colour must label it. */
+  const RENDERS = /(?:esc|innerHTML|html \+=|push)\([^\n]*wireColor/g;
+  /* ⚠ RULE 2 IS admin.html ONLY, and that is a scope with a reason rather than a hole.
+     index.html shows a wire colour nowhere (the field left PORTAL_READ_FIELDS with the
+     control), and functions/index.js has exactly one render — the auto-reply's own
+     "Your wire colour — now …" line, which already says 'not set' for a blank rather than
+     inventing anything, and which cannot fire at all now that the portal may not write the
+     field. `whWireLabel` is an admin.html function and does not exist on the server; if a
+     second server render ever appears, the right answer is a server copy of the label, not
+     a wider regex here. */
+  /* ⚠ AND employee.html, for the same reason as rule 1. The scope note above reasons
+     about index.html and the server and never mentions the crew portal at all — an
+     omission rather than a decision, and the file DOES render wire colours (five places,
+     one of which printed the raw field). It has its own whWireLabel, so the rule applies
+     unchanged. */
+  ['admin.html', 'employee.html'].forEach(f => {
+    const lines = bare[f].split(/\r?\n/);
+    const raw = [];
+    lines.forEach((l, i) => {
+      if (!/wireColor/.test(l)) return;
+      if (!RENDERS.test(l)) { RENDERS.lastIndex = 0; return; }
+      RENDERS.lastIndex = 0;
+      /* A render is fine when the value goes through the label, or when it is only shown
+         because there IS one (a presence test can never print an invented colour). */
+      if (/whWireLabel\s*\(/.test(l)) return;
+      /* A presence test can never print an invented colour: it shows the value only when
+         there IS one. Both spellings — the ternary and a leading `if (…)` guard. */
+      if (/wireColor\s*\?/.test(l)) return;
+      if (/if\s*\(\s*[\w.]*wireColor\s*\)/.test(l)) return;
+      raw.push((i + 1) + ': ' + l.trim().slice(0, 110));
+    });
+    check('every wire colour shown to a person in ' + f + ' goes through whWireLabel',
+      raw.length === 0,
+      'these print a stored wire colour raw, so a house nobody has looked at reads as a ' +
+      'colour or as a blank instead of Check lights:\n        ' + raw.join('\n        '));
+  });
+
+  /* ⛔ THE TWO COPIES OF whWireLabel MUST AGREE, and this is the check that was missing.
+     The crew portal carries its own copy, and the colour comparison further up this file
+     LIFTS it as a dependency of whNormalizeLights while only ever exercising the COLOUR
+     half — so when [[WH-35]] changed the office copy to say 'Check lights' and the crew
+     copy was left saying 'White', every check in this file stayed green.
+     ⚠ IT RUNS BOTH, over the blank that is the whole point plus the shapes a real record
+     arrives in. A source comparison would pass on two copies that are spelled alike and
+     say different things, and fail on two that are spelled differently and agree. */
+  const officeWire = new Function(fn('whWireLabel') + 'return whWireLabel;')();
+  const crewWire = new Function(empFn('whWireLabel') + 'return whWireLabel;')();
+  const WIRE_INPUTS = ['', '   ', null, undefined, 'White', 'Green', ' Green ', 'white'];
+  const wireDiffer = WIRE_INPUTS.filter(t => officeWire(t) !== crewWire(t));
+  check('the crew portal labels a wire colour exactly as the office does',
+    wireDiffer.length === 0,
+    'this label is half the build group key, so the two screens would file one house in ' +
+    'two different piles. They disagree about: ' +
+    JSON.stringify(wireDiffer.map(t => ({input: t, office: officeWire(t), crew: crewWire(t)}))));
+  /* ⚠ AND THE BLANK IS ASSERTED OUTRIGHT, not only that they match: two copies could
+     agree perfectly on 'White' and both be wrong, which is the state this just left. */
+  check('and a wire nobody recorded reads as a question, on both screens',
+    officeWire('') === 'Check lights' && crewWire('') === 'Check lights',
+    'office=' + officeWire('') + ' crew=' + crewWire(''));
+
+  /* ⚠ AND THE TWO FORMS OPEN BLANK. Asserted on the OPENERS, not the markup: a blank first
+     option is worthless if the code that fills the form writes White over it, which is
+     precisely what happened. */
+  check('Edit Customer opens a blank wire colour blank',
+    /editCustWireColor'\)\.value = d\.wireColor \|\| ''/.test(bare['admin.html']),
+    'this is the door that refilled the book with White as she worked');
+  check('and the Add Customer form resets to blank',
+    /addCustWireColor'\)\.value = ''/.test(bare['admin.html']),
+    'a reset to White means the form opens on a colour nobody chose');
+  check('and converting a quote does not invent one either',
+    /addCustWireColor'\)\.value = d\.wireColor \|\| ''/.test(bare['admin.html']),
+    'a quote carries no wire colour at all now, so a fallback here would record White on ' +
+    'every single conversion');
+}
+
 console.log('');
 failures.forEach(f => console.log('  FAIL  ' + f));
 console.log((failures.length ? '\n' : '') + pass + ' passed, ' + fail + ' failed\n');

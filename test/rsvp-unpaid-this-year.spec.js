@@ -21,7 +21,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
-const { installFirebaseStub } = require('./firebase-stub');
+const { installFirebaseStub, tapRsvpConfirm } = require('./firebase-stub');
 const { CUSTOMERS } = require('./fixtures');
 
 const TOKEN = CUSTOMERS.standard.token;
@@ -85,7 +85,8 @@ test.describe('Approving while this year’s bill is unpaid', () => {
       c.record.arrearsOutstanding = 0;
       const stub = await installFirebaseStub(page, { customers: { standard: c } });
       await page.goto(`/index.html#/payment?token=${c.token}&rsvp=yes`);
-
+      /* ⭐ An RSVP link no longer answers on open — one tap confirms it. */
+      await tapRsvpConfirm(page, `/index.html#/payment?token=${c.token}&rsvp=yes`);
       await expect.poll(async () => {
         const calls = await stub.calls();
         return calls.some(x => x.name === 'portalRsvp');

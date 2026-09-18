@@ -114,6 +114,17 @@ jobs:
       - name: The gate code reaches the record (server side)
         run: npm run test:gatecode
 
+      # Addie, 2026-09-10: "changing gate code or phone number should not notify
+      # us", and "you should have to apply changes in order for it to go to
+      # requote." The claim that actually needs a named failure is a NEGATIVE —
+      # the move door writes NO address, town or map pin, because there is no
+      # geocoder on the server and the town is what a crew-day is grouped by.
+      # Applied here, a customer sits at the new house with the old house's pin,
+      # on the old town's day, with a frozen route stop rewritten underneath the
+      # crew. Buried in npm test that reads as a generic failure.
+      - name: Moving house is recorded, never applied
+        run: npm run test:move
+
       # Addie, 2026-09-01: "turn everyone that hasn't paid from last year or is
       # 60 days over there payment as red for there card." A card that reddens
       # too early is one the office learns to scroll past, so the thresholds
@@ -185,6 +196,63 @@ jobs:
       # different thing to go and look at than a line inside the big suite.
       - name: Last season's unpaid bill (carried, and holding the season)
         run: npm run test:arrears
+      # ⭐ WHEN SOMETHING GOES WRONG, SOMEBODY IS TOLD. Named separately because a
+      # failure here is invisible in production by construction: the whole feature is
+      # about reporting faults nobody was watching, so if the reporter itself breaks,
+      # the only symptom is a folder that quietly stays empty — which reads exactly
+      # like a good week.
+      - name: Errors reach the Inbox (member and admin)
+        run: npm run test:errors
+      # ⭐ THE RSVP, A FEW HUNDRED A MORNING. Named separately because the failure it
+      # guards is silence of exactly the same shape: the drip runs at 9 AM with nobody
+      # watching, and the two ways it can go wrong — refusing every morning because it
+      # cannot find a template, or stamping somebody who was never emailed — both look
+      # from outside like a season where people simply did not reply. A customer wrongly
+      # stamped is dropped from the routes, the build queue and the schedule.
+      - name: The RSVP goes out a few hundred a morning
+        run: npm run test:rsvp-daily
+      # ⭐ THE AUTO-REPLY WHEN A MEMBER CHANGES SOMETHING. Named separately because both
+      # ways it fails are invisible from here and land only in a customer's inbox: fire it
+      # on an untouched form and the whole book is emailed about changes nobody made (the
+      # preferences form posts all six fields every save, and an unticked box arrives as ''
+      # while the record stores false); break it the other way and it silently never sends,
+      # which looks exactly like a switch that was never turned on.
+      - name: The member-portal auto-reply
+        run: npm run test:pce
+      # ⭐ CLEARING A WIRE COLOUR NOBODY WROTE DOWN. Named separately because this one
+      # writes to customer records in BULK, and every way it can go wrong is silent:
+      # clearing a colour the office really picked because the sheet is merely incomplete,
+      # clearing a Green the bug could never have written, matching the wrong customer on
+      # a shared name — or matching nobody at all and reporting a clean book, which is
+      # exactly how a broken sheet reader would look.
+      - name: Wire colours nobody wrote down
+        run: npm run test:wiresweep
+      # ⭐ BLUEPRINT MAPS — the batch is whatever is showing. Named separately because
+      # what it guards is a SHEET somebody drives away with: a tile dropped between pages,
+      # a saved copy count quietly read as 1, or a map still ticked after the office
+      # unchecked it are all invisible on screen and only show up as a crew standing in
+      # front of a house with no drawing for it.
+      - name: Blueprint maps (the batch and the sheet)
+        run: npm run test:blueprint
+      # Named on its own because the failure it catches is a sheet that prints
+      # without something the office typed for the warehouse — invisible on screen,
+      # and only noticed by somebody standing at a shelf with the wrong paper.
+      - name: Warehouse note (both build sheets carry it)
+        run: npm run test:whnote
+      # Named on its own because the failure it catches is a send that does not
+      # happen. The re-quote template is looked up by EXACT name, so a template
+      # called anything but "ReQuotes" made every re-quote off an existing customer
+      # refuse — while first quotes fell back to a built-in body and kept going out.
+      # One kind of email silently missing is not something a generic npm test
+      # failure should be allowed to bury.
+      - name: Re-quote emails (the send has no dead end)
+        run: npm run test:requote-email
+      # Named on its own because this card WRITES A COLOUR ONTO A CUSTOMER RECORD and
+      # closes the only notice that asks for one. Once it is written, no screen anywhere
+      # can tell a colour this button set from one a person chose at the bin — so a
+      # failure here is a wrong answer nobody can find afterwards, not a broken page.
+      - name: Pick a wire colour (the one door that answers it)
+        run: npm run test:wirepick
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 

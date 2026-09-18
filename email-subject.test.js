@@ -124,7 +124,15 @@ const LIVE_SENDERS = [
      The row is deleted rather than repointed because there is nothing left to point
      at; Suite 128 of run-all.js asserts it cannot come back, which is what keeps this
      deletion from being a quiet loss of coverage. */
-  ['payment receipt',                     "await emailjs.send(serviceId, templateId, { to_email: email, to_name: d.name"],
+  /* ⚠ REPOINTED 2026-09-17, NOT WEAKENED. This anchor ended `to_name: d.name`,
+     which is exactly the text that changed when every send stopped passing the
+     raw name with an empty-string fallback (the "Hi ," fix) — so it matched 0
+     places and this check went red on correct code. The slow-fuse shape S82,
+     S129 and the folder-names suite have each already been caught by: pinned to
+     where a string happens to sit rather than to what must be true. It still
+     carries the whole `emailjs.send(serviceId, templateId, {` head, which is
+     what keeps it off the dead quickEmail sender described below. */
+  ['payment receipt',                     "await emailjs.send(serviceId, templateId, { to_email: email, to_name: emailGreetingName(d.name)"],
   ['test invoice',                        "to_email: sendTo"]
 ];
 LIVE_SENDERS.forEach(([label, anchor]) => {

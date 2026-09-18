@@ -351,8 +351,19 @@ suite('1. Structure');
     'sharing one produce a red line that cannot say where it came from');
 })();
 
+/* ⚠ A <script> IS NOT ALWAYS JAVASCRIPT (2026-09-12). `application/ld+json` is the
+   structured data that tells Google what this business is and where it works, and
+   `application/json` / `text/template` are data too. Handing any of them to
+   `node --check` reports a syntax error in a file whose JavaScript is fine — the
+   failure names the whole page, so it reads as the app being broken.
+   ⚠ verify-syntax.js HAS ALWAYS SKIPPED THESE and this copy never did, so gate A and
+   this gate disagreed about what counts as script. They agree now. Two extractors
+   with one job is the drift; the fix is the same predicate in both, not a special
+   case for the tag that happened to expose it. */
 const inlineScripts = html =>
-  [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)].map(m => m[1]);
+  [...html.matchAll(/<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/gi)]
+    .filter(m => !/type\s*=\s*["']?(application\/json|application\/ld\+json|text\/template)/i.test(m[1] || ''))
+    .map(m => m[2]);
 
 HTML_FILES.forEach(file => {
   const html = read(file);
@@ -1180,31 +1191,44 @@ check('logic', 'statusClass maps each status to a pill colour',
   statusClass('Partial Payment') === 'status-partial' &&
   statusClass('Unpaid') === 'status-due');
 
-check('logic', 'the bin cutoff is 260 feet, not 200',
-  CN_DOUBLE_BIN_FEET === 260,
-  'some UI text and older notes say 200 — the code has always used 260');
-check('logic', '260 feet is still one bin',
-  cnBinsForFeet(260) === 1, 'the cutoff is "over 260", so 260 itself stays single-bin');
-check('logic', '261 feet needs two bins', cnBinsForFeet(261) === 2);
+/* ⭐ 320 SINCE 2026-09-10 ([[WH-29]]). Addie: "lets change feet to 320 feet in order to have
+   two bins." It was 260 before that and 200 in older notes, so the exact value is asserted
+   here and NOWHERE typed out for itself in the app — every screen and every warning reads
+   CN_DOUBLE_BIN_FEET, which is the only reason a change like this is one line.
+   ⚠ THE BOUNDARY CASES ARE WRITTEN OUT ON PURPOSE, not derived from the constant. Derived,
+   they would pass whatever the constant said and prove nothing about the rule; these are the
+   arithmetic somebody would check by hand against a real roofline. */
+check('logic', 'the bin cutoff is 320 feet',
+  CN_DOUBLE_BIN_FEET === 320,
+  'it was 260 until 2026-09-10 and 200 in older notes — if this fails, say which it is now');
+check('logic', '320 feet is still one bin',
+  cnBinsForFeet(320) === 1, 'the cutoff is "over 320", so 320 itself stays single-bin');
+check('logic', '321 feet needs two bins', cnBinsForFeet(321) === 2);
 check('logic', 'blank or junk feet does not become a two-bin house',
   cnBinsForFeet(0) === 1 && cnBinsForFeet('') === 1 &&
   cnBinsForFeet(null) === 1 && cnBinsForFeet('abc') === 1);
-/* Bins go up in 260s now instead of stopping at two — a house needs another bin
-   for every 260 feet. The boundary has NOT moved (260 is still one bin, 261 is
-   still two), so nobody already on the books changes bin count or customer
-   number; the only houses that come out differently are the ones over 520 feet,
-   which used to be capped at 2 bins no matter how big they were. Those get the
-   bins they actually need. */
-check('logic', '520 feet is still two bins',
-  cnBinsForFeet(520) === 2, 'the second bin covers up to 520 — two lots of 260');
-check('logic', '521 feet needs three bins',
-  cnBinsForFeet(521) === 3,
-  'a house past 520 ft used to be capped at 2 bins, so the warehouse built short');
-check('logic', '780 feet is three bins and 781 is four',
-  cnBinsForFeet(780) === 3 && cnBinsForFeet(781) === 4);
-check('logic', 'bins never exceed one per 260 feet',
-  [1, 259, 260, 261, 400, 520, 521, 900, 1500].every(f => cnBinsForFeet(f) === Math.max(1, Math.ceil(f / 260))),
+/* Bins go up in 320s — a house needs another bin for every 320 feet.
+   ⚠ THE HOUSES ALREADY ON THE BOOKS DO NOT MOVE. `numberOfBins` is STORED, written by
+   cnBinsForFeet at the moment a footage is saved, so raising the cutoff re-counts nobody —
+   and it must not, because their bins are physically labelled and their numbers painted on.
+   A house between 261 and 320 ft is stored as 2 bins on a 5000-series number and would now
+   work out as 1 on a regular one; it keeps what it has until somebody re-saves its footage
+   deliberately. That is a decision about real boxes on real shelves. */
+check('logic', '640 feet is two bins',
+  cnBinsForFeet(640) === 2, 'the second bin covers up to 640 — two lots of 320');
+check('logic', '641 feet needs three bins',
+  cnBinsForFeet(641) === 3,
+  'a house past the second bin used to be capped at 2, so the warehouse built short');
+check('logic', '960 feet is three bins and 961 is four',
+  cnBinsForFeet(960) === 3 && cnBinsForFeet(961) === 4);
+check('logic', 'bins never exceed one per 320 feet',
+  [1, 319, 320, 321, 400, 640, 641, 900, 1500].every(f => cnBinsForFeet(f) === Math.max(1, Math.ceil(f / 320))),
   'the bin count and the warehouse bundle count would disagree about the same house');
+/* ⚠ AND THE OLD BOUNDARY IS NOW INSIDE ONE BIN, which is the whole point of the change and
+   the thing most likely to be "fixed" back by somebody reading an old note. */
+check('logic', '261 feet is one bin now, not two',
+  cnBinsForFeet(261) === 1,
+  'this is what changed on 2026-09-10 — it was the first two-bin house under the 260 rule');
 check('logic', 'a huge measurement does not produce a silly bin count',
   cnBinsForFeet(-50) === 1, 'negative feet is a typo, not a zero-bin house');
 
@@ -1418,6 +1442,12 @@ const RETIRED_CHECKLIST_TERMS = [
   ['quick material estimate', 'removed 2026-08-25 — bulbs sit a foot apart, so the count is the footage; it is a subline under the total now'],
   ['load property', 'the tool only opens from a quote, which knows its own address, so the address bar went (2026-08-25)'],
   ['capture sky view', 'removed 2026-08-30 — the picture that goes on a quote is the street view, so an aerial has no way onto one and the button had no job left: "we just want the street view to be uploaded"'],
+  /* ⚠ THE TAIL OF THE LABEL, NOT THE WHOLE OF IT. The retired one was written
+     "Don't Install Before This Date" in the form label and "Don&rsquo;t Install
+     Before This Date" in the rush-install note, so a term starting at "don't"
+     would match one spelling and sail past the other. No seed row uses either
+     today — this entry is here to catch the NEXT one written from memory. */
+  ['install before this date', 'renamed to Install Closest To This Date on 2026-09-09 — it is a window now, not only a floor: never before that day, and aimed inside the five working days after it (SCH-49)'],
   /* ⚠ THE TERM IS THE TAIL OF THE LABEL, NOT THE WHOLE OF IT. The retired
      button read "Use <n> as Estimated Feet" with the footage in the middle, so
      a seed row quoting it writes "Use ... as Estimated Feet" and a term
@@ -1534,6 +1564,9 @@ const RETIRED_CHECKLIST_TERMS = [
       219,  // the Overdue list read against the real book, after the invoice-date fix
       220,  // the house tabs on a real shared bill - layout, and real record shapes
       221,  // whether a flagged email is REALLY wrong for that customer, in the live book
+      222,  // a real charge to real customers, and only she knows if they paid
+      223,  // a real auto-reply arriving, and whether it reads the way she would say it
+      224   // a phone camera on a pencil drawing, and eight of them read off paper
     ];
     const have = SEED_ROWS.map(function (r) { return r[0]; });
     const missing = MANUAL_ONLY_IDS.filter(function (id) { return !have.includes(id); });
@@ -1872,7 +1905,7 @@ check('logic', 'footage estimate then bundles up',
  * everyday values and the one that used to be wrong. */
 check('logic', 'bins: 200 ft is 1 bin (real cnBinsForFeet, not a local copy)',
   cnBinsForFeet(200) === 1);
-check('logic', 'bins: 201 ft is STILL 1 bin — the cutoff is 260, not 200',
+check('logic', 'bins: 201 ft is STILL 1 bin — the cutoff has never been 200',
   cnBinsForFeet(201) === 1,
   'if this fails the bin cutoff moved back to 200 — check CN_DOUBLE_BIN_FEET in js/money.js');
 check('logic', 'bins: 400 ft is 2 bins', cnBinsForFeet(400) === 2);
@@ -1969,6 +2002,18 @@ if (JSDOM) {
      and the invoice disagree. Lifting it also means a rename fails loudly here
      instead of this suite quietly testing a copy of a function that no longer
      exists. */
+  /* ⚠ AND THE REFERRAL HELPERS IT NOW CALLS, LIFTED FOR THE SAME REASON (2026-09-07).
+     quoteChargesSetupFee stopped being self-contained the day the waiver had to ask
+     whether a token is THIS season's link (REF-25): it calls referralHolderFor and
+     referralTokenIsCurrentSeason, and the card calls quoteSetupFeeReasonHtml beside
+     the tick box. Stubbing any of them would let this suite agree with a fiction about
+     who is charged $30 — and leaving them out crashed the whole suite with a bare
+     ReferenceError, which is what actually happened and is exactly what sandboxDeps
+     exists to name. They are declared as globals so they can see each other. */
+  ['referralSeasonNow', 'referralTokenSeasonOf', 'referralHolderFor', 'quoteSetupFeeReason', 'quoteSetupFeeReasonHtml'
+  ].forEach(function (fn) {
+    eval(extractFn(admin, fn) + '\nglobal.' + fn + ' = ' + fn + ';');
+  });
   global.quoteChargesSetupFee = new Function(
     'return ' + extractFn(admin, 'quoteChargesSetupFee') + ';quoteChargesSetupFee')();
   // quoteAwaitsUs(d) — priced, open, unanswered and never SENT, which is the
@@ -1991,8 +2036,11 @@ if (JSDOM) {
   // "this customer has been deleted since", which is the fall-through case; the
   // re-quote checks below fill it in for the case that actually matters.
   global.jobAddresses = [];
-  global.CN_DOUBLE_BIN_FEET = 260;
-  global.cnBinsForFeet = f => (Number(f) > 0 ? Math.ceil(Number(f) / 260) : 0);
+  global.CN_DOUBLE_BIN_FEET = CN_DOUBLE_BIN_FEET;
+  /* ⚠ DERIVED FROM THE REAL CONSTANT, never typed. Two copies of the bin cutoff is how a
+     sandbox goes on passing against a rule the app no longer has — it sat at 260 for a day
+     after the app moved to 320 ([[WH-29]]). */
+  global.cnBinsForFeet = f => (Number(f) > 0 ? Math.ceil(Number(f) / CN_DOUBLE_BIN_FEET) : 0);
   global.requoteBeingConverted = null;
   /* ⚠ THE HELPERS quoteChargesSetupFee NOW REACHES FOR (added 2026-08-24). The join-fee
      rule started asking whether the house is already on the books, and this sandbox
@@ -2392,15 +2440,15 @@ if (JSDOM) {
         popup().textContent.includes('$480.00') && popup().textContent.includes('$615.00'),
         'a price change nobody can see before pressing the button is a price change nobody checks');
 
-      /* ⚠ THE 260 LINE, SAID BEFORE THE FORM OPENS. Owner: "hold everything as
-         long as they stay below 260 feet", "if they go above 260 feet hold what you
-         can". #541 is a regular number; 300 ft is 2 bins, which is the 5000 series
+      /* ⚠ THE BIN LINE, SAID BEFORE THE FORM OPENS. Owner: "hold everything as
+         long as they stay below [the cutoff] feet", "if they go above ... hold what you
+         can". #541 is a regular number; 400 ft is 2 bins, which is the 5000 series
          — so the number is the one thing that cannot be held, and that is worth
          knowing before the form is filled in rather than as a confirm box halfway
          through saving. */
       closePopup();
       showConvertQuoteChoice('q-re2', Object.assign({}, full, {
-        existingCustomerId: 'cust1', chargeSetupFee: undefined, estimatedFeet: 300
+        existingCustomerId: 'cust1', chargeSetupFee: undefined, estimatedFeet: 400
       }));
       check('render', 'and warns when the new footage outgrows their number',
         popup().textContent.includes('no longer matches') &&
@@ -2513,7 +2561,7 @@ check('flow', 'every newly added house is flagged for the warehouse',
    staleness CLAUDE.md §7 names by hand. What is claimed is that the season guard and
    the blocked push live in the same builder, in that order. */
 {
-  const q = extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups');
+  const q = extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildQueueGroups');
   check('flow', 'and the waiting-on-colours block is still what catches the ones with none',
     /isOutForSeason\(d\)\)\) return;/.test(q) &&
       q.indexOf('blocked.push(item)') > q.indexOf('isOutForSeason(d))) return;'),
@@ -3648,7 +3696,20 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     referralSrcs.every(Boolean),
     'renamed or removed — a missing one leaves every decline throwing a bare ' +
     'ReferenceError, which reads as "an async suite crashed"');
-  const fullSrc = [todayStrSrc, stampSrcs, arrearsSrcs.filter(Boolean).join('\n'),
+  /* ⚠ AND THE THREE [[RS-59]]/[[RS-60]] CONSTANTS, LIFTED — not stubbed. portalRsvp
+     names them when it raises the decline note and again when it files a reason, and
+     the note write is wrapped in a best-effort try/catch — so without them the sandbox
+     does NOT fail, it quietly logs "[HU] RSVP decline note failed: RSVP_NO_TOPIC is not
+     defined" and every check about that note passes against a note that was never
+     written. A green run for the worst possible reason, which is why they are here. */
+  const rsvpConstSrc = (fnSrc.match(/const RSVP_NO_TOPIC = '[^']*';/) || [''])[0] + '\n' +
+                       (fnSrc.match(/const RSVP_BNY_TOPIC = '[^']*';/) || [''])[0] + '\n' +
+                       (fnSrc.match(/const RSVP_DECLINE_REASONS = \[[\s\S]*?\];/) || [''])[0];
+  check('flow', 'the RSVP decline constants were found for the sandbox',
+    /RSVP_NO_TOPIC/.test(rsvpConstSrc) && /RSVP_DECLINE_REASONS/.test(rsvpConstSrc),
+    'without them the note write throws into its own catch and every check about it ' +
+    'passes against a note that was never raised');
+  const fullSrc = [todayStrSrc, rsvpConstSrc, stampSrcs, arrearsSrcs.filter(Boolean).join('\n'),
                    referralSrcs.filter(Boolean).join('\n'),
                    seasonYesSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
     .filter(Boolean).join('\n');
@@ -3666,10 +3727,14 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
   // written; add() records Inbox notes with the collection they landed in;
   // get() backs removeCustomerFromUpcomingRoutes's own route scan — empty on
   // purpose, since no test here needs a real route to already exist.
-  function runRsvp(record, response, routes) {
+  /* ⚠ `opts` CARRIES THE FOLLOW-UP ([[RS-60]]): `opts.body` adds fields to the call so
+     the reason branch can be RUN rather than read, and `opts.notes` is what the messages
+     query finds, since that branch re-opens a note an EARLIER call wrote. */
+  function runRsvp(record, response, routes, opts) {
     const written = {};
     const added = [];
     const routeWrites = [];
+    const noteWrites = [];
     const ctx = {
       exports: {},
       onCall: (opts, handler) => handler,
@@ -3687,30 +3752,64 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
         if (d.email2 !== undefined) out.email2Lower = String(d.email2 || '').toLowerCase().trim();
         return out;
       },
-      /* portalRsvp does TWO things now, from two different sessions' work
-         merged together: it raises the rejoined-after-recycle note, AND it
-         sweeps a declining customer off any route a crew has already been
-         handed. This suite is about the first; the second has its own suite.
-         Stubbed rather than left out, because leaving it out made the whole
-         async suite die on a ReferenceError, which reads as "everything here
-         is broken" instead of "one helper is missing". */
-      removeCustomerFromUpcomingRoutes: async (id) => { sweptFromRoutes.push(id); return 0; },
+      /* ⚠ THERE IS NO ROUTE-SWEEP STUB HERE, AND THERE MUST NOT BE. A stub used to sit
+         at this line, and it was DEAD: `fullSrc` lifts the real
+         `removeCustomerFromUpcomingRoutes` out of functions/index.js, and a function
+         DECLARATION inside the sandbox shadows the parameter of the same name for the
+         whole body — so the stub could never run. It was proved dead by accident: its
+         body pushed to an undeclared `sweptFromRoutes`, which would have thrown a
+         ReferenceError out of every decline in this suite, and every decline passed.
+         ⚠ SO A CHECK HERE MUST READ `routeWrites`, which the real sweep fills through
+         the fake db, and never a list the stub was supposed to keep. */
       db: {
-        collection: (name) => ({
-          doc: () => ({ update: async (u) => { Object.assign(written, u); } }),
-          add: async (m) => { added.push(Object.assign({ __col: name }, m)); },
-          get: async () => ({ docs: (routes || []).map(r => ({
+        collection: (name) => {
+          /* ⚠ `.where` IS MODELLED AND REALLY FILTERS (2026-09-11, [[RS-58]]), AND IT CHAINS
+             (the decline-note lookup of [[RS-60]] asks two clauses). Both halves are load-bearing and
+             they arrived from two branches: the real removeCustomerFromUpcomingRoutes asks
+             for `date >= today` rather than reading every route ever written, and a fake
+             offering `get` alone turned that into a TypeError — swallowed by that
+             function's own try/catch, so the sweep silently did nothing and three checks
+             here went red without naming why. The real function declared in fullSrc
+             shadows the stub above it, which is what makes those three checks about the
+             SWEEP rather than about a call being made.
+             ⚠ AND `messages` ANSWERS WITH THE NOTES, filtered the same way, so a check on
+             the decline-note move proves the QUERY finds it rather than proving a fake
+             handed the rows over regardless. */
+          const docsFor = (list) => ({ docs: (list || []).map(r => ({
             data: () => r,
             ref: { update: async (u) => { routeWrites.push({ id: r.id, stops: u.stops }); } }
-          })) })
-        })
+          })) });
+          const notesFor = (list) => ({ docs: (list || []).map(n => ({
+            data: () => n,
+            ref: { update: async (u) => { noteWrites.push(Object.assign({}, n, u)); } }
+          })) });
+          const passes = (r, f) => {
+            const v = r[f.field];
+            if (f.op === '>=') return v !== undefined && v >= f.value;
+            if (f.op === '>')  return v !== undefined && v > f.value;
+            if (f.op === '==') return v === f.value;
+            if (f.op === 'in') return (f.value || []).indexOf(v) !== -1;
+            throw new Error('this harness does not model ' + f.op);
+          };
+          const query = (filters) => ({
+            doc: () => ({ update: async (u) => { Object.assign(written, u); } }),
+            add: async (m) => { added.push(Object.assign({ __col: name }, m)); },
+            where: (field, op, value) => query(filters.concat([{ field, op, value }])),
+            get: async () => {
+              const all = name === 'messages' ? ((opts && opts.notes) || []) : (routes || []);
+              const rows = all.filter(r => filters.every(f => passes(r, f)));
+              return name === 'messages' ? notesFor(rows) : docsFor(rows);
+            }
+          });
+          return query([]);
+        }
       },
       console
     };
     const names = Object.keys(ctx);
     new Function(...names, fullSrc)(...names.map(n => ctx[n]));
-    return ctx.exports.portalRsvp({ data: { token: 't', response } })
-      .then(res => ({ res, written, added, routeWrites }));
+    return ctx.exports.portalRsvp({ data: Object.assign({ token: 't', response }, (opts && opts.body) || {}) })
+      .then(res => ({ res, written, added, routeWrites, noteWrites }));
   }
 
   const notes = a => a.filter(m => m.__col === 'messages' && m.topic === 'Rejoined After Recycling');
@@ -3832,6 +3931,104 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     const plain = await runRsvp({ name: 'Normal', rsvpStatus: '', needsLightRecycle: false }, 'yes');
     check('flow', 'a first-time yes does not look like a rejoin',
       plain.written.needsLightBuild === undefined && notes(plain.added).length === 0);
+
+    /* =======================================================================
+       ⭐ THE OPTIONAL REASON, RUN ([[RS-60]], 2026-09-11). Addie: "okay i need it to
+       be optional choice." Everything below is about what is WRITTEN and WHERE, so
+       none of it can be a text match — the checks beside this suite that read the
+       source prove the branch is placed correctly; these prove it does the right
+       thing when it runs.
+       ======================================================================= */
+    const declineNote = { id: 'm1', topic: 'RSVP \u2014 Not This Year', folder: 'System',
+                          custId: 'h1', message: 'Somebody said no. Here is what happens next.' };
+    const declined = { name: 'Gone', rsvpStatus: 'no', needsLightRecycle: true };
+
+    const why = await runRsvp(declined, 'no', [],
+      { body: { declineReason: 'Finances' }, notes: [declineNote] });
+    check('flow', 'a reason is written onto the customer',
+      why.written.rsvpDeclineReason === 'Finances' && why.written.rsvpDeclineReasonAt === '__ts__',
+      'the office filters and reports on the field, not on the folder');
+    /* ⛔ THE ANSWER WAS RECORDED ON THE FIRST CALL AND THIS ONE MUST NOT TOUCH IT. A
+       retry arriving after somebody changed their mind would otherwise put the old
+       answer back — on the field that decides who gets a crew. */
+    check('flow', 'and the follow-up writes no RSVP answer at all',
+      why.written.rsvpStatus === undefined && why.written.rsvpRespondedAt === undefined,
+      'a stale retry could overwrite a newer decision');
+    /* ⚠ AND IT DOES NONE OF THE TRANSITION WORK A SECOND TIME. */
+    check('flow', 'and it does not re-run the decline',
+      why.written.needsLightRecycle === undefined && why.routeWrites.length === 0 &&
+      why.added.length === 0,
+      'the routes pull, the recycle flag and the note all ran on the first call');
+    /* ⭐ "IT WILL GO IN THE FOLDER WITH THE RESPONSE THEY CHOOSE" — her words. The
+       Inbox files on `folder`, so the reason IS the folder. */
+    check('flow', 'and the note moves into the folder of that reason',
+      why.noteWrites.length === 1 && why.noteWrites[0].folder === 'Finances',
+      'got ' + JSON.stringify(why.noteWrites.map(n => n.folder)));
+    /* ⛔ AND THE ROW CARRIES THE REASON AS A FIELD TOO. commRowMatches' `why:` tab
+       reads `rsvpDeclineReason` off the MESSAGE — the folder alone is renameable by
+       hand ([[MSG-19]]), and a renamed folder would empty the tab. */
+    check('flow', 'and the row carries the reason for the folder tab to read',
+      why.noteWrites[0].rsvpDeclineReason === 'Finances',
+      'the tab reads the field; a hand-renamed folder must not empty it');
+    check('flow', 'and the note keeps the sentence it already had',
+      String(why.noteWrites[0].message || '').indexOf('what happens next') !== -1,
+      'that sentence is what the office acts on');
+
+    /* ⭐ `Other` CARRIES THEIR OWN WORDS. Addie: "if they put other than a note
+       section will show up that they can put in there reason." */
+    const other = await runRsvp(declined, 'no', [],
+      { body: { declineReason: 'Other', declineNote: 'Selling the house in November' },
+        notes: [declineNote] });
+    check('flow', 'an Other note is stored beside the reason',
+      other.written.rsvpDeclineNote === 'Selling the house in November' &&
+      other.written.rsvpDeclineReason === 'Other');
+    /* ⛔ AND THE TYPED WORDS NEVER NAME A FOLDER. This is a PUBLIC callable: a folder
+       named by whatever a stranger typed would let anybody write arbitrary strings
+       into the office's own sidebar, and would make a folder per customer. */
+    check('flow', 'but the typed words never become the folder',
+      other.noteWrites[0].folder === 'Other' &&
+      other.noteWrites[0].rsvpDeclineReason === 'Other',
+      'got folder ' + JSON.stringify(other.noteWrites[0].folder));
+    check('flow', 'and their words are added to the note the office reads',
+      String(other.noteWrites[0].message || '').indexOf('Selling the house in November') !== -1,
+      'stored on the record and nowhere anybody looks is half a feature');
+    /* ⚠ A BLANK IS NOT AN ANSWER — the same rule `requoteKind` follows. Stored, it
+       reads as somebody having typed nothing on purpose. */
+    const noNote = await runRsvp(declined, 'no', [],
+      { body: { declineReason: 'Other', declineNote: '   ' }, notes: [declineNote] });
+    check('flow', 'and an empty note is not stored at all',
+      !('rsvpDeclineNote' in noNote.written),
+      'a blank where an answer goes reads as an answer');
+
+    /* ⛔ OFF THE LIST IS REFUSED, RUN rather than read. */
+    let refused = null;
+    try {
+      await runRsvp(declined, 'no', [],
+        { body: { declineReason: '<script>hi</script>' }, notes: [declineNote] });
+    } catch (e) { refused = e; }
+    check('flow', 'a reason that is not on the list is refused',
+      !!refused && refused.code === 'invalid-argument',
+      'the reason names a folder, so free text here is a way into the sidebar');
+
+    /* ⚠ AND A REFUSAL WRITES NOTHING. Refusing after the customer write would leave
+       the record holding a reason the office can never see a folder for. */
+    const before = await (async () => {
+      let caught = null, out = null;
+      try { out = await runRsvp(declined, 'no', [],
+        { body: { declineReason: 'Nope' }, notes: [declineNote] }); } catch (e) { caught = e; }
+      return { caught, out };
+    })();
+    check('flow', 'and the refusal happens before anything is written',
+      !!before.caught,
+      'a reason on the record with no folder anywhere is worse than no reason');
+
+    /* ⚠ A FAILED MOVE NEVER LOSES THE REASON. The customer write is the half the
+       office filters on; the folder is the nudge. */
+    const noNotes = await runRsvp(declined, 'no', [],
+      { body: { declineReason: 'Moved' }, notes: [] });
+    check('flow', 'a reason with no note to move still saves',
+      noNotes.written.rsvpDeclineReason === 'Moved' && noNotes.res.reasonSaved === true,
+      'the note is best effort; the field is not');
   })());
 })();
 
@@ -4483,8 +4680,11 @@ console.log('\n=== 7. Health check engine ===');
      ⚠ TWO SESSIONS BOTH NUMBERED THEIR ROW 24 on the same day — this one is 25, and
      the count below is what caught it. That is the check earning its keep: a hard
      number is the only thing that notices two people adding a row at once. */
-  check('health', 'all 26 checks present',
-    all.length === 26, 'got ' + all.length);
+  /* 26 → 27 on 2026-09-09: rsvpNeverReached (EM-04). Bumped in the same edit that adds
+     the row, which this count's own reasoning demands — a check silently disappearing
+     is exactly the kind of thing nobody notices. */
+  check('health', 'all 27 checks present',
+    all.length === 27, 'got ' + all.length);
 
   /* ---- a card payment that found no bill (2026-08-30) -------------------
      Addie, asked where these should show: "Put that in health check." The money was
@@ -5073,12 +5273,21 @@ suite('8. Quote decline / maybe next year');
      a dropdown CHANGED to Back Next Year now counts as choosing it, because reading an
      unticked box as "bringing them back in" was silently wiping the office's own
      answer. The ordering this checks is unchanged and is what matters. */
-  check('quoteresp', 'saving applies the season fields after the rest',
-    admin.indexOf('addrUpdates.maybeNextYear = seasonMaybeChosen') >
-      admin.indexOf('addrUpdates.needsLightBuild = newLightsDescription') &&
-    admin.indexOf('addrUpdates.maybeNextYear = seasonMaybeChosen') <
-      admin.indexOf("await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates)"),
-    'the RSVP dropdown or the build flag would overwrite it and leave a half state');
+  /* ⚠ SCOPED TO THE HANDLER AND NO LONGER NAMING THE ID VARIABLE (2026-09-12). The
+     customer write was anchored on the literal `editCustomerId`, which the save stopped
+     using when it began capturing the id before its first await — so this failed on code
+     that is right. A bare file-wide anchor cannot replace it: there are fifty-one
+     `await updateDoc(doc(db,'jobAddresses', ` in admin.html and the first is nowhere
+     near this handler, so the slice is what makes the ordering claim mean anything. */
+  {
+    const seasonSave = sectionFrom(admin, admin.indexOf("editCustSaveBtn').addEventListener('click'"));
+    const iSeason = seasonSave.indexOf('addrUpdates.maybeNextYear = seasonMaybeChosen');
+    const iBuild = seasonSave.indexOf('addrUpdates.needsLightBuild = newLightsDescription');
+    const iSave = seasonSave.indexOf("await updateDoc(doc(db,'jobAddresses', ");
+    check('quoteresp', 'saving applies the season fields after the rest',
+      iSeason > -1 && iBuild > -1 && iSave > -1 && iSeason > iBuild && iSeason < iSave,
+      'the RSVP dropdown or the build flag would overwrite it and leave a half state');
+  }
   /* ⭐ REPOINTED FROM ITS OPPOSITE (2026-09-02). This used to require the stale-dropdown
      rescue — "if the dropdown still says backnextyear, blank it" — which could only fire
      while a second control could disagree with the dropdown. With one control that line
@@ -5689,8 +5898,11 @@ suite('10d. Activity log, and losing somebody else’s edit');
   check('conflict', 'the customer save checks whether anyone else changed the record',
     /editCustOpenedWithUpdatedAt/.test(saveSrc) && /freshMs > openedMs/.test(saveSrc),
     'a save silently replaced the other person’s work with a stale snapshot');
+  /* ⚠ THE NAME OF THE ID IS NOT THE CLAIM (repointed 2026-09-12): what matters is that
+     this read goes to Firestore rather than to jobAddresses. The save captures the id
+     before its first await now, so the old anchor failed on correct code. */
   check('conflict', 'it re-reads from the server, not from the cache',
-    /getDoc\(doc\(db,'jobAddresses', editCustomerId\)\)/.test(saveSrc),
+    /getDoc\(doc\(db,'jobAddresses', [A-Za-z_$][\w$]*\)\)/.test(saveSrc),
     'the listener may not have delivered the other change yet — the cache is the thing that might not know');
   check('conflict', 'overwriting is possible but has to be chosen',
     /Save anyway and overwrite\?/.test(saveSrc),
@@ -6074,8 +6286,14 @@ suite('11. Reliability pass');
   check('reliability', 'the automatic run waits for the customer list to load',
     /function hcCachesReady/.test(admin) && /if\(!hcCachesReady\(\)\) return;/.test(admin),
     'running against an empty cache reports a serene "everything lines up" a second after login');
+  /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. The callback is now wrapped in
+     whileSignedIn so a tick after a sign-out does not fire a read Firestore will refuse
+     — see the Errors folder's "Signed in as: nobody" rows. This matched the bare name and
+     so failed on code that is right; the guarantee it holds has not moved, and the wrapper
+     is optional in the match so neither spelling can quietly drop the other. Same
+     slow-fuse shape as S82, S129 and the folder-names suite. */
   check('reliability', 'the automatic run repeats, not just once',
-    /setInterval\(runHealthCheckAuto/.test(admin),
+    /setInterval\((?:whileSignedIn\()?runHealthCheckAuto/.test(admin),
     'a check that runs once at login misses everything that happens during the day');
   check('reliability', 'a failing background check cannot break the page',
     /function runHealthCheckAuto\(\)\{[\s\S]{0,400}try\{[\s\S]{0,300}catch/.test(admin.replace(/\r/g,'')),
@@ -6227,43 +6445,93 @@ suite('11. Reliability pass');
       const toJsDate = (v) => (v && typeof v.toDate === 'function') ? v.toDate()
         : (v instanceof Date ? v : null);
       const issuedAt = new Function('toJsDate', 'return ' + issuedSrc + ';invoiceIssuedAt')(toJsDate);
-      const overdue = new Function('computeInvoiceStatus', 'OVERDUE_DAYS', 'invoiceIssuedAt',
+      /* ⚠ LIFTED, NEVER STUBBED (§3). The Overdue flag stopped counting days on
+         2026-09-11 and now asks invoiceDueDate — the same rule the printed invoice
+         and the {{due_date}} on the email read. A stub of it here would keep this
+         suite green through a change to WHEN a customer is chased, which is the one
+         thing these checks exist to hold. This sandbox died with a bare
+         ReferenceError the moment the rule moved, exactly as sandboxDeps intends. */
+      const dueSrc = extractFn(money, 'invoiceDueDate');
+      const seasonSrc = extractFn(money, 'invoiceSeasonYear');
+      const eofSrc = extractFn(money, 'endOfFebruary');
+      check('reliability', 'the February due-date rule was found to lift',
+        !!dueSrc && !!seasonSrc && !!eofSrc);
+      /* ⚠ THE `return` GOES LAST, NOT IN FRONT. The one-function sandboxes above read
+         `'return ' + src + ';name'`, which works only because the whole slice is a
+         single function expression; with three declarations a leading return hands
+         back the FIRST of them, and the failure is a TypeError about getMonth several
+         lines later rather than anything naming the shape. */
+      const invoiceDueDate = new Function(
+        [seasonSrc, eofSrc, dueSrc].join('\n') + '\nreturn invoiceDueDate;')();
+      const overdue = new Function('computeInvoiceStatus', 'invoiceDueDate', 'invoiceIssuedAt',
         'return ' + overdueSrc + ';isInvoiceOverdue'
-      )(computeInvoiceStatus, 30, issuedAt);
+      )(computeInvoiceStatus, invoiceDueDate, issuedAt);
+
+      /* ⭐ THE TERMS THEMSELVES, RUN (2026-09-11). Addie: "they have until february
+         to get them paid." These are about WHICH DAY, so they are asserted on the
+         rule directly rather than through the flag — the flag can only ever say
+         "before now" or "after now", and that cannot tell a February rule from a
+         thirty-day one. */
+      const feb = (d) => { const x = invoiceDueDate(d); return x.getMonth() + '/' + x.getDate() + '/' + x.getFullYear(); };
+      check('reliability', 'an autumn bill is due the last day of the NEXT February',
+        feb(new Date(2026, 9, 15)) === '1/28/2027',
+        'a house done in October 2026 pays by 28 Feb 2027, not 30 days later');
+      check('reliability', 'and a January bill belongs to the season just gone',
+        feb(new Date(2027, 0, 10)) === '1/28/2027',
+        'reading the issue YEAR alone would give this house until Feb 2028 — fourteen ' +
+        'months — because its invoice happens to carry a different year on it');
+      check('reliability', 'the last day of February is measured, not typed as 28',
+        feb(new Date(2027, 9, 15)) === '1/29/2028',
+        '2028 is a leap year; writing 28 out would quietly shorten one season in four');
+      check('reliability', 'a due date is never already in the past when it is printed',
+        invoiceDueDate(new Date(2027, 4, 1)).getTime() > new Date(2027, 4, 1).getTime(),
+        'a bill issued after its own season\'s February must roll forward rather than ' +
+        'hand the customer a due date that has already gone by');
 
       /* ⚠ ONE INSTANT, NOT ONE PER CALL. This read Date.now() inside toDate(), so
          the last check below compared two separately-computed "40 days ago" and
          failed whenever the two landed a millisecond apart — a real flake, caught
          on 2026-08-26. §9.7: a flaky test trains you to dismiss failures. */
-      const NOW = Date.now();
-      const ago = (n) => { const d = new Date(NOW - n * 86400000); return { toDate: () => d }; };
+      /* ⚠ FIXED DATES, NOT "N DAYS AGO". The flag reads Date.now() itself, so a
+         fixture pinned to an offset would mean whether it is overdue depends on the
+         month the suite is run in — a February rule makes "40 days ago" sometimes
+         late and sometimes not. A bill from 2000 is past its February whenever this
+         runs, and one from 2090 is not: both answers hold every day of the year.
+         (The old offsets also produced a real flake, caught 2026-08-26, by computing
+         "40 days ago" twice a millisecond apart. §9.7.) */
+      const at = (y, m, d) => { const x = new Date(y, m, d); return { toDate: () => x }; };
+      const LONG_PAST = at(2000, 9, 15);   // Oct 2000, due Feb 2001
+      const FAR_OFF   = at(2090, 9, 15);   // Oct 2090, due Feb 2091
+      const YESTERDAY = { toDate: () => new Date(Date.now() - 86400000) };
       const owing = { install: 400, removal: 0, deposit: 0, credits: 0, changeFees: 0 };
 
-      check('reliability', 'a bill issued 40 days ago is overdue',
-        overdue(Object.assign({}, owing, { invoicedAt: ago(40), updatedAt: ago(40) })) === true);
-      /* THE BUG, stated as the case that produced it. */
+      check('reliability', 'a bill past its February is overdue',
+        overdue(Object.assign({}, owing, { invoicedAt: LONG_PAST, updatedAt: LONG_PAST })) === true);
+      /* THE BUG, stated as the case that produced it. Still the whole reason
+         invoiceIssuedAt exists, and the terms moving does not retire it. */
       check('reliability', 'and editing it yesterday does NOT reset the clock',
-        overdue(Object.assign({}, owing, { invoicedAt: ago(40), updatedAt: ago(1) })) === true,
-        'correcting a spelling used to push the due date another 30 days out and take ' +
-        'a genuinely overdue bill off the list, while the customer\'s copy still said ' +
-        'the original date');
-      check('reliability', 'a bill issued 10 days ago is not overdue',
-        overdue(Object.assign({}, owing, { invoicedAt: ago(10), updatedAt: ago(10) })) === false);
+        overdue(Object.assign({}, owing, { invoicedAt: LONG_PAST, updatedAt: YESTERDAY })) === true,
+        'correcting a spelling used to push the due date out and take a genuinely ' +
+        'overdue bill off the list, while the customer\'s copy still said the original date');
+      check('reliability', 'a bill whose February has not come yet is not overdue',
+        overdue(Object.assign({}, owing, { invoicedAt: FAR_OFF, updatedAt: FAR_OFF })) === false,
+        'under the old 30-day terms an October house read Overdue in November — three ' +
+        'months before the date printed on its own invoice');
       check('reliability', 'and a bill paid in full never is, however old',
         overdue({ install: 400, removal: 0, deposit: 400, credits: 0, changeFees: 0,
-                  invoicedAt: ago(400), updatedAt: ago(400) }) === false);
+                  invoicedAt: LONG_PAST, updatedAt: LONG_PAST }) === false);
       /* ⚠ The fallback is not the bug and must survive: an invoice that has never been
          through the nightly run has no invoicedAt, and dropping the fallback would
          make every one of those un-datable rather than merely un-billed. */
       check('reliability', 'an invoice never issued still dates from its own write',
-        overdue(Object.assign({}, owing, { updatedAt: ago(40) })) === true &&
-        overdue(Object.assign({}, owing, { updatedAt: ago(10) })) === false);
+        overdue(Object.assign({}, owing, { updatedAt: LONG_PAST })) === true &&
+        overdue(Object.assign({}, owing, { updatedAt: FAR_OFF })) === false);
       check('reliability', 'and no date at all is not overdue, rather than overdue since the epoch',
         overdue(Object.assign({}, owing)) === false,
         'an invoice that was never issued has not been billed; chasing it is chasing nobody');
       check('reliability', 'the printed due date reads the same rule as the flag',
-        issuedAt({ invoicedAt: ago(40), updatedAt: ago(1) }).getTime() ===
-        ago(40).toDate().getTime(),
+        issuedAt({ invoicedAt: LONG_PAST, updatedAt: YESTERDAY }).getTime() ===
+        LONG_PAST.toDate().getTime(),
         'the whole point is that the paper and the screen cannot disagree');
     }
     /* ⚠ AND NO FIFTH COPY. This bug was one reader left behind when three were
@@ -6355,7 +6623,13 @@ suite('11. Reliability pass');
     widgetStart > -1,
     'the scope check below silently passes on everything if this anchor moves');
   if(widgetStart > -1){
-    const mainApp = admin.slice(0, widgetStart);
+    /* ⚠ IT READS THE CODE, NOT THE COMMENTS (2026-09-09). A comment in the main app that
+       NAMES a widget helper — explaining why some other rule works the way that one does —
+       was read as a call to it, and the check failed on a file that was right. That is the
+       same trap Suites 58, 274, 275 and 300 each had to learn, and the argument every time
+       was to strip by default rather than when somebody remembers. Stripping also makes
+       this check STRONGER: a real call can no longer hide inside a commented-out block. */
+    const mainApp = stripComments(admin.slice(0, widgetStart));
     const widget  = admin.slice(widgetStart);
     const widgetFns = new Set();
     let m;
@@ -7801,17 +8075,40 @@ if (!JSDOM) {
   }
   const rSrc = fnsSrc.slice(rStart, fnsSrc.indexOf('\n}', rStart) + 2);
 
+  /* ⚠ THE FAKE UNDERSTANDS `.where` NOW, AND IT REALLY FILTERS (2026-09-11). It used to
+     offer `get` alone, so when the real function started asking for `date >= today` the
+     call was a TypeError — swallowed by that function's own try/catch, which then returned
+     0 and swept nothing. Five checks went red at once and NONE of them named the cause,
+     because the symptom is a sweep that quietly does nothing. A fake that cannot express
+     the query the code makes is a fake that fails correct code.
+     ⚠ AND IT RECORDS THAT THE QUERY WAS NARROWED. With the filter modelled, the old
+     read-everything shape passes these checks too — the `continue` inside the loop drops
+     the same rows — so without `usedWhere` a revert to `.get()` is invisible. That read
+     the WHOLE season to answer a question about the days ahead, inside portalRsvp, after
+     the customer's answer is written but before the reply reaches them ([[RS-58]]). */
   function makeRouteHarness(routes) {
     const updated = [];
+    const seen = { usedWhere: false };
+    const docsFor = (list) => ({
+      docs: list.map(r => ({
+        data: () => r,
+        ref: { update: async (payload) => { updated.push({ id: r.id, payload }); r.stops = payload.stops; } }
+      }))
+    });
     const ctx = {
       db: {
         collection: () => ({
-          get: async () => ({
-            docs: routes.map(r => ({
-              data: () => r,
-              ref: { update: async (payload) => { updated.push({ id: r.id, payload }); r.stops = payload.stops; } }
-            }))
-          })
+          get: async () => docsFor(routes),
+          where: (field, op, value) => {
+            seen.usedWhere = true;
+            return { get: async () => docsFor(routes.filter(r => {
+              const v = r[field];
+              if (op === '>=') return v !== undefined && v >= value;
+              if (op === '>')  return v !== undefined && v > value;
+              if (op === '==') return v === value;
+              throw new Error('the route harness does not model ' + op + ' — teach it rather than widening the query');
+            })) };
+          }
         })
       },
       todayStrInDenver: () => '2026-11-20',
@@ -7819,7 +8116,7 @@ if (!JSDOM) {
     };
     const names = Object.keys(ctx);
     const fn = new Function(...names, rSrc + '\nreturn removeCustomerFromUpcomingRoutes;')(...names.map(n => ctx[n]));
-    return { fn, updated };
+    return { fn, updated, seen };
   }
 
   const upcomingRoute = { id: 'r-upcoming', date: '2026-11-25', stops: [{ id: 'cust-1' }, { id: 'cust-2' }] };
@@ -7828,12 +8125,92 @@ if (!JSDOM) {
 
   pendingAsync.push((async () => {
     suite('11. RSVP no / back-next-year removes the customer from upcoming routes');
+
+    /* ⭐ NOTHING AFTER THE ANSWER IS WRITTEN MAY THROW (2026-09-11, [[RS-58]]).
+       portalRsvp writes the customer's answer as its FIRST action and then does the rest.
+       So anything that throws AFTER that line rejects the callable — and the customer is
+       told their RSVP failed for an answer we already have, then filed under Member Errors
+       telling the office it was lost. That is the report Addie disproved by looking at the
+       records: "It looks like those ones went through and are confirmed."
+
+       ⚠ THIS IS A CENSUS, NOT A PATTERN MATCH, and deliberately so. It is the same shape as
+       build-stamp's clear census and queue-date's queue census: every await after the write
+       is NAMED here, and a new one fails this check until somebody has decided whether it is
+       allowed to take the customer's confirmation down with it. A regex asking "is it inside
+       a try" would pass the moment a helper is called that throws internally.
+
+       ⚠ AND EACH NAMED HELPER MUST STILL CARRY ITS OWN try/catch. Listing it here is not the
+       guarantee — the guard inside it is. Both halves are checked, because a helper that
+       loses its catch is exactly how this comes back with the list still looking right. */
+    const pStart = fnsSrc.indexOf('exports.portalRsvp = onCall(');
+    const pBody = pStart === -1 ? '' : fnsSrc.slice(pStart, fnsSrc.indexOf('\n});', pStart));
+    const writeAt = pBody.indexOf(".doc(match.id).update(updates)");
+    check('rsvp-routes', 'portalRsvp and its answer-write were both found',
+      pStart !== -1 && writeAt !== -1,
+      'the census below silently passes on nothing if either anchor moves');
+    if (pStart !== -1 && writeAt !== -1) {
+      const after = stripComments(pBody.slice(writeAt));
+      /* Every await after the write, by the name it calls. */
+      const AFTER_THE_WRITE = {
+        clawBackReferralServer:
+          'takes a referral credit back when somebody cancels — its whole body is inside a try/catch',
+        removeCustomerFromUpcomingRoutes:
+          'sweeps them off routes a crew already holds — its whole body is inside a try/catch',
+        arrearsForCustomer:
+          'reads what they owe from last season so the confirmation can stop promising an ' +
+          'install — its whole body is inside a try/catch, and it answers nought on a bad read',
+        'db.collection':
+          'the Rejoined After Recycling note — a direct Firestore call, wrapped in its own ' +
+          'try/catch at the call site rather than inside a helper'
+      };
+      const called = [];
+      const re = /await\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(/g;
+      let m;
+      while ((m = re.exec(after)) !== null) {
+        /* ⚠ THE WHOLE DOTTED NAME, not its last segment. `db.collection(...).add(...)`
+           reads as `add` if you take the tail, which hides that it is a raw Firestore call
+           — and a raw call is exactly the kind that needs looking at here. */
+        const name = m[1];
+        if (called.indexOf(name) === -1) called.push(name);
+      }
+      const unlisted = called.filter(n => !AFTER_THE_WRITE[n]);
+      check('rsvp-routes', 'every await after the answer is written is one we have decided about',
+        called.length > 0 && unlisted.length === 0,
+        ': ' + unlisted.join(', ') + ' runs after the customer\'s answer is already saved. If it ' +
+        'throws, they are told their RSVP failed for an answer we have — and the Inbox is told ' +
+        'it was lost. Guard it, then name it in AFTER_THE_WRITE.');
+      /* The list is not the guarantee; the guard inside each helper is. */
+      const unguarded = Object.keys(AFTER_THE_WRITE).filter(function (n) {
+        /* A raw Firestore call has no helper to inspect — its guard is the try/catch
+           around it in portalRsvp, which the census above is what holds. */
+        if (n.indexOf('.') !== -1) return false;
+        const at = fnsSrc.indexOf('async function ' + n + '(');
+        if (at === -1) return true;
+        const body = fnsSrc.slice(at, fnsSrc.indexOf('\n}', at));
+        return !(/\btry\s*\{/.test(body) && /\bcatch\s*\(/.test(body));
+      });
+      check('rsvp-routes', 'and each of them still carries its own try/catch',
+        unguarded.length === 0,
+        ': ' + unguarded.join(', ') + ' — naming it in the census is not the guard, the ' +
+        'try/catch is. Without it the customer loses a confirmation for an answer we saved.');
+      /* ⚠ AND THE ORDER IS THE WHOLE THING. A tidy-up that moved the write below any of
+         these would put every one of them back in front of the customer's answer. */
+      check('rsvp-routes', 'the answer is written before any of that work is done',
+        writeAt < pBody.indexOf('removeCustomerFromUpcomingRoutes(match.id)') &&
+        writeAt < pBody.indexOf('arrearsForCustomer(oldData)'),
+        'the write being FIRST is what makes a lost response harmless — reorder it and a ' +
+        'slow route sweep starts costing real answers again');
+    }
     let removedCount = null, threw = null;
     try { removedCount = await harness.fn('cust-1'); } catch (e) { threw = e; }
 
     check('rsvp-routes', 'removeCustomerFromUpcomingRoutes runs without throwing',
       threw === null,
       'it threw ' + (threw && threw.message) + ' — every caller silently fails to sweep routes');
+    check('rsvp-routes', 'it asks only for the days still to come, not the whole season',
+      harness.seen.usedWhere,
+      'reading every scheduledRoutes document ever written is time the customer spends ' +
+      'watching "One moment" — and when it overran they were told their answer had failed');
     check('rsvp-routes', 'the customer is stripped from the upcoming route\'s stops',
       !upcomingRoute.stops.some(s => s.id === 'cust-1'),
       'a customer who declined would still be a stop on a route the crew is about to run');
@@ -7871,9 +8248,14 @@ if (!JSDOM) {
        suite. */
     const ecEnd = ecStart > -1 ? admin.indexOf('\n});', ecStart) : -1;
     const ecSrc = ecStart > -1 ? admin.slice(ecStart, ecEnd > -1 ? ecEnd : admin.length) : admin;
+    /* ⚠ THE ID NAME IS READ OFF THE CUSTOMER WRITE (repointed 2026-09-12) rather than
+       typed as `editCustomerId`, which the save stopped using when it began capturing
+       the id before its first await. Tying the two together keeps the original claim —
+       the sweep is handed THIS customer — without pinning it to a spelling. */
+    const ecIdName = (ecSrc.match(/updateDoc\(doc\(db,'jobAddresses', ([A-Za-z_$][\w$]*)\)/) || [])[1];
     check('rsvp-routes', 'Edit Customer removes the customer from upcoming routes when RSVP is set to No',
-      /newRsvp === 'no' && item\.data\.rsvpStatus !== 'no'/.test(ecSrc) &&
-      (ecSrc.match(/removeCustomerFromUpcomingRoutes\(editCustomerId\)/g) || []).length >= 1,
+      /newRsvp === 'no' && item\.data\.rsvpStatus !== 'no'/.test(ecSrc) && !!ecIdName &&
+      (ecSrc.match(new RegExp('removeCustomerFromUpcomingRoutes\\(' + ecIdName + '\\)', 'g')) || []).length >= 1,
       'setting RSVP straight to No from the dropdown had the same gap as the portal link — the crew still turns up');
   })());
 })();
@@ -7943,11 +8325,19 @@ if (!JSDOM) {
         'return ' + extractFn(admin, 'invoiceIssuedAt') + ';invoiceIssuedAt'
       )(v => (v instanceof Date ? v : null)),
       addDays: (d, n) => new Date((d instanceof Date ? d.getTime() : Date.now()) + n * 86400000),
+      /* ⭐ AND THE DUE-DATE RULE ITSELF, LIFTED FOR THE SAME REASON (2026-09-11).
+         `PAYMENT_TERMS_DAYS: 14` stood here — a deliberately WRONG number, so that a
+         printed date agreeing with the real 30 would have been suspicious. The terms
+         are a calendar now and there is no number to get wrong, so the rule is lifted
+         whole out of js/money.js instead. Stubbing it would let the printed invoice
+         start naming a different February from the one the Overdue flag chases. */
+      invoiceDueDate: new Function(
+        [extractFn(money, 'invoiceSeasonYear'), extractFn(money, 'endOfFebruary'),
+         extractFn(money, 'invoiceDueDate')].join('\n') + '\nreturn invoiceDueDate;')(),
       niceDate: () => 'Nov 20, 2026',
       invoiceNumberFor: () => 'INV-0001',
       PORTAL_ADDRESS: 'highlightingutah.com/#/payment',
-      VENMO_HANDLE: 'HighLightingUtah',
-      PAYMENT_TERMS_DAYS: 14
+      VENMO_HANDLE: 'HighLightingUtah'
     };
     const names = Object.keys(ctx);
     const fn = new Function(...names,
@@ -8204,12 +8594,6 @@ if (!JSDOM) {
      273), the click handler became a one-liner, and this check started failing on
      code that is right. It reads the function now, wherever the button is wired. */
   const addSrc = extractFn(admin, 'addMessageFolder');
-  check('folder-names', 'the folder-create path is findable in admin.html', !!addSrc,
-    'renamed or removed — update this test rather than deleting it');
-  check('folder-names', 'creating a folder named "system" is blocked, same as "inbox"',
-    /name\.toLowerCase\(\) === 'inbox'[\s\S]{0,80}name\.toLowerCase\(\) === 'system'/.test(addSrc || ''),
-    'a folder named "System" is indistinguishable from real automated notices — messages moved into it ' +
-    'vanish from Customer Messages and the folder itself becomes unclickable in the sidebar');
 })();
 
 // =====================================================================
@@ -8633,12 +9017,28 @@ suite('15. The printed schedule sheet');
     check('schedule', 'a city pinned to a crew wins over Auto',
       crew.city(0, dayA) === 'Alpine' && crew.city(1, dayA) === 'Lehi',
       'a business that always works the same two towns should be able to say so once');
-    check('schedule', 'each crew only gets their own city\'s stops',
-      crew.houses(0, dayA).length === 1 && crew.houses(1, dayA).length === 2,
-      'a crew sheet with somebody else\'s houses on it sends two trucks to one street');
-    check('schedule', 'stops in neither crew\'s city are counted, not dropped',
-      crew.left(dayA).map(h => h.name).join() === 'Four',
-      'a stop nobody holds a sheet for is a stop nobody drives to');
+    /* ⚠ REPOINTED 2026-09-10 BY [[SCH-67]], and the old assertions are written out here
+       so the reversal is legible rather than reading as a weakened test. They were:
+         "each crew only gets their own city’s stops"
+           crew.houses(0, dayA).length === 1 && crew.houses(1, dayA).length === 2
+         "stops in neither crew’s city are counted, not dropped"
+           crew.left(dayA).map(h => h.name).join() === "Four"
+       Dax, reading ten stops under "Not on either crew’s route" after a rebuild: "it is
+       off limits to have anyone scheduled in a day not on either crews routes ... dont
+       design the system so its even possible." A house in neither crew’s town is no
+       longer LEFT anywhere, so what is worth pinning is that it lands on exactly one
+       sheet and that the towns still decide everything else. */
+    check('schedule', "each crew still gets their own city's stops",
+      crew.houses(0, dayA).some(h => h.city === 'Alpine') &&
+      crew.houses(1, dayA).filter(h => h.city === 'Lehi').length === 2,
+      'a crew sheet missing its own town is the split having stopped working');
+    check('schedule', 'and the stop in neither city is carried by one of them, not left out',
+      crew.houses(0, dayA).concat(crew.houses(1, dayA))
+        .filter(h => h.name === 'Four').length === 1,
+      "exactly one sheet, never none and never both");
+    check('schedule', "so nobody on the day is on nobody's sheet",
+      crew.left(dayA).length === 0,
+      'this bucket used to hold the strays; it is the tripwire now and must stay empty');
 
     const rows = crew.rows(dayA, 1);
     check('schedule', 'a crew sheet renumbers the stops from 1 for that crew',
@@ -8647,9 +9047,16 @@ suite('15. The printed schedule sheet');
     check('schedule', 'a crew sheet holds only that crew\'s houses',
       rows.every(r => r.city === 'Lehi'));
     crew.set([{ name: 'A', city: 'Nowhere' }, { name: 'B', city: 'Lehi' }]);
-    check('schedule', 'a crew pinned to a city with nothing in it prints nothing, not everything',
-      crew.rows(dayA, 0).length === 0,
-      'falling back to the whole day would hand them a sheet that is not theirs');
+    /* ⚠ REPOINTED BY [[SCH-67]]. It read:
+         "a crew pinned to a city with nothing in it prints nothing, not everything"
+           crew.rows(dayA, 0).length === 0
+       A crew pinned to a town the day does not hold now carries the houses nobody
+       else’s town covers, because somebody has to. What that was really protecting is
+       that it does NOT fall back to the whole day, and that is still true. */
+    check('schedule', 'a crew pinned to a city with nothing in it does not get the whole day',
+      crew.rows(dayA, 0).length < dayA.houses.length &&
+      crew.rows(dayA, 0).every(r => r.city !== 'Lehi'),
+      "falling back to the whole day would hand them a sheet that is not theirs, and the other crew's own town is the part that must never move");
     crew.set(null);
   }
 }
@@ -9137,6 +9544,12 @@ suite('17. A new customer lands on the next day in their city');
                   'normInstallPref','prefSpecificDate','prefNamedFloor',
                   'formatDateNice','routeCityOf','findNextRouteDayInCity','customerToStop',
                   'haversine','twoOptImprove','reorderFlatStops','nextDayStr',
+                  /* ⚠ THE ORDERER GREW A SECOND PASS (2026-09-10). reorderFlatStops now
+                     alternates 2-opt with OR-OPT and prices the tour with tourMiles, so a
+                     sandbox holding only the old two names dies on a bare ReferenceError
+                     inside the sweep — which is caught, so the whole reconcile pass just
+                     stops, exactly the failure Suite 24 exists to prevent. */
+                  'orOptImprove','tourMiles',
                   /* isOutForSeason lives up with the install-timing helpers, far
                      above the sweep, so it has to be lifted in by name. The REAL
                      one, not a stub — who the fill is allowed to schedule is the
@@ -9667,8 +10080,15 @@ suite('17. A new customer lands on the next day in their city');
 }
 
 // ---- 18.4 How it is wired in -------------------------------------------
+  /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. The callback is now wrapped in
+   whileSignedIn so a tick after a sign-out does not fire a read Firestore will refuse
+   — see the Errors folder's "Signed in as: nobody" rows. This matched the bare name and
+   so failed on code that is right; the guarantee it holds has not moved, and the wrapper
+   is optional in the match so neither spelling can quietly drop the other. Same
+   slow-fuse shape as S82, S129 and the folder-names suite. */
 check('reconcile', 'the sweep starts itself, like the health check does',
-  /startReconcileAuto\(\);/.test(admin) && /setInterval\(runReconcileAuto, RECONCILE_INTERVAL_MS\)/.test(admin),
+  /startReconcileAuto\(\);/.test(admin) &&
+  /setInterval\((?:whileSignedIn\()?runReconcileAuto\)?, RECONCILE_INTERVAL_MS\)/.test(admin),
   'a reconciler nobody runs is a reconciler that does nothing');
 /* Read out of the FUNCTION, not out of a 600-character window after the call.
    The window version broke the moment runReconcileAuto grew a few lines, which
@@ -10164,9 +10584,27 @@ check('fill', 'the fill is bounded so one sweep cannot make hundreds of writes',
 check('fill', 'every unscheduled customer is a candidate now, not just new hangs',
   /pool\.push\(\{id: a\.id/.test(admin) && /pool\.sort\(/.test(admin),
   "owner's correction, 2026-08-15: a day of 12 should fill up to 40");
-check('fill', 'and new hangs get the seats first when there are not enough',
-  /\(b\.newHang \? 1 : 0\) - \(a\.newHang \? 1 : 0\)/.test(admin),
-  'a returning customer waiting one more week is not the same as a new hang never going out');
+/* ⚠ REPOINTED 2026-09-09, NOT WEAKENED. This matched the sort expression as
+   LITERAL TEXT — `(b.newHang ? 1 : 0) - (a.newHang ? 1 : 0)` — so it failed on
+   correct code the moment the comparator gained the rush flag beside newHang.
+   Same slow-fuse shape as S82, S129 and the folder-names suite: pinned to where
+   a string happens to sit rather than to what must be true. It RUNS the real
+   comparator now, which is a stronger claim than the text ever made. */
+(function(){
+  const m = admin.replace(/\r/g, '').match(/pool\.sort\(function\(a,\s*b\)\{[\s\S]*?\n    \}\);/);
+  let cmp = null;
+  try { cmp = m ? eval('(function(a,b){' + m[0].replace(/^pool\.sort\(function\(a,\s*b\)\{/, '').replace(/\}\);$/, '') + '})') : null; }
+  catch(err){ cmp = null; }
+  check('fill', 'and new hangs get the seats first when there are not enough',
+    !!cmp && cmp({newHang: false}, {newHang: true}) > 0 && cmp({newHang: true}, {newHang: false}) < 0,
+    'a returning customer waiting one more week is not the same as a new hang never going out');
+  /* ⭐ AND THE SAME COMPARATOR CARRIES DAX'S 2026-09-09 RULING, so the two cannot
+     be separated: "ask sooner is the same as new hangs" — level, neither jumping
+     the other. See [[SCH-46]], superseded by [[SCH-49]]. */
+  check('fill', 'and asked-sooner ranks level with a new hang, neither above the other',
+    !!cmp && cmp({rush: true}, {newHang: true}) === 0 && cmp({rush: true}, {newHang: false}) < 0,
+    'a phone call must not outrank a new hang, and must not sit behind one either');
+})();
 check('fill', 'pulling a house forward is gated on their timing preference',
   /const allowedOn = function\(id, dateStr\)\{[\s\S]{0,220}earliestAllowedInstallDate\(d\)\) <= dateStr/
     .test(admin.replace(/\r/g, '')),
@@ -10239,14 +10677,23 @@ check('cap', 'the sweep still reports as changed when all it did was even days o
  */
 suite('19. All Customers: the next visit');
 {
-  const src = admin.slice(admin.indexOf('function nextVisitFor(d, todayStr)'),
+  /* ⚠ ANCHORED ON THE NAME, NOT THE ARGUMENT LIST ([[SCH-77]]). This matched
+     `function nextVisitFor(d, todayStr)` exactly, so adding the customer id — which is what
+     lets it ask the SCHEDULE rather than the routes system's stamp — made the slice come
+     back empty and the whole suite report "not findable" on code that is right. A signature
+     is not a structural anchor; a name is. Same slow-fuse shape as S44 and S82.
+     ⚠ AND IT STARTS AT planHangDateFor, which nextVisitFor now calls — lifting the caller
+     without it is the extraction trap, and here it would not even throw: `planHangDateFor`
+     undefined makes every fixture fall back to the stamp and the new checks would pass for
+     the wrong reason. */
+  const src = admin.slice(admin.indexOf('function planHangDateFor('),
                           admin.indexOf('function allCustRouteStatus'));
   if (!src) {
     check('nextvisit', 'the next-visit helpers are findable', false,
       'renamed or removed — update this test rather than deleting it');
   } else {
     global.esc = real('esc');
-    const api = eval(src + '\n;({next: nextVisitFor, chip: nextVisitChip})');
+    const api = eval(src + '\n;({next: nextVisitFor, chip: nextVisitChip, real: scheduledDayIsReal})');
     const T = '2026-11-10';
 
     check('nextvisit', 'a house with nothing booked reports nothing at all',
@@ -10275,8 +10722,13 @@ suite('19. All Customers: the next visit');
                return v && v.overdue === true && v.date === '2026-11-02'; })(),
       'that is a house the crew missed — hiding it until somebody tidies it up is ' +
       'exactly how it stays missed');
+    /* ⚠ NULL-SAFE SINCE [[SCH-77]], AND THAT IS A REAL FIX RATHER THAN A STYLE ONE. This
+       dereferenced the result directly, so any change that made nextVisitFor answer null
+       threw a TypeError and Suite 19 CRASHED — which stops the whole run and every suite
+       after it never scores. A red-check found it: the failure was reported as "crashed
+       partway through" with 1169 of 6829 checks run, instead of one clean red line. */
     check('nextvisit', 'today itself counts as coming up, not as missed',
-      api.next({ scheduled: true, scheduledDate: T }, T).overdue === false,
+      (api.next({ scheduled: true, scheduledDate: T }, T) || {}).overdue === false,
       'off-by-one here tells the office they missed a house they are driving to this morning');
     check('nextvisit', 'an upcoming visit always beats a missed one',
       (() => { const v = api.next({ scheduled: true, scheduledDate: '2026-11-02',
@@ -10311,10 +10763,231 @@ suite('19. All Customers: the next visit');
       api.chip({}) !== api.chip({ scheduled: true, scheduledDate: '2099-01-02' }) &&
       /dashed/.test(api.chip({})),
       'a dashed outline reads as "nothing here yet" rather than as a booking');
+
+    /* ---- THE DAY COMES FROM THE SCHEDULE ([[SCH-77]], 2026-09-12) -------
+       Addie, after [[SCH-73]] and [[SCH-74]] had both shipped and the row STILL said Oct 16:
+       "person still says they are scheduled for Oct 16 but Oct 16 is not in schedules."
+       ⛔ BOTH EARLIER FIXES PASSED THEIR OWN CHECKS AND NEITHER WORKED, which is the reason
+       these exist. They asked whether a CREW ROUTE backed the stamp — and one did, because
+       the reconcile sweep builds its own days and Oct 16 was one of them. The question she
+       is asking is about the SCHEDULE, a different set of days, and the only one that gets
+       printed and driven.
+       ⚠ RUN, NOT MATCHED, and against the PLAN rather than the stamp: the claim is which
+       date reaches the pill, and every source check in the world would have gone on passing
+       while the answer came from the wrong planner. */
+    {
+      const planned = {};
+      const withPlan = function(map){
+        global.window = {schedulePlanBookings: function(){ return map; }};
+      };
+      const BOOKED = {scheduled: true, scheduledDate: '2026-10-16'};
+
+      withPlan({'darlene': {date: '2026-11-03', crew: '1'}});
+      check('nextvisit', 'the day shown is the one the schedule has, not the one stamped on',
+        (function(){ const v = api.next(BOOKED, '2026-09-12', 'darlene');
+                     return v && v.date === '2026-11-03'; })(),
+        'the stamp is the crew-routes system\'s own bookkeeping and the sweep invents days ' +
+        'for it — reporting it is how a row promised Oct 16 while the schedule had no such day');
+
+      withPlan({'somebody-else': {date: '2026-11-03', crew: '1'}});
+      check('nextvisit', 'and a house the schedule has no day for claims none',
+        api.next(BOOKED, '2026-09-12', 'darlene') === null,
+        'Darlene\'s own case: a real map that does not hold her IS an answer, and it is no');
+
+      /* ⛔ THE GUARD THAT KEEPS THE COLUMN USABLE. The plan answers null until the Schedule
+         tab has been opened, which is every render on a fresh login — treating that as "no
+         day" blanks the date on all ~950 rows and reads as the column being broken. */
+      global.window = {schedulePlanBookings: function(){ return null; }};
+      check('nextvisit', 'but while the plan cannot answer it still shows the stamp',
+        (function(){ const v = api.next(BOOKED, '2026-09-12', 'darlene');
+                     return v && v.date === '2026-10-16'; })(),
+        'cannot-tell must draw what it always drew — the cnFreePool rule');
+      /* ⚠ AND NO PLAN AT ALL IS THE SAME ANSWER, which is what every suite that lifts this
+         function alone actually hits. */
+      global.window = {};
+      check('nextvisit', 'and with no schedule widget loaded at all, likewise',
+        (function(){ const v = api.next(BOOKED, '2026-09-12', 'darlene');
+                     return v && v.date === '2026-10-16'; })());
+      delete global.window;
+
+      /* ⛔ AND THE ROW HANDS THE ID OVER. Without it planHangDateFor cannot ask, every row
+         silently falls back to the stamp, and all of the above passes while nothing on
+         screen changed — the shape this repo has shipped three times. */
+      check('nextvisit', 'and the row passes the customer id through to the lookup',
+        /const v = nextVisitFor\(d, null, custId\);/.test(admin),
+        'without it the plan is never consulted and this whole fix is dead code');
+    }
+
+    /* ⛔ AND THE PUBLISHER'S OWN CONTRACT, RUN ([[SCH-77]]). Every check above STUBS
+       schedulePlanBookings, so none of them can see what the real one answers — a red-check
+       swapping its `return null` for `return {}` sailed straight through all of them. That
+       distinction is the whole safety of this design: null means "cannot say" and the pill
+       keeps showing the stamp, while an empty map is a real answer meaning "nobody is
+       booked" and blanks the date on every row in the book. */
+    {
+      const src = admin.slice(admin.indexOf('window.schedulePlanBookings = function(){'),
+                              admin.indexOf('function seasonCustomerIds('));
+      /* ⚠ THE TRAILING () IS THE POINT. The sandbox RETURNS the published function; calling
+         it is what produces the map. Without it `pub(...) === null` compares a function to
+         null, which is false for every case — so all three checks failed on correct code
+         and the red-check reported a miss it had nothing to do with. */
+      const pub = function(season, days){
+        const g = new Function('SEASON', 'installDays', 'crewHousesFor', 'dayDate', 'isoOf',
+          'crewIndexes', 'planCustomerFor', 'console', 'window',
+          src + 'return window.schedulePlanBookings;');
+        return g(season,
+          function(){ return days; },
+          function(i, day){ return (day && day.houses) || []; },
+          function(day){ return day && day._date; },
+          function(dt){ return dt.toISOString().slice(0, 10); },
+          function(){ return [0]; },
+          function(h){ return {id: h.id}; },
+          { error: function(){} }, {})();
+      };
+      check('nextvisit', 'a plan that has not loaded says "cannot say", never "nobody"',
+        pub(undefined, []) === null && pub([], []) === null,
+        'an empty map is a real answer and the pill acts on it — every row in the book ' +
+        'would lose its date the moment somebody opened admin before the plan loaded');
+      check('nextvisit', 'and a season with no install days says the same',
+        pub([{}], []) === null,
+        'takedowns-only is not the same as nobody being booked');
+      check('nextvisit', 'while a real day answers with the houses on it',
+        (function(){
+          const day = {_date: new Date('2026-11-03T00:00:00Z'), houses: [{id: 'darlene'}]};
+          const got = pub([day], [day]);
+          return got && got.darlene && got.darlene.date === '2026-11-03';
+        })(),
+        'the whole point is that the row can be told which day the schedule has them on');
+    }
+
+    /* ---- ALL CUSTOMERS FOLLOWS THE SCHEDULE ([[SCH-80]], 2026-09-16) ------
+       Addie: "in all customers where it shows when they are scheduled if at all its not
+       in proper sync ... that page is updated anytime somebody clicks recalculate
+       everything". The pill read the plan but the Scheduled / Unscheduled word above it
+       and the Route Status filter still read the crew-routes stamp, the plan only loaded
+       once Routes was opened, and nothing redrew the table after a Recalculate.
+       ⚠ THE STATUS IS RUN, the wiring is matched — the three answers are the part a regex
+       cannot tell apart. */
+    {
+      const sSrc = admin.slice(admin.indexOf('function planHangDateFor('),
+                               admin.indexOf('function nextVisitFor(')) +
+                   admin.slice(admin.indexOf('function allCustRouteStatus('),
+                               admin.indexOf('let allCustPlanStale'));
+      const status = eval(sSrc + '\n;allCustRouteStatus');
+      const STAMPED = {scheduled: true, scheduledDate: '2026-10-16'};
+      global.window = {schedulePlanBookings: function(){ return {darlene: {date: '2026-11-03'}}; }};
+      check('nextvisit', 'SCH-80: a house the plan has on a day reads Scheduled, stamp or not',
+        status({}, 'darlene') === 'Scheduled',
+        'the word must agree with the date drawn under it');
+      check('nextvisit', 'SCH-80: a stamped house the plan does not hold reads Unscheduled',
+        status(STAMPED, 'rachel') === 'Unscheduled',
+        'the crew-routes stamp said Scheduled over "No day booked yet"');
+      check('nextvisit', 'SCH-80: done and needs-fix still win over the plan',
+        status({completed: true}, 'darlene') === 'Install Complete' &&
+        status({needsFix: true}, 'darlene') === 'Needs Fix');
+      global.window = {schedulePlanBookings: function(){ return null; }};
+      check('nextvisit', 'SCH-80: while the plan cannot answer, the stamp still speaks',
+        status(STAMPED, 'rachel') === 'Scheduled' && status({}, 'rachel') === 'Unscheduled',
+        'cannot-tell must draw what it always drew');
+      delete global.window;
+      check('nextvisit', 'SCH-80: the row and the export both hand the id to the status',
+        /routeStatus: allCustRouteStatus\(d, item\.id\)\}/.test(admin) &&
+        /'Route Status': allCustRouteStatus\(d, item\.id\)/.test(admin),
+        'without the id the status never asks the plan and the filter stays on the stamp');
+      check('nextvisit', 'SCH-80: every redraw of the schedule tells All Customers',
+        /function renderAll\(\)\{[^]*?window\.schedulePlanChanged\(\);\}/.test(admin),
+        'Recalculate everything ends in renderAll — without this the table keeps the old days');
+      check('nextvisit', 'SCH-80: All Customers starts following the saved plan when it draws',
+        /function renderAllCustomersTable\(\)\{[^]{0,400}window\.scheduleFollowPlanForReaders\(\)/.test(admin),
+        'otherwise the dates come from the plan only after somebody opens Routes');
+      const reader = admin.slice(admin.indexOf('window.scheduleFollowPlanForReaders=function(){'),
+                                 admin.indexOf('let __started=false;'));
+      check('nextvisit', 'SCH-80: the reader never writes and stands back once Routes loads the plan',
+        !!reader && /if\(loaded\)\{/.test(reader) &&
+        !/renderAll\(|scheduleSave\(|saveNow\(|setDoc\(|scheduleSyncFromCustomers/.test(reader),
+        'hydrating over a plan being edited throws away a move; saving from a viewer overwrites it');
+    }
+
+    /* ---- IS THAT DAY REAL? ([[SCH-73]], 2026-09-11) ---------------------
+       Addie, on Darlene Price #680: "It says shes scheduled for Oct 16 but I
+       dont see oct 16 on the schedule." The pill read a STAMP on the customer
+       and never asked whether a crew route on that day still held them, so a
+       booking that had been taken apart went on promising a van.
+       ⚠ RUN, NEVER MATCHED. Every claim here is about which of three answers
+       comes back and what the pill then draws — a regex over the source cannot
+       tell `=== false` from `!==`, and getting that one operator wrong turns
+       the LOADING state into a warning on all ~950 rows at once. */
+    const savedLoaded = global.scheduledRoutesLoaded;
+    const savedCache = global.scheduledRoutesCache;
+    const BOOKED = { scheduled: true, scheduledDate: '2026-10-16' };
+
+    global.scheduledRoutesLoaded = false;
+    global.scheduledRoutesCache = {};
+    check('nextvisit', 'while the routes are still loading it refuses to answer',
+      api.real('c1', '2026-10-16') === null,
+      'scheduledRoutesLoaded is set after the FIRST snapshot, empty or not — before ' +
+      'that every stamped customer looks orphaned, and the column would shout on ' +
+      'every row for the second it takes to load');
+    check('nextvisit', 'and the pill is exactly what it was before',
+      !/not on the schedule/.test(api.chip(BOOKED, 'c1')),
+      'the null answer must draw the old pill — a "cannot tell" rendered as a ' +
+      'warning is the cries-wolf failure, on the screen she reads every morning');
+
+    global.scheduledRoutesLoaded = true;
+    check('nextvisit', 'a day with no route on it at all is not real',
+      api.real('c1', '2026-10-16') === false,
+      "Darlene's own case: the stamp outlived the day it named");
+    global.scheduledRoutesCache = {
+      '2026-10-16': [{ id: 'r1', stops: [{ id: 'somebody-else' }] }]
+    };
+    check('nextvisit', 'and a route on that day that does not hold them is not enough',
+      api.real('c1', '2026-10-16') === false,
+      'somebody else\'s crew run would otherwise vouch for a stamp nobody is driving to');
+    global.scheduledRoutesCache = {
+      '2026-10-16': [{ id: 'r1', stops: [{ id: 'other' }] },
+                     { id: 'r2', stops: [{ id: 'other2' }, { id: 'c1' }] }]
+    };
+    check('nextvisit', 'a real booking on a second crew of that day still counts',
+      api.real('c1', '2026-10-16') === true,
+      'a day holds one route per crew, so stopping at the first is how crew 2 ' +
+      'reads as having nobody on it');
+    check('nextvisit', 'and a real booking draws no warning',
+      !/not on the schedule/.test(api.chip(BOOKED, 'c1')));
+
+    /* ⚠ THE LATE DAY IN THE COLOUR CHECK NEEDS A ROUTE OF ITS OWN. Its first version
+       left the cache holding only 2026-10-16, so the overdue house was an ORPHAN as
+       well and both pills came back red — the check would have passed with the two
+       styles merged into one, which is precisely what it exists to refuse. */
+    global.scheduledRoutesCache = {
+      '2026-10-16': [],
+      '2020-01-02': [{ id: 'r9', stops: [{ id: 'c1' }] }]
+    };
+    check('nextvisit', 'an orphaned day says so on the pill, in words',
+      (() => { const h = api.chip(BOOKED, 'c1');
+               return /not on the schedule/.test(h) && /Oct 16/.test(h); })(),
+      'her words were "I dont see oct 16 on the schedule" — the pill has to say ' +
+      'the same thing, or the row still reads as a booking');
+    check('nextvisit', 'and it is its own colour, not the overdue amber',
+      (() => { const orphan = api.chip(BOOKED, 'c1');
+               const late = api.chip({ scheduled: true, scheduledDate: '2020-01-02' }, 'c1');
+               return orphan !== late && /#B42318/.test(orphan) && !/#B42318/.test(late); })(),
+      '"the crew missed this house" and "there is no crew" want different answers — ' +
+      'one colour is how an orphan gets left for a sweep that will never find it');
+    check('nextvisit', 'asking about no house at all refuses rather than accusing',
+      api.real('', '2026-10-16') === null && api.real(null, '') === null,
+      'a caller that forgets the id would otherwise flag every row on earth');
+
+    global.scheduledRoutesLoaded = savedLoaded;
+    global.scheduledRoutesCache = savedCache;
   }
 }
-check('nextvisit', 'the Route column actually shows it',
-  /const visitChip = nextVisitChip\(r\.d\);/.test(admin) &&
+/* REPOINTED 2026-09-11, not weakened: this matched `nextVisitChip(r.d)` exactly, so
+   [[SCH-73]] adding the customer id made it fail on code that is right. The id is the
+   half that matters now — without it scheduledDayIsReal answers null for ever and the
+   orphan warning is dead code reporting green — so it is asserted here rather than in
+   a second check beside it. */
+check('nextvisit', 'the Route column actually shows it, and hands it the customer id',
+  /const visitChip = nextVisitChip\(r\.d, r\.item\.id\);/.test(admin) &&
   /\(visitChip \? '<br>'\+visitChip : ''\)/.test(admin),
   'the helper existing is not the same as the office seeing it');
 check('nextvisit', 'and it went in the existing Route cell, not a new column',
@@ -11484,8 +12157,14 @@ check('build', 'the flag is set inside the snapshot, so an empty result still co
     return i !== -1 && blk.indexOf('scheduledRoutesLoaded = true;') !== -1;
   })(),
   'setting it anywhere else means either never running, or running too early');
+  /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. The callback is now wrapped in
+   whileSignedIn so a tick after a sign-out does not fire a read Firestore will refuse
+   — see the Errors folder's "Signed in as: nobody" rows. This matched the bare name and
+   so failed on code that is right; the guarantee it holds has not moved, and the wrapper
+   is optional in the match so neither spelling can quietly drop the other. Same
+   slow-fuse shape as S82, S129 and the folder-names suite. */
 check('build', 'a bounded pass comes straight back rather than waiting the full interval',
-  /if\(report\.moreToDo\) setTimeout\(runReconcileAuto, \d+\);/.test(admin),
+  /if\(report\.moreToDo\) setTimeout\((?:whileSignedIn\()?runReconcileAuto\)?, \d+\);/.test(admin),
   'the first run of a season is deliberately bounded — leaving the rest for ' +
   'fifteen minutes makes a season take an hour to appear, which looks broken');
 check('build', 'the sweep actually builds the days it plans',
@@ -11794,7 +12473,10 @@ suite('Suite 21. Panel data loads on open, not all at login');
   check('S21', 'initData() loads the panel already on screen', /ensurePanelData\(currentAdminPanel\(\)\)/.test(initBody));
 
   // The badge loaders have to stay eager — a badge must be right before you click.
-  ['loadQuotes', 'loadMessages', 'loadEmployeeNotes', 'loadProjectTests'].forEach(fn => {
+  /* ⛔ loadEmployeeNotes IS GONE (2026-09-09, [[MSG-13]]) — Addie: "completley get rid
+     of employee messages". Removed from this list with the loader, not left to fail:
+     a badge that no longer exists cannot be right at login. */
+  ['loadQuotes', 'loadMessages', 'loadProjectTests'].forEach(fn => {
     check('S21', fn + '() stays eager so its sidebar badge is right at login',
       new RegExp('(?:^|[^A-Za-z0-9_.])' + fn + '\\s*\\(\\s*\\)').test(initBody));
   });
@@ -12038,7 +12720,14 @@ suite('Suite 24. A day with nothing left in it does not abort the sweep');
     const sandbox = {};
     new Function(
       'function haversine(a,b,c,d){ return Math.abs((a||0)-(c||0)) + Math.abs((b||0)-(d||0)); }\n' +
-      'function twoOptImprove(o){ return o; }\n' + body +
+      'function twoOptImprove(o){ return o; }\n' +
+      /* ⚠ OR-OPT IS THE REAL ONE, NOT A THIRD STUB (2026-09-10). twoOptImprove is stubbed
+         on purpose — this suite is about what reorderFlatStops does with a hole and with a
+         house that has no map pin, and the fake haversine above says as much. But or-opt
+         is the pass that now REBUILDS the array in place, so if it ever mishandled the
+         un-pinned tail an identity stub would hide it. It only needs haversine, which is
+         right there. */
+      extractFn(admin, 'orOptImprove') + '\n' + extractFn(admin, 'tourMiles') + '\n' + body +
       '\nthis.reorderFlatStops = reorderFlatStops;'
     ).call(sandbox);
     const reorder = sandbox.reorderFlatStops;
@@ -15261,8 +15950,13 @@ suite('Suite 43. Install order and the one-other-town rule');
     }
   }
 
+  /* ⚠ MATCHED ON THE ARGUMENTS, NOT ON THEIR SPELLING (repointed 2026-09-09). This
+     pinned the literal `(h,d)`, then `(h,d,todayStr)`, and the third argument has now
+     been two different shapes in one day — so it failed twice on code that was right.
+     What has to be true is that the RECORD reaches it; the options object beside it is
+     allowed to keep changing. */
   check('S43', 'the customer record is passed in, not ignored',
-    /priority:houseInstallPriority\(h,d\)/.test(admin),
+    /\bpriority\s*:\s*houseInstallPriority\(\s*h\s*,\s*d\s*[,)]/.test(stripComments(admin)),
     'without the record every house looks like a returning one and new hangs lose their place');
 
   /* ---- the builder, run for real ---- */
@@ -15542,12 +16236,49 @@ suite('Suite 44. The plan keeps up with the customer list');
   }
 
   /* ---- the wiring ---- */
+  /* ⚠ REPOINTED 2026-09-11 ([[SCH-76]]), NOT WEAKENED. Both of these were pinned to
+     where the wiring happened to sit — one to the literal panel name `'schedule'`, one to
+     a local variable called `__navSync` inside a fixed 200-character window (the shape §7
+     bans by name). The Schedule became a TAB of Routes, so both failed on code that is
+     right. What must be TRUE is unchanged and is asserted directly below. */
   check('S44', 'a customer change drives the sync',
-    /safeRender\('scheduleSync'/.test(admin) && /scheduleSync: 'schedule'/.test(admin),
-    'and through safeRender, so it waits for the tab to be open like everything else');
+    /safeRender\('scheduleSync'/.test(admin) &&
+    /scheduleSync: '([a-z-]+)'/.test(admin) &&
+    new RegExp('data-panel="' + /scheduleSync: '([a-z-]+)'/.exec(admin)[1] + '"').test(admin),
+    'and through safeRender, so it waits for the tab to be open like everything else — ' +
+    'and the panel it names has to be a panel that exists, or the deferral silently ' +
+    'stops deferring');
 
-  check('S44', 'opening the Schedule tab re-checks',
-    /__navSync[\s\S]{0,200}?scheduleSyncFromCustomers/.test(admin));
+  /* ⛔ THE SELECTOR HAS TO MATCH SOMETHING, which is the whole failure this guards. A
+     querySelector that finds nothing throws nothing and logs nothing: the widget simply
+     never starts and the tab is blank for ever. That is precisely what this block would
+     have become when the Schedule nav item was deleted. */
+  check('S44', 'opening the Schedule re-checks, from both doors',
+    (function(){
+      const sel = admin.match(/querySelector\('([^']*data-(?:panel|routetab)="[^"]+"[^']*)'\)/g) || [];
+      const nav = /querySelector\('\.nav-item\[data-panel="([a-z-]+)"\]'\)[\s\S]*?scheduleSyncFromCustomers/.test(admin);
+      const tab = /\[data-routetab="schedule"\]/.test(admin) &&
+                  /data-routetab="schedule"/.test(admin);
+      return sel.length > 0 && nav && tab;
+    })(),
+    'she can open Routes, read the address list, and come back to the Schedule tab ' +
+    'without touching the nav again — wiring only the nav gives a blank pane on that path');
+
+  /* ⚠ AND EVERY SELECTOR THE WIDGET USES POINTS AT REAL MARKUP. Asserted by NAME rather
+     than by counting, so a new one added later is checked too. */
+  check('S44', 'and every panel/tab the widget looks up actually exists in the page',
+    (function(){
+      const names = [];
+      let m, re = /querySelector\('[^']*data-panel="([a-z-]+)"[^']*'\)/g;
+      while((m = re.exec(admin))) names.push(['data-panel', m[1]]);
+      re = /querySelector\('[^']*data-routetab="([a-z-]+)"[^']*'\)/g;
+      while((m = re.exec(admin))) names.push(['data-routetab', m[1]]);
+      return names.length > 0 && names.every(function(pair){
+        return new RegExp(pair[0] + '="' + pair[1] + '"').test(admin);
+      });
+    })(),
+    'a querySelector that matches nothing fails silently — no error, no widget, an ' +
+    'empty tab, and every source check still green');
 
   check('S44', 'and there is a periodic backstop',
     admin.indexOf('__syncTimer=setInterval(') > 0 && /5\*60\*1000/.test(admin),
@@ -15802,6 +16533,24 @@ suite('Suite 46. Nobody is hung before the month they asked for');
        ReferenceError raised inside a forEach with no suite name attached. */
     /* The sandbox's parameter names and its assembled body, named once so the guard
        below can be asked the same question the engine will be. */
+    /* ⚠ AND THE OFFICE-DATE WINDOW IS LIFTED TOO (2026-09-09). houseDeadline now asks
+       staffDateWindowEnd whether this house carries a date somebody typed, and that
+       reaches isWorkingDay through addWorkingDays — five names, one behaviour. Stubbing
+       any of them would make every claim below about a house with a date a claim about
+       the stub, and the fixtures here carry none, so the real chain simply answers ''.
+       The window itself is read out of the source rather than written as 5, so moving
+       the constant cannot leave this suite proving the old number. */
+    const staffWindow = (admin.match(/const STAFF_DATE_WINDOW_DAYS\s*=\s*(\d+);/) || [])[1];
+    /* ⚠ ASSERTED, NOT ASSUMED. A miss here would splice 'const X=undefined;' into the
+       sandbox — legal JavaScript, so nothing would throw, and staffDateWindowEnd would
+       quietly return the date itself as its own window end. A silent wrong answer is
+       worse than a red line, so the read is checked before it is used. */
+    check('S46', 'the office-date window was found in the source', !!staffWindow,
+      'const STAFF_DATE_WINDOW_DAYS did not match — fix this regex, do not let it splice undefined');
+    const STAFF_SRC =
+      'const STAFF_DATE_WINDOW_DAYS=' + (staffWindow || 5) + ';' +
+      fn('isThanksgivingDay') + fn('isWorkingDay') + fn('isoToLocalDate') +
+      fn('addWorkingDays') + fn('staffDateWindowEnd');
     const SWEEP_PROVIDED = ['SEASON', 'isoOf', 'seasonStartDate', 'dayDate',
       'houseAllowedFrom', 'extractCleanCity', 'maxStopsPerWorkingDay', 'BASE_START',
       'prefSpecificDate', 'routeDayIsLocked', 'String', 'Number', 'Boolean', 'Object',
@@ -15814,7 +16563,7 @@ suite('Suite 46. Nobody is hung before the month they asked for');
          every fixture below still gets the four-town answer it was written for. */
       dayLimitSrc({haveDates: true}) +
       fn('dayTownList') + fn('dayTownCount') + fn('maxTownsPerDay') +
-      fn('thanksgivingDate') + fn('houseDeadline') + fn('nextInstallDayFor') +
+      fn('thanksgivingDate') + STAFF_SRC + fn('houseDeadline') + fn('nextInstallDayFor') +
       src + 'this.run = enforceInstallTiming;';
     /* ⚠ Same guard as the portalRsvp sandbox — this one has gone stale twice
        (houseDeadline, then nextInstallDayFor), and each time the whole run died on a
@@ -15844,7 +16593,7 @@ suite('Suite 46. Nobody is hung before the month they asked for');
            also asks. Leaving it out is a ReferenceError inside a forEach, which
            surfaces as the whole suite dying with no failure list; stubbing it would
            make every claim below about WHICH day is chosen a claim about the stub. */
-        fn('thanksgivingDate') + fn('houseDeadline') + fn('nextInstallDayFor') +
+        fn('thanksgivingDate') + STAFF_SRC + fn('houseDeadline') + fn('nextInstallDayFor') +
         src + 'this.run = enforceInstallTiming;'
       ).call(sb, SEASON,
         (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'),
@@ -16806,14 +17555,20 @@ suite('Suite 50. A Pref Date that names an actual day');
         sb2.pri({ pref: '11/9+' }, { chargeNewMemberFee: true }) < sb2.pri({ pref: '11/9+' }, {}) &&
         sb2.pri({ pref: '11/9+' }, { chargeNewMemberFee: true }) < sb2.pri({ pref: '' }, {}),
         'new hangs outrank every preference, which is the one thing above this');
-      /* ⭐ AND THE ONE THING ABOVE A NEW HANG IS A PERSON DECIDING (added 2026-09-03).
-         Owner: "we should be able to manually add priority to specific customers if they
-         directly ask if they can be hung sooner than later." An override that cannot
-         override the automatic rule is not an override — see houseInstallPriority. */
-      check('S50', 'and the office moving somebody up by hand outranks even a new hang',
-        sb2.pri({ pref: '' }, { rushInstall: true }) <
-          sb2.pri({ pref: '' }, { chargeNewMemberFee: true }),
-        'the checkbox is the only thing a person sets by hand, so it has to win');
+      /* ⭐ A PERSON DECIDING RANKS WITH A NEW HANG (changed 2026-09-09). Dax:
+         "ask sooner is the same as new hangs."
+         ⚠ THIS REVERSES THE 2026-09-03 ASSERTION, which read `pri(RUSH) < pri(NEW)`
+         on the delegated reasoning that "an override that cannot override the
+         automatic rule is not an override". Written out here rather than deleted,
+         because that reasoning is what makes the new answer legible: a tier of its
+         own let one phone call pull a house onto a day no crew was working — which
+         is how Darlene Price ended up in the "not on either crew's route" bucket on
+         1 October. [[SCH-46]] superseded by [[SCH-49]]. */
+      check('S50', 'and the office moving somebody up by hand ranks level with a new hang',
+        sb2.pri({ pref: '' }, { rushInstall: true }) ===
+          sb2.pri({ pref: '' }, { chargeNewMemberFee: true }) &&
+        sb2.pri({ pref: '' }, { rushInstall: true }) < sb2.pri({ pref: 'OCT' }, {}),
+        'a tick by hand is level with a new hang, and both are ahead of a plain October house');
 
       /* ⭐ AND THE SCHEDULE FILES THEM UNDER THE RIGHT MONTH. Owner, 2026-08-19:
          "there are two people who entered their preferred date in a wrong format
@@ -20203,14 +20958,46 @@ suite('Suite 63. Changing your sides in the Member Portal');
   check('S63', 'the portal has a Sides tab and panel',
     index.indexOf('id="tabPanel-sides"') > 0 &&
     /data-tab="sides"/.test(index));
-  /* ⭐ A COUNT, the same question the office and the quote form now ask. Owner,
-     2026-08-19: "we need it to say 1, 2, 3, or 4 sides of the house so then it can
-     just be connected and we dont have to guess if its the left or right side." */
-  check('S63', 'the portal asks for a count, one to four',
-    [1, 2, 3, 4].every(function(n){
+  /* ⭐ REVERSED 2026-09-06. Owner, 2026-08-19, wanted a count only: "we need it to
+     say 1, 2, 3, or 4 sides of the house ... so we dont have to guess if its the
+     left or right side." Owner, 2026-09-06, asked again and gave the reason a bare
+     count can't answer: "how are we supposed to know which sides they want if it
+     just says how many sides they want ... that's why we need them to say which
+     side of the house they want done from were there front door stands." The
+     count (houseSides) still drives price and the re-quote flag, unchanged below —
+     this is a second, additive question, not a replacement. */
+  check('S63', 'the portal asks which sides, by name',
+    ['Front', 'Left', 'Right', 'Back'].every(function(n){
       return index.indexOf('class="portal-side-pick" value="' + n + '"') > 0;
     }),
-    'the member and the office have to be answering the same question');
+    'a count alone cannot tell the crew which side of the house to light');
+  /* ⭐ AND FROM THE STREET, NOT THE DOOR (2026-09-07, OPT-03). Addie: "we should be
+     calculating left or right from the street not the front door." The two viewpoints
+     are MIRROR IMAGES, so a page that names neither — which is what the first version
+     did, saying "Left/Right follow from there" — lets half the customers answer the
+     opposite of the other half, and nothing anywhere would ever look wrong. */
+  {
+    const at = index.indexOf('id="tabPanel-sides"');
+    const end = index.indexOf('id="sidesSaveBtn"', at);
+    /* ⚠ HTML COMMENTS STRIPPED TOO, not just JS ones. stripComments knows about /* and
+       // and nothing about <!-- -->, and the note explaining this very rule sits in an
+       HTML comment three lines above the copy — so the check found "front door" in its
+       own explanation and failed a page that was right. Same trap as the $25 check in
+       Suite 310 and every other one this repo has re-learned; what is being tested is
+       what the customer READS. */
+    const panel = at > 0 && end > at
+      ? stripComments(index.slice(at, end).replace(/<!--[\s\S]*?-->/g, ''))
+      : '';
+    check('S63', 'the sides panel was found', !!panel);
+    check('S63', 'and it says left and right are read from the street',
+      /stand on the street/i.test(panel) &&
+      /<strong>Left<\/strong> is on your left/i.test(panel),
+      'standing at the door, your left is the OTHER side of the house — get this the ' +
+      'wrong way round and the crew lights the wrong half of the roof');
+    check('S63', 'and it does not send them to the front door to work it out',
+      !/front door/i.test(panel),
+      'two viewpoints on one page is worse than either one alone');
+  }
   /* ⚠ REPOINTED 2026-08-31, NOT WEAKENED — and it was pinning the wrong thing.
      It matched the literal `try{ portalRenderSides(); }catch(err){}`, which meant
      it ASSERTED THE BARE EMPTY CATCH, putting it in direct conflict with the
@@ -20244,12 +21031,18 @@ suite('Suite 63. Changing your sides in the Member Portal');
        portalSidesWords is called again in the office notice below, so testing
        for it passed with the whole "Now:" line deleted. */
     check('S63', 'the pop-up names what it is changing FROM and TO',
-      /"    Now: " \+ portalSidesWords\(before\)/.test(body) &&
-      /"    New: " \+ portalSidesWords\(picked\)/.test(body),
+      /"    Now: " \+ portalSidesWords\(beforeList, beforeCount\)/.test(body) &&
+      /"    New: " \+ portalSidesWords\(pickedList, pickedCount\)/.test(body),
       '"you will be requoted" without saying what changed is a warning people agree to and then ring about');
-    /* ⚠ A warning on a no-op teaches people to click through the real one. */
+    /* ⚠ A warning on a no-op teaches people to click through the real one.
+       ⚠ REPOINTED 2026-09-06 alongside the sides-by-name change: the no-op check now
+       compares BOTH the list (which sides) and the count (how many), because naming
+       sides for a count that was already on file must not trip the same warning as an
+       actual count change — see countChanged below, which mirrors the server's own
+       re-quote condition exactly. */
     check('S63', 'and it does NOT ask when nothing actually changed',
-      /if\(same\)\{ statusEl\.textContent = "That is already what we have/.test(body),
+      /portalSidesListsEqual\(pickedList, beforeList\) && pickedCount === beforeCount/.test(body) &&
+      /statusEl\.textContent = "That is already what we have/.test(body),
       'warning on a save that changes nothing trains people to dismiss the one that matters');
     check('S63', 'the office is told, not just the customer',
       /Existing Customer - Sides Changed/.test(body) && /notifyBusinessOfMessage/.test(body),
@@ -20260,8 +21053,12 @@ suite('Suite 63. Changing your sides in the Member Portal');
   check('S63', 'the portal may read the sides',
     /'notes', 'rsvpStatus', 'houseSides',/.test(fns),
     'a field the portal cannot read is a field the customer never sees');
+  /* ⚠ REPOINTED 2026-09-06: houseSidesList joined houseSides in this whitelist so the
+     portal could write WHICH sides, not just how many. It travels beside the count,
+     never in place of it — the checks below prove it never touches price or the
+     re-quote flag, which still watch houseSides (the count) alone. */
   check('S63', 'and may write them, in their own section',
-    /sides:\s+\['houseSides'\],/.test(fns),
+    /sides:\s+\['houseSides', 'houseSidesList'\],/.test(fns),
     'its own section is what lets the requote flag run only for this change');
 
   {
@@ -20318,10 +21115,24 @@ suite('Suite 63. Changing your sides in the Member Portal');
     check('S63', 'there is no separate needs-requote flag',
       !/needsRequote/.test(body),
       'the quote is the record — a flag beside it is a second truth to maintain');
-    /* ⚠ Only on a real change — otherwise every portal visit flags them. */
+    /* ⚠ Only on a real change — otherwise every portal visit flags them.
+       ⚠ REPOINTED 2026-09-10 ([[OPT-06]]), NOT WEAKENED. This matched the literal
+       `updates.houseSides !== before`, which is where the rule happened to SIT rather
+       than what has to be true — so it failed on correct code the moment a swap became
+       a re-quote as well and the comparison moved behind a name. What must be true is
+       that the flag is decided by the shared rule and not written unconditionally. */
     check('S63', 'a save that changes nothing does not flag anyone',
-      /if \(updates\.houseSides !== before\) \{/.test(body),
+      /if \(houseSidesChangedServer\(/.test(body) &&
+      /const houseSidesChangedServer = function/.test(body),
       'flagging on every save would fill the office list with people who changed nothing');
+    /* ⭐ AND A SWAP DOES FLAG THEM NOW, which is the ruling itself ([[OPT-06]]): "A swap
+       will be a requote cause we need to remark it." The rule is RUN against all three
+       copies further down this file; what is asserted here is that the server's own
+       branch reads the named list and not the count alone. */
+    check('S63', 'and the flag reads the named sides, not only how many',
+      /canonical\(oldData\.houseSidesList\)/.test(body),
+      'a swap hangs the same number of strands on a different roofline, and a rule ' +
+      'that only counts them cannot see it');
     /* ⚠ AND BOTH SIDES OF THAT COMPARISON GO THROUGH THE SAME READER. The old note
        here was about sorting two lists; a count needs no sorting, but it does need the
        stored value read the same way as the incoming one — otherwise a member whose
@@ -20340,6 +21151,527 @@ suite('Suite 63. Changing your sides in the Member Portal');
   check('S63', 'and still says nothing is owed inside the free 48 hours',
     /You are still inside your free 48-hour window, so this change costs nothing/.test(index),
     'threatening a charge that is not coming is how a portal stops being believed');
+}
+
+
+/* ============================================================
+ * Suite 309. Which sides, by name — sanitized server-side, and the list wins.
+ *
+ * Owner, 2026-09-06: "how are we supposed to know which sides they want if it
+ * just says how many sides they want ... that's why we need them to say which
+ * side of the house they want done from were there front door stands."
+ *
+ * houseSidesList is additive — it never replaces houseSides (the count), which
+ * still alone drives price and the re-quote flag (proved in Suite 63 above).
+ * This suite proves the part that is new: the server does not trust whatever
+ * array a browser sends, reduces it to the four known names in one fixed
+ * order, drops anything else, and — because a stale or tampered request could
+ * send a list and a count that disagree — lets the list decide the count
+ * whenever both arrive, per the function's own comment: "THE LIST WINS THE
+ * COUNT WHEN BOTH ARRIVE."
+ *
+ * RUN, NOT MATCHED: the actual 'sides' branch is sliced out of functions/index.js
+ * and executed with a fabricated updates/oldData, the same technique as the
+ * asCount proof in Suite 63.
+ * ============================================================ */
+/* ⚠ RENUMBERED 311 → 313 ON THE MERGE (2026-09-08). A parallel session numbered its own
+ * new suite 311 and reached main first, which is the rule this repo already carries: the
+ * suite that gets there first keeps the number. The PREFIX moved with it, and that is the
+ * half that matters — a red line names the prefix, so two suites sharing one produce a
+ * failure that cannot say where it came from. Nothing inside this suite changed. */
+/* ⛔ THE FOLDER-TREE CHECKS ARE GONE (2026-09-09, [[MSG-12]]), and this note is here
+   because the standing rule in CLAUDE.md is to check WHEN something went and what
+   replaced it before restoring it. Fifteen checks were removed with the feature they
+   protected: the folder-create path, the Enter key, the add-failure messages, the drag,
+   the drop, the rename, the delete-into-Inbox sweep and the routed-folder refusal.
+
+   Addie, once the type/status/category system was in: "can we just get rid of your
+   folders altogether if the system is made?" Every one of the eight folders the app used
+   to create maps onto a category she now has, so the tree had become a second way of
+   saying the same thing — and the one that had to be kept in step by hand.
+
+   ⚠ DO NOT RESTORE THESE WITHOUT RESTORING THE FEATURE. They were not weakened, skipped
+   or made conditional; the code they drove was removed in the same change, so a check
+   looking for `addFolderBtn` would now be describing a design she replaced. That is the
+   exact trap the removal of quote-card.test.js was reasoned through on 2026-08-14, and
+   this paragraph is the same argument for the same reason.
+   ⚠ WHAT IS STILL PROVED, so the coverage is not simply lost: `messageFolderOf` and the
+   `folder` field survive and are still read — comm-centre.test.js asserts that a notice
+   written before the topic list existed is still recognised by `folder === 'System'`, and
+   that nothing was written to the database to take a message's filing away.
+   ⚠ AND MSG-08's RULING ("a folder that messages are filed into automatically cannot be
+   deleted") is superseded rather than broken: there is no delete button to guard now. */
+suite('Suite 313. Which sides, by name — sanitized server-side, and the list wins');
+{
+  const fns = read('functions/index.js');
+  const at = fns.indexOf("if (section === 'sides')");
+  const end = fns.indexOf("if (section === 'cancel')", at);
+  const body = at > 0 && end > at ? fns.slice(at, end) : '';
+  check('S313', 'the sides branch was found', !!body);
+
+  check('S313', 'the list is reduced to the four known names, in canonical order',
+    /const SIDE_NAMES = \['Front', 'Left', 'Right', 'Back'\];/.test(body));
+  check('S313', 'and the list decides the count when both arrive',
+    /updates\.houseSides = sanitized\.length;/.test(body),
+    'a stale page or a tampered request could send a mismatched count and list; ' +
+    'the list is what a person actually ticked box by box');
+  check('S313', 'an empty result after sanitizing deletes the list rather than storing junk',
+    /delete updates\.houseSidesList;/.test(body));
+
+  /* ⭐ ONE RULE FOR WHAT COUNTS AS A CHANGE, THREE COPIES, SWEPT (2026-09-10,
+     [[OPT-06]]). Addie: "A swap will be a requote cause we need to remark it."
+
+     This decides whether somebody is re-quoted, so it gets the money-parity treatment:
+     the three copies are lifted out of the three files and RUN side by side over every
+     combination, and the sweep asserts they are RIGHT as well as equal — two copies
+     wrong in the same way agree perfectly.
+
+     ⚠ THE TWO CLAUSES PULL OPPOSITE WAYS AND BOTH ARE HERS. A swap at the same count IS
+     a change ([[OPT-06]]); naming sides for a count that was already right is NOT
+     ([[OPT-02]], and the clause that keeps [[OPT-07]]'s auto-fill from posting ~956
+     quote cards). A copy that got either backwards would pass a check written about the
+     other, which is why the sweep runs both directions rather than sampling. */
+  {
+    const idxSrc = read('index.html');
+    const fnsSrc = read('functions/index.js');
+    const adminSrc = read('admin.html').replace(/\r/g, '');
+
+    const copies = {};
+    copies.admin = new Function('return ' + extractFn(adminSrc, 'houseSidesChanged') +
+      ';houseSidesChanged')();
+    copies.portal = new Function('return ' + extractFn(idxSrc, 'portalSidesChanged') +
+      ';portalSidesChanged')();
+    /* ⚠ THE SERVER COPY IS A `const` ARROW-FREE FUNCTION EXPRESSION INSIDE the sides
+       branch, so extractFn (which looks for `function NAME(`) cannot see it — it is
+       sliced by name instead. Stubbing it here would make this whole sweep decorative. */
+    copies.server = (function () {
+      const s = fnsSrc.indexOf('const houseSidesChangedServer = function (');
+      const e = s > 0 ? fnsSrc.indexOf('\n    };', s) : -1;
+      return s > 0 && e > s
+        ? new Function(fnsSrc.slice(s, e + '\n    };'.length) + '\nreturn houseSidesChangedServer;')()
+        : null;
+    })();
+    check('S313', 'all three copies of the sides-change rule were found',
+      typeof copies.admin === 'function' && typeof copies.portal === 'function' &&
+      typeof copies.server === 'function',
+      'a missing copy read as a stub would make this sweep decorative');
+
+    if (copies.admin && copies.portal && copies.server) {
+      const LISTS = [[], ['Front'], ['Front', 'Right'], ['Front', 'Left'],
+        ['Front', 'Left', 'Right'], ['Front', 'Left', 'Right', 'Back']];
+      let disagreed = 0, cases = 0;
+      for (const a of LISTS) for (const b of LISTS) {
+        for (const ac of [1, 2, 3, 4]) for (const bc of [1, 2, 3, 4]) {
+          cases++;
+          const r = [copies.admin(a, ac, b, bc), copies.portal(a, ac, b, bc),
+            copies.server(a, ac, b, bc)];
+          if (r[0] !== r[1] || r[1] !== r[2]) disagreed++;
+        }
+      }
+      check('S313', 'the office, the portal and the server agree on every combination',
+        disagreed === 0 && cases === 576,   // 6 lists x 6 lists x 4 counts x 4 counts
+        'they decide whether a customer is re-quoted; two of them disagreeing means ' +
+        'the portal warns somebody the office never flags, or the reverse');
+
+      /* ⚠ AND THAT THEY ARE RIGHT, not merely equal. */
+      const rule = copies.admin;
+      check('S313', 'a swap at the same count is a change',
+        rule(['Front', 'Left'], 2, ['Front', 'Right'], 2) === true,
+        'Addie, reversing OPT-04: "A swap will be a requote cause we need to remark it"');
+      check('S313', 'naming the sides of a house that had none is not',
+        rule([], 2, ['Front', 'Right'], 2) === false,
+        'an answer arriving where there was none is not a decision reversed — and ' +
+        'without this clause the office auto-fill posts a quote card for the whole book');
+      check('S313', 'and neither is losing them, so a blanked list raises nothing either',
+        rule(['Front', 'Right'], 2, [], 2) === false,
+        'the same asymmetry pointing the other way: an answer going missing is not a ' +
+        'customer changing their mind');
+      check('S313', 'a count change is a change whatever the names say',
+        rule(['Front'], 1, ['Front', 'Right'], 2) === true &&
+        rule([], 1, [], 3) === true,
+        'this is the original OPT-01 rule and it must survive the reversal on top of it');
+      check('S313', 'and the identical answer twice is not a change',
+        rule(['Front', 'Left'], 2, ['Front', 'Left'], 2) === false,
+        'flagging on every save fills the office list with people who changed nothing');
+    }
+  }
+
+  /* ⭐ AND WHAT THE OFFICE WRITES REACHES THE MEMBER PORTAL, BOTH WAYS (2026-09-10,
+     [[OPT-08]]). Addie: "any changes to what side on member portal should go to requote
+     and update in costumer. And vice versa any changes in costumer should show in member
+     portal."
+
+     ⚠ THE PORTAL DIRECTION IS A WHITELIST, AND A WHITELIST IS THE WHOLE OF WHAT REACHES
+     THE BROWSER. `houseSidesList` dropping out of PORTAL_READ_FIELDS would not throw
+     anywhere: the Sides tab would simply open with nothing ticked for every customer,
+     which reads exactly like a customer who has never answered — so the office would
+     set the sides, the customer would see none, and both would think the other was
+     wrong. That is the shape portal-fields.test.js exists for, asserted here for this
+     one field because it is the half of her ruling with no other reader. */
+  {
+    const fnsSrc = read('functions/index.js');
+    check('S313', 'the office\u2019s sides reach the customer\u2019s own portal',
+      /'houseSides', 'houseSidesList',/.test(fnsSrc),
+      'without it the Sides tab opens blank for everybody and the two screens ' +
+      'silently disagree about one house');
+    check('S313', 'and the portal writes back to the same field the office reads',
+      /sides:\s+\['houseSides', 'houseSidesList'\],/.test(fnsSrc),
+      'one field both ways is what makes "and vice versa" true without a sync step');
+    const adminSrc = read('admin.html').replace(/\r/g, '');
+    check('S313', 'and Edit Customer reads that field rather than a copy of its own',
+      /houseSidesListFromValue\(d\.houseSidesList\)/.test(adminSrc),
+      'a second field for the office would be two answers about one roofline');
+  }
+
+  /* ⭐ AND THE PORTAL WRITES THE TWO COUNTS THE OFFICE CARD READS (2026-09-10,
+     [[OPT-05]]). quoteKindLabel says New side or Fewer sides off `oldSideCount` /
+     `newSideCount`; oldSides/newSides beside them are a sentence built for a person
+     ("Front, Left (2 sides)"), and a label comparing sentences would call a
+     Left-for-Right swap an addition. Both routes into a sides re-quote write the pair,
+     so one card renderer covers both — and this is the half with no other reader: the
+     office side is exercised in Suite 108, and a red-check that stopped index.html
+     writing them was caught by nothing at all. */
+  {
+    const idx = read('index.html');
+    const at2 = idx.indexOf("what: 'sides',");
+    const note = at2 > 0 ? idx.slice(at2, idx.indexOf('},', at2)) : '';
+    check('S313', 'the portal re-quote carries both side counts as numbers',
+      /oldSideCount: beforeCount,/.test(note) && /newSideCount: pickedCount,/.test(note),
+      'without them a portal-raised sides re-quote falls back to the old House ' +
+      'addition pill and never says which way the sides moved');
+  }
+
+  function run(updates, oldData) {
+    var fn = new Function('updates', 'oldData', 'section',
+      body + '\nreturn updates;');
+    return fn(updates, oldData, 'sides');
+  }
+
+  if (body) {
+    check('S313', 'a clean list of two names sets both the list and the matching count',
+      (function(){
+        var r = run({ houseSides: 9, houseSidesList: ['Back', 'Front'] }, {});
+        return r.houseSidesList.join(',') === 'Front,Back' && r.houseSides === 2;
+      })(),
+      'canonical order and the list-derived count both come out of the same sanitize step');
+
+    check('S313', 'duplicates and unknown names are dropped, not stored',
+      (function(){
+        var r = run({ houseSides: 1, houseSidesList: ['Front', 'Front', 'Roof', 'Left'] }, {});
+        return r.houseSidesList.join(',') === 'Front,Left' && r.houseSides === 2;
+      })(),
+      'a value nobody offers any more, or a doubled tick, must not reach a crew card');
+
+    check('S313', 'all four, in any order sent, come back in one fixed order',
+      (function(){
+        var r = run({ houseSides: 1, houseSidesList: ['Back', 'Right', 'Front', 'Left'] }, {});
+        return r.houseSidesList.join(',') === 'Front,Left,Right,Back' && r.houseSides === 4;
+      })());
+
+    check('S313', 'an empty list falls back to the count alone, and stores no list',
+      (function(){
+        var r = run({ houseSides: 3, houseSidesList: [] }, {});
+        return r.houseSidesList === undefined && r.houseSides === 3;
+      })(),
+      'nothing ticked is not the same as nothing sent — the count this request carried still counts');
+
+    check('S313', 'no list at all leaves the count-only path exactly as it was',
+      (function(){
+        var r = run({ houseSides: 2 }, {});
+        return r.houseSidesList === undefined && r.houseSides === 2;
+      })(),
+      'a save from before this shipped, or one that never touches the list field, must not change shape');
+  }
+
+  /* ⭐ THE OTHER HALF, IN admin.html — AND THE OFFICE WRITES IT NOW (2026-09-10,
+     [[OPT-05]]). Addie: "in costumers it says sides of house 1234 which we can keep
+     but can we also choose which sides like front,left side, right side, back in
+     costumers?", then "Then sides will automatically choose based on how many sides
+     we chose", then "if I choose a new side on someones house which should be
+     multiple choose then it will send the house to requote indicating New Side."
+
+     ⚠ THIS SUPERSEDES THE READ-ONLY HALF OF [[OPT-02]] and the checks below were
+     REWRITTEN, not weakened — the old ones proved that a count the office moved
+     CLEARED a stored list, which was right while this form could not write one and
+     is now describing a design she replaced. What survives untouched is the reason
+     that guard existed: a stored list of two names under a count of three is a claim
+     that cannot be true, and it is not merely untidy — the portal ticks from the LIST
+     and compares against the COUNT, so the customer opens the Sides tab, changes
+     nothing, saves, and is shown the "we will need to RE-QUOTE you" confirm with a Now
+     and a New line reading identically. That state is now unreachable from this form
+     for a better reason than clearing: the two controls are wired together, so the
+     count and the ticks cannot be left disagreeing in the first place.
+
+     ⚠ THE COUNT STILL WINS ON THE OFFICE SIDE AND THE LIST STILL WINS ON THE SERVER,
+     and both are still right: each defers to whichever answer was given most recently.
+     A check that made the two agree in direction would be asserting the bug.
+
+     RUN, NOT MATCHED: every claim here is about what ends up in the write, or about
+     which box is ticked on screen. The save block and the four helpers are lifted out
+     of admin.html and executed against a jsdom document holding the real markup. */
+  {
+    const admin = read('admin.html').replace(/\r/g, '');
+
+    /* The helpers, lifted rather than stubbed (CLAUDE.md §3): a stub of
+       houseSidesListFromValue would keep this suite green through a change to which
+       names the office may write, which is the one thing it exists to protect. */
+    /* ⚠ THE THREE CONSTANTS ARE READ OUT OF admin.html, NEVER TYPED HERE. Seven
+       fixtures in this repo held their own copy of CN_DOUBLE_BIN_FEET and went on
+       passing against a rule the app no longer had; the two side orders are exactly
+       that shape, and the whole point of the fill checks below is which name lands
+       in which box. */
+    const sidesConsts = (admin.match(/^const HOUSE_SIDES?_[A-Z_]+ = .*$/gm) || []).join('\n');
+    check('S313', 'the side-order constants and the default were read out of admin.html',
+      /HOUSE_SIDE_NAMES/.test(sidesConsts) && /HOUSE_SIDE_FILL_ORDER/.test(sidesConsts) &&
+      /HOUSE_SIDES_DEFAULT/.test(sidesConsts));
+    const sidesSrc = sidesConsts + '\n' +
+      ['houseSideCount', 'houseSidesListFromValue', 'houseSidesAutoFill',
+      'houseSidesPickedList', 'houseSidesShowList', 'houseSidesShowCount', 'houseSidesWords',
+      'houseSidesChanged']
+      .map(function (n) { return extractFn(admin, n); }).join('\n');
+    check('S313', 'the eight office-side sides helpers were found',
+      sidesSrc.split('function ').length - 1 === 8);
+
+    const at = admin.indexOf('const storedSidesList =');
+    /* ⚠ THE END ANCHOR IS THE WRITE, NOT THE BRANCH AROUND IT. Anchored on the whole
+       `else if(storedSidesList)` line, a red-check that disabled that branch broke the
+       SLICE instead, and the failure that came back was "the write was found" rather
+       than the behavioural check that is meant to catch it — a check reporting the
+       wrong thing is a check nobody can act on. */
+    const end2 = admin.indexOf('addrUpdates.houseSidesList = null;', at);
+    const guard = at > 0 && end2 > at
+      ? admin.slice(at, end2 + 'addrUpdates.houseSidesList = null;'.length)
+      : '';
+    check('S313', 'the Edit Customer sides write was found', !!guard,
+      'without it a count the office moves leaves a named list it no longer fits');
+
+    /* The four tick boxes as the page really draws them, read out of admin.html rather
+       than written here — a fixture carrying its own copy of the markup proves the copy
+       works and says nothing about the form somebody actually uses. */
+    const boxRow = (function () {
+      const s = admin.indexOf('<div class="pill-check-row" id="editCustHouseSideNames"');
+      const e = s > 0 ? admin.indexOf('</div>', s) : -1;
+      return s > 0 && e > s ? admin.slice(s, e + 6) : '';
+    })();
+    const countRow = (function () {
+      const s = admin.indexOf('<div class="pill-check-row" id="editCustHouseSides"');
+      const e = s > 0 ? admin.indexOf('</div>', s) : -1;
+      return s > 0 && e > s ? admin.slice(s, e + 6) : '';
+    })();
+    check('S313', 'the four named side boxes are in the Edit Customer markup',
+      /value="Front"/.test(boxRow) && /value="Left"/.test(boxRow) &&
+      /value="Right"/.test(boxRow) && /value="Back"/.test(boxRow),
+      'Addie asked to choose which sides in Customers, not only how many');
+    check('S313', 'and they are drawn in her counting order, front then right then left then back',
+      boxRow.indexOf('value="Front"') < boxRow.indexOf('value="Right"') &&
+      boxRow.indexOf('value="Right"') < boxRow.indexOf('value="Left"') &&
+      boxRow.indexOf('value="Left"') < boxRow.indexOf('value="Back"'),
+      'a fill that visibly skips the second box reads as a bug and gets reported as one');
+    /* ⭐ AND THE TWO THAT NEED A VIEWPOINT SAY IT ON THE LABEL ([[OPT-09]], 2026-09-11).
+       Addie: "is it left side from looking at your house from the street kind of thing."
+       [[OPT-03]] settled that it is read from the street; the boxes said so only in the
+       grey line underneath, which is not where somebody ticking a box is looking. Front
+       and Back need nothing — they are the same side whichever way you face. */
+    const addBoxRow = (function () {
+      const s2 = admin.indexOf('<div class="pill-check-row" id="addCustHouseSideNames"');
+      const e2 = s2 > 0 ? admin.indexOf('</div>', s2) : -1;
+      return s2 > 0 && e2 > s2 ? admin.slice(s2, e2 + 6) : '';
+    })();
+    check('S313', 'left and right name their viewpoint on the box itself, in both forms',
+      [boxRow, addBoxRow].every(function (row) {
+        return /value="Left">\s*Left side \(from the street\)/.test(row) &&
+               /value="Right">\s*Right side \(from the street\)/.test(row);
+      }),
+      'from the door your left is the OTHER half of the roof, so the word alone is a ' +
+      'coin toss about which side a crew lights — and Add Customer is the form a new ' +
+      'member is first recorded in');
+
+    /* ⚠ GATED ON THE MODULE-LEVEL JSDOM, which Suite 5 sets once — and a run without
+       it already refuses to say it is safe to push, so these do not degrade to a note
+       that nobody can read as missing coverage. */
+    if (guard && boxRow && countRow && JSDOM) {
+
+      /* One office form, built from the real markup, with the helpers running against
+         it. `ticks` is what is on screen when Save is pressed. */
+      function office(storedList, ticks) {
+        const dom = new JSDOM('<div class="editcust-popup">' + countRow + boxRow + '</div>');
+        const addrUpdates = {};
+        new Function('document', 'item', 'addrUpdates', 'ticks',
+          sidesSrc + '\n' +
+          "houseSidesShowList('editcust', ticks);\n" +
+          guard + '\n')(
+            dom.window.document,
+            { data: storedList === null ? {} : { houseSidesList: storedList } },
+            addrUpdates, ticks);
+        return addrUpdates;
+      }
+
+      check('S313', 'the sides the office ticked are what gets written',
+        office(null, ['Front', 'Back']).houseSidesList.join(',') === 'Front,Back',
+        'Addie asked to choose which sides here; a form that collects an answer and ' +
+        'does not save it is the shape this repo has shipped once already');
+      check('S313', 'and they are written in canonical order however they were ticked',
+        office(null, ['Back', 'Front']).houseSidesList.join(',') === 'Front,Back',
+        'the portal and the server both sanitize to this order; a third order here ' +
+        'makes two lists for one house compare unequal without either being wrong');
+      check('S313', 'clearing every box on a customer who had a list clears the field',
+        office(['Front', 'Left'], []).houseSidesList === null,
+        '"which sides is not on file" has to remain something the office can say');
+      check('S313', 'a customer who has no list on file and no box ticked is not given one, or a null',
+        !Object.prototype.hasOwnProperty.call(office(null, []), 'houseSidesList'),
+        'most of the book has never been asked; a null written over nothing is a ' +
+        'change-log row about a change that did not happen');
+
+      /* ⚠ THE AUTO-FILL IS THE HALF SHE ASKED FOR SECOND, and it is a claim about what
+         is ON SCREEN, so it is RUN against the real boxes rather than matched. */
+      function filled(n) {
+        const dom = new JSDOM('<div>' + countRow + boxRow + '</div>');
+        const out = new Function('document', 'n',
+          sidesSrc + '\n' +
+          "houseSidesShowList('editcust', houseSidesAutoFill(n));\n" +
+          "return houseSidesPickedList('editcust');\n")(dom.window.document, n);
+        return out.join(',');
+      }
+      check('S313', 'one side fills in the front', filled(1) === 'Front');
+      check('S313', 'two fills in the front and the right',
+        filled(2) === 'Front,Right',
+        'her own convention, 2026-08-18: "3 sides then front of house, right side of ' +
+        'house and left side of house is all checked" — so two is front and right');
+      check('S313', 'three adds the left', filled(3) === 'Front,Left,Right');
+      check('S313', 'four is the whole house', filled(4) === 'Front,Left,Right,Back');
+
+      /* ⚠ AND THE WIRING IS THE REAL LISTENER, LIFTED — NOT A COPY OF IT. The first
+         version of these two checks re-implemented "ticking boxes moves the count"
+         inline here, so a red-check that disabled it in admin.html went straight
+         through: the fixture was proving its own copy worked and saying nothing about
+         the page. That is the vacuous-fixture trap this file names in five places, and
+         it is why the handler body is sliced out and executed below. */
+      const wiring = (function () {
+        const s = admin.indexOf("  if(t.matches('.addcust-side-pick, .editcust-side-pick')){");
+        if (s < 0) return '';
+        let e = s, depth = 1;                       // we start inside the listener body
+        for (; e < admin.length; e++) {
+          if (admin[e] === '{') depth++;
+          else if (admin[e] === '}') { depth--; if (!depth) break; }
+        }
+        return admin.slice(s, e);
+      })();
+      check('S313', 'the count/names wiring was found to run', !!wiring,
+        'without it these checks would be proving a copy written in this file');
+
+      /* `start` is what is on screen before the change; `hit` names the control the
+         office actually touched. Returns the count radio and the ticks afterwards. */
+      function afterChange(start, hit) {
+        const dom = new JSDOM('<div>' + countRow + boxRow + '</div>');
+        return new Function('document', 'start', 'hit',
+          sidesSrc + '\n' +
+          "houseSidesShowCount('editcust', start.count);\n" +
+          "houseSidesShowList('editcust', start.ticks || []);\n" +
+          "var t;\n" +
+          "if(hit.kind === 'count'){\n" +
+          "  t = document.querySelector('.editcust-side-pick[value=\"' + hit.value + '\"]');\n" +
+          "  document.querySelectorAll('.editcust-side-pick').forEach(function(r){ r.checked = r === t; });\n" +
+          "} else {\n" +
+          "  t = document.querySelector('.editcust-side-name[value=\"' + hit.value + '\"]');\n" +
+          "  t.checked = hit.on;\n" +
+          "}\n" +
+          /* ⚠ WRAPPED IN A FUNCTION, because the real handler `return`s after the count
+             branch — inlined, that return would leave this harness before it could read
+             anything back, which reads as the wiring throwing rather than working. */
+          "(function(){\n" + wiring + "\n})();\n" +
+          "var on = document.querySelector('.editcust-side-pick:checked');\n" +
+          "return {count: on ? Number(on.value) : 0, ticks: houseSidesPickedList('editcust').join(',')};\n"
+        )(dom.window.document, start, hit);
+      }
+
+      check('S313', 'picking a count ticks the sides that count means',
+        afterChange({count: 1, ticks: ['Front']}, {kind: 'count', value: 3}).ticks
+          === 'Front,Left,Right',
+        'Addie: "sides will automatically choose based on how many sides we chose"');
+      check('S313', 'ticking a third box puts the count on 3',
+        afterChange({count: 2, ticks: ['Front', 'Right']}, {kind: 'name', value: 'Back', on: true}).count === 3,
+        'the count is what the price and the re-quote flag read; a stored list of ' +
+        'three under a count of one is the claim this whole pairing exists to prevent');
+      /* ⚠ THIS PROVES THE GUARANTEE, NOT THE GUARD, AND SAYS SO. A red-check that
+         removed the `if(picked.length)` in front of houseSidesShowCount left this green,
+         and that is the correct answer rather than a hole: houseSideCount(0) returns
+         HOUSE_SIDES_DEFAULT, so the count lands on 1 either way, and a single checkbox
+         toggle can never take the ticks from several to none in one event. The guard is
+         belt-and-braces over a default that already does the job. What is asserted — and
+         what actually matters — is that the count never reads nought. */
+      check('S313', 'and unticking the last box leaves the count on a real number, never nought',
+        afterChange({count: 1, ticks: ['Front']}, {kind: 'name', value: 'Front', on: false}).count === 1,
+        'nought is not a house — every house has a front — and an empty list is ' +
+        'this form saying WHICH sides are not on file, not how many there are');
+
+      /* ⭐ AND WHAT OPENING A RECORD DOES, WHICH IS THE HALF WITH NO OTHER READER.
+         Suite 108 runs the SAVE handler, so a red-check that made openEditCustomerModal
+         auto-fill on open sailed through every check in this file — the form would have
+         invented an answer for every record somebody opened to fix a phone number, and
+         nothing anywhere would have said so. Asserted separately from the mechanism,
+         the same reason the house-tab strip's four calls had to be. */
+      /* ⚠ THE SLICE REACHES THE NOTE, not just the ticks. Ending it at the
+         houseSidesShowList line cut the block in half and the note checks below failed
+         on code that is right — the block is one decision (what to show and what to say
+         about it) and testing half of it proves half of it. */
+      const openSides = (function () {
+        const s = admin.indexOf('const onFileSides = houseSidesListFromValue(d.houseSidesList);');
+        if (s < 0) return '';
+        const marker = admin.indexOf('sidesNote.textContent = sidesOnFile', s);
+        if (marker < 0) return '';
+        const e = admin.indexOf('\n    }', marker);
+        return e > s ? admin.slice(s, e + '\n    }'.length) : '';
+      })();
+      check('S313', 'the open-modal sides block was found to run', !!openSides);
+
+      function onOpen(record, n) {
+        const dom = new JSDOM('<div>' + countRow + boxRow + '</div>');
+        return new Function('document', 'd', 'n',
+          sidesSrc + '\n' + openSides + '\n' +
+          "return houseSidesPickedList('editcust').join(',');")(dom.window.document, record, n);
+      }
+      /* ⚠ REWRITTEN 2026-09-10 ([[OPT-07]]), NOT WEAKENED. These asserted that opening
+         a record ticked NOTHING, which was right for the few hours that was the design
+         and is now describing something Addie replaced: "can you fix record fills
+         nothing in?" What is asserted instead is the pair that makes a fill affordable —
+         it follows the count, and the line under the boxes says it is a fill rather
+         than something anybody said. */
+      check('S313', 'opening a record with no list on file fills the boxes from the count',
+        onOpen({}, 3) === 'Front,Left,Right',
+        'Addie: "can you fix record fills nothing in?"');
+      check('S313', 'opening one with a list that fits the count shows what they said',
+        onOpen({houseSidesList: ['Back', 'Front']}, 2) === 'Front,Back',
+        'a real answer must never be overwritten by the fill');
+      check('S313', 'and a stored list that does not fit the count is replaced by the fill',
+        onOpen({houseSidesList: ['Front', 'Left']}, 3) === 'Front,Left,Right',
+        'two names under a count of three is a claim that cannot be true, and the ' +
+        'count is the answer the office gave most recently');
+      /* ⚠ AND THE NOTE IS THE OTHER HALF OF THE TRADE. A guess that looks identical to
+         an answer is how a crew hangs the wrong side of a house on our say-so — so this
+         is asserted as hard as the ticks are, and it is RUN, because a check that the
+         words exist in the source proves only that they exist. */
+      function openNote(record, n) {
+        const dom = new JSDOM('<div>' + countRow + boxRow +
+          '<p id="editCustSidesListNote"></p></div>');
+        return new Function('document', 'd', 'n',
+          sidesSrc + '\n' + openSides + '\n' +
+          "return document.getElementById('editCustSidesListNote').textContent;")(
+            dom.window.document, record, n);
+      }
+      check('S313', 'a filled-in record says nobody has said which sides',
+        /Nobody has said which sides/.test(openNote({}, 3)),
+        'without this the fill is exactly the guess OPT-01 refused, wearing the words ' +
+        'of an answer');
+      check('S313', 'and a record with a real answer says it is what is on file',
+        /what is on file/.test(openNote({houseSidesList: ['Front', 'Back']}, 2)) &&
+        !/Nobody has said/.test(openNote({houseSidesList: ['Front', 'Back']}, 2)),
+        'calling their own answer a guess is the same fault pointing the other way');
+      check('S313', 'and both say which way round left and right are read',
+        /street/.test(openNote({}, 3)) &&
+        /street/.test(openNote({houseSidesList: ['Front', 'Left']}, 2)),
+        'OPT-03: Left here and Left in the portal must not be opposite sides of one house');
+    }
+  }
 }
 
 
@@ -20646,15 +21978,27 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
 
       /* ⚠ A RE-QUOTE IS IN EXACTLY ONE FOLDER. Subtracted from the ordinary tabs
          rather than shown in both: a card in two places is a job two people do, or
-         - far more likely - a job each of them assumes the other did. */
-      check('S65', 'an open re-quote goes to Re-quotes at every stage',
+         - far more likely - a job each of them assumes the other did.
+         ⭐ REPOINTED 2026-09-17 ([[QT-43]]), AND ONLY HALF OF IT MOVED. Addie:
+         "Everything on requotes that is awaiting response should go under awaiting
+         response." A SENT re-quote now files under 'send' with every other card the
+         office is chasing. The sentence above is kept because it is still the rule
+         these checks hold: exactly one folder, never two — what changed is WHICH.
+         ⚠ THE OLD ASSERTION WAS "at every stage" AND THAT PART IS GENUINELY REVERSED.
+         Its reasoning was that a priced re-quote must not "fall back into the ordinary
+         pipeline half way through", which is right about CONVERTING — that is why the
+         'form' stage below still stays in Re-quotes — and was wrong about chasing. */
+      check('S65', 'an open re-quote stays in Re-quotes until it has gone out',
         f({existingCustomerId: 'c1'}) === 'requote' &&
-        f({existingCustomerId: 'c1', quotedPrice: 400}) === 'requote' &&
         f({existingCustomerId: 'c1', quotedPrice: 400, approvalStatus: 'approved', formCompleted: true}) === 'requote',
-        'a re-quote that is priced must not fall back into the ordinary pipeline half way through');
+        'unsent, and ready-to-convert, are both jobs for us rather than waits on the customer');
+      check('S65', 'and a sent one joins Awaiting Response',
+        f({existingCustomerId: 'c1', quotedPrice: 400}) === 'send',
+        'a re-quote waiting on a reply is chased from the same list as everybody else');
       check('S65', 'including one raised by hand off an existing quote',
-        f({requoteCount: 1, quotedPrice: 400}) === 'requote',
-        'both kinds of re-quote are the same job and belong in the same place');
+        f({requoteCount: 1, quotedPrice: 400}) === 'send' &&
+        f({requoteCount: 1}) === 'requote',
+        'both kinds of re-quote are the same job and must move together');
 
       /* ⚠ CLOSED IS STILL ONE FOLDER, deliberately. History is looked up in one
          place; splitting it means checking both every time and finding it in
@@ -20696,8 +22040,14 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
        not requote." The guard itself is unchanged and is the point of this check: while
        a re-quote is being APPLIED, the new price IS the answer to it, so raising another
        for the change that just resolved the last one never terminates. */
+    /* ⚠ REPOINTED, NOT WEAKENED (2026-09-10, [[OPT-05]]). This matched the whole
+       condition literally — that is, it was pinned to the LIST of triggers rather than
+       to the guarantee — so it failed on correct code the moment a fourth trigger
+       (`sidesChanged`) joined it, which is the §7 slow-fuse shape S82, S129 and the
+       folder-names suite have each already been caught by. What must be true is that
+       whatever raises a re-quote is inside the `!requoteBeingConverted` guard. */
     check('S65', 'applying a re-quote does not raise another one',
-      /if\(\(feetChanged \|\| addressChanged \|\| priceWantsRequote\) && !requoteBeingConverted\)/.test(body),
+      /if\(\([^)]*feetChanged[^)]*\) && !requoteBeingConverted\)/.test(body),
       'the re-quote in hand IS this change; raising another for it never terminates');
     check('S65', 'and a price change is never even asked about while one is being applied',
       /if\(priceChanged && !feetChanged && !addressChanged && !requoteBeingConverted\)/.test(body),
@@ -22462,15 +23812,23 @@ suite('Suite 93. Two crews, two towns, twenty each');
       'got ' + sizes(tightOut) + ' — on an overloaded day the crew that was ' +
       'already over stays the one that is over');
 
-    /* ⚠ A HOUSE IN NEITHER CREW'S TOWN STAYS IN NEITHER. */
+    /* ⚠ REPOINTED 2026-09-10 BY [[SCH-67]]. This read:
+         "a house in a town neither crew works is left unassigned"
+           strayOut.reduce((n, x) => n + x.length, 0) === 5
+       — five of seven placed, the two in Nowhere left for the panel to report. Dax: "it
+       is off limits to have anyone scheduled in a day not on either crews routes." All
+       seven are carried now, and what is worth pinning instead is that carrying them
+       did not disturb the five the towns had already placed. */
     const stray = dayOf(
       Array.from({length: 5}, (_, i) => house('L' + i, 'Lehi')),
       [house('X1', 'Nowhere'), house('X2', 'Nowhere')]);
     const strayOut = run(stray, towns, 20);
-    check('S93', 'a house in a town neither crew works is left unassigned',
-      strayOut.reduce((n, x) => n + x.length, 0) === 5,
-      'it has to stay visible as nobody' + String.fromCharCode(8217) + 's, rather than being ' +
-      'quietly absorbed onto a sheet');
+    check('S93', 'a house in a town neither crew works is still carried by somebody',
+      strayOut.reduce((n, x) => n + x.length, 0) === 7,
+      'got ' + strayOut.reduce((n, x) => n + x.length, 0) + ' of 7 — a customer on a day with nobody holding their sheet is the fault this closed');
+    check('S93', 'and the five the towns placed are still where the towns put them',
+      strayOut[0].filter(h => h.city === 'Lehi').length === 5,
+      'the catch-all must add to the split, never reshuffle it');
 
     /* ⚠ ONE CREW ONLY: nothing to hand anything to. */
     const solo = run(dayOf(Array.from({length: 25}, (_, i) => house('L' + i, 'Lehi')), []),
@@ -23805,8 +25163,16 @@ suite('Suite 104. The Printing tab');
        goes wrong in a warehouse. It is blank on every ordinary row, so the ones that
        need it stand out. NOT written into the blank column on the right, which is where
        the warehouse ticks the row off. */
-    check('S104', 'and says whose bin a top-up bundle goes into',
-      keys('build') === 'number,name,bins,reason,lights,wire,timer,bundles,putInto',
+    /* ⭐ AND NOTES IS LAST (2026-09-17, [[WH-37]]). Addie: "on costumers we need to be
+       able to add notes to warehouse that updates when we print off warehouse pages."
+       This sheet had no notes column at all, so a note meant for the warehouse showed on
+       the tab and vanished on the pages printed from the Printing tab.
+       ⚠ IT GOES LAST ON PURPOSE. Notes is the wide free-text column and anything after it
+       is lost against a wall of writing — the same argument that fixes Timer's position on
+       every crew sheet. Asserted as the WHOLE list in order, not as "contains notes",
+       because the position is the half that matters. */
+    check('S104', 'and says whose bin a top-up bundle goes into, with notes last',
+      keys('build') === 'number,name,bins,reason,lights,wire,timer,bundles,putInto,notes',
       'got ' + keys('build'));
     check('S104', 'the daily warehouse list is only number and name',
       keys('warehouse') === 'number,name',
@@ -23840,7 +25206,7 @@ suite('Suite 104. The Printing tab');
 
   /* ---- the crew row builder, RUN rather than read ---- */
   {
-    const need = ['printGateCode', 'printSideCount', 'printCrewNotes', 'printBinCount'];
+    const need = ['printGateCode', 'printSidesCell', 'printCrewNotes', 'printBinCount'];
     const srcs = need.map(n => extractFn(admin, n));
     check('S104', 'the crew-sheet helpers are all there', srcs.every(Boolean),
       need.filter((n, i) => !srcs[i]).join(', ') + ' missing');
@@ -23857,13 +25223,24 @@ suite('Suite 104. The Printing tab');
            agree with itself and prove nothing. */
         cnDoubleBinFeetSrc + cnBinsForFeetSrc + extractFn(admin, 'whBinsForHouse') +
         extractFn(admin, 'whBinNumberFor') + extractFn(admin, 'whBinNumberMoved') +
-        srcs.join('') + 'return {g: printGateCode, s: printSideCount, ' +
+        /* ⚠ AND THE REAL SANITIZER ([[OPT-09]]), lifted not stubbed for the same reason
+           houseSideCount is: printSidesCell only prints names it has put through
+           houseSidesListFromValue, so a stub that returned the raw array would let a
+           stray value onto a crew sheet here and report green. */
+        /* ⚠ THE CONSTANT IS LIFTED OUT OF THE PAGE, NEVER TYPED HERE. It is the STORED
+           order (Front, Left, Right, Back) and admin.html also holds a FILL order that
+           differs (Front, Right, Left, Back) — a hand-typed copy that picked the wrong
+           one would print the sides in an order the real sheet never uses, and agree
+           with itself while doing it. */
+        (admin.match(/const HOUSE_SIDE_NAMES = \[[^\]]*\];/) || [''])[0] +
+        extractFn(admin, 'houseSidesListFromValue') +
+        srcs.join('') + 'return {g: printGateCode, s: printSidesCell, ' +
         'n: printCrewNotes, b: printBinCount};'
       )();
 
       check('S104', 'the bin count is the real bin rule, not a second one',
-        sb.b({ measuredFeet: 260 }) === '1' && sb.b({ measuredFeet: 261 }) === '2' &&
-        sb.b({ measuredFeet: 521 }) === '3',
+        sb.b({ measuredFeet: 320 }) === '1' && sb.b({ measuredFeet: 321 }) === '2' &&
+        sb.b({ measuredFeet: 641 }) === '3',
         'the crew loading two bins for a house the warehouse built one for is a van ' +
         'that leaves without half the lights');
       /* ⚠ BLANK, NEVER "1". cnBinsForFeet floors at 1, so an unmeasured house would
@@ -23872,17 +25249,19 @@ suite('Suite 104. The Printing tab');
       check('S104', 'a house nobody has measured prints nothing, not a confident 1',
         sb.b({}) === '' && sb.b({ measuredFeet: 0 }) === '',
         'got ' + JSON.stringify(sb.b({})));
+      /* ⚠ 400 FT, NOT 300 ([[WH-29]]). 300 was two bins under the 260 rule and is one under
+         320, so the fixture would have gone on passing while testing a single-bin house. */
       check('S104', 'a moved bin label is named beside the count',
-        sb.b({ measuredFeet: 300, customerNumber: '5051', binLabelNumber: '894' })
+        sb.b({ measuredFeet: 400, customerNumber: '5051', binLabelNumber: '894' })
           .indexOf('bin says #894') !== -1,
         'the Cust # column is exactly the number that will not be found');
       /* ⚠ AND ONLY WHEN IT REALLY MOVED. Stamping every row with a bin number the
          crew can already read off the Cust # column is noise, and noise in a column
          is how the one row that matters stops being noticed. */
       check('S104', 'and stays quiet when it did not move',
-        sb.b({ measuredFeet: 300, customerNumber: '894', binLabelNumber: '894' }) === '2' &&
-        sb.b({ measuredFeet: 300, customerNumber: '894' }) === '2',
-        'got ' + JSON.stringify(sb.b({ measuredFeet: 300, customerNumber: '894',
+        sb.b({ measuredFeet: 400, customerNumber: '894', binLabelNumber: '894' }) === '2' &&
+        sb.b({ measuredFeet: 400, customerNumber: '894' }) === '2',
+        'got ' + JSON.stringify(sb.b({ measuredFeet: 400, customerNumber: '894',
           binLabelNumber: '894' })));
 
       check('S104', 'a gate code reaches the printed sheet',
@@ -23894,10 +25273,46 @@ suite('Suite 104. The Printing tab');
         sb.g({}) === '\u2014' && sb.g({ gateCode: '  ' }) === '\u2014',
         'got ' + JSON.stringify(sb.g({})));
 
-      check('S104', 'the side count always prints, and matches houseSideCount',
+      /* ⚠ THE FALLBACK IS UNCHANGED AND IS STILL ASSERTED. A house with no names on
+         file prints the number exactly as it always has, including the old array shape
+         of the count field — the sheet disagreeing with the schedule about how many
+         sides a house has is two answers for one house. */
+      check('S104', 'a house with no names on file still prints the count',
         sb.s({ houseSides: 3 }) === '3' && sb.s({}) === '1' &&
         sb.s({ houseSides: ['front', 'left'] }) === '2',
-        'the sheet disagreeing with the schedule about sides is two answers for one house');
+        'got ' + JSON.stringify([sb.s({ houseSides: 3 }), sb.s({}),
+          sb.s({ houseSides: ['front', 'left'] })]));
+      /* ⭐ AND THE NAMES REACH THE KERB ([[OPT-09]], 2026-09-11). Addie: "for sides can
+         you mention which side they want looking from there street?" The crew sheet is
+         the only thing they see this season, and it printed the number 3 for a house
+         that had said which three. RUN, because the claim is about what is in the cell. */
+      check('S104', 'the sides a customer actually named are printed, not just how many',
+        sb.s({ houseSides: 3, houseSidesList: ['Front', 'Left', 'Back'] }) === 'Front, Left, Back',
+        'got ' + JSON.stringify(sb.s({ houseSides: 3, houseSidesList: ['Front', 'Left', 'Back'] })) +
+        ' — the crew arriving at the kerb with a number has to guess which half of the roof');
+      /* ⛔ AND A LIST THAT DOES NOT FIT THE COUNT IS NOT PRINTED. Two names under a count
+         of three is a claim that cannot be true, and records really can be in that state:
+         the count has existed far longer than the list. The number is the honest answer,
+         and a list trimmed to fit would be an answer nobody gave. */
+      check('S104', 'a list that does not fit the count falls back to the number',
+        sb.s({ houseSides: 3, houseSidesList: ['Front', 'Left'] }) === '3' &&
+        sb.s({ houseSides: 2, houseSidesList: ['Front', 'Left', 'Back'] }) === '2',
+        'got ' + JSON.stringify([sb.s({ houseSides: 3, houseSidesList: ['Front', 'Left'] }),
+          sb.s({ houseSides: 2, houseSidesList: ['Front', 'Left', 'Back'] })]));
+      /* ⚠ AND A STRAY VALUE CANNOT REACH A CREW SHEET. houseSidesListFromValue drops
+         anything nobody offers and de-duplicates, so 'Roof' leaves two names under a
+         count of three and the cell falls back to the number rather than printing it. */
+      check('S104', 'a value nobody offers never reaches the sheet',
+        sb.s({ houseSides: 3, houseSidesList: ['Front', 'Roof', 'Left'] }) === '3' &&
+        sb.s({ houseSides: 4, houseSidesList: ['Front', 'Front', 'Left', 'Back'] }) === '4',
+        'got ' + JSON.stringify(sb.s({ houseSides: 3, houseSidesList: ['Front', 'Roof', 'Left'] })));
+      /* ⚠ AND LEFT AND RIGHT NAME THEIR VIEWPOINT ([[OPT-03]]), on the COLUMN rather than
+         in a note beside the sheet. The two readings are mirror images — from the door
+         your left is the other half of the roof — so the word alone is a coin toss, and
+         paper carries no note to explain it. */
+      check('S104', 'the Sides column says which way round left and right are',
+        /\{k: 'sides', label: 'Sides \(from street\)'\}/.test(admin),
+        'a bare "Left" on a printed sheet names no viewpoint at all');
 
       const full = sb.n({ specificOutletNotes: 'lower outlet by door',
                           oneTimeNote: 'ring the bell', notes: 'dog in the back' }, {});
@@ -24264,8 +25679,12 @@ suite('Suite 104. The Printing tab');
       /* ⚠ LIFTED, NOT STUBBED (2026-08-21). printCrewDayList now fills Gate, Sides
          and a folded Notes, and a stub of those is a stub of the fix that put the
          gate code on paper at all. houseSideCount comes with them because
-         printSideCount reads it. */
-      extractFn(admin, 'printGateCode') + extractFn(admin, 'printSideCount') +
+         printSidesCell reads it, and houseSidesListFromValue with its stored-name
+         constant because printSidesCell prints nothing it has not sanitized
+         ([[OPT-09]]). */
+      extractFn(admin, 'printGateCode') +
+      (admin.match(/const HOUSE_SIDE_NAMES = \[[^\]]*\];/) || [''])[0] +
+      extractFn(admin, 'houseSidesListFromValue') + extractFn(admin, 'printSidesCell') +
       extractFn(admin, 'printCrewNotes') +
       /* ⚠ AND THE BIN COUNT, ALL THE WAY DOWN TO cnBinsForFeet OUT OF js/money.js.
          A stubbed whBinsForHouse would prove the column renders and nothing about
@@ -24302,7 +25721,11 @@ suite('Suite 104. The Printing tab');
       useEaves: true, outletTimer: 'Yes', notes: 'gate 4321'}},
     {crew: 0, id: 'h2', cust: {customerNumber: '12', name: 'B', street: '2 St'}},
     {crew: 1, id: 'h3', cust: {customerNumber: '21', name: 'C', street: '3 St', outletTimer: 'Yes',
-      gateCode: '4412', houseSides: 3, measuredFeet: 300,
+      /* ⚠ AND WHICH THREE ([[OPT-09]]). Without a list on the fixture the cell falls
+         back to the number and the check below passes on the old behaviour — the
+         vacuous-fixture trap this repo keeps re-learning. */
+      gateCode: '4412', houseSides: 3, houseSidesList: ['Front', 'Left', 'Back'],
+      measuredFeet: 400,
       specificOutletNotes: 'lower outlet by door',
       oneTimeNote: 'ring the bell', notes: 'dog in the back'}},
     /* ⚠ THE BIN THAT WEARS THE OLD NUMBER. This customer moved from #894 to the
@@ -24311,9 +25734,12 @@ suite('Suite 104. The Printing tab');
        not be found in the warehouse. Same crew as h3 so it lands on the printed
        sheet under test. */
     {crew: 1, id: 'h5', cust: {customerNumber: '5051', name: 'E', street: '5 St',
-      measuredFeet: 300, binLabelNumber: '894'}}],
+      measuredFeet: 400, binLabelNumber: '894'}}],
     spare: [{id: 'h4', city: 'Levan', cust: {customerNumber: '31', name: 'D',
-      outletTimer: 'Yes', gateCode: '7788', measuredFeet: 600}}]};
+      /* ⚠ 700 FT, NOT 600 ([[WH-29]]). 600 was three bins under the 260 rule and is two under
+         320; the assertion below is on the number 3, so the fixture has to stay a three-bin
+         house or it proves the column is filled with something else. */
+      outletTimer: 'Yes', gateCode: '7788', measuredFeet: 700}}]};
 
   const crewOut = runSheet('crew', aDay);
   const crewBody = ((crewOut[0] || {}).pages || [{}])[0].body || '';
@@ -24383,9 +25809,15 @@ suite('Suite 104. The Printing tab');
   check('S104', 'the Gate column is actually filled in, not just present',
     /<th>Gate<\/th>/.test(crewBody) && /<td>4412<\/td>/.test(crewBody),
     'a Gate header with nothing under it is the crew still stuck at the gate');
-  check('S104', 'the Sides column is actually filled in',
-    /<th>Sides<\/th>/.test(crewBody) && /<td>3<\/td>/.test(crewBody),
-    'got a Sides header with nothing under it');
+  /* ⭐ THE NAMES, ON THE PAPER ([[OPT-09]]). The header used to read Sides and the cell
+     under it a bare 3 — the crew at the kerb with a number and three ways to be wrong.
+     Both halves are asserted: the heading names the viewpoint, because left and right
+     read from the door are the mirror image of left and right read from the street, and
+     the cell carries what the customer said. */
+  check('S104', 'the Sides column is filled in with the sides they named',
+    /<th>Sides \(from street\)<\/th>/.test(crewBody) &&
+    /<td>Front, Left, Back<\/td>/.test(crewBody),
+    'got a Sides header with a bare count under it, or none at all');
   /* ⚠ SAME TRAP AGAIN: a header with nothing under it. The fixture's house is 300 ft,
      which is over CN_DOUBLE_BIN_FEET, so the honest answer is 2 — and a van loaded off
      a blank column leaves with half the lights. */
@@ -24435,7 +25867,7 @@ suite('Suite 104. The Printing tab');
       const blk = at === -1 ? '' : dayBody.slice(at);
       return /<td>Yes<\/td>/.test(blk) &&      /* timer  */
              blk.indexOf('<td>7788</td>') !== -1 &&   /* gate   */
-             blk.indexOf('<td>3</td>') !== -1 &&      /* bins — 600 ft */
+             blk.indexOf('<td>3</td>') !== -1 &&      /* bins — 700 ft */
              blk.indexOf('<td>1</td>') !== -1;        /* sides  */
     })(),
     'a column added to the crew builder and not to this one prints a header with ' +
@@ -25057,7 +26489,9 @@ suite('Suite 107. Pricing a re-quote from the popup');
       document: dom.document,
       esc: (x) => String(x == null ? '' : x),
       fmtMoney: (n) => '$' + Number(n || 0).toFixed(2),
-      cnBinsForFeet: (f) => (Number(f) >= 260 ? 2 : 1),
+      /* ⚠ DERIVED FROM THE REAL CUTOFF ([[WH-29]]). Typed out, this stub went on
+         answering the 260 rule after the app moved to 320. */
+      cnBinsForFeet: (f) => (Number(f) > CN_DOUBLE_BIN_FEET ? 2 : 1),
       CN_DOUBLE_BIN_FEET: 260,
       perFootRate: rate,
       openEditCustomerModal: (id) => { opened = id; },
@@ -25574,12 +27008,32 @@ suite('Suite 107. Pricing a re-quote from the popup');
   /* ⚠ AND A FINISHED BUILD IS NOT A TOP-UP ANY MORE. The extra bundle is in the bin,
      so the bin holds their full footage. Left set, every future build for that house
      would read as "they already have 180 ft" for ever. */
-  check('S107', 'Mark Done clears the top-up as well as the build flag',
-    /needsLightBuild:false, buildTopUpFromFeet:null/.test(admin),
-    'the single Mark Done button on the warehouse row');
-  check('S107', 'and so does marking a whole group done',
-    (admin.match(/buildTopUpFromFeet:null/g) || []).length >= 2,
-    'the bulk button writes its own update and would otherwise leave it behind');
+  /* ⚠ REPOINTED 2026-09-17, NOT WEAKENED ([[WH-38]]). These two matched the literal
+     `needsLightBuild:false, buildTopUpFromFeet:null` and counted its occurrences — that
+     is, they were pinned to the exact spelling of a write and to there being TWO of it.
+     Both Mark Done paths now share `whBuiltUpdates`, so the spelling changed and the
+     count went to one, and they failed on code that is right. The §7 slow-fuse shape,
+     and the fix is to assert the GUARANTEE: what that one rule writes, and that both
+     buttons go through it. RUN rather than matched — a regex cannot see what an object
+     actually contains. */
+  {
+    const built = new Function('serverTimestamp',
+      extractFn(admin, 'whBuiltUpdates') + 'return whBuiltUpdates();')(function(){ return 'TS'; });
+    check('S107', 'Mark Done clears the top-up as well as the build flag',
+      built.needsLightBuild === false && built.buildTopUpFromFeet === null,
+      'got ' + JSON.stringify(built));
+    check('S107', 'and it still records WHEN the bundle was made',
+      built.lightsMarkedBuiltAt === 'TS',
+      'the one field that answers "when was this house built": ' + JSON.stringify(built));
+    /* ⚠ THE WIRING IS ASSERTED APART FROM THE RULE. whBuiltUpdates can be perfect and
+       reach neither button; this repo has shipped exactly that shape before. */
+    const wh = admin.slice(admin.indexOf("btn.dataset.whdonehouse"),
+                           admin.indexOf("const WH_BUILD_COLUMNS = ["));
+    check('S107', 'and so does marking a whole group done',
+      (wh.match(/whBuiltUpdates\(\)/g) || []).length >= 2,
+      'both Mark Done paths — one house and a whole colour group — must go through the ' +
+      'one rule, or a field cleared on one is left behind on the other');
+  }
   /* ⚠ IT MOVED WITH THE SPLIT. Clearing the add-on belongs to whichever button queues
      a WHOLE set, and after 2026-08-21 that is Build Them A New Set, not Recycle. */
   check('S107', 'and queueing a whole set by hand clears it too',
@@ -25599,16 +27053,20 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'the warehouse tab' + String.fromCharCode(8217) + 's own build sheet has the column too',
       /key:'putInto'/.test(cols) && /When built, put into/.test(cols),
       'this is the sheet the warehouse prints and builds off');
+    /* ⚠ A CENSUS, AND THE NUMBER MOVING IS THE POINT. 3 → 5 on 2026-09-11, when
+       [[WH-34]] put the two timer jobs on paper (Remove timer, and the Timer only rows
+       that had been on no sheet at all). Five builders: blocked, Remove timer, Timer only,
+       houses, extras. */
     check('S107', 'and every row builder fills it in, so no row is short a cell',
-      (extractFn(admin, 'whSheetRowsForBuild').match(/putInto:/g) || []).length === 3,
-      'houses, extras and the blocked ones all push rows onto that sheet');
+      (extractFn(admin, 'whSheetRowsForBuild').match(/putInto:/g) || []).length === 5,
+      'blocked, Remove timer, Timer only, houses and extras all push rows onto that sheet');
     /* ⭐ AND THE Why COLUMN THE SAME WAY (2026-08-24). A column every row does not fill
        leaves that row short a cell and the table shifts under it. Buffer stock fills it
        with a blank on purpose — no customer, no provenance to claim — which still
        counts as filling it. */
     check('S107', 'and every row builder fills the Why column too',
-      (extractFn(admin, 'whSheetRowsForBuild').match(/reason:/g) || []).length === 3,
-      'houses, extras and the blocked ones all push rows onto that sheet');
+      (extractFn(admin, 'whSheetRowsForBuild').match(/reason:/g) || []).length === 5,
+      'blocked, Remove timer, Timer only, houses and extras all push rows onto that sheet');
 
     /* ⭐ BUNDLES, NOT FEET, ON THIS SHEET TOO (2026-08-21). Owner: "I don't think we
        need feet and bundles. I think how many bundles is fine for warehouse."
@@ -25676,7 +27134,7 @@ suite('Suite 107. Pricing a re-quote from the popup');
     const q = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'houseBundleNeed',
       'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice',
       seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
     const B = (book) => q(book, [], (p, w) => p + '|' + (w || ''),
       (d) => ({feet: Number(d.measuredFeet) || 0, bundles: 1}), 100, 2, (p, r) => p / r);
 
@@ -25732,13 +27190,16 @@ suite('Suite 107. Pricing a re-quote from the popup');
       'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
       /* Lifted with the row builder they belong to: the Bin # column is a COUNT now
          and the customer number rides beside the name. */
-      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= 260 ? 1 : Math.ceil(f / 260); }' +
+      /* ⚠ THE REAL CUTOFF, INTERPOLATED — a second copy of this number is how a sandbox
+         keeps passing against a rule the app no longer has ([[WH-29]]). */
+      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= ' + CN_DOUBLE_BIN_FEET +
+        ' ? 1 : Math.ceil(f / ' + CN_DOUBLE_BIN_FEET + '); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const rows = sheet([{id: 'a894', data: {name: 'Ashley Wray', customerNumber: '894',
                                             address: '9873 N Sunnybank Pl',
-                                            needsLightBuild: true, measuredFeet: 300}}],
+                                            needsLightBuild: true, measuredFeet: 400}}],
       [], (p, w) => p + '|' + (w || ''), (d) => ({feet: 0, bundles: 1}),
       (w) => String(w || 'white'), () => '', []).rows;
     const blockedRow = rows.filter(function(r){ return r.type === 'Blocked'; });
@@ -25751,13 +27212,13 @@ suite('Suite 107. Pricing a re-quote from the popup');
     /* ⭐ THE CUSTOMER NUMBER MOVED (2026-08-21). Owner: "Bin # is how many bins were
        making for them but costumer # should also show next to costumers name." So the
        identifier is in the Customer column now, and `bins` is a quantity — for a
-       300 ft house, two. */
+       400 ft house, two. */
     check('S107', 'and it still carries the customer number, so somebody can find them',
       blockedRow[0] && /#894/.test(blockedRow[0].what),
       'got ' + JSON.stringify(blockedRow[0] && blockedRow[0].what));
     check('S107', 'and the Bins column is a count, not that number',
       blockedRow[0] && blockedRow[0].bins === '2',
-      '300 ft is two bins - got ' + JSON.stringify(blockedRow[0] && blockedRow[0].bins));
+      '400 ft is two bins - got ' + JSON.stringify(blockedRow[0] && blockedRow[0].bins));
   }
 
   /* ⭐ AND APPLYING A RE-QUOTE IS TWO STEPS, THE SECOND OF WHICH WAS SILENT. Owner:
@@ -26508,8 +27969,10 @@ suite('Suite 115. A price change asks');
     /if\(priceChanged && !feetChanged && !addressChanged && !requoteBeingConverted\)/.test(body),
     'the feet or the address moving raises one anyway, so a second question about the ' +
     'same edit is noise; and during a conversion the new price IS the answer');
+  /* ⚠ REPOINTED FOR THE SAME REASON AS S65 ABOVE (2026-09-10) — it asserts that the
+     price answer is one of the triggers, not that it is the last of exactly three. */
   check('S115', 'answering yes is what puts it on the re-quote condition',
-    /\(feetChanged \|\| addressChanged \|\| priceWantsRequote\)/.test(body));
+    /if\(\([^)]*priceWantsRequote[^)]*\) && !requoteBeingConverted\)/.test(body));
   check('S115', 'and the card records that it was the price that moved',
     /\{what:'price', oldPrice:/.test(body) && /newPrice: Number\(newHousePrice \|\| 0\)/.test(body),
     'a re-quote with the same feet and the same address and no reason is a card ' +
@@ -26834,7 +28297,7 @@ suite('Suite 116. Deleting the test records');
     const status = new Function('item', 'jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed',
 seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
       'return whHouseBuildStatus(item);');
     const ask = function(d, extras){
       const item = {id: 'a', data: d};
@@ -27240,6 +28703,12 @@ suite('Suite 112. The number on the bin');
       new Function('d', extractFn(admin, 'whBinNumberFor') + 'return whBinNumberFor(d);'),
       new Function('d', extractFn(admin, 'whBinNumberMoved') + 'return whBinNumberMoved(d);'),
       []).rows;
+  /* ⚠ whNoteText/whNotesCell ARE LIFTED INTO EVERY whSheetRowsForBuild SANDBOX,
+     never stubbed ([[WH-37]]). That pair decides what the Notes cell says on BOTH
+     build sheets, so a stub would let the warehouse tab and the printed page start
+     disagreeing about it with these suites still green - which is the whole reason
+     it is one function. Two sandboxes here died with a bare "whNotesCell is not
+     defined" the moment it was added: the extraction-list trap, working as intended. */
   /* ⭐ AN ADD-ON HAS TO LOOK LIKE AN ADD-ON. Owner, 2026-08-21: "when it builds an add on
      it should somehow indicate to the warehouse that what they built needs to go into a
      bin that already exists." The Put into column already named the bin, but the row
@@ -27249,9 +28718,12 @@ suite('Suite 112. The number on the bin');
   {
     const rows = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
-      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= 260 ? 1 : Math.ceil(f / 260); }' +
+      /* ⚠ THE REAL CUTOFF, INTERPOLATED — a second copy of this number is how a sandbox
+         keeps passing against a rule the app no longer has ([[WH-29]]). */
+      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= ' + CN_DOUBLE_BIN_FEET +
+        ' ? 1 : Math.ceil(f / ' + CN_DOUBLE_BIN_FEET + '); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const build = function(cust){
       return rows([{id: 'a1', data: cust}], [], (p, w) => p + '|' + (w || ''),
@@ -27316,6 +28788,12 @@ suite('Suite 112. The number on the bin');
         extractFn(money, 'cnBinsForFeet').replace('export ', '') +
         'const CN_DOUBLE_BIN_FEET = ' +
           (/CN_DOUBLE_BIN_FEET = (\d+)/.exec(money) || [0, '260'])[1] + ';' +
+        /* ⚠ whWireLabel IS LIFTED, NOT STUBBED (2026-09-17). The sheet's Wire column went
+           through it so a house nobody has looked at prints "Check lights" instead of a
+           blank cell — and this sandbox died with a bare ReferenceError until the real one
+           was given to it. The extraction-list trap, for the ninth time in this file; a stub
+           would keep the suite green through a change to what the warehouse is told. */
+        extractFn(admin, 'whWireLabel') +
         extractFn(admin, 'printNeedsBuildList') + 'return printNeedsBuildList();');
       const out = list(
         [{id: 'x', data: {name: 'Ashley Wray', customerNumber: '894',
@@ -27426,10 +28904,18 @@ suite('Suite 112. The number on the bin');
   check('S112', 'Mark Recycled clears the label, because the bin is empty now',
     /binLabelNumber: null,/.test(admin),
     'a stale label would send somebody to a bin that is already back');
-  check('S112', 'and finishing a build clears it too',
-    /needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null/.test(admin) &&
-    (admin.match(/binLabelNumber:null/g) || []).length >= 2,
-    'both the single Mark Done and the bulk one write their own update');
+  /* ⚠ REPOINTED 2026-09-17, NOT WEAKENED ([[WH-38]]). This matched the literal inline
+     write and counted TWO of it — pinned to the spelling and to there being a copy per
+     button. Both Mark Done paths share `whBuiltUpdates` now, so it failed on correct
+     code. It RUNS the rule instead: a regex cannot see what an object contains, and
+     "both buttons go through the one rule" is asserted in S107 beside it. */
+  {
+    const built = new Function('serverTimestamp',
+      extractFn(admin, 'whBuiltUpdates') + 'return whBuiltUpdates();')(function(){ return 'TS'; });
+    check('S112', 'and finishing a build clears it too',
+      built.binLabelNumber === null,
+      'a stale label sends somebody to a bin that has already been rebuilt: ' + JSON.stringify(built));
+  }
 
   /* ⭐ AND CONVERTING MOVES THE NUMBER WITHOUT ASKING. Owner: "when I click convert to
      customer, if the number changes that happens automatically so I dont have to manaily
@@ -27478,16 +28964,61 @@ suite('Suite 108. The Edit Customer save, actually run');
   const handlerSrc = at > 0 ? admin.slice(brace + 1, k) : '';
   check('S108', 'the save handler was found to run', !!handlerSrc);
 
+  /* ⭐ AND NO READ OF THE MODULE VARIABLE IS LEFT IN IT (2026-09-12). The checks further
+     down RUN the save with the id moving underneath it, which proves the mechanism —
+     but a fixture can only witness a read it happens to reach, and the red-check found
+     four it could not: the waived-fee log, the open-card lookup, the stamp on the card
+     being closed and the referral credit, each behind a branch this sandbox does not
+     enter. Twelve of these accumulated one at a time, and ONE left behind is the whole
+     bug, so the claim worth asserting is the absolute one.
+
+     THREE ARE ALLOWED AND NAMED: the entry guard, the capture itself, and the tail that
+     clears the module variable when the form closes. Anything else reading it after an
+     await is either a crash (Cancel, Remove) or a silent write onto the sibling house a
+     tab click repointed it at.
+     ⚠ COMMENTS STRIPPED, the rule Suites 58, 274, 275 and 300 each had to learn — the
+     capture's own note names the variable five times over. */
+  {
+     const bare = stripComments(handlerSrc);
+     const reads = (bare.match(/\beditCustomerId\b/g) || []).length;
+     check('S108', 'and no read of the module-level id is left anywhere in it',
+       reads === 3,
+       'expected exactly three: `if(!editCustomerId) return;`, the capture it feeds, ' +
+       'and the tail that clears it — found ' + reads + '. Every other read must use ' +
+       'the captured id, or a Cancel pressed mid-save crashes it and a house tab ' +
+       'silently writes onto the sibling');
+  }
+
   const AsyncFn = Object.getPrototypeOf(async function(){}).constructor;
 
   /* Ashley's own situation: 300 ft against a regular number, a re-quote in hand, and
      recycle-old-build-new chosen on the popup. */
   function runSave(opts) {
     const o = opts || {};
+    /* ⭐ WHERE THE MODULE-LEVEL `editCustomerId` LIVES FOR THIS RUN. `moves` is set by
+       a fixture that wants it to change part way through the save — `null` for Cancel
+       or Remove, another id for a house-tab click. */
+    const moves = Object.prototype.hasOwnProperty.call(o, 'moveIdTo');
+    const idBox = {v: 'c894'};
+    /* ⚠ WHAT THE HOOK ACTUALLY DID, recorded rather than assumed: a hook that has
+       silently stopped firing leaves the id where it started, every check below
+       passes on the UNFIXED handler too, and nothing says so. A red-check disabling
+       the move went straight through until this was here — the vacuous-fixture trap
+       CLAUDE.md records in four other places, in my own harness. */
+    const idSeen = [];
+    const routeCalls = [];
+    const idScope = new Proxy(idBox, {
+      has: (t, k) => k === 'editCustomerId',
+      get: (t, k) => (k === 'editCustomerId' ? t.v : undefined),
+      set: (t, k, val) => { if (k === 'editCustomerId') t.v = val; return true; }
+    });
     const FIELDS = {editCustName: 'Ashley Wray', editCustPhone: '8016160714',
       editCustEmail: 'wraynash@gmail.com', editCustAddress: '9991 Red Cedar Ln, Highland, UT',
-      editCustHousePrice: '600', editCustFeet: '300', editCustNumber: '894',
-      editCustRsvp: 'yes'};
+      /* ⚠ 400 FT, NOT 300 ([[WH-29]]). This fixture exists to prove the save MOVES them onto
+         the 5000 series, and 300 stopped being two bins when the cutoff went to 320 — it would
+         have gone on passing while proving the opposite. */
+      editCustHousePrice: '600', editCustFeet: '400', editCustNumber: '894',
+      editCustRsvp: o.rsvp || 'yes'};
     const els = {};
     const elm = (id) => els[id] || (els[id] = {id: id,
       value: FIELDS[id] !== undefined ? FIELDS[id] : '', textContent: '', innerHTML: '',
@@ -27502,14 +29033,29 @@ suite('Suite 108. The Edit Customer save, actually run');
     /* And what went into the customer's history — one entry per save, so the checks
        below can read the sentence rather than trusting the call was there. */
     const logged = [];
+    /* ⚠ SELECTOR-AWARE, so the colour tick boxes can be driven. Everything else still
+       answers with an empty list exactly as before.
+       ⚠ AND IT ANSWERS FOR THE FOUR SIDE BOXES NOW (2026-09-10, [[OPT-05]]). `o.sides`
+       is what is ticked on screen when Save is pressed, and the COUNT radio is DERIVED
+       from it here for the same reason the real form derives it — the two controls are
+       wired together, so a fixture able to set them apart would be testing a state the
+       page cannot be in. A fixture that leaves it out gets no ticks and a null radio,
+       which is exactly what an untouched form gives, so every existing check is
+       unaffected. */
+    const fakeDoc = {
+      getElementById: elm,
+      querySelectorAll: (sel) => {
+        const s = String(sel);
+        if (s.indexOf('editcust-color-check') !== -1) return (o.ticked || []).map((v) => ({value: v}));
+        if (s.indexOf('editcust-side-name') !== -1) return (o.sides || []).map((v) => ({value: v}));
+        return [];
+      },
+      querySelector: (sel) => (String(sel).indexOf('editcust-side-pick') !== -1 && (o.sides || []).length
+        ? {value: String((o.sides || []).length)} : null),
+      createElement: () => elm('_t')
+    };
     const ctx = {
-      /* ⚠ SELECTOR-AWARE NOW, so the colour tick boxes can be driven. Everything
-         else still answers with an empty list exactly as before. */
-      document: {getElementById: elm,
-                 querySelectorAll: (sel) => (String(sel).indexOf('editcust-color-check') !== -1
-                   ? (o.ticked || []).map((v) => ({value: v})) : []),
-                 querySelector: () => null,
-                 createElement: () => elm('_t')},
+      document: fakeDoc,
       /* ⚠ THE ASSUMED SEASON, LIFTED RATHER THAN TYPED (2026-08-31). The save handler
          reads it when the Which season box is left empty, so a sandbox without it dies
          with a bare ReferenceError and takes every suite after it down — and a copy
@@ -27524,7 +29070,12 @@ suite('Suite 108. The Edit Customer save, actually run');
       },
       deleteDoc: async (r) => { writes.push({op:'delete', col:r.col, id:r.id}); },
       addDoc: async (r, p) => { writes.push({op:'add', col:r.col, payload:p}); return {id:'n1'}; },
-      getDoc: async () => ({exists: () => false, data: () => ({})}),
+      /* ⚠ THE FRESHNESS READ IS THE HOOK, because it is the FIRST await in the handler
+         and it always runs — so a fixture moving the id here is modelling the earliest
+         realistic moment somebody can press Cancel or a house tab, with the whole save
+         still ahead of it. Later awaits would leave the early reads untested. */
+      getDoc: async () => { if (moves) { idBox.v = o.moveIdTo; idSeen.push(idBox.v); }
+        return {exists: () => false, data: () => ({})}; },
       serverTimestamp: () => 'NOW', db: {},
       editCustomerId: 'c894', editCustOpenedWithUpdatedAt: null,
       requoteBeingConverted: o.noRequote ? null : 'q1',
@@ -27551,7 +29102,9 @@ suite('Suite 108. The Edit Customer save, actually run');
       console: {error: (a, b) => errs.push(String(a) + ' ' + String(b && b.message || b)),
                 log: () => {}, warn: () => {}},
       logActivity: () => {}, paymentLedgerUser: () => 'test',
-      cnBinsForFeet: (f) => (Number(f) >= 260 ? 2 : 1),
+      /* ⚠ DERIVED FROM THE REAL CUTOFF ([[WH-29]]). Typed out, this stub went on
+         answering the 260 rule after the app moved to 320. */
+      cnBinsForFeet: (f) => (Number(f) > CN_DOUBLE_BIN_FEET ? 2 : 1),
       cnNextAvailable: () => ({number: '5001', fromPool: false}),
       compileLightsDescription: () => (o.lights || ''), computeInvoiceStatus: () => 'Unpaid',
       custInvoiceKey: (d) => String(d.phone || '').replace(/[^0-9]/g, ''),
@@ -27567,9 +29120,34 @@ suite('Suite 108. The Edit Customer save, actually run');
         '\nreturn carriedPaymentOnBillToChange;')(),
       extractCleanCity: () => 'Highland', generatePortalToken: () => 'tok',
       geocodeAddress: async () => ({lat: 40, lng: -111}),
-      houseSideCount: () => 1, quoteStage: () => 'send',
-      removeCustomerFromUpcomingRoutes: async () => {},
-      resyncSavedRouteStops: async () => {}, syncPayerInvoice: async () => {},
+      quoteStage: () => 'send',
+      /* ⚠ THE FOUR SIDES HELPERS, LIFTED — NOT STUBBED (2026-09-10, [[OPT-05]]). This
+         list is the extraction trap CLAUDE.md names by number: the save handler now
+         calls houseSidesPickedList and houseSideCount to decide whether a side was
+         added, and a sandbox missing either dies with a bare ReferenceError that names
+         28 unrelated checks and not the missing function. houseSideCount was `() => 1`
+         here until today, which was harmless while nothing branched on it and is not
+         now — a stub returning a constant makes "the office added a side" a branch no
+         test can reach while every check around it stays green. The two constants are
+         read out of admin.html for the same reason: a typed copy of the fill order
+         would go on passing against an order the app no longer has. */
+      ...(function () {
+        const consts = (admin.match(/^const HOUSE_SIDES?_[A-Z_]+ = .*$/gm) || []).join('\n');
+        const names = ['houseSideCount', 'houseSidesListFromValue', 'houseSidesPickedList',
+          'houseSidesWords', 'houseSidesChanged'];
+        const made = new Function('document',
+          consts + '\n' + names.map(n => extractFn(admin, n)).join('\n') +
+          '\nreturn {' + names.join(',') + '};');
+        return made(fakeDoc);
+      })(),
+      /* ⚠ THEY RECORD WHICH CUSTOMER THEY WERE HANDED (2026-09-12). Both took their id
+         and threw it away, so reverting either one to the module-level `editCustomerId`
+         was a sabotage nothing could see — a crew sent to the wrong house, or a stop left
+         pointing at the old address, with every check green. Stubs still, because what
+         they DO is proved elsewhere; it is the argument that had no witness. */
+      removeCustomerFromUpcomingRoutes: async (id) => { routeCalls.push({fn: 'remove', id: id}); },
+      resyncSavedRouteStops: async (id) => { routeCalls.push({fn: 'resync', id: id}); },
+      syncPayerInvoice: async () => {},
       requoteRestoreSaveLabel: () => {},
       /* ⭐ THE REAL COLOUR-CHANGE RULE, LIFTED OUT OF js/money.js — not a stub.
          A stub here would make every fee branch below untestable while reporting
@@ -27586,6 +29164,45 @@ suite('Suite 108. The Edit Customer save, actually run');
       warehouseRebuildFields: new Function('WAREHOUSE_BUILD_FIELDS',
         'return ' + extractFn(admin, 'warehouseRebuildFields') + ';warehouseRebuildFields')(
         ['lightsDescription', 'wireColor', 'outletTimer']),
+      /* ⚠ THE REAL TIMER-ONLY RULE, LIFTED — not a stub. Joined this list 2026-09-09,
+         in the same commit that made the save handler call it ([[WH-27]]): the
+         extraction-list trap CLAUDE.md describes, hit a FOURTH time and caught a fourth
+         time by this suite failing loudly rather than skipping — 28 failures across the
+         re-quote and colour-wipe checks, none of them about the thing that was missing.
+         A stub would decide for itself which saves are timer-only, which is exactly the
+         question under test. */
+      whTimerOnlyQueue: new Function('return ' + extractFn(admin, 'whTimerOnlyQueue') +
+        ';whTimerOnlyQueue')(),
+      /* ⚠ AND BOTH HALVES OF THE OTHER DIRECTION, LIFTED — not stubs. Joined this list
+         2026-09-11, in the same commit that made the save handler call them ([[WH-34]]):
+         the extraction-list trap CLAUDE.md describes, hit a SEVENTH time and caught a
+         seventh time by this suite failing loudly rather than skipping — 28 failures
+         across the re-quote, pool-write and colour-fee checks, not one of them naming the
+         function that was actually missing. Run the WHOLE suite after an extraction.
+         ⚠ whTimerRemovalQueue CALLS whTimerCameOff, so lifting one without the other
+         moves the same crash one line down rather than fixing it. */
+      whTimerCameOff: new Function('return ' + extractFn(admin, 'whTimerCameOff') +
+        ';whTimerCameOff')(),
+      whTimerRemovalQueue: new Function(extractFn(admin, 'whTimerCameOff') +
+        ';return ' + extractFn(admin, 'whTimerRemovalQueue') + ';')(),
+      /* ⚠ AND THE TWO FEE WRITERS, LIFTED — not stubs. Joined this list 2026-09-11, in
+         the same commit that extracted them so the All Customers panel could charge the
+         same $30 ([[MON-78]]): the extraction-list trap CLAUDE.md describes, hit an
+         EIGHTH time. A stub for either would decide for itself what lands on a bill,
+         which is the whole of what these four checks measure.
+         ⚠ addLightChangeFeeToInvoice CLOSES OVER getDoc/doc/setDoc/db/serverTimestamp
+         and computeInvoiceStatus, so it is built inside the sandbox's own scope rather
+         than in a bare one — a bare lift would throw on the first fee it tried to write. */
+      lightChangeCarryoverUpdates: new Function('return ' +
+        extractFn(admin, 'lightChangeCarryoverUpdates') + ';lightChangeCarryoverUpdates')(),
+      /* ⚠ THE REAL COLOUR READER, LIFTED — not a stub. Joined this list 2026-09-10, in the
+         same commit that made the fee path ask it ([[WH-28]]): the extraction-list trap
+         CLAUDE.md describes, hit a SIXTH time and caught a sixth time by this suite failing
+         loudly rather than skipping — 28 failures across the re-quote and colour-wipe checks,
+         none of them naming the missing function. A stub would decide for itself what colours
+         a house already had, which is the exact question the $30 turns on. */
+      houseLightsText: new Function('return ' + extractFn(admin, 'houseLightsText') +
+        ';houseLightsText')(),
       lightsLockMillis: new Function('return ' + extractFn(admin, 'lightsLockMillis') +
         ';lightsLockMillis')(),
       /* ⚠ THE REAL SEASON-YES RULE, LIFTED — not a stub. Joined this list 2026-08-24,
@@ -27701,13 +29318,55 @@ suite('Suite 108. The Edit Customer save, actually run');
       'document',
       'return ' + extractFn(admin, 'editCustReadBuildings') + ';editCustReadBuildings'
     )({ getElementById: function(){ return null; } });
+    /* ⭐ THE REAL INVOICE FEE WRITER, LIFTED — not a stub ([[MON-78]], 2026-09-11). It
+       was inline in this handler until today; the All Customers panel now charges the
+       same $30, so it is one named function and both callers ask it. Four checks below
+       read what it wrote, so a stub would answer the question they exist to measure.
+       ⚠ BUILT WITH THIS SANDBOX'S OWN FIRESTORE STUBS, because a `new Function` body
+       sees globals and never this ctx — the same reason the pool-failure notice above
+       is built the long way round. `async` is kept by asking for it explicitly: extractFn
+       matches "function NAME(" and drops the keyword, which turns a body full of bare
+       `await` into a parse error that kills the whole suite unattributably (CLAUDE.md §5). */
+    {
+      const st = admin.indexOf('async function addLightChangeFeeToInvoice(');
+      let b = admin.indexOf('{', st), d3 = 0, e = b;
+      if (st > 0) { for (;; e++) { if (admin[e] === '{') d3++; else if (admin[e] === '}') { d3--; if (!d3) break; } } }
+      const feeSrc = st > 0 ? admin.slice(st, e + 1) : '';
+      check('S108', 'the invoice fee writer was found to run', !!feeSrc,
+        'without it the four fee checks below prove nothing about what lands on a bill');
+      ctx.addLightChangeFeeToInvoice = new Function(
+        'getDoc', 'doc', 'setDoc', 'db', 'serverTimestamp', 'computeInvoiceStatus',
+        'return ' + feeSrc + ';addLightChangeFeeToInvoice'
+      )(ctx.getDoc, ctx.doc, ctx.setDoc, ctx.db, ctx.serverTimestamp, ctx.computeInvoiceStatus);
+    }
     const names = Object.keys(ctx);
-    const fn = new AsyncFn(...names, handlerSrc);
-    return fn(...names.map(n => ctx[n])).then(function(){
+    /* ⭐ `editCustomerId` IS MOVED UNDERNEATH THE SAVE THROUGH A `with` PROXY, NOT A
+       GLOBAL (2026-09-12). The claim under test is that a save started on one customer
+       finishes on that customer even though the module-level id moves mid-flight — so
+       the harness has to be able to MOVE it, which a parameter binding cannot do.
+       A global could, and would be flaky: the blocks below are pushed onto pendingAsync
+       and run CONCURRENTLY, so two runs would share one global and the failure would
+       come and go. The proxy is per run and cannot collide.
+       ⚠ ITS `has` TRAP ANSWERS FOR THAT ONE NAME AND NOTHING ELSE, so every other
+       identifier in the handler resolves down the ordinary scope chain to the
+       parameters exactly as it does in every other run. A blanket `has` would put the
+       whole handler behind the proxy and change what thirty other checks are running.
+       ⚠ AND IT IS ONLY BUILT WHEN A FIXTURE ASKS FOR IT: every existing run goes
+       through the untouched path below. */
+    const fn = moves
+      ? new AsyncFn(...names, '__idScope', 'with(__idScope){' + handlerSrc + '}')
+      : new AsyncFn(...names, handlerSrc);
+    return (moves ? fn(...names.map(n => ctx[n]), idScope) : fn(...names.map(n => ctx[n]))).then(function(){
       const cust = writes.find(w => w.col === 'jobAddresses' && w.op === 'update');
       const quote = writes.find(w => w.col === 'quotes');
-      return {writes: writes, errs: errs, cust: cust, quote: quote, asked: asked,
-              logged: logged,
+      /* ⚠ THE RAISED CARD, NOT THE CLOSED ONE. `quote` above is the first write to
+         quotes, which on the default fixture is the re-quote being ANSWERED; a new
+         re-quote is an addDoc, and reading the two off one name is how a check about
+         raising one passes on a save that only closed one. */
+      const raised = writes.find(w => w.col === 'quotes' && w.op === 'add');
+      return {writes: writes, errs: errs, cust: cust, quote: quote, raised: raised,
+              asked: asked, logged: logged, idAtEnd: idBox.v, idSeen: idSeen,
+              routeCalls: routeCalls,
               status: (els.editCustStatus || {}).textContent || ''};
     });
   }
@@ -27815,7 +29474,7 @@ suite('Suite 108. The Edit Customer save, actually run');
   if (handlerSrc) pendingAsync.push((async () => {
     const ok = await runSave({});
     check('S108', 'an ordinary re-quote save writes the customer',
-      !!ok.cust && ok.cust.payload.measuredFeet === 300,
+      !!ok.cust && ok.cust.payload.measuredFeet === 400,
       'the whole flow depends on this one write');
     check('S108', 'and closes the re-quote card',
       !!ok.quote && ok.quote.payload.status === 'closed',
@@ -27826,7 +29485,101 @@ suite('Suite 108. The Edit Customer save, actually run');
       'owner: "warehouse isnt being updated"');
     check('S108', 'and moves them onto the number series the footage needs',
       !!ok.cust && ok.cust.payload.customerNumber === '5001',
-      '300 ft is 2 bins, which is a 5000-series bin');
+      '400 ft is 2 bins, which is a 5000-series bin');
+
+    /* ⭐ WHICH SIDES, WRITTEN AND RE-QUOTED FROM THE OFFICE (2026-09-10, [[OPT-05]]).
+       Addie, in three messages: "can we also choose which sides like front,left side,
+       right side, back in costumers?", "Then sides will automatically choose based on
+       how many sides we chose", and "if I choose a new side on someones house which
+       should be multiple choose then it will send the house to requote indicating New
+       Side."
+
+       ⚠ noRequote ON ALL OF THESE, deliberately: the default fixture is already a
+       re-quote being APPLIED, and that guard suppresses raising another one — so
+       without it every check below would pass on a handler that raises nothing at all.
+       That is the vacuous-fixture trap this file names in five other places.
+
+       ⚠ AND THE FIXTURE'S measuredFeet MATCHES THE FORM'S 400, so the feet are not
+       what raises the card. With the record left on 0 these would pass whether the
+       sides were a trigger or not. */
+    const addedSide = await runSave({noRequote: true, cust: {measuredFeet: 400, houseSides: 1},
+      sides: ['Front', 'Right', 'Left']});
+    check('S108', 'the sides the office ticked are written onto the customer',
+      !!addedSide.cust && Array.isArray(addedSide.cust.payload.houseSidesList) &&
+      addedSide.cust.payload.houseSidesList.join(',') === 'Front,Left,Right' &&
+      addedSide.cust.payload.houseSides === 3,
+      'a form that collects an answer and does not save it is a shape this repo has ' +
+      'shipped once already');
+    check('S108', 'and adding a side raises a re-quote',
+      !!addedSide.raised && addedSide.raised.payload.changed &&
+      addedSide.raised.payload.changed.what === 'sides',
+      'Addie: "it will send the house to requote indicating New Side"');
+    check('S108', 'the card carries both counts so it can say which way it moved',
+      !!addedSide.raised && addedSide.raised.payload.changed.oldSideCount === 1 &&
+      addedSide.raised.payload.changed.newSideCount === 3,
+      'oldSides/newSides are a sentence for a person; comparing sentences would call ' +
+      'a Left-for-Right swap an addition');
+    check('S108', 'and says the office did it, so nobody assumes the customer knows',
+      !!addedSide.raised && addedSide.raised.payload.changed.by === 'office',
+      'the portal tells the customer they will be re-quoted; Edit Customer tells them ' +
+      'nothing, and the card has to say which happened');
+    /* ⚠ RUN THROUGH THE REAL LABEL, not asserted as a string here — the pill is the
+       "indicating New Side" half of what she asked for, and a check that read the
+       counts and stopped would prove nothing about what the office sees. */
+    check('S108', 'and the quote card calls it a New side',
+      new Function('d', extractFn(admin, 'quoteKindLabel') + 'return quoteKindLabel(d);')(
+        addedSide.raised ? addedSide.raised.payload : {}) === 'New side');
+
+    /* ⭐ AND A STRAIGHT SWAP IS A RE-QUOTE TOO (2026-09-10, [[OPT-06]]). Addie: "A swap
+       will be a requote cause we need to remark it."
+       ⚠ THIS CHECK PREVIOUSLY ASSERTED THE OPPOSITE, on [[OPT-04]] — "For left and
+       right side of the house on quoting those should usually be the same" — and it was
+       REWRITTEN rather than deleted, because the pair below is what the reversal
+       actually turns on: a swap is a re-quote, and filling in a blank still is not. The
+       old ruling was about the PRICE and is still true; hers is about the crew needing
+       to be told, which no price rule can carry. */
+    const swapped = await runSave({noRequote: true,
+      cust: {measuredFeet: 400, houseSides: 2, houseSidesList: ['Front', 'Left']},
+      sides: ['Front', 'Right']});
+    check('S108', 'swapping left for right at the same count raises a re-quote',
+      !!swapped.raised && swapped.raised.payload.changed.what === 'sides',
+      'Addie: "A swap will be a requote cause we need to remark it" — the crew hangs a ' +
+      'different roofline and a re-quote is the only thing here that tells them');
+    check('S108', 'and the swap is saved',
+      !!swapped.cust && swapped.cust.payload.houseSidesList.join(',') === 'Front,Right',
+      'the crew reads this to find the right side of the house');
+    /* ⚠ THE PILL SAYS NEITHER New side NOR Fewer sides on a swap, because neither is
+       true — the counts match. It falls back to her own 2026-08-18 wording. */
+    check('S108', 'and a swap is not labelled New side, because nothing was added',
+      new Function('d', extractFn(admin, 'quoteKindLabel') + 'return quoteKindLabel(d);')(
+        swapped.raised ? swapped.raised.payload : {}) === 'House addition',
+      'a pill claiming a side was added over a card showing two sides both ways is the ' +
+      'label contradicting the card underneath it');
+
+    /* ⭐ AND FILLING IN A BLANK IS NOT A CHANGE — the clause that makes [[OPT-07]]'s
+       auto-fill affordable. Without it, opening and saving a record would raise a
+       re-quote for every one of the ~956 houses nobody has ever been asked, with no
+       price to change on any of them. */
+    const named = await runSave({noRequote: true,
+      cust: {measuredFeet: 400, houseSides: 2},
+      sides: ['Front', 'Right']});
+    check('S108', 'naming the sides of a house that had none raises no re-quote',
+      !named.raised,
+      'an answer arriving where there was none is not a decision being reversed — and ' +
+      'this is the commonest save in the book');
+    check('S108', 'but the names are still written',
+      !!named.cust && named.cust.payload.houseSidesList.join(',') === 'Front,Right',
+      'not re-quoting it is not the same as not recording it');
+
+    /* ⚠ AND AN UNTOUCHED FORM STILL WRITES NOTHING. The auto-fill happens when a record
+       is OPENED, which this sandbox does not do — it runs the save handler alone — so a
+       fixture with no ticks is a form nobody filled in, and that must stay silent. */
+    const untouched = await runSave({noRequote: true, cust: {measuredFeet: 400}});
+    check('S108', 'a save with no sides ticked at all leaves the field absent',
+      !!untouched.cust &&
+      !Object.prototype.hasOwnProperty.call(untouched.cust.payload, 'houseSidesList'),
+      'a null written over nothing is a change-log row about a change that did not happen');
+    check('S108', 'and raises no re-quote', !untouched.raised);
 
     /* ⚠ AND ONE FAILING WRITE TO THE NUMBER POOL USED TO LOSE ALL OF IT. Those two
        pool writes run BEFORE the customer is written and the first was unguarded, so a
@@ -27835,7 +29588,7 @@ suite('Suite 108. The Edit Customer save, actually run');
        reported, and saying nothing at all. */
     const broke = await runSave({breakPool: true});
     check('S108', 'the customer is still saved when the number pool write fails',
-      !!broke.cust && broke.cust.payload.measuredFeet === 300,
+      !!broke.cust && broke.cust.payload.measuredFeet === 400,
       'the pool is recoverable by hand from the Customer Numbers panel; a lost save ' +
       'is not, and this is the exact shape of what the owner was seeing');
     check('S108', 'and the re-quote still closes',
@@ -28091,6 +29844,99 @@ suite('Suite 108. The Edit Customer save, actually run');
     check('S108', 'and does not flag the warehouse',
       !!plain.cust && plain.cust.payload.needsLightRecycle !== true,
       'the recycle flag belongs to the re-quote choice, not to every save');
+  })());
+
+  /* ⭐ THE SAVE FINISHES ON THE CUSTOMER IT STARTED ON (2026-09-12).
+     Two admin errors on 2026-09-09, to two different users, an hour apart:
+     "Edit Customer save failed: null is not an object (evaluating 's.indexOf')" in
+     Safari and "Cannot read properties of null (reading 'indexOf')" in Chrome. Nothing
+     in either message named a line of ours, and all four bare `.indexOf` calls in
+     admin.html are guarded — so it is vendor code being handed a null.
+
+     ⚠ SETTLED BY READING THE SHIPPED SDK, NOT BY REASONING ABOUT IT. @firebase/firestore
+     4.6.3 (what firebase-firestore.js 10.12.2 carries) validates doc()'s SECOND argument
+     with __PRIVATE_validateNonEmptyArgument and passes every trailing segment straight
+     into ResourcePath.fromString, whose loop opens `if (n.indexOf("//") >= 0)`. So
+     doc(db,'jobAddresses', null) throws exactly those two messages, one per engine.
+
+     ⛔ AND THE HANDLER HANDS IT ONE. `editCustomerId` is module level, this handler is
+     async, and its `if(!editCustomerId) return;` runs ONCE — while twelve reads sat
+     downstream of an await. The popup stays on screen throughout, so Cancel, the X and
+     Remove are all live and all set it to null; the house-tab strip is worse, because
+     openEditCustomerModal REPOINTS it and the customer write then lands on a sibling
+     house with no error at all. The crash is the half that reported itself.
+
+     ⚠ RUN, NOT READ, AND THE RUN IS THE ONLY THING THAT PROVES IT. A source check that
+     the capture exists passes while one read underneath still says editCustomerId, and
+     that one read is the whole bug — which is how twelve of them accumulated. */
+  if (handlerSrc) pendingAsync.push((async () => {
+    const cancelled = await runSave({noRequote: true, moveIdTo: null});
+    check('S108', 'pressing Cancel mid-save does not crash the save',
+      !cancelled.errs.some(e => /indexOf|not an object|Cannot read propert/i.test(String(e))),
+      'this is the Safari/Chrome pair from the Errors folder on 2026-09-09, and it ' +
+      'reached the customer as five grey words');
+    check('S108', 'and the customer is still written',
+      !!cancelled.cust,
+      'the save was already in flight; abandoning it half way leaves the record part ' +
+      'saved, which is worse than either fault this closes');
+    check('S108', 'and written to the customer it started on',
+      !!cancelled.cust && cancelled.cust.id === 'c894',
+      'the id is captured before the first await, so a button pressed during it ' +
+      'cannot move the target');
+
+    /* ⛔ THE SILENT HALF. A house tab moves the id rather than clearing it, so the
+       write is perfectly well formed and lands on the wrong person. Nothing goes red,
+       nobody is told, and the customer overwritten was not open on anybody's screen. */
+    const switched = await runSave({noRequote: true, moveIdTo: 'c999'});
+    check('S108', 'switching house tab mid-save does not write onto the sibling',
+      !!switched.cust && switched.cust.id === 'c894',
+      'this one throws nothing at all — it overwrites a customer nobody was editing');
+    check('S108', 'and every other write of the save goes to that same customer',
+      switched.writes.filter(w => w.col === 'jobAddresses').every(w => w.id === 'c894'),
+      'one read left on the module variable is the whole bug, so the claim has to be ' +
+      'about all of them rather than about the one the fixture happens to reach');
+    /* ⚠ AND THE TWO THINGS THE SAVE FILES UNDER THE CUSTOMER RATHER THAN WRITING TO
+       THEM. Both were MISSED by the first red-check pass: the history entry would have
+       been filed against a customer nobody edited, and the new re-quote card would have
+       carried the sibling's id — so answering it later would apply one house's price to
+       another. Neither throws, and neither had a witness until now. */
+    check('S108', 'the history entry is filed against the customer that was saved',
+      switched.logged.length > 0 && switched.logged.every(e => e.refId === 'c894'),
+      'a change filed against the sibling is a history of something that never ' +
+      'happened to them, on the one screen that is meant to answer why');
+    check('S108', 'and a re-quote raised by the save points back at that customer',
+      !!switched.raised && switched.raised.payload.existingCustomerId === 'c894',
+      'answering that card later applies this house\u2019s new price to the other one');
+
+    /* ⚠ AND THE TWO ROUTE SWEEPS, WHICH WRITE NOTHING THIS SANDBOX CAN SEE. A red-check
+       reverting resyncSavedRouteStops to the module variable was MISSED until their
+       stubs started recording what they were handed — the crew would have been sent to
+       one house with another house's gate code, and nothing would have gone red. */
+    const swept = await runSave({noRequote: true, moveIdTo: 'c999',
+      cust: {rsvpStatus: 'yes'}, rsvp: 'no'});
+    check('S108', 'and so do the route sweeps',
+      swept.routeCalls.some(c => c.fn === 'resync') &&
+      swept.routeCalls.some(c => c.fn === 'remove') &&
+      swept.routeCalls.every(c => c.id === 'c894'),
+      'a stop resynced against the sibling puts one house\u2019s gate code on another');
+
+    /* ⚠ AND THE FIXTURE HAS TO BE ABLE TO FAIL. If the proxy never moved anything,
+       every check above would pass on the unfixed handler too — the vacuous-fixture trap
+       this file records in four other places. The tail of the save clears the module
+       variable on purpose, so seeing it back at null is not proof; seeing the MOVED
+       value arrive is. */
+    const moved = await runSave({noRequote: true, moveIdTo: 'c999'});
+    check('S108', 'the fixture really does move the id underneath the save',
+      moved.idSeen.length === 1 && moved.idSeen[0] === 'c999',
+      'a hook that had stopped firing would leave the id where it started and every ' +
+      'check above would pass on the unfixed handler too');
+    check('S108', 'and the fixture really is wired into the handler\u2019s own scope',
+      moved.idAtEnd === null,
+      'the hook sets idBox DIRECTLY, so finding c999 there at the end would mean the\n' +
+      '      handler had been reading and writing a parameter the whole time and all five\n' +
+      '      checks above were vacuous. Only the save\u2019s own closing line can put it back to\n' +
+      '      null, and it can only do that THROUGH the proxy — which is the same trap object\n' +
+      '      that serves every read');
   })());
 }
 
@@ -28758,9 +30604,13 @@ suite('Suite 85. Nobody is left off the sheet, and who counts as confirmed');
         /addrUpdates\.requoteAppliedAt = serverTimestamp\(\);/.test(admin),
         'requotedAt is a field on the quote, not the customer');
       const save = sectionFrom(admin, admin.indexOf("document.getElementById('editCustSaveBtn').addEventListener"));
+      /* ⚠ REPOINTED OFF THE ID VARIABLE (2026-09-12), already scoped to this handler:
+         the claim is where the customer write SITS, not what names its id. */
       check('S85', 'and set BEFORE the customer record is written',
+        save.indexOf('requoteAppliedAt') > -1 &&
+        save.indexOf("updateDoc(doc(db,'jobAddresses', ") > -1 &&
         save.indexOf('requoteAppliedAt') <
-          save.indexOf("updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates)"),
+          save.indexOf("updateDoc(doc(db,'jobAddresses', "),
         'the block that closes the quote runs AFTER that write, so anything added to ' +
         'addrUpdates down there is never saved');
 
@@ -30819,7 +32669,6 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
             '<form id="f">' +
             '<div id="qdSimpleColorsRow"></div><div id="qdSequenceBuilderWrap"></div>' +
             '<input type="checkbox" id="qdSpecificPatternToggle">' +
-            '<select name="wire_color"><option value="Any"></option><option value="White"></option><option value="Green"></option></select>' +
             '<select name="install_month"><option value="Normal Schedule"></option><option value="October"></option><option value="November"></option></select>' +
             '<label class="radio-pill"><input type="radio" name="outlet_timer" value="Yes"></label>' +
             '<label class="radio-pill"><input type="radio" name="outlet_timer" value="No"></label>' +
@@ -30848,7 +32697,6 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
             (box.seq || []).join(', ') === 'Pure White, Pure White, Red',
             '"White, White, Red" shown as two ticked circles is a different set of lights');
           check('S70', 'the wire colour, timing and timer they already have are filled in',
-            fd.querySelector('[name="wire_color"]').value === 'Any' &&
             fd.querySelector('[name="install_month"]').value === 'October' &&
             fd.querySelector('input[name="outlet_timer"][value="Yes"]').checked === true);
           check('S70', 'and the outlet box is opened because they use a specific one',
@@ -30866,15 +32714,12 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
             fd.getElementById('qdSpecificPatternToggle').checked === false &&
             (box.simple || []).join(', ') === 'Red, Green',
             'two different colours is a set, not a repeating pattern');
-          /* ⚠ THE 'Any' CASE ABOVE CANNOT PROVE THE WIRE COLOUR IS WRITTEN, and the
-             fixture is not at fault — 'Any' is the FIRST option and carries `selected`
-             on the real page too, so a select nobody touched already reads 'Any'.
-             Deleting the wire-colour line entirely left that check green. This one
-             asserts a value only the prefill can produce. */
-          check('S70', 'and the wire colour is really written, not just left on its default',
-            fd.querySelector('[name="wire_color"]').value === 'Green',
-            'filling it in and not filling it in are indistinguishable on the default ' +
-            'value, so this is the assertion that actually holds the line');
+          /* ⛔ THE WIRE COLOUR CHECKS THAT LIVED HERE ARE GONE WITH THE QUESTION (2026-09-17).
+             Addie: "don't add what wire color they want but push check lights then warehouse
+             chooses what wire they have on file." They proved the prefill wrote a real value
+             rather than resting on the 'Any' default — a good check about a form that no
+             longer asks, so it is REMOVED rather than repaired (the quote-card.test.js
+             precedent), and replaced by the one below asserting the question is really gone. */
           /* ⚠ THE TWO DEFENSIVE PATHS, which every fixture above walks straight past.
              Both were red-checked and neither was caught until these existed. */
           box.fill({lightColors: ['Red','Green'],
@@ -30886,12 +32731,19 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
             'so the description has to be read first — but mining colours out of a ' +
             'sentence would drop the half that matters, so an unreadable one falls ' +
             'back to the ticked list rather than guessing at it');
-          fd.querySelector('[name="wire_color"]').value = 'White';
           box.fill({lightColors: ['Red'], lightsDescription: 'Red', wireColor: 'Purple'});
-          check('S70', 'a wire colour the form does not offer is refused, not written blank',
-            fd.querySelector('[name="wire_color"]').value === 'White',
-            'assigning a select a value it has no option for leaves it showing NOTHING, ' +
-            'which then saves as a blank wire colour over a real one');
+          /* ⛔ AND THE QUESTION IS REALLY GONE, from the page AND from what the form posts.
+             Asserted on the SOURCE rather than the sandbox, because the sandbox only holds
+             the markup this suite hands it: a check there would prove nothing about what a
+             real customer is shown. */
+          check('S70', 'the quote form no longer asks anybody for a wire colour',
+            idx.indexOf('name="wire_color"') === -1,
+            'Addie took the question off on 2026-09-17: the cord is ours to pick, and a ' +
+            'default of Any is how every record ended up claiming a colour nobody chose');
+          check('S70', 'and the detail form posts none either',
+            !/wireColor:\s*fd\.get/.test(idx),
+            'a field still posted would be stamped on the quote and carried to the customer ' +
+            'by conversion, which is the invented colour arriving by a different door');
         }
       }
 
@@ -31194,6 +33046,27 @@ suite('Suite 72. An RSVP never goes to somebody who has never had lights');
   check('S72', 'and the screen says it happened',
     /New customers are left out automatically/.test(adm),
     'automatic is fine, invisible is not');
+
+  /* ⭐ AND NOBODY WHO HAS ALREADY ANSWERED (2026-09-07). Dax: "exclude people who are
+     confrmed." The server batch has always done this — runArrearsRsvpBatch skips on
+     `if (answered) continue;` — so the failure this guards is the two paths asking one
+     question of different books: the nightly chase leaving answered customers alone
+     while the office's own Send to Selected re-asked all of them. */
+  check('S72', 'choosing an RSVP template also drops anyone who already answered',
+    /etTemplateIsRsvp\(t\)[\s\S]{0,200}etFilterRsvp = 'pending'/.test(handler),
+    'a second "have you decided?" to somebody who already said yes reads as the ' +
+    'office losing their answer');
+  check('S72', 'and it is the same DEFAULT, not a lock',
+    !/etFilterRsvp.*disabled|disabled.*etFilterRsvp/.test(adm),
+    'asking a declined customer again is a real thing the office does');
+  check('S72', 'and the screen says that happened too',
+    /already answered is left out automatically/.test(adm),
+    'a shorter list with no reason reads as a lost audience');
+  check('S72', 'the server batch skips them for the same reason',
+    /const answered = String\(d\.rsvpStatus \|\| ''\)\.trim\(\);[\s\S]{0,120}if \(answered\)/
+      .test(fs.readFileSync(path.join(__dirname, 'functions', 'index.js'), 'utf8')),
+    'if the batch ever stops skipping, the screen and the schedule disagree about ' +
+    'who is still being asked, and this pairing is the only thing that would say so');
 }
 
 
@@ -31542,14 +33415,24 @@ suite('77. Schedule route generator');
     check('S77', 'nothing is dropped by re-ordering',
       d2.houses.length === 8 && before.every(h => d2.houses.indexOf(h) > -1),
       'a lost stop is a customer nobody visits, and it is invisible on a printed sheet');
-    /* ⚠ ASSERTS THE WHOLE ORDER, not just that the spare is last. It arrives
-       last in the fixture too, so "is it on the end" is true before the code
-       runs — and dropping the concat that carries it makes the day come back a
-       different length, which the guard turns into "leave the day alone". Only
-       the full order tells those two apart. */
-    check('S77', 'a house in neither crew\'s town is kept, on the end, and the day is still ordered',
-      d2.houses.map(h => h.name).join() === 'L1,L3,L4,L2,A1,A3,A2,Nowhere',
-      'it still has to be driven to — got [' + d2.houses.map(h => h.name).join() + ']');
+    /* ⚠ ASSERTS THE WHOLE ORDER, not just where the spare lands. It arrived last in
+       the fixture too, so "is it on the end" was true before the code ran — and
+       dropping the concat that carries it makes the day come back a different length,
+       which the guard turns into "leave the day alone". Only the full order tells
+       those two apart, and that is still why this asserts all eight.
+       ⚠ REPOINTED 2026-09-10 BY [[SCH-67]]. It read:
+         "a house in neither crew’s town is kept, on the end, and the day is still
+          ordered"
+           d2.houses.map(h => h.name).join() === "L1,L3,L4,L2,A1,A3,A2,Nowhere"
+       ON THE END was the old behaviour and was the symptom: the house belonged to no
+       crew, so generateDayRoutes tacked it on after both runs. It is carried by the
+       Lehi crew now and driven inside THEIR run — L1,L3,L4,L2,Nowhere then A1,A3,A2 —
+       which is the difference between a stop somebody drives to and a stop printed
+       underneath everybody. */
+    check('S77', "a house in neither crew's town is driven inside a crew's run",
+      d2.houses.map(h => h.name).join() === 'L1,L3,L4,L2,Nowhere,A1,A3,A2',
+      'it still has to be driven to, and by somebody in particular — got [' +
+      d2.houses.map(h => h.name).join() + ']');
 
     /* A plan imported today has no coordinates on anything. It must come back
        whole rather than throwing or emptying the day. */
@@ -31770,9 +33653,15 @@ suite('77. Schedule route generator');
     check('S77', 'each route on screen counts from 1',
       html.indexOf('<stop>L1#1</stop>') > -1 && html.indexOf('<stop>A1#1</stop>') > -1,
       'the crew counting down the screen and the crew counting down the sheet must agree');
-    check('S77', 'a house in neither town is still drawn, and says so',
-      /routehead spare/.test(html) && html.indexOf('<stop>N1#1</stop>') > -1,
-      'a stop nobody holds a sheet for is a stop nobody drives to');
+    /* ⚠ REPOINTED 2026-09-10 BY [[SCH-67]]. It read:
+         "a house in neither town is still drawn, and says so"
+           /routehead spare/.test(html) && html.indexOf("<stop>N1#1</stop>") > -1
+       The spare block was the panel being honest about a house on nobody’s sheet.
+       There are none now, so the block is gone and the house is drawn under the crew
+       that carries it. Still drawn, which was always the point. */
+    check('S77', 'a house in neither town is drawn under the crew that carries it',
+      html.indexOf('<stop>N1#') > -1 && !/routehead spare/.test(html),
+      "it must appear on a crew's route rather than in a bucket of its own");
     panel.setCrews(null);
   }
 }
@@ -31971,11 +33860,16 @@ suite('Suite 117. The colour-change fee, actually charged');
 
   const ruleSrc = extractFn(fns, 'applyLightChangeServer');
   const toMillisSrc = extractFn(fns, 'toMillis');
-  check('S117', 'and the rule and the timestamp reader are both findable',
-    !!ruleSrc && !!toMillisSrc,
+  /* ⚠ THE BLOCK CALLS THIS NOW ([[WH-28]]) — lifted, never stubbed. It decides what counts as
+     the colours a house ALREADY had, which is the whole question the fee turns on: a stub
+     would answer it for itself and the suite would prove nothing. The extraction-list trap,
+     hit a fifth time and caught a fifth time by the suite failing loudly. */
+  const lightsTextSrc = extractFn(fns, 'houseLightsTextServer');
+  check('S117', 'and the rule, the timestamp reader and the colour reader are all findable',
+    !!ruleSrc && !!toMillisSrc && !!lightsTextSrc,
     'extracted rather than stubbed on purpose: a stub would agree with itself');
 
-  if (a !== -1 && b > a && ruleSrc && toMillisSrc) {
+  if (a !== -1 && b > a && ruleSrc && toMillisSrc && lightsTextSrc) {
     const blockSrc = fns.slice(a, b);
 
     /* A fake Firestore that records what was written. Deliberately small, and
@@ -32059,7 +33953,7 @@ suite('Suite 117. The colour-change fee, actually charged');
       const updates = { lightsDescription: newLights };
       return new Function('db', 'admin', 'toMillis', 'section', 'updates', 'oldData',
         'oldKey', 'match', 'console',
-        ruleSrc + '\nconst LIGHT_CHANGE_FEE = 30;\nconst LIGHT_WINDOW_MS = 48*60*60*1000;\n' +
+        ruleSrc + '\n' + lightsTextSrc + '\nconst LIGHT_CHANGE_FEE = 30;\nconst LIGHT_WINDOW_MS = 48*60*60*1000;\n' +
         'return (async function(){\n' + blockSrc + '\nreturn lightFeeInfo;\n})();')
         (db, fakeAdmin, new Function('return ' + toMillisSrc + ';toMillis')(),
          'lights', updates, cust, inv ? '8015550100' : '', { id: 'c1' }, console)
@@ -32550,16 +34444,38 @@ suite('122. Out of the yard and back, and a picture of it');
   check('S122', 'a real customer record at the yard still wins over the estimate',
     home.indexOf('custByAddrKey') < home.indexOf('estimatedPinFromAddress'),
     'same rule as everywhere else: measured beats calculated');
-  const ord = sectionFrom(admin, admin.indexOf('function orderHousesForDriving(list)'));
+  /* ⚠ ANCHORED ON THE NAME, NOT THE SIGNATURE. This read 'orderHousesForDriving(list)'
+     and the function gained an optional second argument on 2026-09-09 — indexOf then
+     returned -1 and sectionFrom sliced from the top of the file, so both checks below
+     failed on code that was right. A signature is not a stable anchor. */
+  const ord = sectionFrom(admin, admin.indexOf('function orderHousesForDriving(list'));
   /* ⚠ THE YARD IS BOTH ENDS ON BOTH PATHS. Since Suite 124 the day may be
      ordered in two passes when somebody lives out on their own, and the SECOND
      pass is the one that has to finish at the yard — checking only the simple
      path would go green while every day with an outlier ended in the wrong place. */
-  check('S122', 'every crew route is ordered yard-to-yard',
-    /reorderFlatStops\(points, home, home\)/.test(ord),
-    'both legs, or the day still ends wherever the last cluster happened to be');
+  /* ⚠ REPOINTED 2026-09-09, AND THIS ONE IS A REAL CHANGE RATHER THAN A MOVED STRING.
+     It read:
+       'every crew route is ordered yard-to-yard'
+       /reorderFlatStops\(points, home, home\)/
+     The ordinary path now finishes at the NEXT AREA the crews are working, not at the
+     yard, so that a house left unfinished is near tomorrow — measured at 21 miles a
+     season including the drive home, against a leftover that ends up half as far from
+     the next box. See Suite 317, which runs it. What is kept and asserted here is that
+     the aim DEFAULTS to the yard, so every caller that names none is unaffected.
+     ⛔ The far-houses pass below still ends at the yard and is untouched. */
+  check('S122', 'the ordinary path is aimed, and falls back to the yard when it is not',
+    /const aim = \(opts && opts\.aim && stopHasPin\(opts\.aim\)\) \? opts\.aim : home;/.test(ord) &&
+    /reorderFlatStops\(points, start, aim\)/.test(ord),
+    'without the fallback every caller that names no aim silently loses its end point');
+  /* ⛔ REPOINTED 2026-09-10 BY [[SCH-71]], AND THE GUARANTEE IS UNCHANGED. It read:
+       /reorderFlatStops\(split\.out,[\s\S]{0,120}home\);/
+     which named split.out because the far houses were always the SECOND pass. They are
+     not any more — the branch builds the day both ways round and drives the shorter
+     one, so on a day where the "far" group is really a knot near the yard they go
+     first. What Addie's rule actually asks for is that whichever pass runs second ends
+     at the yard, and that is what this now says. */
   check('S122', 'and the far-houses pass finishes at the yard too',
-    /reorderFlatStops\(split\.out,[\s\S]{0,120}home\);/.test(ord),
+    /return head\.concat\(reorderFlatStops\(second,[\s\S]{0,120}home\)\);/.test(ord),
     'owner: "still remembering 209 s 850 w is the end point"');
 
   /* ---- the picture ---- */
@@ -32733,6 +34649,25 @@ suite('123. The two crew maps, actually rendered');
       global.isoOf = real('isoOf');
       global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
       global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
+      /* ⚠ THE FORECAST TABLE, because renderDayMaps draws the chips into its own
+         caption and since [[SCH-70]] those chips read SEASON_FORECAST to work out WHY
+         they are empty. Empty here on purpose — this suite is about the maps, and an
+         empty table is the state most of the season is really in. Without it the whole
+         suite died on a bare ReferenceError, which is what the jsdom run is for.
+         ⚠ AND forecastReachesTo IS LIFTED rather than stubbed: it reads this table, so
+         a stub would answer a horizon the table does not have. */
+      global.SEASON_FORECAST = { at: 0, byTown: {}, towns: 0, days: 0, error: '', pending: null };
+      global.forecastReachesTo = eval(extractFn(admin, 'forecastReachesTo') +
+        LF_ + 'forecastReachesTo');
+      /* ⚠ THE REAL ONES, NOT FAKES WEARING THEIR NAMES — the reliability gate refuses
+         that, rightly: a sandbox that later forgets to supply one would silently get
+         the stub and grade against it. Both are small and read only what is above. */
+      global.extractCleanCity = real('extractCleanCity');
+      global.forecastHighFor = eval(extractFn(admin, 'forecastHighFor') +
+        LF_ + 'forecastHighFor');
+      global.COLD_DAY_MAX_F = 31;
+      global.cityOf = real('cityOf');
+      global.dayAreas = real('dayAreas');
 
       const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(crewStart, crewEnd) +
         LF_ + admin.slice(mapStart, mapEnd) + LF_ +
@@ -33753,7 +35688,13 @@ suite('Suite 128. The do-not-send list — automation emails only');
       /* ⚠ LIFTED REAL, NOT STUBBED. The renderer takes the no-email people out at the
          end and counts them, and this is the rule that decides who those are — a stub
          would make the count untestable while reporting green (CLAUDE.md §3). */
-      const canEmailSrc = extractFn(admin, 'custCanBeEmailed') || '';
+      /* ⚠ AND THE RULE IT ASKS (the Errors folder, 2026-09-12). custCanBeEmailed calls
+         emailAddressProblem, so lifting it alone dies on a bare ReferenceError and takes
+         the whole suite down unscored — the extraction-list trap, caught by this suite
+         within a minute of the change. Lifted real, never stubbed: a stub would decide
+         who is reachable, which is the one thing these checks are about. */
+      const canEmailSrc = (extractFn(admin, 'emailAddressProblem') || '') +
+                          (extractFn(admin, 'custCanBeEmailed') || '');
       /* ⚠ THE SELECTION UI PAINTER IS LIFTED REAL TOO, not stubbed. It reads
          `etSelectedRecipientIds`, and the fake document below answers null for every id
          it asks for — which is exactly the guarded path the shipped function takes when
@@ -33901,6 +35842,52 @@ suite('Suite 128. The do-not-send list — automation emails only');
         'they did match — saying they did not sends the office looking at the filters');
     }
 
+    /* ⭐ AND THE OTHER REASON IS COUNTED SEPARATELY (the Errors folder, 2026-09-12). Holding a bad
+       address back is only safe while it is SAID — a guard that silently shrinks an
+       audience is the failure this whole count line exists to prevent, and under
+       confirmed-only a customer who is never asked is a house no crew is sent to.
+       ⚠ THE TWO NUMBERS ARE DELIBERATELY NOT ONE. "We have no address for them" and "the
+       address we have is wrong" are different jobs — find one, or correct one — and the
+       second is the one that can be pressed at for ever through the Send again button. */
+    {
+      const r = render([
+        { id: 'g7', data: { name: 'Gil Twoaddresses', phone: '7', email: 'gil@x.com, gil2@x.com' } },
+        { id: 'h8', data: { name: 'Hal Noaddress', phone: '8' } },
+        { id: 'i9', data: { name: 'Ivy Fine', phone: '9', email: 'ivy@x.com' } }
+      ], 'hide');
+      check('S128', 'an address that cannot be sent to is held back',
+        r.html.indexOf('Gil Twoaddresses') === -1,
+        'EmailJS answers this one with 422 "The recipients address is corrupted" — ' +
+        'spending the request only produces a failure row nobody can act on');
+      check('S128', 'and everybody sendable is still there',
+        r.html.indexOf('Ivy Fine') !== -1,
+        'refusing a real address is worse than the 422 it prevents');
+      check('S128', 'the count line names the bad-address group on its own line',
+        /1 left out: the address on file is not one we can send to/.test(r.count),
+        'folded into the no-address note it reads as "we have no address", which is ' +
+        'the one thing it is not — the address is right there and it is wrong');
+      check('S128', 'and still names the no-address group separately',
+        /1 left out: no email address on file/.test(r.count),
+        'two causes, two fixes — one number cannot say which applies to whom');
+      check('S128', 'and tells her to correct the record',
+        /correct it/.test(r.count),
+        '"The recipients address is corrupted" is what she read twice in two days ' +
+        'and it names nothing to do');
+      check('S128', 'the people who DID match are still counted correctly',
+        /^1 member matches these filters\./.test(r.count),
+        'the exclusion notes annotate the count, they do not replace it');
+    }
+
+    /* ⚠ AND AN AUDIENCE EMPTIED ENTIRELY BY BAD ADDRESSES STILL EXPLAINS ITSELF. Without
+       this it falls through to "No members match these filters", which is the same lie
+       the check above it was written to stop. */
+    {
+      const r = render([{ id: 'j1', data: { name: 'Jan Bad', phone: '1', email: 'jan@x' } }], 'hide');
+      check('S128', 'an empty list explains itself when the addresses were unusable too',
+        r.html.indexOf('No members match') === -1 && /No one left to send to/.test(r.html),
+        'they matched — the addresses are what stopped them');
+    }
+
     /* ---- 3. the control that adds somebody, and where it sits ---- */
     {
       const r = render(book(), 'hide');
@@ -33932,13 +35919,33 @@ suite('Suite 128. The do-not-send list — automation emails only');
        and sits EARLIER in the file, so the plain id captured its slice and these two
        checks failed on code that is right — the slow-fuse shape S82 and S129 each hit. */
     const previewSend = sectionFrom(admin, admin.indexOf("document.getElementById('etSendToSelectedBtn').addEventListener"));
+    /* ⚠ REPOINTED 2026-09-07, AND THE GUARANTEE IS STRONGER RATHER THAN WEAKER. The
+       loop moved out of this listener into `etSendTemplateRun` so the whole-RSVP button
+       could reuse it instead of growing a second copy — so asserting the gate sits
+       INSIDE the listener now fails on code that is right, which is the slow-fuse shape
+       this suite's own comment above already names twice. What must be true is that the
+       thing which actually mails carries the gate, and that the listener reaches it
+       rather than sending on its own. Both are checked. */
+    const sender = extractFn(admin, 'etSendTemplateRun') || '';
+    check('S128', 'the one sender is findable',
+      !!sender,
+      'renamed or removed — repoint these checks rather than deleting them; without ' +
+      'this slice the two below pass vacuously against an empty string');
     check('S128', 'Preview & Send refuses to mail somebody on the list',
-      /etNoAutomationEmails\(member\.data\)/.test(previewSend),
+      /etNoAutomationEmails\(member\.data\)/.test(sender),
       'the ticks are read at send time, so a row ticked just before somebody was ' +
       'added to the list is still a selected id');
     check('S128', 'and counts them apart from real failures',
-      /optedOut\+\+/.test(previewSend) && /do-not-send list/.test(previewSend),
+      /optedOut\+\+/.test(sender) && /do-not-send list/.test(previewSend),
       'a deliberate exclusion is not a failure, and reading it as one hides both');
+    /* ⚠ AND THE LISTENER MUST DELEGATE, NEVER MAIL ON ITS OWN. A second loop growing
+       back inside this handler is the two-senders failure rebuilt one level down: the
+       gate above would still pass, on a function the button no longer uses. */
+    check('S128', 'the send button goes through that one sender',
+      /etSendTemplateRun\(/.test(previewSend) &&
+      !/emailjs\.send\(/.test(previewSend),
+      'the handler mails directly again — one book, two senders, and the do-not-send ' +
+      'list then holds depending on which button was pressed');
     /* ⚠ THE SECOND SENDER MUST STAY GONE. Re-adding a modal that lists customers
        without the ten filters and without this list is the whole failure above,
        rebuilt. Both names, because either half alone is half a sender. */
@@ -33960,10 +35967,34 @@ suite('Suite 128. The do-not-send list — automation emails only');
      customer has stopped being invoiced without anyone deciding that. */
   {
     const fns = read('functions/index.js');
-    check('S128', 'the server has never heard of noAutomationEmails',
-      fns.indexOf('noAutomationEmails') === -1,
-      'nightly invoicing, the quote nudge and the SMS path all live here — a ' +
-      'refusal to be marketed at is not a refusal to be told what you owe');
+    /* ⚠ REPOINTED 2026-09-10, NOT WEAKENED — and the repointing makes it stricter.
+       This was `fns.indexOf('noAutomationEmails') === -1` across the WHOLE file, which
+       held only because nothing on the server had ever needed the field. EM-16's RSVP drip
+       does need it and correctly: an RSVP is an automation email, `rsvpWholePlan` has
+       always honoured the list on the browser side, and a drip that ignored it would mail
+       somebody who asked us not to. A file-wide absence is the §7 slow-fuse shape — pinned
+       to where a string happens to sit rather than to what must be true — so the claim is
+       now made about the paths it was always ABOUT: the money, the nudge and the texts.
+       ⚠ AND THE ONE READER IS NAMED. Asserting three functions are clean would pass if a
+       fourth sender started reading it, so the check also requires every mention on the
+       server to be inside `rsvpStillOwedServer`. That is what the old one-line version was
+       really buying, stated directly. */
+    const dripGate = sectionFrom(fns, fns.indexOf('function rsvpStillOwedServer'));
+    check('S128', 'the drip\'s own gate is findable',
+      dripGate.length > 200 && dripGate.indexOf('noAutomationEmails') !== -1,
+      'renamed — repoint this rather than dropping it; it is what scopes the money guard');
+    check('S128', 'and it is the ONLY thing on the server that reads the list',
+      fns.split('noAutomationEmails').length - 1 ===
+        dripGate.split('noAutomationEmails').length - 1,
+      'a second server reader of the do-not-send list — check it is not a billing or a ' +
+      'text path before allowing it');
+    ['runInvoiceBatch', 'runQuoteNudgeBatch', 'twilioSendRaw'].forEach(function(fn){
+      const body = sectionFrom(fns, fns.indexOf('function ' + fn));
+      check('S128', fn + ' has never heard of noAutomationEmails',
+        body.length > 100 && body.indexOf('noAutomationEmails') === -1,
+        'nightly invoicing, the quote nudge and the SMS path all live here — a ' +
+        'refusal to be marketed at is not a refusal to be told what you owe');
+    });
     /* The invoice the customer is actually shown and emailed. Anchored on a
        function that really exists, so this cannot pass by slicing nothing. */
     const invDoc = sectionFrom(admin, admin.indexOf('function buildInvoiceDocHtml'));
@@ -34113,12 +36144,16 @@ suite('Suite 128. The do-not-send list — automation emails only');
   {
     const canSrc = extractFn(admin, 'custCanBeEmailed');
     const chipSrc = extractFn(admin, 'custEmailChip');
+    /* ⚠ LIFTED, NOT STUBBED (the corrupted-address fault, 2026-09-12). Both of these now ask emailAddressProblem —
+       that IS the rule under test here — so a stub would answer for it and every check
+       below would prove the stub. */
+    const probSrc128 = extractFn(admin, 'emailAddressProblem');
     check('S128', 'the can-we-email-them rule and its chip are findable',
-      !!canSrc && !!chipSrc,
+      !!canSrc && !!chipSrc && !!probSrc128,
       'renamed — the Customers filter and the row badge both read these');
 
-    if (canSrc && chipSrc) {
-      const api = new Function('esc', canSrc + chipSrc +
+    if (canSrc && chipSrc && probSrc128) {
+      const api = new Function('esc', probSrc128 + canSrc + chipSrc +
         ';return {can: custCanBeEmailed, chip: custEmailChip};')(s => String(s == null ? '' : s));
 
       check('S128', 'a customer with an email can be emailed',
@@ -34143,6 +36178,93 @@ suite('Suite 128. The do-not-send list — automation emails only');
       check('S128', 'somebody reachable gets no chip at all',
         api.chip({ email: 'a@b.com' }) === '',
         'a badge on every row is a badge nobody reads');
+
+      /* ⭐ AN ADDRESS EMAILJS REFUSES IS NOT A REACHABLE CUSTOMER (the Errors folder, 2026-09-12,
+         from the Errors folder). Two rows a day apart — "1 of 258 failed … The recipients
+         address is corrupted", then "1 of 1 failed" with the same words, which is the
+         failure card's Send again button arriving back at the same unsendable address.
+         `quotesToNudge` has read this rule since it was written and says why in as many
+         words; the customers side never did. RUN, not matched: the claim is about which
+         side of the line one address falls. */
+      check('S128', 'two addresses in one box cannot be emailed',
+        api.can({ email: 'a@b.com, c@d.com' }) === false,
+        'to_email takes exactly one address — this is the commonest cause of the 422');
+      check('S128', 'an address with a space in it cannot be emailed',
+        api.can({ email: 'sam smith@gmail.com' }) === false);
+      check('S128', 'an address with no @ cannot be emailed',
+        api.can({ email: 'sam.gmail.com' }) === false);
+      check('S128', 'an address whose domain has no ending cannot be emailed',
+        api.can({ email: 'sam@gmail' }) === false);
+      /* ⚠ THE HALF THAT MATTERS MORE. A guard that refuses a real address silently drops
+         a customer from every send, and under confirmed-only that is a house no crew is
+         sent to. These are ordinary addresses that must survive. */
+      ['sam@gmail.com', 'sam+lights@gmail.com', "o'brien@example.co.uk",
+       'first.last@sub.domain.org', 'SAM@Gmail.Com', '  sam@gmail.com  '].forEach(function (ok) {
+        check('S128', 'an ordinary address is still reachable: ' + ok.trim(),
+          api.can({ email: ok }) === true,
+          'refusing a real address is worse than the 422 it prevents — there is no way round it');
+      });
+      /* ⚠ AND IT IS NOT THE TYPO DETECTOR. emailTypoSuggestion GUESSES that gmai.com meant
+         gmail.com and only ever warns, because a guess about somebody else's address must
+         not block a real send. A one-letter-wrong domain is a perfectly valid address and
+         has to stay sendable here. */
+      check('S128', 'a domain that is merely misspelt is still sent to',
+        api.can({ email: 'sam@gmai.com' }) === true,
+        'blocking on a typo GUESS is the one thing the no-auto-fix rule forbids');
+      /* ⚠ THE ROW HAS TO SAY WHICH IT IS. "No email" printed beside a visible address
+         reads as a bug in the badge — the chip's own comment makes that argument for the
+         secondary-only case, and this is the same shape. */
+      check('S128', 'a bad address is badged as one, not as "No email"',
+        /Can/.test(api.chip({ email: 'a@b.com, c@d.com' })) &&
+        !/No email/.test(api.chip({ email: 'a@b.com, c@d.com' })),
+        'the address is on the record and wrong — saying we have none sends her hunting');
+    }
+
+    /* ⭐ AND EVERY SENDER ASKS BEFORE SPENDING A REQUEST (the corrupted-address fault, 2026-09-12). The rule above keeps
+       a bad address out of the recipient LIST; this is what stops the re-send, which takes
+       its ids straight from the saved failure list and never goes near that list. */
+    {
+      const skipSrc = extractFn(admin, 'emailSendSkipReason');
+      check('S128', 'the skip-reason rule is findable',
+        !!skipSrc, 'renamed — every bulk sender files its `why` from this');
+      if (skipSrc && probSrc128) {
+        const skip = new Function(probSrc128 + skipSrc + ';return emailSendSkipReason;')();
+        check('S128', 'a usable address is not skipped',
+          skip({ email: 'sam@gmail.com' }) === '');
+        check('S128', 'a blank one says so plainly',
+          /no email address on file/.test(skip({})));
+        /* ⚠ THE REASON NAMES THE FIX. EmailJS's own "The recipients address is corrupted"
+           is what the office read twice in two days and it names no part of the problem
+           and nothing to do about it. */
+        check('S128', 'a bad address names the record as the thing to correct',
+          /correct the address on their record/.test(skip({ email: 'a@b.com, c@d.com' })),
+          'the Send again button can be pressed for ever otherwise');
+      }
+      /* ⚠ NAMED ONE BY ONE, and the anchors are each sender's own loop. A file-wide
+         search for the helper passes with four of the five left unguarded, which is
+         exactly how the bins column shipped on one of two build sheets. */
+      [['bulkUpdateEmailStatus', 'the Automation-tab bulk update'],
+       ['rsvpEmailTemplate', 'the RSVP-tab send'],
+       ['pibUnpaidSendStatus', 'the unpaid-invoice send'],
+       ['pibPaidSendStatus', 'the receipt send']].forEach(function (pair) {
+        const at = admin.indexOf(pair[0]);
+        const body = at === -1 ? '' : sectionFrom(admin, at);
+        check('S128', pair[1] + ' asks before it sends',
+          /emailSendSkipReason\(/.test(body),
+          'one bad address costs a request and a failure row every single run');
+      });
+      const runSrc = extractFn(admin, 'etSendTemplateRun') || '';
+      check('S128', 'and so does the template sender the re-send goes back through',
+        /emailSendSkipReason\(member\.data\)/.test(runSrc),
+        'this is the one the Errors folder caught twice — 1 of 258, then 1 of 1');
+      /* ⚠ AFTER THE OPT-OUT, NEVER BEFORE IT. Somebody who asked for no automation email
+         is not a bad-address problem, and reporting them as a failure puts work on the
+         office for a choice the customer made. */
+      check('S128', 'the opted-out check still comes first',
+        runSrc.indexOf('etNoAutomationEmails(member.data)') !== -1 &&
+        runSrc.indexOf('etNoAutomationEmails(member.data)') <
+          runSrc.indexOf('emailSendSkipReason(member.data)'),
+        'an opt-out is a decision, not a failure to report');
     }
 
     const render = sectionFrom(admin, admin.indexOf('function renderAllCustomersTable()'));
@@ -34250,7 +36372,11 @@ suite('Suite 137. A decline asks a question, it does not cancel their season');
        exists to ask (what a decline does to their season) with itself. Added the moment
        the real function gained the call: sandboxDeps named it in the failure, which is
        exactly what that guard is for. */
-    'stampSeasonStatusServer'];
+    'stampSeasonStatusServer',
+    /* ⚠ LIFTED, NOT STUBBED (2026-09-11). It decides whether the decline is
+       ALLOWED to clear the status, so a stub answering true makes the pending-move
+       check below pass on code that never consults it. */
+    'quoteAnswerMayClearStatusServer'];
   const src = {};
   NEEDED.forEach(n => { src[n] = extractFn(fns, n); });
   const missing = NEEDED.filter(n => !src[n]);
@@ -34453,6 +36579,44 @@ suite('Suite 137. A decline asks a question, it does not cancel their season');
           !w.messages.length && !w.customers.c1.askSameAsLastYear,
           'owner: "we won\'t have an info for them yet" — the quote is archived ' +
           'and that is the whole of it');
+      }
+
+      /* ---- 2b. A MOVE NOBODY HAS APPLIED IS NOT THIS QUOTE'S TO CLEAR ----
+         QT-37. The portal's move door is a second writer of address_changed and
+         only the office APPLYING the move answers it, so a "same as last year"
+         refusal must leave it standing. ⚠ THE FIXTURE CARRIES pendingAddress AND
+         address_changed TOGETHER, which is the only shape that can fail: with the
+         status alone the clear is correct, and with the pending address alone
+         there is no status to clear. */
+      {
+        const w = makeWorld({ customers: { c1: member({
+          seasonStatus: 'address_changed',
+          pendingAddress: '9 Oak St, Springville 84663',
+          pendingMoveDate: 'mid-October'
+        }) } });
+        const res = await w.run({ existingCustomerId: 'c1', name: 'Rachel Oslund' }, 'q1');
+        check('S137', 'a pending move survives a decline, status and all',
+          res.reached === true &&
+          w.customers.c1.seasonStatus === 'address_changed' &&
+          w.customers.c1.pendingAddress === '9 Oak St, Springville 84663',
+          'the office row would read Confirmed while a house we have not ' +
+          're-quoted is waiting to be applied — the one signal saying so, gone');
+        check('S137', 'and nothing dates a status change that did not happen',
+          !w.customers.c1.seasonStatusAt && !w.customers.c1.seasonStatusWas,
+          'stampSeasonStatusServer only stamps a status it is actually writing; ' +
+          'a date here would claim the question was answered');
+        check('S137', 'the question they were asked is still recorded',
+          w.customers.c1.askSameAsLastYear === true,
+          'holding the status back must not swallow the decline itself — they ' +
+          'still said no, and somebody still has to ask them');
+        /* ⚠ AND THE ORDINARY CASE STILL CLEARS. A guard that held every status
+           back would look identical on this fixture and break the hole the
+           clearing was written to close. */
+        const w2 = makeWorld({ customers: { c1: member() } });
+        await w2.run({ existingCustomerId: 'c1', name: 'Rachel Oslund' }, 'q1');
+        check('S137', 'a customer with no pending move is still cleared as before',
+          w2.customers.c1.seasonStatus === 'confirmed',
+          'the guard is about a move, not about declining');
       }
 
       /* ---- 3. NEVER BY PHONE ALONE -------------------------------------
@@ -34694,7 +36858,9 @@ suite('Suite 138. Declining an add-on refuses the add-on, not the season');
 
   /* ---- 2. declineAddOnOnly, RUN ---------------------------------------- */
   const NEED = ['declineAddOnOnly', 'quoteCustomerRef', 'quoteMatchesExistingCustomer',
-    'quoteMatchAddressServer', 'digitsOnly', 'tryFirestore', 'flagQuoteFollowUp'];
+    'quoteMatchAddressServer', 'digitsOnly', 'tryFirestore', 'flagQuoteFollowUp',
+    /* ⚠ LIFTED, NOT STUBBED (2026-09-11) — see the same entry in Suite 137. */
+    'quoteAnswerMayClearStatusServer'];
   const parts = {};
   NEED.forEach(n => { parts[n] = lift(fns, n); });
   const gone = NEED.filter(n => !parts[n]);
@@ -34856,6 +37022,40 @@ suite('Suite 138. Declining an add-on refuses the add-on, not the season');
         check('S138', 'a customer with nothing to clear is not written to',
           w.customers.c1.seasonStatus === 'confirmed' && w.messages.length === 1,
           'the note still goes — the office needs telling either way');
+      }
+
+      {
+        /* ⭐ AND NEITHER IS A MOVE NOBODY HAS APPLIED (QT-37, 2026-09-11). Same
+           argument as the cancellation request above, arrived at from the other
+           end: address_changed now has TWO writers, and the portal's move door
+           is answered by the office applying the move, not by an add-on refusal.
+           ⚠ THE FIXTURE NEEDS BOTH HALVES — the status AND the pending address.
+           Either alone passes whether the guard is there or not. */
+        const w = makeWorld({ c1: inSeason({
+          seasonStatus: 'address_changed',
+          pendingAddress: '9 Oak St, Springville 84663'
+        }) });
+        const res = await w.run({ existingCustomerId: 'c1', requoteKind: 'addition' });
+        check('S138', 'a pending move is NOT cleared by an add-on refusal',
+          w.customers.c1.seasonStatus === 'address_changed' &&
+          w.customers.c1.pendingAddress === '9 Oak St, Springville 84663' &&
+          res.seasonStatusCleared !== true,
+          'the row would read Confirmed while a house we have not re-quoted ' +
+          'waits to be applied');
+        check('S138', 'and the refusal itself is still recorded and reported',
+          res.reached === true && res.addOnOnly === true && w.messages.length === 1,
+          'holding the status back must not swallow the answer — the office ' +
+          'still needs telling the extra is off');
+      }
+      {
+        /* ⚠ THE OPPOSITE DIRECTION, and it is what stops the guard being widened
+           into the hole the clearing closed: an address_changed with NO pending
+           move is an ordinary re-quote question and still clears. */
+        const w = makeWorld({ c1: inSeason({ seasonStatus: 'address_changed' }) });
+        const res = await w.run({ existingCustomerId: 'c1', requoteKind: 'addition' });
+        check('S138', 'an address_changed with no pending move still clears',
+          w.customers.c1.seasonStatus === 'confirmed' && res.seasonStatusCleared === true,
+          'the guard is about an unapplied move, not about the word');
       }
 
       /* ---- a new lead, and the best-effort guards ---------------------- */
@@ -35934,12 +38134,22 @@ suite('Suite 131. An outstanding add-on rides along with the RSVP');
      real email is one nobody proof-read; one that appears only in the preview
      is a promise that never arrives. Both ask the same two questions, which is
      why rsvpTemplateHasAddOn exists rather than the test being written twice. */
+  /* ⚠ REPOINTED 2026-09-08, NOT WEAKENED. This matched the literal
+     `etTemplateIsRsvp(template) &&`, so it failed on correct code the moment the real
+     send hoisted that answer into `isRsvp` to reuse it for the referral count — pinned
+     to where a string happened to sit rather than to what must be true, the same
+     slow-fuse shape as S82, S129 and the folder-names suite. The guarantee is unchanged
+     and both spellings are still counted; the alias is checked separately below so it
+     cannot come to mean something else. */
   const appends = stripComments(admin).match(
-    /etTemplateIsRsvp\(template\) && !rsvpTemplateHasAddOn\(template\.data\.body\)/g) || [];
+    /(?:etTemplateIsRsvp\(template\)|isRsvp) && !rsvpTemplateHasAddOn\(template\.data\.body\)/g) || [];
   check('S131', 'the send, the preview and the test send all append it the same way',
     appends.length === 3,
     'found ' + appends.length + ' of 3 — the on-screen preview, the test send ' +
     'and the real send must produce the same email');
+  check('S131', 'and the alias the send uses is that same question',
+    /const isRsvp = etTemplateIsRsvp\(template\);/.test(stripComments(admin)),
+    'isRsvp bound to anything else turns the check above into a check on a word');
 
   /* ⚠ ONLY ON AN RSVP. An add-on offer at the foot of an invoice or a receipt
      is not what either of those emails is for, and a second set of yes/no
@@ -36374,11 +38584,21 @@ suite('Suite 133. A wire or timer change reaches the warehouse');
          either throws or, worse, runs a different rule than the one on disk. */
       const b = fnsLF.indexOf("  if (section === 'lights'", a);
       const blk = fnsLF.slice(a, b);
+      /* ⚠ LIFTED, NEVER STUBBED ([[WH-34]], 2026-09-11 — and this suite died with a bare
+         `whTimerCameOffServer is not defined` the moment the block started calling it,
+         which is the extraction-list trap working as intended). A stub here would keep
+         the suite green through a change to WHO the warehouse is told about, which is the
+         one thing these checks exist to hold. */
+      const offSrc = extractFn(fnsLF, 'whTimerCameOffServer');
+      check('S133', 'the portal carries the timer-removal rule',
+        !!offSrc && /outletTimer/.test(offSrc),
+        'without it a customer switching their own timer off reaches nobody');
       const run = (oldData, updates) => {
-        new Function('oldData', 'updates', 'warehouseRebuildFields',
+        new Function('oldData', 'updates', 'warehouseRebuildFields', 'whTimerCameOffServer',
           blk)(oldData, updates,
           new Function('WAREHOUSE_BUILD_FIELDS', sSrc + ';return warehouseRebuildFields;')(
-            JSON.parse(sList[1].replace(/'/g, '"'))));
+            JSON.parse(sList[1].replace(/'/g, '"'))),
+          new Function(offSrc + ';return whTimerCameOffServer;')());
         return updates;
       };
       check('S133', 'changing the wire in the portal queues the warehouse',
@@ -36399,19 +38619,61 @@ suite('Suite 133. A wire or timer change reaches the warehouse');
           .needsLightBuild === true,
         'writing false here would bring back the bug where saving a customer ' +
         'with no colours silently cleared the build they were owed');
+      /* ⭐ AND A TIMER SWITCHED OFF IN THE PORTAL REACHES Remove Timer ([[WH-34]]).
+         ⚠ RUN, NOT MATCHED, because the claim is about a FLAG ON A RECORD. The whole
+         reason this field exists is that "used to have a timer" is readable off nothing
+         once the save lands, so a rule that quietly stops writing it cannot be noticed
+         from any screen afterwards. */
+      check('S133', 'a timer switched OFF in the portal queues the removal',
+        run({ outletTimer: 'Yes' }, { outletTimer: 'No' }).needsTimerRemoved === true,
+        'the record now looks exactly like the ~900 houses that never had one, so ' +
+        'nobody is ever told to take it out of their bin');
+      check('S133', 'and switching it ON does not',
+        run({ outletTimer: 'No' }, { outletTimer: 'Yes' }).needsTimerRemoved === undefined,
+        'a removal queued by somebody ASKING for a timer sends the warehouse to undo ' +
+        'the job it was just told to do');
+      /* ⚠ THE BUILD IS UNTOUCHED EITHER WAY on this side. functions/index.js has never had
+         [[WH-27]]'s timer-only routing, and [[WH-34]] deliberately did not add half of it
+         here — what the portal gained is the FLAG, which is the part that cannot be
+         re-derived later. Asserted so the asymmetry is a decision rather than a drift. */
+      check('S133', 'and the portal still queues the build as it always did',
+        run({ outletTimer: 'Yes' }, { outletTimer: 'No' }).needsLightBuild === true,
+        'the routing half of [[WH-27]]/[[WH-34]] is browser-only and was not half-ported');
+      check('S133', 'changing their mind takes the removal back',
+        run({ outletTimer: 'No', needsTimerRemoved: true }, { outletTimer: 'Yes' })
+          .needsTimerRemoved === false,
+        'nothing has been pulled while the flag is up, so a timer switched back on ' +
+        'cancels the job — the same shape as a pending recycle being cancelled');
+      check('S133', 'but an unrelated save never touches the removal flag',
+        run({ outletTimer: 'Yes', needsTimerRemoved: true }, { notes: 'x' })
+          .needsTimerRemoved === undefined,
+        'writing it on every save would clear a job somebody still has to do');
     }
   }
 
   /* ---- 3. and the office side does too -------------------------------- */
+  /* ⚠ REPOINTED 2026-09-09, NOT WEAKENED. Both of these matched the literal
+     `if(warehouseRebuildFields(item.data, addrUpdates).length) ...` — where the rule
+     happened to SIT, not what has to be true — so they failed on correct code the moment
+     [[WH-27]] gave a timer-only change its own branch. Same slow-fuse shape as S82, S129
+     and the folder-names suite. */
+  const admStripped = stripComments(admin);
   check('S133', 'the office save asks the same question',
-    /if\(warehouseRebuildFields\(item\.data, addrUpdates\)\.length\) addrUpdates\.needsLightBuild = true;/
-      .test(stripComments(admin)),
+    /warehouseRebuildFields\(item\.data, addrUpdates\)/.test(admStripped) &&
+    /whChanged\.length\)\s*addrUpdates\.needsLightBuild = true;/.test(admStripped),
     'a member can change their wire in the portal and the office can change it ' +
     'on their record — both have to reach the same queue');
+  /* ⭐ AND THE ONE CASE THAT IS DELIBERATELY NOT A BUILD ([[WH-27]]). Addie: "we don't
+     need to worry about lights just about getting a timer in there bin." A timer alone on
+     a house with no colours goes to its own queue instead — asserted here so the carve-out
+     cannot be widened into "a wire change is not a build either", which it is not. */
+  check('S133', 'and a timer alone on a colourless house goes to its own queue',
+    /whTimerOnlyQueue\(item\.data, addrUpdates, whChanged, newLightsDescription\)/.test(admStripped) &&
+    /addrUpdates\.needsTimerOnly = true;/.test(admStripped),
+    'it queued a bundle nobody wanted, and with no colours the row could never clear');
   /* ⚠ AFTER the existing lights expression, never before or instead of it. */
-  const admStripped = stripComments(admin);
   const iLights = admStripped.indexOf('addrUpdates.needsLightBuild = newLightsDescription');
-  const iWire = admStripped.indexOf('if(warehouseRebuildFields(item.data, addrUpdates).length)');
+  const iWire = admStripped.indexOf('warehouseRebuildFields(item.data, addrUpdates)');
   check('S133', 'and does it after the colour rule, not instead of it',
     iLights !== -1 && iWire > iLights,
     'that expression is what keeps a build OWED for a customer with no colours ' +
@@ -37171,8 +39433,18 @@ suite('Suite 140. A finished fix takes its photo with it');
     doneSrc.indexOf("updateDoc(doc(db, 'jobAddresses', id), fields)") <
     doneSrc.indexOf('hlxRetireFixPhoto'),
     'the done state is what matters; the photo is cleaned up behind it');
+  /* ⚠ REPOINTED 2026-09-11, NOT WEAKENED. This proved the gating by asserting that NO
+     bare `kind === 'fix')` appeared anywhere in the function — that is, by pinning to a
+     string's absence rather than to what must be true. [[FIX-02]] added a second fix
+     branch that legitimately runs on BOTH sides (the System notice is raised when a
+     fault is reported and cleared when it is mended), so the old form began failing on
+     code that is right. It now asks the real question: the branch the DESTROY sits in
+     is gated on `done`. Same slow-fuse shape as S82, S129 and the folder-names suite. */
+  const destroyAt = doneSrc.indexOf('hlxRetireFixPhoto');
+  const guardBefore = doneSrc.lastIndexOf("kind === 'fix'", destroyAt);
   check('S140', 'only when marking done, never when unticking',
-    /kind === 'fix' && done\b/.test(doneSrc) && !/kind === 'fix'\s*\)/.test(doneSrc),
+    destroyAt > 0 && guardBefore > 0 &&
+    /^kind === 'fix' && done\b/.test(doneSrc.slice(guardBefore)),
     'unticking a fix must not destroy the photo the office is about to look at');
   check('S140', 'and the field is cleared only if the picture really went',
     /if \(gone\.cleared\) \{/.test(doneSrc),
@@ -43325,10 +45597,17 @@ suite('263. Priced is not sent - the card stays in Quotes');
   /* ---- and the folder, which is the tab she is actually looking at --- */
   check('S263', 'the Quotes TAB is where an unsent priced quote is filed',
     folder({ quotedPrice: 600 }) === 'new');
-  check('S263', 'a re-quote still goes to Re-quotes, sent or not',
-    folder({ quotedPrice: 600, existingCustomerId: 'c1' }) === 'requote' &&
-    folder({ quotedPrice: 600, existingCustomerId: 'c1', quoteSentAt: ts() }) === 'requote',
-    'the re-quote folder was never about how far along the card is');
+  /* ⭐ REPOINTED 2026-09-17 ([[QT-43]]). This read "a re-quote still goes to Re-quotes,
+     sent or not — the re-quote folder was never about how far along the card is", and
+     that is exactly what Addie changed: "Everything on requotes that is awaiting response
+     should go under awaiting response." Sent is now the whole of what decides it, so the
+     two halves are asserted apart rather than the check being dropped. */
+  check('S263', 'an unsent re-quote is still filed under Re-quotes',
+    folder({ quotedPrice: 600, existingCustomerId: 'c1' }) === 'requote',
+    'nothing has gone out, so nobody is being waited on — that is a job for us');
+  check('S263', 'and a sent one is filed under Awaiting Response',
+    folder({ quotedPrice: 600, existingCustomerId: 'c1', quoteSentAt: ts() }) === 'send',
+    'one list of everyone the office is chasing, which is the whole of the ruling');
 
   /* ⚠ THE TEST-CARD BUILDER HAS TO AGREE. It stages a card into a named tab by
      writing fields; if "sent" stops meaning what it writes, Build Test Customer
@@ -43384,9 +45663,15 @@ suite('263. Priced is not sent - the card stays in Quotes');
       /followQuoteToItsStage\(id, \{quotedPrice: price, quoteToken: token, quoteSentAt: quoteSentNowStamp\(\)/.test(rows),
       'without it the card sits in Quotes until the snapshot lands and then jumps ' +
       'out of the tab she is looking at, which reads as the send having eaten it');
-    check('S263', 'and so do the other three ways of sending it',
-      (rows.match(/followQuoteToItsStage\(id, \{quoteSentAt: quoteSentNowStamp\(\), quoteManuallySent: true\}\)/g) || []).length === 3,
-      'sendQuoteEmailNow, the email preview box and the text - a new send path ' +
+    /* ⚠ THREE BECAME TWO ON 2026-09-12 ([[QT-41]]), and the count moved with the code
+       rather than the guarantee being weakened. The third was the TEXT send, which called
+       Twilio; there is no Twilio account, so that button could never work and it is gone —
+       the quote card now copies the message and opens the Google Voice thread, and a copy
+       is not a send, so it files nothing and stamps nothing. If a real send path is ever
+       added back, this number goes up with it. */
+    check('S263', 'and so do the other two ways of sending it',
+      (rows.match(/followQuoteToItsStage\(id, \{quoteSentAt: quoteSentNowStamp\(\), quoteManuallySent: true\}\)/g) || []).length === 2,
+      'sendQuoteEmailNow and the email preview box - a new send path ' +
       'that skips this is a card that vanishes');
     check('S263', 'saying you sent it yourself files it too, and undoing files it back',
       /followQuoteToItsStage\(id, \{quoteManuallySent: true\}\)/.test(rows) &&
@@ -43615,6 +45900,38 @@ suite('265. Measure Roof - the captured picture is clean, and can be marked up')
     /ctx\.clearRect\(0, 0, canvas\.width, canvas\.height\);/.test(paint),
     'drawing over the last version leaves the old lines under the new picture');
 
+  /* ⭐ THE SQUASHED HOUSE (2026-09-11). Owner: "his house is completely squashed
+     because you couldnt see it on my screan." Jeffrey Marz's photograph was
+     saved 893x36 — a house at nearly 25:1 — because the screenshot is cropped to
+     the pane and the pane was scrolled almost off the bottom of the window.
+
+     ⚠ THE OLD GUARD ASKED THE ELEMENT, NOT THE WINDOW. `rect.height > 20` is the
+     LAYOUT height, full at any scroll position, so it never fired; the collapse
+     happened afterwards in `ch`, clamped to `vh - cy`. These run the real
+     function against real rectangles rather than reading the source, because the
+     bug was never in whether a guard existed — it was in which number it read. */
+  const paneClipped = real('rmPaneClipped', { window: { innerWidth: 1000, innerHeight: 800 } });
+  check('S265', 'a pane fully on screen is not clipped',
+    paneClipped({ left: 100, top: 100, right: 900, bottom: 700, width: 800, height: 600 }) === false,
+    'if a pane in plain view counts as clipped, every capture falls back and the dots are never on the picture');
+  check('S265', 'a pane scrolled nearly off the bottom IS clipped',
+    paneClipped({ left: 100, top: 764, right: 900, bottom: 1364, width: 800, height: 600 }) === true,
+    'this is Jeffrey Marz exactly: 600px of pane, 36px of it on the glass, saved as the photograph');
+  check('S265', 'a pane scrolled off the top is clipped too',
+    paneClipped({ left: 100, top: -560, right: 900, bottom: 40, width: 800, height: 600 }) === true,
+    'off the top reads the wrong band of the frame rather than a short one — same bad picture, harder to spot');
+  check('S265', 'a pane flush to the edge is NOT clipped by a sub-pixel',
+    paneClipped({ left: 0, top: 0, right: 1000, bottom: 800, width: 1000.4, height: 800.3 }) === false,
+    'without slack, sub-pixel layout sends every full-screen capture to the fallback');
+  const grab = extractFn(admin, 'rmGrabPane') || '';
+  check('S265', 'the capture scrolls a clipped pane into view before measuring again',
+    /rmPaneClipped\(rect\)/.test(grab) && /scrollIntoView/.test(grab) &&
+    /rect = el\.getBoundingClientRect\(\);/.test(grab),
+    'measuring once means a pane that could have been shown whole is photographed as a sliver anyway');
+  check('S265', 'and a pane that still will not fit falls back instead of saving a sliver',
+    /&& !rmPaneClipped\(rect\)\)\{/.test(grab),
+    'the fallback fetches a correctly proportioned photograph; a 25:1 house on a record is for ever');
+
   const lineWire = (admin.split("getElementById('rmCropLines').addEventListener")[1] || '').slice(0, 800);
   check('S265', 'the toggle is really wired and redraws',
     !!lineWire && /rmCrop\.lines = this\.checked;/.test(lineWire) && /rmComposeCapture\(\);/.test(lineWire),
@@ -43639,10 +45956,66 @@ suite('265. Measure Roof - the captured picture is clean, and can be marked up')
     'the tool existed; reaching it took three navigations from where you already were');
   /* ⚠ ONE ATTACH, TWO DOORS. A second copy of the upload loop is a second place
      for the photo list to be written back stale. */
+  /* ⚠ REPOINTED, NOT WEAKENED (2026-09-09). This matched the literal `rmAttachShots(this,
+     false)` — that is, the exact text of the call rather than the guarantee. Both buttons
+     now go through rmAttachSafely, which is the ONE door, so the old match failed on code
+     that is right. The claim is unchanged and is asserted one step further along: two
+     buttons, one entry point, one attach. Same slow-fuse shape as S82 and S129. */
   check('S265', 'both buttons run the SAME attach, differing only in what follows',
     !!extractFn(admin, 'rmAttachShots') &&
-    /rmAttachShots\(this, false\)/.test(admin) && /rmAttachShots\(this, true\)/.test(admin),
+    /rmAttachSafely\(this, false\)/.test(admin) && /rmAttachSafely\(this, true\)/.test(admin) &&
+    /rmAttachShots\(btn, thenMarkUp\)/.test(extractFn(admin, 'rmAttachSafely') || ''),
     'two upload loops is two places for the photo list to be written back stale');
+
+  /* ---- and a press can never end in silence ------------------------- */
+  /* ⭐ 2026-09-09. Dax, on Attach to Quote: "it thinks for a quarter second then stops and
+     doesnt do or say anything." rmAttachShots already CLAIMED this — its own note says
+     "EVERY WAY OUT OF THIS SAYS SOMETHING" — and every deliberate way out does. But it is
+     an async function with two awaits outside any try (rmCapture, and rmMarkTallyText
+     under it), so a throw in either REJECTS THE PROMISE with nothing awaiting it: no
+     message, no toast, the button left disabled, and the press indistinguishable from a
+     click that never registered. */
+  {
+    const safe = extractFn(admin, 'rmAttachSafely') || '';
+    check('S265', 'the door catches what the attach throws',
+      !!safe && /\.catch\(/.test(safe),
+      'an async rejection nobody awaits is a silent no-op — the dead button being reported');
+    check('S265', 'and the button goes back so it can be pressed again',
+      /btn\.disabled = false/.test(safe),
+      'rmAttachShots disables on the way in; a throw skips every path that re-enables it');
+    check('S265', 'and it is filed, not only shown',
+      /console\.error\(/.test(safe),
+      'console.error is wired to the Admin Errors folder — the next one is recorded whether or not anybody is watching');
+
+    /* RUN it. The claim is about what ends up ON SCREEN after a throw, which a text match
+       cannot see — and "the message is in the source" has been green over a message that
+       could never reach the page three times in this repo. */
+    const el = { textContent: '' };
+    const btn = { disabled: true };
+    const logged = [];
+    const deps = {
+      document: { getElementById: (id) => (id === 'rmStatus' ? el : null) },
+      console: { error: (...a) => logged.push(a.join(' ')) },
+      rmAttachShots: async () => { throw new Error('Cannot read properties of null'); }
+    };
+    const names = Object.keys(deps);
+    const run = new Function(...names, safe + '; return rmAttachSafely;')(...names.map(k => deps[k]));
+    run(btn, false);
+    pendingAsync.push(Promise.resolve().then(() => Promise.resolve()).then(() => {
+      check('S265', 'a throw reaches the line beside the button, in words',
+        /Cannot read properties of null/.test(el.textContent),
+        'the error\'s own words are what makes it diagnosable; "something went wrong" cost this repo a day once');
+      check('S265', 'and says nothing was saved, so the press can be repeated',
+        /again/i.test(el.textContent),
+        'a message with no next step sends somebody looking for a bug in the upload code');
+      check('S265', 'and the button is pressable again after a throw',
+        btn.disabled === false,
+        'a dead gold button is the thing being reported, whatever the reason for it');
+      check('S265', 'and the reason was filed to the Admin Errors folder',
+        logged.some(l => /Cannot read properties of null/.test(l)),
+        'a message only on screen is gone on the next reload');
+    }));
+  }
   const attach = extractFn(admin, 'rmAttachShots') || '';
   /* ⚠ THE INDEX IS TAKEN BEFORE THE WRITE, and the markup opened AFTER it.
      openQuoteMarkup indexes into the photo list off quotesCache — opening it
@@ -43657,12 +46030,189 @@ suite('265. Measure Roof - the captured picture is clean, and can be marked up')
     'the markup tool reads the list off quotesCache, which the write is what updates');
   /* A partial upload leaves the count uncertain, so it reports rather than
      opening a markup on a picture that may not be the one meant. */
+  /* ⚠ MATCHED ON THE RETURN, NOT ON THE FORMATTING. This used to require the whole
+     block inside 160 characters and ending literally `return; }` — so adding the
+     REASON to the message (2026-09-09) failed a check about opening markup, which is
+     the slow fuse this file's own extractTo note warns about. What matters is that
+     the branch RETURNS; how long it takes to explain itself is not the gate. */
   check('S265', 'a partly failed upload reports instead of opening markup',
-    /if\(failed\.length\)\{[\s\S]{0,160}return; \}/.test(attach),
+    /if\(failed\.length\)\{[\s\S]{0,900}?return;\s*\}/.test(attach) &&
+    attach.indexOf('if(failed.length)') < attach.indexOf('openQuoteMarkup'),
     'opening markup after a partial failure marks up whichever picture did land');
+
+  /* ---- and a refused upload says WHY, not "try again" ---------------- */
+  /* ⭐ 2026-09-09. Owner: "out of no where ... it fails when i click attach to quote."
+     The picture service had switched the whole account off — a plain 401 saying
+     `cloud_name ... is disabled` — and the office saw only "Nothing uploaded — try
+     again." Retrying could not work at any hour of any day, so the one line she was
+     given sent her to the one action guaranteed to fail. The reason existed the whole
+     time; the catch threw it away. */
+  check('S265', 'a refused upload keeps the reason instead of discarding it',
+    /catch\(err\)\{[\s\S]{0,400}?failWhy = \(err && err\.message\)/.test(attach),
+    'a catch that keeps only the COUNT makes every different failure print one sentence');
+  check('S265', 'and the office is told what it was',
+    /uploadFailAdvice\(failWhy\)/.test(attach) && /\+ failWhy \+/.test(attach),
+    'advice without the service\'s own words is a guess presented as a diagnosis');
+  check('S265', 'and "try again" is no longer the whole answer',
+    !/'Nothing uploaded — try again\.'/.test(attach),
+    'the same sentence for a dead account, a bad preset and a dropped wifi is four wrong answers');
+  /* ⚠ AND IT GOES SOMEWHERE THAT KEEPS. console.error is wired to the Admin Errors
+     folder, so nobody has to be standing at the screen to catch the next one. */
+  check('S265', 'and the reason is filed, not only shown',
+    /console\.error\('Attach: a picture would not upload/.test(attach),
+    'a message only on screen is gone on the next reload — which is how this one survived a day');
+
+  /* RUN the advice against the real refusal, rather than matching its source: a
+     branch that reads right and never fires is the failure this whole file exists
+     to catch. The string is the one Cloudinary actually returned. */
+  const advice = real('uploadFailAdvice');
+  const disabledSaid = 'Cloudinary 401: cloud_name highlighting-utah is disabled';
+  check('S265', 'a switched-off account is not called a thing to retry',
+    /billing|account/i.test(advice(disabledSaid)) && !/again/i.test(advice(disabledSaid)),
+    'telling the office to retry a disabled account costs a day and reads as a glitch');
+  check('S265', 'and a dropped connection still IS a thing to retry',
+    /again/i.test(advice('Failed to fetch')),
+    'the opposite mistake — a momentary network fault sent to whoever pays the bill');
+  check('S265', 'and an unrecognised refusal still says something',
+    advice('').length > 10 && advice('some new thing').length > 10,
+    'an empty message for an unfamiliar fault is the silent failure back again');
+
+  /* ⚠ res.json() IS ITSELF A THING THAT THROWS. A gateway page or an empty body is
+     not JSON, so what reached the caller was the PARSER's complaint about a response
+     the service had already explained itself in. */
+  const upload = extractFn(admin, 'uploadOneToCloudinary') || '';
+  check('S265', 'a non-JSON refusal still arrives with its status',
+    /try\{ data = await res\.json\(\); \}/.test(upload) &&
+    /res\.status/.test(upload),
+    'an unparseable body threw the parser\'s error and lost the service\'s own');
   check('S265', 'and the second button is enabled and disabled with the first',
     /attachMark\.disabled = false;/.test(extractFn(admin, 'rmRenderStaged') || ''),
     'one door open and the other shut is a button that looks broken beside a button that works');
+
+  /* ---- and the picture reaches the CUSTOMER, not only the quote ------ */
+  /* ⭐ 2026-09-09. Dax: "it seems to be capturing the picture but its not automatically
+     uploading it to the customer when i click attach to quote." The numbers had reached
+     the customer behind the quote since 2026-08-29 and the photograph never did — and a
+     quote photo only ever crosses to `housePhotos` at CONVERSION, so on every re-measure
+     the route card and the crew sheet kept showing the old picture, or none. */
+  check('S265', 'the press that attaches also pushes the picture at the customer',
+    /const saidPhotos = await rmPushPhotosToCustomer\(photos\.slice\(firstNew\)\)/.test(attach),
+    'the photograph reaching only the quote is the reported bug — the crew reads housePhotos');
+  check('S265', 'and it is NOT nested inside the feet-and-price push',
+    !/rmPushPhotosToCustomer/.test(extractFn(admin, 'rmSaveNumbersOnAttach') || ''),
+    'that function returns early when nothing was traced, so a capture with no lines on it would reach the quote and never the record');
+  check('S265', 'and the toast says whether it got there',
+    /saidPhotos \? ' — ' \+ saidPhotos/.test(attach),
+    'a half that happens silently is one nobody can tell did not happen');
+
+  /* RUN it. Every claim below is about WHICH DOCUMENT ends up holding a url, which a
+     text match cannot see — the same reason Suite 10 executes syncPayerInvoice.
+     ⚠ extractFn MATCHES 'function NAME(' AND SO DROPS THE async KEYWORD (CLAUDE.md §5).
+     Handed straight to new Function the body is a plain function full of bare `await`,
+     which is a parse error that kills the whole suite as one unattributable crash — it
+     did exactly that on the first run of these checks. `async ` is put back here. */
+  {
+    const pushSrc = extractFn(admin, 'rmPushPhotosToCustomer') || '';
+    check('S265', 'rmPushPhotosToCustomer exists to be run at all',
+      !!pushSrc, 'the checks below prove nothing if the function cannot be lifted');
+    const loadPush = (deps) => {
+      const names = Object.keys(deps);
+      return new Function(...names,
+        'return (async ' + pushSrc.replace(/^async\s+/, '') + ');')(...names.map(k => deps[k]));
+    };
+    const shot = {url: 'https://res/new.jpg', original: 'https://res/new-clean.jpg',
+                  markup: [{type: 'poly'}], label: 'Front of house'};
+    const depsFor = (quote, addrs, writes, boom) => ({
+      quotesCache: [{id: 'q1', data: quote}],
+      jobAddresses: addrs,
+      rmQuoteId: 'q1',
+      db: {},
+      doc: (_db, col, id) => ({col: col, id: id}),
+      updateDoc: async (ref, u) => {
+        if (boom) throw new Error('permission denied');
+        writes.push({col: ref.col, id: ref.id, u: u});
+      },
+      customerPhotoList: real('customerPhotoList'),
+      customerPhotoUpdates: real('customerPhotoUpdates')
+    });
+
+    /* A quote with no customer behind it writes NOTHING — a lead is not a record. */
+    pendingAsync.push((async () => {
+      const w = [];
+      const said = await loadPush(depsFor({name: 'Lead'}, [], w))([shot]);
+      check('S265', 'a quote with no customer behind it writes nothing at all',
+        w.length === 0 && said === '',
+        'a lead has no customer record to put a photograph on');
+    })());
+
+    /* The ordinary case: it lands on jobAddresses, appended, main photo untouched. */
+    pendingAsync.push((async () => {
+      const w = [];
+      const cust = {id: 'c1', data: {name: 'Ashley Wray', housePhotos: [
+        {url: 'https://res/old.jpg', original: 'https://res/old.jpg', markup: [], label: ''}]}};
+      const push = loadPush(depsFor({convertedToCustomerId: 'c1'}, [cust], w));
+      const said = await push([shot]);
+      check('S265', 'the picture is written to the CUSTOMER record, not the quote',
+        w.length === 1 && w[0].col === 'jobAddresses' && w[0].id === 'c1',
+        'writing it to `quotes` again is the bug; the crew reads jobAddresses');
+      const list = w.length ? w[0].u.housePhotos : [];
+      check('S265', 'it is APPENDED — the photo the crew knows the house by stays first',
+        list.length === 2 && list[0].url === 'https://res/old.jpg' && list[1].url === shot.url,
+        'a marked-up roofline replacing the picture the crew recognises the house by is not ours to decide');
+      check('S265', 'and housePhotoUrl still points at the original main photo',
+        w.length === 1 && w[0].u.housePhotoUrl === 'https://res/old.jpg',
+        'that field is what the route card and the crew sheet render');
+      check('S265', 'the marks travel with it, so Mark Up can still undo them',
+        list.length === 2 && Array.isArray(list[1].markup) && list[1].markup.length === 1,
+        'the shapes are what make the dots removable rather than burnt into the photograph');
+      check('S265', 'and the cache is updated so the record does not read stale',
+        (cust.data.housePhotos || []).length === 2,
+        'every other writer here mirrors into the cache; the panel repaints from it');
+      check('S265', 'and it says so',
+        /record/.test(said),
+        'a half that happens silently is one nobody can tell did not happen');
+      const before = w.length;
+      const twice = await push([shot]);
+      check('S265', 'pressing Attach again does not add the same picture twice',
+        w.length === before && twice === '',
+        'Attach is pressable again the moment it finishes, and a re-press is the ordinary way out of a partial failure');
+    })());
+
+    /* A customer with NO photographs gets this one as their main one. */
+    pendingAsync.push((async () => {
+      const w = [];
+      const cust = {id: 'c2', data: {name: 'New House'}};
+      await loadPush(depsFor({existingCustomerId: 'c2'}, [cust], w))([shot]);
+      check('S265', 'a customer with no photo at all gets this one as their main one',
+        w.length === 1 && w[0].u.housePhotoUrl === shot.url && w[0].u.housePhotos.length === 1,
+        'appending must not mean a record with no main photo keeps not having one');
+      check('S265', 'and existingCustomerId is read as well as convertedToCustomerId',
+        w.length === 1,
+        'a re-quote links through the other field — reading one of the two misses half the cases');
+    })());
+
+    /* A refused write reports, names them, and never claims the picture got there. */
+    pendingAsync.push((async () => {
+      const w = [];
+      const cust = {id: 'c3', data: {name: 'Ashley Wray'}};
+      const said = await loadPush(depsFor({convertedToCustomerId: 'c3'}, [cust], w, true))([shot]);
+      check('S265', 'a refused write says so, names them, and does not throw',
+        /did NOT reach/.test(said) && /Ashley Wray/.test(said),
+        'the photograph is already on the quote — a failure here must report and leave that half standing');
+      check('S265', 'and it never claims the picture is on their record',
+        !/is on their record too/.test(said),
+        'saying it landed when it did not is worse than saying nothing');
+    })());
+
+    /* A customer who has since been deleted is named as such, not written to. */
+    pendingAsync.push((async () => {
+      const w = [];
+      const said = await loadPush(depsFor({convertedToCustomerId: 'gone'}, [], w))([shot]);
+      check('S265', 'a customer who has since been deleted is reported, not written to',
+        w.length === 0 && /could not be found/.test(said),
+        'writing into a document that is not there reports success and changes nothing');
+    })());
+  }
 }
 
 
@@ -43982,7 +46532,7 @@ suite('268. Measure Roof - the feet and the price are one press');
      pressed, quotedPrice landed, and estimatedFeet was left empty.
      Nothing errors on that state, which is the problem: quoteFeetOrEstimate
      turns the price back into feet with a 5% safety margin, and THAT figure is
-     what sizes the bins at 260 ft, chooses between a regular and a 5000-series
+     what sizes the bins, chooses between a regular and a 5000-series
      customer number, and counts the bundles at 40 ft. The warehouse then builds
      to a number nobody measured. Owner: "I need no guessing I need feet to be
      correct."
@@ -44572,9 +47122,19 @@ suite('273. Inbox - the count is unread, and a message can be filed without a mo
     const homeMap = (admin.match(/const MESSAGE_HOME_FOLDER = \{[\s\S]*?\};/) || [])[0];
     check('S273', 'the topic-to-folder table was lifted, not retyped', !!homeMap,
       'a copy in this file would agree with itself and prove nothing');
+    /* ⚠ AND THE CONSTANTS THAT TABLE NOW READS. MESSAGE_HOME_FOLDER stopped being a table
+       of plain strings when the Errors sections were added (2026-09-08) — two of its keys
+       are computed from MEMBER_ERROR_TOPIC / ADMIN_ERROR_TOPIC, so lifting the table alone
+       throws a bare ReferenceError and takes the whole suite with it. Lifted, never stubbed:
+       a stub here would let the two error topics file into the wrong folder while this
+       reported green, which is exactly what the table is checked for. */
+    const errConsts = (admin.match(/const ERROR_FOLDER = [\s\S]*?const ADMIN_ERROR_TOPIC = '[^']*';/) || [])[0];
+    check('S273', 'the Errors folder constants were lifted too', !!errConsts,
+      'MESSAGE_HOME_FOLDER reads them, so without them this whole suite dies on a ReferenceError');
     const preamble =
       'let allMessages = [], messageFolders = [], selectedFolder = "Inbox";' +
       'let collapsedFolders = new Set();' +
+      (errConsts || '') +
       (homeMap || 'const MESSAGE_HOME_FOLDER = {};') +
       (escSrc || 'function esc(x){return String(x==null?"":x);}') + ';';
     const code = preamble + bodies.join(';') + ';' +
@@ -44701,41 +47261,51 @@ suite('273. Inbox - the count is unread, and a message can be filed without a mo
 }
 {
   /* ---- the parts that live in markup and handlers, checked where they are ---- */
-  check('S273', 'Inbox is drawn inside #customFolderList, not left as a static row',
-    !/msg-sidebar-item active" data-folder="Inbox"/.test(admin) &&
-    /folderRowHtml\(\{name:'Inbox'/.test(admin),
-    'a persistent row outside the rebuilt container is what collected 2815 listeners; ' +
-    'one container, rebuilt wholesale, cannot accumulate');
   check('S273', 'renderFolderSidebar binds inside the list it just rebuilt, never document-wide',
     !/document\.querySelectorAll\('\.msg-sidebar-item'\)/.test(admin),
     'a document-wide query reaches rows this render did not create and binds them again');
 
   const addSrc = extractFn(admin, 'addMessageFolder') || '';
-  check('S273', 'Add Folder is its own function, so the Enter key can reach it',
-    !!addSrc, 'it lived inside the click handler, which is exactly why Enter could not run it');
-  check('S273', 'pressing Enter in the folder name box adds the folder',
-    /newFolderInput'\)\.addEventListener\('keydown'[\s\S]{0,200}addMessageFolder\(\)/.test(admin),
-    'the input is in no form, so without this Enter does nothing whatever — which reads as a dead button');
-  check('S273', 'every way of failing to add a folder says so on the page',
-    /folderAddSays\('Type a folder name first/.test(addSrc) &&
-    /folderAddSays\('There is already a folder/.test(addSrc) &&
-    /catch\(err\)[\s\S]{0,200}folderAddSays\('Could not add it/.test(addSrc),
-    '"nothing happened" is the one report that cannot be diagnosed over the phone');
-  check('S273', 'a folder added inside a closed parent opens that parent',
-    /collapsedFolders\.has\(parentId\)[\s\S]{0,120}collapsedFolders\.delete\(parentId\)/.test(addSrc),
-    'otherwise it is written correctly and never appears, which looks exactly like the add failing');
-
   /* ⭐ THE THIRD WAY IN. Drag needs a mouse and right-click needs a mouse; the
      office is on a tablet. Both are KEPT — this is an addition, not a replacement. */
   check('S273', 'messages can be filed by ticking rows and picking a folder',
     /id="msgMoveTo"/.test(admin) && /id="msgPickAll"/.test(admin) && /data-pickmsg=/.test(admin),
     'drag and right-click both need a mouse; on a tablet there was no way to move anything at all');
-  check('S273', 'Move to… offers Inbox as well as the folders',
-    /populateMoveToSelect/.test(admin) && /<option value="Inbox">Inbox<\/option>/.test(admin),
-    'Inbox is not in messageFolders, so leaving it out makes filing a one-way trip');
-  check('S273', 'dragging a message onto a folder still works',
-    /const messageId = e\.dataTransfer\.getData\('text\/plain'\)/.test(admin),
-    'somebody already used to dragging must not lose it');
+  /* ⚠ REPOINTED, NOT WEAKENED ([[MSG-20]], 2026-09-11). This matched the literal
+     `<option value="Inbox">Inbox</option>` — that is, WHERE that option happened to be
+     written — so it failed on correct code the moment the list moved behind a named rule.
+     The guarantee is unchanged and is now RUN: whatever `msgFileableFolders` answers leads
+     with Inbox, and Move to… is built from it. Same slow-fuse shape as S82 and S129.
+     ⚠ ITS TWO INPUTS ARE STUBBED AND THAT IS THE POINT HERE: the claim is about this
+     function's own composition — Inbox first, her own folders next, the legacy names after,
+     no repeats — so the inputs are what the check varies. */
+  {
+    const fileable = new Function('commHandFolders', 'messageFolders',
+      extractFn(admin, 'msgFileableFolders') + 'return msgFileableFolders;')(
+        function(){ return ['Gate codes', 'Completed']; },
+        [{name: 'Completed'}, {name: 'Old folder'}]);
+    const got = fileable();
+    check('S273', 'Move to… still offers Inbox, and offers it first',
+      got[0] === 'Inbox',
+      'Inbox is not a folder document, so leaving it out makes filing a one-way trip — got ' +
+      JSON.stringify(got));
+    check('S273', 'and it offers the folders she made herself',
+      got.indexOf('Gate codes') !== -1,
+      'a folder she just made was a drop target and in neither menu, because both menus ' +
+      'read messageFolders — the collection MSG-12 emptied: ' + JSON.stringify(got));
+    check('S273', 'and still offers a legacy folder, once',
+      got.indexOf('Old folder') !== -1 &&
+      got.filter(function(x){ return x === 'Completed'; }).length === 1,
+      'anything already filed must stay reachable, and a name in both lists must not ' +
+      'appear twice: ' + JSON.stringify(got));
+    check('S273', 'and Move to… is built from that one rule',
+      /msgFileableFolders\(\)/.test(stripComments(extractFn(admin, 'populateMoveToSelect') || '')),
+      'three routes to one place, and two of them reading a different list, is how ' +
+      '"I still cannot file anything" was true however she tried');
+    check('S273', 'and so is the right-click menu',
+      /msgFileableFolders\(\)/.test(stripComments(extractFn(admin, 'openContextMenu') || '')),
+      'the drag and the two menus agreed only while no folder existed');
+  }
   check('S273', 'right-click move still works',
     /openContextMenu\(e\.clientX, e\.clientY, row\.dataset\.msgid\)/.test(admin),
     'same reason — the toolbar is a third route in, not a replacement');
@@ -45180,7 +47750,37 @@ if (!JSDOM) {
        calls it, so a lift without it throws a bare ReferenceError and takes this whole
        suite down. Lifted, not stubbed: which count it shows is a claim about a
        DISCOUNT ON A BILL, and a stub would leave that untested while reporting green. */
-    'editCustRenderReferLine', 'referralLiveCount', 'referralLinkFromToken'];
+    /* ⚠ AND referralShareLinkFromToken JOINED THEM (2026-09-07, REF-18). The refer
+       row now offers "See their share page" beside Copy link, so this lift throws a
+       bare ReferenceError the moment a fixture customer HAS a token — the branch is
+       inside `if(url)`, so a tokenless fixture hides it and the suite goes green while
+       being one fixture away from taking the whole run down. Found exactly that way,
+       by a red-check. Lifted, not stubbed: it is the address the office opens. */
+    /* ⚠ AND referralHeldCount JOINED THEM (2026-09-08, REF-23). The row now also says
+       how many referrals are being held for NEXT season, so this lift throws a bare
+       ReferenceError on every fixture — which is how it was found, one run after being
+       written. Lifted, not stubbed, for the same reason as the count beside it: what it
+       says is a claim about money somebody has earned. Also needs referralEntrySeason,
+       which both counts call. */
+    /* ⚠ AND referralBlockCount / referralLastBlockWhy JOINED THEM (2026-09-08). The row
+       now also says how many uses of the link earned nothing and why, so this lift throws
+       a bare ReferenceError on every fixture — which is how it was found, on the first run
+       after it was written, exactly as referralHeldCount was. Lifted, not stubbed: what it
+       says is the difference between a rule working and a link being broken. */
+    'editCustRenderReferLine', 'referralLiveCount', 'referralHeldCount',
+    'referralBlockCount', 'referralLastBlockWhy',
+    /* ⚠ AND referralPendingQuotes / referralTokensOf JOINED THEM (REF-33). The row now
+       also says how many friends have used the link and are waiting to be converted,
+       which is the question Addie asked when two of hers counted for nothing. Same trap
+       as every name above it: left out, the whole suite dies on a bare ReferenceError
+       inside the renderer rather than failing a named check. */
+    'referralPendingQuotes', 'referralTokensOf',
+    /* ⚠ `referralSeasonForBill` IS LIFTED, NEVER STUBBED ([[REF-38]]). It decides
+       which season a credit comes off, so a stub here would keep this suite green
+       through a change to who gets $25 — the one thing it exists to protect. */
+    'referralEntrySeason', 'referralSeasonForBill', 'referralEntryCountsIn', 'referralSeasonOr',
+    'referralLinkFromToken',
+    'referralShareLinkFromToken'];
   const bodies = NAMES.map(function (n) { return extractFn(admin, n); });
   const missing = NAMES.filter(function (n, i) { return !bodies[i]; });
   check('S276', 'the house-tab functions are all in admin.html', missing.length === 0,
@@ -45192,6 +47792,10 @@ if (!JSDOM) {
       '<div id="editCustHouseTabs" style="display:none;"></div>' +
       '<div id="editCustBillLine" style="display:none;"></div>' +
       '<div id="editCustReferLine" style="display:none;"></div>' +
+      /* REF-34: the money half of the referral row now renders in the Discounts
+         box. Without this container the split is untestable and the renderer
+         silently writes nowhere. */
+      '<div id="editCustReferStatusLine" style="display:none;"></div>' +
       '<input id="editCustName" value="Heather Anderson">' +
       '<input id="editCustFeet" value="200">' +
       '<input type="checkbox" id="editCustNewMemberFee">' +
@@ -45254,6 +47858,7 @@ if (!JSDOM) {
       '   return {tabs:document.getElementById("editCustHouseTabs"),' +
       '           line:document.getElementById("editCustBillLine"),' +
       '           refer:document.getElementById("editCustReferLine"),' +
+      '           referMoney:document.getElementById("editCustReferStatusLine"),' +
       '           save:document.getElementById("editCustSaveBtn"),' +
       '           top:document.getElementById("editCustTopSave")};' +
       ' },' +
@@ -45431,6 +48036,54 @@ if (!JSDOM) {
         'got ' + after.length + ' writes for one customer — a second token silently ' +
         'retires every link already shared, and the office has no way to see it happen');
     })().catch(function(e){ e.__suite = 'S276'; throw e; }));
+
+    /* ---- REF-34: which panel each half lands in --------------------------
+     * Addie, pointing at the Refer a friend row and then at the Discounts box: "It
+     * looks like you put it here. It should be under here."
+     * ⚠ RUN, NOT MATCHED. The first two versions of these were source checks and the
+     * red-check proved both vacuous: `statusLine.innerHTML = money.join('')` survives
+     * `if(false && statusLine)` with every character intact. Every claim here is about
+     * which panel a sentence ends up in, which only rendering can answer. */
+    {
+      const bookSplit = [{id: 's1', data: {name: 'Dana Referrer', phone: '8015550111',
+        customerNumber: '5', housePrice: 400, referralToken: 'tok-dana',
+        referralCredits: [{referredCustomerId: 'f1', referredName: 'Kyle New', amount: 25,
+          creditedAt: new Date().toISOString(), season: new Date().getFullYear(),
+          revoked: false}], referralCount: 1}}];
+      const split = F.open(bookSplit, 's1', []);
+      const linkHtml = (split.refer && split.refer.innerHTML) || '';
+      const moneyHtml = (split.referMoney && split.referMoney.innerHTML) || '';
+
+      check('S276', 'the referral money renders in the Discounts box',
+        /has joined/.test(moneyHtml) && /\$25\.00 off their bill/.test(moneyHtml),
+        'got ' + JSON.stringify(moneyHtml.slice(0, 120)) + ' — this is what Addie asked ' +
+        'for: the count belongs beside the discount it explains');
+      check('S276', 'and it is no longer on the link row',
+        !/has joined/.test(linkHtml),
+        'got ' + JSON.stringify(linkHtml.slice(0, 120)) + ' — left on both, the two ' +
+        'panels each tell half the same story, which is what made it easy to miss');
+      check('S276', 'the link row still holds the link and the share page',
+        /editCustReferInput/.test(linkHtml) && /editCustReferShare/.test(linkHtml),
+        'the row is what somebody opens this form to copy — moving the money out of ' +
+        'it must not take the link with it');
+      check('S276', 'and the Copy feedback span stays beside its button',
+        /editCustReferStatus"/.test(linkHtml),
+        'a confirmation rendered in a different panel from the button somebody just ' +
+        'pressed is one nobody sees');
+      /* ⚠ AND BOTH CONTAINERS ARE CLEARED ON A REPOINT. The strip re-renders on every
+         tab click and every save; a stale count left in the Discounts box would be one
+         customer's referrals shown on another's bill. */
+      const other = F.open([{id: 'n1', data: {name: 'Nobody', phone: '8015559090',
+        customerNumber: '9', housePrice: 100, referralToken: 'tok-n'}}], 'n1', []);
+      /* ⚠ MATCHED ON THE PREVIOUS CUSTOMER'S OWN FIGURE, not on "has joined" — the
+         empty state reads "nobody HAS JOINED through it yet", so the looser pattern
+         failed on correct code the moment it was written. */
+      check('S276', 'and switching customer does not leave the last one\'s count behind',
+        !/1 person has joined/.test((other.referMoney && other.referMoney.innerHTML) || '') &&
+        !/\$25\.00 off their bill/.test((other.referMoney && other.referMoney.innerHTML) || ''),
+        'a count left standing after a repoint is one customer\'s referrals shown ' +
+        'against another customer\'s bill');
+    }
 
     /* ---- the save button ---- */
     out = F.open(BOOK, 'a27', INVOICES);
@@ -46329,9 +48982,14 @@ suite('281. The short quote link');
     'it was written out four times identically; the fifth copy is the one that drifts');
   /* ⚠ FIVE SINCE 2026-08-30 — ensureQuoteToken is the fifth, and the count is
      deliberately exact rather than a floor: a new site is welcome to exist, but
-     it has to come past this line and say so. */
-  check('S281', 'and all five sites go through it',
-    (admin.match(/= newQuoteToken\(\);/g) || []).length === 5,
+     it has to come past this line and say so.
+     ⭐ SIX SINCE 2026-09-11, and this line is the gate doing its job — the sixth
+     is resolveLinkTokens, which renders the quote buttons into an email and used
+     to give up when the quote had no token, sending the customer the words
+     "(quote token not found)" three times over. Coming past this line is how it
+     says so. */
+  check('S281', 'and all six sites go through it',
+    (admin.match(/= newQuoteToken\(\);/g) || []).length === 6,
     'a site left behind keeps minting the 28-character shape and its links stay long');
 
   if (genSrc && alpha) {
@@ -47604,7 +50262,13 @@ suite('286. A record stops claiming a day it no longer has');
        many round trips it takes, 286 asks WHO gets cleared and who must not.
        ⚠ AND THE ROUTES ARE SWEPT ONCE FOR EVERYBODY, so the route stub takes a LIST.
        Pushing each id keeps the per-customer checks below reading exactly as they did. */
-    const mk = (book) => {
+    /* ⚠ THE ROUTES CACHE IS A PARAMETER SINCE [[SCH-74]], and it DEFAULTS TO NOT-LOADED
+       on purpose. scheduledDayIsReal answers null until the first snapshot lands, so every
+       fixture written before the orphan rule existed behaves exactly as it did — a default
+       of "loaded, and empty" would make all five of them orphans and the suite would be
+       asserting the new rule everywhere by accident. A fixture that wants the orphan branch
+       has to ASK for it, the same way seasonRuleLiveSrc makes strictness opt-in. */
+    const mk = (book, routes) => {
       const writes = [], routeCalls = [], commits = [];
       const batchStub = () => {
         const ops = [];
@@ -47616,13 +50280,17 @@ suite('286. A record stops claiming a day it no longer has');
         };
       };
       const fn = new Function('updateDoc', 'doc', 'db', 'removeCustomersFromUpcomingRoutes',
-        'writeBatch', 'jobAddresses', 'console',
+        'writeBatch', 'jobAddresses', 'console', 'scheduledRoutesLoaded', 'scheduledRoutesCache',
         'let clearStaleBookingsInFlight = null;' + NL286 +
         seasonRuleLiveSrc() +
         'function audienceNeverAsked(d){ return d && d.chargeNewMemberFee === true; }' + NL286 +
         'function houseOwesFromLastSeason(){ return false; }' + NL286 +
         extractFn(admin, 'isOutForSeason') + NL286 +
         extractFn(admin, 'freeUpFieldForType') + NL286 +
+        /* ⚠ LIFTED, NEVER STUBBED. "Is this day real" is the rule that decides whether a
+           booking is cancelled; a stub here would keep this suite green through a change
+           to who keeps their crew, which is the one thing it exists to protect. */
+        extractFn(admin, 'scheduledDayIsReal') + NL286 +
         sweepLift('clearStaleInstallBookingsRun') + NL286 +
         sweepSrc + NL286 + 'return clearStaleInstallBookings;');
       const run = fn(
@@ -47630,7 +50298,8 @@ suite('286. A record stops claiming a day it no longer has');
         (d, col, id) => ({ col: col, id: id }), {},
         async (ids) => { (ids || []).forEach(id => routeCalls.push(id)); return {removed: (ids||[]).length, routes: 1}; },
         batchStub,
-        book, { error: function(){} });
+        book, { error: function(){} },
+        !!(routes && routes.loaded), (routes && routes.byDate) || {});
       return { writes, routeCalls, commits, go: () => run() };
     };
     const replied = { rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' };
@@ -47691,6 +50360,54 @@ suite('286. A record stops claiming a day it no longer has');
       }
     }));
 
+    /* ---- A DAY NO CREW ROUTE HOLDS THEM ON ([[SCH-74]], 2026-09-11) --------
+       Addie, told the red pill only NAMED the problem: "I can't check every day to look
+       at which date everyone was assigned and if it's legitamite or not I need it to
+       correctly place them." So the stamp is cleared and the next sweep re-homes them.
+       ⚠ RUN, NOT MATCHED. The whole claim is which of three answers reaches a WRITE, and
+       the dangerous one is the middle answer: null must never clear anything, because at
+       that moment every booked customer in the book looks orphaned. */
+    {
+      const inSeason = { rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' };
+      const onOct20 = { scheduled: true, scheduledDate: '2026-10-20', assignedCrew: 'Crew 1' };
+      const orphanBook = () => ([
+        { id: 'orphan', data: Object.assign({ name: 'Darlene Price' }, inSeason, onOct20) },
+        { id: 'driven', data: Object.assign({ name: 'Really on a route' }, inSeason, onOct20) }
+      ]);
+      /* ⚠ THE FIXTURE HAS TO HOLD ONE OF EACH ON THE SAME DATE. A book where the only
+         booked house is the orphan passes whether the rule reads the stops or merely
+         asks whether the DATE has any route on it at all — which is a different and
+         much weaker rule, and the one a tired refactor would leave behind. */
+      const routes = { loaded: true, byDate: { '2026-10-20': [
+        { id: 'r1', stops: [{ id: 'driven' }, { id: 'somebody-else' }] }
+      ] } };
+
+      const o = mk(orphanBook(), routes);
+      pendingAsync.push(o.go().then(function(n){
+        const w = o.writes.find(x => x.id === 'orphan');
+        check('S286', 'a day no crew route holds them on is cleared, not merely reported',
+          n === 1 && !!w && w.payload.scheduled === false && w.payload.scheduledDate === null,
+          'wrote ' + JSON.stringify(o.writes) + ' — [[SCH-73]] named this on the row and ' +
+          'left it there, and a report on one row out of ~950 is HC-03 all over again');
+        check('S286', 'and somebody a crew really is driving to keeps their day',
+          !o.writes.some(x => x.id === 'driven'),
+          'cancelling a real booking is the far worse mistake of the two, and it is the ' +
+          'one a rule that only checked the DATE would make on every shared day');
+      }));
+
+      /* ⛔ THE GUARD THAT MATTERS MOST. scheduledRoutesLoaded is set after the FIRST
+         snapshot, so before it every stamped customer reads as orphaned — a version
+         testing `!== true` rather than `=== false` would cancel the entire season's
+         bookings in one press of Recalculate everything. */
+      const loading = mk(orphanBook(), { loaded: false, byDate: {} });
+      pendingAsync.push(loading.go().then(function(n){
+        check('S286', 'and while the routes are still loading it cancels nobody',
+          n === 0 && loading.writes.length === 0,
+          'wrote ' + JSON.stringify(loading.writes) + ' — "cannot tell yet" reaching a ' +
+          'write is ~950 real bookings cancelled by a page that had not finished opening');
+      }));
+    }
+
     /* ⚠ AND AN UNLOADED BOOK MEANS NOTHING IS ASSUMED, the same guard the rebuild
        itself carries: jobAddresses is empty for a moment after login. */
     const empty = mk([]);
@@ -47701,6 +50418,65 @@ suite('286. A record stops claiming a day it no longer has');
     }));
   }
 }
+
+/* ⭐ THE SWEEP PLANS BY THE WEATHER TOO ([[SCH-74]], 2026-09-11). Addie: "we still need
+   to dictate the schedule by the weather. If an area is snowed in or a house is covered
+   in frost/ice we cannot do it."
+   ⛔ IT WAS THE ONE PLANNER WITH NO WEATHER IN IT. rebuildSeasonDays has passed the cold
+   veto, the chilly preference and the warmth band since the rule was built; this call
+   passed maxDays alone, so planNewCrewDays used its own "no opinion" default and the veto
+   could never fire — and the days THIS builds are what stamp scheduledDate on a customer,
+   so they are the dates the office reads off a row.
+   ⚠ CHECKED AS A PAIR, not as a list of words: the claim is that the two planners are
+   handed the same rules, so the check reads what each call site passes and compares. A
+   check naming the four options would pass while one side quietly used a different
+   constant, which is the money-parity shape applied to the weather. */
+check('S286', 'the background sweep is handed the same weather rules as the season builder',
+  (function(){
+    const src = admin.replace(/\/\*[\s\S]*?\*\//g, '');
+    /* ⚠ READ TO THE CALL'S OWN CLOSING BRACKET, never a character count. §7 bans a
+       fixed window by name and the structure gate enforces it — a 900-character window
+       here would be right today and would start failing on correct code the first time
+       somebody added a fifth option. This walks the parentheses instead. */
+    const callArgs = function(near){
+      const i = src.indexOf(near);
+      if(i === -1) return '';
+      /* ⚠ START ON THE CALL'S OWN BRACKET, not after it. Starting past it made the
+         first NESTED close — `coldBelow:(typeof ... ? ... : 31)` — read as the end of
+         the call, so the last two options were cut off and the check failed on code
+         that was right. The §7 slow fuse in a paren walk rather than a character count. */
+      let depth = 0;
+      for(let j = i + near.indexOf('('); j < src.length; j++){
+        const ch = src[j];
+        if(ch === '(') depth++;
+        else if(ch === ')'){ depth--; if(depth <= 0) return src.slice(i, j + 1); }
+      }
+      return '';
+    };
+    const opt = function(near, name){
+      const m = new RegExp(name + '\\s*:\\s*([^,}]+)').exec(callArgs(near));
+      return m ? m[1].replace(/\s+/g, '') : null;
+    };
+    /* ⚠ ANCHORED ON THE OPENING BRACE OF THE OPTIONS, because `planNewCrewDays(waiting,
+       taken,` ALSO matches the function's own DECLARATION — which sits earlier in the
+       file, so indexOf found that and the check failed on correct code, reporting an
+       argument list reading `(waiting, taken, opts)`. rsvp-daily-send.test.js was caught
+       by the identical shape; a declaration is not a call site. */
+    const SWEEP = 'planNewCrewDays(waiting, taken, {';
+    const SEASON = 'planNewCrewDays(placeable,';
+    /* tempFor is compared only for PRESENCE: each side names its own local (tempFor
+       against sweepTempFor) and both are assigned from forecastHighFor a line above. The
+       three CONSTANTS are compared for equality, which is the money-parity shape — two
+       planners reading different cutoffs would send crews out on different days and
+       nothing would go red. */
+    if(!opt(SWEEP, 'tempFor') || !opt(SEASON, 'tempFor')) return false;
+    return ['coldBelow', 'chillyBelow', 'warmBand'].every(function(k){
+      const a = opt(SWEEP, k), b = opt(SEASON, k);
+      return !!a && a === b;
+    });
+  })(),
+  'the sweep builds crew-days AND stamps the date on the customer, so a planner here ' +
+  'with no cold rule sends a crew to a town at 20 degrees and writes that date on a row');
 
 suite('287. The routine route sweep does not bury the notice that matters');
 {
@@ -47766,16 +50542,44 @@ suite('287. The routine route sweep does not bury the notice that matters');
      and no renderer consults changes nothing on screen. */
   {
     const navBadge = (admin.split('function renderMessagesList(){')[1] || '').split('function ')[0];
-    check('S287', 'the nav badge leaves the routine sweep out of its count',
-      /allMessages\.filter\([^)]*!noticeIsRoutine\(m\.data\)/.test(navBadge.replace(/\s+/g, ' ')),
+    /* ⚠ REPOINTED 2026-09-12, NOT WEAKENED ([[MSG-26]]). This matched the literal
+       `!noticeIsRoutine(m.data)` INSIDE the badge line — that is, where the rule happened to
+       sit — so it failed on correct code the moment that expression moved behind a name.
+       The same slow-fuse shape as S82, S129 and the folder-names suite.
+       ⚠ AND THE RULE GREW A SECOND CLAUSE, which is why it moved: errors are off this badge
+       now ([[MSG-26]]) and a second expression written inline at the badge would have been a
+       second place to keep that true. What must hold is that the badge counts THROUGH the one
+       rule; what the rule then says is proved by RUNNING it, in comm-centre.test.js's
+       reachability invariant and in the checks below. */
+    check('S287', 'the nav badge counts through the one shared rule',
+      /allMessages\.filter\([^)]*msgOnInboxBadge\(m\.data\)/.test(navBadge.replace(/\s+/g, ' ')),
       'it read 91 while the list underneath it — which never shows System notes — held far fewer');
+    /* ⚠ AND THAT RULE STILL ASKS noticeIsRoutine, scoped to its own body — a badge wired to a
+       shared rule that quietly stopped excluding the sweep is the original bug wearing a
+       tidier name. */
+    {
+      const at = admin.indexOf('function msgOnInboxBadge(');
+      const body = at === -1 ? '' : admin.slice(at, admin.indexOf('\n}', at));
+      check('S287', 'and that rule still leaves the routine sweep out',
+        /noticeIsRoutine\(d\)/.test(body),
+        'the sweep fires every fifteen minutes — counting it is how the number became noise');
+      check('S287', 'and leaves errors out too, now nothing draws them',
+        /MSG_TYPE_ERROR/.test(body),
+        '[[MSG-26]] — an error counted by a badge no section can clear is a number that ' +
+        'can never come down');
+    }
 
     const sysTab = (admin.split('function renderSystemMessagesTab(){')[1] || '').split(NL287 + 'function ')[0];
     check('S287', 'the System tab splits the two piles',
       /noticeIsRoutine\(m\.data\)/.test(sysTab) && /const needsEye/.test(sysTab),
       'one flat list is the flood');
-    check('S287', 'and its own badge counts only what needs an eye',
-      /needsEye\.filter\(function\(m\)\{ return !m\.data\.read; \}\)\.length/.test(sysTab),
+    /* ⚠ REPOINTED 2026-09-09, NOT WEAKENED ([[MSG-13]]). This asserted the count being
+       written into the System TAB's own badge, and that tab went when System Messages
+       became a section of the sidebar instead. The guarantee it was protecting is
+       unchanged and is what it checks now: the number beside that section counts what
+       needs an eye rather than everything, so it can still reach nought. */
+    check('S287', 'and the section badge counts only what needs an eye',
+      /function commCount\([\s\S]{0,500}!m\.data\.read/.test(admin),
       'a number that can never reach nought is one nobody reads — HC-03, in a new place');
     check('S287', 'the routine ones are still rendered, behind a toggle',
       /routine\.map\(systemNoticeRow\)/.test(sysTab) && /sysRoutineToggle/.test(sysTab),
@@ -47827,10 +50631,24 @@ suite('287. The routine route sweep does not bury the notice that matters');
      `async` keyword — so it is put back, or every await inside is a syntax
      error. §7's rule about anchors, in its smallest form. */
   const batchBody = extractFn(fnsSrcChase, 'runArrearsRsvpBatch');
-  const batchSrc = batchBody ? 'async ' + batchBody : null;
+  /* ⚠ AND THE BODY BUILDER COMES WITH IT, LIFTED AND NEVER STUBBED (2026-09-10, EM-16).
+     The renderer moved out of this batch into `rsvpEmailBodyServer` so the daily RSVP drip
+     would not become a third copy of it — and the moment it did, five checks here failed
+     with the renderer simply absent. That is the right failure: "all three RSVP buttons
+     carry that customer's own token" is a claim about what the RENDERER produces, so a
+     stub of it would leave every one of those checks green while a real customer got an
+     email full of unresolved tokens. Its own dependencies (ensureToken, properNameServer,
+     ensureReferralToken, referralShareBoxHtmlServer) are already in the sandbox below. */
+  const bodyBody = extractFn(fnsSrcChase, 'rsvpEmailBodyServer');
+  const batchSrc = (batchBody && bodyBody)
+    ? ('async ' + bodyBody + String.fromCharCode(10) + 'async ' + batchBody)
+    : null;
 
   check('S288', 'runArrearsRsvpBatch could be lifted out of functions/index.js',
     !!batchSrc, 'the suite below proves nothing if the function it runs is not the shipped one');
+  check('S288', 'and so could the body builder it now shares with the RSVP drip',
+    !!bodyBody, 'renamed or inlined again — a third copy of this renderer is what EM-16 ' +
+    'extracted it to prevent');
 
   if (batchSrc) {
     /* One fake book, rebuilt for each run so a stamp written by one check cannot
@@ -47906,9 +50724,30 @@ suite('287. The routine route sweep does not bury the notice that matters');
              lift throws on its first call, the batch swallows it per customer, and the
              suite reports "0 customers written to" as though the filter were wrong. */
           const alpha = (fnsSrcChase.match(/const REFERRAL_TOKEN_ALPHABET = '[^']+';/) || [])[0];
-          if(!src || !gen || !alpha) return null;
+          /* ⚠ AND THE SEASON STAMP, for exactly the same reason and missed the same way.
+             ensureReferralToken writes `referralTokenSeason: referralSeasonNow()`, so
+             once that field was added this lift threw on its FIRST call — and the batch
+             swallows a throw per customer, so five checks here reported "0 customers
+             written to" as though the AUDIENCE FILTER were wrong. That is the second
+             time this exact trap has been sprung on this one function; the paragraph
+             above is about the first. */
+          const season = extractFn(fnsSrcChase, 'referralSeasonNow');
+          if(!src || !gen || !alpha || !season) return null;
           const NL = String.fromCharCode(10);
-          return new Function('db', alpha + NL + gen + NL + 'async ' + src + NL + 'return ensureReferralToken;')(db);
+          return new Function('db', alpha + NL + season + NL + gen + NL + 'async ' + src + NL + 'return ensureReferralToken;')(db);
+        })(),
+        /* ⚠ LIFTED, NOT STUBBED, for the same reason. This is what draws the referral
+           BOX into the body (REF-19), and its icon style is a module-level const OUTSIDE
+           the function — extractFn brings the body and nothing else, so without it the
+           lift throws on its first call, the batch swallows that per customer, and this
+           suite reports "0 customers written to" as though the AUDIENCE FILTER were
+           wrong. That is exactly what it did the first time the box was added. */
+        referralShareBoxHtmlServer: (function(){
+          const src = extractFn(fnsSrcChase, 'referralShareBoxHtmlServer');
+          const style = (fnsSrcChase.match(/const SHARE_ICON_BUTTON_STYLE_SERVER = '[^']+';/) || [])[0];
+          if(!src || !style) return null;
+          const NL = String.fromCharCode(10);
+          return new Function(style + NL + src + NL + 'return referralShareBoxHtmlServer;')();
         })(),
         fetch: async (url, init) => {
           if (opts.mailFails) return { ok: false, text: async () => 'nope' };
@@ -47978,9 +50817,27 @@ suite('287. The routine route sweep does not bury the notice that matters');
       /* ⚠ AND NO FIGURE, WHICH IS RS-37. There is no token for the carried balance
          and {{amount_due}} means THIS year's install price, so an amount appearing
          here at all would be the wrong number in an email about an old debt. */
+      /* ⚠ NARROWED 2026-09-07, AND THE GUARANTEE IS UNCHANGED. This asserted
+         `body.indexOf('$') === -1`, which is stricter than RS-37 actually says and
+         was only ever TRUE OF THE FIXTURE: the shipped "Not Paid RSVP" body carries
+         the referral offer in prose AND renders {{referral_button}} as "Refer a
+         Friend — $25 off your bill", so the real email this suite is about has always
+         had a $ in it. The check was passing because the fixture body is minimal —
+         a check that holds for the harness and not for production.
+         ⚠ WHAT MUST NOT APPEAR IS A FIGURE THAT COULD READ AS WHAT THEY OWE. There is
+         no token for the carried balance and {{amount_due}} means THIS year's install
+         price, so any amount other than the fixed referral constant is a second,
+         invented answer to "how much do I owe" — which is the whole of RS-37. The
+         referral offer is a constant, is the same on every email, and cannot be
+         mistaken for a balance. So: every dollar figure in the body must be $25. */
+      const figures = body.match(/\$\s?[\d,]+(?:\.\d+)?/g) || [];
+      const notTheOffer = figures.filter(function (f) {
+        return f.replace(/[\s,]/g, '') !== '$25';
+      });
       check('S288', 'and no money figure is invented anywhere in it',
-        body.indexOf('$') === -1,
-        'the portal holds the one figure we computed; an amount here would be a second one');
+        notTheOffer.length === 0,
+        'found ' + JSON.stringify(notTheOffer) + ' — the portal holds the one figure we ' +
+        'computed; an amount here would be a second one');
     }).catch(function (e) { e.__suite = 'S288'; throw e; }));
 
     /* ---- the two ways it must stop, loudly, without writing to anybody ---- */
@@ -48013,6 +50870,75 @@ suite('287. The routine route sweep does not bury the notice that matters');
   check('S288', 'and the season reset clears the once-per-season stamp',
     /arrearsRsvpEmailAt: null/.test(admin),
     'left standing, nobody could ever be chased again in any later season');
+
+  /* ⭐ THE OFFICE'S OWN SEND STAMPS TOO NOW (EM-04). Addie: "the people that have
+     already got the email should not get it again" — impossible to honour while
+     nothing recorded who a send had reached, which is why 392 customers Gmail refused
+     could not be told apart from the ones who got it. Suite 310 proves the PLANNER
+     skips a stamped customer; these three prove the stamp is actually written, is
+     written only for an RSVP, and does not outlive the season. */
+  check('S288', 'a successful RSVP send records that this customer was asked',
+    /rsvpEmailedAt: serverTimestamp\(\)/.test(admin),
+    'without the write, Suite 310 proves a rule against a field nothing ever sets — ' +
+    'green while every re-send mails the whole book a second time');
+  check('S288', 'and only an RSVP is stamped, not every email',
+    /if\(isRsvp\)\{[\s\S]{0,400}?rsvpEmailedAt: serverTimestamp\(\)/.test(admin),
+    'an invoice or a receipt is not the season\'s question; stamping one makes ' +
+    'somebody look asked when nobody has asked them');
+  /* ⭐ RECORDING A SEND THAT HAPPENED OUTSIDE THE APP (EM-06). A resend from EmailJS's
+     own error emails never passes through admin.html, so nothing is stamped and the next
+     press of Send the whole RSVP would mail the entire book a second time. */
+  {
+    const markFn = extractFn(admin, 'rsvpMarkAllAsked');
+    check('S288', 'the mark-as-asked tool is findable',
+      !!markFn, 'renamed or removed — repoint this check');
+    if (markFn) {
+      /* ⚠ THE TARGETS ARE THE PLANNER'S, NEVER THE WHOLE BOOK. Stamping the do-not-send
+         list or somebody with no email records that we wrote to people we cannot write
+         to — and marks them asked for ever, so they are never asked and, because only
+         answered customers are scheduled, never visited. */
+      check('S288', 'it marks only who the send would have gone to',
+        /plan\.standard\.concat\(plan\.arrears\)/.test(markFn) &&
+        markFn.indexOf('jobAddresses.forEach') === -1,
+        'it must take its list from rsvpWholePlan, not from every customer');
+      /* ⚠ A TYPED WORD, like every other mass write here (CLAUDE.md §5). The asymmetry
+         earns it: a wrong stamp is a customer never asked again this season. */
+      check('S288', 'and it will not run on a stray click',
+        /ASKED/.test(markFn) && /prompt\(/.test(markFn),
+        'a one-click mass write that can strand ~950 customers outside the season');
+      /* ⚠ MIRRORED AFTER THE COMMIT, NEVER BEFORE. The other order shows her a season
+         marked asked that was never written — and she would then not send it. */
+      const commitAt = markFn.indexOf('await batch.commit()');
+      const mirrorAt = markFn.indexOf('a.data.rsvpEmailedAt = new Date()');
+      check('S288', 'and the local mirror follows the write rather than leading it',
+        commitAt !== -1 && mirrorAt !== -1 && commitAt < mirrorAt,
+        'mirroring first paints a send that never happened');
+    }
+  }
+
+  /* ⭐ AND THE ROW STAYS QUIET WHILE THE APP KNOWS NOTHING (EM-07). Shipped without this
+     and caught by Addie asking what the change was for: with no stamp on anybody,
+     "never reached" is not a finding about customers, it is the app having no record —
+     and it would list the whole book on an evening the RSVP had gone out fine. */
+  {
+    const hcSrc = String(admin);
+    const rowAt = hcSrc.indexOf("id: 'rsvpNeverReached'");
+    const rowBody = rowAt === -1 ? '' : hcSrc.slice(rowAt, hcSrc.indexOf("id: 'seasonRuleDrops'", rowAt));
+    check('S288', 'the never-reached row is silent until a send has been recorded',
+      !!rowBody && /anyRecorded/.test(rowBody) && /if\(!anyRecorded\) return \[\];/.test(rowBody),
+      'with nothing stamped anywhere this row lists every customer in the book — a ' +
+      'warning that cries wolf is one the office learns to click past, including the ' +
+      'day it is right');
+    check('S288', 'and it counts EITHER stamp as the app having a record',
+      /rsvpEmailedAt \|\| a\.data\.arrearsRsvpEmailAt/.test(rowBody),
+      'the arrears chase has been stamping customers for weeks; ignoring it would keep ' +
+      'the row silent on a book that does have a record');
+  }
+
+  check('S288', 'and the season reset clears the office stamp as well',
+    /rsvpEmailedAt: null/.test(admin),
+    'left standing, a new season opens with the whole book already marked asked and ' +
+    'the RSVP goes to nobody — which looks exactly like a send that worked');
   check('S288', 'the card carries her own words next to the switch',
     /I&rsquo;ll send those emails\/text myself/.test(admin),
     'whoever ticks this box is overriding her, and should be able to read it while doing so');
@@ -48548,16 +51474,32 @@ suite('292. Cancellations, the member portal, and folders in the System tab');
 {
   const NL292 = String.fromCharCode(10);
   const homeMap = (admin.match(/const MESSAGE_HOME_FOLDER = \{[\s\S]*?\};/) || [])[0];
+  /* Lifted for the same reason as in Suite 273 above — see the note there. */
+  const errConsts292 = (admin.match(/const ERROR_FOLDER = [\s\S]*?const ADMIN_ERROR_TOPIC = '[^']*';/) || [])[0];
+  /* ⚠ LIFTED, NEVER STUBBED — the extraction-list trap for the seventh time, and the
+     same shape as MESSAGE_HOME_FOLDER's two keys in Suite 273: SYSTEM_NOTICE_SECTION_OF
+     stopped being a table of plain strings when [[FIX-02]] added a computed key, so
+     lifting the table alone died on a bare ReferenceError and took the whole suite with
+     it. A stub would let this suite stay green through a change to where a fix notice
+     lands, which is the one thing it exists to protect. */
+  const fixTopic292 = (admin.match(/const FIX_NOTICE_TOPIC = '[^']*';/) || [])[0];
+  /* ⚠ AND THE SAME TRAP AGAIN, from the other computed key: [[WH-40]]'s Pick a Wire
+     Colour notice files itself under Warehouse & Lights through [WIRE_PICK_TOPIC], so this
+     table now needs that constant too. Lifted, never stubbed — a stub would let the suite
+     stay green through a change to where that notice lands. */
+  const wireTopic292 = (admin.match(/const WIRE_PICK_TOPIC = '[^']*';/) || [])[0];
   const folderOf = extractFn(admin, 'messageFolderOf');
   const sectionOf = extractFn(admin, 'systemNoticeSection');
   const secMap = (admin.match(/const SYSTEM_NOTICE_SECTION_OF = \{[\s\S]*?\};/) || [])[0];
   const secList = (admin.match(/const SYSTEM_NOTICE_SECTIONS = \[[\s\S]*?\];/) || [])[0];
   check('S292', 'the two tables and the two rules were all found',
-    !!homeMap && !!folderOf && !!sectionOf && !!secMap && !!secList,
+    !!homeMap && !!folderOf && !!sectionOf && !!secMap && !!secList && !!errConsts292 &&
+    !!fixTopic292 && !!wireTopic292,
     'renamed? update this suite rather than deleting it');
 
   if (homeMap && folderOf && sectionOf && secMap && secList) {
     const api = new Function(
+      (errConsts292 || '') + NL292 + (fixTopic292 || '') + NL292 + (wireTopic292 || '') + NL292 +
       homeMap + NL292 + folderOf + NL292 + secMap + NL292 + secList + NL292 + sectionOf + NL292 +
       'return {folderOf: messageFolderOf, sectionOf: systemNoticeSection,' +
       ' sections: SYSTEM_NOTICE_SECTIONS, home: MESSAGE_HOME_FOLDER};')();
@@ -48677,27 +51619,12 @@ suite('292. Cancellations, the member portal, and folders in the System tab');
   /* ⚠ SCOPED TO THE SIDEBAR, because `folder:` appears all over this file. A file-wide
      count would pass with any one of the four unstamped. */
   const sidebar = (admin.split('function renderFolderSidebar(){')[1] || '').split(NL292 + 'function ')[0];
-  check('S292', 'dropping a message onto a folder files it by hand',
-    /\{folder: item\.dataset\.folder, filedByHand: true\}/.test(sidebar),
-    'a dragged message would spring back to its topic on the next render');
-  check('S292', 'deleting a folder files its messages into Inbox by hand',
-    /\{folder: 'Inbox', filedByHand: true\}/.test(sidebar),
-    'a message whose topic points at the deleted folder would be re-homed into a ' +
-    'folder that no longer exists, and would be in no list at all');
   /* ⭐ THE HOLE THIS CLOSES, found by asking what happens when the office deletes or
      renames one of the two new folders. A message sitting in one only BY DERIVATION
      still reads folder:'Inbox', so a stored-field match misses it — and once the folder
      is gone or renamed the topic map goes on naming the old one, which now has no row
      in the sidebar. That message is then in no list at all and counted nowhere. Both
      handlers have to ask the derived folder, not the stored field. */
-  check('S292', 'deleting a folder also catches the messages that were only derived into it',
-    /const affected = allMessages\.filter\(m => messageFolderOf\(m\.data\) === folderName\)/.test(sidebar),
-    'a cancellation would survive its folder being deleted and then be in no list at all');
-  check('S292', 'and renaming one pins the derived ones so they follow it',
-    /m\.data\.folder !== oldName && messageFolderOf\(m\.data\) === oldName/.test(sidebar) &&
-    /\{folder: newName, filedByHand: true\}/.test(sidebar),
-    'renaming Cancellations would leave every cancellation resolving to a folder that ' +
-    'no longer exists');
   /* ⚠ A RENAME IS NOT A FILING. It follows the folder rather than overruling the topic,
      so stamping it would silently pin every message in a renamed folder for ever. */
   /* ⚠ SCOPED TO THE STORED-RESIDENTS LOOP, not the whole sidebar. The DERIVED branch
@@ -48709,9 +51636,6 @@ suite('292. Cancellations, the member portal, and folders in the System tab');
      in one, so splitting there cut the slice in half and it failed on correct code. */
   const renStored = (sidebar.split('allMessages.filter(m => m.data.folder === oldName)')[1] || '')
     .split('BUT A MESSAGE SITTING HERE ONLY BY DERIVATION')[0];
-  check('S292', 'a rename does NOT claim the office filed the messages stored in it',
-    !!renStored && /\{folder: newName\}/.test(renStored) && !/filedByHand/.test(renStored),
-    'renaming a folder would pin everything in it against its topic for ever');
   check('S292', 'the right-click move and Move to… both file by hand',
     /\{folder: btn\.dataset\.movefolder, filedByHand: true\}/.test(admin) &&
     /msgBulkApply\(ids, \{folder: folder, filedByHand: true\}/.test(admin),
@@ -48722,16 +51646,8 @@ suite('292. Cancellations, the member portal, and folders in the System tab');
      on naming it, so the NEXT cancellation would resolve to a folder with no row and be
      in no list at all. It would also have looked like a bug either way: the seed puts
      any missing default back on the next login, so it reappears by itself. */
-  check('S292', 'a folder that a topic is routed to cannot be deleted',
-    /Object\.keys\(MESSAGE_HOME_FOLDER\)[\s\S]{0,200}MESSAGE_HOME_FOLDER\[t\] === folderName/.test(sidebar) &&
-    /if\(homedTopics\.length\)\{[\s\S]{0,400}return;/.test(sidebar),
-    'the next message on that topic would be filed somewhere with nothing to click');
   /* ⚠ THE REFUSAL COMES BEFORE THE CONFIRM, not after. A dialog that asks and then
      refuses teaches the office the button is broken rather than that the folder is. */
-  check('S292', 'and it refuses before asking, not after',
-    sidebar.indexOf('if(homedTopics.length)') < sidebar.indexOf("confirm('Delete the"),
-    'asking first and refusing second reads as a broken button');
-
   /* ---- the two new folders are seeded ---------------------------------- */
   const seed = (admin.match(/const DEFAULT_TOPIC_FOLDERS = \[[^\]]*\]/) || [''])[0];
   check('S292', 'both new folders are seeded so they exist to be clicked',
@@ -49596,10 +52512,61 @@ suite('299. A referral link, and the $25 that follows it');
      run; the flag says which of these need it back. */
   const PARTS = [
     ['referralCreditNote', false], ['referralLiveCount', false],
+    /* ⚠ referralEntrySeason IS NOT OPTIONAL — referralLiveCount calls it, and it is the
+       whole of REF-14 (a referral is $25 off the season it was earned in). Lifted, never
+       stubbed: a stub here would decide which credits still count, which is the exact
+       question these checks exist to ask. assertSandbox names it if this is forgotten. */
+    ['referralEntrySeason', false],
+    /* ⚠ AND THE TWO REF-23/REF-24 RULES (2026-09-08), lifted for the same reason and
+       named by assertSandbox the moment they are not: `referralCreditNotes` decides how
+       many lines a bill carries and what each one says, and `referralCreditSeason`
+       decides WHICH SEASON the $25 comes off. Both are answers about money.
+       `houseIsOnTheBill` comes with the second — it is the rule that one asks, and a
+       stub of it would let this suite agree with a copy of the billing rule rather than
+       with the shipped one. `referralHeldCount` is the office-side counterpart. */
+    ['referralCreditNotes', false], ['referralCreditSeason', false],
+    ['referralHeldCount', false], ['houseIsOnTheBill', false],
+    /* ⚠ THE ONE PREDICATE BOTH COUNTS ASK (REF-24). It exists because a red-check
+       proved two copies of it: the line builder had its own, and changing that copy to
+       let next season's held credits onto this season's bill left every check in the
+       repo green — they all read the other one. Lifted, so the checks below exercise
+       the shipped rule rather than a second opinion. */
+    ['referralEntryCountsIn', false], ['referralSeasonOr', false],
+    /* ⚠ THE FOUR THE 2026-09-12 RULINGS ADDED, ALL LIFTED RATHER THAN STUBBED, for
+       the reason written above them: every one of these decides who gets $25 or
+       which bill it lands on, so a stub keeps this suite green through exactly the
+       change it exists to catch. `referralSeasonForBill` is the roll-forward
+       ([[REF-38]]); `referralBillKey` and `referralNotesForBill` follow the money to
+       the payer and gather every house on that bill ([[REF-39]]); `custAddrKey` is
+       the one-discount-per-address match ([[REF-40]]) and is the repo's existing
+       normaliser, not a second one. */
+    /* ⚠ AND `billedHousesFor` WITH IT, lifted rather than typeof-guarded at the call
+       site. A `typeof fn === 'function'` guard there would let a sandbox that never
+       supplied it silently SKIP the group gather and still answer — which is the
+       exact trap isOutForSeason's exemption already sprang once, reporting 3 where
+       the truth was 2. If it is missing the suite must say so, and it did. */
+    ['billingGroupsByPayer', false], ['billedHousesFor', false],
+    ['referralSeasonForBill', false], ['referralBillKey', false],
+    ['referralNotesForBill', false], ['custAddrKey', false],
     ['referralIsSelfReferral', false], ['referralClawbackAllowed', false],
+    /* ⚠ AND THE ONE THAT STOPS ONE FRIEND EARNING TWICE (REF-31). LIFTED, NOT STUBBED:
+       a stub of this decides who gets paid, which is the whole of what this suite
+       protects. Leaving it out is not a skip either — creditReferralIfAny swallows the
+       ReferenceError per conversion, so 18 checks failed as though the CREDIT PATH were
+       broken. That is §3's trap, sprung by the commit that added the function. */
+    ['referralAlreadyCreditedFor', false],
     ['applyReferralCreditLine', true], ['referralNote', true],
     ['creditReferralIfAny', true], ['referralBlocked', true],
-    ['referralMarkQuote', true], ['clawBackReferralIfAny', true]
+    ['referralMarkQuote', true], ['clawBackReferralIfAny', true],
+    /* ⚠ ADDED 2026-09-07 WITH REF-25. creditReferralIfAny stopped resolving a token
+       with a bare `.find()` on referralToken the day links began rotating every season:
+       it asks referralHolderFor, which searches the CURRENT token and then the past
+       ones, so a retired link still credits the referrer even though it no longer
+       waives the set-up fee. Lifted rather than stubbed — a stub here decides who keeps
+       $25, and would keep this suite green through a change to exactly that.
+       ⚠ referralTokenSeasonOf COMES WITH IT because referralHolderFor reports which
+       season a retired link was from, and sandboxDeps named it the moment it did. */
+    ['referralHolderFor', false], ['referralTokenSeasonOf', false]
   ];
   const lifted = PARTS.map(p => lift(p[0], p[1]));
   const missingParts = PARTS.filter((p, i) => !lifted[i]).map(p => p[0]);
@@ -49632,7 +52599,10 @@ suite('299. A referral link, and the $25 that follows it');
         lifted.join('\n'),
         'return {creditReferralIfAny, clawBackReferralIfAny, applyReferralCreditLine,',
         '        referralIsSelfReferral, referralClawbackAllowed, referralCreditNote,',
-        '        referralLiveCount};'
+        '        referralCreditNotes, referralCreditSeason, referralHeldCount,',
+        '        referralEntryCountsIn,',
+        '        houseIsOnTheBill,',
+        '        referralLiveCount, referralEntrySeason};'
       ].join('\n');
 
       assertSandbox('S299', 'referral money', BODY, admin,
@@ -49733,6 +52703,317 @@ suite('299. A referral link, and the $25 that follows it');
             'without the stamp, re-saving the same conversion credits the referrer again');
         }
 
+        /* ---- 1b. THE REFERRER WITH NO BILL YET ---------------------------
+         * ⭐ REF-30. `applyReferralCreditLine` gives up when the referrer has no
+         * invoice document — a real state, which is why Invoices → Fix Missing
+         * Invoices exists — and its return value was thrown away, so the Inbox note
+         * went on saying the $25 "has been taken off their bill" when nothing had
+         * been. The count moved and the money did not, and the one record of it said
+         * the opposite. Addie asked for this to be automatic; when it cannot be, the
+         * requirement is that it SAYS SO rather than reporting success.
+         * ⚠ THE ENTRY IS STILL WRITTEN, deliberately. The referral was earned and the
+         * count is what the next save rebuilds the line from — dropping it to keep the
+         * note honest would lose the $25 outright. */
+        {
+          const w = world({
+            customers: [referrer(), {id: 'NEW1', data: {name: 'Kyle New'}}],
+            invoices: {},                       /* no bill on file for the referrer */
+            quotes: {q1: {}}
+          });
+          const res = await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com'});
+          const given = w.notes.find(n => n.topic === 'Referral Credit Given') || {};
+          check('S299', 'a referrer with no bill yet is not told the money came off one',
+            !/taken off/.test(String(given.message || '')),
+            'the note said the $25 was taken off a bill that does not exist — the count ' +
+            'moved and no money did, and this note is the only record anybody reads');
+          check('S299', 'and the note says what to do about it',
+            /Fix Missing Invoices/.test(String(given.message || '')),
+            'a discrepancy with no next step is what sends somebody looking for a bug ' +
+            'in the referral code when the answer is that this customer has no invoice');
+          check('S299', 'and the referral itself is still counted',
+            res.ok === true && (w.customers.find(c => c.id === 'REF1') || {}).data.referralCount === 1,
+            'the referral was earned — dropping the entry to keep the note honest would ' +
+            'lose the $25 for good, since the next save rebuilds the line from the count');
+        }
+
+        /* ---- 1c. AND THE SAME ON THE WAY BACK OUT ------------------------
+         * ⚠ A FIX IN ONE DIRECTION IS HALF A FIX, which this repo already records by
+         * name. The clawback note has the identical shape and the identical hole: with
+         * no invoice on file the credit was never ON a bill, so "taken back off their
+         * bill" describes a write that did not happen either. */
+        {
+          const w = world({
+            customers: [referrer({referralCredits: [{referredCustomerId: 'NEW1',
+                          referredName: 'Kyle New', amount: 25,
+                          creditedAt: new Date().toISOString(),
+                          season: new Date().getFullYear(), revoked: false}],
+                        referralCount: 1}),
+                        {id: 'NEW1', data: {name: 'Kyle New', referredByCustomerId: 'REF1'}}],
+            invoices: {}                      /* no bill on file for the referrer */
+          });
+          await w.api.clawBackReferralIfAny('NEW1',
+            {name: 'Kyle New', referredByCustomerId: 'REF1'});
+          const back = w.notes.find(n => n.topic === 'Referral Taken Back') || {};
+          check('S299', 'a clawback with no bill on file does not claim it came off one',
+            !!back.message && !/off their bill/.test(String(back.message)),
+            'the note said the credit was taken back off a bill that does not exist — ' +
+            'same hole as the credit note above, one direction further on');
+        }
+
+        /* ---- 1d. HER RULE FOR A LINK USED MORE THAN ONCE ------------------
+         * Addie, 2026-09-08: "If the link is used twice for two separate people and
+         * addresses then we can give the costumer to referral discounts but discount
+         * only takes affect after they are converted to costumer."
+         * Three claims, each RUN rather than read.  [[REF-31]] */
+        {
+          /* (a) two separate people at two separate addresses earn TWO discounts. */
+          const w = world({
+            customers: [referrer(),
+                        {id: 'NEW1', data: {name: 'Kyle New'}},
+                        {id: 'NEW2', data: {name: 'Maria Lopez'}}],
+            invoices: {'8015550111': bill()},
+            quotes: {q1: {}, q2: {}}
+          });
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com',
+                     street: '1 Elm St'});
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'},
+            'NEW2', {name: 'Maria Lopez', phone: '8015558888', email: 'maria@x.com',
+                     street: '2 Oak Ave'});
+          const inv = w.invoices['8015550111'];
+          const refLines = (inv.creditNotes || []).filter(c => c.kind === 'referral');
+          check('S299', 'one link used by two different people earns two discounts',
+            inv.credits === 50 && refLines.length === 2,
+            'got $' + inv.credits + ' over ' + refLines.length + ' line(s) — the link is ' +
+            'not single-use, and a second friend through it is a second $25');
+          check('S299', 'and each line names the friend who earned it',
+            refLines.some(c => /Kyle New/.test(c.reason)) &&
+            refLines.some(c => /Maria Lopez/.test(c.reason)),
+            'two lines both reading "Referral" cannot be told apart, and the × beside ' +
+            'them would be a guess about which friend is being crossed off');
+        }
+        {
+          /* (b) THE SAME PERSON THROUGH THE LINK TWICE IS ONE DISCOUNT, NOT TWO.
+             "two separate people and addresses" is the condition she put on the pair,
+             so a friend who submits the public form twice — or is converted twice — is
+             one referral. The office never sees the second $25 arrive, because the
+             count and the line both move silently. */
+          const w = world({
+            customers: [referrer(),
+                        {id: 'NEW1', data: {name: 'Kyle New'}},
+                        {id: 'NEW1B', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill()},
+            quotes: {q1: {}, q2: {}}
+          });
+          const same = {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com',
+                        street: '1 Elm St'};
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'}, 'NEW1', same);
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'}, 'NEW1B', same);
+          const inv = w.invoices['8015550111'];
+          check('S299', 'the same friend through the link twice is one discount, not two',
+            inv.credits === 25,
+            'got $' + inv.credits + ' — one friend, two quotes, and the referrer was ' +
+            'paid twice for them; her rule is two separate PEOPLE and ADDRESSES');
+        }
+        {
+          /* (c) NOTHING IS CREDITED UNTIL THEY ARE A CUSTOMER. The only callers are the
+             two conversion doors, so this asserts the property from the other end: a
+             quote that merely carries the token has changed no money. */
+          const w = world({
+            customers: [referrer(), {id: 'NEW1', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill()},
+            quotes: {q1: {referredByToken: 'tok-dana'}}
+          });
+          check('S299', 'a quote carrying the link has earned nothing yet',
+            w.invoices['8015550111'].credits === 0 &&
+            !(w.customers.find(c => c.id === 'REF1') || {}).data.referralCount,
+            'the discount only takes effect once the friend is converted — a quote ' +
+            'that may never be answered must not move money');
+        }
+
+        {
+          /* (d) AND AN ENTRY WRITTEN BEFORE TODAY CARRIES NO CONTACT AT ALL, so the rule
+             has to reach the customer RECORD to answer. Without that fallback it is blind
+             to precisely the duplicates already sitting in the book — the ones this was
+             built for. The entry here is shaped the way every pre-REF-31 writer wrote
+             one: an id and a name, nothing else. */
+          const w = world({
+            customers: [referrer({referralCredits: [{referredCustomerId: 'OLD1',
+                          referredName: 'Kyle New', amount: 25,
+                          creditedAt: new Date().toISOString(),
+                          season: new Date().getFullYear(), revoked: false}],
+                        referralCount: 1}),
+                        {id: 'OLD1', data: {name: 'Kyle New', phone: '8015559999',
+                                            email: 'kyle@x.com'}},
+                        {id: 'NEW2', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill({credits: 25, creditNotes: [
+              {kind: 'referral', amount: 25, reason: 'Referral — Kyle New', ref: 'OLD1'}]})},
+            quotes: {q2: {}}
+          });
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'},
+            'NEW2', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com'});
+          check('S299', 'a referral already on file with no contact stamped still blocks',
+            w.invoices['8015550111'].credits === 25,
+            'got $' + w.invoices['8015550111'].credits + ' — every entry written before ' +
+            'REF-31 holds only an id and a name, so a rule that reads the entry alone ' +
+            'cannot see the duplicates that already exist');
+          check('S299', 'and the refusal is recorded rather than dropped',
+            w.notes.some(n => n.topic === 'Referral Blocked'),
+            'a refusal nobody can see is indistinguishable from the link not working — ' +
+            'this is the same argument the self-referral refusal already makes');
+        }
+        {
+          /* (e) A REVOKED ENTRY DOES NOT BLOCK. Revoked means that friend cancelled, so
+             a genuine re-join earns it properly — the opposite of a duplicate. */
+          const w = world({
+            customers: [referrer({referralCredits: [{referredCustomerId: 'OLD1',
+                          referredName: 'Kyle New', referredPhone: '8015559999',
+                          amount: 25, creditedAt: new Date().toISOString(),
+                          season: new Date().getFullYear(), revoked: true}],
+                        referralCount: 0}),
+                        {id: 'NEW2', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill()},
+            quotes: {q2: {}}
+          });
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'},
+            'NEW2', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com'});
+          check('S299', 'a friend who cancelled and came back earns it properly',
+            w.invoices['8015550111'].credits === 25,
+            'got $' + w.invoices['8015550111'].credits + ' — a revoked entry is a ' +
+            'cancellation, not a duplicate, and blocking on it would silently refuse a ' +
+            'real referral for ever');
+        }
+
+        {
+          /* (f) AND THE CONTACT IS STAMPED ON THE ENTRY, which the fallback above hides:
+             with the record still in the book a lookup answers, so dropping the stamp
+             breaks nothing a fixture would notice. It matters once that customer is
+             DELETED or merged away — the lookup then returns nothing and the entry is the
+             only thing left that can say who this referral was for. A duplicate-customer
+             merge is ordinary housekeeping here, so this is not a hypothetical.
+             ⚠ THIS CHECK EXISTS BECAUSE THE RED-CHECK SAID SO: blanking the stamp was a
+             sabotage nothing caught. */
+          const w = world({
+            customers: [referrer(), {id: 'NEW1', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill()}, quotes: {q1: {}}
+          });
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com'});
+          const saved = ((w.customers.find(c => c.id === 'REF1') || {}).data || {})
+            .referralCredits || [];
+          check('S299', 'the friend\'s contact is stamped on the referral entry',
+            saved.length === 1 &&
+            String(saved[0].referredPhone || '').replace(/\D/g, '') === '8015559999' &&
+            String(saved[0].referredEmail || '') === 'kyle@x.com',
+            'got ' + JSON.stringify(saved[0] || {}) + ' — without the stamp the ' +
+            'no-double-credit rule depends on that customer still existing, and it is ' +
+            'blind the moment they are deleted or merged');
+
+          /* And it really is enough on its own: same friend, record GONE from the book. */
+          const w2 = world({
+            customers: [referrer({referralCredits: saved, referralCount: 1}),
+                        {id: 'NEW2', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill({credits: 25, creditNotes: [
+              {kind: 'referral', amount: 25, reason: 'Referral — Kyle New', ref: 'NEW1'}]})},
+            quotes: {q2: {}}
+          });
+          await w2.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'},
+            'NEW2', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com'});
+          check('S299', 'and that stamp still blocks after the friend\'s record is gone',
+            w2.invoices['8015550111'].credits === 25,
+            'got $' + w2.invoices['8015550111'].credits + ' — NEW1 is not in this book, ' +
+            'so only the stamp can answer, and this is exactly the state a merge leaves');
+        }
+
+        {
+          /* (g) THE PHONE IS NORMALISED BEFORE IT IS COMPARED, and only a fixture that
+             stores one the way the office really types it can prove that. Every fixture
+             above holds clean digits on both sides, so stripping the punctuation was
+             never exercised — a red-check comparing the raw strings went straight
+             through. This repo has been caught by exactly this before: "a fixture that
+             cannot fail is the trap this repo keeps re-learning". */
+          const w = world({
+            customers: [referrer({referralCredits: [{referredCustomerId: 'OLD1',
+                          referredName: 'Kyle New',
+                          referredPhone: '(801) 555-9999',      /* as an import keeps it */
+                          referredEmail: '',
+                          amount: 25, creditedAt: new Date().toISOString(),
+                          season: new Date().getFullYear(), revoked: false}],
+                        referralCount: 1}),
+                        {id: 'NEW2', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill({credits: 25, creditNotes: [
+              {kind: 'referral', amount: 25, reason: 'Referral — Kyle New', ref: 'OLD1'}]})},
+            quotes: {q2: {}}
+          });
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'},
+            'NEW2', {name: 'Kyle New', phone: '8015559999', email: ''});
+          check('S299', 'a formatted phone and a digits one are the same friend',
+            w.invoices['8015550111'].credits === 25,
+            'got $' + w.invoices['8015550111'].credits + ' — the office types ' +
+            '"(801) 555-9999" and every writer here stores digits, so a raw compare ' +
+            'never matches and the duplicate is paid for');
+
+          /* ⚠ AND THE OTHER WAY ROUND, which is a SEPARATE sabotage: the check above
+             formats the STORED side only, so normalising the INCOMING one was still
+             never exercised and a red-check on it went through. Both sides strip. */
+          const w2 = world({
+            customers: [referrer({referralCredits: [{referredCustomerId: 'OLD1',
+                          referredName: 'Kyle New', referredPhone: '8015559999',
+                          referredEmail: '', amount: 25,
+                          creditedAt: new Date().toISOString(),
+                          season: new Date().getFullYear(), revoked: false}],
+                        referralCount: 1}),
+                        {id: 'NEW2', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill({credits: 25, creditNotes: [
+              {kind: 'referral', amount: 25, reason: 'Referral — Kyle New', ref: 'OLD1'}]})},
+            quotes: {q2: {}}
+          });
+          await w2.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'},
+            'NEW2', {name: 'Kyle New', phone: '(801) 555-9999', email: ''});
+          check('S299', 'and a formatted phone arriving on the quote matches too',
+            w2.invoices['8015550111'].credits === 25,
+            'got $' + w2.invoices['8015550111'].credits + ' — the public form takes ' +
+            'whatever the friend types, so the incoming side needs normalising just as ' +
+            'much as the stored one');
+        }
+        {
+          /* (h) AND THE EMAIL HALF DECIDES ON ITS OWN. Every fixture above matches on the
+             phone as well, so deleting the email comparison entirely changed nothing —
+             the other red-check MISS. Two phones, one address. */
+          const w = world({
+            customers: [referrer({referralCredits: [{referredCustomerId: 'OLD1',
+                          referredName: 'Kyle New', referredPhone: '8015559999',
+                          referredEmail: 'Kyle@X.com',          /* and the case differs */
+                          amount: 25, creditedAt: new Date().toISOString(),
+                          season: new Date().getFullYear(), revoked: false}],
+                        referralCount: 1}),
+                        {id: 'NEW2', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill({credits: 25, creditNotes: [
+              {kind: 'referral', amount: 25, reason: 'Referral — Kyle New', ref: 'OLD1'}]})},
+            quotes: {q2: {}}
+          });
+          await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'},
+            'NEW2', {name: 'Kyle New', phone: '8017770000', email: 'kyle@x.com'});
+          check('S299', 'the same email at a new number is still the same friend',
+            w.invoices['8015550111'].credits === 25,
+            'got $' + w.invoices['8015550111'].credits + ' — somebody who changed their ' +
+            'number is not a second referral, and an equality compare would miss the ' +
+            'case difference too');
+        }
+
         /* ---- 2. it is idempotent -------------------------------------- */
         {
           const w = world({
@@ -49805,6 +53086,206 @@ suite('299. A referral link, and the $25 that follows it');
           check('S299', 'and it is said out loud rather than silently dropped',
             bySelf.notes.some(n => n.topic === 'Referral Blocked'),
             'a refusal nobody can see is indistinguishable from the link not working');
+
+          /* ⭐ AND THE REFUSAL IS ON THE REFERRER'S OWN RECORD (2026-09-08). Dax:
+             *"someone joined and accepted a quote under this referral link but you cant
+             see him get the discount here."* Nothing was wrong with the credit — it was
+             refused, correctly, because the phone matched — but the refusal was written
+             to the QUOTE and to the Inbox and never to the customer. So Refer a friend,
+             the one row on their own screen about their own link, still read *“nobody has
+             joined through it yet”* after somebody had joined through it. The check above
+             already proves the Inbox note; a note is not the screen somebody is looking at.
+             ⚠ RUN, NOT READ. The row draws referralBlockCount over this field, so what
+             matters is that the refusal path WRITES it — not that the words are present. */
+          const blockedOn = (w) => {
+            const r = w.customers.find(c => c.id === 'REF1');
+            return (r && Array.isArray(r.data.referralBlocks)) ? r.data.referralBlocks : [];
+          };
+          check('S299', 'a refused referral leaves a mark on the referrer, not just the quote',
+            blockedOn(bySelf).length === 1 && blockedOn(byPhone).length === 1,
+            'got ' + blockedOn(bySelf).length + ' and ' + blockedOn(byPhone).length +
+            ' — with nothing on the record their own screen says nobody has joined ' +
+            'through the link after somebody has');
+          check('S299', 'and it says WHY, which is the difference between a rule and a fault',
+            /phone number or email/.test(String((blockedOn(byPhone)[0] || {}).why)) &&
+            /own link/.test(String((blockedOn(bySelf)[0] || {}).why)),
+            'got ' + JSON.stringify(blockedOn(byPhone)[0]) + ' — “earned nothing” with no ' +
+            'reason sends somebody hunting for a link that is working perfectly');
+          /* ⚠ THE ONE THAT GUARDS MONEY. referralCredits is read by every count, every
+             line on a bill and the clawback; a $0 refusal parked in it would have to be
+             excluded by each of them separately, which is the two-copies failure REF-24
+             already paid for once. */
+          check('S299', 'and a refusal never lands in referralCredits, where money is counted',
+            !((bySelf.customers.find(c => c.id === 'REF1').data.referralCredits || []).length) &&
+            !((byPhone.customers.find(c => c.id === 'REF1').data.referralCredits || []).length),
+            'a refusal in the credit ledger is $25 the office cannot see and cannot remove');
+          /* ⚠ AND RE-RUNNING ONE REFUSAL MUST NOT STACK IT. A conversion can be re-saved;
+             the quote stamp normally stops that, but the record is keyed on the quote id
+             for the case where it does not. */
+          {
+            const twice = world({
+              customers: [referrer(), {id: 'NEW1', data: {}}],
+              invoices: {'8015550111': bill()}, quotes: {q1: {}}
+            });
+            const args = [{referredByToken: 'tok-dana', __quoteId: 'q1'},
+                          'NEW1', {name: 'Dana Again', phone: '8015550111'}];
+            await twice.api.creditReferralIfAny(args[0], args[1], args[2]);
+            await twice.api.creditReferralIfAny(args[0], args[1], args[2]);
+            check('S299', 'and one refusal re-run is still one refusal',
+              blockedOn(twice).length === 1,
+              'got ' + blockedOn(twice).length + ' — a row reading “4 uses earned nothing” ' +
+              'for one use is the same lie in the other direction');
+          }
+        }
+
+        /* ---- 4b. a retired link earns nothing either (REF-42) ------------
+         * ⛔ Addie, 2026-09-12: *"No an old link should not work but there should be a
+         * button to start new season which will update everyones payments again and
+         * update new referall links for everyone."* Until this, a retired link was
+         * refused the $30 waiver (REF-25) and still paid the referrer the $25 — one link,
+         * two answers. The button she names already existed and already did both halves;
+         * what was missing was this.
+         * ⚠ RUN, NOT READ. Every claim here is about money reaching a bill, and the
+         * comment this replaced sat directly above the line it described — a source check
+         * would have matched the prose while the behaviour went the other way. */
+        {
+          const year = new Date().getFullYear();
+          const stale = () => referrer({
+            referralToken: 'tok-dana-new', referralTokenSeason: year,
+            referralTokensPast: [{token: 'tok-dana-old', season: year - 1,
+                                  retiredAt: year}]
+          });
+
+          const w = world({
+            customers: [stale(), {id: 'NEW1', data: {name: 'Kyle New'}}],
+            invoices: {'8015550111': bill()},
+            quotes: {q1: {}}
+          });
+          const res = await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana-old', __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com'});
+          const inv = w.invoices['8015550111'];
+          const ref1 = w.customers.find(c => c.id === 'REF1');
+          check('S299', 'last season’s link earns the referrer nothing',
+            res.ok === false && inv.credits === 0 &&
+            !((inv.creditNotes || []).some(c => c.kind === 'referral')),
+            'got ok=' + res.ok + ', credits=' + inv.credits + ' — a link that no ' +
+            'longer waives the friend’s $30 must not still pay the referrer $25, ' +
+            'which is the split REF-25 left behind');
+          /* ⚠ THE LEDGER IS THE HALF THAT WOULD SURVIVE A WRONG FIX. Refusing the bill
+             line while still pushing the entry leaves the count moving and every later
+             rebuild putting the $25 back — REF-24’s two-copies failure. */
+          check('S299', 'and nothing is written into referralCredits for it',
+            !((ref1.data.referralCredits || []).length),
+            'an entry here is $25 the next invoice rebuild puts back on the bill');
+          check('S299', 'the refusal is recorded on the referrer, like the other three',
+            Array.isArray(ref1.data.referralBlocks) && ref1.data.referralBlocks.length === 1,
+            'their own Refer a friend row reads the block list — without this it says ' +
+            'nobody has joined through the link after somebody has');
+          /* ⭐ AND IT NAMES THE YEAR. This is what the referralHolderFor fix shipped with
+             this is for: a past entry stores its year as `season`, the reader asked for
+             `referralTokenSeason`, so the year came back null and every stale link could
+             only ever be called "an old one". */
+          check('S299', 'and it names WHICH season the dead link was from',
+            new RegExp(String(year - 1)).test(String((ref1.data.referralBlocks[0] || {}).why)),
+            'got ' + JSON.stringify((ref1.data.referralBlocks[0] || {}).why) +
+            ' — referralHolderFor reads a retired entry’s year out of `season`; ' +
+            'asking it for `referralTokenSeason` returns null for every one of them');
+          /* ⛔ AND THE NOTE MUST NOT REPEAT THE OTHER THREE REFUSALS’ CLOSING LINE.
+             "Nothing is wrong with the link" is true of an own-link, a self-referral and
+             a duplicate. Here the link IS dead and the fix is to send the new one. */
+          const note = w.notes.find(n => /Referral Blocked/.test(String(n.topic || '')));
+          check('S299', 'and the note sends them to the current link rather than saying the link is fine',
+            !!note && /current link/.test(String(note.message || '')) &&
+            !/Nothing is wrong with the link/.test(String(note.message || '')),
+            'got ' + JSON.stringify(note && note.message) + ' — telling the referrer ' +
+            'nothing is wrong is what stops the one action that fixes it');
+          check('S299', 'and the quote is stamped, so the refusal is not retried for ever',
+            w.writes.some(x => x.collection === 'quotes' && x.id === 'q1' &&
+                               x.updates && x.updates.referralCredited === true),
+            'every other refusal stamps it; an unstamped one runs again on the next save');
+
+          /* ⭐ THE NO-REGRESSION HALF, AND IT IS THE ONE THAT PROTECTS REAL PEOPLE. A
+             CURRENT link must still pay, and an UNDATED one is current by definition —
+             every link minted before the season stamp existed carries no year, so a rule
+             that compared years rather than asking `holder.current` would kill live links
+             for the whole book. That is REF-28’s argument on the fee side, and this is
+             the same trap one function along. */
+          {
+            const live = world({
+              customers: [stale(), {id: 'NEW2', data: {name: 'Pat New'}}],
+              invoices: {'8015550111': bill()}, quotes: {q2: {}}
+            });
+            const ok = await live.api.creditReferralIfAny(
+              {referredByToken: 'tok-dana-new', __quoteId: 'q2'},
+              'NEW2', {name: 'Pat New', phone: '8015558888'});
+            check('S299', 'their CURRENT link still pays, with a retired one sitting beside it',
+              ok.ok === true && live.invoices['8015550111'].credits === 25,
+              'got ok=' + ok.ok + ', credits=' + live.invoices['8015550111'].credits +
+              ' — the refusal must key on which token this is, not on the customer ' +
+              'having any retired token at all');
+          }
+          {
+            const undated = world({
+              customers: [referrer({referralToken: 'tok-undated'}),
+                          {id: 'NEW3', data: {name: 'Sam New'}}],
+              invoices: {'8015550111': bill()}, quotes: {q3: {}}
+            });
+            const ok = await undated.api.creditReferralIfAny(
+              {referredByToken: 'tok-undated', __quoteId: 'q3'},
+              'NEW3', {name: 'Sam New', phone: '8015557777'});
+            check('S299', 'and an undated link still pays, because undated means this season',
+              ok.ok === true && undated.invoices['8015550111'].credits === 25,
+              'got ok=' + ok.ok + ' — a year comparison instead of holder.current ' +
+              'would refuse every link minted before the stamp existed, which is the book');
+          }
+
+          /* ⛔ AND A RETIRED LINK CARRYING NO YEAR IS STILL RETIRED. This is the one case
+             where `holder.current` and a year comparison give different answers, and it
+             is not a corner: `referralRotationUpdates` stamps a past entry with whatever
+             the customer had, so EVERY link minted before the season stamp existed
+             becomes a past entry with `season: null`. A year test reads null as "not old"
+             and pays out on a dead link. Added because the red-check found the year
+             sabotage passing — the fixtures, not the rule, were what was thin. */
+          {
+            const noYear = world({
+              customers: [referrer({
+                referralToken: 'tok-fresh', referralTokenSeason: year,
+                referralTokensPast: [{token: 'tok-nodate', season: null, retiredAt: year}]
+              }), {id: 'NEW4', data: {name: 'Lee New'}}],
+              invoices: {'8015550111': bill()}, quotes: {q5: {}}
+            });
+            const r = await noYear.api.creditReferralIfAny(
+              {referredByToken: 'tok-nodate', __quoteId: 'q5'},
+              'NEW4', {name: 'Lee New', phone: '8015556666'});
+            const blocks = (noYear.customers.find(c => c.id === 'REF1')
+              .data.referralBlocks || []);
+            check('S299', 'a retired link with no year on it is still refused, and says so vaguely',
+              r.ok === false && noYear.invoices['8015550111'].credits === 0 &&
+              /an old one/.test(String((blocks[0] || {}).why)),
+              'got ok=' + r.ok + ', why=' + JSON.stringify((blocks[0] || {}).why) +
+              ' — a year comparison reads a null year as “not old” and pays out on a ' +
+              'dead link, and rotation gives every pre-stamp link exactly this shape');
+          }
+
+          /* ⚠ MOST-SPECIFIC REASON WINS, and the order of the four refusals is the only
+             thing that decides it — all four end in no credit. Somebody using their own
+             retired link should be told they used their own link, because that is the fact
+             still true after they share the new one. */
+          {
+            const self = world({
+              customers: [stale()], invoices: {'8015550111': bill()}, quotes: {q4: {}}
+            });
+            await self.api.creditReferralIfAny(
+              {referredByToken: 'tok-dana-old', __quoteId: 'q4'},
+              'REF1', {name: 'Dana Referrer', phone: '8015550111'});
+            const why = String(((self.customers.find(c => c.id === 'REF1')
+              .data.referralBlocks || [])[0] || {}).why);
+            check('S299', 'their own retired link is refused as their own link, not as an old one',
+              /own link/.test(why),
+              'got ' + JSON.stringify(why) + ' — "old link" sends them to share the ' +
+              'new one, which is refused again for the reason nobody mentioned');
+          }
         }
 
         /* ---- 5. two referrals are one line, not two -------------------- */
@@ -49825,17 +53306,95 @@ suite('299. A referral link, and the $25 that follows it');
             'NEW1', {name: 'Kyle New', phone: '8015559999'});
           const inv = w.invoices['8015550111'];
           const refLines = (inv.creditNotes || []).filter(c => c.kind === 'referral');
-          check('S299', 'a second referral rebuilds one $50 line rather than adding another',
-            refLines.length === 1 && refLines[0].amount === 50,
-            'got ' + refLines.length + ' referral line(s) worth ' +
-            (refLines[0] && refLines[0].amount) + ' — two lines saying "Referral" is a bill ' +
-            'that reads as though we discounted them twice for the same friend');
+          /* ⚠ REPOINTED 2026-09-08 (REF-24), NOT WEAKENED. This required ONE collapsed
+             $50 line, which is exactly what Addie asked to be rid of: *"in discount I
+             cannot currently see who got what discount."* Two referrals are now two
+             NAMED $25 lines with a × each. What the check was really guarding is
+             untouched and is still asserted below it — the rebuild REPLACES the referral
+             lines rather than piling a stale one on top, so the total is $50 and not $75,
+             and every other kind of credit survives. */
+          const refTotal = refLines.reduce((n, c) => n + (Number(c.amount) || 0), 0);
+          check('S299', 'a second referral adds a second NAMED line, and replaces the old ones',
+            refLines.length === 2 && refTotal === 50 &&
+            refLines.every(c => /Referral \u2014 \S/.test(c.reason || '')) &&
+            refLines.every(c => !!c.ref),
+            'got ' + refLines.length + ' referral line(s) worth ' + refTotal + ' [' +
+            refLines.map(c => c.reason).join(' | ') + '] — a line per friend is how the ' +
+            'office sees who earned what, and `ref` is what lets one × cross off one of ' +
+            'them; a stale line left behind would discount them twice for one friend');
           check('S299', 'and every other kind of credit on that bill survives it',
             (inv.creditNotes || []).some(c => c.kind === 'manual' && c.amount === 40) &&
             inv.credits === 90,
             'got credits=' + inv.credits + ' — this rebuild owns `referral` and nothing ' +
             'else; wiping a goodwill discount to add a referral is money taken back from ' +
             'a customer who was promised it');
+        }
+
+        /* ---- 5b. TWO REAL CONVERSIONS, ONE AFTER THE OTHER --------------
+         * Dax, 2026-09-07: "if there is a second referral link they dont get discounted
+         * for the second refeeral they only get the discount for the 1st referral."
+         *
+         * ⚠ SECTION 5 ABOVE DOES NOT COVER THIS AND READS AS THOUGH IT DOES. It seeds
+         * the first referral as a pre-existing entry and then runs ONE conversion, so it
+         * proves the LINE IS REBUILT from a count of two — never that a second
+         * conversion actually produces that count. The difference is the whole of the
+         * report above: if the second credit never lands, section 5 stays green while
+         * the referrer is discounted once.
+         *
+         * ⚠ AND THE SEEDED ENTRY THERE CARRIES NO DATE AT ALL, which under REF-14 is
+         * the undateable branch that counts by default — so that fixture cannot see a
+         * season rule getting the sums wrong either. This one lets the real code write
+         * both entries, with whatever fields it really writes. */
+        {
+          const w = world({
+            customers: [referrer(), {id: 'NEW1', data: {}}, {id: 'NEW2', data: {}}],
+            invoices: {'8015550111': bill()},
+            quotes: {q1: {}, q2: {}}
+          });
+          const one = await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q1'},
+            'NEW1', {name: 'Kyle New', phone: '8015559999', email: 'kyle@x.com'});
+          const afterFirst = Number(w.invoices['8015550111'].credits) || 0;
+          const two = await w.api.creditReferralIfAny(
+            {referredByToken: 'tok-dana', __quoteId: 'q2'},
+            'NEW2', {name: 'Pat Two', phone: '8015558888', email: 'pat@x.com'});
+          const inv = w.invoices['8015550111'];
+          const refLines = (inv.creditNotes || []).filter(c => c.kind === 'referral');
+
+          check('S299', 'the first of two referrals is worth $25 on its own',
+            one.ok === true && afterFirst === 25,
+            'got ok=' + one.ok + ', credits=' + afterFirst + ' — if the FIRST one is ' +
+            'already wrong the second tells you nothing');
+          check('S299', 'and the second referral is credited too',
+            two.ok === true,
+            'got ' + JSON.stringify(two) + ' — a refusal here is the whole report: the ' +
+            'referrer sent two friends and was thanked for one');
+          /* ⚠ REPOINTED 2026-09-08 (REF-24): two friends are two NAMED lines now, not
+             one collapsed $50. The claim this check exists for is the MONEY, and it is
+             unchanged — $50 off, for two friends. What is added is that each line names
+             its own friend, because a total that is right while the office cannot see
+             who earned it is the complaint that prompted the change. */
+          const twoTotal = refLines.reduce((n, c) => n + (Number(c.amount) || 0), 0);
+          check('S299', 'so a customer who refers twice is discounted twice',
+            inv.credits === 50 && refLines.length === 2 && twoTotal === 50 &&
+            refLines.some(c => /Kyle/.test(c.reason || '')) &&
+            refLines.some(c => /Pat/.test(c.reason || '')),
+            'got credits=' + inv.credits + ' across ' + refLines.length + ' referral ' +
+            'line(s) worth ' + twoTotal + ' [' + refLines.map(c => c.reason).join(' | ') +
+            '] — $25 for two friends is the referral scheme quietly paying half of what ' +
+            'it promises, and an unnamed line is a discount nobody can audit');
+          check('S299', 'and the stored count keeps up with the entries',
+            w.customers[0].data.referralCount === 2 &&
+            (w.customers[0].data.referralCredits || []).length === 2,
+            'got count=' + w.customers[0].data.referralCount + ' over ' +
+            ((w.customers[0].data.referralCredits || []).length) + ' entries — the box in ' +
+            'Edit Customer is filled from this number, and the save rebuilds the bill ' +
+            'from the box, so a stale count becomes a wrong invoice the next time ' +
+            'anybody opens that record');
+          check('S299', 'and each friend records who sent them',
+            w.writes.some(x => x.id === 'NEW1' && x.updates.referredByCustomerId === 'REF1') &&
+            w.writes.some(x => x.id === 'NEW2' && x.updates.referredByCustomerId === 'REF1'),
+            'without it the clawback cannot find its way back for that friend');
         }
 
         /* ---- 6. cancelling before the install takes it back ------------ */
@@ -49938,6 +53497,96 @@ suite('299. A referral link, and the $25 that follows it');
             'anything higher is the × undoing itself');
         }
 
+        /* ---- 9b. a referral is $25 off THE SEASON IT WAS EARNED IN ------
+         * REF-14. Dax, 2026-09-07: "a referral is $25 off for the current season per
+         * refferral." Entries are never deleted, so before this every referral ever
+         * earned came off every bill for ever — three in one good season quietly became
+         * a standing $75 discount for life.
+         * ⚠ RUN, NEVER MATCHED: every claim here is about what a count RESOLVES TO for
+         * a given set of entries, and the old rule reads identically in the source. */
+        {
+          const thisYear = new Date().getFullYear();
+          const api = world({}).api;
+          const entry = (over) => Object.assign(
+            {referredCustomerId: 'X', amount: 25, revoked: false}, over || {});
+
+          check('S299', 'a referral earned this season counts',
+            api.referralLiveCount([entry({season: thisYear})]) === 1,
+            'the season it was earned in is the season it comes off');
+          check('S299', 'and one earned in an earlier season does not',
+            api.referralLiveCount([entry({season: thisYear - 1})]) === 0,
+            'a referral that keeps discounting every future bill is a discount for life');
+          check('S299', 'the friend coming back next year is not a second referral',
+            api.referralLiveCount([entry({season: thisYear - 1}), entry({season: thisYear - 1})]) === 0,
+            'per referral, not per friend per season — otherwise one customer re-refers ' +
+            'the same household every autumn and never pays again');
+          check('S299', 'a new referral this season still counts beside expired ones',
+            api.referralLiveCount([entry({season: thisYear - 1}), entry({season: thisYear})]) === 1,
+            'expiring the old one must not take the new one with it');
+          /* ⚠ THE PRE-REF-14 SHAPE. Everything written before today carries no `season`,
+             so the year of creditedAt stands in for one — a pure read-side rule, with no
+             pass over the book and nothing rewritten. */
+          check('S299', 'an entry written before this rule is dated by creditedAt',
+            api.referralLiveCount([entry({creditedAt: (thisYear - 1) + '-11-02T10:00:00Z'})]) === 0 &&
+            api.referralLiveCount([entry({creditedAt: thisYear + '-11-02T10:00:00Z'})]) === 1,
+            'the old entries have no season field and must not all expire at once, nor ' +
+            'all survive for ever');
+          /* ⚠ AND IT FAILS TOWARDS HONOURING A CREDIT. Wrongly dropping $25 somebody
+             earned is the expensive mistake; wrongly keeping one costs $25. */
+          check('S299', 'an undateable entry is counted rather than silently dropped',
+            api.referralLiveCount([entry({})]) === 1 &&
+            api.referralLiveCount([entry({creditedAt: 'not a date'})]) === 1,
+            'a credit nobody can date is still a credit somebody earned');
+          check('S299', 'and revoked or waived still beats the season test',
+            api.referralLiveCount([entry({season: thisYear, revoked: true})]) === 0 &&
+            api.referralLiveCount([entry({season: thisYear, waived: true})]) === 0,
+            'the two older reasons a referral stops counting are unchanged');
+          /* ⚠ REPOINTED 2026-09-08 (REF-23), AND STRENGTHENED FROM A MATCH TO A RUN.
+             The stamp is no longer always this year: a referrer with no bill this season
+             earns it off NEXT season's. The old check matched the literal
+             `new Date().getFullYear()` and so failed on correct code. It RUNS the rule
+             now, both ways, which is the thing that actually decides where $25 lands. */
+          check('S299', 'a credit earned this season is stamped with it',
+            /season: referralCreditSeason\(referrer\.data\)/.test(
+              extractFn(admin, 'creditReferralIfAny') || '') &&
+            api.referralCreditSeason({}) === thisYear &&
+            api.referralCreditSeason({rsvpStatus: 'yes'}) === thisYear,
+            'without the stamp every entry falls back to its date, which is the ' +
+            'fallback for OLD rows rather than the rule for new ones');
+          /* ⭐ AND THE OTHER HALF OF THE RULE (REF-23). Addie: *"if someone shares there
+             referal link but denied for this year than they will get discount for next
+             year however if they approved for this year they will get discount for this
+             year."* Both directions are checked, because a rule that always answers the
+             same year passes half of this on its own. */
+          check('S299', 'a referrer sitting the season out earns it off NEXT season',
+            api.referralCreditSeason({rsvpStatus: 'no'}) === thisYear + 1 &&
+            api.referralCreditSeason({rsvpStatus: 'backnextyear'}) === thisYear + 1 &&
+            api.referralCreditSeason({maybeNextYear: true}) === thisYear + 1,
+            'they have no bill this season, so the $25 lands nowhere and REF-14 then ' +
+            'stops it counting in any later one — earned and silently lost');
+          check('S299', 'and a house that was hung is billed, so it earns it now',
+            api.referralCreditSeason({rsvpStatus: 'no', completed: true}) === thisYear,
+            'Q-013: hung is hung, so there IS a bill this season for it to come off — ' +
+            'this is why the rule asks houseIsOnTheBill rather than deciding for itself');
+          /* ⚠ RUN AGAINST THE LINE BUILDER TOO, not only the count. The red-check that
+             found this had changed the builder's own copy of the season filter, which put
+             next season's credits onto this season's invoice while every count-based
+             check stayed green. There is one predicate now and this exercises it through
+             the builder, which is the half that reaches a bill. */
+          check('S299', 'a held credit never becomes a line on this season’s bill',
+            api.referralCreditNotes([entry({season: thisYear + 1})], 0).length === 0 &&
+            api.referralCreditNotes([entry({season: thisYear})], 0).length === 1,
+            'a credit for next season sitting on this season’s invoice is money off a ' +
+            'bill it is not for, and the customer has already been shown the total');
+          check('S299', 'and a held credit is counted for the office, off the bill',
+            api.referralHeldCount([entry({season: thisYear + 1})]) === 1 &&
+            api.referralLiveCount([entry({season: thisYear + 1})]) === 0 &&
+            api.referralHeldCount([entry({season: thisYear})]) === 0,
+            'held has to be visible somewhere or a referral earned while sitting out ' +
+            'looks exactly like one that never counted — and it must never reach the ' +
+            'invoice, which is a bill it is not for');
+        }
+
         /* ---- 10. the manual box is unchanged --------------------------
          * Her §7.8: the People They Referred box, on its own with no referralCredits
          * entries, must behave exactly as it does on main. The line builder was pulled
@@ -50031,7 +53680,16 @@ suite('299. A referral link, and the $25 that follows it');
            eight characters and is NOT the login token — shortening that one would be an
            account-security change. Naming the wrong one here leaves the sandbox missing
            the helper the real function calls. */
-        generateReferralToken: () => 'tok-' + (++minted)
+        generateReferralToken: () => 'tok-' + (++minted),
+        /* ⚠ THE REAL ONES, LIFTED (2026-09-07, REF-25). ensureReferralToken stopped
+           being self-contained when it learned about seasons, and sandboxDeps named
+           every one of these in turn. A stub for referralTokenSeasonOf in particular
+           would let this suite agree with a fiction about WHICH links rotate. */
+        REFERRAL_PAST_KEEP: Number((fnsSrc.match(/const REFERRAL_PAST_KEEP = (\d+);/) || [])[1]),
+        referralSeasonNow: new Function(
+          'return ' + extractFn(fnsSrc, 'referralSeasonNow') + ';referralSeasonNow')(),
+        referralTokenSeasonOf: new Function(
+          'return ' + extractFn(fnsSrc, 'referralTokenSeasonOf') + ';referralTokenSeasonOf')()
       };
       const names = Object.keys(env);
       // eslint-disable-next-line no-new-func
@@ -50041,13 +53699,50 @@ suite('299. A referral link, and the $25 that follows it');
         const rec = {};
         const first = await ensure('REF1', rec);
         /* The write is what the next visit reads back, so the harness plays Firestore
-           and puts it on the record — exactly as portalLookup's next call would find it. */
-        rec.referralToken = (writes[0] || {}).referralToken;
+           and puts it on the record — exactly as portalLookup's next call would find it.
+           ⚠ THE WHOLE WRITE, not just the token: since REF-25 the mint also stamps the
+           season, and replaying one field of a two-field write left the record looking
+           unstamped for ever, which made a correct grandfathering write look like a
+           second mint. */
+        Object.assign(rec, writes[0] || {});
         const second = await ensure('REF1', rec);
-        check('S299', 'a referral token is minted once and never changes',
+        check('S299', 'a referral token is minted once and never changes WITHIN a season',
           first === 'tok-1' && second === 'tok-1' && writes.length === 1,
           'got ' + first + ' then ' + second + ' after ' + writes.length + ' write(s) — a ' +
           'fresh token every visit breaks every link the customer has already shared');
+
+        /* ⭐ AND THE SERVER NEVER ROTATES (2026-09-07, REF-28). Addie: "Can we just have
+           a button we can push that says start new season and it will update
+           everything?" Start New Season owns rotation, so this side only ever mints.
+           ⚠ AN EARLIER VERSION ROTATED HERE TOO, on the calendar year, and it had to go
+           rather than be kept alongside: two triggers for one rule means the button she
+           presses would rarely be the thing that did anything, and the two copies could
+           take turns replacing each other's token so a customer's link changed every
+           time anybody looked at it. */
+        const old = {referralToken: 'lastyear', referralTokenSeason: new Date().getFullYear() - 1};
+        const before2 = writes.length;
+        const kept = await ensure('REF2', old);
+        check('S299', 'an old token is handed back untouched, because the button rotates',
+          kept === 'lastyear' && writes.length === before2,
+          'got ' + kept + ' after ' + (writes.length - before2) + ' write(s) — rotating ' +
+          'here as well as in Start New Season is two triggers for one rule');
+
+        const legacy = {referralToken: 'undated'};
+        const before3 = writes.length;
+        const same = await ensure('REF3', legacy);
+        check('S299', 'and so is an undated one',
+          same === 'undated' && writes.length === before3,
+          'got ' + same + ' — an undated link is simply this customer\'s current link ' +
+          'until the button replaces it, which is exactly what holder.current says');
+
+        const fresh = {};
+        const before4 = writes.length;
+        const made = await ensure('REF4', fresh);
+        const w = writes[writes.length - 1] || {};
+        check('S299', 'a record with no token gets one, stamped with this season',
+          !!made && writes.length === before4 + 1 && w.referralToken === made &&
+          w.referralTokenSeason === new Date().getFullYear(),
+          'the stamp is what lets the office be told WHICH season a retired link was from');
       })());
     }
   }
@@ -50180,18 +53875,57 @@ suite('299. A referral link, and the $25 that follows it');
      a zeroed count with live entries, which the next referral silently undoes. */
   const waiveSection = sectionFrom(admin,
     admin.indexOf("if(ledger === 'credit' && plan.removed && plan.removed.kind === 'referral')"));
+  /* ⚠ REPOINTED 2026-09-08 (REF-24): the count is RECOMPUTED now rather than zeroed,
+     because one × need no longer mean all of them — writing 0 would wipe the discount for
+     referrals nobody crossed off. The guarantee is unchanged and is what is checked: the
+     two fields still travel in ONE write. */
+  /* ⚠ THE COUNT IS DERIVED FROM THE MARKED ENTRIES, and that is asserted separately
+     from the write. A red-check replacing it with a literal 0 passed the write check on
+     its own — the variable is still called `stillCounted`, only its value changed — and
+     zeroing it wipes the discount for every referral nobody crossed off. This is
+     structural and says so: running the real × needs the whole Firestore-writing waive
+     path, and what the × produces IS run, in fee-waive.test.js, against the renderer and
+     ledgerWaiveUpdates. */
+  check('S299', 'and the count it writes is recomputed from the marked entries',
+    /const stillCounted = referralLiveCount\(marked\);/.test(waiveSection),
+    'a literal 0 here, or a count read off the OLD array, wipes the discount for the ' +
+    'referrals nobody crossed off — which is the collapsed line’s behaviour returning');
   check('S299', 'crossing off a referral marks the entries in the same write as the count',
-    /referralCount: 0,\s*referralCredits: marked/.test(waiveSection),
-    'the × zeroes the count alone, and every referral path rebuilds that count from the ' +
+    /referralCount: stillCounted,\s*referralCredits: marked/.test(waiveSection),
+    'the × moves the count alone, and every referral path rebuilds that count from the ' +
     'entries — so the next referral through a link puts the whole discount back on the ' +
     'bill, from a screen nobody was looking at');
+  /* ⚠ AND ONE × IS ONE REFERRAL, NOT ALL OF THEM. The line carries `ref`, the referred
+     customer's id, and only the entry it names is marked — while a line with no `ref` (an
+     old collapsed "Referral — 3 people" written before today) still means all of them, or
+     crossing one off would take the money away and leave the count standing to put it
+     straight back. Both halves are asserted because either alone reads as correct. */
+  check('S299', 'and it marks the ONE referral the × was pressed on',
+    /const oneRef = String\(\(plan\.removed && plan\.removed\.ref\) \|\| ''\)/.test(waiveSection) &&
+    /if\(oneRef && String\(e\.referredCustomerId/.test(waiveSection),
+    'without `ref` one × takes every referral off the bill, which is the collapsed line ' +
+    'Addie asked to be rid of wearing a new shape');
+  check('S299', 'and an old collapsed line with no ref still means all of them',
+    /if\(oneRef && /.test(waiveSection),
+    'every invoice written before today holds one line for several referrals; a × that ' +
+    'matched nothing there would remove the money and leave the count to restore it');
 
   /* ⚠ THE OFFICE MARKING SOMEBODY NO IS THE THIRD DOOR, and it is the one the customer
      never touches — portalRsvp covers the other. */
-  check('S299', 'the office marking somebody No takes the referral back',
-    /clawBackReferralIfAny\(editCustomerId/.test(admin),
-    'a customer cancelled over the phone would leave the referrer $25 up for somebody ' +
-    'who never had lights');
+  /* ⚠ THE ID IS DERIVED FROM THE HANDLER, NOT TYPED (repointed 2026-09-12). This named
+     `editCustomerId`, which the save stopped using when it began capturing the id before
+     its first await — so it failed on correct code. Reading the name off the customer
+     write and requiring the claw-back to be handed THAT is strictly stronger than the
+     old literal: it survives a rename, and it still refuses a claw-back handed some
+     other id, which is the thing that would take $25 off the wrong person. */
+  {
+    const clawSave = sectionFrom(admin, admin.indexOf("editCustSaveBtn').addEventListener('click'"));
+    const idName = (clawSave.match(/updateDoc\(doc\(db,'jobAddresses', ([A-Za-z_$][\w$]*)\)/) || [])[1];
+    check('S299', 'the office marking somebody No takes the referral back',
+      !!idName && new RegExp('clawBackReferralIfAny\\(' + idName + '\\b').test(clawSave),
+      'a customer cancelled over the phone would leave the referrer $25 up for somebody ' +
+      'who never had lights');
+  }
   const fns = read('functions/index.js');
   check('S299', 'and so does a customer declining in their own portal',
     /await clawBackReferralServer\(match\.id/.test(fns),
@@ -50570,9 +54304,21 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
   // ---------------------------------------------------------------- the rule
   {
     const cold = (admin.match(/const COLD_DAY_MAX_F = (\d+);/) || [])[1];
+    const chilly = (admin.match(/const COLD_DAY_CHILLY_F = (\d+);/) || [])[1];
     const band = (admin.match(/const WARMTH_BAND_F = (\d+);/) || [])[1];
-    check('S300', 'the cutoff the owner named is written down once, as 35',
-      cold === '35', 'got ' + cold + " — owner: '35 degrees or lower'");
+    /* ⚠ CHANGED 2026-09-09 — 35 WAS THE VETO AND IS NOW ONLY THE TOP OF THE DISLIKE.
+       Dax: "31 degrees or lower in that area is vital and above 35 degrees can be
+       prioritzed however you would like because its not essential but it is
+       preferable." So one number became two, and this check was pinned to the old
+       one. See [[SCH-55]]; SCH-44's cutoff half is superseded, its "unless" half is
+       untouched and still asserted below. */
+    check('S300', 'the vital cutoff is written down once, as 31',
+      cold === '31', 'got ' + cold + " — Dax: '31 degrees or lower in that area is vital'");
+    check('S300', 'and the merely-preferable band tops out at 35',
+      chilly === '35', 'got ' + chilly + " — Dax: 'above 35 degrees... its not essential but it is preferable'");
+    check('S300', 'and the two are a real band apart, not the same number twice',
+      Number(chilly) > Number(cold),
+      'a chilly ceiling at or below the veto makes the 32-35 rule unreachable code');
     check('S300', 'and warmth is compared in ten-degree bands',
       band === '10',
       'a smaller band lets a degree of noise overrule "the town with the most houses waiting"');
@@ -50584,11 +54330,20 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
     const plan = admin.slice(admin.indexOf('function planNewCrewDays(waiting, taken, opts)'),
                              admin.indexOf('/* Top every day up to the cap.'));
     const fbCold = (plan.match(/o\.coldBelow === 'number' \? o\.coldBelow : (\d+)/) || [])[1];
+    const fbChilly = (plan.match(/o\.chillyBelow === 'number' \? o\.chillyBelow : (\d+)/) || [])[1];
     const fbBand = (plan.match(/o\.warmBand > 0 \? o\.warmBand : (\d+)/) || [])[1];
     check('S300', "the builder's own fallback numbers agree with the constants",
-      fbCold === cold && fbBand === band,
-      'builder falls back to ' + fbCold + '/' + fbBand + ', the page says ' + cold + '/' + band +
+      fbCold === cold && fbBand === band && fbChilly === chilly,
+      'builder falls back to ' + fbCold + '/' + fbChilly + '/' + fbBand + ', the page says ' +
+      cold + '/' + chilly + '/' + band +
       ' — a lifted copy would then test a rule the live plan does not use');
+    /* ⚠ AND rebuildSeasonDays HAS TO HAND THE NEW ONE OVER. Without this the page
+       keeps its own 35 while the builder falls back to its default and nothing goes
+       red — the two-copies drift this whole block exists to catch. */
+    check('S300', 'and the live rebuild passes the chilly ceiling in too',
+      /chillyBelow\s*:\s*\(typeof COLD_DAY_CHILLY_F/.test(admin),
+      'rebuildSeasonDays is what the office actually presses; a constant it never ' +
+      'forwards is a rule that only exists in the tests');
   }
 
   // ------------------------------------------------- the builder, run for real
@@ -50646,20 +54401,53 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
        on the day it was written. 34 against 39 is one band, so the tiebreak has nothing
        to say and only the veto can move the crew. */
     const veto = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 34, Lehi: 39 });
-    check('S300', 'a town at 34° is skipped while a warmer town has anybody waiting',
+    /* ⚠ WORDING CORRECTED 2026-09-09. This said "skipped", which was true while 35 was
+       the veto and is not now: at 34° Draper is merely sorted BELOW Lehi. The outcome
+       on this fixture is the same either way, which is exactly why it kept passing
+       through the rule change — the veto/dislike pair further down is what tells them
+       apart. Kept because equal-urgency, equal-size is still the case worth pinning. */
+    check('S300', 'a town at 34° goes after a warmer town when nothing else separates them',
       veto.length && veto[0].city === 'Lehi',
-      'got ' + (veto[0] && veto[0].city) + ' — this is the whole rule, and Draper wins the ' +
-      'same fixture without a forecast, so nothing but the temperature moved it');
-    check('S300', 'and the freezing town still gets its day, later',
+      'got ' + (veto[0] && veto[0].city) + ' — Draper wins the same fixture without a ' +
+      'forecast, so nothing but the temperature moved it');
+    check('S300', 'and the chilly town still gets its day, later',
       veto.some(d => d.city === 'Draper'),
       'the cold rule reorders the season; it must never drop a town out of it');
 
-    /* ⚠ EXACTLY AT THE CUTOFF IS COLD. "35 degrees or lower" — a rule written as < would
-       send a crew out on the one day she named. Same band on both sides, same reason. */
-    const edge = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 35, Lehi: 39 });
-    check('S300', '35° itself counts as too cold, not just below it',
+    /* ⚠ EXACTLY AT THE CUTOFF IS COLD. A rule written as < would send a crew out on
+       the one day he named. Same band on both sides, same reason.
+       ⚠ CHANGED 2026-09-09: this used to read "35° itself counts as too cold". 35 is
+       no longer the veto — 31 is — so the fixture moved with the rule. At 35 Draper
+       is still sorted BELOW Lehi, which is why the old check stayed green while
+       testing something that had stopped being true; the pair below is what actually
+       tells a veto from a dislike. [[SCH-55]] */
+    const edge = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 31, Lehi: 39 });
+    check('S300', '31° itself counts as too cold, not just below it',
       edge.length && edge[0].city === 'Lehi',
-      "owner said '35 degrees or lower', so the cutoff is inclusive");
+      "Dax said '31 degrees or lower', so the cutoff is inclusive");
+
+    /* ⭐ THE DIFFERENCE BETWEEN VITAL AND PREFERABLE, WHICH IS THE WHOLE RULING.
+       A VETO is applied before anything else is weighed, so a vetoed town loses even
+       when it is the more urgent one. A DISLIKE sits with warmth — below urgency and
+       below how full a day the town can make — so a chilly town that is more urgent
+       still gets the crew.
+       ⚠ Both fixtures are identical apart from the temperature, so nothing but the
+       veto/dislike distinction can move the answer. */
+    const chillyUrgent = build(
+      town('Draper', 20, 0).concat(town('Lehi', 20, 4)), { Draper: 33, Lehi: 39 });
+    check('S300', 'a chilly town that is more urgent still gets the crew first',
+      chillyUrgent.length && chillyUrgent[0].city === 'Draper',
+      'got ' + (chillyUrgent[0] && chillyUrgent[0].city) + " — Dax: 32-35 is 'not " +
+      "essential but it is preferable', so it must never outrank October");
+    const vitalUrgent = build(
+      town('Draper', 20, 0).concat(town('Lehi', 20, 4)), { Draper: 30, Lehi: 39 });
+    check('S300', 'but at 30° it is refused even though it is the more urgent town',
+      vitalUrgent.length && vitalUrgent[0].city === 'Lehi',
+      'got ' + (vitalUrgent[0] && vitalUrgent[0].city) + " — Dax: '31 degrees or lower " +
+      "in that area is vital', and vital means it outranks urgency");
+    check('S300', 'and the vitally cold town is still not dropped from the season',
+      vitalUrgent.some(d => d.city === 'Draper'),
+      'the cold rule reorders the season; it must never lose a town out of it');
     /* ⚠ AND THE SAME FIXTURE ONE DEGREE THE OTHER SIDE. */
     const warm = build(town('Draper', 20).concat(town('Lehi', 20)), { Draper: 36, Lehi: 39 });
     check('S300', 'and 36° is an ordinary day, so the alphabetical tiebreak returns',
@@ -50755,15 +54543,35 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
 
       /* ⭐ MOVED UP BY HAND. Owner: "we should be able to manually add priority to specific
          customers if they directly ask if they can be hung sooner than later." */
-      check('S300', 'the office moving somebody up puts them ahead of everybody',
-        p({ pref: '' }, RUSH) < p({ pref: 'OCT' }, NEW) &&
+      /* ⭐ CHANGED 2026-09-09 — LEVEL WITH A NEW HANG, NOT ABOVE ONE. Dax, asked
+         where it sits: "ask sooner is the same as new hangs." [[SCH-46]] is
+         superseded by [[SCH-49]]; the old assertion was `p(RUSH) < p(OCT, NEW)`,
+         which is the claim being withdrawn, and it is written out here so nobody
+         restores it thinking it was lost in a merge. */
+      check('S300', 'the office moving somebody up ranks them level with a new hang',
+        p({ pref: '' }, RUSH) === p({ pref: '' }, NEW) &&
+        p({ pref: 'OCT' }, RUSH) === p({ pref: 'OCT' }, NEW),
+        'Dax settled the placement: asked-sooner is the same as a new hang, neither above');
+      check('S300', 'and it still goes ahead of everybody who did not ask',
         p({ pref: '' }, RUSH) < p({ pref: 'OCT' }, OLD) &&
-        p({ pref: 'NOV' }, RUSH) < p({ pref: '' }, OLD),
-        'an override that cannot override the automatic rule is not an override');
-      check('S300', 'and the flag is the same one the nightly sweep reads',
-        /rushInstall === true/.test(bare(pri)) && /rushInstall === true/.test(bare(fn('installPriority'))),
+        p({ pref: '' }, RUSH) < p({ pref: '' }, OLD),
+        'level with a new hang is still the front of the queue');
+      /* ⚠ THE AGREEMENT CHECK HAD TO CHANGE SHAPE, NOT GO AWAY. It matched
+         `rushInstall === true` inside BOTH orderings — but the sweep has no
+         new-hang TIER for a rush to be level with, so it reads the flag on the
+         pool sort that feeds fillDays instead of inside installPriority. Asserting
+         the old text would now fail on correct code AND would force the flag back
+         into a function where it can only mean "outranks October". */
+      check('S300', 'and the nightly sweep reads the same flag, in the place it ranks',
+        /rushInstall === true/.test(bare(pri)) &&
+        /rush:\s*isRushInstall\(d\)/.test(bare(admin)) &&
+        /a\.newHang \|\| a\.rush/.test(bare(admin)),
         'two definitions of "asked to go sooner" would let Recalculate everything and the ' +
         'sweep disagree about who is in a hurry');
+      check('S300', 'and installPriority no longer gives it a tier of its own',
+        !/rushInstall/.test(bare(fn('installPriority'))),
+        'returning -1 there jumped a rushed house over everybody who asked for October, ' +
+        'which is the month tier Dax ruled it must not jump');
       /* ⚠ THE HALF THAT MATTERS MORE. Owner, in the same breath: "dont do someone in a month
          they dont want to be hung though." The month is houseAllowedFrom's job and this must
          not touch it — a rush that moved somebody's month would be the one outcome she ruled
@@ -50775,26 +54583,55 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
 
       /* ⭐ A DAY THEY WERE PROMISED THAT DID NOT HAPPEN. Owner: "anyone that was scheduled
          for a day but didnt get done should take higher priority for where needs to be
-         routed." To the front of their own tier — never out of it. */
+         routed." ⚠ THIS CHECK SURVIVES THE [[SCH-61]] REVERSAL UNCHANGED and is kept for
+         that reason: ahead of your equals was true under the old ±5 bump and is still
+         true under the rank, so it is the half of [[SCH-45]] that never moved. The check
+         below is the half that did. */
       check('S300', 'a house the crew missed goes ahead of its equals',
         p(missed(''), OLD) < p({ pref: '' }, OLD) &&
         p(missed('OCT'), OLD) < p({ pref: 'OCT' }, OLD) &&
         p(missed('NOV'), OLD) < p({ pref: 'NOV' }, OLD),
         'being driven past is a reason to go first among your equals');
-      check('S300', 'and never out of its tier — a missed Any still waits behind October',
-        p(missed(''), OLD) > p({ pref: 'OCT' }, OLD),
-        'a missed morning is not a reason to be given a month somebody else asked for');
-      check('S300', 'a missed October house still sits behind a new hang',
-        p(missed('OCT'), OLD) > p({ pref: '' }, NEW),
-        "owner, 2026-08-17: 'the very top priority is new hangs'");
-      check('S300', 'and behind somebody the office moved up by hand',
-        p(missed('OCT'), OLD) > p({ pref: '' }, RUSH));
-      /* ⚠ THE SPACING IS WHAT MAKES ALL OF THAT TRUE. Tiers one apart leave nowhere to put
-         a bump, so the only way up is into the next tier — which is precisely the two
-         failures checked above. */
-      check('S300', 'the tiers are spaced far enough apart to hold a bump',
-        (p({ pref: '' }, OLD) - p({ pref: 'OCT' }, OLD)) > (p({ pref: '' }, OLD) - p(missed(''), OLD)),
-        'the gap between two tiers must be bigger than the bump, or the bump jumps a tier');
+      /* ⭐ CHANGED 2026-09-09 — MISSED IS NOW THIRD OVERALL, ABOVE EVERY MONTH.
+         Dax: "we want houses that were scheduled for a day but werent to take
+         priority just below new hangs and set priority customers." The check this
+         replaces asserted the OPPOSITE — "a missed Any still waits behind October" —
+         and is written out here so the reversal is legible rather than looking like
+         a weakened test. [[SCH-45]]'s tier half superseded by [[SCH-61]]. */
+      check('S300', 'a missed house now goes ahead of every month, not just its equals',
+        p(missed(''), OLD) < p({ pref: 'OCT' }, OLD) &&
+        p(missed('NOV'), OLD) < p({ pref: 'OCT' }, OLD),
+        'we told them a date and did not turn up; that outranks a month preference');
+      check('S300', 'but still behind a new hang and behind asked-sooner',
+        p(missed('OCT'), OLD) > p({ pref: '' }, NEW) &&
+        p(missed('OCT'), OLD) > p({ pref: '' }, RUSH),
+        "Dax: 'just below new hangs and set priority customers' — below, not level");
+      /* ⚠ THE ONE CASE WHERE THIS COULD HAVE MADE SOMEBODY LATER. A flat `tier = 15`
+         DEMOTES a missed new hang from 10 to 15. Math.min is what stops it, and this
+         is the check that would catch the flat form. */
+      check('S300', 'and a new hang who was missed is not demoted by being missed',
+        p(missed(''), NEW) === p({ pref: '' }, NEW),
+        'being missed may only ever pull a house UP the order, never down');
+      /* ⚠ THE SPACING IS WHAT MAKES THAT POSSIBLE WITHOUT RESPACING ANYTHING. Ten
+         apart leaves room for a whole rank between the new-hang tier and October,
+         which is exactly what the 2026-09-03 note said the gaps were for. */
+      check('S300', 'the missed rank sits between new hangs and October, on the existing spacing',
+        p(missed(''), OLD) > p({ pref: '' }, NEW) && p(missed(''), OLD) < p({ pref: 'OCT' }, OLD),
+        'got ' + p(missed(''), OLD) + ' against new hang ' + p({ pref: '' }, NEW) +
+        ' and October ' + p({ pref: 'OCT' }, OLD));
+      /* ⛔ AND IT LANDS ABOVE A DATE THE OFFICE TYPED, WHICH IS A COLLISION BETWEEN TWO
+         RULINGS GIVEN THE SAME DAY BY TWO DIFFERENT PEOPLE. Addie, [[SCH-57]]: "The staff
+         dates should be second to these" — second behind new members, and a typed date is
+         tier 20. Dax, [[SCH-61]], named exactly two things above a missed house, "new hangs
+         and set priority customers", and both are tier 10 — so taking him literally puts
+         missed at 15 and makes a staff date THIRD. Neither was asked about the other.
+         Fifteen is the instruction as given. This check exists so that reading it back is
+         possible and so moving the number is a decision somebody makes on purpose: if she
+         means second ahead of a missed house too, 20 ties them and 25 puts missed behind,
+         and nothing else in the ladder has to move either way. */
+      check('S300', 'a missed house currently outranks a date the office typed',
+        p(missed(''), OLD) < p({ pref: '', notBefore: '2026-10-01' }, OLD),
+        'SCH-61 read literally against SCH-57 — see the note above before changing this'); 
 
       /* ⚠ DATES, NOT A COUNTER. Recalculate everything gets pressed twice in a row and Undo
          puts the plan back so it can be pressed again; a counter would climb every time and
@@ -51359,9 +55196,143 @@ suite('305. The referral link, from the office side');
       !/jobAddresses\.find/.test(mint) && !/replace\(\/\\D\/g/.test(mint),
       'seventeen numbers in the real book are shared and fourteen are two households ' +
       '— a phone .find() here puts one household’s $25 on the other’s bill');
-    check('S305', 'an existing token is reused rather than replaced',
-      /if\(item\.data\.referralToken\) return item\.data\.referralToken;/.test(mint),
-      'a fresh token each time breaks every link they have already shared');
+    /* ⚠ REPOINTED 2026-09-07, NOT WEAKENED. This matched the literal early return
+       `if(item.data.referralToken) return item.data.referralToken;` — that is, it was
+       pinned to WHERE the rule happened to sit rather than to what has to be true. The
+       moment links began rotating every season (REF-25) that line legitimately became a
+       season comparison, and the check failed on correct code. Same slow-fuse shape as
+       S82, S129 and the folder-names suite. It now RUNS the function, which is the only
+       way to state the guarantee that actually matters: within one season the token a
+       customer has already shared never changes underneath them. */
+    {
+      const writes = [];
+      let n = 0;
+      const run = new Function('item', 'db', 'doc', 'updateDoc', 'generateReferralToken',
+        'referralSeasonNow', 'referralTokenSeasonOf', 'REFERRAL_PAST_KEEP', 'console',
+        'async ' + mint + '\nreturn referralTokenFor(item);');
+      const call = (item) => run(item, {}, () => ({}), async (_r, u) => { writes.push(u); },
+        () => 'tok-' + (++n),
+        new Function('return ' + fn('referralSeasonNow') + ';referralSeasonNow')(),
+        new Function('return ' + fn('referralTokenSeasonOf') + ';referralTokenSeasonOf')(),
+        Number((admin.match(/const REFERRAL_PAST_KEEP = (\d+);/) || [])[1]),
+        {error: () => {}});
+      /* ⭐ ROTATION IS ONE PURE FUNCTION, AND START NEW SEASON IS ITS ONLY CALLER
+         (2026-09-07, REF-28). Addie: "Can we just have a button we can push that says
+         start new season and it will update everything?" So the button owns it, and the
+         lazy calendar-year rotation that used to sit in referralTokenFor is gone — two
+         things rotating on two different triggers means the button she presses would
+         rarely be the one that did anything, and the pair could take turns replacing
+         each other's token.
+         ⚠ RUN, NOT MATCHED. referralRotationUpdates is its own function precisely so
+         these can execute it rather than grep a loop buried in a 200-line handler. */
+      {
+        const rot = new Function('referralTokenSeasonOf', 'REFERRAL_PAST_KEEP',
+          extractFn(admin, 'referralRotationUpdates') + 'return referralRotationUpdates;')(
+          new Function('return ' + fn('referralTokenSeasonOf') + ';referralTokenSeasonOf')(),
+          Number((admin.match(/const REFERRAL_PAST_KEEP = (\d+);/) || [])[1]));
+
+        const out = rot({referralToken: 'old1', referralTokenSeason: 2026}, 2027, 'new1');
+        check('S305', 'rotating gives a new token and stamps the season',
+          out && out.referralToken === 'new1' && out.referralTokenSeason === 2027,
+          'a link that never changes is last year\'s link for ever, and by REF-29 it ' +
+          'would go on waiving the set-up fee');
+        check('S305', 'and the old token is KEPT, with the season it belonged to',
+          Array.isArray(out.referralTokensPast) &&
+          out.referralTokensPast.some(function (x) {
+            return x && x.token === 'old1' && x.season === 2026 && x.retiredAt === 2027;
+          }),
+          'the $25 credit resolves a link back to whoever made it — discarding the old ' +
+          'token would silently end that credit for every link already shared, which is ' +
+          'not what Addie ruled on');
+        check('S305', 'an undated old token records a null season rather than a guessed one',
+          (function () {
+            const u = rot({referralToken: 'undated'}, 2027, 'new2');
+            const kept = (u.referralTokensPast || [])[0] || {};
+            return kept.token === 'undated' && kept.season === null;
+          })(),
+          'every link minted before stamping existed has no season; printing a guessed ' +
+          'year on a card the office acts on is worse than saying "an earlier season"');
+        check('S305', 'a customer with no link at all is skipped, not given an empty history',
+          rot({}, 2027, 'new3') === null,
+          'returning an update for a record with nothing to rotate makes the button ' +
+          'write to every customer in the book for nothing');
+        check('S305', 'and the kept history is capped',
+          (function () {
+            const many = [];
+            for (let i = 0; i < 9; i++) many.push({token: 't' + i, season: 2018 + i});
+            const r = rot({referralToken: 'live', referralTokensPast: many}, 2027, 'new4');
+            const keep = Number((admin.match(/const REFERRAL_PAST_KEEP = (\d+);/) || [])[1]);
+            return r.referralTokensPast.length === keep &&
+              r.referralTokensPast[r.referralTokensPast.length - 1].token === 'live';
+          })(),
+          'one entry a season for ever is a record that only grows');
+
+        /* ⚠ AND THE BUTTON HAS TO ACTUALLY CALL IT. A rule nobody invokes is the shape
+           this repo has shipped before — a control rendered with no listener, green
+           suite, nothing on screen. Asserted against the Start New Season handler
+           itself, not against the file. */
+        const ssn = admin.slice(admin.indexOf("ssnRunBtn')?.addEventListener"),
+          admin.indexOf('arrearsBackfillPending'));
+        check('S305', 'Start New Season is what hands out the new links',
+          /referralRotationUpdates\(/.test(ssn) && /generateReferralToken\(\)/.test(ssn),
+          'Addie asked for one button that updates everything; without this it updates ' +
+          'everything except the links');
+        check('S305', 'and it rotates EVERY customer, not just the ones in scope',
+          /ssnChunk\(\(jobAddresses \|\| \[\]\)\.filter/.test(ssn),
+          'the rest of the handler is scoped to everyone-except-No; a link belongs to ' +
+          'the person, not to their answer, and leaving the out-of-scope ones would let ' +
+          'somebody who said No keep a link that waives the set-up fee for ever');
+        check('S305', 'and it says so before it runs, in the confirmation',
+          /brand-new referral link/.test(ssn),
+          'this is the last screen before an irreversible write; a link everybody holds ' +
+          'being replaced is not something to discover afterwards');
+        check('S305', 'and the count is named in the finish line',
+          /new referral link/.test(ssn) && /rotateLine/.test(ssn),
+          'nought links has to be visible rather than silent');
+      }
+
+      /* ⚠ AND referralTokenFor NEVER ROTATES. It mints for a record with none and hands
+         back whatever is there otherwise — the one-mechanism half of REF-28. */
+      {
+        const writes = [];
+        let n = 0;
+        const run = new Function('item', 'db', 'doc', 'updateDoc', 'generateReferralToken',
+          'referralSeasonNow', 'console',
+          'async ' + mint + '\nreturn referralTokenFor(item);');
+        const call = (item) => run(item, {}, () => ({}), async (_r, u) => { writes.push(u); },
+          () => 'tok-' + (++n),
+          new Function('return ' + fn('referralSeasonNow') + ';referralSeasonNow')(),
+          {error: () => {}});
+        pendingAsync.push((async () => {
+          const year = new Date().getFullYear();
+          const rec = {id: 'C1', data: {referralToken: 'keepme', referralTokenSeason: year}};
+          const before = writes.length;
+          const got = await call(rec);
+          check('S305', 'an existing token is reused rather than replaced',
+            got === 'keepme' && writes.length === before,
+            'got ' + got + ' after ' + (writes.length - before) + ' write(s) — a fresh ' +
+            'token each time breaks every link they have already shared');
+
+          const stale = {id: 'C2', data: {referralToken: 'lastyear', referralTokenSeason: year - 1}};
+          const b2 = writes.length;
+          const kept = await call(stale);
+          check('S305', 'and an OLD token is still reused, because the button owns rotation',
+            kept === 'lastyear' && writes.length === b2,
+            'got ' + kept + ' — rotating here as well as in Start New Season is two ' +
+            'triggers for one rule, and the pair can take turns replacing each other');
+
+          const fresh = {id: 'C3', data: {}};
+          const b3 = writes.length;
+          const made = await call(fresh);
+          const w = writes[writes.length - 1] || {};
+          check('S305', 'a customer with no link gets one, stamped with this season',
+            made && made !== 'lastyear' && writes.length === b3 + 1 &&
+            w.referralToken === made && w.referralTokenSeason === year,
+            'the stamp is what lets the office be told WHICH season a retired link ' +
+            'came from');
+        })());
+      }
+    }
     check('S305', 'and it is the referral token, never the portal one',
       !/portalToken/.test(mint),
       'a portal token in a link pasted into a group chat is an account handed over');
@@ -51379,9 +55350,14 @@ suite('305. The referral link, from the office side');
     /* ⚠ AN UNRESOLVED CUSTOMER EMITS NOTHING AT ALL. An <a href=""> in a bulk send is
        a customer tapping something we sent them and landing nowhere, and there is no
        way for them to tell that from the scheme being broken. */
+    /* ⚠ THE GUARD MOVED WITH THE ADDRESS (2026-09-05, REF-13). The button now carries
+       refShareUrl — /s/<token>, the customer's own share page — while {{referral_link}}
+       stays the friend's /r/ link, so the ternary that empties the button when nobody
+       resolves has to be the one on the SHARE url. Pinned to it by name deliberately:
+       a check that accepts either name would pass on a button guarded by a variable
+       that is always set. */
     check('S305', 'and emits nothing at all when nobody resolves',
-      /: ''\)/.test(block) && /refUrl\s*$/m.test(block.replace(/\r/g, '')) ||
-      /out\.split\('\{\{referral_button\}\}'\)\.join\(refUrl[\s\S]{0,200}: ''\)/.test(block.replace(/\r/g, '')),
+      /out\.split\('\{\{referral_button\}\}'\)\.join\(refShareUrl[\s\S]{0,240}: ''\)/.test(block.replace(/\r/g, '')),
       'a dead button in a bulk send is worse than a missing paragraph');
     check('S305', 'both tokens are offered in the picker',
       /\{token:'\{\{referral_link\}\}'/.test(admin) && /\{token:'\{\{referral_button\}\}'/.test(admin),
@@ -51472,6 +55448,282 @@ suite('305. The referral link, from the office side');
       'an inline listener can only be checked by matching its source, and this repo ' +
       'has shipped one whose patch silently did not apply');
   }
+}
+
+
+/* ============================================================
+ * Suite 310. A friend who comes in through a referral link pays no setup fee.
+ *
+ * Owner, 2026-09-07: "Anyone that is enrolled by refer a friend will NOT be
+ * getting charged for the 30 dollar installation fee. Can we also add that in
+ * the text/email." On wording: "if you register through this referral link
+ * you will not have to pay the 30 dollar installation fee."
+ *
+ * Two halves, proved separately:
+ *  - the MONEY: quoteChargesSetupFee (admin.html) is the one shared function
+ *    behind the quote-card checkbox, Add Customer from Quote, and the
+ *    automatic conversion path (Suite 63's neighbour, "THIS WAS FOUR COPIES OF
+ *    ONE MONEY RULE" — one change here reaches all four).
+ *  - the COPY: referralShareLine (index.html), the message that goes out to
+ *    the friend.
+ *
+ * ⚠ THE OFFICE'S EXPLICIT ANSWER STILL WINS, same as the re-quote rule right
+ * above this one — `chargeSetupFee !== undefined` is checked FIRST and returns
+ * before either the re-quote or the referral check runs. This suite proves the
+ * referral check sits on the same footing as the re-quote check, not ahead of it.
+ * ============================================================ */
+suite('Suite 312. A friend who comes in through a referral link pays no setup fee');
+{
+  const admin = read('admin.html');
+  const index = read('index.html');
+
+  /* ⭐ NO SENTENCE ABOUT THE SET-UP FEE TYPES THE FIGURE (added 2026-09-07).
+     MON-63 collapsed this fee into one constant precisely because it had been a bare
+     literal in a dozen places, and MON-64 moved it again three days later — $30 → $25
+     → $30 — which is the fastest possible proof that it will move again. FOUR literals
+     survived that sweep and were found by this change: the quote card's own "Charge $30
+     one-time set-up fee" tick box, the {{setup_fee_line}} token label, the All
+     Customers new-customer filter, and the friend-facing referral message in
+     index.html. Every one of them said $30 for the three days the fee was $25.
+
+     ⚠ IT IS SCOPED TO SENTENCES ABOUT THIS FEE, not to the digits 30. `LIGHT_CHANGE_FEE`
+     is also $30 and is a DIFFERENT charge that happens to print the same number today
+     (see MON-64); a check on the number alone would fire on it and on the 48-hour
+     window, and a gate that cries wolf is one somebody deletes.
+
+     ⚠ AND MARKUP IS SWEPT AS WELL AS CODE. Two of the four were static HTML, which is
+     why `paintSetupFeeLabels` exists at all — a static label cannot interpolate, so it
+     is stamped at load. Anything new that says this in markup needs `.setup-fee-amount`
+     or a `data-fee-text` slot, not a typed figure. */
+  {
+    const FEE_SENTENCE = /\$\s?\d+(?:\.\d\d)?[^.<'"\n]{0,24}(?:set-?up fee|installation fee|new member (?:installation )?fee)/gi;
+    ['admin.html', 'index.html', 'functions/index.js'].forEach(function (path) {
+      const src = stripComments(read(path).replace(/\r/g, ''));
+      /* The two stamped placeholders are the mechanism, not a violation: their text is
+         overwritten from the constant at load. They are recognised by the class/slot
+         that does the stamping, never by the number they happen to hold. */
+      /* ⚠ THE EXEMPTIONS ARE KEYED ON THE STAMPING MECHANISM, NEVER ON THE WORDING.
+         The first version of this also whitelisted the literal sentence in the All
+         Customers filter option — so reverting that option to a typed "$30" passed,
+         which the red-check caught. A slot the stamper fills is recognisable by the
+         class or the attribute that fills it; a sentence is not, and exempting one by
+         its text is exempting whatever is written there next. The option's own
+         pre-stamp text was changed to carry no figure at all rather than earning an
+         exemption — which is also what it should say if the script never runs. */
+      const cleaned = src
+        .replace(/<span class="setup-fee-amount">[^<]*<\/span>/g, '{fee}')
+        .replace(/data-fee-text="[^"]*"/g, 'data-fee-text="{fee}"');
+      const found = cleaned.match(FEE_SENTENCE) || [];
+      check('S312', path + ' never types the set-up fee, it reads NEW_MEMBER_FEE',
+        found.length === 0,
+        'typed: ' + found.join(' | ') + ' — a figure written into a sentence is one ' +
+        'that goes stale the next time she moves the fee, silently, on a screen the ' +
+        'office quotes from or a promise a customer was sent');
+    });
+
+    /* ⚠ AND ONE REFERENCE IS OBLIQUE, SO THE SWEEP ABOVE CANNOT SEE IT — said plainly
+       rather than left as an overclaim. That sweep matches a figure sitting next to
+       the words "set-up fee" / "installation fee"; the All Customers new-customer
+       filter says only "pays the $30", naming no fee at all, and a red-check proved
+       the sweep passes over it. Widening the sweep to any "$" near any of those words
+       would start firing on LIGHT_CHANGE_FEE, which is a different charge printing
+       the same number today (MON-64) — so this one is pinned by name instead. Its
+       pre-stamp text now carries no figure, which is also what it should read if the
+       stamper never runs. */
+    const filterOpt = /<option value="new"[^>]*>([^<]*)<\/option>/.exec(
+      read('admin.html').replace(/\r/g, ''));
+    check('S312', 'the All Customers new-customer filter names no figure of its own',
+      !!filterOpt && filterOpt[1].indexOf('$') === -1 &&
+      /data-fee-text="[^"]*\{fee\}[^"]*"/.test(filterOpt[0]),
+      'it read "New this year (pays the $30)" as static markup, so it said $30 for the ' +
+      'three days the fee was $25 — and it is worded so the general sweep cannot see it');
+  }
+
+  {
+    const at = admin.indexOf('function quoteChargesSetupFee');
+    const end = admin.indexOf('\nfunction quoteHouseKey', at);
+    const body = at > 0 && end > at ? admin.slice(at, end) : '';
+    check('S312', 'quoteChargesSetupFee was found', !!body);
+
+    check('S312', 'the office\'s own explicit answer is checked first, and wins either way',
+      body.indexOf('chargeSetupFee !== undefined') <
+        body.indexOf("String(q.referredByToken || '').trim()"),
+      'a box the office deliberately ticked or unticked must never be silently overridden');
+    /* ⚠ TIGHTENED 2026-09-07 (REF-25) AND THE CHECK MOVED WITH IT. It used to be enough
+       that a token was PRESENT; Addie: "If referal link is from last year and they are
+       using it than it should still charge 30 dollar fee." So the waiver now asks
+       whether this is the link that customer holds right now — which also closes the
+       hole the first version had, where any invented string after /r/ bought $30 off.
+       ⚠ AND IT ASKS THAT AS A FACT, NOT AS A DATE (REF-28). `holder.current` means this
+       string IS the token on the record; a season comparison beside it was a second way
+       of asking one question, and the one that could disagree — a stamp is missing on
+       every link minted before stamping existed. The check asserts the season is NOT
+       consulted here, because re-adding it is the tempting change. */
+    check('S312', 'a referred quote is not charged the fee by default',
+      /referralHolderFor\(referredBy\)/.test(body) && /holder\.current/.test(body) &&
+      !/referralTokenSeason/.test(body),
+      'referredByToken is written on the quote the moment a friend submits the public ' +
+      'form through a /r/<token> link — this does not wait for the referral to be earned, ' +
+      'but it does have to be THIS season\'s link');
+
+    /* RUN, NOT MATCHED — same discipline as quoteAlreadyACustomer elsewhere in this
+       file. quoteChargesSetupFee calls quoteCustomerKeys() and quoteAlreadyACustomer(),
+       so those are stubbed to isolate the one branch this suite is about. */
+    if (body) {
+      /* ⚠ THE REFERRAL HELPERS ARE THE REAL ONES, LIFTED — the whole point of this suite
+         is who is charged $30, and a stub for referralHolderFor would let it agree with
+         a fiction about which links are still live. Only the two the fee rule does not
+         turn on (quoteCustomerKeys / quoteAlreadyACustomer) are stubbed, to isolate the
+         branch. `book` is the jobAddresses those helpers read. */
+      const year = new Date().getFullYear();
+      const book = [
+        {id: 'DANA', data: {name: 'Dana', referralToken: 'live1', referralTokenSeason: year}},
+        {id: 'OLD', data: {name: 'Pat', referralToken: 'live2', referralTokenSeason: year,
+          referralTokensPast: [{token: 'stale1', season: year - 1}]}},
+        {id: 'UNDATED', data: {name: 'Sam', referralToken: 'undated1'}}
+      ];
+      const stubbed = 'function quoteCustomerKeys(){ return new Set(["x"]); }\n' +
+        'function quoteAlreadyACustomer(){ return false; }\n' +
+        'function isRequote(d){ return !!(d && (d.existingCustomerId || Number(d.requoteCount) > 0)); }\n' +
+        ['referralSeasonNow', 'referralTokenSeasonOf',       'referralHolderFor'].map((f) => extractFn(admin, f)).join('\n') + '\n' +
+        body + '\nthis.f = quoteChargesSetupFee;';
+      const sv = {};
+      new Function('jobAddresses', stubbed).call(sv, book);
+      check('S312', 'a fresh referred quote defaults to no fee',
+        sv.f({ referredByToken: 'live1' }) === false);
+      check('S312', 'a fresh quote with no referral still defaults to charging it',
+        sv.f({}) === true,
+        'the waiver must not become the new default for every quote, only referred ones');
+      /* ⭐ REF-25, and the two cases it is really about. */
+      check('S312', 'LAST season\'s referral link is charged the fee',
+        sv.f({ referredByToken: 'stale1' }) === true,
+        'Addie: "If referal link is from last year and they are using it than it should ' +
+        'still charge 30 dollar fee" — and the token still resolves to Pat, so this is ' +
+        'not the unknown-token case below');
+      check('S312', 'and a token nobody holds is charged the fee too',
+        sv.f({ referredByToken: 'never-existed' }) === true,
+        'nothing in the browser can tell a real token from one somebody typed into the ' +
+        'address bar, so a present-and-unchecked token was $30 off for anyone who knew ' +
+        'the shape of the link');
+      check('S312', 'an undated link still waives it, because undated means this season',
+        sv.f({ referredByToken: 'undated1' }) === false,
+        'every link minted before the stamp existed is unstamped; reading those as ' +
+        'expired would charge the $30 to friends told in writing they would not pay it');
+      check('S312', 'the office can still tick the fee ON for a referred quote',
+        sv.f({ referredByToken: 'live1', chargeSetupFee: true }) === true,
+        'the office\'s own answer wins in BOTH directions, same as every other case here');
+      check('S312', 'and OFF for one the rule would have charged',
+        sv.f({ referredByToken: 'stale1', chargeSetupFee: false }) === false);
+      check('S312', 'the office can still tick the fee OFF for an ordinary quote',
+        sv.f({ chargeSetupFee: false }) === false);
+      check('S312', 'a re-quote is not charged even if it also carries a stray referral token',
+        sv.f({ existingCustomerId: 'c1', referredByToken: 'live1' }) === false,
+        'both rules agree here, but the re-quote check must not depend on the referral one running first');
+
+      /* ⭐ AND THE CARD SAYS WHY (REF-26). Addie: "For referals for not tickig the box
+         the reason is refferal." An unticked box with no reason is indistinguishable
+         from somebody's stray click, and the office cannot tell which. */
+      const why = new Function('jobAddresses',
+        ['referralSeasonNow', 'referralTokenSeasonOf',       'referralHolderFor', 'quoteSetupFeeReason'].map((f) => extractFn(admin, f)).join('\n') +
+        '\nthis.r = quoteSetupFeeReason;');
+      const rv = {};
+      why.call(rv, book);
+      check('S312', 'a waived referral says so, and names whose link it was',
+        (rv.r({referredByToken: 'live1'}) || {}).waived === true &&
+        /referral/.test((rv.r({referredByToken: 'live1'}) || {}).text) &&
+        /Dana/.test((rv.r({referredByToken: 'live1'}) || {}).text),
+        '"referral" alone still leaves the one question worth asking — whose');
+      check('S312', 'a retired link says the fee still applies, rather than staying quiet',
+        (rv.r({referredByToken: 'stale1'}) || {}).waived === false &&
+        /referral link/i.test((rv.r({referredByToken: 'stale1'}) || {}).text) &&
+        /fee still applies/i.test((rv.r({referredByToken: 'stale1'}) || {}).text),
+        'that is the case where the box IS ticked, and somebody will want to know why a ' +
+        'referred friend is being charged');
+      /* ⚠ THE CHECK IS THAT IT DOES NOT READ AS A WAIVED REFERRAL, not that the word
+         "referral" is absent — the honest text for this case does contain it ("referral
+         link not recognised"). The first version asserted the word was missing, which
+         failed on correct wording: what matters is that the office is not told a
+         referrer exists when none does. */
+      check('S312', 'a token nobody holds is not presented as a referral that waived the fee',
+        (rv.r({referredByToken: 'never-existed'}) || {}).waived === false &&
+        /not recognised/i.test((rv.r({referredByToken: 'never-existed'}) || {}).text || ''),
+        'a card reading "referral" over an invented token has the office looking for a ' +
+        'referrer who was never there');
+      check('S312', 'and an ordinary quote says nothing at all',
+        rv.r({}) === null,
+        'a reason on every card is noise, and noise is what stops the real one being read');
+    }
+  }
+
+  /* ⚠ RUN, NOT MATCHED, AND THE AMOUNT COMES FROM js/money.js. The first version of
+     this check searched index.html for the literal "$30" — which would have gone red
+     on correct code the next time Addie moves the set-up fee, and green on a message
+     that had quietly frozen at the old number. Both directions are wrong. It builds
+     the sentence with the shipped constant and requires the two to agree. */
+  {
+    /* ⚠ A MISSING LIFT IS A NAMED FAILURE, NEVER A CRASH (added 2026-09-09, REF-36).
+       This used to hand extractFn's result straight to `new Function`, so renaming
+       referralShareLine produced the string "nullreturn referralShareLine();" — a
+       SyntaxError thrown where nothing catches it, which KILLS THE WHOLE RUN mid-way
+       and scores every suite after this one as absent. Measured on a rename: 5167
+       passed, 1 failed, and the summary itself says the run stopped. That is the
+       unattributable-crash failure CLAUDE.md §3 records costing three suites a run,
+       and it now matters more than it did, because Suite 308 lifts this same function
+       to prove the share sheet is handed it. */
+    const shareLine312 = extractFn(index, 'referralShareLine');
+    check('S312', 'the friend-facing message builder is findable',
+      !!shareLine312,
+      'referralShareLine could not be lifted out of index.html — repoint this lift; ' +
+      'a rename here also blinds Suite 308, which proves anybody actually sends it');
+  }
+  if (extractFn(index, 'referralShareLine')) {
+    const line = new Function('NEW_MEMBER_FEE',
+      extractFn(index, 'referralShareLine') + 'return referralShareLine();')(NEW_MEMBER_FEE_NUM);
+    /* ⚠ THE WORDING IS ASSERTED POSITIVELY, AND THAT IS THE POINT OF REF-36. This
+       check used to require "you will not have to pay the $N installation fee".
+       Addie, 2026-09-09: "lets reword the you will not have to pay 30 dollars
+       installation fee cause not can be overlooked" — a negated promise read at a
+       glance says the opposite of what it means. The check moved with the sentence
+       rather than being widened to accept both, because accepting both is how the
+       ruling quietly stops being enforced. */
+    check('S312', 'the friend-facing message says the fee is waived',
+      line.indexOf('your $' + NEW_MEMBER_FEE_NUM + ' installation fee will be waived') !== -1,
+      'Addie asked for this in the text/email a friend receives, not just the referrer\'s incentive line');
+    check('S312', 'and it does not say it with a "not"',
+      !/\bnot\b/i.test(line),
+      'REF-36: "not can be overlooked" — a skimmed negation reads as its opposite, and ' +
+      'this sentence arrives in Messages between two other conversations');
+    check('S312', 'and it reads the fee rather than typing it',
+      /NEW_MEMBER_FEE/.test(extractFn(index, 'referralShareLine')),
+      'this sentence is a written promise to somebody who is not a customer yet; the ' +
+      'fee moved twice in four days, and a literal here promises the wrong amount with ' +
+      'nothing going red');
+  }
+
+  /* ⚠ AND WHETHER ANYBODY SENDS THIS SENTENCE IS SUITE 308'S JOB, NOT THIS ONE'S.
+     Everything above runs referralShareLine ALONE and reads its return value, which
+     proves the wording and says nothing whatever about whether it reaches a friend —
+     and for three days nothing did (REF-35). Suite 308 already lifts portalShareLink
+     with a fake share sheet, so the "is it actually sent" check belongs there beside
+     the URL and clipboard checks that harness already makes. A second copy of it here
+     is two places to keep one rule, and the one nobody looks at is the one that rots. */
+  /* ⚠ COMMENTS STRIPPED — the rule Suites 58, 274, 275 and 300 have each already
+     learned, and this check re-learned it the hour it was written: the note beside
+     this function explains that the fee moved $30 → $25 → $30, so a raw search found
+     "$25" in the EXPLANATION and failed a message that was perfectly correct. What is
+     being tested is the sentence a friend receives, which is code, not prose. */
+  check('S312', 'and it still says nothing about the referrer\'s own $25',
+    (function(){
+      /* ⚠ extractFn, NOT A SLICE TO THE NEXT NAMED FUNCTION. This used to cut from
+         `function referralShareLine` to `\nfunction referralShareMessage`, so it was
+         pinned to a NEIGHBOUR — and when that neighbour was deleted with the Text/Email
+         buttons (REF-12) the slice came back empty and the check failed on code that
+         was right. Same slow-fuse shape as S82, S129 and S305: anchor on the thing
+         being tested, never on what happens to sit after it. */
+      const body = stripComments(extractFn(index, 'referralShareLine') || '');
+      return !!body && !/\$25/.test(body);
+    })(),
+    'the $25 is the referrer\'s own incentive, explained elsewhere — this message is the offer to the friend');
 }
 
 /* =====================================================================
@@ -51916,6 +56168,10 @@ suite('Suite 307. Filter, then select everyone under the filter');
         }
       };
       const env = new Function('document', 'MEMBERS', 'TERM', 'PAYMENT', 'MODE', 'PICKED', 'PAIDLAST', 'HASLAST',
+        /* ⚠ emailAddressProblem COMES WITH IT (the corrupted-address fault, 2026-09-12) — custCanBeEmailed calls it,
+           and lifting one without the other is a bare ReferenceError that takes the
+           whole suite down rather than failing a check. */
+        (extractFn(admin, 'emailAddressProblem') || '') +
         (extractFn(admin, 'custCanBeEmailed') || '') +
         (extractFn(admin, 'etNoAutomationEmails') || '') +
         selUiSrc307 +
@@ -52201,6 +56457,611 @@ suite('Suite 307. Filter, then select everyone under the filter');
   }
 }
 
+// =====================================================================
+// 308. SHARING THE REFERRAL LINK, NOT OPENING IT
+// =====================================================================
+suite('308. Sharing the referral link, not opening it');
+/* ---------------------------------------------------------------------------
+ * Dax, 2026-09-05, twice. First: *"we would rather have it as a share link so it
+ * opens share options where they can copy it or send it to contact"*. Then, having
+ * tapped the Refer a Friend button in an RSVP: *"it takes you straight to the free
+ * quote form which is not what we want we want it to be sharable so you can send
+ * someone else that link"*.
+ *
+ * ⭐ ONE TOKEN, TWO ADDRESSES, FOR TWO DIFFERENT PEOPLE. /r/<token> is what the
+ * FRIEND opens and it credits the referral; /s/<token> is what the CUSTOMER opens to
+ * send that link on. The button in the email carried /r/, so the person we sent it to
+ * landed on the one screen their own link is not for.
+ *
+ * ⚠ IT RUNS THE CODE, IT DOES NOT READ IT. Every claim here is about what HAPPENS
+ * when the button is tapped, and this repo has already shipped a box whose listener
+ * silently did not apply: identical on screen to a working one, npm test green, and it
+ * saved nothing. The share routine is lifted and called against a fake share sheet, and
+ * the /s/ path matcher is lifted and run against real addresses.
+ *
+ * ⚠ AND THE THREE SHARE PATHS ARE THE POINT, two of them invisible from outside. A
+ * sheet that opens looks like success; a dismissed sheet looks exactly like a broken
+ * one; a browser with no sheet looks exactly like a button that does nothing.
+ * ------------------------------------------------------------------------- */
+{
+  const idx308 = read('index.html');
+  const bare308 = stripComments(idx308);
+  const canShareSrc = extractFn(idx308, 'portalCanShare');
+  /* ⚠ extractFn MATCHES FROM THE `function` KEYWORD AND DROPS THE `async` BEFORE IT,
+     so the body arrives full of bare `await` — a parse error that kills the whole run as
+     one unattributable crash. Suite 299 records the same trap costing three suites a run. */
+  const shareFn = extractFn(idx308, 'portalShareLink');
+  const shareSrc = shareFn ? 'async ' + shareFn : null;
+  const renderReferSrc = extractFn(idx308, 'portalRenderReferral');
+  const renderShareSrc = extractFn(idx308, 'renderSharePage');
+  const linkSrc = extractFn(idx308, 'portalReferralLink');
+  /* ⚠ AND THE SENTENCE THE FRIEND ACTUALLY READS (REF-35). portalShareLink hands this to
+     navigator.share, so without it the sandbox dies on a bare ReferenceError and the
+     whole suite is reported as an unattributable crash — §3's trap, which this file has
+     now been bitten by four times. LIFTED, NOT STUBBED: it carries the $30 promise, and
+     a stub would keep the suite green through a message that no longer makes it. */
+  const shareLineSrc = extractFn(idx308, 'referralShareLine');
+  const parts308 = {portalCanShare: canShareSrc, portalShareLink: shareSrc,
+                    portalRenderReferral: renderReferSrc, renderSharePage: renderShareSrc,
+                    portalReferralLink: linkSrc, referralShareLine: shareLineSrc};
+  const missing308 = Object.keys(parts308).filter(k => !parts308[k]);
+  check('S308', 'the share routine, both renderers and the link builder are findable',
+    !missing308.length,
+    'missing: ' + missing308.join(', ') + ' — repoint this lift rather than stubbing it; ' +
+    'a stub here keeps the suite green through a button that shares nothing');
+
+  /* ---- the wiring: two buttons, one routine, and no half-rename left behind ---- */
+  check('S308', 'the portal button is wired to the share routine',
+    /getElementById\('referShareBtn'\)\?\.addEventListener\('click'[\s\S]{0,220}portalShareLink\(document\.getElementById\('referLinkInput'\)/
+      .test(bare308),
+    'a renamed id with the listener left on the old one is a button that silently does ' +
+    'nothing — indistinguishable on screen from a working one');
+  check('S308', 'and so is the share page button',
+    /getElementById\('shareLinkBtn'\)\?\.addEventListener\('click'[\s\S]{0,220}portalShareLink\(document\.getElementById\('shareLinkInput'\)/
+      .test(bare308),
+    'the whole page is one button; unwired, the email lands somewhere that does nothing');
+  check('S308', 'no half of the old copy-button id is left behind',
+    idx308.indexOf('referCopyBtn') === -1 && idx308.indexOf('referCopyStatus') === -1,
+    'referCopyBtn / referCopyStatus still appears in index.html');
+  check('S308', 'both buttons ship the FALLBACK wording, never the promise',
+    /id="referShareBtn">Copy My Link</.test(idx308) &&
+    /id="shareLinkBtn">Copy My Link</.test(idx308),
+    'the label is upgraded in JS where a share sheet exists; shipping "Share My Link" ' +
+    'in the HTML promises a sheet to every desktop that will never get one');
+
+  /* ---- the share page exists, is routed, and is reachable at /s/ ---- */
+  check('S308', 'the share page is a real route with real markup',
+    /var routes = \[[^\]]*'\/share'/.test(bare308) &&
+    /'\/share':'page-share'/.test(bare308) &&
+    /id="page-share"/.test(idx308) &&
+    /id="shareLinkInput"/.test(idx308) && /id="shareLinkStatus"/.test(idx308),
+    'a route with no page, or a page with no route, is a button landing on the homepage');
+  /* ⚠ THE ROUTE IS RUN, NOT READ, and the first version of this check was the text
+     match it replaces. A red-check disabled the branch with `if(false)` and left the call
+     standing one word away — the page drew empty and the check passed, which is the exact
+     failure it was written for. navigate() is lifted and driven at the real address. */
+  if (JSDOM) {
+    const navSrc = extractFn(idx308, 'navigate');
+    const routesSrc = (idx308.match(/var routes = \[[^\]]*\];/) || [])[0];
+    const pageIdsAt = idx308.indexOf('var pageIds = {');
+    const pageIdsSrc = pageIdsAt === -1 ? '' :
+      idx308.slice(pageIdsAt, idx308.indexOf('};', pageIdsAt) + 2);
+    check('S308', 'the router and its page map are findable',
+      !!navSrc && !!routesSrc && !!pageIdsSrc);
+    if (navSrc && routesSrc && pageIdsSrc && renderShareSrc && linkSrc && canShareSrc) {
+      const ids = ['page-home', 'page-how', 'page-gallery', 'page-reviews', 'page-areas',
+        'page-faq', 'page-contact', 'page-quote', 'page-quote-details', 'page-payment',
+        'page-share', 'mobilePanel', 'mMoreToggle', 'mMoreSubmenu', 'shareLinkInput',
+        'shareLinkBtn', 'shareLinkStatus', 'shareLinkQuoteLine', 'shareLinkQuoteLink'];
+      const markup = '<div class="nav-dropdown"><div class="nav-links"></div></div>' +
+        ids.map(id => id === 'shareLinkInput'
+          ? '<input id="shareLinkInput">'
+          : (id === 'shareLinkQuoteLink' ? '<a id="shareLinkQuoteLink" href="#/quote"></a>'
+                                         : '<div id="' + id + '" class="page"></div>')).join('');
+      const dom308 = new JSDOM('<body>' + markup + '</body>');
+      const doc308 = dom308.window.document;
+      /* Our own window rather than jsdom's: navigate() calls scrollTo, which jsdom
+         answers with a "Not implemented" line across the middle of the run. */
+      const win308 = {location: {origin: 'https://highlightingutah.com', hash: '#/share?t=abc123'},
+                      scrollTo: function () {}};
+      new Function('document', 'window', 'URLSearchParams',
+        routesSrc + '\n' + pageIdsSrc + '\n' + linkSrc + '\n' + canShareSrc + '\n' +
+        renderShareSrc + '\n' + navSrc + '\nreturn navigate();')(doc308, win308, URLSearchParams);
+      check('S308', 'the /share address actually draws the share page',
+        doc308.getElementById('page-share').classList.contains('active') &&
+        !doc308.getElementById('page-home').classList.contains('active'),
+        'an unrouted hash falls through to the homepage, so the email button would land ' +
+        'on the marketing site with no sign of the link');
+      check('S308', 'and draws it with the token out of the address',
+        doc308.getElementById('shareLinkInput').value === 'https://highlightingutah.com/r/abc123',
+        'got: "' + doc308.getElementById('shareLinkInput').value + '" — the page drawn ' +
+        'empty is what a branch that never fires looks like');
+    }
+  }
+  check('S308', 'Netlify rewrites /s/* to the app',
+    /^\/s\/\*\s+\/index\.html\s+200\s*$/m.test(read('_redirects')),
+    'without the rewrite the share link is a 404 on a static host — the page never loads');
+  check('S308', 'and the share address gets the same no-cache rule as the app',
+    /^\/s\/\*\s*\r?\n\s+Cache-Control: no-cache\s*$/m.test(read('_headers')),
+    'a cached index.html served at /s/ is a stale half of the app answering a live link');
+
+  /* ---- one token, two addresses, and all three writers agree ---- */
+  const admShare = extractFn(admin, 'referralShareLinkFromToken');
+  check('S308', 'the office has a named builder for the share address',
+    !!admShare,
+    'a share link spelled inline at each call site is how two of them drift');
+  if (admShare && linkSrc) {
+    const mkShare = new Function('token', admShare + 'return referralShareLinkFromToken(token);');
+    const mkLink = new Function('token', 'window', linkSrc + 'return portalReferralLink(token);');
+    const W308 = {location: {origin: 'https://highlightingutah.com'}};
+    check('S308', 'the office share address is /s/<token> on the real domain',
+      mkShare('abc123') === 'https://highlightingutah.com/s/abc123',
+      'got: ' + mkShare('abc123'));
+    check('S308', 'and the server spells it identically',
+      fnsSrc.indexOf("'https://highlightingutah.com/s/' + encodeURIComponent(referToken)") !== -1,
+      'two renderers, one template — the {{photo}} pairing again. A second spelling ' +
+      '404s for whichever half of the book that renderer happens to send');
+    check('S308', 'no token makes no share link at all',
+      mkShare('') === '' && mkShare(null) === '' && mkShare(undefined) === '',
+      'a bare /s/ with nothing after it is a page that can only say it is broken');
+    check('S308', 'the two addresses are NOT the same link',
+      mkShare('abc123') !== mkLink('abc123', W308),
+      'if the share page and the quote link are one address, the customer is back on ' +
+      'the free quote form, which is the whole complaint');
+  }
+
+  /* ---- the email: the link is the words, the icon is the share page ---- */
+  const refBlock = admin.slice(admin.indexOf("if(out.indexOf('{{referral_link}}')"),
+    admin.indexOf("if(out.indexOf('{{messages_link}}')"));
+  check('S308', 'the office box is built from the SHARE address for its icon',
+    /referralShareBoxHtml\(refUrl, refShareUrl\)/.test(refBlock),
+    'this is the line Dax tapped: an icon on /r/ puts the customer on the friend’s screen');
+  check('S308', 'and {{referral_link}} still carries the FRIEND’s address',
+    /\{\{referral_link\}\}'\)\.join\(refUrl\)/.test(refBlock),
+    'that token is pasted into an email as text for the customer to forward — pointed ' +
+    'at the share page it would send their friend to a page about sharing');
+  const svrStart = fnsSrc.indexOf('const referToken = await ensureReferralToken');
+  const svrBlock = svrStart === -1 ? '' : fnsSrc.slice(svrStart,
+    fnsSrc.indexOf('const res = await fetch', svrStart));
+  check('S308', 'the server sends the same box, the same way round',
+    /\{\{referral_button\}\}'\)\.join\(\s*referralShareBoxHtmlServer\(referUrl, referShareUrl\)\)/.test(svrBlock) &&
+    /\{\{referral_link\}\}'\)\.join\(referUrl\)/.test(svrBlock),
+    'the nightly arrears RSVP is sent with no browser involved; a fix in admin.html ' +
+    'alone leaves every automatic send drawing the old block');
+
+  /* ⭐ THE LINK IN A BOX, NOT A GOLD BUTTON (2026-09-07, REF-19). Addie, sent the
+     button-plus-icon version and shown a picture of what she meant instead: *"Okay i was
+     thinking it would look like the second picture"* — a bordered box holding the link
+     she can read, with the gold share square beside it, and no gold call-to-action.
+     ⚠ IT IS [[REF-17]] FINISHED RATHER THAN UNDONE. Dax asked for "a share icon right
+     next to link"; with the link only ever rendered AS a button there was no link for
+     the icon to sit beside, which is what the picture is correcting.
+     ⚠ AND THE WORDS "Share My Link — $25 Off" LEAVING THE EMAIL DOES REVERSE ONE
+     EARLIER ANSWER — Dax, 2026-09-05, wanted the email button to read what the share
+     page's own button reads. The page is untouched and still says it; the email now
+     shows the address instead, on her newer answer ([[R-024]]). Checked below, so
+     nobody restores the words on one side alone.
+
+     ⭐ ONE BUILDER PER FILE, AND THIS RUNS BOTH. Until now this HTML was written out
+     four times — twice in admin.html, twice on the server — and the checks had to police
+     it region by region and count icons against buttons; a red-check proved two of the
+     four could be dropped and sail through. There is one builder in each file now, they
+     are handed the SAME PAIR OF ADDRESSES here, and they must return the same bytes.
+     A fifth call site added later is right by construction rather than by being counted. */
+  const admBoxSrc = extractFn(admin, 'referralShareBoxHtml');
+  const svrBoxSrc = extractFn(fnsSrc, 'referralShareBoxHtmlServer');
+  const admIconStyle = (admin.match(/const SHARE_ICON_BUTTON_STYLE = '[^']+';/) || [])[0];
+  const svrIconStyle = (fnsSrc.match(/const SHARE_ICON_BUTTON_STYLE_SERVER = '[^']+';/) || [])[0];
+  check('S308', 'both builders and both icon styles are findable',
+    !!admBoxSrc && !!svrBoxSrc && !!admIconStyle && !!svrIconStyle,
+    'repoint this lift rather than stubbing it — a stub here keeps the suite green ' +
+    'through an email that draws nothing at all');
+  if (admBoxSrc && svrBoxSrc && admIconStyle && svrIconStyle) {
+    const NL308 = String.fromCharCode(10);
+    const admBox = new Function(admIconStyle + NL308 + admBoxSrc +
+      NL308 + 'return referralShareBoxHtml;')();
+    const svrBox = new Function(svrIconStyle + NL308 + svrBoxSrc +
+      NL308 + 'return referralShareBoxHtmlServer;')();
+    const FRIEND308 = 'https://highlightingutah.com/r/x7k2m9pq';
+    const SHARE308 = 'https://highlightingutah.com/s/x7k2m9pq';
+    const boxA = admBox(FRIEND308, SHARE308);
+    const boxB = svrBox(FRIEND308, SHARE308);
+    check('S308', 'the office and the server draw the same box, byte for byte',
+      !!boxA && boxA === boxB,
+      'office: ' + boxA.slice(0, 120) + '  server: ' + boxB.slice(0, 120));
+    /* ⚠ THE WORDS AND THE href ARE CHECKED SEPARATELY, because the whole design is that
+       what it says is where it goes. A box reading /r/ that quietly opened /s/ would
+       hand the wrong address to anybody who long-pressed it and copied. */
+    check('S308', 'the words are the FRIEND’s address, with the scheme stripped',
+      boxA.indexOf('>highlightingutah.com/r/x7k2m9pq</a>') !== -1 &&
+      boxA.indexOf('>https://') === -1,
+      'got: ' + (boxA.match(/>([^<]*\/r\/[^<]*)</) || [])[1]);
+    check('S308', 'and its href is that same address, unstripped',
+      boxA.indexOf('href="' + FRIEND308 + '"') !== -1,
+      'a link whose words and address disagree is a wrong link on every long-press');
+    check('S308', 'the icon carries the SHARE page, not the friend’s address',
+      boxA.indexOf('href="' + SHARE308 + '" style="' + admIconStyle
+        .replace(/^const SHARE_ICON_BUTTON_STYLE = '/, '').replace(/';$/, '') +
+        '" title="Share">') !== -1,
+      'REF-13: the icon is tapped by the customer we emailed, so it belongs on their ' +
+      'own share page — /r/ puts them on the free quote form, which is the complaint');
+    check('S308', 'exactly one link and one icon, never two of either',
+      (boxA.match(/<a /g) || []).length === 2,
+      'got ' + (boxA.match(/<a /g) || []).length + ' anchors — the picture is one row');
+    /* ⚠ A TABLE, NOT A FLEX ROW: Outlook has neither flexbox nor border-radius, and a
+       table degrades to a square box with the link and the icon still side by side. */
+    check('S308', 'it is a table with inline styles, so Outlook still shows a row',
+      /^<table role="presentation"/.test(boxA) && boxA.indexOf('<div') === -1,
+      'a flex row collapses to two stacked lines in Outlook, which is not the picture');
+    check('S308', 'no token makes no box at all, from either copy',
+      admBox('', '') === '' && admBox(FRIEND308, '') === '' && admBox('', SHARE308) === '' &&
+      svrBox('', '') === '' && svrBox(FRIEND308, '') === '',
+      'an empty box, or an <a href=""> inside one, is a customer tapping something we ' +
+      'sent them and landing nowhere — worse than a missing paragraph');
+  }
+  /* ⚠ EVERY CALL SITE, NAMED — the appended block is the one that only runs when her
+     saved template places neither token (REF-15), which makes it the copy least likely
+     to be noticed drawing the wrong thing. Red-checked: deleting it went straight
+     through the old existence checks. */
+  const refEmailStart = admin.indexOf('async function referralEmailBlock');
+  const refEmailBlock = refEmailStart === -1 ? '' : admin.slice(refEmailStart,
+    admin.indexOf("'[HU] referral block failed'", refEmailStart));
+  /* ⚠ REPOINTED 2026-09-08 (REF-20), NOT WEAKENED. referralEmailBlock no longer builds
+     the box itself: it asks referralOfferFor, the one resolver the send's own
+     no-referral count also reads, so that the email and the report on it cannot
+     disagree about whether a customer has a link. The guarantee is the same and is now
+     RUN rather than matched — see the referral-offer suite, which executes this block
+     and reads the box out of what it returns. */
+  check('S308', 'the block that appends itself goes through the shared resolver',
+    /referralOfferProse\(\(await referralOfferFor\(item\)\)\.html\)/.test(refEmailBlock),
+    'referralEmailBlock only runs when her saved template carries neither token ' +
+    '(REF-15), which makes it the copy least likely to be noticed missing one');
+  check('S308', 'and so do BOTH of the server’s spots',
+    (svrBlock.match(/referralShareBoxHtmlServer\(referUrl, referShareUrl\)/g) || []).length === 2,
+    'got ' + (svrBlock.match(/referralShareBoxHtmlServer\(referUrl, referShareUrl\)/g) || []).length +
+    ' of 2 — the token branch and the appended block are two sends, and the appended ' +
+    'one is the half nobody is looking at');
+  /* ⚠ AND NOTHING BUILDS THIS HTML BY HAND ANY MORE. Four inline copies is what the
+     builder replaced; one left behind would drift from the other three exactly as the
+     two labels did ("$25 Off" against "$25 off your bill") until 2026-09-05. */
+  /* ⚠ COMMENTS STRIPPED FIRST, and this failed on correct code without it: the comment
+     recording WHY the words left the email quotes them, and a plain scan read the
+     explanation as the thing it forbids. Suites 58, 274, 275 and 300 each learned this
+     separately, which is the argument for stripping by default. */
+  const handBuilt = (s) => {
+    const bare = stripComments(s);
+    return (bare.match(/title="Share">/g) || []).length +
+      (bare.match(/Share My Link/g) || []).length;
+  };
+  check('S308', 'and none of the four spots still writes the anchors itself',
+    handBuilt(refBlock) === 0 && handBuilt(refEmailBlock) === 0 && handBuilt(svrBlock) === 0,
+    'office: ' + handBuilt(refBlock) + ', appended: ' + handBuilt(refEmailBlock) +
+    ', server: ' + handBuilt(svrBlock) + ' — a hand-built copy beside the builder is ' +
+    'the one that goes stale');
+  /* ⚠ THE PAGE KEEPS ITS OWN WORDS. Only the EMAIL dropped them (REF-19); the share
+     page's gold button is what the icon lands on and is untouched. */
+  check('S308', 'the share page still says Share My Link on its own button',
+    /id="shareLinkBtn">Copy My Link</.test(idx308) &&
+    idx308.indexOf("'Share My Link'") !== -1,
+    'the icon leads there — a page that stopped saying it is a tap landing on nothing ' +
+    'recognisable');
+  check('S308', 'each file defines the icon’s style once, and the two agree',
+    (admin.match(/^const SHARE_ICON_BUTTON_STYLE = /m) || []).length === 1 &&
+    (fnsSrc.match(/^const SHARE_ICON_BUTTON_STYLE_SERVER = /m) || []).length === 1 &&
+    admIconStyle.replace('SHARE_ICON_BUTTON_STYLE', 'X').replace('X_SERVER', 'X') ===
+      svrIconStyle.replace('SHARE_ICON_BUTTON_STYLE_SERVER', 'X'),
+    'two definitions of one style is two chances for the icon to look different in the ' +
+    'two emails it appears in');
+
+  /* ⭐ ONE ROUTER BRANCH PER HASH (added 2026-09-08, on the merge). Two sessions each
+     built a way for the RSVP email's share button to reach the share page — `/s/<token>`
+     and `/r/<token>?share=1` — and the merge that brought them together kept BOTH,
+     because they did not touch the same lines. The result was two
+     `else if(hash === '/share')` branches: the first always matched, it read a
+     differently-named parameter, and the second could never run. So the surviving
+     `?share=1` links landed on the share page with no token and drew "that link is
+     missing its code" — a dead door that looked alive in the source.
+     ⚠ NOTHING WENT RED, which is the point of adding this. Every share-page check
+     passed: they all drive `/s/`, which is the branch that won. A duplicate branch is
+     invisible to any test that only exercises the winner.
+     ⚠ IT COUNTS THE HASHES THE ROUTER TESTS, not the routes table beside it — the table
+     maps a hash to a page id and says nothing about which branch runs. */
+  {
+    const routerAt = idx308.indexOf("if(hash === '/payment'");
+    const routerEnd = idx308.indexOf('/* ⭐ THE SHORT QUOTE LINK', routerAt);
+    const router = (routerAt !== -1 && routerEnd > routerAt) ? idx308.slice(routerAt, routerEnd) : '';
+    check('S308', 'the hash router is findable', !!router,
+      'repoint this slice rather than deleting the check — it exists because a merge ' +
+      'produced an unreachable branch and nothing anywhere went red');
+    if (router) {
+      const hashes = (router.match(/hash === '[^']*'/g) || []);
+      const seen = {}, dupes = [];
+      hashes.forEach(function (h) {
+        if (seen[h]) { if (dupes.indexOf(h) === -1) dupes.push(h); }
+        seen[h] = true;
+      });
+      check('S308', 'no two router branches answer to the same hash',
+        dupes.length === 0,
+        'duplicated: ' + dupes.join(', ') + ' — the first match wins and the rest are ' +
+        'unreachable, so a link built for the second one lands on the first and reads ' +
+        'whatever parameter that branch happens to want');
+    }
+  }
+
+  /* ⭐ THE OFFICE CAN OPEN THE PAGE THE ICON LEADS TO (added 2026-09-07, REF-18).
+     Addie, of the share page: *"where do I find the page that comes up after pushing
+     the share link icon"* — and the honest answer was nowhere. Both surfaces that show
+     a referral link show /r/, the FRIEND's address; the customer's own /s/ page was
+     reachable only from an email, so looking at it meant copying a link and editing the
+     URL by hand. A "See their share page" anchor now sits beside the Copy link button.
+     ⚠ THE CHECKS RUN ON THE FUNCTION'S OWN SLICE, not the whole file — admin.html
+     mentions both addresses in a dozen comments, and a file-wide search would pass on
+     the prose while the line itself was gone. */
+  const referLineStart = admin.indexOf('function editCustRenderReferLine(){');
+  const referLine = referLineStart === -1 ? '' : admin.slice(referLineStart,
+    admin.indexOf('async function editCustReferClick', referLineStart));
+  check('S308', 'the office can open the customer’s own share page',
+    !!referLine && /referralShareLinkFromToken\(d\.referralToken\)/.test(referLine) &&
+    /id="editCustReferShare"/.test(referLine),
+    'the page an email button leads to, with no way in from the office, is a page ' +
+    'nobody can check — which is how Addie came to be looking for it by hand');
+  /* ⚠ AND THE BOX THE OFFICE COPIES STILL HOLDS THE FRIEND'S ADDRESS. This is the half
+     that costs money if somebody "tidies" the two into one: /s/ handed to a friend is a
+     page about sharing that credits nobody, so the $25 is simply never earned and the
+     only symptom is a referral that quietly did not count. */
+  check('S308', 'and the link it copies is still the FRIEND’s address, not the share page',
+    /const url = referralLinkFromToken\(d\.referralToken\)/.test(referLine) &&
+    !/value="' \+ esc\(shareUrl\)/.test(referLine),
+    'the box beside it is the address the office hands out; pointed at /s/ the friend ' +
+    'lands on a page about sharing and nobody is credited');
+  check('S308', 'and both addresses are built from the one token on the record',
+    (referLine.match(/referral(?:Share)?LinkFromToken\(([^)]*)\)/g) || [])
+      .every(m => m.indexOf('d.referralToken') !== -1),
+    'one token, two addresses (REF-13) — a second source for it is how the two start ' +
+    'naming different customers, and on a shared-phone household that is the wrong bill');
+
+  /* ⭐ THE LINK AND THE MONEY ARE IN DIFFERENT PLACES NOW (REF-34, 2026-09-09). Addie,
+     pointing at the Refer a friend row and then at the Discounts box: "It looks like you
+     put it here. It should be under here."
+     ⚠ ASSERTED ON THE SLICE, not the file: admin.html names both container ids in
+     comments, so a file-wide search passes on the prose while the writes are gone. */
+  /* ⚠ THE FIRST TWO OF THESE WERE TEXT MATCHES AND THE RED-CHECK PROVED THEM VACUOUS:
+     `statusLine.innerHTML = money.join('')` survives `if(false && statusLine)` intact,
+     and excluding the gold and ember pushes said nothing about the joined line. They
+     are RUN against jsdom below instead — every claim here is about which panel a
+     sentence ends up in, which no source match can see. */
+  check('S308', 'and the joined / waiting / refused / held counts all go to the money half',
+    !!referLine &&
+    !/bits\.push\('<span style="color:var\(--gold/.test(referLine) &&
+    !/bits\.push\('<span style="color:var\(--ember/.test(referLine),
+    'a count left on the link row is the split half-done — two panels each telling ' +
+    'part of the same story is what made this easy to miss in the first place');
+  check('S308', 'and the Copy feedback stays with the button it reports on',
+    !!referLine && /bits\.push\('<span id="editCustReferStatus"/.test(referLine),
+    'a confirmation that appears in a different panel from the button somebody just ' +
+    'pressed is one nobody sees');
+  /* ⚠ ONE FUNCTION STILL OWNS BOTH HALVES. Two renderers reading referralCredits
+     separately is how the count beside the link and the count beside the money start
+     disagreeing — the exact shape this feature has already had twice. */
+  check('S308', 'and one function still writes both halves',
+    (admin.match(/document\.getElementById\('editCustReferStatusLine'\)/g) || []).length === 1,
+    'a second writer for the status line is a second opinion about the count');
+
+  if (!missing308.length) {
+    /* One tap, with a share sheet that behaves however the caller says. Everything the
+       routine can reach is watched: what it shared, what it copied, what it left on the
+       status line. */
+    function tap(opts) {
+      const calls = {shared: [], copied: [], exec: 0};
+      const input = {value: opts.link === undefined ? 'https://highlightingutah.com/r/abc123' : opts.link,
+                     focus: function () {}, select: function () {}};
+      const status = {textContent: 'left over from last time'};
+      const doc = {getElementById: function () { return null; },
+                   execCommand: function () { calls.exec++; return true; }};
+      const nav = {};
+      if (opts.share !== false) {
+        nav.share = function (data) {
+          calls.shared.push(data);
+          if (opts.reject) return Promise.reject(opts.reject);
+          return Promise.resolve();
+        };
+      }
+      if (opts.clipboard !== false) {
+        nav.clipboard = {writeText: function (v) { calls.copied.push(v); return Promise.resolve(); }};
+      }
+      /* NEW_MEMBER_FEE is imported from js/money.js in the real page; supplied here as
+         the real constant so the sentence carries the shipped figure, not a guess. */
+      const run = new Function('document', 'navigator', 'input', 'status', 'NEW_MEMBER_FEE',
+        canShareSrc + '\n' + shareLineSrc + '\n' + shareSrc +
+        '\nreturn portalShareLink(input, status);');
+      return run(doc, nav, input, status, NEW_MEMBER_FEE_NUM)
+        .then(function () { return {calls: calls, status: status}; });
+    }
+    const abort = Object.assign(new Error('cancelled'), {name: 'AbortError'});
+
+    pendingAsync.push((async function () {
+      /* ---- the phone: the sheet opens, with their own link in it ---- */
+      const sheet = await tap({});
+      check('S308', 'a phone with a share sheet gets the sheet',
+        sheet.calls.shared.length === 1,
+        'the whole change is this one call; without it the button is the old copy button');
+      /* ⭐ AND THE MESSAGE PROMISES THE WAIVER (REF-35, 2026-09-09). Addie, asked what
+         the friend receives: does it "say anything about get 30 dollars off installation
+         fee?" It did not. `referralShareLine` was written for [[REF-29]] — her
+         instruction and her own wording — and NOTHING CALLED IT: a hardcoded sentence
+         about a free quote sat in navigator.share instead, while the comment above the
+         function claimed this was where it went. So the promise the waiver exists to
+         make was never made to the person it is made to.
+         ⚠ THE FEE IS ASSERTED AS THE SHIPPED CONSTANT, never a literal. That figure
+         moved $30 → $25 → $30 inside three days; a hardcoded 30 here would pass while
+         the page promised something else. */
+      const shareText = String((sheet.calls.shared[0] || {}).text || '');
+      /* ⚠ THE PROMISE, NOT THE PHRASING (REF-36, hours after this was written). This
+         asked for the words "referral link", which the sentence carried while it read
+         "If you register through this referral link, you will not have to pay…" — and
+         Addie then had it reworded to "Sign up through this link and your $30
+         installation fee will be waived", because "not can be overlooked". A check
+         pinned to a phrase fails on correct copy the first time the copy is edited,
+         which is the slow fuse S82, S129 and S305 each caught. What must be true is the
+         PROMISE: the fee, named, and said to be waived. */
+      check('S308', 'and the message tells the friend the set-up fee is waived',
+        /waived/i.test(shareText) && shareText.indexOf(feeMoney.replace('.00', '')) !== -1 &&
+        /installation fee/i.test(shareText),
+        'got ' + JSON.stringify(shareText) + ' — this is the whole promise the waiver ' +
+        'is for, and it goes out over Addie\'s name to somebody who is not a customer yet');
+      check('S308', 'and it is the shared sentence, not a second copy of it',
+        shareText === (function(){
+          try{ return new Function('NEW_MEMBER_FEE', shareLineSrc +
+            '\nreturn referralShareLine();')(NEW_MEMBER_FEE_NUM); }catch(e){ return null; }
+        })(),
+        'a literal here is a second place the wording and the figure have to be kept ' +
+        'true, and it is the copy that goes stale — which is exactly what happened');
+      check('S308', 'and it hands over the /r/ link, which is the one that credits them',
+        (sheet.calls.shared[0] || {}).url === 'https://highlightingutah.com/r/abc123',
+        'sharing the share page instead would send a friend to a page about sharing, and ' +
+        'nothing anywhere would go red');
+      check('S308', 'and nothing is copied behind it',
+        sheet.calls.copied.length === 0 && sheet.calls.exec === 0,
+        'clobbering the clipboard under a sheet they are still reading takes whatever ' +
+        'they had copied away from them');
+
+      /* ---- the dismissed sheet: not a failure, and not a copy either ---- */
+      const cancelled = await tap({reject: abort});
+      check('S308', 'backing out of the sheet says nothing at all',
+        cancelled.status.textContent === '',
+        'telling somebody who changed their mind that it "could not share" reads as a ' +
+        'broken feature');
+      check('S308', 'and backing out does not fall through to a copy',
+        cancelled.calls.copied.length === 0 && cancelled.calls.exec === 0,
+        'a cancel is a decision, not an error to recover from');
+
+      /* ---- any OTHER rejection: the copy is still there underneath ---- */
+      const broke = await tap({reject: new Error('blocked by permissions policy')});
+      check('S308', 'a share that fails for any other reason still copies',
+        broke.calls.copied.length === 1 && /Copied/.test(broke.status.textContent),
+        'in-app browsers and iframes reject for reasons that are not a cancel; ' +
+        'dead-ending there loses the link entirely');
+
+      /* ---- the desktop: no sheet, and the old behaviour intact ---- */
+      const desktop = await tap({share: false});
+      check('S308', 'a browser with no share sheet copies, exactly as before',
+        desktop.calls.copied.length === 1 &&
+        desktop.calls.copied[0] === 'https://highlightingutah.com/r/abc123' &&
+        /Copied/.test(desktop.status.textContent));
+      const noApi = await tap({share: false, clipboard: false});
+      check('S308', 'and with no clipboard either it falls to execCommand and then to words',
+        noApi.calls.exec === 1,
+        'plain http and some in-app browsers have neither; select-and-copy is the only ' +
+        'route left');
+
+      /* ---- no link yet: nothing happens ---- */
+      const blank = await tap({link: ''});
+      check('S308', 'a link that has not minted yet shares nothing and copies nothing',
+        blank.calls.shared.length === 0 && blank.calls.copied.length === 0,
+        'sharing an empty string sends a friend to the quote page crediting nobody, ' +
+        'which looks exactly like it worked');
+    })());
+
+    /* ---- both renderers: the label follows the capability ---- */
+    function els308() {
+      const mk = () => ({textContent: '', disabled: false, value: '', style: {}, href: ''});
+      const map = {referLinkInput: mk(), referShareStatus: mk(), referShareBtn: mk(),
+                   referCount: mk(), shareLinkInput: mk(), shareLinkStatus: mk(),
+                   shareLinkBtn: mk(), shareLinkQuoteLine: mk(), shareLinkQuoteLink: mk()};
+      return {map: map, doc: {getElementById: function (id) { return map[id] || null; }}};
+    }
+    const drawRefer = new Function('document', 'navigator', 'window', 'addrDoc',
+      linkSrc + '\n' + canShareSrc + '\n' + renderReferSrc + '\nreturn portalRenderReferral(addrDoc);');
+    const drawShare = new Function('document', 'navigator', 'window', 'token',
+      linkSrc + '\n' + canShareSrc + '\n' + renderShareSrc + '\nreturn renderSharePage(token);');
+    const WIN = {location: {origin: 'https://highlightingutah.com'}};
+    function refer(hasShare, token) {
+      const e = els308();
+      drawRefer(e.doc, hasShare ? {share: function () {}} : {}, WIN,
+        {referralToken: token, referralCount: 0});
+      return e.map;
+    }
+    function share(hasShare, token) {
+      const e = els308();
+      drawShare(e.doc, hasShare ? {share: function () {}} : {}, WIN, token);
+      return e.map;
+    }
+    check('S308', 'the portal button says Share where there is a sheet to open',
+      refer(true, 'abc123').referShareBtn.textContent === 'Share My Link' &&
+      refer(false, 'abc123').referShareBtn.textContent === 'Copy My Link',
+      'a button reading Share that silently copies leaves a customer waiting for a ' +
+      'sheet that is never coming');
+    check('S308', 'and so does the share page button',
+      share(true, 'abc123').shareLinkBtn.textContent === 'Share My Link' &&
+      share(false, 'abc123').shareLinkBtn.textContent === 'Copy My Link');
+    check('S308', 'and no token still disables both, sheet or no sheet',
+      refer(true, '').referShareBtn.disabled === true &&
+      share(true, '').shareLinkBtn.disabled === true,
+      'an enabled button over an empty link shares nothing and says nothing');
+
+    /* ⚠ THE SHARE PAGE SHOWS THE /r/ LINK, NOT ITS OWN ADDRESS. It is the one thing
+       the page is for, and the two are one character apart. */
+    const drawn = share(true, 'abc123');
+    check('S308', 'the share page shows the link that credits them',
+      drawn.shareLinkInput.value === 'https://highlightingutah.com/r/abc123',
+      'got: ' + drawn.shareLinkInput.value);
+    check('S308', 'and the "somebody sent you this" way out IS that same link',
+      drawn.shareLinkQuoteLink.href === 'https://highlightingutah.com/r/abc123' &&
+      drawn.shareLinkQuoteLine.style.display === '',
+      'a forwarded email used to land the friend on the quote form, credited. That route ' +
+      'is kept, and pointing it anywhere else silently stops crediting anybody');
+    const empty = share(true, '');
+    check('S308', 'a mangled link says so instead of offering an empty share',
+      /code/.test(empty.shareLinkStatus.textContent) &&
+      empty.shareLinkQuoteLine.style.display === 'none',
+      'a blank box with a live button is the worst of both');
+  }
+
+  /* ---- the /s/ reader: routes, and credits NOBODY ---- */
+  /* Built with fromCharCode so the backslashes cannot be mangled by whatever writes this
+     file — the trap CLAUDE.md §7 and Suites 74-76 each record. */
+  const S_NEEDLE = 'm = /^' + String.fromCharCode(92) + '/s' + String.fromCharCode(92) + '/([A-Za-z0-9_-]+)';
+  const sStart = idx308.indexOf(S_NEEDLE);
+  check('S308', 'the /s/ path reader is findable', sStart !== -1,
+    'the rewrite serves index.html at /s/<token>; something has to turn that path into a route');
+  if (sStart !== -1) {
+    const sBlock = idx308.slice(idx308.lastIndexOf('(function(){', sStart),
+      idx308.indexOf('})();', sStart) + 5);
+    /* ⚠ THIS IS THE ONE THAT COSTS MONEY IF IT IS WRONG. The /r/ reader stores the
+       token so the quote that follows is credited. Doing the same here would mark the
+       customer as referred by THEMSELVES, and their next quote would be refused as a
+       self-referral by a rule that is right — over a link we sent them. */
+    check('S308', 'opening your own share page does not mark you as referred',
+      sBlock.indexOf('sessionStorage') === -1 && sBlock.indexOf('REFERRAL_LINK_KEY') === -1,
+      'a self-referral is a hard refusal (S299), so this would cost the customer their ' +
+      'own next quote — silently, at the far end of the season');
+    check('S308', 'and it routes to the share page with the token',
+      /window\.location\.hash = '\/share\?t=' \+ encodeURIComponent\(m\[1\]\)/.test(sBlock),
+      'dropping the token here draws the page with nothing in it');
+    check('S308', 'it runs BEFORE the saved-login redirect',
+      idx308.indexOf(S_NEEDLE) < idx308.indexOf('savedPortalToken = localStorage.getItem'),
+      'run second, a remembered sign-in sends the customer to /payment and the share ' +
+      'page is never seen — the shape of the bug that ate Back Next Year');
+
+    const reMatch = sBlock.match(/\/\^[^\n]*?\/\.exec\(window\.location\.pathname/);
+    check('S308', 'the /s/ path pattern is findable', !!reMatch);
+    if (reMatch) {
+      const re = new Function('return ' + reMatch[0].slice(0, reMatch[0].indexOf('.exec(')))();
+      const tok = (p) => { const m = re.exec(p); return m && m[1]; };
+      check('S308', 'a share link resolves to its token', tok('/s/abc123') === 'abc123');
+      check('S308', 'a trailing slash is the same link', tok('/s/abc123/') === 'abc123',
+        'phones and mail clients add one — a link that dies on a slash dies at random');
+      check('S308', 'the homepage and the quote link are not swallowed',
+        tok('/') === null && tok('/s') === null && tok('/s/') === null &&
+        tok('/r/abc123') === null && tok('/q/abc123') === null,
+        'a pattern loose enough to match / would hijack every visit to the site');
+      check('S308', 'and a path with another segment is not a share link',
+        tok('/s/abc/def') === null,
+        'matching loosely turns a mistyped URL into a page about somebody else\u2019s link');
+    }
+  }
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
@@ -52242,3 +57103,4131 @@ Promise.all(pendingAsync).then(function () {
   console.log(pass + ' passed, ' + (fail + 1) + ' failed\n');
   process.exit(1);
 });
+
+/* ---------------------------------------------------------------------------
+ * Suite 309. Crossing a fee or a discount off a bill somebody else pays
+ *
+ * Dax, 2026-09-07: "when i try to delete a discount or fee it says they dont have a
+ * invoice, and everyone should have a invoice and it should delete."
+ *
+ * ⚠ THE LOOKUP WAS RIGHT AND IT WAS ANSWERING A DIFFERENT QUESTION. `allCustInvoiceFor`
+ * means "the invoice filed under this HOUSE'S OWN key", and that meaning is load-bearing
+ * somewhere else: the Edit Customer save needs exactly it to find and zero a leftover
+ * invoice when a customer starts billing elsewhere. So it must NOT be widened. But a
+ * house billed to somebody else has no invoice of its own, so the × drew its line from
+ * the group's bill and then refused to remove it for want of a bill. Seventeen numbers
+ * in the real book are shared by two households; this is not a rare shape.
+ *
+ * ⚠ BOTH HALVES ARE ASSERTED, and the second is the one that would be lost in a tidy-up:
+ * that the waive path resolves through billToPhone, AND that editCustInvoiceNow still
+ * answers the narrow question the save depends on.
+ * ------------------------------------------------------------------------- */
+suite('Suite 309. Crossing a fee or a discount off a bill somebody else pays');
+
+{
+  /* ⚠ SCOPED TO THE RESOLVER ITSELF, NOT sectionFrom. This lives INSIDE a click handler,
+     so "the end of its top-level construct" is the whole handler and hundreds of lines
+     after it — which swallowed a mention of allCustInvoiceFor from elsewhere and failed
+     the check below on correct code. Braces from the anchor, and no further. */
+  /* ⚠ REPOINTED 2026-09-07, NOT WEAKENED, AND THE OLD ANCHOR WAS PROTECTING THE WRONG
+     FUNCTION. `invForWaive` was a private closure holding a SECOND copy of the bill-first
+     rule while the LIST beside it read the house's own key — so the × and the lines it
+     crosses off were pointed at two different invoices. The copy is gone and
+     `editCustInvoiceNow` is now the one resolver both read.
+     ⛔ AND THE GUARD BELOW ASSERTED THE OPPOSITE OF WHAT IT MEANT. It required
+     `editCustInvoiceNow` to stay narrow "because the Edit Customer save needs it" — the
+     save has never called it. The save calls `allCustInvoiceFor(item)` directly, and THAT
+     is the function that must stay narrow. Measured: the only callers of
+     editCustInvoiceNow are the ×, its redraw, the ledger lists and the arrears summary.
+     So the invariant is unchanged and is now pinned to the function that carries it. */
+  const ledgerResolver = extractFn(admin, 'editCustInvoiceNow') || '';
+  const waiveBlock = (function(){
+    const at = admin.indexOf("listEl.addEventListener('click'");
+    if (at === -1) return '';
+    let i = admin.indexOf('{', at), depth = 0;
+    for (; i < admin.length; i++) {
+      if (admin[i] === '{') depth++;
+      else if (admin[i] === '}') { depth--; if (depth === 0) return admin.slice(at, i + 1); }
+    }
+    return '';
+  })();
+  check('S309', 'the waive path is findable',
+    !!waiveBlock && waiveBlock.length > 40 && !!ledgerResolver,
+    'renamed or inlined — repoint this rather than deleting it, or the checks ' +
+    'below pass vacuously against an empty string');
+
+  /* ⭐ RUN, NOT MATCHED. The bug this replaced was invisible to a text check: the
+     resolver read correctly and answered null for every customer in the book, because it
+     handed the RECORD to a function that wants the ITEM. Only calling it can see that. */
+  if (ledgerResolver) {
+    const resolve = function (cust, invoices) {
+      return new Function('CUST', 'INVS',
+        'var editCustomerId = CUST ? CUST.id : null;' +
+        'var jobAddresses = CUST ? [CUST] : [];' +
+        'var allInvoicesCache = INVS;' +
+        'var invoiceById = new Map(INVS.map(function(i){ return [i.id, i]; }));' +
+        'function custInvoiceKey(d){ var p = String((d && d.phone) || "").replace(/[^0-9]/g, "");' +
+        '  if (p) return p; return String((d && d.email) || "").toLowerCase().trim(); }' +
+        'function allCustInvoiceFor(item){ var k = custInvoiceKey(item.data); return k ? (invoiceById.get(k) || null) : null; }' +
+        ledgerResolver + 'return editCustInvoiceNow();')(cust, invoices);
+    };
+    const ownBill = { id: '8015550123', data: { creditNotes: [{ amount: 25, reason: 'Loyalty' }] } };
+    const groupBill = { id: '8019990000', data: { creditNotes: [{ amount: 40, reason: 'Referral' }] } };
+
+    check('S309', 'a customer who pays for themselves gets their own bill',
+      resolve({ id: 'c1', data: { phone: '801-555-0123' } }, [ownBill, groupBill]) === ownBill,
+      'it answered null for EVERY customer until 2026-09-07 — the record was passed ' +
+      'where the address ITEM was wanted, so it keyed on the empty string');
+
+    check('S309', 'and a house billed elsewhere gets the bill it is really on',
+      resolve({ id: 'c2', data: { phone: '801-555-0123', billToPhone: '(801) 999-0000' } },
+        [ownBill, groupBill]) === groupBill,
+      'a house billed to somebody else has no invoice under its own key, so its fees ' +
+      'and discounts listed as nothing at all');
+
+    check('S309', 'a customer with no bill anywhere resolves to nothing, not to a guess',
+      resolve({ id: 'c3', data: { phone: '801-000-0000' } }, [ownBill, groupBill]) === null,
+      'answering some other customer\'s invoice here would cross a line off the ' +
+      'wrong household\'s bill');
+  }
+
+  /* ⚠ COMMENTS STRIPPED. The block's own paragraph explains why it does NOT use
+     `allCustInvoiceFor`, so a plain search finds the explanation and calls it the
+     violation — the trap Suites 58, 274, 275 and 300 each had to learn, hit again here
+     within a minute of this check being written. */
+  const waiveCode = stripComments(waiveBlock);
+  check('S309', 'the × and the lines read ONE resolver',
+    waiveCode.indexOf('editCustInvoiceNow()') !== -1 &&
+    waiveCode.indexOf('allCustInvoiceFor') === -1 &&
+    /billToPhone/.test(stripComments(ledgerResolver)) &&
+    /custInvoiceKey/.test(stripComments(ledgerResolver)),
+    'two answers to "which bill is this line on" is a × pointed at one invoice ' +
+    'crossing off a line drawn from another');
+
+  /* ⛔ AND THE LIST ON OPEN READS IT TOO. Caught by the red-check, not by design: with
+     the × repointed and the resolver fixed, sending the OPEN path back to the house's own
+     key left no check failing at all — so a house billed elsewhere would open showing an
+     empty Fees box and a × that works, which is the original report exactly. The boxes
+     above it (`ecInv`) deliberately stay on the own key; only the read-only lists move. */
+  check('S309', 'the lines drawn when the form opens come off the same bill',
+    /const ecLedgerInv = \(typeof editCustInvoiceNow === 'function'\) \? editCustInvoiceNow\(\)/
+      .test(stripComments(admin)) &&
+    /renderEditCustFeeLines\(Array\.isArray\(ecLedgerData\.changeFeeNotes\)/.test(admin) &&
+    /renderEditCustCreditLines\(Array\.isArray\(ecLedgerData\.creditNotes\)/.test(admin),
+    'the × resolved the group bill while the list read the house\'s own key, so a ' +
+    'house billed elsewhere listed nothing and the × had nothing to act on');
+
+  check('S309', 'and the boxes above them still read the house\'s OWN invoice',
+    /const ecInv = allInvoicesCache\.find\(i => i\.id === custInvoiceKey\(d\)\);/.test(admin),
+    'the manual fee and discount boxes are rebuilt onto this house\'s invoice by the ' +
+    'save, so filling them from a group bill copies one household\'s fee onto another');
+
+  /* ⚠ THE NARROW RESOLVER MUST STAY NARROW — and it is `allCustInvoiceFor`, which the
+     Edit Customer save calls to find the leftover invoice to zero. Widening THAT would
+     leave a customer who moves onto somebody else's bill still billing themselves. */
+  const ownKeyFn = extractFn(admin, 'allCustInvoiceFor') || '';
+  check('S309', 'allCustInvoiceFor still answers the house\'s OWN key',
+    !!ownKeyFn && /custInvoiceKey/.test(ownKeyFn) && ownKeyFn.indexOf('billToPhone') === -1,
+    'widened — the Edit Customer save needs the narrow answer to find and zero a ' +
+    'leftover invoice when somebody starts billing elsewhere');
+
+  check('S309', 'and the save is still the caller that depends on it',
+    /const inv = allCustInvoiceFor\(item\);/.test(admin),
+    'if the save stops calling it, the guard above is protecting nothing');
+
+  /* A refusal the office can act on, rather than a fact it can do nothing with. */
+  check('S309', 'a genuinely missing invoice names the tool that makes one',
+    /Fix Missing Invoices/.test(waiveBlock),
+    'a dead-end refusal is what sends somebody looking for a bug that is not there');
+
+  /* ⛔ AND A TYPED FEE WITH NO BILL TO LAND ON NOW MAKES ONE (2026-09-07, MON-67). Dax:
+     "minting the invoice feel free to do that." Both no-invoice branches of the save
+     wrote the ledger nowhere — no throw, no toast, a green "Saved" — so the office typed
+     a fee and reopened the customer to an empty box. */
+  const mintCode = stripComments(admin);
+  check('S309', 'a fee typed onto a customer with no bill gets one made for it',
+    /mintedInvoiceForLedger = true;/.test(mintCode) &&
+    /let inv = allCustInvoiceFor\(item\);/.test(mintCode),
+    'the save kept everything else and dropped the fee without a word, which reads as ' +
+    'the list being broken rather than the save');
+
+  check('S309', 'and it only mints when a ledger line was actually typed',
+    /if\(!inv && newKey &&\s*\r?\n?\s*\(newManualFee > 0 \|\| newManualDiscount > 0 \|\| newArrearsAmount > 0 \|\| newReferralCount > 0\)\)/
+      .test(mintCode),
+    'minting on every save of an un-invoiced customer puts a $0 bill on people ' +
+    'nobody has priced yet, and the price-only path already owns that case');
+
+  /* ⚠ ONE WRITE, NOT TWO. The seed is built in memory and the whole document lands in a
+     single setDoc — two awaited writes can half-succeed, and the half that survives is an
+     empty invoice with the fee still lost. */
+  check('S309', 'the minted bill is created in one write, carrying the typed lines',
+    /else if\(mintedInvoiceForLedger\)\{[\s\S]{0,600}setDoc\(doc\(db,'invoices', newKey\), Object\.assign\(\{\}, inv\.data, invoiceUpdates\), \{merge:true\}\)/
+      .test(mintCode) &&
+    !/mintedInvoiceForLedger = true;[\s\S]{0,300}await /.test(mintCode),
+    'updateDoc on a document that does not exist throws "No document to update" and ' +
+    'loses the fee mid-save');
+
+  check('S309', 'and the office is told a bill was created',
+    /if\(mintedInvoiceForLedger\)\{[\s\S]{0,300}had no invoice, so one was created/.test(mintCode),
+    'an invoice appearing unannounced for somebody who had none reads as a bug');
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite 310. The whole RSVP, in one press
+ *
+ * Dax, 2026-09-07: "We want one button for the entire rsvp", and "we need everyone to
+ * get the right email and hve it sent to the right spot."
+ *
+ * ⚠ IT RUNS THE PLANNER. Every claim here is about WHICH LIST a customer lands in, and
+ * a source check cannot see that. What is asserted is the ROUTING — that the button
+ * sends each person down the right branch — not the arrears rule itself, which is
+ * houseOwesFromLastSeason's own and is covered where it lives. The predicates are
+ * supplied fixture-driven for that reason, and this comment says so rather than letting
+ * a reader assume the split rule is being re-proved here.
+ *
+ * ⚠ THE REFUSAL IS THE MOST IMPORTANT CHECK IN THE SUITE. Before the invoices load,
+ * houseOwesFromLastSeason answers false for EVERYBODY — so an ungated planner posts the
+ * ordinary "will you be getting lights again this year" email to every customer carrying
+ * a balance, saying nothing about the balance and handing them a Yes button that cannot
+ * schedule them. That is ~950 wrong emails from one press, and it is silent.
+ * ------------------------------------------------------------------------- */
+suite('Suite 310. The whole RSVP, in one press');
+
+{
+  const planSrc = extractFn(admin, 'rsvpWholePlan');
+  /* ⚠ LIFTED, NOT STUBBED, and the line between this and the predicates below it is the
+     point. The predicates are fixture-driven on purpose (see the note above) because this
+     suite proves ROUTING, not the arrears rule. `rsvpSendSkipReason` is the rule that
+     ORDERS those predicates, and a stub of it would make every check here pass while the
+     real page counted an opted-out customer as already-emailed. rsvp-daily-send.test.js
+     sweeps it against the server copy; this sandbox has to RUN the shipped one. */
+  const skipSrc = extractFn(admin, 'rsvpSendSkipReason');
+  check('S310', 'the planner is findable',
+    !!planSrc && !!skipSrc,
+    'renamed or removed — repoint this suite rather than deleting it');
+
+  if (planSrc) {
+    const run = function (book, loaded) {
+      const env = new Function('jobAddresses', 'LOADED',
+        'function audienceHasLastSeason(){ return LOADED; }' +
+        'function isTestRecordData(d){ return d.isTestRecord === true; }' +
+        'function audienceNeverAsked(d){ return d.newThisYear === true; }' +
+        'function effectiveRsvpStatus(d){ return d.answered ? "yes" : ""; }' +
+        'function etNoAutomationEmails(d){ return d.noAutomationEmails === true; }' +
+        'function houseOwesFromLastSeason(d){ return d.owes === true; }' +
+        skipSrc +
+        planSrc +
+        'return rsvpWholePlan();');
+      return env(book, loaded);
+    };
+    const c = (id, d) => ({ id: id, data: d });
+
+    const book = [
+      c('paid1',   { email: 'a@x.com' }),
+      c('paid2',   { email: 'b@x.com' }),
+      c('owes1',   { email: 'c@x.com', owes: true }),
+      c('nomail',  { phone: '8015550000' }),
+      c('stopped', { email: 'd@x.com', noAutomationEmails: true }),
+      c('said',    { email: 'e@x.com', answered: true }),
+      c('brandnew',{ email: 'f@x.com', newThisYear: true }),
+      c('test',    { email: 'g@x.com', isTestRecord: true }),
+      /* EM-04: two ways of already having been asked. Both must be skipped, and a
+         fixture carrying only one of them passes whether the other is read or not. */
+      c('gotit',   { email: 'h@x.com', rsvpEmailedAt: 'a-date' }),
+      c('chased',  { email: 'i@x.com', owes: true, arrearsRsvpEmailAt: 'a-date' })
+    ];
+    const p = run(book, true);
+    const ids = l => l.map(x => x.id).sort().join(',');
+
+    check('S310', 'somebody straight gets the ordinary RSVP',
+      ids(p.standard) === 'paid1,paid2',
+      'got [' + ids(p.standard) + ']');
+    check('S310', 'and somebody who owes gets the Not Paid one instead',
+      ids(p.arrears) === 'owes1',
+      'got [' + ids(p.arrears) + '] — the whole reason there are two emails');
+    check('S310', 'somebody with no email is listed to text, never emailed',
+      ids(p.noEmail) === 'nomail' &&
+      p.standard.concat(p.arrears).every(m => m.id !== 'nomail'),
+      'they are the people the RSVP can otherwise never reach');
+    check('S310', 'the do-not-send list is honoured before anything else',
+      ids(p.optedOut) === 'stopped' &&
+      p.standard.concat(p.arrears).every(m => m.id !== 'stopped'),
+      'they asked not to be mailed, and one press must not reach them');
+    check('S310', 'somebody who already answered is not asked again',
+      p.answered === 1 && p.standard.concat(p.arrears).every(m => m.id !== 'said'),
+      'an email asking a question they have answered reads as us losing their reply');
+    check('S310', 'a first-year customer is never asked "again"',
+      p.newThisYear === 1 && p.standard.concat(p.arrears).every(m => m.id !== 'brandnew'),
+      'RS-20 — nonsense to somebody who has never had lights, and it invites a no');
+    check('S310', 'the test record is in no list at all',
+      p.standard.concat(p.arrears, p.noEmail, p.optedOut).every(m => m.id !== 'test'),
+      'the test record carries a real phone and a real inbox');
+
+    /* ⚠ THE PROPERTY THAT MATTERS MOST: exactly once, or not at all. */
+    const everywhere = p.standard.concat(p.arrears, p.noEmail, p.optedOut).map(m => m.id);
+    check('S310', 'nobody appears in two lists',
+      new Set(everywhere).size === everywhere.length,
+      'got [' + everywhere.join(',') + '] — somebody in two lists gets two emails, ' +
+      'which is the exact failure this button was built to remove');
+
+    check('S310', 'and it refuses entirely until the invoices have loaded',
+      run(book, false).ready === false && run(book, false).standard.length === 0,
+      'before that read lands nobody looks like they owe, so every customer carrying a ' +
+      'balance would be sent the ordinary email — ~950 wrong sends from one press');
+    check('S310', 'and says why, rather than looking like nothing happened',
+      /invoices/i.test(run(book, false).why || ''),
+      'a silent empty plan reads as "nobody to ask" and the office presses it again');
+
+    /* ⭐ ALREADY ASKED IS NOT ASKED AGAIN (EM-04). Addie, after the Gmail refusals:
+       "the people that have already got the email should not get it again." Nothing
+       recorded who a send had reached until `rsvpEmailedAt`, which is why the 392 could
+       not be told apart from the people who got it.
+       ⚠ BOTH STAMPS, and the fixture carries one of each. The office's own send writes
+       `rsvpEmailedAt`; the server's arrears chase has always written
+       `arrearsRsvpEmailAt`. Reading only one of them re-asks everybody the automation
+       already reached — and a fixture holding a single kind passes either way. */
+    check('S310', 'somebody already emailed this season is not emailed again',
+      p.standard.concat(p.arrears).every(m => m.id !== 'gotit' && m.id !== 'chased'),
+      'got [' + ids(p.standard) + '] / [' + ids(p.arrears) + '] — a second copy of the ' +
+      'RSVP is exactly what she asked us to stop');
+    check('S310', 'and they are counted so the number can be seen before sending',
+      ids(p.alreadyEmailed) === 'chased,gotit',
+      'got [' + ids(p.alreadyEmailed) + '] — a skip nobody can see is indistinguishable ' +
+      'from a send that quietly lost them');
+    /* ⚠ THE ORDER OF THE TESTS IS THE CLAIM HERE. Already-emailed sits AFTER the
+       do-not-send and no-email branches, so somebody on the do-not-send list is never
+       reported as "already emailed" — that would tell her we had written to somebody we
+       are forbidden to write to. */
+    check('S310', 'and a do-not-send customer is never counted as already emailed',
+      p.alreadyEmailed.every(m => m.id !== 'stopped'),
+      'the two mean opposite things and only one of them is something we did');
+  }
+}
+
+/* =====================================================================
+ * Suite 311. The referral offer, RUN rather than read
+ *
+ * Addie, 2026-09-08: "why is the referal share button/link not working anymore… its
+ * not even showing up anymore."
+ *
+ * ⚠ THE RENDERING HAD NEVER BEEN EXECUTED BY ANYTHING. Suite 305 checks the
+ * {{referral_button}} branch of resolveLinkTokens with a REGEX over a slice of the
+ * file, and Suite 308 runs the box BUILDER on a pair of addresses it hands in itself.
+ * Nothing had ever asked the question that was actually being asked: given a real
+ * customer record, does a link come out? That is the gap this suite closes, and it is
+ * the shape this repo keeps re-learning — "a message that is in the source is not a
+ * message on the screen".
+ *
+ * ⚠ AND resolveLinkTokens CANNOT BE LIFTED BY extractFn AT ALL, which is why nobody
+ * had. It contains the string '{{custom_' — two opening braces with no closers — so
+ * the brace counter runs off the end of the file and the function reads as MISSING.
+ * A suite written the ordinary way would have skipped, silently, for ever. It is
+ * sliced between its own signature and the next declaration instead, and the slice is
+ * asserted to be the whole function before anything is run on it.
+ *
+ * ⚠ WHAT IT PROVES IS THE PRESENCE OF A LINK, NOT ITS PRETTINESS. Suite 308 owns the
+ * box's shape and the office/server parity; this owns the one question that decides
+ * whether a customer gets an offer at all — does the customer RESOLVE — and the
+ * reporting that now says so out loud when one does not.
+ * ------------------------------------------------------------------------- */
+suite('Suite 311. The referral offer, RUN rather than read');
+
+{
+  const NL311 = String.fromCharCode(10);
+  const sigAt = admin.indexOf('async function resolveLinkTokens(');
+  const nextAt = admin.indexOf(NL311 + 'async function buildOutgoingEmailFooter(');
+  const resolveSrc = (sigAt !== -1 && nextAt > sigAt) ? admin.slice(sigAt, nextAt) : '';
+  /* ⚠ THE SLICE IS PROVED WHOLE BEFORE IT IS RUN. Cut short it would still parse as a
+     function and would silently stop resolving whichever tokens fell off the end —
+     green, and testing half the renderer. */
+  check('S311', 'the renderer is findable and the slice is the whole of it',
+    !!resolveSrc && /\{\{referral_button\}\}/.test(resolveSrc) &&
+    /out\.replace\(\/\\n\/g, '<br>'\)/.test(resolveSrc) && /return out;/.test(resolveSrc),
+    'repoint this slice rather than stubbing it — extractFn cannot lift this function ' +
+    'because of the ' + String.fromCharCode(39) + '{{custom_' + String.fromCharCode(39) +
+    ' literal inside it, so a stub here would be permanent');
+
+  const needed311 = ['hlxEmailCustomerItem', 'referralTokenFor', 'referralLinkFromToken',
+    'referralShareLinkFromToken', 'referralShareBoxHtml', 'generateReferralToken',
+    'applyQuoteLinkLabel', 'applyQuoteLinkButton', 'referralOfferFor', 'referralOfferProse',
+    'referralEmailBlock', 'referralOfferPlacement', 'rsvpTemplateHasReferral',
+    'etTemplateIsRsvp', 'referralMissingNote',
+    /* ⚠ referralTokenFor MINTS A TOKEN AND STAMPS THE SEASON ON IT, so it calls
+       referralSeasonNow. Left out, every fixture that reaches the minting branch died
+       with a bare ReferenceError attributed to whichever suite happened to be running
+       — the exact unattributable crash assertSandbox exists to name (§3). */
+    'referralSeasonNow',
+    /* ⚠ THE QUOTE-BUTTON BRANCH OF THE SAME RENDERER (added 2026-09-11). It was
+       never exercised here, so a customer could be emailed three copies of the
+       words "(quote token not found)" with every check green. LIFTED, NOT
+       STUBBED — quoteForButtons is the rule that decides WHICH quote a live
+       email's Approve button answers, and a stub would keep this suite green
+       through it choosing one that was closed weeks ago. */
+    'quoteForButtons', 'newQuoteToken', 'quotePortalParam', 'quoteButtonLabels',
+    /* ⚠ THE GREETING, WHICH IS NOT PART OF THE RENDERED BODY AT ALL and so had
+       nothing watching it. It is an EmailJS template parameter, and a blank one
+       mailed out as "Hi ," — see the checks at the foot of this suite. */
+    'properName', 'emailGreetingName',
+    'quoteIsAddOn', 'quoteExistingCustomer', 'quoteMatchAddress'];
+  const lifted311 = {};
+  needed311.forEach(function (n) { lifted311[n] = extractFn(admin, n); });
+  const missing311 = needed311.filter(function (n) { return !lifted311[n]; });
+  check('S311', 'every function this runs is lifted from the real file',
+    !missing311.length,
+    'missing: ' + missing311.join(', ') + ' — LIFT, NOT STUB: a stub here keeps the ' +
+    'suite green through an email that carries no link at all');
+
+  if (resolveSrc && !missing311.length) {
+    /* ⚠ extractFn DROPS THE async KEYWORD (§5), and three of these are async. Put back
+       by name rather than by a blanket prefix — referralShareBoxHtml is not async, and
+       an await inside a plain function is a parse error that kills the whole run as one
+       unattributable crash. */
+    const ASYNC311 = ['referralTokenFor', 'referralOfferFor', 'referralEmailBlock'];
+    const body311 = needed311.map(function (n) {
+      return (ASYNC311.indexOf(n) !== -1 ? 'async ' : '') + lifted311[n];
+    }).join(NL311);
+
+    const styles311 = ['SHARE_ICON_BUTTON_STYLE', 'QUOTE_LINK_BUTTON_STYLE',
+      'QUOTE_LINK_BUTTON_DEFAULT', 'REFERRAL_TOKEN_ALPHABET',
+      /* ⚠ newQuoteToken READS THIS, and leaving it out cost a debugging round:
+         the mint threw ReferenceError inside the renderer's own try/catch, so the
+         email fell back to the not-found words and the failure read as "the fix
+         does not work" rather than "the sandbox is short a constant". */
+      'QUOTE_TOKEN_ALPHABET',
+      /* ⚠ THE TEST EMAIL'S SAMPLE QUOTE. Left out, the checks below throw inside the
+         renderer's own try/catch and the email falls back to the not-found words —
+         which reads as "the fix does not work" rather than as a short sandbox, the
+         exact debugging round QUOTE_TOKEN_ALPHABET above already cost once. */
+      'QUOTE_TEST_SAMPLE_TOKEN', 'QUOTE_TEST_SAMPLE_ID'].map(function (n) {
+      const m = admin.match(new RegExp('const ' + n + " = '[^']*';"));
+      return m ? m[0] : '';
+    });
+    check('S311', 'the styles, alphabets and sample constants are lifted too',
+      styles311.every(Boolean),
+      'a missing one is a ReferenceError inside the sandbox, reported as an unrelated crash');
+
+    /* Everything the referral path does NOT use is stubbed to nothing on purpose: the
+       fixtures place only the referral token, so no other branch of the renderer runs.
+       The writes array is the fake Firestore — referralTokenFor mints through it. */
+    const env311 = new Function('BOOK', 'QUOTES', [
+      'let jobAddresses = BOOK, custById = new Map();',
+      'BOOK.forEach(function(a){ if(a && a.id) custById.set(a.id, a); });',
+      'let allInvoicesCache = [], quotesCache = QUOTES || [], customCodes = [], perFootRate = 3;',
+      'const writes = [], refs = [];',
+      /* ⚠ doc() RECORDS WHAT IT WAS ASKED FOR, so a check can say WHICH quote was
+         written to rather than merely that something was. */
+      'function doc(_db, coll, id){ return {coll: coll, id: id}; } function collection(){ return {}; }',
+      'async function updateDoc(_r, patch){ writes.push(patch); refs.push(_r); } const db = {};',
+      'function esc(s){ return String(s == null ? "" : s); }',
+      'function fmtMoney(n){ return "$" + Number(n || 0).toFixed(2); }',
+      'function niceDate(d){ return String(d); } function addDays(d){ return d; }',
+      'const PAYMENT_TERMS_DAYS = 30;',
+      'function invoiceIssuedAt(){ return new Date(); }',
+      'async function getOrCreatePortalToken(){ return "pt_test"; }',
+      'function billedHousesEmailBlock(){ return ""; }',
+      'function billedHousesPlainText(){ return ""; }',
+      'async function addOnEmailBlock(){ return ""; }',
+      styles311.join(NL311),
+      body311,
+      resolveSrc,
+      'return {resolveLinkTokens: resolveLinkTokens, referralOfferFor: referralOfferFor,',
+      '        referralEmailBlock: referralEmailBlock, referralMissingNote: referralMissingNote,',
+      '        referralOfferPlacement: referralOfferPlacement, writes: writes, refs: refs,',
+      '        quoteForButtons: quoteForButtons, emailGreetingName: emailGreetingName};'
+    ].join(NL311));
+
+    const withTok = { id: 'c1', data: { name: 'Brian Petersen', phone: '8015550111',
+      email: 'b@x.com', referralToken: 'ab3k9xyz' } };
+    const noTok = { id: 'c2', data: { name: 'Dana Reid', phone: '8015550222', email: 'd@x.com' } };
+    /* ⚠ TWO HOUSEHOLDS ON ONE NUMBER, which is the case that actually bites: seventeen
+       numbers in the real book are shared and fourteen are a parent and a child. */
+    const par = { id: 'c3', data: { name: 'Parent', phone: '8015550333', email: 'p@x.com' } };
+    const kid = { id: 'c4', data: { name: 'Child', phone: '8015550333', email: 'k@x.com' } };
+
+    const BODY311 = 'Hi {{name}},' + NL311 + NL311 +
+      'You now have your own personal referral link.' + NL311 + NL311 +
+      '{{referral_button}}' + NL311 + NL311 + 'RSVP below!';
+    const LINKED = 'highlightingutah.com/r/';
+
+    pendingAsync.push((async function () {
+      /* ---- the token in her template ---------------------------------------- */
+      const e1 = env311([withTok]);
+      const out1 = await e1.resolveLinkTokens(BODY311, '8015550111', 0,
+        { name: 'Brian Petersen', customerId: 'c1' });
+      check('S311', 'the RSVP send puts a real link where the template asks for it',
+        out1.indexOf(LINKED + 'ab3k9xyz') !== -1 && out1.indexOf('<table') !== -1,
+        'this is the send path the office actually uses; a blank here is an RSVP that ' +
+        'promises a referral link and carries none');
+      check('S311', 'and the words the customer reads are the FRIEND’s address',
+        out1.indexOf('>' + LINKED + 'ab3k9xyz</a>') !== -1 &&
+        out1.indexOf('href="https://highlightingutah.com/s/ab3k9xyz"') !== -1,
+        'REF-13: the words are what gets copied and forwarded, the icon is the ' +
+        'customer’s own share page');
+
+      /* ---- a customer who has never had one ---------------------------------- */
+      const e2 = env311([noTok]);
+      const out2 = await e2.resolveLinkTokens(BODY311, '8015550222', 0,
+        { name: 'Dana Reid', customerId: 'c2' });
+      check('S311', 'a customer with no code yet is given one rather than skipped',
+        out2.indexOf(LINKED) !== -1 && e2.writes.length === 1 && !!e2.writes[0].referralToken,
+        'REF-10 exists because most of the book had no token; minting on the way past ' +
+        'is what stops the offer working for some people and silently not for others');
+
+      /* ---- and the three ways it comes out empty ----------------------------- */
+      const e3 = env311([par, kid]);
+      const out3 = await e3.resolveLinkTokens(BODY311, '8015550333', 0, { name: 'Parent' });
+      check('S311', 'a shared phone with no customer id emits nothing at all',
+        out3.indexOf(LINKED) === -1 && out3.indexOf('<table') === -1 &&
+        out3.indexOf('{{referral_button}}') === -1,
+        'the strict resolver refuses a phone matching two customers rather than putting ' +
+        'the child’s link in the parent’s email — and it must leave no dead box behind');
+      const e4 = env311([withTok]);
+      const out4 = await e4.resolveLinkTokens(BODY311, '8015550111', 0,
+        { name: 'Brian Petersen', customerId: 'gone' });
+      check('S311', 'and so does an id that is no longer in the book',
+        out4.indexOf(LINKED) === -1 && out4.indexOf('<table') === -1,
+        'a dead box is a customer tapping something we sent them and landing nowhere');
+
+      /* ---- the resolver now says WHY, which is the whole of REF-20 ----------- */
+      const e5 = env311([withTok]);
+      const good = await e5.referralOfferFor(withTok);
+      const bad = await e5.referralOfferFor(null);
+      check('S311', 'a resolved customer comes back with a box and no complaint',
+        good.html.indexOf(LINKED + 'ab3k9xyz') !== -1 && good.why === '' &&
+        good.token === 'ab3k9xyz',
+        'why must be empty on success, or every send reports every customer as missed');
+      check('S311', 'and an unresolved one comes back empty AND says why',
+        bad.html === '' && typeof bad.why === 'string' && bad.why.length > 0,
+        'rendering nothing and saying nothing is how a whole-book RSVP went out with no ' +
+        'referral offer in it and the green line still read "Done — sent 312"');
+
+      /* ⚠ THE APPENDED BLOCK IS THE COPY NOBODY LOOKS AT, so it is RUN, not read. */
+      const appended = await e5.referralEmailBlock(withTok);
+      check('S311', 'the appended offer carries the same box and the $25 sentence',
+        appended.indexOf(LINKED + 'ab3k9xyz') !== -1 && /\$25/.test(appended) &&
+        appended.indexOf('<table') !== -1,
+        'REF-15: this is what a template with no code in it sends, which is most of them');
+      check('S311', 'and appends nothing at all for a customer with no link',
+        (await e5.referralEmailBlock(null)) === '',
+        'a heading over an empty space is worse than no paragraph');
+    })());
+
+    /* ---- what the office is told, before and after ------------------------- */
+    /* ---- the quote buttons, which is what went out broken ------------------- */
+    /* ⭐ REPORTED 2026-09-11, in an email the office was looking at:
+           {{quote_yes_button}} {{quote_maybe_button}} {{quote_decline_button}}
+           (quote token not found) (quote token not found) (quote token not found)
+       Two separate faults, and the fixtures below are the two real records that
+       carried them — Miko Johnson's portal re-quote, minted with no token at
+       all, and a phone holding five CLOSED quotes, which is Addie's own number
+       in the live book. */
+    const PHONE_Q = '8015550444';
+    const qOpenNoTok = { id: 'q1', data: { name: 'Miko Johnson', phone: PHONE_Q,
+      status: 'new', existingCustomerId: 'c9', createdAt: '2026-09-10T00:00:00Z' } };
+    const qClosedOld = { id: 'q2', data: { name: 'Miko Johnson', phone: PHONE_Q,
+      status: 'closed', quoteToken: 'closedtok', createdAt: '2026-08-01T00:00:00Z' } };
+    const qOpenNewer = { id: 'q3', data: { name: 'Miko Johnson', phone: PHONE_Q,
+      status: 'new', quoteToken: 'newertok', createdAt: '2026-09-11T00:00:00Z' } };
+    const BTNS = '{{quote_yes_button}} {{quote_maybe_button}} {{quote_decline_button}}';
+    const NOTFOUND = '(quote token not found)';
+
+    pendingAsync.push((async function () {
+    const eq1 = env311([withTok], [qOpenNoTok]);
+    const oq1 = await eq1.resolveLinkTokens(BTNS, PHONE_Q, 0, { name: 'Miko Johnson' });
+    check('S311', 'a quote with no token is given one rather than emailed the words "not found"',
+      oq1.indexOf(NOTFOUND) === -1 && oq1.indexOf('action=approve') !== -1 &&
+      eq1.writes.some(function (w) { return !!w.quoteToken; }),
+      'got: ' + oq1.slice(0, 120) + ' — this is the reported bug: the portal raised the ' +
+      're-quote and never minted a token, so the customer was sent the developer text');
+    check('S311', 'and the token is written to THAT quote, not to some other record',
+      eq1.refs.some(function (r) { return r && r.coll === 'quotes' && r.id === 'q1'; }),
+      'a token minted onto the wrong document leaves the buttons pointing nowhere ' +
+      'while the suite reads green');
+
+    const eq2 = env311([withTok], [qClosedOld]);
+    const oq2 = await eq2.resolveLinkTokens(BTNS, PHONE_Q, 0, { name: 'Miko Johnson' });
+    check('S311', 'a CLOSED quote never supplies the buttons',
+      oq2.indexOf('closedtok') === -1 && oq2.indexOf(NOTFOUND) !== -1 &&
+      !eq2.writes.some(function (w) { return !!w.quoteToken; }),
+      'five closed quotes share one number in the real book; answering one of those ' +
+      're-answers history on a card nobody is waiting on');
+
+    /* ⚠ THE CLOSED ONE IS FIRST IN THE CACHE ON PURPOSE. The old code took the
+       first match in cache order, so a fixture listing the open one first would
+       pass whether the rule is there or not. */
+    const eq3 = env311([withTok], [qClosedOld, qOpenNoTok, qOpenNewer]);
+    const oq3 = await eq3.resolveLinkTokens(BTNS, PHONE_Q, 0, { name: 'Miko Johnson' });
+    check('S311', 'the newest OPEN quote wins over an older open one and over a closed one',
+      oq3.indexOf('token=newertok') !== -1 && oq3.indexOf('closedtok') === -1,
+      'got: ' + (oq3.match(/token=[a-z0-9]+/) || ['none'])[0] + ' — a re-quote supersedes ' +
+      'the quote it was raised against, so the newest open one is the one being asked about');
+
+    const eq4 = env311([withTok], []);
+    const oq4 = await eq4.resolveLinkTokens(BTNS, PHONE_Q, 0, { name: 'Nobody' });
+    check('S311', 'and somebody with no open quote still gets the honest fallback',
+      oq4.indexOf(NOTFOUND) !== -1,
+      'silently emitting nothing would hide a template pointed at the wrong audience');
+
+    /* ⭐ THE QUOTE THE OFFICE PRESSED SEND ON IS THE QUOTE THE BUTTONS ANSWER
+       (2026-09-17). Everything above this line asks the renderer to FIND the quote
+       from a phone number. The send does not have to guess — it is holding the
+       card — and two real emails came out wrong because it guessed anyway. */
+
+    /* ⚠ A LEAD WITH NO PHONE NUMBER IS A REAL LEAD NOW. The public form took one
+       box that is a phone OR an email from QT-40 (2026-09-12), so a quote can
+       carry an address and no number — and quoteForButtons returns null the
+       instant the number is empty. That is three copies of the developer text in
+       a priced email with the customer's own house in it. */
+    const qNoPhone = { id: 'q4', data: { name: 'Email Only', phone: '',
+      email: 'e@x.com', status: 'new', quoteToken: 'emailonlytok',
+      createdAt: '2026-09-16T00:00:00Z' } };
+    const eq5 = env311([withTok], [qNoPhone]);
+    const oq5 = await eq5.resolveLinkTokens(BTNS, '', 0,
+      { quote: qNoPhone, name: 'Email Only' });
+    check('S311', 'an email-only lead gets real buttons, because the send hands its quote in',
+      oq5.indexOf('token=emailonlytok') !== -1 && oq5.indexOf(NOTFOUND) === -1,
+      'got: ' + oq5.slice(0, 120) + ' — this is the reported email: a $384 quote with the ' +
+      'customer' + String.fromCharCode(39) + 's own photo in it and the words ' +
+      '"(quote token not found)" where the three buttons belong');
+    /* ⚠ THE SAME FIXTURE WITHOUT THE HAND-IN, so this suite cannot pass on a
+       renderer that quietly went back to the phone lookup. */
+    const eq5b = env311([withTok], [qNoPhone]);
+    const oq5b = await eq5b.resolveLinkTokens(BTNS, '', 0, { name: 'Email Only' });
+    check('S311', 'and the phone lookup alone still cannot find it, which is why the hand-in exists',
+      oq5b.indexOf(NOTFOUND) !== -1,
+      'if this ever passes, the fixture has stopped being the broken case and the ' +
+      'check above proves nothing');
+
+    /* ⚠ AND A SHARED NUMBER MUST NOT OVERRULE THE CARD. Seventeen numbers in the
+       book are shared and fourteen are a parent and a child, so the newest open
+       quote on a number can be the other household's — asking a parent to approve
+       their child's price. addOnEmailBlock already says this about the same
+       function; this is the send path saying it. */
+    const qOther = { id: 'q5', data: { name: 'Child', phone: PHONE_Q, status: 'new',
+      quoteToken: 'childtok', createdAt: '2026-09-01T00:00:00Z' } };
+    const eq6 = env311([withTok], [qOpenNewer, qOther]);
+    const oq6 = await eq6.resolveLinkTokens(BTNS, PHONE_Q, 0,
+      { quote: qOther, name: 'Child' });
+    check('S311', 'the card in hand beats a newer quote sharing the same phone number',
+      oq6.indexOf('token=childtok') !== -1 && oq6.indexOf('newertok') === -1,
+      'got: ' + (oq6.match(/token=[a-z0-9]+/) || ['none'])[0] + ' — the office pressed ' +
+      'Send on one card, and that is the quote the customer is being asked about');
+
+    /* ⚠ AND A HANDED-IN QUOTE WITH NO TOKEN IS STILL MINTED ONE, onto ITSELF.
+       The mint above this line is reached through the phone lookup; a quote
+       handed in must reach it too, or the fix trades one set of not-found words
+       for another. */
+    const qHandNoTok = { id: 'q6', data: { name: 'Email Only', phone: '',
+      email: 'e2@x.com', status: 'new', createdAt: '2026-09-16T00:00:00Z' } };
+    const eq7 = env311([withTok], [qHandNoTok]);
+    const oq7 = await eq7.resolveLinkTokens(BTNS, '', 0,
+      { quote: qHandNoTok, name: 'Email Only' });
+    check('S311', 'a handed-in quote with no token is given one, written to that quote',
+      oq7.indexOf(NOTFOUND) === -1 && oq7.indexOf('action=approve') !== -1 &&
+      eq7.refs.some(function (r) { return r && r.coll === 'quotes' && r.id === 'q6'; }),
+      'got: ' + oq7.slice(0, 120) + ' — a token minted onto the wrong document leaves ' +
+      'the buttons pointing nowhere while the suite reads green');
+
+    /* ⭐ THE TEST EMAIL'S OWN BUTTONS (2026-09-17). Dax, reading a test send: "when
+       you try it on test it should not print token not found". The Send me a test
+       button handed the renderer no quote at all, so the one thing that email exists
+       to show — whether the buttons arrive as BUTTONS — came out as three copies of
+       the developer text instead. */
+    const qSample = { id: '__sample_quote__', sample: true, data: { name: 'Test Customer',
+      phone: '', email: 't@x.com', status: 'new', quotedPrice: 450,
+      quoteToken: 'sample-quote-not-a-real-one' } };
+    const eq8 = env311([withTok], []);
+    const oq8 = await eq8.resolveLinkTokens(BTNS, '', 0,
+      { quote: qSample, name: 'Test Customer' });
+    check('S311', 'the test email renders three real buttons, not the not-found words',
+      oq8.indexOf(NOTFOUND) === -1 && oq8.indexOf('action=approve') !== -1 &&
+      oq8.indexOf('action=decline') !== -1 && oq8.indexOf('action=maybe_next_year') !== -1,
+      'got: ' + oq8.slice(0, 160) + ' — the test send exists to say whether buttons ' +
+      'arrive as buttons, and it was answering its own question wrongly');
+
+    /* ⛔ AND IT MUST NOT WRITE. The mint goes by quote.id, and the sample is not in
+       the book — so without the `sample` guard a test send CREATES quotes/__sample_quote__,
+       which nothing cleans up and which then appears on the Quotes tab. */
+    const qSampleNoTok = { id: '__sample_quote__', sample: true, data: { name: 'Test Customer',
+      phone: '', email: 't@x.com', status: 'new', quotedPrice: 450 } };
+    const eq9 = env311([withTok], []);
+    await eq9.resolveLinkTokens(BTNS, '', 0, { quote: qSampleNoTok, name: 'Test Customer' });
+    check('S311', 'and a sample quote is never written to the book',
+      eq9.writes.length === 0 &&
+      !eq9.refs.some(function (r) { return r && r.id === '__sample_quote__'; }),
+      'got ' + eq9.writes.length + ' write(s) — a test send that creates a quote leaves ' +
+      'a phantom card on the Quotes tab that nobody put there');
+
+    /* ⚠ THE SAMPLE TOKEN CANNOT BE A REAL ONE, and this is the check that matters most
+       of the three: these links carry action=approve, so a token that could collide
+       with a minted one would let a test email answer a real customer's quote.
+       QUOTE_TOKEN_ALPHABET holds no hyphen, which is what makes it unspellable. */
+    /* ⚠ READ OUT OF THE SOURCE, NOT REFERENCED. Both constants live INSIDE the
+       env311 sandbox, so naming them here is a ReferenceError thrown from an async
+       block — which surfaces as an unrelated suite "crashed partway through" and
+       scores nothing after it. That is the §5 unattributable crash, and it cost a
+       run in this very commit. */
+    const sampleTokenSrc = (admin.match(/const QUOTE_TEST_SAMPLE_TOKEN = '([^']*)';/) || [])[1];
+    const tokenAlphabetSrc = (admin.match(/const QUOTE_TOKEN_ALPHABET = '([^']*)';/) || [])[1];
+    check('S311', 'both token constants were found in the source',
+      !!sampleTokenSrc && !!tokenAlphabetSrc,
+      'the check below cannot mean anything if either one was not found');
+    check('S311', 'the sample token can never be minted for a real quote',
+      !!sampleTokenSrc && !!tokenAlphabetSrc &&
+      sampleTokenSrc.split('').some(function (ch) {
+        return tokenAlphabetSrc.indexOf(ch) === -1;
+      }),
+      'every character of the sample token is spellable by newQuoteToken, so a real ' +
+      'quote could one day be minted this exact token and a test email would answer it');
+    })());
+
+    const e6 = env311([withTok]);
+    check('S311', 'a clean send says nothing about referral links',
+      e6.referralMissingNote({ noReferral: 0, noReferralNames: [] }) === '',
+      'a warning on every ordinary send is one the office learns to scroll past');
+    const note = e6.referralMissingNote({ noReferral: 3, noReferralNames: ['Parent — no code'] });
+    check('S311', 'and a send that missed some names them and counts them',
+      /3/.test(note) && note.indexOf('Parent') !== -1 && /and others/.test(note),
+      'got: ' + note + ' — a bare count is a number nobody can act on');
+
+    /* ---- and where the offer will appear, before a single email goes -------- */
+    const tplCode = { data: { body: 'Hi {{name}} {{rsvp_yes_button}} {{referral_button}}' } };
+    const tplBare = { data: { body: 'Hi {{name}} {{rsvp_yes_button}}' } };
+    const tplBill = { data: { body: 'Your invoice is {{amount}}' } };
+    check('S311', 'a template placing the code is reported as placing it',
+      e6.referralOfferPlacement(tplCode) === 'code',
+      'this is the line that answers her question without sending anything');
+    check('S311', 'one that does not is reported as having it added at the end',
+      e6.referralOfferPlacement(tplBare) === 'appended',
+      'her own RSVP body carried no code, so the offer went to the BOTTOM rather than ' +
+      'beside the sentence she had written about it — and nothing said so');
+    check('S311', 'and a template that is not an RSVP gets no offer at all',
+      e6.referralOfferPlacement(tplBill) === 'none',
+      'a referral offer at the foot of an invoice is not what that email is for');
+
+    /* ⭐ "Hi ," — REPORTED 2026-09-17, on the same quote email as the not-found
+       words above. The greeting is not in the body this suite renders at all: the
+       EmailJS customer template opens "Hi " + to_name + "," and every send in
+       admin.html passed the raw name with an empty-string fallback, so a record
+       with no name on it mailed out as a comma on its own.
+
+       ⚠ RUN, NOT READ, for the helper — and READ for the call sites, because no
+       test in this repo can reach an EmailJS template parameter. The regex below
+       is the only thing standing between a nameless customer and that comma. */
+    check('S311', 'a nameless customer is greeted "there", never with a bare comma',
+      e6.emailGreetingName('') === 'there' && e6.emailGreetingName(null) === 'there' &&
+      e6.emailGreetingName('   ') === 'there',
+      'got: "' + e6.emailGreetingName('') + '" — this is the whole of the reported bug');
+    check('S311', 'and a customer who has a name is still greeted by it',
+      e6.emailGreetingName('Miko Johnson') === 'Miko Johnson' &&
+      e6.emailGreetingName('MIKO JOHNSON') === 'Miko Johnson',
+      'to_name has always carried the full name; this change only closes the blank, ' +
+      'and rewording ~950 invoices and RSVPs is not what it is for');
+    check('S311', 'and no send is left passing the raw name with an empty fallback',
+      !/to_name:\s*[A-Za-z0-9_.]+(?:\.data)?\.name\s*\|\|\s*''/.test(admin),
+      'one missed send site is one customer reading "Hi ," — they are all the same ' +
+      'one-line change and they must not drift apart again');
+  }
+}
+
+suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
+
+/* ⭐ Dax, 2026-09-09: "we never want to see people not on either crews route but
+   scheduled for a day, thats just the same as a one man at the end of the day we
+   calculate for milage so put them on a day that they can be in the route."
+
+   THE DAY HE WAS LOOKING AT, and every fixture below is built from it: 1 October
+   held Lehi 14, American Fork 4, Orem 1, Vineyard 1. Lehi and American Fork are
+   neighbours; so are Orem and Vineyard. dayCrewTowns' greedy gave Lehi to crew 1
+   and then LOAD-BALANCED American Fork onto the empty crew 2 — spending crew 2's
+   dominant-city slot on a town crew 1 could have taken as its neighbour. Orem and
+   Vineyard were then legal for nobody and fell into the "not on either crew's
+   route" bucket, where Darlene Price and Aaron Marvel sat.
+
+   ⚠ AND THE DAY THEN CALLED ITSELF A ONE-CREW DAY, which is what made it stick.
+   dayCrewCount measures dayAssignedHouses — the houses a crew actually holds — so
+   the two stranded ones were not counted, the day read as 18 houses over two
+   neighbouring towns, and the one-crew collapse put everything on Chase's sheet.
+   Being stranded is what removed the second crew that could have taken them.
+
+   ⚠ THESE RUN THE REAL FUNCTIONS. Every claim here is about WHICH CREW A HOUSE
+   ENDS UP ON, which a text match cannot see — and the greedy that caused this was
+   itself perfectly readable code. */
+{
+  /* ⚠ LIFTED, NEVER STUBBED (§3). oneManMaxHouses, planCities and extractCleanCity
+     are reached through dayCrewCount and crewTownsFor; a stub for any of them makes
+     the crew-count half of this suite agree with itself and prove nothing about the
+     page. assertSandbox named all three the first time this ran, which is what that
+     gate is for. */
+  const need314 = ['bestCrewTowns', 'dayCrewTowns', 'dayCrewHouses', 'dayCrewCount',
+                   'dayAssignedHouses', 'crewTownsFor', 'crewIndexes', 'crewCap',
+                   'dayTownList', 'oneCrewMaxHouses', 'daySoloCrew',
+                   'oneManMaxHouses', 'planCities', 'extractCleanCity', 'isOneManDay',
+                   /* ⭐ dayCrewHouses reaches these since [[SCH-67]]: the step that puts
+                      every house on a sheet picks the crew with the NEAREST house, so
+                      it has to be able to measure. Lifted, not stubbed — a stub would
+                      let this suite grade "nobody is left off a sheet" against
+                      arithmetic it made up itself. */
+                   'haversine', 'houseStopPoint', 'customerForHouse', 'houseGeoPoint'];
+  /* ⛔ estimatedPinFromAddress IS STUBBED HERE ON PURPOSE, the one thing in this
+     sandbox that is. houseGeoPoint falls back to it for a house with no coordinates on
+     its customer record, and lifting the real one drags TOWN_GRIDS, the Utah address
+     parser and a least-squares fit into a sandbox about splitting a day between crews
+     — it crashed outright when tried.
+     ⚠ SAFE BECAUSE OF WHAT THE FIXTURES ARE, not because the estimate does not matter.
+     Every house here is given real coordinates, so the fallback is never reached; a
+     null from it would only ever mean "this house cannot be measured", which the
+     catch-all already handles by falling back to the crew carrying least. If a fixture
+     in this suite ever stops carrying coordinates, lift the real one or this is
+     grading against a stub. */
+  const lifted314 = {};
+  need314.forEach(function (n) { lifted314[n] = extractFn(admin, n); });
+  const missing314 = need314.filter(function (n) { return !lifted314[n]; });
+  check('S314', 'the crew-split functions are all findable',
+    missing314.length === 0,
+    'missing: ' + missing314.join(', ') + ' — repoint the lift rather than stubbing one, ' +
+    'a stub here makes the very rule this suite exists for untestable');
+
+  if (!missing314.length) {
+    /* ⚠ THE NEIGHBOUR TABLE IS SUPPLIED, exactly as the live page supplies one.
+       Without it townsAreNeighbours falls through to a tape measure over customer
+       coordinates the fixtures do not have, every pairing answers NO, and the whole
+       suite runs against a builder with town-mixing switched off — the vacuous shape
+       Suite 22 was caught by. */
+    /* ⚠ Draper/Sandy/Midvale are a TRIANGLE on purpose — mutually neighbouring, so
+       nothing but MAX_TOWNS_PER_CREW stops a crew taking all three. A table of
+       disjoint PAIRS cannot test the cap at all: the neighbour rule refuses the
+       third town on its own and the check passes with the cap deleted. That is the
+       vacuous shape Suite 101 already records, and the first draft of this suite
+       had it. Levan/Santaquin are a pair with no big neighbour, used below to make
+       "most houses" and "most towns" give different answers. */
+    const NEIGH314 = [['Lehi', 'American Fork'], ['Orem', 'Vineyard'],
+                      ['Draper', 'Sandy'], ['Alpine', 'Highland'],
+                      ['Draper', 'Midvale'], ['Sandy', 'Midvale'],
+                      ['Levan', 'Santaquin']];
+    const pre314 =
+      'const MAX_TOWNS_PER_CREW = 2;' +
+      'const MAX_STOPS_PER_ROUTE = 20;' +
+      'const ONE_MAN_MAX_HOUSES = 8;' +
+      'let CREWS = [];' +
+      'function crewCount(){ return CREWS.length; }' +
+      'function crewName(i){ return (CREWS[i] && CREWS[i].name) || ("Crew " + (i + 1)); }' +
+      'function sameCity(a,b){ return (""+a).trim().toLowerCase() === (""+b).trim().toLowerCase(); }' +
+      'function cityOf(h){ return h.city; }' +
+      'function dayLimitFor(){ return null; }' +
+      /* planCities only answers for a NULL day, which no fixture here passes; it
+         still has to be defined, and its own dependency has to exist with it. */
+      'function allHouses(){ return []; }' +
+      /* ⛔ THE ONE DELIBERATE STUB HERE, and it is deliberate rather than an oversight.
+         Since [[SCH-67]] dayCrewHouses measures distances to decide which crew carries a
+         house no town covers, so it reaches houseStopPoint -> houseGeoPoint -> this.
+         Lifting the real one drags TOWN_GRIDS, the Utah address parser and a
+         least-squares fit into a sandbox about splitting a day between crews, and it
+         crashed outright when tried.
+         ⚠ SAFE BECAUSE OF WHAT THE FIXTURES ARE. Every house in this suite is given
+         real coordinates, so the estimate is never reached; null only ever means "this
+         house cannot be measured", which the catch-all already handles by falling back
+         to the crew carrying least. If a fixture here ever stops carrying coordinates,
+         lift the real one — otherwise this suite is grading against a stub. */
+      'function estimatedPinFromAddress(){ return null; }' +
+      'const NEIGH = ' + JSON.stringify(NEIGH314) + ';' +
+      'function townsAreNeighbours(a,b){ if(sameCity(a,b)) return true;' +
+      ' return NEIGH.some(function(p){ return (sameCity(p[0],a)&&sameCity(p[1],b))||' +
+      '(sameCity(p[0],b)&&sameCity(p[1],a)); }); }';
+    const body314 = pre314 + need314.map(function (n) { return lifted314[n]; }).join('\n');
+
+    assertSandbox('S314', 'dayCrewTowns', body314, admin,
+      ['MAX_TOWNS_PER_CREW', 'MAX_STOPS_PER_ROUTE', 'ONE_MAN_MAX_HOUSES', 'CREWS',
+       'crewCount', 'crewName', 'sameCity', 'cityOf', 'dayLimitFor', 'NEIGH',
+       'townsAreNeighbours', 'allHouses', 'estimatedPinFromAddress'].concat(need314));
+
+    const sb314 = {};
+    new Function(body314 +
+      ';this.towns = dayCrewTowns; this.houses = dayCrewHouses;' +
+      'this.count = dayCrewCount; this.assigned = dayAssignedHouses;' +
+      'this.setCrews = function(c){ CREWS = c; };').call(sb314);
+
+    const dayOf = function (towns) {
+      const out = [];
+      Object.keys(towns).forEach(function (t) {
+        for (let i = 0; i < towns[t]; i++) out.push({ city: t, id: t + '-' + i });
+      });
+      return { houses: out };
+    };
+    const TWO_AUTO = [{ name: 'Chase', city: '' }, { name: 'Crew 2', city: '' }];
+    const strandedCount = function (day) {
+      const held = sb314.houses(day).reduce(function (a, b) { return a.concat(b); }, []);
+      return day.houses.length - held.length;
+    };
+
+    /* ---- the day he reported --------------------------------------------- */
+    sb314.setCrews(TWO_AUTO);
+    const oct1 = dayOf({ 'Lehi': 14, 'American Fork': 4, 'Orem': 1, 'Vineyard': 1 });
+    const oct1Towns = sb314.towns(oct1).map(function (l) { return l.slice().sort(); });
+    check('S314', '1 October: every town on the day lands on a crew',
+      JSON.stringify(oct1Towns) ===
+        JSON.stringify([['American Fork', 'Lehi'], ['Orem', 'Vineyard']]),
+      'got ' + JSON.stringify(oct1Towns) + ' — Lehi and American Fork ride together so ' +
+      'the other crew is free for Orem and Vineyard');
+    check('S314', 'and nobody is left off a sheet',
+      strandedCount(oct1) === 0,
+      'this is the bucket Darlene Price and Aaron Marvel were sitting in');
+    /* ⚠ THE COLLAPSE IS THE OTHER HALF. Stranding two houses made the day read as
+       18 over two neighbouring towns — a one-crew day — and a one-crew day has no
+       second crew to give them to. Assert the COUNT, or the split above is correct
+       and the sheet still comes out with everything on Chase. */
+    check('S314', 'and the day is worked out as needing two crews, not collapsed to one',
+      sb314.count(oct1) === 2 && sb314.assigned(oct1).length === 20,
+      'got ' + sb314.count(oct1) + ' crew(s) over ' + sb314.assigned(oct1).length +
+      ' assigned houses — a stranded house is not counted, which is what removed ' +
+      'the second crew that could have driven to it');
+
+    /* ---- and a day that was already whole is untouched --------------------- */
+    /* ⚠ THIS IS THE CHECK THAT KEEPS THE FIX SURGICAL. bestCrewTowns runs ONLY
+       when the greedy has actually dropped somebody, so every ordinary day must
+       come out exactly as it did before — otherwise the whole season reshuffles. */
+    const plain = dayOf({ 'Lehi': 14, 'Draper': 6 });
+    check('S314', 'a two-town day still goes one town per crew, as it always did',
+      JSON.stringify(sb314.towns(plain)) === JSON.stringify([['Lehi'], ['Draper']]),
+      'got ' + JSON.stringify(sb314.towns(plain)) + ' — the greedy is kept whenever ' +
+      'it strands nobody, so no plan that was already whole may move');
+    const paired = dayOf({ 'Lehi': 10, 'American Fork': 6, 'Draper': 9, 'Sandy': 3 });
+    check('S314', 'and a four-town day the greedy already handles is unchanged',
+      strandedCount(paired) === 0 &&
+      sb314.towns(paired).every(function (l) { return l.length <= 2; }),
+      'got ' + JSON.stringify(sb314.towns(paired)));
+
+    /* ---- the rules it may never buy its way out of ------------------------- */
+    /* ⚠ THE SEARCH INVENTS NO PERMISSION. Placing everybody is worth nothing if it
+       is bought by handing a crew three towns, or two towns forty miles apart —
+       that is the sheet the town rule exists to prevent, and it would read as this
+       fix working. */
+    /* ⚠ THE CAP FIXTURE USES THE TRIANGLE. Draper, Sandy and Midvale are mutually
+       neighbouring, so all three are legal for one crew and only the cap refuses
+       the third; Moab is a stranger nobody can take, which is what makes the search
+       run at all. With MAX_TOWNS_PER_CREW dropped the search finds Draper+Sandy+
+       Midvale on one crew and Moab on the other — one house better, and exactly the
+       three-city sheet the town rule exists to prevent. */
+    const triangle = dayOf({ 'Draper': 6, 'Sandy': 4, 'Midvale': 3, 'Moab': 1 });
+    const triTowns = sb314.towns(triangle);
+    check('S314', 'no crew is given more than two towns to buy a placement',
+      triTowns.every(function (l) { return l.length <= 2; }),
+      'got ' + JSON.stringify(triTowns) + ' — MAX_TOWNS_PER_CREW is the ceiling ' +
+      'whatever it costs in stranded houses');
+    const spread = dayOf({ 'Lehi': 5, 'Draper': 4, 'Provo': 3, 'Logan': 2, 'Moab': 1 });
+    const spreadTowns = sb314.towns(spread);
+    check('S314', 'and a second town is still only ever a neighbour of the first',
+      spreadTowns.every(function (l) {
+        return l.length < 2 || NEIGH314.some(function (p) {
+          return (p[0] === l[0] && p[1] === l[1]) || (p[1] === l[0] && p[0] === l[1]);
+        });
+      }),
+      'got ' + JSON.stringify(spreadTowns) + ' — "the second city being a neighboring ' +
+      'city is mandatory not a priority" (2026-08-20)');
+    /* ⚠ REPOINTED 2026-09-10 BY [[SCH-67]]. It read:
+         "and a day nobody can cover still reports what it cannot hold"
+           strandedCount(spread) > 0
+       ⭐ AND ITS REASON WAS RIGHT, WHICH IS WHY THE QUESTION SURVIVED UNDER A SECOND
+       NAME. rehomeMovedHouses really does need to know when a day’s crews do not work
+       a house’s town — collapsing that into one always-empty list would have stopped it
+       moving anybody ever again, silently. housesOutsideCrewTowns is that question. */
+    check('S314', 'a day nobody can cover carries everybody anyway',
+      strandedCount(spread) === 0,
+      'got ' + strandedCount(spread) + ' still on nobody\'s sheet');
+
+    /* ---- houses, not towns ------------------------------------------------- */
+    /* ⚠ THE TWO SCORES HAVE TO GIVE DIFFERENT ANSWERS OR THIS PROVES NOTHING, and
+       the first draft of this check did not: on a fixture where the big towns must
+       pair anyway, "most houses" and "most towns" pick the SAME arrangement and the
+       check passes with the scoring swapped.
+       Five towns, four crew-slots, so something must be stranded whatever happens.
+       The greedy splits Lehi and American Fork across the two crews — the 1 October
+       mistake — and then strands all three of the rest. Put the pair back together
+       and one crew is free, for EITHER Nephi (3 houses, 1 town) OR Orem + Vineyard
+       (2 houses, 2 towns):
+         most houses -> 21 placed over 3 towns   (Nephi)
+         most towns  -> 20 placed over 4 towns   (Orem + Vineyard)
+       Dax's rule is houses on a sheet, so Nephi wins.
+       ⚠ NEPHI IS SMALLER THAN AMERICAN FORK ON PURPOSE. Sized above it, the greedy
+       hands Nephi the empty crew before American Fork ever asks, reaches the
+       best answer by itself, and the search is never adopted — which is what made
+       the first version of this fixture pass with the scoring swapped. */
+    const weighted = dayOf({ 'Lehi': 14, 'American Fork': 4, 'Nephi': 3,
+                             'Orem': 1, 'Vineyard': 1 });
+    const wTowns = sb314.towns(weighted).reduce(function (a, b) { return a.concat(b); }, []);
+    check('S314', 'it maximises houses on a sheet, not towns covered',
+      wTowns.indexOf('Nephi') !== -1 &&
+      wTowns.indexOf('Lehi') !== -1 && wTowns.indexOf('American Fork') !== -1,
+      'got ' + JSON.stringify(sb314.towns(weighted)) + ' — stranding a town of three to ' +
+      'rescue two towns of one covers more towns and fewer houses, which is not the rule');
+    /* ⚠ AND THE SAME FIXTURE PINS "leaving a town to nobody stays legal". Five towns
+       cannot all be placed, so if the search may not leave one out it finds NO
+       arrangement at all, returns null, and the greedy — which strands Nephi — stands.
+       Without this the leave-unassigned branch can be deleted and nothing goes red. */
+    check('S314', 'and it can still answer when not every town can be covered',
+      wTowns.length === 3,
+      'got ' + JSON.stringify(sb314.towns(weighted)) + ' — a day that cannot be fully ' +
+      'covered must still get the best partial answer, not fall back to the greedy');
+
+    /* ⚠ RED-CHECKED WITH EIGHT SABOTAGES, SEVEN CAUGHT, AND THE EIGHTH IS REPORTED
+       RATHER THAN PAPERED OVER. Flattening the tiebreak — `return [-placed, 0, 0]`,
+       which drops both "prefer one city per crew" and the load balance — leaves this
+       suite green, and that is the honest answer rather than a hole: the tiebreak
+       only ever chooses between arrangements that place the SAME houses, so no rule
+       stated anywhere pins which of them wins. Writing a fixture to freeze one would
+       be inventing a rule nobody gave, and "1 city for a crew would be 4th or 5th in
+       priority" (2026-08-20) is explicit that it loses to almost everything.
+       ⚠ THREE OF THE OTHER SEVEN WERE MISSED ON THE FIRST PASS AND EVERY ONE WAS A
+       VACUOUS FIXTURE, not a missing check: a neighbour table of disjoint pairs
+       cannot test the two-town cap, and a day whose big towns must pair anyway gives
+       "most houses" and "most towns" the same answer. Both are fixed above and both
+       are the trap this file already records in four other places. */
+
+    /* ---- a one man day carries everybody on the day ------------------------ */
+    /* ⭐ Dax, 2026-09-09, shown the houses still left over on thin scattered days
+       and asked what should happen to them: put them on the one-man sheet. The town
+       cap is about where you may send a CREW; one person on a day of five houses is
+       the case it was never about, and leaving somebody off their own sheet only
+       buys a second trip by the same person. [[SCH-53]] */
+    sb314.setCrews(TWO_AUTO);
+    const oneMan = dayOf({ 'Provo': 2, 'Cedar Hills': 1, 'Moab': 1, 'Logan': 1 });
+    check('S314', 'a one man day puts every house on the day on its single sheet',
+      strandedCount(oneMan) === 0 && sb314.count(oneMan) === 1,
+      'got ' + sb314.count(oneMan) + ' crew(s), ' + strandedCount(oneMan) + ' stranded — ' +
+      'four scattered towns and five houses is one person, and the town rule is ' +
+      'about where a crew may be sent');
+    /* ⚠ AND ONLY A ONE MAN DAY. Twelve houses is a CREW — four people and a truck —
+       so "one crew, max two cities" applies to it as written: the day is not
+       collapsed onto one sheet and a town it may not drive stays visible, which is
+       the honest bucket [[SCH-50]] keeps. This is the check that stops the rule
+       above being widened by a one-word edit from isOneManDay to dayCrewCount.
+       ⚠ THE FIRST VERSION OF THIS CHECK ASSERTED AN UNREACHABLE STATE — a one-crew
+       day carrying a stranded town — and failed on correct code. It cannot happen:
+       for a town to be stranded both crews must be full, which is four towns, which
+       is two crews by the town count. What is actually worth pinning is that a
+       crew-sized day is NOT absorbed, so that is what this says now. */
+    const oneCrew = dayOf({ 'Provo': 6, 'Cedar Hills': 4, 'Moab': 1, 'Logan': 1 });
+    /* ⚠ REPOINTED 2026-09-10 BY [[SCH-67]]. It read:
+         sb314.count(oneCrew) === 2 && strandedCount(oneCrew) === 2
+       The two stranded towns are carried now. What this check exists for is the other
+       half — that a crew-sized day is not collapsed onto one sheet by the one-man rule
+       — and that is untouched. */
+    check('S314', 'but a crew-sized day is not absorbed onto one sheet',
+      sb314.count(oneCrew) === 2 && strandedCount(oneCrew) === 0,
+      'got ' + sb314.count(oneCrew) + ' crew(s), ' + strandedCount(oneCrew) + ' stranded — ' +
+      'twelve houses is a crew, and the town rule is exactly about them');
+
+    /* ---- the forecast beside the map -------------------------------------- */
+    /* ⭐ Dax, 2026-09-09: "also everday it should show the forecasted temperature
+       for the area by the map." RUN, not matched: every claim here is about a chip
+       that does or does not appear, and the whole risk is the SILENT case — a date
+       past the forecast horizon must draw nothing rather than a zero or a dash. */
+    (function () {
+      const chipsSrc = extractFn(admin, 'dayForecastChips');
+      check('S314', 'the forecast strip is findable',
+        !!chipsSrc, 'repoint this lift rather than stubbing it');
+      if (!chipsSrc) return;
+      const FC = { 'Lehi': { '2026-10-01': 54 }, 'Levan': { '2026-10-01': 31 } };
+      /* ⚠ ONE TABLE, BOTH READERS. forecastHighFor is stubbed from FC and
+         SEASON_FORECAST is built from the same object, so the chips and the "how far
+         does it reach" answer cannot disagree inside this fixture — two tables here
+         would let a check pass against a horizon no lookup agrees with.
+         ⚠ forecastReachesTo IS LIFTED, NOT STUBBED: it is the thing deciding which
+         sentence an empty strip gets, so a stub would make this suite agree with
+         itself. dlabel IS stubbed, deliberately — it is date formatting and these
+         checks are about WHICH sentence appears. */
+      /* ⚠ AND THE NORMALS TABLE, because since [[SCH-72]] a town with no forecast
+         falls back to what the weather usually does. Keyed by MONTH-DAY, which is what
+         a normal is — the same answer for 1 October every year.
+         ⚠ normalHighFor AND extractCleanCity ARE LIFTED, NOT STUBBED. The first is the
+         thing being tested; the second is what turns 'Lehi, UT' into 'Lehi' on both
+         sides of the lookup, and a stub that skipped it would let a check pass against
+         a key the real app would never build. */
+      const mkChips = (fc, err, nm, nerr) => new Function('esc', 'dayAreas', 'isoOf', 'dayDate',
+        'forecastHighFor', 'COLD_DAY_MAX_F', 'SEASON_FORECAST', 'dlabel', 'SEASON_NORMALS',
+        extractFn(admin, 'extractCleanCity') + '\n' +
+        extractFn(admin, 'normalHighFor') + '\n' +
+        extractFn(admin, 'forecastReachesTo') + '\n' +
+        chipsSrc + '\nreturn dayForecastChips;')(
+        function (s) { return String(s); },
+        function (d) {
+          const c = {}; d.houses.forEach(function (h) { c[h.city] = (c[h.city] || 0) + 1; });
+          return Object.keys(c).sort(function (a, b) { return c[b] - c[a]; });
+        },
+        function () { return '2026-10-01'; },
+        function () { return new Date(2026, 9, 1); },
+        function (t, ds) { const r = fc[t]; const v = r && r[ds]; return typeof v === 'number' ? v : null; },
+        35,
+        { error: err || '', byTown: fc },
+        function (d) { return { wd: 'Thu', full: 'Oct 1' }; },
+        { error: nerr || '', byTown: nm || {}, towns: Object.keys(nm || {}).length, years: 10 });
+      const chips = mkChips(FC);
+      const warm = chips({ houses: [{ city: 'Lehi' }, { city: 'Lehi' }] });
+      check('S314', 'a town with a forecast shows its high beside the map',
+        /Lehi/.test(warm) && /54/.test(warm),
+        'got ' + JSON.stringify(warm));
+      const cold = chips({ houses: [{ city: 'Levan' }] });
+      check('S314', 'and one at or below the cutoff is marked as freezing',
+        /31/.test(cold) && cold.indexOf(String.fromCharCode(10052)) !== -1,
+        'got ' + JSON.stringify(cold) + ' — the cutoff is what vetoes a town, so the ' +
+        'screen has to show the number the plan was built on');
+      /* ⚠ NO PLACEHOLDER PER TOWN, AND THIS HALF IS UNCHANGED. Open-Meteo answers ~16
+         days and the season runs into December, so most dates have no number. A dash,
+         a zero or an "unknown" against every town is a strip of noise that teaches the
+         office to stop reading the row on the days it does say something — and "no
+         forecast is not a cold forecast" is the builder's own rule. */
+      const mixed = chips({ houses: [{ city: 'Lehi' }, { city: 'Moab' }] });
+      check('S314', 'a town with no forecast gets no chip of its own',
+        /54/.test(mixed) && !/Moab/.test(mixed),
+        'got ' + JSON.stringify(mixed) + ' — a placeholder beside every unknown town is a row nobody reads');
+      /* ⛔ REPOINTED 2026-09-10 BY [[SCH-70]]. These two read:
+           "and a town with no forecast is silent, not a dash or a zero"
+             unknown === ''
+           "and a day with no forecast anywhere draws no strip at all"
+             chips({houses:[{city:'Moab'},{city:'Provo'}]}) === ''
+         Silence was right about the per-town placeholder above and wrong about the
+         WHOLE STRIP. Dax, looking at two route maps on 10 September: "the only issue is
+         I cant see the forecast." Nothing was broken — the season opens 21 days out and
+         the service answers 16 — but "not yet" and "broken" looked identical, and it
+         cost him a bug report to find out which. */
+      const unknown = chips({ houses: [{ city: 'Moab' }] });
+      check('S314', 'a day with nothing to show says why, instead of showing nothing',
+        unknown !== '' && /No forecast/.test(unknown),
+        'got ' + JSON.stringify(unknown) + ' — an empty strip and a broken one looked the same, which is what he reported');
+      check('S314', 'and names the towns it could not answer for, because that is fixable',
+        /Moab/.test(unknown) && /on the map/.test(unknown),
+        "in range and still nothing means no house there is geocoded, which the office " +
+        "can act on");
+      /* ⚠ AND THE COMMONEST CASE OF ALL GETS ITS OWN SENTENCE: the day is simply
+         further out than the service will answer. It says WHEN, because the useful
+         question is when to look again. */
+      {
+        const far = mkChips({ 'Lehi': { '2026-09-20': 70 } });
+        const out = far({ houses: [{ city: 'Lehi' }] });
+        check('S314', 'a day beyond the forecast says how far it reaches',
+          /this far ahead/.test(out) && /Oct 1|2026-09-20/.test(out),
+          'got ' + JSON.stringify(out) + ' — on 10 September every day of the season is past the horizon, so this is what he was actually looking at');
+      }
+      /* ── past the horizon, what the weather usually does ── */
+      /* ⭐ [[SCH-72]], 2026-09-10. Dax, on a day in October seen on 10 September: "I
+         dont see the forecast down here" — with the strip correctly reading "No
+         forecast this far ahead — it reaches to Sep 25." [[SCH-70]] made the silence
+         speak and it was still no use to him: knowing WHY there is no number for
+         November does not tell anybody what November is like. */
+      {
+        const far = mkChips({ 'Lehi': { '2026-09-20': 70 } }, '', { 'Lehi': { '10-01': 71.3 } });
+        const out = far({ houses: [{ city: 'Lehi' }] });
+        check('S314', 'a day past the forecast shows what the weather usually does',
+          /71/.test(out),
+          'got ' + JSON.stringify(out) + ' — most of the season is past the sixteen days the service answers, so this is the strip he is looking at nearly all the time');
+        /* ⛔ AND IT MUST NOT BE MISTAKEABLE FOR A FORECAST. A forecast is a promise
+           about Tuesday; a normal is a pattern across ten Novembers, and this file has
+           said since COLD_DAY_MAX_F that a number nobody promised must not be dressed
+           as one. */
+        /* ⛔ ASKED OF THE CHIP, NOT OF THE STRIP. The first version tested /~/ against
+           the whole strip and went green with the tilde taken off the chip — because
+           the footnote says "~ typical for the time of year" and carries one of its
+           own. The red check caught it. A number beside a town is what somebody reads
+           at a glance; the footnote is what they read once. */
+        check('S314', 'and it is marked as typical rather than dressed as a forecast',
+          /~\d+°/.test(out) && /not a forecast/.test(out),
+          'got ' + JSON.stringify(out) + ' — the tilde has to be on the number itself');
+        check('S314', 'and a freezing typical high carries no snowflake',
+          !/\u2744/.test(far({ houses: [{ city: 'Lehi' }] })),
+          'the snowflake means the cutoff refused somebody that date, and a ten-year average is never allowed to refuse anybody');
+      }
+      /* ⚠ A REAL FORECAST STILL WINS. The fallback fires only where there is nothing,
+         or an in-range day would quietly start showing an average beside the map. */
+      {
+        const both = mkChips(FC, '', { 'Lehi': { '10-01': 99 } });
+        const out = both({ houses: [{ city: 'Lehi' }] });
+        /* ⚠ ASKED ON THE TILDE, NOT ON THE NUMBER. The first version of this looked for
+           the absence of "99" and failed against a forecast chip that says 54 — because
+           `border-radius:999px` is in the chip’s own style. Every typical chip carries a
+           tilde and no forecast chip ever does, so that is the honest thing to ask, and
+           it cannot be fooled by a stylesheet. */
+        check('S314', 'a town WITH a forecast shows that, not the ten-year average',
+          /54/.test(out) && !/~/.test(out),
+          'got ' + JSON.stringify(out));
+      }
+      /* and with neither, the sentence says which of the two is missing */
+      {
+        const none = mkChips({ 'Lehi': { '2026-09-20': 70 } }, '', {}, 'past weather could not be reached');
+        const out = none({ houses: [{ city: 'Lehi' }] });
+        check('S314', 'and with no typical either, it says so rather than only naming the horizon',
+          /this far ahead/.test(out) && /could not be reached/.test(out),
+          'got ' + JSON.stringify(out) + ' — "the forecast is far off" is something he can already see from the date; which of the two is missing is not');
+      }
+      /* a fetch that failed is a FAULT, not a wait, and must not read as one */
+      {
+        const broke = mkChips({}, 'the weather service did not answer');
+        const out = broke({ houses: [{ city: 'Lehi' }] });
+        check('S314', 'and a failed fetch says so rather than "not yet"',
+          /did not answer/.test(out),
+          'got ' + JSON.stringify(out) + ' — telling somebody to wait for a forecast that is never coming is worse than saying nothing');
+      }
+    })();
+
+    /* ---- and it is stable -------------------------------------------------- */
+    /* ⚠ The same day fed in twice must give the same answer, or a plan changes
+       under the office every time anything re-renders. */
+    const orderA = dayOf({ 'Lehi': 14, 'American Fork': 4, 'Orem': 1, 'Vineyard': 1 });
+    const orderB = { houses: orderA.houses.slice().reverse() };
+    check('S314', 'and the same day gives the same split whatever order it arrives in',
+      JSON.stringify(sb314.towns(orderA).map(function (l) { return l.slice().sort(); })) ===
+      JSON.stringify(sb314.towns(orderB).map(function (l) { return l.slice().sort(); })),
+      'a split that depends on arrival order re-cuts the season on every render');
+  }
+}
+
+suite('Suite 315. Priority orders a house, it does not earn its town a day');
+
+/* ⭐ Dax, 2026-09-09, looking at Darlene Price alone on 1 October while a whole crew
+   was rostered for her and one other house: "crews are heavily uneven at that point
+   just have it 20 houses in the same area and 1 house, if someone has priority that
+   doesnt mean they will be done the very next day it means they will be done the
+   very next time it makes any sense in a route."
+
+   A town's urgency is the BEST number in it (allowedStats), so a rushed house sitting
+   alone in a town of one made that town look as urgent as a town holding thirty
+   October houses — and it won a crew-day of its own on day one. That is priority
+   deciding the ROUTE. It should decide the ORDER once a crew is going there anyway.
+
+   ⚠ RUN, NOT MATCHED. The claim is about which town a crew is SENT TO, which no regex
+   over the builder can see. */
+{
+  const start315 = admin.indexOf('function planNewCrewDays(');
+  const end315 = admin.indexOf('\nfunction ', start315 + 10);
+  const priSrc315 = extractFn(admin, 'houseInstallPriority');
+  if (start315 === -1 || end315 < start315 || !priSrc315) {
+    check('S315', 'the day builder and the ordering are findable', false,
+      'renamed — repoint this rather than stubbing either');
+  } else {
+    const LF315 = String.fromCharCode(10);
+    const consts315 = admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'),
+                                  admin.indexOf('function installPriority'));
+    const api315 = eval('(function(){' + LF315 + 'const NEARBY_TOWN_LIST = {};' + LF315 +
+      'const BASE_START = new Date(2026, 9, 1);' + LF315 +
+      extractFn(admin, 'haversine') + LF315 + extractFn(admin, 'sameTownName') + LF315 +
+      extractFn(admin, 'prefSpecificDate') + LF315 + consts315 + LF315 +
+      extractFn(admin, 'installPriority') + LF315 + priSrc315 + LF315 +
+      admin.slice(start315, end315) + LF315 +
+      'return {plan: planNewCrewDays, pri: houseInstallPriority};})()');
+
+    /* ---- the ordering itself ---------------------------------------------- */
+    const RUSH315 = { rushInstall: true };
+    const NEWH315 = { chargeNewMemberFee: true };
+    const PLAIN315 = {};
+    check('S315', 'asked-sooner still moves the house itself to the front',
+      api315.pri({ pref: 'OCT' }, RUSH315) < api315.pri({ pref: 'OCT' }, PLAIN315),
+      'the tick has to do something, or it is a box that lies');
+    check('S315', 'but asked on behalf of the TOWN it counts for nothing',
+      api315.pri({ pref: 'OCT' }, RUSH315, { forTown: true }) ===
+        api315.pri({ pref: 'OCT' }, PLAIN315, { forTown: true }),
+      'a town is not more urgent because one person in it rang up');
+    /* ⚠ A NEW HANG IS NOT DROPPED WITH IT. "The very top priority is new hangs" is a
+       rule about the book; only the phone call is excluded from what a town claims. */
+    check('S315', 'and a new hang still makes its town urgent',
+      api315.pri({ pref: '' }, NEWH315, { forTown: true }) <
+        api315.pri({ pref: '' }, PLAIN315, { forTown: true }),
+      'dropping new hangs here would undo the 2026-08-17 ruling by a side door');
+
+    /* ⚠ THE WIRING IS ASSERTED SEPARATELY, because a red-check PROVED it had to be:
+       the fixture below supplies `townPriority` itself, so deleting the line that puts
+       it on the queue in rebuildSeasonDays left this whole suite green while the rule
+       could never fire on the real page. Exactly the miss Suite 276 records — a
+       renderer proved against a harness that hands it what the page had stopped
+       providing. Comments stripped, so the paragraph explaining the rule cannot pass
+       for the rule. */
+    check('S315', 'and the real builder actually puts that number on the queue',
+      /* ⚠ forTown IS WHAT MATTERS, and the options object it rides in gained a second
+         key (`today`) hours after this was written — so an exact-shape match failed on
+         correct code. It asserts the argument is there, not the punctuation around it. */
+      /townPriority\s*:\s*houseInstallPriority\(\s*h\s*,\s*d\s*,\s*\{[^}]*forTown\s*:\s*true/
+        .test(stripComments(admin)),
+      'rebuildSeasonDays is the only place the season queue is built; without this the ' +
+      'fallback in allowedStats reads `priority` and a rushed house earns its town a day ' +
+      'again, with every check here still green');
+
+    /* ---- and what that means on the calendar ------------------------------- */
+    /* ⚠ THE FIXTURE NEEDS A THIRD TOWN, and the first version did not have one: with
+       two towns and two crews the second crew has nowhere else to go, so Vineyard got
+       day one whatever the rule said and the check failed on correct code. Lehi and
+       Draper are both real days' worth of October work; Vineyard is one rushed house.
+       The question the fixture actually asks is which of Draper and Vineyard the
+       SECOND crew is sent to.
+       ⚠ AND DRAPER SITS OUT OF BORROWING RANGE of Lehi (the sandbox has an empty
+       nearby-towns list, so it falls back to eight miles), or it would be topped up
+       onto Lehi's day rather than earning its own. */
+    const mk315 = (id, city, pri, townPri, lat, lng) => ({
+      id: id, city: city, priority: pri, townPriority: townPri, named: false,
+      from: '2026-10-01', stop: { id: id, lat: lat, lng: lng, name: id }
+    });
+    const waiting315 = [];
+    for (let i = 0; i < 25; i++) waiting315.push(mk315('lehi' + i, 'Lehi', 20, 20, 40.39 + i * 0.001, -111.85));
+    for (let i = 0; i < 18; i++) waiting315.push(mk315('drap' + i, 'Draper', 20, 20, 40.58 + i * 0.001, -111.86));
+    waiting315.push(mk315('rush1', 'Vineyard', 10, 20, 40.12, -111.75));
+
+    const days315 = api315.plan(waiting315, {}, { floorDate: '2026-10-01', maxDays: 12, horizonDays: 120 });
+    const firstDate = (days315 || []).reduce(function (a, d) { return !a || d.date < a ? d.date : a; }, null);
+    const dayOne = (days315 || []).filter(function (d) { return d.date === firstDate; });
+    const dayOneTowns = dayOne.map(function (d) { return d.city; });
+    check('S315', 'a town of one rushed house does not win a crew-day of its own on day one',
+      dayOneTowns.indexOf('Vineyard') === -1,
+      'day one went to ' + JSON.stringify(dayOneTowns) + ' — "if someone has priority ' +
+      'that doesnt mean they will be done the very next day"');
+    check('S315', 'the crew goes where the work is instead',
+      dayOneTowns.indexOf('Lehi') !== -1,
+      'day one went to ' + JSON.stringify(dayOneTowns));
+    /* ⚠ AND THEY ARE NOT DROPPED — "the very next time it makes any sense in a route"
+       is a promise that they still go out, just not on a day built for them alone. */
+    const allTowns315 = [];
+    (days315 || []).forEach(function (d) { (d.towns || [d.city]).forEach(function (t) { if (t) allTowns315.push(t); }); });
+    check('S315', 'and the rushed house is still scheduled, later in the season',
+      allTowns315.indexOf('Vineyard') !== -1,
+      'towns built: ' + JSON.stringify([...new Set(allTowns315)]) + ' — not earning a day ' +
+      'is not the same as never being done');
+  }
+}
+
+/*
+ * Suite 316. Closest to a date the office typed.
+ *
+ * ⭐ WHAT THIS PROVES. "Don't Install Before This Date" was a floor and nothing else,
+ * and the season planner had never heard of it — houseAllowedFrom read the CUSTOMER's
+ * timing only, so a date somebody typed in Customers held the house off a crew route
+ * and did nothing whatever to the plan. Addie, 2026-09-09: "Still never before, but aim
+ * just after it", within a week, counted in working days.
+ *
+ * ⚠ RUN, NOT READ. Every check below executes the shipped functions in a sandbox. The
+ * one exception is the constants check, which reads them out of the source on purpose:
+ * five and ten are her numbers, and a suite that lifted whatever it found could not
+ * tell that somebody had changed them.
+ */
+suite('Suite 316. Closest to a date the office typed');
+{
+  const admin = read('admin.html');
+  const fn = (n) => extractFn(admin, n);
+
+  /* Her numbers, asserted as numbers. Same reason Suite 39 pins BULK_CHUNK_SIZE. */
+  const num = (name) => {
+    const m = new RegExp('const ' + name + '\\s*=\\s*(-?\\d+);').exec(admin);
+    return m ? Number(m[1]) : null;
+  };
+  check('S316', 'a week is five working days, in both halves of the feature',
+    num('STAFF_DATE_WINDOW_DAYS') === 5 && num('DEADLINE_PRESSURE_DAYS') === 5,
+    'she was asked calendar or working and said working days; got ' +
+    num('STAFF_DATE_WINDOW_DAYS') + ' and ' + num('DEADLINE_PRESSURE_DAYS'));
+  check('S316', 'a new member is a week to hang and two weeks at the outside',
+    num('NEW_HANG_TARGET_DAYS') === 5 && num('NEW_HANG_LIMIT_DAYS') === 10,
+    '"within a week but can push it to 2 weeks if necessary"; got ' +
+    num('NEW_HANG_TARGET_DAYS') + ' and ' + num('NEW_HANG_LIMIT_DAYS'));
+
+  /* ⚠ LIFTED, NOT STUBBED, all the way down to isWorkingDay — the whole point of the
+     window is which days do not count, and a stub of the calendar is a stub of the
+     feature. houseMissedCount is the one deliberate stub: it reads a house's own record
+     of missed days, which these fixtures do not have, and it is proved by Suite 300. */
+  const BODY =
+    'const PRE_THANKSGIVING_DAYS=' + (admin.match(/const PRE_THANKSGIVING_DAYS = (\d+);/) || [])[1] + ';' +
+    'const STAFF_DATE_WINDOW_DAYS=' + num('STAFF_DATE_WINDOW_DAYS') + ';' +
+    'const DEADLINE_PRESSURE_DAYS=' + num('DEADLINE_PRESSURE_DAYS') + ';' +
+    'const NEW_HANG_TARGET_DAYS=' + num('NEW_HANG_TARGET_DAYS') + ';' +
+    'const NEW_HANG_LIMIT_DAYS=' + num('NEW_HANG_LIMIT_DAYS') + ';' +
+    fn('isoOf') + fn('thanksgivingDate') + fn('isThanksgivingDay') + fn('isWorkingDay') +
+    fn('anyStampMillis') + fn('prefSpecificDate') +
+    fn('isoToLocalDate') + fn('addWorkingDays') + fn('workingDaysBetween') +
+    fn('staffDateWindowEnd') + fn('deadlineIsClose') + fn('newHangWaitDays') +
+    fn('houseAllowedFrom') + fn('houseDeadline') + fn('houseInstallPriority') +
+    'this.from = houseAllowedFrom; this.until = houseDeadline; this.pri = houseInstallPriority;' +
+    'this.close = deadlineIsClose; this.waited = newHangWaitDays; this.wd = workingDaysBetween;';
+  assertSandbox('S316', 'the closest-to-a-date chain', BODY, admin,
+    ['BASE_START', 'houseMissedCount', 'String', 'Number', 'Boolean', 'Object', 'Array',
+     'Date', 'Math', 'JSON', 'Set', 'Map', 'RegExp', 'isNaN']);
+
+  const sb = {};
+  new Function('BASE_START', 'houseMissedCount', BODY).call(sb, new Date(2026, 9, 1), () => 0);
+  const START = '2026-09-28';
+  const NEW = { chargeNewMemberFee: true };
+  const OLD = { chargeNewMemberFee: false };
+  const NEWWAIT = { chargeNewMemberFee: true, createdAt: new Date(2026, 9, 1) };
+
+  /* ---- the floor half: never before, and never instead of their own month ---- */
+  check('S316', 'a date the office typed holds the house until that day',
+    sb.from({ pref: 'Any', notBefore: '2026-11-12' }, START) === '2026-11-12',
+    'this is the half that already worked on Routes and had never reached the plan');
+  check('S316', 'no date on the house changes nothing at all',
+    sb.from({ pref: 'Any' }, START) === START &&
+    sb.from({ pref: 'November' }, START) === '2026-11-01',
+    'the whole book carries no date; if this moves, every house moved');
+  check('S316', 'a November customer with an October date typed on them still waits for November',
+    sb.from({ pref: 'November', notBefore: '2026-10-12' }, START) === '2026-11-01',
+    'THE LATER OF THE TWO WINS — the office date must never hang somebody in a month ' +
+    'they did not ask for, which is the rule every other branch of this function keeps');
+  check('S316', 'and a November customer with a later date waits for the date',
+    sb.from({ pref: 'November', notBefore: '2026-11-20' }, START) === '2026-11-20');
+
+  /* ---- the aiming half: a ceiling, counted in working days ---- */
+  check('S316', 'the window ends five WORKING days later, so a weekend does not shrink it',
+    sb.until({ pref: 'Any', notBefore: '2026-11-12' }) === '2026-11-19',
+    'Thu 12 Nov + five working days is Thu 19 Nov; a calendar week would say the 17th ' +
+    'and quietly take two days off the window');
+  check('S316', 'and Thanksgiving Day does not count either',
+    sb.until({ pref: 'Any', notBefore: '2026-11-24' }) === '2026-12-02',
+    'nobody works the holiday — isWorkingDay has excluded it since 2026-08-18, and a ' +
+    'window that spent a day on it would be four days long');
+  check('S316', 'a house with no date keeps exactly the ceiling it had before',
+    sb.until({ pref: 'October' }) === '2026-10-31' &&
+    sb.until({ pref: 'Any' }) === '' &&
+    sb.until({ pref: '11/9+' }) === '',
+    'a named day is a floor and never a ceiling — that is 2026-08-20 and is untouched');
+  check('S316', 'an office date beats the month on their form, rather than dating a ceiling before its own floor',
+    sb.until({ pref: 'October', notBefore: '2026-11-12' }) === '2026-11-19' &&
+    sb.from({ pref: 'October', notBefore: '2026-11-12' }, START) === '2026-11-12',
+    'October would otherwise hand this house a 31 October ceiling sitting BEFORE its ' +
+    '12 November floor, and the packer reads an impossible window as "never move me"');
+
+  /* ---- where it sits in the queue ---- */
+  check('S316', 'an office date goes behind a new member and ahead of October',
+    sb.pri({ pref: 'Any', notBefore: '2026-11-12' }, OLD) > sb.pri({ pref: 'Any' }, NEW) &&
+    sb.pri({ pref: 'Any', notBefore: '2026-11-12' }, OLD) < sb.pri({ pref: 'October' }, OLD),
+    '"New members come first ... The staff dates should be second to these"');
+  check('S316', 'it is not read as a customer naming a day, which stays behind October',
+    sb.pri({ pref: '11/9+' }, OLD) > sb.pri({ pref: 'October' }, OLD),
+    'the customer asking for a day is a wait, not a hurry (2026-08-19) — only the ' +
+    'office typing one is urgent, and conflating the two would move every named day up');
+  check('S316', 'the old order below it is unchanged',
+    sb.pri({ pref: 'October' }, OLD) < sb.pri({ pref: '' }, OLD) &&
+    sb.pri({ pref: '' }, OLD) < sb.pri({ pref: 'November' }, OLD) &&
+    sb.pri({ pref: 'November' }, OLD) < sb.pri({ pref: 'After Thanksgiving' }, OLD) &&
+    sb.pri({ pref: 'Any' }, NEW) < sb.pri({ pref: 'October' }, OLD),
+    'the tiers were respaced to make room at 20; nothing was allowed to change places');
+  /* ⚠ REPOINTED 2026-09-09, NOT WEAKENED. This asserted SCH-46 — a rush install
+     ahead of everything — and SCH-49 reversed that on the same day this suite was
+     written: "ask sooner is the same as new hangs", because a top tier could pull
+     one customer onto a day whose crews were elsewhere. The guarantee worth holding
+     is what SCH-49 actually says, so that is what it now says. */
+  check('S316', 'a rush install is level with a new hang, and still ahead of October',
+    sb.pri({ pref: 'November' }, { rushInstall: true }) === sb.pri({ pref: 'Any' }, NEW) &&
+    sb.pri({ pref: 'November' }, { rushInstall: true }) < sb.pri({ pref: 'October' }, OLD),
+    'SCH-49 — level, not above; a respacing that broke either half would go unnoticed');
+
+  /* ---- what a house says about its TOWN, which is not what it says about itself ---- */
+  /* ⭐ [[SCH-54]] APPLIED TO BOTH OF THIS SUITE'S OWN FLAGS. Dax ruled that a house
+     asked to go sooner orders itself inside its town and does not make the town urgent.
+     An office-typed date and an overdue new member are the same kind of claim — a person
+     deciding about one customer — so both are dropped for the town score too. Without
+     it, a town of one scores better than a town holding thirty October houses and wins a
+     crew-day of its own, which is the Darlene Price shape arriving through a new flag. */
+  check('S316', 'an office date orders the house but does not make its town urgent',
+    sb.pri({ pref: 'Any', notBefore: '2026-10-01' }, OLD) <
+      sb.pri({ pref: 'Any', notBefore: '2026-10-01' }, OLD, { forTown: true }) &&
+    sb.pri({ pref: 'Any', notBefore: '2026-10-01' }, OLD, { forTown: true }) ===
+      sb.pri({ pref: 'Any' }, OLD, { forTown: true }),
+    'asked on its own behalf it is tier 20; asked on the town\'s it is an ordinary house');
+
+  check('S316', 'nor does a new member who is out of time',
+    sb.pri({ pref: 'Any' }, NEWWAIT, '2026-10-16') === -10 &&
+    sb.pri({ pref: 'Any' }, NEWWAIT, { forTown: true, today: '2026-10-16' }) ===
+      sb.pri({ pref: 'Any' }, NEW, { forTown: true }),
+    'one house at -10 would score its whole town better than anything in the book');
+
+  /* ⚠ AND THE ONE THAT MUST STILL MOVE ITS TOWN. A deadline running out is a claim
+     about the WORK, not about one phone call — [[SCH-45]]'s own argument, and [[SCH-57]]
+     asked for the towns to re-order themselves in as many words. Dropping this with the
+     other two would answer the wrong ruling. */
+  check('S316', 'but a deadline running out still moves the town, which is the point of it',
+    sb.pri({ pref: 'October' }, OLD, { forTown: true, today: '2026-10-27' }) <
+      sb.pri({ pref: 'October' }, OLD, { forTown: true, today: '2026-10-01' }),
+    'SCH-57: "we will rearange the days we are doing those houses" — that is the towns moving');
+
+  /* ⚠ BOTH SHAPES OF THE THIRD ARGUMENT, because two sessions shipped two on one day
+     and a caller written from memory against either must not get a wrong answer. */
+  check('S316', 'a bare ISO day is still read as the day, not as an options object',
+    sb.pri({ pref: 'October' }, OLD, '2026-10-27') ===
+      sb.pri({ pref: 'October' }, OLD, { today: '2026-10-27' }),
+    'read as options it would answer forTown:false AND lose the clock — two rules off at once');
+
+  /* ---- time running out ---- */
+  check('S316', 'an October house is ordinary at the start of October',
+    sb.close({ pref: 'October' }, '2026-10-01') === false &&
+    sb.pri({ pref: 'October' }, OLD, '2026-10-01') === sb.pri({ pref: 'October' }, OLD),
+    'climbing all month would make the tier meaningless');
+  check('S316', 'and climbs in its last week',
+    sb.close({ pref: 'October' }, '2026-10-27') === true &&
+    sb.pri({ pref: 'October' }, OLD, '2026-10-27') < sb.pri({ pref: 'October' }, OLD),
+    '"1 week out" — this is the "almost November and October is not done" case');
+  check('S316', 'a house already past its day is the most urgent kind there is',
+    sb.close({ pref: 'October' }, '2026-11-02') === true,
+    'an October house still waiting in November is the complaint this area was built from');
+  check('S316', 'climbing never crosses into somebody else\'s tier',
+    sb.pri({ pref: 'October' }, OLD, '2026-10-27') > sb.pri({ pref: 'Any', notBefore: '2026-10-01' }, OLD),
+    'front of their own tier, never out of it — an October house out of time must still ' +
+    'sit behind a date the office typed, or the bump has quietly become a promotion');
+  check('S316', 'a house with no date and no deadline is untouched by any of it',
+    sb.pri({ pref: 'Any' }, OLD, '2026-10-27') === sb.pri({ pref: 'Any' }, OLD),
+    'most of the book is this house');
+
+  /* ---- one bump, not two ---- */
+  {
+    const sb2 = {};
+    new Function('BASE_START', 'houseMissedCount', BODY).call(sb2, new Date(2026, 9, 1), () => 2);
+    /* ⚠ REPOINTED 2026-09-09 BY [[SCH-61]], NOT WEAKENED, and the old assertion is
+       written out here so the reversal stays legible. It used to read:
+         "a house both missed and out of time still moves five, not ten"
+         sb2.pri(oct, OLD, lateOct) === sb.pri(oct, OLD) - 5
+       That was right while BOTH reasons were the same ±5 bump. Being missed is now a
+       RANK of its own (15), so a missed October house lands on 15 whatever the clock
+       says, and the old equality fails on correct code. What SCH-51 actually needs
+       protecting is the DEADLINE half — that running out of time alone still moves
+       five and no further — and that is asserted on its own above and again here. */
+    check('S316', 'running out of time alone still moves five, never ten',
+      sb.pri({ pref: 'October' }, OLD, '2026-10-27') === sb.pri({ pref: 'October' }, OLD) - 5,
+      'ten is the whole gap between tiers, so a deadline bump of ten would land this ' +
+      'house exactly on the tier above and the spacing would stop meaning anything');
+    /* ⚠ AND THE TWO STILL DO NOT SUM. Missed floors at 15; it must not become 10 by
+       having the deadline bump taken off it afterwards, which is the arithmetic that
+       would quietly put a missed October house level with a new hang. */
+    check('S316', 'a house both missed and out of time is floored at the missed rank, not stacked',
+      sb2.pri({ pref: 'October' }, OLD, '2026-10-27') === 15,
+      'stacking would read 20 or 10 — one is no move at all, the other is a promotion ' +
+      'into the tier above, and both are the spacing quietly stopping meaning anything');
+    /* ⚠ AND THE FLOOR IS APPLIED TO WHAT THE DEADLINE LEFT, NEVER TO THE BARE TIER —
+       the one case where this change could make somebody LATER than before it. A new
+       hang who is both missed and out of time scores 5; floored against the raw tier
+       it would read 10, demoting the one house with two reasons to be first. */
+    /* the fixture needs a house that really IS pressed, or the two expressions cannot
+       differ and the check passes whatever the code does. pref 'Any' carries no deadline,
+       so it is never pressed — a red-check proved that version vacuous. October on the
+       27th is pressed, and a new hang keeps tier 10, so base is 5 and the floor must
+       leave it there. */
+    check('S316', 'a new hang that is missed AND out of time is not dragged back up to 10',
+      sb2.pri({ pref: 'October' }, { chargeNewMemberFee: true }, '2026-10-27') ===
+        sb.pri({ pref: 'October' }, { chargeNewMemberFee: true }, '2026-10-27'),
+      'being missed may only ever pull a house UP — flooring against the bare tier here reads 10 where the truth is 5');
+  }
+
+  /* ---- the new member's own clock ---- */
+  {
+    const made = new Date(2026, 9, 1);            // Thu 1 October
+    const NEWC = { chargeNewMemberFee: true, createdAt: made };
+    check('S316', 'the wait is counted in working days from becoming a customer',
+      sb.waited(NEWC, '2026-10-06') === 3 && sb.waited(NEWC, '2026-10-08') === 5,
+      '"When they are converted to costumer", counted in working days');
+    check('S316', 'inside their first week a new member is an ordinary new hang',
+      sb.pri({ pref: 'Any' }, NEWC, '2026-10-06') === sb.pri({ pref: 'Any' }, NEW),
+      'the 72-hour warehouse hold runs inside this week — they cannot be hung yet anyway');
+    /* ⚠ THE SECOND CLAUSE CHANGED MEANING WITH SCH-49, and this is the honest
+       reading rather than the one that keeps the old sentence. It used to say a
+       week-old new member stays BEHIND a rush install, which was true only while a
+       rush was tier 0. A rush is level with a new hang now, so an overdue new hang
+       leads it — which is the whole point of a within-tier bump and is what the
+       empty fives are for. Neither ruling addressed this pair directly; it falls
+       out of SCH-49 and SCH-57 together, so it is asserted rather than assumed. */
+    check('S316', 'past a week they lead the new hangs, and the rush installs level with them',
+      sb.pri({ pref: 'Any' }, NEWC, '2026-10-08') < sb.pri({ pref: 'Any' }, NEW) &&
+      sb.pri({ pref: 'Any' }, NEWC, '2026-10-08') < sb.pri({ pref: 'Any' }, { rushInstall: true }) &&
+      sb.pri({ pref: 'Any' }, NEWC, '2026-10-08') > sb.pri({ pref: 'Any' }, NEWC, '2026-10-16'),
+      'a week-old sale leads its own tier but is still behind the fortnight-old one');
+    check('S316', 'and past a fortnight they go ahead of everybody, rush installs included',
+      sb.pri({ pref: 'Any' }, NEWC, '2026-10-16') < sb.pri({ pref: 'Any' }, { rushInstall: true }),
+      '"ahead of everyone, rush installs included" — the only thing ever put above a rush');
+    /* ⛔ THE MERGE BUG THIS EXISTS TO STOP. The clock was gated on `tier === 10`,
+       which was "is a new member" until SCH-49 put a rush install on that tier too.
+       A rush install is usually a RETURNING customer created seasons ago, so a tier
+       test hands them -10 — top of the book — the moment the box is ticked: a silent
+       reversal of SCH-49 and the stranding it was written to stop. Gated on the
+       new-member box instead, and this runs the pair that would have caught it. */
+    check('S316', 'a rush install never picks up the new member clock, however old the record',
+      sb.pri({ pref: 'Any' }, { rushInstall: true, createdAt: new Date(2024, 0, 1) }, '2026-10-16') ===
+      sb.pri({ pref: 'Any' }, { rushInstall: true }) &&
+      sb.pri({ pref: 'Any' }, { rushInstall: true, createdAt: new Date(2024, 0, 1) }, '2026-10-16') >
+      sb.pri({ pref: 'Any' }, NEWC, '2026-10-16'),
+      'a tier test would read a years-old rush install as a new member out of time');
+
+    check('S316', 'a new member with no created date is left exactly as they were',
+      sb.pri({ pref: 'Any' }, NEW, '2026-11-30') === sb.pri({ pref: 'Any' }, NEW) &&
+      sb.waited(NEW, '2026-11-30') === null,
+      'guessing "now" would make every undated record permanently overdue, which is how ' +
+      'the old createdAt-guessed New Hang badge flagged all ~945 houses at once');
+    check('S316', 'and it still does not move them into a month they did not ask for',
+      sb.from({ pref: 'November' }, '2026-09-28') === '2026-11-01',
+      'houseAllowedFrom is untouched by any priority rule, and must stay that way');
+  }
+
+  /* ---- the date has to travel, and a cleared date has to travel too ---- */
+  {
+    const listSrc = (() => {
+      const i = admin.indexOf('const SCHEDULE_SYNC_FIELDS = [');
+      const j = admin.indexOf('\n];', i);
+      return i === -1 || j === -1 ? '' : admin.slice(i, j + 3);
+    })();
+    check('S316', 'the office date rides across on the shared field list',
+      /key:'notBefore'/.test(listSrc) && /blankClears\s*:\s*true/.test(listSrc),
+      'a field added here reaches houseFromCustomer as well, so new arrivals carry it too');
+
+    const env = (custData, houseNotBefore) => {
+      const sbx = {};
+      new Function('SEASON', 'jobAddresses', 'BASE_START', 'customerForHouse',
+        'extractCleanCity', 'isoOf', 'anyStampMillis', 'prefSpecificDate', 'prefKey',
+        listSrc + fn('syncHousesFromCustomers') + 'this.run = syncHousesFromCustomers;')
+        .call(sbx,
+          [{ houses: [{ id: 'h1', name: 'Test', pref: 'Any', notBefore: houseNotBefore, details: 'keep me' }] }],
+          [{ id: 'c1', data: custData }],
+          new Date(2026, 9, 1),
+          () => ({ id: 'c1', data: custData }),
+          (c) => ('' + (c || '')).split(',')[0].trim(),
+          (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'),
+          (t) => (t ? new Date(t).getTime() : 0),
+          () => null,
+          (p) => ('' + (p || '')).toLowerCase());
+      return sbx;
+    };
+
+    const setRun = env({ name: 'Test', earliestInstallDate: new Date(2026, 10, 12) }, '');
+    const changes = setRun.run();
+    check('S316', 'a date typed in Customers reaches the plan and is reported',
+      changes.some(c => c.field === 'earliest date' && c.to === '2026-11-12'),
+      'without this the field is set in Customers and the planner never hears about it');
+
+    const cleared = env({ name: 'Test' }, '2026-11-12');
+    const clearedChanges = cleared.run();
+    check('S316', 'and clearing it in Customers clears it on the plan',
+      clearedChanges.some(c => c.field === 'earliest date' && c.to === '(cleared)'),
+      'she was asked and said yes — without it a date typed once holds the house for the ' +
+      'rest of the season with nothing on screen left to remove');
+
+    const keep = env({ name: 'Test', notes: '' }, '2026-11-12');
+    const keepChanges = keep.run();
+    check('S316', 'but a blank anywhere else still never wipes what the plan has',
+      !keepChanges.some(c => c.field === 'notes'),
+      'THE OTHER HALF OF THE RULE. It exists because a half-loaded customer record must ' +
+      'not empty a card the crew relies on, and relaxing it for everybody to reach one ' +
+      'field would undo that quietly');
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite 317. The day finishes pointing at where the crews go next.
+ *
+ * Dax, 2026-09-09: "we want it so they start in the back corner and they work
+ * there way in on this grid so that if the last house doesnt get done its not way
+ * out of the way then you can just adjust the next days box (or the next time you
+ * are in that area) so then it can just start on the house that didnt get done
+ * then it moves into its box."
+ *
+ * ⚠ EVERY CLAIM HERE IS ABOUT THE ORDER OF A LIST, so every check RUNS the orderer
+ * and reads the stops back. A source check cannot see an order.
+ *
+ * ⭐ THE START IS NOT FORCED AND MUST NOT BE. Forcing the first stop to the back
+ * corner was built first and measured: it cost three times as much and, still
+ * ending at the yard, left the leftover FURTHER from tomorrow than changing
+ * nothing. Aiming the FINISH makes the day sweep inward on its own. The check
+ * below asserts the sweep as an OUTCOME, which is the only honest way to hold a
+ * property that nothing in the code states directly.
+ *
+ * ⚠ Suite 124 holds the rule that points the other way — a genuinely far house
+ * goes LAST, on the way home — and is deliberately still green. It fires only on a
+ * day with a statistical outlier in it; this owns the ordinary path. The last
+ * check here is what goes red if this one ever takes that case over.
+ */
+suite('Suite 317. The day finishes pointing at where the crews go next');
+{
+  const crewStart = admin.indexOf('function cityOf(h)');
+  const crewEnd = admin.indexOf('/* ---------- build from imported rows', crewStart);
+  const geoStart = admin.indexOf('function twoOptImprove(');
+  const geoEnd = admin.indexOf('function nearestNeighborOrder(', geoStart);
+  if (crewStart === -1 || crewEnd < crewStart || geoStart === -1) {
+    check('S317', 'the route orderer is findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    const YARD = { lat: 40.3866, lng: -111.8616 };        // 209 S 850 W, Lehi
+    /* ⚠ THE YARD IS SUPPLIED AS DATA, NOT AS A FAKE FUNCTION. routeHomePoint is lifted
+       whole and prefers a real customer record at the yard over its own estimate, so
+       handing it that record through the real key builder exercises the path the page
+       takes — and puts no stub in the way of a name admin.html already defines, which
+       the reliability gate refuses, rightly. */
+    global.custAddrKey = real('custAddrKey');
+    global.custByAddrKey = new Map([
+      [global.custAddrKey('209 S 850 W', 'Lehi'), { data: { lat: YARD.lat, lng: YARD.lng } }]
+    ]);
+    global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
+
+    const api = eval(extractFn(admin, 'haversine') + LF_ +
+      extractFn(admin, 'houseMissedDays') + LF_ + extractFn(admin, 'houseMissedCount') + LF_ +
+      admin.slice(geoStart, geoEnd) + LF_ + admin.slice(crewStart, crewEnd) + LF_ +
+      ';({order: orderHousesForDriving, plain: reorderFlatStops, hav: haversine,' +
+      '  home: routeHomePoint, point: houseStopPoint, aims: seasonAimPoints,' +
+      '  centre: stopsCentre})');
+
+    check('S317', 'the yard resolves, so these checks are not all measuring null',
+      !!api.home() && Math.abs(api.home().lat - YARD.lat) < 1e-9,
+      'with no yard the orderer falls back and every check below would pass for the wrong reason');
+
+    /* ⚠ THE FIXTURE IS A BLOCK, NOT A LINE, AND THAT IS NOT A DETAIL. The first
+       version was fourteen houses in a straight line and it proved nothing: a line
+       reversed is the same length, so the orderer has no reason to prefer either end
+       and the aimed and unaimed days came out identical. The "different finish" check
+       below is what caught it. A 4x4 block north-west of the yard, with tomorrow
+       further north-west again, gives "nearest the yard" and "nearest tomorrow"
+       genuinely different corners. No outlier in either, so Suite 124 stays out. */
+    const mk = (name, lat, lng, extra) => Object.assign({ name, city: 'Lehi', _cust: { lat, lng } }, extra || {});
+    const today = [], tomorrow = [];
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++)
+      today.push(mk('r' + r + 'c' + c, 40.46 + r * 0.012, -111.95 - c * 0.012));
+    for (let i = 0; i < 12; i++) tomorrow.push(mk('n' + i, 40.60 + i * 0.003, -112.05));
+    const nextCentre = api.centre(tomorrow.map(api.point));
+    const dTo = (h, p) => api.hav(h._cust.lat, h._cust.lng, p.lat, p.lng);
+
+    const plain = api.order(today.slice());                       // no aim: as it was
+    const aimed = api.order(today.slice(), { aim: nextCentre });
+
+    check('S317', 'with no aim the day is exactly what it always was',
+      plain.map(h => h.name).join() === api.plain(today.map(api.point), api.home(), api.home())
+        .map(s => s.ref.name).join(),
+      'the optional argument must leave every existing caller alone');
+
+    /* ⚠ CLOSER, NOT NEAREST, AND THE DIFFERENCE IS HONEST RATHER THAN A CLIMBDOWN.
+       The orderer balances the whole tour; it does not promise the globally nearest
+       last stop and never did. What it promises — and what the leftover rule needs —
+       is that the day ends nearer tomorrow than it would have. Measured across a
+       simulated season that is 2.58 mi down to 1.29 mi. */
+    check('S317', 'the aimed day finishes closer to tomorrow than the unaimed one',
+      dTo(aimed[aimed.length - 1], nextCentre) < dTo(plain[plain.length - 1], nextCentre) - 0.25,
+      'aimed ends ' + dTo(aimed[aimed.length - 1], nextCentre).toFixed(2) + ' mi from tomorrow, plain ends ' + dTo(plain[plain.length - 1], nextCentre).toFixed(2) + ' mi — that gap is the leftover rule, and the whole point');
+    check('S317', 'and it starts further from tomorrow than it ends: the day sweeps in',
+      dTo(aimed[0], nextCentre) > dTo(aimed[aimed.length - 1], nextCentre) + 0.5,
+      'start ' + dTo(aimed[0], nextCentre).toFixed(2) + ' mi, end ' +
+      dTo(aimed[aimed.length - 1], nextCentre).toFixed(2) + ' mi — "they start in the back corner and they work there way in", as an outcome rather than an instruction');
+    check('S317', 'and it really is a different finish from the unaimed day',
+      aimed[aimed.length - 1] !== plain[plain.length - 1],
+      'if the two agreed, this fixture would prove nothing about aiming');
+    check('S317', 'every house is still on the day',
+      aimed.length === today.length && new Set(aimed).size === today.length,
+      'an ordering that drops a stop is a customer nobody visits');
+
+    /* ⭐ AND THE PRICE IS NAMED. Aiming trades a little mileage for where the leftover
+       falls; if that trade ever grows past a mile or two on a fixture this size, the
+       reasoning behind it has gone rather than merely the number. */
+    const tour = order => {
+      let prev = YARD, sum = 0;
+      order.forEach(h => { sum += api.hav(prev.lat, prev.lng, h._cust.lat, h._cust.lng); prev = h._cust; });
+      return sum + api.hav(prev.lat, prev.lng, YARD.lat, YARD.lng);
+    };
+    /* ⛔ THE BOUND WAS 2 UNTIL 2026-09-10, when or-opt landed and this fixture went to
+       2.70. It is not the trade going bad: or-opt AIMS BETTER, so the aimed day now
+       really does finish beside tomorrow's work, and finishing there is further from the
+       yard. Re-measured over 8 simulated seasons with or-opt in (scratchpad/route-aim.js)
+       the aim still costs 13 miles across all eight — 0.18%, worst single day 1.0 — the
+       same as before, so the reasoning is intact and only this one fixture moved. */
+    check('S317', 'and it costs a mile or so on the day, not a detour of its own',
+      tour(aimed) - tour(plain) < 3,
+      'cost ' + (tour(aimed) - tour(plain)).toFixed(2) + ' mi'); 
+
+    /* ---- where the season goes after each day ---- */
+    {
+      const days = [{ houses: today }, { houses: tomorrow }];
+      const aims = api.aims(days);
+      check('S317', 'each day is aimed at the work that comes after it',
+        aims[0] && Math.abs(aims[0].lat - nextCentre.lat) < 1e-9,
+        'day one should be pointed at day two');
+      check('S317', 'and the last day of the season is aimed at nothing',
+        aims[1] === null,
+        'there is no next visit for a leftover to be convenient for, so it is the plain round trip');
+    }
+
+    /* ---- the house we already failed to reach ---- */
+    {
+      /* deliberately NOT the stop the sweep would have started on, so the check can
+         tell the two rules apart */
+      const withMissed = today.map((h, i) => i === 6
+        ? Object.assign({}, h, { missedDays: ['2026-10-06'] })
+        : Object.assign({}, h));
+      const owed = withMissed[6];
+      const out = api.order(withMissed.slice(), { aim: nextCentre });
+      check('S317', 'a house the crew never reached is the first stop of the day that picks it up',
+        out[0] === owed,
+        'got ' + out[0].name + ' — Dax: "it can just start on the house that didnt get done then it moves into its box"');
+      check('S317', 'and that is a different answer from where the sweep would have begun',
+        owed !== aimed[0],
+        'if the missed house were also the natural first stop, this check would prove nothing');
+    }
+
+    /* ---- the wiring, asserted apart from the mechanism ----
+       ⚠ EVERY CHECK ABOVE CALLS orderHousesForDriving ITSELF, so all of them stay
+       green if the aim is never handed to it. Two red-check sabotages proved exactly
+       that: dropping {aim:aim} from the crew loop, and dropping {aim:aims[di]} from
+       the season loop, both left 6538 checks passing while no real day was ever
+       aimed at anything. These are the checks that fail instead. */
+    {
+      const gen = sectionFrom(admin, admin.indexOf('function generateDayRoutes(day'));
+      const all = sectionFrom(admin, admin.indexOf('function generateAllRoutes()'));
+      const genC = stripComments(gen), allC = stripComments(all);
+      check('S317', 'the day generator hands its aim to every crew',
+        /* counted on the argument, not on a bracket walk: one of the three call sites
+           passes a filter callback, so a [^)]* between the name and the aim can never
+           reach past it and the check failed on code that was right. */
+        (genC.match(/,\{aim:aim\}\)/g) || []).length === 3,
+        'all three call sites — the fixer route, each crew, and the stops in neither crew town — or one kind of run is quietly left unaimed');
+      check('S317', 'and the season works out an aim for each day and passes it',
+        /seasonAimPoints\(days\)/.test(allC) && /generateDayRoutes\(d,\{aim:aims\[di\]\}\)/.test(allC),
+        'without this the aim is computed and thrown away, or never computed at all');
+    }
+
+    /* ---- and the far-house rule still owns its own case ---- */
+    {
+      /* ⚠ THE OUTLIER SITS ON THE OPPOSITE SIDE FROM THE AIM, DELIBERATELY. The first
+         version put it NORTH, the same way as tomorrow — so the aimed path finished on
+         it anyway and the check passed with the far-house branch stubbed clean out. A
+         red-check caught that. South of the street, the two rules want opposite ends
+         and only hers can produce this answer. */
+      const street = [];
+      for (let i = 0; i < 16; i++) street.push(mk('s' + i, 40.400, -111.900 + i * 0.0055));
+      const far = mk('FAR', 40.325, -111.860);
+      const out = api.order(street.concat([far]), { aim: nextCentre });
+      check('S317', 'a day with a real outlier still ends on it, on the way home',
+        out[out.length - 1] === far,
+        'Suite 124 holds her rule and this one must not have quietly taken it over');
+      check('S317', 'and the aim really does pull the other way, so that proves something',
+        dTo(far, nextCentre) > dTo(street[0], nextCentre),
+        'the outlier must be FURTHER from tomorrow than the street, or the aimed path would finish on it by accident and this check would be vacuous');
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite 318. A crew-day is a patch of map, not a town.
+ *
+ * Q-023, open from 2026-08-27 and answered by Addie on the 28th: "what matters
+ * is that all the houses are next to each other. So if there not all in Lehi
+ * that is okay just as long as the houses are next to each other." Dax,
+ * 2026-09-09: "the way its set up is like a grid across everywhere we do so each
+ * box on average has 20 houses and so then the crews can go across."
+ *
+ * ⚠ THE CONTAINER IS ALL THAT MOVED. planNewCrewDays still buckets, sorts each
+ * bucket by priority, fills a day from one and tops up from at most one
+ * neighbour, and keeps two crews out of one bucket. What changed is the KEY.
+ * Q-023's own answer is explicit that porting the container must leave the rest
+ * alone, so most of what is checked here is that it did.
+ *
+ * ⚠ AND THE FALLBACK IS NOT A DETAIL. A queue entry with no `area` is bucketed
+ * by town exactly as before — that is what a house with no map pin gets, and it
+ * is also why every fixture written before today still means what it meant.
+ */
+suite('Suite 318. A crew-day is a patch of map, not a town');
+{
+  const start = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const end = admin.indexOf('/* Top every day up to the cap.', start);
+  const nearbyConst = admin.indexOf('const NEARBY_TOWN_MILES');
+  if (start === -1 || end < start || nearbyConst === -1) {
+    check('S318', 'the day builder is findable', false, 'renamed — repoint this');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    /* ⚠ THE REAL MODULE, NOT A FAKE ONE. js/grid.js is an ES module and this suite is
+       CommonJS, so it is loaded the way grid-parked.test.js loads it and handed in as
+       an argument. A stubbed block planner here would prove the plumbing and nothing
+       about the blocks, which is the half that decides what a crew drives. */
+    const gridUrl = require('url').pathToFileURL(require('path').join(__dirname, 'js', 'grid.js')).href;
+    const mk = (G) => eval('(function(gridPlanBlocks){' + LF_ +
+      'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+      'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;' +
+      'return 2*R*Math.asin(Math.sqrt(q));}' + LF_ +
+      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + LF_ +
+      admin.slice(nearbyConst, admin.indexOf('function townCentres')) + LF_ +
+      'let NEARBY_TOWN_LIST={};' + LF_ + phantomTownSrc() +
+      extractFn(admin, 'thanksgivingDate') + LF_ + extractFn(admin, 'toDateStr') + LF_ +
+      extractFn(admin, 'sameTownName') + LF_ + extractFn(admin, 'townCentres') + LF_ +
+      extractFn(admin, 'nearbyTowns') + LF_ + extractFn(admin, 'installPriority') + LF_ +
+      extractFn(admin, 'seasonAreasFor') + LF_ + admin.slice(start, end) + LF_ +
+      'return {plan: planNewCrewDays, areas: seasonAreasFor, near: townsAreNeighbours};})')(G.planBlocks);
+
+    pendingAsync.push(import(gridUrl).then(function (G) {
+      const A = mk(G);
+
+      /* ⚠ THREE TOWNS IN ONE NEIGHBOURHOOD, AND THE THIRD IS THE WHOLE FIXTURE. The
+         first version used two, and a red-check proved it could not tell the containers
+         apart at all: two towns a few streets apart are neighbours by tape measure, so
+         the TOWN container reaches them too, through its top-up. What it cannot do is
+         reach a THIRD — a crew is its own town plus at most one other, which is Addie's
+         own rule and is not being relaxed. One block holding all three is the container
+         change and nothing else, and it is the only thing that can produce a crew-day
+         naming three towns. */
+      const houses = [];
+      const push = (town, lat, lng, i) => {
+        const id = town.replace(/ /g, '') + i;
+        houses.push({ id: id, city: town, priority: 30, townPriority: 30, named: false,
+          from: '2026-10-01', missed: 0, stop: { id: id, lat: lat, lng: lng, name: id } });
+      };
+      /* eleven and nine, a few streets apart, either side of the line */
+      /* ⚠ THE INDEX IS PASSED, and the first version of this fixture forgot it — every
+         house in a town then shared one id, planBlocks saw three houses instead of
+         forty, and the check below failed on code that was right. An id that is not
+         unique is not a fixture, it is one house wearing eleven hats. */
+      for (let i = 0; i < 7; i++) push('Lehi', 40.3900 + i * 0.0009, -111.8510, i);
+      for (let i = 0; i < 7; i++) push('American Fork', 40.3900 + i * 0.0009, -111.8480, i);
+      for (let i = 0; i < 6; i++) push('Highland', 40.3900 + i * 0.0009, -111.8450, i);
+      /* and a full block of its own twenty-five miles south, so the book is not one clump */
+      for (let i = 0; i < 20; i++) push('Payson', 40.0440 + i * 0.0009, -111.7320, i);
+
+      const withAreas = houses.map(h => Object.assign({}, h));
+      const stamped = A.areas(withAreas, 20);
+
+      check('S318', 'every pinned house is put in a block',
+        stamped === withAreas.length && withAreas.every(w => !!w.area),
+        'stamped ' + stamped + ' of ' + withAreas.length);
+
+      const areaOf = {};
+      withAreas.forEach(w => { areaOf[w.id] = w.area; });
+      check('S318', 'and the two towns a few streets apart share one',
+        areaOf['Lehi0'] === areaOf['AmericanFork0'],
+        'this is the whole ruling: "if there not all in Lehi that is okay just as long as the houses are next to each other"');
+      check('S318', 'while the block twenty-five miles away is a different one',
+        areaOf['Payson0'] !== areaOf['Lehi0'],
+        'if everything landed in one block the check above would pass for no reason');
+
+      /* ---- what the builder does with them ---- */
+      const OPTS = { floorDate: '2026-10-01', maxDays: 40 };
+      const days = A.plan(withAreas.map(w => Object.assign({}, w)), {}, OPTS);
+      const mixed = days.filter(d => (d.towns || []).length > 1);
+
+      check('S318', 'a crew-day is built across THREE town lines, which a town day cannot be',
+        mixed.some(d => d.towns.length >= 3),
+        'got ' + JSON.stringify(days.map(d => d.towns)) + ' — a crew is its own town plus at most one other, so three names on one day can only come from a block');
+      check('S318', 'and it is labelled with the towns it covers, not with a block id',
+        days.every(d => !/^[gx]:/.test(String(d.city))) &&
+        days.every(d => (d.towns || []).every(t => !/^[gx]:/.test(String(t)))),
+        'Dax chose "the towns it covers" over a block number — got ' +
+        JSON.stringify(days.map(d => d.city)));
+      check('S318', 'every house is still placed',
+        days.reduce((a, d) => a + d.ids.length, 0) === houses.length,
+        'a container change that loses a customer is the one failure that matters here');
+
+      /* ⭐ AND NOBODY IS STRANDED. A block spanning two towns the office never typed
+         into its neighbour list is exactly how [[SCH-50]] comes back: the second town
+         is legal for no crew, and its houses sit on a day nobody drives to. */
+      {
+        const day = { houses: withAreas.map(w => ({ city: w.city, area: w.area })) };
+        check('S318', 'two towns sharing a block are neighbours, though nothing typed says so',
+          A.near('Lehi', 'American Fork', day) === true,
+          'without this every American Fork house on that day is stranded — SCH-50 through a new door');
+        check('S318', 'but two towns that merely share a DAY are not',
+          A.near('Lehi', 'Payson', day) === false,
+          'sharing a block is a statement about distance; sharing a day is not, and reading them the same way would make the rule meaningless');
+      }
+
+      /* ---- the wiring, asserted apart from the mechanism ----
+         ⚠ THE CHECKS ABOVE BUILD THEIR OWN DAY OBJECTS, so they stay green even if
+         nothing ever puts an `area` on a real plan house — at which point the neighbour
+         rule can never read one and every mixed-town day strands half its houses. A
+         red-check proved exactly that. */
+      {
+        const rb = sectionFrom(admin, admin.indexOf('function rebuildSeasonDays()'));
+        const rbC = stripComments(rb);
+        check('S318', 'the rebuild puts the block on the house it belongs to',
+          /h\.area\s*=\s*w\.area/.test(rbC) && /delete h\.area/.test(rbC),
+          'both halves: a house that has a block carries it, and one that no longer does loses it rather than keeping a stale block from an older rebuild');
+        /* ⚠ AGAINST THE CALL, NOT AGAINST THE NAME. The first version compared the
+           first mention of each, and rebuildSeasonDays opens with a
+           `typeof planNewCrewDays!=='function'` guard hundreds of lines earlier — so it
+           failed on code that was right. Anchor on where the builder is INVOKED. */
+        check('S318', 'and it works the areas out before it builds the days',
+          rbC.indexOf('seasonAreasFor') !== -1 &&
+          rbC.indexOf('seasonAreasFor') < rbC.indexOf('=planNewCrewDays('),
+          'stamped after the builder ran, every house would be bucketed by town and the grid would be decoration');
+      }
+
+      /* ---- the forecast still asks about a town ---- */
+      {
+        /* ⚠ tempFor IS KEYED BY TOWN AND KNOWS NOTHING ELSE, which is exactly how the
+           real one behaves — Open-Meteo is asked town by town. Handed a block id it
+           answers null, the cold rule sees no opinion anywhere, and it silently stops
+           existing. A red-check proved nothing noticed. */
+        const cold = [];
+        for (let i = 0; i < 20; i++) push('Santaquin', 39.9760 + i * 0.0009, -111.7850, i);
+        const src = houses.map(w => Object.assign({}, w));
+        A.areas(src, 20);
+        const asked = {};
+        const days2 = A.plan(src, {}, Object.assign({}, OPTS, {
+          tempFor: function(town, ds){ asked[town] = 1; return town === 'Santaquin' ? 20 : 55; },
+          coldBelow: 31, chillyBelow: 35
+        }));
+        check('S318', 'the forecast is asked about towns, never about block ids',
+          Object.keys(asked).length > 0 &&
+          Object.keys(asked).every(t => !/^[gx]:/.test(String(t))),
+        'asked about ' + JSON.stringify(Object.keys(asked)) + ' — a block id answers null for every area and the whole cold rule quietly stops working');
+        check('S318', 'and the freezing town is still held back',
+          (function(){
+            const first = days2.filter(d => d.date === (days2[0] || {}).date);
+            return first.every(d => (d.towns || []).indexOf('Santaquin') === -1);
+          })(),
+          'at 20 degrees it is below COLD_DAY_MAX_F and must not be offered the first day while warmer work is waiting');
+      }
+
+      /* ---- an outlier gets a day of its own, and one person on it ---- */
+      {
+        /* ⛔ REPOINTED 2026-09-10 BY [[SCH-69]], REVERSING WHAT I DECIDED THE DAY
+           BEFORE. It read:
+             "a house too far from everybody is left in its town, not given a block"
+               !out.area
+           on the argument that an area of one IS a one-man day and Dax had said "what
+           we want to minimize the most is one man days". He corrected it: "if someone
+           is way out of the way as an outlier they should fall into a one man day so a
+           full crew isnt being paid to go that far out." Minimising one-man days was
+           never an argument for sending FOUR people forty miles to hang one house — a
+           crew-day is four wages, and no measurement in this repo was counting them.
+           His own earlier ruling says it from the other side: "high milage is better
+           for a one man than a one crew or two crew." */
+        const lonely = houses.map(w => Object.assign({}, w));
+        lonely.push({ id: 'levan0', city: 'Levan', priority: 30, townPriority: 30,
+          named: false, from: '2026-10-01', missed: 0,
+          stop: { id: 'levan0', lat: 39.5540, lng: -111.8620, name: 'levan0' } });
+        A.areas(lonely, 20);
+        const out = lonely.filter(w => w.id === 'levan0')[0];
+        check('S318', 'a house too far from everybody gets an area of its own',
+          !!out.area && /^x:/.test(out.area),
+          'got ' + out.area + ' — an area of one is a one-man day, which is the point: a full crew must not be paid to drive that far for one house');
+        /* ⚠ AND EACH OUTLIER GETS ITS OWN, WHICH TAKES TWO OF THEM IN THE FIXTURE.
+           With one, "shares with nobody" is true however the areas are handed out — a
+           red-check that gave every outlier the SAME area walked straight through it.
+           Two, far apart, is what tells "an area of its own" from "an outlier area",
+           and one shared area would send a van from Levan to St George. */
+        check('S318', 'and shares that area with nobody',
+          lonely.filter(w => w.area === out.area).length === 1,
+          'an outlier bundled in with other houses is a crew-day wearing a one-man label');
+        lonely.push({ id: 'stgeorge0', city: 'St George', priority: 30, townPriority: 30,
+          named: false, from: '2026-10-01', missed: 0,
+          stop: { id: 'stgeorge0', lat: 37.0965, lng: -113.5684, name: 'stgeorge0' } });
+        A.areas(lonely, 20);
+        const out2 = lonely.filter(w => w.id === 'stgeorge0')[0];
+        const out1 = lonely.filter(w => w.id === 'levan0')[0];
+        check('S318', 'and two outliers get an area each, not one between them',
+          !!out1.area && !!out2.area && out1.area !== out2.area,
+          'got ' + out1.area + ' and ' + out2.area + ' — one shared area is a crew-day wearing a one-man label');
+      }
+
+      /* ---- the fallback, which is what keeps every older fixture honest ---- */
+      {
+        const bare = houses.map(w => Object.assign({}, w));   // no area stamped
+        const plain = A.plan(bare, {}, OPTS);
+        check('S318', 'a queue with no areas is bucketed by town, exactly as before',
+          plain.every(d => (d.towns || []).every(t => !/^[gx]:/.test(String(t)))) &&
+          plain.reduce((a, d) => a + d.ids.length, 0) === houses.length,
+          'a house with no map pin cannot be blocked at all, and every fixture written before today depends on this path');
+        const day = { houses: bare.map(w => ({ city: w.city })) };
+        check('S318', 'and with no blocks the neighbour rule is untouched',
+          A.near('Lehi', 'Payson', day) === false,
+          'the typed list and the tape measure still decide when there is no block to read');
+      }
+
+      /* ---- the size Dax asked for ---- */
+      {
+        const big = [];
+        for (let i = 0; i < 300; i++)
+          big.push({ id: 'b' + i, city: 'Lehi', priority: 30, townPriority: 30, named: false,
+            from: '2026-10-01', missed: 0,
+            stop: { id: 'b' + i, lat: 40.36 + (i % 30) * 0.0035, lng: -111.90 + Math.floor(i / 30) * 0.0035 } });
+        A.areas(big, 20);
+        const counts = {};
+        big.forEach(w => { if (w.area) counts[w.area] = (counts[w.area] || 0) + 1; });
+        const sizes = Object.keys(counts).map(k => counts[k]);
+        const mean = sizes.reduce((a, b) => a + b, 0) / sizes.length;
+        check('S318', 'a box holds about twenty houses',
+          sizes.length > 1 && mean >= 12 && mean <= 20 && sizes.every(x => x <= 20),
+          'Dax: "each box on average has 20 houses" — got ' + sizes.length + ' blocks, mean ' + mean.toFixed(1) + ', largest ' + Math.max.apply(null, sizes));
+      }
+    }).catch(function (err) {
+      check('S318', 'the grid module loads', false, String(err && err.message || err));
+    }));
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite 319. Priority moves an area up, once the area can carry a day.
+ *
+ * Dax, 2026-09-09, asked directly whether being moved up the schedule should be
+ * able to move somebody's AREA up: "it can move their area up unless something
+ * else is prioritizing above it."
+ *
+ * ⚠ [[SCH-54]] SHIPPED THAT AS A BLANKET REFUSAL and this suite is the half of it
+ * being given back. What he was looking at was Darlene Price alone on 1 October
+ * with a whole crew rostered for her and one other house: a town of ONE scored as
+ * urgent as a town of thirty. The fault was never that priority moved an area, it
+ * was that the area could not fill a morning — and since [[SCH-63]] an area is a
+ * block of about twenty adjacent houses, so moving one up moves a real day.
+ *
+ * ⚠ SUITE 315 IS THE OTHER HALF AND IS DELIBERATELY STILL GREEN. Its fixture is a
+ * town of one, which is still refused. If these two ever disagree, read them
+ * together before touching either.
+ *
+ * ⚠ RUN, NOT MATCHED. Every claim is about which area a crew is SENT TO.
+ */
+suite('Suite 319. Priority moves an area up, once the area can carry a day');
+{
+  const start = admin.indexOf('function planNewCrewDays(');
+  const end = admin.indexOf('/* Top every day up to the cap.', start);
+  const nearbyConst = admin.indexOf('const NEARBY_TOWN_MILES');
+  if (start === -1 || end < start || nearbyConst === -1) {
+    check('S319', 'the day builder is findable', false, 'renamed — repoint this');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    const api = eval('(function(){' + LF_ +
+      'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+      'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;' +
+      'return 2*R*Math.asin(Math.sqrt(q));}' + LF_ +
+      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + LF_ +
+      admin.slice(nearbyConst, admin.indexOf('function townCentres')) + LF_ +
+      'let NEARBY_TOWN_LIST={};' + LF_ + phantomTownSrc() +
+      extractFn(admin, 'thanksgivingDate') + LF_ + extractFn(admin, 'toDateStr') + LF_ +
+      extractFn(admin, 'sameTownName') + LF_ + extractFn(admin, 'townCentres') + LF_ +
+      extractFn(admin, 'nearbyTowns') + LF_ + extractFn(admin, 'installPriority') + LF_ +
+      admin.slice(start, end) + LF_ +
+      'return {plan: planNewCrewDays};})()');
+
+    /* ⚠ THE TWO AREAS ARE THE SAME SIZE AND THE SAME DISTANCE OUT, so the ONLY thing
+       that can separate them is the rushed house. Made equal deliberately: with one
+       bigger than the other, head-count decides and the check proves nothing.
+       ⚠ AND THEY ARE FAR APART, so neither can lend to the other — a loan would change
+       what `fits` reports and the gate is measured on exactly that. */
+    const mk = (id, town, lat, lng, pri, extra) => Object.assign({
+      id: id, city: town, priority: pri, townPriority: pri === 10 ? 30 : pri,
+      named: false, from: '2026-10-01', missed: 0,
+      stop: { id: id, lat: lat, lng: lng, name: id }
+    }, extra || {});
+
+    /* Twelve a side: enough to be a one-crew day, so the gate opens.
+       ⚠ THE RUSHED AREA IS NAMED TO LOSE EVERY OTHER TIEBREAK. Ties break
+       alphabetically so the plan is stable, so an area called Alpha wins day one
+       whether or not the rush counted — the first version of this fixture did exactly
+       that and THREE red-check sabotages went straight through it, one of them a
+       revert of the whole ruling. Zulu can only ever get day one by being more
+       urgent, which is the only thing worth asserting. */
+    const build = (rushed) => {
+      const out = [];
+      for (let i = 0; i < 12; i++)
+        out.push(mk('Z' + i, 'Zulu', 40.40 + i * 0.001, -111.80,
+          (rushed && i === 0) ? 10 : 30));
+      for (let i = 0; i < 12; i++)
+        out.push(mk('A' + i, 'Alpha', 40.20 + i * 0.001, -112.10, 30));
+      return out;
+    };
+    const OPTS = { floorDate: '2026-10-01', maxDays: 40 };
+    const townsOnFirstDay = (waiting, extra) => {
+      const days = api.plan(waiting, {}, Object.assign({}, OPTS, extra || {}));
+      if (!days.length) return [];
+      const first = days[0].date;
+      const out = [];
+      days.filter(d => d.date === first).forEach(d => (d.towns || [d.city]).forEach(t => {
+        if (out.indexOf(t) === -1) out.push(t);
+      }));
+      return out;
+    };
+
+    /* ⚠ THE CONTROL COMES FIRST. With nobody rushed the two areas are identical, so
+       the tie breaks alphabetically and Alpha wins anyway — which would make the real
+       check below pass for the wrong reason. Bravo is named to lose the tie, so
+       Alpha winning WITH a rush and NOT winning without it is the whole proof. */
+    {
+      const both = api.plan(build(false), {}, OPTS);
+      const firstDate = both.length ? both[0].date : null;
+      const onFirst = both.filter(d => d.date === firstDate).length;
+      check('S319', 'the two areas are evenly matched with nobody rushed',
+        onFirst === 2,
+        'both areas should be worked on day one when there are two crews and two equal ones — got ' + onFirst + ', so this fixture cannot show a preference at all');
+    }
+
+    /* ---- the ruling ---- */
+    {
+      /* one crew, so only ONE area can be worked on day one and the builder has to
+         choose between them */
+      const one = Object.assign({}, OPTS, { crews: 1 });
+      const plain = api.plan(build(false), {}, one);
+      const rushed = api.plan(build(true), {}, one);
+      const firstOf = (days) => days.length ? (days[0].towns || [days[0].city]) : [];
+      /* ⚠ THE CONTROL IS THE HALF THAT MAKES THE NEXT CHECK MEAN ANYTHING: with nobody
+         rushed the tie must go to Alpha, so Zulu winning below can only be the rush. */
+      check('S319', 'with nobody rushed the tie goes the other way',
+        firstOf(plain).indexOf('Alpha') !== -1 && firstOf(plain).indexOf('Zulu') === -1,
+        'got ' + JSON.stringify(firstOf(plain)) + ' — if Zulu won here anyway the check below would pass whatever the code did');
+      check('S319', 'a rushed house moves its area up the schedule',
+        firstOf(rushed).indexOf('Zulu') !== -1,
+        'Dax: "it can move their area up" — got ' + JSON.stringify(firstOf(rushed)));
+    }
+
+    /* ---- and the Darlene Price case is still refused ---- */
+    {
+      /* ⚠ ONE HOUSE, RUSHED, ON ITS OWN. This is [[SCH-54]] exactly: the area cannot
+         carry a day, so the phone call must not earn it one. */
+      const waiting = [];
+      for (let i = 0; i < 20; i++)
+        waiting.push(mk('big' + i, 'Bravo', 40.20 + i * 0.001, -112.10, 30));
+      waiting.push(mk('alone', 'Lonely', 40.90, -111.20, 10));
+      /* ⚠ ONE CREW, AND THE FIRST VERSION OF THIS CHECK FAILED WITHOUT IT — on correct
+         code. With two crews and only two areas in the book the second crew has nowhere
+         else in the world to go, so it takes the lonely house whatever the urgency says,
+         and the check was measuring that rather than the rule. Suite 315 records the
+         same trap in its own fixture. One crew makes it a CHOICE, which is the only
+         thing worth asserting here. */
+      const towns = townsOnFirstDay(waiting, { crews: 1 });
+      check('S319', 'but a rushed house ALONE still does not earn its area a crew-day',
+        towns.indexOf('Lonely') === -1,
+        'got ' + JSON.stringify(towns) + ' — this is Darlene Price on 1 October, and [[SCH-54]] is not being undone, only narrowed');
+      check('S319', 'and the real day is built anyway',
+        towns.indexOf('Bravo') !== -1,
+        'if nothing were built the check above would pass for the boring reason');
+    }
+
+    /* ---- something prioritizing above it still wins ---- */
+    {
+      /* Dax: "unless something else is prioritizing above it". A new member out of
+         time scores 5 and a rushed house scores 10, so the rival area must win — and
+         this needs no code of its own, which is the point of the check. */
+      const waiting = [];
+      /* ⚠ AND HERE THE RUSHED AREA IS THE ONE THAT WOULD WIN THE TIE, so the rival can
+         only take day one by being genuinely more urgent. */
+      for (let i = 0; i < 12; i++)
+        waiting.push(mk('A' + i, 'Alpha', 40.40 + i * 0.001, -111.80, i === 0 ? 10 : 30));
+      for (let i = 0; i < 12; i++)
+        waiting.push(mk('Z' + i, 'Zulu', 40.20 + i * 0.001, -112.10, i === 0 ? 5 : 30));
+      const days = api.plan(waiting, {}, Object.assign({}, OPTS, { crews: 1 }));
+      const first = days.length ? (days[0].towns || [days[0].city]) : [];
+      check('S319', 'and something more urgent than a phone call still goes first',
+        first.indexOf('Zulu') !== -1,
+        'got ' + JSON.stringify(first) + ' — a new member out of time (5) outranks somebody who rang up this morning (10), and betterTown already knew that');
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite 320. Nobody is on a day with nobody holding their sheet. Ever.
+ *
+ * Dax, 2026-09-10, reading ten stops under "Not on either crew's route" after a
+ * rebuild: "it is off limits to have anyone scheduled in a day not on either
+ * crews routes, save that as a rule and dont design the system so its even
+ * possible."
+ *
+ * ⭐ THE SECOND HALF IS WHY THIS SUITE IS SHAPED THE WAY IT IS. [[SCH-50]] already
+ * fixed the cases anybody had thought of — bestCrewTowns rescues a day the greedy
+ * split stranded, and Suite 314 pins the examples. Then [[SCH-63]] made a crew-day
+ * a block of adjacent houses, days began spanning ten town lines, the town cap of
+ * two-per-crew could only cover four of them, and it came straight back. Fixing
+ * examples is what let that happen.
+ *
+ * So this asserts the PROPERTY over days nobody designed: random towns, random
+ * sizes, random crew counts, pinned crews and unpinned, coordinates and none. It
+ * is allowed to be boring. It is not allowed to be about a case.
+ *
+ * ⚠ AND IT WOULD HAVE CAUGHT THE BUG IT WAS WRITTEN FOR: a day of thirty-three
+ * houses across ten towns is one draw of this generator.
+ */
+suite('Suite 320. Nobody is on a day with nobody holding their sheet');
+{
+  const src = extractFn(admin, 'dayCrewHouses');
+  if (!src) {
+    check('S320', 'the crew split is findable', false, 'renamed — repoint this');
+  } else {
+    /* Lifted, with only the crew-town map stubbed: this is about what dayCrewHouses
+       does with whatever the towns handed it, so the towns are the input. */
+    const run = new Function('day', 'townsByCrew', 'MAX_STOPS_PER_ROUTE', 'coords',
+      'const cityOf = function(h){ return (h.city || "").trim(); };' +
+      'const sameCity = function(a, b){ return String(a).trim().toLowerCase() === ' +
+      '  String(b).trim().toLowerCase(); };' +
+      'const crewTownsFor = function(i){ return townsByCrew[i] || []; };' +
+      'const CREWS = Array.from({length: Math.max(1, Object.keys(townsByCrew).length)},' +
+      '  function(_, i){ return {name: "Crew " + (i+1), city: ""}; });' +
+      'const customerForHouse = function(h){ return coords[h.id] ? {data: coords[h.id]} : null; };' +
+      'const houseGeoPoint = function(h, d){ return {lat: d && d.lat, lng: d && d.lng}; };' +
+      extractFn(admin, 'houseStopPoint') +
+      extractFn(admin, 'haversine') +
+      extractFn(admin, 'crewIndexes') +
+      extractFn(admin, 'crewCap') + src + 'return dayCrewHouses(day);');
+
+    let seed = 20260910;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const TOWNS = ['Lehi', 'American Fork', 'Highland', 'Alpine', 'Cedar Hills',
+                   'Lindon', 'Orem', 'Provo', 'Vineyard', 'Draper', 'Nowhere']; 
+
+    let worst = null, drawn = 0, everyoneHeld = true, noDuplicates = true;
+    for (let t = 0; t < 400; t++) {
+      const crews = 1 + Math.floor(rnd() * 3);
+      const houses = [], coords = {};
+      const n = 1 + Math.floor(rnd() * 40);
+      for (let i = 0; i < n; i++) {
+        const id = 'h' + t + '_' + i;
+        const town = TOWNS[Math.floor(rnd() * TOWNS.length)];
+        houses.push({ id: id, city: town, name: id });
+        /* a third of the book has no pin, exactly as the real one does */
+        if (rnd() > 0.33) coords[id] = { lat: 40.2 + rnd() * 0.5, lng: -112.1 + rnd() * 0.5 };
+      }
+      /* the towns the crews were given: sometimes fewer than the day holds, sometimes
+         none at all, which is the shape that used to strand everybody */
+      const townsByCrew = {};
+      for (let c = 0; c < crews; c++) {
+        const take = Math.floor(rnd() * 3);
+        const list = [];
+        for (let k = 0; k < take; k++) list.push(TOWNS[Math.floor(rnd() * TOWNS.length)]);
+        townsByCrew[c] = list;
+      }
+      const day = { houses: houses };
+      const out = run(day, townsByCrew, 20, coords);
+      drawn++;
+      const seen = new Map();
+      out.forEach(function (list, i) {
+        (list || []).forEach(function (h) { seen.set(h, (seen.get(h) || 0) + 1); });
+      });
+      const missed = houses.filter(function (h) { return !seen.has(h); });
+      const twice = houses.filter(function (h) { return (seen.get(h) || 0) > 1; });
+      if (missed.length && !worst) {
+        worst = { n: n, crews: crews, missed: missed.length,
+                  towns: Object.keys(townsByCrew).map(k => townsByCrew[k].join("/")).join(" | ") };
+      }
+      if (missed.length) everyoneHeld = false;
+      if (twice.length) noDuplicates = false;
+    }
+
+    check('S320', 'the generator really did draw something', drawn === 400,
+      'got ' + drawn + ' days');
+    check('S320', "over 400 unplanned days, every house is on exactly one crew's sheet",
+      everyoneHeld,
+      worst ? ('a day of ' + worst.n + ' houses across ' + worst.crews + ' crew(s) left ' +
+        worst.missed + ' with nobody holding their sheet — crew towns were [' +
+        worst.towns + ']') : '');
+    check('S320', 'and never on two sheets at once', noDuplicates,
+      'two crews driving to one house is the same fault pointing the other way — one of them wastes the trip and the customer is visited twice');
+
+    /* ⭐ AND IT GOES TO THE CREW ALREADY DRIVING NEAREST, which the sweep above cannot
+       see: it only asks whether everybody was carried, so handing every orphan to crew
+       0 passes it. A red-check proved exactly that. Two crews far apart, one orphan
+       sitting next to the second crew’s houses: crew 0 is listed first and is the
+       emptier of the two, so both of the other plausible rules would pick it. */
+    {
+      const houses = [], coords = {};
+      const put = (id, town, lat, lng) => {
+        houses.push({ id: id, city: town, name: id });
+        coords[id] = { lat: lat, lng: lng };
+      };
+      /* crew 0: two houses in the far north. crew 1: five in the south. */
+      put('n1', 'Lehi', 41.00, -111.90); put('n2', 'Lehi', 41.01, -111.90);
+      for (let i = 0; i < 5; i++) put('s' + i, 'Provo', 40.00 + i * 0.01, -111.70);
+      /* the orphan is a street nobody holds, and it is in the SOUTH */
+      put('orphan', 'Nowhere', 40.02, -111.70);
+      const out = run({ houses: houses }, { 0: ['Lehi'], 1: ['Provo'] }, 20, coords);
+      const who = out.findIndex(l => (l || []).some(h => h.id === 'orphan'));
+      check('S320', 'a house no town covers goes to the crew already driving nearest',
+        who === 1,
+        'went to crew ' + who + ' — crew 0 is listed first AND is carrying less, so both of the lazy answers pick it; only distance picks crew 1');
+    }
+
+    /* ⚠ AND THE HARD CASE ON ITS OWN, because a random sweep can be lucky. This is
+       Dax’s 1 October: thirty-three houses across ten towns, two crews, the town
+       split able to cover four of them. */
+    {
+      const houses = [], coords = {};
+      TOWNS.slice(0, 10).forEach(function (town, ti) {
+        for (let i = 0; i < 3 + (ti === 0 ? 3 : 0); i++) {
+          const id = 'oct' + ti + '_' + i;
+          houses.push({ id: id, city: town, name: id });
+          coords[id] = { lat: 40.3 + ti * 0.02, lng: -111.9 + i * 0.01 };
+        }
+      });
+      const out = run({ houses: houses }, { 0: ['Lehi', 'American Fork'], 1: ['Highland', 'Alpine'] }, 20, coords);
+      const held = new Set();
+      out.forEach(function (l) { (l || []).forEach(function (h) { held.add(h); }); });
+      /* ⛔ AND RE-HOMING STILL ASKS THE TOWN QUESTION, NOT THE SHEET ONE. This is a
+       WIRING assertion and it is here because a red-check proved nothing else holds it:
+       pointing rehomeMovedHouses back at unassignedHousesFor left the whole suite green
+       while it would never move anybody again. It tests `adrift.indexOf(h) === -1` and
+       reads a miss as "the crews already go there", so an always-empty list means a
+       customer who moves house keeps their old day for the rest of the season — and
+       every screen looks right, which is what makes it the expensive kind of quiet. */
+    {
+      const rh = stripComments(extractFn(admin, 'rehomeMovedHouses'));
+      check('S320', 'a customer who moved is still found by the town question',
+        /housesOutsideCrewTowns\(day\)/.test(rh) && !/unassignedHousesFor/.test(rh),
+        "since every house is on a sheet now, asking unassignedHousesFor here means " +
+        "never re-homing anybody again");
+    }
+
+    check('S320', 'and the day Dax reported carries all of its houses',
+        held.size === houses.length,
+        'got ' + held.size + ' of ' + houses.length + ' — this is the exact shape he was looking at: ten towns, four of them covered by the crew towns');
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite 321. One person goes to the outlier, not a crew.
+ *
+ * Dax, 2026-09-10: "if someone is way out of the way as an outlier they should
+ * fall into a one man day so a full crew isnt being paid to go that far out."
+ *
+ * ⛔ THIS REVERSES A CALL MADE THE DAY BEFORE, in [[SCH-63]]: outliers were left
+ * in their town precisely BECAUSE an area of one becomes a one-man day, on the
+ * argument that he had asked for fewer of those. He had — but that was never an
+ * argument for sending four people forty miles to hang one house. A crew-day is
+ * four wages and nothing in this repo was counting them.
+ *
+ * ⚠ AND THE FIRST HALF ALONE WOULD HAVE MADE THINGS WORSE. Giving the outlier its
+ * own area produces a crew-day of one house — which then shares its DATE with a
+ * full run, so isOneManDay (a property of the date) is false and the office
+ * rosters two full crews. That is the very thing he asked to stop, arriving one
+ * step later. crewIsOneMan is the half that closes it.
+ */
+suite('Suite 321. One person goes to the outlier, not a crew');
+{
+  const oneManSrc = extractFn(admin, 'isOneManDay');
+  const crewSrc = extractFn(admin, 'crewIsOneMan');
+  const runsSrc = extractFn(admin, 'oneManCrewRuns');
+  if (!oneManSrc || !crewSrc || !runsSrc) {
+    check('S321', 'the one-man rules are findable', false,
+      'renamed — repoint this rather than stubbing one');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    /* crewHousesFor is the input here — this is about what the RULES make of a
+       split, not about how the split was arrived at. */
+    const api = new Function('byCrew', 'CAP',
+      'function oneManMaxHouses(){ return CAP; }' + LF_ +
+      'function dayLimitFor(){ return null; }' + LF_ +
+      'function crewIndexes(){ return byCrew.map(function(_, i){ return i; }); }' + LF_ +
+      'function crewHousesFor(i){ return byCrew[i] || []; }' + LF_ +
+      'function installDays(){ return [DAY]; }' + LF_ +
+      'function cityOf(h){ return h.city; }' + LF_ +
+      'const DAY = {houses: byCrew.reduce(function(a, b){ return a.concat(b); }, [])};' + LF_ +
+      oneManSrc + LF_ + crewSrc + LF_ + runsSrc + LF_ +
+      'return {day: DAY, isDay: isOneManDay(DAY), ' +
+      'solo: function(i){ return crewIsOneMan(DAY, i); }, runs: oneManCrewRuns()};');
+
+    const house = (n, town) => ({ id: n, city: town || 'Lehi', name: n });
+    const many = (n, town) => Array.from({length: n}, (_, i) => house(town + i, town));
+
+    /* ⚠ THE FIXTURE IS THE WHOLE POINT: a full run and a run of one, on ONE date.
+       That is Levan beside Lehi, and it is the case the day-level rule cannot see. */
+    const mixed = api([many(20, 'Lehi'), [house('levan', 'Levan')]], 8);
+    check('S321', 'a date holding a full run and a single house is NOT a one-man date',
+      mixed.isDay === false,
+      'twenty-one houses is not one person\u2019s day, and pretending otherwise would put the full run on one pair of hands');
+    check('S321', 'but the run of one IS one person',
+      mixed.solo(1) === true,
+      'this is the ruling: the date is not what is being paid for, the crew is');
+    check('S321', 'and the full run beside it is not',
+      mixed.solo(0) === false,
+      'if every run read as one-man the badge would mean nothing');
+
+    /* ⚠ AND IT REACHES THE TAB, which is the only place the office would see it.
+       A rule nobody is shown rosters nobody differently. */
+    check('S321', 'the thin run is listed for the office to roster',
+      mixed.runs.length === 1 && mixed.runs[0].crew === 1 &&
+      mixed.runs[0].houses.length === 1,
+      'got ' + JSON.stringify(mixed.runs.map(r => ({crew: r.crew, n: r.houses.length}))));
+
+    /* ⛔ AND THE TAB ACTUALLY SHOWS THEM. Suite 321 calls oneManCrewRuns itself, so
+       gutting renderOneMan leaves every check above green while the office is shown
+       nothing — a red-check proved exactly that, and a rule nobody is shown rosters
+       nobody differently. A WIRING assertion, deliberately apart from the mechanism. */
+    {
+      const tab = stripComments(extractFn(admin, 'renderOneMan'));
+      check('S321', 'the One Man tab asks for the thin runs and renders them',
+        /oneManCrewRuns\(\)/.test(tab) && /innerHTML[^;]*runRows/.test(tab),
+        "asking for them and not rendering them is the same as not asking");
+      check('S321', 'and counts them in the heading, so the tab is not quietly short',
+        /days\.length \+ runs\.length/.test(tab),
+        "a tab headed 2 while listing 5 is how somebody stops trusting it");
+    }
+
+    /* a date that is wholly one person is already listed as a DAY, and must not be
+       listed a second time as a run — the office would read two jobs where there is one */
+    const wholly = api([[house('a'), house('b')], []], 8);
+    check('S321', 'a wholly one-man date is still a one-man date',
+      wholly.isDay === true && wholly.solo(0) === true,
+      'the day rule is completed by the crew rule, not replaced by it');
+    check('S321', 'and is not listed twice',
+      wholly.runs.length === 0,
+      'it is already on the tab as a day; a second row is two jobs where there is one');
+
+    /* an empty run is nobody\u2019s day */
+    const empty = api([many(20, 'Lehi'), []], 8);
+    check('S321', 'a crew with nothing to do is not "one person"',
+      empty.solo(1) === false && empty.runs.length === 0,
+      'rostering somebody for an empty run is a job on the board with nobody on it');
+
+    /* the boundary is the same number the rest of the app uses */
+    const atCap = api([many(20, 'Lehi'), many(8, 'Payson')], 8);
+    const overCap = api([many(20, 'Lehi'), many(9, 'Payson')], 8);
+    check('S321', 'eight is one person and nine is a crew, the same as everywhere else',
+      atCap.solo(1) === true && overCap.solo(1) === false,
+      'a second opinion about how big a one-man day is would put the tab and the badge in disagreement with the day list');
+  }
+}
+
+/*
+ * Suite 322. A stop in the wrong place gets moved, and the far houses are only last
+ * if last is on the way home.
+ *
+ * Dax, 2026-09-10, reading a crew route off the map: "1 2 3 4 5 6 7 can make sense but
+ * the you get to 11 and youre way far out and then 12 is back where 2 was, so it
+ * shouldve just been knocked out when you were there."
+ *
+ * Two separate faults met in that one sentence, and both are checked here.
+ *
+ * ⭐ THE ORDERER COULD NOT MOVE A STOP. 2-opt reverses a run; it cannot lift one house
+ * out and put it back somewhere better. So a house the nearest-neighbour walk grabbed at
+ * the wrong moment stayed where it was, for ever, and that is precisely "it shouldve
+ * just been knocked out when you were there". orOptImprove makes that move.
+ *
+ * ⭐ AND "FAR" WAS BEING MEASURED FROM THE WRONG PLACE. outlyingStops asks how far each
+ * house is from the DAY’S CENTRE, and Suite 124 then holds the far ones back to the end
+ * on Addie’s rule. On a day whose weight is out north, a couple of houses south-west of
+ * the yard are "far from the centre" — and the crew drove past them at eight in the
+ * morning, worked the north all day, and came five miles back for them. Her rule says
+ * "at the end of the day on their way back home"; whether last WAS on the way home was
+ * the half nobody was asking.
+ *
+ * ⚠ EVERY FIXTURE HERE WAS SEARCHED FOR, NOT INVENTED (scratchpad/find-fixtures.js,
+ * find-fix2.js). The first hand-built attempt at the second one saved 0.21 miles, under
+ * the margin, so it would have gone green with the fix reverted — a round trip driven
+ * backwards is nearly the same round trip, and a fixture has to make the two shapes
+ * really differ before it proves anything.
+ */
+suite('322. A stop in the wrong place gets moved, and far is measured from the road home');
+{
+  const geoStart = admin.indexOf('function twoOptImprove(');
+  const geoEnd = admin.indexOf('function nearestNeighborOrder(', geoStart);
+  const crewStart = admin.indexOf('function cityOf(h)');
+  const crewEnd = admin.indexOf('/* ---------- build from imported rows', crewStart);
+  if (geoStart === -1 || crewStart === -1 || crewEnd < crewStart) {
+    check('S322', 'the route orderer is findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    const LF_ = String.fromCharCode(10);
+    const HOME = { lat: 40.3866, lng: -111.8616 };        // 209 S 850 W, Lehi
+    global.dayDate = d => d._date;
+    global.isoOf = real('isoOf');
+    global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
+    global.esc = real('esc');
+    global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
+
+    const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(geoStart, geoEnd) +
+      LF_ + admin.slice(crewStart, crewEnd) + LF_ +
+      ';({order: orderHousesForDriving, plain: reorderFlatStops, two: twoOptImprove,  or: orOptImprove, miles: tourMiles, hav: haversine, split: outlyingStops,  point: houseStopPoint, margin: FAR_FIRST_MARGIN_MILES})');
+
+    const mk = (name, lat, lng) => ({ name, city: 'Lehi', _cust: { lat, lng } });
+    const pts = day => day.map(api.point);
+    const ids = order => order.map(h => h.name).join(' ');
+
+    /* ── the move 2-opt cannot make ── */
+    /* The orderer as it was before or-opt: the same nearest-neighbour walk, then 2-opt
+       and nothing else. Written out rather than lifted because the old shape no longer
+       exists in admin.html — that is the point of the suite. */
+    const oldWay = (list) => {
+      let remaining = pts(list).slice(), ordered = [], cur = HOME;
+      while (remaining.length) {
+        let bi = 0, bd = Infinity;
+        remaining.forEach((p, i) => {
+          const d = api.hav(cur.lat, cur.lng, p.lat, p.lng);
+          if (d < bd) { bd = d; bi = i; }
+        });
+        const nx = remaining.splice(bi, 1)[0];
+        ordered.push(nx); cur = { lat: nx.lat, lng: nx.lng };
+      }
+      return api.two(ordered, HOME, HOME);
+    };
+    const scatter = [
+      mk('s0', 40.392, -111.888), mk('s1', 40.404, -111.896), mk('s2', 40.404, -111.881),
+      mk('s3', 40.419, -111.871), mk('s4', 40.382, -111.872), mk('s5', 40.412, -111.852),
+      mk('s6', 40.404, -111.867), mk('s7', 40.418, -111.845), mk('s8', 40.404, -111.854),
+      mk('s9', 40.403, -111.875),
+    ];
+    const before = oldWay(scatter);
+    const beforeMi = api.miles(before, HOME, HOME);
+    /* ⚠ THE FIXTURE IS ONLY WORTH ANYTHING IF 2-OPT REALLY IS STUCK. Run it again on
+       its own answer: if it can still find something, this proves nothing about or-opt. */
+    check('S322', '2-opt has run itself out on this day and can find nothing more',
+      api.miles(api.two(before.slice(), HOME, HOME), HOME, HOME) >= beforeMi - 0.0005,
+      'the fixture must corner 2-opt, or the next check passes with or-opt ripped out');
+    const after = api.plain(pts(scatter).slice(), HOME, HOME);
+    const afterMi = api.miles(after, HOME, HOME);
+    check('S322', 'and the stop that was in the wrong place gets moved',
+      afterMi < beforeMi - 0.3,
+      'was ' + beforeMi.toFixed(2) + ' mi, now ' + afterMi.toFixed(2) + ' mi — reversing runs was the only move the orderer had');
+    /* and it really is a RELOCATION, not a reversal wearing a different hat: a reversed
+       run leaves every stop with the same neighbours, read backwards. */
+    const neighbours = order => {
+      const set = new Set();
+      for (let i = 1; i < order.length; i++) {
+        const a = order[i-1].ref.name, b = order[i].ref.name;
+        set.add(a < b ? a + '|' + b : b + '|' + a);
+      }
+      return set;
+    };
+    const kept = [...neighbours(after)].filter(p => neighbours(before).has(p)).length;
+    check('S322', 'the day is genuinely re-cut, not the same run read backwards',
+      kept < neighbours(after).size,
+      'every pair survived, which is what a reversal looks like');
+    check('S322', 'and nobody is dropped or visited twice by moving them',
+      after.length === scatter.length &&
+      new Set(after.map(p => p.ref.name)).size === scatter.length,
+      'an ordering that loses a stop is a customer nobody visits');
+
+
+    /* ── and the three things or-opt can do that a single-stop move cannot ── */
+    /* ⚠ THESE THREE WERE ADDED AFTER THE RED CHECK MISSED THEM. Crippling or-opt to
+       move one stop at a time, or to refuse to turn a run round, or to run once instead
+       of alternating with 2-opt, left the whole suite green: the fixture above only
+       needs a single house picked up and put down. Each of these is a capability the
+       code claims and nothing was asking for. All three days were searched for
+       (scratchpad/find-fix3.js) by running the shipped orderer against a deliberately
+       crippled copy of itself and keeping the day where they disagreed most.
+       ⚠ THEY ARE MILEAGE BOUNDS, and the number each crippled version produces is
+       written down beside them — a bound with no failing value named is a bound nobody
+       can tell has stopped meaning anything. */
+    const runDay = [
+      mk('r0', 40.448, -111.922), mk('r1', 40.387, -111.852), mk('r2', 40.419, -111.857),
+      mk('r3', 40.368, -111.843), mk('r4', 40.402, -111.898), mk('r5', 40.390, -111.899),
+      mk('r6', 40.373, -111.881), mk('r7', 40.379, -111.880), mk('r8', 40.443, -111.868),
+      mk('r9', 40.380, -111.923), mk('r10', 40.381, -111.851),
+    ];
+    const runMi = api.miles(api.plain(pts(runDay).slice(), HOME, HOME), HOME, HOME);
+    check('S322', 'a run of houses moves together, and turns round when it lands',
+      runMi < 20,
+      'got ' + runMi.toFixed(2) + ' mi — 19.19 shipped; 21.17 if or-opt may only lift one stop at a time, and 21.17 again if it may not drive a moved run backwards');
+
+    /* Twenty-six stops, which is a real crew day. On days this size one round of 2-opt
+       then or-opt is not enough: each pass opens moves for the other, and the loop is
+       worth 1.64 miles here. Nothing smaller than about fifteen stops showed it at all,
+       which is why the fixture is this big. */
+    const bigDay = [
+      mk('b0', 40.431, -111.938), mk('b1', 40.363, -111.869), mk('b2', 40.365, -111.948),
+      mk('b3', 40.414, -111.893), mk('b4', 40.433, -111.910), mk('b5', 40.369, -111.896),
+      mk('b6', 40.444, -111.915), mk('b7', 40.402, -111.872), mk('b8', 40.378, -111.850),
+      mk('b9', 40.380, -111.831), mk('b10', 40.369, -111.855), mk('b11', 40.391, -111.910),
+      mk('b12', 40.442, -111.917), mk('b13', 40.392, -111.865), mk('b14', 40.431, -111.941),
+      mk('b15', 40.448, -111.864), mk('b16', 40.373, -111.831), mk('b17', 40.390, -111.898),
+      mk('b18', 40.418, -111.945), mk('b19', 40.436, -111.860), mk('b20', 40.442, -111.875),
+      mk('b21', 40.409, -111.890), mk('b22', 40.428, -111.950), mk('b23', 40.431, -111.879),
+      mk('b24', 40.432, -111.850), mk('b25', 40.402, -111.848),
+    ];
+    const bigMi = api.miles(api.plain(pts(bigDay).slice(), HOME, HOME), HOME, HOME);
+    check('S322', 'and the two passes keep handing work back to each other', bigMi < 30,
+      'got ' + bigMi.toFixed(2) + ' mi — 29.22 shipped, 30.86 if the passes run once each instead of alternating');
+    /* ── far, measured from the road home ── */
+    /* Twelve houses, ten of them out north; h3 and h7 sit south-west, nearer the yard
+       than the average of the rest but a long way from the middle of the day, so
+       outlyingStops calls them the far ones. Doing them last means driving past them in
+       the morning and coming back in the afternoon. */
+    const lopsided = [
+      mk('h0', 40.411, -111.875), mk('h1', 40.477, -111.939), mk('h2', 40.487, -111.898),
+      mk('h3', 40.384, -111.969), mk('h4', 40.497, -111.892), mk('h5', 40.456, -111.788),
+      mk('h6', 40.487, -111.825), mk('h7', 40.379, -111.920), mk('h8', 40.465, -111.923),
+      mk('h9', 40.477, -111.888), mk('h10', 40.468, -111.862), mk('h11', 40.477, -111.928),
+    ];
+    const far = api.split(pts(lopsided));
+    const farNames = new Set(far.out.map(p => p.ref.name));
+    /* ⚠ THE FIXTURE HAS TO REACH THE BRANCH AT ALL, and it has to reach it with the
+       houses this suite is about — otherwise the checks below are about some other day. */
+    check('S322', 'this day really does have a far group, and it is h3 and h7',
+      farNames.size === 2 && farNames.has('h3') && farNames.has('h7'),
+      'held back: ' + [...farNames].join(',') + ' — the fixture has stopped exercising the branch');
+    const nearer = p => api.hav(HOME.lat, HOME.lng, p.lat, p.lng);
+    const coreAvg = far.core.reduce((t, p) => t + nearer(p), 0) / far.core.length;
+    check('S322', 'and they are NEARER the yard than the rest of the day, not further',
+      far.out.every(p => nearer(p) < coreAvg),
+      'that is the whole shape of the fault: far from the middle of the day, close to the road out');
+    const driven = api.order(lopsided.slice());
+    check('S322', 'so the crew does them on the way out, not on the way back',
+      farNames.has(driven[0].name) && farNames.has(driven[1].name),
+      'got ' + ids(driven) + ' — he watched a crew drive past a house in the morning and return for it in the afternoon');
+    check('S322', 'and the day is shorter for it',
+      api.miles(pts(driven), HOME, HOME) < 33,
+      'measured at 33.94 mi with the far group last and 31.56 with it first');
+    check('S322', 'nothing is dropped by choosing the other shape',
+      driven.length === lopsided.length &&
+      new Set(driven.map(h => h.name)).size === lopsided.length);
+
+    /* ── and the standing rule keeps every tie ── */
+    /* Four houses in a knot 0.4 mi from the yard, fourteen out at Herriman. Doing the
+       knot first is worth 0.21 miles — real, and far too little to overturn an
+       instruction on. This is the hand-built fixture that was too weak to prove the
+       check above, kept because it is exactly strong enough to prove this one. */
+    const tie = [];
+    for (let i = 0; i < 14; i++) tie.push(mk('bulk' + i, 40.4650 + (i % 5) * 0.004, -111.9400 + Math.floor(i / 5) * 0.005));
+    ['near0,40.3925,-111.8600', 'near1,40.3930,-111.8580', 'near2,40.3921,-111.8565', 'near3,40.3936,-111.8592'].forEach(r => {
+      const [n2, la, ln] = r.split(',');
+      tie.push(mk(n2, Number(la), Number(ln)));
+    });
+    const tieSplit = api.split(pts(tie));
+    check('S322', 'the near-the-yard knot is held back on this day too',
+      tieSplit.out.length === 4 && tieSplit.out.every(p => p.ref.name.indexOf('near') === 0),
+      'held back: ' + tieSplit.out.map(p => p.ref.name).join(','));
+    const tieDriven = api.order(tie.slice());
+    check('S322', 'but a saving smaller than the margin does not overturn her rule',
+      tieDriven[tieDriven.length - 1].name.indexOf('near') === 0,
+      'got ' + ids(tieDriven) + ' — going first saves 0.21 mi here, and Addie’s "at the end of the day on their way back home" is not worth giving up for that');
+    check('S322', 'and the margin is a named number, not a bare comparison',
+      typeof api.margin === 'number' && api.margin > 0.05 && api.margin < 2,
+      'without a margin the two shapes trade places on rounding, and the far house lands first for no reason anybody can see');
+  }
+}
+
+suite('323. Who the 1 February text goes to');
+/* ⭐ ADDIE, SETTING THE NEW INVOICE TERMS (2026-09-11): "they have until february to
+   get them paid. We will give them one text reminder at the end of February than if
+   they don't respond by end of March than they will get a fee email at beginning of
+   April" — and then, on the text itself: "Feb 1 is when we will send out Text messages
+   and need to be reminded on Feb 1st to send those out to everyone that hasn't paid as
+   a pop up on admin portal on feb 1st."
+
+   ⚠ THE OFFICE SENDS THE TEXTS AND THIS ONLY BUILDS THE LIST, which is her own choice
+   twice over — 2026-08-29 ("The text should notify us when we need to send that") and
+   again when asked directly in 2026-09-11. So the claim under test is WHO IS ON THE
+   LIST, and nothing here should ever reach Twilio.
+
+   ⚠ RUN, NOT MATCHED. Every claim is about which customers come back, and a regex over
+   the source cannot see a comparison reading the wrong side of a date. */
+{
+  const src = extractFn(admin, 'textChaseRecipients');
+  check('S323', 'the recipient rule was found to lift', !!src);
+  if (src) {
+    const money323 = read('js/money.js');
+    /* ⚠ LIFTED, NEVER STUBBED (§3). The calendar decides which side of February a
+       customer falls on, which is the whole question here. */
+    const fn = new Function('computeInvoiceStatus', 'invoiceIssuedAt',
+      [extractFn(money323, 'invoiceSeasonYear'), extractFn(money323, 'endOfFebruary'),
+       extractFn(money323, 'invoiceDueDate'), extractFn(money323, 'invoiceTextChaseDate'),
+       extractFn(money323, 'invoiceFeeChaseDate'), src].join('\n') +
+      '\nreturn textChaseRecipients;'
+    )(computeInvoiceStatus, (d) => (d && d.invoicedAt) || null);
+
+    const inv = (id, o) => ({ id: id, data: Object.assign(
+      { name: id, phone: '801555' + id, install: 400, removal: 0, deposit: 0,
+        credits: 0, changeFees: 0, invoicedAt: new Date(2026, 9, 15) }, o) });
+    /* Between the 1 February text day and the 1 April fee day for an Oct-2026 bill. */
+    const IN_WINDOW = new Date(2027, 1, 10).getTime();
+    const names = (list) => list.map(r => r.id).sort().join(',');
+
+    check('S323', 'somebody who has not paid is on the list',
+      names(fn([inv('a')], IN_WINDOW)) === 'a');
+    check('S323', 'somebody who has paid in full is not',
+      names(fn([inv('a', { deposit: 400 })], IN_WINDOW)) === '',
+      'texting a settled customer to chase them is the fastest way to be ignored next time');
+    check('S323', 'but a PART payment still is',
+      names(fn([inv('a', { deposit: 100 })], IN_WINDOW)) === 'a',
+      'Addie, 2026-08-29: "they didn\'t pay or only partial pay"');
+
+    /* ⚠ THE TWO EDGES ARE THE RULE. Before 1 February nobody is chased at all — the
+       bill is not even due yet, and a text in December would be chasing somebody who
+       is not late. After 1 April the fee email has taken over, and a customer getting
+       both is being contacted twice about one debt on the same morning. */
+    check('S323', 'nobody is texted before 1 February',
+      names(fn([inv('a')], new Date(2027, 0, 31).getTime())) === '',
+      'the bill is not due until the end of February — a December text chases nobody');
+    check('S323', 'the list opens exactly on 1 February',
+      names(fn([inv('a')], new Date(2027, 1, 1).getTime())) === 'a');
+    check('S323', 'and closes when the fee email takes over on 1 April',
+      names(fn([inv('a')], new Date(2027, 3, 1).getTime())) === '',
+      'the same customer told twice on one morning about one debt');
+
+    check('S323', 'a bill that was never issued is not chased',
+      names(fn([inv('a', { invoicedAt: null })], IN_WINDOW)) === '',
+      'an invoice that never went out has not been billed; chasing it is chasing nobody');
+    /* ⚠ THE TEST RECORD CARRIES ADDIE'S OWN PHONE — the difference between a list and
+       texting the owner a chase for a debt she does not have. */
+    check('S323', 'the test record is left off',
+      names(fn([inv('a'), inv('t', { isTestRecord: true })], IN_WINDOW)) === 'a');
+
+    check('S323', 'the amount shown is what they still owe, fees and credits included',
+      fn([inv('a', { deposit: 100, changeFees: 30, credits: 10 })], IN_WINDOW)[0].owed === 320,
+      '400 + 30 − 10 − 100; a figure that disagrees with their invoice makes the ' +
+      'call harder rather than easier');
+
+    /* Sorted so the same book gives the same list every time it is drawn — a pop-up
+       whose order moves under her while she works down it is one rows get missed in. */
+    check('S323', 'the list is in name order',
+      names(fn([inv('c'), inv('a'), inv('b')], IN_WINDOW)) === 'a,b,c' &&
+      fn([inv('c'), inv('a'), inv('b')], IN_WINDOW).map(r => r.name).join(',') === 'a,b,c');
+
+    /* ⚠ A JANUARY BILL IS THE SAME SEASON and must be on the same list — the case that
+       would be silently wrong if the season split read the issue year alone. */
+    check('S323', 'a January bill is chased with the autumn ones, not a year later',
+      names(fn([inv('j', { invoicedAt: new Date(2027, 0, 10) })], IN_WINDOW)) === 'j');
+  }
+
+  /* ⚠ THE WIRING IS ASSERTED SEPARATELY FROM THE RULE, because the suite calls the
+     rule from its own harness: delete the call from loadInvoices and every check above
+     still passes while nothing ever reaches the screen. This repo has shipped that
+     exact shape before (the recycle "bin says" box). */
+  check('S323', 'the invoice listener actually raises the reminder',
+    /maybeShowTextChaseReminder\(\)\.catch\(/.test(admin) &&
+    /function maybeShowTextChaseReminder/.test(admin),
+    'a pop-up nothing calls appears to nobody');
+  check('S323', 'and it is marked done against a SEASON, not a bare flag',
+    /doneForSeason/.test(admin),
+    'a flag would have to be cleared by hand every January, and the year it was ' +
+    'cleared for would be nobody\'s business to remember');
+  /* ⚠ NOTHING HERE TEXTS ANYBODY. Twilio is wired in this app for two things and both
+     of them text the OFFICE. Addie chose "Office sends it, system flags the list"; a
+     later change that quietly started sending would be a few hundred real texts. */
+  {
+    const fnStart = admin.indexOf('function showTextChaseReminder');
+    const fnEnd = admin.indexOf('\nfunction ', fnStart + 10);
+    const block = fnStart === -1 ? '' : admin.slice(fnStart, fnEnd === -1 ? admin.length : fnEnd);
+    check('S323', 'the pop-up sends no texts itself',
+      !!block && !/sendSms|twilio/i.test(block),
+      'she asked to be TOLD when to send them, not for the system to send them');
+  }
+}
+
+suite('324. The February reminder is filed against the right season');
+/* ⚠ THE ROWS ARE SORTED BY NAME, so `list[0]` is whoever is alphabetically first — and
+   with a stale unpaid invoice from an earlier season still on the books that could be
+   either year. Filing "done" against the wrong one either silences this season's
+   reminder before she has sent a thing, or leaves it showing for ever. */
+{
+  const src = extractFn(admin, 'maybeShowTextChaseReminder');
+  check('S324', 'the reminder function was found', !!src);
+  if (src) {
+    check('S324', 'the season is the latest on the list, not the first row',
+      /reduce\(/.test(src) && !/list\[0\]\.season/.test(src),
+      'sorted by name, the first row is an accident of the alphabet');
+    /* RUN the reduce itself, because "takes the largest" is arithmetic and a regex
+       cannot see it reading the wrong way round. */
+    const pick = new Function('list', 'return ' +
+      (src.match(/list\.reduce\(function\(max, r\)\{[\s\S]*?\}, null\)/) || ['null'])[0] + ';');
+    check('S324', 'and it really picks the later year',
+      pick([{ season: 2025 }, { season: 2026 }]) === 2026 &&
+      pick([{ season: 2026 }, { season: 2025 }]) === 2026,
+      'whichever order the rows arrive in');
+    check('S324', 'a list with no season at all shows nothing rather than filing under null',
+      pick([{ season: null }]) === null && /if\(season == null\) return;/.test(src),
+      'a reminder filed under "null" is one that can never be marked done');
+  }
+}
+
+suite('325. The late-fee guard is released each season');
+/* ⭐ FOUND AFTER THE MERGE, 2026-09-11, and it is the `chargeNewMemberFee` bug pointing
+   the other way. `lateFeeAt` is what stops runLateFeeBatch charging one invoice twice —
+   and invoice documents are REUSED season to season, keyed by the payer. Nothing cleared
+   it, so it stopped being a once-a-season guard and became a once-for-ever one: charged
+   in April 2027, silently skipped every April after that, for that customer, permanently.
+
+   ⚠ IT FAILS QUIET, WHICH IS WHY IT NEEDS A CHECK RATHER THAN A COMMENT. Nobody ever
+   rings up to say they were not charged, and the only symptom is a number that does not
+   appear. The $30 join fee's version of this ran for a whole season before anybody saw
+   it, and that one at least over-charged, which somebody notices. */
+{
+  const stamped = /lateFeeAt: admin\.firestore\.FieldValue\.serverTimestamp\(\)/.test(fnsSrc);
+  const guarded = /if \(inv\.lateFeeAt\) \{ out\.skipped\+\+; continue; \}/.test(fnsSrc);
+  check('S325', 'the batch still stamps the guard and reads it', stamped && guarded,
+    'without both, a re-run charges the same customer twice');
+
+  /* ⚠ SCOPED TO THE SEASON RESET'S OWN INVOICE WRITE, not the whole file — a file-wide
+     search finds the batch's own stamp and passes while the reset never clears it. */
+  const resetAt = admin.indexOf('UNPAID BILL IS CARRIED, NOT ERASED');
+  const block = resetAt === -1 ? '' : admin.slice(resetAt, admin.indexOf('priceReviewed: true', resetAt));
+  check('S325', 'the season reset was found', !!block,
+    'anchored on the arrears-carry note, which is inside the same write');
+  check('S325', 'Start New Season releases the guard', /lateFeeAt: null/.test(block),
+    'left set, that customer is never charged a late fee again as long as the invoice ' +
+    'document lives — the chargeNewMemberFee failure with its sign flipped');
+  check('S325', 'and clears the amount beside it', /lateFeeAmount: null/.test(block),
+    'a stale amount on a fresh season reads as a fee that was charged this year');
+
+  /* ⚠ IT IS CLEARED IN THE SAME WRITE AS THE REST, never as a follow-up. A separate
+     write can fail on its own and leave exactly the half-state this closes — the
+     argument Start New Season already makes for chargeNewMemberFee. */
+  /* ⚠ NOT A CHARACTER WINDOW — §7 bans those by name, and the first draft of this
+     check was one. "Same write" means no SECOND write opens between the guard being
+     cleared and the end of this object literal; `block` already ends at the last field
+     of it, so that is what to assert. */
+  const afterGuard = block.slice(block.indexOf('lateFeeAt: null'));
+  check('S325', 'cleared in the same write as the rest of the reset',
+    block.indexOf('lateFeeAt: null') !== -1 && !/updateDoc\(|setDoc\(/.test(afterGuard),
+    'a second write can fail alone and leave the guard set on a reset invoice — the ' +
+    'argument Start New Season already makes for chargeNewMemberFee');
+}
+
+/*
+ * Suite 326. What the weather usually does, and the wall between that and a forecast.
+ *
+ * Dax, 2026-09-10, looking at a day in October: "I dont see the forecast down here" —
+ * with the strip correctly reading "No forecast this far ahead — it reaches to Sep 25."
+ *
+ * [[SCH-70]] taught the blank strip to explain itself. The explanation was true and no
+ * use: the season opens three weeks out and the service answers sixteen days, so for
+ * most of the season there is nothing, and saying so more clearly still does not tell
+ * anybody what November is like. [[SCH-72]] answers the question he was actually
+ * asking, out of ten years of recorded weather.
+ *
+ * ⛔ AND THE WHOLE THING TURNS ON ONE WALL. A typical high is NOT a forecast. It is
+ * shown and never acted on — it cannot veto a town, move a house, or count towards the
+ * cold-day tally. This file has said since COLD_DAY_MAX_F that "no forecast is not a
+ * cold forecast"; letting a ten-year average refuse somebody a date would be that same
+ * mistake in a new costume, and most of this suite is about the wall rather than the
+ * numbers.
+ *
+ * ⚠ AND THE SMOOTHING IS NOT DECORATION. Measured at Lehi over ten years: a single
+ * date averaged across all ten still swings 28° between its warmest and coldest year,
+ * and 15 November reads 56° raw against a seasonal trend of 50° — six degrees of one
+ * warm autumn. A fortnight either side gives 150 samples a date, and dropping half the
+ * years then moves the curve by at most 3.3°.
+ */
+suite('326. What the weather usually does, and the wall between that and a forecast');
+{
+  const LF_ = String.fromCharCode(10);
+  const smoothWidthSrc = (admin.split('const NORMALS_SMOOTH_DAYS')[1] || '').split(';')[0];
+  check('S326', 'the smoothing width is findable, so this suite grades the real one',
+    /^ = \d+$/.test(smoothWidthSrc),
+    'got ' + JSON.stringify(smoothWidthSrc) + ' — a suite that cannot read the constant quietly grades against its own guess');
+  const smoothWidth = 'const NORMALS_SMOOTH_DAYS' + smoothWidthSrc + ';';
+  const api = eval('(function(){' + LF_ +
+    extractFn(admin, 'extractCleanCity') + LF_ +
+    /* ⛔ THE REAL CONSTANT, LIFTED. This read the width off admin.html with a regex
+       that never matched — the backslash did not survive being written into this file
+       — so it silently fell back to a hard-coded 7 and the suite graded every run
+       against a width the app might not have. The red check found it: widening the
+       window to 400 days, which flattens the whole season into one number, left the
+       suite green. Lift the line, do not re-describe it. */
+    smoothWidth + LF_ +
+    extractFn(admin, 'normalsAddYear') + LF_ +
+    extractFn(admin, 'normalsSmooth') + LF_ +
+    'let SEASON_NORMALS = {at:0, byTown:{}, towns:0, years:0, error:"", pending:null};' + LF_ +
+    extractFn(admin, 'normalHighFor') + LF_ +
+    'return {add: normalsAddYear, smooth: normalsSmooth, look: normalHighFor,' +
+    '  set(t){ SEASON_NORMALS.byTown = t; }, days: NORMALS_SMOOTH_DAYS};})()');
+
+  /* ── a year of readings becomes month-day buckets ── */
+  const buckets = {};
+  api.add(buckets, {
+    time: ['2024-10-01', '2024-10-02', '2024-10-03'],
+    temperature_2m_max: [70, 72, 68],
+  });
+  api.add(buckets, {
+    time: ['2023-10-01', '2023-10-02', '2023-10-03'],
+    temperature_2m_max: [60, 62, 58],
+  });
+  check('S326', 'the same date in different years lands in one bucket',
+    buckets['10-01'] && buckets['10-01'].length === 2 &&
+    buckets['10-01'].indexOf(70) > -1 && buckets['10-01'].indexOf(60) > -1,
+    'a normal is the same answer for 1 October every year, so the year has to fall away');
+  /* ⚠ A GAP IS A GAP, NOT A ZERO. The service returns null for a date it has no
+     reading for, and a null averaged as 0 would drag a whole fortnight towards
+     freezing — which, on a strip about cold weather, is the worst direction to be
+     wrong in. */
+  const holey = {};
+  api.add(holey, { time: ['2024-11-01', '2024-11-02'], temperature_2m_max: [null, 50] });
+  check('S326', 'a date the service had no reading for is skipped, not counted as zero',
+    !holey['11-01'] && holey['11-02'] && holey['11-02'][0] === 50,
+    'got ' + JSON.stringify(holey));
+
+  /* ── the smoothing ── */
+  /* A fortnight of ordinary 50° days with one 90° freak in the middle: that is the
+     shape the raw average gets wrong, and the reason the curve is smoothed at all. */
+  const spike = {};
+  for (let d = 1; d <= 29; d++) {
+    const md = '11-' + String(d).padStart(2, '0');
+    spike[md] = [d === 15 ? 90 : 50];
+  }
+  const curve = api.smooth(spike);
+  check('S326', 'a single freak day does not become that date\u2019s answer',
+    curve['11-15'] < 60 && curve['11-15'] > 50,
+    'got ' + (curve['11-15'] || 0).toFixed(1) + '° against a raw 90 — one warm autumn put 15 November six degrees above its own trend in the real data');
+  check('S326', 'and its neighbours feel it, because they are the same week of weather',
+    curve['11-14'] > 50 && curve['11-16'] > 50,
+    'a window that only ever looked at one date would not be a window');
+  check('S326', 'a date a fortnight away is untouched by it',
+    Math.abs(curve['11-01'] - 50) < 0.001,
+    'got ' + (curve['11-01'] || 0).toFixed(2) + ' — the window has to stop somewhere or every date gets the same answer');
+  /* ⚠ AND THE CURVE MUST STILL SLOPE. A window wide enough to flatten October into
+     December would be smooth and useless: the whole value of the strip is that a day in
+     December reads colder than a day in October. */
+  const slope = {};
+  ['10', '11', '12'].forEach(function (mo, i) {
+    for (let d = 1; d <= 28; d++) {
+      slope[mo + '-' + String(d).padStart(2, '0')] = [70 - i * 15];
+    }
+  });
+  const sloped = api.smooth(slope);
+  check('S326', 'and a whole season still slopes from October to December',
+    sloped['10-14'] - sloped['12-14'] > 25,
+    'got ' + (sloped['10-14'] - sloped['12-14']).toFixed(1) + '° of fall across the season — a window wide enough to flatten that would be smooth and useless');
+
+  /* ── the lookup ── */
+  api.set({ 'Lehi': { '10-01': 71.3 } });
+  check('S326', 'a date is looked up by month and day, whatever the year',
+    api.look('Lehi', '2026-10-01') === 71.3 && api.look('Lehi', '2031-10-01') === 71.3,
+    'a normal that only answered for one year would go blank every January');
+  check('S326', 'a town spelled with its state still finds its row',
+    api.look('Lehi, UT', '2026-10-01') === 71.3,
+    'the office types towns both ways, and the fetch keys them the cleaned way');
+  check('S326', 'and a town nobody has numbers for says nothing',
+    api.look('Moab', '2026-10-01') === null && api.look('Lehi', '2026-07-04') === null,
+    'null is the answer every reader is built to cope with');
+
+  /* ── ⛔ THE WALL ── */
+  /* This is the half of the suite that matters. A typical high is shown and never
+     acted on. If it ever reaches the cold rule, a ten-year average starts refusing
+     real people real dates — and it would do it quietly, because every screen would
+     still look right. */
+  const coldSrc = extractFn(admin, 'forecastIsCold') + extractFn(admin, 'forecastHighFor');
+  check('S326', 'the cold rule does not consult the normals at all',
+    !/SEASON_NORMALS|normalHighFor/.test(coldSrc),
+    'a number nobody promised must not be allowed to refuse anybody a date');
+  /* and the same thing asked of the running code rather than of the text */
+  const cold = eval('(function(){' + LF_ +
+    extractFn(admin, 'extractCleanCity') + LF_ +
+    'const COLD_DAY_MAX_F = 31;' + LF_ +
+    'let SEASON_FORECAST = {byTown:{}};' + LF_ +
+    'let SEASON_NORMALS = {byTown:{"Lehi":{"12-15":20}}, towns:1, years:10};' + LF_ +
+    extractFn(admin, 'forecastHighFor') + LF_ +
+    extractFn(admin, 'forecastIsCold') + LF_ +
+    'return forecastIsCold;})()');
+  check('S326', 'a freezing ten-year average is still not a cold day',
+    cold('Lehi', '2026-12-15') === false,
+    'twenty degrees typical for mid-December, no forecast — and the answer has to stay no, or the average starts vetoing towns the forecast never spoke about');
+
+  /* ── and the fetch survives a bad year ── */
+  const loadSrc = extractFn(admin, 'loadSeasonNormals');
+  check('S326', 'a year that fails is stepped over rather than sinking the other nine',
+    /\[.catch.\]\(function\(err\)\{/.test(loadSrc.replace(/\s+/g, '')) ||
+    /catch/.test(loadSrc),
+    'nine years of samples is still a seasonal curve — the smoothing is what makes that true, so no single year may be load-bearing');
+  check('S326', 'and only complete years are asked for',
+    /thisYear - NORMALS_YEARS/.test(loadSrc) && /y < thisYear/.test(loadSrc),
+    'the archive lags a few days behind live weather, so the year we are standing in has no December in it and would tilt the whole curve warm');
+  check('S326', 'the normals are fetched once a day, not every half hour',
+    /NORMALS_FRESH_MS/.test(loadSrc) &&
+    /const NORMALS_FRESH_MS = 24 \* 60 \* 60 \* 1000;/.test(admin),
+    'ten years of past weather does not change between elevenses and lunch');
+}
+
+/* ⚠ THIS SUITE WAS NUMBERED 323 AND IS NOW 327 (merge, 2026-09-11). A parallel branch
+ * appended its own 323 on the same day — the append-at-the-end collision CLAUDE.md
+ * records, for the second time in a week. The rule is that the suite which reached main
+ * FIRST keeps the number, so main's "Who the 1 February text goes to" is 323 and this one
+ * moved. Every check('S323') in it moved with it: the PREFIX is the half that matters,
+ * because it is what NAMES a failure in the log. */
+/* =====================================================================
+ * Suite 327. A declined RSVP tells somebody ([[RS-59]], 2026-09-11)
+ *
+ * Addie: "can we have no emails be there own section and it will go in the folder
+ * with the response they choose", then "I mean No RSVPs."
+ *
+ * ⛔ NOTHING WAS WRITTEN TO THE INBOX AT ALL. portalRsvp recorded the answer, pulled
+ * them off every upcoming route, queued their lights for recycling and took their
+ * referral back — and said nothing anywhere a person looks. A customer saying no is
+ * the most consequential answer in the season and it was the quietest thing that
+ * could happen. The section holding these notes is checked in comm-centre.test.js;
+ * this is the half that makes one exist.
+ *
+ * ⚠ NUMBERED 323, NOT 322. The suite above already uses S322 as its check prefix
+ * while calling itself Suite 321 — the exact collision CLAUDE.md's structure gate
+ * describes, and the prefix is the half that matters because it is what NAMES a
+ * failure. Taking 322 here would have made a red line ambiguous between two suites.
+ * ===================================================================== */
+suite('Suite 327. A declined RSVP tells somebody');
+{
+  /* ⚠ `fnsSrc`, the file-level read — `fns` is a local inside another suite and this
+     block died on a bare ReferenceError reaching for it. ⚠ AND NORMALISED, because
+     functions/index.js is stored with CRLF: a multi-line anchor written with \n matches
+     nothing, indexOf returns -1, and the check fails on code that never moved (§7). */
+  const src = fnsSrc.replace(/\r\n/g, '\n');
+  const idx = read('index.html');
+  const at = src.indexOf("if ((response === 'no' || response === 'backnextyear') &&");
+  check('S327', 'portalRsvp raises a note when somebody declines', at !== -1,
+    'the record changed, they came off every route, and the Inbox said nothing');
+  if (at !== -1) {
+    const blkSrc = src.slice(at, src.indexOf('\n  }', at) + 4);
+    /* ⭐ THE TOPIC IS THE ANSWER THEY CHOSE — her "it will go in the folder with the
+       response they choose". The Inbox files on the topic, so this string IS the folder.
+       ⚠ REPOINTED 2026-09-11: this matched the two literal strings inside the note, so
+       it failed on correct code the moment [[RS-60]] moved them behind named constants.
+       What has to be true is that the two answers are told apart, and the constants
+       themselves are compared against the browser's below. */
+    check('S327', 'and the topic is the answer they gave, so it lands in that folder',
+      /RSVP_NO_TOPIC/.test(blkSrc) && /RSVP_BNY_TOPIC/.test(blkSrc) &&
+      /response === 'no' \?/.test(blkSrc),
+      'one topic for both would put a recycle and a stay-on-the-books in one pile');
+    /* ⚠ A SYSTEM NOTICE, NOT A MEMBER MESSAGE. On a send of ~960 these outnumber real
+       questions; read as member mail they bury the reply queue, which is the complaint
+       the Communication Centre exists to fix. */
+    check('S327', 'and it is filed as a system notice',
+      /folder: 'System'/.test(blkSrc),
+      'a member message reads as NEEDS REPLY and there will be hundreds of these');
+    /* ⛔ ON THE TRANSITION ONLY. Re-answering the same way must not raise the note
+       again — the same shape the recycle flag and the referral clawback above use, and
+       without it one decision fills a folder with duplicates every time somebody
+       re-opens their link. */
+    check('S327', 'and only when the answer actually changed',
+      /String\(oldData\.rsvpStatus \|\| ''\) !== response/.test(blkSrc),
+      're-opening the link would raise the same note again, for ever');
+    /* ⚠ BEST EFFORT, GUARDED ON ITS OWN. Their answer is already written by this line;
+       a failed note must never undo it. */
+    check('S327', 'and a failed note never undoes the answer',
+      /try \{/.test(blkSrc) && /catch \(e\)/.test(blkSrc),
+      'the RSVP is the thing that matters and it is already recorded');
+    /* ⚠ AND IT SAYS WHAT HAPPENS NEXT, differently for the two. The office does
+       different things with a recycle and with somebody staying on the books, and a
+       note that does not say which is a row nobody can act on. */
+    check('S327', 'and the two notes say different things about what happens next',
+      /queued to be recycled/.test(blkSrc) && /they are still on the/.test(blkSrc),
+      'one wording for both answers is a folder split that tells you nothing');
+    /* ⛔ AFTER the routes are pulled, so the count it quotes is real. */
+    check('S327', 'and it is raised after the routes are pulled, so its count is true',
+      src.indexOf('removedFrom = await removeCustomerFromUpcomingRoutes') < at,
+      'quoting a number taken before the work is a note that is confidently wrong');
+    /* ⛔ AND THE TWO TOPIC STRINGS MATCH THE BROWSER'S CONSTANTS EXACTLY. They are the
+       folder names: one character apart and the note is written into a section that
+       shows nothing, with nothing anywhere going red. */
+    /* ⚠ COMPARED AS CONSTANTS, in both files, rather than hunted for inside the note.
+       These strings ARE folder names: one character apart and a note lands in a section
+       that shows nothing, with nothing anywhere going red. */
+    const constOf = (src, n) => {
+      const m = new RegExp('const ' + n + " = '([^']*)';").exec(src);
+      return m ? m[1].replace(/\\u2014/g, '\u2014') : '';
+    };
+    ['RSVP_NO_TOPIC', 'RSVP_BNY_TOPIC'].forEach(function(n){
+      const a = constOf(admin, n), b = constOf(src, n);
+      check('S327', 'the server spells ' + n + ' exactly as the browser does',
+        !!a && a === b, 'browser ' + JSON.stringify(a) + ' vs server ' + JSON.stringify(b));
+    });
+    /* ⭐ AND THE REASONS, WHICH ARE ALSO FOLDER NAMES ([[RS-60]]). Addie: "okay i need
+       it to be optional choice." The customer picks one in index.html, the server
+       refuses anything not on its own list, and the Inbox files the note under it — so
+       three files hold the same words and a single typo puts a real answer in a folder
+       nobody is looking at. ⚠ THE ORDER IS COMPARED TOO: the picker draws them in this
+       order and the section's folders are built from it, so a reordered copy silently
+       renames every tab. */
+    const listOf = (srcTxt) => {
+      /* ⚠ `var` IN index.html, `const` IN THE OTHER TWO — index.html's portal script is
+         the old-style one. A regex that only knew `const` read the picker's list as
+         EMPTY and reported a mismatch against code that was right. */
+      const m = /(?:const|var) RSVP_DECLINE_REASONS = \[([\s\S]*?)\];/.exec(srcTxt);
+      return m ? (m[1].match(/'([^']+)'/g) || []).map(x => x.slice(1, -1)) : [];
+    };
+    const svrReasons = listOf(src), admReasons = listOf(admin), idxReasons = listOf(idx);
+    check('S327', 'the three copies of the decline reasons are the same list',
+      svrReasons.length > 1 &&
+      JSON.stringify(svrReasons) === JSON.stringify(admReasons) &&
+      JSON.stringify(svrReasons) === JSON.stringify(idxReasons),
+      'server ' + JSON.stringify(svrReasons) + '\n        admin ' + JSON.stringify(admReasons) +
+      '\n        index ' + JSON.stringify(idxReasons));
+    /* ⛔ AND THE SERVER REFUSES ANYTHING NOT ON IT. The reason becomes a FOLDER NAME, so
+       free text here would let anybody who can reach a public callable write arbitrary
+       strings into the office's own sidebar. */
+    check('S327', 'and the server refuses a reason that is not on the list',
+      /RSVP_DECLINE_REASONS\.indexOf\(reason\) === -1/.test(src) &&
+      /throw new HttpsError\('invalid-argument', 'Unknown reason\.'\)/.test(src),
+      'a folder named by whatever a stranger typed is both a mess and a way in');
+    /* ⛔ THE ANSWER IS RECORDED FIRST AND THE REASON ASKED AFTER. A customer who closes
+       the tab on the reason screen has still declined — asking first trades a recorded
+       answer for an optional one, on the send that decides who gets a crew. */
+    /* ⚠ SCOPED TO portalRsvp, NOT THE FILE. `const oldData = match.data` appears three
+       times in functions/index.js and the FIRST is in another function entirely, so a
+       file-wide indexOf compares against the wrong anchor and fails on correct code —
+       which is exactly what it did on the first pass. */
+    const fnAt = src.indexOf('exports.portalRsvp = onCall(');
+    const rsvpFn = src.slice(fnAt, src.indexOf('\nexports.', fnAt + 10));
+    check('S327', 'the reason is a follow-up that never re-answers the RSVP',
+      /hasOwnProperty\.call\(body, 'declineReason'\)/.test(rsvpFn) &&
+      rsvpFn.indexOf("hasOwnProperty.call(body, 'declineReason')") < rsvpFn.indexOf('const oldData = match.data'),
+      'it must return before the transition work, and must not write rsvpStatus');
+    {
+      const rsn = rsvpFn.slice(rsvpFn.indexOf("hasOwnProperty.call(body, 'declineReason')"),
+                               rsvpFn.indexOf('const oldData = match.data'));
+      check('S327', 'and the follow-up writes no RSVP answer of its own',
+        !/rsvpStatus/.test(rsn),
+        'a retry could otherwise overwrite a newer decision with a stale one');
+      /* ⛔ AND IT FINDS THE NOTE BY THE CUSTOMER THE TOKEN PROVES, never by an id the
+         browser supplied — moving an arbitrary message is not a customer's to do. */
+      check('S327', 'and finds the note by custId, not by an id from the caller',
+        /where\('custId', '==', match\.id\)/.test(rsn) && !/body\.noteId|body\.messageId/.test(rsn),
+        'a message id from a public callable is a message id anybody can supply');
+    }
+    check('S327', 'and the note carries the customer it belongs to',
+      /custId: match\.id/.test(blkSrc),
+      'without it the reason arriving a moment later has no way to find this row');
+
+    /* =====================================================================
+       ⭐ THE PICKER'S OWN STATE, IN index.html ([[RS-60]]). Everything about what
+       APPEARS is driven in a real browser by test/rsvp-decline-reason.spec.js —
+       these are the two claims about a module variable, which a browser cannot see.
+       ===================================================================== */
+    const idxNoComments = stripComments(idx);
+    /* ⛔ THE MOVE FLAG IS READ ONCE AND CLEARED IN THE SAME BREATH. Left set, every
+       later ordinary move would ask to be confirmed for a season nobody answered
+       about — the sticky-field bug this repo already shipped once as maybeNextYear.
+       ⚠ THE BROWSER SPEC CANNOT COVER THIS: the move offer folds itself away after
+       one submission, so there is no second move to drive through the page. */
+    {
+      /* ⚠ SLICED TO A REAL ANCHOR, never a character count — §7 bans fixed-length
+         extraction windows and the structure gate enforces it, which is what caught the
+         first draft of this check. The anchor is the call itself: the flag has to be
+         cleared between being read and being sent. */
+      const at = idxNoComments.indexOf('var cameFromDecline = portalMoveConfirmsSeason');
+      const callAt = at === -1 ? -1 : idxNoComments.indexOf("callPortalFn('portalChangeAddress'", at);
+      const between = (at === -1 || callAt === -1) ? '' : idxNoComments.slice(at, callAt);
+      check('S327', 'the decline-move flag is spent the moment it is read',
+        at !== -1 && callAt !== -1 && /portalMoveConfirmsSeason = false/.test(between),
+        'cleared after the call, a failed send leaves it set and the NEXT ordinary move ' +
+        'asks to be confirmed for a season nobody answered about');
+    }
+    /* ⛔ AND THE PICKER IS ONE BLOCK, MOVED — never a second copy. Two blocks means two
+       sets of buttons and eventually two different lists of reasons, and the list is a
+       FOLDER NAME in three files already. */
+    check('S327', 'there is exactly one reason picker in the page',
+      (idxNoComments.match(/id="portalRsvpReason"/g) || []).length === 1 &&
+      (idxNoComments.match(/id="portalRsvpReasonBtns"/g) || []).length === 1,
+      'a second copy is a second list of folder names waiting to disagree');
+    /* ⚠ AND IT IS RE-MOUNTED AFTER THE PANELS ARE SWITCHED, not before: the host is
+       chosen by which panel is VISIBLE, so running it first reads the old tab and
+       leaves the picker on the one the customer is not looking at. */
+    {
+      const fnAt2 = idxNoComments.indexOf('function activatePortalTab(');
+      const body = fnAt2 === -1 ? '' : idxNoComments.slice(fnAt2, idxNoComments.indexOf('\n}', fnAt2));
+      check('S327', 'the picker is re-mounted after the tab is switched, not before',
+        /renderPortalRsvpReason\(\)/.test(body) &&
+        body.indexOf('renderPortalRsvpReason()') > body.indexOf("panel.style.display = name === tabName"),
+        'mounted first it reads the OLD tab and stays where the customer is not looking');
+    }
+  }
+}
+
+/* =============================================================================
+ * ⭐ SUITE 328 — THE THREE REFERRAL RULINGS OF 2026-09-12
+ * Addie, in one message, answering three questions that had been open since the 8th:
+ *   [[REF-38]] "For someone who doesn't book for this year but refered someone should
+ *              have that referal discount added for next year."
+ *   [[REF-39]] "It should follow the money to the payer."
+ *   [[REF-40]] "we should not allow two address's to exist on the costumers at the same
+ *              time. So they would only get a $25 dollar discount."
+ *
+ * ⚠ THESE RUN THE SHIPPED RULES, never a copy. Every claim is about WHO GETS $25 and
+ *    WHICH BILL IT COMES OFF, and a second opinion written here would agree with itself
+ *    and prove nothing — the failure money-parity exists for, in a smaller place.
+ * ============================================================================= */
+suite('328. The referral rulings of 2026-09-12');
+/* ⚠ AN IIFE, BECAUSE `suite()` IS A HEADER PRINTER AND NOT A RUNNER. Passing a
+   callback to it is silently accepted and never called — the suite prints its title
+   and scores nothing, which reads exactly like a suite that passed. Caught here by
+   the checks simply not appearing in the output. */
+(function () {
+  const lift = (n) => {
+    const i = admin.indexOf('function ' + n + '(');
+    if (i < 0) return '';
+    let d = 0; const j = admin.indexOf('{', i);
+    for (let k = j; k < admin.length; k++) {
+      if (admin[k] === '{') d++;
+      else if (admin[k] === '}') { d--; if (!d) return admin.slice(i, k + 1) + '\n'; }
+    }
+    return '';
+  };
+  const NEEDED = ['referralEntrySeason', 'referralSeasonForBill', 'referralEntryCountsIn',
+    'referralSeasonOr', 'referralLiveCount', 'referralHeldCount', 'custAddrKey',
+    'referralAlreadyCreditedFor', 'referralBillKey'];
+  const missing = NEEDED.filter(n => !lift(n));
+  check('S328', 'every rule this suite is about is findable in admin.html',
+    missing.length === 0,
+    'missing: ' + missing.join(', ') + ' — a renamed rule must fail loudly here, ' +
+    'never skip: a suite that cannot find its target must not report green');
+  if (missing.length) return;
+
+  const box = {};
+  new Function('houseIsOnTheBill', 'custInvoiceKey',
+    NEEDED.map(lift).join('') +
+    'this.live = referralLiveCount; this.held = referralHeldCount;' +
+    'this.dupe = referralAlreadyCreditedFor; this.key = referralBillKey;')
+    .call(box,
+      /* the real rule's shape: out only when sitting the season out AND never worked on */
+      d => { const s = String((d || {}).rsvpStatus || '').trim().toLowerCase();
+             if ((d || {}).completed === true) return true;
+             return !(s === 'no' || s === 'backnextyear' || (d || {}).maybeNextYear); },
+      d => String((d || {}).phone || '').replace(/\D/g, ''));
+
+  const Y = new Date().getFullYear();
+  const IN = {rsvpStatus: 'yes'}, OUT = {rsvpStatus: 'backnextyear'};
+  const earned = [{referredCustomerId: 'c1', season: Y}];
+
+  /* ---- [[REF-38]] a credit earned then sat out rolls forward ---------------- */
+  check('S328', 'a referrer who is in the season is credited this season',
+    box.live(earned, Y, IN) === 1,
+    'the ordinary case must be untouched by the roll-forward');
+  check('S328', 'a referrer who has dropped out is NOT credited this season',
+    box.live(earned, Y, OUT) === 0,
+    'they have no bill this season for it to come off');
+  /* ⚠ THE HALF THAT IS THE RULING. Before this, the entry stayed stamped for the season
+     it was earned in and [[REF-14]] then refused it in every later one — so the $25 was
+     on the record and worth nothing, which is the harm [[REF-23]] exists to prevent. */
+  check('S328', 'and IS credited the season after, which is the whole ruling',
+    box.live(earned, Y + 1, OUT) === 1,
+    'earned while in the season then sat out — the discount moves to next year');
+  check('S328', 'the box that says a credit is held reads it the same way',
+    box.held(earned, Y, OUT) === 1,
+    'a held credit the screen cannot see is the bill and the box disagreeing');
+  /* ⚠ DERIVED, SO COMING BACK NEEDS NO SECOND WRITE AND NOTHING TO UNDO. A migration
+     would have had to be reversed here, and a half-run reversal loses the entry. */
+  check('S328', 'and answering Yes again puts it back on this season, with no migration',
+    box.live(earned, Y, IN) === 1,
+    'a stamp moved by a write would have to be moved back; derived, it simply is');
+  check('S328', 'a caller that does not name the referrer is unchanged',
+    box.live(earned, Y) === 1,
+    'the referrer is optional — without it this must answer exactly as it always did');
+
+  /* ---- [[REF-39]] the credit follows the money ----------------------------- */
+  check('S328', 'an ordinary customer is credited on their own bill',
+    box.key({phone: '(801) 555-0111'}) === '8015550111',
+    'the common case must not move');
+  /* ⚠ THIS IS THE RULING. Their own key on a billed-elsewhere house is a ZEROED
+     leftover no screen reads, so the $25 came off nothing at all. */
+  check('S328', 'a house that bills elsewhere is credited on the PAYER’s bill',
+    box.key({phone: '8015550999', billToPhone: '(801) 555-0111'}) === '8015550111',
+    'the credit follows the money, so it shows where that referrer reads their balance');
+  check('S328', 'and the payer is matched on digits, never the raw stored string',
+    box.key({phone: '8015550999', billToPhone: '801-555-0111'}) === '8015550111',
+    'an imported record keeps whatever the office typed; comparing raw strings is what ' +
+    'quietly duplicated the whole book once');
+
+  /* ---- [[REF-40]] one discount per address -------------------------------- */
+  const look = id => ({c1: {phone: '8015550001', email: 'a@x.com',
+    address: '1 Elm St', city: 'Lehi'}}[id] || {});
+  const one = [{referredCustomerId: 'c1'}];
+  check('S328', 'two people at ONE address are one discount, not two',
+    !!box.dupe(one, {phone: '8015550002', email: 'b@x.com',
+      address: '1 Elm St', city: 'Lehi'}, look),
+    'her ruling: one $25 where two customers share an address');
+  check('S328', 'two people at DIFFERENT addresses still earn one each',
+    !box.dupe(one, {phone: '8015550003', email: 'c@x.com',
+      address: '9 Oak Ave', city: 'Lehi'}, look),
+    '[[REF-31]] is narrowed by the address, not replaced — two real houses are two referrals');
+  /* ⚠ THE TOWN IS PART OF THE KEY AND HAS TO BE. Utah County repeats street names, so
+     without it two different 100 Main St houses read as one and the second is refused. */
+  check('S328', 'the same street in a different town is a different address',
+    !box.dupe(one, {phone: '8015550004', email: 'd@x.com',
+      address: '1 Elm St', city: 'Orem'}, look),
+    'Utah County repeats street names — dropping the town refuses real referrals');
+  /* ⚠ AND THE MATCH FAILS IN THE RECOVERABLE DIRECTION ON PURPOSE. custAddrKey does not
+     expand Ln to Lane, so a spelling difference allows two ($25 too much, visible on the
+     bill with an × beside it) rather than refusing one (silent, and it lands on the
+     customer most likely to bring us another). Asserted so nobody "improves" it. */
+  check('S328', 'a differently-spelt street is allowed through rather than silently refused',
+    !box.dupe(one, {phone: '8015550005', email: 'e@x.com',
+      address: '1 Elm Street', city: 'Lehi'}, look),
+    'refusing a real referral is silent and unrecoverable; $25 too much has an × beside it');
+  check('S328', 'and the phone and email matches still work',
+    !!box.dupe(one, {phone: '8015550001', email: 'zz@x.com', address: '', city: ''}, look) &&
+    !!box.dupe(one, {phone: '', email: 'a@x.com', address: '', city: ''}, look),
+    '[[REF-31]] matched on contact and that half is unchanged');
+
+  /* ⚠ AND THE REBUILD MUST GATHER EVERY HOUSE ON THE BILL. `applyReferralCreditLine`
+     drops every referral line and writes them back from what it is handed, so once two
+     houses can share one invoice, doing that from ONE house's entries DELETES the
+     other's — the four Andersons on 8013721805 are exactly this shape. */
+  {
+    const at = admin.indexOf('function referralNotesForBill(');
+    const body = at === -1 ? '' : admin.slice(at, admin.indexOf('\n}', at));
+    check('S328', 'the credit rebuild gathers every house on that bill',
+      /billedHousesFor\(/.test(body),
+      'rebuilding from one house wipes a sibling’s referral credits off a shared bill');
+    check('S328', 'and it takes the referrer’s own entries from the object in hand',
+      body.indexOf('referrerItem.data') !== -1 &&
+      body.indexOf('String(h.id || \'\') === me') !== -1,
+      'the book can still hold the copy from before the entry was written, and the ' +
+      'referrer must never be counted twice');
+  }
+})();
+
+// =====================================================================
+// 329. PICKING COLOURS IS TICKING BOXES, NOT HOLDING CTRL
+// =====================================================================
+/* ⭐ [[OPT-10]], 2026-09-12. Addie, on the colour picker: "can we make it more
+   optional choice instead having to push control to push on multiple."
+   ⚠ THE TWO PICKERS ARE IDENTICAL MARKUP IN TWO PLACES — the quick quote box and
+   the Get In Touch form — and the previous round of work on this file proved what
+   happens when only one of a pair is guarded: a red-check deleting the column from
+   the OTHER build sheet passed. Both are named here.
+   ⚠ NOTHING ABOUT WHAT IS SUBMITTED CHANGED, which is why this is a UX check and
+   not a data one: both readers already use `fd.getAll('colors')`, which walks
+   every control named colors whether it is a <select multiple> or nine checkboxes.
+   So a "tidy-up" back to a select would break NO behavioural test anywhere — it
+   would simply put the Ctrl key back in front of a customer. That is the whole
+   reason this suite exists, the same shape as the doubled quote buttons. */
+suite('329. Picking colours is ticking boxes, not holding Ctrl');
+{
+  const idx = read('index.html');
+  const COLOURS = ['Warm White','Pure White','Red','Green','Blue','Purple','Orange','Pink','Multi'];
+
+  check('S329', 'no colour picker is a hold-Ctrl multi-select any more',
+    !/<select[^>]*name=["']colors["'][^>]*multiple/i.test(idx) &&
+    !/<select[^>]*multiple[^>]*name=["']colors["']/i.test(idx),
+    'Addie asked for this by name; a select multiple needs Ctrl and a phone cannot press it');
+
+  check('S329', 'and the Ctrl/Cmd instruction is gone with it',
+    !/Hold Ctrl/i.test(idx),
+    'an instruction for a control that no longer exists is worse than none');
+
+  /* Both boxes, counted separately — one picker fixed and one missed is exactly the
+     failure this repo has already shipped once. */
+  const boxes = ['quickColorBox','contactColorBox'];
+  boxes.forEach(function(id){
+    const at = idx.indexOf('id="' + id + '"');
+    const body = at === -1 ? '' : idx.slice(at, idx.indexOf('</div>', idx.indexOf('color-check-row', at)));
+    const ticks = COLOURS.filter(function(c){
+      return body.indexOf('type="checkbox" name="colors" value="' + c + '"') !== -1;
+    });
+    check('S329', id + ' offers all nine colours as tick boxes',
+      at !== -1 && ticks.length === COLOURS.length,
+      'missing: ' + COLOURS.filter(function(c){ return ticks.indexOf(c) === -1; }).join(', '));
+  });
+
+  /* ⚠ THE READER IS THE HALF THAT MAKES THE SWAP SAFE, and it is asserted rather
+     than assumed: getAll gathers every control of that name, so nine checkboxes
+     arrive as the same array the select produced. Reading .value instead would
+     take one colour and silently drop the rest. */
+  check('S329', 'both submit handlers still gather every ticked colour',
+    (idx.match(/fd\.getAll\(['"]colors['"]\)/g) || []).length >= 2,
+    'fd.get would take the first tick and throw the others away, with no error');
+}
+
+// =====================================================================
+// 330. A PHONE OR AN EMAIL — ONE BOX, ON ALL THREE PUBLIC FORMS
+// =====================================================================
+/* ⭐ [[QT-41]], 2026-09-12. Addie: "on contact form we should be able to put email as
+   an option."
+   ⚠ SHE WAS RIGHT ABOUT THE GAP AND IT WAS ON A THIRD FORM. Get In Touch and Send a
+   Message have taken either through one `contact` box since they were written; the FREE
+   QUOTE form demanded a phone AND an email, both `required`, so somebody with no email
+   address could not ask for a quote at all — a lost lead, silently, with nothing anywhere
+   recording it. That is the only one of the three that was ever different.
+   ⚠ BOTH FIELDS ARE STILL STORED, one of them blank. `quoteAlreadyACustomer`, the referral
+   dedupe and the quote card all already cope with one being empty, and collapsing them into
+   a single stored value would be a schema change where a form change was asked for.
+   ⚠ AND THE CONTACT-METHOD SELECT MUST STAND DOWN ON AN EMAIL. Call and Text are nonsense
+   once the only detail we hold is an address, and a `required` select that is hidden blocks
+   submission with a validation message pointing at an invisible field — the browser refuses
+   and says nothing anybody can act on. */
+suite('330. One box on the two contact forms; phone AND email on the free quote form');
+{
+  const idx = read('index.html');
+
+  /* ⚠ THE TAG, NOT AN ATTRIBUTE ORDER. Two of these three write `name` before `id` and one
+     writes it after; a regex pinned to one order fails on markup that is perfectly right,
+     which is the slow-fuse shape this repo has repointed four checks for already. */
+  function inputTag(id){
+    const at = idx.indexOf('id="' + id + '"');
+    if(at === -1) return '';
+    return idx.slice(idx.lastIndexOf('<', at), idx.indexOf('>', at) + 1);
+  }
+  /* ⭐ QT-40 STILL STANDS FOR THESE TWO. [[QT-45]] narrowed it to the free quote form only. */
+  ['quickContactInput','contactContactInput'].forEach(function(id){
+    check('S330', id + ' takes a phone or an email in one box',
+      /name="contact"/.test(inputTag(id)),
+      'this form still asks for the two separately, so one of them is compulsory');
+  });
+
+  /* ⭐ THE FREE QUOTE FORM ASKS FOR BOTH ([[QT-45]], Dax 2026-09-18: "make it so phone number
+     and email are both required in free quote"). Named specifically, because a check over
+     "some form" would pass on the two one-box forms beside it. */
+  const qAt = idx.indexOf('id="quoteForm"');
+  const qEnd = idx.indexOf('</form>', qAt);
+  const quoteForm = qAt === -1 ? '' : idx.slice(qAt, qEnd);
+  check('S330', 'the free quote form was found', quoteForm !== '',
+    'renamed or gone — every check below would pass vacuously on an empty slice');
+  check('S330', 'the free quote form requires a phone number',
+    /<input[^>]*name="phone"[^>]*required/.test(quoteForm),
+    'an optional phone lets a quote arrive that nobody can ring about');
+  check('S330', 'the free quote form requires an email address',
+    /<input[^>]*name="email"[^>]*required/.test(quoteForm),
+    'the quote is priced and answered by email, so without one it cannot be sent');
+  check('S330', 'and the email box is a real email field',
+    /<input[^>]*type="email"[^>]*name="email"/.test(quoteForm),
+    'type="email" is what makes the browser refuse "gmail.com" typed on its own');
+  check('S330', 'the one-box contact field is gone from the quote form',
+    !/name="contact"/.test(quoteForm),
+    'a leftover one-box field would be a third required input nobody can satisfy sensibly');
+
+  /* ⚠ ONE SPLITTER, TWO FORMS. A second reading of "is this an email" is how one form
+     starts filing an address in the phone field — and that field is `custInvoiceKey`.
+     The definition plus the two contact handlers. */
+  check('S330', 'the two one-box handlers go through the one splitter',
+    (idx.match(/splitPhoneOrEmail\(/g) || []).length >= 3,
+    'a second opinion on what an @ means eventually files an email as a phone number');
+
+  /* ⚠ AND THE QUOTE STILL WRITES BOTH FIELDS — every reader downstream expects them. */
+  check('S330', 'the quote write carries the phone box and the email box',
+    /phone: quotePhone, email: quoteEmail/.test(idx),
+    'dropping one would reach into undefined on every reader that walks a quote');
+
+  ['contactMethodWrap','quickContactMethod'].forEach(function(id){
+    check('S330', id + ' stands down when an email is typed',
+      new RegExp("getElementById\\('" + id + "'\\)").test(idx) ||
+      new RegExp('id="' + id + '"').test(idx),
+      'a hidden required select blocks the form with a message pointing at nothing');
+  });
+  /* ⚠ THE QUOTE FORM'S SELECT NEVER HIDES NOW. A leftover listener would still hide it
+     and drop `required` the moment the EMAIL box got an @ — which is every submission. */
+  check('S330', 'the quote form contact method is required and nothing stands it down',
+    /<select[^>]*id="quoteContactMethod"[^>]*required/.test(quoteForm) &&
+      !/quoteContactMethodEl\.required\s*=/.test(idx),
+    'a select that hides on every email would make the preference optional for everybody');
+}
+
+suite('331. The colours a customer ticked reach the Gmail alert');
+{
+  const idx = read('index.html');
+  const fn  = extractFn(idx, 'notifyBusinessOfMessage');
+
+  check('S331', 'notifyBusinessOfMessage is still there to lift', !!fn,
+    'renamed or gone — this is the one funnel all twelve message paths call');
+
+  /* ⭐ RUN IT, NEVER MATCH IT. Every claim below is about what lands in the EMAIL,
+     and a source check for the fold stays green with the whole thing wrapped in
+     if(false) — the failure this repo has shipped three times. The real function is
+     lifted and driven against a fake EmailJS that captures the payload it is handed,
+     so the checks read what would actually be sent. */
+  function sentFor(params){
+    let got = null;
+    const make = new Function('capture', `
+      var emailjsSettings = { serviceId:'s', notifyTemplateId:'t', publicKey:'p' };
+      var window   = { emailjs: true };
+      var emailjs  = { init: function(){},
+                       send: function(svc, tpl, p){ capture(p); return { catch: function(){} }; } };
+      var console  = { warn: function(){}, error: function(){} };
+      ${fn}
+      return notifyBusinessOfMessage;
+    `)(function(p){ got = p; });
+    make(params);
+    return got;
+  }
+
+  const withColors = sentFor({ customer_name:'Addie', customer_phone:'3853584716',
+    customer_email:'', topic:'Change My Light Colors', message:'Change lights',
+    colors:['Warm White','Red'] });
+
+  check('S331', 'the alert is sent at all when the settings are complete',
+    !!withColors,
+    'the lifted function refused a fully configured send — the fixture is wrong, not the app');
+
+  check('S331', 'a ticked colour reaches the email',
+    !!withColors && /Warm White/.test(withColors.message || ''),
+    'the office reads "Change lights" and cannot tell which colours were asked for — the bug this closes');
+
+  check('S331', 'every ticked colour reaches it, not just the first',
+    !!withColors && /Red/.test(withColors.message || ''),
+    'a customer who ticked two gets half an answer, which is worse than none');
+
+  check('S331', 'and they are labelled rather than dumped on the end',
+    !!withColors && /Colors requested:/.test(withColors.message || ''),
+    'a bare list under their message reads as part of what they typed');
+
+  check('S331', 'what the customer actually typed survives the fold',
+    !!withColors && /Change lights/.test(withColors.message || ''),
+    'appending must never replace their own words');
+
+  /* ⛔ ONE COPY, NOT TWO. Left on the payload, `colors` is a second source for the
+     same fact and the day somebody adds {{colors}} to the template the office reads
+     the list twice — the two-places problem this repo names in four other entries. */
+  check('S331', 'colors is not also sent as its own template variable',
+    !!withColors && withColors.colors === undefined,
+    'the list would print twice the moment a template adds {{colors}}');
+
+  /* ⚠ THE QUIET CASE MATTERS AS MUCH AS THE LOUD ONE. Most messages carry no colours
+     at all, so a fold that always fires leaves a dangling label on every alert. */
+  const noColors = sentFor({ customer_name:'Addie', customer_phone:'3853584716',
+    customer_email:'', topic:'Billing Question', message:'My payment looks wrong' });
+
+  check('S331', 'a message with no colours gains nothing',
+    !!noColors && (noColors.message || '') === 'My payment looks wrong',
+    'every ordinary alert would carry an empty "Colors requested:" line');
+
+  const emptyPicks = sentFor({ customer_name:'A', customer_phone:'1', customer_email:'',
+    topic:'X', message:'hello', colors:[] });
+
+  check('S331', 'an empty tick list is treated as no colours',
+    !!emptyPicks && (emptyPicks.message || '') === 'hello',
+    'a form submitted with nothing ticked hands over an empty array, not a missing key');
+
+  /* ⚠ THE WIRING IS ASSERTED SEPARATELY FROM THE MECHANISM, because the sandbox above
+     calls the function itself: delete `colors` from the two form handlers and every
+     behavioural check here stays green while nothing reaches a real inbox. That is the
+     exact miss red-checking found on the Edit Customer tab strip. */
+  [['contactFormEl',      'the home-page contact form'],
+   ['quickMessageFormEl', 'the home-page Send a Message form']].forEach(function(pair){
+    const body = sectionFrom(idx, idx.indexOf('var ' + pair[0]));
+    check('S331', pair[1] + ' hands its ticked colours to the alert',
+      /notifyBusinessOfMessage\(\{[\s\S]*colors:\s*fd\.getAll\('colors'\)/.test(body),
+      'this form collects colours, stores them, and still tells the email nothing');
+  });
+}
+
+/* ⭐ SUITE 332. A TOKEN NOBODY HAS IS NEVER PUT IN AN EMAIL (2026-09-13).
+ *
+ * From the Errors folder, 8-11 September: every RSVP failure row ends "no customer matches
+ * this link (…xxxxxx)". The tail is extracted correctly — the row prints it — so the link
+ * really did carry a portal token that belongs to no record in the book.
+ *
+ * `getOrCreatePortalToken` in admin.html is a way to produce exactly that. It mints a token,
+ * writes it, and USED TO swallow a failed write and return the minted token anyway ("still
+ * use the generated token even if the save failed"). That token then goes into a real
+ * customer's RSVP email as a live-looking link. They tap Yes, findByToken matches nothing,
+ * and to them it looks like they already answered.
+ *
+ * ⭐ THE SERVER COPY ALREADY HAD THE RIGHT RULE AND WROTE IT DOWN: `ensureToken` in
+ * functions/index.js re-reads after a failure — somebody else may have minted one meanwhile,
+ * and theirs is the one that is stored — and failing that sends a link with NO token "rather
+ * than one that cannot work". One rule, two copies, so this RUNS BOTH over the same four
+ * situations, the money-parity shape applied to a link instead of a sum.
+ *
+ * ⚠ RUN, NOT READ. The claim is about the VALUE handed back when a write is refused, which
+ * no regex can see — and the old code contained the word `return token` just as the new one
+ * does.
+ * ⚠ AND THE TWO ARE NOT ASSERTED IDENTICAL, because they are not: the browser one looks a
+ * customer up by phone in a loaded cache and answers null when there is no match, the server
+ * one is handed the id and the record. What must agree is the REFUSAL — neither may hand back
+ * a token it failed to save.
+ */
+suite('Suite 332. A portal token nobody has never reaches an email');
+
+{
+  /* ⚠ extractFn matches "function NAME(" and so drops the `async` keyword, turning a body
+     full of bare `await` into a parse error that kills the whole suite as one unattributable
+     crash (CLAUDE.md §5). Both of these are async, so they are lifted the long way round. */
+  const liftAsync = (src, name) => {
+    const at = src.indexOf('async function ' + name + '(');
+    if (at < 0) return '';
+    let b = src.indexOf('{', at), d = 0, e = b;
+    for (;; e++) { if (src[e] === '{') d++; else if (src[e] === '}') { d--; if (!d) break; } }
+    return src.slice(at, e + 1);
+  };
+  const fnsSrc = read('functions/index.js');
+  const officeSrc = liftAsync(admin, 'getOrCreatePortalToken');
+  const serverSrc = liftAsync(fnsSrc, 'ensureToken');
+  check('S332', 'the office token minter was found to run', !!officeSrc);
+  check('S332', 'and the server one was too', !!serverSrc);
+
+  /* A fake Firestore whose write refuses on demand, and whose re-read answers with
+     whatever is stored at that moment — which is how a second sender's token arrives. */
+  function office(opts) {
+    const o = opts || {};
+    const rec = {id: 'c1', data: {name: 'Ashley Wray', phone: '8016160714'}};
+    if (o.stored) rec.data.portalToken = o.stored;
+    const writes = [];
+    const said = [];
+    const store = {portalToken: o.readBack || ''};
+    const fn = new Function('jobAddresses', 'updateDoc', 'getDoc', 'doc', 'db',
+      'generatePortalToken', 'console',
+      'return ' + officeSrc + ';getOrCreatePortalToken')(
+      [rec],
+      async (r, p) => { if (o.writeFails) throw new Error('Missing or insufficient permissions.'); writes.push(p); store.portalToken = p.portalToken; },
+      async () => ({exists: () => true, data: () => ({portalToken: store.portalToken})}),
+      () => ({}), {}, () => 'MINTEDmintedMINTED', {error: (m) => said.push(String(m)), log(){}, warn(){}});
+    return fn('8016160714').then(t => ({token: t, writes: writes, said: said, rec: rec}));
+  }
+  function server(opts) {
+    const o = opts || {};
+    const said = [];
+    const store = {portalToken: o.readBack || ''};
+    const fakeDb = {collection: () => ({doc: () => ({
+      update: async (p) => { if (o.writeFails) throw new Error('Missing or insufficient permissions.'); store.portalToken = p.portalToken; },
+      get: async () => ({exists: true, data: () => ({portalToken: store.portalToken})})
+    })})};
+    const fn = new Function('db', 'generatePortalToken', 'console',
+      'return ' + serverSrc + ';ensureToken')(
+      fakeDb, () => 'MINTEDmintedMINTED', {error: (m) => said.push(String(m)), log(){}, warn(){}});
+    return fn('c1', o.stored ? {portalToken: o.stored} : {}).then(t => ({token: t, said: said}));
+  }
+
+  pendingAsync.push((async () => {
+    /* 1. Nothing changes about the ordinary case. */
+    const okO = await office({});
+    const okS = await server({});
+    check('S332', 'a freshly minted token that saves is the one that is used',
+      okO.token === 'MINTEDmintedMINTED' && okS.token === 'MINTEDmintedMINTED',
+      'the common path must be untouched, or every email loses its link');
+    check('S332', 'and it is written to the record',
+      okO.writes.length === 1 && okO.writes[0].portalToken === 'MINTEDmintedMINTED',
+      'a token used but never stored is the whole bug this closes');
+    check('S332', 'and the cached record carries it, so the next email reuses it',
+      okO.rec.data.portalToken === 'MINTEDmintedMINTED',
+      'without the mirror the next template mints a second token and writes again');
+
+    const hadO = await office({stored: 'alreadyHADalreadyHAD'});
+    const hadS = await server({stored: 'alreadyHADalreadyHAD'});
+    check('S332', 'a customer who already has one is not given a new one',
+      hadO.token === 'alreadyHADalreadyHAD' && hadS.token === 'alreadyHADalreadyHAD' &&
+      hadO.writes.length === 0,
+      'minting over a live token kills every link already sitting in their inbox');
+
+    /* 2. ⛔ THE BUG. The write is refused and nothing is stored. */
+    const badO = await office({writeFails: true});
+    const badS = await server({writeFails: true});
+    check('S332', 'a token that could not be saved is NOT handed back by the office copy',
+      !badO.token && badO.token !== 'MINTEDmintedMINTED',
+      'it used to return the minted token, so a real customer was emailed an RSVP link ' +
+      'that matches no record — they tap Yes, nothing is recorded, and to them it looks ' +
+      'like they already answered');
+    check('S332', 'nor by the server copy',
+      !badS.token && badS.token !== 'MINTEDmintedMINTED',
+      'the two must refuse the same way or one sender keeps producing dead links');
+    check('S332', 'and the office says so rather than failing quietly',
+      badO.said.some(m => /portal token/i.test(m)),
+      'console.error reaches the Errors folder through __huAdminErrorSink — a send that ' +
+      'could not mint tokens has to be reported, not discovered from a customer weeks later');
+    check('S332', 'and the server does too',
+      badS.said.some(m => /portal token/i.test(m)),
+      'its own comment is that it sends no token rather than one that cannot work');
+
+    /* 3. Somebody else minted one in the gap — theirs is the stored one, so theirs is
+          the one the email must carry. Not a nicety: two senders can run at once. */
+    const raceO = await office({writeFails: true, readBack: 'theirsTHEIRStheirs'});
+    const raceS = await server({writeFails: true, readBack: 'theirsTHEIRStheirs'});
+    check('S332', 'a refused write falls back to whatever is actually stored',
+      raceO.token === 'theirsTHEIRStheirs' && raceS.token === 'theirsTHEIRStheirs',
+      'the stored token is the one findByToken can match; ours is not');
+    check('S332', 'and that is preferred over sending no link at all',
+      raceO.token !== null && raceS.token !== '',
+      'a customer who has a usable token should get their one-tap link');
+
+    /* ⚠ AND THE CALLERS ARE ASSERTED SEPARATELY FROM THE RULE, because this suite calls the
+       function from its own harness: a caller that pasted the token in unconditionally would
+       leave every check above green while still emailing `?token=null`. */
+    /* ⚠ EVERY use, not four of them, and COMMENTS STRIPPED. The first version of this
+       counted guarded uses and asked for `>= 4`; there are FIVE (the RSVP block builds two
+       URLs), so deleting a guard left four and it passed — and the sixth match was this
+       fix's own explanatory comment, which quotes the guarded form. That is the
+       comment-in-a-check trap Suites 58, 274, 275 and 300 each had to learn, in my own
+       check. Total must EQUAL guarded: a use that is not guarded is a caller putting
+       `?token=null` in a real customer's email. */
+    const bare = stripComments(admin);
+    const uses = (bare.match(/'\?token='\+(?:token|rsvpToken)/g) || []).length;
+    const guarded = (bare.match(/\((?:token|rsvpToken) \? \('\?token='\+(?:token|rsvpToken)/g) || []).length;
+    check('S332', 'every caller still guards the token before putting it in a URL',
+      uses >= 5 && guarded === uses,
+      'null is only a safe answer because each caller falls back to the plain portal ' +
+      'address, which signs the customer in with their phone and surname. Found ' + uses +
+      ' uses and ' + guarded + ' guarded');
+  })());
+}
+
+suite('Suite 333. The sheet says how many PEOPLE it holds, not how many rows');
+
+{
+  /* ⭐ WHY THIS EXISTS. Addie connected her own workbook on 2026-09-16 and the line read
+     "Read 1058 rows straight from 2026 Client List (CURRENT - USE THIS ONE).xlsx." She has
+     961 customers. The other ~97 are the headings and the formatted-but-empty rows Excel
+     keeps at the bottom of a sheet for ever — and a headline that counts them invites the
+     one reading that costs something: that the app cannot see a hundred people.
+     ⚠ THIS FILE ALREADY RECORDS WHAT A CONFIDENT ROW COUNT COSTS — hlxLoadConnectedSheet's
+     own comment is about being told "924 rows" for the wrong workbook entirely. */
+  const countSrc = extractFn(admin, 'hlxSheetCountText');
+  const noteSrc  = extractFn(admin, 'hlxSheetRowsNote');
+  check('S333', 'both wordings were found to run', !!countSrc && !!noteSrc);
+
+  const countText = new Function('return ' + countSrc + ';hlxSheetCountText')();
+  const rowsNote  = new Function('return ' + noteSrc  + ';hlxSheetRowsNote')();
+
+  /* Her real numbers, measured off the workbook she sent: 960 named rows on the 2025 tab,
+     96 blank ones under them, one person who exists only on Recycle, plus the headings. */
+  const hers = {rows: 1058, people: 961, added: 1};
+  check('S333', 'her own sheet is reported as people, not rows',
+    countText(hers).indexOf('961 people') === 0, countText(hers));
+  check('S333', 'and the side-sheet person is accounted for',
+    /\(1 of them only on a side sheet\)/.test(countText(hers)), countText(hers));
+  /* ⚠ THE RAW COUNT IS KEPT, NOT REPLACED. It is the half that says the whole file was
+     read; dropping it trades one unexplained number for another. */
+  check('S333', 'and the raw row count still appears, with what the difference is made of',
+    rowsNote(hers).indexOf('1058 rows were read') !== -1 &&
+    /blank rows/.test(rowsNote(hers)), rowsNote(hers));
+
+  /* ⚠ NO NOTE WHERE THERE IS NOTHING TO EXPLAIN. A sheet with no slack would otherwise
+     carry a sentence about blank rows it does not have. */
+  check('S333', 'a sheet with no blank rows gets no note at all',
+    rowsNote({rows: 40, people: 40, added: 0}) === '', rowsNote({rows: 40, people: 40, added: 0}));
+  check('S333', 'and one person reads as a person, not "1 people"',
+    countText({rows: 2, people: 1, added: 0}) === '1 person', countText({rows: 2, people: 1, added: 0}));
+  /* ⛔ AND IT FALLS BACK TO ROWS WHEN NOTHING COUNTED PEOPLE. A workbook with no Name column
+     returns people: 0 — that is the wrong-workbook case, which has its own message naming
+     the columns it could not find. Saying "0 people" about a file that plainly read would
+     be worse than the old wording, and would read as an empty customer list. */
+  check('S333', 'a workbook with no Name column still reports its rows',
+    countText({rows: 924, people: 0}) === '924 rows' && rowsNote({rows: 924, people: 0}) === '',
+    countText({rows: 924, people: 0}));
+
+  /* ⚠ AND THE READER HAS TO SUPPLY THE NUMBER ON EVERY WAY OUT. Two of the three returns in
+     hlxWorkbookRowsAllSheets are early exits (an empty workbook, and one with no Name
+     column); a `people` missing from either is `undefined`, which the wording reads as
+     nought and quietly falls back to rows on exactly the files it was written for. */
+  const readerSrc = (function () {
+    const at = admin.indexOf('async function hlxWorkbookRowsAllSheets(');
+    if (at < 0) return '';
+    let b = admin.indexOf('{', at), d = 0, e = b;
+    for (;; e++) { if (admin[e] === '{') d++; else if (admin[e] === '}') { d--; if (!d) break; } }
+    return stripComments(admin.slice(at, e + 1));
+  })();
+  check('S333', 'the sheet reader was found', !!readerSrc);
+  const returns = (readerSrc.match(/return \{rows:/g) || []).length;
+  const withPeople = (readerSrc.match(/return \{rows:[^;]*people:/g) || []).length;
+  check('S333', 'every way out of the reader carries a people count',
+    returns >= 3 && withPeople === returns,
+    'found ' + returns + ' returns and ' + withPeople + ' carrying people — an early exit ' +
+    'without it reads as nought and silently reverts to counting rows');
+  /* ⚠ SCOPED TO THE COUNTING LOOP, and the red-check is why. The first version asked
+     whether `col["Name"]` appeared ANYWHERE in the reader — it appears half a dozen times,
+     in the header map and in the side-sheet merge — so a sabotage that counted every row
+     went straight through it. Cut the loop out first. */
+  const countLoop = (function () {
+    const at = readerSrc.indexOf('let people = 0;');
+    if (at < 0) return '';
+    const fo = readerSrc.indexOf('{', readerSrc.indexOf('for', at));
+    let d = 0, e = fo;
+    for (;; e++) { if (readerSrc[e] === '{') d++; else if (readerSrc[e] === '}') { d--; if (!d) break; } }
+    return readerSrc.slice(at, e + 1);
+  })();
+  check('S333', 'the counting loop was found', !!countLoop);
+  check('S333', 'and it counts rows that carry a NAME, never every row',
+    /col\["Name"\]/.test(countLoop),
+    'a count of every row is the number this suite exists to stop showing: ' + countLoop);
+  /* ⚠ COUNTED AFTER THE SIDE SHEETS ARE FOLDED IN, or the person who exists only on Recycle
+     is read off the sheet and then left out of the total that describes it. */
+  check('S333', 'and it counts AFTER the side sheets have been merged in',
+    readerSrc.lastIndexOf('people++') > readerSrc.lastIndexOf('added++'),
+    'counted first, a side-sheet-only customer is added to the rows and missing from the count');
+
+  /* ⚠ AND THE TWO PLACES THAT SPEAK TO HER MUST ASK THE WORDING, not the raw field. This is
+     the check that would have caught the original: the helper can be perfect and unused. */
+  const bare = stripComments(admin);
+  check('S333', 'the Compare line asks the wording',
+    /rbShowSheetStatus\("Read " \+ hlxSheetCountText\(live\)/.test(bare),
+    'it used to read `live.rows + " rows"`, which is where 1058 came from');
+  check('S333', 'and so does the line shown when the sheet is first connected',
+    /"Connected to " \+ \(res\.name \|\| "your sheet"\) \+ " \\u2014 " \+ hlxSheetCountText\(res\)/.test(bare),
+    'two lines reporting one file must not disagree about how many people are in it');
+  check('S333', 'and neither of them prints a bare row count beside the file name any more',
+    !/hlxLoadConnectedSheet[\s\S]{0,4000}?rbShowSheetStatus\("Read " \+ live\.rows/.test(bare) &&
+    bare.indexOf('res.name || "your sheet") + " \\u2014 " + res.rows +') === -1,
+    'a second place spelling the count out for itself is how the two start disagreeing');
+}
+
+suite('Suite 334. Somebody who leaves the season comes off the plan on its own');
+/* ⭐ [[SCH-78]]. Addie, 2026-09-17: "Linda Hunley still shows as scheduled even though I
+   switched her to pending ... I'm also noticing a lot of people are scheduled but say no
+   on the schedule like Miko Johnson."
+
+   ⛔ THE RULE WAS NEVER MISSING — ONLY ONE DOOR RAN IT. rebuildSeasonDays has dropped
+   out-of-season houses since 2026-08-22, and that is ⚙ Recalculate everything. The
+   five-minute sync only ever added and corrected, so a customer who answered no sat on a
+   crew's day until somebody happened to press a button.
+
+   ⚠ EVERY BEHAVIOURAL CLAIM HERE IS RUN, NOT MATCHED. They are all about which houses
+   are left on a day afterwards, and a regex cannot see an array. The two WIRING claims —
+   that the sync calls it at all, and that its counts reach the early return — are
+   asserted separately, because this suite calls the sweep from its own harness and would
+   stay green with the call deleted from the page. That is the exact shape this repo has
+   shipped before. */
+{
+  const dropSrc = extractFn(admin, 'dropHousesWhoLeftSeason');
+
+  /* isOutForSeason is LIFTED, never stubbed: the one claim worth more than all the
+     others is that this sweep asks the same rule the route generator and the build
+     queue ask. A stub here would decide the very thing under test. */
+  const run = (season, book, locked) => new Function('SEASON', 'jobAddresses', '__locked',
+    seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
+    'function dayDate(d){ return d._date; }\n' +
+    'function isoOf(dt){ return dt.toISOString().slice(0,10); }\n' +
+    'function routeDayIsLocked(iso){ return __locked.indexOf(iso) !== -1; }\n' +
+    'function planCustomerFor(h){ return jobAddresses.find(function(a){ return a.id === h.custId; }) || null; }\n' +
+    dropSrc + '\nreturn dropHousesWhoLeftSeason();'
+  )(season, book, locked || []);
+
+  const day = (iso, houses) => ({ _date: new Date(iso + 'T12:00:00Z'), houses: houses });
+  const house = (name, custId, extra) => Object.assign({ id: name, name: name, custId: custId }, extra || {});
+  const cust = (id, data) => ({ id: id, data: data });
+  const IN = { rsvpStatus: 'yes', rsvpRespondedAt: new Date() };
+  const OUT = { rsvpStatus: 'no' };
+
+  {
+    const d = day('2026-11-03', [house('Miko Johnson', 'c1'), house('Stays', 'c2')]);
+    const out = run([d], [cust('c1', OUT), cust('c2', IN)]);
+    check('S334', 'somebody who answered no comes off the day',
+      d.houses.length === 1 && d.houses[0].name === 'Stays',
+      'this is the complaint — a house on a crew sheet for a customer who said no');
+    check('S334', 'and the one who is coming is left exactly where they were',
+      out.dropped.length === 1 && out.dropped[0].name === 'Miko Johnson',
+      'a sweep that empties a day is worse than one that never ran');
+  }
+
+  /* ⚠ THE OFFICE DOOR AND THE CUSTOMER DOOR ARE THE SAME FACT, and the office one is
+     what Addie actually pressed. maybeNextYear is set by the Edit Customer toggle while
+     portalRsvp writes the status alone — isOutForSeason reads both, and a sweep reading
+     one of them misses exactly half the people. */
+  {
+    const d = day('2026-11-03', [house('Linda Hunley', 'c1')]);
+    run([d], [cust('c1', { maybeNextYear: true })]);
+    check('S334', 'and so does somebody the OFFICE switched, not just somebody who answered',
+      d.houses.length === 0,
+      'Linda was switched in Customers — a rule reading rsvpStatus alone would leave her on');
+  }
+
+  /* ⚠ NO RECORD, NO OPINION. An imported CSV row need never match a customer. */
+  {
+    const d = day('2026-11-03', [house('Imported row', 'nobody')]);
+    run([d], [cust('c1', IN)]);
+    check('S334', 'a house with no customer behind it is left alone',
+      d.houses.length === 1,
+      'reading "not found" as "not coming" would empty an imported plan on the first tick');
+  }
+
+  /* ⚠ AND AN EMPTY BOOK IS NOT AN EMPTY SEASON — this one runs on a timer with nobody
+     watching, so the failure would be silent and total.
+     ⚠ THE INVARIANT IS REAL AND THE SABOTAGE FOR IT IS A NO-OP, said plainly rather than
+     counted as a catch. Deleting the empty-book guard changes nothing, because
+     planCustomerFor answers null against an empty book and the no-record guard above
+     returns first. The guard stays — it is the fail-safe this sweep is documented on and
+     it saves a whole SEASON walk — but the only thing standing between an empty listener
+     and an emptied plan is the line above, and that is what this check really holds. */
+  {
+    const d = day('2026-11-03', [house('Anybody', 'c1')]);
+    const out = run([d], []);
+    check('S334', 'an empty customer book removes nobody at all',
+      d.houses.length === 1 && out.dropped.length === 0,
+      'jobAddresses is empty for a moment after login and again if the listener fails');
+  }
+
+  /* ⚠ A PRINTED SHEET IS NOT SOMETHING A BACKGROUND SWEEP CAN UN-PRINT. */
+  {
+    const d = day('2026-11-03', [house('On the truck', 'c1')]);
+    const out = run([d], [cust('c1', OUT)], ['2026-11-03']);
+    check('S334', 'a day inside the 48-hour lock is reported, never emptied',
+      d.houses.length === 1 && out.locked.length === 1 && out.dropped.length === 0,
+      'the crew is holding that sheet — that is a phone call, not a silent edit');
+  }
+
+  /* ⚠ SOMEBODY SITTING THE SEASON OUT STILL HAS LIGHTS TO COME DOWN. */
+  {
+    const d = day('2026-11-03', [house('Takedown', 'c1', { isTakedown: true }),
+                                 house('Fix', 'c1', { isFix: true }),
+                                 house('Done already', 'c1', { done: true })]);
+    run([d], [cust('c1', OUT)]);
+    check('S334', 'takedowns, fixes and finished work are never swept',
+      d.houses.length === 3,
+      'all three are work on lights that are already up, or already done');
+  }
+
+  /* ---- the wiring, which the harness above cannot see ---- */
+  const syncStart = admin.indexOf('window.scheduleSyncFromCustomers=function(opts){');
+  const syncEnd = admin.indexOf('function __startSyncTimer()', syncStart);
+  const sync = (syncStart > -1 && syncEnd > syncStart) ? stripComments(admin.slice(syncStart, syncEnd)) : '';
+  check('S334', 'the periodic sync actually calls it',
+    /leftSeason=dropHousesWhoLeftSeason\(\)/.test(sync),
+    'every behavioural check above passes with the call deleted from the page');
+  check('S334', 'and before the three sweeps that move or place anybody',
+    sync.indexOf('dropHousesWhoLeftSeason()') < sync.indexOf('placeUnscheduledOnNextDay()') &&
+    sync.indexOf('dropHousesWhoLeftSeason()') < sync.indexOf('enforceInstallTiming()'),
+    're-homing and re-timing a house that is about to come off is work thrown away');
+  /* ⚠ THE ONE THAT DECIDES WHETHER ANY OF THIS REACHES FIRESTORE. A tick whose only
+     finding is a drop returns before renderAll and scheduleSave, so the house comes off
+     in memory and goes straight back on at the next reload. */
+  check('S334', 'and a drop-only tick still saves the plan',
+    /!leftSeason\.dropped\.length[\s\S]{0,80}!leftSeason\.locked\.length/.test(sync),
+    'left out of the early return, the whole fix is invisible after a refresh');
+  check('S334', 'a failure in the sweep cannot take the rest of the sync down',
+    /catch\(err\)\{ console\.error\('Season drop sweep failed:'/.test(sync),
+    'the towns and timings it just pulled across matter more than this');
+  check('S334', 'and the office is told, by name when it is one person',
+    /leftSeason\.dropped\[0\]\.name/.test(sync) && /out for the season/.test(sync),
+    '"somebody left Tuesday" with no explanation is how the office stops trusting the plan');
+}
+
+suite('Suite 335. Money on the bill is an answer');
+/* ⭐ [[SCH-79]]. Addie, 2026-09-17: "If they already paid for there lights they should be
+   marked as confirmed and scheduled."
+
+   ⚠ EVERY CLAIM IS RUN. This is a rule about who gets a crew, and the failure it is most
+   likely to have is one of ORDER — money quietly outranking an answer, or the arrears
+   hold. A regex cannot see which branch returned first. */
+{
+  const paidSrc = extractFn(admin, 'housePaidThisSeason');
+  check('S335', 'the rule is in admin.html', !!paidSrc,
+    'housePaidThisSeason — renamed? repoint this suite rather than deleting it');
+
+  /* ⚠ THE RULE MUST BE LIVE OR THE WHOLE BRANCH IS SKIPPED, and every check below would
+     pass against a season rule that never ran — the vacuous-fixture trap this file names
+     in four other places. seasonRuleLiveSrc is what turns it on.
+     ⚠ AND houseOwesFromLastSeason IS THE ONE THING STUBBED. The claim being tested is the
+     ORDER — that an unpaid last season still holds somebody who has paid this one — so
+     what matters is that the arrears rule ANSWERS first, not how it decides. Its own
+     decision has its own coverage. */
+  const INV = [
+    ['8015550111', { install: 400, removal: 0, deposit: 100, credits: 0, changeFees: 0 }],
+    ['8015550222', { install: 400, removal: 0, deposit: 0, credits: 400, changeFees: 0 }],
+    ['8015550333', { install: 400, removal: 0, deposit: 400, credits: 0, changeFees: 0 }]
+  ];
+  const F = new Function('INVOICES',
+    seasonRuleLiveSrc() + custInvoiceKeySrc +
+    'const invoiceById = new Map(INVOICES.map(function(p){ return [p[0], {id:p[0], data:p[1]}]; }));\n' +
+    'function houseOwesFromLastSeason(d){ return !!d.__owes; }\n' +
+    paidSrc + extractFn(admin, 'isOutForSeason') + extractFn(admin, 'seasonBadgeKey') +
+    'return {out:isOutForSeason, badge:seasonBadgeKey, paid:housePaidThisSeason};')(INV);
+
+  const partPayer  = { phone: '8015550111' };                 // put a deposit down, never replied
+  const creditOnly = { phone: '8015550222' };                 // bill cleared by a credit, no money in
+  const noInvoice  = { phone: '8015559999' };                 // never billed
+  const fullPayer  = { phone: '8015550333' };
+
+  check('S335', 'somebody who paid and never replied is in the season',
+    F.out(partPayer) === false,
+    'this is the ruling — a deposit says what they want as plainly as a button press');
+  check('S335', 'and the badge follows without being told separately',
+    F.badge(partPayer) === 'confirmed',
+    'seasonBadgeKey delegates, so a second opinion here is what brings the disagreement back');
+  check('S335', 'somebody who has neither paid nor replied is still out',
+    F.out(noInvoice) === true,
+    'if this passes for everybody the confirmed-only rule has been switched off entirely');
+
+  /* ⛔ THE CHECK THIS WHOLE DESIGN TURNS ON. Read off computeInvoiceStatus instead of the
+     deposit, this customer reads "Paid in Full" and is scheduled having paid nothing. */
+  check('S335', 'a bill cleared by CREDITS alone is not somebody paying',
+    F.out(creditOnly) === true && F.paid(creditOnly) === false,
+    'a referral or goodwill credit is not a payment — the status cannot tell the two apart');
+
+  /* ⚠ AN ANSWER OUTRANKS MONEY, ALWAYS, and this is the ordering that would cost a crew. */
+  check('S335', 'a paid customer who said no is still out',
+    F.out({ phone: '8015550333', rsvpStatus: 'no' }) === true,
+    'paying then cancelling is a cancellation — sending a crew there is the expensive mistake');
+  check('S335', 'and so is one marked Back Next Year by the office',
+    F.out({ phone: '8015550333', maybeNextYear: true }) === true,
+    'the office flag and the customer answer are one fact; money must not override either');
+  check('S335', 'and so is one whose bundle is queued to be taken apart',
+    F.out({ phone: '8015550333', needsLightRecycle: true }) === true,
+    'by the time a crew arrived there would be nothing to hang');
+
+  /* ⚠ LAST SEASON'S DEBT IS A DIFFERENT BILL AND STILL HOLDS THEM. Addie, 2026-08-31:
+     "If they didn't pay last year they should not be scheduled to be hung." */
+  check('S335', 'paying this season does not clear last season',
+    F.out({ phone: '8015550333', __owes: true }) === true,
+    'two different bills — and the arrears hold is tested above this one for that reason');
+
+  /* ⚠ THE PAYER'S BILL, which is the half a phone-keyed fixture alone cannot see. */
+  check('S335', 'a house billed to somebody who paid is in the season too',
+    F.out({ phone: '8015557777', billToPhone: '(801) 555-0333' }) === false,
+    'one bill covering several houses is the whole reason billToPhone exists');
+  check('S335', 'and the payer key is read through the digits, not compared raw',
+    F.paid({ phone: '8015557777', billToPhone: '(801) 555-0333' }) === true,
+    'stored phones are not all digits-only — comparing raw strings is how this app duplicated its book once');
+}
+
+suite('Suite 336. The office sees the colours the member just picked');
+/* ⭐ [[WH-39]]. Addie, 2026-09-17: "When someone makes a change in member portal for lights
+   it should automatically change/add lights in costumers."
+
+   ⛔ portalSave writes `lightsDescription` and nothing else, so after a member changes their
+   colours the record holds the NEW ones in the description and the OLD ones in `lightColors`.
+   Edit Customer read the list first and ticked last year's colours.
+
+   ⚠ IT RUNS THE SHIPPED LINE, NOT A COPY OF IT. The two statements are sliced out of
+   openEditCustomerModal and evaluated against the real houseLightsText and parseCustLights —
+   a reimplementation here would pass whatever the page does, which is the trap this file
+   names in four other places. */
+{
+  const a = admin.indexOf("  const parsedLights = parseCustLights(");
+  const b = admin.indexOf("  document.querySelectorAll('.editcust-color-check')", a);
+  const slice = (a > -1 && b > a) ? admin.slice(a, b) : '';
+  check('S336', 'the colour-ticking rule is findable in Edit Customer',
+    !!slice && /custColors/.test(slice),
+    'openEditCustomerModal restructured — repoint this slice rather than deleting the suite');
+
+  if (slice) {
+    /* ⚠ houseLightsText IS LIFTED, NEVER STUBBED. "Which of the two fields wins" is the
+       entire question, and a stub would answer it for us. */
+    const ticked = new Function('d',
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'parseCustLights') +
+      slice + '\nreturn custColors;');
+
+    /* ⚠ THE FIXTURE IS THE REAL SHAPE: the two fields DISAGREEING. One carrying both in
+       step passes whether the fix is there or not. */
+    const afterPortalChange = ticked({ lightsDescription: 'Red, Green', lightColors: ['Warm White'] });
+    check('S336', 'a portal colour change is what the boxes show',
+      afterPortalChange.indexOf('Red') !== -1 && afterPortalChange.indexOf('Green') !== -1 &&
+      afterPortalChange.indexOf('Warm White') === -1,
+      'this is the complaint — the office saw last year’s colours and the change looked lost');
+
+    check('S336', 'and a house with no description still shows its list',
+      ticked({ lightsDescription: '', lightColors: ['Warm White'] }).join() === 'Warm White',
+      'an ordinary house keeps its colours in lightColors and its description empty — see houseLightsText');
+
+    check('S336', 'a note in brackets is not ticked as a colour',
+      ticked({ lightsDescription: 'Warm White (every third bulb)', lightColors: [] }).join() === 'Warm White',
+      'parseCustLights splits the note off; ticking "every third bulb" would tick nothing at all');
+
+    check('S336', 'a strand keeps every position it was written with',
+      ticked({ lightsDescription: 'Red, Green, Red, Green', lightColors: ['Red'] }).length === 4,
+      'order carries information — rr means two reds, and the list cannot say that');
+
+    check('S336', 'and a house with nothing on file ticks nothing',
+      ticked({}).length === 0,
+      'nothing ticked is how the form says nobody has been asked');
+  }
+
+  /* ⚠ THE WIRING, which the harness above cannot see: the slice could be perfect and the
+     boxes could be ticked from something else entirely two lines later. */
+  const fill = admin.slice(admin.indexOf('  const parsedLights = parseCustLights('),
+                           admin.indexOf('  editCustLightsRaw = String('));
+  check('S336', 'the tick boxes are filled from that answer and nothing else',
+    /cb\.checked = custColors\.includes\(cb\.value\)/.test(fill),
+    'a second source for the ticks is how this screen starts disagreeing with itself again');
+  check('S336', 'and what was on file is still read description-first below them',
+    /editCustLightsRaw = String\(d\.lightsDescription \|\| ''\)\.trim\(\)/.test(admin),
+    'the guard and the ticks must agree about which field wins, or a save refuses for the wrong reason');
+}
+
+suite('Suite 337. A re-quote waiting on a reply waits with everybody else');
+/* ⭐ [[QT-43]]. Addie, 2026-09-17: "Everything on requotes that is awaiting response should
+   go under awaiting response."
+
+   ⚠ RUN, NOT MATCHED. Every claim here is about which tab a card lands on, and quoteFolder
+   is a composition of quoteStage and isRequote — both LIFTED, because "is this a re-quote"
+   and "has it been sent" are the two things the answer turns on and a stub would decide
+   them for us. */
+{
+  /* ⚠ quoteWasSentOut IS LIFTED TOO, AND THE FIRST DRAFT WITHOUT IT CRASHED THE WHOLE
+     SUITE with a bare ReferenceError — the extraction-list trap this file records nine
+     times over. Lifted, never stubbed: "has this gone out" is half of what decides the
+     tab, so a stub would answer the question under test. */
+  const F = new Function('d',
+    extractFn(admin, 'isRequote') + extractFn(admin, 'quoteWasSentOut') +
+    extractFn(admin, 'quoteStage') + extractFn(admin, 'quoteFolder') +
+    'return quoteFolder(d);');
+
+  /* Priced AND sent is what quoteStage calls 'send' — the Awaiting Response tab. */
+  const sentRequote  = { quotedPrice: 400, quoteManuallySent: true, existingCustomerId: 'c1' };
+  const sentFirst    = { quotedPrice: 400, quoteManuallySent: true };
+  const unsentRequote= { quotedPrice: 400, existingCustomerId: 'c1' };
+  const newRequote   = { existingCustomerId: 'c1' };
+
+  check('S337', 'a sent re-quote sits under Awaiting Response',
+    F(sentRequote) === 'send',
+    'this is the ruling — one list of everyone the office is chasing');
+  check('S337', 'and an ordinary sent quote is unmoved',
+    F(sentFirst) === 'send',
+    'if this changed, the tab it is being moved INTO is what broke');
+
+  /* ⚠ RE-QUOTES WITH SOMETHING LEFT TO DO STAY WHERE THEY ARE — that is what the tab is
+     for now, and moving them would empty it. */
+  check('S337', 'a re-quote that has not gone out yet stays in Re-quotes',
+    F(unsentRequote) === 'requote',
+    'priced but unsent is not waiting on the customer, it is waiting on us');
+  check('S337', 'and so does one nobody has priced',
+    F(newRequote) === 'requote',
+    'quoteStage calls that "new" — there is nothing for the customer to answer');
+
+  /* ⚠ CLOSED IS STILL ONE FOLDER. History is looked up in one place; splitting it means
+     checking both every time and finding it in neither when the guess is wrong. */
+  check('S337', 'a closed re-quote is still filed with every other closed quote',
+    F({ status: 'closed', existingCustomerId: 'c1' }) === 'closed',
+    'that rule predates this one and is untouched by it');
+
+  /* ⛔ THE HALF OF THE OLD RULE THAT WAS LOAD-BEARING. A card in two places is a job each
+     of two people assumes the other has done. quoteFolder returns ONE string, so this is
+     structural rather than a matter of care — asserted so a future "show it in both"
+     cannot pass quietly. */
+  const all = [sentRequote, sentFirst, unsentRequote, newRequote].map(F);
+  check('S337', 'every card is still in exactly one folder',
+    all.every(f => typeof f === 'string' && f.length > 0),
+    'the old ruling this narrows was about double-listing, and that part still stands');
+}

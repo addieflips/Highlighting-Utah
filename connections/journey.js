@@ -344,7 +344,7 @@ const STEPS = [
       { to: 'paid',      label: 'they pay it all' },
       { to: 'partpaid',  label: 'they pay some of it' },
       { to: 'unmatched', label: 'their card is charged but the bill cannot be found' },
-      { to: 'chase1',    label: '30 days pass and nothing has come in' }
+      { to: 'chase1',    label: '1 February comes and nothing has come in' }
     ] },
 
   /* ⚠ PART PAID IS NOT PAID AND NOT UNPAID, and the difference reaches the money: the
@@ -376,34 +376,34 @@ const STEPS = [
     plain: 'Money has come in and a balance is left. They still show as owing.',
     next: [
       { to: 'paid',   label: 'they pay the rest' },
-      { to: 'chase1', label: '30 days pass and the rest has not come in' }
+      { to: 'chase1', label: '1 February comes and the rest has not come in' }
     ] },
 
-  /* ⚠ ADDIE'S OWN SPEC, 2026-08-29, AND ONLY THE SHAPE OF IT EXISTS TODAY: "a text 30
-     days after we send them invoice and they didn't pay or only partial pay and than
-     after another 30 days we should send an email with a fee asking them to pay again.
+  /* ⚠ ADDIE'S SPEC, 2026-08-29, AND THE DATES SHE MOVED IT TO ON 2026-09-11. Originally:
+     "a text 30 days after we send them invoice and they didn't pay or only partial pay and
+     than after another 30 days we should send an email with a fee asking them to pay again.
      The text should notify us when we need to send that. The last email with a fee should
      automatically send with new invoice."
-     ⚠ NEITHER IS BUILT. Two things run on a schedule — the 7pm invoice and the quote
-     nudge, which chases an unanswered QUOTE, not an unpaid bill. Chasing a bill is a
-     manual send from Automation Emails today. Drawn as built, this page would be a wish. */
-  { id: 'chase1', title: 'Text them — 30 days', built: false,
-    notBuilt: 'Nothing chases an unpaid bill on a timer today. Two things run on a ' +
-      'schedule — the 7pm invoice, and the nudge, which chases an unanswered QUOTE. ' +
-      'Chasing a bill is a manual send from Automation Emails.',
-    plain: 'A text asking them to pay. The system tells the office when one is due; ' +
-      'a person sends it.',
+     ⭐ THE ROLLING CLOCK BECAME A CALENDAR: "they have until february to get them paid",
+     with the text on 1 February and the fee email on 1 April. Both are BUILT now. The
+     office still sends the text — that half of her spec never changed. */
+  { id: 'chase1', title: 'Text them — 1 February',
+    plain: 'A pop-up on 1 February lists everybody who has not paid, with their phone ' +
+      'numbers. A person sends the texts; the system only says who and when.',
+    records: ['doneForSeason'],
     next: [
       { to: 'paid',   label: 'they pay' },
-      { to: 'chase2', label: 'another 30 days pass' }
+      { to: 'chase2', label: 'the end of March passes and they still have not' }
     ] },
 
-  { id: 'chase2', title: 'Email them with a fee — 60 days', built: false,
-    notBuilt: 'Nothing sends this. The fee rule exists in the page as a preview marked ' +
-      '"not built" — $25 if they have paid something, $40 if they have paid nothing — ' +
-      'and no code charges it.',
-    plain: 'Sends by itself, with a new invoice carrying the late fee. The rule is already ' +
-      'written down: $25 if they have paid something, $40 if they have paid nothing.',
+  /* ⛔ THE ONLY STEP ON THIS PAGE THAT TAKES MONEY WITHOUT A PERSON, which is why it is
+     drawn as an ending that can be switched off rather than as ordinary machinery. */
+  { id: 'chase2', title: 'Email them with a fee — 1 April',
+    plain: 'Sends by itself, with the fee already added to their bill: $25 if they have ' +
+      'paid something, $40 if they have paid nothing. It is switched OFF until somebody ' +
+      'turns it on in Invoices > Nightly Automation, and there is a Check first button ' +
+      'beside the switch that writes nothing.',
+    records: ['lateFeeAt'],
     next: [{ to: 'paid', label: 'they pay' }] },
 
   /* ⚠ `newMemberFeeAppliedAt` USED TO BE ON THIS STEP AND IT IS WRONG. `runInvoiceBatch`

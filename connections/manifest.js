@@ -103,8 +103,9 @@ module.exports = [
         rules: ['Marking one built clears only that house.'] },
       { file: 'admin', el: 'editCustBuildStayBtn', where: 'Customers › All Customers', when: 'Build Them A New Set is pressed',
         rules: ['This button never also queues a recycle.'] },
-      { file: 'admin', near: 'if(warehouseRebuildFields(item.data, addrUpdates).length)', where: 'Customers › All Customers', when: 'the wire or timer changed',
-        rules: ['This can only turn it on, never off.'] },
+      { file: 'admin', near: 'else if(whChanged.length) addrUpdates.needsLightBuild = true;', where: 'Customers › All Customers', when: 'the wire changed, or the timer on a house that has colours',
+        rules: ['This can only turn it on, never off.',
+                'A timer ALONE on a house with no colours goes to needsTimerOnly instead (WH-27) — it queued a bundle nobody wanted, and with no colours the row could never clear.'] },
       /* ⚠ A REAL, LIVE BREAK — and the reason `never` exists. The house-details panel on
          an All Customers row DOES write this field, so an existence check calls it green
          for ever. What it writes is `: false` when the colour box is empty, which takes
@@ -165,10 +166,15 @@ module.exports = [
       ['Cleared some other way', 'Sitting the season out never stamps a build']
     ],
     sets: [
-      { file: 'admin', near: 'btn.dataset.whdonehouse),', where: 'Warehouse \u203a Build', when: 'one house is marked done',
-        rules: ['It records the button being pressed, not a bundle being made \u2014 so every screen says "marked built", never "built".'] },
-      { file: 'admin', near: 'const missedHouses = []', where: 'Warehouse \u203a Build', when: 'a whole colour group is marked finished',
-        rules: ['A house that will not save is named, and stays on the build list.'] }
+      /* ⭐ ONE SITE SINCE 2026-09-17 ([[WH-38]]). Both Mark Done buttons \u2014 one house, and a
+         whole colour group \u2014 used to write this stamp out separately; they now share
+         `whBuiltUpdates`, so the build flag, the top-up figure, the bin label, the date and
+         the one-time warehouse note cannot be handled one way on one path and another way on
+         the other. This check found the two old anchors still present but no longer writing
+         the field, which is exactly what it is for. */
+      { file: 'admin', near: 'function whBuiltUpdates()', where: 'Warehouse \u203a Build', when: 'either Mark Done is pressed \u2014 one house or a whole colour group',
+        rules: ['It records the button being pressed, not a bundle being made \u2014 so every screen says "marked built", never "built".',
+                'A house that will not save is named, and stays on the build list.'] }
     ],
     reads: [
       { file: 'admin', el: 'whFindNotQueuedBtn', where: 'Warehouse \u203a Tools', when: 'Check The Build Queue is run',

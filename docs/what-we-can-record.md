@@ -47,11 +47,12 @@ Which colours, and the order if they alternate.
 
 ### Wire colour
 
-White or green wire.
+White or green wire. We choose it; nobody is asked. Blank means nobody has
+looked in the bin yet, which the warehouse reads as Check lights.
 
-- **Asked at:** the quote form and the member portal
+- **Asked at:** nowhere — the office sets it, or the warehouse does when they are at the bin
 - **Sets the price:** No
-- **Has to reach:** Quote · Confirmation · Customer record · Warehouse pull list
+- **Has to reach:** Customer record · Warehouse pull list
 
 ### Timer
 
@@ -129,7 +130,7 @@ Whether they want the bill posted rather than emailed.
 
 How many bins their lights fill. Worked out from the feet, never asked.
 
-- **Asked at:** derived — one bin per 260 ft
+- **Asked at:** derived — one bin per 320 ft
 - **Sets the price:** No
 - **Has to reach:** Customer record · Warehouse pull list · Routes · Schedule
 

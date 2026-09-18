@@ -90,6 +90,11 @@ const QUEUE_SITES = [
   { file: 'admin.html', fn: 'whFindNotQueuedBtn handler' },
   { file: 'admin.html', fn: 'editCustBuildStayBtn handler' },
   { file: 'admin.html', fn: 'editCustSaveBtn handler' },
+  /* ⭐ PICKING THE WIRE COLOUR OFF THE HOUSE PHOTO (added 2026-09-17). A wire colour is one
+     of the three WAREHOUSE_BUILD_FIELDS, so answering the notice on a house whose bundle was
+     already made in the "Check lights" pile queues it to be made again — a real queueing
+     place, declared in the same change that built it. */
+  { file: 'admin.html', fn: 'wirePickSet' },
   { file: 'functions/index.js', fn: 'portalSave' },
   { file: 'functions/index.js', fn: 'seasonYesUpdates' },
   { file: 'functions/index.js', fn: 'portalRsvp' }
@@ -1184,14 +1189,21 @@ check('the path still has every step in it',
     receiptSentAt: 'a receipt follows a payment, and the payment is already a row',
     receiptErrorAt: 'a receipt that failed to send is an office problem, not a stage of ' +
       'the customer\'s journey — it belongs in the error log',
-    smsOptedOutAt: 'a contact preference, not a stage — it changes how we reach them, ' +
-      'not where they are',
+    /* ⛔ smsOptedOutAt AND quoteSmsSentAt CAME OFF THIS LIST ON 2026-09-12 ([[QT-41]]), and
+       this note is here so nobody puts them back by reflex. Both were written only inside
+       the quote card's "Send the text" handler, which called Twilio; there is no Twilio
+       account, so that button could never work and it is gone. Nothing writes either field
+       any more, and this gate is right that a standing excuse for a field that no longer
+       exists will quietly cover the next one that looks like it.
+       ⚠ THE CONSEQUENCE IS REAL AND IS NOT THIS FILE'S TO FIX: with the send gone, nothing
+       DETECTS a STOP reply — Twilio's 21610 was the only thing that ever set smsOptedOut.
+       The flag still exists, is still read by the RSVP text list, and is now set only by a
+       person ticking it on the customer record. */
     followUpAt: 'a flag on a QUOTE that the office needs to look at it, cleared by ' +
       'followUpClearedAt; it is a to-do, not something that happened to the customer',
     followUpClearedAt: 'the other end of that to-do',
     quoteManuallySentAt: 'the office sending a quote by hand — quoteSentAt is the step, and ' +
       'two rows for one email would read as two emails',
-    quoteSmsSentAt: 'the same quote going out as a text as well; still one quote sent',
     quoteArchivedAt: 'a quote being filed away is housekeeping on the quote, not a stage — ' +
       'and the customer-facing halves (declined, back next year) are stages of their own',
     /* ⚠ THE SAME SHAPE AS quoteArchivedAt ABOVE, and it earns its own entry because it
@@ -1240,10 +1252,75 @@ check('the path still has every step in it',
       'the same shape as arrearsPaidNoticeAt above and excused for the same reason: it ' +
       'records that WE wrote to them, not anything the customer did. Their side of it ' +
       'is the RSVP answer and the payment, and both are already steps',
+    rsvpEmailedAt: 'the once-per-season guard on the office\'s own RSVP send — the same ' +
+      'shape as arrearsRsvpEmailAt above and excused for exactly the same reason: it ' +
+      'records that WE wrote to them, not anything the customer did. Their side of it is ' +
+      'the RSVP answer, which is already a step. It exists because nothing recorded who ' +
+      'the send had reached, so 392 customers Gmail refused could not be told apart from ' +
+      'the ones who got it (EM-04)',
+    /* ⚠ THE CHANGE ITSELF IS ALREADY IN THE HISTORY, and not through this field.
+       `logPortalChange` writes an activity row the moment the member saves — "They changed
+       it themselves in their portal — Wire colour: white → green" — so the thing that
+       happened to this customer is recorded, dated and readable. This is the quiet-window
+       guard that stops the SAME confirmation going out twice in half an hour. */
+    /* ⚠ THIS ONE IS NOT EVEN ON THE CUSTOMER. It is stamped on the messages document, and
+       it records that the OFFICE answered a question — the wire colour itself reaches the
+       customer's history through the ordinary change log, dated, like any other edit. */
+    wirePickedAt: 'when the office answered a Pick a Wire Colour notice. The same shape as ' +
+      'portalChangeEmailAt below: it says when WE dealt with a notice, not something that ' +
+      'happened to the customer, and it is written on the messages document',
+    portalChangeEmailAt: 'the quiet-window guard on the member-portal auto-reply — the ' +
+      'arrearsRsvpEmailAt shape exactly: it records that WE wrote back to them, not ' +
+      'anything the customer did. Their side of it is the change itself, which ' +
+      'logPortalChange already puts in the history as its own dated row (EM-18)',
+    /* ⚠ THE CHARGE IS ALREADY IN THE HISTORY, AND NOT THROUGH THIS FIELD. The 1 April
+       batch writes the fee as a `changeFeeNotes` entry with kind 'late', so
+       historyNoteRows renders it as "Late fee $25.00 — Unpaid after 28 February" against
+       the note's own date, and the × in Edit Customer can waive it. This date is the
+       once-per-invoice guard that stops the batch charging the same customer twice on a
+       re-run — the arrearsRsvpEmailAt shape exactly: our bookkeeping about a thing WE
+       did. Drawn as a step it would put a second milestone on the picture for one charge,
+       and it could not be read anyway: it lives on the INVOICE, not on jobAddresses. */
+    lateFeeAt: 'the once-per-invoice guard on the 1 April late-fee run — the charge ' +
+      'itself is a kind-tagged fee line and is already in the history and waivable; ' +
+      'this only records that the batch has been through, and it is on the invoice',
+    doneAt: 'not on a customer at all — it is on settings/lateChaseTexts, where the ' +
+      'office records that it has sent the 1 February reminder texts, so the pop-up ' +
+      'stops asking for the rest of that season. Whose bill it was is not in it',
     archivedAt: 'on the archivedCustomers document, written as the customer is removed — ' +
       'the customer-side event is the recycle, and a step here could never be read because ' +
       'the jobAddresses record no longer exists',
     recycledAt: 'the same: closing off an ARCHIVED entry once the lights are back in stock',
+    /* ⚠ BOTH ARE THE WAREHOUSE'S SIDE OF AN EVENT THAT IS ALREADY A STEP. 'they ask for
+       different lights' (lightsChangedAt) is the moment on this customer's path; these two
+       date the JOB that moment creates and then closes — our own shop-floor bookkeeping,
+       the same shape as arrearsPaidNoticeAt above. Drawn as steps they would put a second
+       and third milestone on the picture for one thing the customer did, and the second of
+       them would date a day nothing happened to the customer at all: somebody in the
+       warehouse pressing Mark Done. */
+    colorChangeRequestedAt: 'when the warehouse was told to make the new set up — the ' +
+      'customer-side event is lightsChangedAt, "they ask for different lights", which is ' +
+      'already a step. This dates the work order, and it is also written by the manual ' +
+      'Color Change button, where the customer did nothing at all',
+    colorChangeDoneAt: 'when somebody in the warehouse pressed Mark Done on that work ' +
+      'order — a thing WE did, on a day nothing happened to the customer. The bundle ' +
+      'reaching them is the install, which is already on the path',
+    /* ⭐ [[WH-34]], and it is colorChangeDoneAt's shape exactly. The customer-side event —
+       them saying they no longer want a timer — is a preferences change and is already
+       recorded in their history through the change log; this dates somebody walking to a
+       shelf afterwards. */
+    timerRemovedAt: 'when somebody in the warehouse pressed Timer taken out — a thing WE ' +
+      'did on a day nothing happened to the customer. Them asking to be rid of the timer ' +
+      'is the customer-side event, and the change log already carries it',
+    /* ⭐ [[RS-60]]. The customer-side EVENT is the RSVP answer itself, and that is
+       already a step (`rsvpRespondedAt`). This dates a detail added to that answer a
+       moment later — they have not moved along the path, they are exactly where the
+       no put them, and drawing it would put a second milestone on the picture for one
+       decision. Same shape as gateCodeUpdatedAt below. */
+    rsvpDeclineReasonAt: 'when they told us WHY they are not having lights — the answer ' +
+      'itself is the step and is already on the path as rsvpRespondedAt. This exists so ' +
+      'the portal can tell a reason already given from one never asked for, and stop ' +
+      'putting the question again to somebody who has answered it',
     gateCodeUpdatedAt: 'a DETAIL being corrected, not a stage anybody passes through. A customer confirming or fixing their gate code during the RSVP has not moved along the path — they are wherever they already were, and drawing it as a step would put a milestone on the picture for a four-digit correction. It exists so the office can tell a code confirmed this season from one sitting on the record since an import',
 
     /* ⚠ BOTH LIVE INSIDE referralCredits[], AND THEY ARE ABOUT SOMEBODY ELSE. A step on
@@ -1262,6 +1339,33 @@ check('the path still has every step in it',
     waivedAt: 'the same entry again, dating the OFFICE crossing the discount off with ' +
       'the × — our own bookkeeping about a line on a bill, and nothing that happened to ' +
       'either customer',
+
+    /* ⚠ THE STAGE IS REAL AND IS ALREADY ON THE PATH UNDER ANOTHER NAME. portalChangeAddress
+       writes this in the SAME update as seasonStatus going to 'address_changed', and that
+       goes through stampSeasonStatusServer — so `seasonStatusAt` dates this very moment,
+       is a step above, and historySeasonWords already reads it as "They told us their
+       address changed". Listing both would put two rows on the history for one event, and
+       the second would carry no words of its own. */
+    pendingAddressAt: 'the moment a customer tells the portal they have moved — the same ' +
+      'update sets seasonStatus to address_changed, so seasonStatusAt is the step and the ' +
+      'history already names it; this is the bookkeeping date on the pending request',
+
+    /* ⚠ NEITHER OF THESE IS ON A CUSTOMER AT ALL, which is the cleanest reason to be off
+       the path: both live in the `settings` collection. `builtAt` dates the office
+       assembling the RSVP drip's queue (settings/rsvpSendPlan) and `rsvpSentAt` dates the
+       season's RSVP having started to go out (settings/season). The per-customer facts they
+       sit beside ARE on the path — a customer's own RSVP answer is rsvpRespondedAt, and
+       whether they were emailed is rsvpEmailedAt, which the Inbox and the drip both read.
+       ⚠ AND rsvpSentAt IS DELIBERATELY NOT A STEP EVEN THOUGH IT LOOKS LIKE ONE. It is one
+       date for the whole book, so drawn on a path it would put the identical row on every
+       customer's history — including the several hundred the drip has not reached yet,
+       which is precisely the difference the card under Automation Emails exists to show. */
+    builtAt: 'when the office assembled the RSVP drip queue, on settings/rsvpSendPlan — a ' +
+      'document about the send, not about any customer; the per-customer date is ' +
+      'rsvpEmailedAt when their own email actually goes',
+    rsvpSentAt: 'when the season\'s RSVP started going out, on settings/season — one date ' +
+      'for the whole book, so on a path it would stamp the same row on every customer ' +
+      'including everybody not yet emailed',
 
     /* --- the crew portal, dormant this season --- */
     fixFlaggedAt: 'the crew portal raising a fault; fixRaisedAt is the step, and the portal ' +
