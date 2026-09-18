@@ -345,7 +345,7 @@ test.describe('The short referral link', () => {
 });
 
 /* ==========================================================================
-   WHICH SIDES, ON THE FORM THE CUSTOMER FILLS IN ([[OPT-22]], 2026-09-18)
+   WHICH SIDES, ON THE FORM THE CUSTOMER FILLS IN ([[OPT-23]], 2026-09-18)
 
    Addie: "on quotes/Requotes can we make front, left, right, back multiple optional
    choose", and "is there a place on the quotes form that allows them to choose front,

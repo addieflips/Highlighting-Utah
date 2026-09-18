@@ -7544,6 +7544,58 @@ suite('9. Portal sign-in security');
       })());
     }
   }
+  /* ⭐ CLOUDINARY IS WATCHED BEFORE IT RUNS OUT ([[PROC-34]], 2026-09-18). The account was
+     switched off on 9/9 and the first anybody heard was a failed upload. The rule is RUN
+     against Cloudinary's real usage shape, and the writer against a fake Firestore whose
+     create() refuses a second copy the way the real one does. */
+  {
+    const cuStart = fns.indexOf('function cloudinaryUsageNote(');
+    const cwStart = fns.indexOf('async function runCloudinaryUsageWatch(');
+    const cuSrc = cuStart > -1 ? sectionFrom(fns, cuStart) : '';
+    const cwSrc = cwStart > -1 ? sectionFrom(fns, cwStart) : '';
+    check('money', 'the Cloudinary usage watch was found', !!cuSrc && !!cwSrc, 'renamed? repoint this lift');
+    check('money', 'and it runs every day with the Cloudinary secrets',
+      /exports\.cloudinaryUsageWatch\s*=\s*onSchedule\(\s*\{[^}]*secrets:\s*\[CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET\]/.test(fns),
+      'without the secrets bound the usage read is refused every morning and says nothing');
+    if (cuSrc && cwSrc) {
+      const mk = new Function('CLOUDINARY_WARN_PERCENTS', cuSrc + '; return cloudinaryUsageNote;');
+      const note = mk([95, 80]);
+      const NOW = Date.parse('2026-09-18T15:00:00Z');
+      const at = pct => ({ plan: 'Plus', last_updated: '2026-09-17', credits: { usage: pct * 2.25, limit: 225, used_percent: pct } });
+      check('money', 'a healthy month says nothing', note(at(15.64), NOW) === null, 'the account was at 15% on the day this was written');
+      const n80 = note(at(81), NOW), n95 = note(at(96), NOW);
+      check('money', 'crossing 80% raises a note for this month',
+        !!n80 && n80.ref === 'cloudinary-usage-2026-09-80' && /81%/.test(n80.message), JSON.stringify(n80));
+      check('money', 'and crossing 95% raises a second, separate one',
+        !!n95 && n95.ref === 'cloudinary-usage-2026-09-95', JSON.stringify(n95));
+      const off = note({ error: { message: 'cloud_name is disabled' } }, NOW);
+      check('money', 'a switched-off account is reported the same day',
+        !!off && off.ref === 'cloudinary-off-2026-09-18' && /switched the account off/.test(off.message), JSON.stringify(off));
+      check('money', 'but any other failure stays quiet',
+        note({ error: { message: 'Invalid api_key' } }, NOW) === null && note({}, NOW) === null && note(null, NOW) === null,
+        'a blip is not news about the account, and a note for one buries the note that is');
+      /* The writer: one note per ref, however many mornings it runs. */
+      const created = {};
+      const fakeDb = { collection: () => ({ doc: id => ({ create: async d => {
+        if (created[id]) { const e = new Error('6 ALREADY_EXISTS: Document already exists'); e.code = 6; throw e; }
+        created[id] = d; } }) }) };
+      let answer = at(82);
+      const fakeFetch = async () => ({ json: async () => answer });
+      const secret = v => ({ value: () => v });
+      const run = new Function('db', 'admin', 'fetch', 'Buffer', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET', 'CLOUDINARY_CLOUD_NAME',
+        'cloudinaryUsageNote', 'console', cwSrc + '; return runCloudinaryUsageWatch;')(
+        fakeDb, { firestore: { FieldValue: { serverTimestamp: () => 'TS' } } }, fakeFetch, Buffer,
+        secret('k'), secret('s'), 'highlighting-utah', note, { error() {} });
+      pendingAsync.push((async function () {
+        const r1 = await run(), r2 = await run();
+        const ids = Object.keys(created);
+        check('money', 'the note lands in the System inbox once, not every morning',
+          r1.noted === true && r2.noted === false && r2.ok === true && ids.length === 1 &&
+            created[ids[0]].folder === 'System',
+          'first ' + JSON.stringify(r1) + ', second ' + JSON.stringify(r2) + ', notes ' + ids.join(','));
+      })());
+    }
+  }
   /* ⭐ AND IT REACHES THE SYSTEM INBOX (2026-08-30). Addie: "we need unmatched invoice to
      come up in system inbox before we send it out." A text is gone the moment you look
      away; a note keeps until somebody deals with it, and the money is real. */
@@ -20886,7 +20938,7 @@ suite('Suite 62. Which sides of the house');
        front of a stranger deciding whether to ask for a price. The claim is unchanged —
        the customer is still asked directly, and their answer still reaches the record —
        so this follows the row rather than being dropped. */
-    /* ⚠ AND THE QUESTION CHANGED SHAPE ON 2026-09-18 ([[OPT-22]]): it asks WHICH sides
+    /* ⚠ AND THE QUESTION CHANGED SHAPE ON 2026-09-18 ([[OPT-23]]): it asks WHICH sides
        rather than how many, and the count is their length. The claim here is unchanged and
        is why this follows the control rather than being dropped — the customer is still
        asked directly, and their answer still reaches the record. */
@@ -20902,13 +20954,13 @@ suite('Suite 62. Which sides of the house');
     check('S62', 'one side is pre-picked on the details form',
       /class="qd-side-pick" value="Front" checked/.test(index),
       'Addie: "1 side should be default" — the commonest answer by far is the front only, ' +
-      'and since [[OPT-22]] that default is the FRONT by name rather than the number 1');
+      'and since [[OPT-23]] that default is the FRONT by name rather than the number 1');
 
     /* ⭐ ONE COUNT, THE SAME ON ALL THREE FORMS. Owner, 2026-08-19: "in the website
        its called front left right and back side, we need it to say 1, 2, 3, or 4 sides
        of the house so then it can just be connected and we dont have to guess if its
        the left or right side." */
-    /* ⚠ THE DETAILS FORM LEFT THIS LOOP ON 2026-09-18 ([[OPT-22]]) — it no longer offers a
+    /* ⚠ THE DETAILS FORM LEFT THIS LOOP ON 2026-09-18 ([[OPT-23]]) — it no longer offers a
        count at all, so demanding one of it would fail on correct code. The two OFFICE forms
        still ask for a count directly and that half is unchanged, which is why the loop
        stays rather than being deleted. What the customer is offered is checked below. */
@@ -20917,7 +20969,7 @@ suite('Suite 62. Which sides of the house');
         admin.indexOf('class="editcust-side-pick" value="' + n + '"') > 0 &&
         admin.indexOf('class="addcust-side-pick" value="' + n + '"') > 0);
     });
-    /* ⭐ AND THE CUSTOMER IS OFFERED THE FOUR SIDES BY NAME ([[OPT-22]], 2026-09-18).
+    /* ⭐ AND THE CUSTOMER IS OFFERED THE FOUR SIDES BY NAME ([[OPT-23]], 2026-09-18).
        Addie: "on quotes/Requotes can we make front, left, right, back multiple optional
        choose." The same four the Member Portal's Sides tab offers — one question, asked
        one way, or the two start meaning different things. */
@@ -21017,7 +21069,7 @@ suite('Suite 62. Which sides of the house');
     'both convert paths go through this form, so this one fill covers them');
   {
     const index = read('index.html');
-    /* ⚠ REPOINTED 2026-09-18 ([[OPT-22]]): the form asks WHICH sides now, so the count is
+    /* ⚠ REPOINTED 2026-09-18 ([[OPT-23]]): the form asks WHICH sides now, so the count is
        the length of what they ticked rather than a radio value. The old note read 'get, not
        getAll — it is one radio group now', which was right about the control it described
        and is simply not the question any more. What still has to hold is that BOTH fields
@@ -21314,7 +21366,7 @@ suite('Suite 313. Which sides, by name — sanitized server-side, and the list w
   const body = at > 0 && end > at ? fns.slice(at, end) : '';
   check('S313', 'the sides branch was found', !!body);
 
-  /* ⚠ sanitizeSideNames IS LIFTED, NEVER STUBBED ([[OPT-22]], 2026-09-18). It was inline in
+  /* ⚠ sanitizeSideNames IS LIFTED, NEVER STUBBED ([[OPT-23]], 2026-09-18). It was inline in
      this branch until the Install Details form began asking the same question; extracting it
      left this sandbox calling a name it had never been given, and the suite died on a bare
      ReferenceError naming nothing else — the extraction-list trap, for the eleventh time in
@@ -21326,7 +21378,7 @@ suite('Suite 313. Which sides, by name — sanitized server-side, and the list w
   check('S313', 'the shared side sanitizer was found', !!sideSanitizer,
     'renamed? repoint this rather than stubbing it — a stub makes every check below decorative');
 
-  /* ⚠ THE RULE MOVED OUT OF THIS BRANCH ON 2026-09-18 ([[OPT-22]]) so the quote form could
+  /* ⚠ THE RULE MOVED OUT OF THIS BRANCH ON 2026-09-18 ([[OPT-23]]) so the quote form could
      ask it too, so this asserts the branch ASKS it and that the shared rule is the canonical
      four. Pinned to the declaration inside the branch it would fail on correct code; pinned
      to nothing it would pass on a second copy quietly drifting. */
@@ -31245,15 +31297,32 @@ suite('Suite 80. A blank is a blank, and a default is a default');
     "found: " + PREANSWERED.join(" ") + " — all four of these were once ticked on No, so " +
     "a customer who never read the question was recorded as having said no to it. Once " +
     "that is on the record it cannot be told apart from a real answer");
-  /* ⚠ AND THE EXCLUSION IS ITSELF BOUNDED. The only pre-picked radio allowed on this
-     page is the side count; anything else checked is a question somebody has to have
-     thought about, so it fails here and has to be argued for. */
+  /* ⚠ AND THE EXCLUSION IS ITSELF BOUNDED — REPOINTED 2026-09-18, NOT WEAKENED.
+     This read "the side count is the only thing pre-picked at all", a count of tags, and
+     [[OPT-22]] added a second pre-picked radio: the wire colour opens on **Any**, because
+     "keep it at any" only means anything if that is where the form starts.
+     ⛔ THAT IS THE OPPOSITE OF THE FAULT THIS GUARDS, and the difference is the whole
+     ruling: a pre-ticked **No** WRITES an answer nobody gave, while Any writes NOTHING —
+     it is the blank-if-unanswered state wearing a visible label. So the rule is stated as
+     what it always meant: a pre-picked radio must either store nothing (an empty value) or
+     be one she asked for by name. `house_sides` is the second kind ("1 side should be
+     default"); a new one with a real value fails here and has to be argued for. */
+  const PREPICKED_BY_NAME = ['house_sides'];
   const OTHER_CHECKED = (idx.match(/<input type="radio"[^>]*checked[^>]*>/g) || [])
-    .filter(function(tag){ return tag.indexOf('name="house_sides"') === -1; });
-  check('S80', 'and the side count is the only thing pre-picked at all',
+    .filter(function(tag){
+      if(PREPICKED_BY_NAME.some(function(nm){ return tag.indexOf('name="' + nm + '"') !== -1; })) return false;
+      return !/value=""/.test(tag);
+    });
+  check('S80', 'and anything else pre-picked stores nothing at all',
     !OTHER_CHECKED.length,
-    'found: ' + OTHER_CHECKED.join(' ') + ' — a pre-picked answer is a claim that ' +
-    'somebody was asked, and only the side count has earned one');
+    'found: ' + OTHER_CHECKED.join(' ') + ' — a pre-picked answer that gets STORED is a ' +
+    'claim that somebody was asked; only the side count has earned one');
+  /* ⚠ AND THE EMPTY-VALUE ESCAPE IS ITSELF CHECKED, or it becomes a way through: a radio
+     whose value is blank must genuinely reach a guard that drops it. */
+  check('S80', 'and the one that opens blank is guarded where it is read',
+    !/name="wire_color" value="" checked/.test(idx) ||
+    /if\(qdWire\) detailPayload\.wireColor = qdWire/.test(idx),
+    'an empty-valued radio is only safe while nothing writes its value through anyway');
 
   check('S80', 'and an unanswered one is stored blank, not as a No',
     /outletTimer: fd.get\(.outlet_timer.\) \|\| ..,/.test(idx) &&
@@ -32986,14 +33055,27 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
              Asserted on the SOURCE rather than the sandbox, because the sandbox only holds
              the markup this suite hands it: a check there would prove nothing about what a
              real customer is shown. */
-          check('S70', 'the quote form no longer asks anybody for a wire colour',
-            idx.indexOf('name="wire_color"') === -1,
-            'Addie took the question off on 2026-09-17: the cord is ours to pick, and a ' +
-            'default of Any is how every record ended up claiming a colour nobody chose');
-          check('S70', 'and the detail form posts none either',
-            !/wireColor:\s*fd\.get/.test(idx),
-            'a field still posted would be stamped on the quote and carried to the customer ' +
-            'by conversion, which is the invented colour arriving by a different door');
+          /* ⭐ REPOINTED 2026-09-18, NOT WEAKENED — [[OPT-22]]. These two asserted the
+             question was GONE, which was [[OPT-12]]; Addie put it back the next day as
+             "Any, Green, White. With instructions on what to pick." What both checks were
+             really protecting is untouched and is what they assert now: the form can never
+             stamp a colour nobody chose. The old wording is kept below so the reversal is
+             legible rather than looking like a check somebody softened. */
+          check('S70', 'the quote form asks for a wire colour, and offers Any',
+            idx.indexOf('name="wire_color"') !== -1 &&
+            /name="wire_color" value="" checked/.test(idx),
+            'OPT-22 put the question back on the detail form, with Any pre-picked — "keep it at any" only ' +
+            'means anything if that is where the form starts');
+          check('S70', 'and Any can never be posted as a colour',
+            !/value="Any"/i.test(idx) && /function qdWireChoice\(/.test(idx),
+            'a pill that posts the word Any is the invented colour OPT-12 refused, wearing ' +
+            'a label — it would head a warehouse pile "Any wire"');
+          check('S70', 'and the detail form posts no wire colour unless one was picked',
+            !/wireColor:\s*fd\.get/.test(idx) &&
+            /if\(qdWire\) detailPayload\.wireColor = qdWire/.test(idx),
+            'a field posted unconditionally would stamp the quote and be carried to the ' +
+            'customer by conversion — and a posted blank would ERASE a colour a re-quote ' +
+            "prefilled off the member's own record");
         }
       }
 
@@ -54286,7 +54368,7 @@ suite('Suite 302. The free quote asks less, and the property list outlives it');
 
   /* ---- the sides question, on its new form ---- */
   check('S302', 'the details form asks it instead', idx.indexOf('id="qdSidesRow"') > 0);
-  /* ⚠ ASKED BY NAME SINCE 2026-09-18 ([[OPT-22]]) — "front, left, right, back multiple
+  /* ⚠ ASKED BY NAME SINCE 2026-09-18 ([[OPT-23]]) — "front, left, right, back multiple
      optional choose" — so the default is the FRONT rather than the number 1. Same ruling
      of hers underneath it either way: the commonest answer by far is the front only. */
   check('S302', 'with one side pre-picked',
@@ -54299,7 +54381,7 @@ suite('Suite 302. The free quote asks less, and the property list outlives it');
      whitelist and the emailed-link path — the common one — goes through it, so a field
      the browser sends and the function drops is lost with nothing wrong on screen. */
   const fns = read('functions/index.js');
-  /* ⚠ AND THE NAMES HAD TO JOIN THAT WHITELIST TOO ([[OPT-22]]) — the note above is the
+  /* ⚠ AND THE NAMES HAD TO JOIN THAT WHITELIST TOO ([[OPT-23]]) — the note above is the
      same warning, and it is why this half is checked at all. The clamp survives as the
      fall-back for a quote raised before the form asked by name. */
   /* ⛔ AND THE NAMES DECIDE THE COUNT THERE TOO. A red-check found nothing asserting this:

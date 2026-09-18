@@ -3602,7 +3602,7 @@
               </div>
               <div id="lateFeeReport" style="font-size:12.5px; margin-top:8px;"></div>
             </div>
-            <!-- ⛔ THE NIGHTLY ALERT PHONE IS GONE (2026-09-11, [[QT-49]]). It fed twilioSendRaw on a
+            <!-- ⛔ THE NIGHTLY ALERT PHONE IS GONE (2026-09-11, [[QT-48]]). It fed twilioSendRaw on a
                  Twilio account that was never set up with real credentials, so the text it promised —
                  "sent by text (not email), so it reaches you even when email is the
                  problem" — has never once arrived. We text from Google Voice, which has no
@@ -6997,7 +6997,7 @@ function __setEl(id, path, val){
 const auth = getAuth(app);
 const db = getFirestore(app);
 const fbFunctions = getFunctions(app);
-/* ⛔ THERE IS NO `sendSms` ANY MORE, HERE OR ON THE SERVER ([[QT-41]], [[QT-49]]). Its one
+/* ⛔ THERE IS NO `sendSms` ANY MORE, HERE OR ON THE SERVER ([[QT-41]], [[QT-48]]). Its one
    caller was the quote card's Send the text button, which never worked. Dax, 2026-09-18:
    "we dont use twillo at all thats a bug". The Cloud Function and `twilioSendRaw` were
    deleted with it, and the deploy's --force takes the callable off Firebase. We text from
@@ -17216,7 +17216,7 @@ function renderQuoteRows(filtered){
               '</div>'+
             '</div>'
           : '')+
-        // ⚠ New quotes carry no preference ([[QT-49]]), so "Prefers:" only shows when one exists.
+        // ⚠ New quotes carry no preference ([[QT-47]]), so "Prefers:" only shows when one exists.
         (function(parts){ return parts.length ? '<div class="rtext">'+parts.join(' &middot; ')+'</div>' : ''; })([
           d.contactMethod ? 'Prefers: '+esc(d.contactMethod) : '',
           formDone && d.outletTimer ? 'Timer: <strong>'+esc(d.outletTimer)+'</strong>' : '',
@@ -26156,7 +26156,7 @@ function loadInvoices(){
    Asked directly whether the system should text customers itself, she chose
    "Office sends it, system flags the list" — which is also her own 2026-08-29
    ruling, "The text should notify us when we need to send that." Nothing in this app
-   sends a text by itself any more ([[QT-49]]): the two office alerts that used to
+   sends a text by itself any more ([[QT-48]]): the two office alerts that used to
    try Twilio raise System notes in the Inbox instead, and this does not add a sender.
 
    ⚠ IT IS NOT A ONE-DAY POP-UP, WHICH IS THE WHOLE OF WHAT MAKES IT USEFUL.

@@ -41,7 +41,7 @@ const PROSE = {
      The prose is the ONE hand-written part of this file, so it is also the one part that
      can go on claiming a question we stopped asking — the destinations below it are read
      out of the registry and corrected themselves. */
-  wireColor:          ['White or green wire. We choose it; nobody is asked. Blank means nobody has\nlooked in the bin yet, which the warehouse reads as Check lights.', 'nowhere — the office sets it, or the warehouse does when they are at the bin'],
+  wireColor:          ['White or green wire — the cord the bulbs sit on. The detail form offers\nAny, Green or White, and Any is what it starts on. Any stores nothing at all,\nso the warehouse reads Check lights and the office has to pick one before that\nquote can be converted.', 'the detail form, after they approve — and the office picks when they said Any'],
   outletTimer:        ['Whether they want a timer on the outlet.', 'the quote form and the member portal'],
   useEaves:           ['Whether we may use an outlet up in the eaves.', 'the quote form'],
   specificOutlet:     ['Which specific outlet to plug into, in their words.', 'the quote form, and picked out of the Misc column on the master sheet'],

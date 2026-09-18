@@ -585,7 +585,7 @@ exports.paypalCaptureOrder = onCall(
  * The Twilio secrets never held working credentials, so every call came back 20003
  * "Authentication Error - invalid username" — the customer-facing one loudly, in front
  * of the office, and the two owner alerts silently, because the helper swallowed it.
- * Removed from main 2026-09-18 ([[QT-49]]). Dax, first on 2026-09-11: "we dont want twillo we
+ * Removed from main 2026-09-18 ([[QT-48]]). Dax, first on 2026-09-11: "we dont want twillo we
  * want to use google voice", and again on 2026-09-18: "we dont use twillo at all thats a bug".
  *
  * ⚠ GOOGLE VOICE HAS NO SEND API. This is not a missing integration to be filled in
@@ -706,7 +706,7 @@ const PORTAL_WRITE_FIELDS = {
 // pricing, customer number, bin assignments, difficulty rating, test-account
 // flag, don't-install-before date, crew notes — never leaves the server.
 /* ⭐ THE FOUR SIDES THIS APP KNOWS, IN ONE FIXED ORDER, AND THE ONE RULE THAT CLEANS A
-   LIST OF THEM. Extracted 2026-09-18 ([[OPT-22]]) when the Install Details form began
+   LIST OF THEM. Extracted 2026-09-18 ([[OPT-23]]) when the Install Details form began
    asking the same question the Member Portal's Sides tab asks — it was inline in
    portalSave until then, and a second copy in quoteSaveDetails would be a second answer to
    "what did they tick, in what order".
@@ -2233,7 +2233,7 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
        names and a count of two disagreeing with each other is either a stale
        page or a tampered request; the list is the one a person actually ticked
        box by box, so it is the one trusted to say how many. */
-    /* ⚠ THE RULE MOVED TO sanitizeSideNames ([[OPT-22]], 2026-09-18) so the quote form
+    /* ⚠ THE RULE MOVED TO sanitizeSideNames ([[OPT-23]], 2026-09-18) so the quote form
        can ask it too. Nothing about what survives changed — same four names, same order,
        same dropping of anything else. */
     if (updates.houseSidesList !== undefined) {
@@ -2276,7 +2276,7 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
       if (!was || !now) return false;
       return was !== now;
     };
-    /* ⚠ THIS WAS A SECOND COPY OF THE SAME RULE and is now the shared one ([[OPT-22]],
+    /* ⚠ THIS WAS A SECOND COPY OF THE SAME RULE and is now the shared one ([[OPT-23]],
        2026-09-18). It predates the extraction — it sat beside the inline SIDE_NAMES doing
        the identical job — and it is the drift the extraction exists to end: this function
        decides whether somebody is RE-QUOTED by comparing two lists as sequences, so a
@@ -4489,6 +4489,19 @@ exports.quoteMemberKeptDetails = onCall({ cors: true }, async (request) => {
   return { ok: true };
 });
 
+/* ⛔ ONLY THE TWO REAL COLOURS, AND NEVER ON TRUST ([[OPT-22]], 2026-09-18). The browser
+   has its own copy of this rule (`qdWireChoice` in index.html) so the radio it posts is
+   already one of three values — but this is a PUBLIC callable reached with nothing but a
+   quote token, so the browser's answer is a suggestion and this is the decision. Anything
+   that is not White or Green, the word 'Any' included, comes back empty and the caller
+   writes no field at all.
+   ⚠ PAIRED WITH `qdWireChoice`, and wire-pick.test.js compares the two: two copies of one
+   rule is how a colour the office cannot save reaches a quote. */
+function quoteWireChoiceServer(v) {
+  const w = String(v == null ? '' : v).trim();
+  return (w === 'White' || w === 'Green') ? w : '';
+}
+
 exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
   const body = request.data || {};
   const quoteToken = body.quoteToken ? String(body.quoteToken).trim() : '';
@@ -4514,16 +4527,22 @@ exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
   /* ⚠ SANITIZED ONCE, ABOVE THE WRITE, because the count is its LENGTH — reading it twice
      could hand the two fields different answers. Same rule the portal applies. */
   const qdSides = sanitizeSideNames(details.houseSidesList);
-  await db.collection('quotes').doc(quoteId).update({
+  /* ⚠ BUILT AS AN OBJECT AND WRITTEN BELOW, which is the wire colour's doing ([[OPT-22]],
+     the parallel one): "Any" has to add NO KEY AT ALL rather than a blank, and a key can
+     only be left out of an object that exists before the write. The sides above are
+     unaffected either way — they are always written, because the form refuses a submit
+     with nothing ticked. */
+  const quoteUpdate = {
     lightColors: colors,
     lightsDescription: str(details.lightsDescription, 400),
-    /* ⛔ NO WIRE COLOUR IS WRITTEN HERE ANY MORE (2026-09-17), and this was the SERVER'S
-       OWN COPY of the default the browser form used to apply — the emailed-link path is
-       the common one, so taking the question off index.html and leaving this line would
-       have gone on stamping 'Any' on most quotes with nothing on any screen saying so.
-       Addie, 2026-09-17: "don't add what wire color they want but push check lights then
-       warehouse chooses what wire they have on file". A field nobody sends and nothing
-       defaults is simply absent, which is what Check lights reads. */
+    /* ⭐ THE WIRE COLOUR IS WRITTEN HERE AGAIN ([[OPT-22]], 2026-09-18), and this is the
+       path that matters: the emailed-link route is the common one, so a field left off
+       this whitelist is dropped in silence and the answer is lost with nothing wrong on
+       screen — which is what happened to houseSides once already.
+       ⛔ BUT NOT AS A DEFAULT, AND NOT AS A BLANK. See quoteWireChoiceServer below: "Any"
+       adds no key at all, so it can neither invent a colour (the [[OPT-12]] fault) nor
+       erase one a re-quote prefilled off the member's own record (memberPrefill copies
+       `wireColor` onto the quote). Added after this object, only when picked. */
     outletTimer: yesNo(details.outletTimer),
     specificOutlet: specific,
     specificOutletNotes: specific === 'Yes' ? str(details.specificOutletNotes, 500) : '',
@@ -4537,7 +4556,7 @@ exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
        and anything unreadable becomes 1 rather than 0 or NaN: a side count of zero
        would price a house with no roofline. */
     houseSides: qdSides.length || Math.min(4, Math.max(1, parseInt(details.houseSides, 10) || 1)),
-    /* ⭐ AND WHICH SIDES, BY NAME ([[OPT-22]], 2026-09-18). Addie: "on quotes/Requotes can
+    /* ⭐ AND WHICH SIDES, BY NAME ([[OPT-23]], 2026-09-18). Addie: "on quotes/Requotes can
        we make front, left, right, back multiple optional choose."
        ⛔ IT HAD TO JOIN THIS WHITELIST OR IT WOULD BE LOST IN SILENCE — the warning three
        lines up is the same one, and the emailed-link path that goes through this function
@@ -4556,7 +4575,14 @@ exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
        whatever happened earlier. */
     quoteArchived: false,
     quoteArchivedReason: ''
-  });
+  };
+  /* ⛔ THE KEY IS ABSENT UNLESS THEY PICKED A COLOUR ([[OPT-22]]). Two different harms,
+     one line: writing 'Any' invents a cord nobody chose ([[OPT-12]]'s fault), and writing
+     '' erases one a re-quote prefilled off the member's own record. Absent does neither,
+     and a quote that carries none is exactly what "Check lights" reads. */
+  const quoteWire = quoteWireChoiceServer(details.wireColor);
+  if (quoteWire) quoteUpdate.wireColor = quoteWire;
+  await db.collection('quotes').doc(quoteId).update(quoteUpdate);
 
   return { ok: true };
 });
@@ -6956,6 +6982,84 @@ exports.runArrearsRsvpNow = onCall({ memory: '512MiB', timeoutSeconds: 300 }, as
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required.');
   return await runArrearsRsvpBatch('manual');
 });
+
+/* ⭐ CLOUDINARY IS WATCHED BEFORE IT RUNS OUT (2026-09-18, [[PROC-34]]). Dax: "we do use
+ * cloudinary". Every quote photo, crew-sheet photo and fix photo lives there. On 2026-09-09 an
+ * upload failed with "Cloudinary 401: cloud_name is disabled": Cloudinary had switched the
+ * whole account off, and nothing had warned anybody first. It is on the Plus plan now, at 15%
+ * of its monthly credits on 2026-09-18. What was missing is somebody being told BEFORE the
+ * limit, not only when an upload fails.
+ *
+ * ⭐ ONE NOTE PER THRESHOLD PER MONTH, and one a day while the account is switched off. The
+ * note's document id IS its ref, written with create(), so a second run finds it already
+ * there and writes nothing. A daily note saying the same thing is how the Inbox teaches the
+ * office to stop reading it.
+ * ⚠ ANY OTHER FAILURE STAYS QUIET — a network blip or a changed API answer is not news
+ * about the account, and crying wolf here buries the one note that matters. It is logged.
+ * ⚠ cloudinaryUsageNote IS PURE, so run-all.js RUNS it rather than reading it. */
+const CLOUDINARY_WARN_PERCENTS = [95, 80];
+function cloudinaryUsageNote(usage, now) {
+  const u = usage || {};
+  const day = new Date(now || Date.now()).toISOString().slice(0, 10);
+  if (u.error) {
+    const why = String((u.error && u.error.message) || u.error);
+    if (!/disabled/i.test(why)) return null;
+    return {
+      ref: 'cloudinary-off-' + day,
+      message: 'Cloudinary, where every quote and crew photo is stored, has switched the account off ("' +
+        why.slice(0, 120) + '"). Photos on quotes, crew sheets and the website will not show, and nothing new ' +
+        'can be uploaded, until it is back on. This is usually the monthly credits running out: log in at ' +
+        'cloudinary.com and check the plan and billing.'
+    };
+  }
+  const credits = u.credits || {};
+  const pct = Number(credits.used_percent);
+  if (!isFinite(pct)) return null;
+  const hit = CLOUDINARY_WARN_PERCENTS.find(t => pct >= t);
+  if (!hit) return null;
+  const month = String(u.last_updated || day).slice(0, 7);
+  return {
+    ref: 'cloudinary-usage-' + month + '-' + hit,
+    message: 'Cloudinary, where every quote and crew photo is stored, has used ' + pct.toFixed(0) +
+      '% of this month\'s credits (' + (Number(credits.usage) || 0) + ' of ' + (Number(credits.limit) || 0) +
+      (u.plan ? ', ' + u.plan + ' plan' : '') + '). At 100% Cloudinary switches the account off, which is what ' +
+      'happened on 9/9 when uploads failed with "cloud_name is disabled". Raise the plan at cloudinary.com, ' +
+      'or clear out old images, before it runs out.'
+  };
+}
+async function runCloudinaryUsageWatch() {
+  let usage;
+  try {
+    const basic = Buffer.from(CLOUDINARY_API_KEY.value() + ':' + CLOUDINARY_API_SECRET.value()).toString('base64');
+    const res = await fetch('https://api.cloudinary.com/v1_1/' + CLOUDINARY_CLOUD_NAME + '/usage',
+      { headers: { Authorization: 'Basic ' + basic } });
+    usage = await res.json().catch(() => ({}));
+  } catch (err) {
+    console.error('[HU] cloudinary usage read failed:', err);
+    return { ok: false, noted: false };
+  }
+  const note = cloudinaryUsageNote(usage, Date.now());
+  if (!note) return { ok: true, noted: false };
+  try {
+    await db.collection('messages').doc(note.ref).create({
+      topic: 'Photo Storage Needs You', folder: 'System',
+      name: '', phone: '', email: '', contactMethod: '',
+      ref: note.ref, message: note.message,
+      autoQueuedToWarehouse: false, needsReassign: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    return { ok: true, noted: true };
+  } catch (err) {
+    /* ALREADY_EXISTS is the dedupe working, not a failure. */
+    if (err && (err.code === 6 || /already exists/i.test(String(err.message)))) return { ok: true, noted: false, already: true };
+    console.error('[HU] cloudinary usage note failed:', err);
+    return { ok: false, noted: false };
+  }
+}
+exports.cloudinaryUsageWatch = onSchedule(
+  { schedule: '0 8 * * *', timeZone: 'America/Denver', secrets: [CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET] },
+  async () => { await runCloudinaryUsageWatch(); }
+);
 
 exports.sendQuoteNudges = onSchedule(
   { schedule: '0 10 * * *', timeZone: 'America/Denver', memory: '512MiB' },
