@@ -474,7 +474,17 @@ if (H) {
   const wf = [];
   {
     const at = fns.indexOf('const PORTAL_WRITE_FIELDS = {');
-    const block = at > -1 ? fns.slice(at, fns.indexOf('\n};', at)) : '';
+    /* ⚠ COMMENTS ARE STRIPPED BEFORE THE FIELD NAMES ARE READ (2026-09-18). The explanatory
+       notes inside this object quote field names and example values — [[OPT-13]]'s says the
+       old select "defaulted to 'Any' and STORED it" — and a quoted word in prose is
+       indistinguishable from a field name to the regex below. It reported Any as a portal
+       field with no label, failing two checks on a file that is right. Suites 58, 274, 275
+       and 300 each had to learn this; so did the Communication Centre's leak check. */
+    const block = at > -1
+      ? fns.slice(at, fns.indexOf('\n};', at))
+          .replace(/(^|[\s;{}()\[\],])\/\*[\s\S]*?\*\//g, '$1')
+          .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+      : '';
     let m;
     const re = /'([A-Za-z0-9_]+)'/g;
     while ((m = re.exec(block))) if (['info', 'preferences', 'lights', 'sides', 'cancel']

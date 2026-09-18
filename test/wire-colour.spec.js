@@ -5,6 +5,17 @@
  * but push check lights then warehouse chooses what wire they have on file and will make
  * it based on what wire they have."
  *
+ * ⭐ AND THE QUESTION CAME BACK THE NEXT DAY, ON A DIFFERENT TAB ([[OPT-21]], 2026-09-18).
+ * Addie: "we instruct them to pick based on gutter color however this is completley optional
+ * and they can choose Any. Which will mean we choose." What 2026-09-17 refused was never the
+ * question — it was the INVENTED ANSWER: the old select defaulted to Any and then STORED it.
+ * The new control is on the LIGHTS tab, Any is the default, and Any writes nothing at all.
+ *
+ * ⛔ SO THIS FILE IS ABOUT THE CHANGES TAB, and every claim in it still holds: a customer who
+ * came here to edit a NOTE must not touch their wire colour, not invent one and not erase
+ * one. That guarantee is what outlived the old control and it outlives this reversal too.
+ * The new control has its own coverage at the bottom of this file.
+ *
  * ⚠ THIS FILE USED TO TEST THE DROPDOWN ITSELF, and that control is gone. It is rewritten
  * rather than repaired, for the reason CLAUDE.md records about quote-card.test.js: a test
  * describing a design that has been replaced is not broken-but-correct, it is describing
@@ -59,8 +70,14 @@ test.describe('The wire colour is ours, not theirs', () => {
     await openChanges(page);
     await expect(page.locator('#wireColorSelect')).toHaveCount(0);
     /* ⚠ AND NOT BY ANY OTHER NAME. A control renamed rather than removed would pass the
-       check above while asking the same question. */
-    await expect(page.getByText(/wire colou?r/i)).toHaveCount(0);
+       check above while asking the same question.
+       ⛔ SCOPED TO THIS PANEL ([[OPT-21]], 2026-09-18). It read the WHOLE PAGE until the wire
+       question came back on the LIGHTS tab — getByText counts hidden elements too, so the
+       new control on another panel failed this one. The claim was always about the Changes
+       tab; it now says so, which is narrower and truer than what it replaced rather than
+       weaker. The Changes tab is still where somebody edits a note, and a note is still not
+       a wire colour. */
+    await expect(page.locator('#tabPanel-changes').getByText(/wire colou?r/i)).toHaveCount(0);
   });
 
   /* ⛔ THE GUARANTEE THAT OUTLIVED THE CONTROL. A customer who came here to change their
@@ -110,5 +127,83 @@ test.describe('The wire colour is ours, not theirs', () => {
     /* ⚠ PINNED TO THE CONTROL THAT EXISTS, not an or-list — a three-way selector passes on
        whichever one happens to be there and would go on passing if the real one left. */
     await expect(page.locator('.portal-tab-btn[data-tab="lights"]')).toBeVisible();
+  });
+});
+
+/* ==========================================================================
+   AND THE QUESTION THEY CAN ANSWER, ON THE LIGHTS TAB ([[OPT-21]], 2026-09-18)
+
+   Addie: "we instruct them to pick based on gutter color however this is completley optional
+   and they can choose Any. Which will mean we choose."
+
+   ⚠ A BROWSER SPEC AND NOT A SOURCE CHECK, because the two things that can go wrong here are
+   both invisible from the source and both have happened in this repo before: a control that
+   renders and saves nothing, and a default that quietly writes itself onto a record. Suite
+   340 proves the markup and the server guard; only this can say what the page POSTS.
+   ========================================================================== */
+test.describe('The wire colour they can answer, from their gutter', () => {
+  async function openLights(page) {
+    const stub = await installFirebaseStub(page);
+    const thrown = [];
+    page.on('pageerror', e => thrown.push('pageerror: ' + e));
+    page.on('console', m => { if (m.type() === 'error' && !BLOCKED.test(m.text())) thrown.push('console: ' + m.text()); });
+    /* ⚠ A REAL COLOUR CHANGE ASKS BEFORE IT SAVES — the picker warns about replacing what
+       is on file, and about the $30 outside the free window. Playwright DISMISSES a dialog
+       by default, which cancels the save and leaves the status line empty, so the test reads
+       as a broken save rather than as an unanswered question. Accepting is what the customer
+       does. Registered before the first click, or the dialog that fires during it is missed. */
+    page.on('dialog', d => d.accept());
+    await page.goto(`/index.html#/payment?token=${CUST.token}`);
+    await page.locator('.portal-tab-btn[data-tab="lights"]').click();
+    stub.thrown = thrown;
+    return stub;
+  }
+
+  test('the control is there, and it opens on Any', async ({ page }) => {
+    await openLights(page);
+    const sel = page.locator('#rcWireColor');
+    await expect(sel).toBeVisible();
+    /* ⛔ ANY IS WHERE SOMEBODY WHO READS NOTHING LANDS. That is the whole of what 2026-09-17
+       refused: the old box defaulted to a real colour and then stored it. */
+    await expect(sel).toHaveValue('');
+  });
+
+  /* ⚠ THE INSTRUCTION IS THE RULING, not the control. Without it this is just the box that
+     was deliberately removed, put back. */
+  test('it tells them to match their gutter', async ({ page }) => {
+    await openLights(page);
+    await expect(page.locator('#tabPanel-lights').getByText(/gutter/i).first()).toBeVisible();
+  });
+
+  /* ⛔ ANY POSTS NOTHING AT ALL. Not an empty string, not the word — the field must be absent,
+     because a blank would WIPE a colour the warehouse read off a photo of the house. */
+  test('leaving it on Any sends no wire colour', async ({ page }) => {
+    const stub = await openLights(page);
+    /* ⚠ THE SWATCH A CUSTOMER ACTUALLY PRESSES. `.rc-swatch` lives inside the pattern
+       builder, which is display:none until the specific-pattern box is ticked — so clicking
+       it times out on an element that exists and cannot be seen. */
+    await page.locator('.rc-simple-swatch[data-color="Red"]').click();
+    await page.locator('#lightsSaveBtn').click();
+    await expect(page.locator('#lightsSaveStatus')).toHaveText(/saved/i);
+    const data = await lastSave(stub);
+    expect('wireColor' in data).toBe(false);
+    expect(stub.thrown).toEqual([]);
+  });
+
+  /* ⭐ AND A REAL CHOICE REACHES THE RECORD, which is the half that makes the control worth
+     having at all. */
+  test('picking Green sends Green', async ({ page }) => {
+    const stub = await openLights(page);
+    await page.locator('#rcWireColor').selectOption('Green');
+    /* ⛔ AND NOTHING ELSE IS TOUCHED, DELIBERATELY. This is the commonest use of the control
+       — somebody opens Lights only to match their gutter — and it is the case the first
+       draft got wrong: wirePick was computed BELOW the nothing-changed guard, so the save
+       returned "Nothing changed" and the wire never went. Clicking a colour here as well
+       would have hidden that, because the colours changing carries the save on its own. */
+    await page.locator('#lightsSaveBtn').click();
+    await expect(page.locator('#lightsSaveStatus')).toHaveText(/saved/i);
+    const data = await lastSave(stub);
+    expect(data.wireColor).toBe('Green');
+    expect(stub.thrown).toEqual([]);
   });
 });

@@ -47390,15 +47390,22 @@ suite('273. Inbox - the count is unread, and a message can be filed without a mo
        there — but nothing failed when it was reverted to the raw field, which is the
        sidebar saying one number while the list underneath shows another.
        ⚠ THE FIXTURE MUST BE A MESSAGE THAT IS ONLY THERE BY DERIVATION — stored
-       folder:'Inbox', no filedByHand. One already carrying folder:'Cancellations' is
-       counted correctly either way and the check proves nothing. */
+       folder:'Inbox', no filedByHand. One already carrying its own folder is counted
+       correctly either way and the check proves nothing.
+       ⚠ REPOINTED FROM 'Cancellation Request' TO AN ERROR TOPIC ([[MSG-28]], 2026-09-18),
+       NEVER WEAKENED. The three customer topics stopped being derived that day — Addie
+       asked for mail to arrive in the Inbox rather than be filed for her — so that fixture
+       would now land in Inbox and this check would fail on correct code. The GUARANTEE is
+       unchanged and is what matters: wherever a message is derived TO, the sidebar count
+       and the list underneath it must agree. An error topic is still derived, so it is what
+       exercises the rule now. */
     F.set(MSGS.concat([
-      { id: 'derived', data: { folder: 'Inbox', topic: 'Cancellation Request', read: false } }
-    ]), FOLDERS.concat([{ id: 'x1', name: 'Cancellations', parentId: null }]), []);
+      { id: 'derived', data: { folder: 'Inbox', topic: 'Member Error', read: false } }
+    ]), FOLDERS.concat([{ id: 'x1', name: 'Member Errors', parentId: null }]), []);
     check('S273', 'a message derived into a folder is counted in THAT folder',
-      F.folderUnread('Cancellations') === 1,
-      'got ' + F.folderUnread('Cancellations') + ' — the sidebar would show nothing ' +
-      'beside Cancellations while the list inside it holds an unread message');
+      F.folderUnread('Member Errors') === 1,
+      'got ' + F.folderUnread('Member Errors') + ' — the sidebar would show nothing ' +
+      'beside it while the list inside holds an unread message');
     check('S273', 'and it is no longer counted in the folder it is stored in',
       F.folderUnread('Inbox') === 2,
       'got ' + F.folderUnread('Inbox') + ' — counted twice, the count and the list ' +
@@ -51729,22 +51736,33 @@ suite('292. Cancellations, the member portal, and folders in the System tab');
       'return {folderOf: messageFolderOf, sectionOf: systemNoticeSection,' +
       ' sections: SYSTEM_NOTICE_SECTIONS, home: MESSAGE_HOME_FOLDER};')();
 
-    /* ---- her three asks, run ------------------------------------------- */
-    /* ⭐ THE FIXTURE IS SHAPED THE WAY index.html REALLY WRITES ONE — folder:'Inbox',
-       important:true — because that is the shape of every cancellation already in her
-       book. A fixture carrying the new folder would pass whether the fix exists or not. */
-    check('S292', 'a cancellation lands in its own folder',
-      api.folderOf({topic: 'Cancellation Request', folder: 'Inbox', important: true}) === 'Cancellations',
+    /* ---- where mail lands, run ----------------------------------------- */
+    /* ⛔ THESE THREE ASSERTED THE OPPOSITE UNTIL 2026-09-18, AND THE OLD REASONING IS KEPT
+       BELOW BECAUSE IT WAS RIGHT AT THE TIME. [[MSG-07]] was Addie asking for cancellations
+       and portal notes to get folders of their own — "we need a place for cancelation
+       messages to go" — and this suite held that rule. [[MSG-28]] reverses that half of it:
+       "for anything that does come her instead of gmail I need everything to go into inbox
+       than be able to add my own filters and sub folders and delete the folders I want."
+       Filing mail for her before she saw it left the Inbox looking empty while the thing she
+       was after sat in a folder the app chose. REPOINTED, never deleted: the claim is still
+       that messageFolderOf decides where mail lands, and these now say where.
+       ⚠ MSG-07's OTHER HALF STANDS UNTOUCHED — the System tab's sections are further down
+       this same suite and are not part of this reversal.
+       ⭐ AND THE FIXTURES ARE STILL SHAPED THE WAY index.html REALLY WRITES ONE —
+       folder:'Inbox', important:true — which is the shape of every cancellation already in
+       her book, so these say what happens to the mail she actually has. */
+    check('S292', 'a cancellation lands in the Inbox',
+      api.folderOf({topic: 'Cancellation Request', folder: 'Inbox', important: true}) === 'Inbox',
       'got ' + api.folderOf({topic: 'Cancellation Request', folder: 'Inbox'}));
-    /* ⚠ THE ONES ALREADY WRITTEN ARE THE POINT. Routing only new messages would leave
-       her existing cancellations in the undivided pile, and the feature would look
-       broken on the only data she has. Nothing is migrated; the same rows just sort. */
+    /* ⚠ THE ONES ALREADY WRITTEN ARE STILL THE POINT, pointing the other way now: nothing
+       is migrated and nothing is rewritten, so the same stored rows simply stop being
+       diverted. Her own filing is what moves a message from here. */
     check('S292', 'and so does one written before any of this existed',
-      api.folderOf({topic: 'Cancellation Request', folder: 'Inbox'}) === 'Cancellations',
-      'no message is rewritten, so a stored folder must not be able to win by default');
-    check('S292', 'a member-portal note lands in Member Portal',
-      api.folderOf({topic: 'Note Added', folder: 'Inbox'}) === 'Member Portal' &&
-      api.folderOf({topic: 'Existing Customer - Address Changed', folder: 'Inbox'}) === 'Member Portal',
+      api.folderOf({topic: 'Cancellation Request', folder: 'Inbox'}) === 'Inbox',
+      'no message is rewritten — these are the rows already in her book');
+    check('S292', 'a member-portal note lands in the Inbox too',
+      api.folderOf({topic: 'Note Added', folder: 'Inbox'}) === 'Inbox' &&
+      api.folderOf({topic: 'Existing Customer - Address Changed', folder: 'Inbox'}) === 'Inbox',
       'got ' + api.folderOf({topic: 'Note Added', folder: 'Inbox'}));
 
     /* ---- the office's own filing always wins ---------------------------- */
@@ -61303,16 +61321,29 @@ suite('Suite 335. Money on the bill is an answer');
      ORDER — that an unpaid last season still holds somebody who has paid this one — so
      what matters is that the arrears rule ANSWERS first, not how it decides. Its own
      decision has its own coverage. */
+  /* ⚠ EVERY PAID FIXTURE CARRIES A PAYMENT DATE IN THIS SEASON ([[SCH-82]], 2026-09-18).
+     These read deposit-alone until that ruling, and money with no date on it is no longer
+     an answer — so without this they would fail on correct code, which is the slow-fuse
+     shape this file records for S82, S129 and the folder-names suite. REPOINTED, never
+     weakened: the claim here is still the ORDER (money against an answer, and against the
+     arrears hold), and WHICH YEAR the money is from is Suite 338's question.
+     ⚠ Derived from today rather than written out, or this suite starts failing on 1 Jan. */
+  const PAID_NOW = new Date(new Date().getFullYear(), 5, 1);
   const INV = [
-    ['8015550111', { install: 400, removal: 0, deposit: 100, credits: 0, changeFees: 0 }],
+    ['8015550111', { install: 400, removal: 0, deposit: 100, credits: 0, changeFees: 0, lastPaymentAt: PAID_NOW }],
     ['8015550222', { install: 400, removal: 0, deposit: 0, credits: 400, changeFees: 0 }],
-    ['8015550333', { install: 400, removal: 0, deposit: 400, credits: 0, changeFees: 0 }]
+    ['8015550333', { install: 400, removal: 0, deposit: 400, credits: 0, changeFees: 0, lastPaymentAt: PAID_NOW }]
   ];
+  /* ⚠ paymentSeasonYear AND toJsDate ARE LIFTED, NEVER STUBBED — the extraction-list trap,
+     for the tenth time in this file. housePaidThisSeason calls both, and a stub for either
+     would decide the very thing the rule turns on. Without them this suite died with a bare
+     ReferenceError that named nothing. */
   const F = new Function('INVOICES',
     seasonRuleLiveSrc() + custInvoiceKeySrc +
     'const invoiceById = new Map(INVOICES.map(function(p){ return [p[0], {id:p[0], data:p[1]}]; }));\n' +
     'function houseOwesFromLastSeason(d){ return !!d.__owes; }\n' +
-    paidSrc + extractFn(admin, 'isOutForSeason') + extractFn(admin, 'seasonBadgeKey') +
+    paidSrc + extractFn(admin, 'paymentSeasonYear') + extractFn(admin, 'toJsDate') +
+    extractFn(admin, 'isOutForSeason') + extractFn(admin, 'seasonBadgeKey') +
     'return {out:isOutForSeason, badge:seasonBadgeKey, paid:housePaidThisSeason};')(INV);
 
   const partPayer  = { phone: '8015550111' };                 // put a deposit down, never replied
@@ -61480,4 +61511,485 @@ suite('Suite 337. A re-quote waiting on a reply waits with everybody else');
   check('S337', 'every card is still in exactly one folder',
     all.every(f => typeof f === 'string' && f.length > 0),
     'the old ruling this narrows was about double-listing, and that part still stands');
+}
+
+suite('Suite 338. Paid for THIS year is what confirms somebody');
+/* ⭐ [[SCH-82]]. Addie, 2026-09-18, narrowing her own [[SCH-79]] of the day before: "Paid
+   for this year means confirmed and scheduled. If they paid last year than they should
+   still have to confirm to be scheduled."
+
+   ⚠ RUN, NOT MATCHED. Every claim here is about which YEAR a payment lands in, and a regex
+   cannot see arithmetic on a date. housePaidThisSeason and paymentSeasonYear are both
+   LIFTED with the real toJsDate beside them — a stubbed date reader would decide the very
+   thing under test. */
+{
+  /* ⚠ custInvoiceKey IS NOT IN admin.html — it is imported from js/money.js, so extractFn
+     returns null for it and concatenating that yields the literal "null" and a SyntaxError
+     naming the function AFTER it. custInvoiceKeySrc is the helper that reads the real one
+     out of the module. */
+  const src = extractFn(admin, 'housePaidThisSeason') +
+              extractFn(admin, 'paymentSeasonYear') +
+              extractFn(admin, 'toJsDate') +
+              custInvoiceKeySrc;
+  assertSandbox(src, admin, ['housePaidThisSeason','paymentSeasonYear','toJsDate','custInvoiceKey']);
+
+  const THIS = new Date().getFullYear();
+  /* A date inside the season being asked about, and one a whole year before it. Derived
+     from today rather than written out, or this suite starts failing on 1 January. */
+  const inYear  = new Date(THIS, 5, 1);
+  const lastYear= new Date(THIS - 1, 5, 1);
+
+  /* The real map the page builds: key -> {data}. Keyed on phone digits, which is what
+     custInvoiceKey returns for anybody with a phone. */
+  const run = (cust, inv) => new Function('invoiceById', 'd',
+    src + 'return housePaidThisSeason(d);')(
+      new Map(inv ? [['8015550100', {data: inv}]] : []), cust);
+
+  const cust = { phone: '(801) 555-0100' };
+
+  check('S338', 'money paid this season confirms them',
+    run(cust, {deposit: 200, lastPaymentAt: inYear}) === true,
+    'this is SCH-79 and it still stands — paying is an answer');
+
+  check('S338', 'money paid LAST season does not',
+    run(cust, {deposit: 200, lastPaymentAt: lastYear}) === false,
+    'the whole of SCH-82 — before this, an unreset invoice confirmed the paid-up half of the book');
+
+  /* ⛔ IT READS THE PAYMENT DATE AND NOTHING ELSE. The first draft fell back to invoicedAt
+     when no payment date was on file — inferring when money ARRIVED from when we asked for
+     it, which is a guess, and the repo's own issue-date guard refused it. These three
+     fixtures are what hold that line: a bill raised this season, and a bill merely TOUCHED
+     this season, neither of which is evidence that money came in. */
+  check('S338', 'a bill raised this season does not stand in for a payment',
+    run(cust, {deposit: 200, invoicedAt: inYear}) === false,
+    'a deposit on a fresh bill can still be money carried over — inferring the date is guessing');
+
+  check('S338', 'a touched-this-year bill paid last year is still not confirmed',
+    run(cust, {deposit: 200, lastPaymentAt: lastYear, updatedAt: inYear}) === false,
+    'this is the Overdue-clock trap — updatedAt moves on any edit and is not a payment date');
+
+  /* ⚠ AND THIS ONE IS THE CHECK THAT ACTUALLY BITES, which the red-check is what proved.
+     The fixture above carries a payment date, so a sabotage adding "|| toJsDate(updatedAt)"
+     short-circuits before ever reaching it and the check passes on broken code. The case
+     the fallback would wrongly confirm is a bill with NO payment date and a recent edit —
+     an ordinary corrected spelling on last year's money. */
+  check('S338', 'an edited bill with no payment on it confirms nobody',
+    run(cust, {deposit: 200, updatedAt: inYear}) === false,
+    'a corrected spelling is not a payment, and updatedAt moves on every one of them');
+
+  check('S338', 'no date at all is not this season',
+    run(cust, {deposit: 200}) === false,
+    'failing the other way sends a crew to somebody who never answered, which is what she asked to stop');
+
+  /* ⚠ THE DEPOSIT TEST IS STILL THE FIRST GATE. A dated bill with no money on it is a
+     customer who has been invoiced, not one who has paid. */
+  check('S338', 'a dated bill with nothing paid on it confirms nobody',
+    run(cust, {deposit: 0, lastPaymentAt: inYear}) === false,
+    'the date says when the bill is from, never that money arrived');
+
+  check('S338', 'and no invoice at all confirms nobody',
+    run(cust, null) === false,
+    'a customer with no bill has paid nothing, and must not read as confirmed');
+
+  /* ⚠ RUN DIRECTLY, because the fallback ORDER is the half a caller cannot see: a bill
+     carrying both dates must answer on the payment, not on when it was raised. */
+  const Y = new Function('inv', src + 'return paymentSeasonYear(inv);');
+  check('S338', 'the season of the money is the season of the payment',
+    Y({lastPaymentAt: lastYear, invoicedAt: inYear}) === THIS - 1,
+    'a bill raised this season must not back-date itself onto last season\'s money');
+  check('S338', 'and a bill with no payment on it has no season',
+    Y({invoicedAt: inYear}) === null,
+    'null is "nobody knows", which is a different answer from "not this year" and reads the same way on purpose');
+}
+
+suite('Suite 339. The office payment boxes record WHEN the money came in');
+/* ⭐ [[SCH-82]]. The wiring half, asserted separately from the rule, because Suite 338 calls
+   housePaidThisSeason from its own harness — delete the stamp from both handlers and every
+   behavioural check there still passes while no office payment ever confirms anybody again.
+   That is the shape this repo has shipped once already (the recycle "bin says" box). */
+{
+  /* ⚠ THE DEPOSIT WRITE IS SPELLED IDENTICALLY IN BOTH HANDLERS, so each slice is taken
+     from its own paidNow variable — that name is the only thing that tells them apart, and
+     a file-wide search would pass with one of the two deleted. */
+  const cut = (v) => {
+    const i = admin.indexOf('const ' + v + ' = deposit - was');
+    if(i === -1) return '';
+    const j = admin.indexOf('});', i);
+    return j === -1 ? '' : admin.slice(i, j);
+  };
+  const boxes = [['paidNow', 'the Invoices tab box'], ['paidNow2', 'the second payment box']];
+
+  boxes.forEach(function(pair){
+    const v = pair[0], where = pair[1];
+    const body = cut(v);
+    check('S339', where + ' was found at all', !!body,
+      'renamed? repoint this rather than deleting it — an empty slice passes every check below');
+    check('S339', where + ' stamps lastPaymentAt',
+      /lastPaymentAt: serverTimestamp\(\)/.test(body),
+      'without it, money taken over the phone has no date and confirms nobody');
+    /* ⛔ ONLY ON A REAL PAYMENT. Both handlers already compute the delta to tell a
+       correction from money coming in; re-dating a payment made weeks ago because somebody
+       fixed a typo would hand the customer a fresh season's confirmation. */
+    check('S339', where + ' stamps it only when money actually came in',
+      new RegExp(v + ' > 0 \\?').test(body),
+      'a correction (the figure going down, or not moving) must not re-date the payment');
+    check('S339', where + ' still writes the deposit and the updatedAt it always did',
+      /deposit: deposit/.test(body) && /updatedAt: serverTimestamp\(\)/.test(body),
+      'the stamp rides alongside the existing write — it must not have replaced it');
+  });
+
+  /* ⚠ AND THE TWO ARE STILL TWO. A slice that matched the same handler twice would report
+     both as green with one of them unwired — the anchor-matched-twice trap this file
+     records for S273 and the blueprint print guard. */
+  check('S339', 'the two payment boxes are different code',
+    cut('paidNow') !== cut('paidNow2') && !!cut('paidNow') && !!cut('paidNow2'),
+    'if these ever become one slice, one of the two handlers is unguarded');
+}
+
+suite('Suite 340. The wire colour is asked again, and Any is still not an answer');
+/* ⭐ [[OPT-21]]. Addie, 2026-09-18: "we instruct them to pick based on gutter color however
+   this is completley optional and they can choose Any. Which will mean we choose."
+
+   ⛔ THIS RESTORES A CONTROL REMOVED THE DAY BEFORE, AND THE OLD RULING'S GOOD HALF IS WHAT
+   THESE CHECKS PROTECT. What 2026-09-17 refused was a box that DEFAULTED to Any and then
+   STORED it, giving a house a wire colour nobody chose — the fault [[WH-35]] exists to stop
+   the warehouse acting on, and one wire-pick.test.js names by name ("'Any' read as an
+   answer"). The question is back; the invented answer must not come with it. */
+{
+  /* ⚠ ITS OWN READS. The module-level names are fnsSrc and publicSite; fns/idx exist only
+     inside another suite's block, so borrowing them crashes with a bare ReferenceError that
+     names neither this suite nor the real cause. */
+  const fns = read('functions/index.js');
+  const idx = read('index.html');
+  const portalBlock = (() => {
+    const at = fns.indexOf('const PORTAL_WRITE_FIELDS = {');
+    return at > -1 ? fns.slice(at, fns.indexOf('\n};', at)) : '';
+  })();
+  check('S340', 'the portal may write a wire colour again',
+    /'wireColor'/.test(portalBlock),
+    'without this the control saves nothing and the customer is told it worked');
+  check('S340', 'and may read the one on file',
+    /'wireColor'/.test(fns.slice(fns.indexOf('const PORTAL_READ_FIELDS = ['),
+                                 fns.indexOf('];', fns.indexOf('const PORTAL_READ_FIELDS = [')))),
+    'a picker that cannot show the current answer silently offers to overwrite it');
+
+  /* ⚠ THE SERVER GUARD IS RUN, NOT MATCHED — the claim is about which values survive it,
+     and a regex cannot see which branch deleted the field. */
+  const guard = (() => {
+    const i = fns.indexOf('if (updates.wireColor !== undefined) {');
+    if(i === -1) return null;
+    const j = fns.indexOf('\n  }', i);
+    return j === -1 ? null : fns.slice(i, j + 4);
+  })();
+  check('S340', 'the server guard was found', !!guard,
+    'renamed? repoint this rather than deleting it — a null slice passes nothing below');
+
+  const sift = (v) => {
+    const updates = v === undefined ? {} : { wireColor: v };
+    /* HttpsError is thrown when the save would be empty; here the caller always has a
+       second field, so the empty-save branch is stubbed out and only the sift is tested. */
+    new Function('updates', 'HttpsError', guard.replace(/throw new HttpsError[^;]*;/g, ';'))
+      (updates, function(){});
+    return Object.prototype.hasOwnProperty.call(updates, 'wireColor') ? updates.wireColor : '<deleted>';
+  };
+
+  check('S340', 'White is kept', sift('White') === 'White',
+    'the whole point of asking — a real choice has to reach the record');
+  check('S340', 'Green is kept', sift('Green') === 'Green',
+    'the gutter rule only works if both colours can actually be chosen');
+  check('S340', 'Any never reaches the record',
+    sift('Any') === '<deleted>',
+    'storing it is the invented colour WH-35 is about, and wire-pick names it as a silent failure');
+  check('S340', 'and neither does a blank',
+    sift('') === '<deleted>',
+    'a blank would WIPE a colour the warehouse read off a photo of the gutter — the portal may set, never clear');
+  check('S340', 'nor anything else a caller invents',
+    sift('Black') === '<deleted>' && sift('white') === '<deleted>',
+    'checked against the list rather than for truthiness — this is the half a client cannot be trusted for');
+
+  /* ⭐ THE CUSTOMER-FACING HALF. Every claim below is about what is on the SCREEN, which is
+     where this feature was removed from — a server that accepts the field while no control
+     sends it is the invisible-feature shape this repo has shipped once already. */
+  const wireSel = (() => {
+    const i = idx.indexOf('id="rcWireColor"');
+    if(i === -1) return '';
+    const start = idx.lastIndexOf('<select', i);
+    return idx.slice(start, idx.indexOf('</select>', i));
+  })();
+  check('S340', 'the portal has a wire colour control again', !!wireSel,
+    'the ruling is about what the customer is asked — a server change alone asks nobody');
+  check('S340', 'Any is the first option and the one it opens on',
+    /<option value="">/.test(wireSel) &&
+    wireSel.indexOf('value=""') < wireSel.indexOf('value="White"'),
+    'it is the absence of a choice, so it must be where somebody who reads nothing lands');
+  check('S340', 'and it offers exactly the two real colours',
+    /value="White"/.test(wireSel) && /value="Green"/.test(wireSel) &&
+    (wireSel.match(/<option /g) || []).length === 3,
+    'a third colour here is one the warehouse has no wire for');
+
+  /* ⚠ THE GUTTER INSTRUCTION IS THE RULING. Without it this is just the box that was
+     deliberately removed, put back.
+     ⚠ AND IT READS THE VISIBLE NOTE, NOT THE BLOCK AROUND IT. The first version sliced the
+     900 characters before the control and searched them for "gutter" — which found the
+     HTML COMMENT above it ("ANSWERED FROM THE GUTTER") and passed with the sentence the
+     customer reads replaced by "Pick a wire colour." The red-check is what caught it. That
+     is Suite 58's trap for the fifth time in this file, and the first time it was one of my
+     own checks rather than the code under test. */
+  const wireNote = (() => {
+    const at = idx.indexOf('id="rcWireColor"');
+    if(at === -1) return '';
+    const block = idx.slice(Math.max(0, at - 1400), at)
+      .replace(/<!--[\s\S]*?-->/g, '');
+    const last = block.lastIndexOf('<p class="form-note"');
+    return last === -1 ? '' : block.slice(last);
+  })();
+  check('S340', 'the visible note was found at all', !!wireNote,
+    'an empty slice passes the check below without reading a word of the page');
+  check('S340', 'it tells them to match the gutter',
+    /gutter/i.test(wireNote),
+    'Addie asked for the instruction, not merely for the control');
+
+  /* ⭐ AND THE WIRING, ASSERTED SEPARATELY FROM THE CONTROL. A select nothing populates
+     shows Any to somebody who has already chosen, and a save nothing reads sends nothing —
+     both look exactly like a working page. */
+  check('S340', 'the control is filled when the record arrives',
+    /rcLoadWireColor\(\);/.test(idx) &&
+    idx.indexOf('rcLoadWireColor();') > idx.indexOf('rcLoadedSerialised = rcSerialiseCurrent();'),
+    'bound at start-up instead it would read an empty record — the email-typo note, from the other side');
+  check('S340', 'and the save sends it only when it really moved',
+    /wirePick \? \{lightsDescription: newLightsDescription, wireColor: wirePick\}/.test(idx) &&
+    /v !== rcWireLoaded \? v : ''/.test(idx),
+    'sending it unchanged re-queues the bundle every time the tab is saved');
+}
+
+suite('Suite 341. The RSVP question stops asking once it has been answered');
+/* ⭐ [[RS-62]]. Addie, 2026-09-18: "In member portal at the top Are you having lights this
+   season it should update and go away once someone has answered."
+
+   ⛔ COLLAPSED, NEVER REMOVED, and the checks below are mostly about that distinction.
+   [[RS-31]] lands an emailed "no" in this portal and [[RS-60]] mounts the decline-reason
+   picker inside this same block, so deleting it takes the way back with it.
+
+   ⚠ RUN AGAINST jsdom, NOT MATCHED. Every claim here is about what is on the SCREEN, and
+   this file records three times over that a message present in the source is a different
+   claim from one that reaches the page. */
+if (!JSDOM) { note('Suite 341 skipped — jsdom missing'); } else {
+  const idx = read('index.html');
+  /* ⚠ THE REAL BLOCK, LIFTED OUT OF THE PAGE rather than hand-written here. A fixture
+     carrying its own copy of the markup proves the renderer works on markup that does not
+     ship — the vacuous-fixture trap this file names in four other places. */
+  const blockHtml = (() => {
+    const at = idx.indexOf('<div id="portalRsvpBlock"');
+    if (at === -1) return '';
+    const end = idx.indexOf('id="portalRsvpReasonHostChanges"', at);
+    return end === -1 ? '' : idx.slice(at, end) + '"></div></div>';
+  })();
+  check('S341', 'the real RSVP block was lifted out of index.html', !!blockHtml,
+    'an empty fixture renders nothing and passes every check below without reading the page');
+
+  const src = extractFn(idx, 'portalRsvpStatusOf') + extractFn(idx, 'portalRsvpLabel') +
+              extractFn(idx, 'portalHasRealRsvpAnswer') + extractFn(idx, 'renderPortalRsvp');
+
+  /* renderPortalRsvpReason is the one thing stubbed: it draws the decline picker, which has
+     its own coverage, and what is being tested here is the three controls above it. */
+  const paint = (rec, thisVisit, changeOpen) => {
+    const dom = new JSDOM(blockHtml);
+    const run = new Function('document', 'currentJobAddressData', 'currentLookupRecord',
+      'portalRsvpAnswerThisVisit', 'portalRsvpChangeOpen',
+      'var portalRsvpReasonThisVisit = "";\n' +
+      'function renderPortalRsvpReason(){}\n' + src + 'renderPortalRsvp();' +
+      'var h = document.getElementById("portalRsvpHeading");' +
+      'var c = document.getElementById("portalRsvpChoices");' +
+      'var b = document.getElementById("portalRsvpChangeBtn");' +
+      'return {heading: h ? h.textContent : null,' +
+      '        choices: c ? c.style.display : null,' +
+      '        change: b ? b.style.display : null,' +
+      '        current: (document.getElementById("portalRsvpCurrent")||{}).textContent};');
+    return run(dom.window.document, rec, rec, thisVisit || '', !!changeOpen);
+  };
+
+  const answeredYes = { rsvpStatus: 'yes', rsvpRespondedAt: { seconds: 1 } };
+
+  let r = paint({}, '', false);
+  check('S341', 'somebody who has not answered is still asked',
+    r.choices !== 'none' && /Are you having lights/.test(r.heading || ''),
+    'this is the whole question — hiding it from them is the opposite of the ruling');
+  check('S341', 'and is offered no Change my answer',
+    r.change === 'none',
+    'an undo for a decision nobody has made is a control that means nothing');
+
+  r = paint(answeredYes, '', false);
+  check('S341', 'a real yes folds the buttons away',
+    r.choices === 'none',
+    'Addie asked for it to go away once answered — this is that sentence');
+  check('S341', 'the heading stops asking',
+    !/Are you having lights/.test(r.heading || ''),
+    'a question over a line saying they are confirmed is the page asking what it was told');
+  check('S341', 'and what they said is still on screen',
+    /confirmed/i.test(r.current || ''),
+    'folding the buttons away must not take the answer with them');
+  check('S341', 'with a way to change it',
+    r.change !== 'none',
+    'RS-31 and RS-60 both rest on this block staying reachable — no undo is a telephone call');
+
+  /* ⛔ THE ONE THAT MATTERS MOST. A bare 'yes' with no rsvpRespondedAt is an import or the
+     assumed yes written at conversion ([[RS-19]]) — never a reply — and it belongs to
+     exactly the customer this question exists for. */
+  r = paint({ rsvpStatus: 'yes' }, '', false);
+  check('S341', 'a bare yes with nothing behind it is still asked',
+    r.choices !== 'none' && r.change === 'none',
+    'reading it as answered hides the question from the people it is being asked of');
+
+  /* ⚠ ON THE EMAILED-LINK ROUTE THE RECORD IS THE INVOICE RECORD and carries no rsvpStatus
+     at all — RS-60's second fault. The answer this visit is the only thing that knows. */
+  r = paint({}, 'no', false);
+  check('S341', 'an answer given this visit folds them away too',
+    r.choices === 'none' && r.change !== 'none',
+    'without this the emailed-link route shows the buttons to somebody who answered a second ago');
+
+  r = paint(answeredYes, '', true);
+  check('S341', 'pressing Change my answer opens them again',
+    r.choices !== 'none' && r.change === 'none',
+    'and the link hides itself, or it sits above the buttons it has already opened');
+
+  /* ⚠ THE WIRING, ASSERTED SEPARATELY. Every check above calls the renderer from this
+     harness, so all of them stay green with the button unwired and nothing on the page. */
+  check('S341', 'the Change button is listened for',
+    /closest\('#portalRsvpChangeBtn'\)/.test(idx) && /portalRsvpChangeOpen = true/.test(idx),
+    'a control nothing listens to looks identical to a working one');
+  /* ⚠ SCOPED TO THE ANSWER HANDLER'S OWN BODY. The first version searched the whole file
+     for "portalRsvpChangeOpen = false" and was satisfied by the DECLARATION, which is spelled
+     the same — so deleting the reset from the handler passed. The red-check is what said so.
+     Same shape as S273's literal-option match and the blueprint print guard. */
+  const answerHandler = (() => {
+    const at = idx.indexOf("closest('[data-portalrsvp]')");
+    if (at === -1) return '';
+    const end = idx.indexOf('renderPortalRsvp();', at);
+    return end === -1 ? '' : idx.slice(at, end);
+  })();
+  check('S341', 'the answer handler was found at all', !!answerHandler,
+    'an empty slice passes the check below without reading a line of the handler');
+  check('S341', 'and answering folds them back up',
+    /portalRsvpChangeOpen = false/.test(answerHandler),
+    'otherwise somebody who changed their mind is left looking at the question again');
+  /* ⛔ THE var TRAP. index.html's portal script is one ES module: a function declaration
+     hoists and is callable anywhere, a var beside it hoists as UNDEFINED. Declared below
+     its reader this reads undefined — falsy — so Change my answer would collapse again on
+     the next repaint and look broken, silently. [[MEM-01]] cost a whole feature to this. */
+  check('S341', 'the per-visit flag is declared before the renderer reads it',
+    idx.indexOf('var portalRsvpChangeOpen') > -1 &&
+    idx.indexOf('var portalRsvpChangeOpen') < idx.indexOf('function renderPortalRsvp'),
+    'below it, the flag is undefined at the one moment that matters and nothing goes red');
+}
+
+suite('Suite 342. Everything arrives in the Inbox, and a deleted folder stays deleted');
+/* ⭐ [[MSG-28]]. Addie, 2026-09-18: "for anything that does come her instead of gmail I need
+   everything to go into inbox than be able to add my own filters and sub folders and delete
+   the folders I want."
+
+   ⛔ TWO FAULTS IN ONE SENTENCE, AND THEY ARE NOT THE SAME BUG. Customer mail was being
+   filed out of the Inbox before she ever saw it, and a folder she deleted came back on the
+   next login because the seeder re-created it. The filters and sub-folders she asks for
+   already exist ([[MSG-15]], [[MSG-20]]) — those are not touched. */
+{
+  const fns = read('functions/index.js');
+
+  /* ⚠ THE ROUTING IS RUN, NOT MATCHED. The claim is about which folder a message LANDS in,
+     and messageFolderOf is a composition of three rules — a regex cannot see which one
+     answered first. */
+  /* ⚠ THE TABLE AND THE TOPIC CONSTANTS ARE LIFTED, NEVER STUBBED — the extraction-list
+     trap, and this suite died on a bare "MESSAGE_HOME_FOLDER is not defined" naming nothing.
+     A stubbed table would decide the very thing under test: which topics still divert. */
+  const homeMap342 = (admin.match(/const MESSAGE_HOME_FOLDER = \{[\s\S]*?\};/) || [])[0];
+  const errConsts342 = (admin.match(/const ERROR_FOLDER_MEMBER[\s\S]*?const ADMIN_ERROR_TOPIC = '[^']*';/) || [])[0];
+  check('S342', 'the routing table and its constants were found',
+    !!homeMap342 && !!errConsts342,
+    'renamed? repoint this rather than deleting it — a missing table crashes the sandbox');
+  const route = new Function('d',
+    (errConsts342 || '') + '\n' + (homeMap342 || '') + '\n' +
+    extractFn(admin, 'messageFolderOf') + '\nreturn messageFolderOf(d);');
+
+  check('S342', 'a cancellation lands in the Inbox',
+    route({ topic: 'Cancellation Request' }) === 'Inbox',
+    'it was going to Cancellations before she ever saw it — the app doing her filing');
+  check('S342', 'a note from the portal lands in the Inbox',
+    route({ topic: 'Note Added' }) === 'Inbox',
+    'same fault, same table');
+  check('S342', 'and so does a customer telling us they moved',
+    route({ topic: 'Existing Customer - Address Changed' }) === 'Inbox',
+    'this one had a SECOND door — the server wrote the folder itself, checked below');
+
+  /* ⛔ THE THINGS THAT ARE NOT MAIL STAY WHERE THEY ARE. A system notice must never read as
+     something to answer ([[MSG-15]]), and burying the queue under them is the complaint the
+     Communication Centre exists to fix. */
+  /* ⚠ THE FIXTURE CARRIES A TOPIC THAT IS STILL IN THE TABLE, and the red-check is what
+     forced that. A notice whose topic diverts nowhere answers 'System' whether the guard is
+     there or not, so the first version passed with the guard deleted outright. What proves
+     the ORDER is a message the table WOULD move if it got the chance. */
+  check('S342', 'a System notice is still filed as System',
+    route({ topic: 'Member Error', folder: 'System' }) === 'System',
+    'these outnumber real questions hundreds to one — in the Inbox they bury the queue');
+
+  /* ⛔ AND HER OWN FILING STILL WINS OVER EVERYTHING. Nothing she has ever moved by hand is
+     touched by this change, which is what makes it safe. */
+  /* ⚠ SAME REASON, SAME FIX. A Cancellation Request no longer diverts, so it answered the
+     stored folder with or without this guard and the check proved nothing once the table
+     changed underneath it. An error topic still diverts, so it is what shows her filing
+     winning over the table. */
+  check('S342', 'a message she filed by hand stays where she put it',
+    route({ topic: 'Member Error', folder: 'Billing / Payment Question',
+            filedByHand: true }) === 'Billing / Payment Question',
+    'the folders are not deleted and nothing already filed moves — only where new mail LANDS');
+
+  /* ⚠ BOTH DOORS, OR THE SAME TOPIC LANDS IN TWO PLACES depending on which one it came
+     through. The server wrote 'Member Portal' directly for a move. */
+  /* ⚠ sectionFrom, NEVER a fixed-length window. This file's own structure gate refuses
+     `slice(at, at + N)` by name and caught the first draft doing it — those pass today and
+     fail on correct code the moment the block above them grows. */
+  const moveNote = (() => {
+    const at = fns.indexOf("topic: 'Existing Customer - Address Changed',");
+    return at === -1 ? '' : sectionFrom(fns, at);
+  })();
+  check('S342', 'the move note was found in functions/index.js', !!moveNote,
+    'an empty slice passes the check below without reading the server at all');
+  check('S342', 'and the server files it to the Inbox too',
+    /folder: 'Inbox'/.test(moveNote) && !/folder: 'Member Portal'/.test(moveNote),
+    'browser-side alone leaves the same topic in two folders depending on the door');
+
+  /* ⭐ THE SECOND FAULT. Every folder already had a delete button and it did not work — not
+     because the delete failed, but because the seeder re-created it on the next login. */
+  const seedBlock = (() => {
+    const at = admin.indexOf('if(!foldersSeeded){');
+    if(at === -1) return '';
+    const end = admin.indexOf('const missing', at);
+    return end === -1 ? '' : admin.slice(at, admin.indexOf('}', end));
+  })();
+  check('S342', 'the seeding block was found', !!seedBlock,
+    'renamed? repoint this rather than deleting it');
+  /* ⚠ THE MARKER MUST BE READ, NOT MERELY FETCHED. The first version looked for the word
+     inboxFolderSeed anywhere in the block, which survived a sabotage that fetched the
+     marker and then ignored it — green while every deleted folder came back. */
+  check('S342', 'seeding is gated on a marker that outlives the page',
+    /inboxFolderSeed/.test(seedBlock) &&
+    /const missing = alreadySeeded \? \[\]/.test(seedBlock),
+    'foldersSeeded alone is per page load, which is why a deleted folder came back next login');
+
+  /* ⛔ AND AN EXISTING BOOK IS MARKED, NEVER SEEDED. Seeding the "missing" defaults there
+     resurrects exactly the folders she deleted before today — this bug in a new hat. */
+  const gate = admin.slice(admin.indexOf('const existingNames = messageFolders.map'),
+                           admin.indexOf('for(const name of missing)'));
+  check('S342', 'a book that already has folders is never seeded',
+    /existingNames\.length \? \[\] : DEFAULT_TOPIC_FOLDERS/.test(gate),
+    'otherwise the first load after this ships brings back every folder she has ever deleted');
+  check('S342', 'and a failed read seeds nothing',
+    /alreadySeeded = true;/.test(seedBlock),
+    'failing the other way resurrects folders with nobody watching; this way costs a click');
+
+  /* ⚠ THE MARKER IS WRITTEN EVEN WHEN NOTHING WAS CREATED. It means "this book has been
+     through seeding", not "folders were made" — that is the whole resurrection guard. */
+  const after = admin.slice(admin.indexOf('for(const name of missing)'),
+                            admin.indexOf('for(const name of missing)') + 1200);
+  check('S342', 'the marker is written whether or not anything was created',
+    /if\(!alreadySeeded\)\{/.test(after) && /seededAt: serverTimestamp\(\)/.test(after),
+    'written only when folders were made, an existing book is never marked and gets seeded later');
 }
