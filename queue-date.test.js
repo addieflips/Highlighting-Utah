@@ -1253,6 +1253,18 @@ check('the path still has every step in it',
       'settings/inboxFolderSeed, not on a customer, and it exists so that deleting a ' +
       'folder sticks instead of it coming back on the next login — office bookkeeping ' +
       'about a screen, with no stage of anybody\'s journey behind it',
+    /* ⚠ THE NUDGE ITSELF IS ALREADY A STEP, through quoteLastNudgedAt — "Nudged about it"
+       shows on the history the moment the email goes. These two are the LADDER's own rung
+       markers ([[QT-47]]): they say which rung a quote has reached so the next one can be
+       measured from it. Drawn as steps they would put the same event on the picture twice.
+       The same shape as portalChangeEmailAt below. */
+    quoteNudgeTextAskedAt: 'when the office was TOLD to text somebody about their quote — ' +
+      'rung one of the nudge ladder. Nothing reached the customer, so nothing happened to ' +
+      'them: a person sends the text, and that conversation is not something the app sees',
+    quoteNudgeEmailedAt: 'when the ladder\'s one automatic nudge email went out — rung two. ' +
+      'The email itself is already on the path as quoteLastNudgedAt, written in the same ' +
+      'update; this is the marker the archive rung is measured from, which is our own ' +
+      'bookkeeping about how far we have chased them',
     arrearsPaidNoticeAt: 'the once-only guard on the "paid last season, still needs to ' +
       'RSVP" Inbox note — our bookkeeping about a note we raised, not a stage the ' +
       'customer passed through; the events are their payment and their eventual answer',

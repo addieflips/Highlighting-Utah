@@ -4248,7 +4248,15 @@
           </label>
           <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end;">
             <div class="form-row" style="margin:0; max-width:130px;"><label style="font-size:11.5px;">Wait this many days</label><input type="number" id="qNudgeWaitDays" min="1" step="1" value="10" style="font-size:13px; padding:8px 10px;"></div>
-            <div class="form-row" style="margin:0; max-width:130px;"><label style="font-size:11.5px;">Nudge at most</label><input type="number" id="qNudgeMax" min="1" max="5" step="1" value="2" style="font-size:13px; padding:8px 10px;"></div>
+            <!-- ⛔ "Nudge at most" IS GONE ([[QT-47]], 2026-09-18). The ladder sends exactly one
+                 automatic email, so there is nothing for a maximum to cap — and a box that
+                 silently does nothing is worse than no box: somebody sets it to 5, expects
+                 five emails and gets one. The days box stays, because it sets the gap
+                 between every rung. -->
+            <p style="font-size:11.5px; color:var(--slate); margin:0; max-width:340px; align-self:center;">
+              Then: we are told to <strong>text</strong> them, and after the same wait again they
+              get <strong>one automatic email</strong>. Another wait after that with no reply and
+              the quote is <strong>archived</strong> &mdash; still there under Closed.</p>
             <button type="button" class="btn btn-gold btn-sm" id="qNudgeAutoSave">Save</button>
             <button type="button" class="btn btn-outline btn-sm" id="qNudgeRunNow">Run it now</button>
           </div>
@@ -14440,7 +14448,7 @@ async function loadQuoteNudgeSettings(){
     const d = snap.exists() ? snap.data() : {};
     document.getElementById('qNudgeAutoOn').checked = d.enabled === true;
     if(d.waitDays) document.getElementById('qNudgeWaitDays').value = d.waitDays;
-    if(d.maxNudges) document.getElementById('qNudgeMax').value = d.maxNudges;
+    /* ⛔ maxNudges is no longer read or offered — see the card above ([[QT-47]]). */
     renderQuoteNudgeStatus(d);
   } catch(err){ /* not set up yet */ }
 }
@@ -14450,7 +14458,12 @@ function renderQuoteNudgeStatus(d){
   if(!el) return;
   if(d.lastRunAt){
     el.style.color = 'var(--slate)';
-    el.textContent = 'Last run ' + fmtDate(d.lastRunAt) + ' \u2014 ' + (d.lastRunSent || 0) + ' nudged' +
+    /* ⭐ EVERY RUNG IS REPORTED ([[QT-47]]). "3 nudged" said nothing about the two people
+       waiting to be texted or the one just archived, and an archive nobody is told about is
+       a quote that vanishes off the tab overnight. */
+    el.textContent = 'Last run ' + fmtDate(d.lastRunAt) + ' \u2014 ' + (d.lastRunSent || 0) + ' emailed' +
+      (d.lastRunAskedToText ? ', ' + d.lastRunAskedToText + ' to text' : '') +
+      (d.lastRunArchived ? ', ' + d.lastRunArchived + ' archived' : '') +
       (d.lastRunNeedsHuman ? ', ' + d.lastRunNeedsHuman + ' need a call or text' : '') +
       ((d.lastRunErrors && d.lastRunErrors.length) ? ', ' + d.lastRunErrors.length + ' failed' : '') + '.';
   } else {
@@ -14459,8 +14472,25 @@ function renderQuoteNudgeStatus(d){
   }
   /* People who asked for a call or a text cannot be chased automatically, so
      they are listed here rather than quietly skipped. */
+  /* ⭐ RUNG ONE, AND IT IS THE WHOLE FEATURE ([[QT-47]]). Addie asked to "get a notification
+     to nudge them through text" — a person sends it, so this list IS the notification. The
+     stamp is written whether or not anybody looks, so without this block the ladder marches
+     them to the email rung ten days later having told nobody to do anything: the mechanism
+     would work perfectly and reach no one, which is the failure shape this repo has shipped
+     once already. */
+  const texts = d.textNudgeList || [];
+  const textsHtml = texts.length
+    ? '<div style="background:#EEF4FF; border:1px solid #C7D7F5; border-radius:9px; padding:11px 13px; margin-bottom:8px;">'+
+        '<div style="font-size:12.5px; font-weight:700; color:#23406E; margin-bottom:6px;">Text these people about their quote (' + texts.length + ')</div>'+
+        '<div style="font-size:11.5px; color:#3B5B8C; margin-bottom:6px;">No reply since the quote went out. They get one automatic email if there is still nothing after the same wait again.</div>'+
+        texts.map(function(t){
+          return '<div style="font-size:12.5px; color:#23406E;">'+esc(t.name || '(no name)')+
+            (t.phone ? ' \u00b7 <a href="tel:'+esc(String(t.phone).replace(/[^0-9+]/g,''))+'">'+esc(t.phone)+'</a>' : ' \u00b7 <em>no phone on file</em>')+'</div>';
+        }).join('')+
+      '</div>'
+    : '';
   const list = d.needsHumanList || [];
-  listEl.innerHTML = list.length
+  listEl.innerHTML = textsHtml + (list.length
     ? '<div style="background:#FFF8E9; border:1px solid var(--gold-dim); border-radius:9px; padding:11px 13px;">'+
         '<div style="font-size:12.5px; font-weight:700; color:#5a4a20; margin-bottom:6px;">Needs a call or text from you (' + list.length + ')</div>'+
         list.map(function(p){
@@ -14469,15 +14499,16 @@ function renderQuoteNudgeStatus(d){
             (p.prefers ? ' \u00b7 <em>prefers ' + esc(p.prefers) + '</em>' : '')+'</div>';
         }).join('')+
       '</div>'
-    : '';
+    : '');
 }
 document.getElementById('qNudgeAutoSave')?.addEventListener('click', async function(){
   const el = document.getElementById('qNudgeAutoStatus');
   try{
     await setDoc(doc(db,'settings','quoteNudgeAutomation'), {
       enabled: document.getElementById('qNudgeAutoOn').checked,
-      waitDays: Math.max(1, Number(document.getElementById('qNudgeWaitDays').value) || 10),
-      maxNudges: Math.max(1, Number(document.getElementById('qNudgeMax').value) || 2)
+      /* ⚠ THE GAP BETWEEN EVERY RUNG, not just the first — the archive falls three of these
+         after the quote went out. maxNudges is deliberately not written any more. */
+      waitDays: Math.max(1, Number(document.getElementById('qNudgeWaitDays').value) || 10)
     }, {merge:true});
     el.style.color = '#2E6B3E';
     el.textContent = 'Saved.';

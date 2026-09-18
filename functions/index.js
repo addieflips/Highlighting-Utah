@@ -5810,6 +5810,49 @@ exports.listAdminUsers = onCall({ cors: true }, async (request) => {
  * ------------------------------------------------------------------------- */
 const QUOTE_NUDGE_WAIT_DAYS = 10;
 const QUOTE_NUDGE_MAX = 2;
+/* ⭐ THE LADDER ([[QT-47]], 2026-09-18). Addie: "On awaiting responses we should get a
+   notification to nudge them through text after 10 days than after 10 more days if they
+   still haven't responded then they should be sent an automatic email. After 10 more days
+   after the email if they did not respond then they should be put in archived."
+
+   ⛔ THE FIRST RUNG IS A NOTIFICATION TO US, NOT A TEXT TO THEM. Her sentence is "we should
+   get a notification to nudge them through text" — the office is told to text, a person
+   sends it. Nothing here sends an SMS, and that is the ruling rather than caution: an
+   automatic text is a charge per message to somebody who has not replied, and it cannot be
+   taken back. The second rung IS automatic, because she said so in as many words.
+
+   ⛔ EACH RUNG IS TEN DAYS AFTER THE ONE BEFORE IT, NOT TEN DAYS AFTER THE QUOTE. That is
+   what "after 10 more days" means, and it is why every rung has its own stamp: measuring
+   all three from quoteSentAt would fire the email and the archive on the same run for any
+   quote already three weeks old when this shipped.
+
+   ⚠ AND NOTHING RESETS quoteSentAt ANY MORE. The old single-rung nudge reset it so the
+   second email was another ten days out; with a stamp per rung that reset would re-open the
+   first rung for ever and nobody would ever be archived.
+
+   ⚠ A MANUAL NUDGE DOES NOT RESTART THE LADDER. The office pressing Nudge is the office
+   doing what rung one asked for — restarting on it means a quote that is chased by hand can
+   never reach the archive, which is the one rung that ends the chase. */
+const QUOTE_LADDER_RUNGS = ['text', 'email', 'archive'];
+/* Which rung, if any, this quote is due for. Its own function so a test can RUN it rather
+   than match its source — every claim about it is arithmetic on dates, which a regex cannot
+   see. Returns null for a quote that is not due for anything.
+   ⚠ IT DECIDES ONLY THE RUNG. Whether this quote should be chased at all — archived,
+   closed, answered, unpriced, never sent — is the caller's, and stays where it was. */
+function quoteLadderRungDue(q, nowMs, waitDays) {
+  const gap = (Number(waitDays) || QUOTE_NUDGE_WAIT_DAYS) * 24 * 60 * 60 * 1000;
+  const due = (t) => { const ms = toMillis(t); return ms ? (nowMs - ms) >= gap : false; };
+  /* ⚠ ORDER IS THE WHOLE RULE, and it reads DOWN the ladder: the last rung already reached
+     decides what comes next. Written the other way round — earliest rung first — a quote
+     that had been emailed would match the text rung again on the next run, because the text
+     stamp is what gates it and nothing above ever clears. */
+  if (q.quoteNudgeEmailedAt) return due(q.quoteNudgeEmailedAt) ? 'archive' : null;
+  if (q.quoteNudgeTextAskedAt) return due(q.quoteNudgeTextAskedAt) ? 'email' : null;
+  /* ⚠ FROM THE LAST TIME WE CONTACTED THEM. quoteSentAt is when the quote went out, and a
+     quote that was never sent is not waiting on a reply — the caller has already refused
+     those, and a missing stamp answers false here rather than firing on the epoch. */
+  return due(q.quoteSentAt) ? 'text' : null;
+}
 
 function prefersNotEmail(contactMethod) {
   return /phone|call|text|sms/i.test(String(contactMethod || ''));
@@ -5948,7 +5991,12 @@ async function runQuoteNudgeBatch(source) {
     return { sent: 0, skipped: 0, needsHuman: 0, stopped: 'automation is switched off' };
   }
   const waitDays = Number((setSnap.exists && setSnap.data().waitDays) || QUOTE_NUDGE_WAIT_DAYS) || QUOTE_NUDGE_WAIT_DAYS;
-  const maxNudges = Number((setSnap.exists && setSnap.data().maxNudges) || QUOTE_NUDGE_MAX) || QUOTE_NUDGE_MAX;
+  /* ⛔ maxNudges IS NO LONGER READ ([[QT-47]]). The ladder sends exactly ONE automatic
+     email — rung two — so "nudge at most N times" has nothing left to mean, and the box that
+     set it is gone from the automation card in the same change. A setting still being stored
+     while nothing reads it is the quiet half of this repo's own worst bug shape: somebody
+     sets it to 5, expects five emails, and gets one. QUOTE_NUDGE_MAX is kept as the record
+     of what the old behaviour was. */
 
   const cfgSnap = await db.collection('settings').doc('emailjs').get();
   const cfg = cfgSnap.exists ? cfgSnap.data() : {};
@@ -5964,12 +6012,16 @@ async function runQuoteNudgeBatch(source) {
   }
   const templateBody = tplSnap.docs[0].data().body || '';
 
-  const cutoff = Date.now() - waitDays * 24 * 60 * 60 * 1000;
+  /* ⛔ THE SINGLE CUTOFF IS GONE TOO. Each rung is measured from the rung before it, inside
+     quoteLadderRungDue, so one cutoff computed up here could only ever answer for the first. */
   const snap = await db.collection('quotes').get();
 
-  let sent = 0, skipped = 0, needsHuman = 0;
+  let sent = 0, skipped = 0, needsHuman = 0, askedToText = 0, archived = 0;
   const errors = [];
   const humanFollowUp = [];
+  /* The people a person has to text, collected the same way humanFollowUp is — the office
+     works this list off the automation card. */
+  const textThese = [];
 
   for (const docSnap of snap.docs) {
     const q = docSnap.data();
@@ -5977,13 +6029,45 @@ async function runQuoteNudgeBatch(source) {
     if ((q.status || 'new') === 'closed') { skipped++; continue; }
     if (['approved', 'declined', 'maybe_next_year'].indexOf(q.approvalStatus) !== -1) { skipped++; continue; }
     if (typeof q.quotedPrice !== 'number') { skipped++; continue; }
-    if (Number(q.quoteNudgeCount || 0) >= maxNudges) { skipped++; continue; }
+    /* ⭐ WHICH RUNG ([[QT-47]]). The ladder replaces the old single "has it been ten days"
+       test AND the max-nudge count: how far somebody has been chased is now said by which
+       stamps they carry, not by a tally. quoteNudgeCount is still written so the card's
+       "Nudged 2×" pill keeps working. */
+    const rung = quoteLadderRungDue(q, now.getTime(), waitDays);
+    if (!rung) { skipped++; continue; }
 
-    const lastContact = toMillis(q.quoteSentAt);
-    if (!lastContact || lastContact > cutoff) { skipped++; continue; }
+    /* ⭐ RUNG ONE IS A JOB FOR A PERSON. Addie: "we should get a notification to nudge them
+       through text" — so this stamps the quote and puts them on a list the office works
+       down. Nothing is sent to the customer here. */
+    if (rung === 'text') {
+      await docSnap.ref.update({ quoteNudgeTextAskedAt: admin.firestore.FieldValue.serverTimestamp() });
+      textThese.push({ id: docSnap.id, name: q.name || '', phone: q.phone || '',
+                       email: q.email || '' });
+      askedToText++;
+      continue;
+    }
 
-    /* They asked for a phone call or a text. We cannot do either automatically,
-       so flag them for a person rather than emailing them anyway. */
+    /* ⭐ RUNG THREE ENDS THE CHASE. Archived is where a closed quote already lives, so a
+       customer who answers on day 31 is still found under Closed → Archived rather than
+       being gone. Addie, asked exactly that: "They should be in archived in completed."
+       ⚠ IT SAYS WHY, because quoteArchivedReason is already rendered on the card — an
+       archived quote with no reason reads as somebody having closed it by hand. */
+    if (rung === 'archive') {
+      await docSnap.ref.update({
+        quoteArchived: true,
+        quoteArchivedAt: admin.firestore.FieldValue.serverTimestamp(),
+        quoteArchivedReason: 'No reply after ' + (waitDays * 3) + ' days'
+      });
+      archived++;
+      continue;
+    }
+
+    /* Rung two, the automatic email. They asked for a phone call or a text, or we have no
+       address for them — we cannot do either automatically, so flag them for a person
+       rather than emailing them anyway.
+       ⚠ THE STAMP IS NOT WRITTEN HERE. Without an email address this rung can never be
+       completed, and stamping it would march them on to the archive ten days later having
+       been sent nothing at all. They stay on the human list until somebody acts. */
     if (prefersNotEmail(q.contactMethod) || !q.email) {
       needsHuman++;
       humanFollowUp.push({
@@ -6075,8 +6159,11 @@ async function runQuoteNudgeBatch(source) {
       await docSnap.ref.update({
         quoteNudgeCount: Number(q.quoteNudgeCount || 0) + 1,
         quoteLastNudgedAt: admin.firestore.FieldValue.serverTimestamp(),
-        /* Resets the clock, so the second nudge is another 10 days out. */
-        quoteSentAt: admin.firestore.FieldValue.serverTimestamp(),
+        /* ⭐ THE RUNG'S OWN STAMP ([[QT-47]]), and what the archive rung measures from.
+           ⛔ quoteSentAt IS NO LONGER RESET HERE. It used to be, so the second nudge was
+           another ten days out — with a stamp per rung that reset re-opens the text rung
+           for ever and nobody is ever archived. */
+        quoteNudgeEmailedAt: admin.firestore.FieldValue.serverTimestamp(),
         quoteNudgedAutomatically: true
       });
       sent++;
@@ -6089,14 +6176,20 @@ async function runQuoteNudgeBatch(source) {
     lastRunAt: admin.firestore.FieldValue.serverTimestamp(),
     lastRunSource: source,
     lastRunSent: sent,
+    lastRunAskedToText: askedToText,
+    lastRunArchived: archived,
     lastRunNeedsHuman: needsHuman,
+    /* ⚠ THE LIST IS REPLACED, NEVER APPENDED TO. A quote reaches the text rung once, so an
+       accumulating list would go on naming people the office texted a fortnight ago. */
+    textNudgeList: textThese.slice(0, 50),
     lastRunErrors: errors.slice(0, 10),
     /* The list of people who wanted a call or a text - shown in admin so they
        do not quietly fall through the cracks. */
     needsHumanList: humanFollowUp.slice(0, 50)
   }, { merge: true });
 
-  return { sent: sent, skipped: skipped, needsHuman: needsHuman, errors: errors };
+  return { sent: sent, skipped: skipped, needsHuman: needsHuman,
+           askedToText: askedToText, archived: archived, errors: errors };
 }
 
 function properNameServer(raw) {
