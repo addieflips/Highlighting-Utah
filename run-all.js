@@ -61557,3 +61557,123 @@ suite('Suite 340. The wire colour is asked again, and Any is still not an answer
     /v !== rcWireLoaded \? v : ''/.test(idx),
     'sending it unchanged re-queues the bundle every time the tab is saved');
 }
+
+suite('Suite 341. The RSVP question stops asking once it has been answered');
+/* ⭐ [[RS-62]]. Addie, 2026-09-18: "In member portal at the top Are you having lights this
+   season it should update and go away once someone has answered."
+
+   ⛔ COLLAPSED, NEVER REMOVED, and the checks below are mostly about that distinction.
+   [[RS-31]] lands an emailed "no" in this portal and [[RS-60]] mounts the decline-reason
+   picker inside this same block, so deleting it takes the way back with it.
+
+   ⚠ RUN AGAINST jsdom, NOT MATCHED. Every claim here is about what is on the SCREEN, and
+   this file records three times over that a message present in the source is a different
+   claim from one that reaches the page. */
+if (!JSDOM) { note('Suite 341 skipped — jsdom missing'); } else {
+  const idx = read('index.html');
+  /* ⚠ THE REAL BLOCK, LIFTED OUT OF THE PAGE rather than hand-written here. A fixture
+     carrying its own copy of the markup proves the renderer works on markup that does not
+     ship — the vacuous-fixture trap this file names in four other places. */
+  const blockHtml = (() => {
+    const at = idx.indexOf('<div id="portalRsvpBlock"');
+    if (at === -1) return '';
+    const end = idx.indexOf('id="portalRsvpReasonHostChanges"', at);
+    return end === -1 ? '' : idx.slice(at, end) + '"></div></div>';
+  })();
+  check('S341', 'the real RSVP block was lifted out of index.html', !!blockHtml,
+    'an empty fixture renders nothing and passes every check below without reading the page');
+
+  const src = extractFn(idx, 'portalRsvpStatusOf') + extractFn(idx, 'portalRsvpLabel') +
+              extractFn(idx, 'portalHasRealRsvpAnswer') + extractFn(idx, 'renderPortalRsvp');
+
+  /* renderPortalRsvpReason is the one thing stubbed: it draws the decline picker, which has
+     its own coverage, and what is being tested here is the three controls above it. */
+  const paint = (rec, thisVisit, changeOpen) => {
+    const dom = new JSDOM(blockHtml);
+    const run = new Function('document', 'currentJobAddressData', 'currentLookupRecord',
+      'portalRsvpAnswerThisVisit', 'portalRsvpChangeOpen',
+      'var portalRsvpReasonThisVisit = "";\n' +
+      'function renderPortalRsvpReason(){}\n' + src + 'renderPortalRsvp();' +
+      'var h = document.getElementById("portalRsvpHeading");' +
+      'var c = document.getElementById("portalRsvpChoices");' +
+      'var b = document.getElementById("portalRsvpChangeBtn");' +
+      'return {heading: h ? h.textContent : null,' +
+      '        choices: c ? c.style.display : null,' +
+      '        change: b ? b.style.display : null,' +
+      '        current: (document.getElementById("portalRsvpCurrent")||{}).textContent};');
+    return run(dom.window.document, rec, rec, thisVisit || '', !!changeOpen);
+  };
+
+  const answeredYes = { rsvpStatus: 'yes', rsvpRespondedAt: { seconds: 1 } };
+
+  let r = paint({}, '', false);
+  check('S341', 'somebody who has not answered is still asked',
+    r.choices !== 'none' && /Are you having lights/.test(r.heading || ''),
+    'this is the whole question — hiding it from them is the opposite of the ruling');
+  check('S341', 'and is offered no Change my answer',
+    r.change === 'none',
+    'an undo for a decision nobody has made is a control that means nothing');
+
+  r = paint(answeredYes, '', false);
+  check('S341', 'a real yes folds the buttons away',
+    r.choices === 'none',
+    'Addie asked for it to go away once answered — this is that sentence');
+  check('S341', 'the heading stops asking',
+    !/Are you having lights/.test(r.heading || ''),
+    'a question over a line saying they are confirmed is the page asking what it was told');
+  check('S341', 'and what they said is still on screen',
+    /confirmed/i.test(r.current || ''),
+    'folding the buttons away must not take the answer with them');
+  check('S341', 'with a way to change it',
+    r.change !== 'none',
+    'RS-31 and RS-60 both rest on this block staying reachable — no undo is a telephone call');
+
+  /* ⛔ THE ONE THAT MATTERS MOST. A bare 'yes' with no rsvpRespondedAt is an import or the
+     assumed yes written at conversion ([[RS-19]]) — never a reply — and it belongs to
+     exactly the customer this question exists for. */
+  r = paint({ rsvpStatus: 'yes' }, '', false);
+  check('S341', 'a bare yes with nothing behind it is still asked',
+    r.choices !== 'none' && r.change === 'none',
+    'reading it as answered hides the question from the people it is being asked of');
+
+  /* ⚠ ON THE EMAILED-LINK ROUTE THE RECORD IS THE INVOICE RECORD and carries no rsvpStatus
+     at all — RS-60's second fault. The answer this visit is the only thing that knows. */
+  r = paint({}, 'no', false);
+  check('S341', 'an answer given this visit folds them away too',
+    r.choices === 'none' && r.change !== 'none',
+    'without this the emailed-link route shows the buttons to somebody who answered a second ago');
+
+  r = paint(answeredYes, '', true);
+  check('S341', 'pressing Change my answer opens them again',
+    r.choices !== 'none' && r.change === 'none',
+    'and the link hides itself, or it sits above the buttons it has already opened');
+
+  /* ⚠ THE WIRING, ASSERTED SEPARATELY. Every check above calls the renderer from this
+     harness, so all of them stay green with the button unwired and nothing on the page. */
+  check('S341', 'the Change button is listened for',
+    /closest\('#portalRsvpChangeBtn'\)/.test(idx) && /portalRsvpChangeOpen = true/.test(idx),
+    'a control nothing listens to looks identical to a working one');
+  /* ⚠ SCOPED TO THE ANSWER HANDLER'S OWN BODY. The first version searched the whole file
+     for "portalRsvpChangeOpen = false" and was satisfied by the DECLARATION, which is spelled
+     the same — so deleting the reset from the handler passed. The red-check is what said so.
+     Same shape as S273's literal-option match and the blueprint print guard. */
+  const answerHandler = (() => {
+    const at = idx.indexOf("closest('[data-portalrsvp]')");
+    if (at === -1) return '';
+    const end = idx.indexOf('renderPortalRsvp();', at);
+    return end === -1 ? '' : idx.slice(at, end);
+  })();
+  check('S341', 'the answer handler was found at all', !!answerHandler,
+    'an empty slice passes the check below without reading a line of the handler');
+  check('S341', 'and answering folds them back up',
+    /portalRsvpChangeOpen = false/.test(answerHandler),
+    'otherwise somebody who changed their mind is left looking at the question again');
+  /* ⛔ THE var TRAP. index.html's portal script is one ES module: a function declaration
+     hoists and is callable anywhere, a var beside it hoists as UNDEFINED. Declared below
+     its reader this reads undefined — falsy — so Change my answer would collapse again on
+     the next repaint and look broken, silently. [[MEM-01]] cost a whole feature to this. */
+  check('S341', 'the per-visit flag is declared before the renderer reads it',
+    idx.indexOf('var portalRsvpChangeOpen') > -1 &&
+    idx.indexOf('var portalRsvpChangeOpen') < idx.indexOf('function renderPortalRsvp'),
+    'below it, the flag is undefined at the one moment that matters and nothing goes red');
+}

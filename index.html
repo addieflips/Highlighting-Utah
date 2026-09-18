@@ -2355,13 +2355,28 @@
                    email, or said no and changed their mind, had to telephone
                    to do something the app already supports. -->
               <div id="portalRsvpBlock" style="margin-bottom:20px; padding-bottom:18px; border-bottom:1px solid var(--line);">
-                <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:4px;">Are you having lights this season?</label>
+                <!-- ⭐ THE QUESTION STOPS BEING A QUESTION ONCE IT HAS AN ANSWER ([[RS-62]],
+                     2026-09-18). Addie: "In member portal at the top Are you having lights this
+                     season it should update and go away once someone has answered."
+                     ⛔ COLLAPSED, NEVER REMOVED, and that distinction is the whole design.
+                     [[RS-31]] lands an emailed "no" in this portal and [[RS-60]] mounts the
+                     decline-reason picker inside this very block, so deleting it would take the
+                     way back with it — and somebody who said no and changed their mind would be
+                     back to telephoning, which is the thing this block was added to stop.
+                     ⚠ THE HEADING IS SWAPPED TOO, not just the buttons hidden. A heading reading
+                     "Are you having lights this season?" over a line saying they are confirmed is
+                     the page asking something it has already been told, which is what she is
+                     describing. -->
+                <label id="portalRsvpHeading" style="display:block; font-size:12.5px; font-weight:600; margin-bottom:4px;">Are you having lights this season?</label>
                 <p class="form-note" id="portalRsvpCurrent" style="margin:0 0 10px;"></p>
-                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <div id="portalRsvpChoices" style="display:flex; gap:8px; flex-wrap:wrap;">
                   <button type="button" class="btn btn-outline-dark btn-sm" data-portalrsvp="yes">Yes, I&rsquo;m in</button>
                   <button type="button" class="btn btn-outline-dark btn-sm" data-portalrsvp="backnextyear">Back next year</button>
                   <button type="button" class="btn btn-outline-dark btn-sm" data-portalrsvp="no">Not this season</button>
                 </div>
+                <!-- ⚠ THE WAY BACK IN. Plain and quiet on purpose — it is not a thing we are
+                     asking them to press, it is the undo for somebody who changed their mind. -->
+                <button type="button" id="portalRsvpChangeBtn" style="display:none; background:none; border:none; padding:0; font-family:inherit; font-size:12.5px; color:var(--slate); text-decoration:underline; cursor:pointer;">Change my answer</button>
                 <p class="form-note" id="portalRsvpStatus" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
                 <!-- ⭐ AND WHY, IF THEY WANT TO SAY ([[RS-60]], 2026-09-11). Addie: "okay i
                      need it to be optional choice", then the wording: "Should be Moved,
@@ -5314,6 +5329,16 @@ function portalRsvpLabel(status){
   if(status === 'backnextyear') return "You've told us you'll be back next year.";
   return "You haven't told us yet.";
 }
+/* ⭐ HAS THIS VISIT ASKED TO CHANGE THEIR ANSWER ([[RS-62]])? Per visit and never stored:
+   a reload puts the collapsed view back, which is right, because the record is what
+   persists and the buttons are only ever an undo.
+   ⚠ DECLARED WITH `var`, ABOVE ITS READER, AND THAT IS NOT DECORATION. index.html's portal
+   script is one ES module: a `function` declaration hoists and is callable from anywhere in
+   it, while a `var` beside it hoists as UNDEFINED. [[MEM-01]] records the same trap costing
+   a whole feature silently — declared below renderPortalRsvp this reads undefined at the one
+   moment it matters, which is falsy, so the buttons would collapse again on every repaint
+   and Change my answer would look broken. */
+var portalRsvpChangeOpen = false;
 function renderPortalRsvp(){
   var block = document.getElementById('portalRsvpBlock');
   if(!block) return;
@@ -5326,6 +5351,43 @@ function renderPortalRsvp(){
     btn.disabled = isCurrent;
     btn.style.opacity = isCurrent ? '.5' : '';
   });
+  /* ⭐ ANSWERED MEANS ANSWERED ([[RS-62]], 2026-09-18). Addie: "it should update and go away
+     once someone has answered." The three buttons fold away and the heading stops asking;
+     portalRsvpCurrent already carries what they said, so nothing is lost by hiding them.
+     ⚠ ONE OF THE THREE REAL ANSWERS, NEVER "not empty". A record can hold 'unanswered' —
+     that is the office marking a season's RSVP as sent, not a reply — and reading it as an
+     answer would hide the question from precisely the people it is being asked of.
+     ⛔ AND IT IS NEVER HIDDEN WHILE THEY ARE STILL BEING ASKED SOMETHING. A "no" or a back
+     next year opens the reason picker ([[RS-60]]) inside this same block; that is drawn by
+     renderPortalRsvpReason below and is unaffected, because it keys off the answer rather
+     than off these buttons. */
+  /* ⛔ IT ASKS portalHasRealRsvpAnswer AND DOES NOT RE-DECIDE. That rule already exists on
+     this page — it gates the after-payment question — and it refuses a bare 'yes' carrying
+     no rsvpRespondedAt, because that is an import or the assumed yes written at conversion
+     ([[RS-19]]), never a reply. A second reading of "have they answered" living here would
+     hide this question from exactly the customers it is being asked of, and the two would
+     drift apart on the next change. The office makes the same distinction in
+     effectiveRsvpStatus; this is that rule, on this side, asked once.
+     ⚠ THE ANSWER THIS VISIT COUNTS TOO, and has to: on the emailed-link route the record
+     being rendered is the INVOICE record, which carries no rsvpStatus at all — the whole of
+     [[RS-60]]'s second fault — so the stored rule alone would leave the buttons open to
+     somebody who answered a second ago. */
+  var answered = (status === 'yes' || status === 'no' || status === 'backnextyear') &&
+                 (!!portalRsvpAnswerThisVisit ||
+                  portalHasRealRsvpAnswer(currentJobAddressData || currentLookupRecord));
+  /* ⚠ ONCE THEY ASK TO CHANGE IT, IT STAYS OPEN FOR THE REST OF THE VISIT. This function
+     re-runs on every repaint, so without the override the buttons would fold away again
+     underneath somebody who had just pressed Change my answer. Per visit, never stored — a
+     reload is a fresh start, and the record is the only thing that persists. */
+  var showChoices = !answered || portalRsvpChangeOpen;
+  var choices = document.getElementById('portalRsvpChoices');
+  var changeBtn = document.getElementById('portalRsvpChangeBtn');
+  var heading = document.getElementById('portalRsvpHeading');
+  if(choices) choices.style.display = showChoices ? 'flex' : 'none';
+  if(changeBtn) changeBtn.style.display = (answered && !portalRsvpChangeOpen) ? 'inline' : 'none';
+  if(heading) heading.textContent = answered
+    ? 'Your answer for this season'
+    : 'Are you having lights this season?';
   renderPortalRsvpReason();
 }
 /* ⭐ THE OPTIONAL REASON ([[RS-60]]). Drawn only for somebody whose record ALREADY says
@@ -5475,6 +5537,22 @@ document.addEventListener('click', function(e){
    flag rather than a parameter because the two are different screens on different tabs;
    it is cleared the moment it is used, so it can never colour a later ordinary move. */
 var portalMoveConfirmsSeason = false;
+/* ⭐ THE WAY BACK IN ([[RS-62]]). Delegated on the document for the same reason the three
+   answer buttons are: this block is MOVED between the Cancel and Changes panels ([[RS-60]]),
+   so a listener bound to the node at start-up is bound to a node that gets re-parented, and
+   one bound per render is the listener leak that fired 2815 Firestore writes on a single
+   drop ([[MSG-13]]). One listener, whatever the markup does afterwards. */
+document.addEventListener('click', function(e){
+  var btn = e.target.closest && e.target.closest('#portalRsvpChangeBtn');
+  if(!btn) return;
+  portalRsvpChangeOpen = true;
+  renderPortalRsvp();
+  /* ⚠ PUT THEM ON THE FIRST ANSWER, not merely on screen. They pressed this to change
+     something, and on a long page a control that reveals three buttons below the fold has
+     visibly done nothing. */
+  var first = document.querySelector('#portalRsvpChoices [data-portalrsvp]');
+  if(first && first.focus) first.focus();
+});
 document.addEventListener('click', function(e){
   var btn = e.target.closest && e.target.closest('[data-portalrsvp]');
   if(!btn) return;
@@ -5504,6 +5582,10 @@ document.addEventListener('click', function(e){
        are in. */
     portalRsvpAnswerThisVisit = answer;
     portalRsvpReasonThisVisit = '';
+    /* ⭐ AND THE BUTTONS FOLD AWAY AGAIN ([[RS-62]]). Somebody who pressed Change my answer
+       and then answered has finished; leaving them open puts that customer back where the
+       ruling says they should not be — looking at a question they have just answered. */
+    portalRsvpChangeOpen = false;
     /* ⚠ AND THE STAMP, NOT ONLY THE WORD. portalHasRealRsvpAnswer refuses a bare
        'yes' with nothing behind it, so without this the question would reopen on the
        next render of a customer who had just answered it. */

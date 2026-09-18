@@ -430,6 +430,24 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    having moved, so touching only the wire charges nobody. It does queue a rebuild, which is
    right: a different cord is a different bundle.
 
+   ⭐ **AND THE QUESTION STOPS ASKING ONCE IT IS ANSWERED** (2026-09-18, [[RS-62]]).
+   Addie: *"In member portal at the top Are you having lights this season it should update
+   and go away once someone has answered."* The three buttons fold away, the heading changes
+   from a question to **Your answer for this season**, the answer stays on screen, and a
+   quiet **Change my answer** re-opens them.
+
+   ⛔ **Collapsed, never removed.** [[RS-31]] lands an emailed "no" in this portal and
+   [[RS-60]] mounts the decline-reason picker inside this same block, so deleting it takes
+   the way back with it — and somebody who said no and changed their mind is back to
+   telephoning, which is what the block was added to stop.
+
+   ⛔ **It asks `portalHasRealRsvpAnswer`**, the rule that already gates the after-payment
+   question, rather than deciding again. That one refuses a bare `yes` with no
+   `rsvpRespondedAt` behind it — an import, or the assumed yes written at conversion — which
+   is precisely the customer this question exists for. The answer given *this visit* counts
+   too: on the emailed-link route the record on screen is the invoice record and carries no
+   `rsvpStatus` at all.
+
    ⚠ **And the emailed Yes does work**, bill outstanding or not:
    `test/rsvp-unpaid-this-year.spec.js` drives it in a real browser and the badge goes
    Confirmed. A record still on **On hold** never received that write.
