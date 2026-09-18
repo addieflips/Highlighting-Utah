@@ -4855,6 +4855,18 @@ never resolved against the customer list** — same shape, different collection.
 whole token is still never written down**; this widens what the office can see, not what is
 stored.
 
+⛔ **An empty customer list is "not loaded yet", never "nobody matches"** (2026-09-18). The
+red error badge is filled from the stored errors the moment `messages` lands, and the
+customers arrive on their own listener a moment later — so the copied error log said *"no
+customer matches this link"* on every RSVP row. Checked against the live book and EmailJS
+history the same day: **all nine tokens matched a real customer, and every one of those
+customers already has their answer on file** (the retries in `callPortalRsvp` got them
+through). `msgErrorWhoIs` now returns nothing while the list is empty, and
+`errBadgeSeedFromStored` holds the stored rows back until `loadJobAddresses` has its first
+snapshot (`errBadgeWaitingForCustomers`), because the seed is frozen text and is only ever
+taken once. A book that really is empty still gets its rows — the listener forces the seed.
+`error-inbox.test.js` runs both halves; 5 sabotages red-checked.
+
 ⚠ **Both sides stop themselves.** Each dedupes on a fingerprint with the numbers stripped
 out, so 900 failed rows are one fault rather than 900. The member side stops after three
 per visit; the admin side after five per session, and stays quiet about a fault already
@@ -5196,7 +5208,7 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
 - **Owing money from last season keeps you out of the season too**, on top of the RSVP rule and independently of it — a yes is not a payment. Start New Season carries the unpaid balance onto the new bill as its own `kind: 'arrears'` line, and `isOutForSeason` holds them until the whole of that amount is covered by payment or credit. They are listed under **Schedule → Owes from last year** (§3, MON-31, RS-24).
 - **And the RSVP says so to their face rather than promising a crew** (2026-09-01). A yes from a debtor used to end on *"We'll get you scheduled!"*, which is the one thing that was never going to happen for them. It now names the amount and the season and says the install cannot be booked until it is settled — on both screens, because the follow-on message is where that promise actually lived. Their yes is still recorded, nothing is sent (so it is not MON-34's chase), and an invoice that cannot be read reports nought and leaves the old wording alone. Full reasoning in §3.
 - A legacy customer record without a `portalToken` gets one minted automatically the first time they're looked up.
-  - ⛔ **And a token that could not be SAVED is never put in an email** (2026-09-13). Minting is a write, and a write can be refused. `getOrCreatePortalToken` in `admin.html` used to swallow that and hand the freshly minted token back anyway — so the office sent a real customer an RSVP link that belongs to **no record at all**. They tap Yes, `findByToken` matches nothing, and to them it looks exactly like they already answered. It is silent at both ends: the office reads a green *Sent*, and the Errors row can only say *"no customer matches this link"* — which is what every RSVP failure row in the 8–11 September log says.
+  - ⛔ **And a token that could not be SAVED is never put in an email** (2026-09-13). Minting is a write, and a write can be refused. `getOrCreatePortalToken` in `admin.html` used to swallow that and hand the freshly minted token back anyway — so the office sent a real customer an RSVP link that belongs to **no record at all**. They tap Yes, `findByToken` matches nothing, and to them it looks exactly like they already answered. It is silent at both ends: the office reads a green *Sent*, and the Errors row can only say *"no customer matches this link"* — which is what every RSVP failure row in the 8–11 September log says. ⚠ **CORRECTED 2026-09-18: those rows were NOT this.** All nine of their tokens are stored on the right customers and every one of them has an answer on file — the label was the badge naming people before the customer list had loaded (see *An empty customer list is "not loaded yet"* in §the Errors folder). The guard below is still right for the failure it describes; it just was not what those rows were.
   - ⭐ **The server already had the right rule and wrote it down.** `ensureToken` in `functions/index.js` re-reads after a failed write — somebody else may have minted one in the gap, and *theirs* is the one that is stored — and failing that sends a link with **no token** *"rather than one that cannot work"*. The browser copy now does the same. Change one and change the other; **Suite 332** runs both against the same refused write.
   - ⚠ **No token is a safe answer, and that is why this works.** All four callers already write `(token ? ('?token='+token) : '')`, so the customer gets the plain portal address and signs in with their phone and surname exactly as they would from the website. A working sign-in beats a one-tap link that records nothing. The failure is reported through `console.error` → `__huAdminErrorSink` → the Errors folder, rather than being discovered from a customer weeks later.
 - Nightly-run failures/results text the owner via Twilio — a separate channel from email, so it still works if email itself breaks.

@@ -1373,6 +1373,61 @@ console.log('--- wiring ---');
       'it must not take the first; that is a coin toss printed as a fact');
   }
 
+  /* ⛔ AN EMPTY BOOK IS "NOT LOADED YET" (2026-09-18). The copied error log said "no customer
+     matches this link" on all nine RSVP rows, and every one of those tokens matched a real
+     customer who had their answer on file — the badge was seeded before the customers had
+     landed. Said about a failure the customer was told did not save, that sends the office
+     after people who already replied. */
+  {
+    const early = {};
+    new Function('jobAddresses',
+      liftFn(admin, 'msgErrorTokenTail') + liftFn(admin, 'msgErrorWhoIs') + liftFn(admin, 'msgErrorWhoLabel') +
+      'this.label = msgErrorWhoLabel;').call(early, []);
+    check('before the customers load, a token row names nobody and claims nothing',
+      early.label(REAL_BLANK_ROW) === '',
+      'got ' + JSON.stringify(early.label(REAL_BLANK_ROW)) + ' — "no customer matches" is a claim ' +
+      'about the book, and an empty list is not the book');
+  }
+
+  /* ⚠ AND THE BADGE WAITS FOR THEM. The seed is frozen text and `seededOnce` means it is never
+     rebuilt, so a seed taken with no customers loaded carries no names for the whole session. */
+  {
+    const seeded = [];
+    const sb2 = {};
+    new Function('window', 'errBadgeStoredLines', 'book',
+      'let jobAddresses = book;\n' +
+      /let errBadgeWaitingForCustomers = false;/.exec(admin)[0] + '\n' +
+      extractFn(admin, 'errBadgeSeedFromStored') +
+      'this.seed = errBadgeSeedFromStored; this.waiting = function(){ return errBadgeWaitingForCustomers; };' +
+      'this.load = function(b){ jobAddresses = b; };')
+      .call(sb2, { __huErrCatchSeed: function(lines){ seeded.push(lines); } },
+        function(){ return ['a stored line']; }, []);
+    sb2.seed();
+    check('with no customers loaded the seed holds back and remembers it owes one',
+      seeded.length === 0 && sb2.waiting() === true,
+      'seeded ' + seeded.length + ' time(s), waiting=' + sb2.waiting());
+    sb2.load([{ id: 'c1', data: {} }]);
+    sb2.seed();
+    check('and once they are there it seeds',
+      seeded.length === 1 && sb2.waiting() === false,
+      'seeded ' + seeded.length + ' time(s), waiting=' + sb2.waiting());
+    const sb3 = {}; const seeded3 = [];
+    new Function('window', 'errBadgeStoredLines', 'book',
+      'let jobAddresses = book;\n' +
+      /let errBadgeWaitingForCustomers = false;/.exec(admin)[0] + '\n' +
+      extractFn(admin, 'errBadgeSeedFromStored') + 'this.seed = errBadgeSeedFromStored;')
+      .call(sb3, { __huErrCatchSeed: function(lines){ seeded3.push(lines); } },
+        function(){ return ['a stored line']; }, []);
+    sb3.seed(true);
+    check('a forced seed goes through even on an empty book',
+      seeded3.length === 1,
+      'a book that really is empty must still get its stored errors, not wait for ever');
+    const loader = extractFn(admin, 'loadJobAddresses');
+    check('and the customer listener is what finishes a seed that was held back',
+      /if\(errBadgeWaitingForCustomers\)\{[\s\S]*?errBadgeSeedFromStored\(true\)/.test(loader),
+      'without this the held-back seed never happens and the badge loses every stored error');
+  }
+
   /* ⚠ AND THE RESOLVER HAS TO REACH THE SCREEN. Suite 276's lesson: a renderer proved
      against a harness while the page never calls it is green and useless. */
   check('the message heading actually calls it',
