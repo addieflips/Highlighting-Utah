@@ -7900,7 +7900,7 @@ document.getElementById('quickEmailFillBtn')?.addEventListener('click', async fu
     try{
       emailjs.init(publicKey);
       await emailjs.send(serviceId, templateId, {
-        to_email: email, to_name: d.name || '',
+        to_email: email, to_name: emailGreetingName(d.name),
         message: currentText.replace(/\n/g, '<br>'), amount: amount,
         payment_link: 'https://highlightingutah.com/#/payment'
       });
@@ -9428,7 +9428,7 @@ async function sendPaymentReceipt(invId, invData, paidNow){
     body = await resolveLinkTokens(body.replace(/\{\{name\}\}/g, d.name || 'there'), d.phone || invId, amountDue);
     body = body.replace(/\n/g, '<br>');
     emailjs.init(publicKey);
-    await emailjs.send(serviceId, templateId, { to_email: email, to_name: d.name || '', subject: await emailSubjectFor(tpl, d.phone || invId, {name: d.name || 'there'}), message: body });
+    await emailjs.send(serviceId, templateId, { to_email: email, to_name: emailGreetingName(d.name), subject: await emailSubjectFor(tpl, d.phone || invId, {name: d.name || 'there'}), message: body });
     await updateDoc(doc(db,'invoices',invId), {
       receiptSentForDeposit: deposit,
       receiptSentAt: serverTimestamp(),
@@ -10349,7 +10349,30 @@ async function resolveLinkTokens(text, phone, amount, opts){
     out = out.split('{{rsvp_back_button}}').join('<a href="'+rsvpBackUrl+'" style="'+btnStyle+' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>');
   }
   if(out.indexOf('{{quote_yes_button}}') !== -1 || out.indexOf('{{quote_decline_button}}') !== -1 || out.indexOf('{{quote_maybe_button}}') !== -1){
-    const quote = quoteForButtons(phone);
+    /* ⭐ THE QUOTE IN HAND WINS OVER THE PHONE LOOKUP (2026-09-17).
+
+       ⚠ quoteForButtons SEARCHES BY PHONE NUMBER, and the office presses Send on
+       ONE quote card. Those are not the same quote. Two ways they came apart, both
+       seen in real emails:
+
+       ⚠ A QUOTE WITH NO PHONE ON IT FINDS NOTHING AT ALL. `quoteForButtons` returns
+       null the moment the number is empty, and since the public form let one box be
+       a phone OR an email (QT-40, 2026-09-12) a perfectly good email-only lead has
+       no number — so their quote email carried three copies of the words
+       "(quote token not found)" where the buttons belong. Same for a quote the
+       office typed up from a call before the number was filled in.
+
+       ⚠ AND A SHARED NUMBER FINDS THE WRONG HOUSE. Seventeen numbers in the book
+       are shared and fourteen of those are two households, so the newest open quote
+       on a number can belong to the other one — the send would then ask a parent to
+       approve their child's price. addOnEmailBlock already says this about the same
+       function; this is the other half of it.
+
+       The phone lookup stays as the fallback, because the RSVP and Automation
+       Emails paths genuinely have only a number to go on. */
+    const quote = (opts.quote && opts.quote.id && opts.quote.data)
+      ? opts.quote
+      : quoteForButtons(phone);
     /* ⚠ A QUOTE WITH NO TOKEN IS NOT A QUOTE WITH NO BUTTONS (2026-09-11). The
        portal raises a re-quote when a member changes their sides or their
        address, and that create never wrote a quoteToken — a token is minted in
@@ -11657,7 +11680,7 @@ document.getElementById('loadBulkAutoCopyListBtn')?.addEventListener('click', fu
         try{
           emailjs.init(publicKey);
           await emailjs.send(serviceId, templateId, {
-            to_email: d.email, to_name: d.name || '',
+            to_email: d.email, to_name: emailGreetingName(d.name),
             message: text
           });
           statusEl.textContent = 'Sent to ' + d.email + '!';
@@ -11718,7 +11741,7 @@ document.getElementById('sendBulkUpdateEmailBtn')?.addEventListener('click', asy
          cannot drift between the five places that mail customers. */
       const paced = await emailSendPaced(function(){
         return emailjs.send(serviceId, templateId, {
-        to_email: d.email, to_name: d.name || '',
+        to_email: d.email, to_name: emailGreetingName(d.name),
         message: message, button_url: 'https://highlightingutah.com/#/payment', button_label: '🎄 Update My Christmas Lights'
       });
       }, paceCtx, function(mins){
@@ -11851,7 +11874,7 @@ document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async fun
          cannot drift between the five places that mail customers. */
       const paced = await emailSendPaced(function(){
         return emailjs.send(serviceId, templateId, {
-        to_email: d.email, to_name: d.name || '',
+        to_email: d.email, to_name: emailGreetingName(d.name),
         message: message, button_url: 'https://highlightingutah.com/#/payment', button_label: '🎄 RSVP Now'
       });
       }, paceCtx, function(mins){
@@ -12076,7 +12099,7 @@ document.getElementById('pibSendUnpaidBtn')?.addEventListener('click', async fun
          RSVP emails into "Gmail_API: User-rate limit exceeded". One helper, so the rule
          cannot drift between the five places that mail customers. */
       const paced = await emailSendPaced(function(){
-        return emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
+        return emailjs.send(serviceId, templateId, { to_email: row.email, to_name: emailGreetingName(row.name), message: message });
       }, paceCtx, function(mins){
         statusEl.textContent = 'Gmail asked us to slow down \u2014 waiting about ' + mins
           + ' minute' + (mins === 1 ? '' : 's') + ', then carrying on by itself. '
@@ -12170,7 +12193,7 @@ document.getElementById('pibSendPaidBtn')?.addEventListener('click', async funct
          RSVP emails into "Gmail_API: User-rate limit exceeded". One helper, so the rule
          cannot drift between the five places that mail customers. */
       const paced = await emailSendPaced(function(){
-        return emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
+        return emailjs.send(serviceId, templateId, { to_email: row.email, to_name: emailGreetingName(row.name), message: message });
       }, paceCtx, function(mins){
         statusEl.textContent = 'Gmail asked us to slow down \u2014 waiting about ' + mins
           + ' minute' + (mins === 1 ? '' : 's') + ', then carrying on by itself. '
@@ -13812,6 +13835,24 @@ function firstName(raw){
   if(/^(the|mr|mrs|ms|miss|dr|rev|pastor)\.?$/i.test(first)) return full;
   return first || 'there';
 }
+/* ⭐ WHAT GOES IN to_name, WHICH IS THE GREETING THE CUSTOMER READS (2026-09-17).
+   The EmailJS customer template opens "Hi {{to_name}}," and every send in this
+   file passed `d.name || ''`, so a record with no name on it mailed out as
+   literally "Hi ," — reported on a quote email the office was looking at.
+
+   ⚠ EMPTY IS THE CASE THAT MATTERS, not tidiness: quotes have been able to
+   arrive with no phone since the contact box became one field (QT-40), and a
+   quote the office typed up from a phone call can be a name and nothing else.
+   'there' is the fallback the rest of the file already uses (firstName, and the
+   {{name}} token in every send), so the greeting degrades to "Hi there," rather
+   than to a comma on its own.
+
+   ⚠ THE FULL NAME, NOT THE FIRST — that is what to_name has always carried and
+   changing it would reword ~950 invoices and RSVPs at the same time. This only
+   closes the blank. */
+function emailGreetingName(raw){
+  return properName(raw) || 'there';
+}
 function quoteTextTemplateFor(d){
   if(!isRequote(d)) return quoteTemplateNames.newQuoteText;
   /* A re-quote raised by the button on an ordinary quote falls back to the
@@ -13893,14 +13934,14 @@ async function nudgeEveryoneShown(){
     statusEl.style.color = 'var(--slate)';
     statusEl.textContent = 'Sending ' + (sent + failures.length + 1) + ' of ' + targets.length + '\u2026 (' + (d.name || '') + ')';
     try{
-      let html = await resolveLinkTokens(template.data.body, d.phone, 0, {name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice)});
+      let html = await resolveLinkTokens(template.data.body, d.phone, 0, {quote: item, name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice)});
       /* Same photo grid the quote card sends. This used to bolt the photos
          onto the very bottom and leave the template's own {{photo}} token
          sitting in the email as text, so a bulk nudge and a one-off nudge of
          the same template did not match. */
       html = applyQuotePhotoBlock(html, quotePhotoList(d), true);
       await emailjs.send(cfg.serviceId, cfg.templateId, {
-        to_email: String(d.email || '').trim(), to_name: d.name || '', subject: 'Just checking in on your quote', message: html,
+        to_email: String(d.email || '').trim(), to_name: emailGreetingName(d.name), subject: 'Just checking in on your quote', message: html,
         button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
         button_label: 'View Your Quote'
       });
@@ -17527,7 +17568,7 @@ function renderQuoteRows(filtered){
      Again (re-viewing later without touching the link/quoteSentAt below). */
   /* Builds exactly what the customer receives - shared by the preview and the
      one-press send, so what you see and what goes out cannot drift apart. */
-  async function buildQuoteEmailHtml(d, kind, template){
+  async function buildQuoteEmailHtml(d, kind, template, item){
     const body = template ? template.data.body : quoteDefaultBodyFor(d, kind);
     /* Real HTML, not flattened to plain text - that flattening is what turned
        the approve/maybe/decline buttons into spelled-out web addresses. The
@@ -17535,7 +17576,7 @@ function renderQuoteRows(filtered){
        Cloudinary, so nothing is attached and it costs nothing extra. It sits
        BELOW the buttons because some mail apps hide images until tapped. */
     const chargesSetupFee = quoteChargesSetupFee(d);
-    let html = await resolveLinkTokens(body, d.phone, 0, {name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice), setupFeeLine: chargesSetupFee ? ('Plus a one-time ' + fmtMoney(NEW_MEMBER_FEE) + ' set-up fee.') : ''});
+    let html = await resolveLinkTokens(body, d.phone, 0, {quote: item, name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice), setupFeeLine: chargesSetupFee ? ('Plus a one-time ' + fmtMoney(NEW_MEMBER_FEE) + ' set-up fee.') : ''});
     /* The photo goes directly under the price and above the buttons - where it
        does its work, next to the number it justifies. It used to sit below the
        sign-off, which almost nobody scrolls to. If the template says where it
@@ -17604,10 +17645,10 @@ function renderQuoteRows(filtered){
     quoteSendInFlight.add(id);
     say('Sending\u2026');
     try{
-      const built = await buildQuoteEmailHtml(d, 'quote', template);
+      const built = await buildQuoteEmailHtml(d, 'quote', template, item);
       emailjs.init(cfg.publicKey);
       await emailjs.send(cfg.serviceId, cfg.templateId, {
-        to_email: String(d.email || '').trim(), to_name: d.name || '', subject: built.subject, message: built.html,
+        to_email: String(d.email || '').trim(), to_name: emailGreetingName(d.name), subject: built.subject, message: built.html,
         button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
         button_label: 'View Your Quote'
       });
@@ -17689,7 +17730,7 @@ function renderQuoteRows(filtered){
         'Open <strong>Quote email settings</strong> at the top of this page and pick the right one.</div>';
       return;
     }
-    const built = await buildQuoteEmailHtml(d, kind, template);
+    const built = await buildQuoteEmailHtml(d, kind, template, item);
     const html = built.html;
     const subject = built.subject;
     resultEl.innerHTML =
@@ -17752,7 +17793,7 @@ function renderQuoteRows(filtered){
       try{
         emailjs.init(cfg.publicKey);
         await emailjs.send(cfg.serviceId, cfg.templateId, {
-          to_email: String(d.email || '').trim(), to_name: d.name || '', subject: subject, message: html,
+          to_email: String(d.email || '').trim(), to_name: emailGreetingName(d.name), subject: subject, message: html,
           button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
           button_label: 'View Your Quote'
         });
@@ -21300,7 +21341,7 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
       sendErr = null;
       try{
         const subject = await emailSubjectFor(template, vars.phone, vars);
-        await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', subject: subject, message: message });
+        await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: emailGreetingName(member.data.name), subject: subject, message: message });
         sent++;
         /* ⭐ AND IT IS WRITTEN DOWN THAT THIS PERSON HAS NOW BEEN ASKED (2026-09-09,
            EM-04). Addie: "the people that have already got the email should not get it
