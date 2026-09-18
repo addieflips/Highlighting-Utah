@@ -372,19 +372,11 @@ async function recordUnmatchedPayment(phone, { captureId, tip, serviceAmount }) 
   } catch (e) {
     console.error('[HU] unmatched-payment inbox note failed:', e);
   }
-  // The alert is best-effort and must never throw back into the payment path.
-  try {
-    const cfgSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();
-    const alertPhone = cfgSnap.exists ? (cfgSnap.data().alertPhone || '') : '';
-    if (alertPhone) {
-      await twilioSendRaw(alertPhone,
-        'Highlighting Utah: a PayPal payment of $' + (Number(serviceAmount) || 0).toFixed(2) +
-        ' from ' + phone + ' was charged but has no invoice to apply it to. ' +
-        'It is saved under Unmatched Payments — please check.');
-    }
-  } catch (e) {
-    console.error('[HU] unmatched-payment alert SMS failed:', e);
-  }
+  /* ⛔ THE TEXT THAT USED TO SIT HERE IS GONE (2026-09-11), AND NOTHING REPLACES IT.
+     It read alertPhone off settings/nightlyInvoiceAutomation and handed it to
+     twilioSendRaw, on credentials that never worked — so it has never arrived, and
+     the note above is what has actually been telling the office all along. The note is
+     raised BEFORE this point on purpose and is the alert; see the comment on it. */
 }
 
 /* ⭐ LAST SEASON'S CARRIED BALANCE — SERVER COPY (added 2026-09-01).
@@ -586,67 +578,27 @@ exports.paypalCaptureOrder = onCall(
   }
 );
 
-/**
- * Twilio integration: sends a single SMS through a Cloud Function so the
- * Account SID and Auth Token never touch the browser. Called from
- * admin.html's Automation > Text Automation tab.
+/* ⛔ THERE IS NO SMS ON THIS SERVER, AND ADDING ONE BACK IS NOT A SMALL CHANGE.
  *
- * Setup (run once from the project root, after `firebase login`):
- *   firebase functions:secrets:set TWILIO_ACCOUNT_SID
- *   firebase functions:secrets:set TWILIO_AUTH_TOKEN
- *   firebase functions:secrets:set TWILIO_PHONE_NUMBER   (your Twilio number, e.g. +18015551234)
+ * A `sendSms` callable and a `twilioSendRaw` helper used to live here, both posting
+ * to api.twilio.com against TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER.
+ * The Twilio secrets never held working credentials, so every call came back 20003
+ * "Authentication Error - invalid username" — the customer-facing one loudly, in front
+ * of the office, and the two owner alerts silently, because the helper swallowed it.
+ * Removed from main 2026-09-18 ([[QT-49]]). Dax, first on 2026-09-11: "we dont want twillo we
+ * want to use google voice", and again on 2026-09-18: "we dont use twillo at all thats a bug".
  *
- * Then deploy with:
- *   firebase deploy --only functions
+ * ⚠ GOOGLE VOICE HAS NO SEND API. This is not a missing integration to be filled in
+ * later: there is no supported way for a Cloud Function to put a text on the wire
+ * through it. The office texts from a real signed-in Google Voice session, and the
+ * admin panel hands messages to it rather than sending them (see showQuoteTextBox).
+ *
+ * ⚠ SO AN ALERT FROM THE SERVER IS A NOTE, NOT A TEXT. Both owner alerts now raise a
+ * System note in `messages`, which recordUnmatchedPayment had already chosen on its
+ * own reasoning: "a text is gone the moment you look away; a note keeps until somebody
+ * deals with it". Anything that needs to reach a phone has to be sent by a person.
  */
 
-const TWILIO_ACCOUNT_SID = defineSecret('TWILIO_ACCOUNT_SID');
-const TWILIO_AUTH_TOKEN = defineSecret('TWILIO_AUTH_TOKEN');
-const TWILIO_PHONE_NUMBER = defineSecret('TWILIO_PHONE_NUMBER');
-
-function toE164(raw) {
-  const digits = String(raw || '').replace(/\D/g, '');
-  if (digits.length === 10) return '+1' + digits;
-  if (digits.length === 11 && digits.startsWith('1')) return '+' + digits;
-  return null;
-}
-
-// Called from admin.html only — sends one text to one recipient.
-// The admin panel loops over selected recipients and calls this once each.
-exports.sendSms = onCall(
-  { secrets: [TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER] },
-  async (request) => {
-    if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in.');
-    const { to, body } = request.data || {};
-    if (!to || !body) throw new HttpsError('invalid-argument', 'Missing to or body.');
-    const toNumber = toE164(to);
-    if (!toNumber) throw new HttpsError('invalid-argument', 'That phone number doesn\'t look valid.');
-
-    const sid = TWILIO_ACCOUNT_SID.value();
-    const authToken = TWILIO_AUTH_TOKEN.value();
-    const from = TWILIO_PHONE_NUMBER.value();
-    const basicAuth = Buffer.from(sid + ':' + authToken).toString('base64');
-
-    const params = new URLSearchParams();
-    params.append('To', toNumber);
-    params.append('From', from);
-    params.append('Body', body);
-
-    const res = await fetch('https://api.twilio.com/2010-04-01/Accounts/' + sid + '/Messages.json', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Basic ' + basicAuth,
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: params.toString()
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new HttpsError('internal', 'Twilio send failed: ' + (data.message || JSON.stringify(data)));
-    }
-    return { success: true, sid: data.sid, status: data.status };
-  }
-);
 // capture (e.g. the customer closed the tab right after paying). Verifies the
 // signature before trusting anything, and never double-counts a payment that
 // the browser-side call already recorded.
@@ -728,7 +680,17 @@ const PORTAL_WRITE_FIELDS = {
      the office keeps its own box on Add and Edit Customer. */
   preferences: ['installPreference', 'outletTimer', 'specificOutlet',
                 'specificOutletNotes', 'notes'],
-  lights:      ['lightsDescription'],
+  /* ⭐ wireColor IS BACK ON THIS LIST ([[OPT-21]], 2026-09-18), AND THE 2026-09-17 NOTE
+     ABOVE IS KEPT BECAUSE IT IS STILL RIGHT ABOUT WHAT IT REFUSED. Addie: "we instruct them
+     to pick based on gutter color however this is completley optional and they can choose
+     Any. Which will mean we choose."
+     ⛔ WHAT WAS WRONG WAS NEVER THE QUESTION, IT WAS THE INVENTED ANSWER. The old select
+     defaulted to 'Any' and STORED it, so a customer who never read the box came out holding
+     a wire colour nobody chose — the fault [[WH-35]] exists to stop the warehouse acting on.
+     Any is not written now: it is the absence of an answer, which is what leaves the house
+     on Dax's system-messages card to be read off a photo of the gutter.
+     ⚠ AND IT CAN ONLY EVER SET A COLOUR, NEVER CLEAR ONE — see the guard in portalSave. */
+  lights:      ['lightsDescription', 'wireColor'],
   /* ⭐ Which sides they want lit. Its own section, not folded into
      'preferences', because changing it changes the PRICE — see the requote
      flag below — and a section is what decides whether that runs.
@@ -749,7 +711,10 @@ const PORTAL_READ_FIELDS = [
      index.html looks at it any more, and a field sent to every customer's browser and
      never read is exactly what portal-fields.test.js exists to refuse — the office keeps
      it, the warehouse prints it, and the customer has no use for it. */
-  'lightsDescription', 'installPreference', 'outletTimer',
+  /* ⭐ AND READABLE AGAIN ([[OPT-21]]). It left this list with the control on 2026-09-17;
+     a picker that cannot show what is already on file is one that silently offers to
+     overwrite it, which is how the invented White got there in the first place. */
+  'lightsDescription', 'wireColor', 'installPreference', 'outletTimer',
   'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus', 'houseSides', 'houseSidesList',
   /* ⚠ THE WORD ON ITS OWN IS NOT AN ANSWER, so the portal needs the stamp too
      (added 2026-09-02). A stored yes with nothing behind it is an import or the
@@ -2064,7 +2029,7 @@ async function sendPortalChangeEmail(custId, d, labels) {
   body = body.split('{{portal_link}}').join(portalUrl);
   body = body.split('{{portal_button}}').join(
     '<a href="' + portalUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">See my account</a>');
-  /* ⭐ THE LIST IS APPENDED WHEN THE TOKEN IS NOT THERE, which is [[MSG-27]]'s rule applied to
+  /* ⭐ THE LIST IS APPENDED WHEN THE TOKEN IS NOT THERE, which is [[MSG-28]]'s rule applied to
      a template SHE edits. The whole point of this email is saying WHICH change we have got
      down; a body edited later that happens to drop {{change}} would send "we'll make sure to
      make this change on your house" naming no change at all — this same bug re-armed, with
@@ -2139,6 +2104,26 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
   });
   if (Object.keys(updates).length === 0) {
     throw new HttpsError('invalid-argument', 'Nothing to save.');
+  }
+
+  /* ⛔ THE ONLY TWO WIRE COLOURS THERE ARE, AND 'Any' IS NOT ONE OF THEM ([[OPT-21]]).
+     Addie: "they can choose Any. Which will mean we choose." So Any is the ABSENCE of an
+     answer and must never reach the record — storing it is exactly the invented colour
+     [[WH-35]] was written about, and wire-pick.test.js already names "'Any' read as an
+     answer" as one of the silent ways this goes wrong.
+     ⛔ AND IT NEVER CLEARS WHAT IS ON FILE. A blank arriving here is deleted from the
+     update rather than written, so somebody picking Any cannot wipe a colour the warehouse
+     read off a photo of their gutter, and cannot wipe one the office typed. The portal may
+     set this field and may change it between the two real values; it may not empty it.
+     ⚠ CHECKED AGAINST THE LIST, NOT MERELY FOR TRUTHINESS — the client already sends only
+     a real choice, and this is the half a client cannot be trusted for. */
+  if (updates.wireColor !== undefined) {
+    const wire = String(updates.wireColor || '').trim();
+    if (wire !== 'White' && wire !== 'Green') delete updates.wireColor;
+    else updates.wireColor = wire;
+    if (Object.keys(updates).length === 0) {
+      throw new HttpsError('invalid-argument', 'Nothing to save.');
+    }
   }
 
   // Normalise phone fields so lookups keep working.
@@ -3280,7 +3265,13 @@ exports.portalChangeAddress = onCall({ cors: true }, async (request) => {
   try {
     await db.collection('messages').add({
       topic: 'Existing Customer - Address Changed',
-      folder: 'Member Portal',
+      /* ⭐ THE INBOX, NOT A FOLDER WE PICKED ([[MSG-28]], 2026-09-18). Addie: "I need
+         everything to go into inbox than be able to add my own filters and sub folders."
+         This is the one server write that filed a customer message somewhere else, and
+         admin.html's MESSAGE_HOME_FOLDER was doing the same thing from the other end — both
+         had to go, or the topic lands in the Inbox for some customers and in Member Portal
+         for others depending on which door they came through. */
+      folder: 'Inbox',
       name: oldData.name || '', phone: oldData.phone || '', email: oldData.email || '',
       contactMethod: '',
       message: (oldData.name || 'A customer') + ' has moved from "' +
@@ -4477,7 +4468,7 @@ exports.quoteMemberKeptDetails = onCall({ cors: true }, async (request) => {
   return { ok: true };
 });
 
-/* ⛔ ONLY THE TWO REAL COLOURS, AND NEVER ON TRUST ([[OPT-21]], 2026-09-18). The browser
+/* ⛔ ONLY THE TWO REAL COLOURS, AND NEVER ON TRUST ([[OPT-22]], 2026-09-18). The browser
    has its own copy of this rule (`qdWireChoice` in index.html) so the radio it posts is
    already one of three values — but this is a PUBLIC callable reached with nothing but a
    quote token, so the browser's answer is a suggestion and this is the decision. Anything
@@ -4515,7 +4506,7 @@ exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
   const quoteUpdate = {
     lightColors: colors,
     lightsDescription: str(details.lightsDescription, 400),
-    /* ⭐ THE WIRE COLOUR IS WRITTEN HERE AGAIN ([[OPT-21]], 2026-09-18), and this is the
+    /* ⭐ THE WIRE COLOUR IS WRITTEN HERE AGAIN ([[OPT-22]], 2026-09-18), and this is the
        path that matters: the emailed-link route is the common one, so a field left off
        this whitelist is dropped in silence and the answer is lost with nothing wrong on
        screen — which is what happened to houseSides once already.
@@ -4544,7 +4535,7 @@ exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
     quoteArchived: false,
     quoteArchivedReason: ''
   };
-  /* ⛔ THE KEY IS ABSENT UNLESS THEY PICKED A COLOUR ([[OPT-21]]). Two different harms,
+  /* ⛔ THE KEY IS ABSENT UNLESS THEY PICKED A COLOUR ([[OPT-22]]). Two different harms,
      one line: writing 'Any' invents a cord nobody chose ([[OPT-12]]'s fault), and writing
      '' erases one a re-quote prefilled off the member's own record. Absent does neither,
      and a quote that carries none is exactly what "Check lights" reads. */
@@ -5004,49 +4995,34 @@ function todayStrInDenver() {
   return get('year') + '-' + get('month') + '-' + get('day');
 }
 
-// Sends one text through Twilio. Used by the nightly alert. Only works inside a
-// function that declares the TWILIO secrets. Never throws — returns {ok}.
-async function twilioSendRaw(to, body) {
-  const toNumber = toE164(to);
-  if (!toNumber) return { ok: false };
-  try {
-    const sid = TWILIO_ACCOUNT_SID.value();
-    const authToken = TWILIO_AUTH_TOKEN.value();
-    const from = TWILIO_PHONE_NUMBER.value();
-    const basicAuth = Buffer.from(sid + ':' + authToken).toString('base64');
-    const params = new URLSearchParams();
-    params.append('To', toNumber);
-    params.append('From', from);
-    params.append('Body', body);
-    const res = await fetch('https://api.twilio.com/2010-04-01/Accounts/' + sid + '/Messages.json', {
-      method: 'POST',
-      headers: { 'Authorization': 'Basic ' + basicAuth, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString()
-    });
-    return { ok: res.ok };
-  } catch (e) {
-    return { ok: false, error: String((e && e.message) || e) };
-  }
-}
 async function logNightlyInvoiceRun(data) {
   await db.collection('nightlyInvoiceLog').add(Object.assign(
     { runAt: admin.firestore.FieldValue.serverTimestamp() },
     data
   ));
-  // Text the owner a one-line summary so a missed or failed run can't slip by.
-  // Twilio is separate from EmailJS, so this still reaches you on the night
-  // email is the thing that's broken. An alert failure must never break the run.
+  /* ⛔ THIS USED TO TEXT THE OWNER A SUMMARY AND NEVER ONCE DID (fixed 2026-09-11).
+     twilioSendRaw returned {ok:false} and never threw, so a run that failed reported
+     itself to nobody — and the screen said the text was the channel that survives
+     email breaking. Nothing on this server can text; see the header comment.
+
+     ⚠ AND IT ONLY SPEAKS UP WHEN A PERSON IS NEEDED. The old text went out after every
+     run, including "23 sent, 0 errors" — a note on a clean run trains the eye to clear
+     the Inbox without reading it, which is how the one that matters gets cleared too.
+     A clean run is already on the "Last 10 nightly runs" card, and Health Check raises
+     a run that has not fired for 36 hours, which is the failure the text was for.
+
+     ⚠ BEST-EFFORT, LIKE THE TEXT IT REPLACES. A note that fails must never break the
+     billing run it is reporting on. */
   try {
-    const cfgSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();
-    const alertPhone = cfgSnap.exists ? (cfgSnap.data().alertPhone || '') : '';
-    if (alertPhone) {
+    const needsSomebody = (data.errorCount || 0) > 0 || (data.skippedNoEmail || 0) > 0 ||
+      (data.skippedNeedsFix || 0) > 0;
+    if (needsSomebody) {
       const parts = [(data.sentCount || 0) + ' sent'];
       if (data.skippedNeedsFix) parts.push(data.skippedNeedsFix + ' need fix');
       if (data.skippedNotDone) parts.push(data.skippedNotDone + ' skipped');
-      // Called out by name, not folded into the generic skip count — an
-      // uninvoiceable customer is a bill that will never be sent, not a bill
-      // that is waiting.
-      /* ⚠ THE WORDING CHANGED WITH THE BEHAVIOUR (2026-08-30). It read "cannot be
+      /* Called out by name, not folded into the generic skip count — an uninvoiceable
+         customer is a bill that will never be sent, not a bill that is waiting.
+         ⚠ THE WORDING CHANGED WITH THE BEHAVIOUR (2026-08-30). It read "cannot be
          billed", which was true while a payer with no email got no invoice document at
          all. They are billed now — the invoice is raised and waiting in their member
          portal, which they reach with their phone — and the only thing missing is
@@ -5055,16 +5031,27 @@ async function logNightlyInvoiceRun(data) {
          that is impossible rather than work that is hers. */
       if (data.skippedNoEmail) parts.push(data.skippedNoEmail + ' BILLED, SEND BY HAND (no email)');
       parts.push((data.errorCount || 0) + ' error' + (data.errorCount === 1 ? '' : 's'));
-      let body = 'Highlighting Utah billing (' + (data.triggeredBy || 'run') + '): ' + parts.join(', ') + '.';
+      let body = 'The 7pm billing run (' + (data.triggeredBy || 'run') + ') needs somebody: ' +
+        parts.join(', ') + '.';
       if (data.skippedNoEmail && data.noEmailNames && data.noEmailNames.length) {
         body += ' Send by hand: ' + data.noEmailNames.slice(0, 3).join(', ') +
           (data.noEmailNames.length > 3 ? ' +' + (data.noEmailNames.length - 3) + ' more' : '') + '.';
       }
-      if (data.errorCount && data.errors && data.errors.length) body += ' First issue: ' + String(data.errors[0]).slice(0, 90);
-      await twilioSendRaw(alertPhone, body);
+      if (data.errorCount && data.errors && data.errors.length) {
+        body += ' First issue: ' + String(data.errors[0]).slice(0, 90);
+      }
+      body += ' The full run is under Automation → Last 10 nightly runs.';
+      await db.collection('messages').add({
+        topic: 'Nightly Billing Needs You', folder: 'System',
+        name: '', phone: '', email: '', contactMethod: '',
+        ref: 'nightly-' + new Date().toISOString().slice(0, 10),
+        message: body,
+        autoQueuedToWarehouse: false, needsReassign: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
     }
   } catch (e) {
-    console.error('[HU] nightly alert SMS failed:', e);
+    console.error('[HU] nightly billing note failed:', e);
   }
 }
 
@@ -5792,6 +5779,49 @@ exports.listAdminUsers = onCall({ cors: true }, async (request) => {
  * ------------------------------------------------------------------------- */
 const QUOTE_NUDGE_WAIT_DAYS = 10;
 const QUOTE_NUDGE_MAX = 2;
+/* ⭐ THE LADDER ([[QT-49]], 2026-09-18). Addie: "On awaiting responses we should get a
+   notification to nudge them through text after 10 days than after 10 more days if they
+   still haven't responded then they should be sent an automatic email. After 10 more days
+   after the email if they did not respond then they should be put in archived."
+
+   ⛔ THE FIRST RUNG IS A NOTIFICATION TO US, NOT A TEXT TO THEM. Her sentence is "we should
+   get a notification to nudge them through text" — the office is told to text, a person
+   sends it. Nothing here sends an SMS, and that is the ruling rather than caution: an
+   automatic text is a charge per message to somebody who has not replied, and it cannot be
+   taken back. The second rung IS automatic, because she said so in as many words.
+
+   ⛔ EACH RUNG IS TEN DAYS AFTER THE ONE BEFORE IT, NOT TEN DAYS AFTER THE QUOTE. That is
+   what "after 10 more days" means, and it is why every rung has its own stamp: measuring
+   all three from quoteSentAt would fire the email and the archive on the same run for any
+   quote already three weeks old when this shipped.
+
+   ⚠ AND NOTHING RESETS quoteSentAt ANY MORE. The old single-rung nudge reset it so the
+   second email was another ten days out; with a stamp per rung that reset would re-open the
+   first rung for ever and nobody would ever be archived.
+
+   ⚠ A MANUAL NUDGE DOES NOT RESTART THE LADDER. The office pressing Nudge is the office
+   doing what rung one asked for — restarting on it means a quote that is chased by hand can
+   never reach the archive, which is the one rung that ends the chase. */
+const QUOTE_LADDER_RUNGS = ['text', 'email', 'archive'];
+/* Which rung, if any, this quote is due for. Its own function so a test can RUN it rather
+   than match its source — every claim about it is arithmetic on dates, which a regex cannot
+   see. Returns null for a quote that is not due for anything.
+   ⚠ IT DECIDES ONLY THE RUNG. Whether this quote should be chased at all — archived,
+   closed, answered, unpriced, never sent — is the caller's, and stays where it was. */
+function quoteLadderRungDue(q, nowMs, waitDays) {
+  const gap = (Number(waitDays) || QUOTE_NUDGE_WAIT_DAYS) * 24 * 60 * 60 * 1000;
+  const due = (t) => { const ms = toMillis(t); return ms ? (nowMs - ms) >= gap : false; };
+  /* ⚠ ORDER IS THE WHOLE RULE, and it reads DOWN the ladder: the last rung already reached
+     decides what comes next. Written the other way round — earliest rung first — a quote
+     that had been emailed would match the text rung again on the next run, because the text
+     stamp is what gates it and nothing above ever clears. */
+  if (q.quoteNudgeEmailedAt) return due(q.quoteNudgeEmailedAt) ? 'archive' : null;
+  if (q.quoteNudgeTextAskedAt) return due(q.quoteNudgeTextAskedAt) ? 'email' : null;
+  /* ⚠ FROM THE LAST TIME WE CONTACTED THEM. quoteSentAt is when the quote went out, and a
+     quote that was never sent is not waiting on a reply — the caller has already refused
+     those, and a missing stamp answers false here rather than firing on the epoch. */
+  return due(q.quoteSentAt) ? 'text' : null;
+}
 
 function prefersNotEmail(contactMethod) {
   return /phone|call|text|sms/i.test(String(contactMethod || ''));
@@ -5930,7 +5960,12 @@ async function runQuoteNudgeBatch(source) {
     return { sent: 0, skipped: 0, needsHuman: 0, stopped: 'automation is switched off' };
   }
   const waitDays = Number((setSnap.exists && setSnap.data().waitDays) || QUOTE_NUDGE_WAIT_DAYS) || QUOTE_NUDGE_WAIT_DAYS;
-  const maxNudges = Number((setSnap.exists && setSnap.data().maxNudges) || QUOTE_NUDGE_MAX) || QUOTE_NUDGE_MAX;
+  /* ⛔ maxNudges IS NO LONGER READ ([[QT-49]]). The ladder sends exactly ONE automatic
+     email — rung two — so "nudge at most N times" has nothing left to mean, and the box that
+     set it is gone from the automation card in the same change. A setting still being stored
+     while nothing reads it is the quiet half of this repo's own worst bug shape: somebody
+     sets it to 5, expects five emails, and gets one. QUOTE_NUDGE_MAX is kept as the record
+     of what the old behaviour was. */
 
   const cfgSnap = await db.collection('settings').doc('emailjs').get();
   const cfg = cfgSnap.exists ? cfgSnap.data() : {};
@@ -5946,12 +5981,16 @@ async function runQuoteNudgeBatch(source) {
   }
   const templateBody = tplSnap.docs[0].data().body || '';
 
-  const cutoff = Date.now() - waitDays * 24 * 60 * 60 * 1000;
+  /* ⛔ THE SINGLE CUTOFF IS GONE TOO. Each rung is measured from the rung before it, inside
+     quoteLadderRungDue, so one cutoff computed up here could only ever answer for the first. */
   const snap = await db.collection('quotes').get();
 
-  let sent = 0, skipped = 0, needsHuman = 0;
+  let sent = 0, skipped = 0, needsHuman = 0, askedToText = 0, archived = 0;
   const errors = [];
   const humanFollowUp = [];
+  /* The people a person has to text, collected the same way humanFollowUp is — the office
+     works this list off the automation card. */
+  const textThese = [];
 
   for (const docSnap of snap.docs) {
     const q = docSnap.data();
@@ -5959,13 +5998,45 @@ async function runQuoteNudgeBatch(source) {
     if ((q.status || 'new') === 'closed') { skipped++; continue; }
     if (['approved', 'declined', 'maybe_next_year'].indexOf(q.approvalStatus) !== -1) { skipped++; continue; }
     if (typeof q.quotedPrice !== 'number') { skipped++; continue; }
-    if (Number(q.quoteNudgeCount || 0) >= maxNudges) { skipped++; continue; }
+    /* ⭐ WHICH RUNG ([[QT-49]]). The ladder replaces the old single "has it been ten days"
+       test AND the max-nudge count: how far somebody has been chased is now said by which
+       stamps they carry, not by a tally. quoteNudgeCount is still written so the card's
+       "Nudged 2×" pill keeps working. */
+    const rung = quoteLadderRungDue(q, now.getTime(), waitDays);
+    if (!rung) { skipped++; continue; }
 
-    const lastContact = toMillis(q.quoteSentAt);
-    if (!lastContact || lastContact > cutoff) { skipped++; continue; }
+    /* ⭐ RUNG ONE IS A JOB FOR A PERSON. Addie: "we should get a notification to nudge them
+       through text" — so this stamps the quote and puts them on a list the office works
+       down. Nothing is sent to the customer here. */
+    if (rung === 'text') {
+      await docSnap.ref.update({ quoteNudgeTextAskedAt: admin.firestore.FieldValue.serverTimestamp() });
+      textThese.push({ id: docSnap.id, name: q.name || '', phone: q.phone || '',
+                       email: q.email || '' });
+      askedToText++;
+      continue;
+    }
 
-    /* They asked for a phone call or a text. We cannot do either automatically,
-       so flag them for a person rather than emailing them anyway. */
+    /* ⭐ RUNG THREE ENDS THE CHASE. Archived is where a closed quote already lives, so a
+       customer who answers on day 31 is still found under Closed → Archived rather than
+       being gone. Addie, asked exactly that: "They should be in archived in completed."
+       ⚠ IT SAYS WHY, because quoteArchivedReason is already rendered on the card — an
+       archived quote with no reason reads as somebody having closed it by hand. */
+    if (rung === 'archive') {
+      await docSnap.ref.update({
+        quoteArchived: true,
+        quoteArchivedAt: admin.firestore.FieldValue.serverTimestamp(),
+        quoteArchivedReason: 'No reply after ' + (waitDays * 3) + ' days'
+      });
+      archived++;
+      continue;
+    }
+
+    /* Rung two, the automatic email. They asked for a phone call or a text, or we have no
+       address for them — we cannot do either automatically, so flag them for a person
+       rather than emailing them anyway.
+       ⚠ THE STAMP IS NOT WRITTEN HERE. Without an email address this rung can never be
+       completed, and stamping it would march them on to the archive ten days later having
+       been sent nothing at all. They stay on the human list until somebody acts. */
     if (prefersNotEmail(q.contactMethod) || !q.email) {
       needsHuman++;
       humanFollowUp.push({
@@ -6057,8 +6128,11 @@ async function runQuoteNudgeBatch(source) {
       await docSnap.ref.update({
         quoteNudgeCount: Number(q.quoteNudgeCount || 0) + 1,
         quoteLastNudgedAt: admin.firestore.FieldValue.serverTimestamp(),
-        /* Resets the clock, so the second nudge is another 10 days out. */
-        quoteSentAt: admin.firestore.FieldValue.serverTimestamp(),
+        /* ⭐ THE RUNG'S OWN STAMP ([[QT-49]]), and what the archive rung measures from.
+           ⛔ quoteSentAt IS NO LONGER RESET HERE. It used to be, so the second nudge was
+           another ten days out — with a stamp per rung that reset re-opens the text rung
+           for ever and nobody is ever archived. */
+        quoteNudgeEmailedAt: admin.firestore.FieldValue.serverTimestamp(),
         quoteNudgedAutomatically: true
       });
       sent++;
@@ -6071,14 +6145,20 @@ async function runQuoteNudgeBatch(source) {
     lastRunAt: admin.firestore.FieldValue.serverTimestamp(),
     lastRunSource: source,
     lastRunSent: sent,
+    lastRunAskedToText: askedToText,
+    lastRunArchived: archived,
     lastRunNeedsHuman: needsHuman,
+    /* ⚠ THE LIST IS REPLACED, NEVER APPENDED TO. A quote reaches the text rung once, so an
+       accumulating list would go on naming people the office texted a fortnight ago. */
+    textNudgeList: textThese.slice(0, 50),
     lastRunErrors: errors.slice(0, 10),
     /* The list of people who wanted a call or a text - shown in admin so they
        do not quietly fall through the cracks. */
     needsHumanList: humanFollowUp.slice(0, 50)
   }, { merge: true });
 
-  return { sent: sent, skipped: skipped, needsHuman: needsHuman, errors: errors };
+  return { sent: sent, skipped: skipped, needsHuman: needsHuman,
+           askedToText: askedToText, archived: archived, errors: errors };
 }
 
 function properNameServer(raw) {
@@ -6874,7 +6954,7 @@ exports.runQuoteNudgesNow = onCall({ memory: '512MiB', timeoutSeconds: 300 }, as
 });
 
 exports.sendNightlyInvoices = onSchedule(
-  { schedule: '0 19 * * *', timeZone: 'America/Denver', memory: '512MiB', secrets: [TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER] },
+  { schedule: '0 19 * * *', timeZone: 'America/Denver', memory: '512MiB' },
   async () => {
     const autoSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();
     if (!autoSnap.exists || !autoSnap.data().enabled) {
@@ -6891,7 +6971,7 @@ exports.sendNightlyInvoices = onSchedule(
  * invoices out on a night the automation is turned off. Requires the caller
  * to be signed in (same Firebase Auth already used across admin.html).
  * ------------------------------------------------------------------------- */
-exports.sendInvoicesNow = onCall({ memory: '512MiB', timeoutSeconds: 300, secrets: [TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER] }, async (request) => {
+exports.sendInvoicesNow = onCall({ memory: '512MiB', timeoutSeconds: 300 }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Sign in required.');
   }

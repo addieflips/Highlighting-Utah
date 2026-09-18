@@ -152,13 +152,13 @@ function check(label, ok, detail) {
   const AGREED = {
     measuredFeet:      ['quote', 'confirmation', 'customer', 'pullList', 'invoice'],
     lightsDescription: ['quote', 'confirmation', 'customer', 'pullList'],
-    /* ⭐ 'quote' PUT BACK 2026-09-18 — [[OPT-21]], and the SECOND deliberate change to
+    /* ⭐ 'quote' PUT BACK 2026-09-18 — [[OPT-22]], and the SECOND deliberate change to
        this frozen map. Addie: "They should see Any, Green, White. With instructions on what
        to pick." The detail form asks again and `quoteSaveDetails` writes it again, so the
        quote is a destination once more and `internal` is off the registry entry.
        ~~⛔ 'quote' AND 'confirmation' REMOVED 2026-09-17 — hers: "don't add what wire
        color they want but push check lights then warehouse chooses what wire they have on
-       file".~~ Superseded → OPT-21 for the `quote` half only, and the reasoning is KEPT
+       file".~~ Superseded → OPT-22 for the `quote` half, and the reasoning is KEPT
        because it is still what makes this safe: what OPT-12 was really refusing was a
        DEFAULT that got stored, and "Any" now stores nothing at all.
        ⛔ 'confirmation' STAYS OFF, and that is not an oversight carried over. She asked
@@ -635,7 +635,7 @@ function check(label, ok, detail) {
                a field the browser sends and the function drops is lost with nothing
                going wrong on screen. Asserted separately below. */
             houseSides:         /houseSides: portalSideCount\(fd\.get\('house_sides'\)\)/,
-            /* ⭐ ASKED HERE AGAIN SINCE 2026-09-18 ([[OPT-21]]) — Any, Green, White,
+            /* ⭐ ASKED HERE AGAIN SINCE 2026-09-18 ([[OPT-22]]) — Any, Green, White,
                with Any pre-picked. ⚠ IT IS MATCHED ON THE ASSIGNMENT, NOT ON A KEY IN
                `detailPayload`, and that is the whole shape of the ruling: "Any" adds no
                key at all, so a colour reaches the quote only when one was picked. A

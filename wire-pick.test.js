@@ -568,13 +568,18 @@ check('the card reads the customer record, not the notice, for the answer',
 }
 
 /* ---------------------------------------------------------------------------
- * ⭐ THE CUSTOMER IS ASKED AGAIN — ANY, GREEN, WHITE  ([[OPT-21]], 2026-09-18)
+ * ⭐ THE DETAIL FORM ASKS TOO — ANY, GREEN, WHITE  ([[OPT-22]], 2026-09-18)
  *
  * Addie: "They should see Any, Green, White. With instructions on what to pick. If they
  * click any or keep it at any then it should allow us to pick and require us to pick the
  * wire."
  *
- * ⚠ THIS REVERSES [[OPT-12]], which took the question off the detail form outright (R-024),
+ * ⭐ THE SAME ANSWER AT THE OTHER DOOR. [[OPT-21]] — a parallel session, from a different
+ * message of hers, on main first — put this question on the MEMBER PORTAL's lights tab,
+ * instructed from the gutter colour. This is the same three answers on the form somebody
+ * who is not a member yet fills in, worded alike on purpose.
+ *
+ * ⚠ BOTH NARROW [[OPT-12]], which took the question off every form the day before (R-024),
  * and that row is marked rather than deleted because its reasoning is what makes this safe:
  * OPT-12 was refusing an INVENTED answer. The old control defaulted to 'Any' and STORED the
  * word, so most quotes carried a cord nobody had chosen. The question was never the fault.
@@ -584,10 +589,9 @@ check('the card reads the customer record, not the notice, for the answer',
  * ([[WH-35]]), the System Message is raised off it ([[WH-40]]), and the convert popup
  * refuses to convert past it ([[WH-43]]), which is the second half of her own sentence.
  *
- * ⛔ AND THE PORTAL IS DELIBERATELY UNTOUCHED. `wireColor` is still out of
- * PORTAL_WRITE_FIELDS and PORTAL_READ_FIELDS, and test/wire-colour.spec.js still asserts
- * there is no control on the Changes tab. She asked about the form a NEW customer fills in;
- * offering "Any" to a member who already has Green would be offering to erase it.
+ * ⛔ THE PORTAL HALF IS [[OPT-21]]'S AND IS NOT TOUCHED HERE — that is its own door, its
+ * own control (the lights tab) and its own spec. Nothing below reads or asserts it; the
+ * Changes tab still has no wire control at all, which wire-colour.spec.js still holds.
  * ------------------------------------------------------------------------- */
 {
   const idx = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
@@ -611,8 +615,9 @@ check('the card reads the customer record, not the notice, for the answer',
     !/value="Any"/i.test(wireRow) && /name="wire_color" value=""/.test(wireRow),
     'a pill that posts the word Any is the invented colour OPT-12 refused, wearing a label');
   check('and it says what to pick and what Any means',
-    /blends in with your roofline/i.test(wireRow) && /we&rsquo;ll choose/i.test(wireRow),
-    'she asked for instructions — a picker with three bare words is the question without the help');
+    /matches your gutter/i.test(wireRow) && /we&rsquo;ll match it for you/i.test(wireRow),
+    'she asked for instructions — a picker with three bare words is the question without ' +
+    'the help, and they are the PORTAL\'s words ([[OPT-21]]) so the two doors ask one question');
 
   /* ⚠ THE TWO COPIES OF ONE RULE. The browser decides what the radio posts and the server
      decides what is stored; a public callable reached with only a quote token cannot take

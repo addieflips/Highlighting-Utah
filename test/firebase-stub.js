@@ -565,7 +565,7 @@ const FAKE_FUNCTIONS_MODULE = `
       return { ok: true };
     },
 
-    /* The install-details form's own write ([[OPT-21]] gave it a wire colour again, and
+    /* The install-details form's own write ([[OPT-22]] gave it a wire colour again, and
        test/quote-wire-choice.spec.js reads the payload off the call log). Faked because an
        unfaked callable REJECTS, which on this form surfaces as the customer-facing
        "something went wrong" alert — a stub that is short looks exactly like the form

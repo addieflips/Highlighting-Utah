@@ -1747,7 +1747,7 @@
                 <div id="qdPatternReadout" style="font-size:12.5px; color:var(--slate);"></div>
               </div>
             </div>
-            <!-- ⭐ THE WIRE COLOUR IS ASKED AGAIN, AND "ANY" IS A REAL ANSWER ([[OPT-21]],
+            <!-- ⭐ THE WIRE COLOUR IS ASKED ON THE DETAIL FORM TOO ([[OPT-22]],
                  2026-09-18). Addie: "They should see Any, Green, White. With instructions on
                  what to pick. If they click any or keep it at any then it should allow us to
                  pick and require us to pick the wire."
@@ -1771,11 +1771,11 @@
                  "keep it at any" only means anything if that is where it starts. -->
             <div class="form-row" id="qdWireRow">
               <label>What color wire would you like?</label>
-              <p class="form-note" style="margin:0 0 8px;">The wire is the cord the bulbs sit on. Pick whichever blends in with your roofline &mdash; <strong>White</strong> if your gutters and trim are white or light, <strong>Green</strong> if they are dark, green or brown. Not sure? Leave it on <strong>Any</strong> and we&rsquo;ll choose the one that disappears best on your house.</p>
+              <p class="form-note" style="margin:0 0 8px;">Pick the one that matches your gutter, so the cord disappears against it. Green gutters take green wire, white gutters take white. Not sure? Leave it on Any and we&rsquo;ll match it for you when we build your lights.</p>
               <div class="radio-row">
-                <label class="radio-pill"><input type="radio" name="wire_color" value="" checked> Any &mdash; you choose</label>
-                <label class="radio-pill"><input type="radio" name="wire_color" value="Green"> Green</label>
-                <label class="radio-pill"><input type="radio" name="wire_color" value="White"> White</label>
+                <label class="radio-pill"><input type="radio" name="wire_color" value="" checked> Any &mdash; you choose for me</label>
+                <label class="radio-pill"><input type="radio" name="wire_color" value="Green"> Green &mdash; for a green gutter</label>
+                <label class="radio-pill"><input type="radio" name="wire_color" value="White"> White &mdash; for a white gutter</label>
               </div>
             </div>
             <!-- ⭐ MOVED HERE FROM THE FREE QUOTE FORM (2026-09-03), and ONE SIDE IS
@@ -2354,6 +2354,23 @@
                 <div id="rcPatternReadout" style="font-size:12.5px; color:var(--slate);"></div>
               </div>
 
+              <!-- ⭐ THE WIRE COLOUR, ASKED AGAIN AND ANSWERED FROM THE GUTTER ([[OPT-21]],
+                   2026-09-18). Addie: "we instruct them to pick based on gutter color however
+                   this is completley optional and they can choose Any. Which will mean we
+                   choose." The 2026-09-17 removal is NOT being undone blindly — what it
+                   refused was a box that DEFAULTED to Any and then stored it, giving a house
+                   a wire colour nobody chose ([[WH-35]]). Any is the first option and the
+                   default here, and picking it writes nothing at all. -->
+              <div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--line);">
+                <label for="rcWireColor" style="display:block; font-size:12.5px; font-weight:600; margin-bottom:4px;">Wire colour</label>
+                <p class="form-note" style="margin:0 0 8px;">Pick the one that matches your gutter, so the cord disappears against it. Green gutters take green wire, white gutters take white. Not sure? Leave it on Any and we&rsquo;ll match it for you when we build your lights.</p>
+                <select id="rcWireColor" style="width:100%; max-width:280px; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;">
+                  <option value="">Any &mdash; you choose for me</option>
+                  <option value="White">White &mdash; for a white gutter</option>
+                  <option value="Green">Green &mdash; for a green gutter</option>
+                </select>
+              </div>
+
               <button type="button" class="btn btn-gold btn-sm" id="lightsSaveBtn" style="margin-top:14px;">Save Light Choice</button>
             </div>
 
@@ -2363,13 +2380,28 @@
                    email, or said no and changed their mind, had to telephone
                    to do something the app already supports. -->
               <div id="portalRsvpBlock" style="margin-bottom:20px; padding-bottom:18px; border-bottom:1px solid var(--line);">
-                <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:4px;">Are you having lights this season?</label>
+                <!-- ⭐ THE QUESTION STOPS BEING A QUESTION ONCE IT HAS AN ANSWER ([[RS-62]],
+                     2026-09-18). Addie: "In member portal at the top Are you having lights this
+                     season it should update and go away once someone has answered."
+                     ⛔ COLLAPSED, NEVER REMOVED, and that distinction is the whole design.
+                     [[RS-31]] lands an emailed "no" in this portal and [[RS-60]] mounts the
+                     decline-reason picker inside this very block, so deleting it would take the
+                     way back with it — and somebody who said no and changed their mind would be
+                     back to telephoning, which is the thing this block was added to stop.
+                     ⚠ THE HEADING IS SWAPPED TOO, not just the buttons hidden. A heading reading
+                     "Are you having lights this season?" over a line saying they are confirmed is
+                     the page asking something it has already been told, which is what she is
+                     describing. -->
+                <label id="portalRsvpHeading" style="display:block; font-size:12.5px; font-weight:600; margin-bottom:4px;">Are you having lights this season?</label>
                 <p class="form-note" id="portalRsvpCurrent" style="margin:0 0 10px;"></p>
-                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <div id="portalRsvpChoices" style="display:flex; gap:8px; flex-wrap:wrap;">
                   <button type="button" class="btn btn-outline-dark btn-sm" data-portalrsvp="yes">Yes, I&rsquo;m in</button>
                   <button type="button" class="btn btn-outline-dark btn-sm" data-portalrsvp="backnextyear">Back next year</button>
                   <button type="button" class="btn btn-outline-dark btn-sm" data-portalrsvp="no">Not this season</button>
                 </div>
+                <!-- ⚠ THE WAY BACK IN. Plain and quiet on purpose — it is not a thing we are
+                     asking them to press, it is the undo for somebody who changed their mind. -->
+                <button type="button" id="portalRsvpChangeBtn" style="display:none; background:none; border:none; padding:0; font-family:inherit; font-size:12.5px; color:var(--slate); text-decoration:underline; cursor:pointer;">Change my answer</button>
                 <p class="form-note" id="portalRsvpStatus" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
                 <!-- ⭐ AND WHY, IF THEY WANT TO SAY ([[RS-60]], 2026-09-11). Addie: "okay i
                      need it to be optional choice", then the wording: "Should be Moved,
@@ -4022,7 +4054,7 @@ var quoteDetailQuoteId;
 var quoteDetailToken;
 if(typeof quoteDetailQuoteId === 'undefined') quoteDetailQuoteId = null;
 if(typeof quoteDetailToken === 'undefined') quoteDetailToken = null;
-/* ⛔ ONLY THE TWO REAL COLOURS ARE EVER STORED ([[OPT-21]], 2026-09-18). "Any" is a real
+/* ⛔ ONLY THE TWO REAL COLOURS ARE EVER STORED ([[OPT-22]], 2026-09-18). "Any" is a real
    ANSWER — no preference, you choose — and the way to record it is to store NOTHING,
    because a blank is what every reader downstream already understands: `whWireLabel` reads
    it as "Check lights" ([[WH-35]]), the System Message with a picture of the house is
@@ -4056,7 +4088,7 @@ quoteDetailFormEl.addEventListener('submit', async function(e){
   var detailPayload = {
     lightColors: lightColors,
     lightsDescription: lightsDescription,
-    /* ⭐ THE WIRE COLOUR IS BACK ON THIS FORM ([[OPT-21]], 2026-09-18) — see qdWireRow
+    /* ⭐ THE WIRE COLOUR IS BACK ON THIS FORM ([[OPT-22]], 2026-09-18) — see qdWireRow
        above for her words and for why this reverses [[OPT-12]] safely.
        ⛔ IT IS NOT IN THIS OBJECT. "Any" must write NOTHING, and the only way to be sure
        of that is for the key to be absent rather than blank: a `wireColor: ''` posted from
@@ -4085,7 +4117,7 @@ quoteDetailFormEl.addEventListener('submit', async function(e){
     houseSides: portalSideCount(fd.get('house_sides')),
     wantsMailedInvoice: fd.get('wants_mailed') === 'on'
   };
-  /* ⛔ ONLY WHEN THEY PICKED ONE ([[OPT-21]]). See qdWireChoice for why "Any" sends
+  /* ⛔ ONLY WHEN THEY PICKED ONE ([[OPT-22]]). See qdWireChoice for why "Any" sends
      nothing, and the note above for why it is an ABSENT key rather than a blank one. */
   var qdWire = qdWireChoice(fd.get('wire_color'));
   if(qdWire) detailPayload.wireColor = qdWire;
@@ -5345,6 +5377,16 @@ function portalRsvpLabel(status){
   if(status === 'backnextyear') return "You've told us you'll be back next year.";
   return "You haven't told us yet.";
 }
+/* ⭐ HAS THIS VISIT ASKED TO CHANGE THEIR ANSWER ([[RS-62]])? Per visit and never stored:
+   a reload puts the collapsed view back, which is right, because the record is what
+   persists and the buttons are only ever an undo.
+   ⚠ DECLARED WITH `var`, ABOVE ITS READER, AND THAT IS NOT DECORATION. index.html's portal
+   script is one ES module: a `function` declaration hoists and is callable from anywhere in
+   it, while a `var` beside it hoists as UNDEFINED. [[MEM-01]] records the same trap costing
+   a whole feature silently — declared below renderPortalRsvp this reads undefined at the one
+   moment it matters, which is falsy, so the buttons would collapse again on every repaint
+   and Change my answer would look broken. */
+var portalRsvpChangeOpen = false;
 function renderPortalRsvp(){
   var block = document.getElementById('portalRsvpBlock');
   if(!block) return;
@@ -5357,6 +5399,43 @@ function renderPortalRsvp(){
     btn.disabled = isCurrent;
     btn.style.opacity = isCurrent ? '.5' : '';
   });
+  /* ⭐ ANSWERED MEANS ANSWERED ([[RS-62]], 2026-09-18). Addie: "it should update and go away
+     once someone has answered." The three buttons fold away and the heading stops asking;
+     portalRsvpCurrent already carries what they said, so nothing is lost by hiding them.
+     ⚠ ONE OF THE THREE REAL ANSWERS, NEVER "not empty". A record can hold 'unanswered' —
+     that is the office marking a season's RSVP as sent, not a reply — and reading it as an
+     answer would hide the question from precisely the people it is being asked of.
+     ⛔ AND IT IS NEVER HIDDEN WHILE THEY ARE STILL BEING ASKED SOMETHING. A "no" or a back
+     next year opens the reason picker ([[RS-60]]) inside this same block; that is drawn by
+     renderPortalRsvpReason below and is unaffected, because it keys off the answer rather
+     than off these buttons. */
+  /* ⛔ IT ASKS portalHasRealRsvpAnswer AND DOES NOT RE-DECIDE. That rule already exists on
+     this page — it gates the after-payment question — and it refuses a bare 'yes' carrying
+     no rsvpRespondedAt, because that is an import or the assumed yes written at conversion
+     ([[RS-19]]), never a reply. A second reading of "have they answered" living here would
+     hide this question from exactly the customers it is being asked of, and the two would
+     drift apart on the next change. The office makes the same distinction in
+     effectiveRsvpStatus; this is that rule, on this side, asked once.
+     ⚠ THE ANSWER THIS VISIT COUNTS TOO, and has to: on the emailed-link route the record
+     being rendered is the INVOICE record, which carries no rsvpStatus at all — the whole of
+     [[RS-60]]'s second fault — so the stored rule alone would leave the buttons open to
+     somebody who answered a second ago. */
+  var answered = (status === 'yes' || status === 'no' || status === 'backnextyear') &&
+                 (!!portalRsvpAnswerThisVisit ||
+                  portalHasRealRsvpAnswer(currentJobAddressData || currentLookupRecord));
+  /* ⚠ ONCE THEY ASK TO CHANGE IT, IT STAYS OPEN FOR THE REST OF THE VISIT. This function
+     re-runs on every repaint, so without the override the buttons would fold away again
+     underneath somebody who had just pressed Change my answer. Per visit, never stored — a
+     reload is a fresh start, and the record is the only thing that persists. */
+  var showChoices = !answered || portalRsvpChangeOpen;
+  var choices = document.getElementById('portalRsvpChoices');
+  var changeBtn = document.getElementById('portalRsvpChangeBtn');
+  var heading = document.getElementById('portalRsvpHeading');
+  if(choices) choices.style.display = showChoices ? 'flex' : 'none';
+  if(changeBtn) changeBtn.style.display = (answered && !portalRsvpChangeOpen) ? 'inline' : 'none';
+  if(heading) heading.textContent = answered
+    ? 'Your answer for this season'
+    : 'Are you having lights this season?';
   renderPortalRsvpReason();
 }
 /* ⭐ THE OPTIONAL REASON ([[RS-60]]). Drawn only for somebody whose record ALREADY says
@@ -5506,6 +5585,22 @@ document.addEventListener('click', function(e){
    flag rather than a parameter because the two are different screens on different tabs;
    it is cleared the moment it is used, so it can never colour a later ordinary move. */
 var portalMoveConfirmsSeason = false;
+/* ⭐ THE WAY BACK IN ([[RS-62]]). Delegated on the document for the same reason the three
+   answer buttons are: this block is MOVED between the Cancel and Changes panels ([[RS-60]]),
+   so a listener bound to the node at start-up is bound to a node that gets re-parented, and
+   one bound per render is the listener leak that fired 2815 Firestore writes on a single
+   drop ([[MSG-13]]). One listener, whatever the markup does afterwards. */
+document.addEventListener('click', function(e){
+  var btn = e.target.closest && e.target.closest('#portalRsvpChangeBtn');
+  if(!btn) return;
+  portalRsvpChangeOpen = true;
+  renderPortalRsvp();
+  /* ⚠ PUT THEM ON THE FIRST ANSWER, not merely on screen. They pressed this to change
+     something, and on a long page a control that reveals three buttons below the fold has
+     visibly done nothing. */
+  var first = document.querySelector('#portalRsvpChoices [data-portalrsvp]');
+  if(first && first.focus) first.focus();
+});
 document.addEventListener('click', function(e){
   var btn = e.target.closest && e.target.closest('[data-portalrsvp]');
   if(!btn) return;
@@ -5535,6 +5630,10 @@ document.addEventListener('click', function(e){
        are in. */
     portalRsvpAnswerThisVisit = answer;
     portalRsvpReasonThisVisit = '';
+    /* ⭐ AND THE BUTTONS FOLD AWAY AGAIN ([[RS-62]]). Somebody who pressed Change my answer
+       and then answered has finished; leaving them open puts that customer back where the
+       ruling says they should not be — looking at a question they have just answered. */
+    portalRsvpChangeOpen = false;
     /* ⚠ AND THE STAMP, NOT ONLY THE WORD. portalHasRealRsvpAnswer refuses a bare
        'yes' with nothing behind it, so without this the question would reopen on the
        next render of a customer who had just answered it. */
@@ -7542,6 +7641,11 @@ function rcRememberLoadedState(originalText){
   // a colour we do not offer, anything. Worth naming before replacing it.
   rcUnparseableOriginal = (headText && !parsed.length) ? headText : '';
   rcLoadedSerialised = rcSerialiseCurrent();
+  /* ⭐ THE WIRE IS LOADED IN THE SAME BREATH ([[OPT-21]]). Wired HERE rather than beside the
+     control, because this is the one function that knows the record has arrived — bound at
+     start-up it would read an empty record and show Any to somebody who has chosen, which is
+     the bug the email-typo note records from the other direction. */
+  rcLoadWireColor();
 }
 // The initial house-map lookup that normally sets currentJobAddressId runs in the background and
 // isn't awaited, so it can still be in flight when the customer hits Save. This re-checks directly
@@ -7565,6 +7669,20 @@ async function ensureJobAddressId(){
   } catch(err){ console.error('[HU] ensureJobAddressId failed:', err); lastLookupError = (err && (err.code || err.message)) || 'unknown ensure error'; }
   return currentJobAddressId;
 }
+/* ⭐ WHAT IS ON FILE, SHOWN BEFORE ANYTHING IS OFFERED ([[OPT-21]]). A picker that cannot
+   show the current answer silently offers to overwrite it. Blank on the record is a real
+   state — nobody has chosen — and it maps to Any, which is the same thing said out loud.
+   ⚠ rcWireLoaded is what a save is compared against, so opening the tab and pressing Save
+   never counts as a wire change. Same rule as rcLoadedSerialised for the colours. */
+var rcWireLoaded = '';
+function rcLoadWireColor(){
+  var sel = document.getElementById('rcWireColor');
+  if(!sel) return;
+  var rec = currentJobAddressData || currentLookupRecord || {};
+  var on = String(rec.wireColor || '').trim();
+  rcWireLoaded = (on === 'White' || on === 'Green') ? on : '';
+  sel.value = rcWireLoaded;
+}
 async function saveLightsPattern(){
   var statusEl = document.getElementById('lightsSaveStatus');
   var saveBtn = document.getElementById('lightsSaveBtn');
@@ -7585,11 +7703,30 @@ async function saveLightsPattern(){
   }
   var picked = rcSerialiseCurrent();
 
+  /* ⭐ THE WIRE IS DECIDED HERE, ABOVE THE GUARD BELOW ([[OPT-21]]), AND THAT POSITION IS THE
+     WHOLE OF IT. Computed after it — which is where the first draft had it — a customer who
+     changed ONLY their wire colour hit "Nothing changed" and the save returned without ever
+     sending it. That is the commonest use of this control: somebody opens Lights, matches
+     their gutter, presses Save, and nothing happens, silently.
+     ⛔ NO SOURCE CHECK COULD SEE IT. Suite 340 proves what the payload carries and that the
+     control is wired; both stayed green, because the function returned before reaching
+     either. Only driving a real browser found it — this repo's oldest and most repeated
+     lesson, and the reason the spec beside it exists.
+     ⛔ Any STILL SENDS NOTHING. It is the absence of a choice, so it neither reaches the
+     record nor counts as a change — somebody who opens this tab, leaves it on Any and presses
+     Save gets "Nothing changed", which is the truth. */
+  var wirePick = (function(){
+    var sel = document.getElementById('rcWireColor');
+    var v = sel ? String(sel.value || '').trim() : '';
+    return (v === 'White' || v === 'Green') && v !== rcWireLoaded ? v : '';
+  })();
+
   /* Did the customer actually touch anything? Compared against what the PICKER
      serialised to when it loaded — not against the stored text, which the
      picker cannot always reproduce. Comparing against the stored text is what
-     charged people $30 for opening the tab and pressing Save. */
-  if(rcLoadedSerialised !== null && picked === rcLoadedSerialised){
+     charged people $30 for opening the tab and pressing Save.
+     ⚠ AND THE WIRE COUNTS AS TOUCHING SOMETHING — see above. */
+  if(rcLoadedSerialised !== null && picked === rcLoadedSerialised && !wirePick){
     statusEl.textContent = 'Nothing changed — no charge.';
     setTimeout(function(){ statusEl.textContent = ''; }, 2500);
     if(saveBtn) saveBtn.disabled = false;
@@ -7680,10 +7817,16 @@ async function saveLightsPattern(){
     }
   }
   try{
+    /* ⚠ A WIRE CHANGE IS NOT A COLOUR CHANGE, so this cannot trigger the $30: the server
+       gates that on lightsDescription having MOVED, and an unchanged description is exactly
+       what it sees when only the wire was touched. It does queue a rebuild, which is right —
+       a different cord is a different bundle. wirePick is decided above the nothing-changed
+       guard; see the note there for why that position matters. */
     var saveRes = await callPortalFn('portalSave', {
       token: getActivePortalToken(),
       section: 'lights',
-      data: {lightsDescription: newLightsDescription}
+      data: wirePick ? {lightsDescription: newLightsDescription, wireColor: wirePick}
+                     : {lightsDescription: newLightsDescription}
     });
     if(currentLookupRecord) currentLookupRecord.lightsDescription = newLightsDescription;
     if(currentJobAddressData) currentJobAddressData.lightsDescription = newLightsDescription;
@@ -7692,6 +7835,10 @@ async function saveLightsPattern(){
        time would look like another change and charge a second $30. */
     rcLoadedDescription = newLightsDescription;
     rcLoadedSerialised = picked;
+    /* ⚠ THE SAME REASON THE TWO LINES ABOVE EXIST: this function compares against what it
+       loaded with, so without this a second press reads the wire as changed again and sends
+       a pointless write that re-queues the bundle. */
+    if(wirePick) rcWireLoaded = wirePick;
     rcUnparseableOriginal = '';
     statusEl.textContent = 'Saved!';
     setTimeout(function(){ statusEl.textContent = ''; }, 2000);

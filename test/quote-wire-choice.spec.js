@@ -1,25 +1,33 @@
 /*
- * ANY, GREEN, WHITE — AND "ANY" STORES NOTHING  ([[OPT-21]], 2026-09-18)
+ * THE DETAIL FORM: ANY, GREEN, WHITE  ([[OPT-22]], 2026-09-18)
  *
  * Addie: "They should see Any, Green, White. With instructions on what to pick. If they
  * click any or keep it at any then it should allow us to pick and require us to pick the
  * wire."
  *
- * ⚠ THIS REVERSES [[OPT-12]], which took the question off this form outright the day
- * before (R-024). What that ruling was really refusing was an INVENTED answer: the old
- * control defaulted to 'Any' and STORED the word, so most quotes carried a cord nobody had
- * chosen. The question was never the fault, and this file is the proof of the difference —
- * the pill says Any and the save carries no wire colour at all.
+ * ⭐ THE SAME ANSWER AT THE OTHER DOOR. [[OPT-21]] — built in a parallel session from a
+ * different message of hers, and on main first — put the question on the MEMBER PORTAL's
+ * lights tab, instructed from the gutter colour. This is the same three answers on the
+ * form a customer who is not a member yet fills in, and the two are deliberately worded
+ * alike: two doors telling somebody different things about one choice is how they start
+ * picking differently at each.
+ *
+ * ⚠ BOTH NARROW [[OPT-12]], which took the question off every form the day before
+ * (R-024). What that ruling was really refusing was an INVENTED answer: the old control
+ * defaulted to 'Any' and STORED the word, so most quotes carried a cord nobody had chosen.
+ * The question was never the fault, and this file is the proof of the difference — the
+ * pill says Any and the save carries no wire colour at all.
+ *
+ * ⛔ AND THE SECOND HALF OF HER SENTENCE IS ALREADY BUILT: a quote that carries no wire
+ * reaches the Convert to Customer popup, which refuses to convert until the office picks
+ * one ([[WH-43]]). That is what "require us to pick the wire" means, and it is why Any
+ * storing NOTHING is the whole design rather than a tidy way to record a preference.
  *
  * ⛔ WHY A BROWSER SPEC AND NOT A SOURCE CHECK. Every claim here is either something she
  * SEES on a form or something the page POSTS, and this repo has been caught four times by
  * a source check passing over a control that could never run. wire-pick.test.js holds the
  * rule itself (the two copies of White-or-Green, run side by side); this holds the wiring.
- *
- * ⛔ AND THE PORTAL IS DELIBERATELY NOT TOUCHED — test/wire-colour.spec.js still asserts
- * there is no wire control on the Changes tab, and it still passes. She asked about the
- * form a NEW customer fills in; offering "Any" to a member who already has Green would be
- * offering to erase it.
+ * test/wire-colour.spec.js is the portal's own half.
  */
 
 const { test, expect } = require('@playwright/test');
@@ -85,8 +93,13 @@ test.describe('The wire colour on the detail form', () => {
     const stub = await openDetailForm(page);
     /* She asked for instructions by name. A picker with three bare words is the question
        without the help, which is how "Any" gets picked for the wrong reason. */
-    await expect(page.locator('#qdWireRow')).toContainText(/blends in with your roofline/i);
-    await expect(page.locator('#qdWireRow')).toContainText(/we.ll choose the one/i);
+    /* ⚠ THE SAME WORDS THE PORTAL USES, and that is asserted rather than left to luck:
+       [[OPT-21]] put Addie's own instruction on the member portal ("we instruct them to
+       pick based on gutter color"), and a customer who sees one sentence on the form and
+       a different one in their account is being asked two questions. */
+    await expect(page.locator('#qdWireRow')).toContainText(/matches your gutter/i);
+    await expect(page.locator('#qdWireRow')).toContainText(/Green gutters take green wire/i);
+    await expect(page.locator('#qdWireRow')).toContainText(/we.ll match it for you/i);
     await stub.assertNoRealCalls();
   });
 

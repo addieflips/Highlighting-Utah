@@ -151,7 +151,7 @@ export const OPTIONS = [
   },
   {
     id: 'wireColor',
-    /* ⭐ THE CUSTOMER IS ASKED AGAIN, WITH "ANY" AS A REAL ANSWER ([[OPT-21]],
+    /* ⭐ THE DETAIL FORM ASKS TOO, WITH "ANY" AS A REAL ANSWER ([[OPT-22]],
        2026-09-18). Addie: "They should see Any, Green, White. With instructions on what
        to pick. If they click any or keep it at any then it should allow us to pick and
        require us to pick the wire."
@@ -162,7 +162,7 @@ export const OPTIONS = [
        ~~⛔ NOBODY OUTSIDE THE OFFICE IS ASKED THIS ANY MORE (2026-09-17). Addie: "keep
        what lights they want but don't add what wire color they want but push check lights
        then warehouse chooses what wire they have on file and will make it based on what
-       wire they have."~~ Superseded → OPT-21; the PORTAL half of it still stands, and
+       wire they have."~~ Superseded → OPT-21 (portal) and OPT-22 (detail form), and
        `wireColor` is still out of PORTAL_WRITE_FIELDS and PORTAL_READ_FIELDS.
        ⚠ `required` STAYS FALSE AND THERE IS STILL NO DEFAULT, which is the load-bearing
        half and is what makes the question safe to ask again. A default of 'Any' and a
