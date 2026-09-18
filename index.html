@@ -7651,11 +7651,30 @@ async function saveLightsPattern(){
   }
   var picked = rcSerialiseCurrent();
 
+  /* ⭐ THE WIRE IS DECIDED HERE, ABOVE THE GUARD BELOW ([[OPT-21]]), AND THAT POSITION IS THE
+     WHOLE OF IT. Computed after it — which is where the first draft had it — a customer who
+     changed ONLY their wire colour hit "Nothing changed" and the save returned without ever
+     sending it. That is the commonest use of this control: somebody opens Lights, matches
+     their gutter, presses Save, and nothing happens, silently.
+     ⛔ NO SOURCE CHECK COULD SEE IT. Suite 340 proves what the payload carries and that the
+     control is wired; both stayed green, because the function returned before reaching
+     either. Only driving a real browser found it — this repo's oldest and most repeated
+     lesson, and the reason the spec beside it exists.
+     ⛔ Any STILL SENDS NOTHING. It is the absence of a choice, so it neither reaches the
+     record nor counts as a change — somebody who opens this tab, leaves it on Any and presses
+     Save gets "Nothing changed", which is the truth. */
+  var wirePick = (function(){
+    var sel = document.getElementById('rcWireColor');
+    var v = sel ? String(sel.value || '').trim() : '';
+    return (v === 'White' || v === 'Green') && v !== rcWireLoaded ? v : '';
+  })();
+
   /* Did the customer actually touch anything? Compared against what the PICKER
      serialised to when it loaded — not against the stored text, which the
      picker cannot always reproduce. Comparing against the stored text is what
-     charged people $30 for opening the tab and pressing Save. */
-  if(rcLoadedSerialised !== null && picked === rcLoadedSerialised){
+     charged people $30 for opening the tab and pressing Save.
+     ⚠ AND THE WIRE COUNTS AS TOUCHING SOMETHING — see above. */
+  if(rcLoadedSerialised !== null && picked === rcLoadedSerialised && !wirePick){
     statusEl.textContent = 'Nothing changed — no charge.';
     setTimeout(function(){ statusEl.textContent = ''; }, 2500);
     if(saveBtn) saveBtn.disabled = false;
@@ -7746,19 +7765,11 @@ async function saveLightsPattern(){
     }
   }
   try{
-    /* ⭐ THE WIRE RIDES WITH THE COLOURS ([[OPT-21]]), and only when it really moved.
-       ⛔ Any sends NOTHING. It is the absence of a choice, so it must not reach the record
-          — and it must not clear a colour the warehouse read off a photo either. A customer
-          who wants to hand the decision back tells us; the field is not the place to say it.
-       ⚠ A WIRE CHANGE IS NOT A COLOUR CHANGE, so this cannot trigger the $30: the server
-          gates that on lightsDescription having MOVED, and an unchanged description is
-          exactly what it sees when only the wire was touched. It does queue a rebuild,
-          which is right — a different cord is a different bundle. */
-    var wirePick = (function(){
-      var sel = document.getElementById('rcWireColor');
-      var v = sel ? String(sel.value || '').trim() : '';
-      return (v === 'White' || v === 'Green') && v !== rcWireLoaded ? v : '';
-    })();
+    /* ⚠ A WIRE CHANGE IS NOT A COLOUR CHANGE, so this cannot trigger the $30: the server
+       gates that on lightsDescription having MOVED, and an unchanged description is exactly
+       what it sees when only the wire was touched. It does queue a rebuild, which is right —
+       a different cord is a different bundle. wirePick is decided above the nothing-changed
+       guard; see the note there for why that position matters. */
     var saveRes = await callPortalFn('portalSave', {
       token: getActivePortalToken(),
       section: 'lights',
