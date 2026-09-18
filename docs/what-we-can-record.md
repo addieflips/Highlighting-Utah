@@ -47,12 +47,14 @@ Which colours, and the order if they alternate.
 
 ### Wire colour
 
-White or green wire. We choose it; nobody is asked. Blank means nobody has
-looked in the bin yet, which the warehouse reads as Check lights.
+White or green wire — the cord the bulbs sit on. The detail form offers
+Any, Green or White, and Any is what it starts on. Any stores nothing at all,
+so the warehouse reads Check lights and the office has to pick one before that
+quote can be converted.
 
-- **Asked at:** nowhere — the office sets it, or the warehouse does when they are at the bin
+- **Asked at:** the detail form, after they approve — and the office picks when they said Any
 - **Sets the price:** No
-- **Has to reach:** Customer record · Warehouse pull list
+- **Has to reach:** Quote · Customer record · Warehouse pull list
 
 ### Timer
 

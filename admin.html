@@ -4276,7 +4276,15 @@
           </label>
           <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end;">
             <div class="form-row" style="margin:0; max-width:130px;"><label style="font-size:11.5px;">Wait this many days</label><input type="number" id="qNudgeWaitDays" min="1" step="1" value="10" style="font-size:13px; padding:8px 10px;"></div>
-            <div class="form-row" style="margin:0; max-width:130px;"><label style="font-size:11.5px;">Nudge at most</label><input type="number" id="qNudgeMax" min="1" max="5" step="1" value="2" style="font-size:13px; padding:8px 10px;"></div>
+            <!-- ⛔ "Nudge at most" IS GONE ([[QT-49]], 2026-09-18). The ladder sends exactly one
+                 automatic email, so there is nothing for a maximum to cap — and a box that
+                 silently does nothing is worse than no box: somebody sets it to 5, expects
+                 five emails and gets one. The days box stays, because it sets the gap
+                 between every rung. -->
+            <p style="font-size:11.5px; color:var(--slate); margin:0; max-width:340px; align-self:center;">
+              Then: we are told to <strong>text</strong> them, and after the same wait again they
+              get <strong>one automatic email</strong>. Another wait after that with no reply and
+              the quote is <strong>archived</strong> &mdash; still there under Closed.</p>
             <button type="button" class="btn btn-gold btn-sm" id="qNudgeAutoSave">Save</button>
             <button type="button" class="btn btn-outline btn-sm" id="qNudgeRunNow">Run it now</button>
           </div>
@@ -14480,7 +14488,7 @@ async function loadQuoteNudgeSettings(){
     const d = snap.exists() ? snap.data() : {};
     document.getElementById('qNudgeAutoOn').checked = d.enabled === true;
     if(d.waitDays) document.getElementById('qNudgeWaitDays').value = d.waitDays;
-    if(d.maxNudges) document.getElementById('qNudgeMax').value = d.maxNudges;
+    /* ⛔ maxNudges is no longer read or offered — see the card above ([[QT-49]]). */
     renderQuoteNudgeStatus(d);
   } catch(err){ /* not set up yet */ }
 }
@@ -14490,7 +14498,12 @@ function renderQuoteNudgeStatus(d){
   if(!el) return;
   if(d.lastRunAt){
     el.style.color = 'var(--slate)';
-    el.textContent = 'Last run ' + fmtDate(d.lastRunAt) + ' \u2014 ' + (d.lastRunSent || 0) + ' nudged' +
+    /* ⭐ EVERY RUNG IS REPORTED ([[QT-49]]). "3 nudged" said nothing about the two people
+       waiting to be texted or the one just archived, and an archive nobody is told about is
+       a quote that vanishes off the tab overnight. */
+    el.textContent = 'Last run ' + fmtDate(d.lastRunAt) + ' \u2014 ' + (d.lastRunSent || 0) + ' emailed' +
+      (d.lastRunAskedToText ? ', ' + d.lastRunAskedToText + ' to text' : '') +
+      (d.lastRunArchived ? ', ' + d.lastRunArchived + ' archived' : '') +
       (d.lastRunNeedsHuman ? ', ' + d.lastRunNeedsHuman + ' need a call or text' : '') +
       ((d.lastRunErrors && d.lastRunErrors.length) ? ', ' + d.lastRunErrors.length + ' failed' : '') + '.';
   } else {
@@ -14499,8 +14512,25 @@ function renderQuoteNudgeStatus(d){
   }
   /* People who asked for a call or a text cannot be chased automatically, so
      they are listed here rather than quietly skipped. */
+  /* ⭐ RUNG ONE, AND IT IS THE WHOLE FEATURE ([[QT-49]]). Addie asked to "get a notification
+     to nudge them through text" — a person sends it, so this list IS the notification. The
+     stamp is written whether or not anybody looks, so without this block the ladder marches
+     them to the email rung ten days later having told nobody to do anything: the mechanism
+     would work perfectly and reach no one, which is the failure shape this repo has shipped
+     once already. */
+  const texts = d.textNudgeList || [];
+  const textsHtml = texts.length
+    ? '<div style="background:#EEF4FF; border:1px solid #C7D7F5; border-radius:9px; padding:11px 13px; margin-bottom:8px;">'+
+        '<div style="font-size:12.5px; font-weight:700; color:#23406E; margin-bottom:6px;">Text these people about their quote (' + texts.length + ')</div>'+
+        '<div style="font-size:11.5px; color:#3B5B8C; margin-bottom:6px;">No reply since the quote went out. They get one automatic email if there is still nothing after the same wait again.</div>'+
+        texts.map(function(t){
+          return '<div style="font-size:12.5px; color:#23406E;">'+esc(t.name || '(no name)')+
+            (t.phone ? ' \u00b7 <a href="tel:'+esc(String(t.phone).replace(/[^0-9+]/g,''))+'">'+esc(t.phone)+'</a>' : ' \u00b7 <em>no phone on file</em>')+'</div>';
+        }).join('')+
+      '</div>'
+    : '';
   const list = d.needsHumanList || [];
-  listEl.innerHTML = list.length
+  listEl.innerHTML = textsHtml + (list.length
     ? '<div style="background:#FFF8E9; border:1px solid var(--gold-dim); border-radius:9px; padding:11px 13px;">'+
         '<div style="font-size:12.5px; font-weight:700; color:#5a4a20; margin-bottom:6px;">Needs a call or text from you (' + list.length + ')</div>'+
         list.map(function(p){
@@ -14509,15 +14539,16 @@ function renderQuoteNudgeStatus(d){
             (p.prefers ? ' \u00b7 <em>prefers ' + esc(p.prefers) + '</em>' : '')+'</div>';
         }).join('')+
       '</div>'
-    : '';
+    : '');
 }
 document.getElementById('qNudgeAutoSave')?.addEventListener('click', async function(){
   const el = document.getElementById('qNudgeAutoStatus');
   try{
     await setDoc(doc(db,'settings','quoteNudgeAutomation'), {
       enabled: document.getElementById('qNudgeAutoOn').checked,
-      waitDays: Math.max(1, Number(document.getElementById('qNudgeWaitDays').value) || 10),
-      maxNudges: Math.max(1, Number(document.getElementById('qNudgeMax').value) || 2)
+      /* ⚠ THE GAP BETWEEN EVERY RUNG, not just the first — the archive falls three of these
+         after the quote went out. maxNudges is deliberately not written any more. */
+      waitDays: Math.max(1, Number(document.getElementById('qNudgeWaitDays').value) || 10)
     }, {merge:true});
     el.style.color = '#2E6B3E';
     el.textContent = 'Saved.';
@@ -19561,7 +19592,47 @@ function housePaidThisSeason(d){
   if(!key) return false;
   const inv = invoiceById.get(key) || null;
   if(!inv) return false;
-  return (Number(inv.data.deposit) || 0) > 0;
+  if((Number(inv.data.deposit) || 0) <= 0) return false;
+  /* ⭐ AND IT HAS TO BE THIS YEAR'S MONEY ([[SCH-82]], 2026-09-18). Addie, narrowing her
+     own [[SCH-79]] of the day before: "Paid for this year means confirmed and scheduled.
+     If they paid last year than they should still have to confirm to be scheduled."
+
+     ⚠ THE DEPOSIT ALONE COULD NOT TELL THE TWO APART, AND THAT IS THE BUG SHE READ OFF
+     THE SCREEN. SCH-79's own note argued this was season-scoped for free because "Start
+     New Season zeroes that field on every invoice" — true, and it makes the field right
+     only AFTER that button has been pressed. Before it, every invoice still carries last
+     season's payment, so the whole paid-up half of the book read as confirmed and was
+     handed to a crew without anybody having answered. The reset is an annual act nobody
+     should have to have performed for this rule to be honest.
+
+     ⛔ IT READS THE PAYMENT DATE AND NOTHING ELSE, and the first draft got this wrong.
+     That draft fell back to the date the BILL was raised when no payment date was on file —
+     which is inferring when money arrived from when we asked for it, and this file's first
+     rule is not to guess. A deposit sitting on a bill raised this season can still be money
+     carried over from last one. The repo's own issue-date guard caught it, correctly: it
+     refuses any second reading of invoicedAt outside invoiceIssuedAt, and dodging that by
+     renaming a variable would have been sneaking past a rule that protects money.
+     ⛔ AND NEVER invoiceIssuedAt ITSELF, which falls back to updatedAt — a field that moves
+     on a corrected spelling or a sheet re-sync, and would re-date last year's payment to
+     this year on the next edit. That is the trap the Overdue clock was already caught by.
+
+     ⚠ SO AN UNDATED DEPOSIT IS NOT THIS SEASON, and that is a real cost, said plainly
+     rather than hidden: money typed into the office box before this change recorded no
+     date, so those customers read as unreplied until they answer or it is re-recorded.
+     It is the safe direction — failing the other way sends a crew to somebody who never
+     answered, which is exactly what she asked to stop — and allCustRouteStatus already
+     says which of the reasons is holding a given customer back. */
+  const paidYear = paymentSeasonYear(inv.data);
+  return paidYear !== null && paidYear === new Date().getFullYear();
+}
+/* ⭐ WHICH SEASON THE MONEY ON A BILL BELONGS TO ([[SCH-82]]). Its own function so a test
+   can RUN it, and so there is ONE answer: a second reading of "when were they paid",
+   living beside the rule that uses it, is how the badge and the schedule start naming
+   different people. Returns null for a bill carrying no date at all. */
+function paymentSeasonYear(inv){
+  if(!inv) return null;
+  const when = toJsDate(inv && inv.lastPaymentAt);
+  return when ? when.getFullYear() : null;
 }
 /* How much they still owe from last season, for the screens that have to say it in
    money. Same resolution as above so the list and the hold can never name different
@@ -22947,10 +23018,24 @@ const ADMIN_ERROR_TOPIC = 'Admin Error';
    what makes a message a system notice at all — the System tab reads it, and the
    customer list excludes it unconditionally. Deriving that would let a topic quietly
    move a notice between the two tabs. The raw field decides it, here as before. */
+/* ⭐ THE THREE CUSTOMER TOPICS LEFT THIS TABLE ([[MSG-28]], 2026-09-18). Addie: "for
+   anything that does come her instead of gmail I need everything to go into inbox than be
+   able to add my own filters and sub folders and delete the folders I want."
+   ⛔ A CANCELLATION, A NOTE AND A MOVE ARE MAIL FROM A CUSTOMER, and they were being filed
+   into folders she did not choose before she ever saw them — so the Inbox read empty while
+   the thing she was looking for sat in "Cancellations". That is the app deciding her filing,
+   which is exactly what she is asking to stop: everything arrives, and SHE files it, the way
+   Gmail works. Her own filing has always won over this table (filedByHand is tested first)
+   and still does; what changes is where a message LANDS.
+   ⚠ THE FOLDERS ARE NOT DELETED and nothing already in them moves — messageFolderOf still
+   reads a stored folder, so every message she has ever filed stays exactly where she put it.
+   ⛔ AND THE ERROR TOPICS STAY, because they are not mail. They are written by index.html,
+   which has no login and cannot read this table, and [[MSG-26]] settled what happens to
+   them. Nothing here reopens that.
+   ⛔ SO DOES 'System'. messageFolderOf returns it above this table and a system notice must
+   never read as something to answer — [[MSG-15]]'s rule, and burying the queue is the
+   complaint the Communication Centre exists to fix. */
 const MESSAGE_HOME_FOLDER = {
-  'Cancellation Request': 'Cancellations',
-  'Note Added': 'Member Portal',
-  'Existing Customer - Address Changed': 'Member Portal',
   /* ⚠ BOTH ERROR TOPICS ARE MAPPED HERE *AS WELL AS* BEING WRITTEN AS `folder`, and the
      duplication is deliberate. The member half is written by index.html, which has no login,
      cannot read this table and cannot know if these folders have been renamed since — so a
@@ -23229,10 +23314,49 @@ function loadMessageFolders(){
     snap.forEach(function(docSnap){ messageFolders.push({id:docSnap.id, name:docSnap.data().name, parentId:docSnap.data().parentId||null}); });
     if(!foldersSeeded){
       foldersSeeded = true;
+      /* ⭐ A FOLDER SHE DELETES STAYS DELETED ([[MSG-28]], 2026-09-18). Addie: "be able to
+         add my own filters and sub folders and delete the folders I want."
+         ⛔ EVERY FOLDER ALREADY HAD A DELETE BUTTON, AND IT DID NOT WORK — not because the
+         delete failed, but because this block RE-CREATED it. foldersSeeded is per page load,
+         so deleting "Cancellations" removed it, and the next login found it missing from
+         DEFAULT_TOPIC_FOLDERS and made it again. Deleting and having it come back reads
+         exactly like a button that does nothing, which is the class of bug she has asked
+         about by name.
+         ⭐ SEEDED ONCE EVER, marked in settings/inboxFolderSeed. settings/{id} is already
+         open to signed-in staff, so this needs no firestore.rules deploy — the same trade
+         settings/commSections makes, and CI does not deploy rules.
+         ⛔ AN EXISTING BOOK IS MARKED AND NEVER SEEDED. On the first load after this ships,
+         a book that already has folders is whatever she has made it — seeding the "missing"
+         ones there would resurrect precisely the folders she deleted before today, which is
+         this bug wearing a different hat. Only a book with NO folders at all is a new one.
+         ⚠ AND A FAILED READ SEEDS NOTHING. Failing that way costs a fresh book its starter
+         folders, which she can make in a click; failing the other way brings deleted folders
+         back from the dead with nobody watching. */
+      let alreadySeeded = true;
+      try{
+        const seedDoc = await getDoc(doc(db,'settings','inboxFolderSeed'));
+        alreadySeeded = seedDoc.exists() && !!seedDoc.data().seededAt;
+      }catch(err){
+        /* Not silent: this decides whether folders are created, so a reader who sees
+           starter folders missing on a new book needs this line to know why. */
+        console.error('Could not read the inbox folder seed marker — seeding nothing:', err);
+      }
       const existingNames = messageFolders.map(f => f.name);
-      const missing = DEFAULT_TOPIC_FOLDERS.filter(name => !existingNames.includes(name));
+      const missing = alreadySeeded ? []
+        : (existingNames.length ? [] : DEFAULT_TOPIC_FOLDERS);
       for(const name of missing){
         await addDoc(collection(db,'messageFolders'), {name: name, parentId: null, createdAt: serverTimestamp()});
+      }
+      if(!alreadySeeded){
+        /* ⚠ WRITTEN WHETHER OR NOT ANYTHING WAS CREATED. The marker means "this book has
+           been through seeding", not "folders were made" — an existing book is marked so it
+           is never seeded later, which is the whole of the resurrection guard. */
+        try{
+          await setDoc(doc(db,'settings','inboxFolderSeed'),
+            {seededAt: serverTimestamp(), seeded: missing.length}, {merge:true});
+        }catch(err){
+          console.error('Could not record the inbox folder seed marker:', err);
+        }
       }
       /* ⛔ THE ERRORS FOLDERS ARE NO LONGER CREATED ([[MSG-26]], 2026-09-12). Addie asked for
          the error Inbox to go and the badge to hold them, so making the folders on every
@@ -26623,7 +26747,14 @@ function renderInvoicesList(){
       const invRec = allInvoicesCache.find(i => i.id === invId);
       const wasPaid = invRec ? (Number(invRec.data.deposit) || 0) : 0;
       const paidNow = deposit - wasPaid;
-      updateDoc(doc(db,'invoices',invId), {deposit: deposit, updatedAt: serverTimestamp()}).then(async () => {
+      updateDoc(doc(db,'invoices',invId), Object.assign({deposit: deposit, updatedAt: serverTimestamp()},
+        /* ⭐ WHEN THE MONEY ARRIVED ([[SCH-82]]). housePaidThisSeason has to tell this
+           year's payment from last year's, and this box was the one payment path that
+           recorded no date — so money taken over the phone confirmed nobody.
+           ⚠ ONLY ON A REAL PAYMENT. paidNow is already how this handler tells a
+           correction (the figure going down, or not moving) from money coming in, and a
+           correction must not re-date a payment made weeks ago. */
+        paidNow > 0 ? {lastPaymentAt: serverTimestamp()} : {})).then(async () => {
         toast('Payment status updated');
         await logPayment({
           invoiceKey: invId,
@@ -46861,7 +46992,14 @@ function attachAddressRowHandlers(container){
       const invRec2 = allInvoicesCache.find(i => i.id === invId);
       const wasPaid2 = invRec2 ? (Number(invRec2.data.deposit)||0) : 0;
       const paidNow2 = deposit - wasPaid2;
-      updateDoc(doc(db,'invoices',invId), {deposit: deposit, updatedAt: serverTimestamp()}).then(async () => {
+      updateDoc(doc(db,'invoices',invId), Object.assign({deposit: deposit, updatedAt: serverTimestamp()},
+        /* ⭐ WHEN THE MONEY ARRIVED ([[SCH-82]]). housePaidThisSeason has to tell this
+           year's payment from last year's, and this box was the one payment path that
+           recorded no date — so money taken over the phone confirmed nobody.
+           ⚠ ONLY ON A REAL PAYMENT. paidNow2 is already how this handler tells a
+           correction (the figure going down, or not moving) from money coming in, and a
+           correction must not re-date a payment made weeks ago. */
+        paidNow2 > 0 ? {lastPaymentAt: serverTimestamp()} : {})).then(async () => {
         if(invRec2){
           reportReceiptOutcome(await sendPaymentReceipt(invId, Object.assign({}, invRec2.data, {deposit: deposit}), paidNow2));
         }

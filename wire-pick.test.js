@@ -567,6 +567,121 @@ check('the card reads the customer record, not the notice, for the answer',
     'that path never shows the form, so the toast is the only place it can be seen');
 }
 
+/* ---------------------------------------------------------------------------
+ * ⭐ THE DETAIL FORM ASKS TOO — ANY, GREEN, WHITE  ([[OPT-22]], 2026-09-18)
+ *
+ * Addie: "They should see Any, Green, White. With instructions on what to pick. If they
+ * click any or keep it at any then it should allow us to pick and require us to pick the
+ * wire."
+ *
+ * ⭐ THE SAME ANSWER AT THE OTHER DOOR. [[OPT-21]] — a parallel session, from a different
+ * message of hers, on main first — put this question on the MEMBER PORTAL's lights tab,
+ * instructed from the gutter colour. This is the same three answers on the form somebody
+ * who is not a member yet fills in, worded alike on purpose.
+ *
+ * ⚠ BOTH NARROW [[OPT-12]], which took the question off every form the day before (R-024),
+ * and that row is marked rather than deleted because its reasoning is what makes this safe:
+ * OPT-12 was refusing an INVENTED answer. The old control defaulted to 'Any' and STORED the
+ * word, so most quotes carried a cord nobody had chosen. The question was never the fault.
+ *
+ * ⛔ SO EVERY CHECK HERE IS ULTIMATELY ABOUT ONE SENTENCE: "Any" stores NOTHING. A blank is
+ * what the rest of the app already understands — whWireLabel reads it as Check lights
+ * ([[WH-35]]), the System Message is raised off it ([[WH-40]]), and the convert popup
+ * refuses to convert past it ([[WH-43]]), which is the second half of her own sentence.
+ *
+ * ⛔ THE PORTAL HALF IS [[OPT-21]]'S AND IS NOT TOUCHED HERE — that is its own door, its
+ * own control (the lights tab) and its own spec. Nothing below reads or asserts it; the
+ * Changes tab still has no wire control at all, which wire-colour.spec.js still holds.
+ * ------------------------------------------------------------------------- */
+{
+  const idx = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const fns = fs.readFileSync(path.join(ROOT, 'functions', 'index.js'), 'utf8');
+  /* The three radio pills, as one block. Anchored on the row's own id so a check about
+     what she SEES cannot be answered by markup somewhere else on a 9,000-line page. */
+  const rowAt = idx.indexOf('id="qdWireRow"');
+  const wireRow = rowAt < 0 ? '' : idx.slice(rowAt, idx.indexOf('</div>', idx.indexOf('radio-row', rowAt)));
+
+  check('the detail form asks for a wire colour again', !!wireRow,
+    'OPT-21 put the question back on the form a new customer fills in');
+  check('and it offers her three, in her order: Any, Green, White',
+    /value="" checked>\s*Any/.test(wireRow) &&
+    wireRow.indexOf('value="Green"') > wireRow.indexOf('value=""') &&
+    wireRow.indexOf('value="White"') > wireRow.indexOf('value="Green"'),
+    'Any first and pre-picked — "keep it at any" only means anything if that is where it starts');
+  /* ⛔ THE VALUE IS THE RULING. A pill reading Any that POSTS the word 'Any' is exactly the
+     stored default OPT-12 was written to refuse, and it would head a warehouse pile
+     "Any wire" — a cord nobody makes. */
+  check('and the Any pill carries no value at all',
+    !/value="Any"/i.test(wireRow) && /name="wire_color" value=""/.test(wireRow),
+    'a pill that posts the word Any is the invented colour OPT-12 refused, wearing a label');
+  check('and it says what to pick and what Any means',
+    /matches your gutter/i.test(wireRow) && /we&rsquo;ll match it for you/i.test(wireRow),
+    'she asked for instructions — a picker with three bare words is the question without ' +
+    'the help, and they are the PORTAL\'s words ([[OPT-21]]) so the two doors ask one question');
+
+  /* ⚠ THE TWO COPIES OF ONE RULE. The browser decides what the radio posts and the server
+     decides what is stored; a public callable reached with only a quote token cannot take
+     the browser's word for it. money-parity's shape applied to a choice. */
+  /* ⚠ `lift` READS admin.html AND THESE TWO DO NOT LIVE THERE — a lift() here returns ''
+     and every check below it passes vacuously. Both are pulled from their own file. */
+  const liftFrom = (src, decl) => {
+    const i = src.indexOf(decl);
+    return i < 0 ? '' : src.slice(i, src.indexOf('\n}', i));
+  };
+  const qdChoice = liftFrom(idx, 'function qdWireChoice(');
+  const svChoice = liftFrom(fns, 'function quoteWireChoiceServer(');
+  check('both halves of the rule were found at all',
+    !!qdChoice && !!svChoice,
+    'a gate that cannot find its target must never report green');
+  check('the browser holds the White-or-Green rule in its own function',
+    /w === 'White' \|\| w === 'Green'/.test(qdChoice),
+    'written inline in a 60-line submit handler it could only ever be read, never run');
+  check('and the server holds the same one',
+    /w === 'White' \|\| w === 'Green'/.test(svChoice),
+    'the browser is a suggestion here — quoteSaveDetails is reached with nothing but a token');
+  /* ⚠ RUN, NOT MATCHED. Two copies agreeing in their source is not two copies agreeing. */
+  const runChoice = src => new Function('return (' + src.trim() + ')')();
+  const qdFn = qdChoice ? runChoice(qdChoice + '\n}') : null;
+  const svFn = svChoice ? runChoice(svChoice + '\n}') : null;
+  check('and run side by side they answer the same for every value the form can post',
+    !!qdFn && !!svFn && ['', 'Any', 'any', 'White', 'Green', 'white', 'Red', null, undefined, ' White ']
+      .every(v => qdFn(v) === svFn(v)),
+    'a browser and a server that disagree put a colour on a quote the office cannot save');
+  check('and both refuse the word Any',
+    !!qdFn && qdFn('Any') === '' && !!svFn && svFn('Any') === '',
+    'this is the whole ruling: Any is an answer, and the way to record it is to store nothing');
+  check('and both keep the two real colours exactly',
+    !!qdFn && qdFn('White') === 'White' && qdFn('Green') === 'Green' &&
+    !!svFn && svFn('White') === 'White' && svFn('Green') === 'Green',
+    'a quote White is the one White the sweep keeps — see wireSweepClassify');
+
+  /* ⛔ ABSENT, NOT BLANK, ON BOTH SIDES. `wireColor: ''` would erase a colour a re-quote
+     prefilled off the member's own record (memberPrefill copies it onto the quote), which
+     is this file's oldest rule — a blank never wipes what the record has — applied to the
+     one field where a blank is also a legitimate answer. */
+  const qdSubmit = (function () {
+    const i = idx.indexOf("quoteDetailFormEl.addEventListener('submit'");
+    return i < 0 ? '' : stripComments(idx.slice(i, idx.indexOf('\nfunction splitPhoneOrEmail', i)));
+  })();
+  check('the browser adds no key when they said Any',
+    /if\(qdWire\) detailPayload\.wireColor = qdWire/.test(qdSubmit) &&
+    !/wireColor:/.test(qdSubmit.slice(qdSubmit.indexOf('var detailPayload'), qdSubmit.indexOf('var qdWire'))),
+    'a posted blank erases a wire a re-quote prefilled off the member\'s own record');
+  const svSave = (function () {
+    const i = fns.indexOf('exports.quoteSaveDetails');
+    return i < 0 ? '' : stripComments(fns.slice(i, fns.indexOf('publicQuoteLookup', i)));
+  })();
+  check('and the server writes no field when they said Any',
+    /if \(quoteWire\) quoteUpdate\.wireColor = quoteWire/.test(svSave) &&
+    /quoteWireChoiceServer\(details\.wireColor\)/.test(svSave),
+    'same erasure, one layer down — and the emailed-link path is the common one');
+  /* ⚠ THE WHITELIST IS WHAT MAKES IT REACH THE QUOTE AT ALL. houseSides was lost exactly
+     this way once: sent by the browser, dropped by the function, nothing wrong on screen. */
+  check('and the update really is the object the whitelist built',
+    /await db\.collection\('quotes'\)\.doc\(quoteId\)\.update\(quoteUpdate\)/.test(svSave),
+    'a second update object here is how half the form silently stops being saved');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('');
   failures.forEach(function (f) { console.log('  FAIL  ' + f); });

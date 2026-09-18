@@ -680,7 +680,17 @@ const PORTAL_WRITE_FIELDS = {
      the office keeps its own box on Add and Edit Customer. */
   preferences: ['installPreference', 'outletTimer', 'specificOutlet',
                 'specificOutletNotes', 'notes'],
-  lights:      ['lightsDescription'],
+  /* ⭐ wireColor IS BACK ON THIS LIST ([[OPT-21]], 2026-09-18), AND THE 2026-09-17 NOTE
+     ABOVE IS KEPT BECAUSE IT IS STILL RIGHT ABOUT WHAT IT REFUSED. Addie: "we instruct them
+     to pick based on gutter color however this is completley optional and they can choose
+     Any. Which will mean we choose."
+     ⛔ WHAT WAS WRONG WAS NEVER THE QUESTION, IT WAS THE INVENTED ANSWER. The old select
+     defaulted to 'Any' and STORED it, so a customer who never read the box came out holding
+     a wire colour nobody chose — the fault [[WH-35]] exists to stop the warehouse acting on.
+     Any is not written now: it is the absence of an answer, which is what leaves the house
+     on Dax's system-messages card to be read off a photo of the gutter.
+     ⚠ AND IT CAN ONLY EVER SET A COLOUR, NEVER CLEAR ONE — see the guard in portalSave. */
+  lights:      ['lightsDescription', 'wireColor'],
   /* ⭐ Which sides they want lit. Its own section, not folded into
      'preferences', because changing it changes the PRICE — see the requote
      flag below — and a section is what decides whether that runs.
@@ -695,13 +705,34 @@ const PORTAL_WRITE_FIELDS = {
 // Fields the portal is allowed to READ. Everything else on the record —
 // pricing, customer number, bin assignments, difficulty rating, test-account
 // flag, don't-install-before date, crew notes — never leaves the server.
+/* ⭐ THE FOUR SIDES THIS APP KNOWS, IN ONE FIXED ORDER, AND THE ONE RULE THAT CLEANS A
+   LIST OF THEM. Extracted 2026-09-18 ([[OPT-23]]) when the Install Details form began
+   asking the same question the Member Portal's Sides tab asks — it was inline in
+   portalSave until then, and a second copy in quoteSaveDetails would be a second answer to
+   "what did they tick, in what order".
+   ⚠ THE ORDER IS NOT COSMETIC. Every reader compares lists as sequences — a swap of Left
+   for Right is a re-quote ([[OPT-06]]) — so two sanitizers ordering differently means a
+   real swap reads as no change, silently.
+   ⚠ ANYTHING ELSE IS DROPPED rather than stored: a stray value, a duplicate, more than
+   four. Returns [] for a list with nothing usable in it, and the caller decides what that
+   means — the portal leaves the record alone, the quote form refuses the submit. */
+const SIDE_NAMES = ['Front', 'Left', 'Right', 'Back'];
+function sanitizeSideNames(v) {
+  const picked = {};
+  (Array.isArray(v) ? v : []).forEach((s) => { if (SIDE_NAMES.indexOf(s) !== -1) picked[s] = true; });
+  return SIDE_NAMES.filter((s) => picked[s]);
+}
+
 const PORTAL_READ_FIELDS = [
   'name', 'phone', 'email', 'address', 'phone2', 'email2', 'gateCode',
   /* ⛔ wireColor LEFT THIS LIST 2026-09-17, with the control that read it. Nothing in
      index.html looks at it any more, and a field sent to every customer's browser and
      never read is exactly what portal-fields.test.js exists to refuse — the office keeps
      it, the warehouse prints it, and the customer has no use for it. */
-  'lightsDescription', 'installPreference', 'outletTimer',
+  /* ⭐ AND READABLE AGAIN ([[OPT-21]]). It left this list with the control on 2026-09-17;
+     a picker that cannot show what is already on file is one that silently offers to
+     overwrite it, which is how the invented White got there in the first place. */
+  'lightsDescription', 'wireColor', 'installPreference', 'outletTimer',
   'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus', 'houseSides', 'houseSidesList',
   /* ⚠ THE WORD ON ITS OWN IS NOT AN ANSWER, so the portal needs the stamp too
      (added 2026-09-02). A stored yes with nothing behind it is an import or the
@@ -2028,7 +2059,7 @@ async function sendPortalChangeEmail(custId, d, labels) {
   body = body.split('{{portal_link}}').join(portalUrl);
   body = body.split('{{portal_button}}').join(
     '<a href="' + portalUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">See my account</a>');
-  /* ⭐ THE LIST IS APPENDED WHEN THE TOKEN IS NOT THERE, which is [[MSG-27]]'s rule applied to
+  /* ⭐ THE LIST IS APPENDED WHEN THE TOKEN IS NOT THERE, which is [[MSG-28]]'s rule applied to
      a template SHE edits. The whole point of this email is saying WHICH change we have got
      down; a body edited later that happens to drop {{change}} would send "we'll make sure to
      make this change on your house" naming no change at all — this same bug re-armed, with
@@ -2103,6 +2134,26 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
   });
   if (Object.keys(updates).length === 0) {
     throw new HttpsError('invalid-argument', 'Nothing to save.');
+  }
+
+  /* ⛔ THE ONLY TWO WIRE COLOURS THERE ARE, AND 'Any' IS NOT ONE OF THEM ([[OPT-21]]).
+     Addie: "they can choose Any. Which will mean we choose." So Any is the ABSENCE of an
+     answer and must never reach the record — storing it is exactly the invented colour
+     [[WH-35]] was written about, and wire-pick.test.js already names "'Any' read as an
+     answer" as one of the silent ways this goes wrong.
+     ⛔ AND IT NEVER CLEARS WHAT IS ON FILE. A blank arriving here is deleted from the
+     update rather than written, so somebody picking Any cannot wipe a colour the warehouse
+     read off a photo of their gutter, and cannot wipe one the office typed. The portal may
+     set this field and may change it between the two real values; it may not empty it.
+     ⚠ CHECKED AGAINST THE LIST, NOT MERELY FOR TRUTHINESS — the client already sends only
+     a real choice, and this is the half a client cannot be trusted for. */
+  if (updates.wireColor !== undefined) {
+    const wire = String(updates.wireColor || '').trim();
+    if (wire !== 'White' && wire !== 'Green') delete updates.wireColor;
+    else updates.wireColor = wire;
+    if (Object.keys(updates).length === 0) {
+      throw new HttpsError('invalid-argument', 'Nothing to save.');
+    }
   }
 
   // Normalise phone fields so lookups keep working.
@@ -2194,12 +2245,11 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
        names and a count of two disagreeing with each other is either a stale
        page or a tampered request; the list is the one a person actually ticked
        box by box, so it is the one trusted to say how many. */
-    const SIDE_NAMES = ['Front', 'Left', 'Right', 'Back'];
+    /* ⚠ THE RULE MOVED TO sanitizeSideNames ([[OPT-23]], 2026-09-18) so the quote form
+       can ask it too. Nothing about what survives changed — same four names, same order,
+       same dropping of anything else. */
     if (updates.houseSidesList !== undefined) {
-      const picked = {};
-      (Array.isArray(updates.houseSidesList) ? updates.houseSidesList : [])
-        .forEach((s) => { if (SIDE_NAMES.indexOf(s) !== -1) picked[s] = true; });
-      const sanitized = SIDE_NAMES.filter((s) => picked[s]);
+      const sanitized = sanitizeSideNames(updates.houseSidesList);
       if (sanitized.length) {
         updates.houseSidesList = sanitized;
         updates.houseSides = sanitized.length;
@@ -2238,11 +2288,15 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
       if (!was || !now) return false;
       return was !== now;
     };
-    const canonical = function (v) {
-      const picked = {};
-      (Array.isArray(v) ? v : []).forEach((s) => { if (SIDE_NAMES.indexOf(s) !== -1) picked[s] = true; });
-      return SIDE_NAMES.filter((s) => picked[s]);
-    };
+    /* ⚠ THIS WAS A SECOND COPY OF THE SAME RULE and is now the shared one ([[OPT-23]],
+       2026-09-18). It predates the extraction — it sat beside the inline SIDE_NAMES doing
+       the identical job — and it is the drift the extraction exists to end: this function
+       decides whether somebody is RE-QUOTED by comparing two lists as sequences, so a
+       canonical order here that disagreed with the one the list was STORED in would make a
+       real swap of Left for Right read as no change at all, silently.
+       ⚠ A red-check is what surfaced it: two sabotage anchors matched twice, which is this
+       file's own signal for "there is another copy of this". */
+    const canonical = sanitizeSideNames;
     const before = asCount(oldData.houseSides);
     if (houseSidesChangedServer(canonical(oldData.houseSidesList), before,
       canonical(updates.houseSidesList !== undefined ? updates.houseSidesList : oldData.houseSidesList),
@@ -3244,7 +3298,13 @@ exports.portalChangeAddress = onCall({ cors: true }, async (request) => {
   try {
     await db.collection('messages').add({
       topic: 'Existing Customer - Address Changed',
-      folder: 'Member Portal',
+      /* ⭐ THE INBOX, NOT A FOLDER WE PICKED ([[MSG-28]], 2026-09-18). Addie: "I need
+         everything to go into inbox than be able to add my own filters and sub folders."
+         This is the one server write that filed a customer message somewhere else, and
+         admin.html's MESSAGE_HOME_FOLDER was doing the same thing from the other end — both
+         had to go, or the topic lands in the Inbox for some customers and in Member Portal
+         for others depending on which door they came through. */
+      folder: 'Inbox',
       name: oldData.name || '', phone: oldData.phone || '', email: oldData.email || '',
       contactMethod: '',
       message: (oldData.name || 'A customer') + ' has moved from "' +
@@ -4441,6 +4501,19 @@ exports.quoteMemberKeptDetails = onCall({ cors: true }, async (request) => {
   return { ok: true };
 });
 
+/* ⛔ ONLY THE TWO REAL COLOURS, AND NEVER ON TRUST ([[OPT-22]], 2026-09-18). The browser
+   has its own copy of this rule (`qdWireChoice` in index.html) so the radio it posts is
+   already one of three values — but this is a PUBLIC callable reached with nothing but a
+   quote token, so the browser's answer is a suggestion and this is the decision. Anything
+   that is not White or Green, the word 'Any' included, comes back empty and the caller
+   writes no field at all.
+   ⚠ PAIRED WITH `qdWireChoice`, and wire-pick.test.js compares the two: two copies of one
+   rule is how a colour the office cannot save reaches a quote. */
+function quoteWireChoiceServer(v) {
+  const w = String(v == null ? '' : v).trim();
+  return (w === 'White' || w === 'Green') ? w : '';
+}
+
 exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
   const body = request.data || {};
   const quoteToken = body.quoteToken ? String(body.quoteToken).trim() : '';
@@ -4463,16 +4536,25 @@ exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
   if (!colors.length) throw new HttpsError('invalid-argument', 'Please choose at least one light color.');
 
   const specific = yesNo(details.specificOutlet);
-  await db.collection('quotes').doc(quoteId).update({
+  /* ⚠ SANITIZED ONCE, ABOVE THE WRITE, because the count is its LENGTH — reading it twice
+     could hand the two fields different answers. Same rule the portal applies. */
+  const qdSides = sanitizeSideNames(details.houseSidesList);
+  /* ⚠ BUILT AS AN OBJECT AND WRITTEN BELOW, which is the wire colour's doing ([[OPT-22]],
+     the parallel one): "Any" has to add NO KEY AT ALL rather than a blank, and a key can
+     only be left out of an object that exists before the write. The sides above are
+     unaffected either way — they are always written, because the form refuses a submit
+     with nothing ticked. */
+  const quoteUpdate = {
     lightColors: colors,
     lightsDescription: str(details.lightsDescription, 400),
-    /* ⛔ NO WIRE COLOUR IS WRITTEN HERE ANY MORE (2026-09-17), and this was the SERVER'S
-       OWN COPY of the default the browser form used to apply — the emailed-link path is
-       the common one, so taking the question off index.html and leaving this line would
-       have gone on stamping 'Any' on most quotes with nothing on any screen saying so.
-       Addie, 2026-09-17: "don't add what wire color they want but push check lights then
-       warehouse chooses what wire they have on file". A field nobody sends and nothing
-       defaults is simply absent, which is what Check lights reads. */
+    /* ⭐ THE WIRE COLOUR IS WRITTEN HERE AGAIN ([[OPT-22]], 2026-09-18), and this is the
+       path that matters: the emailed-link route is the common one, so a field left off
+       this whitelist is dropped in silence and the answer is lost with nothing wrong on
+       screen — which is what happened to houseSides once already.
+       ⛔ BUT NOT AS A DEFAULT, AND NOT AS A BLANK. See quoteWireChoiceServer below: "Any"
+       adds no key at all, so it can neither invent a colour (the [[OPT-12]] fault) nor
+       erase one a re-quote prefilled off the member's own record (memberPrefill copies
+       `wireColor` onto the quote). Added after this object, only when picked. */
     outletTimer: yesNo(details.outletTimer),
     specificOutlet: specific,
     specificOutletNotes: specific === 'Yes' ? str(details.specificOutletNotes, 500) : '',
@@ -4485,7 +4567,19 @@ exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
        ⚠ CLAMPED HERE TOO, never trusted from the browser. Same 1-4 as portalSideCount,
        and anything unreadable becomes 1 rather than 0 or NaN: a side count of zero
        would price a house with no roofline. */
-    houseSides: Math.min(4, Math.max(1, parseInt(details.houseSides, 10) || 1)),
+    houseSides: qdSides.length || Math.min(4, Math.max(1, parseInt(details.houseSides, 10) || 1)),
+    /* ⭐ AND WHICH SIDES, BY NAME ([[OPT-23]], 2026-09-18). Addie: "on quotes/Requotes can
+       we make front, left, right, back multiple optional choose."
+       ⛔ IT HAD TO JOIN THIS WHITELIST OR IT WOULD BE LOST IN SILENCE — the warning three
+       lines up is the same one, and the emailed-link path that goes through this function
+       is the COMMON one. The browser would have sent the names, this update would have
+       dropped them, and nothing on any screen would have said so.
+       ⚠ THE LIST WINS THE COUNT when it has anything in it, exactly as portalSave decides
+       it: the names are what a person ticked box by box, so they are what says how many.
+       The old clamp stays as the fall-back for a quote raised before this change and for a
+       request that sends a count and no names — never 0, because a house with no roofline
+       cannot be priced. */
+    houseSidesList: qdSides.length ? qdSides : admin.firestore.FieldValue.delete(),
     wantsMailedInvoice: details.wantsMailedInvoice === true,
     formCompleted: true,
     formCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -4493,7 +4587,14 @@ exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
        whatever happened earlier. */
     quoteArchived: false,
     quoteArchivedReason: ''
-  });
+  };
+  /* ⛔ THE KEY IS ABSENT UNLESS THEY PICKED A COLOUR ([[OPT-22]]). Two different harms,
+     one line: writing 'Any' invents a cord nobody chose ([[OPT-12]]'s fault), and writing
+     '' erases one a re-quote prefilled off the member's own record. Absent does neither,
+     and a quote that carries none is exactly what "Check lights" reads. */
+  const quoteWire = quoteWireChoiceServer(details.wireColor);
+  if (quoteWire) quoteUpdate.wireColor = quoteWire;
+  await db.collection('quotes').doc(quoteId).update(quoteUpdate);
 
   return { ok: true };
 });
@@ -5798,6 +5899,49 @@ exports.listAdminUsers = onCall({ cors: true }, async (request) => {
  * ------------------------------------------------------------------------- */
 const QUOTE_NUDGE_WAIT_DAYS = 10;
 const QUOTE_NUDGE_MAX = 2;
+/* ⭐ THE LADDER ([[QT-49]], 2026-09-18). Addie: "On awaiting responses we should get a
+   notification to nudge them through text after 10 days than after 10 more days if they
+   still haven't responded then they should be sent an automatic email. After 10 more days
+   after the email if they did not respond then they should be put in archived."
+
+   ⛔ THE FIRST RUNG IS A NOTIFICATION TO US, NOT A TEXT TO THEM. Her sentence is "we should
+   get a notification to nudge them through text" — the office is told to text, a person
+   sends it. Nothing here sends an SMS, and that is the ruling rather than caution: an
+   automatic text is a charge per message to somebody who has not replied, and it cannot be
+   taken back. The second rung IS automatic, because she said so in as many words.
+
+   ⛔ EACH RUNG IS TEN DAYS AFTER THE ONE BEFORE IT, NOT TEN DAYS AFTER THE QUOTE. That is
+   what "after 10 more days" means, and it is why every rung has its own stamp: measuring
+   all three from quoteSentAt would fire the email and the archive on the same run for any
+   quote already three weeks old when this shipped.
+
+   ⚠ AND NOTHING RESETS quoteSentAt ANY MORE. The old single-rung nudge reset it so the
+   second email was another ten days out; with a stamp per rung that reset would re-open the
+   first rung for ever and nobody would ever be archived.
+
+   ⚠ A MANUAL NUDGE DOES NOT RESTART THE LADDER. The office pressing Nudge is the office
+   doing what rung one asked for — restarting on it means a quote that is chased by hand can
+   never reach the archive, which is the one rung that ends the chase. */
+const QUOTE_LADDER_RUNGS = ['text', 'email', 'archive'];
+/* Which rung, if any, this quote is due for. Its own function so a test can RUN it rather
+   than match its source — every claim about it is arithmetic on dates, which a regex cannot
+   see. Returns null for a quote that is not due for anything.
+   ⚠ IT DECIDES ONLY THE RUNG. Whether this quote should be chased at all — archived,
+   closed, answered, unpriced, never sent — is the caller's, and stays where it was. */
+function quoteLadderRungDue(q, nowMs, waitDays) {
+  const gap = (Number(waitDays) || QUOTE_NUDGE_WAIT_DAYS) * 24 * 60 * 60 * 1000;
+  const due = (t) => { const ms = toMillis(t); return ms ? (nowMs - ms) >= gap : false; };
+  /* ⚠ ORDER IS THE WHOLE RULE, and it reads DOWN the ladder: the last rung already reached
+     decides what comes next. Written the other way round — earliest rung first — a quote
+     that had been emailed would match the text rung again on the next run, because the text
+     stamp is what gates it and nothing above ever clears. */
+  if (q.quoteNudgeEmailedAt) return due(q.quoteNudgeEmailedAt) ? 'archive' : null;
+  if (q.quoteNudgeTextAskedAt) return due(q.quoteNudgeTextAskedAt) ? 'email' : null;
+  /* ⚠ FROM THE LAST TIME WE CONTACTED THEM. quoteSentAt is when the quote went out, and a
+     quote that was never sent is not waiting on a reply — the caller has already refused
+     those, and a missing stamp answers false here rather than firing on the epoch. */
+  return due(q.quoteSentAt) ? 'text' : null;
+}
 
 function prefersNotEmail(contactMethod) {
   return /phone|call|text|sms/i.test(String(contactMethod || ''));
@@ -5936,7 +6080,12 @@ async function runQuoteNudgeBatch(source) {
     return { sent: 0, skipped: 0, needsHuman: 0, stopped: 'automation is switched off' };
   }
   const waitDays = Number((setSnap.exists && setSnap.data().waitDays) || QUOTE_NUDGE_WAIT_DAYS) || QUOTE_NUDGE_WAIT_DAYS;
-  const maxNudges = Number((setSnap.exists && setSnap.data().maxNudges) || QUOTE_NUDGE_MAX) || QUOTE_NUDGE_MAX;
+  /* ⛔ maxNudges IS NO LONGER READ ([[QT-49]]). The ladder sends exactly ONE automatic
+     email — rung two — so "nudge at most N times" has nothing left to mean, and the box that
+     set it is gone from the automation card in the same change. A setting still being stored
+     while nothing reads it is the quiet half of this repo's own worst bug shape: somebody
+     sets it to 5, expects five emails, and gets one. QUOTE_NUDGE_MAX is kept as the record
+     of what the old behaviour was. */
 
   const cfgSnap = await db.collection('settings').doc('emailjs').get();
   const cfg = cfgSnap.exists ? cfgSnap.data() : {};
@@ -5952,12 +6101,16 @@ async function runQuoteNudgeBatch(source) {
   }
   const templateBody = tplSnap.docs[0].data().body || '';
 
-  const cutoff = Date.now() - waitDays * 24 * 60 * 60 * 1000;
+  /* ⛔ THE SINGLE CUTOFF IS GONE TOO. Each rung is measured from the rung before it, inside
+     quoteLadderRungDue, so one cutoff computed up here could only ever answer for the first. */
   const snap = await db.collection('quotes').get();
 
-  let sent = 0, skipped = 0, needsHuman = 0;
+  let sent = 0, skipped = 0, needsHuman = 0, askedToText = 0, archived = 0;
   const errors = [];
   const humanFollowUp = [];
+  /* The people a person has to text, collected the same way humanFollowUp is — the office
+     works this list off the automation card. */
+  const textThese = [];
 
   for (const docSnap of snap.docs) {
     const q = docSnap.data();
@@ -5965,13 +6118,45 @@ async function runQuoteNudgeBatch(source) {
     if ((q.status || 'new') === 'closed') { skipped++; continue; }
     if (['approved', 'declined', 'maybe_next_year'].indexOf(q.approvalStatus) !== -1) { skipped++; continue; }
     if (typeof q.quotedPrice !== 'number') { skipped++; continue; }
-    if (Number(q.quoteNudgeCount || 0) >= maxNudges) { skipped++; continue; }
+    /* ⭐ WHICH RUNG ([[QT-49]]). The ladder replaces the old single "has it been ten days"
+       test AND the max-nudge count: how far somebody has been chased is now said by which
+       stamps they carry, not by a tally. quoteNudgeCount is still written so the card's
+       "Nudged 2×" pill keeps working. */
+    const rung = quoteLadderRungDue(q, now.getTime(), waitDays);
+    if (!rung) { skipped++; continue; }
 
-    const lastContact = toMillis(q.quoteSentAt);
-    if (!lastContact || lastContact > cutoff) { skipped++; continue; }
+    /* ⭐ RUNG ONE IS A JOB FOR A PERSON. Addie: "we should get a notification to nudge them
+       through text" — so this stamps the quote and puts them on a list the office works
+       down. Nothing is sent to the customer here. */
+    if (rung === 'text') {
+      await docSnap.ref.update({ quoteNudgeTextAskedAt: admin.firestore.FieldValue.serverTimestamp() });
+      textThese.push({ id: docSnap.id, name: q.name || '', phone: q.phone || '',
+                       email: q.email || '' });
+      askedToText++;
+      continue;
+    }
 
-    /* They asked for a phone call or a text. We cannot do either automatically,
-       so flag them for a person rather than emailing them anyway. */
+    /* ⭐ RUNG THREE ENDS THE CHASE. Archived is where a closed quote already lives, so a
+       customer who answers on day 31 is still found under Closed → Archived rather than
+       being gone. Addie, asked exactly that: "They should be in archived in completed."
+       ⚠ IT SAYS WHY, because quoteArchivedReason is already rendered on the card — an
+       archived quote with no reason reads as somebody having closed it by hand. */
+    if (rung === 'archive') {
+      await docSnap.ref.update({
+        quoteArchived: true,
+        quoteArchivedAt: admin.firestore.FieldValue.serverTimestamp(),
+        quoteArchivedReason: 'No reply after ' + (waitDays * 3) + ' days'
+      });
+      archived++;
+      continue;
+    }
+
+    /* Rung two, the automatic email. They asked for a phone call or a text, or we have no
+       address for them — we cannot do either automatically, so flag them for a person
+       rather than emailing them anyway.
+       ⚠ THE STAMP IS NOT WRITTEN HERE. Without an email address this rung can never be
+       completed, and stamping it would march them on to the archive ten days later having
+       been sent nothing at all. They stay on the human list until somebody acts. */
     if (prefersNotEmail(q.contactMethod) || !q.email) {
       needsHuman++;
       humanFollowUp.push({
@@ -6063,8 +6248,11 @@ async function runQuoteNudgeBatch(source) {
       await docSnap.ref.update({
         quoteNudgeCount: Number(q.quoteNudgeCount || 0) + 1,
         quoteLastNudgedAt: admin.firestore.FieldValue.serverTimestamp(),
-        /* Resets the clock, so the second nudge is another 10 days out. */
-        quoteSentAt: admin.firestore.FieldValue.serverTimestamp(),
+        /* ⭐ THE RUNG'S OWN STAMP ([[QT-49]]), and what the archive rung measures from.
+           ⛔ quoteSentAt IS NO LONGER RESET HERE. It used to be, so the second nudge was
+           another ten days out — with a stamp per rung that reset re-opens the text rung
+           for ever and nobody is ever archived. */
+        quoteNudgeEmailedAt: admin.firestore.FieldValue.serverTimestamp(),
         quoteNudgedAutomatically: true
       });
       sent++;
@@ -6077,14 +6265,20 @@ async function runQuoteNudgeBatch(source) {
     lastRunAt: admin.firestore.FieldValue.serverTimestamp(),
     lastRunSource: source,
     lastRunSent: sent,
+    lastRunAskedToText: askedToText,
+    lastRunArchived: archived,
     lastRunNeedsHuman: needsHuman,
+    /* ⚠ THE LIST IS REPLACED, NEVER APPENDED TO. A quote reaches the text rung once, so an
+       accumulating list would go on naming people the office texted a fortnight ago. */
+    textNudgeList: textThese.slice(0, 50),
     lastRunErrors: errors.slice(0, 10),
     /* The list of people who wanted a call or a text - shown in admin so they
        do not quietly fall through the cracks. */
     needsHumanList: humanFollowUp.slice(0, 50)
   }, { merge: true });
 
-  return { sent: sent, skipped: skipped, needsHuman: needsHuman, errors: errors };
+  return { sent: sent, skipped: skipped, needsHuman: needsHuman,
+           askedToText: askedToText, archived: archived, errors: errors };
 }
 
 function properNameServer(raw) {
@@ -6867,6 +7061,84 @@ exports.runArrearsRsvpNow = onCall({ memory: '512MiB', timeoutSeconds: 300 }, as
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required.');
   return await runArrearsRsvpBatch('manual');
 });
+
+/* ⭐ CLOUDINARY IS WATCHED BEFORE IT RUNS OUT (2026-09-18, [[PROC-34]]). Dax: "we do use
+ * cloudinary". Every quote photo, crew-sheet photo and fix photo lives there. On 2026-09-09 an
+ * upload failed with "Cloudinary 401: cloud_name is disabled": Cloudinary had switched the
+ * whole account off, and nothing had warned anybody first. It is on the Plus plan now, at 15%
+ * of its monthly credits on 2026-09-18. What was missing is somebody being told BEFORE the
+ * limit, not only when an upload fails.
+ *
+ * ⭐ ONE NOTE PER THRESHOLD PER MONTH, and one a day while the account is switched off. The
+ * note's document id IS its ref, written with create(), so a second run finds it already
+ * there and writes nothing. A daily note saying the same thing is how the Inbox teaches the
+ * office to stop reading it.
+ * ⚠ ANY OTHER FAILURE STAYS QUIET — a network blip or a changed API answer is not news
+ * about the account, and crying wolf here buries the one note that matters. It is logged.
+ * ⚠ cloudinaryUsageNote IS PURE, so run-all.js RUNS it rather than reading it. */
+const CLOUDINARY_WARN_PERCENTS = [95, 80];
+function cloudinaryUsageNote(usage, now) {
+  const u = usage || {};
+  const day = new Date(now || Date.now()).toISOString().slice(0, 10);
+  if (u.error) {
+    const why = String((u.error && u.error.message) || u.error);
+    if (!/disabled/i.test(why)) return null;
+    return {
+      ref: 'cloudinary-off-' + day,
+      message: 'Cloudinary, where every quote and crew photo is stored, has switched the account off ("' +
+        why.slice(0, 120) + '"). Photos on quotes, crew sheets and the website will not show, and nothing new ' +
+        'can be uploaded, until it is back on. This is usually the monthly credits running out: log in at ' +
+        'cloudinary.com and check the plan and billing.'
+    };
+  }
+  const credits = u.credits || {};
+  const pct = Number(credits.used_percent);
+  if (!isFinite(pct)) return null;
+  const hit = CLOUDINARY_WARN_PERCENTS.find(t => pct >= t);
+  if (!hit) return null;
+  const month = String(u.last_updated || day).slice(0, 7);
+  return {
+    ref: 'cloudinary-usage-' + month + '-' + hit,
+    message: 'Cloudinary, where every quote and crew photo is stored, has used ' + pct.toFixed(0) +
+      '% of this month\'s credits (' + (Number(credits.usage) || 0) + ' of ' + (Number(credits.limit) || 0) +
+      (u.plan ? ', ' + u.plan + ' plan' : '') + '). At 100% Cloudinary switches the account off, which is what ' +
+      'happened on 9/9 when uploads failed with "cloud_name is disabled". Raise the plan at cloudinary.com, ' +
+      'or clear out old images, before it runs out.'
+  };
+}
+async function runCloudinaryUsageWatch() {
+  let usage;
+  try {
+    const basic = Buffer.from(CLOUDINARY_API_KEY.value() + ':' + CLOUDINARY_API_SECRET.value()).toString('base64');
+    const res = await fetch('https://api.cloudinary.com/v1_1/' + CLOUDINARY_CLOUD_NAME + '/usage',
+      { headers: { Authorization: 'Basic ' + basic } });
+    usage = await res.json().catch(() => ({}));
+  } catch (err) {
+    console.error('[HU] cloudinary usage read failed:', err);
+    return { ok: false, noted: false };
+  }
+  const note = cloudinaryUsageNote(usage, Date.now());
+  if (!note) return { ok: true, noted: false };
+  try {
+    await db.collection('messages').doc(note.ref).create({
+      topic: 'Photo Storage Needs You', folder: 'System',
+      name: '', phone: '', email: '', contactMethod: '',
+      ref: note.ref, message: note.message,
+      autoQueuedToWarehouse: false, needsReassign: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    return { ok: true, noted: true };
+  } catch (err) {
+    /* ALREADY_EXISTS is the dedupe working, not a failure. */
+    if (err && (err.code === 6 || /already exists/i.test(String(err.message)))) return { ok: true, noted: false, already: true };
+    console.error('[HU] cloudinary usage note failed:', err);
+    return { ok: false, noted: false };
+  }
+}
+exports.cloudinaryUsageWatch = onSchedule(
+  { schedule: '0 8 * * *', timeZone: 'America/Denver', secrets: [CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET] },
+  async () => { await runCloudinaryUsageWatch(); }
+);
 
 exports.sendQuoteNudges = onSchedule(
   { schedule: '0 10 * * *', timeZone: 'America/Denver', memory: '512MiB' },
