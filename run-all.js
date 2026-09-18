@@ -61441,3 +61441,119 @@ suite('Suite 339. The office payment boxes record WHEN the money came in');
     cut('paidNow') !== cut('paidNow2') && !!cut('paidNow') && !!cut('paidNow2'),
     'if these ever become one slice, one of the two handlers is unguarded');
 }
+
+suite('Suite 340. The wire colour is asked again, and Any is still not an answer');
+/* ⭐ [[OPT-21]]. Addie, 2026-09-18: "we instruct them to pick based on gutter color however
+   this is completley optional and they can choose Any. Which will mean we choose."
+
+   ⛔ THIS RESTORES A CONTROL REMOVED THE DAY BEFORE, AND THE OLD RULING'S GOOD HALF IS WHAT
+   THESE CHECKS PROTECT. What 2026-09-17 refused was a box that DEFAULTED to Any and then
+   STORED it, giving a house a wire colour nobody chose — the fault [[WH-35]] exists to stop
+   the warehouse acting on, and one wire-pick.test.js names by name ("'Any' read as an
+   answer"). The question is back; the invented answer must not come with it. */
+{
+  /* ⚠ ITS OWN READS. The module-level names are fnsSrc and publicSite; fns/idx exist only
+     inside another suite's block, so borrowing them crashes with a bare ReferenceError that
+     names neither this suite nor the real cause. */
+  const fns = read('functions/index.js');
+  const idx = read('index.html');
+  const portalBlock = (() => {
+    const at = fns.indexOf('const PORTAL_WRITE_FIELDS = {');
+    return at > -1 ? fns.slice(at, fns.indexOf('\n};', at)) : '';
+  })();
+  check('S340', 'the portal may write a wire colour again',
+    /'wireColor'/.test(portalBlock),
+    'without this the control saves nothing and the customer is told it worked');
+  check('S340', 'and may read the one on file',
+    /'wireColor'/.test(fns.slice(fns.indexOf('const PORTAL_READ_FIELDS = ['),
+                                 fns.indexOf('];', fns.indexOf('const PORTAL_READ_FIELDS = [')))),
+    'a picker that cannot show the current answer silently offers to overwrite it');
+
+  /* ⚠ THE SERVER GUARD IS RUN, NOT MATCHED — the claim is about which values survive it,
+     and a regex cannot see which branch deleted the field. */
+  const guard = (() => {
+    const i = fns.indexOf('if (updates.wireColor !== undefined) {');
+    if(i === -1) return null;
+    const j = fns.indexOf('\n  }', i);
+    return j === -1 ? null : fns.slice(i, j + 4);
+  })();
+  check('S340', 'the server guard was found', !!guard,
+    'renamed? repoint this rather than deleting it — a null slice passes nothing below');
+
+  const sift = (v) => {
+    const updates = v === undefined ? {} : { wireColor: v };
+    /* HttpsError is thrown when the save would be empty; here the caller always has a
+       second field, so the empty-save branch is stubbed out and only the sift is tested. */
+    new Function('updates', 'HttpsError', guard.replace(/throw new HttpsError[^;]*;/g, ';'))
+      (updates, function(){});
+    return Object.prototype.hasOwnProperty.call(updates, 'wireColor') ? updates.wireColor : '<deleted>';
+  };
+
+  check('S340', 'White is kept', sift('White') === 'White',
+    'the whole point of asking — a real choice has to reach the record');
+  check('S340', 'Green is kept', sift('Green') === 'Green',
+    'the gutter rule only works if both colours can actually be chosen');
+  check('S340', 'Any never reaches the record',
+    sift('Any') === '<deleted>',
+    'storing it is the invented colour WH-35 is about, and wire-pick names it as a silent failure');
+  check('S340', 'and neither does a blank',
+    sift('') === '<deleted>',
+    'a blank would WIPE a colour the warehouse read off a photo of the gutter — the portal may set, never clear');
+  check('S340', 'nor anything else a caller invents',
+    sift('Black') === '<deleted>' && sift('white') === '<deleted>',
+    'checked against the list rather than for truthiness — this is the half a client cannot be trusted for');
+
+  /* ⭐ THE CUSTOMER-FACING HALF. Every claim below is about what is on the SCREEN, which is
+     where this feature was removed from — a server that accepts the field while no control
+     sends it is the invisible-feature shape this repo has shipped once already. */
+  const wireSel = (() => {
+    const i = idx.indexOf('id="rcWireColor"');
+    if(i === -1) return '';
+    const start = idx.lastIndexOf('<select', i);
+    return idx.slice(start, idx.indexOf('</select>', i));
+  })();
+  check('S340', 'the portal has a wire colour control again', !!wireSel,
+    'the ruling is about what the customer is asked — a server change alone asks nobody');
+  check('S340', 'Any is the first option and the one it opens on',
+    /<option value="">/.test(wireSel) &&
+    wireSel.indexOf('value=""') < wireSel.indexOf('value="White"'),
+    'it is the absence of a choice, so it must be where somebody who reads nothing lands');
+  check('S340', 'and it offers exactly the two real colours',
+    /value="White"/.test(wireSel) && /value="Green"/.test(wireSel) &&
+    (wireSel.match(/<option /g) || []).length === 3,
+    'a third colour here is one the warehouse has no wire for');
+
+  /* ⚠ THE GUTTER INSTRUCTION IS THE RULING. Without it this is just the box that was
+     deliberately removed, put back.
+     ⚠ AND IT READS THE VISIBLE NOTE, NOT THE BLOCK AROUND IT. The first version sliced the
+     900 characters before the control and searched them for "gutter" — which found the
+     HTML COMMENT above it ("ANSWERED FROM THE GUTTER") and passed with the sentence the
+     customer reads replaced by "Pick a wire colour." The red-check is what caught it. That
+     is Suite 58's trap for the fifth time in this file, and the first time it was one of my
+     own checks rather than the code under test. */
+  const wireNote = (() => {
+    const at = idx.indexOf('id="rcWireColor"');
+    if(at === -1) return '';
+    const block = idx.slice(Math.max(0, at - 1400), at)
+      .replace(/<!--[\s\S]*?-->/g, '');
+    const last = block.lastIndexOf('<p class="form-note"');
+    return last === -1 ? '' : block.slice(last);
+  })();
+  check('S340', 'the visible note was found at all', !!wireNote,
+    'an empty slice passes the check below without reading a word of the page');
+  check('S340', 'it tells them to match the gutter',
+    /gutter/i.test(wireNote),
+    'Addie asked for the instruction, not merely for the control');
+
+  /* ⭐ AND THE WIRING, ASSERTED SEPARATELY FROM THE CONTROL. A select nothing populates
+     shows Any to somebody who has already chosen, and a save nothing reads sends nothing —
+     both look exactly like a working page. */
+  check('S340', 'the control is filled when the record arrives',
+    /rcLoadWireColor\(\);/.test(idx) &&
+    idx.indexOf('rcLoadWireColor();') > idx.indexOf('rcLoadedSerialised = rcSerialiseCurrent();'),
+    'bound at start-up instead it would read an empty record — the email-typo note, from the other side');
+  check('S340', 'and the save sends it only when it really moved',
+    /wirePick \? \{lightsDescription: newLightsDescription, wireColor: wirePick\}/.test(idx) &&
+    /v !== rcWireLoaded \? v : ''/.test(idx),
+    'sending it unchanged re-queues the bundle every time the tab is saved');
+}

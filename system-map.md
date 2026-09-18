@@ -408,6 +408,28 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    who never answered — and **Schedule › why this customer is not being scheduled**
    already says which reason is holding them.
 
+   ⭐ **THE WIRE COLOUR IS ASKED AGAIN, AND ANY IS NOT AN ANSWER** (2026-09-18,
+   [[OPT-21]]). Addie: *"we instruct them to pick based on gutter color however this is
+   completley optional and they can choose Any. Which will mean we choose."* The Lights tab
+   of the member portal carries a wire select again, with the instruction to match it to the
+   gutter so the cord disappears against it.
+
+   ⛔ **This narrows [[OPT-12]]'s removal rather than undoing it.** What 2026-09-17 refused
+   was never the question — it was the invented answer: the old box *defaulted* to Any and
+   then stored it, giving a house a wire colour nobody chose. Any is the default again and
+   writes **nothing at all**, which is what leaves the house on the system-messages card to
+   be read off a photo. It also puts back what [[OPT-11]] always said — *"if they want to
+   change it they can change it in member portal"* — and what [[OPT-20]] assumed.
+
+   ⛔ **The portal may set a colour and may never clear one.** A blank is deleted from the
+   update server-side, so picking Any cannot wipe a colour the warehouse read off a photo or
+   one the office typed. Only `White` and `Green` survive the guard — this is a public
+   callable, so the list is checked rather than the value merely being truthy.
+
+   ⚠ **A wire change is not a colour change.** The $30 is gated on `lightsDescription`
+   having moved, so touching only the wire charges nobody. It does queue a rebuild, which is
+   right: a different cord is a different bundle.
+
    ⚠ **And the emailed Yes does work**, bill outstanding or not:
    `test/rsvp-unpaid-this-year.spec.js` drives it in a real browser and the badge goes
    Confirmed. A record still on **On hold** never received that write.

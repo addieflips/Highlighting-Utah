@@ -728,7 +728,17 @@ const PORTAL_WRITE_FIELDS = {
      the office keeps its own box on Add and Edit Customer. */
   preferences: ['installPreference', 'outletTimer', 'specificOutlet',
                 'specificOutletNotes', 'notes'],
-  lights:      ['lightsDescription'],
+  /* ⭐ wireColor IS BACK ON THIS LIST ([[OPT-21]], 2026-09-18), AND THE 2026-09-17 NOTE
+     ABOVE IS KEPT BECAUSE IT IS STILL RIGHT ABOUT WHAT IT REFUSED. Addie: "we instruct them
+     to pick based on gutter color however this is completley optional and they can choose
+     Any. Which will mean we choose."
+     ⛔ WHAT WAS WRONG WAS NEVER THE QUESTION, IT WAS THE INVENTED ANSWER. The old select
+     defaulted to 'Any' and STORED it, so a customer who never read the box came out holding
+     a wire colour nobody chose — the fault [[WH-35]] exists to stop the warehouse acting on.
+     Any is not written now: it is the absence of an answer, which is what leaves the house
+     on Dax's system-messages card to be read off a photo of the gutter.
+     ⚠ AND IT CAN ONLY EVER SET A COLOUR, NEVER CLEAR ONE — see the guard in portalSave. */
+  lights:      ['lightsDescription', 'wireColor'],
   /* ⭐ Which sides they want lit. Its own section, not folded into
      'preferences', because changing it changes the PRICE — see the requote
      flag below — and a section is what decides whether that runs.
@@ -749,7 +759,10 @@ const PORTAL_READ_FIELDS = [
      index.html looks at it any more, and a field sent to every customer's browser and
      never read is exactly what portal-fields.test.js exists to refuse — the office keeps
      it, the warehouse prints it, and the customer has no use for it. */
-  'lightsDescription', 'installPreference', 'outletTimer',
+  /* ⭐ AND READABLE AGAIN ([[OPT-21]]). It left this list with the control on 2026-09-17;
+     a picker that cannot show what is already on file is one that silently offers to
+     overwrite it, which is how the invented White got there in the first place. */
+  'lightsDescription', 'wireColor', 'installPreference', 'outletTimer',
   'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus', 'houseSides', 'houseSidesList',
   /* ⚠ THE WORD ON ITS OWN IS NOT AN ANSWER, so the portal needs the stamp too
      (added 2026-09-02). A stored yes with nothing behind it is an import or the
@@ -2139,6 +2152,26 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
   });
   if (Object.keys(updates).length === 0) {
     throw new HttpsError('invalid-argument', 'Nothing to save.');
+  }
+
+  /* ⛔ THE ONLY TWO WIRE COLOURS THERE ARE, AND 'Any' IS NOT ONE OF THEM ([[OPT-21]]).
+     Addie: "they can choose Any. Which will mean we choose." So Any is the ABSENCE of an
+     answer and must never reach the record — storing it is exactly the invented colour
+     [[WH-35]] was written about, and wire-pick.test.js already names "'Any' read as an
+     answer" as one of the silent ways this goes wrong.
+     ⛔ AND IT NEVER CLEARS WHAT IS ON FILE. A blank arriving here is deleted from the
+     update rather than written, so somebody picking Any cannot wipe a colour the warehouse
+     read off a photo of their gutter, and cannot wipe one the office typed. The portal may
+     set this field and may change it between the two real values; it may not empty it.
+     ⚠ CHECKED AGAINST THE LIST, NOT MERELY FOR TRUTHINESS — the client already sends only
+     a real choice, and this is the half a client cannot be trusted for. */
+  if (updates.wireColor !== undefined) {
+    const wire = String(updates.wireColor || '').trim();
+    if (wire !== 'White' && wire !== 'Green') delete updates.wireColor;
+    else updates.wireColor = wire;
+    if (Object.keys(updates).length === 0) {
+      throw new HttpsError('invalid-argument', 'Nothing to save.');
+    }
   }
 
   // Normalise phone fields so lookups keep working.

@@ -2329,6 +2329,23 @@
                 <div id="rcPatternReadout" style="font-size:12.5px; color:var(--slate);"></div>
               </div>
 
+              <!-- ⭐ THE WIRE COLOUR, ASKED AGAIN AND ANSWERED FROM THE GUTTER ([[OPT-21]],
+                   2026-09-18). Addie: "we instruct them to pick based on gutter color however
+                   this is completley optional and they can choose Any. Which will mean we
+                   choose." The 2026-09-17 removal is NOT being undone blindly — what it
+                   refused was a box that DEFAULTED to Any and then stored it, giving a house
+                   a wire colour nobody chose ([[WH-35]]). Any is the first option and the
+                   default here, and picking it writes nothing at all. -->
+              <div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--line);">
+                <label for="rcWireColor" style="display:block; font-size:12.5px; font-weight:600; margin-bottom:4px;">Wire colour</label>
+                <p class="form-note" style="margin:0 0 8px;">Pick the one that matches your gutter, so the cord disappears against it. Green gutters take green wire, white gutters take white. Not sure? Leave it on Any and we&rsquo;ll match it for you when we build your lights.</p>
+                <select id="rcWireColor" style="width:100%; max-width:280px; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;">
+                  <option value="">Any &mdash; you choose for me</option>
+                  <option value="White">White &mdash; for a white gutter</option>
+                  <option value="Green">Green &mdash; for a green gutter</option>
+                </select>
+              </div>
+
               <button type="button" class="btn btn-gold btn-sm" id="lightsSaveBtn" style="margin-top:14px;">Save Light Choice</button>
             </div>
 
@@ -7494,6 +7511,11 @@ function rcRememberLoadedState(originalText){
   // a colour we do not offer, anything. Worth naming before replacing it.
   rcUnparseableOriginal = (headText && !parsed.length) ? headText : '';
   rcLoadedSerialised = rcSerialiseCurrent();
+  /* ⭐ THE WIRE IS LOADED IN THE SAME BREATH ([[OPT-21]]). Wired HERE rather than beside the
+     control, because this is the one function that knows the record has arrived — bound at
+     start-up it would read an empty record and show Any to somebody who has chosen, which is
+     the bug the email-typo note records from the other direction. */
+  rcLoadWireColor();
 }
 // The initial house-map lookup that normally sets currentJobAddressId runs in the background and
 // isn't awaited, so it can still be in flight when the customer hits Save. This re-checks directly
@@ -7516,6 +7538,20 @@ async function ensureJobAddressId(){
     }
   } catch(err){ console.error('[HU] ensureJobAddressId failed:', err); lastLookupError = (err && (err.code || err.message)) || 'unknown ensure error'; }
   return currentJobAddressId;
+}
+/* ⭐ WHAT IS ON FILE, SHOWN BEFORE ANYTHING IS OFFERED ([[OPT-21]]). A picker that cannot
+   show the current answer silently offers to overwrite it. Blank on the record is a real
+   state — nobody has chosen — and it maps to Any, which is the same thing said out loud.
+   ⚠ rcWireLoaded is what a save is compared against, so opening the tab and pressing Save
+   never counts as a wire change. Same rule as rcLoadedSerialised for the colours. */
+var rcWireLoaded = '';
+function rcLoadWireColor(){
+  var sel = document.getElementById('rcWireColor');
+  if(!sel) return;
+  var rec = currentJobAddressData || currentLookupRecord || {};
+  var on = String(rec.wireColor || '').trim();
+  rcWireLoaded = (on === 'White' || on === 'Green') ? on : '';
+  sel.value = rcWireLoaded;
 }
 async function saveLightsPattern(){
   var statusEl = document.getElementById('lightsSaveStatus');
@@ -7632,10 +7668,24 @@ async function saveLightsPattern(){
     }
   }
   try{
+    /* ⭐ THE WIRE RIDES WITH THE COLOURS ([[OPT-21]]), and only when it really moved.
+       ⛔ Any sends NOTHING. It is the absence of a choice, so it must not reach the record
+          — and it must not clear a colour the warehouse read off a photo either. A customer
+          who wants to hand the decision back tells us; the field is not the place to say it.
+       ⚠ A WIRE CHANGE IS NOT A COLOUR CHANGE, so this cannot trigger the $30: the server
+          gates that on lightsDescription having MOVED, and an unchanged description is
+          exactly what it sees when only the wire was touched. It does queue a rebuild,
+          which is right — a different cord is a different bundle. */
+    var wirePick = (function(){
+      var sel = document.getElementById('rcWireColor');
+      var v = sel ? String(sel.value || '').trim() : '';
+      return (v === 'White' || v === 'Green') && v !== rcWireLoaded ? v : '';
+    })();
     var saveRes = await callPortalFn('portalSave', {
       token: getActivePortalToken(),
       section: 'lights',
-      data: {lightsDescription: newLightsDescription}
+      data: wirePick ? {lightsDescription: newLightsDescription, wireColor: wirePick}
+                     : {lightsDescription: newLightsDescription}
     });
     if(currentLookupRecord) currentLookupRecord.lightsDescription = newLightsDescription;
     if(currentJobAddressData) currentJobAddressData.lightsDescription = newLightsDescription;
@@ -7644,6 +7694,10 @@ async function saveLightsPattern(){
        time would look like another change and charge a second $30. */
     rcLoadedDescription = newLightsDescription;
     rcLoadedSerialised = picked;
+    /* ⚠ THE SAME REASON THE TWO LINES ABOVE EXIST: this function compares against what it
+       loaded with, so without this a second press reads the wire as changed again and sends
+       a pointless write that re-queues the bundle. */
+    if(wirePick) rcWireLoaded = wirePick;
     rcUnparseableOriginal = '';
     statusEl.textContent = 'Saved!';
     setTimeout(function(){ statusEl.textContent = ''; }, 2000);
