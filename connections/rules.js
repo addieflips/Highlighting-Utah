@@ -37,7 +37,12 @@ const AREAS = {
      the hand-drawn roofline: what is photographed onto a house, what is still owed, and
      the page of eight it prints on. The two only look alike because both end at a
      printer. */
-  BPM: 'Blueprint Maps'
+  BPM: 'Blueprint Maps',
+  /* ⚠ NOT `EM`. That family is mail we SEND to people who are already customers. This
+     one is the opposite direction: somebody who has never heard of us, typing into
+     Google. Different audience, different artifacts — the profile, the markup,
+     robots.txt — and filing them together would hide both. */
+  SEO: 'Being found'
 };
 
 /* The map's own Status column is the honest starting state. A person confirming a block

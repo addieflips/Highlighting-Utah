@@ -1,0 +1,24 @@
+# Highlighting Utah - https://highlightingutah.com
+#
+# The public site is one page and is meant to be found. What follows is either
+# somebody's private link or a staff screen.
+
+User-agent: *
+Allow: /
+
+# CUSTOMER LINKS, and this is the entry that matters. /q/, /r/ and /s/ are the
+# Netlify rewrites in _redirects, and the token in the path is the WHOLE of the
+# credential in that customer's email - the same one the portal signs them in
+# with. A crawler must never fetch one, so these are Disallow (do not look) and
+# not noindex (look, then forget).
+Disallow: /q/
+Disallow: /r/
+Disallow: /s/
+
+# The staff screens - admin.html, employee.html, connections.html - are NOT
+# listed here on purpose. Each carries <meta name="robots" content="noindex">,
+# and a crawler has to be allowed to fetch a page to read that. Disallowing them
+# here would leave Google free to list a URL it was never permitted to open,
+# which is the opposite of what is wanted.
+
+Sitemap: https://highlightingutah.com/sitemap.xml

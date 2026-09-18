@@ -351,8 +351,19 @@ suite('1. Structure');
     'sharing one produce a red line that cannot say where it came from');
 })();
 
+/* ⚠ A <script> IS NOT ALWAYS JAVASCRIPT (2026-09-12). `application/ld+json` is the
+   structured data that tells Google what this business is and where it works, and
+   `application/json` / `text/template` are data too. Handing any of them to
+   `node --check` reports a syntax error in a file whose JavaScript is fine — the
+   failure names the whole page, so it reads as the app being broken.
+   ⚠ verify-syntax.js HAS ALWAYS SKIPPED THESE and this copy never did, so gate A and
+   this gate disagreed about what counts as script. They agree now. Two extractors
+   with one job is the drift; the fix is the same predicate in both, not a special
+   case for the tag that happened to expose it. */
 const inlineScripts = html =>
-  [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)].map(m => m[1]);
+  [...html.matchAll(/<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/gi)]
+    .filter(m => !/type\s*=\s*["']?(application\/json|application\/ld\+json|text\/template)/i.test(m[1] || ''))
+    .map(m => m[2]);
 
 HTML_FILES.forEach(file => {
   const html = read(file);
