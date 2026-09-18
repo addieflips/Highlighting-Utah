@@ -121,6 +121,50 @@ test.describe('The referral token', () => {
     await stub.assertNoRealCalls();
   });
 
+  /* ⭐ AND THE LINE ITSELF, ON THE PAGE ([[REF-41]], 2026-09-18). referral-banner.test.js
+     runs the renderer against a fake document, which proves the RULE; only a real browser
+     proves the words reach the screen. This repo has recorded that lesson three times —
+     "a message that is in the source is not a message on the screen".
+     ⚠ THE FLAG IS SET BEFORE THE PAGE LOADS, because the check runs out of navigate() on
+     the first paint. Set after goto it would arrive too late and this would pass or fail
+     on timing rather than on the rule. */
+  test('a link somebody really holds is promised the waiver, on the page', async ({ page }) => {
+    const stub = await open(page);
+    await page.addInitScript(t => { window.__HU_REFERRAL_WAIVED__ = t; }, TOKEN);
+    await page.goto('/r/' + TOKEN);
+    await page.waitForFunction(() => location.hash === '#/quote', null, { timeout: 15000 });
+
+    const note = page.locator('#referralWaiverNote');
+    await expect(note, 'the friend has to be told what they were promised').toBeVisible();
+    /* The amount is matched as a NUMBER rather than as "30": index.html reads
+       NEW_MEMBER_FEE and S312 fails any page that types the fee out, so pinning the digits
+       here would be a second place the fee is written down. */
+    await expect(note).toHaveText(/^Your \$\d+ installation fee is waived\.$/);
+
+    expect(stub.scriptErrors, 'the referral path must not throw').toEqual([]);
+    await stub.assertNoRealCalls();
+  });
+
+  /* ⛔ AND THE ONE THAT MATTERS MORE. `/r/` followed by anything at all reaches this page
+     exactly like a real link, and a link Start New Season has rotated away is DELIBERATELY
+     still charged ([[REF-25]], her own ruling). So a banner drawn on the strength of the
+     token alone is a written promise the office then breaks, at the moment a stranger is
+     deciding whether to become a customer. Nothing is promised unless the server says the
+     link is one somebody holds right now. */
+  test('a link nobody holds is promised nothing, and that is not an error', async ({ page }) => {
+    const stub = await open(page);
+    await page.goto('/r/' + OTHER);
+    await page.waitForFunction(() => location.hash === '#/quote', null, { timeout: 15000 });
+
+    await expect(page.locator('#referralWaiverNote'),
+      'a token nobody holds must make no promise').toBeHidden();
+    /* ⚠ AND IT IS SILENT. Q-032: the two errors are not symmetric — a banner that fails to
+       appear costs nothing, because the quote card waives the fee either way, while
+       anything on screen costs a customer on the page whose job is winning one. */
+    expect(stub.scriptErrors, 'a no is an answer, not a fault').toEqual([]);
+    await stub.assertNoRealCalls();
+  });
+
   test('the quote still carries the referral after the tab that opened the link is gone',
     async ({ page }) => {
       const stub = await open(page);

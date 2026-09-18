@@ -608,6 +608,31 @@ const FAKE_FUNCTIONS_MODULE = `
        With { emailAlerts: true } it answers configured and the real alert path runs
        against the fake SDK above. The ids are obvious nonsense so a value of theirs
        can never be mistaken for a real template. */
+    /* ⭐ IS THIS REFERRAL LINK ONE SOMEBODY HOLDS? ([[REF-41]], 2026-09-18). The real
+       referralWaiverCheck answers ONE boolean and names nobody, and this fake answers the
+       same shape — never a name, an id or a house, or a spec could pass against a stub
+       that leaks what production refuses to.
+
+       ⚠ FALSE IS THE DEFAULT AND IT IS THE TRUTHFUL ONE: no fixture customer holds a
+       referralToken, so there is no token here that a real lookup would find. That also
+       means every spec written before this existed behaves exactly as it did — the banner
+       stays hidden and nothing is logged, which is what the page does for a made-up token.
+
+       ⚠ A SPEC THAT WANTS THE BANNER SAYS SO, by setting __HU_REFERRAL_WAIVED__ to the
+       token it is driving (or true for any). Same opt-in shape as __HU_EMAIL_ALERTS__
+       below, and for the same reason: a default that turns a feature on rewrites the
+       meaning of every spec that never asked about it.
+
+       ⚠ AND IF THE SERVER RULE EVER CHANGES — if it starts matching a RETIRED token, say —
+       THIS FAKE HAS TO MOVE WITH IT. CLAUDE.md §9.14 records a stub that went on writing
+       needsLightRecycle for eight days after the server stopped, so a spec asserted the
+       reversed rule and passed. A stub staler than production is worse than a poorer one:
+       it goes green while proving the opposite of what the app does. */
+    referralWaiverCheck: function (payload) {
+      const want = window.__HU_REFERRAL_WAIVED__;
+      const token = (payload && payload.token) || '';
+      return { waived: want === true || (!!want && want === token) };
+    },
     publicConfig: () => (window.__HU_EMAIL_ALERTS__
       ? { configured: true, serviceId: 'stub-service',
           notifyTemplateId: 'stub-notify-template', publicKey: 'stub-public-key' }
