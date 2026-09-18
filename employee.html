@@ -1,6 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><link rel="manifest" href="/manifest-crew.json">
+<head>
+<!-- ⛔ NOT A PUBLIC PAGE. Nothing here should ever appear in a search result.
+     ⚠ AND IT IS noindex RATHER THAN A robots.txt Disallow, which is the half that
+     is easy to get backwards: Disallow stops the crawler FETCHING the page, and a
+     page it may not fetch is a page whose noindex it can never read - so Google
+     stays free to list the bare URL it was told not to look at. Allowed + noindex
+     is what actually keeps it out, and robots.txt deliberately does not name these
+     three files. -->
+<meta name="robots" content="noindex, nofollow">
+<link rel="manifest" href="/manifest-crew.json">
 <meta name="theme-color" content="#0b1e3d">
 <script>
   if ('serviceWorker' in navigator) {
@@ -1397,7 +1406,19 @@ async function whTogglePullStop(crewId, stopId, checked){
    office uses, so the two screens can't disagree. */
 function whWireLabel(wire){
   const w = String(wire || '').trim();
-  return w || 'White';
+  /* ⛔ 'Check lights', NEVER 'White' — and this copy MUST match admin.html's, which is
+     what it stopped doing between 2026-09-16 and 2026-09-17. [[WH-35]] changed the office
+     copy so a wire nobody recorded reads as a question rather than a colour; this one was
+     left saying White. Two costs, and the second is the worse of them:
+       - the crew screen told somebody the wire was White when nobody had looked;
+       - this label is HALF THE BUILD GROUP KEY — a build is only "the same" if the
+         colours AND the wire match — so the office filed blank-wire houses under
+         Check lights while this screen filed them under White: two screens, two piles,
+         one house, which is the exact fault warehouse-colours.test.js exists for.
+     ⚠ That gate lifted this function as a DEPENDENCY of the colour comparison and never
+     compared it, which is how the drift went unseen. It compares both copies over the
+     WIRE half now. */
+  return w || 'Check lights';
 }
 /* Put a colour list into a canonical order so the SAME pattern typed in a
  * different order lands in ONE warehouse group. Before this, "Red, Green" and
@@ -2979,7 +3000,7 @@ async function loadRoutesForDate(){
           if(d.lightsDescription){
             detailsHtml += '<div style="font-size:13.5px; margin-top:6px;"><span style="color:var(--slate);">Light Colors:</span> '+esc(d.lightsDescription)+'</div>';
           }
-          detailsHtml += '<div style="font-size:13.5px; margin-top:4px;"><span style="color:var(--slate);">Wire:</span> '+esc(d.wireColor || 'White')+'</div>';
+          detailsHtml += '<div style="font-size:13.5px; margin-top:4px;"><span style="color:var(--slate);">Wire:</span> '+esc(whWireLabel(d.wireColor))+'</div>';
           detailsEl.innerHTML = detailsHtml;
         }
         const outletEl = document.getElementById('outletlive-'+id);

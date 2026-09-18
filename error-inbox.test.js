@@ -48,6 +48,7 @@ const path = require('path');
 const ROOT = __dirname;
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const admin = read('admin.html');
+const NL_ = '\n';
 const index = read('index.html');
 
 let passed = 0, failed = 0;
@@ -94,6 +95,99 @@ const ERROR_CONSTS = between(admin, "const ERROR_FOLDER = 'Errors';",
 const ADMIN_BLOCK = between(admin, 'const ERROR_REPEAT_HOURS = 12;',
   'function loadMessageFolders(', 'the admin reporter');
 const SEED_FN = extractFn(admin, 'seedErrorFolders');
+
+/* =========================================================================
+   ⭐ THE RED BADGE HOLDS EVERY ERROR, NOT JUST THIS PAGE LOAD'S ([[MSG-24]])
+
+   Addie, 2026-09-11: "I like the red error thing can we get rid of error inbox's
+   altogether ... and just have all emails go to the red errors badge instead", then
+   "Inbox gets deleted and badge stays with all error messages underneath it."
+
+   ⛔ THE BADGE COULD NOT HAVE CARRIED THAT ON ITS OWN, and this is the half that has to
+   work before the Errors folders can leave the Inbox. `caught` is an in-memory array in a
+   script that runs before Firebase — emptied by every reload, which is precisely why the
+   stored copy was added ("a fault that happened while she was on the phone was never seen
+   by anybody"). Deleting the rows and keeping the badge as it was would have thrown away
+   every error she was not watching happen.
+
+   ⚠ RUN, NOT MATCHED. Every claim here is about what ends up IN the list and in what
+   order — which a regex cannot see, and getting it wrong shows her last Tuesday's fault
+   at the top while today's is buried.
+   ========================================================================= */
+console.log('');
+console.log('--- the badge is topped up from what is stored ---');
+{
+  const sb = {};
+  /* ⚠ THE CAP IS LIFTED, NOT STUBBED — errBadgeStoredLines reads it, so a sandbox without
+     it dies on a bare ReferenceError (the extraction-list trap, working as documented), and
+     a stubbed copy would let this gate stay green while the real list was uncapped. */
+  const CAP = /const ERR_BADGE_MAX_STORED = \d+;/.exec(admin);
+  if(!CAP) throw new Error('could not find ERR_BADGE_MAX_STORED');
+  new Function('allMessages', 'msgFacets', 'MSG_TYPE_ERROR', 'toJsDate', 'msgErrorWhoLabel',
+    CAP[0] + '\n' + extractFn(admin, 'errBadgeStoredLines') +
+    'this.lines = errBadgeStoredLines;')
+    .call(sb,
+      [
+        {id:'a', data:{message:'older fault', createdAt:new Date('2026-09-01T10:00:00Z'), name:'Pat'}},
+        {id:'b', data:{message:'newest fault', createdAt:new Date('2026-09-09T10:00:00Z')}},
+        {id:'c', data:{message:'a member message', createdAt:new Date('2026-09-10T10:00:00Z')}},
+        {id:'d', data:{message:'middle fault', createdAt:new Date('2026-09-05T10:00:00Z')}}
+      ],
+      function(d){ return {type: /fault/.test(d.message) ? 'error' : 'member'}; },
+      'error',
+      function(v){ return v instanceof Date ? v : null; },
+      function(d){ return d.name || ''; });
+
+  const lines = sb.lines();
+  check('only the errors are put on the badge',
+    lines.length === 3 && !lines.some(l => /member message/.test(l)),
+    'got ' + JSON.stringify(lines) + ' — a customer question on the error badge is noise ' +
+    'on the one list that is meant to mean something is broken');
+  check('and the newest is first',
+    /newest fault/.test(lines[0]) && /older fault/.test(lines[2]),
+    'got ' + JSON.stringify(lines) + ' — a list opening on last Tuesday reads as the badge ' +
+    'being stuck, and what just broke is what she is looking for');
+  /* ⚠ THE DATE, NOT A CLOCK TIME. These are from other days by definition; a bare time
+     beside this session's live errors reads as something that just happened. */
+  check('a stored line is stamped with its date',
+    lines.every(l => /^\[\d/.test(l)) && !lines.some(l => /^\[\d+:\d\d:\d\d/.test(l)),
+    'got ' + JSON.stringify(lines));
+  check('and it names who hit it when that is known',
+    /Pat/.test(lines.find(l => /older fault/.test(l)) || ''),
+    '[[MSG-10]] taught these rows to name the customer; dropping that on the badge would ' +
+    'undo it on the one screen she is now meant to read them from');
+  /* ⛔ AND IT IS CAPPED. Every error of the season in a phone-sized panel is the cries-wolf
+     failure this file names in four other places. */
+  check('the stored half is capped',
+    /ERR_BADGE_MAX_STORED/.test(admin) && /slice\(0, ERR_BADGE_MAX_STORED\)/.test(admin),
+    'an uncapped list is one nobody scrolls to the bottom of');
+
+  /* ⛔ AND THE TWO HALVES ARE ACTUALLY JOINED. Everything above drives the reader from its
+     own harness — delete the call from flushAdminErrors and every check still passes while
+     the badge never gains a single stored row. This repo has shipped that exact shape
+     twice (the house-tab strip, the recycle "bin says" box). */
+  const flush = extractFn(admin, 'flushAdminErrors');
+  check('and flushAdminErrors is what puts them there',
+    /errBadgeSeedFromStored\(\)/.test(flush),
+    'messages landing is the one moment there is anything to read — called any earlier it ' +
+    'seeds an empty list, and seededOnce means it never tries again');
+  /* ⚠ THE CALL, NOT THE GUARD. The first version matched `window.__huErrCatchSeed`
+     anywhere in that function — which the `typeof ... !== 'function'` guard on the line
+     above satisfies all by itself, so a red-check deleting the actual call sailed through.
+     It has to be the call, WITH the lines handed to it. */
+  check('and the seeder hands them to the plain-script badge',
+    /window\.__huErrCatchSeed\(\s*errBadgeStoredLines\(\)\s*\)/.test(extractFn(admin, 'errBadgeSeedFromStored')) &&
+    /window\.__huErrCatchSeed *= *function/.test(admin),
+    'the catcher runs before Firebase exists, so the hand-over has to go through window — ' +
+    'the same bridge __huAdminErrorSink already makes in the other direction');
+  /* ⚠ AND A LIVE ERROR IS NOT SHOWN TWICE. The same fault still happening this session is
+     already in the list with its own timestamp; adding the stored copy underneath would
+     make the count lie about how many things are wrong. */
+  check('a fault already on screen is not added again underneath',
+    /if\(seen\[t\]\) continue;/.test(admin),
+    'the live one wins — it has the timestamp she cares about');
+}
+
 const RETRY_AFTER_FN = extractFn(admin, 'emailSendRetryAfter');
 const HOME_MAP = (admin.match(/const MESSAGE_HOME_FOLDER = \{[\s\S]*?\};/) || [])[0];
 const FOLDER_OF = extractFn(admin, 'messageFolderOf');
@@ -113,6 +207,7 @@ check('the lifted blocks really are the code they claim to be',
   ADMIN_BLOCK.indexOf('window.__huAdminErrorSink') !== -1 &&
   MEMBER_BLOCK.indexOf('function reportMemberError(') !== -1 &&
   MEMBER_BLOCK.indexOf('function portalCallFailedText(') !== -1 &&
+  MEMBER_BLOCK.indexOf('function portalServerRefusal(') !== -1 &&
   MEMBER_BLOCK.indexOf('function redactTokens(') !== -1,
   'the window found something, but not the whole of what these checks then drive');
 
@@ -183,7 +278,8 @@ function memberHarness(opts) {
   };
   const names = Object.keys(scope);
   const body = MEMBER_BLOCK + '\n' +
-    'return {reportMemberError, redactTokens, portalCallFailedText, quoteAnswerWords,' +
+    'return {reportMemberError, redactTokens, portalCallFailedText, portalServerRefusal,' +
+    ' quoteAnswerWords,' +
     ' memberErrorScreenMatters, sent(){ return memberErrorCount; }};';
   const api = new Function(...names, body)(...names.map(n => scope[n]));
   api.writes = io.writes;
@@ -267,6 +363,61 @@ const folderApi = new Function(ERROR_CONSTS + '\n' + HOME_MAP + '\n' + FOLDER_OF
 const folderOf = folderApi.messageFolderOf;
 const HOME_MAP_OBJ = folderApi.MESSAGE_HOME_FOLDER;
 
+/* ---------------------------------------------------------------------------
+ * 8. The Edit Customer stack instrument names the frame that actually threw.
+ *
+ * Two "Edit Customer save failed" reports reached the folder on 2026-09-09 and named no
+ * fixable thing, so 6f61d8c added the top stack frames to the report. It read them with
+ * `.slice(1, 3)`, which skips V8's "TypeError: ..." header — and WebKit and Firefox write
+ * no header, so on those the line being skipped was the throwing frame itself. One of the
+ * two reports was Safari.
+ *
+ * ⚠ THE REAL FUNCTION, LIFTED, not a restatement of it. A shape check here would pass on
+ * any rewrite that still counts lines instead of recognising them.
+ * ------------------------------------------------------------------------- */
+const TOP_FRAMES_FN = extractFn(admin, 'errorTopFrames');
+const topFrames = new Function(TOP_FRAMES_FN + '; return errorTopFrames;')();
+
+check('the stack instrument was lifted, not described',
+  TOP_FRAMES_FN.indexOf('looksLikeFrame') !== -1,
+  'repoint the lift rather than pasting a copy in here');
+
+/* V8: a header line, then frames indented with "at ". */
+const V8_STACK = [
+  "TypeError: Cannot read properties of null (reading 'indexOf')",
+  '    at saveCustomerEdits (https://highlightingutah.com/admin.html:55200:31)',
+  '    at HTMLButtonElement.<anonymous> (https://highlightingutah.com/admin.html:53773:9)',
+  '    at dispatch (https://highlightingutah.com/admin.html:41000:9)'
+].join('\n');
+
+/* WebKit and Firefox: NO header, so line 0 is already the throwing frame. */
+const WEBKIT_STACK = [
+  'saveCustomerEdits@https://highlightingutah.com/admin.html:55200:31',
+  'asyncFunctionResume@[native code]',
+  'dispatch@https://highlightingutah.com/admin.html:41000:9'
+].join('\n');
+
+check('on Chrome the header is dropped and the throwing frame is first',
+  topFrames({stack: V8_STACK}).indexOf('at saveCustomerEdits') === 0,
+  'a header counted as a frame pushes the real one out of the report');
+
+check('and the Chrome header itself never reaches the report',
+  topFrames({stack: V8_STACK}).indexOf('TypeError:') === -1,
+  'the message is already in the row; repeating it costs one of only two frames');
+
+check('on Safari the throwing frame is kept, not skipped',
+  topFrames({stack: WEBKIT_STACK}).indexOf('saveCustomerEdits@') === 0,
+  'this is the bug: .slice(1, 3) drops line 0, which on WebKit IS the fault');
+
+check('two frames, never more — messages is capped at 5,000 chars on create',
+  topFrames({stack: V8_STACK}).split(' <- ').length === 2 &&
+  topFrames({stack: WEBKIT_STACK}).split(' <- ').length === 2,
+  'a refused write is how this reporter goes silent');
+
+check('an error carrying no stack reports nothing rather than throwing',
+  topFrames({}) === '' && topFrames(null) === '',
+  'this runs inside the catch that is already handling a failure');
+
 check('a member error lands in Member Errors',
   folderOf({ topic: 'Member Error', folder: 'Inbox' }) === 'Member Errors',
   'index.html has no login and cannot read the folder table, so the topic has to be ' +
@@ -323,6 +474,92 @@ console.log('--- the member half ---');
   check('and the customer still gets the apology they always got',
     /call or text us/.test(text),
     'the report is in addition to the apology, never instead of it');
+}
+
+/* ⭐ A REFUSAL THE SERVER WROTE FOR THE MEMBER IS SHOWN, AND IS NOT AN ERROR
+   (2026-09-17, [[MEM-02]]). Addie hit "Could not save that — please call (801) 901-0011."
+   on the Sides tab and had no way to know why, because that handler printed one fixed
+   sentence and threw the reason away. Seven of the nine portal handlers did the same, so a
+   customer who owes money — the case the server writes a whole explanatory sentence for —
+   was told to ring the office, AND no Member Error was ever filed, so nobody here knew it
+   had happened at all.
+   ⚠ RUN, NOT MATCHED. Every claim below is about the string a customer READS and whether a
+   row is written, which is exactly what this file's header says a text check cannot see. */
+{
+  const h = memberHarness();
+  const owed = { code: 'functions/failed-precondition',
+    message: 'There is still a balance owing from the 2025 season. Once that is paid you can make changes here again.' };
+  const text = h.portalCallFailedText(owed, 'account', 'Changing their light colours');
+  check('a refusal the server wrote for the member is shown word for word',
+    text === owed.message,
+    'got: ' + JSON.stringify(text) + ' — the arrears sentence names the next step, and the ' +
+    'apology that replaced it turns a rule doing its job into a phone call');
+  check('and a refusal is NOT filed as a Member Error',
+    h.writes.length === 0,
+    'got ' + h.writes.length + ' write(s) — the arrears hold is the system working, and a ' +
+    'row every time a debtor opens a tab buries the real faults the folder exists for');
+}
+{
+  /* ⚠ THE OTHER DIRECTION IS THE HALF THAT COULD ROT. If `failed-precondition` were read
+     too widely, a developer's message would go out over Addie's name to a customer. */
+  const h = memberHarness();
+  const text = h.portalCallFailedText({ code: 'internal', message: 'TypeError: x is not a function' },
+    'account', 'Changing their light colours');
+  check('any other code keeps the apology and never quotes the error',
+    /call or text us/.test(text) && text.indexOf('TypeError') === -1,
+    'got: ' + JSON.stringify(text));
+  check('and that one IS reported',
+    h.writes.length === 1,
+    'got ' + h.writes.length + ' write(s) — a real fault is the whole point of the folder');
+}
+{
+  /* The helper alone, so a caller added later cannot be what proves the rule. */
+  const h = memberHarness();
+  check('the refusal rule reads the message for that ONE code',
+    h.portalServerRefusal({ code: 'failed-precondition', message: 'Nothing due to charge.' }) === 'Nothing due to charge.' &&
+    h.portalServerRefusal({ code: 'functions/failed-precondition', message: 'That quote has not been approved.' }) === 'That quote has not been approved.' &&
+    h.portalServerRefusal({ code: 'not-found', message: 'Account not found.' }) === '' &&
+    h.portalServerRefusal({ code: 'internal', message: 'boom' }) === '' &&
+    h.portalServerRefusal(new Error('boom')) === '' &&
+    h.portalServerRefusal(null) === '',
+    'both spellings of the code are real — the client prefixes it "functions/", the server does not');
+  check('and a refusal with no message falls back to the apology rather than a blank screen',
+    h.portalCallFailedText({ code: 'failed-precondition' }, 'account', 'Changing their light colours')
+      .indexOf('call or text us') !== -1,
+    'an empty sentence tells the customer nothing at all');
+}
+
+/* ⭐ AND NO PORTAL HANDLER SWALLOWS ITS OWN FAILURE. This is the check that would have
+   answered Addie's question for her, and it is STRUCTURAL and says so: it asserts that
+   every `catch` in the portal's own handlers routes through the one funnel, rather than
+   driving nine click handlers. The funnel itself is RUN above.
+   ⚠ IT SCANS THE HANDLERS, NOT THE FILE. The public quote form, the contact form and the
+   PayPal panes legitimately write their own wording — they are not the member's account
+   and there is no token to report against. */
+{
+  const PORTAL_HANDLERS = between(index, "document.getElementById('lightsSaveBtn')", '</script>',
+    'the portal account handlers');
+  /* A catch that assigns an apology and never calls the funnel is the shape being
+     refused. Comments are stripped first — this repo has been caught four times by a
+     check that found its own explanation and called it code. */
+  const stripped = PORTAL_HANDLERS
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  const catches = stripped.split(/\bcatch\s*\(/).slice(1);
+  const swallowed = catches.filter(function (body) {
+    const upToClose = body.slice(0, body.indexOf('\n  }') === -1 ? body.length : body.indexOf('\n  }'));
+    if (upToClose.indexOf('statusEl.textContent') === -1) return false;
+    return upToClose.indexOf('portalCallFailedText') === -1 &&
+           upToClose.indexOf('reportMemberError') === -1;
+  });
+  check('no portal handler tells the customer it failed without telling the office too',
+    swallowed.length === 0,
+    swallowed.length + ' catch block(s) print an apology and report nothing. That is the ' +
+    'bug this entry is about: the customer gets no reason and the Inbox gets no row.');
+  check('and the funnel is reached from every one of them',
+    (PORTAL_HANDLERS.match(/portalCallFailedText\(err/g) || []).length >= 9,
+    'found ' + (PORTAL_HANDLERS.match(/portalCallFailedText\(err/g) || []).length +
+    ' — lights, sides, info, moved, changes, cancel, contact, quote approve, maybe, decline');
 }
 
 {
@@ -689,6 +926,165 @@ console.log('--- emails that did not go out ---');
 /* ===========================================================================
  * 8. Two structural checks, named as such.
  * ========================================================================= */
+/* ---------------------------------------------------------------------------
+ * 9. An upload that cannot work says so, at every door — and a text that can never
+ *    be sent stops describing a problem that does not exist.
+ *
+ * uploadFailAdvice was written on 2026-09-09 for the Attach button, after the picture
+ * account was switched off and the office was told "Nothing uploaded — try again": an
+ * instruction that could not work at any hour of any day, and that reads as a glitch
+ * worth waiting out rather than a bill somebody has to settle. It was wired into that
+ * one button. Sixteen other places in admin.html upload a picture.
+ * ------------------------------------------------------------------------- */
+const UPLOAD_ADVICE_FN = extractFn(admin, 'uploadFailAdvice');
+const UPLOAD_TEXT_FN = extractFn(admin, 'uploadFailText');
+const uploadFailText = new Function(
+  UPLOAD_ADVICE_FN + NL_ + UPLOAD_TEXT_FN + '; return uploadFailText;')();
+
+check('the upload wording was lifted, not described',
+  UPLOAD_ADVICE_FN.indexOf('disabled') !== -1 && UPLOAD_TEXT_FN.indexOf('uploadFailAdvice(') !== -1,
+  'repoint the lift rather than pasting a copy in here');
+
+/* The exact message Cloudinary returned on 2026-09-09. */
+const DISABLED = 'Cloudinary 401: cloud_name is disabled';
+
+check('a switched-off picture account is named as billing, not as a retry',
+  /billing/i.test(uploadFailText({message: DISABLED})) &&
+  !/try again/i.test(uploadFailText({message: DISABLED})),
+  'telling the office to retry a disabled account is the one instruction that cannot work');
+
+check('and it warns that photographs already on quotes will not show either',
+  /will not show/i.test(uploadFailText({message: DISABLED})),
+  'the account being off is wider than the upload that noticed it');
+
+check("the service's own words are kept, after the advice",
+  uploadFailText({message: DISABLED}).indexOf(DISABLED) >
+  uploadFailText({message: DISABLED}).indexOf('billing'),
+  'the advice is a guess made from the message; the message is the fact');
+
+check('a rate limit is still worth retrying, and says so',
+  /wait a minute/i.test(uploadFailText({message: 'Cloudinary 420: rate limit reached'})),
+  'the advice has to stay different for the cases that really are transient');
+
+check('an upload failure with no reason at all still reads as a sentence',
+  uploadFailText(null).length > 0 && uploadFailText(null).indexOf('()') === -1,
+  'an empty bracket on the end is how a message reads as broken');
+
+/* ⚠ STRUCTURAL, and the same trade as the bulk senders below: driving sixteen upload
+   doors for real needs the whole admin DOM and a Cloudinary stub. The claim is about a
+   call being present, which is the one shape a text check reads honestly.
+   ⚠ THE DECLARATION IS NOT A CALLER, AND IT MATCHED ON THE FIRST RUN. `function
+   real call is `uploadFailText(err)`. Counting the bare name finds the function that
+   explains the rule as well as the code that runs it — the trap Suites 58, 274, 275 and
+   300 each hit from the other direction. */
+const adviceCallers = (admin.split('uploadFailText(err)').length - 1) -
+  (admin.indexOf('function uploadFailText(err){') !== -1 ? 1 : 0);
+check('every upload door that tells the office anything says WHY (structural)',
+  adviceCallers === 7,
+  'expected the extra house photo, the expense receipt, the Gallery, the fix-note photo, ' +
+  'How It Works, Areas We Serve and the Blueprint Maps drawing; found ' + adviceCallers +
+  '. An upload added later without this line says "Upload failed" exactly as all of them used to');
+/* ⚠ 6 → 7 ON 2026-09-16, and the census is what asked. Blueprint Maps is a seventh door
+   a phone photographs a drawing through, and it went in reading the shared advice from the
+   first line rather than inventing an eighth wording for a switched-off picture account.
+   Moving this number is the whole point of the check firing — it is a decision somebody
+   makes, not a total that drifts. */
+
+/* ⛔ THREE CHECKS CAME OUT HERE ON 2026-09-12 ([[QT-41]]), WITH THE CODE THEY COVERED.
+   They guarded the wording of the Twilio authentication failure on the quote card — added
+   2026-09-11 when an account existed, repointed hours later when it turned out it did not.
+   The quote card no longer sends a text at all: there is no Twilio account, so the button
+   copies the message and opens the Google Voice thread instead, and there is no auth error
+   left to word. Section 10 below is what replaced them.
+   ⚠ THIS IS NOT A GAP. A check kept alive over deleted code is the decoration this repo
+   names in four other places — it passes for ever and proves nothing. */
+
+/* ---------------------------------------------------------------------------
+ * 10. The quote text copies and opens, because it cannot send.
+ *
+ * [[QT-41]], Dax 2026-09-12: "we cant use twillo so we need to just set it up so its easy to
+ * copy to bulk text in google voice", then "I want it so when you click the button it copys it
+ * and opens a link so all you need to do is paste where it sends you."
+ * ------------------------------------------------------------------------- */
+const GV_FN = extractFn(admin, 'googleVoiceThreadUrl');
+const GV_ACCOUNT = (admin.match(/const GOOGLE_VOICE_ACCOUNT = '[^']+';/) || [''])[0];
+const gvUrl = new Function(GV_ACCOUNT + ';' + GV_FN + '; return googleVoiceThreadUrl;')();
+
+check('the Google Voice link builder was lifted, not described',
+  GV_FN.indexOf('itemId') !== -1,
+  'repoint the lift rather than pasting a copy in here');
+
+check('a number the office typed by hand still opens the right thread',
+  gvUrl('(801) 555-1234') === gvUrl('8015551234') &&
+  gvUrl('(801) 555-1234') === gvUrl('+1 801 555 1234'),
+  'the book stores phones exactly as somebody typed them — brackets, spaces and dashes are ' +
+  'the normal case, not the exception');
+
+check('and it is E.164, which is the only shape Voice matches a thread on',
+  /itemId=t\.%2B18015551234$/.test(gvUrl('801-555-1234')),
+  'a raw ten-digit number lands on an empty search, which reads as the customer having no ' +
+  'history with us');
+
+check('a number Voice cannot open returns nothing rather than a broken link',
+  gvUrl('801-555-12') === '' && gvUrl('') === '' && gvUrl(null) === '',
+  'the caller renders a plain copy button on \'\' — a link to a page that finds nobody is ' +
+  'worse than no link');
+
+/* ⚠ THE REAL NUMBER THAT CAUGHT msgContactFor, not an invented one. Stripping punctuation
+   alone turns "(801) 555-0999 ext 4" into eleven digits that dial a stranger. */
+check('an extension is refused, not dialled',
+  gvUrl('(801) 555-0999 ext 4') === '',
+  'eleven digits that do not start with a 1 are not a phone number');
+
+/* ⚠ MEASURED, NOT ASSUMED (2026-09-12). Built without authuser and opened for real, Google
+   served addiechichia@gmail.com's Voice — an account with no number, which offers to sell you
+   one. Nothing failed; it opened the wrong inbox quietly. */
+check('the link names the account that actually holds the Voice number',
+  /authuser=service%40highlightingutah.com/.test(gvUrl('8015551234')),
+  'without it Google serves whichever account happens to be the browser default, and the one ' +
+  'the office uses for Voice is not the one admin is usually signed in as');
+
+check('and it is targeted by EMAIL, never by account index',
+  GV_ACCOUNT.indexOf('@') !== -1 && !/authuser=[0-9]/.test(gvUrl('8015551234')),
+  '/u/0/ and authuser=1 are positions in whatever order that browser signed in, so they point ' +
+  'at different people on different machines');
+
+check('the account index is left out of the path',
+  GV_FN.indexOf('/u/0/') === -1 && /voice\.google\.com\/messages/.test(gvUrl('8015551234')),
+  'the office keeps Google Voice on its own profile, so a hard-coded /u/0/ opens somebody ' +
+  'else\'s messages');
+
+/* ⚠ STRUCTURAL, and it is the half a behavioural check cannot see: the link has to be an
+   ANCHOR. A popup opened from script after an await has lost its user gesture and Chrome
+   blocks it silently — the message copies, no tab appears, and the button reads as half
+   working. */
+check('the link is an anchor, never window.open (structural)',
+  /2 · Open Google Voice<\/a>/.test(admin) && admin.indexOf('window.open(voiceUrl') === -1,
+  'a blocked popup is indistinguishable from a button that did nothing');
+
+/* ⛔ THE THREE STEPS ARE IN VOICE'S OWN ORDER, and the order is the whole of the fix.
+   Measured on 2026-09-12: `?itemId=` opens a conversation that ALREADY exists and there is no
+   parameter that starts a new one, so the office lands on the message list and has to pick the
+   recipient themselves. Voice asks for the RECIPIENT first and the MESSAGE second, and a
+   clipboard holds one thing — so one button cannot do both, however it is worded. A later
+   session tempted to merge these back into a single "copy everything" button will produce a
+   flow where the number is pasted into the message box. */
+check('the number is offered before the message, because that is the order Voice asks',
+  admin.indexOf('1 · Copy the number') < admin.indexOf('3 · Copy the message') &&
+  admin.indexOf('1 · Copy the number') !== -1,
+  'pasting in the other order puts a phone number in the message box');
+
+check('and the screen says WHY it is two pastes, not just what order',
+  /Google Voice cannot be /.test(admin) && /straight onto a new message/.test(admin),
+  'numbered buttons show the order and not the reason — and the reason is what stops ' +
+  'somebody hunting for the one-click version that does not exist');
+
+check('and the dead Twilio send is gone with its caller',
+  admin.indexOf('quotetext-send-btn') === -1 &&
+  admin.indexOf("httpsCallable(fbFunctions, 'sendSms')") === -1,
+  'a button that can only ever fail spends the office\'s time and files an error nobody ' +
+  'can act on');
+
 console.log('');
 console.log('--- wiring ---');
 
@@ -755,13 +1151,20 @@ console.log('--- wiring ---');
      the whole lesson of the 392. */
   const named = admin.split('failedRecipients.push(').length - 1;
   const saved = (admin.split('await saveEmailSendFailures(').length - 1);
+  /* ⚠ 11 → 16 ON 2026-09-12, and the five new ones are the point rather than noise.
+     Each sender now asks `emailSendSkipReason` before it spends a request, and files the
+     person with the reason when the answer is no — so an address EmailJS would refuse is
+     named on the failure card instead of coming back as "The recipients address is
+     corrupted", which names nothing and nothing to do. The Errors folder caught that
+     wording twice in two days: "1 of 258 failed", then "1 of 1 failed" the next day,
+     which is the card's own Send again button arriving back at the same address. */
   check('every bulk sender records WHO it failed for, not just how many',
-    named === 11 && saved === 7,
-    'expected 11 pushes — three in the RSVP runner (no email, refused, untried after a ' +
-    'stop) and two in each of the four others — and 7 saves: one per sender, the ' +
-    'whole-RSVP button, and the retry rewriting the list. Found ' + named + ' push(es), ' +
-    saved + ' save(s). A sender that only counts leaves those customers invisible, which ' +
-    'is the whole lesson of the 392');
+    named === 16 && saved === 7,
+    'expected 16 pushes — four in the RSVP runner (no email, an address we cannot send ' +
+    'to, refused, untried after a stop) and three in each of the four others — and 7 ' +
+    'saves: one per sender, the whole-RSVP button, and the retry rewriting the list. ' +
+    'Found ' + named + ' push(es), ' + saved + ' save(s). A sender that only counts ' +
+    'leaves those customers invisible, which is the whole lesson of the 392');
 
   /* ⚠ THE RULE IS IN TWO PLACES AND THAT IS A DELIBERATE, NAMED COST. The RSVP runner
      keeps its own inline copy because it was already shipped and working, and Addie's
@@ -1001,6 +1404,45 @@ console.log('--- wiring ---');
  * The async folder checks have to finish before the summary, or a failure scores
  * after the total is printed and can never fail the build.
  * ------------------------------------------------------------------------- */
+/* ⭐ ALL OF THEM, NOT THE LAST HANDFUL ([[MSG-26]], 2026-09-12). Addie, choosing between
+   two designs: "Inbox gets deleted and badge stays with ALL error messages underneath it."
+   ⛔ THE TWO CAPS HAVE TO AGREE OR THE SECOND ONE SILENTLY WINS, and that is the whole
+   reason this is checked at all rather than left to the constants. The module hands over at
+   most ERR_BADGE_MAX_STORED lines; the plain-script seeder at the top of the page then takes
+   them only `while(caught.length < N)`. Raise one and leave the other and the panel drops the
+   oldest rows without a word — which reads exactly like the errors never having been kept,
+   the thing the folder removal was supposed to be safe because of.
+   ⚠ A RED-CHECK IS WHAT SAID THIS WAS MISSING. Reverting the cap to 25 passed every other
+   check in the repo, because nothing anywhere asserted the half she asked for by name. */
+{
+  const m = /const ERR_BADGE_MAX_STORED = (\d+)/.exec(admin);
+  const stored = m ? Number(m[1]) : 0;
+  check('the badge is handed more than a screenful of stored errors',
+    stored >= 100,
+    'the Inbox folders held the whole history; with those gone a small cap makes the ' +
+    'oldest errors unreachable, which is a loss she did not ask for');
+
+  /* ⚠ SCOPED TO THE SEEDER, not the file. `caught.length < 40` appears TWICE — the other is
+     the runaway guard inside add(), which is about a page failing in a loop right now and is
+     deliberately still small. A file-wide match would read that one and pass. */
+  const at = admin.indexOf('window.__huErrCatchSeed = function(lines){');
+  const body = at === -1 ? '' : admin.slice(at, admin.indexOf('\n  };', at));
+  const sm = /caught\.length < (\d+)/.exec(body);
+  const ceiling = sm ? Number(sm[1]) : 0;
+  check('and the seeder ceiling clears that hand-over',
+    at !== -1 && ceiling > stored,
+    'seeder ceiling ' + ceiling + ' vs hand-over ' + stored +
+    ' — the lower of the two is what actually decides, silently');
+
+  /* ⚠ AND THE RUNAWAY GUARD IS UNCHANGED, asserted so raising the ceiling above never
+     quietly raises this one too: a page erroring in a loop must still stop filling memory. */
+  const addAt = admin.indexOf('  function add(text){');
+  const addBody = addAt === -1 ? '' : admin.slice(addAt, admin.indexOf('\n  }', addAt));
+  check('while the runaway guard inside add() stays small',
+    /caught\.length >= 40/.test(addBody),
+    'that one is about a page failing right now, not about a season of history');
+}
+
 seedChecks.then(() => {
   console.log('');
   console.log('=== When something goes wrong, somebody is told ===');

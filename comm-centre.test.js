@@ -63,7 +63,9 @@ const commSectionsSrc = () => liftConst('RSVP_DECLINE_REASONS') + liftConst('COM
    the array alone dies on a bare ReferenceError and takes the whole file with it.
    ⚠ DECLARED FIRST, or the array references them before they exist — main's own note, and
    it applies to all three. Lifted, never stubbed. */
-const NAMES = ['FIX_NOTICE_TOPIC','RSVP_NO_TOPIC','RSVP_BNY_TOPIC','MSG_TYPE_MEMBER','SYSTEM_NOTICE_TOPICS','MSG_CATEGORIES','MSG_TOPIC_CATEGORIES',
+/* ⚠ AND A FOURTH ARRIVED WITH [[WH-40]]: WIRE_PICK_TOPIC leads SYSTEM_NOTICE_TOPICS.
+   Same trap, fourth time — lifted, never stubbed, and declared before the table. */
+const NAMES = ['WIRE_PICK_TOPIC','FIX_NOTICE_TOPIC','RSVP_NO_TOPIC','RSVP_BNY_TOPIC','MSG_TYPE_MEMBER','SYSTEM_NOTICE_TOPICS','MSG_CATEGORIES','MSG_TOPIC_CATEGORIES',
   'MSG_TEXT_CATEGORIES','MSG_STATUS','MSG_STATUS_LABEL','MSG_PRIORITY','MSG_PRIORITY_LABEL',
   'MSG_SEVERITY_LABEL','COMM_ACTIVITY_TOPICS'];
 /* ⚠ commRowMatches CALLS BOTH OF THESE NOW ([[MSG-15]]) — lifted, never stubbed. A stub for
@@ -174,10 +176,26 @@ check('the Inbox keeps system notices out unless All is asked for',
   sb.matches(notice, 'inbox', 'all') === false &&
   sb.matches(memberQ, 'inbox', 'all') === true,
   '"System messages should generally not appear mixed into the main member list"');
+/* ⚠ REPOINTED, NOT WEAKENED ([[MSG-26]]). Urgent was proved with `payErr` — an ERROR — and
+   errors no longer appear in the Inbox at all, so that fixture failed on correct code the
+   moment the section went. The CLAIM is unchanged: the Urgent tab holds what is urgent. It is
+   proved with an urgent MEMBER message now, which is what that tab is for, and the error's
+   own exclusion is asserted on its own below rather than folded in here. */
 check('Unread, Needs Reply and Urgent each hold what they say',
   sb.matches({topic:'General Question', read:false, message:'x'}, 'inbox', 'unread') === true &&
   sb.matches(memberQ, 'inbox', 'needs_reply') === true &&
-  sb.matches(payErr, 'inbox', 'urgent') === true);
+  sb.matches({topic:'Report an Issue', read:false, priority:'urgent',
+              message:'no lights on the whole street'}, 'inbox', 'urgent') === true);
+/* ⛔ AND AN ERROR IS NOT IN THE INBOX AT ALL ([[MSG-26]]). Addie: "get rid of error inbox's
+   altogether ... just have all emails go to the red errors badge instead."
+   ⚠ EVERY TAB, NOT JUST All. An error is not `filedByHand` and is not a SYSTEM notice, so the
+   tab branches would each have gone on matching it — and the tiles above the list count
+   through the same rule, so one missed tab is a number that still cannot come down. */
+['all','unread','needs_reply','urgent'].forEach(function(tab){
+  check('an error stays out of the Inbox — ' + tab,
+    sb.matches(payErr, 'inbox', tab) === false,
+    'she asked for errors to leave the Inbox; the badge holds them now');
+});
 check('System Errors → Critical holds only critical ones',
   sb.matches(payErr, 'errors', 'critical') === true &&
   sb.matches({topic:'Admin Error', read:false, message:'a template was empty'}, 'errors', 'critical') === false);
@@ -265,12 +283,13 @@ const CONTACT_SRC =
   /* ⚠ ALL THREE COMPUTED TOPICS FIRST — SYSTEM_NOTICE_TOPICS references them ([[FIX-02]],
      [[RS-59]]), so lifting that table without them dies on a bare ReferenceError while it
      is being built. Same trap as above, and two branches hit it in the same week. */
+  liftConst('WIRE_PICK_TOPIC') +
   liftConst('FIX_NOTICE_TOPIC') + liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
   liftConst('MSG_TYPE_MEMBER') + liftConst('SYSTEM_NOTICE_TOPICS') +
   liftFn('esc') + liftFn('fmtPhone') + liftFn('msgTypeOf') +
   liftFn('msgErrorTokenTail') + liftFn('msgErrorWhoIs') +
   liftFn('msgContactCustomer') + liftFn('msgContactFor') +
-  liftFn('msgContactPreference') + liftFn('msgContactLineHtml');
+  liftFn('msgContactPreference') + liftFn('msgStaffSignedInAs') + liftFn('msgContactLineHtml');
 const cb = {};
 new Function('MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'jobAddresses',
   CONTACT_SRC + 'this.line = msgContactLineHtml; this.contact = msgContactFor;')
@@ -546,6 +565,70 @@ const SOLO  = {id:'c3', data:{name:'Ada Frost',  phone:'8015550999',     email:'
   check('the search box reaches the contact the row actually shows',
     /msgContactFor\(d\)/.test(searchBlock) && !/String\(d\.phone\|\|''\)\.replace/.test(searchBlock),
     'a number printed on screen that the search cannot match is worse than one never shown');
+}
+
+/* 12 — ⭐ WHO HIT AN ADMIN ERROR (2026-09-11). Addie, shown two of these rows: "can you
+   update this?" Both read "No phone or email on this message, and no record matches it".
+   ⚠ THAT SENTENCE DESCRIBES A SEARCH FOR A CUSTOMER WHO WAS NEVER INVOLVED. The office's
+   own browser raises these and `reportAdminError` hardcodes name/phone/email empty, so the
+   no-contact branch was the only one they could ever reach — and the heading above is blank
+   too (`msgErrorWhoLabel` returns '' with no portal link to match), so the row named nobody
+   while the address sat in its own body two lines down.
+   ⚠ THESE RUN THE RENDERER rather than matching its source, because every claim here is
+   about A LINE ON A ROW — the failure this repo has shipped three times is a message that
+   is in the file and can never reach the screen. */
+{
+  /* ⚠ THE FIXTURES ARE HER TWO ACTUAL ROWS, not invented ones. A fix that cannot reach the
+     case that prompted it is not finished, and these are old rows carrying the address only
+     as prose — exactly what the body fallback exists for. */
+  const TWILIO = {topic:'Admin Error', name:'', phone:'', email:'', message:
+    'Something went wrong on the admin page.\n\nQuote text send failed: Twilio send failed: ' +
+    'Authentication Error - invalid username\n\nWhere: (the dashboard)\n' +
+    'Signed in as: addiechichia@gmail.com\nBrowser: Mozilla/5.0'};
+  const sent = withBook([]).line(TWILIO);
+  check('an admin error names who was signed in',
+    /addiechichia@gmail\.com/.test(sent), sent);
+  check('and it no longer claims a customer record failed to match',
+    sent.indexOf('no record matches it') === -1, sent);
+
+  /* ⚠ "nobody" IS A REAL ANSWER AND MUST SURVIVE AS ONE. reportAdminError writes that word
+     when there is no signed-in user, and such a row is the signature of a timer still
+     running after a sign-out — the fault `whileSignedIn` was added for. Flattened to "we do
+     not know", the row stops being evidence of the thing it is evidence of. */
+  const none = withBook([]).line({topic:'Admin Error', name:'', phone:'', email:'',
+    message:'Something went wrong.\n\nWhere: (the dashboard)\nSigned in as: nobody'});
+  check('a signed-out row says so plainly, rather than being flattened away',
+    /Nobody was signed in/.test(none), none);
+
+  /* ⚠ THE FIELD MUST WIN OVER THE BODY, or a reworded body silently changes who a row
+     blames. The fixture deliberately disagrees with itself. */
+  const both = withBook([]).line({topic:'Admin Error', staffEmail:'dad@example.com',
+    name:'', phone:'', email:'', message:'x\nSigned in as: stale@old.example'});
+  check('the stored field beats the prose in the body',
+    /dad@example\.com/.test(both) && both.indexOf('stale@old.example') === -1, both);
+
+  /* ⚠ AND NOTHING IS BETTER THAN THE OLD SENTENCE. An admin error with no signed-in line at
+     all must not fall through to the customer branch it could never satisfy. */
+  const bare = withBook([]).line({topic:'Admin Error', name:'', phone:'', email:'',
+    message:'Something went wrong.'});
+  check('an admin error with nothing to say shows nothing, not a failed lookup',
+    bare === '', bare);
+
+  /* ⛔ THE HALF THIS MUST NOT TAKE WITH IT. A MEMBER error is a real customer hitting a real
+     failure, and ringing them is the entire point of [[MSG-14]]. A sabotage widening the
+     admin branch to every error topic is caught here and nowhere else. */
+  const mem = withBook([SOLO]).line({topic:'Member Error', name:'Ada Frost',
+    phone:'8015550999', email:'ada@example.com', message:'portal failed'});
+  check('a MEMBER error still shows the customer contact',
+    /8015550999|801\) 555-0999/.test(mem) && /ada@example\.com/.test(mem), mem);
+
+  /* ⚠ AND THE ADDRESS IS ESCAPED. It comes out of a message body, and `messages` is
+     PUBLICLY creatable — so this string is attacker-reachable, unlike a staff email typed
+     into a form. */
+  const evil = withBook([]).line({topic:'Admin Error', name:'', phone:'', email:'',
+    message:'x\nSigned in as: a"b<script>@example.com'});
+  check('an address out of the body cannot inject markup',
+    evil.indexOf('<script>') === -1 && /a&quot;b/.test(evil), evil);
 }
 
 /* =============================================================================
@@ -931,7 +1014,8 @@ if(!JSDOM){
   const win = dom.window, docu = win.document;
   const ED = liftConst('MSG_TYPE_MEMBER') + liftConst('MSG_CATEGORIES') + liftConst('MSG_STATUS') +
     liftConst('MSG_STATUS_LABEL') + liftConst('MSG_PRIORITY') + liftConst('MSG_PRIORITY_LABEL') +
-    liftConst('FIX_NOTICE_TOPIC') + liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
+    liftConst('WIRE_PICK_TOPIC') +
+  liftConst('FIX_NOTICE_TOPIC') + liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
     liftConst('SYSTEM_NOTICE_TOPICS') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
     liftFn('esc') + liftFn('msgTypeOf') + liftFn('msgCategories') + liftFn('msgStatusOf') +
     liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
@@ -1050,7 +1134,8 @@ if(!JSDOM){
 if(JSDOM){
   const dom2 = new JSDOM('<!doctype html><body><div id="commCentreNav"></div></body>');
   const d2 = dom2.window.document;
-  const NAV = liftConst('FIX_NOTICE_TOPIC') + liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
+  const NAV = liftConst('WIRE_PICK_TOPIC') +
+    liftConst('FIX_NOTICE_TOPIC') + liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
     liftConst('MSG_TYPE_MEMBER') + liftConst('SYSTEM_NOTICE_TOPICS') +
     liftConst('MSG_CATEGORIES') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
     liftConst('MSG_STATUS') + liftConst('MSG_STATUS_LABEL') + liftConst('MSG_PRIORITY') +
@@ -1182,7 +1267,8 @@ if(JSDOM){
        constant to SYSTEM_NOTICE_TOPICS on a branch that had never heard of this sandbox.
        Neither side was wrong and neither side could have caught it — the file only dies
        once both exist, which is the argument for merging rather than pasting. */
-    liftConst('FIX_NOTICE_TOPIC') + liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
+    liftConst('WIRE_PICK_TOPIC') +
+  liftConst('FIX_NOTICE_TOPIC') + liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
     liftConst('SYSTEM_NOTICE_TOPICS') + liftConst('MSG_TOPIC_CATEGORIES') + liftConst('MSG_TEXT_CATEGORIES') +
     liftConst('ERROR_FOLDER_MEMBER') + liftConst('ERROR_FOLDER_ADMIN') +
     liftConst('MESSAGE_HOME_FOLDER') + commSectionsSrc() +
@@ -1228,6 +1314,284 @@ if(JSDOM){
         'mB was never filed anywhere; touching it would be rewriting somebody else\'s row');
     }));
   }
+}
+
+
+/* =========================================================================
+   ⭐ EVERY MESSAGE THE BADGE COUNTS CAN BE REACHED ([[MSG-22]], 2026-09-11)
+
+   Addie: "inbox it shows the number notification. But that should go away when we mark
+   responded." Mark Responded was working — it sets `read` as well, and has since 2026-08-25.
+   What it could not clear was a number made of rows the list REFUSED TO DRAW.
+
+   ⛔ ONE LEFTOVER LINE IN renderMessagesList dropped every message whose folder is System,
+   AFTER commRows had already picked the section. So the System Messages section — five tabs
+   of its own — could never show a row, and the nav badge counted unread non-routine System
+   notices she had no way to open. A survival from the folder-shaped Inbox, where System was
+   a folder to hide from "Inbox"; the Comm Centre gave it a section and a type and nobody
+   removed the old hide.
+
+   ⭐ THE CHECK IS THE INVARIANT, NOT THE LINE. Asserting "no folder filter in that function"
+   pins the bug that happened and nothing else; a second way to hide a row would walk straight
+   past it. What must be true is that ANYTHING THE BADGE COUNTS LANDS IN SOME SECTION — so it
+   RUNS the badge rule and the section rule over the same fixtures and looks for a row that
+   is counted and homeless. That would have caught this, and catches the next shape too.
+   ========================================================================= */
+console.log('');
+console.log('--- a counted message is a reachable message ---');
+{
+  /* The badge's own rule, lifted rather than restated: every unread message except the
+     routine route-sweep notice. A copy here would agree with itself and prove nothing. */
+  /* ⚠ THE REAL BADGE RULE, LIFTED ([[MSG-26]]). This used to hand-roll
+     `!d.read && !routine(d)` here, which was the badge's rule at the time — so when the rule
+     gained a clause the suite went on testing the OLD one and the invariant below quietly
+     stopped describing the screen. It runs `msgOnInboxBadge` itself now, which is why that
+     is its own function in admin.html rather than an expression inline at the badge. */
+  /* ⚠ BUILT THE SAME WAY `sb` IS, PARAMETERS AND ALL. `msgOnInboxBadge` asks `msgFacets`,
+     which needs the whole SRC preamble — and SRC's own `MESSAGE_HOME_FOLDER` reads
+     MEMBER_ERROR_TOPIC/ADMIN_ERROR_TOPIC, which arrive as arguments rather than lifts. The
+     first version prepended SRC alone and died on a bare `MEMBER_ERROR_TOPIC is not
+     defined`: the extraction-list trap, one level down, exactly as CLAUDE.md describes. */
+  const badgeSb = {};
+  new Function('MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'commSections',
+    'let __cs = commSections;' + SRC.replace(/\bcommSections\b(?!\s*[,)])/g, '__cs') +
+    liftConst('ROUTINE_NOTICE_TOPIC') + liftFn('noticeIsRoutine') +
+    liftFn('msgOnInboxBadge') + 'this.onBadge = msgOnInboxBadge;')
+    .call(badgeSb, 'Member Error', 'Admin Error', {custom: [], hidden: [], builtIn: {}});
+
+  const SECTIONS = new Function(commSectionsSrc() + 'return COMM_SECTIONS;')()
+    .map(function(x){ return x.key; });
+  const counted = function(d){ return badgeSb.onBadge(d); };
+  const reachable = function(d){
+    return SECTIONS.some(function(k){ return sb.matches(d, k, 'all'); });
+  };
+
+  const rows = [
+    ['a plain member question', {topic:'General Question', read:false, folder:'Inbox',
+      name:'A', message:'when are you coming?'}],
+    /* ⛔ THE ROW THAT WAS THE BUG. A System notice carrying the warning sign is not routine,
+       so the badge counts it — and before this fix the list could not draw it in ANY
+       section, so the number it added could never come back down. */
+    ['a System notice that is not the routine sweep', {topic:'Routes Kept Up To Date',
+      read:false, folder:'System', message:'\u26A0 29 moved, nobody has been told'}],
+    ['a scheduling System notice', {topic:'Moved To Another Day', read:false, folder:'System',
+      message:'moved from Tuesday to Wednesday'}],
+  ];
+  /* ⛔ THE TWO ERROR ROWS LEFT THIS LIST ([[MSG-26]]) AND THAT IS THE CHANGE, NOT A GAP.
+     They used to be here proving the Inbox badge counted them AND some section drew them —
+     both true, and both deliberately no longer true: she asked for errors to leave the Inbox
+     entirely. Deleting them outright would have retired the coverage with the design, so the
+     opposite claim is asserted below instead: off the Inbox badge, and still classified as
+     errors so the red badge and the Dashboard's System Health can find them.
+     ⚠ THE INVARIANT ITSELF IS UNTOUCHED and is what made this change safe to make — it went
+     red the moment the section was removed, because the badge was still counting rows nothing
+     could draw. That is exactly the number-that-cannot-come-down bug it was written for. */
+  const ERRS = [
+    ['a member error', {topic:'Member Error', read:false, folder:'Errors/Member Errors',
+      message:'the RSVP link failed'}],
+    ['an admin error', {topic:'Admin Error', read:false, folder:'Errors/Admin Errors',
+      message:'something threw'}]
+  ];
+  ERRS.forEach(function(pair){
+    check('the Inbox badge does NOT count ' + pair[0],
+      !counted(pair[1]),
+      'no section draws an error now, so counting one is a number that can never come down');
+    check('and ' + pair[0] + ' is still classified as an error, so the red badge finds it',
+      sb.matches(pair[1], 'errors', 'all') === true,
+      'the badge and the Dashboard health both read this rule — losing it loses the errors');
+  });
+  /* ⚠ EACH ROW STATES WHETHER IT SHOULD BE COUNTED, and that is not decoration. The first
+     version read `if(!counted(d)) return;` — so a sabotage that stopped the badge counting
+     these rows made every check SKIP rather than fail, and the red-check reported it as a
+     miss. A check that can quietly opt itself out is not a check. */
+  rows.forEach(function(pair){
+    const label = pair[0], d = pair[1];
+    check('the badge counts ' + label,
+      counted(d),
+      'it is unread and it is not the routine sweep, so it is on the number she is looking at');
+    check('and some section shows ' + label,
+      reachable(d),
+      'the nav badge counts it and no section in COMM_SECTIONS matches it — that number ' +
+      'can never come down, however many messages she marks responded');
+  });
+
+  /* ⚠ AND THE ROUTINE SWEEP NOTICE IS STILL NOT COUNTED, which is the other half: the
+     exclusion this badge already had is what stopped it reading 91 while the list held a
+     fraction of that. A fix that made everything reachable by also counting everything
+     would put that straight back. */
+  check('and the routine route-sweep notice is still left out of the count',
+    !counted({topic:'Routes Kept Up To Date', read:false, folder:'System',
+              message:'29 moved, 29 taken off'}),
+    'it fires every fifteen minutes — counting it is how the number became noise');
+
+  /* ⛔ AND THE SECTION IS NOT MERELY MATCHED, IT HOLDS THEM. commRowMatches answering true
+     is worth nothing if the renderer then drops the row, which is exactly what happened for
+     three days. This asserts the System section is a real, populated view. */
+  const sysRows = rows.map(function(p){ return p[1]; })
+    .filter(function(d){ return sb.matches(d, 'system', 'all'); });
+  check('the System Messages section is a populated view, not an empty one',
+    sysRows.length >= 2,
+    'it has five tabs and could not show a single row — the list filtered its own section out');
+
+  /* ⛔ AND THE RENDERER HAS TO OBEY THAT, WHICH IS A SEPARATE CLAIM AND SAYS SO. Everything
+     above drives commRowMatches from this harness, so it is all still green while
+     renderMessagesList throws the rows away on the next line — which is precisely what
+     happened here for three days, and the shape this repo has shipped twice before (the
+     house-tab strip, the recycle "bin says" box). This one is STRUCTURAL rather than
+     behavioural and that is not pretended otherwise: the renderer wants a DOM, and what
+     can be pinned without one is that nothing between picking the section and drawing it
+     re-decides membership by FOLDER. Search, unread, important and awaiting are the only
+     narrowing allowed there — they are the toolbar, and she set them herself. */
+  {
+    const fnStart = admin.indexOf('function renderMessagesList(');
+    const body = fnStart === -1 ? '' : admin.slice(fnStart, admin.indexOf('if(!filtered.length)', fnStart));
+    const stripped = body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    /* ⚠ IT WALKS EACH FILTER'S OWN BRACKETS. The first version matched
+       `filtered.filter(` followed by `folder` with no `)` between — which the arrow form
+       satisfies and the `function(m){ ... }` form does NOT, because the `)` closing the
+       parameter list arrives first. A red-check put the same rule back in the other shape
+       and sailed straight through. Two spellings of one mistake is one mistake. */
+    const filterBodies = (function(){
+      const out = [];
+      let at = 0;
+      for(;;){
+        const i = stripped.indexOf('filtered.filter(', at);
+        if(i === -1) return out;
+        let depth = 0, j = i + 'filtered.filter'.length;
+        for(; j < stripped.length; j++){
+          const ch = stripped[j];
+          if(ch === '(') depth++;
+          else if(ch === ')'){ depth--; if(depth <= 0) break; }
+        }
+        out.push(stripped.slice(i, j + 1));
+        at = j + 1;
+      }
+    })();
+    check('and nothing re-decides membership by folder after the section is picked',
+      !!body && !filterBodies.some(function(f){ return f.indexOf('folder') !== -1; }),
+      'commRowMatches is the one rule that decides the list and every tab count; a second ' +
+      'opinion on top of it is how the System section showed nothing while its badge counted' +
+      (filterBodies.length ? ' — found: ' + filterBodies.filter(function(f){ return f.indexOf('folder') !== -1; }).join(' | ') : ''));
+    /* ⚠ COMMENTS STRIPPED FIRST — the paragraph above the fix NAMES the filter it removed,
+       and a plain search reads the explanation as the code. Suites 58, 274, 275 and 300 each
+       had to learn this, and the reliability suite in this very file learned it again. */
+    check('and that check reads the code rather than the note explaining it',
+      stripped.indexOf('folder-shaped Inbox') === -1,
+      'the comment recording the removal mentions the filter by name; unstripped, this ' +
+      'check would fail on the very file that fixed it');
+  }
+}
+
+
+/* =========================================================================
+   ⛔ NO CONTROL IN HERE IS HOVER-ONLY ([[MSG-23]], 2026-09-11)
+
+   Addie: "not able to add to each section and delete from each section." Both buttons were
+   there the whole time — `✎` to rename a section or add a folder to it, `✕` to hide one —
+   sitting at `opacity:0` and lifted only by `.comm-sec-row:hover`. SHE WORKS ON A TABLET.
+   There is no hover on a tablet, so there was no way to reveal either, ever.
+
+   ⚠ THE THIRD TIME THIS SHAPE HAS SHIPPED HERE, which is why it is a gate and not just a
+   fix: the Inbox drag was mouse-only ([[MSG-05]] — "we still cannot move things around"),
+   and the Schedule's reschedule control was hidden behind a tick box. Each had a tidy
+   reason; each was invisible to the one person who needed it.
+
+   ⚠ IT READS THE STYLESHEET, WITH COMMENTS STRIPPED — the note recording this fix quotes
+   `opacity:0` by name, so unstripped the check would fail on the very file that fixed it.
+   Suites 58, 274, 275 and 300 each learned that; so did the leak check in this file.
+   ========================================================================= */
+console.log('');
+console.log('--- nothing here hides until you hover ---');
+{
+  const css = admin.replace(/\/\*[\s\S]*?\*\//g, '');
+  /* Every rule whose selector names a comm-* class. Split on '}' rather than parsed: these
+     are flat rules with no nesting, and a CSS parser here would be a dependency to keep in
+     step for no extra truth. */
+  const rules = css.split('}').filter(function(r){ return /\.comm-[a-z-]+/.test(r); });
+  /* ⚠ THE SELECTOR IS WHAT SITS BEFORE THE `{`, not the last line of the chunk. The first
+     version took `slice(lastIndexOf('\n') + 1)` — which on a rule written over two lines is
+     the DECLARATIONS, never the selector — so it matched nothing and a red-check putting
+     `opacity:0` straight back sailed through. A check that cannot fail is not a check. */
+  const hidden = rules.filter(function(r){
+    const sel = r.slice(0, r.indexOf('{') === -1 ? r.length : r.indexOf('{'));
+    return /opacity\s*:\s*0\s*[;}]/.test(r) && /\.comm-/.test(sel);
+  });
+  check('no Communication Centre control starts invisible',
+    hidden.length === 0,
+    'a control at opacity:0 that only a :hover can lift does not exist on a tablet, and ' +
+    'that is what she uses — found: ' + hidden.map(function(r){ return r.trim().slice(0, 90); }).join(' | '));
+
+  /* ⛔ AND THE TWO SHE NAMED ARE RENDERED AT ALL. The rule above would stay green if
+     somebody deleted the buttons outright, which is the opposite failure and just as
+     silent — she still could not add or delete a section. */
+  check('and the section rename/add-a-folder control is drawn',
+    /data-commedit=/.test(admin),
+    'her words: "not able to add to each section"');
+  check('and the hide-a-section control is drawn',
+    /data-commhide=/.test(admin),
+    'her words: "and delete from each section"');
+  /* ⚠ DRAWN IS NOT WIRED. A rendered button with no listener looks identical to a working
+     one — this repo shipped exactly that with the recycle "bin says" box. */
+  check('and both are actually listened to',
+    /\[data-commedit\]/.test(admin) && /\[data-commhide\]/.test(admin),
+    'a button with no handler is indistinguishable from one that works, until it is pressed');
+}
+
+/* ⭐ WHEN NOTHING IS REACHING THE GMAIL, THE INBOX SAYS SO ([[MSG-25]], 2026-09-12).
+   Addie: "Also my message when to admin portal not gmail."
+   ⚠ EVERY CLAIM HERE IS A LINE ON A SCREEN, so the rule is RUN rather than matched — a
+   regex over the source passes on a note that is built and never drawn, which is the
+   failure this repo has shipped three times. */
+{
+  const html = new Function(liftFn('msgAlertOffNoteHtml') +
+    'return msgAlertOffNoteHtml;')();
+
+  /* ⚠ null IS "WE HAVE NOT READ THE SETTINGS", not "the alerts are off". hcNotifyCfg is
+     null before the read lands AND when it fails, and accusing on either is a false alarm
+     on the one line that must not cry wolf. cnFreePool's three-answer rule. */
+  check('settings we have not read yet accuse nobody',
+    html(null) === '',
+    'a note drawn while the read is still in flight is a false alarm every single login');
+
+  check('a complete setup says nothing at all',
+    html({serviceId:'service_x', notifyTemplateId:'template_x', publicKey:'pk_x'}) === '',
+    'a banner that is always there is one nobody reads');
+
+  /* ⚠ IT NAMES THE BLANK BOX. "EmailJS is misconfigured" sends somebody to compare six
+     fields; the Health Check row it borrows this from makes the same argument. */
+  const only = html({serviceId:'service_x', notifyTemplateId:'', publicKey:'pk_x'});
+  check('a blank notify template is named, and it alone',
+    only.indexOf('Message Notification Template ID') !== -1 &&
+    only.indexOf('EmailJS Service ID') === -1 &&
+    only.indexOf('EmailJS Public Key') === -1,
+    'this is the box she had just filled in on emailjs.com and never pasted here');
+
+  check('and it says where to go',
+    /Automation Emails/.test(only),
+    'a fault with no next step sends somebody hunting for a bug in working code');
+
+  /* ⚠ AND IT MUST NOT READ AS THE MESSAGE BEING LOST. The Inbox write is unconditional and
+     separate; only the nudge fails. Saying otherwise would start a hunt for missing
+     customer messages that are all present. */
+  check('it says the messages themselves still arrived',
+    /still arrive in this Inbox/.test(only),
+    'the message saved fine — it is the heads-up email that did not go');
+
+  const all = html({});
+  ['EmailJS Service ID','Message Notification Template ID','EmailJS Public Key']
+    .forEach(function(box){
+      check('an empty settings document names ' + box,
+        all.indexOf(box) !== -1,
+        'one blank box named and two missed is the same silence in a smaller size');
+    });
+
+  /* ⚠ DRAWN IS NOT WIRED — the recycle "bin says" box rendered perfectly and saved
+     nothing. Asserted separately from the rule, because this suite calls the renderer from
+     its own harness and would stay green with the call deleted from the real page. */
+  check('the Inbox actually draws it',
+    /msgAlertOffNoteHtml\(hcNotifyCfg\)/.test(admin) &&
+    /id="msgAlertOffNote"/.test(admin),
+    'a note nothing calls is indistinguishable on screen from no note');
 }
 
 

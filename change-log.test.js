@@ -305,7 +305,14 @@ if (describe) {
  * ------------------------------------------------------------------------- */
 if (H) {
   const iDiff = H.indexOf('describeCustomerChanges(item.data, addrUpdates)');
-  const iWrite = H.indexOf("updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates)");
+  /* ⚠ REPOINTED, NOT WEAKENED (2026-09-12). This was anchored on the literal
+     `editCustomerId` — on which VARIABLE happened to name the customer, not on the
+     write itself. The save now captures the id before its first await (the module
+     variable moves underneath it when Cancel or a house tab is pressed mid-save), so
+     the name changed and these two ordering checks failed on code that is right.
+     The claim was always about WHERE the customer write sits, so that is what it
+     matches now. Same slow-fuse shape as S82, S129 and the folder-names suite. */
+  const iWrite = H.indexOf("updateDoc(doc(db,'jobAddresses', ");
   const iLog = H.indexOf('customerChangeSentence(');
   check('the save handler takes the diff', iDiff > -1,
     'without this call nothing is ever logged and the whole gate above proves nothing');
@@ -429,6 +436,14 @@ if (H) {
     liftServer('PORTAL_CHANGE_LABELS', 'obj'),
     liftServer('PORTAL_CHANGE_EMPTY_TEXTS', 'arr'),
     liftServer('portalChangeValueText', 'fn'),
+    /* ⚠ LIFTED, NEVER STUBBED (added 2026-09-16, [[EM-18]]). describePortalChanges was
+       split in two so the member's auto-reply could ask the identical "did this field
+       change" question — and this sandbox died on a bare ReferenceError the moment it did,
+       which is the extraction-list trap working as intended. A stub here would keep the
+       suite green while the office history and the customer's confirmation email quietly
+       started disagreeing about what changed, which is the one thing the split exists to
+       prevent. */
+    liftServer('portalChangedFieldNames', 'fn'),
     liftServer('describePortalChanges', 'fn'),
     liftServer('portalChangeSentence', 'fn'),
     /* ⚠ MATCHED AS A NUMBER, NOT LIFTED. lift walks to the next brace, and the next brace
@@ -441,7 +456,8 @@ if (H) {
     sParts.every(Boolean),
     'a gate that cannot find its target must never report green. Missing: ' +
     ['PORTAL_CHANGE_LABELS', 'PORTAL_CHANGE_EMPTY_TEXTS', 'portalChangeValueText',
-     'describePortalChanges', 'portalChangeSentence', 'PORTAL_CHANGE_MAX_FIELDS']
+     'portalChangedFieldNames', 'describePortalChanges', 'portalChangeSentence',
+     'PORTAL_CHANGE_MAX_FIELDS']
       .filter((n, i) => !sParts[i]).join(', '));
 
   let sLabels = {}, sDescribe = null, sSentence = null;

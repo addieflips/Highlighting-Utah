@@ -2025,7 +2025,18 @@ red-checked, ten caught.
 
 **Resulting map change.** PR-07.
 
-## Q-029 · intent · OPEN · raised 2026-09-08
+## Q-029 · intent · ANSWERED · raised 2026-09-08
+
+**ANSWERED 2026-09-12 — option 1, roll it forward.** Addie: *"For someone who
+doesn't book for this year but refered someone should have that referal discount added
+for next year."*
+
+Built DERIVED rather than as a migration, which answers the sub-question this entry
+raised ("what happens if they come back to Yes afterwards") for free: the stamp is left
+exactly as it was earned and only the season it COMES OFF is decided, so coming back
+needs no second write and there is nothing a half-run migration could lose.
+
+**Resulting map change: [[REF-38]].**
 
 **A referral earned while they were in the season, by somebody who then drops out.**
 
@@ -2064,7 +2075,17 @@ this case has been built; today's change is the earn-time rule only.
 
 **Resulting map change.** Named in REF-23 as the case it deliberately leaves open.
 
-## Q-030 · intent · OPEN · raised 2026-09-08
+## Q-030 · intent · ANSWERED · raised 2026-09-08
+
+**ANSWERED 2026-09-12 — option 1, onto the bill they are actually on.** Addie: *"It
+should follow the money to the payer."* She took the named cost knowingly: the bill that
+drops by $25 is the payer's, not the referrer's.
+
+Building it surfaced a second fault this entry had not seen — the credit rebuild drops
+every referral line and writes them back from one house's entries, so on a shared bill it
+would have DELETED a sibling's credits. The rebuild now gathers every house on the bill.
+
+**Resulting map change: [[REF-39]].**
 
 **A referral earned by somebody whose house is billed to another person.**
 
@@ -2105,7 +2126,18 @@ CLAIMS when the credit reaches no bill. Where the credit should land is this que
 
 **Resulting map change.** Named in REF-30 as the case it deliberately leaves open.
 
-## Q-031 · intent · OPEN · raised 2026-09-08
+## Q-031 · intent · ANSWERED · raised 2026-09-08
+
+**ANSWERED 2026-09-12 — option 2, one discount per address.** Addie: *"we should not
+allow two address's to exist on the costumers at the same time. So they would only get a
+$25 dollar discount."*
+
+The asymmetry this entry warned about is handled by reusing `custAddrKey` rather than
+writing a cleverer matcher: it does not expand Ln to Lane, so it matches only where two
+typed addresses genuinely agree, and its failure mode is allowing two rather than
+silently refusing a real referral.
+
+**Resulting map change: [[REF-40]].**
 
 **Two different people at the same address, both through one referral link.**
 
@@ -2146,7 +2178,20 @@ two impossible to refer.
 
 **Resulting map change.** Named in REF-31 as the case it deliberately leaves open.
 
-## Q-032 · intent · OPEN · raised 2026-09-09
+## Q-032 · intent · ANSWERED · raised 2026-09-09
+
+**ANSWERED 2026-09-12 — the waiver must hold; the banner is still not built.** Addie:
+*"we need to make sure referals are getting there 30 dollar installation fee waived since
+that is what we promised them."*
+
+The substance was checked rather than assumed and it works: `quoteChargesSetupFee` waives
+the fee for a token the referrer currently holds, and Suite 312 runs the whole path. What
+her answer does NOT resolve is this entry's actual obstacle — the page cannot tell a real
+token from an invented one — so the banner needs the small public callable of option 2,
+which is its own change with its own security review and was deliberately not shipped
+beside three money rules.
+
+**Resulting map change: [[REF-41]], status Decided — not built.**
 
 **A banner on the quote page promising the friend their fee is waived — when the page
 cannot tell whether it is true.**
@@ -2319,3 +2364,84 @@ built rather than taken on trust:
 **Resulting map change.** `MON-73` (no April fee on carried arrears — this default, now
 her ruling), `MON-74` (fees applied once), `MON-75` (the unpaid fee carries forward inside
 the balance), `MON-76` (no scheduling until last season is paid in full).
+
+---
+
+## Q-035 · intent · OPEN · raised 2026-09-16
+Blueprint Maps shipped with seven open questions. Four were factual and are resolved
+below; three are hers and are named here with the default that was taken, so they can be
+overturned rather than discovered.
+
+**The build specification listed seven "answer these with Addie first". CLAUDE.md §4 says
+a factual question should never reach her, so those were resolved by reading the code and
+are recorded here to close them. The three that remain change nothing until she says so.**
+
+### Resolved from the code — do not ask her these
+
+1. **Which Firestore field separates a new quote from a requote?** `isRequote(d)` on the
+   quote — `existingCustomerId || requoteCount > 0`. For a *house*, first-season is
+   `audienceNeverAsked(d)`, the union rule the RSVP audience and the New Hang badge
+   already settled on. No new flag was invented, which was the spec's own instruction.
+   There have already been two definitions of "new customer" in `admin.html`; this is
+   deliberately not a third.
+2. **Are the photographed drawings mostly landscape or portrait?** It does not need
+   answering. `orientation` is detected from each photo on upload and the 8-up grid is
+   decided **per page** from what is actually on it, so a route holding both comes out
+   right without anybody choosing a default.
+3. **Can a crew member with employee access upload maps, or only the office?** `admin.html`
+   has no per-panel role gating at all — everyone who can sign in sees every panel. The
+   answer is the spec's own: the same people who already see Employee Tools. ⚠ If panel
+   gating is ever added, this panel wants to be in the first batch considered: it is the
+   one screen a crew phone would plausibly be handed.
+4. **Does a map ever need deleting outright, or is replacing it always enough?** Replacing
+   is the normal path and is what the dialog leads with. **Remove this map** exists as well,
+   because *Add another map* exists — a way to add with no way to undo a mistake is a
+   one-way door. It confirms first and says exactly what goes. ⚠ It removes the house's
+   reference only; the photograph stays in Cloudinary, because destroying one needs the API
+   secret and a secret in this page is a secret published to anybody who opens it. The
+   server-side `destroyFixPhoto` is the precedent if that is ever wanted, and it is its own
+   job.
+
+### Still hers — defaults taken, named so they can be overturned
+
+5. **ANSWERED 2026-09-17 — see [[BPM-05]]. No: the filter stays, and Clear filters is the way out.** ~~Default taken: yes,
+   it clears every tick.** The spec recommended it and the alternative is demonstrably
+   worse — choosing a returning customer while "New quotes" is ticked shows nothing at all,
+   and a screen that has quietly filtered itself to empty reads as broken rather than
+   filtered. Changing it is one line in `bpmChoosePerson`.
+
+6. **Should the office be able to edit a map's saved copy count from this screen?**
+   **Default taken: yes — in the detail dialog only, never on the card.**
+   ⚠ **This is the one place the build goes past what §13 of the spec asked for** ("the only
+   writes are map uploads and, *if added later*, edits to a saved count"), and it was not
+   done for tidiness. Without an editor the `copies` field can only ever hold 1, which makes
+   the spec's own headline example — *"a three-crew house is saved at 3 and prints 3 every
+   time"* — unreachable; and the same is true of `label` and `note`, so a house could never
+   have a second drawing called "Detached garage" at all. Two of the three things the panel
+   is for would have been unbuildable. The card stepper stays session-only exactly as
+   specified: mixing the two would turn every stepper click into a Firestore write.
+
+7. **ANSWERED 2026-09-17 — see [[BPM-06]]. No: the map, the name, and the label or street.**
+   *Addie: "Map blueprint should only be maps being printed and that’s it."* The default below was confirmed, not changed.
+   **Default taken (now confirmed): no.** The caption is the customer's name and either
+   the map label or the street, as specified. Bulb counts are drawn *on* the blueprint
+   already, and the crew name and date belong to the run rather than to the house — putting
+   them on a tile makes a printed sheet stale the day after it is printed, which the route
+   sheets deliberately avoid. One line in `bpmTileRight` and one in the sheet builder if she
+   wants more.
+
+8. **Is a re-quoted house that ALREADY has a drawing still "pending"?** *(raised 2026-09-17,
+   with the Pending list.)* **Default taken: no — pending means no drawing at all.**
+   Addie asked for *"a place were it sends pending maps which will only show for new
+   costumers that were quoted this year or requoted"*, and the literal reading of *pending*
+   is *not done yet*. But a re-quote is often a house that moved or extended, so the drawing
+   on file may describe a roofline that no longer exists — and nothing on the record can say
+   whether it does. Comparing `map.updatedAt` against the quote's date would be the system
+   guessing that an older drawing is wrong, and putting houses on a worklist nobody put
+   there. ⚠ **The cost of the default is the opposite mistake**: a moved house with a stale
+   drawing is silently absent from the list. It is one clause in `bpmIsPending` if she wants
+   re-quotes with older drawings included.
+
+**Resulting map change:** `system-map.md` §6a (the whole panel, what is stored, and the
+if-X-isn't-working table). No questions-map row — no ruling was given this session; these
+are defaults taken in her absence and they belong here until she rules on them.

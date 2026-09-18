@@ -30,6 +30,7 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    - **A link that no longer matches a quote says so.** `quoteRespond` and `portalRsvp` report a miss by *throwing*, which makes the call **reject** on the customer's end — so until 2026-08-31 every such link showed "Something went wrong", the wording meant for a server fault, and the accurate "we couldn't find your quote" line could never appear. An out-of-date link is ordinary (the quote was deleted, or re-sent), so it now says the link may be out of date and to ask for a fresh one. `portalCallFailedText` is the one place that wording lives, and all six branches ask it.
    - ⚠ **A genuine outage still reads as one.** Anything that is not a not-found keeps the generic message, and the real error is logged to the console — calling every failure a stale link would hide a real fault behind a reassuring sentence.
    - ⚠ **Approved is not the same as Ready to Convert.** That folder means approved **and** the install-details form completed, so nothing lands there half-filled. A new customer approving gets that form. An **existing member does not** — they are asked "anything changing this year?" instead — so an approved re-quote stays in **Awaiting Response** until the office presses Mark Approved. Known gap, not yet decided.
+   - ⭐ **A SENT RE-QUOTE SITS ON Awaiting Response, NOT ON Re-quotes** (2026-09-17, [[QT-43]]). Addie: *"Everything on requotes that is awaiting response should go under awaiting response."* Awaiting Response is the tab the office works down — it carries the quiet-days filter, the bulk nudge and the nudge ladder — and a re-quote that has been priced and sent is in exactly that state. ⚠ **Still in exactly one folder**, which is the half of the old rule that was load-bearing: a card in two places is a job each of two people assumes the other has done. What changed is *which* folder. ⚠ **And only once it has actually gone out** — a re-quote still being written stays in **Re-quotes**, which is what that tab is for now: the ones with something left to do before they go.
 4. **Convert to customer** — a staff member clicks "Convert to Customer" on the approved quote and is asked which way:
    - **Convert automatically** — saves them there and then, using everything the quote already holds, without leaving the Quotes tab. The popup lists anything the quote is missing *before* it runs, and the result is reported in a toast (customer number, bin count, whether they reached the Warehouse, whether the $30 fee was charged, and anything still missing).
    - **Fill in manually** — opens the Add a Customer form already filled in, so the gaps can be typed in first. This is what the button used to do on its own.
@@ -42,7 +43,7 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
 
    **Light colours are REQUIRED, on both forms.** Owner's rule, 2026-08-15. The customer's own detail form has always refused to submit without one; Add a Customer now refuses too. It is the single field on that form that cannot be waved through with "add them without these" — everything else genuinely can wait (the photo gets taken next week, the price is still being agreed), but a customer with no colours is invisible to the Warehouse, because the build queue is keyed off the light description. They never reach Dad and no screen says so. Knock-on: **Convert automatically is disabled** for a quote with no colours, and says why, rather than letting you click it and get an error back — that quote has to go through **Fill in manually**, which has the colour picker on it.
 
-   **Light colours are never free text.** Owner's rule, 2026-08-15: *"it should never have to guess because it should never be in typed format."* Every way a light description can be written is a picker — the customer's own detail form on the public site, the colour boxes on Add a Customer and Edit Customer, the colour change in the Member Portal, and **the Warehouse's own "Add to Queue" form**, whose Pattern field is a row of colour buttons: clicking a colour appends it, clicking it twice repeats it (that is how `Warm White, Red, Red, Warm White` is built), and each chip has an × to remove that position. `#whExtraPattern` survives as a *hidden* input because the rest of that form reads and writes it — everything now goes through `whSetExtraPattern()` so the chips and the saved value cannot drift apart. Two free-text boxes used to exist and both are gone: `.quoteLightsInput` on the admin quote card, and the Warehouse Pattern box. run-all.js fails if either comes back. The bulk importer is the one remaining way typed text can arrive, because it pastes a spreadsheet column.
+   **Light colours are never free text.** Owner's rule, 2026-08-15: *"it should never have to guess because it should never be in typed format."* Every way a light description can be written is a picker — the customer's own detail form on the public site, the colour boxes on Add a Customer and Edit Customer, the colour change in the Member Portal, and **the Warehouse's own "Add to Queue" form**, whose Pattern field is a row of colour buttons: clicking a colour appends it, clicking it twice repeats it (that is how `Warm White, Red, Red, Warm White` is built), and each chip has an × to remove that position. `#whExtraPattern` survives as a *hidden* input because the rest of that form reads and writes it — everything now goes through `whSetExtraPattern()` so the chips and the saved value cannot drift apart. Two free-text boxes used to exist and both are gone: `.quoteLightsInput` on the admin quote card, and the Warehouse Pattern box. run-all.js fails if either comes back. The bulk importer is the one remaining way typed text can arrive, because it pastes a spreadsheet column. ⭐ **And on the public site the picker is tick boxes, not a hold-Ctrl list** (2026-09-12, [[OPT-10]]): both colour pickers in `index.html` — the quick quote box and Get In Touch — are nine `.color-check` pills with a swatch each. Nothing about what is submitted changed; `fd.getAll('colors')` gathers checkboxes exactly as it gathered the old `<select multiple>`, which is why Suite 329 guards the control itself.
 
    Records that still contain words are OLD data, from before that was true. Health Check lists them under **"Customer whose light colours are written as words"**, naming the exact part it could not read, so they get re-picked once instead of interpreted forever. That row deliberately has **no Fix button**: guessing what "red with tinsel" meant would change what the crew physically builds. The list should only ever shrink — a recently-added customer appearing on it means something has started writing free text again.
 
@@ -81,6 +82,8 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    | **Yes** | `#/payment?token=…&rsvp=yes` | `yes` | **Their member portal opens by itself**, with the gate-code question as a pop-up over it — no confirmation screen, no button to press (RS-33, RS-35) |
    | **No** | `#/payment?token=…&rsvp=no` | `no` | recorded, then **straight into the member portal** on the Cancel tab (RS-33) |
    | **Back Next Year** | `#/?token=…&rsvp=back` | `backnextyear` | a **pop-up card** — "We look forward to seeing you next year!" (RS-34) |
+
+   ⚠ **AND THE TOKEN IN THOSE LINKS MUST HAVE BEEN SAVED FIRST** (2026-09-11). `ensureToken` mints one for a record that has none and writes it to `jobAddresses`. It used to swallow a failed write and return the fresh token anyway, commented *"worst case they get a fresh one next visit"* — but the token **is** the link, `findByToken` looks for exactly that string, and there is no next visit: one lost write is a link that can NEVER work for as long as that email sits in their inbox, and the customer is told we cannot find their account. The catch logged **nothing**, so the one failure that silently poisons an outgoing email left no trace to find it by. It now logs an error, **re-reads** the record in case another writer won the race (the nightly batch and a `portalLookup` can both reach a token-less record within a second of each other, and the loser must send the WINNER's token), and returns **empty** rather than a token that cannot resolve — which all three callers already spell for, so the button lands on the ordinary sign-in page instead of on an apology.
 
    ⭐ **A YES ENDS IN THE PORTAL, NOT ON A QUESTION** (changed 2026-09-01, RS-33). Dax: the RSVP buttons
    *"dont do anythng we need but it needs to change the customers badge and it should also automatically
@@ -358,6 +361,23 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    `arrearsOutstanding` — *last* season's debt — so a current bill never touches the
    season badge. Her $946 was this year's.
 
+   ⭐ **AND MONEY IS NOW AN ANSWER IN ITS OWN RIGHT** (2026-09-17, [[SCH-79]]). Addie:
+   *"If they already paid for there lights they should be marked as confirmed and
+   scheduled."* `housePaidThisSeason` reads the **deposit** off the bill this house is
+   on — the payer's where they bill elsewhere — and a customer with money against their
+   name is Confirmed and scheduled without ever pressing a button. A part payment counts.
+
+   ⛔ **The deposit, never the status.** `computeInvoiceStatus` answers *Paid in Full* for
+   a bill cleared entirely by **credits** as well as one cleared by money, and a referral
+   or goodwill credit is not somebody paying. Read off the status, that customer would be
+   sent a crew having neither replied nor paid a penny.
+
+   ⚠ **An answer still outranks money.** Said no, Back Next Year, Maybe Next Year, a
+   queued recycle and last season's unpaid bill are all tested **above** it, so paying can
+   only ever override *"has not replied"* — somebody who pays and then cancels is still
+   out. ⚠ And it holds only because **Start New Season writes `deposit: 0`** on every
+   invoice; if that ever stops, last season's payment confirms the whole book for ever.
+
    ⚠ **And the emailed Yes does work**, bill outstanding or not:
    `test/rsvp-unpaid-this-year.spec.js` drives it in a real browser and the badge goes
    Confirmed. A record still on **On hold** never received that write.
@@ -399,6 +419,14 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
 
     ⚠ **The button charges nothing and changes no colours.** The $30 is reached by editing the colour boxes and pressing Save Changes; this only tells the warehouse to make the set up. It also reads the SAVED record rather than the ticked boxes — the boxes may be half-edited and unsaved, and handing the warehouse a set the customer's own record does not agree with is how two screens start disagreeing about one house.
 
+    ⛔ **The save finishes on the customer it started on** (2026-09-12). Two admin errors on 2026-09-09, an hour apart, to two different users: *"Edit Customer save failed: null is not an object (evaluating 's.indexOf')"* in Safari and *"Cannot read properties of null (reading 'indexOf')"* in Chrome. Neither message named a line of ours, because the throw is inside Firestore: `doc()` checks its **second** argument and passes every trailing path segment straight into `ResourcePath.fromString`, whose loop opens `n.indexOf("//")` — so `doc(db,'jobAddresses', null)` produces exactly those two sentences, one per browser engine.
+
+    The null came from us. `editCustomerId` is a module-level variable, this handler is **async**, and its `if(!editCustomerId) return;` guard runs **once** — while twelve later reads all sat downstream of an await (the freshness read, the geocode, the number-pool reads, `syncPayerInvoice`). The popup stays on screen for all of it, so **Cancel, the ✕ and Remove are live the whole time** and every one of them sets that variable to `null` underneath a save that is already running.
+
+    ⛔ **And the house-tab strip was the worse half, because it is silent.** A tab click calls `openEditCustomerModal`, which **repoints** that variable at the sibling house rather than clearing it — so `updateDoc` would write **this** house's form values onto **that** house's record. A well-formed write, landing on a customer nobody had open, with no error anywhere. The crash is the half that reported itself.
+
+    The id is **captured once, before the first await**, and every write below uses the captured one. This is the same fix the photo handler got in August, for the same variable, in the same form — that one was fixed and this one, eleven times over in the same handler, was not. ⚠ **The save still finishes**, deliberately: pressing Cancel half way through does not abort a write already in flight, because a half-saved customer is worse than either fault above. The handler's closing line still clears the **module** variable, which is global state being reset rather than a document being addressed. ⚠ Suite 108 **runs** this rather than reading it — it moves the id underneath a real save through a per-run proxy and asserts every `jobAddresses` write still lands on the customer Save was pressed for, because a source check that the capture exists passes happily while one read underneath still says `editCustomerId`, and that one read is the whole bug.
+
     ⭐ **Fixed in passing:** the three buttons at the bottom of Edit Customer each disable themselves when pressed so they cannot be double-pressed, and **nothing ever re-enabled them** — so queueing a build for one customer left *Build Them A New Set* greyed out for every customer opened afterwards, until the page was reloaded. `openEditCustomerModal` puts all three back. Found while adding the third button, which would have inherited the same bug.
 
 ---
@@ -436,6 +464,25 @@ any upcoming route in the same pass.
 up, and somebody sitting the season out still needs theirs taking down. ⚠ And
 only where there is something to clear — writing false over false on ~950 records
 says nothing and stamps `updatedAt` on every one.
+
+⭐ **AND THE SCHEDULE NO LONGER WAITS FOR THAT BUTTON** (2026-09-17, [[SCH-78]]).
+Addie: *"Linda Hunley still shows as scheduled even though I switched her to
+pending... a lot of people are scheduled but say no on the schedule like Miko
+Johnson."* Dropping an out-of-season house lived **only** in Recalculate
+everything; the five-minute customer sync had only ever added people
+(`placeUnscheduledOnNextDay`) and corrected the ones already there
+(`syncHousesFromCustomers`, `enforceInstallTiming`). So from the moment somebody
+answered no, or the office switched them to pending, they stayed on a crew's day
+until a button nobody should have to know about was pressed.
+`dropHousesWhoLeftSeason` now runs on every sync, **before** the three sweeps that
+move or place anybody.
+
+⚠ **It asks `isOutForSeason` and does not re-decide** — the same rule the route
+generator and the build queue read. ⚠ **No record, no opinion:** an imported CSV
+row need not match a customer, and reading "not found" as "not coming" would empty
+an imported plan on the first tick. ⚠ **A day inside the 48-hour lock is reported,
+never emptied** — the sheet is printed and the truck is loaded, so that is a phone
+call, not a silent edit. ⚠ And the office is told by name when it is one person.
 
 ⭐ **AND A PLAN ROW THAT IS NOT A CUSTOMER COMES OFF THE SEASON** (2026-09-01).
 Measured on the real plan: one customer badged Confirmed, sixteen houses on the
@@ -1346,9 +1393,35 @@ written into that customer's history.
     to this season's credits would take money off a bill they are not for, and leaving them
     invisible makes a referral earned while sitting out look exactly like one that never
     counted.
-    ⚠ **One case is deliberately open**: somebody who earns a credit while they are IN the
-    season and answers no afterwards keeps a credit stamped for a season they are no longer
-    billed for. `docs/open-questions.md` Q-029.
+    ⭐ **THAT LAST CASE IS ANSWERED — the credit moves to next season** (2026-09-12,
+    [[REF-38]]). Addie: *"For someone who doesn't book for this year but refered someone
+    should have that referal discount added for next year."* Somebody who earns a credit
+    while they are IN the season and answers Back Next Year afterwards no longer loses it:
+    `referralSeasonForBill` rolls it forward, so it comes off next season's bill instead.
+    ⚠ **It is DERIVED, not migrated.** The stamp stays exactly as it was earned — that is
+    REF-14's rule — and only the season it comes OFF is decided. So a customer who answers
+    Yes again is billed for it this season with no second write and nothing to reverse, and
+    no entry can be lost by a roll-forward that half ran. It cannot take a credit off a bill
+    somebody has already been shown either, because off the bill there is no invoice.
+    ⭐ **AND THE CREDIT NOW FOLLOWS THE MONEY** (2026-09-12, [[REF-39]]). Addie: *"It should
+    follow the money to the payer."* A referral earned by a house that bills elsewhere used
+    to land on that house's own key — a zeroed leftover no screen reads — so it came off
+    nothing. `referralBillKey` sends it to the payer's bill. ⚠ **The cost, taken knowingly:**
+    the bill that drops is the payer's, not the referrer's. ⛔ **And the rebuild had to learn
+    about shared bills:** it drops every referral line and writes them back, so from one
+    house's entries it would have DELETED a sibling's credits — `referralNotesForBill`
+    gathers every house on that bill.
+    ⭐ **AND TWO PEOPLE AT ONE ADDRESS ARE ONE DISCOUNT** (2026-09-12, [[REF-40]]). Addie:
+    *"we should not allow two address's to exist on the costumers at the same time. So they
+    would only get a $25 dollar discount."* This narrows REF-31, whose wording always had
+    both halves in it. ⚠ **It matches through `custAddrKey`, which does not expand Ln to
+    Lane** — so it only matches where two typed addresses genuinely agree, and it fails in
+    the recoverable direction: $25 too much has an × beside it on the bill, whereas refusing
+    a real referral is silent and lands on your best advocate.
+    ⚠ **The $30 fee waiver itself was checked, not assumed** ([[REF-41]]): `quoteChargesSetupFee`
+    waives it for a link the referrer holds now, and Suite 312 runs that path. The banner on
+    the quote page the link LANDS on is still not built — the page cannot tell a real token
+    from an invented one. `docs/open-questions.md` Q-032.
   - ⚠ **No late fee is charged today.** The rule is decided and unbuilt ($25 if they have
     paid something, $40 if they have not — PROC-32). The × is built against the ledger
     rather than against a named fee, so a late fee written later is waivable the day
@@ -1892,6 +1965,41 @@ text/email."*
 dollar fee. They should use there new referal link every year which should give new
 referal links every year."* This narrows the rule directly above it.
 
+⛔ **AND AN EXPIRED LINK NOW DOES NOTHING AT ALL** (2026-09-12, REF-42). Addie, asked
+whether the person who SHARED a retired link should still earn their $25: *"No an old
+link should not work but there should be a button to start new season which will update
+everyones payments again and update new referall links for everyone."*
+
+- ⭐ **The button she names already existed and already did both halves.** Start New
+  Season resets the invoices and rotates every link (REF-28, directly below). Nothing was
+  built for that half; what was missing was the credit.
+- ⛔ **REF-25 settled the FEE and was silent about the $25**, so a retired link
+  half-worked: the friend was charged the $30 and the referrer went on collecting the $25
+  for the same link. One link, two answers. `creditReferralIfAny` refuses it now, through
+  the same door as the other three refusals — recorded on the referrer's own record,
+  stamped on the quote, and named in the Inbox.
+- ⚠ **The Inbox note does NOT say "nothing is wrong with the link".** That sentence is
+  true of the other three refusals and false of this one: the link is dead and the fix is
+  to send the current one. Saying nothing is wrong is what would stop the one action that
+  works, so the closing line is the caller's.
+- ⚠ **It asks `holder.current`, never a year** — REF-28's own argument, one function
+  along. Rotation stamps a past entry with whatever the customer had, so every link minted
+  before the season stamp existed becomes a past entry carrying NO year; a year comparison
+  reads that as "not old" and pays out on a dead link. A red-check caught exactly that
+  sabotage passing, and the fixture for it was added rather than the check weakened.
+- ⚠ **It is last of the four refusals, and the order only decides the wording** — all four
+  end in no credit. Most-specific wins: somebody using their own retired link is told they
+  used their own link, which is the fact still true after they share the new one.
+- ⚠ **It reaches back over nobody.** REF-27 records that no customer holds a retired link
+  yet, and `referralTokensPast` is filled only by that button, so this is forward-looking
+  by construction rather than a rule applied to referrals already earned.
+- ⚠ **A dormant bug was fixed with it.** `referralRotationUpdates` stores a retired
+  entry's year as `season`; `referralHolderFor` read it back through
+  `referralTokenSeasonOf`, which asks for `referralTokenSeason` — a field a past entry has
+  never had. So every retired link reported its year as **null**, and the one sentence
+  that names it could only ever give the vague wording. Invisible today because nobody
+  holds a retired link; it would have shipped broken the first time the button ran.
+
 - ⭐ **Start New Season is what hands out the new links** (REF-28). Addie: *"Can we just
   have a button we can push that says start new season and it will update everything?"*
   One press rotates every customer's referral link, stamps it with the season, and keeps
@@ -2210,7 +2318,7 @@ those describe a bundle actually made or a bin actually labelled.
 
 
 ⭐ **AN ADD-ON IS NOT A REBUILD, AND NEITHER ANSWER IS PRE-PICKED NOW** (2026-09-11,
-[[QT-38]]). Dax: *"if they approve also, it should go into build for just how many feet
+[[QT-46]]). Dax: *"if they approve also, it should go into build for just how many feet
 the system measured dont build the entire house again because we only need the added on
 part to be build then just thrown into the bin"*, and *"it should be set up the same as
 the other quotes"* — so a re-quote the customer raised still travels the ordinary quote
@@ -2853,6 +2961,68 @@ the suite was reading the constant with a regex that never matched and silently 
 against a hard-coded 7.
 *Rulings*: [[SCH-72]] in `claude/questions-map.md`.
 
+### Why the crew goes back to an area it has already worked
+
+Measured 2026-09-11, and **nothing was changed as a result**. Dax, looking at a route:
+*"i can visualize how we couldve done them first while we were in that area so we didnt
+have to go back."*
+
+He is right that it happens. Over 8 simulated seasons the plan visits each grid area
+**2.80 times**. ⛔ **But the floor is 2.21, and it is made of promises**: an area holding
+an October customer, a November customer and an after-Thanksgiving customer needs three
+trips however the day is built.
+
+The mix was read off the **real 2026 client list**, not guessed — 1056 rows:
+
+| asked for | rows |
+|---|---|
+| October | 218 |
+| November | 255 |
+| Thanksgiving or a specific date | 18 |
+| "ANY", or nothing at all | 549 |
+
+So 48% are genuinely constrained, and only about **0.6 visits an area** is avoidable —
+a fifth of what it looks like on the map. ⚠ That avoidable part is real and located:
+**196 groups** of houses sharing both an area and an earliest date are still split
+across dates, and none of them is too big for a crew to have swallowed whole.
+
+⛔ **Six rules and one redesign were built and measured. Every one was rejected.**
+
+| what was tried | miles/season | visits/area | crew-days |
+|---|---|---|---|
+| as it ships | 15,369 | 2.80 | 420 |
+| finishable first | 15,301 | 2.75 | 412 |
+| leave no tail under 8 | 15,842 | 2.71 | 427 |
+| never skim a neighbour | 15,865 | **2.34** | **475** |
+
+*Never skim* nearly reaches the floor and **loses 16 books out of 16** — 77 miles and
+**7.7 crew-days a season** — because it buys tightness by leaving seats empty. That is
+against Addie’s *"a day of 12 should fill up to 40"* and Dax’s own *"more days
+generally is more gas"*.
+
+⚠ *Finishable first* looked free on the averages and is a **coin flip: 8 books better,
+8 worse, worst book +56 miles**. An average across books hides that completely, and
+shipping it would have been shipping noise with a plausible story attached.
+
+⛔ **And the redesign that would actually dissolve the problem is worse still.** Cutting
+the day’s block from the houses *available today*, rather than filtering a grid built
+once, drives **14% further** (17,697 against 15,527): the houses free on any one date
+are sprinkled across the whole valley, so clustering them gives a loose day. The
+pre-cut grid keeps days tight at the price of revisits, and that price is the cheaper
+one.
+
+⚠ **The first run of that measurement said the redesign won handsomely — because it had
+silently left 1,559 people unscheduled.** `planBlocks` returns outliers wrapped as
+`{house: {...}}`; the harness read `.id` straight off the wrapper, got `undefined`,
+never removed them from the pool, and scored a season that skipped a third of the book.
+**A cheaper season is only cheaper if the same people got their lights**, and a
+measurement harness needs that assertion as much as the app does.
+
+*Where it is proved*: nowhere in run-all.js — there is no behaviour change to pin.
+The scripts are `scratchpad/revisit.js`, `borrow-measure.js`, `borrow-sig.js` and
+`reblock.js`.
+*Rulings*: [[SCH-75]] in `claude/questions-map.md`.
+
 ### Why a route went far out at stop 11 and came back beside stop 2
 
 Added 2026-09-10. Dax, reading a crew route off the map: *"1 2 3 4 5 6 7 can make
@@ -3444,6 +3614,19 @@ come around later and want another building."*
   rather than hidden: a hidden row is how a feature comes back by accident.
 - **The side count** — moved, not dropped. It drives the footage and so the price, so it
   is now asked on the **Install Details** form, after they have approved.
+- **One of the two contact boxes** (2026-09-12, [[QT-40]]). Addie: *"on contact form we
+  should be able to put email as an option."* This was the only one of the three public
+  forms that demanded a phone **and** an email, both `required` — so somebody with no
+  email address could not ask for a quote at all: a lost lead, silently, with nothing
+  anywhere recording it. Get In Touch and Send a Message have taken either through one
+  `contact` box since they were written, so the form she *named* already did it. It is one
+  box now, through the same `splitPhoneOrEmail`, and both fields are still written with one
+  of them blank — every reader downstream already copes with that. ⚠ The **Preferred
+  Contact Method** select hides and stops being `required` the moment an @ is typed: Call
+  and Text are nonsense once the only detail we hold is an address, and a hidden `required`
+  select blocks submission with a browser message pointing at an invisible field. ⚠ The
+  cost, accepted: a quote can now arrive with no email, so the quote email waits until the
+  office types one on the card. Better than the lead never arriving. Suite 330.
 
 **Then the property list went too, one day later.** Dax, 2026-09-04: *"get rid of the add
 a building on the property button on free quote but keep it in all customers."* So the
@@ -3689,11 +3872,71 @@ folder files its derived residents into Inbox for the same reason. ⚠ **And `fo
 field decides which *tab* a message is on, not which folder, and a topic must never be able
 to move a notice between them.
 
-⚠ **The nav badge was counting messages its own list has never shown.**
-`renderMessagesList` has always filtered System notices *out* of the customer list
-(`folder !== 'System'`) while the badge beside it counted `allMessages` unread — System
-notices included. That is why it read 91 over a list holding a fraction of that, and why a
-real customer message arriving moved it by one and nobody could tell.
+⭐ **THE RED BADGE NOW HOLDS EVERY ERROR, NOT JUST THIS PAGE LOAD'S** (2026-09-11,
+[[MSG-24]]). Addie: *"Inbox gets deleted and badge stays with all error messages underneath
+it."* The badge's list is an in-memory array in a script that runs before Firebase, so a
+reload emptied it — which is why the stored copy was added in the first place. Once messages
+land, `flushAdminErrors` pushes the stored errors back onto the badge (newest first, stamped
+with the date, naming who hit it). ⚠ A fault already on screen from this session is not added
+twice. ⚠ **This was the half that had to work before the Errors folders could leave the
+Inbox**, and they have now — see below.
+
+⭐ **AND THE ERRORS SECTION HAS LEFT THE INBOX** (2026-09-12, [[MSG-26]]). Addie: *"get rid of
+error inbox's altogether ... and just have all emails go to the red errors badge instead"*,
+then *"Inbox gets deleted and badge stays with all error messages underneath it."*
+⛔ **Nothing is deleted from the database.** Every error report is still written to `messages`
+and still classified by `commRowMatches(d, 'errors', …)` — the red badge reads it, and so does
+the Dashboard's **System Health** button, which now OPENS that badge instead of a section that
+no longer exists. What went is one place to read them, not the records.
+⛔ **Removing the section was only half of it.** An error is not `filedByHand` and is not a
+SYSTEM notice, so every one of them was ALSO sitting in the main Inbox list *and* on its unread
+badge. A badge counting rows no section can draw is a number that can never come down — which
+is [[MSG-22]]'s bug rebuilt in a new place a day later. `msgOnInboxBadge` is the one rule the
+badge counts through, and it leaves out the routine route sweep and errors alike.
+⭐ **"All" meant raising the cap.** 25 stored errors was right while the folders held the
+history behind them; with those gone it would have made the 26th-oldest error unreachable.
+⚠ Two ceilings have to agree — the module's hand-over and the plain script's seeder — or the
+lower one silently wins and the panel drops the oldest rows without a word.
+⛔ **Existing folder documents are left alone**, deliberately: deleting them is a destructive
+write against her own filing, and anything she dragged into Errors by hand is still reachable
+under "Your folders". `seedErrorFolders` is kept in the file and simply not called.
+
+⭐ **THE SECTION CONTROLS ARE ALWAYS VISIBLE NOW** (2026-09-11, [[MSG-23]]). Addie: *"not
+able to add to each section and delete from each section."* Both buttons — `✎` to rename a
+section or add a folder to it, `✕` to hide one — were rendered and wired the whole time, at
+`opacity:0` and lifted only by `:hover`. **She works on a tablet, which has no hover**, so
+there was no way to reveal either. They sit at `opacity:.55` permanently now. ⚠ Third time
+this shape has shipped here (the Inbox drag was mouse-only; the Schedule's reschedule button
+was behind a tick box) — `comm-centre.test.js` now fails on any `.comm-*` rule that starts a
+control at `opacity:0`.
+
+⚠ **The search bar is NOT a missing feature.** `#msgSearchInput` is in the filter row above
+the list and nothing toggles the pane holding it, so it is on screen. Left alone deliberately
+rather than guess-fixed — a blind layout change is how a working control moves somewhere
+worse.
+
+⭐ **THE NAV BADGE USED TO COUNT MESSAGES ITS OWN LIST REFUSED TO DRAW — FIXED 2026-09-11**
+([[MSG-22]]). Addie: *"inbox it shows the number notification. But that should go away when
+we mark responded."*
+
+`renderMessagesList` dropped every `folder === 'System'` row **after** `commRows` had already
+picked the section, while the badge counted every unread non-routine message. Two bugs from
+one line: the **System Messages** section (five tabs of its own) could never show a single
+row, and the badge counted System notices she had no way to open — so the number could never
+come down however many messages she marked responded.
+
+⭐ **Mark Responded was never the problem.** It has set `read` as well as `responded` since
+2026-08-25, for exactly this reason, and still does.
+
+⛔ **The line was a survival from the folder-shaped Inbox**, where System was a folder to hide
+from "Inbox". The Communication Centre gave System its own section *and* its own type and
+nobody removed the old hide. Removing it restores one rule rather than relaxing any:
+`commRowMatches` already keeps System out of the Inbox unless you ask for **All**, which is
+Addie's own instruction quoted at that branch.
+
+⚠ **Historic, and still the reason the exclusion exists at all:** the badge once read 91 over
+a list holding a fraction of that, because it counted the routine route-sweep notice too.
+That exclusion stands — it is the only thing `noticeIsRoutine` does.
 
 ⚠ **Nothing is deleted and nothing is marked read.** These notes record days that moved
 under customers who may already have been told a date — the closing line of every digest
@@ -3744,6 +3987,19 @@ that the customer may ring. An admin row names who was signed in and, for emails
 did not go out and what the mail service said — a count the status line showed and then
 threw away the moment she clicked anything else.
 
+⚠ **"Names who was signed in" was true of the BODY and not of the ROW, until 2026-09-11.**
+Addie, shown two Admin Error rows: *"can you update this?"* Both carried the line **"No phone
+or email on this message, and no record matches it"** — the contact line ([[MSG-14]]) doing a
+customer lookup on a message the office's own browser had written. `reportAdminError` hardcodes
+`name`, `phone` and `email` empty, so that branch was the only one an admin error could ever
+reach; it was not a lookup that failed, it was a lookup with nothing to look for. And the
+heading above it renders blank on these rows, because `msgErrorWhoLabel` returns nothing
+without a portal link to match — so the one line that could have named somebody named nobody,
+while the address sat in the row's own body two lines down. The row now reads **Signed in as
+&lt;address&gt;**, or **"Nobody was signed in when this happened"**, which is the signature of a
+timer still running after a sign-out. Member errors keep their contact line — a customer really
+did hit one of those, and ringing them is the point. [[MSG-21]], `msgStaffSignedInAs`.
+
 #### What the folder has already caught (2026-09-10)
 
 The first real read of these rows found three faults and one data problem. Recorded here
@@ -3778,6 +4034,85 @@ because the folder earning its keep within two days is the argument for it.
     own function instead of costing another read of a 1,400-line handler. Two frames, not
     the whole stack: `messages` is capped at 5,000 characters on create by
     `firestore.rules`, and a refused write is how this reporter goes silent.
+  - ⚠ **AND THAT INSTRUMENT WAS READING THE WRONG TWO FRAMES ON HALF THE REPORTS**
+    (fixed 2026-09-11). It took `.slice(1, 3)`, which is right on V8 — `stack` opens with
+    a `TypeError: ...` header that has to be skipped — and wrong on WebKit and Firefox,
+    which write **no header at all**. There line 0 IS the throwing frame, so skipping it
+    named the two functions ABOVE the fault. One of the two reports was Safari, so half
+    of the occurrences this was built for would have been misreported, and misreported
+    *confidently* — worse than the blank it replaced, because it sends whoever reads it
+    into a function that never threw. `errorTopFrames` now RECOGNISES a frame (`at fn
+    (file:line)` on V8, `fn@file:line` on the others) rather than counting lines, so a
+    header drops out by not looking like one.
+  - ⚠ **AND IT IS DECLARED INSIDE THE CATCH, NOT AT THE TOP OF THE FILE.** Five harnesses
+    in `run-all.js` run this handler by slicing `admin.html` from
+    `editCustSaveBtn').addEventListener` onwards. A helper lifted out above that point is
+    not in the slice, so the first fixture reaching the catch dies on `errorTopFrames is
+    not defined` — the suite **crashing** rather than failing, which takes every suite
+    after it down unscored. Proved that way round first, then moved.
+  - ⭐ **STILL NOT DIAGNOSED, AND STILL NOT GUESSED AT.** The crash has not recurred since
+    the instrument landed — both reports predate it — so there is nothing new to read.
+    The fix above is to the instrument, not to the fault.
+- ⭐ **AN UPLOAD THAT CANNOT WORK NOW SAYS SO AT EVERY DOOR** (2026-09-11).
+  `uploadFailAdvice` was written on 2026-09-09 for the Attach button, after the picture
+  account was switched off and the office was told *"Nothing uploaded — try again"* — an
+  instruction that could not work at any hour of any day, and that reads as a glitch
+  worth waiting out rather than a bill somebody has to settle. It was wired into that one
+  button. **Seventeen places in `admin.html` upload a picture and two of them said why.**
+  The Gallery, the Hero images, How It Works, Areas We Serve, an expense receipt and a
+  fix-note photo all answered a disabled account with "Upload failed", "Upload failed —
+  try again." or "check your Cloudinary settings". `uploadFailText` pairs the advice with
+  the service's own words — advice first, because the advice is a GUESS made from the
+  message and the message is the FACT — and every one of those doors now calls it.
+  A structural check counts the callers, so an upload added later cannot quietly skip it.
+  - ⚠ **THE ACCOUNT ITSELF WAS BACK BEFORE THIS SHIPPED.** Probed 2026-09-11: the cloud
+    answers `400 Upload preset not found` rather than `401 cloud_name is disabled`, and
+    delivery returns 200. This is the wording for the next time, not a fix for that
+    outage — which was settled on the billing account, exactly as the advice says.
+- ⛔ **AND THE QUOTE CARD DOES NOT SEND A TEXT AT ALL ANY MORE** ([[QT-41]], 2026-09-12,
+  superseding [[QT-39]] and restoring [[QT-38]]'s position). Dax ruled it out hours after
+  setting the account up: *"we cant use twillo so we need to just set it up so its easy to copy
+  to bulk text in google voice"*, then *"I want it so when you click the button it copys it and
+  opens a link so all you need to do is paste where it sends you"*. **Copy & open Google Voice**
+  replaces **Send the text**: one press puts the message on the clipboard and opens that
+  customer's Voice thread.
+  - ⭐ **IT IS AN ANCHOR, AND THAT IS THE WHOLE TRICK.** A popup opened from script after an
+    `await` has lost its user gesture and Chrome blocks it **silently** — the message copies,
+    no tab appears, and the button reads as half working. A real `<a>` navigates natively and
+    cannot be blocked, so the copy and the opening ride one click.
+  - ⚠ **NO `/u/0/` IN THE LINK** — that pins the first signed-in Google account, and the office
+    keeps Voice on its own profile. Voice matches a thread on the full E.164 number, so a phone
+    that is not ten or eleven digits yields no link and the button falls back to a plain copy:
+    an empty Voice search reads as the customer having no history with us.
+  - ⛔ **NOTHING IS WRITTEN ON A COPY.** The send stamped `quoteTextSentAt`; a stamp on a copy
+    would claim we texted somebody whose message is still on a clipboard. The card is not filed
+    either, which is why S263 counts two send paths now instead of three.
+  - ⚠ **SO NOTHING DETECTS A STOP.** Twilio's 21610 was the only thing that ever set
+    `smsOptedOut`; it is still read by the RSVP text list and is now set only by hand. Already
+    true while the send was broken — true by design now.
+- ⭐ **"Twilio send failed: Authentication Error — invalid username" — AND THERE IS AN
+  ACCOUNT NOW** ([[QT-39]], 2026-09-11, superseding [[QT-38]]). The earlier ruling was Dax's
+  *"we doont use twillo we use google voice"*, and for about a day the quote card said so:
+  texting is not wired up, there is no account, use email or Google Voice by hand. **He set
+  an account up the same evening**, so that wording became false and was repointed rather
+  than deleted.
+  - ⭐ **NOTHING IN THE CODE WAS EVER MISSING.** `exports.sendSms` has always posted to the
+    Twilio Messages API with the account SID and auth token as basic auth. What was missing
+    was the three Firebase secrets holding real values — all three existed at version 1 with
+    placeholders, and `invalid username` is precisely what that produces, because Twilio uses
+    the **account SID** as the basic-auth username. So the word "username" was sending
+    whoever read it hunting a login this system does not have.
+  - ⚠ **THE FIX IS A CREDENTIAL PLUS A REDEPLOY, AND THE REDEPLOY IS THE HALF THAT GETS
+    MISSED.** Setting a secret alone looks like it worked and changes nothing until the
+    functions are deployed again. The message on the card names both, and says the secrets
+    live outside this app.
+  - ⚠ **TWO THINGS RESUME THAT HAVE NOT RUN FOR MONTHS**, neither of them asked for:
+    `sendNightlyInvoices` texts `alertPhone` from `settings/nightlyInvoiceAutomation` after
+    every 7 PM run, and the STOP handler (Twilio error 21610) can fire again — archiving a
+    quote and setting `smsOptedOut` the first time somebody who once replied STOP is texted.
+    Check that alert number before the next nightly run.
+  - ⚠ **THE BUTTON IS STILL WHERE IT WAS.** #412 left it on the card while texting could not
+    work; now it can, so there is nothing to reconsider.
 - ⚠ **An "Unhandled promise: Missing or insufficient permissions" row is not necessarily
   an auth fault** — §5 records that the same wording is what Firestore returns when a
   `messages` write breaks the 5,000-character cap. Check the rule's CONTENT conditions
@@ -4032,10 +4367,105 @@ colour and outlet timer. They are filed as notices because the app wrote the sen
 are member ACTIONS, which is what decides this. Do not "tidy" them out of the alert by
 reading the folder.
 
+⭐ **THE COLOURS A CUSTOMER TICKED TRAVEL INSIDE `message`** (2026-09-13, [[MSG-27]]). Both
+home-page forms offer the nine colour tick boxes, both store the list on the message record,
+and the Inbox row has always drawn it (`Colors requested: ...`) — but the ALERT dropped it, so
+the office read "Change lights" and had to open the admin to learn which. `notifyBusinessOfMessage`
+now folds the list onto the end of `message`, labelled, and deletes `colors` from the payload.
+⛔ **NOT A `{{colors}}` TEMPLATE VARIABLE**, deliberately: the notify template is hand-written on
+emailjs.com, so a variable only works in a template that remembers it, and one edited later drops
+the colours again silently. Every other caller already puts its own detail inside `message`, so this
+follows them. ⚠ **It is done in the funnel, not in the two forms**, so a form added later gets it by
+passing `colors` and nothing else — and the fold is skipped entirely when nothing was ticked, or
+every ordinary alert would carry a dangling label.
+
 ⚠ **The recipient address is not in this repo.** The params carry name, phone, email, topic
-and message and no destination, so the *To Email* lives on the EmailJS template named by
+and message (colours folded into that message, above) and no destination, so the *To Email* lives on the EmailJS template named by
 `settings/emailjs.notifyTemplateId` (Admin → Automation Emails → Notify Template ID).
 Nothing here can see it, and no test can prove where the mail went.
+
+⛔ **AND IT WAS MISCONFIGURED FROM THE START — ALL THIRTEEN ALERTS WERE BEING REJECTED**
+(found 2026-09-11, with Addie reading the EmailJS screens out loud). `notifyTemplateId`
+pointed at **the customer template** — the one every invoice, RSVP and quote email goes
+through — whose **To Email** is `{{to_email}}`. The alert sends no `to_email`, so EmailJS
+refused every one for an empty recipient. Nothing had ever arrived: not a contact-form
+message, not a cancellation, not a quote answer. It read exactly like a quiet season.
+
+⚠ **THE TWO SENDERS PASS DIFFERENT THINGS, AND THAT IS WHY ONE TEMPLATE CANNOT SERVE BOTH.**
+Admin sends supply `to_email` / `to_name` / `message` (+ `button_url`, `payment_link`…);
+the public-site alert supplies `customer_name` / `customer_phone` / `customer_email` /
+`topic` / `message` and **no recipient at all**. A template written for one renders blank
+or is refused outright for the other.
+
+⛔ **SO NEVER "FIX" THIS BY TYPING THE OFFICE ADDRESS INTO THE CUSTOMER TEMPLATE'S To Email.**
+It is the tempting one-field repair and it would send all ~950 invoices and RSVPs to the
+office instead of to the customers. Two templates, permanently.
+
+⭐ **WHAT CORRECT LOOKS LIKE** (recorded because no test in this repo can see any of it, and
+the only other copy is a screen on emailjs.com):
+
+| | Customer template | Office-alert template |
+|---|---|---|
+| `settings/emailjs` key | `templateId` | `notifyTemplateId` |
+| To Email | `{{to_email}}` | the office Gmail, **typed literally** |
+| Subject | `{{subject}}` | `{{topic}}` — Addie's choice, 2026-09-11: offered with `— {{customer_name}}` appended so the inbox list says who each one is about, and she asked for the topic alone. The name is still the first line of the body. |
+| Body | `Hi {{to_name}},` + `{{{message}}}` (triple — those bodies are HTML) | `Hi {{customer_name}},` + `{{message}}` (double — it carries text a customer typed) |
+
+⛔ **THE TRIPLE BRACES ARE NOT DECORATION, AND LOSING THEM IS INVISIBLE FROM HERE.**
+Reported 2026-09-17: a quote email arrived with its `<br>`, its `<table>` and its
+button markup rendered as **visible text**, the whole email reading as source code.
+That is `{{message}}` (double) in the CUSTOMER template — Handlebars escapes a double,
+and every body this repo builds is HTML. ⚠ **Nothing in this repo can see it, prove it
+or fix it**: the braces live on a screen on emailjs.com, so no test will ever go red
+for this and no commit can repair it. The quote email test-send button already says so
+in its own success line ("If the buttons show as web addresses instead of buttons…").
+⚠ **And check the Template ID at the same time.** "Hi ," arriving together with escaped
+HTML is the signature of `settings/emailjs.templateId` pointing at the OFFICE-ALERT
+template rather than the customer one — that template greets `{{customer_name}}` (which
+the customer sends do not supply) and uses a double `{{message}}`, and its To Email is
+the office, so the customer never gets the mail at all. The two being mixed up is the
+same fault as 2026-09-11, pointing the other way.
+| Reply To | the office address, so customer replies reach a person | `{{customer_email}}`, so hitting Reply answers the customer |
+
+⛔ **AND `to_name` WAS NOT — THE CUSTOMER TEMPLATE SENT "Hi ," (found 2026-09-17, on the
+same quote email as the not-found words above).** Every one of the thirteen sends in
+admin.html passed the raw name with an empty-string fallback, so a record with no name
+on it greeted the customer with a comma on its own. Now `emailGreetingName`, which
+falls back to `there` — the same fallback `firstName` and the `{{name}}` token have
+always used. ⚠ **It is still the FULL name when there is one**: `to_name` has always
+carried that, and shortening it would reword ~950 invoices and RSVPs at the same time.
+⚠ **No test in this repo can read an EmailJS template parameter**, so S311 runs the
+helper and then greps admin.html for any send still passing `.name || ''` — the regex
+is the only thing standing between a nameless customer and that comma.
+
+⚠ **`customer_name` IS FILLED ON ALL THIRTEEN PATHS**, so the greeting never renders "Hi ,":
+the three contact forms mark the name `required`, the portal actions read the signed-in
+customer's record, and the quote answers read the quote. It is who TRIGGERED the alert, not
+who sent it — and on a portal action it is the name on the ACCOUNT, so a spouse signing in
+shows the account holder.
+
+⚠ **AND THE TWO TEMPLATES MUST NOT BE NAMED ALIKE.** This bug existed because one template
+was doing two jobs; the names are now the only thing keeping them apart, and opening the
+wrong one to edit customer copy re-breaks the alerts silently.
+
+⭐ **HALF OF THIS IS CLOSED (2026-09-12, [[MSG-25]]), and it is the half that keeps
+happening.** Addie sent herself a test, read it in the Inbox, and no Gmail came:
+`notifyBusinessOfMessage` returns early with a `console.warn` whenever any of Service ID,
+Message Notification Template ID or Public Key is blank — a warning on a PUBLIC page nobody
+has a console open on. Health Check’s `notifyOff` row already named the exact blank box,
+and [[HC-03]] is her saying she does not open Health Check. So `msgAlertOffNoteHtml` now says
+it **in the Inbox**, above the messages that were not emailed, naming the box and where to
+fill it in. `null` (read not landed, or failed) draws nothing — announcing the alerts are
+off because a read has not finished is a false alarm on the one line that must not cry wolf.
+
+⚠ **THE OTHER HALF IS STILL CONSOLE-ONLY.** A send that is ATTEMPTED and then refused by
+EmailJS — bad template variables, over quota, a *To Email* pointing somewhere else —
+still logs and nothing more, and does NOT file into Errors → Admin Errors the way other
+faults do. That is the gap worth closing next. ⛔ **And the destination itself is invisible
+from this repo by construction**: the params carry no recipient, so where the alert lands is
+the *To Email* on the EmailJS template, set on emailjs.com. Three filled boxes mean the alert
+was SENT, never that it arrived — the "handed to the mail service" distinction the test
+invoice already draws.
 
 ⭐ **And both directions are now driven in a real browser.** `test/address-move.spec.js`
 presses the button and reads the alert back, and presses **Save Information** on My Info and
@@ -4051,6 +4481,32 @@ what keeps every other spec's behaviour exactly as it was.
 note server-side and cannot send mail, so the nudge is raised in the browser once that call
 returns `{ok:true}`. The ordinary My Info save is deliberately silent ([[QT-35]]) — a
 corrected street spelling is not a move — so do not move this call up into it.
+
+⭐ **WHERE A MESSAGE CAN BE FILED — ONE ANSWER** (2026-09-11, [[MSG-20]]). Addie: *"I still
+can't drag and drop emails."*
+
+- ⭐ **The drag was never broken.** Measured by RUNNING the real sidebar renderer against an
+  ordinary season: **thirty rows drawn, none of them droppable.** Only a section or subtab she
+  filled by hand takes a message; the five built-ins are saved filters, so a message dropped
+  on one could not stay there. That exclusion is right and is kept.
+- ⛔ **The other two ways of filing were reading a different list.** `populateMoveToSelect`
+  and the right-click menu both walked `messageFolders` — the collection [[MSG-12]] emptied —
+  so a folder she had just made was a drop target and in **neither menu**. Three routes to one
+  place, two answering from a list nobody writes to any more.
+- ⭐ **`msgFileableFolders` is the one answer**: Inbox first (it is not a folder document, and
+  leaving it out makes filing a one-way trip), then her own folders, then any legacy name not
+  already listed, never twice. The legacy names are kept — anything already filed would
+  otherwise be reachable by search alone.
+- ⭐ **And a drag now shows where it can land.** The nav takes a class for the duration and the
+  CSS outlines whatever carries `data-commdrop`, so which rows accept a drop is stated once.
+  When nothing can take one, the sidebar **says so** and names the way out — "nothing should
+  fail quietly", applied to a gesture.
+- ⚠ **One existing check was repointed, not weakened.** S273 matched the literal
+  `<option value="Inbox">` — where that option happened to sit — so it failed on correct code
+  the moment the list moved behind a name. It RUNS the rule now. 6 sabotages red-checked.
+- ⚠ **`flatFolderList` no longer has a caller** and is left in place with a note saying so:
+  `buildFolderTree` under it feeds `renderFolderNode` / `folderRowHtml`, which run-all still
+  RUNS. Do not wire it back into a menu — that would be the second list all over again.
 
 ⛔ **The folders are gone** ([[MSG-12]], the same day). Once the system was in, Addie asked
 *"can we just get rid of your folders altogether if the system is made?"* — and they had
@@ -4253,6 +4709,23 @@ the server copies has been passing correctly the whole time. What was wrong is w
 handed it. `houseLightsText` is the one answer to *"what colours does this house have"*, and
 the fee is the sixth reader brought to it.
 
+⭐ **AND EDIT CUSTOMER WAS THE SEVENTH** (2026-09-17, [[WH-39]]). Addie: *"When someone makes a
+change in member portal for lights it should automatically change/add lights in costumers."*
+`portalSave` writes `lightsDescription` and nothing else — `lightColors` is not in that
+section's write list, and there is no colour parser on the server to fill it — so after a
+member picks new colours the record holds the **new** ones in the description and the **old**
+ones in the list. Edit Customer read the list first and ticked last year's colours.
+
+⛔ **The description was never lost, which is why nothing went red.** The warehouse, the fee
+and both printed sheets ask `houseLightsText` and have had the new colours the whole time.
+Only this screen disagreed — and it is the one screen that could have put it right, so the
+person being shown the wrong answer was the only person able to correct it.
+
+⚠ **No second writer was added.** `lightColors` comes back into step on the next office save,
+which writes both fields from the ticks — and the ticks are now right. Filling it on the
+server would mean a colour parser living in two places, which is a parity pair this repo
+already pays for twice.
+
 **And how they asked to be reached** ([[MSG-16]], 2026-09-10). Addie: *"we can no longer see how
 someone prefers to be contacted."* It had not been removed — it was sitting in the small grey
 line with the date, which is the line that stopped carrying anything you needed once the phone
@@ -4372,6 +4845,143 @@ a fake Firestore rather than reading their source; 16 sabotages red-checked.
 
 ---
 
+## 6a. Blueprint Maps — the drawing, photographed and printed small
+
+**What it is for.** Crews draw a blueprint of each house by hand — the roofline, where the
+runs go, the bulb counts. Those drawings lived on paper only, so a crew either carried the
+original or worked from memory. This panel keeps the photograph on the house's own record
+and prints any set of them **eight to a page**, small enough that a whole route fits in a
+pocket.
+
+**Where to find it.** Employee Tools → **Blueprint Maps**.
+
+**The one idea, and everything follows from it.** There is no *add to print run* step. The
+batch **is** whatever is currently filtered, minus what has been unchecked, at each map's
+saved copy count. Filter, then print. If you ever find yourself building a list before you
+can print it, something has been changed that should not have been.
+
+**What is stored.** `blueprintMaps` — an array on the existing `jobAddresses` document, so
+a customer with two properties has two sets and nothing new has to be joined to anything.
+One to three entries per house, never dozens. Each entry carries:
+
+| Field | What it is |
+|---|---|
+| `id` | Stable within the house. The print key, and what an update targets. |
+| `label` | What this drawing is — "Front elevation", "Detached garage", "Back patio". |
+| `url` | The Cloudinary address of the photograph. |
+| `publicId` | Read back out of that URL, so a replacement can find the old image. |
+| `copies` | How many copies this house normally needs. **This is the number the screen loads with, every time.** A three-crew house saved at 3 prints 3 without anybody setting it again. |
+| `orientation` | `landscape` or `portrait`, detected from the photo on upload. Decides which grid a printed page uses. |
+| `note` | Free text for the crew — ladder access, a tricky gable, what changed this year. |
+| `updatedAt` / `updatedBy` | Set on every upload. |
+
+⚠ **A house with no drawing still appears**, under the **No map yet** filter, with a prompt
+instead of a picture — so what is outstanding can be seen rather than inferred from an
+absence.
+
+### Adding a drawing
+
+**+ Add a map**, at the top of the panel, is the way in: press it, start typing a customer
+name, pick them, and their drawing opens ready for a photograph. A house that already has
+one goes straight into *Add another map*, so a second drawing is always named before it is
+taken.
+
+You can also just tap any card — a house with no drawing reads *No map on file yet — tap to
+add a photo*. Both routes end at the same dialog.
+
+⚠ **The panel opens filtered to "Has a map" ONLY once the book holds at least one drawing.**
+That is worked out fresh each time rather than stored. It shipped on 2026-09-16 hard-wired
+to *Has a map*, which on a book with no drawings hid every house — and since every route to
+the upload dialog runs through a card, there was no way to add the first one at all. If the
+grid is ever empty it now says why and carries two buttons: **Show everyone** and **Add a
+map**.
+
+### Pending maps
+
+**Pending maps · N**, beside Add a map, is the worklist: houses that still owe a drawing.
+
+A house is pending when it has **no drawing at all** AND it is either a **new quote this
+year** or a **re-quote they have said yes to**. Returning customers with no drawing are
+deliberately left out — nearly the whole book has never been photographed, and listing all
+of them would bury the dozen houses somebody actually has to go and draw.
+
+⚠ **A re-quote nobody has answered yet does NOT count.** It shipped on 2026-09-16 counting
+any **open** re-quote, and Addie read the result straight away: *"I see Rachel Oslund is on
+there and Ashley Wray but they are quotes and requotes"*, then set the rule — *"Once they
+approve requote then we should have that come up to put in there map."* A house being
+re-quoted right now may take the new price or may decline, and if they decline there is
+nothing to draw. See [[BPM-04]].
+
+⚠ **And it keeps counting after the office applies it.** Applying a re-quote **closes** the
+quote, so the open-quote test stops finding it within the day. `requoteAppliedAt` on the
+customer record is what the list reads from then on — without it the house would read
+*Returning* and drop off at exactly the moment the drawing is owed. That stamp is never
+cleared, so it is only honoured **for the current year**; otherwise the list would grow
+until it covered everybody ever re-quoted.
+
+⚠ **The number beside each filter option says what pressing it will show** — it answers to
+the search box and to the other group, not to the whole book. It shipped on 2026-09-16 as a
+plain census, so with *Has a map* ticked and a new quote not yet photographed the menu
+offered *New quotes · 1* and the grid drew nothing. A nought there now means nought.
+
+Inside the list the dropdown narrows it to **New quotes** or **Requotes**. Nothing else is
+offered there: *Has a map* and *Returning customers* could each only ever empty it, and an
+empty pending list reads as no work outstanding. The printing controls step out of the way
+while it is up, because no row on it has anything to print.
+
+⚠ **A re-quoted house that already has an older drawing is NOT pending.** Whether that
+drawing is now stale is a judgement nothing on the record can make. See `docs/open-questions.md`
+Q-035 item 8 — it is a named default, not an oversight.
+
+**What is NOT stored.** The filter, the search box, the copy overrides and which maps have
+been unchecked are all session-only. They are the batch, and a finished batch throws itself
+away: when the print dialog closes, every override goes back to its saved count and every
+unchecked map is selected again. The filter and the search box are deliberately left
+alone, so the same route can be printed twice without re-filtering.
+
+**The three tags on a card, and where each comes from.** Nothing new is stored for these —
+they are read off the status each record already carries:
+
+- **Requote** — there is an **open** re-quote against this house, **or** one was applied to
+  it this year (`requoteAppliedAt`). A closed re-quote carrying no such stamp is history and
+  leaves the house Returning, and so does one applied in an earlier year. ⚠ A quote is joined
+  to a house by its `existingCustomerId` first; failing that, by phone **and** address
+  together, never phone alone — 17 numbers in the real book are shared and 14 of those are a
+  parent and a child at two houses. ⚠ The badge says the house **was** re-quoted; whether
+  that re-quote has been agreed is a separate question, and only the Pending list asks it.
+- **New quote** — `audienceNeverAsked`, the same union rule the RSVP audience and the New
+  Hang badge already use (the $30 fee box **or** a closed, converted, non-re-quote quote
+  from this calendar year). ⚠ Not the fee box alone: somebody who joined this year with the
+  fee waived still joined this year. This page must never grow a third definition of "new".
+- **Returning** — everything else, and what everything reads as while the quote list is
+  still loading.
+
+**The printed sheet.** Walk the filtered list in order; push each selected map once per
+copy; chunk by the per-page setting. Nine maps at 8 per page is two pages, the second
+holding one tile. Each tile is the drawing with a caption beneath it: the customer's name
+on the left, and on the right the map's label when the house has several drawings,
+otherwise the street. ⚠ **A page that is mostly portrait photographs is laid out four
+across by two down** instead of two across by four, so portrait drawings are not cropped —
+decided per page, because one route can hold both.
+
+**If something is not working.**
+
+| Symptom | Where to look |
+|---|---|
+| The grid is empty | Check the filter button — it opens on **Has a map**. "No maps match" means the filter, not the data; a failed read says so in its own words instead. |
+| A customer is not in the name list | The list is every house in `jobAddresses`. If they are not there they are not a customer yet. |
+| A re-quoted house is not on **Pending maps** | They have not approved it yet — that is the rule, not a fault ([[BPM-04]]). It appears once they approve, and stays until somebody draws it. |
+| A map prints the wrong number of times | The stepper is this session only. The number that survives is **Usual copies** in the detail dialog. |
+| The count on the bar does not match the sheet | It should not be possible — both are built from the same queue. If it happens, `npm run test:blueprint` is the gate that should have caught it. |
+| An upload fails | The dialog stays open and names the reason. A switched-off picture account reads the same here as it does on a quote. |
+| Nav, buttons or page labels print | The print rules are scoped to `body.bpm-printing`, added just before the dialog opens and removed on `afterprint`. |
+
+⚠ **Printer setup, checked once on the office printer**: headers and footers **off** (or
+Chrome stamps the URL and the date on every sheet), scale at **100%** rather than "fit to
+page", and background graphics **on**.
+
+---
+
 ## 7. The three portals
 
 ### Public site + Member Portal (`index.html`)
@@ -4398,10 +5008,90 @@ a fake Firestore rather than reading their source; 16 sabotages red-checked.
       - ⭐ **One rule per side**: `quoteAnswerMayClearStatusServer` (both server sites) and `quoteAnswerMayClearStatus` (the office delete). It asks about **`pendingAddress`** — the same field the banner reads and the same field the Save clears once the address has moved — and deliberately **not about the status word**: there is only one `seasonStatus` field, so a move can be outstanding while the pill shows `needs_changes` because something else wrote last.
       - ⭐ **The hold is bounded, which is the whole argument for it.** The hole the clearing closed is a customer sitting in Needs Changes for ever with nothing anywhere to clear it; here there IS something left — the move, which the office applies, and that save clears `pendingAddress` and raises the re-quote that answers the badge properly. **It reports nothing and flags nothing**: the badge still reading Needs Changes is the honest answer while a move is outstanding, and a follow-up raised for correct behaviour is how the office learns to click past the ones that matter.
       - ⚠ **All three sites, not the one that prompted it** — "a fix in one direction is half a fix". Proved where each half can be: the **behaviour** in run-all.js Suites 137 and 138, which already drive both decline paths against a fake Firestore (the status survives, and an `address_changed` with **no** pending move still clears); the **agreement** in §5 of `address-move.test.js`, which RUNS the two copies side by side over every shape a record can be in, money-parity's argument applied to a badge. 6 sabotages red-checked.
+- ⭐ **THE PRINTED TILE IS THE MAP AND NOTHING ELSE** (2026-09-17, [[BPM-06]]). Addie, asked
+  whether it should carry a bulb count, a crew name or a date: *"Map blueprint should only be
+  maps being printed and that's it."* The tile prints the customer's name and either the map
+  label or the street — two things, and no more.
+  - **No code changed** — this confirms the default Q-035 item 7 took. It is written down and
+    held as code anyway, because a confirmed default with nothing holding it is one somebody
+    helpfully overturns later, and the screen fills up a field at a time.
+  - **Why:** a bulb count is already drawn *on* the blueprint, so a second one on the tile is
+    a number that can disagree with the picture beside it. A crew name or a date belongs to
+    the run rather than to the house, and printing one makes the sheet stale the day after —
+    the same argument the route sheets are built on.
+
+- ⭐ **PICKING A NAME LEAVES THE FILTER ALONE** (2026-09-17, [[BPM-05]]). Addie: *"picking a
+  costumer name should not clear the filter but we should be able to clear the filter a
+  different way."* This overturns the default Q-035 item 5 took.
+  - **The old default was guarding something real, and that guard is kept.** It cleared the
+    filter so picking somebody the filter then hides could never draw an empty grid. That is
+    now handled by SAYING so: the empty grid names them — *"Trent Halliday does not match the
+    filters you have on"* — and still carries **Show everyone** and **Add a map**.
+  - ⚠ **Only for a real customer.** A name nobody has is a typo, not a filter problem.
+  - **The other way out already existed**: *Clear filters — show everyone* in the filter menu,
+    and *Show everyone* in the empty grid. Nothing was added.
+  - ⚠ **Nothing asserted either of them worked** until a red-check gutted the Clear filters
+    branch and the gate stayed green. It is the only way out of a filter now, so it is checked.
+
+- ⭐ **WHY A SAVE WAS REFUSED, IN WORDS THE MEMBER CAN ACT ON** (2026-09-17, [[MEM-02]]).
+  Addie, testing the change auto-reply, hit *"Could not save that — please call (801) 901-0011."*
+  and there was no way to find out why.
+  - **Seven of the nine portal handlers threw the reason away.** Each caught its own failure
+    and printed one fixed sentence — so the server's explanation never reached the customer,
+    and because `portalCallFailedText` was never called, the **Member Error row was never
+    filed either**. The office was told nothing. Lights, Sides, My Info, Changes, Cancel, the
+    in-account contact form and all three quote buttons were all like this; only the *moved*
+    tab was already right, and it is the model the rest now follow.
+  - **A refusal the server wrote for the member is shown word for word.** `failed-precondition`
+    is the one code this app throws with wording aimed at the customer, and all three name the
+    next step — the arrears hold (*"There is still a balance owing from the 2025 season. Once
+    that is paid you can make changes here again."*), *"Nothing due to charge."* and *"That
+    quote has not been approved."* Every other code keeps the apology and never quotes the
+    error, so a developer's message can never go out over her name.
+  - ⛔ **A refusal is not an error and is never filed as one.** The arrears hold is the system
+    working; a Member Error every time somebody who owes money opens a tab would bury the real
+    faults the folder exists to surface.
+  - ⚠ **One path keeps its own wording**: on the Sides tab the sides *do* save and only the
+    re-quote card fails, so the shared apology would read as "nothing saved" and be untrue. It
+    reports by hand and keeps the accurate sentence.
+  - `portalServerRefusal` / `portalCallFailedText` in index.html; `error-inbox.test.js`, eight
+    sabotages red-checked.
+
+- ⭐ **STAYING SIGNED IN, AND STILL BEING ABLE TO LEAVE** (2026-09-11, [[MEM-01]]). Addie:
+  *"make sure when someone logs into member portal they stay logged in but they can still go
+  back to home page with a go back button or something in top right corner."*
+  - **The way back is top right, beside Log Out** (`portalBackToSiteLink`), and it reads
+    BEFORE Log Out — the one neighbour that cannot be undone. It MOVED from the left rather
+    than being added: two controls making the same promise is a coin toss.
+  - ⚠ **The sign-in half was already true**, and was driven in a browser before anything was
+    written: the way back keeps the token, and the header's Member Portal button walks
+    straight back in with no second sign-in.
+  - ⛔ **What was actually wrong is the other half.** A remembered login redirects the bare
+    site to `#/payment` at start-up, so a customer who had just asked for the home page was
+    put back into their account by the next reload — and a refresh, a bookmark and tapping
+    the logo are all reloads. Pressing the way back now leaves a per-tab note
+    (`sessionStorage`, `huPortalStayOnSite`) that stands the redirect down; asking for the
+    portal again takes it back, in the router rather than on the five links that point there.
+  - ⛔ **The redirect is not removed and must not be.** Its own comment names who it is for:
+    somebody arriving from an email who wants to land on their pending item. This defers only
+    to a person who has SAID otherwise, in the tab they said it in.
+  - ⚠ **It suppresses the redirect away from the site and nothing else.** A refresh INSIDE
+    the account still comes back signed in; a flag written over both branches of that test
+    would log them out there, and a red-check caught exactly that sabotage passing, because
+    walking back into the portal clears the note and no click path can reach the state. That
+    invariant is staged by hand in its own test for precisely that reason.
+  - ⚠ **The storage key is written out in all three helpers, never held in a constant.** They
+    sit below the start-up block that calls them, and in one ES module a `function` hoists
+    while a `var` beside it hoists as **undefined** — a named key would read
+    `getItem(undefined)` at the only moment that matters and the feature would never work,
+    silently, with every source check green.
+  - Gated by `test/portal-stay-signed-in.spec.js` — seven tests, all RUN, because every claim
+    is about a control on the screen or about what survives a **reload**, and a `goto` that
+    only changes the hash never re-runs the start-up block. 5 sabotages red-checked.
 - **Cloud Functions it calls**: `portalLookup` (the one entry point for all lookups — token or phone/email+lastname, rate-limited), `portalSave` (whitelisted writes per section, mirrors changes onto the invoice, resyncs upcoming routes), `portalRsvp`, `portalSetGateCode`, `portalChangeAddress` (records a move as PENDING; applies nothing), `portalInvoice` (sanitized invoice read), `quoteRespond`, `publicQuoteLookup`, `paypalCreateOrder`/`paypalCaptureOrder`, `publicConfig` (public-safe EmailJS keys for the contact form).
 
 ### Admin dashboard (`admin.html`)
-Customers · Quote Requests · Customer Messages · Routes · Responsibilities (staff/crew/timecards) · Warehouse · Customer Numbers · Dashboard (Finance: Invoices, Business Credit Cards, Financial Overview) · Per Foot Pricing · Time Logs · Import Center / Member Export · Health Check · Automation (Email/SMS/nightly invoicing) · Reviews/Gallery/Hero Images/FAQ/Site Settings · Project To-Do / Test Checklist.
+Customers · Quote Requests · Customer Messages · Routes · Responsibilities (staff/crew/timecards) · Warehouse · Customer Numbers · **Blueprint Maps** · Dashboard (Finance: Invoices, Business Credit Cards, Financial Overview) · Per Foot Pricing · Time Logs · Import Center / Member Export · Health Check · Automation (Email/SMS/nightly invoicing) · Reviews/Gallery/Hero Images/FAQ/Site Settings · Project To-Do / Test Checklist.
 
 ### Crew/Warehouse Portal (`employee.html`)
 Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Card · Warehouse (Checklist/Lights/Recycle/Timers/Pull/Tomorrow subtabs) · More menu (role-gated: Warehouse, Add a Customer, Quotes, Messages, All Routes, Layout Maps, Crew Assignments, view-only Dashboard/Pricing/Time Logs) · Notes and requests to the office.
@@ -4413,6 +5103,41 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
 - **`sendNightlyInvoices`** — cron, 7 PM Mountain daily (`0 19 * * *`). No-ops unless the automation toggle in `settings/nightlyInvoiceAutomation` is on. Bills any completed-but-uninvoiced house, texts the owner a summary via Twilio, logs to `nightlyInvoiceLog`.
 - **`sendInvoicesNow`** — the same billing logic, on-demand, from an Automation-tab button — works even with the nightly toggle off.
 - **`paypalWebhook`** — catches a payment capture the browser-side call might have missed (e.g. the customer closed the tab right after paying); signature-verified before it's trusted.
+- ⭐ **A member who changes something about their house gets an auto-reply saying we have got it** (2026-09-16, [[EM-18]]). Addie: *"can we get an automation email set up for someone who makes a change in the member portal. Like saying something like we'll make sure to make this change on your house."* It fires on three of `portalSave`'s five sections — **lights**, **preferences** and **sides** — and names what actually changed: the colours, the wire colour, the timer, which outlet, when they want it hung, their note, or which sides. She turns it on and picks the wording under **Automation Emails → Templates → Auto-reply when a member changes something**; it is **shipped switched off**, because it mails real customers the moment it works.
+  - ⭐ **The wording is hers, pasted in, not a draft she approved** (2026-09-16, [[EM-22]]). *"Thank you for reaching out! We’ve received your request and will make sure the changes you requested are taken care of. We’ll get everything updated on our end and get your home scheduled for this season. We’ll be in touch once your home is scheduled!"* That is `DEFAULT_PORTAL_CHANGE_BODY`, what *Write me one to start from* writes into the template — a **starting point, not a fallback**, so rewording it afterwards is an ordinary template edit. ⚠ **Two things were added and neither is a rewrite**: a `Hi {{name}},` greeting, because her text opens straight into the thank-you, and `{{change}}` on the line under it, because naming what they changed is the whole of [[EM-18]] and *"the changes you requested"* is the sentence it belongs to. ⚠ **Her closing note is rendered, not sent as typed** — *"This is auto- Reply"* reads as her labelling the message rather than copy for a customer, so it is a small grey *This is an automatic reply.* line under the sign-off; one edit in the box if she meant it literally. ⚠ **The portal button and the if-anything-looks-wrong line were dropped**, because they were mine and are not in what she wrote. ⚠ **Her body promises scheduling to everybody**, which is right for every section except sides — a sides change still appends the line saying an updated price is coming first, because it raises a re-quote.
+  - ⛔ **My Info and cancellations send nothing, on purpose.** `info` is phone, email and gate code — not a change to the house, and [[MSG-18]] already settled that tab is deliberately quiet (*"changing gate code or phone number should not notify us"*). `cancel` is somebody leaving, and thanking them for a change we are going to make is the wrong thing to send to the one person who just said no.
+  - ⛔ **It asks the SAME question the office history asks.** `describePortalChanges` was split so both it and the email call `portalChangedFieldNames` — two copies is how the activity log records a change the confirmation never mentions. And a hand-rolled comparison is not merely duplication here, it is **wrong**: the preferences form posts all six of its fields on every save whether they were touched or not, and an unticked box arrives as `''` while the record stores `false`, so a naive diff emails the whole book about changes nobody made.
+  - ⭐ **A note written for the warehouse, on both of the sheets they work from** (2026-09-17, [[WH-37]]). Addie: *"on costumers we need to be able to add notes to warehouse that updates when we print off warehouse pages."* Add Customer and Edit Customer have a **Notes for the warehouse** box; it is stored as `warehouseNote` on the customer and printed in the Notes column of **both** build sheets. ⛔ **The thing that was actually broken was the paper, not the typing.** Permanent Notes has always printed on the **Warehouse tab's** sheet — and the **Printing tab's** build sheet, which is what *print off warehouse pages* means, **had no Notes column at all**, so anything typed for the warehouse was visible on one screen and invisible on the pages. ⚠ **Its own box rather than a second use of Permanent Notes**, because the crew read that one on their route sheet: a message about which shelf a bin is on would ride out in a van with it. ⚠ **The warehouse note prints first and Permanent Notes still follows it** — that cell has always carried the general note and somebody is relying on it. ⚠ **One function (`whNotesCell`) fills the cell on both sheets**, the same rule as the bins count: two sheets deciding this separately is how they start disagreeing. ⚠ **A top-up still leads with GOES INTO THE BIN THEY ALREADY HAVE**, whatever anybody typed — that line is what stops a second bin being made for a house that already has one. ⛔ **Changing the note never queues a bundle rebuild.** `warehouseNote` is deliberately not one of the `WAREHOUSE_BUILD_FIELDS`; a note is not glass, and correcting a typo must not send somebody to make a second set of lights. ⚠ **This reverses part of Addie's own 2026-08-24 trim of the printed sheet**, which cut it down so it would read on landscape paper — the newer instruction wins (R-024) and Notes goes **last**, where a wide free-text column cannot push a scannable one off the edge.
+  - ⭐ **And there are two of them — permanent, and this build only** (2026-09-17, [[WH-38]]). Addie: *"it needs to have permanent notes or one time notes."* The same pair the customer notes already are. The one-time note prints **first** and is labelled **THIS BUILD ONLY:**, because it is the only line in the cell that is true this morning and false next week — unlabelled it is indistinguishable from a standing instruction and would go on being obeyed after the bundle was made. ⛔ **It is cleared the moment either Mark Done is pressed**, and the permanent one is not. ⚠ **Both Mark Done buttons now write through one function, `whBuiltUpdates`** — one house and a whole colour group used to write that object out separately, which was survivable while it was three fields nobody was adding to, and stopped being survivable the moment a note had to be *cleared* there: cleared on one path and left behind on the other is an instruction that outlives its build.
+  - ⭐ **And the warehouse now says “Check lights” where nobody ever chose a wire** (2026-09-16, [[WH-35]]). Addie: *“anyone that says white wire in warehouse right now lets get rid of that completley and just show them as Check lights which means check lights to see what there wire color currently is.”* `whWireLabel` read *whatever is stored, or else White* — so every house with nothing on file was shown as **White wire** and, because the build grouping is built on that label, was **built into the White pile**. That is older than the portal bug above and affected more houses. Unconfirmed houses now read **Check lights** on the chips, both build sheets, the recycle queue and the crew sheet, and form **their own build group** rather than being folded in with the real White ones. ⚠ A house whose wire IS recorded as White still says White — so confirming one is an ordinary edit and that row stops asking. ⛔ It stores nothing: no record is rewritten, which is why it was preferred over un-picking White across the book — it cannot lose a real answer. ⚠ Buffer stock is untouched; a warehouse extra with no wire already takes its own heading.
+  - ⭐ **And the White that was never chosen can be cleared, one sweep, on her evidence** (2026-09-16, [[WH-36]]). Addie, asked whether a blank Wire column just means White: *"Blank means we just didn't put it in becuase there bin is already made and couldn't go through each bin and sort out colors. But we will update it little at a time thats why we don't want to automatically assume someone should be white."* [[WH-35]] stops the warehouse *showing* an invented White; this clears the records that literally *store* one, because the portal bug above wrote `White` onto people who never picked it. **Customers → Bulk Updates → Wire colours nobody wrote down** reads her connected master sheet, lists every customer whose record says White while the sheet's Wire cell for them is empty, and clears only those — dry run first, then type `CLEAR`.
+    - ⭐ **The sheet is the corroboration, and it is why no history archaeology is needed.** Field-level change logging only reaches back to 28 August while the portal bug shipped on 29 July, so there is a month with no log at all — but the Wire column covers every period, and it is the office's own record of what was actually chosen.
+    - ⛔ **It only ever CLEARS, and only ever `White`.** The bug could not write Green, so a Green was typed by a person and is never touched; nothing in the sweep can set a colour on anybody. The worst it can do is ask a warehouse row to check the lights.
+    - ⛔ **A customer with no sheet row is left alone.** An incomplete sheet is not evidence a record is wrong — only a row that *exists* with an empty Wire cell says the office recorded nothing. Those, and any the sheet and the record disagree about (record White, sheet Green), are counted and named but never cleared: that second kind is a real difference and **Compare** already offers it.
+    - ⚠ **An ambiguous name is no match, not a weak one.** Names are matched through `dupNormName` (words sorted, so Last-First and First-Last are one key); two rows under one name resolve to nobody, or a shared name clears a stranger's wire.
+    - ⚠ **It only ever writes what the dry run showed** — the delete step acts on the list already on screen rather than re-finding, so nothing she never saw can be touched. Same rule as the duplicate tools and the test-customer sweep.
+    - ⚠ **The erasure half needs no new tool.** Where the portal bug *wiped* a wire colour instead of inventing one, the sheet still holds the real value and Compare already offers it as a difference — building a second importer for that would be a second opinion about the same column.
+    - ⭐ **Measured before it was asked, off her own workbook**: 955 named people, **318 with a wire colour and 637 with none**. Of the 316 with a wire, 122 also have footage; of the 644 without, only **12** do, and **476** have no address or lights either — which is why WH-35 does not flood the build queue. It lands on roughly the 168 otherwise-complete rows missing only the wire, and "update it little at a time" is exactly what a *Check lights* row asks for, once, from somebody already holding the bin. `wire-sweep.test.js`, 23 checks that RUN the classifier, 9 sabotages red-checked.
+    - ⭐ **And connecting the sheet now says how many PEOPLE it holds, not how many rows** (2026-09-16). Addie connected her workbook while this was being built and the line read *"Read 1058 rows straight from 2026 Client List (CURRENT - USE THIS ONE).xlsx."* She has **961 customers**. The other ninety-odd are the headings and the formatted-but-empty rows Excel keeps at the bottom of a sheet for ever — and a headline counting those invites the one reading that costs something: that the app cannot see a hundred people. `hlxWorkbookRowsAllSheets` returns a `people` count — rows carrying a **Name**, counted **after** the side sheets are folded in so somebody who exists only on Recycle is one of them — and `hlxSheetCountText` / `hlxSheetRowsNote` are the one wording both the Compare line and the first-connection line use. ⚠ **The raw count is kept, never replaced**: it is the half that says the whole file was read, so it moves into its own sentence and says what the difference is made of. ⚠ **And it falls back to rows when nothing counted people** — a workbook with no Name column returns `people: 0`, which is the wrong-workbook case that already has its own message naming the columns it could not find; *"0 people"* about a file that plainly read would be worse than the old wording. This is the same failure `hlxLoadConnectedSheet`’s own comment already records from the other end — *"924 rows"* reported confidently for the wrong workbook entirely. Suite 333, 10 sabotages red-checked; ⚠ one of them was **my own check being vacuous**: it asked whether `col["Name"]` appeared anywhere in the reader, and it appears half a dozen times, so a sabotage counting every row went straight through until the check was scoped to the counting loop.
+    - ⛔ **And it reads whichever master sheet she has to hand, because the file route does not exist on her machine** (2026-09-17). Addie: *"The master sheet won’t add"* — and the screen was already telling her why: *"This browser cannot hold onto a file."* Connecting a FILE needs `window.showOpenFilePicker`, which exists in **Chrome and Edge on a computer and nowhere else** — not Safari, not Firefox, and **not on a tablet**, which is the machine this office has been caught out by before ([[MSG-05]]: the Inbox drag worked and there is no drag on a tablet). ⚠ **So the first version of the sweep was unreachable for her entirely**, and its refusal read like a missing step — *"press Use my master sheet above first"* — rather than a browser she cannot change. Compare has always accepted a **paste** for exactly this reason; the sweep asking for a file handle alone was an omission, not a rule. `wireSweepSheetRows` takes the connected file when there is one and the **Paste the whole sheet** box when there is not, finding the headings wherever they sit (a sheet can open with a title line), and the report names which of the two it read — a stale paste and a live file must never look identical on screen. ⚠ **A paste is the weaker source and it fails safe**: it carries one tab, so somebody who exists only on Recycle has no row, and no row means LEFT ALONE, never cleared. A partial paste is the same shape — fewer people reachable, none wrongly cleared. ⛔ **But a Wire column that arrived EMPTY is refused outright**, and that is the one case that could have done real damage: hidden, filtered out, or a copy that stopped short all give a Wire heading with nothing under it, and on that reading every customer with a row looks like somebody the office never recorded — so the sweep would clear **every real White in the book**. Her sheet carries 318 wire colours, so a sheet with none is not one to act on. ⚠ And the checks for all of this **ran after the summary had printed** in their first draft — eight of them, unable to fail the build, the trap this file names about Suite 10. They are awaited now. 7 sabotages red-checked.
+  - ⭐ **AND THEN NOBODY IS ASKED FOR A WIRE COLOUR AT ALL** (2026-09-17, [[OPT-12]], superseding [[OPT-11]]). Addie, once it was clear she cannot connect the master sheet on her machine: *"keep what lights they want but don’t add what wire color they want but push check lights then warehouse chooses what wire they have on file and will make it based on what wire they have."* ⛔ **FIVE DOORS WERE INVENTING A COLOUR, NOT ONE**, and the portal dropdown everything above is about was the smallest of them. The public quote form defaulted to `Any`; `quoteSaveDetails` stamped the same `Any` on the SERVER, which is the emailed-link path and the common one; **Add Customer and Edit Customer both opened on White with no blank option at all**, so every customer the office added was recorded White whether or not anybody had been near their bin; and the conversion prefill fell back to White whenever a quote carried nothing. That is why [[WH-35]]’s *Check lights* could almost never appear for a new customer, and it is the real reason the book is full of Whites. ⭐ **The light colours are untouched** — her sentence begins *"keep what lights they want"*, and only the cord is ours. ⭐ **Blank is a real answer now**: both office selects open on *— not chosen, warehouse will check —*, there is no default and nothing is required, so a wire colour exists only where somebody deliberately set one. ⛔ **And the removal is enforced rather than merely unwired**: `wireColor` is out of `PORTAL_WRITE_FIELDS`, so the public site cannot write it even if something tried, and out of `PORTAL_READ_FIELDS`, so the browser is never handed one. It is `internal` in the option registry — R-003’s own stated exception — which is what takes `quote` and `confirmation` off its consumer list and changed the frozen AGREED map for the first time since it was agreed. ⚠ **Nothing stored is rewritten.** A wire colour already on file still prints and still groups; what changed is that no new one is invented. ⚠ **And a Green house needs no checking** ([[OPT-13]]) — recorded, not built, because it was already true: nothing in the app has ever written Green by itself, so a Green was typed by a person and is evidence where a White is not. ⚠ `test/wire-colour.spec.js` is REWRITTEN rather than repaired — the control it drove is gone, which is the quote-card.test.js precedent — and the claim it could not make (that the browser is never even told) is handed to `portal-fields.test.js`, which can see the whitelist. Two drafts of that check were vacuous first: one read a call log that records no result, the other read a `var` that never reaches `window` because index.html’s portal script is one ES module.
+    - ⭐ **And every stored White is swept, not only the uncorroborated ones** (2026-09-17, [[OPT-14]]). Addie: *"can we sweep all whites but in the future if they do save that they want white wire we will save it for [them]."* [[WH-36]] cleared a White only where the master sheet held a row with an empty Wire cell — a corroboration rule written while the belief was that ONE door had invented the colour. **Five had**, so a stored White is not evidence of anything and there is nothing left worth corroborating. ⛔ **Green is still never touched** ([[OPT-13]]); that asymmetry is the whole argument for why sweeping every White is safe and sweeping every wire colour would not be. ⭐ **The sheet is optional now** — it decides nothing, and only says how many of the cleared ones it happens to agree with, so the tool needs no file handle and no paste. That is what finally makes it work on the machine the office has. ⚠ The breakdown is still worth printing: the count the sheet AGREES with is the honest measure of what the sweep costs, and those are recoverable — **Compare** puts the sheet’s own answer back. ⚠ An empty Wire column no longer refuses the sweep, but is reported as *no comparison* rather than counted as agreement. ⚠ And only the exact word, trimmed: *Off White* is somebody’s own note.
+    - ⭐ **And then only the ones NOBODY CHOSE** (2026-09-17, [[OPT-17]]). Addie, shown what a full sweep would take: *"Everyone should not have there whites sweeped. Quotes should definetly keep what they put on the form."* A White from their **quote**, a **re-quote** or the **Member Portal** is kept and named on screen; everything else goes. ⭐ This narrows the bullet above **on the same evidence that widened it**, and she is right: *a stored White is worthless as evidence* was true of the doors the OFFICE invented it at, and never true of a quote — that form’s default was `Any`, on the browser and the server alike, so a White on one is a customer ticking White. ⛔ **Nothing ever recorded where a wire colour came from** — the wall `lightsChangedVia` had to be built to get over. But the trail already exists in two collections: every quote and re-quote names its customer (`existingCustomerId`) and still holds the colour picked, and the portal wrote an Inbox message (`Wire Color Change`) on every change. So `wireSweepSources` reads records **already filed** rather than needing a new field — which is the only reason it can reach the houses that are already wrong. ⛔ `Any` is not a choice; it was the default, which is the customer not answering. ⚠ An ambiguous phone or email **keeps every household it could mean**: a kept White is visible and clearable later, a wrongly cleared one costs a trip through Compare. ⚠ And one caveat said out loud: the portal invented White too ([[OPT-11]]) and that invention wrote the same message, so a few kept ones are the bug rather than a choice. Kept anyway — the safe direction, and what she asked for.
+    - ⛔ **And the Member Portal is NOT a second reason** (2026-09-17, [[OPT-18]], superseding [[OPT-17]] after one commit). Addie, once the portal half had been built and its one weakness was put to her: *"just get rid of all whites then unless its a quote or requote."* She took the caveat rather than the feature. **The portal invented White too** ([[OPT-11]]) — its dropdown prefilled the colour for anyone with nothing on file — and saving that wrote the very same `Wire Color Change` message a real choice writes. So the portal trail cannot tell an answer from the bug, and keeping on it would spare records nobody chose **while calling them chosen**, which is worse than sweeping them. A **quote** can tell, because its default was `Any`. ⚠ The message scan is **gone rather than unused**, and that is asserted on `wireSweepSources` rather than on the classifier: the red-check proved that putting the branch back into the classifier alone is a NO-OP, since nothing supplies the key — so the check has to refuse the Inbox read itself. ⚠ And **both spellings of the quote link** are read, `existingCustomerId` and the older `convertedToCustomerId`, or every customer converted before that rename is swept in spite of their quote.
+    - ⭐ **And only the houses IN THE WAREHOUSE right now** (2026-09-17, [[OPT-19]]). Addie, reading a dry run that listed most of the book: *"it looks like its everyone that has whites that we would loose there whites. I only want people that are currently in warehouse with white lights to be refreshed."* ⭐ **The reason is the cost, which is what makes it the right scope rather than merely a smaller one**: a wrong wire colour only matters to somebody about to MAKE a bundle — those are the houses where *Check lights* gets answered, because a person is already at the shelf. Clearing the other ~900 asks a question nobody is in a position to answer, and empties records that were at least a guess. ⚠ So this is **a habit, not one sweep**: a house leaves the scope by being built, so the same button run next week catches whoever is queued then. ⛔ `wireSweepOnWarehouse` asks **`whBuildQueueGroups` — the tab’s own answer** — rather than testing `needsLightBuild` for itself: a second opinion about who is in the warehouse is how this sweep and the screen it is named after start disagreeing, which is the fault this whole thread has been about. ⚠ Called **once**, not per house — `whHouseBuildStatus` answers it for ONE house by building the whole queue, and asking that per customer is the ~950,000-comparison shape that has already locked a screen in this app. ⚠ The **blocked block and both timer lists** count as in the warehouse; buffer stock does not, because an extra has no customer record to clear. ⛔ And a **missing map sweeps nobody**, not everybody — failing the other way would look exactly like the sweep working.
+    - ⛔ **And a fifth door was found by checking the answer rather than quoting it** (2026-09-17, [[OPT-20]]). Addie: *"So for the future the only people that are marked for white wire will have marked it themselves or we marked it correct?"* Running the census to answer her, rather than repeating what it claims, showed that **`employee.html` is not in it** — its `FILES` list is admin.html, index.html and functions/index.js. The crew portal carries its **own copy of `whWireLabel`**, and that copy still returned **White** for a blank while the office copy has said *Check lights* since [[WH-35]]; one render there skipped the label entirely and printed the raw field. ⛔ **The cost is not just a wrong word on a screen**: that label is **half the build group key** — a build is only "the same" if the colours AND the wire match — so the office filed blank-wire houses under *Check lights* while the crew portal filed them under *White*. Two screens, two piles, one house. ⚠ **And the gate lifted the crew copy as a dependency and never compared it**: the colour comparison hands `whWireLabel` to its sandbox and then only exercises the colour half, so every check stayed green through the drift. Both copies are now RUN over the wire half, the blank included — and the blank is asserted outright, not merely that the two agree, because two copies can agree on White and both be wrong. ⚠ **Dormant is not harmless**: the crew portal is unused this season, which is the same argument `silent-failures.test.js` already makes for sweeping it. Rules 1 and 2 of the census both cover it now.
+    - ⛔ **And four MORE doors were still writing or printing it** (2026-09-17, [[OPT-16]]). Addie: *"I still see that white wire is still showing in warehouse."* Two things were true at once and only saying one would have been wrong. ⛔ **`openEditCustomerModal` filled the box with a White fallback**, and that form is opened dozens of times a day — so every save of a blank-wire customer wrote White back, and **a sweep would have been undone one save at a time, silently.** The others: the Add Customer form RESET opened on White; `renderRouteOrderedList` printed *Wire: White* for a blank; and the printed Needs Building sheet printed an EMPTY cell where the screen has read Check lights since [[WH-35]] — and a blank on paper says nothing when the one thing that row needs to say is go and look. ⚠ **The warehouse itself was right all along**: its chips, build groups and both sheets already went through `whWireLabel`. What she was looking at was records that really did say White, because the sweep is a button and nothing had pressed it. ⭐ **So the rule is CODE now rather than a habit** — §6’s own promotion rule, after finding these one at a time by eye over two days. The census in `warehouse-colours.test.js` refuses any `|| 'White'` in any source file, and requires every place a stored wire colour reaches a person to go through `whWireLabel`. ⚠ It is **named, never counted**: a ceiling on raw reads is the gate this repo has rejected twice. ⚠ And its first draft sat after `process.exit` and never ran — all five red-checks reported MISSED and the gate was worth nothing; the tell is a new section that passes the instant it is written.
+    - ⭐ **And switching the member auto-reply on is one press** (2026-09-17, [[OPT-15]]). Addie: *"I already gave you a template to work with."* She had, twice — and being walked through *press this, then tick that, then Save* is the complaint. **Use the wording you gave us, and switch it on** creates the template, picks it, ticks the box and saves in one press. ⛔ **The press stays hers**: seeding it on page load would mean real customers start getting email because a page rendered. The tick box turns it straight back off. ⚠ It never overwrites wording she has edited — an existing template of that name is switched on as it stands. ⭐ And her closing *"This is auto- Reply"* was a **label, not copy**: the second paste of the same wording did not carry it, so the grey footer is gone and a check stops it coming back.
+  - ⭐ **AND THE UNANSWERED QUESTION IS ANSWERED IN SYSTEM MESSAGES, OFF A PICTURE OF THE HOUSE** (2026-09-17, [[WH-40]]). Dax: *"if they dont answer it then there is a spot in our system messages that shows us a picture of their house and we can mark there wire type there and there is no default color so they dont get assigned a color until we go into system messages and assign them one."* ⛔ **“Check lights” is the right answer for a bin and the wrong one for a new house.** After [[OPT-12]] nobody is asked for a wire at all and the office form opens on *not chosen*, so every new house arrives carrying nothing — and [[WH-35]] then tells the warehouse to look in a bin that does not exist yet for a house that has never been hung. A **Pick a Wire Colour** notice is raised the moment a customer is saved with the wire genuinely blank (only that door, only when blank), carrying their `customerId`. The card shows the photo on their record, or Street View worked out from their map pin, and **White** / **Green** write straight onto the record.
+    - ⚠ **The answer is read off the CUSTOMER, never off the notice.** The wire can also be set from Edit Customer, the member portal or the sheet sync, so a card that believed its own buttons would go on asking for something already answered — and pressing it would write over a colour a person had since chosen. A card whose customer has been removed says so and draws no buttons at all.
+    - ⚠ **At creation only — never a sweep over the book.** ~637 customers have no wire on file and are deliberately left to be answered at the shelf, which is [[WH-36]]'s own *“we will update it little at a time”*. A notice each would bury the folder this one has to be noticed in.
+    - ⚠ **It queues a rebuild, through `warehouseRebuildFields` rather than by setting the flag itself**, and dates it with `stampBuildQueued` like every other door that queues one — a house already built in the Check lights pile has to be built again now the wire is known. A refused customer write leaves the notice OPEN: a closed notice over a failed write is the one outcome where the question disappears and the answer never lands.
+    - ⚠ **Two Google keys, and only one of them has Street View turned on.** The picture walks the same key list `rmFetchStatic` walks; a refusal tries the next key, while *no imagery here* is answered once and said plainly, because it would say the same on every key we own.
+  - ⛔ **And a second one, older and worse, in the portal's wire-colour dropdown.** It was prefilled with `addrDoc.wireColor || 'White'` and read back on save with no fallback — and `wireColor` is one of the three `WAREHOUSE_BUILD_FIELDS`, so whatever that control reads can queue a bundle rebuild. Two silent faults, both measured by running `warehouseRebuildFields`: a customer with **no** wire colour on file (`rbNormalizeWire` returns '' for anything the sheet spelt oddly) who opened the Changes tab to edit their **note** had `White` written to their record — a colour nobody chose and a rebuild nobody asked for; and a record holding a wire the dropdown cannot show fell to `selectedIndex -1`, so the save wrote `''` and **erased it**, rebuild and all. The radios directly below that select already avoid exactly this — an untouched control must never read as a change — so the select now follows the same rule: a disabled *— not recorded —* option when there is nothing on file, and a save that falls back to the record rather than writing a blank over it. ⚠ Covered by `test/wire-colour.spec.js` in a real browser, because the whole fault is what a `<select>` does with a value that is not one of its options — something no source check can see.
+  - ⛔ **And building it found a real bug in the office history, fixed in the same push.** `specificOutlet` is a Yes/No field, and the rule that reads those answered `v ? 'yes' : 'no'` — but the portal's radios post the **string** `'No'`, which is truthy. So it was wrong in both directions at once: a customer switching *Specific outlet* from No to Yes produced **no history row at all**, while a record holding boolean `false` saved against a posted `'No'` — nobody touching anything — reported *“no → yes”* every single time. On the old code that was a wrong line in a log; on the new code it would also have been an email to a customer about a change they never made. Blank, `no`, `false` and `0` all read as no now, and anything else as yes — which keeps the older trap closed, because `''` and `false` still have to mean the same thing or every save reports its tick boxes changing. ⚠ Paired rule: `portalChangeValueText` in functions/index.js and `changeValueText` in admin.html, changed together.
+  - ⚠ **Sides promise nothing about the price.** Changing them raises a re-quote, so that line says an updated price is coming rather than letting the template's closing sentence promise the work at the old figure.
+  - ⚠ **The same change twice inside half an hour is one email**, fingerprinted on the wording rather than on which fields moved — so a red-then-blue correction still gets its own email, because a stale confirmation naming the colour they backed out of is worse than a second one.
+  - ⚠ **The template is loaded by id, and a deleted one sends nothing** rather than wording she never wrote. If the body loses `{{change}}`, the list of what changed is appended anyway — the email can never fail to say what it is about.
 - Changing light colors in the portal auto-queues the warehouse build (`needsLightBuild`) when the pattern actually changed.
 - A light-color change made **after** the customer is already on a saved route auto-drops a "Lights Changed After Assignment" message into the Admin inbox — a human still has to manually deal with the route.
 - Deleting a scheduled route automatically frees the affected houses back to the schedule pool.
@@ -4426,6 +5151,9 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
 - **Owing money from last season keeps you out of the season too**, on top of the RSVP rule and independently of it — a yes is not a payment. Start New Season carries the unpaid balance onto the new bill as its own `kind: 'arrears'` line, and `isOutForSeason` holds them until the whole of that amount is covered by payment or credit. They are listed under **Schedule → Owes from last year** (§3, MON-31, RS-24).
 - **And the RSVP says so to their face rather than promising a crew** (2026-09-01). A yes from a debtor used to end on *"We'll get you scheduled!"*, which is the one thing that was never going to happen for them. It now names the amount and the season and says the install cannot be booked until it is settled — on both screens, because the follow-on message is where that promise actually lived. Their yes is still recorded, nothing is sent (so it is not MON-34's chase), and an invoice that cannot be read reports nought and leaves the old wording alone. Full reasoning in §3.
 - A legacy customer record without a `portalToken` gets one minted automatically the first time they're looked up.
+  - ⛔ **And a token that could not be SAVED is never put in an email** (2026-09-13). Minting is a write, and a write can be refused. `getOrCreatePortalToken` in `admin.html` used to swallow that and hand the freshly minted token back anyway — so the office sent a real customer an RSVP link that belongs to **no record at all**. They tap Yes, `findByToken` matches nothing, and to them it looks exactly like they already answered. It is silent at both ends: the office reads a green *Sent*, and the Errors row can only say *"no customer matches this link"* — which is what every RSVP failure row in the 8–11 September log says.
+  - ⭐ **The server already had the right rule and wrote it down.** `ensureToken` in `functions/index.js` re-reads after a failed write — somebody else may have minted one in the gap, and *theirs* is the one that is stored — and failing that sends a link with **no token** *"rather than one that cannot work"*. The browser copy now does the same. Change one and change the other; **Suite 332** runs both against the same refused write.
+  - ⚠ **No token is a safe answer, and that is why this works.** All four callers already write `(token ? ('?token='+token) : '')`, so the customer gets the plain portal address and signs in with their phone and surname exactly as they would from the website. A working sign-in beats a one-tap link that records nothing. The failure is reported through `console.error` → `__huAdminErrorSink` → the Errors folder, rather than being discovered from a customer weeks later.
 - Nightly-run failures/results text the owner via Twilio — a separate channel from email, so it still works if email itself breaks.
 
 ---
@@ -4863,6 +5591,10 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
   - ⚠ **Only the primary `email` field counts.** Every sender reads `d.email` — the nightly invoice run, both automation-email senders, the quote nudge. `email2` exists so a customer can *sign in* to the portal with it and is never written to, so a record holding only a secondary address cannot be emailed by anything at all. Those rows get an amber **Secondary email only — move it up** chip instead, because "No email" beside a visibly present address reads as a bug rather than as a field to fix.
   - **Automation Emails → Preview & Send says it too, at the moment of sending.** The recipient list used to drop these people on its first line, before any filter ran, so the count read *"312 members match these filters"* whether it had dropped nobody or forty — an RSVP that missed forty people looked exactly like one that reached everybody. They now flow through every filter and are removed at the end, and the count line reports it: *"— 40 left out: no email address on file. Find them under Customers → Filters → Email."* Nobody's mail changed; they were already excluded and should be.
   - ⚠ The exclusion is **not** applied in the do-not-send **manage view**, or somebody with no email who is also on that list would be hidden from the one screen that could take them off it. And an empty recipient list says they matched but cannot be written to, rather than "no members match these filters", which would send the office back to check filters that were fine.
+  - ⭐ **A filled box is not an address** (2026-09-12, from the Errors folder). `custCanBeEmailed` used to ask only whether the field was non-blank, so a record holding something EmailJS refuses — two addresses in one box, a space, a missing `@` — counted as reachable. The Errors folder caught what that costs, twice in two days: *"1 of 258 failed. The email service said: The recipients address is corrupted"*, then the next day *"1 of 1 failed"* with the same words. That second row is the failure card's own **Send again to the ones it missed** button arriving back at the same unsendable address, and it can be pressed for ever, because EmailJS's wording names no part of the problem and nothing to do about it. The rule now asks `emailAddressProblem` — the same structural check the quote card and `quotesToNudge` have always used, so both halves of the app finally agree about who is reachable.
+    - It refuses what **cannot** be an address, never what merely looks odd. It is *not* `emailTypoSuggestion`, which guesses that `gmai.com` meant `gmail.com` and deliberately only ever warns — a guess about somebody else's address must not block a real send, so `sam@gmai.com` is still sent to.
+    - **Nobody is dropped in silence**, which is the only thing that makes refusing safe. The count line reports the two causes separately — *"— 1 left out: the address on file is not one we can send to … correct it"* beside the existing *"no email address on file"* — because one means go and find an address and the other means go and correct the one we have. The row carries a red **Can't be emailed —** chip naming the actual problem rather than "No email", which beside a visible address reads as a bug in the badge.
+    - **All five bulk senders ask before spending a request** (`emailSendSkipReason`), and the person is recorded in `failedRecipients` with the reason, so the *"Some emails did not go out"* card names the record to fix. The check in `etSendTemplateRun` is the one that ends the loop: the re-send takes its ids straight from the saved failure list and never goes near the recipient list, so guarding the list alone would have fixed every send except the one actually going round in circles.
   - Health Check's *"Customer with a phone but no email address"* answers a related but different question: it groups by **payer** and skips anyone who RSVP'd no, because it is about whether a **bill** can go out. The Customers filter is per-customer and includes everybody.
 - ⚠ **Every select in the All Customers filter panel must be named in the change-listener array** (`['allCustFilterCity', …].forEach`). `allCustFilterLights` was missing from it from the day it shipped until 2026-08-21: the filter logic was correct and unreachable, so picking "On soft (needs switching)" redrew nothing unless you happened to touch another filter afterwards. Suite 73 passed throughout, because it lifts the filter block and runs it directly and never asked whether the control was connected. Suite 128 now asserts every select is wired, and that Clear Filters resets every one of them.
 - **One-time notes**: there used to be two disconnected fields — `oneTimeNotes` (plural, written by Add/Edit Customer, read by nothing) and `oneTimeNote` (singular, the one actually shown on route stops, read by the Crew Portal, and cleared when a stop is marked Done). Fixed in this pass — Add/Edit Customer now writes the singular field too, so a note entered there actually reaches the crew.
@@ -5050,6 +5782,100 @@ was made.** That gap — between waiting for a day and being hung — is where a
 and gets forgotten, and until 2026-08-28 nothing measured it. ⚠ **`fixRaisedAt` survives
 the mend**, beside `fixDoneAt`: the pair says how long the customer waited, and clearing
 it would let the repair erase the wait.
+
+⭐ **AND THE ROW NOW CHECKS THAT THE DAY IS REAL** (2026-09-11, [[SCH-73]]). Addie, on
+Darlene Price #680: *"It says shes scheduled for Oct 16 but I dont see oct 16 on the
+schedule."* The green pill in **All Customers › Route** read those stamps and nothing
+else, so a booking that had since been taken apart went on promising a van. It asks
+`scheduledDayIsReal` now — is there a crew route on that date, and does it hold this
+house? — and when the answer is a flat no the pill turns red and says **"not on the
+schedule"**.
+
+⚠ **NOTHING WAS EVER GOING TO FIND THAT ON ITS OWN, which is the part worth knowing.**
+The two sweeps between them cover the other cases and not this one: `clearStaleInstallBookings`
+only clears a stamp for somebody who is OUT for the season (Darlene is Confirmed), and the
+reconcile sweep's stranded pass only re-homes a date already in the PAST. Step 1 of that
+sweep walks **routes** and corrects the records on them, so a customer on no route is never
+looked at.
+
+⛔ **THE PILL REPORTS; THE REPAIR HAPPENS ON RECALCULATE EVERYTHING** (2026-09-11, [[SCH-74]]).
+Addie: *"I can't check every day to look at which date everyone was assigned and if it's
+legitamite or not I need it to correctly place them."* She is right — a warning on one row
+out of ~950 is a report. `clearStaleInstallBookingsRun` now clears an orphaned stamp as well
+as an out-for-the-season one, so the next sweep re-homes them and the date comes right on its
+own. The pill stays as the thing that says so on screen; it still never writes.
+
+⭐ **THE ROW'S HANG DATE COMES FROM THE SCHEDULE, NOT THE ROUTES SYSTEM** (2026-09-12,
+[[SCH-77]]). Addie, after two earlier fixes had not touched it: *"person still says they are
+scheduled for Oct 16 but Oct 16 is not in schedules."*
+
+`scheduled` / `scheduledDate` are written in seven places and **every one is on the
+crew-routes side** — the Schedule plan has never written that field. The reconcile sweep
+builds its own days, so Oct 16 was a day it invented and a route for it really existed;
+both earlier fixes asked "is there a crew route?", got yes, and correctly did nothing.
+
+⛔ **That field cannot be repointed.** The sweep reads `d.scheduled` in four places to decide
+who still needs a day — it is that system's own bookkeeping. Writing plan dates into it would
+make the sweep re-home everybody every fifteen minutes.
+
+⭐ So nothing about the field changed. The Schedule publishes what it holds
+(`window.schedulePlanBookings`) and the row reads that instead. ⚠ The stamp is still the
+fallback for when the plan cannot answer — it returns null until the Schedule tab has been
+opened, and blanking ~950 rows until somebody clicks Schedule would read as a broken column.
+
+⭐ **AND ALL CUSTOMERS FOLLOWS THE PLAN BY ITSELF** (2026-09-16, [[SCH-80]]). Dax: *"in all
+customers where it shows when they are scheduled if at all its not in proper sync, it should
+pull those dates automatically and so that page is updated anytime somebody clicks recalculate
+everything"*.
+
+[[SCH-77]] pointed the **date** at the plan and left three holes behind it. The **word** above
+that date — *Scheduled* / *Unscheduled*, and the Route Status filter built on it — still read
+the crew-routes stamp, so one row could say *Scheduled* over *"No day booked yet"*. The plan
+itself only existed on a device that had opened **Routes**, so anybody who went straight to
+Customers read the stamps for the whole session. And nothing redrew the table when the plan
+changed: Recalculate everything ends in `renderAll`, which redraws the Schedule alone.
+
+⭐ So `allCustRouteStatus` asks the plan too, on the same three answers as the date
+(a day → *Scheduled*, no day → *Unscheduled*, cannot say → the stamp it always drew); the
+first draw of the table opens a **read-only listener** on the saved plan
+(`scheduleFollowPlanForReaders`); and every `renderAll` tells the table to repaint
+(`schedulePlanChanged`, debounced, and a hidden table is marked stale and redrawn when
+Customers is next opened).
+
+⚠ **THE READER NEVER WRITES, AND STANDS BACK ONCE ROUTES IS OPEN.** It hydrates the plan and
+asks for a repaint — no `renderAll` (that saves), no customer sync, no timer — and
+unsubscribes the moment this device loads the plan for real, because from then on the
+in-memory plan is the one being edited and hydrating over it would discard a move made a
+second ago.
+
+⚠ **NOTHING ABOUT WHO GETS PLACED CHANGED.** This is what the page READS. The rule that puts
+every confirmed customer on a day, and names any who are left off, is
+`confirmedNotOnAnyDay` on the Recalculate press ([[SCH-74]]).
+
+⭐ **AND SCHEDULE IS NOW A TAB OF ROUTES** (2026-09-11, [[SCH-76]]). Addie: *"Can we
+organize this better so schedule can be a part of routes?"* It leads the Routes tab bar,
+ahead of List View / Generate Route / Calendar / Map View / Take Downs. **Nothing was
+removed** — her *"I need everything to stay as it is"* is the later and narrower instruction,
+so Generate Route and the Calendar are still there, now sitting beside the thing that
+duplicates them. ⚠ The widget starts from **two** doors — the Routes nav item and the
+Schedule tab itself — because she can read the address list and come back to the Schedule tab
+without touching the nav again, and wiring only the nav gives a blank pane on that path.
+
+⭐ **AND THE CAUSE IS THAT THERE ARE TWO PLANNERS.** The **Schedule** tab builds
+`routeSchedule` — the day list, Recalculate everything, both crew print sheets, the Printing
+tab. The **reconcile sweep** builds its own crew-days in `scheduledRoutes` every fifteen
+minutes, and that is what stamps `scheduled` / `scheduledDate` / `assignedCrew` on the
+customer. The row was reporting the planner the office does not look at.
+
+⭐ **THE SWEEP NOW PLANS BY THE WEATHER TOO.** `rebuildSeasonDays` has always passed the cold
+veto, the chilly preference and the warmth band; the sweep passed `maxDays` alone, so its
+forecast lookup defaulted to "no opinion" and the cold rule **could never fire there** — it
+would send a crew to a town at 20° and write that date onto a row. Both now pass the same
+four options. ⚠ It is still a TEMPERATURE rule only: 38° and snowing passes it, and frost on
+one roof is a morning call no forecast can make.
+⚠ And it answers **three** ways, not two: until `scheduledRoutesLoaded` is set every stamped
+customer looks orphaned, so before that it says "cannot tell" and the pill is exactly what
+it was before.
 
 Most of the money was already dated and that was checked before anything was built: the
 $25 referral, manual discounts, carried credits, manual fees, the automatic $30 change fee
@@ -6273,7 +7099,51 @@ are the two copies of the rule — change one, change the other, in the same pus
 ## 11. If X isn't working, check Y
 
 - **The whole admin page is dead, and the console names an error nowhere near anything you changed** → read the FIRST error, not the loudest one, and look at the line it names. On 2026-09-09 the log read `ReferenceError: Can't find variable: async  at admin.html:20204`, then twice `Cannot access uninitialized variable.  at admin.html:42670`. One cause: a stray `async` left alone on line 20204 by an edit that removed the function it belonged to. On its own that word is just a name JavaScript cannot find, so the script stops there — and the two errors twenty thousand lines lower are simply the things it never got as far as creating. A whole script dying part-way always looks like several unrelated faults at once; the one to fix is the first. `npm run verify` now refuses this before it can be pushed.
+- **Re-quote emails are not going out, while ordinary quotes are** → the template is looked up by **exact name**. `getEmailTemplateByName` is a plain `name === name` match, and it is asked for whatever **Quote email settings → Re-quote template** holds — which ships as the literal string **"ReQuotes"**. A template called *Requotes*, *Re-Quotes* or anything else is not found. Until 2026-09-17 a re-quote raised off an **existing customer** then refused outright, while a first quote with no template fell back to a built-in body and went out — which is exactly why it read as *re-quotes being broken* rather than a setting being wrong. ⚠ **The send no longer stops.** It uses the built-in re-quote wording (`DEFAULT_REQUOTE_BODY`, which had been in the file all along and was read only by the seed-the-templates button) and **says so** on the card, naming the template it could not find. So if a customer reports wording that is not hers, read that line — it is telling you to pick a template. The **Check my setup** button in Quote email settings lists which of the three names it can actually find, and is the fastest way to see this. [[QT-42]]
 - **A quote email shows "(quote token not found)" where the Approve / Maybe / Decline buttons should be** → the quote those buttons belong to has no `quoteToken`, so there is no link to put behind them. A token is normally minted in the customer's own browser when the public quote form is submitted, and until 2026-09-11 the PORTAL's re-quote — raised when a member changes how many sides of their house are lit — never minted one at all. Miko Johnson's is the one that reached the office that way. Two halves are fixed: the portal create writes a token like every other quote, and the email renderer mints one on demand, which is what rescues every quote already sitting in the book without one. ⚠ **AND IT WAS PICKING THE WRONG QUOTE AS WELL.** The renderer took the FIRST quote sharing the customer's phone number, in cache order — Addie's own number carries five quotes and every one is CLOSED — so a live email could carry the token of a quote answered weeks ago, inviting the customer to re-answer history while the quote actually in front of them stayed untouched. `quoteForButtons` now skips closed and archived quotes and takes the newest of what is left, and returns nothing at all when there is no open quote, because buttons pointing at an answered quote are worse than no buttons.
+
+  ⛔ **AND IT CAME BACK ON 2026-09-17, FOR A THIRD REASON: THE RENDERER WAS NEVER TOLD
+  WHICH QUOTE.** Reported on a priced email the office was looking at — $384, the
+  customer's own house in it, and "(quote token not found)" three times where the
+  buttons belong. `quoteForButtons` searches by PHONE NUMBER; the office presses Send
+  on ONE quote card. Those stopped being the same thing when the public form took one
+  contact box that is a phone **or** an email ([[QT-40]], 2026-09-12): an email-only
+  lead has no number, the lookup returns `null` the instant the number is empty, and
+  the developer text goes out. A quote typed up by hand from a phone call before the
+  number is filled in does the same. And the shared-number half of it was still live
+  in the other direction — seventeen numbers in the book are shared and fourteen are a
+  parent and a child, so the newest open quote on a number can be the OTHER
+  household's, and the email would ask a parent to approve their child's price.
+
+  ⛔ **AND THE "Send me a test" BUTTON PRINTED THE SAME WORDS, FOR A DIFFERENT REASON
+  ([[QT-44]], 2026-09-17).** It is sample data with no quote behind it, so it handed the
+  renderer nothing and all three buttons came out as the developer text — on the one
+  email whose whole job is to say whether the buttons arrive as BUTTONS (that is the
+  EmailJS triple-brace setting, and its own success line tells the office to judge
+  exactly that). It was answering its own question wrongly.
+
+  ⚠ **THREE TOKENS, NOT ONE.** It also passed no `setupFeeLine`, so a template using that
+  token mailed the raw `{{setup_fee_line}}`, and it bolted a photo onto the end instead of
+  running `applyQuotePhotoBlock`, so `{{photo}}` survived as text. A test that does not
+  build what the real send builds cannot answer the question it is asked.
+
+  ⭐ **IT IS A SAMPLE QUOTE AND THE EMAIL SAYS SO** — real buttons on a quote that does not
+  exist lead to "quote not found", which reads as a broken website rather than sample data.
+  ⛔ **The sample token is unspellable by `newQuoteToken`** (`QUOTE_TOKEN_ALPHABET` holds no
+  hyphen), which is the check that matters most: these links carry `action=approve`, so a
+  collision would let a test email answer a real customer's quote. ⛔ **And a sample is
+  never written to the book** — the on-demand mint writes by `quote.id`, so without the
+  `sample` guard a test send would create a `quotes/__sample_quote__` nobody cleans up.
+
+  ⭐ **THE FIX IS THAT THE SEND HANDS ITS OWN QUOTE IN.** `resolveLinkTokens` takes
+  `opts.quote`, and `buildQuoteEmailHtml` (both callers: the one-press send and the
+  preview) and the bulk nudge pass the cache item they are already holding.
+  ⚠ **The phone lookup stays as the fallback** and must: the RSVP and Automation
+  Emails paths genuinely have only a number to go on. ⚠ **And a handed-in quote with
+  no token is still minted one, onto itself** — `addOnEmailBlock` already carried this
+  warning about the same function, and this is the other half of it. Covered by S311,
+  including a check that the phone lookup alone still fails on the same fixture, so
+  the suite cannot pass on a renderer that quietly went back to guessing.
 - **A route/customer list is empty with no error** → check `firestore.rules` first for that collection. A collection missing a rules entry is denied by default and fails *silently* in a listener (no console error a non-coder would notice).
 - **A field the portal should show is blank or stuck at 0** → check whether that field is in the relevant Cloud Function's *read whitelist* (`PORTAL_READ_FIELDS`, `INVOICE_READ_FIELDS`, `QUOTE_READ_FIELDS` in `functions/index.js`). The portal only ever sees a function's sanitized output, never the raw document — a field can be correctly written and still invisible to the customer if it's not on that list.
 - **You cannot tell why somebody is not going out** → the Route column on All Customers now carries a line under the status saying so — *"Not scheduled — owes $400.00 from last season"*, *"— no RSVP yet"*, *"— they said no"* — and Edit Customer shows the same sentence with what clears it. It is `seasonHold`, gated on `isOutForSeason`, so it can never disagree with whether a crew is actually being sent, and only the money reason is drawn in the warning colour because the RSVP pill above already states the others (RS-26).
@@ -6294,3 +7164,19 @@ are the two copies of the rule — change one, change the other, in the same pus
 - **Measure Roof's Attach to Quote says "Nothing uploaded"** → read the rest of that line, and believe it over the button. Since 2026-09-09 the message carries the picture service's own words, because for one afternoon it said only *"Nothing uploaded — try again."* while Cloudinary was answering every request `401 cloud_name highlighting-utah is disabled` — the whole account switched off, so retrying could not work at any hour of any day and the office was sent to the one action guaranteed to fail. **A disabled account is a billing problem at Cloudinary, not a bug in Attach**, and it takes down every photograph already on a quote as well as new uploads (delivery from `res.cloudinary.com` 401s too), so the symptom to expect alongside it is blank pictures across the whole app. Check it in one line from any machine: `curl -s -D - -o /dev/null https://res.cloudinary.com/highlighting-utah/image/upload/sample.jpg` — the `X-Cld-Error` header names the fault. `uploadFailAdvice` is what turns the message into an instruction; it never replaces the service's words, only leads them.
 - **A house photo saved from Measure Roof is squashed into a thin strip** → the pane was scrolled mostly off the screen when the picture was taken. Since 2026-08-30 the Street View and satellite captures are a PHOTOGRAPH OF THE TAB cropped to the pane, so the picture can only ever contain what was on the glass; with a centimetre of pane showing, that is a centimetre of photograph. Jeffrey Marz's came out **893 × 36** — a house at nearly 25:1. The guard that should have caught it was reading `rect.height`, the pane's LAYOUT height, which is full at any scroll position; the collapse happened afterwards, where the crop height is clamped to whatever screen is left below the pane's top. Fixed 2026-09-11: `rmPaneClipped` measures the VISIBLE part, a clipped pane is scrolled into view and measured again, and one that still will not fit hands back `null` so the caller fetches a fresh, correctly proportioned photograph from Google instead. ⚠ **That fallback loses the drawn-on dots**, which is the deliberate trade — the office can see dots are missing, and nobody notices an aspect ratio until the crew is at the kerb. To check a stored photo without opening it, read its dimensions: a house should be about 4:3, and anything past about 3:1 is this fault.
 - **Firestore's "Fetch failed" / long-poll `Listen`/`channel` message in the console** → normal reconnection noise, not a bug.
+
+---
+
+## Being found in the first place
+
+⭐ **Added 2026-09-12.** Three separate things get called "Google" and only one of them costs money. They are listed here because the confusion is the expensive part.
+
+1. **The Google Business Profile** — `HighLighting Utah`, **verified**, a service-area business covering Lehi, Orem and 18 more. **4.9 stars from 198 reviews**, 383 profile views last month. This is what puts the company in the map results for *christmas light installation near me*, and it is by a distance the most valuable of the three. It is also free. ⚠ Its open gaps are all free to close: **not one review has ever been replied to**, and the last photo went up **442 days ago**.
+2. **Google Ads** — account **288-126-7540**, "Brian Petersen - HighLighting Utah 10$ ADWX", under highlightingutah@gmail.com. It **exists and is CANCELED**: three campaigns, zero impressions, zero spend. ⛔ One of them, the Smart campaign, is preloaded at **$41.54/day — $1,262.82/month**. Anybody who reactivates that account to "see what happens" starts spending at that rate. Reactivating is a money decision and belongs to Addie, not to a session.
+3. **Google Analytics** — `G-44SCT38S6E` sits in the Firebase config in index.html and **nothing ever initialises it**. There is no `getAnalytics`, no gtag.js, no tag manager, in any of the four HTML files. The property exists and has **never received a single hit**, so any question of the form "how many people visited" currently has no answer at all.
+
+⚠ **The site is one URL and every section is a hash route.** Areas We Serve, Gallery, How It Works and the FAQ all live at `#/areas`, `#/gallery`, `#/how`, `#/faq` inside the one document. Search engines do not treat a fragment as a separate page, so the 29 towns on Areas We Serve are 29 towns on the homepage — not 29 pages that could each rank for their own town. That is the ceiling on organic search as the site is built, and lifting it means real routes, not more markup.
+
+⚠ **The staff screens were indexable until now.** admin.html, employee.html and connections.html each carry `<meta name="robots" content="noindex, nofollow">`, and robots.txt deliberately does **not** Disallow them — a page a crawler may not fetch is a page whose noindex it can never read. `/q/`, `/r/` and `/s/` **are** Disallowed, because those rewrites carry a customer portal token in the path.
+
+⚠ **No rating is marked up on the site, on purpose.** The 4.9 belongs to the Google profile. Review markup must describe reviews this site collected; copying the number in is what earns a manual action. `search-visibility.test.js` fails if anybody adds it.

@@ -131,7 +131,11 @@ function build(opts) {
   const behaviour = fs.readFileSync(path.join(__dirname, 'behaviour.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8');
 
+  /* ⛔ NOT A PUBLIC PAGE. noindex rather than a robots.txt Disallow: a page a crawler may
+     not fetch is a page whose noindex it can never read. It lives HERE, in the generator,
+     because a tag hand-added to connections.html is wiped by the next rebuild. */
   const html = '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
+    '<meta name="robots" content="noindex, nofollow">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<title>Connections · Highlighting Utah</title><style>' + css + '</style></head><body>' +
     '<div class="wrap"><header><p class="eyebrow">Highlighting Utah · admin</p><h1>Connections</h1>' +
