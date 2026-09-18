@@ -7524,6 +7524,21 @@ function quoteButtonLabels(d){
  * short address. This only changes what NEW quotes get.
  */
 const QUOTE_TOKEN_ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789';
+/* ⭐ THE SAMPLE QUOTE THE TEST EMAIL IS BUILT FROM (2026-09-17).
+   Dax, reading a test send: "when you try it on test it should not print token
+   not found". He is right, and it was the test button defeating its own purpose —
+   its success line tells you to judge THE BUTTONS, and it rendered the words
+   "(quote token not found)" where all three should have been.
+
+   ⚠ THE TOKEN IS DELIBERATELY UNSPELLABLE BY newQuoteToken. QUOTE_TOKEN_ALPHABET
+   above holds no hyphen, so a minted token can never equal this string and this
+   sample can never collide with a real quote — which matters, because these links
+   carry action=approve and a collision would answer somebody's real quote.
+
+   ⚠ AND THE ID IS NEVER WRITTEN TO. `sample` is what stops the renderer minting
+   a token onto a quotes/ document that does not exist; see its guard. */
+const QUOTE_TEST_SAMPLE_TOKEN = 'sample-quote-not-a-real-one';
+const QUOTE_TEST_SAMPLE_ID = '__sample_quote__';
 function newQuoteToken(){
   const n = 12;
   let out = '';
@@ -10385,7 +10400,11 @@ async function resolveLinkTokens(text, phone, amount, opts){
        this reason; this was the sixth that needed to and did not. The create is
        fixed too, in index.html — but minting here is what rescues every quote
        already sitting in the book without one. */
-    if(quote && !quote.data.quoteToken){
+    /* ⚠ A SAMPLE QUOTE IS NEVER MINTED A TOKEN. The test email builds one that is
+       not in the book at all, and this mint writes by quote.id — so without the
+       guard a test send would create a quotes/__sample_quote__ document, which
+       nothing would ever clean up and which would then show on the Quotes tab. */
+    if(quote && !quote.data.quoteToken && !quote.sample){
       try{
         const fresh = newQuoteToken();
         await updateDoc(doc(db,'quotes', quote.id), {quoteToken: fresh});
@@ -14510,9 +14529,35 @@ document.getElementById('qEmailTestBtn')?.addEventListener('click', async functi
   try{
     const tmpl = getEmailTemplateByName(quoteTemplateNames.newQuote);
     const body = tmpl ? tmpl.data.body : DEFAULT_QUOTE_TEMPLATE_BODY;
-    let html = await resolveLinkTokens(body, '', 0, {name:'Test Customer', price: fmtMoney(450)});
-    html = '[TEST EMAIL \u2014 sample data]<br><br>' + html +
-      '<div style="margin-top:18px;"><img src="https://res.cloudinary.com/highlighting-utah/image/upload/sample.jpg" alt="Sample house" style="max-width:100%; border-radius:8px; display:block;"></div>';
+    /* ⚠ THE TEST EMAIL IS BUILT THE WAY A REAL ONE IS, and three things were missing
+       rather than one. It handed the renderer NO QUOTE (so all three buttons came out
+       as "(quote token not found)"), no setupFeeLine (so a template using that token
+       mailed the raw {{setup_fee_line}} out), and it bolted a photo on the end instead
+       of running applyQuotePhotoBlock (so {{photo}} survived as text and the picture
+       sat below the sign-off rather than under the price).
+
+       ⚠ A TEST THAT DOES NOT BUILD WHAT THE REAL SEND BUILDS CANNOT ANSWER THE
+       QUESTION IT IS ASKED. This one exists to say whether the buttons arrive as
+       buttons, which is the EmailJS triple-brace setting; developer tokens in the
+       body read as that same fault and send somebody to the wrong screen. */
+    const sampleQuote = {id: QUOTE_TEST_SAMPLE_ID, sample: true, data: {
+      name: 'Test Customer', phone: '', email: to, status: 'new',
+      quotedPrice: 450, chargeSetupFee: true, quoteToken: QUOTE_TEST_SAMPLE_TOKEN,
+      frontPhotoUrl: 'https://res.cloudinary.com/highlighting-utah/image/upload/sample.jpg'
+    }};
+    let html = await resolveLinkTokens(body, '', 0, {
+      quote: sampleQuote,
+      name: 'Test Customer',
+      price: fmtMoney(450),
+      setupFeeLine: quoteChargesSetupFee(sampleQuote.data)
+        ? ('Plus a one-time ' + fmtMoney(NEW_MEMBER_FEE) + ' set-up fee.') : ''
+    });
+    html = applyQuotePhotoBlock(html, quotePhotoList(sampleQuote.data), true);
+    /* ⚠ IT SAYS THE BUTTONS LEAD NOWHERE. They are real buttons on a quote that does
+       not exist, so pressing one lands on "quote not found" — which would read as a
+       broken website rather than as the sample data it is. */
+    html = '[TEST EMAIL \u2014 sample data. The three buttons below are real buttons on a ' +
+      'sample quote, so they lead nowhere.]<br><br>' + html;
     emailjs.init(cfg.publicKey);
     await emailjs.send(cfg.serviceId, cfg.templateId, {
       to_email: to, to_name: 'Test Customer', subject: 'Test quote email', message: html,

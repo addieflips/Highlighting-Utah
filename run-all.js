@@ -57409,11 +57409,16 @@ suite('Suite 311. The referral offer, RUN rather than read');
          the mint threw ReferenceError inside the renderer's own try/catch, so the
          email fell back to the not-found words and the failure read as "the fix
          does not work" rather than "the sandbox is short a constant". */
-      'QUOTE_TOKEN_ALPHABET'].map(function (n) {
+      'QUOTE_TOKEN_ALPHABET',
+      /* ⚠ THE TEST EMAIL'S SAMPLE QUOTE. Left out, the checks below throw inside the
+         renderer's own try/catch and the email falls back to the not-found words —
+         which reads as "the fix does not work" rather than as a short sandbox, the
+         exact debugging round QUOTE_TOKEN_ALPHABET above already cost once. */
+      'QUOTE_TEST_SAMPLE_TOKEN', 'QUOTE_TEST_SAMPLE_ID'].map(function (n) {
       const m = admin.match(new RegExp('const ' + n + " = '[^']*';"));
       return m ? m[0] : '';
     });
-    check('S311', 'the five styles and alphabets are lifted too',
+    check('S311', 'the styles, alphabets and sample constants are lifted too',
       styles311.every(Boolean),
       'a missing one is a ReferenceError inside the sandbox, reported as an unrelated crash');
 
@@ -57638,6 +57643,58 @@ suite('Suite 311. The referral offer, RUN rather than read');
       eq7.refs.some(function (r) { return r && r.coll === 'quotes' && r.id === 'q6'; }),
       'got: ' + oq7.slice(0, 120) + ' — a token minted onto the wrong document leaves ' +
       'the buttons pointing nowhere while the suite reads green');
+
+    /* ⭐ THE TEST EMAIL'S OWN BUTTONS (2026-09-17). Dax, reading a test send: "when
+       you try it on test it should not print token not found". The Send me a test
+       button handed the renderer no quote at all, so the one thing that email exists
+       to show — whether the buttons arrive as BUTTONS — came out as three copies of
+       the developer text instead. */
+    const qSample = { id: '__sample_quote__', sample: true, data: { name: 'Test Customer',
+      phone: '', email: 't@x.com', status: 'new', quotedPrice: 450,
+      quoteToken: 'sample-quote-not-a-real-one' } };
+    const eq8 = env311([withTok], []);
+    const oq8 = await eq8.resolveLinkTokens(BTNS, '', 0,
+      { quote: qSample, name: 'Test Customer' });
+    check('S311', 'the test email renders three real buttons, not the not-found words',
+      oq8.indexOf(NOTFOUND) === -1 && oq8.indexOf('action=approve') !== -1 &&
+      oq8.indexOf('action=decline') !== -1 && oq8.indexOf('action=maybe_next_year') !== -1,
+      'got: ' + oq8.slice(0, 160) + ' — the test send exists to say whether buttons ' +
+      'arrive as buttons, and it was answering its own question wrongly');
+
+    /* ⛔ AND IT MUST NOT WRITE. The mint goes by quote.id, and the sample is not in
+       the book — so without the `sample` guard a test send CREATES quotes/__sample_quote__,
+       which nothing cleans up and which then appears on the Quotes tab. */
+    const qSampleNoTok = { id: '__sample_quote__', sample: true, data: { name: 'Test Customer',
+      phone: '', email: 't@x.com', status: 'new', quotedPrice: 450 } };
+    const eq9 = env311([withTok], []);
+    await eq9.resolveLinkTokens(BTNS, '', 0, { quote: qSampleNoTok, name: 'Test Customer' });
+    check('S311', 'and a sample quote is never written to the book',
+      eq9.writes.length === 0 &&
+      !eq9.refs.some(function (r) { return r && r.id === '__sample_quote__'; }),
+      'got ' + eq9.writes.length + ' write(s) — a test send that creates a quote leaves ' +
+      'a phantom card on the Quotes tab that nobody put there');
+
+    /* ⚠ THE SAMPLE TOKEN CANNOT BE A REAL ONE, and this is the check that matters most
+       of the three: these links carry action=approve, so a token that could collide
+       with a minted one would let a test email answer a real customer's quote.
+       QUOTE_TOKEN_ALPHABET holds no hyphen, which is what makes it unspellable. */
+    /* ⚠ READ OUT OF THE SOURCE, NOT REFERENCED. Both constants live INSIDE the
+       env311 sandbox, so naming them here is a ReferenceError thrown from an async
+       block — which surfaces as an unrelated suite "crashed partway through" and
+       scores nothing after it. That is the §5 unattributable crash, and it cost a
+       run in this very commit. */
+    const sampleTokenSrc = (admin.match(/const QUOTE_TEST_SAMPLE_TOKEN = '([^']*)';/) || [])[1];
+    const tokenAlphabetSrc = (admin.match(/const QUOTE_TOKEN_ALPHABET = '([^']*)';/) || [])[1];
+    check('S311', 'both token constants were found in the source',
+      !!sampleTokenSrc && !!tokenAlphabetSrc,
+      'the check below cannot mean anything if either one was not found');
+    check('S311', 'the sample token can never be minted for a real quote',
+      !!sampleTokenSrc && !!tokenAlphabetSrc &&
+      sampleTokenSrc.split('').some(function (ch) {
+        return tokenAlphabetSrc.indexOf(ch) === -1;
+      }),
+      'every character of the sample token is spellable by newQuoteToken, so a real ' +
+      'quote could one day be minted this exact token and a test email would answer it');
     })());
 
     const e6 = env311([withTok]);
