@@ -4372,7 +4372,33 @@ the only other copy is a screen on emailjs.com):
 | To Email | `{{to_email}}` | the office Gmail, **typed literally** |
 | Subject | `{{subject}}` | `{{topic}}` — Addie's choice, 2026-09-11: offered with `— {{customer_name}}` appended so the inbox list says who each one is about, and she asked for the topic alone. The name is still the first line of the body. |
 | Body | `Hi {{to_name}},` + `{{{message}}}` (triple — those bodies are HTML) | `Hi {{customer_name}},` + `{{message}}` (double — it carries text a customer typed) |
+
+⛔ **THE TRIPLE BRACES ARE NOT DECORATION, AND LOSING THEM IS INVISIBLE FROM HERE.**
+Reported 2026-09-17: a quote email arrived with its `<br>`, its `<table>` and its
+button markup rendered as **visible text**, the whole email reading as source code.
+That is `{{message}}` (double) in the CUSTOMER template — Handlebars escapes a double,
+and every body this repo builds is HTML. ⚠ **Nothing in this repo can see it, prove it
+or fix it**: the braces live on a screen on emailjs.com, so no test will ever go red
+for this and no commit can repair it. The quote email test-send button already says so
+in its own success line ("If the buttons show as web addresses instead of buttons…").
+⚠ **And check the Template ID at the same time.** "Hi ," arriving together with escaped
+HTML is the signature of `settings/emailjs.templateId` pointing at the OFFICE-ALERT
+template rather than the customer one — that template greets `{{customer_name}}` (which
+the customer sends do not supply) and uses a double `{{message}}`, and its To Email is
+the office, so the customer never gets the mail at all. The two being mixed up is the
+same fault as 2026-09-11, pointing the other way.
 | Reply To | the office address, so customer replies reach a person | `{{customer_email}}`, so hitting Reply answers the customer |
+
+⛔ **AND `to_name` WAS NOT — THE CUSTOMER TEMPLATE SENT "Hi ," (found 2026-09-17, on the
+same quote email as the not-found words above).** Every one of the thirteen sends in
+admin.html passed the raw name with an empty-string fallback, so a record with no name
+on it greeted the customer with a comma on its own. Now `emailGreetingName`, which
+falls back to `there` — the same fallback `firstName` and the `{{name}}` token have
+always used. ⚠ **It is still the FULL name when there is one**: `to_name` has always
+carried that, and shortening it would reword ~950 invoices and RSVPs at the same time.
+⚠ **No test in this repo can read an EmailJS template parameter**, so S311 runs the
+helper and then greps admin.html for any send still passing `.name || ''` — the regex
+is the only thing standing between a nameless customer and that comma.
 
 ⚠ **`customer_name` IS FILLED ON ALL THIRTEEN PATHS**, so the greeting never renders "Hi ,":
 the three contact forms mark the name `required`, the portal actions read the signed-in
@@ -5759,6 +5785,35 @@ make the sweep re-home everybody every fifteen minutes.
 fallback for when the plan cannot answer — it returns null until the Schedule tab has been
 opened, and blanking ~950 rows until somebody clicks Schedule would read as a broken column.
 
+⭐ **AND ALL CUSTOMERS FOLLOWS THE PLAN BY ITSELF** (2026-09-16, [[SCH-80]]). Dax: *"in all
+customers where it shows when they are scheduled if at all its not in proper sync, it should
+pull those dates automatically and so that page is updated anytime somebody clicks recalculate
+everything"*.
+
+[[SCH-77]] pointed the **date** at the plan and left three holes behind it. The **word** above
+that date — *Scheduled* / *Unscheduled*, and the Route Status filter built on it — still read
+the crew-routes stamp, so one row could say *Scheduled* over *"No day booked yet"*. The plan
+itself only existed on a device that had opened **Routes**, so anybody who went straight to
+Customers read the stamps for the whole session. And nothing redrew the table when the plan
+changed: Recalculate everything ends in `renderAll`, which redraws the Schedule alone.
+
+⭐ So `allCustRouteStatus` asks the plan too, on the same three answers as the date
+(a day → *Scheduled*, no day → *Unscheduled*, cannot say → the stamp it always drew); the
+first draw of the table opens a **read-only listener** on the saved plan
+(`scheduleFollowPlanForReaders`); and every `renderAll` tells the table to repaint
+(`schedulePlanChanged`, debounced, and a hidden table is marked stale and redrawn when
+Customers is next opened).
+
+⚠ **THE READER NEVER WRITES, AND STANDS BACK ONCE ROUTES IS OPEN.** It hydrates the plan and
+asks for a repaint — no `renderAll` (that saves), no customer sync, no timer — and
+unsubscribes the moment this device loads the plan for real, because from then on the
+in-memory plan is the one being edited and hydrating over it would discard a move made a
+second ago.
+
+⚠ **NOTHING ABOUT WHO GETS PLACED CHANGED.** This is what the page READS. The rule that puts
+every confirmed customer on a day, and names any who are left off, is
+`confirmedNotOnAnyDay` on the Recalculate press ([[SCH-74]]).
+
 ⭐ **AND SCHEDULE IS NOW A TAB OF ROUTES** (2026-09-11, [[SCH-76]]). Addie: *"Can we
 organize this better so schedule can be a part of routes?"* It leads the Routes tab bar,
 ahead of List View / Generate Route / Calendar / Map View / Take Downs. **Nothing was
@@ -7008,6 +7063,49 @@ are the two copies of the rule — change one, change the other, in the same pus
 - **The whole admin page is dead, and the console names an error nowhere near anything you changed** → read the FIRST error, not the loudest one, and look at the line it names. On 2026-09-09 the log read `ReferenceError: Can't find variable: async  at admin.html:20204`, then twice `Cannot access uninitialized variable.  at admin.html:42670`. One cause: a stray `async` left alone on line 20204 by an edit that removed the function it belonged to. On its own that word is just a name JavaScript cannot find, so the script stops there — and the two errors twenty thousand lines lower are simply the things it never got as far as creating. A whole script dying part-way always looks like several unrelated faults at once; the one to fix is the first. `npm run verify` now refuses this before it can be pushed.
 - **Re-quote emails are not going out, while ordinary quotes are** → the template is looked up by **exact name**. `getEmailTemplateByName` is a plain `name === name` match, and it is asked for whatever **Quote email settings → Re-quote template** holds — which ships as the literal string **"ReQuotes"**. A template called *Requotes*, *Re-Quotes* or anything else is not found. Until 2026-09-17 a re-quote raised off an **existing customer** then refused outright, while a first quote with no template fell back to a built-in body and went out — which is exactly why it read as *re-quotes being broken* rather than a setting being wrong. ⚠ **The send no longer stops.** It uses the built-in re-quote wording (`DEFAULT_REQUOTE_BODY`, which had been in the file all along and was read only by the seed-the-templates button) and **says so** on the card, naming the template it could not find. So if a customer reports wording that is not hers, read that line — it is telling you to pick a template. The **Check my setup** button in Quote email settings lists which of the three names it can actually find, and is the fastest way to see this. [[QT-42]]
 - **A quote email shows "(quote token not found)" where the Approve / Maybe / Decline buttons should be** → the quote those buttons belong to has no `quoteToken`, so there is no link to put behind them. A token is normally minted in the customer's own browser when the public quote form is submitted, and until 2026-09-11 the PORTAL's re-quote — raised when a member changes how many sides of their house are lit — never minted one at all. Miko Johnson's is the one that reached the office that way. Two halves are fixed: the portal create writes a token like every other quote, and the email renderer mints one on demand, which is what rescues every quote already sitting in the book without one. ⚠ **AND IT WAS PICKING THE WRONG QUOTE AS WELL.** The renderer took the FIRST quote sharing the customer's phone number, in cache order — Addie's own number carries five quotes and every one is CLOSED — so a live email could carry the token of a quote answered weeks ago, inviting the customer to re-answer history while the quote actually in front of them stayed untouched. `quoteForButtons` now skips closed and archived quotes and takes the newest of what is left, and returns nothing at all when there is no open quote, because buttons pointing at an answered quote are worse than no buttons.
+
+  ⛔ **AND IT CAME BACK ON 2026-09-17, FOR A THIRD REASON: THE RENDERER WAS NEVER TOLD
+  WHICH QUOTE.** Reported on a priced email the office was looking at — $384, the
+  customer's own house in it, and "(quote token not found)" three times where the
+  buttons belong. `quoteForButtons` searches by PHONE NUMBER; the office presses Send
+  on ONE quote card. Those stopped being the same thing when the public form took one
+  contact box that is a phone **or** an email ([[QT-40]], 2026-09-12): an email-only
+  lead has no number, the lookup returns `null` the instant the number is empty, and
+  the developer text goes out. A quote typed up by hand from a phone call before the
+  number is filled in does the same. And the shared-number half of it was still live
+  in the other direction — seventeen numbers in the book are shared and fourteen are a
+  parent and a child, so the newest open quote on a number can be the OTHER
+  household's, and the email would ask a parent to approve their child's price.
+
+  ⛔ **AND THE "Send me a test" BUTTON PRINTED THE SAME WORDS, FOR A DIFFERENT REASON
+  ([[QT-44]], 2026-09-17).** It is sample data with no quote behind it, so it handed the
+  renderer nothing and all three buttons came out as the developer text — on the one
+  email whose whole job is to say whether the buttons arrive as BUTTONS (that is the
+  EmailJS triple-brace setting, and its own success line tells the office to judge
+  exactly that). It was answering its own question wrongly.
+
+  ⚠ **THREE TOKENS, NOT ONE.** It also passed no `setupFeeLine`, so a template using that
+  token mailed the raw `{{setup_fee_line}}`, and it bolted a photo onto the end instead of
+  running `applyQuotePhotoBlock`, so `{{photo}}` survived as text. A test that does not
+  build what the real send builds cannot answer the question it is asked.
+
+  ⭐ **IT IS A SAMPLE QUOTE AND THE EMAIL SAYS SO** — real buttons on a quote that does not
+  exist lead to "quote not found", which reads as a broken website rather than sample data.
+  ⛔ **The sample token is unspellable by `newQuoteToken`** (`QUOTE_TOKEN_ALPHABET` holds no
+  hyphen), which is the check that matters most: these links carry `action=approve`, so a
+  collision would let a test email answer a real customer's quote. ⛔ **And a sample is
+  never written to the book** — the on-demand mint writes by `quote.id`, so without the
+  `sample` guard a test send would create a `quotes/__sample_quote__` nobody cleans up.
+
+  ⭐ **THE FIX IS THAT THE SEND HANDS ITS OWN QUOTE IN.** `resolveLinkTokens` takes
+  `opts.quote`, and `buildQuoteEmailHtml` (both callers: the one-press send and the
+  preview) and the bulk nudge pass the cache item they are already holding.
+  ⚠ **The phone lookup stays as the fallback** and must: the RSVP and Automation
+  Emails paths genuinely have only a number to go on. ⚠ **And a handed-in quote with
+  no token is still minted one, onto itself** — `addOnEmailBlock` already carried this
+  warning about the same function, and this is the other half of it. Covered by S311,
+  including a check that the phone lookup alone still fails on the same fixture, so
+  the suite cannot pass on a renderer that quietly went back to guessing.
 - **A route/customer list is empty with no error** → check `firestore.rules` first for that collection. A collection missing a rules entry is denied by default and fails *silently* in a listener (no console error a non-coder would notice).
 - **A field the portal should show is blank or stuck at 0** → check whether that field is in the relevant Cloud Function's *read whitelist* (`PORTAL_READ_FIELDS`, `INVOICE_READ_FIELDS`, `QUOTE_READ_FIELDS` in `functions/index.js`). The portal only ever sees a function's sanitized output, never the raw document — a field can be correctly written and still invisible to the customer if it's not on that list.
 - **You cannot tell why somebody is not going out** → the Route column on All Customers now carries a line under the status saying so — *"Not scheduled — owes $400.00 from last season"*, *"— no RSVP yet"*, *"— they said no"* — and Edit Customer shows the same sentence with what clears it. It is `seasonHold`, gated on `isOutForSeason`, so it can never disagree with whether a crew is actually being sent, and only the money reason is drawn in the warning colour because the RSVP pill above already states the others (RS-26).

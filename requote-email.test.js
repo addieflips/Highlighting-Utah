@@ -169,7 +169,23 @@ check('and the flag it reads is declared in that same function, before it is rea
    proceeds is worse than no preview — it says the email cannot go when it can. */
 const prevStart = bare.indexOf('let tmplName = quoteTemplateFor(d, kind);');
 check('the preview is still found where the check expects it', prevStart !== -1);
-const prevBlock = bare.slice(prevStart, prevStart === -1 ? 0 : bare.indexOf('const built = await buildQuoteEmailHtml(d, kind, template);', prevStart));
+/* ⚠ THE END ANCHOR IS THE CALL, NOT ITS ARGUMENTS (repointed 2026-09-17). It was
+   written out in full as `buildQuoteEmailHtml(d, kind, template);` and the builder
+   then gained a fourth argument — so indexOf answered -1, `slice` ran to the end of
+   the FILE, and every check below read code it was never meant to see. It failed on
+   correct code and the message pointed at the preview, which was fine.
+
+   ⚠ AND A MISSING ANCHOR IS NOW A NAMED FAILURE RATHER THAN A SILENT WIDENING.
+   That is the half that cost the time: -1 is a legal second argument to slice, so
+   the slice does not throw, it just quietly becomes the wrong thing — a check that
+   cannot find its target must say so, which this repo has already had to learn about
+   suites that skip. */
+const prevEnd = bare.indexOf('const built = await buildQuoteEmailHtml(', prevStart);
+check('the preview block has both of its anchors',
+  prevStart !== -1 && prevEnd !== -1,
+  'without the end anchor the slice runs to the end of the file and every check ' +
+  'below this reads unrelated code — repoint it rather than widening what it accepts');
+const prevBlock = (prevStart === -1 || prevEnd === -1) ? '' : bare.slice(prevStart, prevEnd);
 check("the preview's refusal is scoped to the nudge",
   /if\(!template && kind !== 'quote'\)\{/.test(prevBlock),
   'got:\n' + prevBlock.slice(0, 300));

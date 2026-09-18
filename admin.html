@@ -7524,6 +7524,21 @@ function quoteButtonLabels(d){
  * short address. This only changes what NEW quotes get.
  */
 const QUOTE_TOKEN_ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789';
+/* ⭐ THE SAMPLE QUOTE THE TEST EMAIL IS BUILT FROM (2026-09-17).
+   Dax, reading a test send: "when you try it on test it should not print token
+   not found". He is right, and it was the test button defeating its own purpose —
+   its success line tells you to judge THE BUTTONS, and it rendered the words
+   "(quote token not found)" where all three should have been.
+
+   ⚠ THE TOKEN IS DELIBERATELY UNSPELLABLE BY newQuoteToken. QUOTE_TOKEN_ALPHABET
+   above holds no hyphen, so a minted token can never equal this string and this
+   sample can never collide with a real quote — which matters, because these links
+   carry action=approve and a collision would answer somebody's real quote.
+
+   ⚠ AND THE ID IS NEVER WRITTEN TO. `sample` is what stops the renderer minting
+   a token onto a quotes/ document that does not exist; see its guard. */
+const QUOTE_TEST_SAMPLE_TOKEN = 'sample-quote-not-a-real-one';
+const QUOTE_TEST_SAMPLE_ID = '__sample_quote__';
 function newQuoteToken(){
   const n = 12;
   let out = '';
@@ -7900,7 +7915,7 @@ document.getElementById('quickEmailFillBtn')?.addEventListener('click', async fu
     try{
       emailjs.init(publicKey);
       await emailjs.send(serviceId, templateId, {
-        to_email: email, to_name: d.name || '',
+        to_email: email, to_name: emailGreetingName(d.name),
         message: currentText.replace(/\n/g, '<br>'), amount: amount,
         payment_link: 'https://highlightingutah.com/#/payment'
       });
@@ -9428,7 +9443,7 @@ async function sendPaymentReceipt(invId, invData, paidNow){
     body = await resolveLinkTokens(body.replace(/\{\{name\}\}/g, d.name || 'there'), d.phone || invId, amountDue);
     body = body.replace(/\n/g, '<br>');
     emailjs.init(publicKey);
-    await emailjs.send(serviceId, templateId, { to_email: email, to_name: d.name || '', subject: await emailSubjectFor(tpl, d.phone || invId, {name: d.name || 'there'}), message: body });
+    await emailjs.send(serviceId, templateId, { to_email: email, to_name: emailGreetingName(d.name), subject: await emailSubjectFor(tpl, d.phone || invId, {name: d.name || 'there'}), message: body });
     await updateDoc(doc(db,'invoices',invId), {
       receiptSentForDeposit: deposit,
       receiptSentAt: serverTimestamp(),
@@ -10349,7 +10364,30 @@ async function resolveLinkTokens(text, phone, amount, opts){
     out = out.split('{{rsvp_back_button}}').join('<a href="'+rsvpBackUrl+'" style="'+btnStyle+' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>');
   }
   if(out.indexOf('{{quote_yes_button}}') !== -1 || out.indexOf('{{quote_decline_button}}') !== -1 || out.indexOf('{{quote_maybe_button}}') !== -1){
-    const quote = quoteForButtons(phone);
+    /* ⭐ THE QUOTE IN HAND WINS OVER THE PHONE LOOKUP (2026-09-17).
+
+       ⚠ quoteForButtons SEARCHES BY PHONE NUMBER, and the office presses Send on
+       ONE quote card. Those are not the same quote. Two ways they came apart, both
+       seen in real emails:
+
+       ⚠ A QUOTE WITH NO PHONE ON IT FINDS NOTHING AT ALL. `quoteForButtons` returns
+       null the moment the number is empty, and since the public form let one box be
+       a phone OR an email (QT-40, 2026-09-12) a perfectly good email-only lead has
+       no number — so their quote email carried three copies of the words
+       "(quote token not found)" where the buttons belong. Same for a quote the
+       office typed up from a call before the number was filled in.
+
+       ⚠ AND A SHARED NUMBER FINDS THE WRONG HOUSE. Seventeen numbers in the book
+       are shared and fourteen of those are two households, so the newest open quote
+       on a number can belong to the other one — the send would then ask a parent to
+       approve their child's price. addOnEmailBlock already says this about the same
+       function; this is the other half of it.
+
+       The phone lookup stays as the fallback, because the RSVP and Automation
+       Emails paths genuinely have only a number to go on. */
+    const quote = (opts.quote && opts.quote.id && opts.quote.data)
+      ? opts.quote
+      : quoteForButtons(phone);
     /* ⚠ A QUOTE WITH NO TOKEN IS NOT A QUOTE WITH NO BUTTONS (2026-09-11). The
        portal raises a re-quote when a member changes their sides or their
        address, and that create never wrote a quoteToken — a token is minted in
@@ -10362,7 +10400,11 @@ async function resolveLinkTokens(text, phone, amount, opts){
        this reason; this was the sixth that needed to and did not. The create is
        fixed too, in index.html — but minting here is what rescues every quote
        already sitting in the book without one. */
-    if(quote && !quote.data.quoteToken){
+    /* ⚠ A SAMPLE QUOTE IS NEVER MINTED A TOKEN. The test email builds one that is
+       not in the book at all, and this mint writes by quote.id — so without the
+       guard a test send would create a quotes/__sample_quote__ document, which
+       nothing would ever clean up and which would then show on the Quotes tab. */
+    if(quote && !quote.data.quoteToken && !quote.sample){
       try{
         const fresh = newQuoteToken();
         await updateDoc(doc(db,'quotes', quote.id), {quoteToken: fresh});
@@ -11657,7 +11699,7 @@ document.getElementById('loadBulkAutoCopyListBtn')?.addEventListener('click', fu
         try{
           emailjs.init(publicKey);
           await emailjs.send(serviceId, templateId, {
-            to_email: d.email, to_name: d.name || '',
+            to_email: d.email, to_name: emailGreetingName(d.name),
             message: text
           });
           statusEl.textContent = 'Sent to ' + d.email + '!';
@@ -11718,7 +11760,7 @@ document.getElementById('sendBulkUpdateEmailBtn')?.addEventListener('click', asy
          cannot drift between the five places that mail customers. */
       const paced = await emailSendPaced(function(){
         return emailjs.send(serviceId, templateId, {
-        to_email: d.email, to_name: d.name || '',
+        to_email: d.email, to_name: emailGreetingName(d.name),
         message: message, button_url: 'https://highlightingutah.com/#/payment', button_label: '🎄 Update My Christmas Lights'
       });
       }, paceCtx, function(mins){
@@ -11851,7 +11893,7 @@ document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async fun
          cannot drift between the five places that mail customers. */
       const paced = await emailSendPaced(function(){
         return emailjs.send(serviceId, templateId, {
-        to_email: d.email, to_name: d.name || '',
+        to_email: d.email, to_name: emailGreetingName(d.name),
         message: message, button_url: 'https://highlightingutah.com/#/payment', button_label: '🎄 RSVP Now'
       });
       }, paceCtx, function(mins){
@@ -12076,7 +12118,7 @@ document.getElementById('pibSendUnpaidBtn')?.addEventListener('click', async fun
          RSVP emails into "Gmail_API: User-rate limit exceeded". One helper, so the rule
          cannot drift between the five places that mail customers. */
       const paced = await emailSendPaced(function(){
-        return emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
+        return emailjs.send(serviceId, templateId, { to_email: row.email, to_name: emailGreetingName(row.name), message: message });
       }, paceCtx, function(mins){
         statusEl.textContent = 'Gmail asked us to slow down \u2014 waiting about ' + mins
           + ' minute' + (mins === 1 ? '' : 's') + ', then carrying on by itself. '
@@ -12170,7 +12212,7 @@ document.getElementById('pibSendPaidBtn')?.addEventListener('click', async funct
          RSVP emails into "Gmail_API: User-rate limit exceeded". One helper, so the rule
          cannot drift between the five places that mail customers. */
       const paced = await emailSendPaced(function(){
-        return emailjs.send(serviceId, templateId, { to_email: row.email, to_name: row.name || '', message: message });
+        return emailjs.send(serviceId, templateId, { to_email: row.email, to_name: emailGreetingName(row.name), message: message });
       }, paceCtx, function(mins){
         statusEl.textContent = 'Gmail asked us to slow down \u2014 waiting about ' + mins
           + ' minute' + (mins === 1 ? '' : 's') + ', then carrying on by itself. '
@@ -13812,6 +13854,24 @@ function firstName(raw){
   if(/^(the|mr|mrs|ms|miss|dr|rev|pastor)\.?$/i.test(first)) return full;
   return first || 'there';
 }
+/* ⭐ WHAT GOES IN to_name, WHICH IS THE GREETING THE CUSTOMER READS (2026-09-17).
+   The EmailJS customer template opens "Hi {{to_name}}," and every send in this
+   file passed `d.name || ''`, so a record with no name on it mailed out as
+   literally "Hi ," — reported on a quote email the office was looking at.
+
+   ⚠ EMPTY IS THE CASE THAT MATTERS, not tidiness: quotes have been able to
+   arrive with no phone since the contact box became one field (QT-40), and a
+   quote the office typed up from a phone call can be a name and nothing else.
+   'there' is the fallback the rest of the file already uses (firstName, and the
+   {{name}} token in every send), so the greeting degrades to "Hi there," rather
+   than to a comma on its own.
+
+   ⚠ THE FULL NAME, NOT THE FIRST — that is what to_name has always carried and
+   changing it would reword ~950 invoices and RSVPs at the same time. This only
+   closes the blank. */
+function emailGreetingName(raw){
+  return properName(raw) || 'there';
+}
 function quoteTextTemplateFor(d){
   if(!isRequote(d)) return quoteTemplateNames.newQuoteText;
   /* A re-quote raised by the button on an ordinary quote falls back to the
@@ -13893,14 +13953,14 @@ async function nudgeEveryoneShown(){
     statusEl.style.color = 'var(--slate)';
     statusEl.textContent = 'Sending ' + (sent + failures.length + 1) + ' of ' + targets.length + '\u2026 (' + (d.name || '') + ')';
     try{
-      let html = await resolveLinkTokens(template.data.body, d.phone, 0, {name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice)});
+      let html = await resolveLinkTokens(template.data.body, d.phone, 0, {quote: item, name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice)});
       /* Same photo grid the quote card sends. This used to bolt the photos
          onto the very bottom and leave the template's own {{photo}} token
          sitting in the email as text, so a bulk nudge and a one-off nudge of
          the same template did not match. */
       html = applyQuotePhotoBlock(html, quotePhotoList(d), true);
       await emailjs.send(cfg.serviceId, cfg.templateId, {
-        to_email: String(d.email || '').trim(), to_name: d.name || '', subject: 'Just checking in on your quote', message: html,
+        to_email: String(d.email || '').trim(), to_name: emailGreetingName(d.name), subject: 'Just checking in on your quote', message: html,
         button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
         button_label: 'View Your Quote'
       });
@@ -14469,9 +14529,35 @@ document.getElementById('qEmailTestBtn')?.addEventListener('click', async functi
   try{
     const tmpl = getEmailTemplateByName(quoteTemplateNames.newQuote);
     const body = tmpl ? tmpl.data.body : DEFAULT_QUOTE_TEMPLATE_BODY;
-    let html = await resolveLinkTokens(body, '', 0, {name:'Test Customer', price: fmtMoney(450)});
-    html = '[TEST EMAIL \u2014 sample data]<br><br>' + html +
-      '<div style="margin-top:18px;"><img src="https://res.cloudinary.com/highlighting-utah/image/upload/sample.jpg" alt="Sample house" style="max-width:100%; border-radius:8px; display:block;"></div>';
+    /* ⚠ THE TEST EMAIL IS BUILT THE WAY A REAL ONE IS, and three things were missing
+       rather than one. It handed the renderer NO QUOTE (so all three buttons came out
+       as "(quote token not found)"), no setupFeeLine (so a template using that token
+       mailed the raw {{setup_fee_line}} out), and it bolted a photo on the end instead
+       of running applyQuotePhotoBlock (so {{photo}} survived as text and the picture
+       sat below the sign-off rather than under the price).
+
+       ⚠ A TEST THAT DOES NOT BUILD WHAT THE REAL SEND BUILDS CANNOT ANSWER THE
+       QUESTION IT IS ASKED. This one exists to say whether the buttons arrive as
+       buttons, which is the EmailJS triple-brace setting; developer tokens in the
+       body read as that same fault and send somebody to the wrong screen. */
+    const sampleQuote = {id: QUOTE_TEST_SAMPLE_ID, sample: true, data: {
+      name: 'Test Customer', phone: '', email: to, status: 'new',
+      quotedPrice: 450, chargeSetupFee: true, quoteToken: QUOTE_TEST_SAMPLE_TOKEN,
+      frontPhotoUrl: 'https://res.cloudinary.com/highlighting-utah/image/upload/sample.jpg'
+    }};
+    let html = await resolveLinkTokens(body, '', 0, {
+      quote: sampleQuote,
+      name: 'Test Customer',
+      price: fmtMoney(450),
+      setupFeeLine: quoteChargesSetupFee(sampleQuote.data)
+        ? ('Plus a one-time ' + fmtMoney(NEW_MEMBER_FEE) + ' set-up fee.') : ''
+    });
+    html = applyQuotePhotoBlock(html, quotePhotoList(sampleQuote.data), true);
+    /* ⚠ IT SAYS THE BUTTONS LEAD NOWHERE. They are real buttons on a quote that does
+       not exist, so pressing one lands on "quote not found" — which would read as a
+       broken website rather than as the sample data it is. */
+    html = '[TEST EMAIL \u2014 sample data. The three buttons below are real buttons on a ' +
+      'sample quote, so they lead nowhere.]<br><br>' + html;
     emailjs.init(cfg.publicKey);
     await emailjs.send(cfg.serviceId, cfg.templateId, {
       to_email: to, to_name: 'Test Customer', subject: 'Test quote email', message: html,
@@ -17527,7 +17613,7 @@ function renderQuoteRows(filtered){
      Again (re-viewing later without touching the link/quoteSentAt below). */
   /* Builds exactly what the customer receives - shared by the preview and the
      one-press send, so what you see and what goes out cannot drift apart. */
-  async function buildQuoteEmailHtml(d, kind, template){
+  async function buildQuoteEmailHtml(d, kind, template, item){
     const body = template ? template.data.body : quoteDefaultBodyFor(d, kind);
     /* Real HTML, not flattened to plain text - that flattening is what turned
        the approve/maybe/decline buttons into spelled-out web addresses. The
@@ -17535,7 +17621,7 @@ function renderQuoteRows(filtered){
        Cloudinary, so nothing is attached and it costs nothing extra. It sits
        BELOW the buttons because some mail apps hide images until tapped. */
     const chargesSetupFee = quoteChargesSetupFee(d);
-    let html = await resolveLinkTokens(body, d.phone, 0, {name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice), setupFeeLine: chargesSetupFee ? ('Plus a one-time ' + fmtMoney(NEW_MEMBER_FEE) + ' set-up fee.') : ''});
+    let html = await resolveLinkTokens(body, d.phone, 0, {quote: item, name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice), setupFeeLine: chargesSetupFee ? ('Plus a one-time ' + fmtMoney(NEW_MEMBER_FEE) + ' set-up fee.') : ''});
     /* The photo goes directly under the price and above the buttons - where it
        does its work, next to the number it justifies. It used to sit below the
        sign-off, which almost nobody scrolls to. If the template says where it
@@ -17604,10 +17690,10 @@ function renderQuoteRows(filtered){
     quoteSendInFlight.add(id);
     say('Sending\u2026');
     try{
-      const built = await buildQuoteEmailHtml(d, 'quote', template);
+      const built = await buildQuoteEmailHtml(d, 'quote', template, item);
       emailjs.init(cfg.publicKey);
       await emailjs.send(cfg.serviceId, cfg.templateId, {
-        to_email: String(d.email || '').trim(), to_name: d.name || '', subject: built.subject, message: built.html,
+        to_email: String(d.email || '').trim(), to_name: emailGreetingName(d.name), subject: built.subject, message: built.html,
         button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
         button_label: 'View Your Quote'
       });
@@ -17689,7 +17775,7 @@ function renderQuoteRows(filtered){
         'Open <strong>Quote email settings</strong> at the top of this page and pick the right one.</div>';
       return;
     }
-    const built = await buildQuoteEmailHtml(d, kind, template);
+    const built = await buildQuoteEmailHtml(d, kind, template, item);
     const html = built.html;
     const subject = built.subject;
     resultEl.innerHTML =
@@ -17752,7 +17838,7 @@ function renderQuoteRows(filtered){
       try{
         emailjs.init(cfg.publicKey);
         await emailjs.send(cfg.serviceId, cfg.templateId, {
-          to_email: String(d.email || '').trim(), to_name: d.name || '', subject: subject, message: html,
+          to_email: String(d.email || '').trim(), to_name: emailGreetingName(d.name), subject: subject, message: html,
           button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
           button_label: 'View Your Quote'
         });
@@ -21300,7 +21386,7 @@ async function etSendTemplateRun(template, selectedIds, serviceId, templateJsId,
       sendErr = null;
       try{
         const subject = await emailSubjectFor(template, vars.phone, vars);
-        await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', subject: subject, message: message });
+        await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: emailGreetingName(member.data.name), subject: subject, message: message });
         sent++;
         /* ⭐ AND IT IS WRITTEN DOWN THAT THIS PERSON HAS NOW BEEN ASKED (2026-09-09,
            EM-04). Addie: "the people that have already got the email should not get it
@@ -53142,13 +53228,48 @@ function nextVisitChip(d, custId){
     ((orphan || v.overdue) ? '&#9888; ' : '') + esc(v.kind) + ' ' + esc(when) +
     (orphan ? ' &mdash; not on the schedule' : '') + '</span>';
 }
-function allCustRouteStatus(d){
+/* ⭐ SCHEDULED MEANS "ON A DAY IN THE SCHEDULE" ([[SCH-80]], 2026-09-16). The pill under
+   this status already read the plan since [[SCH-77]], but the word above it — and the
+   Route Status filter — still read the crew-routes stamp. So one row could say
+   "Scheduled" over "No day booked yet", or "Unscheduled" over a real day.
+   ⚠ SAME THREE ANSWERS AS planHangDateFor: a date is Scheduled, '' is Unscheduled, and
+   null (the plan has not landed yet) falls back to the stamp it always drew. */
+function allCustRouteStatus(d, custId){
   if(d.removalDone) return 'Removed';
   if(d.completed) return 'Install Complete';
   if(d.needsFix) return 'Needs Fix';
+  const planned = planHangDateFor(custId);
+  if(planned !== null) return planned ? 'Scheduled' : 'Unscheduled';
   if(d.scheduled) return 'Scheduled';
   return 'Unscheduled';
 }
+/* ⭐ ALL CUSTOMERS FOLLOWS THE SCHEDULE BY ITSELF ([[SCH-80]], 2026-09-16). Addie: "in all
+   customers where it shows when they are scheduled if at all its not in proper sync, it
+   should pull those dates automatically and so that page is updated anytime somebody
+   clicks recalculate everything in all customers".
+   ⛔ TWO GAPS, AND BOTH HAD TO CLOSE. The plan only loaded when somebody opened Routes on
+   THAT device, so anybody who went straight to All Customers read the crew-routes stamps
+   for the whole session. And nothing redrew this table when the plan changed, so a
+   Recalculate left it showing the days from before the press.
+   The widget now calls this whenever the plan is redrawn or arrives from another device.
+   ⚠ DEBOUNCED AND ONLY WHEN SEEN. renderAll runs on every tick and move in the Schedule,
+   and redrawing ~950 hidden rows each time is work nobody sees — so a hidden table is
+   marked stale and redrawn the moment Customers is opened. */
+let allCustPlanStale = false, allCustPlanTimer = null;
+window.schedulePlanChanged = function(){
+  clearTimeout(allCustPlanTimer);
+  allCustPlanTimer = setTimeout(function(){
+    const body = document.getElementById('allCustTableBody');
+    if(!body) return;
+    if(body.offsetParent === null){ allCustPlanStale = true; return; }
+    allCustPlanStale = false;
+    safeRender('allCustomersTable', renderAllCustomersTable);
+  }, 400);
+};
+document.querySelector('.nav-item[data-panel="addcustomer"]')?.addEventListener('click', function(){
+  if(!allCustPlanStale) return;
+  setTimeout(function(){ if(allCustPlanStale) window.schedulePlanChanged(); }, 0);
+});
 /* ---------------- WHO PAYS FOR WHOM (Customers > Who Pays for Whom) --------
    Every screen in this app is arranged by HOUSE, so nothing anywhere answered
    "who is on this person's bill" — the office had to search a phone number and
@@ -53284,6 +53405,10 @@ document.getElementById('billingGroupExportBtn')?.addEventListener('click', func
 function renderAllCustomersTable(){
   const body = document.getElementById('allCustTableBody');
   if(!body) return;
+  /* ⚠ [[SCH-80]] — without this the dates below come from the plan only after somebody
+     has opened Routes on this device. Guarded inside, so every render after the first
+     costs nothing. */
+  if(typeof window.scheduleFollowPlanForReaders === 'function') window.scheduleFollowPlanForReaders();
   populateAllCustFilterCities();
   const term = (document.getElementById('allCustSearchInput').value||'').trim().toLowerCase();
   const cityFilter = document.getElementById('allCustFilterCity').value;
@@ -53319,7 +53444,7 @@ function renderAllCustomersTable(){
        the badge, and asking twice is two answers to one question about one customer —
        the exact shape of the bug the badge was rebuilt to close. */
     return {item, d, inv, invStatus, hasMap, hasPin, enrolled, badge: seasonBadgeKey(d),
-            routeStatus: allCustRouteStatus(d)};
+            routeStatus: allCustRouteStatus(d, item.id)};
   });
   if(term){
     const phoneDigits = term.replace(/\D/g,'');
@@ -57432,7 +57557,7 @@ document.getElementById('allCustExportBtn').addEventListener('click', function()
     const invStatus = inv ? computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees) : 'No Invoice';
     return {
       Name: d.name||'', Phone: d.phone||'', Email: d.email||'', Address: d.address||'', 'Customer #': d.customerNumber||'',
-      Enrolled: memberExportDateAdded(d), 'Route Status': allCustRouteStatus(d), Difficulty: d.difficulty||'Unrated',
+      Enrolled: memberExportDateAdded(d), 'Route Status': allCustRouteStatus(d, item.id), Difficulty: d.difficulty||'Unrated',
       'Invoice Status': invStatus, 'Invoice Total': inv ? billTotalAmount(inv.data) : '',
       'Paid So Far': inv ? (inv.data.deposit||0) : '', 'Balance Due': inv ? balanceDueAmount(inv.data) : '',
       'Has Layout Map': d.layoutMapUrl ? 'Yes' : 'No',
@@ -70144,7 +70269,10 @@ async function setCrewCount(n){
    asks h.done, and Job 3 makes that the CUSTOMER's answer rather than the plan's —
    so it has to be brought up to date before renderStats counts what is left,
    renderActive draws the ticks, and scheduleSave writes the plan back. */
-function renderAll(){refreshDerivedDone();computeDates();renderStats();renderActive();renderImportedAt();paintForecastNote();if(loaded)scheduleSave();}
+function renderAll(){refreshDerivedDone();computeDates();renderStats();renderActive();renderImportedAt();paintForecastNote();if(loaded)scheduleSave();
+  /* ⭐ [[SCH-80]] — Recalculate everything, a tick, a move: every one of them ends here, so
+     this is the one place All Customers has to be told. */
+  if(typeof window.schedulePlanChanged==='function') window.schedulePlanChanged();}
 /* Say out loud that this plan is a SNAPSHOT of a CSV, and how old it is.
    Nothing on this tab distinguished a plan built this morning from one built
    from a months-old export — it just looked like the schedule. */
@@ -74022,6 +74150,28 @@ function exportCSV(){
      deleted, because Quote Requests calls it whenever a quote closes and a hook that
      exists is easier to find than one somebody has to re-invent. */
   window.scheduleOnCustomersUpdated=function(){};
+  /* ⭐ THE SAVED PLAN, FOLLOWED FOR READERS ([[SCH-80]], 2026-09-16). All Customers asks
+     the plan what day each house is on, and the plan used to exist only after somebody
+     opened Routes on this device — so the column read stale crew-routes stamps, and a
+     Recalculate pressed on another computer never reached it at all.
+     ⛔ IT NEVER WRITES. It hydrates the plan and asks All Customers to redraw, nothing else:
+     no renderAll (that saves), no customer sync, no timer.
+     ⚠ AND IT STANDS BACK THE MOMENT THIS DEVICE LOADS THE PLAN FOR REAL. Once Routes is
+     open the in-memory plan is the one being edited, and hydrating over it from a snapshot
+     would throw away a move made a second ago. From then on renderAll does the telling. */
+  let __readerStarted=false, __readerStop=null;
+  window.scheduleFollowPlanForReaders=function(){
+    if(__readerStarted) return; __readerStarted=true;
+    try{
+      __readerStop=onSnapshot(PLAN_REF(), function(s){
+        if(loaded){ if(__readerStop){ __readerStop(); __readerStop=null; } return; }
+        if(!s.exists()) return;
+        try{ hydrate(s.data()); }
+        catch(e){ console.error('[HU] could not read the saved plan for All Customers', e); return; }
+        if(typeof window.schedulePlanChanged==='function') window.schedulePlanChanged();
+      }, function(err){ console.error('[HU] plan listener for All Customers failed', err); });
+    }catch(e){ console.error('[HU] could not follow the plan for All Customers', e); }
+  };
   let __started=false;
   function __start(){
     if(__started) return; __started=true;

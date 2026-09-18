@@ -10821,6 +10821,54 @@ suite('19. All Customers: the next visit');
         'the whole point is that the row can be told which day the schedule has them on');
     }
 
+    /* ---- ALL CUSTOMERS FOLLOWS THE SCHEDULE ([[SCH-80]], 2026-09-16) ------
+       Addie: "in all customers where it shows when they are scheduled if at all its not
+       in proper sync ... that page is updated anytime somebody clicks recalculate
+       everything". The pill read the plan but the Scheduled / Unscheduled word above it
+       and the Route Status filter still read the crew-routes stamp, the plan only loaded
+       once Routes was opened, and nothing redrew the table after a Recalculate.
+       ⚠ THE STATUS IS RUN, the wiring is matched — the three answers are the part a regex
+       cannot tell apart. */
+    {
+      const sSrc = admin.slice(admin.indexOf('function planHangDateFor('),
+                               admin.indexOf('function nextVisitFor(')) +
+                   admin.slice(admin.indexOf('function allCustRouteStatus('),
+                               admin.indexOf('let allCustPlanStale'));
+      const status = eval(sSrc + '\n;allCustRouteStatus');
+      const STAMPED = {scheduled: true, scheduledDate: '2026-10-16'};
+      global.window = {schedulePlanBookings: function(){ return {darlene: {date: '2026-11-03'}}; }};
+      check('nextvisit', 'SCH-80: a house the plan has on a day reads Scheduled, stamp or not',
+        status({}, 'darlene') === 'Scheduled',
+        'the word must agree with the date drawn under it');
+      check('nextvisit', 'SCH-80: a stamped house the plan does not hold reads Unscheduled',
+        status(STAMPED, 'rachel') === 'Unscheduled',
+        'the crew-routes stamp said Scheduled over "No day booked yet"');
+      check('nextvisit', 'SCH-80: done and needs-fix still win over the plan',
+        status({completed: true}, 'darlene') === 'Install Complete' &&
+        status({needsFix: true}, 'darlene') === 'Needs Fix');
+      global.window = {schedulePlanBookings: function(){ return null; }};
+      check('nextvisit', 'SCH-80: while the plan cannot answer, the stamp still speaks',
+        status(STAMPED, 'rachel') === 'Scheduled' && status({}, 'rachel') === 'Unscheduled',
+        'cannot-tell must draw what it always drew');
+      delete global.window;
+      check('nextvisit', 'SCH-80: the row and the export both hand the id to the status',
+        /routeStatus: allCustRouteStatus\(d, item\.id\)\}/.test(admin) &&
+        /'Route Status': allCustRouteStatus\(d, item\.id\)/.test(admin),
+        'without the id the status never asks the plan and the filter stays on the stamp');
+      check('nextvisit', 'SCH-80: every redraw of the schedule tells All Customers',
+        /function renderAll\(\)\{[^]*?window\.schedulePlanChanged\(\);\}/.test(admin),
+        'Recalculate everything ends in renderAll — without this the table keeps the old days');
+      check('nextvisit', 'SCH-80: All Customers starts following the saved plan when it draws',
+        /function renderAllCustomersTable\(\)\{[^]{0,400}window\.scheduleFollowPlanForReaders\(\)/.test(admin),
+        'otherwise the dates come from the plan only after somebody opens Routes');
+      const reader = admin.slice(admin.indexOf('window.scheduleFollowPlanForReaders=function(){'),
+                                 admin.indexOf('let __started=false;'));
+      check('nextvisit', 'SCH-80: the reader never writes and stands back once Routes loads the plan',
+        !!reader && /if\(loaded\)\{/.test(reader) &&
+        !/renderAll\(|scheduleSave\(|saveNow\(|setDoc\(|scheduleSyncFromCustomers/.test(reader),
+        'hydrating over a plan being edited throws away a move; saving from a viewer overwrites it');
+    }
+
     /* ---- IS THAT DAY REAL? ([[SCH-73]], 2026-09-11) ---------------------
        Addie, on Darlene Price #680: "It says shes scheduled for Oct 16 but I
        dont see oct 16 on the schedule." The pill read a STAMP on the customer
@@ -57337,6 +57385,10 @@ suite('Suite 311. The referral offer, RUN rather than read');
        email's Approve button answers, and a stub would keep this suite green
        through it choosing one that was closed weeks ago. */
     'quoteForButtons', 'newQuoteToken', 'quotePortalParam', 'quoteButtonLabels',
+    /* ⚠ THE GREETING, WHICH IS NOT PART OF THE RENDERED BODY AT ALL and so had
+       nothing watching it. It is an EmailJS template parameter, and a blank one
+       mailed out as "Hi ," — see the checks at the foot of this suite. */
+    'properName', 'emailGreetingName',
     'quoteIsAddOn', 'quoteExistingCustomer', 'quoteMatchAddress'];
   const lifted311 = {};
   needed311.forEach(function (n) { lifted311[n] = extractFn(admin, n); });
@@ -57362,11 +57414,16 @@ suite('Suite 311. The referral offer, RUN rather than read');
          the mint threw ReferenceError inside the renderer's own try/catch, so the
          email fell back to the not-found words and the failure read as "the fix
          does not work" rather than "the sandbox is short a constant". */
-      'QUOTE_TOKEN_ALPHABET'].map(function (n) {
+      'QUOTE_TOKEN_ALPHABET',
+      /* ⚠ THE TEST EMAIL'S SAMPLE QUOTE. Left out, the checks below throw inside the
+         renderer's own try/catch and the email falls back to the not-found words —
+         which reads as "the fix does not work" rather than as a short sandbox, the
+         exact debugging round QUOTE_TOKEN_ALPHABET above already cost once. */
+      'QUOTE_TEST_SAMPLE_TOKEN', 'QUOTE_TEST_SAMPLE_ID'].map(function (n) {
       const m = admin.match(new RegExp('const ' + n + " = '[^']*';"));
       return m ? m[0] : '';
     });
-    check('S311', 'the five styles and alphabets are lifted too',
+    check('S311', 'the styles, alphabets and sample constants are lifted too',
       styles311.every(Boolean),
       'a missing one is a ReferenceError inside the sandbox, reported as an unrelated crash');
 
@@ -57397,7 +57454,7 @@ suite('Suite 311. The referral offer, RUN rather than read');
       'return {resolveLinkTokens: resolveLinkTokens, referralOfferFor: referralOfferFor,',
       '        referralEmailBlock: referralEmailBlock, referralMissingNote: referralMissingNote,',
       '        referralOfferPlacement: referralOfferPlacement, writes: writes, refs: refs,',
-      '        quoteForButtons: quoteForButtons};'
+      '        quoteForButtons: quoteForButtons, emailGreetingName: emailGreetingName};'
     ].join(NL311));
 
     const withTok = { id: 'c1', data: { name: 'Brian Petersen', phone: '8015550111',
@@ -57531,6 +57588,118 @@ suite('Suite 311. The referral offer, RUN rather than read');
     check('S311', 'and somebody with no open quote still gets the honest fallback',
       oq4.indexOf(NOTFOUND) !== -1,
       'silently emitting nothing would hide a template pointed at the wrong audience');
+
+    /* ⭐ THE QUOTE THE OFFICE PRESSED SEND ON IS THE QUOTE THE BUTTONS ANSWER
+       (2026-09-17). Everything above this line asks the renderer to FIND the quote
+       from a phone number. The send does not have to guess — it is holding the
+       card — and two real emails came out wrong because it guessed anyway. */
+
+    /* ⚠ A LEAD WITH NO PHONE NUMBER IS A REAL LEAD NOW. The public form took one
+       box that is a phone OR an email from QT-40 (2026-09-12), so a quote can
+       carry an address and no number — and quoteForButtons returns null the
+       instant the number is empty. That is three copies of the developer text in
+       a priced email with the customer's own house in it. */
+    const qNoPhone = { id: 'q4', data: { name: 'Email Only', phone: '',
+      email: 'e@x.com', status: 'new', quoteToken: 'emailonlytok',
+      createdAt: '2026-09-16T00:00:00Z' } };
+    const eq5 = env311([withTok], [qNoPhone]);
+    const oq5 = await eq5.resolveLinkTokens(BTNS, '', 0,
+      { quote: qNoPhone, name: 'Email Only' });
+    check('S311', 'an email-only lead gets real buttons, because the send hands its quote in',
+      oq5.indexOf('token=emailonlytok') !== -1 && oq5.indexOf(NOTFOUND) === -1,
+      'got: ' + oq5.slice(0, 120) + ' — this is the reported email: a $384 quote with the ' +
+      'customer' + String.fromCharCode(39) + 's own photo in it and the words ' +
+      '"(quote token not found)" where the three buttons belong');
+    /* ⚠ THE SAME FIXTURE WITHOUT THE HAND-IN, so this suite cannot pass on a
+       renderer that quietly went back to the phone lookup. */
+    const eq5b = env311([withTok], [qNoPhone]);
+    const oq5b = await eq5b.resolveLinkTokens(BTNS, '', 0, { name: 'Email Only' });
+    check('S311', 'and the phone lookup alone still cannot find it, which is why the hand-in exists',
+      oq5b.indexOf(NOTFOUND) !== -1,
+      'if this ever passes, the fixture has stopped being the broken case and the ' +
+      'check above proves nothing');
+
+    /* ⚠ AND A SHARED NUMBER MUST NOT OVERRULE THE CARD. Seventeen numbers in the
+       book are shared and fourteen are a parent and a child, so the newest open
+       quote on a number can be the other household's — asking a parent to approve
+       their child's price. addOnEmailBlock already says this about the same
+       function; this is the send path saying it. */
+    const qOther = { id: 'q5', data: { name: 'Child', phone: PHONE_Q, status: 'new',
+      quoteToken: 'childtok', createdAt: '2026-09-01T00:00:00Z' } };
+    const eq6 = env311([withTok], [qOpenNewer, qOther]);
+    const oq6 = await eq6.resolveLinkTokens(BTNS, PHONE_Q, 0,
+      { quote: qOther, name: 'Child' });
+    check('S311', 'the card in hand beats a newer quote sharing the same phone number',
+      oq6.indexOf('token=childtok') !== -1 && oq6.indexOf('newertok') === -1,
+      'got: ' + (oq6.match(/token=[a-z0-9]+/) || ['none'])[0] + ' — the office pressed ' +
+      'Send on one card, and that is the quote the customer is being asked about');
+
+    /* ⚠ AND A HANDED-IN QUOTE WITH NO TOKEN IS STILL MINTED ONE, onto ITSELF.
+       The mint above this line is reached through the phone lookup; a quote
+       handed in must reach it too, or the fix trades one set of not-found words
+       for another. */
+    const qHandNoTok = { id: 'q6', data: { name: 'Email Only', phone: '',
+      email: 'e2@x.com', status: 'new', createdAt: '2026-09-16T00:00:00Z' } };
+    const eq7 = env311([withTok], [qHandNoTok]);
+    const oq7 = await eq7.resolveLinkTokens(BTNS, '', 0,
+      { quote: qHandNoTok, name: 'Email Only' });
+    check('S311', 'a handed-in quote with no token is given one, written to that quote',
+      oq7.indexOf(NOTFOUND) === -1 && oq7.indexOf('action=approve') !== -1 &&
+      eq7.refs.some(function (r) { return r && r.coll === 'quotes' && r.id === 'q6'; }),
+      'got: ' + oq7.slice(0, 120) + ' — a token minted onto the wrong document leaves ' +
+      'the buttons pointing nowhere while the suite reads green');
+
+    /* ⭐ THE TEST EMAIL'S OWN BUTTONS (2026-09-17). Dax, reading a test send: "when
+       you try it on test it should not print token not found". The Send me a test
+       button handed the renderer no quote at all, so the one thing that email exists
+       to show — whether the buttons arrive as BUTTONS — came out as three copies of
+       the developer text instead. */
+    const qSample = { id: '__sample_quote__', sample: true, data: { name: 'Test Customer',
+      phone: '', email: 't@x.com', status: 'new', quotedPrice: 450,
+      quoteToken: 'sample-quote-not-a-real-one' } };
+    const eq8 = env311([withTok], []);
+    const oq8 = await eq8.resolveLinkTokens(BTNS, '', 0,
+      { quote: qSample, name: 'Test Customer' });
+    check('S311', 'the test email renders three real buttons, not the not-found words',
+      oq8.indexOf(NOTFOUND) === -1 && oq8.indexOf('action=approve') !== -1 &&
+      oq8.indexOf('action=decline') !== -1 && oq8.indexOf('action=maybe_next_year') !== -1,
+      'got: ' + oq8.slice(0, 160) + ' — the test send exists to say whether buttons ' +
+      'arrive as buttons, and it was answering its own question wrongly');
+
+    /* ⛔ AND IT MUST NOT WRITE. The mint goes by quote.id, and the sample is not in
+       the book — so without the `sample` guard a test send CREATES quotes/__sample_quote__,
+       which nothing cleans up and which then appears on the Quotes tab. */
+    const qSampleNoTok = { id: '__sample_quote__', sample: true, data: { name: 'Test Customer',
+      phone: '', email: 't@x.com', status: 'new', quotedPrice: 450 } };
+    const eq9 = env311([withTok], []);
+    await eq9.resolveLinkTokens(BTNS, '', 0, { quote: qSampleNoTok, name: 'Test Customer' });
+    check('S311', 'and a sample quote is never written to the book',
+      eq9.writes.length === 0 &&
+      !eq9.refs.some(function (r) { return r && r.id === '__sample_quote__'; }),
+      'got ' + eq9.writes.length + ' write(s) — a test send that creates a quote leaves ' +
+      'a phantom card on the Quotes tab that nobody put there');
+
+    /* ⚠ THE SAMPLE TOKEN CANNOT BE A REAL ONE, and this is the check that matters most
+       of the three: these links carry action=approve, so a token that could collide
+       with a minted one would let a test email answer a real customer's quote.
+       QUOTE_TOKEN_ALPHABET holds no hyphen, which is what makes it unspellable. */
+    /* ⚠ READ OUT OF THE SOURCE, NOT REFERENCED. Both constants live INSIDE the
+       env311 sandbox, so naming them here is a ReferenceError thrown from an async
+       block — which surfaces as an unrelated suite "crashed partway through" and
+       scores nothing after it. That is the §5 unattributable crash, and it cost a
+       run in this very commit. */
+    const sampleTokenSrc = (admin.match(/const QUOTE_TEST_SAMPLE_TOKEN = '([^']*)';/) || [])[1];
+    const tokenAlphabetSrc = (admin.match(/const QUOTE_TOKEN_ALPHABET = '([^']*)';/) || [])[1];
+    check('S311', 'both token constants were found in the source',
+      !!sampleTokenSrc && !!tokenAlphabetSrc,
+      'the check below cannot mean anything if either one was not found');
+    check('S311', 'the sample token can never be minted for a real quote',
+      !!sampleTokenSrc && !!tokenAlphabetSrc &&
+      sampleTokenSrc.split('').some(function (ch) {
+        return tokenAlphabetSrc.indexOf(ch) === -1;
+      }),
+      'every character of the sample token is spellable by newQuoteToken, so a real ' +
+      'quote could one day be minted this exact token and a test email would answer it');
     })());
 
     const e6 = env311([withTok]);
@@ -57556,6 +57725,29 @@ suite('Suite 311. The referral offer, RUN rather than read');
     check('S311', 'and a template that is not an RSVP gets no offer at all',
       e6.referralOfferPlacement(tplBill) === 'none',
       'a referral offer at the foot of an invoice is not what that email is for');
+
+    /* ⭐ "Hi ," — REPORTED 2026-09-17, on the same quote email as the not-found
+       words above. The greeting is not in the body this suite renders at all: the
+       EmailJS customer template opens "Hi " + to_name + "," and every send in
+       admin.html passed the raw name with an empty-string fallback, so a record
+       with no name on it mailed out as a comma on its own.
+
+       ⚠ RUN, NOT READ, for the helper — and READ for the call sites, because no
+       test in this repo can reach an EmailJS template parameter. The regex below
+       is the only thing standing between a nameless customer and that comma. */
+    check('S311', 'a nameless customer is greeted "there", never with a bare comma',
+      e6.emailGreetingName('') === 'there' && e6.emailGreetingName(null) === 'there' &&
+      e6.emailGreetingName('   ') === 'there',
+      'got: "' + e6.emailGreetingName('') + '" — this is the whole of the reported bug');
+    check('S311', 'and a customer who has a name is still greeted by it',
+      e6.emailGreetingName('Miko Johnson') === 'Miko Johnson' &&
+      e6.emailGreetingName('MIKO JOHNSON') === 'Miko Johnson',
+      'to_name has always carried the full name; this change only closes the blank, ' +
+      'and rewording ~950 invoices and RSVPs is not what it is for');
+    check('S311', 'and no send is left passing the raw name with an empty fallback',
+      !/to_name:\s*[A-Za-z0-9_.]+(?:\.data)?\.name\s*\|\|\s*''/.test(admin),
+      'one missed send site is one customer reading "Hi ," — they are all the same ' +
+      'one-line change and they must not drift apart again');
   }
 }
 
