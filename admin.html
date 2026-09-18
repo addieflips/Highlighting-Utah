@@ -7002,6 +7002,31 @@ const runQuoteNudgesNowFn = httpsCallable(fbFunctions, 'runQuoteNudgesNow');
 const destroyFixPhotoFn = httpsCallable(fbFunctions, 'destroyFixPhoto');
 const CLOUDINARY_CLOUD = "highlighting-utah";
 const CLOUDINARY_PRESET = "highlighting_utah";
+/* ⭐ HOW BIG A PHOTOGRAPH IS ALLOWED TO REACH CLOUDINARY (2026-09-18). Addie, asked what
+   was worth doing after the picture service switched itself off on 9/9 and took every
+   photograph in the app down with it, chose this.
+   ⚠ THE DOWNSCALER WAS ALWAYS THERE AND ALMOST NEVER FIRED. It only ran on a file over
+   NINE MEGABYTES and an ordinary phone photograph is three to six, so virtually every
+   picture was stored at full camera resolution while being shown at 400px and printed at
+   an inch and a half. Storage and bandwidth are what Cloudinary bills for, so that was
+   the whole of the bill for no visible benefit.
+   ⚠ THE NUMBERS ARE NAMED ONCE AND NOTHING TYPES THEM OUT FOR ITSELF. Six call sites used
+   to spell out `9*1024*1024, 2000, 0.85`, and two of the six wrote the quality as `.85`
+   instead — the shape this repo has been bitten by whenever one rule lives in six places.
+   ⛔ THE DIMENSION IS NOT THE THING TO LOWER if this ever has to go further. 2000px is
+   already far above every use of these pictures — 400px on screen, and an inch and a half
+   on a crew sheet is about 450px of ink. Dropping the BYTES is what saves the storage;
+   dropping the DIMENSION is the one that starts to show, on the printed sheet first. */
+const PHOTO_SHRINK_OVER_BYTES = 1.5 * 1024 * 1024;
+const PHOTO_MAX_DIMENSION = 2000;
+const PHOTO_JPEG_QUALITY = 0.85;
+/* ⚠ A BLUEPRINT MAP KEEPS ITS OWN, LARGER ALLOWANCE, deliberately rather than by being
+   missed. It is a photograph of a hand-DRAWN roofline, so what has to survive is a pencil
+   line rather than a house, and it prints eight to a page. The BYTES still come down — a
+   line drawing compresses far better than a photograph — and the dimension does not. */
+const BPM_SHRINK_OVER_BYTES = 2 * 1024 * 1024;
+const BPM_MAX_DIMENSION = 2400;
+const BPM_JPEG_QUALITY = 0.86;
 /* Ask Cloudinary for a small version of an image instead of the full-size upload.
    Thumbnail grids were downloading full 640px+ originals for every tile, which is
    tens of megabytes on a page that only shows them ~200px wide. Cloudinary resizes
@@ -17644,7 +17669,7 @@ function renderQuoteRows(filtered){
           ? 'Uploading ' + (i+1) + ' of ' + files.length + '\u2026'
           : 'Uploading\u2026';
         try{
-          const uploadFile = await shrinkImageFileIfTooLarge(files[i], 9*1024*1024, 2000, 0.85);
+          const uploadFile = await shrinkImageFileIfTooLarge(files[i], PHOTO_SHRINK_OVER_BYTES, PHOTO_MAX_DIMENSION, PHOTO_JPEG_QUALITY);
           const url = await uploadOneToCloudinary(uploadFile);
           photos.push({url: url, original: url, markup: []});
           added++;
@@ -17682,7 +17707,7 @@ function renderQuoteRows(filtered){
       if(!photos[idx]) return;
       if(statusEl) statusEl.textContent = 'Uploading\u2026';
       try{
-        const uploadFile = await shrinkImageFileIfTooLarge(file, 9*1024*1024, 2000, 0.85);
+        const uploadFile = await shrinkImageFileIfTooLarge(file, PHOTO_SHRINK_OVER_BYTES, PHOTO_MAX_DIMENSION, PHOTO_JPEG_QUALITY);
         const url = await uploadOneToCloudinary(uploadFile);
         photos[idx] = {url: url, original: url, markup: []};
       } catch(err){
@@ -27160,7 +27185,7 @@ async function addCustomerPhotos(custId, files, onProgress){
   for(let i = 0; i < files.length; i++){
     if(onProgress) onProgress(i + 1, files.length);
     try{
-      const uploadFile = await shrinkImageFileIfTooLarge(files[i], 9*1024*1024, 2000, 0.85);
+      const uploadFile = await shrinkImageFileIfTooLarge(files[i], PHOTO_SHRINK_OVER_BYTES, PHOTO_MAX_DIMENSION, PHOTO_JPEG_QUALITY);
       const url = await uploadOneToCloudinary(uploadFile);
       photos.push({url: url, original: url, markup: []});
       added++;
@@ -36144,7 +36169,7 @@ function openRoofMeasure(quoteId){
       status.textContent = rmShots.length > 1 ? ('Uploading ' + (i+1) + ' of ' + rmShots.length + '…') : 'Uploading…';
       try{
         const file = new File([rmShots[i].blob], 'roof-measurement.jpg', {type:'image/jpeg'});
-        const ready = await shrinkImageFileIfTooLarge(file, 9*1024*1024, 2000, .85);
+        const ready = await shrinkImageFileIfTooLarge(file, PHOTO_SHRINK_OVER_BYTES, PHOTO_MAX_DIMENSION, PHOTO_JPEG_QUALITY);
         const original = await uploadOneToCloudinary(ready);
         /* ⚠ THE CLEAN PHOTOGRAPH GOES UP FIRST AND IS THE `original`. The marked
            copy is what gets shown; if IT fails the picture still lands, still
@@ -36155,7 +36180,7 @@ function openRoofMeasure(quoteId){
         if(rmShots[i].marked){
           try{
             const mf = new File([rmShots[i].marked], 'roof-measurement-marked.jpg', {type:'image/jpeg'});
-            const readyMarked = await shrinkImageFileIfTooLarge(mf, 9*1024*1024, 2000, .85);
+            const readyMarked = await shrinkImageFileIfTooLarge(mf, PHOTO_SHRINK_OVER_BYTES, PHOTO_MAX_DIMENSION, PHOTO_JPEG_QUALITY);
             url = await uploadOneToCloudinary(readyMarked);
           } catch(err){ url = original; }
         }
@@ -39053,7 +39078,7 @@ document.getElementById('addCustPhoto').addEventListener('change', async functio
     statusEl.textContent = files.length > 1 ? ('Uploading ' + (i+1) + ' of ' + files.length + '…') : 'Uploading…';
     let url;
     try{
-      const uploadFile = await shrinkImageFileIfTooLarge(files[i], 9*1024*1024, 2000, 0.85);
+      const uploadFile = await shrinkImageFileIfTooLarge(files[i], PHOTO_SHRINK_OVER_BYTES, PHOTO_MAX_DIMENSION, PHOTO_JPEG_QUALITY);
       url = await uploadOneToCloudinary(uploadFile);
     } catch(err){ failed++; continue; }
     /* The first photo is the main one - it is the one you outline sections on
@@ -75360,7 +75385,7 @@ async function bpmUploadInto(it, file){
   try{
     const orientation = await bpmOrientationOfFile(file);
     const ready = (typeof shrinkImageFileIfTooLarge === 'function')
-      ? await shrinkImageFileIfTooLarge(file, 9.5 * 1024 * 1024, 2400, 0.86)
+      ? await shrinkImageFileIfTooLarge(file, BPM_SHRINK_OVER_BYTES, BPM_MAX_DIMENSION, BPM_JPEG_QUALITY)
       : file;
     const url = await uploadOneToCloudinary(ready);
     const maps = bpmMapsForHouse(it.houseId);

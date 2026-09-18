@@ -4120,6 +4120,29 @@ because the folder earning its keep within two days is the argument for it.
     answers `400 Upload preset not found` rather than `401 cloud_name is disabled`, and
     delivery returns 200. This is the wording for the next time, not a fix for that
     outage — which was settled on the billing account, exactly as the advice says.
+- ⭐ **AND A PHOTOGRAPH IS SHRUNK BEFORE IT EVER GETS THERE** (2026-09-18, [[PROC-34]]).
+  `shrinkImageFileIfTooLarge` has guarded the office uploads for months and almost never
+  fired: it only ran on a file over **nine megabytes**, and an ordinary phone photograph is
+  three to six. So virtually every picture in the book was stored at full camera resolution
+  while being shown at 400px and printed at an inch and a half — and storage and bandwidth
+  are the two things Cloudinary bills for. The threshold is `PHOTO_SHRINK_OVER_BYTES`
+  (1.5 MB) now, with `PHOTO_MAX_DIMENSION` (2000px) and `PHOTO_JPEG_QUALITY`.
+  - ⚠ **THE NUMBERS ARE NAMED ONCE.** Six call sites used to spell out `9*1024*1024, 2000,
+    0.85`, and two of the six wrote the quality as `.85` — one rule in six places, the shape
+    that has already split the bins count and the two quote renderers in this file.
+  - ⛔ **THE DIMENSION IS NOT THE THING TO LOWER** if this ever has to go further. 2000px is
+    far above every use of these pictures; an inch and a half of crew sheet is about 450px
+    of ink. Dropping the BYTES saves the storage — dropping the DIMENSION is the one that
+    shows, on the printed sheet first, where nobody is looking at a screen.
+  - ⚠ **A BLUEPRINT MAP KEEPS ITS OWN, LARGER ALLOWANCE** (`BPM_*`, 2 MB / 2400px), because
+    it is a photograph of a hand-DRAWN roofline — a pencil line has to survive — and it
+    prints eight to a page.
+  - ⚠ **TEN OTHER UPLOAD PATHS STILL DO NOT SHRINK AT ALL** — the Gallery, the Hero images,
+    house details, the layout map and an expense receipt among them. Deliberately not
+    widened: several of those can legitimately be a PNG with transparency and this shrinker
+    always writes JPEG, so a background would appear where there never was one.
+    `photo-size.test.js` counts them and REPORTS the number rather than failing, so the next
+    session finds it as a decision rather than as an oversight.
 - ⛔ **AND THE QUOTE CARD DOES NOT SEND A TEXT AT ALL ANY MORE** ([[QT-41]], 2026-09-12,
   superseding [[QT-39]] and restoring [[QT-38]]'s position). Dax ruled it out hours after
   setting the account up: *"we cant use twillo so we need to just set it up so its easy to copy
