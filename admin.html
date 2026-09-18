@@ -51676,13 +51676,48 @@ function nextVisitChip(d, custId){
     ((orphan || v.overdue) ? '&#9888; ' : '') + esc(v.kind) + ' ' + esc(when) +
     (orphan ? ' &mdash; not on the schedule' : '') + '</span>';
 }
-function allCustRouteStatus(d){
+/* ⭐ SCHEDULED MEANS "ON A DAY IN THE SCHEDULE" ([[SCH-78]], 2026-09-16). The pill under
+   this status already read the plan since [[SCH-77]], but the word above it — and the
+   Route Status filter — still read the crew-routes stamp. So one row could say
+   "Scheduled" over "No day booked yet", or "Unscheduled" over a real day.
+   ⚠ SAME THREE ANSWERS AS planHangDateFor: a date is Scheduled, '' is Unscheduled, and
+   null (the plan has not landed yet) falls back to the stamp it always drew. */
+function allCustRouteStatus(d, custId){
   if(d.removalDone) return 'Removed';
   if(d.completed) return 'Install Complete';
   if(d.needsFix) return 'Needs Fix';
+  const planned = planHangDateFor(custId);
+  if(planned !== null) return planned ? 'Scheduled' : 'Unscheduled';
   if(d.scheduled) return 'Scheduled';
   return 'Unscheduled';
 }
+/* ⭐ ALL CUSTOMERS FOLLOWS THE SCHEDULE BY ITSELF ([[SCH-78]], 2026-09-16). Addie: "in all
+   customers where it shows when they are scheduled if at all its not in proper sync, it
+   should pull those dates automatically and so that page is updated anytime somebody
+   clicks recalculate everything in all customers".
+   ⛔ TWO GAPS, AND BOTH HAD TO CLOSE. The plan only loaded when somebody opened Routes on
+   THAT device, so anybody who went straight to All Customers read the crew-routes stamps
+   for the whole session. And nothing redrew this table when the plan changed, so a
+   Recalculate left it showing the days from before the press.
+   The widget now calls this whenever the plan is redrawn or arrives from another device.
+   ⚠ DEBOUNCED AND ONLY WHEN SEEN. renderAll runs on every tick and move in the Schedule,
+   and redrawing ~950 hidden rows each time is work nobody sees — so a hidden table is
+   marked stale and redrawn the moment Customers is opened. */
+let allCustPlanStale = false, allCustPlanTimer = null;
+window.schedulePlanChanged = function(){
+  clearTimeout(allCustPlanTimer);
+  allCustPlanTimer = setTimeout(function(){
+    const body = document.getElementById('allCustTableBody');
+    if(!body) return;
+    if(body.offsetParent === null){ allCustPlanStale = true; return; }
+    allCustPlanStale = false;
+    safeRender('allCustomersTable', renderAllCustomersTable);
+  }, 400);
+};
+document.querySelector('.nav-item[data-panel="addcustomer"]')?.addEventListener('click', function(){
+  if(!allCustPlanStale) return;
+  setTimeout(function(){ if(allCustPlanStale) window.schedulePlanChanged(); }, 0);
+});
 /* ---------------- WHO PAYS FOR WHOM (Customers > Who Pays for Whom) --------
    Every screen in this app is arranged by HOUSE, so nothing anywhere answered
    "who is on this person's bill" — the office had to search a phone number and
@@ -51818,6 +51853,10 @@ document.getElementById('billingGroupExportBtn')?.addEventListener('click', func
 function renderAllCustomersTable(){
   const body = document.getElementById('allCustTableBody');
   if(!body) return;
+  /* ⚠ [[SCH-78]] — without this the dates below come from the plan only after somebody
+     has opened Routes on this device. Guarded inside, so every render after the first
+     costs nothing. */
+  if(typeof window.scheduleFollowPlanForReaders === 'function') window.scheduleFollowPlanForReaders();
   populateAllCustFilterCities();
   const term = (document.getElementById('allCustSearchInput').value||'').trim().toLowerCase();
   const cityFilter = document.getElementById('allCustFilterCity').value;
@@ -51853,7 +51892,7 @@ function renderAllCustomersTable(){
        the badge, and asking twice is two answers to one question about one customer —
        the exact shape of the bug the badge was rebuilt to close. */
     return {item, d, inv, invStatus, hasMap, hasPin, enrolled, badge: seasonBadgeKey(d),
-            routeStatus: allCustRouteStatus(d)};
+            routeStatus: allCustRouteStatus(d, item.id)};
   });
   if(term){
     const phoneDigits = term.replace(/\D/g,'');
@@ -55914,7 +55953,7 @@ document.getElementById('allCustExportBtn').addEventListener('click', function()
     const invStatus = inv ? computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees) : 'No Invoice';
     return {
       Name: d.name||'', Phone: d.phone||'', Email: d.email||'', Address: d.address||'', 'Customer #': d.customerNumber||'',
-      Enrolled: memberExportDateAdded(d), 'Route Status': allCustRouteStatus(d), Difficulty: d.difficulty||'Unrated',
+      Enrolled: memberExportDateAdded(d), 'Route Status': allCustRouteStatus(d, item.id), Difficulty: d.difficulty||'Unrated',
       'Invoice Status': invStatus, 'Invoice Total': inv ? billTotalAmount(inv.data) : '',
       'Paid So Far': inv ? (inv.data.deposit||0) : '', 'Balance Due': inv ? balanceDueAmount(inv.data) : '',
       'Has Layout Map': d.layoutMapUrl ? 'Yes' : 'No',
@@ -68621,7 +68660,10 @@ async function setCrewCount(n){
    asks h.done, and Job 3 makes that the CUSTOMER's answer rather than the plan's —
    so it has to be brought up to date before renderStats counts what is left,
    renderActive draws the ticks, and scheduleSave writes the plan back. */
-function renderAll(){refreshDerivedDone();computeDates();renderStats();renderActive();renderImportedAt();paintForecastNote();if(loaded)scheduleSave();}
+function renderAll(){refreshDerivedDone();computeDates();renderStats();renderActive();renderImportedAt();paintForecastNote();if(loaded)scheduleSave();
+  /* ⭐ [[SCH-78]] — Recalculate everything, a tick, a move: every one of them ends here, so
+     this is the one place All Customers has to be told. */
+  if(typeof window.schedulePlanChanged==='function') window.schedulePlanChanged();}
 /* Say out loud that this plan is a SNAPSHOT of a CSV, and how old it is.
    Nothing on this tab distinguished a plan built this morning from one built
    from a months-old export — it just looked like the schedule. */
@@ -72400,6 +72442,28 @@ function exportCSV(){
      deleted, because Quote Requests calls it whenever a quote closes and a hook that
      exists is easier to find than one somebody has to re-invent. */
   window.scheduleOnCustomersUpdated=function(){};
+  /* ⭐ THE SAVED PLAN, FOLLOWED FOR READERS ([[SCH-78]], 2026-09-16). All Customers asks
+     the plan what day each house is on, and the plan used to exist only after somebody
+     opened Routes on this device — so the column read stale crew-routes stamps, and a
+     Recalculate pressed on another computer never reached it at all.
+     ⛔ IT NEVER WRITES. It hydrates the plan and asks All Customers to redraw, nothing else:
+     no renderAll (that saves), no customer sync, no timer.
+     ⚠ AND IT STANDS BACK THE MOMENT THIS DEVICE LOADS THE PLAN FOR REAL. Once Routes is
+     open the in-memory plan is the one being edited, and hydrating over it from a snapshot
+     would throw away a move made a second ago. From then on renderAll does the telling. */
+  let __readerStarted=false, __readerStop=null;
+  window.scheduleFollowPlanForReaders=function(){
+    if(__readerStarted) return; __readerStarted=true;
+    try{
+      __readerStop=onSnapshot(PLAN_REF(), function(s){
+        if(loaded){ if(__readerStop){ __readerStop(); __readerStop=null; } return; }
+        if(!s.exists()) return;
+        try{ hydrate(s.data()); }
+        catch(e){ console.error('[HU] could not read the saved plan for All Customers', e); return; }
+        if(typeof window.schedulePlanChanged==='function') window.schedulePlanChanged();
+      }, function(err){ console.error('[HU] plan listener for All Customers failed', err); });
+    }catch(e){ console.error('[HU] could not follow the plan for All Customers', e); }
+  };
   let __started=false;
   function __start(){
     if(__started) return; __started=true;

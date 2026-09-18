@@ -10819,6 +10819,54 @@ suite('19. All Customers: the next visit');
         'the whole point is that the row can be told which day the schedule has them on');
     }
 
+    /* ---- ALL CUSTOMERS FOLLOWS THE SCHEDULE ([[SCH-78]], 2026-09-16) ------
+       Addie: "in all customers where it shows when they are scheduled if at all its not
+       in proper sync ... that page is updated anytime somebody clicks recalculate
+       everything". The pill read the plan but the Scheduled / Unscheduled word above it
+       and the Route Status filter still read the crew-routes stamp, the plan only loaded
+       once Routes was opened, and nothing redrew the table after a Recalculate.
+       ⚠ THE STATUS IS RUN, the wiring is matched — the three answers are the part a regex
+       cannot tell apart. */
+    {
+      const sSrc = admin.slice(admin.indexOf('function planHangDateFor('),
+                               admin.indexOf('function nextVisitFor(')) +
+                   admin.slice(admin.indexOf('function allCustRouteStatus('),
+                               admin.indexOf('let allCustPlanStale'));
+      const status = eval(sSrc + '\n;allCustRouteStatus');
+      const STAMPED = {scheduled: true, scheduledDate: '2026-10-16'};
+      global.window = {schedulePlanBookings: function(){ return {darlene: {date: '2026-11-03'}}; }};
+      check('nextvisit', 'SCH-78: a house the plan has on a day reads Scheduled, stamp or not',
+        status({}, 'darlene') === 'Scheduled',
+        'the word must agree with the date drawn under it');
+      check('nextvisit', 'SCH-78: a stamped house the plan does not hold reads Unscheduled',
+        status(STAMPED, 'rachel') === 'Unscheduled',
+        'the crew-routes stamp said Scheduled over "No day booked yet"');
+      check('nextvisit', 'SCH-78: done and needs-fix still win over the plan',
+        status({completed: true}, 'darlene') === 'Install Complete' &&
+        status({needsFix: true}, 'darlene') === 'Needs Fix');
+      global.window = {schedulePlanBookings: function(){ return null; }};
+      check('nextvisit', 'SCH-78: while the plan cannot answer, the stamp still speaks',
+        status(STAMPED, 'rachel') === 'Scheduled' && status({}, 'rachel') === 'Unscheduled',
+        'cannot-tell must draw what it always drew');
+      delete global.window;
+      check('nextvisit', 'SCH-78: the row and the export both hand the id to the status',
+        /routeStatus: allCustRouteStatus\(d, item\.id\)\}/.test(admin) &&
+        /'Route Status': allCustRouteStatus\(d, item\.id\)/.test(admin),
+        'without the id the status never asks the plan and the filter stays on the stamp');
+      check('nextvisit', 'SCH-78: every redraw of the schedule tells All Customers',
+        /function renderAll\(\)\{[^]*?window\.schedulePlanChanged\(\);\}/.test(admin),
+        'Recalculate everything ends in renderAll — without this the table keeps the old days');
+      check('nextvisit', 'SCH-78: All Customers starts following the saved plan when it draws',
+        /function renderAllCustomersTable\(\)\{[^]{0,400}window\.scheduleFollowPlanForReaders\(\)/.test(admin),
+        'otherwise the dates come from the plan only after somebody opens Routes');
+      const reader = admin.slice(admin.indexOf('window.scheduleFollowPlanForReaders=function(){'),
+                                 admin.indexOf('let __started=false;'));
+      check('nextvisit', 'SCH-78: the reader never writes and stands back once Routes loads the plan',
+        !!reader && /if\(loaded\)\{/.test(reader) &&
+        !/renderAll\(|scheduleSave\(|saveNow\(|setDoc\(|scheduleSyncFromCustomers/.test(reader),
+        'hydrating over a plan being edited throws away a move; saving from a viewer overwrites it');
+    }
+
     /* ---- IS THAT DAY REAL? ([[SCH-73]], 2026-09-11) ---------------------
        Addie, on Darlene Price #680: "It says shes scheduled for Oct 16 but I
        dont see oct 16 on the schedule." The pill read a STAMP on the customer

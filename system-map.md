@@ -5463,6 +5463,35 @@ make the sweep re-home everybody every fifteen minutes.
 fallback for when the plan cannot answer — it returns null until the Schedule tab has been
 opened, and blanking ~950 rows until somebody clicks Schedule would read as a broken column.
 
+⭐ **AND ALL CUSTOMERS FOLLOWS THE PLAN BY ITSELF** (2026-09-16, [[SCH-78]]). Dax: *"in all
+customers where it shows when they are scheduled if at all its not in proper sync, it should
+pull those dates automatically and so that page is updated anytime somebody clicks recalculate
+everything"*.
+
+[[SCH-77]] pointed the **date** at the plan and left three holes behind it. The **word** above
+that date — *Scheduled* / *Unscheduled*, and the Route Status filter built on it — still read
+the crew-routes stamp, so one row could say *Scheduled* over *"No day booked yet"*. The plan
+itself only existed on a device that had opened **Routes**, so anybody who went straight to
+Customers read the stamps for the whole session. And nothing redrew the table when the plan
+changed: Recalculate everything ends in `renderAll`, which redraws the Schedule alone.
+
+⭐ So `allCustRouteStatus` asks the plan too, on the same three answers as the date
+(a day → *Scheduled*, no day → *Unscheduled*, cannot say → the stamp it always drew); the
+first draw of the table opens a **read-only listener** on the saved plan
+(`scheduleFollowPlanForReaders`); and every `renderAll` tells the table to repaint
+(`schedulePlanChanged`, debounced, and a hidden table is marked stale and redrawn when
+Customers is next opened).
+
+⚠ **THE READER NEVER WRITES, AND STANDS BACK ONCE ROUTES IS OPEN.** It hydrates the plan and
+asks for a repaint — no `renderAll` (that saves), no customer sync, no timer — and
+unsubscribes the moment this device loads the plan for real, because from then on the
+in-memory plan is the one being edited and hydrating over it would discard a move made a
+second ago.
+
+⚠ **NOTHING ABOUT WHO GETS PLACED CHANGED.** This is what the page READS. The rule that puts
+every confirmed customer on a day, and names any who are left off, is
+`confirmedNotOnAnyDay` on the Recalculate press ([[SCH-74]]).
+
 ⭐ **AND SCHEDULE IS NOW A TAB OF ROUTES** (2026-09-11, [[SCH-76]]). Addie: *"Can we
 organize this better so schedule can be a part of routes?"* It leads the Routes tab bar,
 ahead of List View / Generate Route / Calendar / Map View / Take Downs. **Nothing was
