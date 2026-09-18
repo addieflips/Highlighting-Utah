@@ -9652,7 +9652,9 @@ async function getOrCreatePortalToken(phone){
        if the save failed" — so a refused write produced a live-looking RSVP link belonging to
        NOBODY. The customer taps Yes, findByToken matches no record, and the Errors row can
        only say "no customer matches this link", which is what every RSVP row in the 8-11
-       September log said. It is silent at both ends: the office reads a green Sent, and to
+       September log said. (⚠ CORRECTED 2026-09-18: those rows were NOT this — all nine of
+       their tokens are stored on the right customers; the label was the error badge naming
+       people before the customer list had loaded. See msgErrorWhoIs.) It is silent at both ends: the office reads a green Sent, and to
        the customer it looks like they already answered.
 
        ⭐ THE SERVER ALREADY HAD THE RIGHT RULE AND WROTE IT DOWN. `ensureToken` in
@@ -22961,8 +22963,17 @@ function errBadgeStoredLines(){
     return '[' + stamp + '] ' + String(d.message || '').trim() + (who ? '  — ' + who : '');
   });
 }
-function errBadgeSeedFromStored(){
+/* ⚠ AND THE SEED WAITS FOR THE CUSTOMERS (2026-09-18). The lines are frozen text the
+   moment they are handed over, and `seededOnce` means they are never rebuilt — so a seed
+   taken before `jobAddresses` has landed carries no names for the rest of the session.
+   `loadJobAddresses` finishes the job on its first snapshot, with `force` so a book that
+   really is empty still gets its errors rather than waiting for ever. */
+let errBadgeWaitingForCustomers = false;
+function errBadgeSeedFromStored(force){
   if(typeof window.__huErrCatchSeed !== 'function') return;
+  const custs = (typeof jobAddresses !== 'undefined' && jobAddresses) ? jobAddresses : [];
+  if(!force && !custs.length){ errBadgeWaitingForCustomers = true; return; }
+  errBadgeWaitingForCustomers = false;
   window.__huErrCatchSeed(errBadgeStoredLines());
 }
 /* The catcher at the top of this page is plain JS running before Firebase exists, so it
@@ -23835,6 +23846,13 @@ function msgErrorWhoIs(d){
   const tail = msgErrorTokenTail(d);
   if(!tail) return null;
   const list = (typeof jobAddresses !== 'undefined' && jobAddresses) ? jobAddresses : [];
+  /* ⛔ AN EMPTY BOOK IS "NOT LOADED YET", NEVER "NOBODY MATCHES" (2026-09-18). The badge
+     is filled from the stored errors the moment `messages` lands, and the customers arrive
+     on their own listener a moment later — so every RSVP row in the copied log read "no
+     customer matches this link", for nine tokens that ALL matched a customer and ALL had
+     their answer on file. Said about a failure the customer was told did not save, that
+     sentence sends the office chasing people who already replied. Say nothing instead. */
+  if(!list.length) return null;
   const hits = list.filter(function(a){
     const t = String((a.data && a.data.portalToken) || '').toLowerCase();
     return t.length >= 6 && t.slice(-6) === tail;
@@ -48146,6 +48164,11 @@ function loadJobAddresses(){
     // Indexes first — every render below looks customers up through them.
     rebuildCustomerIndexes();
     scheduleJobAddressRender();
+    /* The error badge held its stored rows back until it could name who they were about. */
+    if(errBadgeWaitingForCustomers){
+      try{ errBadgeSeedFromStored(true); }
+      catch(err){ console.error('[HU] could not put the stored errors on the badge', err); }
+    }
   });
 }
 let warehouseExtras = [];
