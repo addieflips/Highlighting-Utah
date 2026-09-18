@@ -1456,6 +1456,10 @@ const RETIRED_CHECKLIST_TERMS = [
   ['line them up', 'the two pictures stopped needing to agree on 2026-08-27 — sky view is the only surface you measure on, so no dot exists in two pictures'],
   ['line up the two pictures', 'removed 2026-08-27 with the rest of the alignment panel'],
   ['as estimated feet', 'the two commit buttons became ONE gold "Save to this quote" on 2026-08-25, because only one of them was gold and it saved the price without the feet; the feet-only link now reads "Save the feet only" (2026-08-25)'],
+  /* ⚠ THE PHRASE, NOT THE WHOLE HEADING. Row 217 quoted it inside its own quotation
+     marks, so a term starting at a quote character would match that row and nothing
+     written from memory later. */
+  ['waiting on light colours', 'the block of that name was retired on 2026-09-18 ([[WH-41]]) — a house with no colours on file is an ordinary build now, headed "Check lights" with its wire beside it: "There should not be a Waiting on light colours section though." Row 217 was reworded IN PLACE and deliberately not version-bumped: nothing a person has to DO changed, and forcing a Retest of a physical job she may be half way through is the double work §0 exists to stop'],
 ];
 {
   /* MOVED 2026-08-14: the seed lives in js/test-seed.js now, not inline in
@@ -2559,13 +2563,17 @@ check('flow', 'every newly added house is flagged for the warehouse',
 /* ⚠ SCOPED TO THE FUNCTION, NOT TO A CHARACTER WINDOW. This was a {0,200} window and a
    comment added between the two lines broke it on correct code — the fixed-window
    staleness CLAUDE.md §7 names by hand. What is claimed is that the season guard and
-   the blocked push live in the same builder, in that order. */
+   the key the colourless house gets live in the same builder, in that order.
+   ⚠ REPOINTED 2026-09-18, NOT WEAKENED ([[WH-41]]). It asked for `blocked.push(item)` —
+   the siding those houses used to be parked on. There is no siding now: they take a
+   Check lights key and are built like anybody else. The claim is unchanged — flagging a
+   house with no colours is only safe because it still reaches a list somebody works. */
 {
   const q = extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildQueueGroups');
-  check('flow', 'and the waiting-on-colours block is still what catches the ones with none',
+  check('flow', 'and a house with none still reaches a pile somebody actually works',
     /isOutForSeason\(d\)\)\) return;/.test(q) &&
-      q.indexOf('blocked.push(item)') > q.indexOf('isOutForSeason(d))) return;'),
-    'flagging them is only safe because there is a list for the ones that cannot be built yet');
+      q.indexOf('whCheckLightsKey(d.wireColor)') > q.indexOf('isOutForSeason(d))) return;'),
+    'flagging them is only safe because a house with no colours still heads a group');
 }
 /* ⭐ AND THE SEASON RULE IS THE SHARED ONE, NOT d.maybeNextYear (2026-08-22). Owner:
    "back next year ... won't go to recycle or be approved for this year?" Five places
@@ -27093,18 +27101,21 @@ suite('Suite 107. Pricing a re-quote from the popup');
       'this is the sheet the warehouse prints and builds off');
     /* ⚠ A CENSUS, AND THE NUMBER MOVING IS THE POINT. 3 → 5 on 2026-09-11, when
        [[WH-34]] put the two timer jobs on paper (Remove timer, and the Timer only rows
-       that had been on no sheet at all). Five builders: blocked, Remove timer, Timer only,
-       houses, extras. */
+       that had been on no sheet at all), then 5 → 4 on 2026-09-18 when [[WH-41]] retired
+       the Blocked row — a house with no colours prints as an ordinary House row now.
+       ⚠ A BUILDER DISAPPEARING IS AS INTERESTING AS ONE ARRIVING, so the number is
+       written down again rather than the check being loosened. Four builders: Remove
+       timer, Timer only, houses, extras. */
     check('S107', 'and every row builder fills it in, so no row is short a cell',
-      (extractFn(admin, 'whSheetRowsForBuild').match(/putInto:/g) || []).length === 5,
-      'blocked, Remove timer, Timer only, houses and extras all push rows onto that sheet');
+      (extractFn(admin, 'whSheetRowsForBuild').match(/putInto:/g) || []).length === 4,
+      'Remove timer, Timer only, houses and extras all push rows onto that sheet');
     /* ⭐ AND THE Why COLUMN THE SAME WAY (2026-08-24). A column every row does not fill
        leaves that row short a cell and the table shifts under it. Buffer stock fills it
        with a blank on purpose — no customer, no provenance to claim — which still
        counts as filling it. */
     check('S107', 'and every row builder fills the Why column too',
-      (extractFn(admin, 'whSheetRowsForBuild').match(/reason:/g) || []).length === 5,
-      'blocked, Remove timer, Timer only, houses and extras all push rows onto that sheet');
+      (extractFn(admin, 'whSheetRowsForBuild').match(/reason:/g) || []).length === 4,
+      'Remove timer, Timer only, houses and extras all push rows onto that sheet');
 
     /* ⭐ BUNDLES, NOT FEET, ON THIS SHEET TOO (2026-08-21). Owner: "I don't think we
        need feet and bundles. I think how many bundles is fine for warehouse."
@@ -27172,7 +27183,7 @@ suite('Suite 107. Pricing a re-quote from the popup');
     const q = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'houseBundleNeed',
       'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice',
       seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whWireLabel') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
     const B = (book) => q(book, [], (p, w) => p + '|' + (w || ''),
       (d) => ({feet: Number(d.measuredFeet) || 0, bundles: 1}), 100, 2, (p, r) => p / r);
 
@@ -27180,17 +27191,28 @@ suite('Suite 107. Pricing a re-quote from the popup');
                                            measuredFeet: 300}}];
     const out = B(noColours);
     check('S107', 'somebody waiting to be built with no colours is still on the list',
-      out.blocked.length === 1 && out.blocked[0].id === 'a894',
+      out.keys.length === 1 &&
+      (out.groups[out.keys[0]].houses || []).some(function(h){ return h.id === 'a894'; }),
       'the tab said nothing needed building while she sat flagged and invisible');
-    check('S107', 'and they are NOT put in a pattern group, because there is no pattern',
-      out.keys.length === 0,
-      'grouping them by a blank pattern is how they end up mixed into real builds');
+    /* ⭐ AND SHE IS AN ORDINARY BUILD ([[WH-41]], 2026-09-18). Addie: "There should not be
+       a Waiting on light colours section though." This block used to assert the opposite —
+       that she was in `blocked` and in NO group, because a blank pattern would mix her into
+       a real build. The heading is not blank any more: whCheckLightsKey names a pile of its
+       own, so she groups without ever joining somebody else's glass. The old reasoning is
+       what makes that the right shape, so it is written down rather than deleted. */
+    check('S107', 'and the pile she heads is a Check lights one, not a blank pattern',
+      /Check lights/.test(out.keys[0] || ''),
+      'a blank heading is how a house with no answer ends up mixed into a real build: ' +
+      JSON.stringify(out.keys));
+    check('S107', 'and nothing hands back a blocked list any more',
+      out.blocked === undefined,
+      'an empty one left behind lets every reader that still asks silently show nobody');
 
     check('S107', 'a house with colours is untouched by any of this',
-      B([{id: 'b1', data: {name: 'Fine', needsLightBuild: true, lightsDescription: 'Warm',
-                          measuredFeet: 200}}]).blocked.length === 0);
+      !/Check lights/.test(B([{id: 'b1', data: {name: 'Fine', needsLightBuild: true,
+                          lightsDescription: 'Warm', measuredFeet: 200}}]).keys.join('|')));
     check('S107', 'and sitting out the season still means nothing is built',
-      B([{id: 'c1', data: {name: 'Out', needsLightBuild: true, maybeNextYear: true}}]).blocked.length === 0,
+      B([{id: 'c1', data: {name: 'Out', needsLightBuild: true, maybeNextYear: true}}]).keys.length === 0,
       'Back Next Year has always meant no work, and that must not change');
     /* ⭐ AND THE ONE THE FLAG COULD NOT SEE (2026-08-22). portalRsvp writes rsvpStatus
        alone — no maybeNextYear — so somebody who answered Back Next Year through the
@@ -27199,7 +27221,7 @@ suite('Suite 107. Pricing a re-quote from the popup');
       (function () {
         const r = B([{id: 'c2', data: {name: 'Portal', needsLightBuild: true,
                                        rsvpStatus: 'backnextyear'}}]);
-        return r.blocked.length === 0 && r.keys.length === 0;
+        return r.keys.length === 0;
       })(),
       'the flag alone missed every customer who used the link instead of the office');
     /* ⚠ AN RSVP OF NO IS OUT TOO: their bundle is queued to be taken apart, so
@@ -27214,18 +27236,29 @@ suite('Suite 107. Pricing a re-quote from the popup');
                            needsLightRecycle: true, recycleKeepingCustomer: true}}]).keys.length === 1,
       'recycling their old set and building a new one is exactly what a mover needs');
     check('S107', 'and somebody not flagged at all is not on it either',
-      B([{id: 'd1', data: {name: 'Nothing to do'}}]).blocked.length === 0);
+      B([{id: 'd1', data: {name: 'Nothing to do'}}]).keys.length === 0);
   }
 
+  /* ⚠ REPOINTED 2026-09-18 ([[WH-41]]) AND WIDENED IN THE SAME LINE. It asked about the
+     blocked list, which is gone; a book whose only outstanding warehouse job is a timer
+     produced no groups either, so the note was reached with the Timers block below it
+     never drawn — the same hole one list further down. */
   check('S107', 'the tab only says nothing needs building when nothing does',
-    /if\(!keys\.length && !blocked\.length\)/.test(extractFn(admin, 'renderWarehouseQueue')),
+    /if\(!keys\.length && !timerHouses\.length && !timerRemovals\.length\)/
+      .test(extractFn(admin, 'renderWarehouseQueue')),
     'the empty note used to be reached with people still waiting');
   /* ⚠ RUN, NOT READ. Both of these were written as searches for the wording, and both
      survived a sabotage that stopped the rows being produced at all — the string was
      still sitting there in a loop over an empty list. */
   {
+    /* ⚠ whWireLabel IS LIFTED HERE, NOT STUBBED ([[WH-41]], 2026-09-18). It used to be a
+       parameter answering `String(w || 'white')`, which was harmless while it only filled
+       the Wire cell — and became a lie the moment whCheckLightsKey started deciding the
+       HEADING from it: the stub folded a house with nothing on file into a pile called
+       "white", so the check below passed on the stub's own invention. The real one is two
+       lines and carries [[WH-35]]'s words. */
     const sheet = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
-      'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
+      'houseBundleNeed', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
       /* Lifted with the row builder they belong to: the Bin # column is a COUNT now
          and the customer number rides beside the name. */
       /* ⚠ THE REAL CUTOFF, INTERPOLATED — a second copy of this number is how a sandbox
@@ -27233,30 +27266,44 @@ suite('Suite 107. Pricing a re-quote from the popup');
       'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= ' + CN_DOUBLE_BIN_FEET +
         ' ? 1 : Math.ceil(f / ' + CN_DOUBLE_BIN_FEET + '); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
+      extractFn(admin, 'whWireLabel') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const rows = sheet([{id: 'a894', data: {name: 'Ashley Wray', customerNumber: '894',
                                             address: '9873 N Sunnybank Pl',
                                             needsLightBuild: true, measuredFeet: 400}}],
       [], (p, w) => p + '|' + (w || ''), (d) => ({feet: 0, bundles: 1}),
-      (w) => String(w || 'white'), () => '', []).rows;
-    const blockedRow = rows.filter(function(r){ return r.type === 'Blocked'; });
+      () => '', []).rows;
+    /* ⚠ THE ROW TYPE MOVED, THE CLAIM DID NOT ([[WH-41]]). It used to be typed Blocked and
+       carry "cannot be built yet"; it is an ordinary House row now, on a Check lights page.
+       What this has always asserted is that the sheet does not quietly leave her off. */
+    const hers = rows.filter(function(r){ return r.what === 'Ashley Wray #894'; });
     check('S107', 'and the printed sheet carries them too',
-      blockedRow.length === 1 && blockedRow[0].what === 'Ashley Wray #894',
-      'a sheet that leaves them off says the work is finished when it is not');
-    check('S107', 'and the row says why it cannot be built',
-      /NO LIGHT COLOURS ON FILE/.test(blockedRow[0] ? blockedRow[0].notes : ''),
-      'a row with a blank Bundles column and no reason reads as a mistake');
+      hers.length === 1 && hers[0].type === 'House',
+      'a sheet that leaves them off says the work is finished when it is not: ' +
+      JSON.stringify(rows.map(function(r){ return r.type; })));
+    check('S107', 'and no row on it is typed Blocked any more',
+      rows.every(function(r){ return r.type !== 'Blocked'; }),
+      'the block she asked to be rid of must not survive on the paper');
+    /* ⚠ AND THE ROW STILL SAYS WHAT IS MISSING — in the GROUP column now, not in Notes.
+       It used to read "NO LIGHT COLOURS ON FILE — cannot be built yet", which was the
+       claim [[WH-41]] removed: somebody CAN build it, once they have looked. The Group
+       column is what the sheet is paged by, so it is where the instruction belongs, and
+       a Notes line saying the same thing on the same row is the noise this file already
+       refuses beside the bins column. */
+    check('S107', 'and the row still says what is missing, on the heading it is filed under',
+      /Check lights/.test(hers[0] ? hers[0].group : ''),
+      'got ' + JSON.stringify(hers[0] && hers[0].group));
     /* ⭐ THE CUSTOMER NUMBER MOVED (2026-08-21). Owner: "Bin # is how many bins were
        making for them but costumer # should also show next to costumers name." So the
        identifier is in the Customer column now, and `bins` is a quantity — for a
        400 ft house, two. */
     check('S107', 'and it still carries the customer number, so somebody can find them',
-      blockedRow[0] && /#894/.test(blockedRow[0].what),
-      'got ' + JSON.stringify(blockedRow[0] && blockedRow[0].what));
+      hers[0] && /#894/.test(hers[0].what),
+      'got ' + JSON.stringify(hers[0] && hers[0].what));
     check('S107', 'and the Bins column is a count, not that number',
-      blockedRow[0] && blockedRow[0].bins === '2',
-      '400 ft is two bins - got ' + JSON.stringify(blockedRow[0] && blockedRow[0].bins));
+      hers[0] && hers[0].bins === '2',
+      '400 ft is two bins - got ' + JSON.stringify(hers[0] && hers[0].bins));
   }
 
   /* ⭐ AND APPLYING A RE-QUOTE IS TWO STEPS, THE SECOND OF WHICH WAS SILENT. Owner:
@@ -28342,7 +28389,7 @@ suite('Suite 116. Deleting the test records');
     const status = new Function('item', 'jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed',
 seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whWireLabel') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
       'return whHouseBuildStatus(item);');
     const ask = function(d, extras){
       const item = {id: 'a', data: d};
@@ -28351,9 +28398,15 @@ seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
     };
     check('S116', 'a house in a build group is reported as being there',
       ask({name: 'A', needsLightBuild: true, lightsDescription: 'Warm White'}).state === 'building');
-    check('S116', 'one with no colours is reported as waiting on them',
-      ask({name: 'A', needsLightBuild: true}).state === 'blocked',
-      'that is a different problem with a different fix, and saying which is the point');
+    /* ⚠ REPOINTED 2026-09-18 ([[WH-41]]). There is no 'blocked' state to report: a house
+       with no colours IS on the build list, under a Check lights heading, so this screen
+       has to send the office to that heading rather than to a block that is not there. */
+    check('S116', 'one with no colours is reported as being on the list, under Check lights',
+      (function(){
+        const st = ask({name: 'A', needsLightBuild: true});
+        return st.state === 'building' && /Check lights/.test(st.where || '');
+      })(),
+      'sending somebody to a block that no longer exists is worse than saying nothing');
     check('S116', 'one nobody queued is reported as not queued',
       ask({name: 'A'}).state === 'notqueued',
       'owner pressed a button and could not tell whether it had worked');
@@ -28372,9 +28425,15 @@ seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
       'return whBuildStatusText(name, st);');
     check('S116', 'and every state says what to do about it',
       /Build Them A New Set/.test(words('A', {state: 'notqueued'})) &&
-      /Add their colours/.test(words('A', {state: 'blocked'})) &&
       /Open that heading/.test(words('A', {state: 'building', where: 'Warm White'})),
       'telling somebody where they are not is half an answer');
+    /* ⚠ AND THE RETIRED STATE SAYS NOTHING RATHER THAN SOMETHING WRONG ([[WH-41]]). A
+       sentence left behind for a state nothing can return is the most expensive kind of
+       dead code here: it would send the office to a block that is not on the screen. */
+    check('S116', 'and the blocked sentence is gone, not orphaned',
+      !/st\.state === 'blocked'/.test(extractFn(admin, 'whBuildStatusText')) &&
+      !/st\.state === 'blocked'/.test(extractFn(admin, 'whHouseBuildStatus')),
+      'nothing can return it any more');
   }
 
   /* ⭐ RUN OVER A MIXED INBOX AND A MIXED RECYCLE LIST. Owner, 2026-08-21, reading
@@ -28768,7 +28827,7 @@ suite('Suite 112. The number on the bin');
       'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= ' + CN_DOUBLE_BIN_FEET +
         ' ? 1 : Math.ceil(f / ' + CN_DOUBLE_BIN_FEET + '); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const build = function(cust){
       return rows([{id: 'a1', data: cust}], [], (p, w) => p + '|' + (w || ''),

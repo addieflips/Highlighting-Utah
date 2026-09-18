@@ -14932,8 +14932,9 @@ async function wireSweepFind(){
    ⚠ CALLED ONCE, NOT PER HOUSE. `whHouseBuildStatus` answers this for ONE house by building
    the whole queue, so asking it per customer is the ~950,000-comparison shape this file
    already warns about; the ids are collected in a single pass instead.
-   ⚠ AND IT INCLUDES THE BLOCKED BLOCK. Those houses are on the tab, in front of somebody,
-   waiting on an answer — which is exactly the row where a wrong wire is worth correcting. */
+   ⚠ AND IT INCLUDES THE HOUSES WITH NO COLOURS ON FILE. They are on the tab — in a Check
+   lights group since [[WH-41]] rather than in a block of their own — so they come through
+   the group walk above, which is exactly the row where a wrong wire is worth correcting. */
 function wireSweepOnWarehouse(){
   const on = {};
   if(typeof whBuildQueueGroups !== 'function') return on;
@@ -14944,7 +14945,7 @@ function wireSweepOnWarehouse(){
   });
   /* ⚠ Buffer stock (`extras`) is deliberately NOT here: a warehouse extra has no customer
      record to clear, so it can neither be swept nor be spared. */
-  [built.blocked, built.timerHouses, built.timerRemovals].forEach(function(list){
+  [built.timerHouses, built.timerRemovals].forEach(function(list){
     (list || []).forEach(function(h){ if(h && h.id) on[h.id] = true; });
   });
   return on;
@@ -43913,9 +43914,9 @@ async function rbApplyTickedAdds(statusEl){
            for them. The crew arrives at a house with nothing for it.
 
            ⚠ A row with no colours is NOT excluded here. whBuildQueueGroups puts
-           them in its own "Waiting on light colours" block at the top of the
-           tab, which is visible and actionable; leaving the flag off instead
-           makes them invisible, which is the bug this is fixing. */
+           them in a Check lights build group ([[WH-41]]) — an ordinary pile with
+           a Mark Done, headed with the one instruction that fits it; leaving the
+           flag off instead makes them invisible, which is the bug this is fixing. */
         needsLightBuild: true, lightsQueuedAt: serverTimestamp(),
         createdAt: dateTypedIn ? Timestamp.fromDate(new Date(dateTypedIn)) : serverTimestamp()
       };
@@ -45820,8 +45821,8 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
              all. No bundle was made and the crew arrived with nothing for it.
 
              ⚠ UNGATED, DELIBERATELY — do not add `pattern ? true : false` here. A row
-             with no colours belongs in whBuildQueueGroups' own "Waiting on light colours"
-             block, which is visible and has an Add colours button; leaving the flag off
+             with no colours belongs in a Check lights build group ([[WH-41]]), which is
+             visible and has an Edit button; leaving the flag off
              instead makes them invisible, which is the bug this closes. Owner: "we want
              to build everyone." Questions map WH-20, and WH-17 says the same thing from
              the Edit Customer side.
@@ -46115,9 +46116,9 @@ document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(asy
              nothing to build about work that is genuinely outstanding.
 
              ⚠ THIS BRANCH CAPTURES NO LIGHT INFORMATION AT ALL — no colours, no wire, no
-             timer — so every customer it creates lands in the "Waiting on light colours"
-             block rather than a build group. THAT IS INTENDED. They are real customers
-             who need a bundle, and blocked-and-visible beats invisible. It also means
+             timer — so every customer it creates lands in a Check lights group ([[WH-41]])
+             rather than a colour one. THAT IS INTENDED. They are real customers
+             who need a bundle, and go-and-look beats invisible. It also means
              this tool can never order glass for a house that does not exist, which the
              Bulk Updates copy above can — so if a bad match ever queues the book, look
              there first, not here.
@@ -47066,9 +47067,9 @@ function attachAddressRowHandlers(container){
              ⚠ THE TAIL WAS `: false` AND IT TOOK HOUSES OFF THE BUILD LIST (fixed
              2026-08-26). Questions map WH-17, from Addie on 2026-08-21: "big problem,
              she went to the recycle but not to the build." Blank colours mean the build
-             cannot be DONE yet, not that it is not OWED — that is the whole reason the
-             warehouse has a "Waiting on light colours" block, and a house dropped from
-             the flag is in neither list rather than in that one.
+             cannot be DONE yet, not that it is not OWED — that is the whole reason a house
+             with no colours still heads a Check lights group ([[WH-41]]), and a house
+             dropped from the flag is on no list at all rather than on that one.
 
              ⚠ THE SAME RULE WAS FIXED IN THE EDIT CUSTOMER SAVE ON 2026-08-21 AND THIS
              COPY WAS MISSED — one rule, two writers, one of them repaired. Both tails
@@ -48863,6 +48864,11 @@ function computeColorDemand(){
     /* ⚠ BOTH FIELDS, and this is the costly one: these totals are what gets ORDERED.
        A house whose colours are in lightColors alone had no bulbs bought for it. */
     const lights = houseLightsText(item.data);
+    /* ⛔ AND THIS ONE STAYS GATED ON THE COLOURS, THOUGH THE BUILD QUEUE NO LONGER IS
+       ([[WH-41]], 2026-09-18). A house with nothing on file is on the build list and in a
+       Check lights group — but this is the total somebody ORDERS BULBS FROM, and there is
+       no colour to order. Counting it would have to invent one. The two lists disagreeing
+       here is the right answer, not drift. */
     if(item.data.needsLightBuild && lights && !isOutForSeason(item.data)) addPattern(lights, 1);
   });
   warehouseExtras.forEach(function(item){
@@ -50620,9 +50626,10 @@ function whTimerCameOff(oldData, updates, changedFields){
 /* ⭐ AND WHETHER TAKING IT OUT IS THE WHOLE JOB — the mirror of `whTimerOnlyQueue`, condition
  * for condition, so the two directions cannot drift apart. Same reasoning in reverse: a house
  * with NO colours whose only warehouse change was the timer has nothing being made up for it,
- * so parking it under "Nothing can be made up until somebody fills them in" sends the office
- * to chase an answer that does not exist and the row never clears. That is [[WH-27]]'s own
- * complaint, and it is just as false about a removal as about an addition.
+ * so putting it in a build group at all sends somebody to go and look up colours nobody ever
+ * asked for. That is [[WH-27]]'s own complaint, and it is just as false about a removal as
+ * about an addition. (It used to read "Nothing can be made up until somebody fills them in",
+ * which was the blocked block's own heading before [[WH-41]] retired it.)
  *
  * ⚠ HOLES C AND D ARE STILL NOT REVERSED. A WIRE change is a real rebuild, and so is a timer
  * change on a house that HAS colours — that house is in a real build group and always was.
@@ -50678,6 +50685,36 @@ function houseLightsText(d){
 }
 function whGroupKey(lightsDescription, wire){
   return whNormalizeLights(lightsDescription) + ' \u2014 ' + whWireLabel(wire) + ' wire';
+}
+/* ⭐ A HOUSE WHOSE COLOURS NOBODY SAVED IS STILL AN ORDINARY BUILD (2026-09-18, [[WH-41]]).
+   Addie: “On warehouse Waiting on light colours should not be a thing. We just add if they
+   want a new wire with the light colors they have saved or just save wire color with check
+   lights if thats not saved or add timer. There should not be a Waiting on light colours
+   section though.”
+   ⛔ IT NARROWS [[WH-18]] AND REVERSES NONE OF [[WH-20]]. Nobody is dropped and nothing is
+   hidden — every house that sat in the blocked block is in a real group now, with the same
+   Mark Done, the same badge and the same row on both printed sheets. What goes is the CLAIM
+   that block made — “Nothing can be made up until somebody fills them in” — which is false
+   about the job she actually does: a wire change builds the colours already on file, and a
+   house whose colours are not on file is somebody walking over to look at the bundle.
+   ⚠ THE WORDS ARE [[WH-35]]'S, AND HERS AGAIN. The warehouse has read “Check lights” for a
+   wire nobody recorded since 2026-09-16 and it means the same thing here. A second
+   vocabulary for one instruction would be the confusion, not the consistency.
+   ⚠ SAID ONCE WHERE BOTH HALVES ARE UNKNOWN. whGroupKey composes “<colours> — <wire>
+   wire”, so a house missing both would head its own pile “Check lights — Check lights
+   wire”, which reads as a rendering fault rather than an instruction. One walk answers
+   both questions, so it is asked once.
+   ⚠ AND THE PHRASE IS DERIVED FROM whWireLabel, never typed here. That function's own note
+   is that the words live inside its body because five sandboxes lift it alone; a third copy
+   is the one that falls behind, and these two headings have to stay the same words.
+   ⚠ IT CHANGES NO RECORD. Like whWireLabel, this is what the warehouse is TOLD, not what is
+   kept — so a house that turns out to be Warm White is an ordinary edit and the heading
+   heals itself. And computeColorDemand is deliberately NOT brought along: see the note
+   there, glass is never ordered for a colour nobody has named. */
+function whCheckLightsKey(wire){
+  const unknown = whWireLabel('');
+  if(whWireLabel(wire) === unknown) return unknown;
+  return whGroupKey(unknown, wire);
 }
 /* Which parts of a light description are NOT a colour this app knows.
  *
@@ -50807,7 +50844,7 @@ function whHouseFactsHtml(d){
      change on a house that is otherwise finished. The timer and the wire say what to put
      in the bin; this says why there is a bin.
      ⚠ ONE PLACE, so every warehouse row gets it. whHouseFactsHtml is what the build
-     groups, the blocked block and the add-on rows all call — putting it on one of them
+     groups and the add-on rows all call — putting it on one of them
      would leave the badge missing exactly where somebody looked next. */
   let html = whBuildReasonChip(d);
   if(String(d.outletTimer || '').trim() === 'Yes'){
@@ -50834,20 +50871,6 @@ function whBuildQueueGroups(){
      single list somebody reads at speed while carrying a bin is how a timer gets put back
      into the house that just asked to be rid of it. */
   const timerRemovals = [];
-  /* ⭐ AND THE ONES THAT CANNOT BE BUILT YET ARE NOT DROPPED ON THE FLOOR. Owner,
-     2026-08-20, having converted Ashley Wray: "i converted her but shes not in the build
-     section."
-
-     ⚠ A HOUSE FLAGGED TO BUILD WITH NO LIGHT COLOURS ON FILE USED TO VANISH FROM THIS
-     LIST ENTIRELY, and with nothing else waiting the tab said "Nothing needs to be built
-     right now" — which is a lie about work that is genuinely outstanding. Worse, the
-     Printing tab's Needs Building list has never had that filter, so the two screens
-     disagreed about the same customer.
-
-     They still cannot be grouped by pattern, because there is no pattern. They get
-     their own block at the top saying what is missing, which is a job somebody in the
-     office can finish in thirty seconds. */
-  const blocked = [];
   jobAddresses.forEach(function(item){
     const d = item.data;
     /* Sitting out the season means nothing gets built for them, even if a
@@ -50881,34 +50904,38 @@ function whBuildQueueGroups(){
        lights just about getting a timer in there bin."
        ⚠ SHE WAS RIGHT, AND THE COST WAS WORSE THAN NOT KNOWING. `outletTimer` is one of the
        three fields in WAREHOUSE_BUILD_FIELDS, so changing a timer ALONE sets
-       needsLightBuild — and a house with no colours on file then lands in the blocked
-       block. That much is only untidy. The damage was this early `return`, which sat
-       AHEAD of the timer push: a blocked house never reached `timerHouses`, so the one
+       needsLightBuild — and a house with no colours on file then landed in the blocked
+       block, which is gone since [[WH-41]]. That much was only untidy. The damage was
+       this early `return`, which sat AHEAD of the timer push: such a house never
+       reached `timerHouses`, so the one
        thing that house actually needed was the one thing no sheet ever asked for. She
        asked for a timer, the record says Yes, and nobody was ever told to put one in.
        ⚠ A TIMER IS INDEPENDENT OF THE GLASS. It goes in the bin whatever the lights turn
        out to be, so there is nothing to wait for — which is her own rule in as many
-       words. Collected first; the blocked branch still blocks the BUILD. */
+       words. Collected first, ahead of both `return`s below. */
     if(String(d.outletTimer || '').trim() === 'Yes') timerHouses.push(item);
     /* ⛔ COLLECTED IN THE SAME BREATH, AND FOR THE SAME REASON ([[WH-34]]). Pulling a timer
-       out does not wait on any colours either, so it is taken before the blocked branch —
+       out does not wait on any colours either, so it is taken before both `return`s below —
        that early `return` is exactly what hid the timer job under [[WH-26]]. */
     if(timerRemoval) timerRemovals.push(item);
-    /* ⛔ AND A TIMER-ONLY HOUSE IS NEVER BLOCKED. Nothing is being built for them, so there
-       are no colours to wait for — the whole point of [[WH-27]]. It has already been pushed
+    /* ⛔ AND A TIMER-ONLY HOUSE IS IN NO COLOUR GROUP AT ALL. Nothing is being built for
+       them, so there is nothing to look up — the whole point of [[WH-27]]. It has already been pushed
        to `timerHouses` above, which is the one thing that house actually needs. */
     if(timerOnly) return;
     /* ⛔ NOR IS A HOUSE THAT IS ONLY HAVING A TIMER TAKEN OUT ([[WH-34]]). Past the two lines
        above, no build means this house is here for the removal alone: it belongs in no colour
-       group, and blocking it would put "waiting on light colours" against somebody who never
-       asked for any. Same rule as the line above, pointing the other way. */
+       group, and heading it “Check lights” would send somebody to look up colours nobody
+       ever asked for. Same rule as the line above, pointing the other way. */
     if(!wantsBuild) return;
-    if(!lights){ blocked.push(item); return; }
-    const key = whGroupKey(lights, d.wireColor);
+    /* ⭐ NO COLOURS ON FILE IS A GROUP, NOT A SIDING (2026-09-18, [[WH-41]]). See
+       whCheckLightsKey: the house is built like any other and the heading says to go and
+       look at the bundle, which is the job somebody actually does. */
+    const key = lights ? whGroupKey(lights, d.wireColor) : whCheckLightsKey(d.wireColor);
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
     groups[key].houses.push(item);
     /* A timer is part of that house's build, not loose buffer stock — collected above,
-       before the blocked branch, so a house waiting on colours still gets one. */
+       before either of the two `return`s, so a house that is here for a timer alone still
+       gets one. */
   });
   warehouseExtras.forEach(function(item){
     if(!item.data.pattern) return;
@@ -50946,7 +50973,7 @@ function whBuildQueueGroups(){
     return totalB - totalA;
   });
   return {groups: groups, keys: keys, timerHouses: timerHouses,
-          timerRemovals: timerRemovals, blocked: blocked};
+          timerRemovals: timerRemovals};
 }
 /* ⭐ WHY IS THIS HOUSE NOT ON THE BUILD LIST. Owner, 2026-08-21, having pressed Build
    Them A New Set on Ashley Wray: "i clicked build ashley wray but shes not here."
@@ -50976,9 +51003,6 @@ function whHouseBuildStatus(item){
       return {state: 'extra', where: g.title || key};
     }
   }
-  if((built.blocked || []).some(function(h){ return h.id === id; })){
-    return {state: 'blocked'};
-  }
   /* ⚠ THE FLAG ALONE ANSWERED THE WRONG QUESTION HERE TOO. This screen exists to say
      WHY somebody is not on the build list, so telling the office "nothing has queued a
      build" about a customer who is simply out for the season sends them off to press
@@ -51003,7 +51027,6 @@ function whBuildStatusText(name, st){
   const who = name || 'That customer';
   if(st.state === 'building') return who + ' IS on the build list \u2014 under \u201c' + st.where + '\u201d. Open that heading to see them.';
   if(st.state === 'extra') return who + ' is on the list as an extra request \u2014 under \u201c' + st.where + '\u201d.';
-  if(st.state === 'blocked') return who + ' is queued to build but has NO LIGHT COLOURS on file, so they are in \u201cWaiting on light colours\u201d at the top. Add their colours and they join a build group.';
   if(st.state === 'timeronly') return who + ' only needs a TIMER \u2014 they are on the Timers list, not the build list. Nothing is being made up for them and no colours are needed. Press \u201cBuild Them A New Set\u201d on their record if they do need a bundle.';
   if(st.state === 'timerremoval') return who + ' is having their TIMER TAKEN OUT \u2014 they are on the Remove Timer list, not the build list. Nothing is being made up for them and no colours are needed. Press \u201cBuild Them A New Set\u201d on their record if they do need a bundle.';
   if(st.state === 'nextyear') return who + (st.why === 'Back Next Year'
@@ -51134,56 +51157,12 @@ function renderWarehouseQueue(){
   const built = whBuildQueueGroups();
   const groups = built.groups, keys = built.keys, timerHouses = built.timerHouses;
   const timerRemovals = built.timerRemovals || [];
-  const blocked = built.blocked || [];
-  if(!keys.length && !blocked.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be built right now.</div>'; return; }
+  /* ⚠ THE EMPTY NOTE HAS TO ASK ABOUT EVERY LIST BELOW IT, NOT JUST THE GROUPS. A book
+     whose only outstanding warehouse job is a timer produced no groups, so the tab said
+     nothing needed building while the Timers block underneath it was never reached — the
+     same shape as the one [[WH-41]] closed, one list further down. */
+  if(!keys.length && !timerHouses.length && !timerRemovals.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be built right now.</div>'; return; }
   let html = '';
-  /* ⚠ FIRST, because it is the only thing here that nobody in the warehouse can act
-     on — it needs the office. Everything below it can be picked up and built. */
-  if(blocked.length){
-    html += '<div class="row-item" style="display:block; border-left:3px solid var(--ember);">'+
-      '<div><strong style="font-size:15px;">Waiting on light colours</strong>'+
-        '<div style="font-size:12.5px; color:var(--slate);">'+blocked.length+' house'+(blocked.length===1?'':'s')+' '+
-        (blocked.length===1?'is':'are')+' waiting to be built, but '+(blocked.length===1?'has':'have')+' no colours on the record yet. Nothing can be made up until somebody fills them in.</div></div>'+
-      '<div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--line);">'+
-        blocked.map(function(h){
-          return '<div style="display:flex; justify-content:space-between; align-items:flex-start; padding:8px 0; gap:10px;">'+
-            '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+
-              '<span style="display:block; font-size:12px; color:var(--ember); margin-top:2px;">No light colours on file</span>'+
-              /* ⭐ AND WHAT CAN BE DONE ANYWAY (2026-09-09, [[WH-26]]). Addie: "we don't need
-                 to worry about lights just about getting a timer in there bin." A house here
-                 is waiting on somebody to fill in colours — but if it also asked for a
-                 timer, that half needs nothing and can go in today. Said on the row itself,
-                 because the timer list is a different sheet and the person reading this one
-                 is the person who would otherwise leave the whole house alone. */
-              /* ⚠ `h`, NOT `item` (2026-09-09). This block is inside blocked.map(function(h)),
-                 and the timer line arrived carrying the loop variable from somewhere else —
-                 `Uncaught ReferenceError: item is not defined`, thrown while DRAWING the
-                 Waiting-on-light-colours block, which is the one part of that tab nobody in
-                 the warehouse can act on and so the one most likely to go unnoticed. */
-              (String(h.data.outletTimer || '').trim() === 'Yes'
-                ? '<span style="display:block; font-size:12px; color:var(--emerald); margin-top:2px; font-weight:600;">Timer can go in their bin now &mdash; that part is not waiting on the colours</span>'
-                : '')+
-              '<span style="display:block; margin-top:4px; line-height:1.9;">'+whHouseFactsHtml(h.data)+'</span>'+
-            '</span>'+
-            '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
-              '<button type="button" class="btn btn-gold btn-sm" data-wheditcust="'+h.id+'">Add colours</button>'+
-              /* ⭐ AND THE WAY OUT FOR A HOUSE ALREADY PARKED HERE ([[WH-27]]). The write-site
-                 fix stops the NEXT one; it cannot reach the houses already sitting on this
-                 list, and this repo's own rule is that a fix which cannot reach the case that
-                 prompted it is not finished. Only offered where the record says a timer was
-                 actually asked for — on a house with no timer it would be a button that means
-                 nothing. ⚠ It is a PERSON answering, never a guess: nothing on the record can
-                 tell a house queued by a timer change from one converted with its colours
-                 still to come, which is the same wall `lightsChangedVia` hit. */
-              (String(h.data.outletTimer || '').trim() === 'Yes'
-                ? '<button type="button" class="btn btn-outline btn-sm" data-whtimeronly="'+h.id+'">Only needed a timer</button>'
-                : '')+
-            '</span>'+
-          '</div>';
-        }).join('')+
-      '</div>'+
-    '</div>';
-  }
   /* Timers, counted against the houses that asked for them. This is a roll-up of
      the same houses listed in the colour groups below, so it deliberately has no
      Mark Done of its own — marking the house done in its colour group is what
@@ -51337,6 +51316,19 @@ function renderWarehouseQueue(){
                  it takes the row off and says in the log that no bundle was made. */
               '<button type="button" class="btn btn-outline btn-sm" data-whnotneeded="'+h.id+'" '+
                 'title="Take this house off the build list without recording a build">Not needed</button>'+
+              /* ⭐ AND THE WAY OUT FOR A HOUSE WHOSE COLOURS NOBODY EVER SAVED ([[WH-27]],
+                 moved here 2026-09-18 by [[WH-41]]). This button lived on the Waiting on
+                 light colours block; that block is gone and the button is not, because the
+                 case it answers has not gone anywhere — a timer change alone sets
+                 needsLightBuild, so a house that only ever wanted a timer sits here in a
+                 Check lights group looking like a bundle somebody has to make.
+                 ⚠ A PERSON ANSWERS, NEVER A GUESS: nothing on the record separates a house
+                 queued by a timer change from one converted with its colours still to come,
+                 which is the wall `lightsChangedVia` already hit. Offered only where a timer
+                 is actually on file — anywhere else it would be a button that means nothing. */
+              (!houseLightsText(h.data) && String(h.data.outletTimer || '').trim() === 'Yes'
+                ? '<button type="button" class="btn btn-outline btn-sm" data-whtimeronly="'+h.id+'">Only needed a timer</button>'
+                : '')+
             '</span>'+
           '</div>';
         }).join('')+
@@ -51478,7 +51470,7 @@ function renderWarehouseQueue(){
     });
   });
   /* ⭐ [[WH-27]] — the office saying this house never needed a bundle. It clears the build
-     and queues the timer instead, so the row leaves Waiting on light colours and joins the
+     and queues the timer instead, so the row leaves its Check lights group and joins the
      Timers list, which is the one thing that house does need.
      ⚠ IT MIRRORS INTO `jobAddresses` BEFORE THE WRITE IS AWAITED, like every other optimistic
      tick in this file — the tab repaints from the cache, so without it the row visibly springs
@@ -51962,25 +51954,6 @@ function whStartEditExtra(id){
 function whSheetRowsForBuild(){
   const built = whBuildQueueGroups();
   const rows = [];
-  /* The blocked ones go on the paper too, at the top, for the same reason they go at
-     the top of the tab: a sheet that quietly leaves them off is a sheet that says the
-     work is finished when it is not. */
-  (built.blocked || []).forEach(function(item){
-    const d = item.data;
-    rows.push({
-      group: 'Waiting on light colours',
-      wire: whWireLabel(d.wireColor),
-      type: 'Blocked',
-      reason: whBuildReasonLabel(d),
-      what: whWhoLabel(d),
-      address: d.address || '',
-      bins: whBinsForHouse(d),
-      bundles: '',
-      timer: String(d.outletTimer || '').trim() === 'Yes' ? 'YES' : '',
-      putInto: '',
-      notes: 'NO LIGHT COLOURS ON FILE ' + String.fromCharCode(8212) + ' cannot be built yet'
-    });
-  });
   /* ⭐ THE TIMER JOBS GO ON THE PAPER TOO ([[WH-34]], 2026-09-11). Both of them, and the
      reason is the one already written at the top of this function: a sheet that quietly
      leaves work off is a sheet that says the day is finished when it is not.
@@ -52121,7 +52094,7 @@ function whSheetRowsForBuild(){
    producer: it sets needsLightBuild on everybody it adds and takes colours from the
    sheet's Lights column, so a blank cell there makes one. ⚠ DO NOT "fix" that by
    dropping the build flag when colours are missing — they would silently vanish instead
-   of appearing on a list, which is the failure the blocked block exists to end. */
+   of appearing on a list, which is the failure a Check lights group exists to end. */
 function whBuildSheetPages(){
   const sheet = whSheetRowsForBuild();
   const order = [];
@@ -55668,10 +55641,10 @@ document.getElementById('editCustRecycleStayBtn').addEventListener('click', asyn
    express either alone — a house whose old set is already back needs only a build, and
    a customer sitting this season out needs only a recycle. Neither had a button.
 
-   ⚠ AND THE BUILD QUEUE SKIPS A HOUSE WITH NO COLOURS, so this says so on the spot
-   rather than letting the warehouse find out. It still sets the flag: the Waiting on
-   light colours block exists exactly so a house owed a build with nothing to build from
-   is visible instead of vanishing. */
+   ⚠ AND IT SAYS WHAT THE WAREHOUSE WILL BE TOLD when the record has no colours on it.
+   It still sets the flag, and since [[WH-41]] that house heads an ordinary Check lights
+   group rather than a block of its own — so the warning is no longer “this will sit” but
+   “somebody will be sent to look”, which is a different instruction and a different cost. */
 document.getElementById('editCustBuildStayBtn').addEventListener('click', async function(){
   if(!editCustomerId) return;
   const item = jobAddresses.find(function(it){ return it.id === editCustomerId; });
@@ -55681,8 +55654,9 @@ document.getElementById('editCustBuildStayBtn').addEventListener('click', async 
   const hasColours = !!(String(d.lightsDescription || '').trim() || (d.lightColors || []).length);
   if(!confirm('Build a new set for ' + (d.name || 'this customer') + '?' +
     '\n\nThey go on the warehouse needs-to-be-built list.' +
-    (hasColours ? '' : '\n\n\u26a0 There are no light colours on their record, so they will ' +
-      'sit under \u201cWaiting on light colours\u201d until somebody fills those in.') +
+    (hasColours ? '' : '\n\n\u26a0 There are no light colours on their record, so the ' +
+      'warehouse sheet will head them \u201cCheck lights\u201d and somebody will have to go and ' +
+      'look at the bundle. Filling the colours in here saves that walk.') +
     '\n\nThis does NOT recycle anything. If they have moved, press Recycle Their Old Set ' +
     'as well.')) return;
   const btn = document.getElementById('editCustBuildStayBtn');
@@ -55703,8 +55677,8 @@ document.getElementById('editCustBuildStayBtn').addEventListener('click', async 
       buildWrite.lightsQueuedAt ? {lightsQueuedAt: new Date()} : {});
     if(statusEl) statusEl.textContent = hasColours
       ? 'Done \u2014 they are on the needs-to-be-built list.'
-      : 'Done \u2014 on the build list, under Waiting on light colours until somebody ' +
-        'fills their colours in.';
+      : 'Done \u2014 on the build list, headed Check lights until somebody fills their ' +
+        'colours in.';
     toast((d.name || 'They') + ' \u2014 on the build list');
     logActivity('Queued a new set for ' + (d.name || editCustomerId), 'customers', editCustomerId);
   }catch(err){
@@ -55729,7 +55703,7 @@ document.getElementById('editCustBuildStayBtn').addEventListener('click', async 
    own record does not agree with is how two screens start disagreeing about one house.
    Save Changes is what writes colours; this reads what that wrote. With nothing on the
    record it says so rather than queueing an empty job — the same answer the build
-   queue's "Waiting on light colours" block gives, said at the point of asking.
+   queue's Check lights heading gives, said at the point of asking.
 
    ⚠ NO FEE, NO 48-HOUR LOCK, NO lightsChangedAt. This is not applyLightChange and must
    never grow into it: that path charges $30 and is reached by editing the colour boxes
@@ -56367,7 +56341,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        touched on an RSVP change. Recycle yes, build no, which is exactly what she saw.
 
        Blank colours means the build cannot be DONE yet, not that it is not OWED. That is
-       the whole reason the Waiting on light colours block exists on the warehouse tab.
+       the whole reason a house with no colours still heads a Check lights group ([[WH-41]]).
        A build is finished by the warehouse pressing Mark Done, or cancelled by Back Next
        Year below — never by a field being empty. */
     addrUpdates.needsLightBuild = newLightsDescription
