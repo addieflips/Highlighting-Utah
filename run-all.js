@@ -1441,6 +1441,7 @@ const RETIRED_CHECKLIST_TERMS = [
   ['start measuring', 'clicking the picture starts a side now, so that button is gone — while one is open the button reads Finish this side (2026-08-25)'],
   ['quick material estimate', 'removed 2026-08-25 — bulbs sit a foot apart, so the count is the footage; it is a subline under the total now'],
   ['load property', 'the tool only opens from a quote, which knows its own address, so the address bar went (2026-08-25)'],
+  ['alert number', 'removed 2026-09-18 ([[QT-48]]) — the nightly run no longer texts anybody; a run that needs a person leaves a Nightly Billing Needs You note in the Inbox'],
   ['capture sky view', 'removed 2026-08-30 — the picture that goes on a quote is the street view, so an aerial has no way onto one and the button had no job left: "we just want the street view to be uploaded"'],
   /* ⚠ THE TAIL OF THE LABEL, NOT THE WHOLE OF IT. The retired one was written
      "Don't Install Before This Date" in the form label and "Don&rsquo;t Install
@@ -4498,11 +4499,17 @@ console.log('\n=== 7. Health check engine ===');
     get(hc.run(), 'nightlyBilling').rows.length === 0,
     'a nightly job legitimately runs once a day — warning every morning is noise');
 
-  hc.setNightly({ loaded:true, enabled:true, alertPhone:'',
-                  hasRuns:true, newestRunAt:new Date(Date.now() - 3600000) });
-  check('health', 'a missing alert phone is caught on its own',
+  /* ⛔ A BLANK ALERT PHONE USED TO BE A ROW OF ITS OWN, removed 2026-09-11 with the
+     field itself: it fed twilioSendRaw on an account that never existed, so the panel
+     was sending somebody to fix the one signal that could not work. What it was really
+     buying is that a HEALTHY, REACHABLE run reports nothing — which is asserted above —
+     and that a stopped one still reports without anything having to be set up first.
+     That second half had no test at all while the phone row existed to cover for it. */
+  hc.setNightly({ loaded:true, enabled:true,
+                  hasRuns:true, newestRunAt:new Date(Date.now() - 40 * 3600000) });
+  check('health', 'a stopped run is caught with nothing configured',
     get(hc.run(), 'nightlyBilling').rows.length === 1,
-    'that text is the only thing that reports the run happened — blank, a stopped run is invisible');
+    'the 36-hour check is now the only thing that reports a dead billing run, so it can never depend on a setting somebody has to fill in');
 
   hc.setNightly({ loaded:true, enabled:false, alertPhone:'', hasRuns:false, newestRunAt:null });
   check('health', 'billing that is switched OFF is not reported as broken',
@@ -7475,9 +7482,56 @@ suite('9. Portal sign-in security');
      Inbox note pushed twilioSendRaw past the end of the window and it failed on correct
      code. It clips to the end of the real function now. */
   const unmatchedFn = sectionFrom(fns, fns.indexOf('async function recordUnmatchedPayment'));
+  /* ⚠ REPOINTED AGAIN 2026-09-11, AND THE FIRST SYMPTOM WAS A FALSE GREEN. This read
+     /twilioSendRaw/ on the function body, so when Twilio was deleted the check went on
+     passing — satisfied by the COMMENT left behind explaining the removal. A check that
+     a word appears cannot tell code from a note about code. It asserts the note is
+     written now, which is the thing that actually tells anybody. */
   check('money', 'an unmatched payment raises an alert',
-    /twilioSendRaw/.test(unmatchedFn),
+    /db\.collection\('messages'\)\.add\(/.test(unmatchedFn),
     'a record nobody is told about is a record nobody reads');
+  check('money', 'and the alert is not a text, because nothing here can send one',
+    !/twilioSendRaw\(|sendSms\(|api\.twilio\.com/.test(unmatchedFn),
+    'Google Voice has no send API — a text from this path silently reaches nobody, which is exactly what it did for the life of this check');
+  /* ⭐ NOTHING ON THE SERVER TEXTS ANYBODY ([[QT-48]], 2026-09-18). Dax, on the "Twilio send
+     failed: Authentication Error - invalid username" rows in Admin Errors: "we dont use twillo
+     at all thats a bug". The check above guards one function; these guard the whole file,
+     with comments stripped, because the removal left notes behind that NAME twilioSendRaw and
+     a plain search would read those as code. */
+  {
+    const fnsCode = stripComments(fns);
+    check('money', 'no Twilio code anywhere on the server',
+      !/api\.twilio\.com|defineSecret\(\s*['"]TWILIO_|exports\.sendSms\b|twilioSendRaw\s*\(/.test(fnsCode),
+      'a Twilio call here fails every time — there are no working credentials — and twilioSendRaw swallowed that silently');
+    check('money', 'and the admin page never calls a sendSms callable',
+      !/httpsCallable\([^)]*['"]sendSms['"]/.test(stripComments(admin)),
+      'the callable was deleted with Twilio; calling it now is a not-found error in front of the office');
+    /* ⭐ AND THE NOTE THAT REPLACED THE TEXT IS RUN, NOT READ. logNightlyInvoiceRun is lifted
+       and handed a fake Firestore: a run that needs a person must leave exactly one System
+       note naming the customer to send by hand, and a clean run must leave none. */
+    const lnStart = fns.indexOf('async function logNightlyInvoiceRun');
+    const lnSrc = lnStart > -1 ? sectionFrom(fns, lnStart) : '';
+    check('money', 'the nightly run logger was found', lnSrc.length > 0, 'renamed? repoint this lift rather than dropping the checks below');
+    if (lnSrc) {
+      const writes = [];
+      const fakeDb = { collection: function (name) { return { add: async function (d) { writes.push({ name: name, d: d }); } }; } };
+      const fakeAdmin = { firestore: { FieldValue: { serverTimestamp: function () { return 'TS'; } } } };
+      const logRun = new Function('db', 'admin', 'console', lnSrc + '; return logNightlyInvoiceRun;')(fakeDb, fakeAdmin, { error: function () {} });
+      pendingAsync.push((async function () {
+        await logRun({ triggeredBy: 'schedule', sentCount: 23, errorCount: 0, skippedNoEmail: 0 });
+        const cleanNotes = writes.filter(function (w) { return w.name === 'messages'; }).length;
+        check('money', 'a clean nightly run logs itself and leaves the Inbox alone',
+          cleanNotes === 0 && writes.some(function (w) { return w.name === 'nightlyInvoiceLog'; }),
+          'a note after every clean run teaches the office to clear the Inbox unread; got ' + cleanNotes);
+        writes.length = 0;
+        await logRun({ triggeredBy: 'schedule', sentCount: 22, errorCount: 0, skippedNoEmail: 1, noEmailNames: ['Test Customer'] });
+        const notes = writes.filter(function (w) { return w.name === 'messages'; });
+        check('money', 'a run that needs a person leaves one System note naming who',
+          notes.length === 1 && notes[0].d.folder === 'System' && /Test Customer/.test(notes[0].d.message),
+          'this note is now the only thing that tells the office a bill has to be sent by hand; got ' + JSON.stringify(notes.map(function (x) { return x.d.message; })));
+      })());
+    }
+  }
   /* ⭐ AND IT REACHES THE SYSTEM INBOX (2026-08-30). Addie: "we need unmatched invoice to
      come up in system inbox before we send it out." A text is gone the moment you look
      away; a note keeps until somebody deals with it, and the money is real. */
@@ -36092,11 +36146,14 @@ suite('Suite 128. The do-not-send list — automation emails only');
         dripGate.split('noAutomationEmails').length - 1,
       'a second server reader of the do-not-send list — check it is not a billing or a ' +
       'text path before allowing it');
-    ['runInvoiceBatch', 'runQuoteNudgeBatch', 'twilioSendRaw'].forEach(function(fn){
+    /* ⚠ twilioSendRaw WAS THE THIRD NAME HERE and was removed with Twilio itself
+       (2026-09-11). There is no SMS path on the server at all now, so the "text path"
+       half of the reason below is history rather than a live guard. */
+    ['runInvoiceBatch', 'runQuoteNudgeBatch'].forEach(function(fn){
       const body = sectionFrom(fns, fns.indexOf('function ' + fn));
       check('S128', fn + ' has never heard of noAutomationEmails',
         body.length > 100 && body.indexOf('noAutomationEmails') === -1,
-        'nightly invoicing, the quote nudge and the SMS path all live here — a ' +
+        'nightly invoicing and the quote nudge both live here — a ' +
         'refusal to be marketed at is not a refusal to be told what you owe');
     });
     /* The invoice the customer is actually shown and emailed. Anchored on a
