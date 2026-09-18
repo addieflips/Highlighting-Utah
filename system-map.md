@@ -375,8 +375,78 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    ⚠ **An answer still outranks money.** Said no, Back Next Year, Maybe Next Year, a
    queued recycle and last season's unpaid bill are all tested **above** it, so paying can
    only ever override *"has not replied"* — somebody who pays and then cancels is still
-   out. ⚠ And it holds only because **Start New Season writes `deposit: 0`** on every
-   invoice; if that ever stops, last season's payment confirms the whole book for ever.
+   out.
+
+   ⭐ **AND IT HAS TO BE THIS YEAR'S MONEY** (2026-09-18, [[SCH-82]]). Addie, narrowing
+   her own ruling of the day before: *"Paid for this year means confirmed and scheduled.
+   If they paid last year than they should still have to confirm to be scheduled."*
+
+   ⛔ **This is the bug SCH-79's own note predicted, arriving a day later.** That note
+   warned the rule held "only because Start New Season writes `deposit: 0` on every
+   invoice; if that ever stops, last season's payment confirms the whole book for ever."
+   The write never stopped — it had simply not been **run** yet for this season. Until it
+   is, every invoice still carries last season's deposit, so the whole paid-up half of the
+   book read as Confirmed and went to a crew having answered nothing. A scheduling rule
+   must not depend on an annual button having been pressed.
+
+   ⭐ `paymentSeasonYear` is the one answer: it reads **`lastPaymentAt`** and nothing
+   else, against the calendar year — the same way `enrollmentYearOf` and
+   `audienceNeverAsked` already decide what a season is. Both office payment boxes stamp
+   that field now, **on a real payment only** — each already computes the delta to tell
+   money coming in from a correction, and a correction must not re-date a payment made
+   weeks ago.
+
+   ⛔ **No fallback to the bill date, and the first draft had one.** It read `invoicedAt`
+   where no payment date existed, which is inferring when money *arrived* from when we
+   *asked* for it. That is a guess, and the repo's own issue-date guard refused it. Never
+   `invoiceIssuedAt` either: it falls back to `updatedAt`, which moves on a corrected
+   spelling or a sheet re-sync and would re-date last year's payment to this year.
+
+   ⚠ **The cost, stated rather than hidden:** a deposit typed into an office box before
+   this change carries no date, so that customer reads as unreplied until they answer or
+   it is re-recorded. That is the safe direction — the other way sends a crew to somebody
+   who never answered — and **Schedule › why this customer is not being scheduled**
+   already says which reason is holding them.
+
+   ⭐ **THE WIRE COLOUR IS ASKED AGAIN, AND ANY IS NOT AN ANSWER** (2026-09-18,
+   [[OPT-21]]). Addie: *"we instruct them to pick based on gutter color however this is
+   completley optional and they can choose Any. Which will mean we choose."* The Lights tab
+   of the member portal carries a wire select again, with the instruction to match it to the
+   gutter so the cord disappears against it.
+
+   ⛔ **This narrows [[OPT-12]]'s removal rather than undoing it.** What 2026-09-17 refused
+   was never the question — it was the invented answer: the old box *defaulted* to Any and
+   then stored it, giving a house a wire colour nobody chose. Any is the default again and
+   writes **nothing at all**, which is what leaves the house on the system-messages card to
+   be read off a photo. It also puts back what [[OPT-11]] always said — *"if they want to
+   change it they can change it in member portal"* — and what [[OPT-20]] assumed.
+
+   ⛔ **The portal may set a colour and may never clear one.** A blank is deleted from the
+   update server-side, so picking Any cannot wipe a colour the warehouse read off a photo or
+   one the office typed. Only `White` and `Green` survive the guard — this is a public
+   callable, so the list is checked rather than the value merely being truthy.
+
+   ⚠ **A wire change is not a colour change.** The $30 is gated on `lightsDescription`
+   having moved, so touching only the wire charges nobody. It does queue a rebuild, which is
+   right: a different cord is a different bundle.
+
+   ⭐ **AND THE QUESTION STOPS ASKING ONCE IT IS ANSWERED** (2026-09-18, [[RS-62]]).
+   Addie: *"In member portal at the top Are you having lights this season it should update
+   and go away once someone has answered."* The three buttons fold away, the heading changes
+   from a question to **Your answer for this season**, the answer stays on screen, and a
+   quiet **Change my answer** re-opens them.
+
+   ⛔ **Collapsed, never removed.** [[RS-31]] lands an emailed "no" in this portal and
+   [[RS-60]] mounts the decline-reason picker inside this same block, so deleting it takes
+   the way back with it — and somebody who said no and changed their mind is back to
+   telephoning, which is what the block was added to stop.
+
+   ⛔ **It asks `portalHasRealRsvpAnswer`**, the rule that already gates the after-payment
+   question, rather than deciding again. That one refuses a bare `yes` with no
+   `rsvpRespondedAt` behind it — an import, or the assumed yes written at conversion — which
+   is precisely the customer this question exists for. The answer given *this visit* counts
+   too: on the emailed-link route the record on screen is the invoice record and carries no
+   `rsvpStatus` at all.
 
    ⚠ **And the emailed Yes does work**, bill outstanding or not:
    `test/rsvp-unpaid-this-year.spec.js` drives it in a real browser and the badge goes
@@ -3672,7 +3742,7 @@ come around later and want another building."*
   Message are untouched** and still take a phone OR an email through one box, as [[QT-40]]
   says. ⚠ The cost, accepted knowingly: somebody with no email address cannot ask for a
   quote on this form — they ring or use Get In Touch. Suite 330.
-  ⭐ **THE SELECT ITSELF WENT, LATER THE SAME DAY ([[QT-47]]).** Dax: *"in free quote get
+  ⭐ **THE SELECT ITSELF WENT, LATER THE SAME DAY ([[QT-49]]).** Dax: *"in free quote get
   rid of preferred contact method."* The free quote form asks no preference now. The write
   still carries `contactMethod: ''` so every reader keeps its shape, and admin's quote
   card prints "Prefers:" only when a value exists (older quotes still have one). The
@@ -3905,10 +3975,31 @@ worse than one in the wrong section. ⚠ **The routine digest above stays folded
 sections rather than filling the Schedule one** — merging them would undo the fix that
 stopped it burying the notices that need her.
 
-⭐ **CANCELLATIONS AND THE MEMBER PORTAL GET FOLDERS IN CUSTOMER MESSAGES** (2026-09-02,
-MSG-07). *"we need a place for cancelation messages to go … Also can we have inbox for
-member portal."* `messageFolderOf` sends a *Cancellation Request* to **Cancellations**, and
-*Note Added* / *Existing Customer - Address Changed* to **Member Portal**.
+⛔ **EVERYTHING ARRIVES IN THE INBOX NOW** (2026-09-18, [[MSG-28]]). Addie: *"for anything
+that does come her instead of gmail I need everything to go into inbox than be able to add
+my own filters and sub folders and delete the folders I want."* `messageFolderOf` no longer
+diverts a *Cancellation Request*, a *Note Added* or an *Existing Customer - Address Changed*
+— all three land in the Inbox and she files them, the way Gmail works. The server's own move
+note was writing `folder: 'Member Portal'` directly and now writes `Inbox` too, or the same
+topic would land in two places depending on which door it came through.
+
+⭐ **The ruling it replaces is kept here because it was right at the time** (2026-09-02,
+MSG-07): *"we need a place for cancelation messages to go … Also can we have inbox for
+member portal."* The pile was undivided and folders were the only tool there was. MSG-12
+removed folders as a filing system, MSG-15 and MSG-19 made the nav hers, and this finishes
+that direction. **MSG-07's other half — the System tab's sections — is untouched.**
+
+⛔ **Nothing is deleted and nothing moves.** The folders stay, every message she filed by
+hand stays where she put it, and only where *new* mail lands changes. A System notice is
+still System, and the error topics are untouched (MSG-26).
+
+⭐ **AND A FOLDER SHE DELETES STAYS DELETED** (same ruling). Every folder always had a
+delete button and it worked — the **seeder** re-created it on the next login, because
+`foldersSeeded` is per page load and `DEFAULT_TOPIC_FOLDERS` was re-checked every time.
+Seeding is marked once in `settings/inboxFolderSeed` now. ⚠ **A book that already has
+folders is marked and never seeded**, or the first load after this would resurrect every
+folder she deleted before today; ⚠ **a failed read seeds nothing**, which costs a fresh book
+one click rather than bringing deleted folders back with nobody watching.
 
 ⚠ **Derived, so it sorts the messages already written** — every cancellation in the book
 was written `folder:'Inbox'`, and routing only new ones would have left her existing ones in
@@ -4141,7 +4232,7 @@ because the folder earning its keep within two days is the argument for it.
   - ⚠ **SO NOTHING DETECTS A STOP.** Twilio's 21610 was the only thing that ever set
     `smsOptedOut`; it is still read by the RSVP text list and is now set only by hand. Already
     true while the send was broken — true by design now.
-- ⛔ **TWILIO IS GONE FROM THE SERVER TOO, AND NOTHING IN THIS APP SENDS A TEXT** ([[QT-48]],
+- ⛔ **TWILIO IS GONE FROM THE SERVER TOO, AND NOTHING IN THIS APP SENDS A TEXT** ([[QT-49]],
   2026-09-18). Dax, reading the same error in Admin Errors a week later: *"we dont use twillo at
   all thats a bug"*. `sendSms`, `twilioSendRaw` and the three `TWILIO_*` secrets are deleted, and
   the deploy's `--force` removes the callable from Firebase. The two owner alerts that used
@@ -5194,6 +5285,14 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
 
 - **`sendNightlyInvoices`** — cron, 7 PM Mountain daily (`0 19 * * *`). No-ops unless the automation toggle in `settings/nightlyInvoiceAutomation` is on. Bills any completed-but-uninvoiced house, texts the owner a summary via Twilio, logs to `nightlyInvoiceLog`.
 - **`sendInvoicesNow`** — the same billing logic, on-demand, from an Automation-tab button — works even with the nightly toggle off.
+- ⭐ **`runQuoteNudgeBatch`** — cron, 10 AM Mountain, only while `settings/quoteNudgeAutomation.enabled` is on, and it stops entirely from November to January. **A quote nobody answers is chased on a three-rung ladder, ten days apart** (2026-09-18, [[QT-49]]). Addie: *"we should get a notification to nudge them through text after 10 days than after 10 more days if they still haven't responded then they should be sent an automatic email. After 10 more days after the email if they did not respond then they should be put in archived."*
+  - **Rung 1 — we are told to text them.** ⛔ **This sends the customer nothing.** Her sentence is *"**we** should get a notification to nudge them through text"*, so a person sends it. Nothing in this feature sends an SMS: an automatic text costs money per message, goes to somebody who has not replied, and cannot be recalled. A check **refuses** one, so adding it later has to be a deliberate change rather than a drift. They appear on **Text these people about their quote** on the automation card, with the number as a `tel:` link.
+  - **Rung 2 — one automatic email**, the existing Nudge template. This is the rung she asked to be automatic, in as many words.
+  - **Rung 3 — archived.** ⚠ Asked where a late reply is then found, Addie: *"They should be in archived in completed."* `quoteArchived` is exactly what puts a card under **Closed → Archived**, so somebody who answers on day 31 is still there — with `quoteArchivedReason` saying it was the ladder rather than somebody closing it by hand.
+  - ⛔ **Each rung is ten days after the one before it, not after the quote.** Every rung has its own stamp, and `quoteLadderRungDue` reads **down** the ladder — the last rung reached decides what comes next. Read upwards, a quote already emailed matches the text rung again on every run and nobody is ever archived. Measuring all three from `quoteSentAt` would fire the email and the archive on the same run for any quote already three weeks old.
+  - ⛔ **`quoteSentAt` is no longer reset** by a nudge. It used to be, so the second email was another ten days out; with a stamp per rung that reset re-opens rung one for ever. ⚠ **A manual nudge does not restart the ladder** either — pressing Nudge is the office doing what rung one asked for, and restarting on it means a quote chased by hand can never reach the archive.
+  - ⚠ **Somebody we cannot email is flagged for a person and NOT stamped.** The email rung can never complete for them, and stamping it would archive them ten days later having been sent nothing at all.
+  - ⛔ **The "Nudge at most" box is gone.** The ladder sends exactly one automatic email, so a maximum has nothing to cap — and a box that silently does nothing is worse than none: somebody sets it to 5, expects five emails and gets one. The wait-days box stays, because it sets the gap between **every** rung.
 - **`paypalWebhook`** — catches a payment capture the browser-side call might have missed (e.g. the customer closed the tab right after paying); signature-verified before it's trusted.
 - ⭐ **A member who changes something about their house gets an auto-reply saying we have got it** (2026-09-16, [[EM-18]]). Addie: *"can we get an automation email set up for someone who makes a change in the member portal. Like saying something like we'll make sure to make this change on your house."* It fires on three of `portalSave`'s five sections — **lights**, **preferences** and **sides** — and names what actually changed: the colours, the wire colour, the timer, which outlet, when they want it hung, their note, or which sides. She turns it on and picks the wording under **Automation Emails → Templates → Auto-reply when a member changes something**; it is **shipped switched off**, because it mails real customers the moment it works.
   - ⭐ **The wording is hers, pasted in, not a draft she approved** (2026-09-16, [[EM-22]]). *"Thank you for reaching out! We’ve received your request and will make sure the changes you requested are taken care of. We’ll get everything updated on our end and get your home scheduled for this season. We’ll be in touch once your home is scheduled!"* That is `DEFAULT_PORTAL_CHANGE_BODY`, what *Write me one to start from* writes into the template — a **starting point, not a fallback**, so rewording it afterwards is an ordinary template edit. ⚠ **Two things were added and neither is a rewrite**: a `Hi {{name}},` greeting, because her text opens straight into the thank-you, and `{{change}}` on the line under it, because naming what they changed is the whole of [[EM-18]] and *"the changes you requested"* is the sentence it belongs to. ⚠ **Her closing note is rendered, not sent as typed** — *"This is auto- Reply"* reads as her labelling the message rather than copy for a customer, so it is a small grey *This is an automatic reply.* line under the sign-off; one edit in the box if she meant it literally. ⚠ **The portal button and the if-anything-looks-wrong line were dropped**, because they were mine and are not in what she wrote. ⚠ **Her body promises scheduling to everybody**, which is right for every section except sides — a sides change still appends the line saying an updated price is coming first, because it raises a re-quote.
@@ -5262,7 +5361,7 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
   - ⛔ **And a token that could not be SAVED is never put in an email** (2026-09-13). Minting is a write, and a write can be refused. `getOrCreatePortalToken` in `admin.html` used to swallow that and hand the freshly minted token back anyway — so the office sent a real customer an RSVP link that belongs to **no record at all**. They tap Yes, `findByToken` matches nothing, and to them it looks exactly like they already answered. It is silent at both ends: the office reads a green *Sent*, and the Errors row can only say *"no customer matches this link"* — which is what every RSVP failure row in the 8–11 September log says. ⚠ **CORRECTED 2026-09-18: those rows were NOT this.** All nine of their tokens are stored on the right customers and every one of them has an answer on file — the label was the badge naming people before the customer list had loaded (see *An empty customer list is "not loaded yet"* in §the Errors folder). The guard below is still right for the failure it describes; it just was not what those rows were.
   - ⭐ **The server already had the right rule and wrote it down.** `ensureToken` in `functions/index.js` re-reads after a failed write — somebody else may have minted one in the gap, and *theirs* is the one that is stored — and failing that sends a link with **no token** *"rather than one that cannot work"*. The browser copy now does the same. Change one and change the other; **Suite 332** runs both against the same refused write.
   - ⚠ **No token is a safe answer, and that is why this works.** All four callers already write `(token ? ('?token='+token) : '')`, so the customer gets the plain portal address and signs in with their phone and surname exactly as they would from the website. A working sign-in beats a one-tap link that records nothing. The failure is reported through `console.error` → `__huAdminErrorSink` → the Errors folder, rather than being discovered from a customer weeks later.
-- A nightly run that needs a person (an error, or a bill with no email to send to) leaves a **Nightly Billing Needs You** note in the Inbox. A clean run leaves nothing, and shows only on Automation → Last 10 nightly runs. A run that stops firing altogether is caught by Health Check's 36-hour check. ⚠ Until 2026-09-18 this line said the owner was texted through Twilio. That never worked, and nothing in the app sends a text now ([[QT-48]]).
+- A nightly run that needs a person (an error, or a bill with no email to send to) leaves a **Nightly Billing Needs You** note in the Inbox. A clean run leaves nothing, and shows only on Automation → Last 10 nightly runs. A run that stops firing altogether is caught by Health Check's 36-hour check. ⚠ Until 2026-09-18 this line said the owner was texted through Twilio. That never worked, and nothing in the app sends a text now ([[QT-49]]).
 
 ---
 

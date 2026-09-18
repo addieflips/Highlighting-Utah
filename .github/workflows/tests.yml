@@ -99,6 +99,13 @@ jobs:
       - name: What the crew is told is wrong (fix sheet)
         run: npm run test:fix
 
+      # Addie, 2026-09-18: a quote nobody answers is chased on a ladder — we are told to
+      # text them, then one automatic email, then it is archived. Named separately because
+      # "the nudge ladder" is a thing to go and look at, and because rung one is a REFUSAL:
+      # nothing here sends an SMS, and a gate that fails should say which rule broke.
+      - name: The nudge ladder (text, email, archived)
+        run: npm run test:ladder
+
       # Addie, 2026-08-31: "I need a subject on all them." Sixteen of the twenty
       # emailjs.send calls in admin.html passed no subject at all, so the RSVP
       # landed in inboxes with a blank subject line. Named separately because
