@@ -1642,17 +1642,11 @@
             <div class="form-row"><label>City <span class="req">*</span></label><input type="text" id="quoteCityInput" name="city" placeholder="e.g. Lehi" required></div>
             <div class="form-row"><label>Zip Code <span class="req">*</span></label><input type="text" id="quoteZipInput" name="zip" placeholder="84043" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" required></div>
           </div>
-          <!-- ⚠ ALWAYS SHOWN AND ALWAYS REQUIRED since [[QT-45]]: with both a phone and an email
-               on the form, Call, Text and Email are all real answers, so nothing hides it. -->
-          <div class="form-row" id="quoteContactMethodWrap">
-            <label>Preferred Contact Method <span class="req">*</span></label>
-            <select name="contact_method" id="quoteContactMethod" required>
-              <option value="" disabled selected>Select&hellip;</option>
-              <option value="Call">Call</option>
-              <option value="Text">Text</option>
-              <option value="Email">Email</option>
-            </select>
-          </div>
+          <!-- ⭐ NO PREFERRED CONTACT METHOD ON THE QUOTE FORM ([[QT-47]], 2026-09-18). Dax:
+               "in free quote get rid of preferred contact method." The form already takes a
+               phone AND an email ([[QT-45]]), and the quote goes out by email regardless.
+               ⚠ Get In Touch and Send a Message keep their selects; this is the quote form only. -->
+
           <!-- ⭐ WHICH SIDES THEY WANT LIT. Owner, 2026-08-18: the office was
                writing this into Notes as "3 sides", where nothing could read it
                and the crew had to interpret a sentence. Asked here, at the one
@@ -1682,12 +1676,12 @@
                written with no buildings key at all would make them reach into undefined
                on a quote that is otherwise fine. -->
           <button type="submit" class="btn btn-gold btn-block">Submit Quote Request</button>
-          <p class="form-note">No obligation. We'll follow up by your preferred contact method with your custom estimate.</p>
+          <p class="form-note">No obligation. We'll follow up with your custom estimate.</p>
         </form>
         <div class="form-success" id="quoteSuccess">
           <div class="check">&#10003;</div>
           <h3>Quote Request Received</h3>
-          <p>Thanks! We'll follow up by your preferred contact method with your custom estimate soon.</p>
+          <p>Thanks! We'll follow up with your custom estimate soon.</p>
         </div>
       </div>
     </div>
@@ -3990,7 +3984,9 @@ quoteFormEl.addEventListener('submit', async function(e){
     name: fd.get('name'), phone: quotePhone, email: quoteEmail,
     street: street, city: city, zip: zip,
     address: street + ', ' + city + ' ' + zip,
-    contactMethod: fd.get('contact_method') || '',
+    /* ⚠ STILL WRITTEN, ALWAYS EMPTY ([[QT-47]]): the form no longer asks, but admin's
+       quote card and Convert-to-Customer read the key, so the shape stays the same. */
+    contactMethod: '',
     /* ⭐ NO houseSides ON A FRESH QUOTE (2026-09-03). The question moved to the Install
        Details form.
 

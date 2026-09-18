@@ -3672,6 +3672,12 @@ come around later and want another building."*
   Message are untouched** and still take a phone OR an email through one box, as [[QT-40]]
   says. ⚠ The cost, accepted knowingly: somebody with no email address cannot ask for a
   quote on this form — they ring or use Get In Touch. Suite 330.
+  ⭐ **THE SELECT ITSELF WENT, LATER THE SAME DAY ([[QT-47]]).** Dax: *"in free quote get
+  rid of preferred contact method."* The free quote form asks no preference now. The write
+  still carries `contactMethod: ''` so every reader keeps its shape, and admin's quote
+  card prints "Prefers:" only when a value exists (older quotes still have one). The
+  thank-you text no longer promises "your preferred contact method". ⚠ Get In Touch and
+  Send a Message keep their selects. Suite 330.
 
 **Then the property list went too, one day later.** Dax, 2026-09-04: *"get rid of the add
 a building on the property button on free quote but keep it in all customers."* So the
@@ -4886,6 +4892,26 @@ plug; it is why the customer is still shown a phone number.
 ⚠ **The Firestore reconnection line is deliberately not reported.** `Fetch failed` on the
 long-poll channel is normal noise (§7 of CLAUDE.md), it arrives in bursts, and left in it
 would fill the folder on a flaky connection.
+
+⚠ **Neither is "…because the client is offline"** (added 2026-09-18). Firestore says that
+when a READ runs while the computer has no connection. It landed twice as "could not read
+nightly billing health", once on 9/16 and once on 9/17, and the ten-minute tick re-reads it
+anyway. Writes queue while offline, so this cannot hide a lost save.
+
+⭐ **An "Unhandled promise" row now names where it started** (2026-09-18). It adds
+`at <function> admin.html:<line>` from the first stack frame in our own files
+(`rejectionWhere`). "Missing or insufficient permissions" kept arriving with Addie
+signed in and nothing to say which read, and every read in the file checks out against
+the rules. The next copy points at the caller instead of being guessed at.
+
+⭐ **And the cause of those rows was found the same day: it ran before anyone signed in.**
+The payment-import folder read and its `paymentImports` listener were bare top-level lines,
+so they ran on the LOGIN SCREEN. There the read was refused and nothing caught it, and the
+listener was refused and stayed dead for the session. Both start from `initData` now
+(`startPaymentImports`), after sign-in. ⚠ **The rows said Addie was signed in because the
+reporter used to read the name when it WROTE the row**, and rows caught before messages load
+are held until after sign-in. It records who was signed in when the error was CAUGHT now, so
+a login-screen fault reads "Signed in as: nobody", which is the truth.
 
 *Gated by* `error-inbox.test.js` (`npm run test:errors`), which runs both reporters against
 a fake Firestore rather than reading their source; 16 sabotages red-checked.
