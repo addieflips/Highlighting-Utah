@@ -61117,16 +61117,29 @@ suite('Suite 335. Money on the bill is an answer');
      ORDER — that an unpaid last season still holds somebody who has paid this one — so
      what matters is that the arrears rule ANSWERS first, not how it decides. Its own
      decision has its own coverage. */
+  /* ⚠ EVERY PAID FIXTURE CARRIES A PAYMENT DATE IN THIS SEASON ([[SCH-82]], 2026-09-18).
+     These read deposit-alone until that ruling, and money with no date on it is no longer
+     an answer — so without this they would fail on correct code, which is the slow-fuse
+     shape this file records for S82, S129 and the folder-names suite. REPOINTED, never
+     weakened: the claim here is still the ORDER (money against an answer, and against the
+     arrears hold), and WHICH YEAR the money is from is Suite 338's question.
+     ⚠ Derived from today rather than written out, or this suite starts failing on 1 Jan. */
+  const PAID_NOW = new Date(new Date().getFullYear(), 5, 1);
   const INV = [
-    ['8015550111', { install: 400, removal: 0, deposit: 100, credits: 0, changeFees: 0 }],
+    ['8015550111', { install: 400, removal: 0, deposit: 100, credits: 0, changeFees: 0, lastPaymentAt: PAID_NOW }],
     ['8015550222', { install: 400, removal: 0, deposit: 0, credits: 400, changeFees: 0 }],
-    ['8015550333', { install: 400, removal: 0, deposit: 400, credits: 0, changeFees: 0 }]
+    ['8015550333', { install: 400, removal: 0, deposit: 400, credits: 0, changeFees: 0, lastPaymentAt: PAID_NOW }]
   ];
+  /* ⚠ paymentSeasonYear AND toJsDate ARE LIFTED, NEVER STUBBED — the extraction-list trap,
+     for the tenth time in this file. housePaidThisSeason calls both, and a stub for either
+     would decide the very thing the rule turns on. Without them this suite died with a bare
+     ReferenceError that named nothing. */
   const F = new Function('INVOICES',
     seasonRuleLiveSrc() + custInvoiceKeySrc +
     'const invoiceById = new Map(INVOICES.map(function(p){ return [p[0], {id:p[0], data:p[1]}]; }));\n' +
     'function houseOwesFromLastSeason(d){ return !!d.__owes; }\n' +
-    paidSrc + extractFn(admin, 'isOutForSeason') + extractFn(admin, 'seasonBadgeKey') +
+    paidSrc + extractFn(admin, 'paymentSeasonYear') + extractFn(admin, 'toJsDate') +
+    extractFn(admin, 'isOutForSeason') + extractFn(admin, 'seasonBadgeKey') +
     'return {out:isOutForSeason, badge:seasonBadgeKey, paid:housePaidThisSeason};')(INV);
 
   const partPayer  = { phone: '8015550111' };                 // put a deposit down, never replied
@@ -61294,4 +61307,137 @@ suite('Suite 337. A re-quote waiting on a reply waits with everybody else');
   check('S337', 'every card is still in exactly one folder',
     all.every(f => typeof f === 'string' && f.length > 0),
     'the old ruling this narrows was about double-listing, and that part still stands');
+}
+
+suite('Suite 338. Paid for THIS year is what confirms somebody');
+/* ⭐ [[SCH-82]]. Addie, 2026-09-18, narrowing her own [[SCH-79]] of the day before: "Paid
+   for this year means confirmed and scheduled. If they paid last year than they should
+   still have to confirm to be scheduled."
+
+   ⚠ RUN, NOT MATCHED. Every claim here is about which YEAR a payment lands in, and a regex
+   cannot see arithmetic on a date. housePaidThisSeason and paymentSeasonYear are both
+   LIFTED with the real toJsDate beside them — a stubbed date reader would decide the very
+   thing under test. */
+{
+  /* ⚠ custInvoiceKey IS NOT IN admin.html — it is imported from js/money.js, so extractFn
+     returns null for it and concatenating that yields the literal "null" and a SyntaxError
+     naming the function AFTER it. custInvoiceKeySrc is the helper that reads the real one
+     out of the module. */
+  const src = extractFn(admin, 'housePaidThisSeason') +
+              extractFn(admin, 'paymentSeasonYear') +
+              extractFn(admin, 'toJsDate') +
+              custInvoiceKeySrc;
+  assertSandbox(src, admin, ['housePaidThisSeason','paymentSeasonYear','toJsDate','custInvoiceKey']);
+
+  const THIS = new Date().getFullYear();
+  /* A date inside the season being asked about, and one a whole year before it. Derived
+     from today rather than written out, or this suite starts failing on 1 January. */
+  const inYear  = new Date(THIS, 5, 1);
+  const lastYear= new Date(THIS - 1, 5, 1);
+
+  /* The real map the page builds: key -> {data}. Keyed on phone digits, which is what
+     custInvoiceKey returns for anybody with a phone. */
+  const run = (cust, inv) => new Function('invoiceById', 'd',
+    src + 'return housePaidThisSeason(d);')(
+      new Map(inv ? [['8015550100', {data: inv}]] : []), cust);
+
+  const cust = { phone: '(801) 555-0100' };
+
+  check('S338', 'money paid this season confirms them',
+    run(cust, {deposit: 200, lastPaymentAt: inYear}) === true,
+    'this is SCH-79 and it still stands — paying is an answer');
+
+  check('S338', 'money paid LAST season does not',
+    run(cust, {deposit: 200, lastPaymentAt: lastYear}) === false,
+    'the whole of SCH-82 — before this, an unreset invoice confirmed the paid-up half of the book');
+
+  /* ⛔ IT READS THE PAYMENT DATE AND NOTHING ELSE. The first draft fell back to invoicedAt
+     when no payment date was on file — inferring when money ARRIVED from when we asked for
+     it, which is a guess, and the repo's own issue-date guard refused it. These three
+     fixtures are what hold that line: a bill raised this season, and a bill merely TOUCHED
+     this season, neither of which is evidence that money came in. */
+  check('S338', 'a bill raised this season does not stand in for a payment',
+    run(cust, {deposit: 200, invoicedAt: inYear}) === false,
+    'a deposit on a fresh bill can still be money carried over — inferring the date is guessing');
+
+  check('S338', 'a touched-this-year bill paid last year is still not confirmed',
+    run(cust, {deposit: 200, lastPaymentAt: lastYear, updatedAt: inYear}) === false,
+    'this is the Overdue-clock trap — updatedAt moves on any edit and is not a payment date');
+
+  /* ⚠ AND THIS ONE IS THE CHECK THAT ACTUALLY BITES, which the red-check is what proved.
+     The fixture above carries a payment date, so a sabotage adding "|| toJsDate(updatedAt)"
+     short-circuits before ever reaching it and the check passes on broken code. The case
+     the fallback would wrongly confirm is a bill with NO payment date and a recent edit —
+     an ordinary corrected spelling on last year's money. */
+  check('S338', 'an edited bill with no payment on it confirms nobody',
+    run(cust, {deposit: 200, updatedAt: inYear}) === false,
+    'a corrected spelling is not a payment, and updatedAt moves on every one of them');
+
+  check('S338', 'no date at all is not this season',
+    run(cust, {deposit: 200}) === false,
+    'failing the other way sends a crew to somebody who never answered, which is what she asked to stop');
+
+  /* ⚠ THE DEPOSIT TEST IS STILL THE FIRST GATE. A dated bill with no money on it is a
+     customer who has been invoiced, not one who has paid. */
+  check('S338', 'a dated bill with nothing paid on it confirms nobody',
+    run(cust, {deposit: 0, lastPaymentAt: inYear}) === false,
+    'the date says when the bill is from, never that money arrived');
+
+  check('S338', 'and no invoice at all confirms nobody',
+    run(cust, null) === false,
+    'a customer with no bill has paid nothing, and must not read as confirmed');
+
+  /* ⚠ RUN DIRECTLY, because the fallback ORDER is the half a caller cannot see: a bill
+     carrying both dates must answer on the payment, not on when it was raised. */
+  const Y = new Function('inv', src + 'return paymentSeasonYear(inv);');
+  check('S338', 'the season of the money is the season of the payment',
+    Y({lastPaymentAt: lastYear, invoicedAt: inYear}) === THIS - 1,
+    'a bill raised this season must not back-date itself onto last season\'s money');
+  check('S338', 'and a bill with no payment on it has no season',
+    Y({invoicedAt: inYear}) === null,
+    'null is "nobody knows", which is a different answer from "not this year" and reads the same way on purpose');
+}
+
+suite('Suite 339. The office payment boxes record WHEN the money came in');
+/* ⭐ [[SCH-82]]. The wiring half, asserted separately from the rule, because Suite 338 calls
+   housePaidThisSeason from its own harness — delete the stamp from both handlers and every
+   behavioural check there still passes while no office payment ever confirms anybody again.
+   That is the shape this repo has shipped once already (the recycle "bin says" box). */
+{
+  /* ⚠ THE DEPOSIT WRITE IS SPELLED IDENTICALLY IN BOTH HANDLERS, so each slice is taken
+     from its own paidNow variable — that name is the only thing that tells them apart, and
+     a file-wide search would pass with one of the two deleted. */
+  const cut = (v) => {
+    const i = admin.indexOf('const ' + v + ' = deposit - was');
+    if(i === -1) return '';
+    const j = admin.indexOf('});', i);
+    return j === -1 ? '' : admin.slice(i, j);
+  };
+  const boxes = [['paidNow', 'the Invoices tab box'], ['paidNow2', 'the second payment box']];
+
+  boxes.forEach(function(pair){
+    const v = pair[0], where = pair[1];
+    const body = cut(v);
+    check('S339', where + ' was found at all', !!body,
+      'renamed? repoint this rather than deleting it — an empty slice passes every check below');
+    check('S339', where + ' stamps lastPaymentAt',
+      /lastPaymentAt: serverTimestamp\(\)/.test(body),
+      'without it, money taken over the phone has no date and confirms nobody');
+    /* ⛔ ONLY ON A REAL PAYMENT. Both handlers already compute the delta to tell a
+       correction from money coming in; re-dating a payment made weeks ago because somebody
+       fixed a typo would hand the customer a fresh season's confirmation. */
+    check('S339', where + ' stamps it only when money actually came in',
+      new RegExp(v + ' > 0 \\?').test(body),
+      'a correction (the figure going down, or not moving) must not re-date the payment');
+    check('S339', where + ' still writes the deposit and the updatedAt it always did',
+      /deposit: deposit/.test(body) && /updatedAt: serverTimestamp\(\)/.test(body),
+      'the stamp rides alongside the existing write — it must not have replaced it');
+  });
+
+  /* ⚠ AND THE TWO ARE STILL TWO. A slice that matched the same handler twice would report
+     both as green with one of them unwired — the anchor-matched-twice trap this file
+     records for S273 and the blueprint print guard. */
+  check('S339', 'the two payment boxes are different code',
+    cut('paidNow') !== cut('paidNow2') && !!cut('paidNow') && !!cut('paidNow2'),
+    'if these ever become one slice, one of the two handlers is unguarded');
 }

@@ -375,8 +375,38 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    ⚠ **An answer still outranks money.** Said no, Back Next Year, Maybe Next Year, a
    queued recycle and last season's unpaid bill are all tested **above** it, so paying can
    only ever override *"has not replied"* — somebody who pays and then cancels is still
-   out. ⚠ And it holds only because **Start New Season writes `deposit: 0`** on every
-   invoice; if that ever stops, last season's payment confirms the whole book for ever.
+   out.
+
+   ⭐ **AND IT HAS TO BE THIS YEAR'S MONEY** (2026-09-18, [[SCH-82]]). Addie, narrowing
+   her own ruling of the day before: *"Paid for this year means confirmed and scheduled.
+   If they paid last year than they should still have to confirm to be scheduled."*
+
+   ⛔ **This is the bug SCH-79's own note predicted, arriving a day later.** That note
+   warned the rule held "only because Start New Season writes `deposit: 0` on every
+   invoice; if that ever stops, last season's payment confirms the whole book for ever."
+   The write never stopped — it had simply not been **run** yet for this season. Until it
+   is, every invoice still carries last season's deposit, so the whole paid-up half of the
+   book read as Confirmed and went to a crew having answered nothing. A scheduling rule
+   must not depend on an annual button having been pressed.
+
+   ⭐ `paymentSeasonYear` is the one answer: it reads **`lastPaymentAt`** and nothing
+   else, against the calendar year — the same way `enrollmentYearOf` and
+   `audienceNeverAsked` already decide what a season is. Both office payment boxes stamp
+   that field now, **on a real payment only** — each already computes the delta to tell
+   money coming in from a correction, and a correction must not re-date a payment made
+   weeks ago.
+
+   ⛔ **No fallback to the bill date, and the first draft had one.** It read `invoicedAt`
+   where no payment date existed, which is inferring when money *arrived* from when we
+   *asked* for it. That is a guess, and the repo's own issue-date guard refused it. Never
+   `invoiceIssuedAt` either: it falls back to `updatedAt`, which moves on a corrected
+   spelling or a sheet re-sync and would re-date last year's payment to this year.
+
+   ⚠ **The cost, stated rather than hidden:** a deposit typed into an office box before
+   this change carries no date, so that customer reads as unreplied until they answer or
+   it is re-recorded. That is the safe direction — the other way sends a crew to somebody
+   who never answered — and **Schedule › why this customer is not being scheduled**
+   already says which reason is holding them.
 
    ⚠ **And the emailed Yes does work**, bill outstanding or not:
    `test/rsvp-unpaid-this-year.spec.js` drives it in a real browser and the badge goes

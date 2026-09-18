@@ -19384,7 +19384,47 @@ function housePaidThisSeason(d){
   if(!key) return false;
   const inv = invoiceById.get(key) || null;
   if(!inv) return false;
-  return (Number(inv.data.deposit) || 0) > 0;
+  if((Number(inv.data.deposit) || 0) <= 0) return false;
+  /* ⭐ AND IT HAS TO BE THIS YEAR'S MONEY ([[SCH-82]], 2026-09-18). Addie, narrowing her
+     own [[SCH-79]] of the day before: "Paid for this year means confirmed and scheduled.
+     If they paid last year than they should still have to confirm to be scheduled."
+
+     ⚠ THE DEPOSIT ALONE COULD NOT TELL THE TWO APART, AND THAT IS THE BUG SHE READ OFF
+     THE SCREEN. SCH-79's own note argued this was season-scoped for free because "Start
+     New Season zeroes that field on every invoice" — true, and it makes the field right
+     only AFTER that button has been pressed. Before it, every invoice still carries last
+     season's payment, so the whole paid-up half of the book read as confirmed and was
+     handed to a crew without anybody having answered. The reset is an annual act nobody
+     should have to have performed for this rule to be honest.
+
+     ⛔ IT READS THE PAYMENT DATE AND NOTHING ELSE, and the first draft got this wrong.
+     That draft fell back to the date the BILL was raised when no payment date was on file —
+     which is inferring when money arrived from when we asked for it, and this file's first
+     rule is not to guess. A deposit sitting on a bill raised this season can still be money
+     carried over from last one. The repo's own issue-date guard caught it, correctly: it
+     refuses any second reading of invoicedAt outside invoiceIssuedAt, and dodging that by
+     renaming a variable would have been sneaking past a rule that protects money.
+     ⛔ AND NEVER invoiceIssuedAt ITSELF, which falls back to updatedAt — a field that moves
+     on a corrected spelling or a sheet re-sync, and would re-date last year's payment to
+     this year on the next edit. That is the trap the Overdue clock was already caught by.
+
+     ⚠ SO AN UNDATED DEPOSIT IS NOT THIS SEASON, and that is a real cost, said plainly
+     rather than hidden: money typed into the office box before this change recorded no
+     date, so those customers read as unreplied until they answer or it is re-recorded.
+     It is the safe direction — failing the other way sends a crew to somebody who never
+     answered, which is exactly what she asked to stop — and allCustRouteStatus already
+     says which of the reasons is holding a given customer back. */
+  const paidYear = paymentSeasonYear(inv.data);
+  return paidYear !== null && paidYear === new Date().getFullYear();
+}
+/* ⭐ WHICH SEASON THE MONEY ON A BILL BELONGS TO ([[SCH-82]]). Its own function so a test
+   can RUN it, and so there is ONE answer: a second reading of "when were they paid",
+   living beside the rule that uses it, is how the badge and the schedule start naming
+   different people. Returns null for a bill carrying no date at all. */
+function paymentSeasonYear(inv){
+  if(!inv) return null;
+  const when = toJsDate(inv && inv.lastPaymentAt);
+  return when ? when.getFullYear() : null;
 }
 /* How much they still owe from last season, for the screens that have to say it in
    money. Same resolution as above so the list and the hold can never name different
@@ -26412,7 +26452,14 @@ function renderInvoicesList(){
       const invRec = allInvoicesCache.find(i => i.id === invId);
       const wasPaid = invRec ? (Number(invRec.data.deposit) || 0) : 0;
       const paidNow = deposit - wasPaid;
-      updateDoc(doc(db,'invoices',invId), {deposit: deposit, updatedAt: serverTimestamp()}).then(async () => {
+      updateDoc(doc(db,'invoices',invId), Object.assign({deposit: deposit, updatedAt: serverTimestamp()},
+        /* ⭐ WHEN THE MONEY ARRIVED ([[SCH-82]]). housePaidThisSeason has to tell this
+           year's payment from last year's, and this box was the one payment path that
+           recorded no date — so money taken over the phone confirmed nobody.
+           ⚠ ONLY ON A REAL PAYMENT. paidNow is already how this handler tells a
+           correction (the figure going down, or not moving) from money coming in, and a
+           correction must not re-date a payment made weeks ago. */
+        paidNow > 0 ? {lastPaymentAt: serverTimestamp()} : {})).then(async () => {
         toast('Payment status updated');
         await logPayment({
           invoiceKey: invId,
@@ -46637,7 +46684,14 @@ function attachAddressRowHandlers(container){
       const invRec2 = allInvoicesCache.find(i => i.id === invId);
       const wasPaid2 = invRec2 ? (Number(invRec2.data.deposit)||0) : 0;
       const paidNow2 = deposit - wasPaid2;
-      updateDoc(doc(db,'invoices',invId), {deposit: deposit, updatedAt: serverTimestamp()}).then(async () => {
+      updateDoc(doc(db,'invoices',invId), Object.assign({deposit: deposit, updatedAt: serverTimestamp()},
+        /* ⭐ WHEN THE MONEY ARRIVED ([[SCH-82]]). housePaidThisSeason has to tell this
+           year's payment from last year's, and this box was the one payment path that
+           recorded no date — so money taken over the phone confirmed nobody.
+           ⚠ ONLY ON A REAL PAYMENT. paidNow2 is already how this handler tells a
+           correction (the figure going down, or not moving) from money coming in, and a
+           correction must not re-date a payment made weeks ago. */
+        paidNow2 > 0 ? {lastPaymentAt: serverTimestamp()} : {})).then(async () => {
         if(invRec2){
           reportReceiptOutcome(await sendPaymentReceipt(invId, Object.assign({}, invRec2.data, {deposit: deposit}), paidNow2));
         }
