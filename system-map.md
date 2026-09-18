@@ -2783,6 +2783,8 @@ taken first on the first **November** day and not one day earlier. The box says 
 
 ### Who counts as a new hang, on the tab and in the builder (changed 2026-09-05, SCH-81)
 
+⛔ **PUT BACK 2026-09-18 ([[SCH-84]]).** Dax: *"just figure out how we had it and put it back like that"*. `isNewMemberHouse` is the closed quote alone again, so everything below describing the fee-box half of the union is history. The builder's own reading of the fee box (`houseInstallPriority`) was never changed by SCH-81 and still stands.
+
 Two things on the Schedule tab used to answer this differently, and Dax was looking at the
 disagreement: *"one of the top priorites is new hang but I have people with the $30 set up
 fee aka a new member who arent being treated as a new member in schedule."*
