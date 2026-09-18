@@ -4232,6 +4232,15 @@ because the folder earning its keep within two days is the argument for it.
   - ⚠ **SO NOTHING DETECTS A STOP.** Twilio's 21610 was the only thing that ever set
     `smsOptedOut`; it is still read by the RSVP text list and is now set only by hand. Already
     true while the send was broken — true by design now.
+- ⛔ **TWILIO IS GONE FROM THE SERVER TOO, AND NOTHING IN THIS APP SENDS A TEXT** ([[QT-48]],
+  2026-09-18). Dax, reading the same error in Admin Errors a week later: *"we dont use twillo at
+  all thats a bug"*. `sendSms`, `twilioSendRaw` and the three `TWILIO_*` secrets are deleted, and
+  the deploy's `--force` removes the callable from Firebase. The two owner alerts that used
+  them now leave a **System note in the Inbox** instead: "Payment With No Bill" (which it already
+  did), and a new **Nightly Billing Needs You** note that appears only when a run hit an error
+  or billed somebody with no email to send to. The alert-number box on Automation is gone,
+  along with its Health Check row. ⚠ **THE BULLET BELOW IS KEPT AS HISTORY**, like QT-39
+  itself: everything it says about credentials and redeploys no longer applies.
 - ⭐ **"Twilio send failed: Authentication Error — invalid username" — AND THERE IS AN
   ACCOUNT NOW** ([[QT-39]], 2026-09-11, superseding [[QT-38]]). The earlier ruling was Dax's
   *"we doont use twillo we use google voice"*, and for about a day the quote card said so:
@@ -5352,7 +5361,7 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
   - ⛔ **And a token that could not be SAVED is never put in an email** (2026-09-13). Minting is a write, and a write can be refused. `getOrCreatePortalToken` in `admin.html` used to swallow that and hand the freshly minted token back anyway — so the office sent a real customer an RSVP link that belongs to **no record at all**. They tap Yes, `findByToken` matches nothing, and to them it looks exactly like they already answered. It is silent at both ends: the office reads a green *Sent*, and the Errors row can only say *"no customer matches this link"* — which is what every RSVP failure row in the 8–11 September log says. ⚠ **CORRECTED 2026-09-18: those rows were NOT this.** All nine of their tokens are stored on the right customers and every one of them has an answer on file — the label was the badge naming people before the customer list had loaded (see *An empty customer list is "not loaded yet"* in §the Errors folder). The guard below is still right for the failure it describes; it just was not what those rows were.
   - ⭐ **The server already had the right rule and wrote it down.** `ensureToken` in `functions/index.js` re-reads after a failed write — somebody else may have minted one in the gap, and *theirs* is the one that is stored — and failing that sends a link with **no token** *"rather than one that cannot work"*. The browser copy now does the same. Change one and change the other; **Suite 332** runs both against the same refused write.
   - ⚠ **No token is a safe answer, and that is why this works.** All four callers already write `(token ? ('?token='+token) : '')`, so the customer gets the plain portal address and signs in with their phone and surname exactly as they would from the website. A working sign-in beats a one-tap link that records nothing. The failure is reported through `console.error` → `__huAdminErrorSink` → the Errors folder, rather than being discovered from a customer weeks later.
-- Nightly-run failures/results text the owner via Twilio — a separate channel from email, so it still works if email itself breaks.
+- A nightly run that needs a person (an error, or a bill with no email to send to) leaves a **Nightly Billing Needs You** note in the Inbox. A clean run leaves nothing, and shows only on Automation → Last 10 nightly runs. A run that stops firing altogether is caught by Health Check's 36-hour check. ⚠ Until 2026-09-18 this line said the owner was texted through Twilio. That never worked, and nothing in the app sends a text now ([[QT-48]]).
 
 ---
 
