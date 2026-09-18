@@ -705,6 +705,24 @@ const PORTAL_WRITE_FIELDS = {
 // Fields the portal is allowed to READ. Everything else on the record —
 // pricing, customer number, bin assignments, difficulty rating, test-account
 // flag, don't-install-before date, crew notes — never leaves the server.
+/* ⭐ THE FOUR SIDES THIS APP KNOWS, IN ONE FIXED ORDER, AND THE ONE RULE THAT CLEANS A
+   LIST OF THEM. Extracted 2026-09-18 ([[OPT-22]]) when the Install Details form began
+   asking the same question the Member Portal's Sides tab asks — it was inline in
+   portalSave until then, and a second copy in quoteSaveDetails would be a second answer to
+   "what did they tick, in what order".
+   ⚠ THE ORDER IS NOT COSMETIC. Every reader compares lists as sequences — a swap of Left
+   for Right is a re-quote ([[OPT-06]]) — so two sanitizers ordering differently means a
+   real swap reads as no change, silently.
+   ⚠ ANYTHING ELSE IS DROPPED rather than stored: a stray value, a duplicate, more than
+   four. Returns [] for a list with nothing usable in it, and the caller decides what that
+   means — the portal leaves the record alone, the quote form refuses the submit. */
+const SIDE_NAMES = ['Front', 'Left', 'Right', 'Back'];
+function sanitizeSideNames(v) {
+  const picked = {};
+  (Array.isArray(v) ? v : []).forEach((s) => { if (SIDE_NAMES.indexOf(s) !== -1) picked[s] = true; });
+  return SIDE_NAMES.filter((s) => picked[s]);
+}
+
 const PORTAL_READ_FIELDS = [
   'name', 'phone', 'email', 'address', 'phone2', 'email2', 'gateCode',
   /* ⛔ wireColor LEFT THIS LIST 2026-09-17, with the control that read it. Nothing in
@@ -2215,12 +2233,11 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
        names and a count of two disagreeing with each other is either a stale
        page or a tampered request; the list is the one a person actually ticked
        box by box, so it is the one trusted to say how many. */
-    const SIDE_NAMES = ['Front', 'Left', 'Right', 'Back'];
+    /* ⚠ THE RULE MOVED TO sanitizeSideNames ([[OPT-22]], 2026-09-18) so the quote form
+       can ask it too. Nothing about what survives changed — same four names, same order,
+       same dropping of anything else. */
     if (updates.houseSidesList !== undefined) {
-      const picked = {};
-      (Array.isArray(updates.houseSidesList) ? updates.houseSidesList : [])
-        .forEach((s) => { if (SIDE_NAMES.indexOf(s) !== -1) picked[s] = true; });
-      const sanitized = SIDE_NAMES.filter((s) => picked[s]);
+      const sanitized = sanitizeSideNames(updates.houseSidesList);
       if (sanitized.length) {
         updates.houseSidesList = sanitized;
         updates.houseSides = sanitized.length;
@@ -2259,11 +2276,15 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
       if (!was || !now) return false;
       return was !== now;
     };
-    const canonical = function (v) {
-      const picked = {};
-      (Array.isArray(v) ? v : []).forEach((s) => { if (SIDE_NAMES.indexOf(s) !== -1) picked[s] = true; });
-      return SIDE_NAMES.filter((s) => picked[s]);
-    };
+    /* ⚠ THIS WAS A SECOND COPY OF THE SAME RULE and is now the shared one ([[OPT-22]],
+       2026-09-18). It predates the extraction — it sat beside the inline SIDE_NAMES doing
+       the identical job — and it is the drift the extraction exists to end: this function
+       decides whether somebody is RE-QUOTED by comparing two lists as sequences, so a
+       canonical order here that disagreed with the one the list was STORED in would make a
+       real swap of Left for Right read as no change at all, silently.
+       ⚠ A red-check is what surfaced it: two sabotage anchors matched twice, which is this
+       file's own signal for "there is another copy of this". */
+    const canonical = sanitizeSideNames;
     const before = asCount(oldData.houseSides);
     if (houseSidesChangedServer(canonical(oldData.houseSidesList), before,
       canonical(updates.houseSidesList !== undefined ? updates.houseSidesList : oldData.houseSidesList),
@@ -4490,6 +4511,9 @@ exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
   if (!colors.length) throw new HttpsError('invalid-argument', 'Please choose at least one light color.');
 
   const specific = yesNo(details.specificOutlet);
+  /* ⚠ SANITIZED ONCE, ABOVE THE WRITE, because the count is its LENGTH — reading it twice
+     could hand the two fields different answers. Same rule the portal applies. */
+  const qdSides = sanitizeSideNames(details.houseSidesList);
   await db.collection('quotes').doc(quoteId).update({
     lightColors: colors,
     lightsDescription: str(details.lightsDescription, 400),
@@ -4512,7 +4536,19 @@ exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
        ⚠ CLAMPED HERE TOO, never trusted from the browser. Same 1-4 as portalSideCount,
        and anything unreadable becomes 1 rather than 0 or NaN: a side count of zero
        would price a house with no roofline. */
-    houseSides: Math.min(4, Math.max(1, parseInt(details.houseSides, 10) || 1)),
+    houseSides: qdSides.length || Math.min(4, Math.max(1, parseInt(details.houseSides, 10) || 1)),
+    /* ⭐ AND WHICH SIDES, BY NAME ([[OPT-22]], 2026-09-18). Addie: "on quotes/Requotes can
+       we make front, left, right, back multiple optional choose."
+       ⛔ IT HAD TO JOIN THIS WHITELIST OR IT WOULD BE LOST IN SILENCE — the warning three
+       lines up is the same one, and the emailed-link path that goes through this function
+       is the COMMON one. The browser would have sent the names, this update would have
+       dropped them, and nothing on any screen would have said so.
+       ⚠ THE LIST WINS THE COUNT when it has anything in it, exactly as portalSave decides
+       it: the names are what a person ticked box by box, so they are what says how many.
+       The old clamp stays as the fall-back for a quote raised before this change and for a
+       request that sends a count and no names — never 0, because a house with no roofline
+       cannot be priced. */
+    houseSidesList: qdSides.length ? qdSides : admin.firestore.FieldValue.delete(),
     wantsMailedInvoice: details.wantsMailedInvoice === true,
     formCompleted: true,
     formCompletedAt: admin.firestore.FieldValue.serverTimestamp(),

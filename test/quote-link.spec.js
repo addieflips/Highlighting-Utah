@@ -343,3 +343,103 @@ test.describe('The short referral link', () => {
     await stub.assertNoRealCalls();
   });
 });
+
+/* ==========================================================================
+   WHICH SIDES, ON THE FORM THE CUSTOMER FILLS IN ([[OPT-22]], 2026-09-18)
+
+   Addie: "on quotes/Requotes can we make front, left, right, back multiple optional
+   choose", and "is there a place on the quotes form that allows them to choose front,
+   left, right, back with instructions that this is from the street view?"
+
+   ⚠ A BROWSER SPEC BECAUSE THE TWO THINGS THAT CAN GO WRONG ARE BOTH INVISIBLE FROM THE
+   SOURCE, and this repo has just been bitten by exactly that on the wire colour: a control
+   that renders and posts nothing, and a count that disagrees with the names on one record.
+   Suite 62 and Suite 302 prove the markup and the payload expression; only this can say
+   what the form actually SENDS.
+   ========================================================================== */
+test.describe('Which sides they want, from the street', () => {
+  /* The form is only reachable after approving, which is the route the spec above drives. */
+  async function openDetails(page) {
+    const stub = await installFirebaseStub(page);
+    const errs = [];
+    page.on('pageerror', e => errs.push('pageerror: ' + e));
+    const INDEX = require('fs').readFileSync(
+      require('path').join(__dirname, '..', 'index.html'), 'utf8');
+    await page.route(u => u.pathname === '/q/' + TOKEN, r =>
+      r.fulfill({ status: 200, contentType: 'text/html', body: INDEX }));
+    await page.goto('/q/' + TOKEN);
+    await page.locator('#page-quote-details')
+      .getByRole('button', { name: /approve/i }).first().click();
+    await expect(page.locator('#quoteDetailFormWrap')).toBeVisible({ timeout: 5000 });
+    stub.errs = errs;
+    return stub;
+  }
+
+  /* Everything the form needs before it will submit at all, so each test below is about
+     the sides and not about a colour it forgot to pick. */
+  async function fillTheRest(page) {
+    await page.locator('.qd-simple-swatch[data-color="Red"]').first().click();
+  }
+
+  test('all four sides are offered, with the front already ticked', async ({ page }) => {
+    await openDetails(page);
+    for (const name of ['Front', 'Left', 'Right', 'Back']) {
+      await expect(page.locator(`.qd-side-pick[value="${name}"]`)).toBeVisible();
+    }
+    /* ⚠ Addie's "1 side should be default", by name now — the commonest answer by far. */
+    await expect(page.locator('.qd-side-pick[value="Front"]')).toBeChecked();
+    await expect(page.locator('.qd-side-pick[value="Left"]')).not.toBeChecked();
+  });
+
+  /* ⛔ THE VIEWPOINT IS THE RULING, not the control. OPT-03: the two readings are mirror
+     images, so a named side with no viewpoint lights the wrong half of the roof on a coin
+     toss. Asking by name WITHOUT saying this is worse than asking for a count. */
+  test('it says left and right are read from the street', async ({ page }) => {
+    await openDetails(page);
+    await expect(page.locator('#qdSidesRow')
+      .getByText(/stand on the street facing your house/i)).toBeVisible();
+  });
+
+  /* ⭐ THE WHOLE POINT: several sides at once, which is what "multiple optional choose"
+     asks for and what the old 1-4 radios could not express. */
+  test('ticking three sides sends those three, and a count of three', async ({ page }) => {
+    const stub = await openDetails(page);
+    await fillTheRest(page);
+    await page.locator('.qd-side-pick[value="Left"]').check();
+    await page.locator('.qd-side-pick[value="Back"]').check();
+    await page.locator('#quoteDetailForm button[type="submit"]').click();
+
+    const saved = await expect.poll(async () => {
+      const calls = await stub.calls();
+      const c = calls.filter(x => x.name === 'quoteSaveDetails').pop();
+      return c ? c.payload.details : null;
+    }, { timeout: 5000 }).not.toBeNull().then(async () => {
+      const calls = await stub.calls();
+      return calls.filter(x => x.name === 'quoteSaveDetails').pop().payload.details;
+    });
+
+    /* ⛔ IN CANONICAL ORDER, whatever order they were ticked in. Every reader compares
+       these as sequences — a swap of Left for Right is a re-quote — so an order that
+       followed the clicks would make a real swap read as no change. */
+    expect(saved.houseSidesList).toEqual(['Front', 'Left', 'Back']);
+    /* ⛔ AND THE COUNT IS THEIR LENGTH. The two cannot disagree, because there is one read
+       of the ticks behind both — a list of two under a count of three is the impossible
+       claim printSidesCell refuses and the conversion guards against. */
+    expect(saved.houseSides).toBe(3);
+    expect(stub.errs).toEqual([]);
+  });
+
+  /* ⛔ A HOUSE WITH NO SIDES IS NOT A JOB. Refused rather than defaulted: filling in Front
+     for somebody who unticked everything is writing an answer nobody gave. */
+  test('unticking everything is refused, not quietly defaulted', async ({ page }) => {
+    const stub = await openDetails(page);
+    await fillTheRest(page);
+    let alerted = '';
+    page.on('dialog', d => { alerted = d.message(); d.accept(); });
+    await page.locator('.qd-side-pick[value="Front"]').uncheck();
+    await page.locator('#quoteDetailForm button[type="submit"]').click();
+    await expect.poll(() => alerted, { timeout: 5000 }).toMatch(/at least one side/i);
+    const calls = await stub.calls();
+    expect(calls.filter(x => x.name === 'quoteSaveDetails').length).toBe(0);
+  });
+});

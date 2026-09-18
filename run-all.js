@@ -20886,8 +20886,12 @@ suite('Suite 62. Which sides of the house');
        front of a stranger deciding whether to ask for a price. The claim is unchanged —
        the customer is still asked directly, and their answer still reaches the record —
        so this follows the row rather than being dropped. */
+    /* ⚠ AND THE QUESTION CHANGED SHAPE ON 2026-09-18 ([[OPT-22]]): it asks WHICH sides
+       rather than how many, and the count is their length. The claim here is unchanged and
+       is why this follows the control rather than being dropped — the customer is still
+       asked directly, and their answer still reaches the record. */
     check('S62', 'and the customer is still asked directly, on the details form',
-      index.indexOf('id="qdSidesRow"') > 0 && /name="house_sides"/.test(index),
+      index.indexOf('id="qdSidesRow"') > 0 && /class="qd-side-pick"/.test(index),
       'the count drives the price, so it has to be asked somewhere the customer sees it');
     check('S62', 'and it is no longer on the free quote form',
       index.indexOf('id="quoteSidesRow"') === -1,
@@ -20896,19 +20900,39 @@ suite('Suite 62. Which sides of the house');
     /* ⚠ ONE SIDE IS PRE-PICKED THERE, AND ONLY THERE. See the admin-form check at the
        bottom of this suite, which asserts the opposite for Edit/Add Customer. */
     check('S62', 'one side is pre-picked on the details form',
-      /name="house_sides" value="1" checked/.test(index),
-      'Addie: "1 side should be default" — the commonest answer by far is the front only');
+      /class="qd-side-pick" value="Front" checked/.test(index),
+      'Addie: "1 side should be default" — the commonest answer by far is the front only, ' +
+      'and since [[OPT-22]] that default is the FRONT by name rather than the number 1');
 
     /* ⭐ ONE COUNT, THE SAME ON ALL THREE FORMS. Owner, 2026-08-19: "in the website
        its called front left right and back side, we need it to say 1, 2, 3, or 4 sides
        of the house so then it can just be connected and we dont have to guess if its
        the left or right side." */
+    /* ⚠ THE DETAILS FORM LEFT THIS LOOP ON 2026-09-18 ([[OPT-22]]) — it no longer offers a
+       count at all, so demanding one of it would fail on correct code. The two OFFICE forms
+       still ask for a count directly and that half is unchanged, which is why the loop
+       stays rather than being deleted. What the customer is offered is checked below. */
     [1, 2, 3, 4].forEach(function(n){
-      check('S62', '"' + n + ' sides" is offered on all three forms',
+      check('S62', '"' + n + ' sides" is offered on both office forms',
         admin.indexOf('class="editcust-side-pick" value="' + n + '"') > 0 &&
-        admin.indexOf('class="addcust-side-pick" value="' + n + '"') > 0 &&
-        index.indexOf('name="house_sides" value="' + n + '"') > 0);
+        admin.indexOf('class="addcust-side-pick" value="' + n + '"') > 0);
     });
+    /* ⭐ AND THE CUSTOMER IS OFFERED THE FOUR SIDES BY NAME ([[OPT-22]], 2026-09-18).
+       Addie: "on quotes/Requotes can we make front, left, right, back multiple optional
+       choose." The same four the Member Portal's Sides tab offers — one question, asked
+       one way, or the two start meaning different things. */
+    ['Front', 'Left', 'Right', 'Back'].forEach(function(name){
+      check('S62', name + ' is offered on the details form and in the portal',
+        index.indexOf('class="qd-side-pick" value="' + name + '"') > 0 &&
+        index.indexOf('class="portal-side-pick" value="' + name + '"') > 0);
+    });
+    /* ⛔ AND IT SAYS WHICH WAY ROUND LEFT AND RIGHT ARE. [[OPT-03]]: the two viewpoints are
+       mirror images, so a named side with no viewpoint lights the wrong half of the roof on
+       a coin toss. The portal has said this since 2026-09-07; the form that now asks the
+       same question has to say it too. */
+    check('S62', 'and the details form reads left and right from the street',
+      /id="qdSidesRow"[\s\S]{0,1200}Stand on the street facing your house/.test(index),
+      'OPT-03 settled the viewpoint — asking by name without it is worse than asking a count');
     /* ⚠ AND THE PHOTO LABELS ARE UNTOUCHED, deliberately. You photograph the front of
        a house; you do not photograph "side 2". Sides-of-lights is a count and
        sides-for-photos is four named walls, and they are different questions. */
@@ -20993,9 +21017,16 @@ suite('Suite 62. Which sides of the house');
     'both convert paths go through this form, so this one fill covers them');
   {
     const index = read('index.html');
+    /* ⚠ REPOINTED 2026-09-18 ([[OPT-22]]): the form asks WHICH sides now, so the count is
+       the length of what they ticked rather than a radio value. The old note read 'get, not
+       getAll — it is one radio group now', which was right about the control it described
+       and is simply not the question any more. What still has to hold is that BOTH fields
+       are written from the SAME list, or the count and the names can disagree on the one
+       record — the impossible claim printSidesCell refuses. */
     check('S62', 'and the quote actually stores it',
-      /houseSides: portalSideCount\(fd\.get\('house_sides'\)\),/.test(index),
-      '⚠ get, not getAll — it is one radio group now, and getAll would store a list of one');
+      /houseSides: portalSideCount\(qdSides\),/.test(index) &&
+      /houseSidesList: qdSides,/.test(index),
+      'the count and the names must come from one read of the ticks, never two');
   }
   /* ⚠ Blank means "never asked", not "one side". Defaulting to a number would put a
      made-up answer on 962 records nobody has ever asked. */
@@ -21283,8 +21314,57 @@ suite('Suite 313. Which sides, by name — sanitized server-side, and the list w
   const body = at > 0 && end > at ? fns.slice(at, end) : '';
   check('S313', 'the sides branch was found', !!body);
 
-  check('S313', 'the list is reduced to the four known names, in canonical order',
-    /const SIDE_NAMES = \['Front', 'Left', 'Right', 'Back'\];/.test(body));
+  /* ⚠ sanitizeSideNames IS LIFTED, NEVER STUBBED ([[OPT-22]], 2026-09-18). It was inline in
+     this branch until the Install Details form began asking the same question; extracting it
+     left this sandbox calling a name it had never been given, and the suite died on a bare
+     ReferenceError naming nothing else — the extraction-list trap, for the eleventh time in
+     this file. A stub would be worse than the crash: it would decide the very thing these
+     checks are about, which is what survives sanitizing and in what order.
+     ⚠ DECLARED HERE, ABOVE EVERY READER. A `const` further down is in the temporal dead
+     zone for the checks above it, which is a second crash with a different message. */
+  const sideSanitizer = (fns.match(/const SIDE_NAMES = \[[\s\S]*?\n}/) || [])[0] || '';
+  check('S313', 'the shared side sanitizer was found', !!sideSanitizer,
+    'renamed? repoint this rather than stubbing it — a stub makes every check below decorative');
+
+  /* ⚠ THE RULE MOVED OUT OF THIS BRANCH ON 2026-09-18 ([[OPT-22]]) so the quote form could
+     ask it too, so this asserts the branch ASKS it and that the shared rule is the canonical
+     four. Pinned to the declaration inside the branch it would fail on correct code; pinned
+     to nothing it would pass on a second copy quietly drifting. */
+  check('S313', 'the sides branch goes through the shared sanitizer',
+    /sanitizeSideNames\(updates\.houseSidesList\)/.test(body),
+    'a second copy here is a second answer to what they ticked, and in what order');
+  /* ⛔ AND THE RULE IS RUN, NOT ONLY FOUND. A red-check proved both of these uncovered:
+     gutting the name filter so any string survives, and giving the re-quote comparison its
+     own ordering back, both went green. This is a PUBLIC callable, so what survives
+     sanitizing is the whole of what a stranger can put on a record. */
+  if (sideSanitizer) {
+    const clean = new Function(sideSanitizer + '\nreturn sanitizeSideNames;')();
+    check('S313', 'a stray value never survives sanitizing',
+      clean(['Front', 'Roof', '<script>', 'Left']).join(',') === 'Front,Left',
+      'anything that is not one of the four is dropped rather than stored — this is a ' +
+      'public callable and the list is printed on a crew sheet');
+    check('S313', 'duplicates collapse and more than four is impossible',
+      clean(['Back', 'Back', 'Front', 'Front', 'Left', 'Right']).join(',') === 'Front,Left,Right,Back',
+      'a house has four sides; a list of six is a tampered request or a broken page');
+    check('S313', 'and the order is canonical whatever order they arrive in',
+      clean(['Back', 'Right', 'Left', 'Front']).join(',') === 'Front,Left,Right,Back',
+      'every reader compares these as sequences, so an order that followed the input ' +
+      'would make a real swap of Left for Right read as no change');
+    check('S313', 'nothing usable in it comes back empty, for the caller to decide about',
+      clean(['Roof']).length === 0 && clean(null).length === 0,
+      'the portal leaves the record alone and the quote form refuses the submit — the ' +
+      'rule itself must not pick one of those for them');
+  }
+  /* ⛔ AND THE RE-QUOTE COMPARISON USES THE SAME ONE. It decides whether somebody is
+     re-quoted by comparing two lists as SEQUENCES, so its own ordering would make a real
+     swap read as no change — silently, on the one rule that costs a re-measure. */
+  check('S313', 'the re-quote comparison canonicalises through that same rule',
+    /const canonical = sanitizeSideNames;/.test(body),
+    'a second ordering here is how a swap of Left for Right stops being a re-quote');
+  check('S313', 'and that rule is the four known names, in canonical order',
+    /const SIDE_NAMES = \['Front', 'Left', 'Right', 'Back'\];/.test(fns),
+    'the ORDER is not cosmetic — every reader compares these as sequences, so two ' +
+    'orderings mean a real swap reads as no change');
   check('S313', 'and the list decides the count when both arrive',
     /updates\.houseSides = sanitized\.length;/.test(body),
     'a stale page or a tampered request could send a mismatched count and list; ' +
@@ -21417,7 +21497,7 @@ suite('Suite 313. Which sides, by name — sanitized server-side, and the list w
 
   function run(updates, oldData) {
     var fn = new Function('updates', 'oldData', 'section',
-      body + '\nreturn updates;');
+      sideSanitizer + '\n' + body + '\nreturn updates;');
     return fn(updates, oldData, 'sides');
   }
 
@@ -54206,17 +54286,33 @@ suite('Suite 302. The free quote asks less, and the property list outlives it');
 
   /* ---- the sides question, on its new form ---- */
   check('S302', 'the details form asks it instead', idx.indexOf('id="qdSidesRow"') > 0);
+  /* ⚠ ASKED BY NAME SINCE 2026-09-18 ([[OPT-22]]) — "front, left, right, back multiple
+     optional choose" — so the default is the FRONT rather than the number 1. Same ruling
+     of hers underneath it either way: the commonest answer by far is the front only. */
   check('S302', 'with one side pre-picked',
-    /name="house_sides" value="1" checked/.test(idx),
+    /class="qd-side-pick" value="Front" checked/.test(idx),
     'Addie: "1 side should be default"');
-  check('S302', 'and the answer is actually sent',
-    /houseSides: portalSideCount\(fd\.get\('house_sides'\)\)/.test(idx));
+  check('S302', 'and the answer is actually sent, names and count together',
+    /houseSides: portalSideCount\(qdSides\)/.test(idx) && /houseSidesList: qdSides,/.test(idx),
+    'one read of the ticks fills both, or the count and the names can disagree on one record');
   /* ⚠ THE SERVER IS THE HALF THAT WOULD FAIL SILENTLY. quoteSaveDetails keeps a
      whitelist and the emailed-link path — the common one — goes through it, so a field
      the browser sends and the function drops is lost with nothing wrong on screen. */
   const fns = read('functions/index.js');
-  check('S302', 'and the server accepts it, clamped',
-    /houseSides: Math\.min\(4, Math\.max\(1, parseInt\(details\.houseSides, 10\) \|\| 1\)\)/.test(fns),
+  /* ⚠ AND THE NAMES HAD TO JOIN THAT WHITELIST TOO ([[OPT-22]]) — the note above is the
+     same warning, and it is why this half is checked at all. The clamp survives as the
+     fall-back for a quote raised before the form asked by name. */
+  /* ⛔ AND THE NAMES DECIDE THE COUNT THERE TOO. A red-check found nothing asserting this:
+     with the server reading the browser's count instead, a stale page or a tampered request
+     could store three names under a count of two — the impossible claim printSidesCell
+     refuses and the conversion guards against, laundered in at the one door that is
+     supposed to be the guard. portalSave has decided it this way since 2026-09-06. */
+  check('S302', 'and the names decide the count on the server',
+    /houseSides: qdSides\.length \|\| Math\.min/.test(fns),
+    'the list is what a person ticked box by box, so it is what says how many');
+  check('S302', 'and the server accepts the names, with the count still clamped',
+    /houseSidesList: qdSides\.length \? qdSides/.test(fns) &&
+    /Math\.min\(4, Math\.max\(1, parseInt\(details\.houseSides, 10\) \|\| 1\)\)/.test(fns),
     'not on the whitelist, the answer is dropped by the Cloud Function and nobody is ' +
     'told; unclamped, a zero would price a house with no roofline');
 
