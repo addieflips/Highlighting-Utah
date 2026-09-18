@@ -2077,7 +2077,7 @@ async function sendPortalChangeEmail(custId, d, labels) {
   body = body.split('{{portal_link}}').join(portalUrl);
   body = body.split('{{portal_button}}').join(
     '<a href="' + portalUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">See my account</a>');
-  /* ⭐ THE LIST IS APPENDED WHEN THE TOKEN IS NOT THERE, which is [[MSG-27]]'s rule applied to
+  /* ⭐ THE LIST IS APPENDED WHEN THE TOKEN IS NOT THERE, which is [[MSG-28]]'s rule applied to
      a template SHE edits. The whole point of this email is saying WHICH change we have got
      down; a body edited later that happens to drop {{change}} would send "we'll make sure to
      make this change on your house" naming no change at all — this same bug re-armed, with
@@ -3313,7 +3313,13 @@ exports.portalChangeAddress = onCall({ cors: true }, async (request) => {
   try {
     await db.collection('messages').add({
       topic: 'Existing Customer - Address Changed',
-      folder: 'Member Portal',
+      /* ⭐ THE INBOX, NOT A FOLDER WE PICKED ([[MSG-28]], 2026-09-18). Addie: "I need
+         everything to go into inbox than be able to add my own filters and sub folders."
+         This is the one server write that filed a customer message somewhere else, and
+         admin.html's MESSAGE_HOME_FOLDER was doing the same thing from the other end — both
+         had to go, or the topic lands in the Inbox for some customers and in Member Portal
+         for others depending on which door they came through. */
+      folder: 'Inbox',
       name: oldData.name || '', phone: oldData.phone || '', email: oldData.email || '',
       contactMethod: '',
       message: (oldData.name || 'A customer') + ' has moved from "' +

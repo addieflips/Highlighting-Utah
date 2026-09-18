@@ -281,11 +281,20 @@ step('applies-nothing', runMove({
 /* ---- the office is told ---------------------------------------------------- */
 step('note', runMove({ token: 'goodtoken', street: '9 Oak St', city: 'Springville' }), (r) => {
   const m = (r.wrote.messages || [])[0] || {};
-  /* ⚠ THIS EXACT TOPIC, because messageFolderOf already routes it to Member Portal
-     (MSG-07). A new spelling files the note in the main pile instead. */
-  check('a note is filed under the topic that routes to Member Portal',
-    m.topic === 'Existing Customer - Address Changed' && m.folder === 'Member Portal',
-    'the note lands in the main Inbox pile rather than beside the other portal notices');
+  /* ⚠ THIS EXACT TOPIC. It is what the Comm Centre's Member type and the office's own
+     filters are written in terms of, so a new spelling makes the note unfindable.
+     ⛔ THE FOLDER WENT FROM 'Member Portal' TO 'Inbox' ([[MSG-28]], 2026-09-18) and the old
+     reasoning is kept because it was right then: [[MSG-07]] gave portal notices a folder
+     because the pile was undivided and folders were the only tool there was. Addie has now
+     asked for the opposite — "I need everything to go into inbox than be able to add my own
+     filters and sub folders" — so mail arrives and SHE files it. REPOINTED, never weakened:
+     the claim is still that this note lands where the office will find it, and the Inbox is
+     now that place. admin.html's MESSAGE_HOME_FOLDER stopped diverting the same topic in the
+     same change; if only one of the two moves, this topic lands in two different folders
+     depending on which door the customer came through. */
+  check('a note is filed under the topic the office filters on, in the Inbox',
+    m.topic === 'Existing Customer - Address Changed' && m.folder === 'Inbox',
+    'filed away before she sees it, the Inbox reads empty while the note sits in a folder she did not choose');
   check('and it names both addresses',
     /1 Elm St/.test(m.message || '') && /9 Oak St/.test(m.message || ''),
     '"they moved" with only the new address gives the office no way to tell a real ' +

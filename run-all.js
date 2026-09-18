@@ -47210,15 +47210,22 @@ suite('273. Inbox - the count is unread, and a message can be filed without a mo
        there — but nothing failed when it was reverted to the raw field, which is the
        sidebar saying one number while the list underneath shows another.
        ⚠ THE FIXTURE MUST BE A MESSAGE THAT IS ONLY THERE BY DERIVATION — stored
-       folder:'Inbox', no filedByHand. One already carrying folder:'Cancellations' is
-       counted correctly either way and the check proves nothing. */
+       folder:'Inbox', no filedByHand. One already carrying its own folder is counted
+       correctly either way and the check proves nothing.
+       ⚠ REPOINTED FROM 'Cancellation Request' TO AN ERROR TOPIC ([[MSG-28]], 2026-09-18),
+       NEVER WEAKENED. The three customer topics stopped being derived that day — Addie
+       asked for mail to arrive in the Inbox rather than be filed for her — so that fixture
+       would now land in Inbox and this check would fail on correct code. The GUARANTEE is
+       unchanged and is what matters: wherever a message is derived TO, the sidebar count
+       and the list underneath it must agree. An error topic is still derived, so it is what
+       exercises the rule now. */
     F.set(MSGS.concat([
-      { id: 'derived', data: { folder: 'Inbox', topic: 'Cancellation Request', read: false } }
-    ]), FOLDERS.concat([{ id: 'x1', name: 'Cancellations', parentId: null }]), []);
+      { id: 'derived', data: { folder: 'Inbox', topic: 'Member Error', read: false } }
+    ]), FOLDERS.concat([{ id: 'x1', name: 'Member Errors', parentId: null }]), []);
     check('S273', 'a message derived into a folder is counted in THAT folder',
-      F.folderUnread('Cancellations') === 1,
-      'got ' + F.folderUnread('Cancellations') + ' — the sidebar would show nothing ' +
-      'beside Cancellations while the list inside it holds an unread message');
+      F.folderUnread('Member Errors') === 1,
+      'got ' + F.folderUnread('Member Errors') + ' — the sidebar would show nothing ' +
+      'beside it while the list inside holds an unread message');
     check('S273', 'and it is no longer counted in the folder it is stored in',
       F.folderUnread('Inbox') === 2,
       'got ' + F.folderUnread('Inbox') + ' — counted twice, the count and the list ' +
@@ -51549,22 +51556,33 @@ suite('292. Cancellations, the member portal, and folders in the System tab');
       'return {folderOf: messageFolderOf, sectionOf: systemNoticeSection,' +
       ' sections: SYSTEM_NOTICE_SECTIONS, home: MESSAGE_HOME_FOLDER};')();
 
-    /* ---- her three asks, run ------------------------------------------- */
-    /* ⭐ THE FIXTURE IS SHAPED THE WAY index.html REALLY WRITES ONE — folder:'Inbox',
-       important:true — because that is the shape of every cancellation already in her
-       book. A fixture carrying the new folder would pass whether the fix exists or not. */
-    check('S292', 'a cancellation lands in its own folder',
-      api.folderOf({topic: 'Cancellation Request', folder: 'Inbox', important: true}) === 'Cancellations',
+    /* ---- where mail lands, run ----------------------------------------- */
+    /* ⛔ THESE THREE ASSERTED THE OPPOSITE UNTIL 2026-09-18, AND THE OLD REASONING IS KEPT
+       BELOW BECAUSE IT WAS RIGHT AT THE TIME. [[MSG-07]] was Addie asking for cancellations
+       and portal notes to get folders of their own — "we need a place for cancelation
+       messages to go" — and this suite held that rule. [[MSG-28]] reverses that half of it:
+       "for anything that does come her instead of gmail I need everything to go into inbox
+       than be able to add my own filters and sub folders and delete the folders I want."
+       Filing mail for her before she saw it left the Inbox looking empty while the thing she
+       was after sat in a folder the app chose. REPOINTED, never deleted: the claim is still
+       that messageFolderOf decides where mail lands, and these now say where.
+       ⚠ MSG-07's OTHER HALF STANDS UNTOUCHED — the System tab's sections are further down
+       this same suite and are not part of this reversal.
+       ⭐ AND THE FIXTURES ARE STILL SHAPED THE WAY index.html REALLY WRITES ONE —
+       folder:'Inbox', important:true — which is the shape of every cancellation already in
+       her book, so these say what happens to the mail she actually has. */
+    check('S292', 'a cancellation lands in the Inbox',
+      api.folderOf({topic: 'Cancellation Request', folder: 'Inbox', important: true}) === 'Inbox',
       'got ' + api.folderOf({topic: 'Cancellation Request', folder: 'Inbox'}));
-    /* ⚠ THE ONES ALREADY WRITTEN ARE THE POINT. Routing only new messages would leave
-       her existing cancellations in the undivided pile, and the feature would look
-       broken on the only data she has. Nothing is migrated; the same rows just sort. */
+    /* ⚠ THE ONES ALREADY WRITTEN ARE STILL THE POINT, pointing the other way now: nothing
+       is migrated and nothing is rewritten, so the same stored rows simply stop being
+       diverted. Her own filing is what moves a message from here. */
     check('S292', 'and so does one written before any of this existed',
-      api.folderOf({topic: 'Cancellation Request', folder: 'Inbox'}) === 'Cancellations',
-      'no message is rewritten, so a stored folder must not be able to win by default');
-    check('S292', 'a member-portal note lands in Member Portal',
-      api.folderOf({topic: 'Note Added', folder: 'Inbox'}) === 'Member Portal' &&
-      api.folderOf({topic: 'Existing Customer - Address Changed', folder: 'Inbox'}) === 'Member Portal',
+      api.folderOf({topic: 'Cancellation Request', folder: 'Inbox'}) === 'Inbox',
+      'no message is rewritten — these are the rows already in her book');
+    check('S292', 'a member-portal note lands in the Inbox too',
+      api.folderOf({topic: 'Note Added', folder: 'Inbox'}) === 'Inbox' &&
+      api.folderOf({topic: 'Existing Customer - Address Changed', folder: 'Inbox'}) === 'Inbox',
       'got ' + api.folderOf({topic: 'Note Added', folder: 'Inbox'}));
 
     /* ---- the office's own filing always wins ---------------------------- */
@@ -61676,4 +61694,116 @@ if (!JSDOM) { note('Suite 341 skipped — jsdom missing'); } else {
     idx.indexOf('var portalRsvpChangeOpen') > -1 &&
     idx.indexOf('var portalRsvpChangeOpen') < idx.indexOf('function renderPortalRsvp'),
     'below it, the flag is undefined at the one moment that matters and nothing goes red');
+}
+
+suite('Suite 342. Everything arrives in the Inbox, and a deleted folder stays deleted');
+/* ⭐ [[MSG-28]]. Addie, 2026-09-18: "for anything that does come her instead of gmail I need
+   everything to go into inbox than be able to add my own filters and sub folders and delete
+   the folders I want."
+
+   ⛔ TWO FAULTS IN ONE SENTENCE, AND THEY ARE NOT THE SAME BUG. Customer mail was being
+   filed out of the Inbox before she ever saw it, and a folder she deleted came back on the
+   next login because the seeder re-created it. The filters and sub-folders she asks for
+   already exist ([[MSG-15]], [[MSG-20]]) — those are not touched. */
+{
+  const fns = read('functions/index.js');
+
+  /* ⚠ THE ROUTING IS RUN, NOT MATCHED. The claim is about which folder a message LANDS in,
+     and messageFolderOf is a composition of three rules — a regex cannot see which one
+     answered first. */
+  /* ⚠ THE TABLE AND THE TOPIC CONSTANTS ARE LIFTED, NEVER STUBBED — the extraction-list
+     trap, and this suite died on a bare "MESSAGE_HOME_FOLDER is not defined" naming nothing.
+     A stubbed table would decide the very thing under test: which topics still divert. */
+  const homeMap342 = (admin.match(/const MESSAGE_HOME_FOLDER = \{[\s\S]*?\};/) || [])[0];
+  const errConsts342 = (admin.match(/const ERROR_FOLDER_MEMBER[\s\S]*?const ADMIN_ERROR_TOPIC = '[^']*';/) || [])[0];
+  check('S342', 'the routing table and its constants were found',
+    !!homeMap342 && !!errConsts342,
+    'renamed? repoint this rather than deleting it — a missing table crashes the sandbox');
+  const route = new Function('d',
+    (errConsts342 || '') + '\n' + (homeMap342 || '') + '\n' +
+    extractFn(admin, 'messageFolderOf') + '\nreturn messageFolderOf(d);');
+
+  check('S342', 'a cancellation lands in the Inbox',
+    route({ topic: 'Cancellation Request' }) === 'Inbox',
+    'it was going to Cancellations before she ever saw it — the app doing her filing');
+  check('S342', 'a note from the portal lands in the Inbox',
+    route({ topic: 'Note Added' }) === 'Inbox',
+    'same fault, same table');
+  check('S342', 'and so does a customer telling us they moved',
+    route({ topic: 'Existing Customer - Address Changed' }) === 'Inbox',
+    'this one had a SECOND door — the server wrote the folder itself, checked below');
+
+  /* ⛔ THE THINGS THAT ARE NOT MAIL STAY WHERE THEY ARE. A system notice must never read as
+     something to answer ([[MSG-15]]), and burying the queue under them is the complaint the
+     Communication Centre exists to fix. */
+  /* ⚠ THE FIXTURE CARRIES A TOPIC THAT IS STILL IN THE TABLE, and the red-check is what
+     forced that. A notice whose topic diverts nowhere answers 'System' whether the guard is
+     there or not, so the first version passed with the guard deleted outright. What proves
+     the ORDER is a message the table WOULD move if it got the chance. */
+  check('S342', 'a System notice is still filed as System',
+    route({ topic: 'Member Error', folder: 'System' }) === 'System',
+    'these outnumber real questions hundreds to one — in the Inbox they bury the queue');
+
+  /* ⛔ AND HER OWN FILING STILL WINS OVER EVERYTHING. Nothing she has ever moved by hand is
+     touched by this change, which is what makes it safe. */
+  /* ⚠ SAME REASON, SAME FIX. A Cancellation Request no longer diverts, so it answered the
+     stored folder with or without this guard and the check proved nothing once the table
+     changed underneath it. An error topic still diverts, so it is what shows her filing
+     winning over the table. */
+  check('S342', 'a message she filed by hand stays where she put it',
+    route({ topic: 'Member Error', folder: 'Billing / Payment Question',
+            filedByHand: true }) === 'Billing / Payment Question',
+    'the folders are not deleted and nothing already filed moves — only where new mail LANDS');
+
+  /* ⚠ BOTH DOORS, OR THE SAME TOPIC LANDS IN TWO PLACES depending on which one it came
+     through. The server wrote 'Member Portal' directly for a move. */
+  /* ⚠ sectionFrom, NEVER a fixed-length window. This file's own structure gate refuses
+     `slice(at, at + N)` by name and caught the first draft doing it — those pass today and
+     fail on correct code the moment the block above them grows. */
+  const moveNote = (() => {
+    const at = fns.indexOf("topic: 'Existing Customer - Address Changed',");
+    return at === -1 ? '' : sectionFrom(fns, at);
+  })();
+  check('S342', 'the move note was found in functions/index.js', !!moveNote,
+    'an empty slice passes the check below without reading the server at all');
+  check('S342', 'and the server files it to the Inbox too',
+    /folder: 'Inbox'/.test(moveNote) && !/folder: 'Member Portal'/.test(moveNote),
+    'browser-side alone leaves the same topic in two folders depending on the door');
+
+  /* ⭐ THE SECOND FAULT. Every folder already had a delete button and it did not work — not
+     because the delete failed, but because the seeder re-created it on the next login. */
+  const seedBlock = (() => {
+    const at = admin.indexOf('if(!foldersSeeded){');
+    if(at === -1) return '';
+    const end = admin.indexOf('const missing', at);
+    return end === -1 ? '' : admin.slice(at, admin.indexOf('}', end));
+  })();
+  check('S342', 'the seeding block was found', !!seedBlock,
+    'renamed? repoint this rather than deleting it');
+  /* ⚠ THE MARKER MUST BE READ, NOT MERELY FETCHED. The first version looked for the word
+     inboxFolderSeed anywhere in the block, which survived a sabotage that fetched the
+     marker and then ignored it — green while every deleted folder came back. */
+  check('S342', 'seeding is gated on a marker that outlives the page',
+    /inboxFolderSeed/.test(seedBlock) &&
+    /const missing = alreadySeeded \? \[\]/.test(seedBlock),
+    'foldersSeeded alone is per page load, which is why a deleted folder came back next login');
+
+  /* ⛔ AND AN EXISTING BOOK IS MARKED, NEVER SEEDED. Seeding the "missing" defaults there
+     resurrects exactly the folders she deleted before today — this bug in a new hat. */
+  const gate = admin.slice(admin.indexOf('const existingNames = messageFolders.map'),
+                           admin.indexOf('for(const name of missing)'));
+  check('S342', 'a book that already has folders is never seeded',
+    /existingNames\.length \? \[\] : DEFAULT_TOPIC_FOLDERS/.test(gate),
+    'otherwise the first load after this ships brings back every folder she has ever deleted');
+  check('S342', 'and a failed read seeds nothing',
+    /alreadySeeded = true;/.test(seedBlock),
+    'failing the other way resurrects folders with nobody watching; this way costs a click');
+
+  /* ⚠ THE MARKER IS WRITTEN EVEN WHEN NOTHING WAS CREATED. It means "this book has been
+     through seeding", not "folders were made" — that is the whole resurrection guard. */
+  const after = admin.slice(admin.indexOf('for(const name of missing)'),
+                            admin.indexOf('for(const name of missing)') + 1200);
+  check('S342', 'the marker is written whether or not anything was created',
+    /if\(!alreadySeeded\)\{/.test(after) && /seededAt: serverTimestamp\(\)/.test(after),
+    'written only when folders were made, an existing book is never marked and gets seeded later');
 }

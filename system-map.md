@@ -3969,10 +3969,31 @@ worse than one in the wrong section. ⚠ **The routine digest above stays folded
 sections rather than filling the Schedule one** — merging them would undo the fix that
 stopped it burying the notices that need her.
 
-⭐ **CANCELLATIONS AND THE MEMBER PORTAL GET FOLDERS IN CUSTOMER MESSAGES** (2026-09-02,
-MSG-07). *"we need a place for cancelation messages to go … Also can we have inbox for
-member portal."* `messageFolderOf` sends a *Cancellation Request* to **Cancellations**, and
-*Note Added* / *Existing Customer - Address Changed* to **Member Portal**.
+⛔ **EVERYTHING ARRIVES IN THE INBOX NOW** (2026-09-18, [[MSG-28]]). Addie: *"for anything
+that does come her instead of gmail I need everything to go into inbox than be able to add
+my own filters and sub folders and delete the folders I want."* `messageFolderOf` no longer
+diverts a *Cancellation Request*, a *Note Added* or an *Existing Customer - Address Changed*
+— all three land in the Inbox and she files them, the way Gmail works. The server's own move
+note was writing `folder: 'Member Portal'` directly and now writes `Inbox` too, or the same
+topic would land in two places depending on which door it came through.
+
+⭐ **The ruling it replaces is kept here because it was right at the time** (2026-09-02,
+MSG-07): *"we need a place for cancelation messages to go … Also can we have inbox for
+member portal."* The pile was undivided and folders were the only tool there was. MSG-12
+removed folders as a filing system, MSG-15 and MSG-19 made the nav hers, and this finishes
+that direction. **MSG-07's other half — the System tab's sections — is untouched.**
+
+⛔ **Nothing is deleted and nothing moves.** The folders stay, every message she filed by
+hand stays where she put it, and only where *new* mail lands changes. A System notice is
+still System, and the error topics are untouched (MSG-26).
+
+⭐ **AND A FOLDER SHE DELETES STAYS DELETED** (same ruling). Every folder always had a
+delete button and it worked — the **seeder** re-created it on the next login, because
+`foldersSeeded` is per page load and `DEFAULT_TOPIC_FOLDERS` was re-checked every time.
+Seeding is marked once in `settings/inboxFolderSeed` now. ⚠ **A book that already has
+folders is marked and never seeded**, or the first load after this would resurrect every
+folder she deleted before today; ⚠ **a failed read seeds nothing**, which costs a fresh book
+one click rather than bringing deleted folders back with nobody watching.
 
 ⚠ **Derived, so it sorts the messages already written** — every cancellation in the book
 was written `folder:'Inbox'`, and routing only new ones would have left her existing ones in

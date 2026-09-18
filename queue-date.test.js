@@ -1245,6 +1245,14 @@ check('the path still has every step in it',
        is on their invoice) and, when it comes, they answer the RSVP. This only stops the
        Inbox note being raised a second time on the next payment. Drawn as a step it would
        put a milestone on the picture for a piece of our own bookkeeping. */
+    /* ⚠ NOT ON A CUSTOMER AT ALL. This one is stamped on settings/inboxFolderSeed and is
+       about the OFFICE's own screen — it records that this book has been through folder
+       seeding once, so a folder Addie deletes is never re-created under her ([[MSG-28]]).
+       No customer passed through anything. */
+    seededAt: 'when this book was first given its starter Inbox folders. It lives on ' +
+      'settings/inboxFolderSeed, not on a customer, and it exists so that deleting a ' +
+      'folder sticks instead of it coming back on the next login — office bookkeeping ' +
+      'about a screen, with no stage of anybody\'s journey behind it',
     arrearsPaidNoticeAt: 'the once-only guard on the "paid last season, still needs to ' +
       'RSVP" Inbox note — our bookkeeping about a note we raised, not a stage the ' +
       'customer passed through; the events are their payment and their eventual answer',
