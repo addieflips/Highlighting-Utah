@@ -4887,6 +4887,17 @@ plug; it is why the customer is still shown a phone number.
 long-poll channel is normal noise (§7 of CLAUDE.md), it arrives in bursts, and left in it
 would fill the folder on a flaky connection.
 
+⚠ **Neither is "…because the client is offline"** (added 2026-09-18). Firestore says that
+when a READ runs while the computer has no connection. It landed twice as "could not read
+nightly billing health", once on 9/16 and once on 9/17, and the ten-minute tick re-reads it
+anyway. Writes queue while offline, so this cannot hide a lost save.
+
+⭐ **An "Unhandled promise" row now names where it started** (2026-09-18). It adds
+`at <function> admin.html:<line>` from the first stack frame in our own files
+(`rejectionWhere`). "Missing or insufficient permissions" kept arriving with Addie
+signed in and nothing to say which read, and every read in the file checks out against
+the rules. The next copy points at the caller instead of being guessed at.
+
 *Gated by* `error-inbox.test.js` (`npm run test:errors`), which runs both reporters against
 a fake Firestore rather than reading their source; 16 sabotages red-checked.
 

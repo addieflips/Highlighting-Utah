@@ -1531,8 +1531,34 @@
   });
   window.addEventListener('unhandledrejection', function(e){
     var r = e.reason;
-    add('Unhandled promise: ' + ((r && (r.message || r.code)) || String(r)));
+    /* ⭐ AND WHERE IT CAME FROM (2026-09-18). "Unhandled promise: Missing or insufficient
+       permissions." has reached the Errors folder five times since 9/8 with Addie signed
+       in — so it is not the after-sign-out race whileSignedIn fixed — and the line names
+       no collection and no function. Every Firestore read and write in this file was
+       checked against firestore.rules that day and each one is either caught or allowed,
+       so the next copy has to say where it started instead of being guessed at again.
+       The first frame in one of OUR files is the caller; gstatic frames are Firebase's
+       own insides and say nothing. Best effort only — a stack with no frame of ours
+       adds nothing and the line reads exactly as it always did. */
+    add('Unhandled promise: ' + ((r && (r.message || r.code)) || String(r)) + rejectionWhere(r));
   });
+  /* Its own function so error-inbox.test.js can RUN it against real Chrome and Safari
+     stack shapes rather than match its source. */
+  function rejectionWhere(r){
+    try{
+      var frames = String((r && r.stack) || '').split('\n');
+      for(var i = 0; i < frames.length; i++){
+        var m = frames[i].match(/([A-Za-z0-9_.-]+\.(?:html|js)):(\d+)/);
+        if(m && frames[i].indexOf('gstatic') === -1){
+          /* Chrome writes "at async loadX (…admin.html:12:3)", Safari "loadX@…admin.html:12:3". */
+          var fnName = (frames[i].match(/at (?:async )?([A-Za-z0-9_$.]+) \(/) ||
+                        frames[i].match(/^\s*([A-Za-z0-9_$.]+)@/) || [])[1];
+          return '\n  at ' + (fnName ? fnName + ' ' : '') + m[1] + ':' + m[2];
+        }
+      }
+    }catch(x){ /* quiet on purpose: this IS the error reporter, and the message it is appended to is already enough to file. */ }
+    return '';
+  }
   // Render failures are logged rather than thrown, so console.error is wrapped
   // too. The original is always called first so nothing is swallowed.
   var origError = console.error;
@@ -22830,7 +22856,15 @@ const ADMIN_ERROR_MAX_PER_SESSION = 5;
    bursts — left in, a flaky connection alone would fill this folder. Anything added here
    has to be genuinely harmless, never merely frequent: a real fault that happens often is
    the one thing this whole folder exists to show her. */
-const ADMIN_ERROR_IGNORE = [/Listen\/channel/i, /Fetch failed/i, /ERR_BLOCKED_BY_CLIENT/i, /ResizeObserver loop/i];
+const ADMIN_ERROR_IGNORE = [/Listen\/channel/i, /Fetch failed/i, /ERR_BLOCKED_BY_CLIENT/i, /ResizeObserver loop/i,
+  /* ⭐ "Failed to get document because the client is offline" (2026-09-18, from the Errors
+     folder — "could not read nightly billing health", twice, on 9/16 and 9/17). That is
+     Firestore saying the computer had no connection at that moment, which is the same
+     news as the Fetch failed line above: it names the Wi-Fi, not a fault in the page.
+     The read it interrupted is the ten-minute billing-health beat, which simply reads
+     again on the next tick. ⚠ Only a READ can fail this way — Firestore queues writes
+     while offline and sends them on reconnect — so this cannot hide a lost save. */
+  /because the client is offline/i];
 /* Collapses the numbers out of a message so "row 41 failed" and "row 87 failed" are one
    fault rather than two hundred. */
 function errorKeyFor(topic, text){

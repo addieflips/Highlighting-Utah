@@ -748,6 +748,47 @@ console.log('--- the admin half ---');
 }
 
 {
+  /* ⭐ THE COMPUTER HAD NO CONNECTION (2026-09-18). Her actual row, twice (9/16 and 9/17):
+     "[HU] could not read nightly billing health Failed to get document because the client
+     is offline." That names the Wi-Fi, not the page, and the read it interrupted runs
+     again on the next ten-minute tick. */
+  const h = adminHarness();
+  h.flushAdminErrors();
+  h.reportAdminError('[HU] could not read nightly billing health Failed to get document because the client is offline.');
+  check('an offline read is not an error report',
+    h.writes.length === 0,
+    'got a row for Firestore saying the computer had no connection');
+  h.reportAdminError('[HU] could not read nightly billing health Missing or insufficient permissions.');
+  check('but the same read failing for a real reason still gets through',
+    h.writes.length === 1,
+    'the offline rule must match the offline wording, not the name of the read');
+}
+
+{
+  /* ⭐ AN UNHANDLED PROMISE SAYS WHERE IT STARTED (2026-09-18). "Unhandled promise: Missing
+     or insufficient permissions." reached the folder five times with nothing naming the
+     read, so the fix could only be guessed at. The stacks below are the two shapes the
+     office's browsers actually produce: Chrome on Windows and Safari on the Mac/iPhone. */
+  const src = extractFn(admin, 'rejectionWhere');
+  const where = new Function(src + '; return rejectionWhere;')();
+  const chrome = { stack: 'FirebaseError: Missing or insufficient permissions.\n' +
+    '    at new n (https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js:1:2345)\n' +
+    '    at async loadNightlyHealth (https://highlightingutah.com/admin.html:10640:18)' };
+  check('a Chrome stack names our function and line, not Firebase\'s',
+    where(chrome) === '\n  at loadNightlyHealth admin.html:10640', JSON.stringify(where(chrome)));
+  const safari = { stack: 'n@https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js:1:2345\n' +
+    'loadActivity@https://highlightingutah.com/admin.html:66410:30' };
+  check('a Safari stack does too',
+    where(safari) === '\n  at loadActivity admin.html:66410', JSON.stringify(where(safari)));
+  check('a stack with none of our frames adds nothing',
+    where({ stack: 'x@https://www.gstatic.com/a.js:1:1' }) === '' && where(null) === '' && where('text') === '',
+    'the line must read exactly as it always did when there is nothing to add');
+  check('and the catcher appends it',
+    /'Unhandled promise: '[^\n]*\+ rejectionWhere\(r\)/.test(admin),
+    'the helper exists but the unhandledrejection line no longer calls it');
+}
+
+{
   /* ⚠ THIS IS THE GUARD THAT SURVIVES A RELOAD, and the in-memory one does not. A fault
      that fires on every page load would otherwise post a fresh row every time the office
      opened the tab — which is the exact "cries wolf" failure this repo names elsewhere. */
