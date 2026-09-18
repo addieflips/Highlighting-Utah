@@ -362,7 +362,13 @@ check('and the retired conditional note is gone, not orphaned',
 const pager = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'houseBundleNeed',
   'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS', 'whBinsForHouse', 'whWhoLabel',
   'houseLightsText', 'printExtraBinsNote', 'isOutForSeason',
-  reasonsSrc + fn('whBuildReasonKey') + fn('whBuildReasonLabel') +
+  /* ⚠ LIFTED, NEVER STUBBED. whNotesCell decides what the Notes cell on BOTH build
+     sheets says; a stub here would let the two sheets start disagreeing about it with
+     this gate still green — which is the whole reason it is one function. The sandbox
+     died with a bare "whNotesCell is not defined" the moment it was added, which is the
+     extraction-list trap working as intended. */
+  reasonsSrc + fn('whNoteText') + fn('whNotesCell') +
+  fn('whBuildReasonKey') + fn('whBuildReasonLabel') +
   fn('whBuildQueueGroups') + fn('whSheetRowsForBuild') + fn('whBuildSheetPages') +
   'return whBuildSheetPages();');
 const P = function(custs, extras){

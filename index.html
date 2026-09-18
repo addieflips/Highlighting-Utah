@@ -5,7 +5,7 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2040%2040%22%20fill%3D%22none%22%3E%3Crect%20width%3D%2240%22%20height%3D%2240%22%20rx%3D%228%22%20fill%3D%22%231E3B2C%22/%3E%3Cpath%20d%3D%22M20%204%20L34%2020%20L27%2020%20L27%2034%20L13%2034%20L13%2020%20L6%2020%20Z%22%20fill%3D%22%233E7A5B%22%20stroke%3D%22%23F4BE55%22%20stroke-width%3D%221.6%22%20stroke-linejoin%3D%22round%22/%3E%3Cpath%20d%3D%22M8%2017%20L14%2011%20L20%2017%20L26%2011%20L32%2017%22%20fill%3D%22none%22%20stroke%3D%22%23FFFFFF%22%20stroke-width%3D%220.7%22%20opacity%3D%220.5%22/%3E%3Ccircle%20cx%3D%228%22%20cy%3D%2217%22%20r%3D%221.4%22%20fill%3D%22%23E0574B%22/%3E%3Ccircle%20cx%3D%2214%22%20cy%3D%2211%22%20r%3D%221.4%22%20fill%3D%22%23FFFFFF%22/%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2217%22%20r%3D%221.4%22%20fill%3D%22%23E0574B%22/%3E%3Ccircle%20cx%3D%2226%22%20cy%3D%2211%22%20r%3D%221.4%22%20fill%3D%22%23FFFFFF%22/%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2217%22%20r%3D%221.4%22%20fill%3D%22%23E0574B%22/%3E%3Cpath%20d%3D%22M13%2023%20L17.7%2029%20L22.3%2023%20L27%2029%22%20fill%3D%22none%22%20stroke%3D%22%23FFFFFF%22%20stroke-width%3D%220.7%22%20opacity%3D%220.5%22/%3E%3Ccircle%20cx%3D%2213%22%20cy%3D%2223%22%20r%3D%221.4%22%20fill%3D%22%23FFFFFF%22/%3E%3Ccircle%20cx%3D%2217.7%22%20cy%3D%2229%22%20r%3D%221.4%22%20fill%3D%22%23E0574B%22/%3E%3Ccircle%20cx%3D%2222.3%22%20cy%3D%2223%22%20r%3D%221.4%22%20fill%3D%22%23FFFFFF%22/%3E%3Ccircle%20cx%3D%2227%22%20cy%3D%2229%22%20r%3D%221.4%22%20fill%3D%22%23E0574B%22/%3E%3C/svg%3E">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Highlighting Utah | Professional Christmas Light Installation</title>
-<meta name="description" content="Highlighting Utah &mdash; custom roofline Christmas light installation for homeowners across Utah County and Salt Lake County. Free quotes, professional install, in-season maintenance, and post-season removal.">
+<meta name="description" content="Highlighting Utah &mdash; custom roofline Christmas light installation for homes and businesses across Utah County and Salt Lake County. Free quotes, professional install, in-season maintenance, and post-season removal.">
 <!-- ============================================================
      WHAT SEARCH ENGINES ARE TOLD ABOUT THIS PAGE (2026-09-12).
 
@@ -44,7 +44,7 @@
   "@type": "HomeAndConstructionBusiness",
   "@id": "https://highlightingutah.com/#business",
   "name": "Highlighting Utah",
-  "description": "Custom roofline Christmas light installation for homeowners across Utah County and Salt Lake County. Free quotes, professional install, in-season maintenance and post-season removal.",
+  "description": "Custom roofline Christmas light installation for homes and businesses across Utah County and Salt Lake County. Free quotes, professional install, in-season maintenance and post-season removal.",
   "url": "https://highlightingutah.com/",
   "telephone": "+1-801-901-0011",
   "email": "service@highlightingutah.com",
@@ -233,6 +233,8 @@
   ],
   "knowsAbout": [
     "Christmas light installation",
+    "Residential Christmas light installation",
+    "Commercial Christmas light installation",
     "Holiday lighting",
     "Roofline lighting"
   ],
@@ -1781,15 +1783,6 @@
               <p class="form-note">Not sure? Leave it on Any &mdash; we'll reach out with timing options.</p>
             </div>
             <div class="form-row">
-              <label>Wire Color</label>
-              <select name="wire_color">
-                <option value="Any" selected>Any</option>
-                <option value="White">White</option>
-                <option value="Green">Green</option>
-              </select>
-              <p class="form-note">The color of the cord itself, not the bulbs &mdash; leave on Any and we'll pick whichever blends best with your roofline.</p>
-            </div>
-            <div class="form-row">
               <label>Would you like an outlet timer?</label>
               <div class="radio-row">
                 <label class="radio-pill"><input type="radio" name="outlet_timer" value="Yes"> Yes</label>
@@ -2388,11 +2381,13 @@
                   <p class="form-note" id="portalRsvpReasonStatus" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
                 </div>
               </div>
-              <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Wire Color</label>
-              <select id="wireColorSelect" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;">
-                <option value="White">White</option>
-                <option value="Green">Green</option>
-              </select>
+              <!-- ⛔ THE WIRE COLOUR IS NOT ASKED HERE ANY MORE (2026-09-17). Addie: "keep what
+                   lights they want but don't add what wire color they want but push check lights
+                   then warehouse chooses what wire they have on file and will make it based on
+                   what wire they have." This select is where the invented White came from
+                   ([[OPT-11]]), and the honest version of it — a "not recorded" placeholder —
+                   was still a question we do not need a customer to answer. The light COLOURS
+                   they choose are untouched; only the cord is ours to decide. -->
 
               <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px; margin-top:18px; padding-top:14px; border-top:1px solid var(--line);">Installation Timing</label>
               <select id="schedSelect" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;">
@@ -3867,7 +3862,6 @@ function qdPrefillFromMember(memberDetails){
     renderQdSimpleColors();
   }
 
-  setSelect('wire_color', md.wireColor);
   setSelect('install_month', md.installPreference);
   setRadio('outlet_timer', md.outletTimer);
   setRadio('specific_outlet', md.specificOutlet);
@@ -4006,7 +4000,13 @@ quoteDetailFormEl.addEventListener('submit', async function(e){
   var detailPayload = {
     lightColors: lightColors,
     lightsDescription: lightsDescription,
-    wireColor: fd.get('wire_color') || 'Any',
+    /* ⛔ NO WIRE COLOUR IS COLLECTED HERE ANY MORE (2026-09-17). Addie: "keep what
+       lights they want but don't add what wire color they want but push check lights then
+       warehouse chooses what wire they have on file and will make it based on what wire
+       they have." It used to default to 'Any' for anybody who did not touch the box — a
+       wire colour on the record that nobody chose, which is the whole fault [[WH-35]] was
+       written to stop the warehouse ACTING on. A quote now carries none, the customer
+       reads Check lights, and somebody at the bin records what is really there. */
     /* ⭐ A YES/NO WITH NO ANSWER STAYS BLANK (changed 2026-08-20). Owner: "yes and
        no questions dont have a default answer though just leave those blank if
        unanswered."
@@ -4350,8 +4350,7 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
       document.getElementById('addEmail2Link').style.display = 'none';
     }
     document.getElementById('schedSelect').value = addrDoc.installPreference || 'Normal Schedule';
-    document.getElementById('wireColorSelect').value = addrDoc.wireColor || 'White';
-    var loadedOutletTimer = addrDoc.outletTimer === 'Yes' ? 'Yes' : (addrDoc.outletTimer === 'No' ? 'No' : '');
+        var loadedOutletTimer = addrDoc.outletTimer === 'Yes' ? 'Yes' : (addrDoc.outletTimer === 'No' ? 'No' : '');
     document.querySelectorAll('input[name="changes_outlet_timer"]').forEach(function(r){
       r.checked = r.value === loadedOutletTimer;
       r.closest('.radio-pill').classList.toggle('selected', r.checked);
@@ -6556,6 +6555,21 @@ function portalCallMissed(err){
   var code = String((err && (err.code || err.status)) || '').toLowerCase();
   return code === 'functions/not-found' || code === 'not-found';
 }
+/* ⭐ A REFUSAL THE SERVER WROTE FOR THE MEMBER IS SHOWN, NOT REPLACED (2026-09-17,
+   [[MEM-02]]). `failed-precondition` is the one code this app throws with wording aimed at
+   the CUSTOMER rather than at us — the arrears hold ("There is still a balance owing from
+   the 2025 season. Once that is paid you can make changes here again."), "Nothing due to
+   charge." and "That quote has not been approved." are all three of them, and all three
+   name the next step. Swapping any of those for "Something went wrong — please call us"
+   throws away an answer they could have acted on alone and turns a rule doing its job into
+   a phone call.
+   ⚠ EVERY OTHER CODE KEEPS THE APOLOGY. A message written for a developer must never reach
+   a customer, so this reads `message` for that ONE code and nothing else. */
+function portalServerRefusal(err){
+  var code = String((err && (err.code || err.status)) || '').toLowerCase();
+  if(code !== 'failed-precondition' && code !== 'functions/failed-precondition') return '';
+  return String((err && err.message) || '').trim();
+}
 /* ⭐ `doing` IS WHAT THE OFFICE READS, and it is why the report is raised HERE rather than
    at each of the eight catch blocks that call this. Every portal failure the customer can
    see already funnels through this one function to be turned into an apology; raising it
@@ -6563,6 +6577,12 @@ function portalCallMissed(err){
    caller passes what they were doing because this function cannot know it. */
 function portalCallFailedText(err, thing, doing){
   if(err) console.error('[HU] portal call failed', err);
+  /* ⛔ A REFUSAL IS NOT AN ERROR, AND IS RETURNED BEFORE THE REPORT. The arrears hold is
+     the system working exactly as Dax asked; filing one in Member Errors every time a
+     customer who owes money opens a tab is the cries-wolf failure this file names in four
+     other places, and it would bury the real faults the folder exists to surface. */
+  var refusal = portalServerRefusal(err);
+  if(refusal) return refusal;
   reportMemberError(doing || ('using their ' + thing), err);
   if(err && !portalCallMissed(err)){
     return "Something went wrong — please call or text us at (801) 901-0011 " +
@@ -7626,7 +7646,7 @@ async function saveLightsPattern(){
     showLightsFeeNote(saveRes && saveRes.lightFee);
     if(lightsActuallyChanged) notifyLightsChange(newLightsDescription);
   } catch(err){
-    statusEl.textContent = 'Something went wrong — please try again.';
+    statusEl.textContent = portalCallFailedText(err, 'account', 'Changing their light colours');
   } finally {
     if(saveBtn) saveBtn.disabled = false;
   }
@@ -8454,7 +8474,13 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
     } catch(err){
       /* The sides ARE saved and the record IS flagged by now, so a failure
          here loses the quote card, not the change. Say so rather than
-         claiming success. */
+         claiming success.
+         ⚠ REPORTED BY HAND RATHER THAN THROUGH portalCallFailedText, because this is the
+         one portal failure where the wording must NOT be replaced: that function's apology
+         reads as "nothing saved", and the sides did save. The office still has to hear
+         about it — a member sitting on a re-quote that was never raised is invisible
+         otherwise, which is the whole reason Member Errors exists. */
+      reportMemberError('Opening a re-quote after changing which sides they want lit', err);
       statusEl.textContent = 'Saved, but we could not open your re-quote automatically — please call (801) 901-0011.';
       return;
     }
@@ -8471,7 +8497,7 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
     });
     statusEl.textContent = "Saved. We will be in touch with your new quote.";
   } catch(err){
-    statusEl.textContent = "Could not save that — please call (801) 901-0011.";
+    statusEl.textContent = portalCallFailedText(err, 'account', 'Changing which sides of their house we light');
   }
 });
 document.getElementById('infoSaveBtn').addEventListener('click', async function(){
@@ -8528,7 +8554,7 @@ document.getElementById('infoSaveBtn').addEventListener('click', async function(
        `addressChanged`; nothing acts on it, here or anywhere. */
     statusEl.textContent = 'Saved!';
   } catch(err){
-    statusEl.textContent = 'Something went wrong — please call (801) 901-0011 instead.';
+    statusEl.textContent = portalCallFailedText(err, 'account', 'Changing their own contact details');
   }
 });
 
@@ -8697,7 +8723,6 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
   var btn = document.getElementById('changesSaveBtn');
   if(!currentLookupRecord && !currentJobAddressId){ statusEl.textContent = 'Please look up your invoice first.'; return; }
   var newPref = document.getElementById('schedSelect').value;
-  var newWireColor = document.getElementById('wireColorSelect').value;
   /* ⭐ NEITHER RADIO HAS A DEFAULT, SO NEITHER IS ALWAYS ANSWERED (2026-09-10, from the Errors folder).
      `querySelector(':checked')` returns null when nothing is ticked, and `.value` on that
      throws — which took the whole save down before a single field was read. Found in the
@@ -8737,21 +8762,22 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
   var contactPhone = (currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || '';
   var contactEmail = (currentLookupRecord && currentLookupRecord.email) || (currentJobAddressData && currentJobAddressData.email) || '';
   try{
-    var wireColorChanged = currentJobAddressData && currentJobAddressData.wireColor !== newWireColor;
     var notesChanged = currentJobAddressData && (currentJobAddressData.notes || '') !== (newNotes || '');
     var outletTimerChanged = currentJobAddressData && (currentJobAddressData.outletTimer || 'No') !== newOutletTimer;
     await callPortalFn('portalSave', {
       token: getActivePortalToken(),
       section: 'preferences',
       data: {
-        installPreference: newPref, wireColor: newWireColor,
+        /* ⛔ NO wireColor. The customer is not asked for one any more (2026-09-17), and
+           the server no longer accepts it under this section either — so a field sent from
+           here would be dropped in silence rather than refused, which is worse. */
+        installPreference: newPref,
         outletTimer: newOutletTimer, specificOutlet: newSpecificOutlet,
         specificOutletNotes: newSpecificOutletNotes, notes: newNotes
       }
     });
     if(currentJobAddressData){
       currentJobAddressData.installPreference = newPref;
-      currentJobAddressData.wireColor = newWireColor;
       currentJobAddressData.outletTimer = newOutletTimer;
       currentJobAddressData.specificOutlet = newSpecificOutlet;
       currentJobAddressData.specificOutletNotes = newSpecificOutletNotes;
@@ -8759,19 +8785,6 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
     }
     statusEl.textContent = 'Saved!';
     setTimeout(function(){ statusEl.textContent = ''; }, 1500);
-    if(wireColorChanged){
-      await addDoc(collection(db,'messages'), {
-        topic: 'Wire Color Change', folder: 'System',
-        name: contactName, phone: contactPhone, email: contactEmail,
-        contactMethod: '', message: 'Changed their wire color to: ' + newWireColor,
-        createdAt: serverTimestamp()
-      });
-      notifyBusinessOfMessage({
-        customer_name: contactName, customer_phone: contactPhone,
-        customer_email: contactEmail, topic: 'Wire Color Change',
-        message: 'Changed their wire color to: ' + newWireColor
-      });
-    }
     if(notesChanged && newNotes){
       await addDoc(collection(db,'messages'), {
         topic: 'Note Added', folder: 'Inbox', important: true,
@@ -8799,7 +8812,7 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
       });
     }
   } catch(err){
-    statusEl.textContent = 'Something went wrong — please try again.';
+    statusEl.textContent = portalCallFailedText(err, 'account', 'Changing their install preferences');
   } finally {
     btn.disabled = false;
   }
@@ -8867,7 +8880,10 @@ document.getElementById('cancelFinalBtn').addEventListener('click', async functi
     document.getElementById('cancelConfirmMsg').style.display = 'block';
   } catch(err){
     btn.disabled = false;
-    statusEl.textContent = 'Something went wrong — please call/text us at (801) 901-0011.';
+    /* ⚠ THIS IS THE ONE PATH THE ARREARS HOLD LETS THROUGH, on purpose — somebody trying
+       to LEAVE must never be told to pay first. So a failure here is the one nobody would
+       ever ring about: they assume they have cancelled and simply stop replying. */
+    statusEl.textContent = portalCallFailedText(err, 'account', 'Telling us they are not having lights this season');
   }
 });
 
@@ -8899,7 +8915,7 @@ document.getElementById('portalContactSendBtn').addEventListener('click', async 
     document.getElementById('portalContactSuccess').style.display = 'block';
   } catch(err){
     btn.disabled = false;
-    statusEl.textContent = 'Something went wrong — please call/text us at (801) 901-0011.';
+    statusEl.textContent = portalCallFailedText(err, 'account', 'Sending us a message from their account');
   }
 });
 
@@ -8967,7 +8983,7 @@ document.getElementById('quoteApproveBtn').addEventListener('click', async funct
     quoteDetailToken = (currentQuoteData && currentQuoteData.quoteToken) || quoteDetailToken || null;
     window.location.hash = '/quote-details';
   } catch(err){
-    statusEl.textContent = 'Something went wrong — please call/text us at (801) 901-0011.';
+    statusEl.textContent = portalCallFailedText(err, 'quote', 'Approving their quote from their account');
   }
 });
 document.getElementById('quoteMaybeBtn').addEventListener('click', async function(){
@@ -8997,7 +9013,7 @@ document.getElementById('quoteMaybeBtn').addEventListener('click', async functio
     document.getElementById('quoteDeclineBtn').style.display = 'none';
     document.getElementById('quoteMaybeMsg').style.display = 'block';
   } catch(err){
-    statusEl.textContent = 'Something went wrong — please try again.';
+    statusEl.textContent = portalCallFailedText(err, 'quote', 'Asking us to hold their quote until next year');
   }
 });
 document.getElementById('quoteDeclineBtn').addEventListener('click', async function(){
@@ -9028,7 +9044,7 @@ document.getElementById('quoteDeclineBtn').addEventListener('click', async funct
     document.getElementById('quoteDeclineBtn').style.display = 'none';
     document.getElementById('quoteDeclinedMsg').style.display = 'block';
   } catch(err){
-    statusEl.textContent = 'Something went wrong — please try again.';
+    statusEl.textContent = portalCallFailedText(err, 'quote', 'Declining their quote');
   }
 });
 </script>

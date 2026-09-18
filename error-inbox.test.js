@@ -207,6 +207,7 @@ check('the lifted blocks really are the code they claim to be',
   ADMIN_BLOCK.indexOf('window.__huAdminErrorSink') !== -1 &&
   MEMBER_BLOCK.indexOf('function reportMemberError(') !== -1 &&
   MEMBER_BLOCK.indexOf('function portalCallFailedText(') !== -1 &&
+  MEMBER_BLOCK.indexOf('function portalServerRefusal(') !== -1 &&
   MEMBER_BLOCK.indexOf('function redactTokens(') !== -1,
   'the window found something, but not the whole of what these checks then drive');
 
@@ -277,7 +278,8 @@ function memberHarness(opts) {
   };
   const names = Object.keys(scope);
   const body = MEMBER_BLOCK + '\n' +
-    'return {reportMemberError, redactTokens, portalCallFailedText, quoteAnswerWords,' +
+    'return {reportMemberError, redactTokens, portalCallFailedText, portalServerRefusal,' +
+    ' quoteAnswerWords,' +
     ' memberErrorScreenMatters, sent(){ return memberErrorCount; }};';
   const api = new Function(...names, body)(...names.map(n => scope[n]));
   api.writes = io.writes;
@@ -472,6 +474,92 @@ console.log('--- the member half ---');
   check('and the customer still gets the apology they always got',
     /call or text us/.test(text),
     'the report is in addition to the apology, never instead of it');
+}
+
+/* ⭐ A REFUSAL THE SERVER WROTE FOR THE MEMBER IS SHOWN, AND IS NOT AN ERROR
+   (2026-09-17, [[MEM-02]]). Addie hit "Could not save that — please call (801) 901-0011."
+   on the Sides tab and had no way to know why, because that handler printed one fixed
+   sentence and threw the reason away. Seven of the nine portal handlers did the same, so a
+   customer who owes money — the case the server writes a whole explanatory sentence for —
+   was told to ring the office, AND no Member Error was ever filed, so nobody here knew it
+   had happened at all.
+   ⚠ RUN, NOT MATCHED. Every claim below is about the string a customer READS and whether a
+   row is written, which is exactly what this file's header says a text check cannot see. */
+{
+  const h = memberHarness();
+  const owed = { code: 'functions/failed-precondition',
+    message: 'There is still a balance owing from the 2025 season. Once that is paid you can make changes here again.' };
+  const text = h.portalCallFailedText(owed, 'account', 'Changing their light colours');
+  check('a refusal the server wrote for the member is shown word for word',
+    text === owed.message,
+    'got: ' + JSON.stringify(text) + ' — the arrears sentence names the next step, and the ' +
+    'apology that replaced it turns a rule doing its job into a phone call');
+  check('and a refusal is NOT filed as a Member Error',
+    h.writes.length === 0,
+    'got ' + h.writes.length + ' write(s) — the arrears hold is the system working, and a ' +
+    'row every time a debtor opens a tab buries the real faults the folder exists for');
+}
+{
+  /* ⚠ THE OTHER DIRECTION IS THE HALF THAT COULD ROT. If `failed-precondition` were read
+     too widely, a developer's message would go out over Addie's name to a customer. */
+  const h = memberHarness();
+  const text = h.portalCallFailedText({ code: 'internal', message: 'TypeError: x is not a function' },
+    'account', 'Changing their light colours');
+  check('any other code keeps the apology and never quotes the error',
+    /call or text us/.test(text) && text.indexOf('TypeError') === -1,
+    'got: ' + JSON.stringify(text));
+  check('and that one IS reported',
+    h.writes.length === 1,
+    'got ' + h.writes.length + ' write(s) — a real fault is the whole point of the folder');
+}
+{
+  /* The helper alone, so a caller added later cannot be what proves the rule. */
+  const h = memberHarness();
+  check('the refusal rule reads the message for that ONE code',
+    h.portalServerRefusal({ code: 'failed-precondition', message: 'Nothing due to charge.' }) === 'Nothing due to charge.' &&
+    h.portalServerRefusal({ code: 'functions/failed-precondition', message: 'That quote has not been approved.' }) === 'That quote has not been approved.' &&
+    h.portalServerRefusal({ code: 'not-found', message: 'Account not found.' }) === '' &&
+    h.portalServerRefusal({ code: 'internal', message: 'boom' }) === '' &&
+    h.portalServerRefusal(new Error('boom')) === '' &&
+    h.portalServerRefusal(null) === '',
+    'both spellings of the code are real — the client prefixes it "functions/", the server does not');
+  check('and a refusal with no message falls back to the apology rather than a blank screen',
+    h.portalCallFailedText({ code: 'failed-precondition' }, 'account', 'Changing their light colours')
+      .indexOf('call or text us') !== -1,
+    'an empty sentence tells the customer nothing at all');
+}
+
+/* ⭐ AND NO PORTAL HANDLER SWALLOWS ITS OWN FAILURE. This is the check that would have
+   answered Addie's question for her, and it is STRUCTURAL and says so: it asserts that
+   every `catch` in the portal's own handlers routes through the one funnel, rather than
+   driving nine click handlers. The funnel itself is RUN above.
+   ⚠ IT SCANS THE HANDLERS, NOT THE FILE. The public quote form, the contact form and the
+   PayPal panes legitimately write their own wording — they are not the member's account
+   and there is no token to report against. */
+{
+  const PORTAL_HANDLERS = between(index, "document.getElementById('lightsSaveBtn')", '</script>',
+    'the portal account handlers');
+  /* A catch that assigns an apology and never calls the funnel is the shape being
+     refused. Comments are stripped first — this repo has been caught four times by a
+     check that found its own explanation and called it code. */
+  const stripped = PORTAL_HANDLERS
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  const catches = stripped.split(/\bcatch\s*\(/).slice(1);
+  const swallowed = catches.filter(function (body) {
+    const upToClose = body.slice(0, body.indexOf('\n  }') === -1 ? body.length : body.indexOf('\n  }'));
+    if (upToClose.indexOf('statusEl.textContent') === -1) return false;
+    return upToClose.indexOf('portalCallFailedText') === -1 &&
+           upToClose.indexOf('reportMemberError') === -1;
+  });
+  check('no portal handler tells the customer it failed without telling the office too',
+    swallowed.length === 0,
+    swallowed.length + ' catch block(s) print an apology and report nothing. That is the ' +
+    'bug this entry is about: the customer gets no reason and the Inbox gets no row.');
+  check('and the funnel is reached from every one of them',
+    (PORTAL_HANDLERS.match(/portalCallFailedText\(err/g) || []).length >= 9,
+    'found ' + (PORTAL_HANDLERS.match(/portalCallFailedText\(err/g) || []).length +
+    ' — lights, sides, info, moved, changes, cancel, contact, quote approve, maybe, decline');
 }
 
 {
@@ -892,33 +980,110 @@ check('an upload failure with no reason at all still reads as a sentence',
 const adviceCallers = (admin.split('uploadFailText(err)').length - 1) -
   (admin.indexOf('function uploadFailText(err){') !== -1 ? 1 : 0);
 check('every upload door that tells the office anything says WHY (structural)',
-  adviceCallers === 6,
+  adviceCallers === 7,
   'expected the extra house photo, the expense receipt, the Gallery, the fix-note photo, ' +
-  'How It Works and Areas We Serve; found ' + adviceCallers + '. An upload added later ' +
-  'without this line says "Upload failed" exactly as all of them used to');
+  'How It Works, Areas We Serve and the Blueprint Maps drawing; found ' + adviceCallers +
+  '. An upload added later without this line says "Upload failed" exactly as all of them used to');
+/* ⚠ 6 → 7 ON 2026-09-16, and the census is what asked. Blueprint Maps is a seventh door
+   a phone photographs a drawing through, and it went in reading the shared advice from the
+   first line rather than inventing an eighth wording for a switched-off picture account.
+   Moving this number is the whole point of the check firing — it is a decision somebody
+   makes, not a total that drifts. */
 
-/* ⚠ REPOINTED 2026-09-11, NOT WEAKENED ([[QT-39]] superseding [[QT-38]]). These asserted
-   the words "Texting is not wired up" and the Google Voice sentence, which were correct for
-   about a day — QT-38 recorded Dax saying "we doont use twillo we use google voice", and he
-   set an account up the same evening. A check pinned to wording that a ruling can reverse
-   fails on correct code the moment it does, which is the slow-fuse shape S82 and S129 both
-   already carry. The GUARANTEE has not moved and is what is asserted now: Twilio's own
-   "invalid username" must never reach the office on its own, because it names the ACCOUNT
-   SID as a username and sends whoever reads it hunting a login this system does not have. */
-check('the raw Twilio wording never reaches the office unexplained',
-  admin.indexOf('invalid username|20003|accountsid') !== -1 &&
-  /The text service refused our details/.test(admin),
-  'on its own, "Authentication Error - invalid username" describes a login that does not ' +
-  'exist anywhere in this system');
+/* ⛔ THREE CHECKS CAME OUT HERE ON 2026-09-12 ([[QT-41]]), WITH THE CODE THEY COVERED.
+   They guarded the wording of the Twilio authentication failure on the quote card — added
+   2026-09-11 when an account existed, repointed hours later when it turned out it did not.
+   The quote card no longer sends a text at all: there is no Twilio account, so the button
+   copies the message and opens the Google Voice thread instead, and there is no auth error
+   left to word. Section 10 below is what replaced them.
+   ⚠ THIS IS NOT A GAP. A check kept alive over deleted code is the decoration this repo
+   names in four other places — it passes for ever and proves nothing. */
 
-check('and it names where the credentials actually live',
-  /Firebase secrets/.test(admin) && /redeploy/i.test(admin),
-  'they are not in this app, and setting one without a redeploy looks like it worked and ' +
-  'changes nothing — which is the step most easily missed');
+/* ---------------------------------------------------------------------------
+ * 10. The quote text copies and opens, because it cannot send.
+ *
+ * [[QT-41]], Dax 2026-09-12: "we cant use twillo so we need to just set it up so its easy to
+ * copy to bulk text in google voice", then "I want it so when you click the button it copys it
+ * and opens a link so all you need to do is paste where it sends you."
+ * ------------------------------------------------------------------------- */
+const GV_FN = extractFn(admin, 'googleVoiceThreadUrl');
+const GV_ACCOUNT = (admin.match(/const GOOGLE_VOICE_ACCOUNT = '[^']+';/) || [''])[0];
+const gvUrl = new Function(GV_ACCOUNT + ';' + GV_FN + '; return googleVoiceThreadUrl;')();
 
-check('and it still names something the office can do now',
-  /Send the quote by email in the meantime/.test(admin),
-  'a row that names no next step is a row that gets read once');
+check('the Google Voice link builder was lifted, not described',
+  GV_FN.indexOf('itemId') !== -1,
+  'repoint the lift rather than pasting a copy in here');
+
+check('a number the office typed by hand still opens the right thread',
+  gvUrl('(801) 555-1234') === gvUrl('8015551234') &&
+  gvUrl('(801) 555-1234') === gvUrl('+1 801 555 1234'),
+  'the book stores phones exactly as somebody typed them — brackets, spaces and dashes are ' +
+  'the normal case, not the exception');
+
+check('and it is E.164, which is the only shape Voice matches a thread on',
+  /itemId=t\.%2B18015551234$/.test(gvUrl('801-555-1234')),
+  'a raw ten-digit number lands on an empty search, which reads as the customer having no ' +
+  'history with us');
+
+check('a number Voice cannot open returns nothing rather than a broken link',
+  gvUrl('801-555-12') === '' && gvUrl('') === '' && gvUrl(null) === '',
+  'the caller renders a plain copy button on \'\' — a link to a page that finds nobody is ' +
+  'worse than no link');
+
+/* ⚠ THE REAL NUMBER THAT CAUGHT msgContactFor, not an invented one. Stripping punctuation
+   alone turns "(801) 555-0999 ext 4" into eleven digits that dial a stranger. */
+check('an extension is refused, not dialled',
+  gvUrl('(801) 555-0999 ext 4') === '',
+  'eleven digits that do not start with a 1 are not a phone number');
+
+/* ⚠ MEASURED, NOT ASSUMED (2026-09-12). Built without authuser and opened for real, Google
+   served addiechichia@gmail.com's Voice — an account with no number, which offers to sell you
+   one. Nothing failed; it opened the wrong inbox quietly. */
+check('the link names the account that actually holds the Voice number',
+  /authuser=service%40highlightingutah.com/.test(gvUrl('8015551234')),
+  'without it Google serves whichever account happens to be the browser default, and the one ' +
+  'the office uses for Voice is not the one admin is usually signed in as');
+
+check('and it is targeted by EMAIL, never by account index',
+  GV_ACCOUNT.indexOf('@') !== -1 && !/authuser=[0-9]/.test(gvUrl('8015551234')),
+  '/u/0/ and authuser=1 are positions in whatever order that browser signed in, so they point ' +
+  'at different people on different machines');
+
+check('the account index is left out of the path',
+  GV_FN.indexOf('/u/0/') === -1 && /voice\.google\.com\/messages/.test(gvUrl('8015551234')),
+  'the office keeps Google Voice on its own profile, so a hard-coded /u/0/ opens somebody ' +
+  'else\'s messages');
+
+/* ⚠ STRUCTURAL, and it is the half a behavioural check cannot see: the link has to be an
+   ANCHOR. A popup opened from script after an await has lost its user gesture and Chrome
+   blocks it silently — the message copies, no tab appears, and the button reads as half
+   working. */
+check('the link is an anchor, never window.open (structural)',
+  /2 · Open Google Voice<\/a>/.test(admin) && admin.indexOf('window.open(voiceUrl') === -1,
+  'a blocked popup is indistinguishable from a button that did nothing');
+
+/* ⛔ THE THREE STEPS ARE IN VOICE'S OWN ORDER, and the order is the whole of the fix.
+   Measured on 2026-09-12: `?itemId=` opens a conversation that ALREADY exists and there is no
+   parameter that starts a new one, so the office lands on the message list and has to pick the
+   recipient themselves. Voice asks for the RECIPIENT first and the MESSAGE second, and a
+   clipboard holds one thing — so one button cannot do both, however it is worded. A later
+   session tempted to merge these back into a single "copy everything" button will produce a
+   flow where the number is pasted into the message box. */
+check('the number is offered before the message, because that is the order Voice asks',
+  admin.indexOf('1 · Copy the number') < admin.indexOf('3 · Copy the message') &&
+  admin.indexOf('1 · Copy the number') !== -1,
+  'pasting in the other order puts a phone number in the message box');
+
+check('and the screen says WHY it is two pastes, not just what order',
+  /Google Voice cannot be /.test(admin) && /straight onto a new message/.test(admin),
+  'numbered buttons show the order and not the reason — and the reason is what stops ' +
+  'somebody hunting for the one-click version that does not exist');
+
+check('and the dead Twilio send is gone with its caller',
+  admin.indexOf('quotetext-send-btn') === -1 &&
+  admin.indexOf("httpsCallable(fbFunctions, 'sendSms')") === -1,
+  'a button that can only ever fail spends the office\'s time and files an error nobody ' +
+  'can act on');
 
 console.log('');
 console.log('--- wiring ---');
