@@ -1531,8 +1531,34 @@
   });
   window.addEventListener('unhandledrejection', function(e){
     var r = e.reason;
-    add('Unhandled promise: ' + ((r && (r.message || r.code)) || String(r)));
+    /* ⭐ AND WHERE IT CAME FROM (2026-09-18). "Unhandled promise: Missing or insufficient
+       permissions." has reached the Errors folder five times since 9/8 with Addie signed
+       in — so it is not the after-sign-out race whileSignedIn fixed — and the line names
+       no collection and no function. Every Firestore read and write in this file was
+       checked against firestore.rules that day and each one is either caught or allowed,
+       so the next copy has to say where it started instead of being guessed at again.
+       The first frame in one of OUR files is the caller; gstatic frames are Firebase's
+       own insides and say nothing. Best effort only — a stack with no frame of ours
+       adds nothing and the line reads exactly as it always did. */
+    add('Unhandled promise: ' + ((r && (r.message || r.code)) || String(r)) + rejectionWhere(r));
   });
+  /* Its own function so error-inbox.test.js can RUN it against real Chrome and Safari
+     stack shapes rather than match its source. */
+  function rejectionWhere(r){
+    try{
+      var frames = String((r && r.stack) || '').split('\n');
+      for(var i = 0; i < frames.length; i++){
+        var m = frames[i].match(/([A-Za-z0-9_.-]+\.(?:html|js)):(\d+)/);
+        if(m && frames[i].indexOf('gstatic') === -1){
+          /* Chrome writes "at async loadX (…admin.html:12:3)", Safari "loadX@…admin.html:12:3". */
+          var fnName = (frames[i].match(/at (?:async )?([A-Za-z0-9_$.]+) \(/) ||
+                        frames[i].match(/^\s*([A-Za-z0-9_$.]+)@/) || [])[1];
+          return '\n  at ' + (fnName ? fnName + ' ' : '') + m[1] + ':' + m[2];
+        }
+      }
+    }catch(x){ /* quiet on purpose: this IS the error reporter, and the message it is appended to is already enough to file. */ }
+    return '';
+  }
   // Render failures are logged rather than thrown, so console.error is wrapped
   // too. The original is always called first so nothing is swallowed.
   var origError = console.error;
@@ -12354,6 +12380,8 @@ function initData(){
      It is one small settings document, not a collection. */
   loadCommSections();
   loadInvoices();
+  /* Was top-level code that ran before sign-in; see the note on startPaymentImports. */
+  startPaymentImports();
   /* ⭐ The Recycle queue lists people who have already been removed as customers, so
      it needs the archive as well as the book. Only the ones still waiting are watched —
      the archive grows for ever and the working set does not. */
@@ -22952,7 +22980,15 @@ const ADMIN_ERROR_MAX_PER_SESSION = 5;
    bursts — left in, a flaky connection alone would fill this folder. Anything added here
    has to be genuinely harmless, never merely frequent: a real fault that happens often is
    the one thing this whole folder exists to show her. */
-const ADMIN_ERROR_IGNORE = [/Listen\/channel/i, /Fetch failed/i, /ERR_BLOCKED_BY_CLIENT/i, /ResizeObserver loop/i];
+const ADMIN_ERROR_IGNORE = [/Listen\/channel/i, /Fetch failed/i, /ERR_BLOCKED_BY_CLIENT/i, /ResizeObserver loop/i,
+  /* ⭐ "Failed to get document because the client is offline" (2026-09-18, from the Errors
+     folder — "could not read nightly billing health", twice, on 9/16 and 9/17). That is
+     Firestore saying the computer had no connection at that moment, which is the same
+     news as the Fetch failed line above: it names the Wi-Fi, not a fault in the page.
+     The read it interrupted is the ten-minute billing-health beat, which simply reads
+     again on the next tick. ⚠ Only a READ can fail this way — Firestore queues writes
+     while offline and sends them on reconnect — so this cannot hide a lost save. */
+  /because the client is offline/i];
 /* Collapses the numbers out of a message so "row 41 failed" and "row 87 failed" are one
    fault rather than two hundred. */
 function errorKeyFor(topic, text){
@@ -22986,14 +23022,24 @@ function adminErrorIsNoise(text){
 /* ⚠ NEVER THROWS, AND NEVER RETURNS A PROMISE ANYBODY AWAITS. Every caller is a catch
    block or the global error handler — a reporter that can break the thing it is reporting
    on is worse than no reporter at all. */
-function reportAdminError(text){
+/* ⭐ WHO WAS SIGNED IN WHEN IT HAPPENED, NOT WHEN IT WAS WRITTEN DOWN (2026-09-18). An error
+   caught before messages load is HELD (below) and written later — and the report used to
+   read the signed-in address at WRITE time. So a fault from the login screen, before
+   anybody had signed in, was filed under whoever signed in next. Five "Unhandled promise:
+   Missing or insufficient permissions" rows all read "Signed in as: addiechichia@gmail.com"
+   for exactly that reason, which sent the diagnosis looking at a signed-in session that was
+   never involved. "nobody" is a real answer and the Inbox already shows it as one. */
+function adminErrorWhoNow(){
+  return (auth && auth.currentUser && auth.currentUser.email) || 'nobody';
+}
+function reportAdminError(text, whoAtCatch){
   try{
     text = String(text || '').trim();
     if(!text || adminErrorBusy || adminErrorIsNoise(text)) return;
     if(!adminErrorReady){
       /* Messages have not loaded, so the repeat check cannot run — and writing without it
          duplicates on every reload. HELD, not dropped: flushed the moment they land. */
-      if(adminErrorQueue.length < 20) adminErrorQueue.push(text);
+      if(adminErrorQueue.length < 20) adminErrorQueue.push({ text: text, who: adminErrorWhoNow() });
       return;
     }
     const key = errorKeyFor(ADMIN_ERROR_TOPIC, text);
@@ -23015,7 +23061,7 @@ function reportAdminError(text){
          this address already sits in the body of every one of these rows. No rules deploy.
          ⚠ THE FIELD IS NOT ENOUGH ON ITS OWN — it reaches rows written from here on, and the
          rows she is looking at are older. `msgStaffSignedInAs` reads the body as well. */
-      const signedInAs = ((auth && auth.currentUser && auth.currentUser.email) || 'nobody');
+      const signedInAs = (typeof whoAtCatch === 'string') ? whoAtCatch : adminErrorWhoNow();
       addDoc(collection(db,'messages'), {
         topic: ADMIN_ERROR_TOPIC, folder: ERROR_FOLDER_ADMIN,
         name: '', phone: '', email: '', contactMethod: '',
@@ -23047,7 +23093,7 @@ function flushAdminErrors(){
   try{ errBadgeSeedFromStored(); }
   catch(err){ console.error('[HU] could not put the stored errors on the badge', err); }
   if(!adminErrorQueue.length) return;
-  adminErrorQueue.splice(0, adminErrorQueue.length).forEach(reportAdminError);
+  adminErrorQueue.splice(0, adminErrorQueue.length).forEach(function(q){ reportAdminError(q.text, q.who); });
 }
 /* ⚠ NEWEST FIRST AND CAPPED. The badge panel is a phone-sized list somebody reads in a
    hurry; every error of the season in it is the cries-wolf failure this file names in five
@@ -23103,7 +23149,8 @@ function errBadgeSeedFromStored(force){
 window.__huAdminErrorSink = reportAdminError;
 try{
   if(Array.isArray(window.__huAdminErrorEarly)){
-    window.__huAdminErrorEarly.splice(0, window.__huAdminErrorEarly.length).forEach(reportAdminError);
+    /* One argument on purpose: forEach would hand the INDEX in as whoAtCatch. */
+    window.__huAdminErrorEarly.splice(0, window.__huAdminErrorEarly.length).forEach(function(t){ reportAdminError(t); });
   }
 } catch(err){ /* a boot-time buffer that cannot be read is not worth failing the page over —
                  and every one of those lines is still on the badge. */ }
@@ -40352,10 +40399,23 @@ document.getElementById('paymentImportBtn').addEventListener('click', onceAtATim
   renderInvoicesList();
   loadPaymentImportHistory();
 }, function(){ return document.getElementById('paymentImportBtn'); }));
-// Initialize
-loadPaymentImportFolders();
-if(typeof onSnapshot !== 'undefined'){
-  onSnapshot(collection(db,'paymentImports'), () => loadPaymentImportHistory());
+/* ⭐ STARTED FROM initData, NOT AT PAGE LOAD (2026-09-18). These two lines used to sit
+   here bare, so they ran the moment the script loaded — before anybody had signed in.
+   On any device that opens on the login screen (a phone whose browser forgot the
+   session, a reload after Sign Out) Firestore refused both reads:
+     · the folder read was an async call nobody awaited or caught, so it surfaced as
+       "Unhandled promise: Missing or insufficient permissions." — and because admin
+       errors are HELD until messages load and only written after sign-in, the row was
+       filed under whoever signed in next. That is the row that reached Admin Errors on
+       9/8, 9/10, 9/13, 9/16 and 9/18, every time reading as if Addie were signed in;
+     · the paymentImports listener was refused at the same moment and stayed dead for
+       the whole session, so the import history never updated by itself.
+   initData runs once, after sign-in, which is where every other loader already lives. */
+function startPaymentImports(){
+  loadPaymentImportFolders().catch(function(err){ console.error('[HU] payment import folders read failed', err); });
+  onSnapshot(collection(db,'paymentImports'), function(){
+    loadPaymentImportHistory().catch(function(err){ console.error('[HU] payment import history read failed', err); });
+  });
 }
 /* Counts the way the importer does, which the raw line count did not.
    Trailing empty rows are ignored for every column — pasting two columns out of
