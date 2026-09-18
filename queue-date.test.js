@@ -1255,7 +1255,7 @@ check('the path still has every step in it',
       'about a screen, with no stage of anybody\'s journey behind it',
     /* ⚠ THE NUDGE ITSELF IS ALREADY A STEP, through quoteLastNudgedAt — "Nudged about it"
        shows on the history the moment the email goes. These two are the LADDER's own rung
-       markers ([[QT-48]]): they say which rung a quote has reached so the next one can be
+       markers ([[QT-49]]): they say which rung a quote has reached so the next one can be
        measured from it. Drawn as steps they would put the same event on the picture twice.
        The same shape as portalChangeEmailAt below. */
     quoteNudgeTextAskedAt: 'when the office was TOLD to text somebody about their quote — ' +

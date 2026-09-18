@@ -3742,7 +3742,7 @@ come around later and want another building."*
   Message are untouched** and still take a phone OR an email through one box, as [[QT-40]]
   says. ⚠ The cost, accepted knowingly: somebody with no email address cannot ask for a
   quote on this form — they ring or use Get In Touch. Suite 330.
-  ⭐ **THE SELECT ITSELF WENT, LATER THE SAME DAY ([[QT-48]]).** Dax: *"in free quote get
+  ⭐ **THE SELECT ITSELF WENT, LATER THE SAME DAY ([[QT-49]]).** Dax: *"in free quote get
   rid of preferred contact method."* The free quote form asks no preference now. The write
   still carries `contactMethod: ''` so every reader keeps its shape, and admin's quote
   card prints "Prefers:" only when a value exists (older quotes still have one). The
@@ -4232,7 +4232,7 @@ because the folder earning its keep within two days is the argument for it.
   - ⚠ **SO NOTHING DETECTS A STOP.** Twilio's 21610 was the only thing that ever set
     `smsOptedOut`; it is still read by the RSVP text list and is now set only by hand. Already
     true while the send was broken — true by design now.
-- ⛔ **TWILIO IS GONE FROM THE SERVER TOO, AND NOTHING IN THIS APP SENDS A TEXT** ([[QT-48]],
+- ⛔ **TWILIO IS GONE FROM THE SERVER TOO, AND NOTHING IN THIS APP SENDS A TEXT** ([[QT-49]],
   2026-09-18). Dax, reading the same error in Admin Errors a week later: *"we dont use twillo at
   all thats a bug"*. `sendSms`, `twilioSendRaw` and the three `TWILIO_*` secrets are deleted, and
   the deploy's `--force` removes the callable from Firebase. The two owner alerts that used
@@ -5285,7 +5285,7 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
 
 - **`sendNightlyInvoices`** — cron, 7 PM Mountain daily (`0 19 * * *`). No-ops unless the automation toggle in `settings/nightlyInvoiceAutomation` is on. Bills any completed-but-uninvoiced house, texts the owner a summary via Twilio, logs to `nightlyInvoiceLog`.
 - **`sendInvoicesNow`** — the same billing logic, on-demand, from an Automation-tab button — works even with the nightly toggle off.
-- ⭐ **`runQuoteNudgeBatch`** — cron, 10 AM Mountain, only while `settings/quoteNudgeAutomation.enabled` is on, and it stops entirely from November to January. **A quote nobody answers is chased on a three-rung ladder, ten days apart** (2026-09-18, [[QT-48]]). Addie: *"we should get a notification to nudge them through text after 10 days than after 10 more days if they still haven't responded then they should be sent an automatic email. After 10 more days after the email if they did not respond then they should be put in archived."*
+- ⭐ **`runQuoteNudgeBatch`** — cron, 10 AM Mountain, only while `settings/quoteNudgeAutomation.enabled` is on, and it stops entirely from November to January. **A quote nobody answers is chased on a three-rung ladder, ten days apart** (2026-09-18, [[QT-49]]). Addie: *"we should get a notification to nudge them through text after 10 days than after 10 more days if they still haven't responded then they should be sent an automatic email. After 10 more days after the email if they did not respond then they should be put in archived."*
   - **Rung 1 — we are told to text them.** ⛔ **This sends the customer nothing.** Her sentence is *"**we** should get a notification to nudge them through text"*, so a person sends it. Nothing in this feature sends an SMS: an automatic text costs money per message, goes to somebody who has not replied, and cannot be recalled. A check **refuses** one, so adding it later has to be a deliberate change rather than a drift. They appear on **Text these people about their quote** on the automation card, with the number as a `tel:` link.
   - **Rung 2 — one automatic email**, the existing Nudge template. This is the rung she asked to be automatic, in as many words.
   - **Rung 3 — archived.** ⚠ Asked where a late reply is then found, Addie: *"They should be in archived in completed."* `quoteArchived` is exactly what puts a card under **Closed → Archived**, so somebody who answers on day 31 is still there — with `quoteArchivedReason` saying it was the ladder rather than somebody closing it by hand.
@@ -5361,7 +5361,7 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
   - ⛔ **And a token that could not be SAVED is never put in an email** (2026-09-13). Minting is a write, and a write can be refused. `getOrCreatePortalToken` in `admin.html` used to swallow that and hand the freshly minted token back anyway — so the office sent a real customer an RSVP link that belongs to **no record at all**. They tap Yes, `findByToken` matches nothing, and to them it looks exactly like they already answered. It is silent at both ends: the office reads a green *Sent*, and the Errors row can only say *"no customer matches this link"* — which is what every RSVP failure row in the 8–11 September log says. ⚠ **CORRECTED 2026-09-18: those rows were NOT this.** All nine of their tokens are stored on the right customers and every one of them has an answer on file — the label was the badge naming people before the customer list had loaded (see *An empty customer list is "not loaded yet"* in §the Errors folder). The guard below is still right for the failure it describes; it just was not what those rows were.
   - ⭐ **The server already had the right rule and wrote it down.** `ensureToken` in `functions/index.js` re-reads after a failed write — somebody else may have minted one in the gap, and *theirs* is the one that is stored — and failing that sends a link with **no token** *"rather than one that cannot work"*. The browser copy now does the same. Change one and change the other; **Suite 332** runs both against the same refused write.
   - ⚠ **No token is a safe answer, and that is why this works.** All four callers already write `(token ? ('?token='+token) : '')`, so the customer gets the plain portal address and signs in with their phone and surname exactly as they would from the website. A working sign-in beats a one-tap link that records nothing. The failure is reported through `console.error` → `__huAdminErrorSink` → the Errors folder, rather than being discovered from a customer weeks later.
-- A nightly run that needs a person (an error, or a bill with no email to send to) leaves a **Nightly Billing Needs You** note in the Inbox. A clean run leaves nothing, and shows only on Automation → Last 10 nightly runs. A run that stops firing altogether is caught by Health Check's 36-hour check. ⚠ Until 2026-09-18 this line said the owner was texted through Twilio. That never worked, and nothing in the app sends a text now ([[QT-48]]).
+- A nightly run that needs a person (an error, or a bill with no email to send to) leaves a **Nightly Billing Needs You** note in the Inbox. A clean run leaves nothing, and shows only on Automation → Last 10 nightly runs. A run that stops firing altogether is caught by Health Check's 36-hour check. ⚠ Until 2026-09-18 this line said the owner was texted through Twilio. That never worked, and nothing in the app sends a text now ([[QT-49]]).
 
 ---
 
