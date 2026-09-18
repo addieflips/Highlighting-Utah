@@ -2745,6 +2745,19 @@ function renderReviews(){
   document.getElementById('reviewsFull').innerHTML = REVIEWS.map(card).join('');
 }
 
+/* ⛔ PATH_ROUTES IS DECLARED HERE, ABOVE THE FIRST THING THAT READS IT, and must stay
+   above it. renderFAQ() runs at start-up a couple of hundred lines above the router
+   block this list belongs to, and asks routePathFromLocation() whenever the address
+   carries no hash — every plain visit to the home page and every /q/, /r/ and /s/
+   link. A `var` further down hoists as undefined, so PATH_ROUTES.indexOf threw
+   "Cannot read properties of undefined", the whole script died before the router
+   ran, and those links opened a blank page. The explanation of the list lives with
+   the router, further down. CANON_BASE comes up with it: syncFaqSchema reads it in
+   that same early call, and below here it would build "undefinedfaq#faq" on a
+   direct visit to /faq until the router corrected it. */
+var PATH_ROUTES = ['/', '/how-it-works', '/gallery', '/reviews', '/areas', '/faq', '/contact'];
+var CANON_BASE = 'https://highlightingutah.com/';
+
 function faqItemHTML(f,idx,prefix){
   return '<div class="faq-item" data-idx="'+prefix+idx+'">'+
     '<button class="faq-q">'+f.q+'<span class="plus">+</span></button>'+
@@ -2947,8 +2960,7 @@ var routes = ['/', '/how-it-works', '/gallery', '/reviews', '/areas', '/faq', '/
    copy of index.html is a stale copy of the whole app. Add a route and add it in
    all four, or the test fails.
 ========================================================= */
-var PATH_ROUTES = ['/', '/how-it-works', '/gallery', '/reviews', '/areas', '/faq', '/contact'];
-var CANON_BASE = 'https://highlightingutah.com/';
+/* PATH_ROUTES and CANON_BASE are declared above renderFAQ, not here — see the note there. */
 
 /* ⭐ THE HOME TITLE AND DESCRIPTION ARE READ, NOT RETYPED. They already exist as
    real tags in the head; copying them into this table would be the same sentence
