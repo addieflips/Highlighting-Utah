@@ -309,6 +309,93 @@ check('the card reads the customer record, not the notice, for the answer',
   /wirePickAnswer\(cust\)/.test(cardSrc),
   'the wire can also be set from Edit Customer, the portal or the sheet sync');
 
+/* ---------------------------------------------------------------------------
+ * ⭐ ASKED AT THE CONVERT, NOT ONLY AFTERWARDS  ([[WH-42]], 2026-09-18)
+ *
+ * Addie: "when they choose any or they don't choose any they just leave it at any that it
+ * notifies us when we push convert to costumer before it converts it will come up with a
+ * pop that says pick a wire color for costumer or something similar to that."
+ *
+ * ⛔ THIS ADDS A DOOR AND CLOSES NONE. Everything above still holds: no default colour, the
+ * System Message still raised for an unanswered house, the card still the place it gets
+ * answered later. What was missing is that the question was only ever asked AFTER the
+ * customer existed — the one moment somebody is already looking at that house was the one
+ * moment nobody was asked.
+ *
+ * ⚠ EVERY CHECK HERE IS ABOUT THE TWO PATHS AGREEING. Convert automatically and Fill in
+ * manually both call `fillAddCustFromQuote` first, which sets the box from the QUOTE, so an
+ * answer applied on only one of them leaves the other silently keeping the quote's blank —
+ * and blank is a legal value, so it fails quietly rather than throwing.
+ * ------------------------------------------------------------------------- */
+{
+  const popup = stripComments(lift('showConvertQuoteChoice'));
+  const auto = stripComments(lift('autoConvertQuoteToCustomer'));
+  const apply = stripComments(lift('applyConvertWirePick'));
+  const opts = stripComments(lift('convertWireOptionsHtml'));
+
+  check('the convert popup asks for a wire colour',
+    /id="convertQuoteWire"/.test(popup),
+    'she is asked at the one moment somebody is already looking at that house');
+
+  /* ⚠ THE OPTIONS ARE READ OFF THE REAL FORM, never typed into the popup. A second list is
+     how this starts offering a colour `#addCustWireColor` cannot save. */
+  check('and its options come from the Add Customer select rather than a second list',
+    !!opts && /getElementById\('addCustWireColor'\)/.test(opts) && /real\.options/.test(opts),
+    'two lists is how the popup offers a colour the form cannot save');
+  check('so the popup spells no colour name of its own',
+    !/'White'|"White"|>White<|'Green'|"Green"|>Green</.test(popup),
+    'got a hard-coded colour in showConvertQuoteChoice');
+
+  /* ⚠ BOTH PATHS, AND THIS IS THE CHECK THAT EARNS THE BLOCK. */
+  check('the manual path applies the answer AFTER the quote has filled the form',
+    apply && popup.indexOf('applyConvertWirePick(') > popup.indexOf('fillAddCustFromQuote('),
+    'applied first, the quote\'s own blank overwrites it and the picker does nothing');
+  check('and the automatic path carries it through as well',
+    /autoConvertQuoteToCustomer\(quoteId, d, wire\)/.test(popup) &&
+    /applyConvertWirePick\(wirePick\)/.test(auto),
+    'one path wired and one not is a picker that works every other press');
+  check('and the automatic path applies it after the fill too',
+    auto.indexOf('applyConvertWirePick(') > auto.indexOf('fillAddCustFromQuote('),
+    'same ordering trap, one function further along');
+
+  /* ⛔ A CALLER THAT WAS NEVER ASKED MUST NOT BE ANSWERED FOR. `undefined` means no picker
+     was shown; blanking the box there takes a wire colour off a house nobody asked about. */
+  check('a convert with no picker behind it leaves the quote\'s own value alone',
+    /wirePick !== undefined/.test(auto),
+    'an unasked caller must not have a blank written for it');
+
+  /* ⚠ READ BEFORE close(). The overlay is removed by close(), so a value read after it is
+     blank — which is itself legal here, so it would fail silently rather than throw. */
+  const manualBtn = popup.slice(popup.indexOf("convertQuoteManualBtn').addEventListener"));
+  const autoBtn = popup.slice(popup.indexOf("convertQuoteAutoBtn').addEventListener"));
+  check('the manual button reads the answer before it closes the popup',
+    manualBtn.indexOf('convertWireSel ? convertWireSel.value') < manualBtn.indexOf('close()'),
+    'read after close() the select is gone and the answer reads blank, silently');
+  check('and so does the automatic one',
+    autoBtn.indexOf('convertWireSel ? convertWireSel.value') < autoBtn.indexOf('close()'),
+    'read after close() the select is gone and the answer reads blank, silently');
+
+  /* ⛔ IT ASKS, IT NEVER REFUSES — [[WH-40]] exists because there is often genuinely nothing
+     to answer from yet. A guard that blocks a legitimate conversion has no way round it. */
+  /* \u26a0 AND THE FIRST DRAFT OF THIS CHECK FAILED ON CORRECT CODE, which is worth keeping:
+     it looked for `disabled` within a fixed window of the select, and caught the LIGHTS
+     guard on the Convert automatically button a few lines below. A fixed-length window is
+     banned in this repo by name (\u00a77) and this is why. What has to be true is that neither
+     button turns the wire into a refusal \u2014 so that is what is asserted, on each handler. */
+  check('leaving it unanswered still converts',
+    !/if\s*\(\s*!\s*wire\b/.test(manualBtn) && !/if\s*\(\s*!\s*wire\b/.test(autoBtn) &&
+    !/convertQuoteWire[^\r\n]*disabled|disabled[^\r\n]*convertQuoteWire/.test(popup),
+    'blocking the convert on this is the one thing WH-40 says not to do');
+  check('and the blank option says what not answering costs',
+    /Check[\s\S]{0,40}lights/.test(popup) && /System Message/.test(popup),
+    'a blank with no consequence beside it reads as an optional extra');
+
+  /* ⚠ AND THE ANSWER IS VISIBLE ON THE PATH THAT NEVER SHOWS HER THE FORM. */
+  check('the automatic path names the wire it saved',
+    /wirePick \? ', on ' \+ wirePick \+ ' wire' : ''/.test(auto),
+    'that path never shows the form, so the toast is the only place it can be seen');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('');
   failures.forEach(function (f) { console.log('  FAIL  ' + f); });
