@@ -5810,7 +5810,7 @@ exports.listAdminUsers = onCall({ cors: true }, async (request) => {
  * ------------------------------------------------------------------------- */
 const QUOTE_NUDGE_WAIT_DAYS = 10;
 const QUOTE_NUDGE_MAX = 2;
-/* ⭐ THE LADDER ([[QT-47]], 2026-09-18). Addie: "On awaiting responses we should get a
+/* ⭐ THE LADDER ([[QT-48]], 2026-09-18). Addie: "On awaiting responses we should get a
    notification to nudge them through text after 10 days than after 10 more days if they
    still haven't responded then they should be sent an automatic email. After 10 more days
    after the email if they did not respond then they should be put in archived."
@@ -5991,7 +5991,7 @@ async function runQuoteNudgeBatch(source) {
     return { sent: 0, skipped: 0, needsHuman: 0, stopped: 'automation is switched off' };
   }
   const waitDays = Number((setSnap.exists && setSnap.data().waitDays) || QUOTE_NUDGE_WAIT_DAYS) || QUOTE_NUDGE_WAIT_DAYS;
-  /* ⛔ maxNudges IS NO LONGER READ ([[QT-47]]). The ladder sends exactly ONE automatic
+  /* ⛔ maxNudges IS NO LONGER READ ([[QT-48]]). The ladder sends exactly ONE automatic
      email — rung two — so "nudge at most N times" has nothing left to mean, and the box that
      set it is gone from the automation card in the same change. A setting still being stored
      while nothing reads it is the quiet half of this repo's own worst bug shape: somebody
@@ -6029,7 +6029,7 @@ async function runQuoteNudgeBatch(source) {
     if ((q.status || 'new') === 'closed') { skipped++; continue; }
     if (['approved', 'declined', 'maybe_next_year'].indexOf(q.approvalStatus) !== -1) { skipped++; continue; }
     if (typeof q.quotedPrice !== 'number') { skipped++; continue; }
-    /* ⭐ WHICH RUNG ([[QT-47]]). The ladder replaces the old single "has it been ten days"
+    /* ⭐ WHICH RUNG ([[QT-48]]). The ladder replaces the old single "has it been ten days"
        test AND the max-nudge count: how far somebody has been chased is now said by which
        stamps they carry, not by a tally. quoteNudgeCount is still written so the card's
        "Nudged 2×" pill keeps working. */
@@ -6159,7 +6159,7 @@ async function runQuoteNudgeBatch(source) {
       await docSnap.ref.update({
         quoteNudgeCount: Number(q.quoteNudgeCount || 0) + 1,
         quoteLastNudgedAt: admin.firestore.FieldValue.serverTimestamp(),
-        /* ⭐ THE RUNG'S OWN STAMP ([[QT-47]]), and what the archive rung measures from.
+        /* ⭐ THE RUNG'S OWN STAMP ([[QT-48]]), and what the archive rung measures from.
            ⛔ quoteSentAt IS NO LONGER RESET HERE. It used to be, so the second nudge was
            another ten days out — with a stamp per rung that reset re-opens the text rung
            for ever and nobody is ever archived. */

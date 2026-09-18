@@ -3742,7 +3742,7 @@ come around later and want another building."*
   Message are untouched** and still take a phone OR an email through one box, as [[QT-40]]
   says. ⚠ The cost, accepted knowingly: somebody with no email address cannot ask for a
   quote on this form — they ring or use Get In Touch. Suite 330.
-  ⭐ **THE SELECT ITSELF WENT, LATER THE SAME DAY ([[QT-47]]).** Dax: *"in free quote get
+  ⭐ **THE SELECT ITSELF WENT, LATER THE SAME DAY ([[QT-48]]).** Dax: *"in free quote get
   rid of preferred contact method."* The free quote form asks no preference now. The write
   still carries `contactMethod: ''` so every reader keeps its shape, and admin's quote
   card prints "Prefers:" only when a value exists (older quotes still have one). The
@@ -5256,7 +5256,7 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
 
 - **`sendNightlyInvoices`** — cron, 7 PM Mountain daily (`0 19 * * *`). No-ops unless the automation toggle in `settings/nightlyInvoiceAutomation` is on. Bills any completed-but-uninvoiced house, texts the owner a summary via Twilio, logs to `nightlyInvoiceLog`.
 - **`sendInvoicesNow`** — the same billing logic, on-demand, from an Automation-tab button — works even with the nightly toggle off.
-- ⭐ **`runQuoteNudgeBatch`** — cron, 10 AM Mountain, only while `settings/quoteNudgeAutomation.enabled` is on, and it stops entirely from November to January. **A quote nobody answers is chased on a three-rung ladder, ten days apart** (2026-09-18, [[QT-47]]). Addie: *"we should get a notification to nudge them through text after 10 days than after 10 more days if they still haven't responded then they should be sent an automatic email. After 10 more days after the email if they did not respond then they should be put in archived."*
+- ⭐ **`runQuoteNudgeBatch`** — cron, 10 AM Mountain, only while `settings/quoteNudgeAutomation.enabled` is on, and it stops entirely from November to January. **A quote nobody answers is chased on a three-rung ladder, ten days apart** (2026-09-18, [[QT-48]]). Addie: *"we should get a notification to nudge them through text after 10 days than after 10 more days if they still haven't responded then they should be sent an automatic email. After 10 more days after the email if they did not respond then they should be put in archived."*
   - **Rung 1 — we are told to text them.** ⛔ **This sends the customer nothing.** Her sentence is *"**we** should get a notification to nudge them through text"*, so a person sends it. Nothing in this feature sends an SMS: an automatic text costs money per message, goes to somebody who has not replied, and cannot be recalled. A check **refuses** one, so adding it later has to be a deliberate change rather than a drift. They appear on **Text these people about their quote** on the automation card, with the number as a `tel:` link.
   - **Rung 2 — one automatic email**, the existing Nudge template. This is the rung she asked to be automatic, in as many words.
   - **Rung 3 — archived.** ⚠ Asked where a late reply is then found, Addie: *"They should be in archived in completed."* `quoteArchived` is exactly what puts a card under **Closed → Archived**, so somebody who answers on day 31 is still there — with `quoteArchivedReason` saying it was the ladder rather than somebody closing it by hand.
