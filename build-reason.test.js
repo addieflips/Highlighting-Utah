@@ -188,15 +188,25 @@ check('an unrecognised source is admitted, not guessed at',
 // IT REACHES THE SCREEN, AND THE PAPER
 // ---------------------------------------------------------------------------
 /* ⚠ ONE PLACE, so every warehouse row gets it. whHouseFactsHtml is what the build
-   groups, the blocked block and the add-on rows all call. */
+   groups and the add-on rows all call. */
 check('the badge is built by whHouseFactsHtml', /whBuildReasonChip\(/.test(fn('whHouseFactsHtml')),
   'the one function every warehouse row type calls');
 check('and it leads the chips',
   fn('whHouseFactsHtml').indexOf('whBuildReasonChip(') < fn('whHouseFactsHtml').indexOf('Timer'),
   'what kind of job this is comes before what goes in the bin');
-const factCalls = (admin.match(/whHouseFactsHtml\(/g) || []).length;
-check('whHouseFactsHtml is still called by more than one row type', factCalls >= 3,
-  'definition plus at least two call sites; found ' + factCalls);
+/* ⚠ REPOINTED 2026-09-18, NOT WEAKENED ([[WH-41]]). This counted CALL SITES and wanted
+   three — the definition plus the build group and the blocked block. The blocked block is
+   gone and there is one house shape on that tab now, so a count can only ever assert a
+   number that happens to be true today. What has to hold is the rule underneath it: the
+   badge has exactly ONE renderer, and the row that draws a house actually calls it. A
+   second `whBuildReasonChip(` anywhere is a second opinion about where a job came from. */
+const chipCalls = (admin.replace(/\/\*[\s\S]*?\*\//g, ' ').match(/whBuildReasonChip\(/g) || []).length;
+check('the badge has one renderer and nothing else mints a second',
+  chipCalls === 2,
+  'definition plus the one call inside whHouseFactsHtml; found ' + chipCalls);
+check('and the warehouse row actually calls whHouseFactsHtml',
+  /whHouseFactsHtml\(h\.data\)/.test(fn('renderWarehouseQueue')),
+  'a badge nothing draws is the most expensive kind of green');
 
 /* ⭐ AND ON PAPER (Addie: "I need paper to carry badge too"). Both build sheets carry a
    Why column, and every row builder fills it — buffer stock with a blank, deliberately,
@@ -215,14 +225,15 @@ const printCols = admin.slice(admin.indexOf("  build:     [{k: 'number'"),
 check('and the Printing tab’s build sheet has one too',
   /k: 'reason'/.test(printCols) && /label: 'Why'/.test(printCols),
   'there are two build sheets and the other one is the one with thinner cover');
-/* ⚠ A CENSUS, AND THE NUMBER MOVING IS THE POINT. It went 3 → 5 on 2026-09-11 when
-   [[WH-34]] put the two timer jobs on paper (Remove timer, and the timer-only rows that
-   had been on no sheet at all). Five row builders now: blocked, Remove timer, Timer only,
-   houses, extras. Raise it only alongside a new builder that genuinely fills the cell —
-   this is what makes a sixth one announce itself instead of shipping a blank Why column. */
+/* ⚠ A CENSUS, AND THE NUMBER MOVING IS THE POINT. 3 → 5 on 2026-09-11 when [[WH-34]] put
+   the two timer jobs on paper, then 5 → 4 on 2026-09-18 when [[WH-41]] retired the blocked
+   row — those houses print as ordinary House rows now. Four row builders: Remove timer,
+   Timer only, houses, extras. ⚠ A BUILDER DISAPPEARING IS AS INTERESTING AS ONE ARRIVING,
+   so the number is written down again rather than the check being loosened. Move it only
+   alongside a builder that genuinely fills the cell. */
 check('every row builder fills the Why cell',
-  (fn('whSheetRowsForBuild').match(/reason:/g) || []).length === 5,
-  'blocked, Remove timer, Timer only, houses and extras all push rows onto that sheet');
+  (fn('whSheetRowsForBuild').match(/reason:/g) || []).length === 4,
+  'Remove timer, Timer only, houses and extras all push rows onto that sheet');
 /* ⭐ AND THE TWO TIMER ROWS KEEP THEIRS ([[WH-34]]). A timer job is somebody the office
    asked for something, so it has a provenance to claim — unlike buffer stock below. */
 check('a Remove timer row keeps its badge',
@@ -231,10 +242,13 @@ check('a Remove timer row keeps its badge',
 check('and a Timer only row keeps its badge',
   /type: 'TIMER ONLY',[\s\S]{0,80}reason: whBuildReasonLabel/.test(fn('whSheetRowsForBuild')),
   'same house, same claim, whichever list it reached the paper through');
-/* ⚠ A BLOCKED ROW KEEPS ITS BADGE — those are the ones somebody has to chase, so losing
-   it there is the wrong place to lose it. Buffer stock carries none. */
+/* ⚠ AND THE HOUSE ROW KEEPS ITS BADGE WHETHER OR NOT ITS COLOURS ARE ON FILE. This used
+   to assert it of the Blocked row, which was the shape a colourless house printed as until
+   [[WH-41]]; there is one house shape now and it carries the same claim for both. Buffer
+   stock carries none. */
 const sheet = fn('whSheetRowsForBuild');
-check('a blocked row keeps its badge', /type: 'Blocked',[\s\S]{0,80}reason: whBuildReasonLabel/.test(sheet),
+check('a house row keeps its badge',
+  /type: need\.topUp \? 'ADD-ON' : 'House',[\s\S]{0,420}reason: whBuildReasonLabel/.test(sheet),
   'the rows most likely to need chasing are the ones that lost it');
 check('and buffer stock claims none', /type: isTimer \? 'Timer' : 'Extra',[\s\S]{0,400}reason: ''/.test(sheet),
   'a badge on a row nobody asked for is a claim about somebody who does not exist');
@@ -369,6 +383,11 @@ const pager = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'hou
      extraction-list trap working as intended. */
   reasonsSrc + fn('whNoteText') + fn('whNotesCell') +
   fn('whBuildReasonKey') + fn('whBuildReasonLabel') +
+  /* ⚠ LIFTED, NEVER STUBBED, for the reason above one more time ([[WH-41]]). This decides
+     the heading a house with no colours on file is built under; a stub here would let that
+     heading change with this gate still green. whWireLabel and whGroupKey stay parameters,
+     so the real rule runs against this sandbox's own spellings. */
+  fn('whCheckLightsKey') +
   fn('whBuildQueueGroups') + fn('whSheetRowsForBuild') + fn('whBuildSheetPages') +
   'return whBuildSheetPages();');
 const P = function(custs, extras){
@@ -406,17 +425,27 @@ if (Array.isArray(pages)) {
   check('and its own bundles, not the whole morning\'s',
     /\b2 bundles\b/.test(pages[0].summary) && /\b1 bundle\b/.test(pages[1].summary),
     'got ' + JSON.stringify(pages.map(p => p.summary)));
-  /* ⭐ WAITING ON COLOURS LEADS THE STACK — nobody in the warehouse can act on those.
-     ⚠ THE FIXTURE PUTS THE BLOCKED HOUSE LAST in the input, or the tab's own order
-     already produces the right answer and the check proves nothing. */
-  const withBlocked = P([H('h1','Ashley','Warm White','white'),
+  /* ⭐ A HOUSE WITH NO COLOURS IS ITS OWN PAGE, AND AN ORDINARY BUILD ([[WH-41]]).
+     ⚠ THIS CHECK USED TO SAY THAT PAGE LED THE STACK AND WAS TYPED Blocked. Both were
+     true of a block that no longer exists; what has to hold now is that such a house still
+     gets a sheet of its own — a colour-and-wire group IS the pile somebody pulls from, and
+     folding an unknown pile into a known one hands two builds to one person.
+     ⚠ THE WORDS ON THE HEADING ARE PROVED IN warehouse-colours.test.js against the REAL
+     whWireLabel. This sandbox stubs it, so what is asserted here is the SPLIT. */
+  const withUnknown = P([H('h1','Ashley','Warm White','white'),
                          {id:'h9', data:{name:'Zoe No Colours', needsLightBuild: true}}]);
-  check('waiting-on-colours is the first page in the stack',
-    withBlocked.length === 2 && withBlocked[0].rows.every(r => r.type === 'Blocked'),
-    'got ' + JSON.stringify(withBlocked.map(p => p.title)));
-  check('and it does not swallow the colour groups behind it',
-    withBlocked[1] && withBlocked[1].rows.length === 1,
-    'got ' + JSON.stringify(withBlocked.map(p => p.rows.length)));
+  check('a house with no colours on file gets a page of its own',
+    withUnknown.length === 2 &&
+    withUnknown.every(pg => pg.rows.length === 1) &&
+    withUnknown[0].title !== withUnknown[1].title,
+    'got ' + JSON.stringify(withUnknown.map(p => p.title)));
+  check('and prints as an ordinary House row, not a blocked one',
+    withUnknown.length === 2 &&
+    withUnknown.every(pg => pg.rows.every(r => r.type === 'House')),
+    'got ' + JSON.stringify(withUnknown.map(p => p.rows.map(r => r.type))));
+  check('and it does not swallow the colour group beside it',
+    withUnknown[1] && withUnknown[1].rows.length === 1,
+    'got ' + JSON.stringify(withUnknown.map(p => p.rows.length)));
   check('and nothing to build prints no pages at all', P([]).length === 0,
     'an empty stack is what the Nothing needs building note is for');
 }
