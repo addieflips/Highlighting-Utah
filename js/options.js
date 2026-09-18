@@ -151,35 +151,40 @@ export const OPTIONS = [
   },
   {
     id: 'wireColor',
-    /* ⛔ NOBODY OUTSIDE THE OFFICE IS ASKED THIS ANY MORE (2026-09-17). Addie:
-       "keep what lights they want but don't add what wire color they want but push
-       check lights then warehouse chooses what wire they have on file and will make
-       it based on what wire they have."
-       So `quote` is off the consumer list — the public form no longer carries the
-       question and quoteSaveDetails no longer stamps a default — and the portal can
-       no longer write it either (it is out of PORTAL_WRITE_FIELDS).
-       ⚠ `required` IS NOW FALSE AND THERE IS NO DEFAULT, which is the load-bearing
-       half. A default of 'Any' and a required flag are exactly how every record ended
-       up claiming a colour nobody picked, and a blank is a real answer here: it means
-       nobody has looked in the bin yet, which the warehouse reads as Check lights
-       ([[WH-35]]). ⚠ 'Any' is off the choices for the same reason — it was a way of
-       saying "no opinion" that got stored as though it were one. */
+    /* ⭐ THE CUSTOMER IS ASKED AGAIN, WITH "ANY" AS A REAL ANSWER ([[OPT-21]],
+       2026-09-18). Addie: "They should see Any, Green, White. With instructions on what
+       to pick. If they click any or keep it at any then it should allow us to pick and
+       require us to pick the wire."
+       ⚠ THIS REVERSES [[OPT-12]] (R-024), whose own words are kept below because they
+       are still the argument for the shape this takes. That ruling was about an INVENTED
+       answer — the old control defaulted to 'Any' and STORED the word, so most quotes
+       carried a cord nobody had chosen. The question was never the fault.
+       ~~⛔ NOBODY OUTSIDE THE OFFICE IS ASKED THIS ANY MORE (2026-09-17). Addie: "keep
+       what lights they want but don't add what wire color they want but push check lights
+       then warehouse chooses what wire they have on file and will make it based on what
+       wire they have."~~ Superseded → OPT-21; the PORTAL half of it still stands, and
+       `wireColor` is still out of PORTAL_WRITE_FIELDS and PORTAL_READ_FIELDS.
+       ⚠ `required` STAYS FALSE AND THERE IS STILL NO DEFAULT, which is the load-bearing
+       half and is what makes the question safe to ask again. A default of 'Any' and a
+       required flag are exactly how every record ended up claiming a colour nobody picked,
+       and a blank is a real answer here: it means nobody has chosen, which the warehouse
+       reads as Check lights ([[WH-35]]) and which the Convert to Customer popup refuses
+       to convert past ([[WH-43]]) — the second half of her own sentence.
+       ⛔ AND 'Any' IS STILL OFF THE CHOICES, which is not a contradiction: `choices` is
+       what may be STORED, and Any is a way of saying "no opinion" that is recorded by
+       storing nothing at all. A third entry here would put "Any wire" at the head of a
+       warehouse pile. */
     label: 'Wire colour',
     type: 'choice',
     choices: ['White', 'Green'],
     required: false,
-    /* ⭐ INTERNAL FROM 2026-09-17, which is the declared way to say what she decided
-       rather than a way round the audit: R-003's stated exception is an option that is
-       the OFFICE'S and not the customer's, and that is now exactly what the cord is.
-       Without this the audit is right to call it a hole — a customer-facing option
-       nobody is asked for is one nobody can answer. */
-    internal: true,
     affectsPrice: false,
-    /* ⛔ AND NOT `confirmation`. An internal option is one the customer is never shown,
-       and the audit enforces that pair rather than letting a list drift: telling somebody
-       in an email which cord we chose invites an answer to a question we stopped asking.
-       It was a declared GAP even before this — no RSVP token has ever carried it. */
-    consumers: ['customer', 'pullList'],
+    /* ⛔ AND NOT `confirmation`, which is unchanged by OPT-21 and is a declared gap
+       rather than an oversight: no RSVP or quote token has ever carried a wire colour,
+       and she asked for the question to be put back on the form, not for the cord to be
+       read back to them in an email. Raise it with her before adding it — the audit
+       will hold this list honest either way. */
+    consumers: ['quote', 'customer', 'pullList'],
   },
   {
     id: 'outletTimer',

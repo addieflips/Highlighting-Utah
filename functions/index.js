@@ -4477,6 +4477,19 @@ exports.quoteMemberKeptDetails = onCall({ cors: true }, async (request) => {
   return { ok: true };
 });
 
+/* ⛔ ONLY THE TWO REAL COLOURS, AND NEVER ON TRUST ([[OPT-21]], 2026-09-18). The browser
+   has its own copy of this rule (`qdWireChoice` in index.html) so the radio it posts is
+   already one of three values — but this is a PUBLIC callable reached with nothing but a
+   quote token, so the browser's answer is a suggestion and this is the decision. Anything
+   that is not White or Green, the word 'Any' included, comes back empty and the caller
+   writes no field at all.
+   ⚠ PAIRED WITH `qdWireChoice`, and wire-pick.test.js compares the two: two copies of one
+   rule is how a colour the office cannot save reaches a quote. */
+function quoteWireChoiceServer(v) {
+  const w = String(v == null ? '' : v).trim();
+  return (w === 'White' || w === 'Green') ? w : '';
+}
+
 exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
   const body = request.data || {};
   const quoteToken = body.quoteToken ? String(body.quoteToken).trim() : '';
@@ -4499,16 +4512,17 @@ exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
   if (!colors.length) throw new HttpsError('invalid-argument', 'Please choose at least one light color.');
 
   const specific = yesNo(details.specificOutlet);
-  await db.collection('quotes').doc(quoteId).update({
+  const quoteUpdate = {
     lightColors: colors,
     lightsDescription: str(details.lightsDescription, 400),
-    /* ⛔ NO WIRE COLOUR IS WRITTEN HERE ANY MORE (2026-09-17), and this was the SERVER'S
-       OWN COPY of the default the browser form used to apply — the emailed-link path is
-       the common one, so taking the question off index.html and leaving this line would
-       have gone on stamping 'Any' on most quotes with nothing on any screen saying so.
-       Addie, 2026-09-17: "don't add what wire color they want but push check lights then
-       warehouse chooses what wire they have on file". A field nobody sends and nothing
-       defaults is simply absent, which is what Check lights reads. */
+    /* ⭐ THE WIRE COLOUR IS WRITTEN HERE AGAIN ([[OPT-21]], 2026-09-18), and this is the
+       path that matters: the emailed-link route is the common one, so a field left off
+       this whitelist is dropped in silence and the answer is lost with nothing wrong on
+       screen — which is what happened to houseSides once already.
+       ⛔ BUT NOT AS A DEFAULT, AND NOT AS A BLANK. See quoteWireChoiceServer below: "Any"
+       adds no key at all, so it can neither invent a colour (the [[OPT-12]] fault) nor
+       erase one a re-quote prefilled off the member's own record (memberPrefill copies
+       `wireColor` onto the quote). Added after this object, only when picked. */
     outletTimer: yesNo(details.outletTimer),
     specificOutlet: specific,
     specificOutletNotes: specific === 'Yes' ? str(details.specificOutletNotes, 500) : '',
@@ -4529,7 +4543,14 @@ exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
        whatever happened earlier. */
     quoteArchived: false,
     quoteArchivedReason: ''
-  });
+  };
+  /* ⛔ THE KEY IS ABSENT UNLESS THEY PICKED A COLOUR ([[OPT-21]]). Two different harms,
+     one line: writing 'Any' invents a cord nobody chose ([[OPT-12]]'s fault), and writing
+     '' erases one a re-quote prefilled off the member's own record. Absent does neither,
+     and a quote that carries none is exactly what "Check lights" reads. */
+  const quoteWire = quoteWireChoiceServer(details.wireColor);
+  if (quoteWire) quoteUpdate.wireColor = quoteWire;
+  await db.collection('quotes').doc(quoteId).update(quoteUpdate);
 
   return { ok: true };
 });

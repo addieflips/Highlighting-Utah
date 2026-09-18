@@ -152,15 +152,20 @@ function check(label, ok, detail) {
   const AGREED = {
     measuredFeet:      ['quote', 'confirmation', 'customer', 'pullList', 'invoice'],
     lightsDescription: ['quote', 'confirmation', 'customer', 'pullList'],
-    /* ⛔ 'quote' AND 'confirmation' REMOVED 2026-09-17 — the one change to this frozen
-       map since it was agreed, and it is hers: "don't add what wire color they want but
-       push check lights then warehouse chooses what wire they have on file". The public
-       form no longer asks, the server no longer defaults it, and the portal can no longer
-       write it. The cord is the office's now, so it is `internal` in the registry — and
-       an internal option is one the customer is never SHOWN either, which is what takes
-       `confirmation` with it. That was a declared gap in any case: no RSVP token has ever
-       carried a wire colour. */
-    wireColor:         ['customer', 'pullList'],
+    /* ⭐ 'quote' PUT BACK 2026-09-18 — [[OPT-21]], and the SECOND deliberate change to
+       this frozen map. Addie: "They should see Any, Green, White. With instructions on what
+       to pick." The detail form asks again and `quoteSaveDetails` writes it again, so the
+       quote is a destination once more and `internal` is off the registry entry.
+       ~~⛔ 'quote' AND 'confirmation' REMOVED 2026-09-17 — hers: "don't add what wire
+       color they want but push check lights then warehouse chooses what wire they have on
+       file".~~ Superseded → OPT-21 for the `quote` half only, and the reasoning is KEPT
+       because it is still what makes this safe: what OPT-12 was really refusing was a
+       DEFAULT that got stored, and "Any" now stores nothing at all.
+       ⛔ 'confirmation' STAYS OFF, and that is not an oversight carried over. She asked
+       for the question to go back on the FORM, not for the cord to be read back to the
+       customer in an email, and no RSVP or quote token has ever carried one. Adding it is
+       a decision, not a tidy-up. */
+    wireColor:         ['quote', 'customer', 'pullList'],
     outletTimer:       ['quote', 'confirmation', 'customer', 'crewSheet', 'pullList'],
     useEaves:          ['quote', 'customer', 'crewSheet'],
     specificOutlet:    ['quote', 'confirmation', 'customer', 'crewSheet'],
@@ -630,6 +635,17 @@ function check(label, ok, detail) {
                a field the browser sends and the function drops is lost with nothing
                going wrong on screen. Asserted separately below. */
             houseSides:         /houseSides: portalSideCount\(fd\.get\('house_sides'\)\)/,
+            /* ⭐ ASKED HERE AGAIN SINCE 2026-09-18 ([[OPT-21]]) — Any, Green, White,
+               with Any pre-picked. ⚠ IT IS MATCHED ON THE ASSIGNMENT, NOT ON A KEY IN
+               `detailPayload`, and that is the whole shape of the ruling: "Any" adds no
+               key at all, so a colour reaches the quote only when one was picked. A
+               regex looking for `wireColor:` inside the object literal would fail on
+               correct code. ⚠ AND THE SERVER HAS TO ACCEPT IT TOO — the emailed-link
+               path is the common one and quoteSaveDetails keeps a whitelist, so a field
+               the browser sends and the function drops is lost with nothing going wrong
+               on screen. Asserted in wire-pick.test.js, with the two copies of the
+               White-or-Green rule compared. */
+            wireColor:          /detailPayload\.wireColor = qdWire/,
           },
         },
       ],

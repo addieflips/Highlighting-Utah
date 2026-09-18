@@ -565,6 +565,43 @@ const FAKE_FUNCTIONS_MODULE = `
       return { ok: true };
     },
 
+    /* The install-details form's own write ([[OPT-21]] gave it a wire colour again, and
+       test/quote-wire-choice.spec.js reads the payload off the call log). Faked because an
+       unfaked callable REJECTS, which on this form surfaces as the customer-facing
+       "something went wrong" alert — a stub that is short looks exactly like the form
+       being broken.
+       ⚠ IT MIRRORS THE REAL WHITELIST ON THE ONE FIELD THE SPEC IS ABOUT: anything that is
+       not White or Green is not written at all. This file's own header promises it writes
+       "the same fields the server writes, in the same combinations", and the stub going
+       STALE against a server rule is recorded in CLAUDE.md as the worst kind of green —
+       needsLightRecycle stayed here for eight days after the server stopped writing it and
+       a spec happily asserted the reversed rule. */
+    quoteSaveDetails: function (payload) {
+      const token = String((payload && payload.quoteToken) || '').trim();
+      let hit = null;
+      Object.keys(F.quotes || {}).forEach(function (k) {
+        if (F.quotes[k].data.quoteToken === token) hit = F.quotes[k];
+      });
+      if (!hit) { const e = new Error('Quote not found.'); e.code = 'functions/not-found'; throw e; }
+      const d = (payload && payload.details) || {};
+      if (!(Array.isArray(d.lightColors) && d.lightColors.length)) {
+        const e = new Error('Please choose at least one light color.');
+        e.code = 'functions/invalid-argument'; throw e;
+      }
+      Object.assign(hit.data, {
+        lightColors: d.lightColors, lightsDescription: d.lightsDescription || '',
+        outletTimer: d.outletTimer === 'Yes' ? 'Yes' : 'No',
+        notes: d.notes || '', gateCode: d.gateCode || '',
+        installPreference: d.installPreference || 'Normal Schedule',
+        houseSides: Math.min(4, Math.max(1, parseInt(d.houseSides, 10) || 1)),
+        wantsMailedInvoice: d.wantsMailedInvoice === true,
+        formCompleted: true
+      });
+      const wire = String(d.wireColor == null ? '' : d.wireColor).trim();
+      if (wire === 'White' || wire === 'Green') hit.data.wireColor = wire;
+      return { ok: true };
+    },
+
     /* ⚠ NOT-CONFIGURED IS STILL THE DEFAULT, and deliberately: it is what keeps
        notifyBusinessOfMessage returning at its first guard for every spec that has
        not asked for the nudge, so adding the recorder changed no existing spec.
