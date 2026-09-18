@@ -7544,6 +7544,58 @@ suite('9. Portal sign-in security');
       })());
     }
   }
+  /* ⭐ CLOUDINARY IS WATCHED BEFORE IT RUNS OUT ([[PROC-34]], 2026-09-18). The account was
+     switched off on 9/9 and the first anybody heard was a failed upload. The rule is RUN
+     against Cloudinary's real usage shape, and the writer against a fake Firestore whose
+     create() refuses a second copy the way the real one does. */
+  {
+    const cuStart = fns.indexOf('function cloudinaryUsageNote(');
+    const cwStart = fns.indexOf('async function runCloudinaryUsageWatch(');
+    const cuSrc = cuStart > -1 ? sectionFrom(fns, cuStart) : '';
+    const cwSrc = cwStart > -1 ? sectionFrom(fns, cwStart) : '';
+    check('money', 'the Cloudinary usage watch was found', !!cuSrc && !!cwSrc, 'renamed? repoint this lift');
+    check('money', 'and it runs every day with the Cloudinary secrets',
+      /exports\.cloudinaryUsageWatch\s*=\s*onSchedule\(\s*\{[^}]*secrets:\s*\[CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET\]/.test(fns),
+      'without the secrets bound the usage read is refused every morning and says nothing');
+    if (cuSrc && cwSrc) {
+      const mk = new Function('CLOUDINARY_WARN_PERCENTS', cuSrc + '; return cloudinaryUsageNote;');
+      const note = mk([95, 80]);
+      const NOW = Date.parse('2026-09-18T15:00:00Z');
+      const at = pct => ({ plan: 'Plus', last_updated: '2026-09-17', credits: { usage: pct * 2.25, limit: 225, used_percent: pct } });
+      check('money', 'a healthy month says nothing', note(at(15.64), NOW) === null, 'the account was at 15% on the day this was written');
+      const n80 = note(at(81), NOW), n95 = note(at(96), NOW);
+      check('money', 'crossing 80% raises a note for this month',
+        !!n80 && n80.ref === 'cloudinary-usage-2026-09-80' && /81%/.test(n80.message), JSON.stringify(n80));
+      check('money', 'and crossing 95% raises a second, separate one',
+        !!n95 && n95.ref === 'cloudinary-usage-2026-09-95', JSON.stringify(n95));
+      const off = note({ error: { message: 'cloud_name is disabled' } }, NOW);
+      check('money', 'a switched-off account is reported the same day',
+        !!off && off.ref === 'cloudinary-off-2026-09-18' && /switched the account off/.test(off.message), JSON.stringify(off));
+      check('money', 'but any other failure stays quiet',
+        note({ error: { message: 'Invalid api_key' } }, NOW) === null && note({}, NOW) === null && note(null, NOW) === null,
+        'a blip is not news about the account, and a note for one buries the note that is');
+      /* The writer: one note per ref, however many mornings it runs. */
+      const created = {};
+      const fakeDb = { collection: () => ({ doc: id => ({ create: async d => {
+        if (created[id]) { const e = new Error('6 ALREADY_EXISTS: Document already exists'); e.code = 6; throw e; }
+        created[id] = d; } }) }) };
+      let answer = at(82);
+      const fakeFetch = async () => ({ json: async () => answer });
+      const secret = v => ({ value: () => v });
+      const run = new Function('db', 'admin', 'fetch', 'Buffer', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET', 'CLOUDINARY_CLOUD_NAME',
+        'cloudinaryUsageNote', 'console', cwSrc + '; return runCloudinaryUsageWatch;')(
+        fakeDb, { firestore: { FieldValue: { serverTimestamp: () => 'TS' } } }, fakeFetch, Buffer,
+        secret('k'), secret('s'), 'highlighting-utah', note, { error() {} });
+      pendingAsync.push((async function () {
+        const r1 = await run(), r2 = await run();
+        const ids = Object.keys(created);
+        check('money', 'the note lands in the System inbox once, not every morning',
+          r1.noted === true && r2.noted === false && r2.ok === true && ids.length === 1 &&
+            created[ids[0]].folder === 'System',
+          'first ' + JSON.stringify(r1) + ', second ' + JSON.stringify(r2) + ', notes ' + ids.join(','));
+      })());
+    }
+  }
   /* ⭐ AND IT REACHES THE SYSTEM INBOX (2026-08-30). Addie: "we need unmatched invoice to
      come up in system inbox before we send it out." A text is gone the moment you look
      away; a note keeps until somebody deals with it, and the money is real. */

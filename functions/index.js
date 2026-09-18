@@ -585,7 +585,7 @@ exports.paypalCaptureOrder = onCall(
  * The Twilio secrets never held working credentials, so every call came back 20003
  * "Authentication Error - invalid username" — the customer-facing one loudly, in front
  * of the office, and the two owner alerts silently, because the helper swallowed it.
- * Removed from main 2026-09-18 ([[QT-49]]). Dax, first on 2026-09-11: "we dont want twillo we
+ * Removed from main 2026-09-18 ([[QT-48]]). Dax, first on 2026-09-11: "we dont want twillo we
  * want to use google voice", and again on 2026-09-18: "we dont use twillo at all thats a bug".
  *
  * ⚠ GOOGLE VOICE HAS NO SEND API. This is not a missing integration to be filled in
@@ -6941,6 +6941,84 @@ exports.runArrearsRsvpNow = onCall({ memory: '512MiB', timeoutSeconds: 300 }, as
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required.');
   return await runArrearsRsvpBatch('manual');
 });
+
+/* ⭐ CLOUDINARY IS WATCHED BEFORE IT RUNS OUT (2026-09-18, [[PROC-34]]). Dax: "we do use
+ * cloudinary". Every quote photo, crew-sheet photo and fix photo lives there. On 2026-09-09 an
+ * upload failed with "Cloudinary 401: cloud_name is disabled": Cloudinary had switched the
+ * whole account off, and nothing had warned anybody first. It is on the Plus plan now, at 15%
+ * of its monthly credits on 2026-09-18. What was missing is somebody being told BEFORE the
+ * limit, not only when an upload fails.
+ *
+ * ⭐ ONE NOTE PER THRESHOLD PER MONTH, and one a day while the account is switched off. The
+ * note's document id IS its ref, written with create(), so a second run finds it already
+ * there and writes nothing. A daily note saying the same thing is how the Inbox teaches the
+ * office to stop reading it.
+ * ⚠ ANY OTHER FAILURE STAYS QUIET — a network blip or a changed API answer is not news
+ * about the account, and crying wolf here buries the one note that matters. It is logged.
+ * ⚠ cloudinaryUsageNote IS PURE, so run-all.js RUNS it rather than reading it. */
+const CLOUDINARY_WARN_PERCENTS = [95, 80];
+function cloudinaryUsageNote(usage, now) {
+  const u = usage || {};
+  const day = new Date(now || Date.now()).toISOString().slice(0, 10);
+  if (u.error) {
+    const why = String((u.error && u.error.message) || u.error);
+    if (!/disabled/i.test(why)) return null;
+    return {
+      ref: 'cloudinary-off-' + day,
+      message: 'Cloudinary, where every quote and crew photo is stored, has switched the account off ("' +
+        why.slice(0, 120) + '"). Photos on quotes, crew sheets and the website will not show, and nothing new ' +
+        'can be uploaded, until it is back on. This is usually the monthly credits running out: log in at ' +
+        'cloudinary.com and check the plan and billing.'
+    };
+  }
+  const credits = u.credits || {};
+  const pct = Number(credits.used_percent);
+  if (!isFinite(pct)) return null;
+  const hit = CLOUDINARY_WARN_PERCENTS.find(t => pct >= t);
+  if (!hit) return null;
+  const month = String(u.last_updated || day).slice(0, 7);
+  return {
+    ref: 'cloudinary-usage-' + month + '-' + hit,
+    message: 'Cloudinary, where every quote and crew photo is stored, has used ' + pct.toFixed(0) +
+      '% of this month\'s credits (' + (Number(credits.usage) || 0) + ' of ' + (Number(credits.limit) || 0) +
+      (u.plan ? ', ' + u.plan + ' plan' : '') + '). At 100% Cloudinary switches the account off, which is what ' +
+      'happened on 9/9 when uploads failed with "cloud_name is disabled". Raise the plan at cloudinary.com, ' +
+      'or clear out old images, before it runs out.'
+  };
+}
+async function runCloudinaryUsageWatch() {
+  let usage;
+  try {
+    const basic = Buffer.from(CLOUDINARY_API_KEY.value() + ':' + CLOUDINARY_API_SECRET.value()).toString('base64');
+    const res = await fetch('https://api.cloudinary.com/v1_1/' + CLOUDINARY_CLOUD_NAME + '/usage',
+      { headers: { Authorization: 'Basic ' + basic } });
+    usage = await res.json().catch(() => ({}));
+  } catch (err) {
+    console.error('[HU] cloudinary usage read failed:', err);
+    return { ok: false, noted: false };
+  }
+  const note = cloudinaryUsageNote(usage, Date.now());
+  if (!note) return { ok: true, noted: false };
+  try {
+    await db.collection('messages').doc(note.ref).create({
+      topic: 'Photo Storage Needs You', folder: 'System',
+      name: '', phone: '', email: '', contactMethod: '',
+      ref: note.ref, message: note.message,
+      autoQueuedToWarehouse: false, needsReassign: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    return { ok: true, noted: true };
+  } catch (err) {
+    /* ALREADY_EXISTS is the dedupe working, not a failure. */
+    if (err && (err.code === 6 || /already exists/i.test(String(err.message)))) return { ok: true, noted: false, already: true };
+    console.error('[HU] cloudinary usage note failed:', err);
+    return { ok: false, noted: false };
+  }
+}
+exports.cloudinaryUsageWatch = onSchedule(
+  { schedule: '0 8 * * *', timeZone: 'America/Denver', secrets: [CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET] },
+  async () => { await runCloudinaryUsageWatch(); }
+);
 
 exports.sendQuoteNudges = onSchedule(
   { schedule: '0 10 * * *', timeZone: 'America/Denver', memory: '512MiB' },
