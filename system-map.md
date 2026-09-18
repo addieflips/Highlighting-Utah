@@ -3672,6 +3672,12 @@ come around later and want another building."*
   Message are untouched** and still take a phone OR an email through one box, as [[QT-40]]
   says. ⚠ The cost, accepted knowingly: somebody with no email address cannot ask for a
   quote on this form — they ring or use Get In Touch. Suite 330.
+  ⭐ **THE SELECT ITSELF WENT, LATER THE SAME DAY ([[QT-47]]).** Dax: *"in free quote get
+  rid of preferred contact method."* The free quote form asks no preference now. The write
+  still carries `contactMethod: ''` so every reader keeps its shape, and admin's quote
+  card prints "Prefers:" only when a value exists (older quotes still have one). The
+  thank-you text no longer promises "your preferred contact method". ⚠ Get In Touch and
+  Send a Message keep their selects. Suite 330.
 
 **Then the property list went too, one day later.** Dax, 2026-09-04: *"get rid of the add
 a building on the property button on free quote but keep it in all customers."* So the
