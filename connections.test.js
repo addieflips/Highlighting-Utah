@@ -813,8 +813,16 @@ if (amberTotal) {
         const hostileHtml = lines.map(l => {
           if (!/^const (TABS|RULES|CELLRULES|FAULTS)=/.test(l)) return l;
           let out = l;
+          /* ⚠ LONGEST FIRST. These four swaps run in sequence over the same line, so a
+             name that CONTAINS another is destroyed by the inner one before its own turn
+             comes — and then its swap finds nothing and the check fails on a page that is
+             fine. Real rulings do this: a question about an area routinely opens with that
+             area's name, so "Blueprint Maps" and "Blueprint Maps shipped with no way to…"
+             are the area and the rule on the same card. Ordering by length means the
+             containing string is always rewritten before the string it contains. */
           [[origField, HOSTILE + ' F'], [origArea, HOSTILE + ' A'],
            [origName, HOSTILE + ' N'], [origLine, HOSTILE + ' L']]
+            .sort((a, b) => String(b[0]).length - String(a[0]).length)
             .forEach(pair => { out = swap(out, pair[0], pair[1]); });
           return out;
         }).join('\n');

@@ -316,7 +316,10 @@ const CUST = { name: 'Ashley Wray', phone: '8015550123', email: 'a@x.com',
       if(!m) throw new Error('could not find const ' + n);
       return m[0];
     };
-    const sandbox = ['FIX_NOTICE_TOPIC','RSVP_NO_TOPIC','RSVP_BNY_TOPIC','MSG_TYPE_MEMBER',
+    /* ⚠ WIRE_PICK_TOPIC LEADS THE LIST because SYSTEM_NOTICE_TOPICS references it
+       ([[WH-40]]) — the extraction-list trap again, and a const must be declared before the
+       table that names it. Lifted, never stubbed. */
+    const sandbox = ['WIRE_PICK_TOPIC','FIX_NOTICE_TOPIC','RSVP_NO_TOPIC','RSVP_BNY_TOPIC','MSG_TYPE_MEMBER',
       'SYSTEM_NOTICE_TOPICS','MSG_CATEGORIES','MSG_TOPIC_CATEGORIES','MSG_TEXT_CATEGORIES',
       'MSG_STATUS','MSG_STATUS_LABEL','MSG_PRIORITY','MSG_PRIORITY_LABEL','MSG_SEVERITY_LABEL',
       'COMM_ACTIVITY_TOPICS'].map(exactConst).join('') +

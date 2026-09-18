@@ -90,6 +90,11 @@ const QUEUE_SITES = [
   { file: 'admin.html', fn: 'whFindNotQueuedBtn handler' },
   { file: 'admin.html', fn: 'editCustBuildStayBtn handler' },
   { file: 'admin.html', fn: 'editCustSaveBtn handler' },
+  /* ⭐ PICKING THE WIRE COLOUR OFF THE HOUSE PHOTO (added 2026-09-17). A wire colour is one
+     of the three WAREHOUSE_BUILD_FIELDS, so answering the notice on a house whose bundle was
+     already made in the "Check lights" pile queues it to be made again — a real queueing
+     place, declared in the same change that built it. */
+  { file: 'admin.html', fn: 'wirePickSet' },
   { file: 'functions/index.js', fn: 'portalSave' },
   { file: 'functions/index.js', fn: 'seasonYesUpdates' },
   { file: 'functions/index.js', fn: 'portalRsvp' }
@@ -1253,6 +1258,21 @@ check('the path still has every step in it',
       'the RSVP answer, which is already a step. It exists because nothing recorded who ' +
       'the send had reached, so 392 customers Gmail refused could not be told apart from ' +
       'the ones who got it (EM-04)',
+    /* ⚠ THE CHANGE ITSELF IS ALREADY IN THE HISTORY, and not through this field.
+       `logPortalChange` writes an activity row the moment the member saves — "They changed
+       it themselves in their portal — Wire colour: white → green" — so the thing that
+       happened to this customer is recorded, dated and readable. This is the quiet-window
+       guard that stops the SAME confirmation going out twice in half an hour. */
+    /* ⚠ THIS ONE IS NOT EVEN ON THE CUSTOMER. It is stamped on the messages document, and
+       it records that the OFFICE answered a question — the wire colour itself reaches the
+       customer's history through the ordinary change log, dated, like any other edit. */
+    wirePickedAt: 'when the office answered a Pick a Wire Colour notice. The same shape as ' +
+      'portalChangeEmailAt below: it says when WE dealt with a notice, not something that ' +
+      'happened to the customer, and it is written on the messages document',
+    portalChangeEmailAt: 'the quiet-window guard on the member-portal auto-reply — the ' +
+      'arrearsRsvpEmailAt shape exactly: it records that WE wrote back to them, not ' +
+      'anything the customer did. Their side of it is the change itself, which ' +
+      'logPortalChange already puts in the history as its own dated row (EM-18)',
     /* ⚠ THE CHARGE IS ALREADY IN THE HISTORY, AND NOT THROUGH THIS FIELD. The 1 April
        batch writes the fee as a `changeFeeNotes` entry with kind 'late', so
        historyNoteRows renders it as "Late fee $25.00 — Unpaid after 28 February" against
