@@ -62187,3 +62187,101 @@ suite('343. A burst of writes draws once, not once per write (the frozen page)')
       'without the finally, a throw mid-draw would leave the memo open and every later read stale');
   }
 }
+
+suite('344. All Customers reads the season plan once per draw, not once per customer');
+{
+  /* ⭐ 2026-09-19. Dax: "switch to customers then all customers ... and then refresh" and the
+     page stopped answering, while the count read 0 over 957 customers who were safe in the
+     database. Every row asked planHangDateFor, and every call walked the whole season plan
+     through schedulePlanBookings. Measured on the real book, the All Customers click was still
+     blocked after 90 seconds; with this memo it answers in about a quarter of a second.
+     These checks RUN the real function against a publisher that counts how often it is asked. */
+  const src = admin.slice(admin.indexOf('function planHangDateFor('), admin.indexOf('function nextVisitFor('));
+  check('S344', 'planHangDateFor was found', src.length > 50 && /schedulePlanBookings/.test(src),
+    'renamed or moved? repoint this lift');
+  const make = function(){
+    const win = {};
+    const fn = new Function('window', src + '\nreturn planHangDateFor;')(win);
+    return { win: win, fn: fn };
+  };
+  {
+    const t = make(); let asked = 0;
+    t.win.schedulePlanBookings = function(){ asked++; return { a: { date: '2026-10-05' } }; };
+    let ok = true;
+    for (let i = 0; i < 957; i++) { if (t.fn(i % 2 ? 'a' : 'b') !== (i % 2 ? '2026-10-05' : '')) ok = false; }
+    check('S344', 'a whole table of rows asks the plan ONCE', asked === 1,
+      'asked ' + asked + ' times: every ask walks the whole season and works out each day\'s crew towns again');
+    check('S344', 'and every row still gets its own answer', ok,
+      'a booked house must read its date and an unbooked one must read "" (no day), not null');
+    pendingAsync.push((async function(){
+      await Promise.resolve(); await Promise.resolve();
+      t.fn('a');
+      check('S344', 'the next draw reads the plan fresh', asked === 2,
+        'asked ' + asked + ' times: the memo must end with the draw, or an edited plan is shown stale');
+    })());
+  }
+  {
+    const t = make(); let asked = 0;
+    t.win.schedulePlanBookings = function(){ asked++; return null; };
+    const first = t.fn('a'), second = t.fn('a');
+    check('S344', '"cannot say" is remembered too, and still reads as null', first === null && second === null && asked === 1,
+      'null means the plan has not loaded, and the row must fall back to the stamp exactly as before');
+  }
+  {
+    const t = make();
+    t.win.schedulePlanBookings = function(){ return { a: { date: '2026-10-05' } }; };
+    const one = t.fn('a');
+    t.win.schedulePlanBookings = function(){ return { a: { date: '2026-11-09' } }; };
+    const two = t.fn('a');
+    check('S344', 'a different publisher is asked afresh, never handed the old answer', one === '2026-10-05' && two === '2026-11-09',
+      'got ' + one + ' then ' + two);
+  }
+}
+
+suite('345. The Inbox works out each message once, not once per tab');
+{
+  /* ⭐ 2026-09-19. Measured on the live page: the Inbox sidebar spent ~2 seconds per draw
+     running msgCategories' text patterns over all 314 messages once PER TAB. msgFacets now
+     remembers its answer against the message object, keyed on every field it reads.
+     These checks RUN the real msgFacets with the five facet functions replaced by counters. */
+  const src = extractFn(admin, 'msgFacets');
+  check('S345', 'msgFacets was found', !!src && /WeakMap/.test(src), 'renamed? repoint this lift');
+  if (src) {
+    const make = function(){
+      const calls = { cat: 0, status: 0 };
+      const fn = new Function('msgTypeOf', 'msgStatusOf', 'msgPriorityOf', 'msgCategories', 'msgSeverityOf', 'MSG_TYPE_ERROR',
+        src + '\nreturn msgFacets;')(
+        d => (d.topic === 'err' ? 'error' : 'member'),
+        d => { calls.status++; return d.read ? 'read' : 'new'; },
+        () => 'normal',
+        d => { calls.cat++; return /pay/.test(d.message || '') ? ['payment'] : []; },
+        () => 'high',
+        'error');
+      return { fn: fn, calls: calls };
+    };
+    {
+      const t = make(); const msgs = [];
+      for (let i = 0; i < 300; i++) msgs.push({ topic: 'x', message: i % 2 ? 'please pay' : 'hello' });
+      for (let tab = 0; tab < 8; tab++) msgs.forEach(m => t.fn(m));
+      check('S345', 'eight tabs over 300 messages work each message out once', t.calls.cat === 300,
+        'categorised ' + t.calls.cat + ' times: once per tab per message is the ~2 second sidebar draw');
+    }
+    {
+      const t = make(); const m = { topic: 'x', message: 'hello', read: false };
+      const a = t.fn(m).status;
+      m.read = true;
+      const b = t.fn(m).status;
+      check('S345', 'a message marked read in place is seen at once', a === 'new' && b === 'read',
+        'got ' + a + ' then ' + b + ': the memo must be keyed on the fields, not the object alone');
+      m.message = 'can I pay';
+      check('S345', 'and so is a change to the message text', t.fn(m).categories[0] === 'payment',
+        'the categories come from the text, so the text has to be in the key');
+    }
+    {
+      const t = make();
+      const x = t.fn({ topic: 'err', message: 'pay' }), y = t.fn({ topic: 'x', message: 'hi' });
+      check('S345', 'two different messages never share an answer', x.type === 'error' && y.type === 'member' && x.categories.length === 1 && y.categories.length === 0,
+        JSON.stringify([x, y]));
+    }
+  }
+}
