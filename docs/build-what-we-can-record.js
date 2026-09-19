@@ -22,11 +22,52 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const src = fs.readFileSync(path.join(root, 'js', 'options.js'), 'utf8');
 
+/* ---- --check: build it and compare, write nothing ------------------------- *
+ * ⭐ BECAUSE THE PAGE IS A COMMITTED FILE AND THE REGISTRY IS NOT (2026-09-19).
+ * "Generated from js/options.js" is only ever true of the RUN, never of the copy sitting
+ * on disk, and nothing anywhere re-ran this. Change `internal` or a consumer, forget the
+ * command, and the two halves part company with every gate green.
+ * ⛔ THAT IS NOT A TIDINESS POINT, IT IS CHECKLIST ROW 216's OWN PROMISE. That row sends
+ * Addie to this list to answer the one question no test can, and tells her in as many
+ * words that it "cannot be out of date with what the software does" — so a stale copy is
+ * not a stale document, it is the app lying to her at the one moment she is checking it
+ * by hand. options-audit.test.js runs this mode, so the promise is code now.
+ * ⚠ IT WRITES NOTHING IN THIS MODE, deliberately. A gate that repaired the file would
+ * hide the drift it exists to report, and would edit the working tree during a test run.
+ * The fix is one command and the failure names it. */
+const CHECK = process.argv.includes('--check');
+const drifted = [];
+const emit = (rel, body, note) => {
+  const file = path.join(root, rel);
+  if (!CHECK) { fs.writeFileSync(file, body); console.log(note); return; }
+  const onDisk = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+  if (onDisk !== body) drifted.push(rel);
+};
+const reportCheck = () => {
+  if (!CHECK) return;
+  if (!drifted.length) { console.log('docs/what-we-can-record — up to date with the registry'); return; }
+  console.error('\n  The generated options list is out of date with js/options.js:\n');
+  drifted.forEach(f => console.error('    ' + f));
+  console.error('\n  Run:  node docs/build-what-we-can-record.js');
+  console.error('  and commit the result in the same change that moved the registry.\n');
+  process.exit(1);
+};
+
 /* ---- read the registry ---------------------------------------------------- */
 const options = src.split(/\n\s*\{\s*\n?\s*id:/).slice(1).map(b => ({
   id: (b.match(/^\s*'([^']+)'/) || [])[1],
   label: (b.match(/label:\s*'([^']*)'/) || [])[1] || '',
   affectsPrice: /affectsPrice:\s*true/.test(b),
+  /* ⚠ COMMENT-STRIPPED, unlike the two fields either side of it, and the difference is
+     the point: `affectsPrice` and `consumers` are matched on a spelling no note in that
+     registry uses in prose, while `internal` is discussed BY NAME in several of them.
+     Suites 58, 274, 275 and 300 each learned this the same way — a check that read the
+     explanation of the code instead of the code.
+     ⚠ AND IT IS DEFENSIVE RATHER THAN LOAD-BEARING TODAY, said plainly rather than
+     implied: measured on 2026-09-19, stripped and unstripped both answer the same three
+     options, because no note in the registry happens to spell `internal: true`. The next
+     one that does would move an option into the wrong half of this page silently. */
+  internal: /internal:\s*true/.test(b.replace(/\/\*[\s\S]*?\*\//g, '')),
   consumers: ((b.match(/consumers:\s*\[([^\]]*)\]/s) || [])[1] || '')
     .split(',').map(s => s.replace(/['\s]/g, '')).filter(Boolean),
 })).filter(o => o.id);
@@ -35,13 +76,27 @@ const options = src.split(/\n\s*\{\s*\n?\s*id:/).slice(1).map(b => ({
 const PROSE = {
   measuredFeet:       ['How many feet of roofline you are lighting.', 'the quote form'],
   lightsDescription:  ['Which colours, and the order if they alternate.', 'the quote form and the member portal'],
-  /* ⛔ NOBODY IS ASKED THIS ANY MORE (2026-09-17). Addie: "keep what lights they want
+  /* ⭐ THE CUSTOMER PICKS IT, AT BOTH DOORS (2026-09-19). Addie, reading this list:
+     "Fix the options list to say customers can pick it." [[OPT-21]] is the member
+     portal's lights tab, [[OPT-22]] the install-details form somebody who is not a
+     member yet fills in. Both offer Any, Green or White, worded alike on purpose.
+     ⛔ THE REGISTRY HAD BEEN RIGHT FOR A DAY AND THIS SENTENCE HAD NOT, which is the
+     whole reason the last note below is here: `internal` came off the entry with OPT-22
+     and the destinations under each row are read out of the registry, so every
+     machine-derived half of this page was correct while the one hand-typed half went on
+     naming a single door and saying the office picks.
+     ~~⛔ NOBODY IS ASKED THIS ANY MORE (2026-09-17). Addie: "keep what lights they want
      but don't add what wire color they want but push check lights then warehouse chooses
-     what wire they have on file and will make it based on what wire they have."
-     The prose is the ONE hand-written part of this file, so it is also the one part that
-     can go on claiming a question we stopped asking — the destinations below it are read
-     out of the registry and corrected themselves. */
-  wireColor:          ['White or green wire — the cord the bulbs sit on. The detail form offers\nAny, Green or White, and Any is what it starts on. Any stores nothing at all,\nso the warehouse reads Check lights and the office has to pick one before that\nquote can be converted.', 'the detail form, after they approve — and the office picks when they said Any'],
+     what wire they have on file and will make it based on what wire they have."~~
+     Superseded → OPT-21 and OPT-22 (R-024). The old words are KEPT because they are
+     still the argument for the shape this takes: what that ruling refused was an
+     INVENTED answer — the old control defaulted to Any and STORED the word — and never
+     the question. Any stores nothing at all now, which is why asking is safe again.
+     ⚠ THE PROSE IS THE ONE HAND-WRITTEN PART OF THIS FILE, so it is the one part that
+     can go on describing a question that has changed underneath it. The grouping below
+     no longer takes its word for anything: it reads `internal` and refuses to build when
+     the two disagree. */
+  wireColor:          ['White or green wire — the cord the bulbs sit on. Both the detail form and\nthe member portal offer Any, Green or White, worded the same way, and Any is\nwhere they start. Any stores nothing at all, so the warehouse reads Check lights\nand the office has to pick one before that quote can be converted.', 'the detail form after they approve, and the member portal — and the office picks when they said Any'],
   outletTimer:        ['Whether they want a timer on the outlet.', 'the quote form and the member portal'],
   useEaves:           ['Whether we may use an outlet up in the eaves.', 'the quote form'],
   specificOutlet:     ['Which specific outlet to plug into, in their words.', 'the quote form, and picked out of the Misc column on the master sheet'],
@@ -66,6 +121,34 @@ if (undocumented.length || stale.length) {
   stale.forEach(i => console.error('    line here for an option that is GONE:    ' + i));
   console.error('\n  Add or remove the line in PROSE above, in the same commit that');
   console.error('  changed the registry, then run this again.\n');
+  process.exit(1);
+}
+
+/* ⭐ AND THE SECOND HARD STOP: THE REGISTRY AND THE PROSE MUST AGREE ABOUT WHETHER A
+   CUSTOMER IS ASKED AT ALL (2026-09-19). Addie: "Fix the options list to say customers
+   can pick it." The wire colour is why this exists — `internal` came off that entry with
+   [[OPT-22]] and the page went on filing it as something we work out ourselves, because
+   the grouping was derived from the SENTENCE rather than from the flag. One claim, two
+   sources, and the hand-typed one was winning.
+   ⚠ IT REFUSES RATHER THAN PREFERRING ONE, in both directions. An option marked internal
+   whose prose says the quote form asks it is either a leak (`audit()` calls that a hole)
+   or a stale sentence, and only a person knows which; an option NOT marked internal that
+   nobody is asked is a declaration that has outlived its question. Same reason as the
+   stop above — this page is read as an answer, so being confidently wrong about it is
+   worse than not building.
+   ⚠ AND IT RUNS BEFORE ANYTHING IS WRITTEN, deliberately. Checked down beside the
+   grouping it protects, the markdown would already be on disk and only the page would be
+   refused — two halves of one list left disagreeing by the guard meant to stop exactly
+   that. */
+const asksTheCustomer = o => !/^(the office|derived)/.test(PROSE[o.id][1]);
+const disagree = options.filter(o => o.internal === asksTheCustomer(o));
+if (disagree.length) {
+  console.error('\n  The registry and the prose disagree about who is asked.\n');
+  disagree.forEach(o => console.error(
+    '    ' + o.id + ': internal is ' + (o.internal ? 'true' : 'false') +
+    ', but "Asked at" reads "' + PROSE[o.id][1] + '"'));
+  console.error('\n  Fix whichever one is wrong — the entry in js/options.js, or the line');
+  console.error('  in PROSE above — then run this again. Nothing was written.\n');
   process.exit(1);
 }
 
@@ -136,8 +219,8 @@ out.push('will fail, and it will simply never appear on a quote, a crew sheet or
 out.push('list. That is what makes the ten minutes of reading worth it.');
 out.push('');
 
-fs.writeFileSync(path.join(root, 'docs', 'what-we-can-record.md'), out.join('\n'));
-console.log('docs/what-we-can-record.md — ' + options.length + ' options, generated from the registry');
+emit('docs/what-we-can-record.md', out.join('\n'),
+  'docs/what-we-can-record.md — ' + options.length + ' options, generated from the registry');
 
 /* ---------------------------------------------------------------------------
  * AND THE SAME LIST AS A PAGE SHE CAN READ ANYWHERE.
@@ -148,8 +231,22 @@ console.log('docs/what-we-can-record.md — ' + options.length + ' options, gene
  * where each answer comes from, not typed: an option the customer never sees
  * (bins, difficulty, the one-time note) is a different kind of thing from one they
  * are asked, and that distinction is the useful half of the list.
+ *
+ * ⭐ DERIVED FROM `internal`, NOT FROM THE SENTENCE UNDER EACH CARD (2026-09-19). It read
+ * the PROSE until the wire colour showed what that costs: the registry had said for a day
+ * that the customer picks it and this page went on grouping it with the bins. `internal`
+ * is the DECLARATION — `audit()` refuses a non-internal option that no customer-facing
+ * artifact renders — so it is the half with a gate behind it. The prose is now held
+ * against it by the second hard stop above rather than being the source.
+ *
+ * ⚠ SO REVERTING THIS ONE LINE TO THE OLD REGEX IS A NO-OP AND WAS MEASURED AS ONE — the
+ * stop above makes the two provably equal at build time, so both derivations group the
+ * same 11 and 3. What the stop CANNOT survive is being gutted itself: with it removed and
+ * `internal: true` put back on the wire colour, this page rebuilds clean and quietly files
+ * it under "What we work out ourselves" — 10 and 4, no error, which is the exact state
+ * Addie asked to have fixed. That sabotage is the one that proves the pair.
  * ------------------------------------------------------------------------- */
-const askedOfCustomer = o => !/^(the office|derived)/.test(PROSE[o.id][1]);
+const askedOfCustomer = o => !o.internal;
 const GROUPS = [
   ['What the customer tells us',
    'Asked on the quote form, in the member portal, or read off the master sheet.',
@@ -360,5 +457,5 @@ ${list.map(card).join('\n')}
 </div>
 `;
 
-fs.writeFileSync(path.join(root, 'docs', 'what-we-can-record.html'), page);
-console.log('docs/what-we-can-record.html — the same list as a page');
+emit('docs/what-we-can-record.html', page, 'docs/what-we-can-record.html — the same list as a page');
+reportCheck();
