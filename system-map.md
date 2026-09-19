@@ -2225,6 +2225,37 @@ wrong," it is a second, narrower question the first one never claimed to answer.
   `portalSidesListFromValue()` sanitizes to `PORTAL_SIDE_NAMES`'s fixed order —
   dedup'd, capped at four, and stable regardless of tick order — so a record always
   compares and displays the same way it was saved, whichever order that was.
+- ⭐ **2026-09-19, the Sides tab says what we already hold** ([[OPT-24]]). Addie:
+  *"can we backfill the sides for existing customers"*. Nearly the whole book has a
+  COUNT and no names, and this tab drew those customers **four empty boxes** — the
+  same screen a record we hold nothing at all for gets. So the one number that
+  decides their price was invisible on the one screen where they can change it.
+  `portalSidesOnFileText()` fills `#sidesOnFileNote` with one of three sentences:
+  the names, where a list is on file; *"We have 3 sides on file for you, but not
+  which ones … as long as you still tick 3, your price does not change"*, where only
+  a count is; and nothing at all where neither is.
+  - ⛔ **THE ANSWER TO HER QUESTION IS A SENTENCE, NOT A WRITE, and the stored
+    backfill is refused.** Filling `houseSidesList` from the count for ~956 houses
+    would mean nothing anywhere could tell a name somebody GAVE from one we worked
+    out — on the field [[OPT-03]] says decides which half of a roof gets lit.
+    `printSidesCell` is built on exactly that distinction (`named.length === n`), so
+    the crew sheet would start printing derived names as instructions. Same answer
+    `whWireLabel` already gives for the wire, for the same reason: where the record
+    does not know, say so. Asserted as a refusal in run-all Suite 63, so a later
+    session has to meet the argument rather than find nothing in its way.
+  - ⚠ **The office half was already done and is NOT this.** [[OPT-07]] fills the Edit
+    Customer boxes from the count, front first, labelled — and a record opened and
+    saved there does store that fill. That is the cost she took, one house at a time,
+    with the boxes and the *"nobody has said which sides"* line in front of whoever
+    pressed Save. What has no such person behind it is a sweep over the book, so the
+    invariant Suite 63 holds is narrow and exact: `houseSidesAutoFill` only ever
+    reaches `houseSidesShowList` — it paints boxes and is never handed to a write.
+  - ⛔ **And the portal deliberately does NOT pre-tick.** The person ticking here is
+    the customer, so a pre-ticked box saved without reading becomes THEIR answer.
+    A sentence tells them what we hold and leaves the answer theirs.
+  - ⚠ **Re-drawn after the save mirrors the record**, not before: the boxes are
+    already right, so what has to move is the sentence above them, which otherwise
+    still reads *"we have 3 on file but not which ones"* under the word **Saved.**
 - ⚠ **The confirm dialog fires on a COUNT change, never on naming alone.** The common
   first save, for every one of the ~956 existing customers, is filling in WHICH
   sides for a count that was already accurate — that must not trip the same
