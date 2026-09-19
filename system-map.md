@@ -4243,6 +4243,33 @@ the UTC sabotage sailed through in-process. `fixed-errors.test.js` learned this 
 sits six hours early: an evening of reports would be reported as predating a fix they postdate.
 6 of 6 sabotages red-checked, error-digest.js byte-for-byte after each.
 
+⛔ **AND ONE SAMPLE WAS BEING READ AS THE WHOLE GROUP** (2026-09-19, the same evening, found by
+Addie pasting the real badge list). The report printed the FIRST report's `Browser:` line and
+nothing else, so the five `Missing or insufficient permissions` rows — Chrome on Windows twice,
+Safari on iPhone twice, Chrome on Mac once — were described to her as *"all from an iPhone, iOS
+18.7 Safari"*, because the first of the five happened to be. A Safari-only fault and an
+everywhere fault have different causes, so that one line sends whoever picks it up to the wrong
+place.
+⭐ **THE ENVIRONMENTS ARE COUNTED NOW, NOT SAMPLED** — `seen on: Chrome on Windows x2, Safari on
+iPhone x2, Chrome on Mac x1`. That also answers what one line never could: whether a fault is one
+machine repeating itself or the whole office hitting it.
+⚠ **A FAMILY, NEVER THE RAW AGENT, AND IT REPLACES THE SAMPLE'S LINE RATHER THAN JOINING IT.** A
+full user agent is the most fingerprint-like thing in a report built to name nobody, so the census
+carries no version numbers and the raw line is dropped from the printed sample — the report ends
+up holding LESS about any one person than before. Asserted: no label reaches 30 characters or
+contains a digit.
+⚠ **THE ORDER OF THE BROWSER TESTS IS THE WHOLE PARSER.** Chrome's agent contains `Safari/` and
+Edge's contains `Chrome/`, so tested the obvious way round every Chrome report files itself as
+Safari — precisely the wrong answer this exists to stop giving. The iPhone test leads for the same
+reason: its agent says `Mac OS X`. The fixtures are the five REAL agents off Addie's paste, because
+an invented set agrees with whatever the parser happens to do.
+⚠ **AND `tallyEnv` IS ITS OWN FUNCTION SO A TEST CAN RUN IT.** Inline in `main()` the only possible
+check was that the words `g.envs` appear somewhere, and the red-check duly proved a census counting
+the FIRST report and ignoring the rest sailed through — this file's own defect one level down. The
+call site is asserted separately, as a statement on its own line, because `if (!g.envs.size)
+tallyEnv(…)` leaves a correct tally behind a guard that admits one report. 10 of 10 sabotages
+red-checked; 36 checks.
+
 ⭐ **THE SECTION CONTROLS ARE ALWAYS VISIBLE NOW** (2026-09-11, [[MSG-23]]). Addie: *"not
 able to add to each section and delete from each section."* Both buttons — `✎` to rename a
 section or add a folder to it, `✕` to hide one — were rendered and wired the whole time, at
