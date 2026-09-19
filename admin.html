@@ -23134,6 +23134,161 @@ function errorAlreadyReported(topic, key){
     return t.getTime() >= cutoff;
   });
 }
+/* ⭐ A FAULT THAT HAS BEEN FIXED CLEARS ITS OWN REPORTS (2026-09-19, [[MSG-29]]).
+   Addie, asked how the Errors should be cleared — by a nightly age sweep, by a button, or
+   by me on demand: "I want you to clear those once you fix them. thats how it should
+   work." So the clearing belongs to the FIX and to nothing else. An entry is added to the
+   list below in the same change that repairs the fault, it ships in that same push, and
+   the reports of it are gone by her next login. Nobody presses anything and no clock is
+   involved.
+   ⛔ A REPORT WRITTEN AFTER THE FIX SHIPPED IS NEVER CLEARED, and that is the whole
+   honesty of it. A fix that did not take re-reports itself; sweeping on the fault alone
+   would delete exactly that evidence, for ever and in silence, leaving a live bug that can
+   no longer be seen. `fixedOn` is a floor, and a row from that same day survives too — the
+   fix landed at some hour of it and nothing here knows which, so the one direction this
+   can be wrong in is keeping a row too long.
+   ⚠ A NEEDLE TOO SHORT TO MEAN ANYTHING IS REFUSED, out loud. A needle that over-matches
+   deletes the evidence of a DIFFERENT bug, which is the one failure here with no way back
+   — "internal" is a real error code and also eight letters that sit inside ordinary words.
+   ⚠ IT READS `errorKey`, WHICH BOTH REPORTERS ALREADY WRITE, and never the body. The two
+   spell it differently — admin.html's `errorKeyFor` lowercases and collapses digits,
+   index.html's builds `doing|reason` and does neither — so both sides go through
+   `fixedErrorNeedle` before they are compared rather than either being trusted. A row with
+   no `errorKey` predates the field and is left alone.
+   ⛔ WHAT IS DELIBERATELY NOT IN THE LIST, so nobody adds it: "Unhandled promise: Missing
+   or insufficient permissions". That was INSTRUMENTED on 2026-09-18, not fixed —
+   `rejectionWhere()` now appends the first frame from our own files so the NEXT one can be
+   traced. Clearing it would throw away the very reports that fix is waiting for. It goes
+   in only when something actually repairs it. */
+const FIXED_ERROR_MIN_MATCH = 12;
+const FIXED_ERRORS = [
+  { match: 'renderFolderSidebar is not defined', fixedOn: '2026-09-09',
+    note: 'Admin. Two calls left pointing at a function the Communication Centre had deleted, so both threw on every page load. Repointed to renderCommNav in 255d321.' },
+  { match: 'Document already exists', fixedOn: '2026-09-11',
+    note: 'Admin. Not a collision: the SDK retrying a write whose acknowledgement was lost, which skipped the arrearsPaidNoticeAt stamp so the paid-but-not-approved note raised itself again on every sweep. cd2026a.' },
+  { match: 'deadline-exceeded', fixedOn: '2026-09-11',
+    note: 'Member. A portal answer lost to one slow cold start. callPortalFn retries the no-answer codes now, so a row AFTER this date means all three retries timed out, which is new news and survives. 2176ff2.' },
+  { match: 'could not read nightly billing health', fixedOn: '2026-09-18',
+    note: 'Admin. Firestore naming the Wi-Fi rather than a fault; only a read can fail that way and the ten-minute tick simply reads again. Joined ADMIN_ERROR_IGNORE in e7e96a6, so no new rows are written at all.' },
+  /* ⚠ THE TWO BROADEST ENTRIES IN THE LIST, AND WHAT BOUNDS THEM. One crash, two engines:
+     Chrome says "Cannot read properties of null", Safari says "null is not an object", and
+     the report that found it came off a real iPhone, so matching one wording would leave
+     half of them. Neither needle names the radios, because the throw happened before the
+     callable and so arrives through the page-level catcher rather than portalCallFailedText,
+     which means the `doing` half of the key cannot be relied on. What keeps them narrow is
+     the floor: every Member Error of this shape before 2026-09-10 was triaged in 6f61d8c as
+     that one crash, and anything of this shape since is a different bug and is kept. */
+  { match: 'Cannot read properties of null', topic: MEMBER_ERROR_TOPIC, fixedOn: '2026-09-10',
+    note: 'Member. changes_outlet_timer / changes_specific_outlet read .value off a radio nothing had ticked and took the whole preferences save down with it — and on an RSVP page, the answer with it. 6f61d8c.' },
+  { match: 'null is not an object', topic: MEMBER_ERROR_TOPIC, fixedOn: '2026-09-10',
+    note: 'Member. Safari wording for the same crash as the entry above. 6f61d8c.' }
+];
+/* Both sides of the comparison go through this, so an entry above can be typed the way the
+   error actually reads rather than in whichever key spelling it happens to land in. */
+function fixedErrorNeedle(text){
+  return String(text || '').toLowerCase().replace(/[0-9]+/g, '#').replace(/\s+/g, ' ').trim();
+}
+/* Local midnight at the START of the day named. Never Date.parse('YYYY-MM-DD'), which is
+   read as UTC and would put the floor in the previous evening — six hours in which a
+   report written after the fix would be cleared as though it predated it. */
+function fixedErrorFloor(fixedOn){
+  const bits = String(fixedOn || '').split('-');
+  if(bits.length !== 3) return 0;
+  const y = Number(bits[0]), m = Number(bits[1]), d = Number(bits[2]);
+  if(!y || !m || !d) return 0;
+  const when = new Date(y, m - 1, d);
+  return isNaN(when.getTime()) ? 0 : when.getTime();
+}
+/* The entry that covers this report, or null. Its own function so a test can RUN it: every
+   claim here is about which rows survive, which a text match cannot see. */
+function errorFixedBy(d, list){
+  d = d || {};
+  const topic = String(d.topic || '');
+  if(topic !== MEMBER_ERROR_TOPIC && topic !== ADMIN_ERROR_TOPIC) return null;
+  const key = fixedErrorNeedle(d.errorKey);
+  /* ⚠ BELT AND BRACES LIKE THE FLOOR GUARD BELOW, and a red-check proved it: an empty
+     key cannot contain a needle of twelve characters or more, so indexOf answers -1 for
+     every entry and this returns null anyway. Kept for what it says, not for what it
+     does. Rows with no errorKey predate the field. */
+  if(!key) return null;
+  /* ⚠ NO DATE MEANS LEAVE IT WHERE IT IS. serverTimestamp() reads back null on the writing
+     tab's own first snapshot, and a row we cannot date is a row we cannot show is older
+     than the fix. errorAlreadyReported makes the same call the other way round — each is
+     the cautious direction for what it goes on to do. */
+  const when = toJsDate(d.createdAt);
+  if(!when) return null;
+  const entries = Array.isArray(list) ? list : FIXED_ERRORS;
+  for(const e of entries){
+    /* ⚠ AN ENTRY MAY NAME ITS REPORTER, AND THE TWO NULL-CRASH ONES DO. Their wording is
+       generic enough to turn up on the admin side as well (Edit Customer's own
+       s.indexOf crash reads almost identically), and a fix to the portal says nothing
+       about a fault in the office. No topic means both, which is right for a wording
+       only one reporter can produce. */
+    if(e && e.topic && String(e.topic) !== topic) continue;
+    const needle = fixedErrorNeedle(e && e.match);
+    if(needle.length < FIXED_ERROR_MIN_MATCH) continue;
+    if(key.indexOf(needle) === -1) continue;
+    const floor = fixedErrorFloor(e && e.fixedOn);
+    /* ⚠ BELT AND BRACES, AND SAID SO: a zero floor already fails the comparison below for
+       every date since 1970, so a red-check deleting this line changes nothing today. It is
+       kept because that is a property of the comparison rather than of this guard, and a
+       future change to the comparison would resurrect the bug with nothing going red.
+       fixedErrorsBadEntries is what actually reports an unusable date. */
+    if(!floor) continue;
+    if(when.getTime() < floor) return e;
+  }
+  return null;
+}
+/* An entry that cannot be used is named where somebody will see it rather than skipped on
+   the quiet: a typo in a date reads exactly like a fault that never got cleared. */
+function fixedErrorsBadEntries(list){
+  return (Array.isArray(list) ? list : FIXED_ERRORS).filter(function(e){
+    if(e && e.topic && e.topic !== MEMBER_ERROR_TOPIC && e.topic !== ADMIN_ERROR_TOPIC) return true;
+    return fixedErrorNeedle(e && e.match).length < FIXED_ERROR_MIN_MATCH || !fixedErrorFloor(e && e.fixedOn);
+  });
+}
+let fixedErrorsBusy = false;
+let fixedErrorsWarned = false;
+const fixedErrorsTried = new Set();
+const FIXED_ERROR_MAX_PER_SWEEP = 300;
+/* ⚠ NEVER REJECTS AND IS NEVER AWAITED. It runs off the messages snapshot, so an unhandled
+   rejection out of here would be caught by the page's own error handler and written
+   straight back into the folder it is emptying. */
+async function clearFixedErrors(){
+  if(fixedErrorsBusy) return;
+  fixedErrorsBusy = true;
+  try{
+    if(!fixedErrorsWarned){
+      fixedErrorsWarned = true;
+      const bad = fixedErrorsBadEntries();
+      if(bad.length) console.warn('[HU] ignoring ' + bad.length + ' FIXED_ERRORS entry(s): the match is too short or the date will not read');
+    }
+    if(!Array.isArray(allMessages) || !allMessages.length) return;
+    const due = [];
+    for(const m of allMessages){
+      if(!m || !m.id || fixedErrorsTried.has(m.id)) continue;
+      if(errorFixedBy(m.data)) due.push(m.id);
+      if(due.length >= FIXED_ERROR_MAX_PER_SWEEP) break;
+    }
+    if(!due.length) return;
+    let done = 0;
+    for(const id of due){
+      /* Marked BEFORE the attempt, deliberately: a delete re-fires this very listener, so a
+         row that cannot be deleted must not be picked up again on the way back round for
+         ever. It is retried on the next login, which is when something may have changed. */
+      fixedErrorsTried.add(id);
+      try{
+        await deleteDoc(doc(db,'messages', id));
+        done++;
+      } catch(err){ console.warn('[HU] could not clear a fixed error report', err); }
+    }
+    if(done) console.log('[HU] cleared ' + done + ' error report(s) whose fault is already fixed');
+  } catch(err){
+    console.warn('[HU] clearing fixed error reports failed', err);
+  } finally {
+    fixedErrorsBusy = false;
+  }
+}
 let adminErrorsWritten = 0;
 let adminErrorBusy = false;
 let adminErrorReady = false;
@@ -25928,6 +26083,9 @@ function loadMessages(){
     /* Last: the repeat check reads allMessages, so anything held while this was loading can
        only be decided now. */
     flushAdminErrors();
+    /* Same list and the same moment: a report whose fault is already fixed goes now.
+       Not awaited, and clearFixedErrors never rejects. */
+    clearFixedErrors();
   });
 }
 /* ---------------- INVOICES ---------------- */

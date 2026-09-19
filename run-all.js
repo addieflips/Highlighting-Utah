@@ -62288,13 +62288,17 @@ suite('343. A burst of writes draws once, not once per write (the frozen page)')
       'the paid-but-not-approved note and the February reminder hang off this listener: ' + JSON.stringify(calls));
   }
 
-  const msgExtra = ['renderMessagesList', 'renderSystemMessagesTab', 'renderCommNav', 'flushAdminErrors'];
+  /* ⚠ clearFixedErrors IS STUBBED HERE ON PURPOSE, unlike the usual rule. This suite counts
+     CALLS, and the real one reaches Firestore to delete; the claim below is only that it is
+     asked on every snapshot, exactly as flushAdminErrors is. fixed-errors.test.js runs the
+     real one. */
+  const msgExtra = ['renderMessagesList', 'renderSystemMessagesTab', 'renderCommNav', 'flushAdminErrors', 'clearFixedErrors'];
   if (msgSrc) {
     const h = harness(msgSrc, 'loadMessages', msgExtra);
     h.fire(40);
     check('S343', 'forty new messages in a row do not redraw the Inbox forty times',
-      !h.calls.renderCommNav && h.calls.flushAdminErrors === 40,
-      'the sidebar re-categorises every message; the error reporter must still see each snapshot: ' + JSON.stringify(h.calls));
+      !h.calls.renderCommNav && h.calls.flushAdminErrors === 40 && h.calls.clearFixedErrors === 40,
+      'the sidebar re-categorises every message; the error reporter and the fixed-error sweep must still see each snapshot: ' + JSON.stringify(h.calls));
     h.runTimers();
     check('S343', 'and the Inbox draws once when the burst settles',
       h.calls.renderMessagesList === 1 && h.calls.renderSystemMessagesTab === 1 && h.calls.renderCommNav === 1,

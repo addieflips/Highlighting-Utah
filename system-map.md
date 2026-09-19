@@ -4118,6 +4118,38 @@ lower one silently wins and the panel drops the oldest rows without a word.
 write against her own filing, and anything she dragged into Errors by hand is still reachable
 under "Your folders". `seedErrorFolders` is kept in the file and simply not called.
 
+⭐ **AND A FAULT THAT HAS BEEN FIXED NOW CLEARS ITS OWN REPORTS** (2026-09-19, [[MSG-29]]).
+Addie, offered a nightly sweep by age, a Clear button in the Inbox, or me clearing them on
+demand: *"I want you to clear those once you fix them. thats how it should work."* So the
+clearing belongs to the FIX and to nothing else. `FIXED_ERRORS` in admin.html names each fault
+that has been repaired, with the date its fix shipped and the commit that did it; an entry is
+added in the same change that repairs the fault, so the reports of it are gone by her next
+login with nothing pressed and no clock involved. `clearFixedErrors` runs off the messages
+snapshot, beside `flushAdminErrors`.
+⛔ **This is the one thing that does now delete from `messages`**, which narrows the "nothing is
+deleted from the database" line above — that was about where errors are READ, and it still
+holds for every error nobody has fixed. What is deleted is only a report of a fault somebody
+has declared repaired in code, in git, with a note saying which commit.
+⛔ **A report written AFTER the fix shipped is never cleared, and that is the whole honesty of
+it.** A fix that did not take re-reports itself; sweeping on the fault alone would delete
+exactly that evidence, for ever and in silence, leaving a live bug that can no longer be seen.
+`fixedOn` is a floor and the fix day itself survives too, because the fix landed at some hour
+of it and nothing here knows which — so the one direction this can be wrong in is keeping a row
+too long.
+⚠ **A match under twelve characters is refused, out loud.** An over-broad needle deletes the
+evidence of a DIFFERENT bug, which is the one failure here with no way back: "internal" is a
+real error code and also eight letters that sit inside ordinary words.
+⚠ **It reads `errorKey`, never the body**, and both sides go through `fixedErrorNeedle` first —
+admin.html's `errorKeyFor` lowercases and collapses digits, index.html's builds `doing|reason`
+and does neither, so neither spelling can be trusted as it stands. A row with no `errorKey`
+predates the field and is left alone, as is one with no date.
+⛔ **"Unhandled promise: Missing or insufficient permissions" is deliberately NOT in the list.**
+That was INSTRUMENTED on 2026-09-18, not fixed — `rejectionWhere()` names the frame so the next
+one can be traced — and clearing it would throw away the very reports that fix is waiting for.
+`fixed-errors.test.js` holds all of it: 31 checks, weighted six-to-eleven towards what must
+SURVIVE rather than what goes, and 15 sabotages red-checked. The two that were not caught are
+no-ops and are labelled as such in the code.
+
 ⭐ **THE SECTION CONTROLS ARE ALWAYS VISIBLE NOW** (2026-09-11, [[MSG-23]]). Addie: *"not
 able to add to each section and delete from each section."* Both buttons — `✎` to rename a
 section or add a folder to it, `✕` to hide one — were rendered and wired the whole time, at
