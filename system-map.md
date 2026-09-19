@@ -4161,6 +4161,29 @@ real error code and also eight letters that sit inside ordinary words.
 admin.html's `errorKeyFor` lowercases and collapses digits, index.html's builds `doing|reason`
 and does neither, so neither spelling can be trusted as it stands. A row with no `errorKey`
 predates the field and is left alone, as is one with no date.
+⭐ **AND THE LOOP IS CLOSED: RAISE → READ → FIX → CLEAR** (2026-09-19, [[PROC-36]]). Addie:
+*"how can we make it so errors are generated first, you read the errors you fix the errors than
+fix the errors in admin portal since those errors are no longer needed"*. Three of those four
+already worked; reading them meant her pasting a log in by hand. **Actions → Read the error
+folder → Run workflow** now prints the Errors folder grouped by fault, and flags any fault that
+IS covered by a FIXED_ERRORS entry and still present — which is how to tell a sweep that has not
+run from a fix that did not take.
+⛔ **DISPATCH-ONLY, AND READ-ONLY ENFORCED RATHER THAN PROMISED.** No push trigger and no
+schedule: it reads customer-facing data, so it runs when somebody asks and never on its own. It
+uses the service account that already deploys the functions, which CAN write anything in the
+project — so `error-digest.test.js` pins the database handle to exactly ONE use, the messages
+read, which makes a write unreachable whatever it is called.
+⚠ A BLANKET BAN ON `.set(` / `.add(` / `.delete(` WAS TRIED FIRST AND FAILED ON CORRECT CODE,
+because `groups.set(key, g)` is a Map. Map and Set carry all three names, so that ban could never
+be both sound and complete. Constraining the REFERENCE is the tighter statement, and it is the
+one that holds.
+⛔ **AND IT NAMES NOBODY.** An Actions log is readable by anybody with repo access, and every
+error row carries who hit it ([[MSG-10]], built so the OFFICE can ring them). The identity fields
+are never read and the body is scrubbed of anything email-shaped — the admin reporter writes the
+signed-in address into the message TEXT as well as its own field, so dropping the field alone
+would still print it. Who hit a fault stays in the admin Errors badge, where it is useful and
+access-controlled.
+
 ⚠ **AND ONE ENTRY WAS ADDED LATE BECAUSE IT WAS WRITTEN OFF TOO EARLY** (2026-09-19). The Edit
 Customer save crash was first reported as untraceable — "I could not pin its wording to a commit"
 — and it was traceable all along: this file's own entry a few hundred lines up quotes BOTH engine

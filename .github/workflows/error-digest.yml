@@ -1,0 +1,61 @@
+# READ THE ERRORS — the missing step in raise → read → fix → clear.
+#
+# Addie, 2026-09-19: "how can we make it so errors are generated first, you read
+# the errors you fix the errors than fix the errors in admin portal since those
+# errors are no longer needed". Errors are raised by the app, fixed in a commit,
+# and cleared by FIXED_ERRORS on her next login. Reading them was the one step
+# that still needed her to copy and paste a log by hand.
+#
+# ⛔ MANUAL ONLY. No push trigger and no schedule, deliberately: this reads
+# customer-facing data, so it runs when somebody asks for it and never on its
+# own. It also means a mistake here cannot fire unattended.
+#
+# ⛔ READ-ONLY. The service account deploys Cloud Functions, so it CAN write
+# anything in the project — the only thing stopping this job is error-digest.js
+# itself, and error-digest.test.js fails the build if a write ever appears in
+# that file. The gate is the guard; this comment is not.
+#
+# ⛔ AND IT NAMES NOBODY. The output is a public-ish artifact — anybody with
+# repo access can read an Actions log — so the script drops the identity fields
+# and scrubs anything email-shaped. Who hit a fault lives in the admin Errors
+# badge, where it is useful and access-controlled.
+
+name: Read the error folder
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: error-digest
+  cancel-in-progress: true
+
+jobs:
+  digest:
+    name: Errors, by fault, naming nobody
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # firebase-admin already lives in functions/, so the script runs from
+      # there and resolves it without adding a dependency at the repo root.
+      - name: Install function dependencies
+        working-directory: functions
+        run: npm install
+
+      - name: Write service account key to a temp file
+        env:
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: printf '%s' "$SA_JSON" > "$RUNNER_TEMP/firebase-sa.json"
+
+      - name: Read the errors
+        working-directory: functions
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
+          GOOGLE_CLOUD_PROJECT: highlighting-utah
+        run: node ../error-digest.js
