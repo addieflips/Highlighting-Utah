@@ -2652,6 +2652,49 @@ to the rule would have moved only one of them.
 customers that answer is emphatically yes. Folding the two together would write the debt
 off again by the back door.
 
+⭐ **ONE TAB PER HOUSE ON THE BILL, IN EDIT CUSTOMER.** A payer can be billed for several
+houses — a parent paying for a child, a landlord paying for tenants, a cabin as well as a
+house — and until 2026-08-26 the only way to edit the second one was to close the form,
+find them in All Customers and open it again. A strip of tabs across the top of Edit
+Customer does it in one click, and a **bill line** underneath names the balance, whose
+bill it is, and how many houses the money covers. Both are hidden for a single-house
+customer, because *"this bill covers 1 property"* is a row of chrome and no information —
+the bill line still shows, because *what do they owe* is asked of them just as often.
+
+- ⛔ **THE STRIP AND THE BILL ARE TWO DIFFERENT LISTS, DELIBERATELY.** The tabs are the
+  HOUSEHOLD (`editCustHouseholdHouses`); who is charged is `houseIsOnTheBill`, the same
+  rule the invoice and the nightly run read. They key off the same bill
+  (`editCustBillKey` — `billToPhone` first, the house's own `custInvoiceKey` second), so
+  they can never disagree about WHICH bill a house is on, only about who inside it pays.
+  Reading the tabs off `billedHousesFor` was tried and was wrong: on the owner's own
+  four-Anderson household the strip came back with three tabs and Ryan simply gone —
+  right for the invoice, wrong for a screen the office has to be able to open him from.
+- **A house that answered a flat No is off the strip entirely** — they are out of the
+  season. **A Back next year house stays, struck through, reading `Not billed`** in place
+  of its price. ⚠ Not *beside* its price: a house nobody is charging, wearing a figure, is
+  the strip contradicting the invoice under it. ⚠ And a house that was **hung** and then
+  said Back next year is `completed`, so it IS billed and is NOT struck through — Addie:
+  *"if they were already hung and then pushed back next year than they should still be
+  charged."* That clause is why `editCustTabNotBilled` calls the shared rule instead of
+  re-testing the RSVP itself.
+- **The payer is starred, tinted, sorted first and says *Pays the bill* in words** — a star
+  alone is a symbol somebody has to have been told the meaning of, on the one fact here
+  that decides where money lands. It is `payerHouseOf` (lowest customer number), picked
+  from the BILLED houses rather than the household: letting a house that is not paying win
+  that sort would put the bill in the name of the one person not on it.
+- ⚠ **The count in the bill line counts BILLED houses, not tabs.** *"Covering 4 houses"*
+  over a figure for three is the rows-not-adding-up problem, in office clothes; it reads
+  *"covering 3 houses, 1 not billed"*.
+- ⚠ **The strip is hidden entirely while a re-quote is being applied.**
+  `showApplyRequoteChoice` opens this form and then writes the new price, footage, address
+  and colours into it — a tab click refills every field from the record, throwing the new
+  price away, while four module-level re-quote values ride across onto the sibling house.
+- ⚠ **It is one form repointed, never a second editor.** A tab click is
+  `openEditCustomerModal` again, which already refills all forty controls, re-reads the
+  invoice, clears both file inputs and re-captures the stale guard. Anything bound inside
+  it must be bound **once** — that function runs on every tab click, and re-binding is the
+  accumulating-listener bug that put 2815 writes behind one drag in the Inbox.
+
 **Credits** (`credits`/`creditNotes`) never push the balance below $0 — anything left over becomes `carryoverCredit` on the customer, applied to their *next* invoice, not refunded.
 
 ---
