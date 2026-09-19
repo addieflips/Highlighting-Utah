@@ -33,8 +33,8 @@ const CANON = 'https://highlightingutah.com/';
 export const ROUTES = {
   '/how-it-works': {
     name: 'How It Works',
-    title: 'How It Works | Highlighting Utah Christmas Lights',
-    desc: 'Quote, design, install, in-season maintenance and January takedown — how Highlighting Utah handles Christmas lights on your home from start to finish.'
+    title: 'How It Works & Cost | Highlighting Utah Christmas Lights',
+    desc: 'How Christmas light installation works and what it costs: priced per foot of roofline, with the lights, install, in-season repairs and January takedown included.'
   },
   '/gallery': {
     name: 'Gallery',
