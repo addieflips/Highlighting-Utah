@@ -108,8 +108,16 @@ if (src) {
       'test and preview clicks would land in the numbers the budget is decided on');
   });
 
+  /* The shipped CONFIG carries the real Ads ID since 2026-09-19, so the "Ads dormant"
+     half is run against a copy with the ID blanked, and section 6 against invented ones. */
+  const dormant = s => s.replace(/ads: 'AW-[^']*',/, "ads: '',");
+  const invented = s => s.replace(/ads: '[^']*',/, "ads: 'AW-111',")
+    .replace(/labels: \{[^}]*\}/, "labels: { quote: 'LQ', contact: 'LC', call: '' }");
+
   /* ------------------------------------------------ 4. an ordinary ad click */
-  const ad = run('https://highlightingutah.com/?gclid=G1&utm_source=google&utm_campaign=xmas&fbclid=zz&ref2=q#/quote');
+  const ad = run('https://highlightingutah.com/?gclid=G1&utm_source=google&utm_campaign=xmas&fbclid=zz&ref2=q#/quote', { patch: dormant });
+  check('the dormant copy really has no Ads ID (test guard)', ad.api._test.CONFIG.ads === '',
+    'the CONFIG block was reworded; update the dormant() pattern above');
   check('started on the real domain', ad.appended.length === 1 && ad.api._test.isEnabled());
   check('loads gtag.js from Google', ad.appended[0] && /^https:\/\/www\.googletagmanager\.com\/gtag\/js\?id=/.test(ad.appended[0].src));
   const cfg = ad.dl.map(a => Array.prototype.slice.call(a)).filter(a => a[0] === 'config');
@@ -136,11 +144,9 @@ if (src) {
     JSON.stringify(ud));
 
   /* ---------------------------------------- 6. conversions, Ads filled in */
-  const live = run('https://highlightingutah.com/', {
-    patch: s => s.replace("ads: '',", "ads: 'AW-111',").replace("quote: '', contact: '', call: ''", "quote: 'LQ', contact: 'LC', call: ''")
-  });
-  check('the patch took (test guard)', live.api._test.CONFIG.ads === 'AW-111',
-    'the CONFIG block was reworded; update the two replace() strings above');
+  const live = run('https://highlightingutah.com/', { patch: invented });
+  check('the patch took (test guard)', live.api._test.CONFIG.ads === 'AW-111' && live.api._test.CONFIG.labels.quote === 'LQ',
+    'the CONFIG block was reworded; update the invented() patterns above');
   live.api.quoteSubmitted({ id: 'Q9', email: 'a@b.co', phone: '8015550000' });
   live.api.contactSent();
   live.api.callClicked();
@@ -152,6 +158,16 @@ if (src) {
   check('a message is an Ads conversion', conv.some(c => c.send_to === 'AW-111/LC'));
   check('an empty label sends nothing (call)', conv.length === 2, JSON.stringify(conv));
   check('a call tap is still an Analytics event', calls.some(a => a[0] === 'event' && a[1] === 'click_to_call'));
+
+  /* ---------------------------------------- 6b. what actually ships */
+  const shipped = run('https://highlightingutah.com/');
+  const sc = shipped.api._test.CONFIG;
+  check('the shipped Ads ID looks like one', /^AW-\d{6,}$/.test(sc.ads), 'got ' + sc.ads);
+  check('and the quote label is filled in', /^[\w-]{10,}$/.test(sc.labels.quote), 'got ' + sc.labels.quote);
+  shipped.api.quoteSubmitted({ id: 'QS' });
+  check('so a saved quote reaches Google Ads as the real conversion',
+    shipped.dl.map(a => Array.prototype.slice.call(a))
+      .some(a => a[0] === 'event' && a[1] === 'conversion' && a[2].send_to === sc.ads + '/' + sc.labels.quote && a[2].transaction_id === 'QS'));
 
   /* ---------------------------------------- 7. helpers */
   const t = ad.api._test;

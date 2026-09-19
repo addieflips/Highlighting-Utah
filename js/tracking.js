@@ -42,11 +42,14 @@
                 yourself". Empty means Analytics runs and Ads is dormant.
      labels   — the part after the slash in each conversion's send_to
                 ('AW-123/AbC-dEfG' → 'AbC-dEfG'). An empty label sends nothing for
-                that event, so a half-filled table is safe. */
+                that event, so a half-filled table is safe.
+     ⭐ FILLED IN 2026-09-19 from account 288-126-7540: the "Website quote request"
+     conversion action (goal: Request quotes, Primary, count One, 90-day window).
+     contact and call have no conversion action yet; they stay Analytics-only. */
   var CONFIG = {
     ga4: 'G-44SCT38S6E',
-    ads: '',
-    labels: { quote: '', contact: '', call: '' },
+    ads: 'AW-961456324',
+    labels: { quote: 'EJXXCM638v0cEMTRusoD', contact: '', call: '' },
     hosts: ['highlightingutah.com', 'www.highlightingutah.com']
   };
 
