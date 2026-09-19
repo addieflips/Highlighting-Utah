@@ -23,9 +23,21 @@ admin.html. Hand this to a fresh chat — it is self-contained.*
 
 **Admin-side multi-photo — done.** `admin.html` has `quotePhotos`,
 `housePhotos`, `photoFrameHtml`, `pcShow`, `pcActiveIndex`, `cloudEmailPhoto`.
-`functions/index.js` has `quotePhotos`, `cloudEmailPhoto`,
-`repeatQuoteButtonsServer`. Stacked labelled photos in quote emails, doubled
-approve/decline buttons, photo #1 mirrored to the legacy flat fields.
+`functions/index.js` has `quotePhotos` and `cloudEmailPhoto`. Stacked labelled
+photos in quote emails, photo #1 mirrored to the legacy flat fields.
+
+⛔ **THE DOUBLED APPROVE/DECLINE BUTTONS WERE REMOVED ON 2026-08-17 AND MUST NOT
+COME BACK.** This paragraph listed them, and repeatQuoteButtonsServer beside
+them, as shipped work — which they were when it was written on 2026-08-13. Addie
+read the second set as a mistake four days later: *"just one approved, Maybe
+later, Decline."* Both renderers lost it, and Suite 33 of run-all.js now FAILS if
+a second set reappears on either side. The name survives in functions/index.js
+only as a tombstone comment and in run-all.js only as the guard.
+
+⚠ **This file says "hand this to a fresh chat — it is self-contained", which is
+exactly what made the stale line dangerous**: a session handed the old wording
+would have rebuilt something she had asked to be taken away, and the gate would
+have stopped it only after the work was done. Corrected 2026-09-19.
 
 **Crew portal — NOT done.** `claude/multi-photos.md` claims `employee.html` got
 the read-only swipe frame. It did not ship. On main, employee.html line ~2600

@@ -226,6 +226,43 @@ it parses; nothing can check it is TRUE, and a back-dated row defeats this rule 
 
 Not active. Do not follow until moved into the numbered set above.
 
+### P-005 · proposed 2026-09-19
+Rule: The anchor check that reads `claude/questions-map.md` must also read
+      `CLAUDE.md` and `system-map.md` — a backticked identifier in either that no
+      source file mentions fails the build. A name quoted rather than pointed at
+      drops its backticks, which is already this repo's convention.
+Why: promotion, not a new idea. §6 says a `read` rule violated twice becomes
+      `code`, and "keep the docs true" has now been violated four times in two
+      days, every time in the two files that have no gate: CLAUDE.md described the
+      picture-alignment feature in the present tense for three weeks after it was
+      deleted (rmSkyShift, RM_ALIGN_MAX_M, settings/measureAlign — all gone
+      2026-08-27); `claude/multi-property-plan.md` listed repeatQuoteButtonsServer
+      as shipped a month after Addie had it removed, in a file whose header says
+      "hand this to a fresh chat"; CLAUDE.md carried two different browser-spec
+      counts, 158 and 177, because a session fixed one copy; and the day before,
+      CLAUDE.md denied a house-tab behaviour that had shipped. ⭐ THE ARGUMENT
+      THAT SETTLES IT: `questions-map.md` caught its own copy of the FIRST of those
+      — QT-13 is marked `Superseded → MR-06` and says in as many words "FOUND BY A
+      GATE, NOT BY A PERSON". The same fact, in the same week, in two documents;
+      the gated one self-corrected and the ungated one did not.
+Would have caught: the alignment block and the multi-property line, both by name,
+      on the commit that removed the code. Not the 158/177 split (two numbers, both
+      live) and not the house-tabs inversion (behaviour, no dead name) — said
+      plainly, because a rule oversold is one nobody trusts the second time.
+Might wrongly block: both files are FULL of deliberate tombstones — "neither
+      `sysNoteBody` nor `SYS_NOTE_CAP` exists any more", "There is no
+      `getAnalytics`", `dupFingerprint` recorded as removed. Measured on 2026-09-19:
+      nine such names in CLAUDE.md and one in system-map.md would go red on day one.
+      That is the real cost and it is not small — system-map's own note on this gate
+      says three false alarms out of three is worse than finding nothing. ⚠ The
+      answer is the convention above rather than an allow-list, because a list is
+      the count-ceiling trap this repo has rejected twice: it grows for good reasons
+      and bad alike, and within a week somebody adds a line to get past a red build.
+      Dropping the backticks off a dead name is a one-character edit that also makes
+      the document read correctly.
+Enforcement: code
+Tier: 4
+
 ### P-003 · proposed 2026-08-21
 Rule: Anything the crew portal shows on a stop must also print on the crew sheet.
       The paper is the fallback when the phone has no signal, so the two must
@@ -300,6 +337,7 @@ Every change to this file gets a line. Never silently edit a rule.
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-09-19 | Proposed P-005 | A sweep of every doc for backticked names no source file mentions found CLAUDE.md describing the picture-alignment feature three weeks after it was deleted, and `claude/multi-property-plan.md` listing `repeatQuoteButtonsServer` as shipped a month after Addie had it removed. `claude/questions-map.md` caught its own copy of the first one, because a gate reads that file and nothing reads the other two. §6 promotion, not a new idea. |
 | 2026-08-28 | Added R-024, and amended CLAUDE.md §2 | Addie: "can we make it a rule if I answer the same question twice in different ways than the most recent one is the one to trust." §2 said the opposite in as many words — "Do not pick the newer one" — so this reverses that half of it FOR HER ANSWERS, and leaves it untouched for two numbered rules colliding. Prompted by Q-023, which sat open six days because two of her rulings disagreed and nothing was allowed to choose. ⚠ The cost is recorded in the rule: a newer answer can be narrower than the one it displaces, so the older row is kept and marked, and applying the rule is said out loud. ⚠ And it makes the map's Decided column load-bearing for correctness — a back-dated row now defeats the rule silently, which nothing can check. |
 | 2026-08-21 | Created R-001 – R-022 | Initial rulebook, seeded from the data-integrity plan |
 | 2026-08-21 | Replaced R-015, and marked it TARGET | The rule asserted a guard that does not exist. It claimed money is computed in exactly two parity-tested places; `money-parity.test.js` compares only the invoice STATUS string and the invoice KEY, never the AMOUNT OWED. The amount is hand-inlined at ~12 sites across `admin.html`, `functions/index.js` and `index.html` — including the PayPal charge and the member portal. Reviewing a change against the old wording would have passed a fourth implementation as safe. See `docs/open-questions.md` Q-001. |
