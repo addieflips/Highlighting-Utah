@@ -16,7 +16,7 @@ Read these first. They matter more than the individual tasks.
 
 3. **Work in phases, in order.** Each phase is independently shippable and each one leaves the system better than it found it. Do not start phase N+1 with phase N half-done.
 
-4. **Don't break what works.** The existing suite (3,467 checks), money parity, the health check panel, and the syntax/selector gates are all load-bearing. This plan extends them; it does not replace them.
+4. **Don't break what works.** The existing suite (3,467 checks when this was written; **7,394 on 2026-09-19 — measure it**), money parity, the health check panel, and the syntax/selector gates are all load-bearing. This plan extends them; it does not replace them.
 
 5. **When a phase is done, run the existing fast suite and report the result** before moving on.
 
@@ -33,18 +33,25 @@ Verify this against the repo. Correct it where I'm wrong.
 | `verify-syntax.js` | Every inline `<script>` parses; `<div>` opens = closes |
 | `selector-contract.test.js` | Every `#id` a browser spec targets still exists in the HTML |
 | `money-parity.test.js` | `js/money.js` vs `functions/index.js` invoice math on identical inputs |
-| `run-all.js` | ~3,467 checks across ~60 sections |
-| `test/portal.spec.js`, `test/quote-link.spec.js` | 13 Playwright specs, Firebase faked |
+| `run-all.js` | ~3,467 checks across ~60 sections — ⛔ **7,394 as of 2026-09-19; measure, do not read** |
+| `test/portal.spec.js`, `test/quote-link.spec.js` | 13 Playwright specs, Firebase faked — ⛔ **177 across ~60 spec files as of 2026-09-19** |
+
+⛔ **THE FIGURES IN THIS TABLE WERE WRITTEN ON 2026-08-13 AND ARE ROUGHLY HALF THE TRUTH.**
+The whole fast suite is **7,394 checks** and the browser suite is **177 specs**, both measured
+2026-09-19. The originals are struck through rather than replaced because §0 rule 1 says this
+section is *"my understanding; verify it"* — and a plan that quietly rewrote its own premises
+would hide how far the repo has moved past it. ⭐ **Measure both rather than reading either:**
+`npm test` prints the first, `npx playwright test --list` prints the second without a run.
 
 ### Live self-checks
 
-- **Health Check panel** in `admin.html` — 19 data-integrity checks against real data, auto-runs 6s after login and every 10 minutes, badges the sidebar.
+- **Health Check panel** in `admin.html` — 19 data-integrity checks against real data, auto-runs 6s after login and every 10 minutes, badges the sidebar. ⚠ **27 as of 2026-09-19** — Suite 7 of run-all.js hard-codes the count (`all 27 checks present`), so that is the number to trust. ⚠ This correction was first written as 25 from memory of a CLAUDE.md line and measured before it shipped; the whole point of the block above is that the number is the one thing never to take from a document.
 - **Stale-run banner** — red if billing hasn't run in ~36 hours.
 - **Nightly summary** via Twilio.
 
 ### Manual checklist
 
-- `js/test-seed.js` — 110 written manual tests across 16 areas. Status: 17 pass, 3 N/A, 2 retest, **88 not run.**
+- `js/test-seed.js` — 110 written manual tests across 16 areas. Status: 17 pass, 3 N/A, 2 retest, **88 not run.** ⛔ **18 rows as of 2026-09-19**, ids 26, 67, 111, 114, 186, 199, 207, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224. That is not damage: Addie cut 126 rows to 12 herself in PR #97 on 2026-08-24, and what survives is only what no machine can run — a real PayPal charge, the real 7 PM cron, ink on paper, a real roofline. `MANUAL_ONLY_IDS` in run-all.js names every one and is the thing to trust; measure with `node -e` over TEST_SEED, never from a document.
 
 ### Known gating behavior
 
@@ -451,6 +458,14 @@ Update the file so its status reflects reality rather than a backlog of 88.
 ---
 
 ## 10. Open questions — resolve before phase 1
+
+⛔ **Q-001 TO Q-004 WERE ALL ANSWERED ON 2026-08-21 AND ARE NOT OPEN.** Read them in
+`docs/open-questions.md`, where each carries its answer and its resulting map change —
+this section is the question as it was asked, not a live to-do, and a session that
+"resolves" them again spends a day re-deriving what is already written down. The heading
+is left as written because the four really were blocking when the plan was drafted.
+⚠ **Anything further down this section has not been re-checked**; treat an entry here as
+open only after looking it up in `docs/open-questions.md`. Swept 2026-09-19.
 
 Seed these into `docs/open-questions.md`. The first four change the plan.
 

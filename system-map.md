@@ -1919,7 +1919,7 @@ member's bill — with nobody in the office typing anything.
     ⚠ **All four spots that build this HTML got it**: `referralEmailBlock` and
     `resolveLinkTokens` in admin.html (mirroring `QUOTE_LINK_BUTTON_STYLE` with a new
     `SHARE_ICON_BUTTON_STYLE`), and both copies inside `runArrearsRsvpBatch` in
-    functions/index.js (a matching `shareIconBtn` style). The **$25 Off** button text
+    functions/index.js (a matching `SHARE_ICON_BUTTON_STYLE_SERVER`). The **$25 Off** button text
     itself was not touched anywhere, so every existing test pinned to it — including the
     cross-file "both renderers send it character for character" check — still passes
     unmodified.
@@ -3260,8 +3260,11 @@ never removed them from the pool, and scored a season that skipped a third of th
 measurement harness needs that assertion as much as the app does.
 
 *Where it is proved*: nowhere in run-all.js — there is no behaviour change to pin.
-The scripts are `scratchpad/revisit.js`, `borrow-measure.js`, `borrow-sig.js` and
-`reblock.js`.
+The scripts were scratchpad/revisit.js, borrow-measure.js, borrow-sig.js and
+reblock.js. ⚠ **None of the four is in the repo** — they were session scratch files and
+were never committed, so do not go looking for them. The measurement is not reproducible
+from main; what survives is the finding above and the harness bug it turned on. Named
+without backticks for that reason (2026-09-19).
 *Rulings*: [[SCH-75]] in `claude/questions-map.md`.
 
 ### Why a route went far out at stop 11 and came back beside stop 2
@@ -7547,10 +7550,14 @@ and the gate stayed green, because the suite that lifts that function still name
 anchor "existed" in a file whose only job is to talk about the code.
 
 ⚠ **And the first version cried wolf on all three of its findings** — an element id
-(`#rmDifficulty`), a Firestore path (`settings/measureAlign`) and a value on a record
-(`kind:'carried'`), each of which leads exactly where it says. On a gate whose whole job is to
-be believed, three false alarms out of three is worse than finding nothing, so an anchor is
-broken into the names inside it and every one must exist. ⚠ **Its own limit, stated rather than
+(`#rmDifficulty`), a Firestore path (settings/measureAlign) and a value on a record
+(`kind:'carried'`), each of which led exactly where it said *at the time*. On a gate whose whole
+job is to be believed, three false alarms out of three is worse than finding nothing, so an
+anchor is broken into the names inside it and every one must exist. ⚠ **The middle example has
+since stopped being a false alarm, which is why it now wears no backticks:** the whole
+picture-alignment feature went on 2026-08-27, that document exists nowhere, and the gate
+correctly caught QT-13 still naming it — see that row, marked `Superseded → MR-06`. Kept as
+written because the *argument* is about the first version's behaviour, not about that path. ⚠ **Its own limit, stated rather than
 overclaimed:** it proves a name appears *somewhere in source*, so a definition renamed while
 its callers still use the old name reads as present. The suites that *lift* those functions
 are what catch that.
