@@ -900,8 +900,23 @@ function nameMatches(storedName, typedName) {
  */
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+/* The referral banner check (see referralWaiverCheck). Far looser than sign-in because a
+ * legitimate visitor triggers one per visit and a household or an office can share an
+ * address, and far tighter than nothing because the token behind it is 2^40. */
+const REFERRAL_CHECK_MAX = 30;
+const REFERRAL_CHECK_WINDOW_MS = 15 * 60 * 1000;
 
-async function checkRateLimit(identifier) {
+/* ⚠ ONE LIMITER, NOT TWO (2026-09-18, [[REF-41]]). The referral check below needs the
+ * same transaction with different numbers and a different sentence, and a second copy of
+ * a counter is how the two quietly stop agreeing about what a window is. The defaults are
+ * exactly what this function did when it only served sign-in, so every existing caller is
+ * unchanged — referral-banner.test.js asserts that rather than trusting it. */
+async function checkRateLimit(identifier, opts) {
+  const o = opts || {};
+  const max = (typeof o.max === 'number') ? o.max : RATE_LIMIT_MAX;
+  const windowMs = (typeof o.windowMs === 'number') ? o.windowMs : RATE_LIMIT_WINDOW_MS;
+  const message = o.message ||
+    "Too many sign-in attempts. Please wait 15 minutes, or call or text us at (801) 901-0011 and we'll help you out.";
   const key = String(identifier || '').replace(/[^a-zA-Z0-9]/g, '_').slice(0, 120);
   if (!key) return;
   const ref = db.collection('portalRateLimits').doc(key);
@@ -909,15 +924,12 @@ async function checkRateLimit(identifier) {
   await db.runTransaction(async function (tx) {
     const snap = await tx.get(ref);
     const data = snap.exists ? snap.data() : null;
-    if (!data || (now - (data.windowStart || 0)) > RATE_LIMIT_WINDOW_MS) {
+    if (!data || (now - (data.windowStart || 0)) > windowMs) {
       tx.set(ref, { windowStart: now, count: 1 });
       return;
     }
-    if ((data.count || 0) >= RATE_LIMIT_MAX) {
-      throw new HttpsError(
-        'resource-exhausted',
-        "Too many sign-in attempts. Please wait 15 minutes, or call or text us at (801) 901-0011 and we'll help you out."
-      );
+    if ((data.count || 0) >= max) {
+      throw new HttpsError('resource-exhausted', message);
     }
     tx.update(ref, { count: (data.count || 0) + 1 });
   });
@@ -4679,6 +4691,73 @@ exports.publicQuoteLookup = onCall({ cors: true }, async (request) => {
  *
  * Output: { serviceId, notifyTemplateId, publicKey }
  * ------------------------------------------------------------------------- */
+/* ⭐ IS THIS REFERRAL LINK ONE SOMEBODY ACTUALLY HOLDS? ([[REF-41]], Q-032 option 2).
+ *
+ * Addie, 2026-09-12: "we need to make sure referals are getting there 30 dollar
+ * installation fee waived since that is what we promised them." The waiver itself has
+ * worked since REF-25 and is guarded by Suite 312. What was missing is the BANNER on the
+ * page the friend lands on — one line, "Your $30 installation fee is waived" — and it was
+ * deliberately not built, because nothing in a browser can tell a real token from an
+ * invented one. `/r/anything` typed into the address bar reaches the quote form exactly
+ * like a real link, and a link Start New Season has rotated away is DELIBERATELY still
+ * charged ([[REF-25]], her own ruling). Either way the page would promise a waiver the
+ * office then charges — a written promise broken, at the moment a stranger is deciding
+ * whether to become a customer.
+ *
+ * ⛔ IT ANSWERS ONE BOOLEAN AND NAMES NOBODY. `referralHolderFor` in admin.html resolves a
+ * token against the loaded customer book, which the public site does not have and must
+ * never have. Returning the referrer — a name, an id, even a house — would turn this into
+ * a way to read the customer book one token at a time. `{ waived }` is the whole answer.
+ *
+ * ⛔ AND IT ASKS THE SAME QUESTION THE MONEY ASKS, which is the only reason the banner can
+ * be trusted. `quoteChargesSetupFee` waives on `holder.current` — the token IS the one on
+ * that customer's record right now. A rotated token lives in `referralTokensPast` and is
+ * NOT queried here, so last season's link answers false on both sides. If those two ever
+ * disagree the banner becomes the broken promise it was written to prevent.
+ *
+ * ⚠ RATE LIMITED, AND NOT FOR THE REASON THE SIGN-IN ONE IS. The note above checkRateLimit
+ * says token links are not limited because "a 20-character random token can't be brute
+ * forced" — true of `generatePortalToken` (20 chars of 36, ~2^103). A REFERRAL token is
+ * `generateReferralToken`: EIGHT characters of 32, about 2^40. Guessing one of ~960 live
+ * tokens is still a one-in-a-billion shot per try and wins only $30 off a quote the office
+ * reviews by hand — but an unauthenticated endpoint that answers yes/no about a secret
+ * should not be free to ask at machine speed, and 2^40 is not 2^103. Keyed on the CALLER,
+ * never on the token: keyed on the token an attacker simply tries a different one and every
+ * guess gets a fresh counter, which is a limiter that limits nothing.
+ *
+ * ⚠ IT NEVER THROWS AT THE PAGE. Every failure — a missing token, a refused read, the limit
+ * reached — answers `{ waived: false }`, which draws no banner. Q-032 settled that the two
+ * errors are not symmetric: a banner that fails to appear for a genuine referral costs
+ * nothing, because the quote card waives the fee either way. An error on screen, on the
+ * page whose whole job is turning a stranger into a customer, costs real money.
+ *
+ * ⚠ AND THE TOKENS ARE MINTED WITH Math.random(), WHICH IS NOT A CSPRNG. Said here rather
+ * than fixed: changing how they are generated is its own change, it cannot help the ~960
+ * already issued, and this endpoint does not make it worse. */
+exports.referralWaiverCheck = onCall({ cors: true }, async (request) => {
+  const token = String((request.data || {}).token || '').trim().slice(0, 64);
+  if (!token) return { waived: false };
+  try {
+    /* request.rawRequest is the underlying express request; its ip is what the caller
+       looks like from here. No ip (a shape we have not seen) shares one bucket rather
+       than skipping the limit — the safe direction for a public endpoint. */
+    const who = (request.rawRequest && request.rawRequest.ip) || 'noip';
+    await checkRateLimit('refcheck_' + who, {
+      max: REFERRAL_CHECK_MAX,
+      windowMs: REFERRAL_CHECK_WINDOW_MS,
+      message: 'Too many checks. Please wait a few minutes.'
+    });
+    const snap = await db.collection('jobAddresses')
+      .where('referralToken', '==', token).limit(1).get();
+    return { waived: !snap.empty };
+  } catch (err) {
+    /* Logged, never surfaced — "nothing should fail quietly" pointing inward. The caller
+       gets the same no-banner answer a made-up token gets, which is what it should see. */
+    console.error('[HU] referral waiver check failed', err);
+    return { waived: false };
+  }
+});
+
 exports.publicConfig = onCall({ cors: true }, async (request) => {
   const snap = await db.collection('settings').doc('emailjs').get();
   if (!snap.exists) return { configured: false };

@@ -1504,6 +1504,42 @@ member's bill — with nobody in the office typing anything.
 - **Where the customer gets it.** A **Refer a Friend** tab in their own portal: the link, a
   **Share My Link** button, and how many people have joined through it. The address is
   `.../?ref=<referralToken>#/quote`.
+  - ⭐ **AND THE FRIEND IS TOLD, ON THE PAGE, THAT THE FEE IS WAIVED** (2026-09-18,
+    [[REF-41]] / [[REF-37]], closing Q-032). One line above the quote form — *"Your $30
+    installation fee is waived."* — and nothing under it, which is her own wording.
+    - ⛔ **IT IS DRAWN ONLY WHEN THE SERVER SAYS THE LINK IS LIVE**, and that is the whole
+      reason it took six days rather than ten minutes. Nothing in a browser can tell a real
+      token from one typed into the address bar, and a link Start New Season has rotated
+      away is *deliberately* still charged ([[REF-25]]). Drawn on the token alone, `/r/`
+      followed by anything at all would read a promise the office then breaks — on the page
+      whose entire job is turning a stranger into a customer.
+    - **`referralWaiverCheck`** (functions/index.js) is the answer: a public callable that
+      takes a token and returns `{ waived }` and **nothing else**. ⛔ It names nobody — the
+      referrer's name, id or house would turn it into a way to read the customer book one
+      token at a time. ⛔ And it matches `referralToken`, the CURRENT one, never
+      `referralTokensPast`, so it asks exactly the question `quoteChargesSetupFee` asks
+      (`holder.current`). If those two ever diverge the banner becomes the broken promise
+      it was built to prevent.
+    - ⚠ **IT IS RATE LIMITED, AND NOT FOR THE REASON SIGN-IN IS.** The note above
+      `checkRateLimit` says token links are not limited because a 20-character token cannot
+      be brute forced — true of `generatePortalToken`. A referral token is
+      `generateReferralToken`: **eight** characters of a 32-letter alphabet, about 2^40.
+      Still a one-in-a-billion guess for $30 off a quote a person reviews by hand, but an
+      unauthenticated endpoint answering yes/no about a secret should not be free to ask at
+      machine speed. Keyed on the CALLER — keyed on the token, every guess gets its own
+      counter and the limiter limits nothing.
+    - ⚠ **NOTHING EVER REACHES THE VISITOR AS AN ERROR.** A missing token, a refused read
+      and the limit reached all answer `{ waived: false }`, which draws no banner. Q-032:
+      the two errors are not symmetric — a banner that fails to appear costs nothing,
+      because the quote card waives the fee either way.
+    - ⚠ **THE AMOUNT IS READ FROM `NEW_MEMBER_FEE`** and the markup ships empty. S312 fails
+      any page that types the set-up fee, and an empty slot is also what the page should
+      show if the script never runs.
+    - ⚠ **`refreshReferralBanner` RUNS ON EVERY ROUTE, NOT FROM A `/quote` BRANCH.** S308
+      counts the router's `hash === '…'` tests and fails on a repeat, and the line has to be
+      hidden again on the way OUT — the site is one document answering seven addresses, so a
+      banner left showing follows the visitor to the gallery. A late reply is dropped by a
+      counter held on the function itself rather than in a `var` beside it ([[MEM-01]]).
   - ⛔ **TWO SESSIONS BUILT THIS BUTTON TWO DIFFERENT WAYS, AND ONE OF THEM IS NOT IN THE
     TREE** (reconciled 2026-09-07). Both answered the same complaint — the Refer a Friend
     button landing the CUSTOMER on the friend's quote form — and both worked. The one that
@@ -4219,6 +4255,29 @@ because the folder earning its keep within two days is the argument for it.
     answers `400 Upload preset not found` rather than `401 cloud_name is disabled`, and
     delivery returns 200. This is the wording for the next time, not a fix for that
     outage — which was settled on the billing account, exactly as the advice says.
+- ⭐ **AND A PHOTOGRAPH IS SHRUNK BEFORE IT EVER GETS THERE** (2026-09-18, [[PROC-35]]).
+  `shrinkImageFileIfTooLarge` has guarded the office uploads for months and almost never
+  fired: it only ran on a file over **nine megabytes**, and an ordinary phone photograph is
+  three to six. So virtually every picture in the book was stored at full camera resolution
+  while being shown at 400px and printed at an inch and a half — and storage and bandwidth
+  are the two things Cloudinary bills for. The threshold is `PHOTO_SHRINK_OVER_BYTES`
+  (1.5 MB) now, with `PHOTO_MAX_DIMENSION` (2000px) and `PHOTO_JPEG_QUALITY`.
+  - ⚠ **THE NUMBERS ARE NAMED ONCE.** Six call sites used to spell out `9*1024*1024, 2000,
+    0.85`, and two of the six wrote the quality as `.85` — one rule in six places, the shape
+    that has already split the bins count and the two quote renderers in this file.
+  - ⛔ **THE DIMENSION IS NOT THE THING TO LOWER** if this ever has to go further. 2000px is
+    far above every use of these pictures; an inch and a half of crew sheet is about 450px
+    of ink. Dropping the BYTES saves the storage — dropping the DIMENSION is the one that
+    shows, on the printed sheet first, where nobody is looking at a screen.
+  - ⚠ **A BLUEPRINT MAP KEEPS ITS OWN, LARGER ALLOWANCE** (`BPM_*`, 2 MB / 2400px), because
+    it is a photograph of a hand-DRAWN roofline — a pencil line has to survive — and it
+    prints eight to a page.
+  - ⚠ **TEN OTHER UPLOAD PATHS STILL DO NOT SHRINK AT ALL** — the Gallery, the Hero images,
+    house details, the layout map and an expense receipt among them. Deliberately not
+    widened: several of those can legitimately be a PNG with transparency and this shrinker
+    always writes JPEG, so a background would appear where there never was one.
+    `photo-size.test.js` counts them and REPORTS the number rather than failing, so the next
+    session finds it as a decision rather than as an oversight.
 - ⛔ **AND THE QUOTE CARD DOES NOT SEND A TEXT AT ALL ANY MORE** ([[QT-41]], 2026-09-12,
   superseding [[QT-39]] and restoring [[QT-38]]'s position). Dax ruled it out hours after
   setting the account up: *"we cant use twillo so we need to just set it up so its easy to copy
