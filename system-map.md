@@ -4220,9 +4220,28 @@ sabotages red-checked, admin.html byte-for-byte after each.
 ⚠ **What the first reading also corrected, said plainly because it was told to Addie the other
 way:** the wire sweep DOES carry an error wording — *"Wire sweep could not look: No master sheet
 is connected on this computer"* — it is a refusal by design rather than a fault, so it takes no
-entry and is not swept. And the three faults the report flagged as *covered and still present*
-are all dated BEFORE their fix dates, so the sweep had simply not run yet (admin had not been
-reloaded) rather than failing.
+entry and is not swept.
+
+⛔ **AND "COVERED AND STILL HERE" WAS TWO OPPOSITE ANSWERS UNDER ONE HEADING** (2026-09-19, hours
+after the rest). `coveredBy` matched the needle and the topic and stopped there, while
+`clearFixedErrors` ALSO holds a report to a date floor. So the report counted, as one number, a
+fault waiting to be swept (housekeeping — open admin and it goes) together with a fault that came
+back AFTER its fix shipped (news: the fix did not take). The second hides inside the first, and
+it is the only one worth acting on.
+⭐ **THE REAL FOLDER HELD ONE OF EACH ON DAY ONE, AND THEY WERE READ AS THE SAME THING.** Six
+faults were reported as covered-and-present, of which FIVE are waiting on a reload and ONE —
+*Answering Yes to the RSVP email · deadline-exceeded*, reported **15 September**, four days after
+2176ff2 shipped on the 11th — is a customer's answer lost even WITH the three retries in place.
+That row is not swept, deliberately; it is the evidence the floor exists to keep, and it was
+described to Addie as "dated before its fix, so the sweep just has not run". It was not.
+⚠ `afterTheFix` SPLITS THEM NOW: **FIXED, WAITING TO BE SWEPT** against **THE FIX DID NOT TAKE**,
+counted separately, with the second called out under its own heading at the end. The waiting count
+is given in REPORTS as well as faults, because that is the number she watches the badge drop by.
+⚠ **AND ITS FLOOR IS LOCAL MIDNIGHT, ASSERTED IN A CHILD PROCESS UNDER `America/Denver`** — this
+container runs UTC, where local midnight and `Date.parse('YYYY-MM-DD')` are the same instant, so
+the UTC sabotage sailed through in-process. `fixed-errors.test.js` learned this first. A UTC floor
+sits six hours early: an evening of reports would be reported as predating a fix they postdate.
+6 of 6 sabotages red-checked, error-digest.js byte-for-byte after each.
 
 ⭐ **THE SECTION CONTROLS ARE ALWAYS VISIBLE NOW** (2026-09-11, [[MSG-23]]). Addie: *"not
 able to add to each section and delete from each section."* Both buttons — `✎` to rename a
@@ -7618,7 +7637,7 @@ are the two copies of the rule — change one, change the other, in the same pus
 
 1. **The Google Business Profile** — `HighLighting Utah`, **verified**, a service-area business covering Lehi, Orem and 18 more. **4.9 stars from 198 reviews**, 383 profile views last month. This is what puts the company in the map results for *christmas light installation near me*, and it is by a distance the most valuable of the three. It is also free. ⚠ Its open gaps are all free to close: **not one review has ever been replied to**, and the last photo went up **442 days ago**.
 2. **Google Ads** — account **288-126-7540**, "Brian Petersen - HighLighting Utah 10$ ADWX", under highlightingutah@gmail.com. It **exists and is CANCELED**: three campaigns, zero impressions, zero spend. ⛔ One of them, the Smart campaign, is preloaded at **$41.54/day — $1,262.82/month**. Anybody who reactivates that account to "see what happens" starts spending at that rate. Reactivating is a money decision and belongs to Addie, not to a session.
-   ⭐ **2026-09-19: being made ready to run again, at a budget Dax will set.** The site side is `/js/tracking.js` (below). The account side — a website "Request quote" conversion action, one clean Search campaign built paused, the three old campaigns paused — needs a person's go-ahead in the account itself, and the IDs it produces go into `CONFIG.ads` / `CONFIG.labels` in that file. Until they are filled in, the Ads half of the tag is dormant and sends nothing.
+   ⭐ **2026-09-19: being made ready to run again, at a budget Dax will set.** The site side is `/js/tracking.js` (below). The account side — a website "Request quote" conversion action, one clean Search campaign built paused, the three old campaigns paused — needs a person's go-ahead in the account itself, and the IDs it produces go into `CONFIG.ads` / `CONFIG.labels` in that file. Until they are filled in, the Ads half of the tag is dormant and sends nothing. ⭐ **Filled in later the same day:** `AW-961456324`, label `EJXXCM638v0cEMTRusoD` = the "Website quote request" action (goal Request quotes, Primary, count One, 90-day window). Contact and call taps have no Ads action and stay Analytics-only. The campaign is "Christmas Lights - Search" (formerly Campaign #1): Search network only, Maximize clicks, $10/day, Utah County + the 11 served Salt Lake County towns. Dax set the budget and a Dec 2, 2026 end date.
 3. **Google Analytics** — ⭐ **LIVE SINCE 2026-09-19** through `/js/tracking.js`, loaded in the head of index.html only. It counts page views, a saved quote (`generate_lead`, form=quote), a sent message (form=contact) and a tap on any `tel:` link (`click_to_call`); with the Ads IDs filled in the same three become Google Ads conversions, a quote de-duplicated on its own Firestore id. ⛔ **It is never started on a link that carries a customer's token** (/q/, /r/, /s/, ?ref=, ?p=, or token=/t=/p= in the hash) — the tag posts the page address to Google, and that address is somebody's key. It is also off everywhere but highlightingutah.com, so previews and test runs are not counted. An ad click's gclid/utm_* is remembered for 90 days and written on the quote as `adClick`, omitted when there is none. `ads-tracking.test.js` (`npm run test:ads`) runs the tag against each token link and fails if anything would be sent. The paragraph below is the history.
    *Before 2026-09-19:* `G-44SCT38S6E` sat in the Firebase config in index.html and **nothing ever initialised it**. There is no `getAnalytics`, no gtag.js, no tag manager, in any of the four HTML files. The property exists and has **never received a single hit**, so any question of the form "how many people visited" currently has no answer at all.
 
