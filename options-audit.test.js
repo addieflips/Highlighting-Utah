@@ -193,6 +193,49 @@ function check(label, ok, detail) {
       'agreed: ' + want.join(', ') + '  |  declared: ' + o.consumers.join(', '));
   }
 
+  /* -------------------------------------------------------------------------
+   * 2b. AND THE LIST SHE ACTUALLY READS SAYS THE SAME THING (2026-09-19)
+   *
+   * ⭐ Addie: "Fix the options list to say customers can pick it." The wire colour is
+   * why this check exists. `internal` came off that entry with [[OPT-22]] so the
+   * REGISTRY said the customer picks it, while docs/what-we-can-record.md — the page
+   * her checklist row 216 sends her to — still said the office did. Every gate in this
+   * repo was green over it, because nothing anywhere compared the two.
+   *
+   * ⛔ THE PAGE IS A COMMITTED FILE AND THE REGISTRY IS NOT, which is the whole of it.
+   * Its own header says "Generated from js/options.js", and that is true of the RUN,
+   * never of the copy on disk — so the promise was only ever as good as somebody
+   * remembering one command. Row 216 repeats that promise to her in as many words
+   * ("it cannot be out of date with what the software does"), and she is reading that
+   * page precisely to answer the question no test can. A stale copy there is not an
+   * untidy document; it is the wrong answer at the one moment she is checking by hand.
+   *
+   * ⚠ IT RUNS THE REAL GENERATOR IN --check MODE rather than re-deriving the page here.
+   * A second renderer written in this file would agree with itself and prove nothing —
+   * the same reason season-state.test.js lifts the real predicates instead of copying
+   * them. --check writes nothing at all: a gate that repaired the file would hide the
+   * drift it exists to report, and would edit the working tree during a test run.
+   *
+   * ⚠ AND THE GENERATOR'S OWN SECOND HARD STOP RIDES IN HERE FOR FREE. It refuses to
+   * build when `internal` and the hand-written "Asked at" sentence disagree about
+   * whether a customer is asked at all, so that contradiction now fails this gate too
+   * rather than waiting for somebody to run the command.
+   * --------------------------------------------------------------------- */
+  const { execFileSync } = require('child_process');
+  let genOut = '', genOk = true;
+  try {
+    genOut = execFileSync(process.execPath,
+      [path.join(__dirname, 'docs', 'build-what-we-can-record.js'), '--check'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    genOk = false;
+    genOut = String((e.stdout || '') + (e.stderr || '')).trim();
+  }
+  check('the generated options list is up to date with the registry', genOk,
+    'docs/what-we-can-record.md / .html do not match js/options.js. ' +
+    'Run: node docs/build-what-we-can-record.js — and commit the result.\n' +
+    genOut.split('\n').map(l => '        ' + l).join('\n'));
+
   // -------------------------------------------------------------------------
   // 3. R-002 — never a blank. This is the rule with the biggest payoff per line.
   // -------------------------------------------------------------------------

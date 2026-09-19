@@ -47,12 +47,12 @@ Which colours, and the order if they alternate.
 
 ### Wire colour
 
-White or green wire — the cord the bulbs sit on. The detail form offers
-Any, Green or White, and Any is what it starts on. Any stores nothing at all,
-so the warehouse reads Check lights and the office has to pick one before that
-quote can be converted.
+White or green wire — the cord the bulbs sit on. Both the detail form and
+the member portal offer Any, Green or White, worded the same way, and Any is
+where they start. Any stores nothing at all, so the warehouse reads Check lights
+and the office has to pick one before that quote can be converted.
 
-- **Asked at:** the detail form, after they approve — and the office picks when they said Any
+- **Asked at:** the detail form after they approve, and the member portal — and the office picks when they said Any
 - **Sets the price:** No
 - **Has to reach:** Quote · Customer record · Warehouse pull list
 

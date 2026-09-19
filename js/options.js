@@ -162,8 +162,19 @@ export const OPTIONS = [
        ~~⛔ NOBODY OUTSIDE THE OFFICE IS ASKED THIS ANY MORE (2026-09-17). Addie: "keep
        what lights they want but don't add what wire color they want but push check lights
        then warehouse chooses what wire they have on file and will make it based on what
-       wire they have."~~ Superseded → OPT-21 (portal) and OPT-22 (detail form), and
-       `wireColor` is still out of PORTAL_WRITE_FIELDS and PORTAL_READ_FIELDS.
+       wire they have."~~ Superseded → OPT-21 (portal) and OPT-22 (detail form).
+       ⛔ AND THE CLAUSE THAT USED TO END THAT LINE — "`wireColor` is still out of
+       PORTAL_WRITE_FIELDS and PORTAL_READ_FIELDS" — WAS WRONG WITHIN THE HOUR OF BEING
+       WRITTEN. It was there to scope OPT-22 to the quote door while [[OPT-21]] was being
+       merged from a parallel session, and that ruling put `wireColor` back on BOTH lists.
+       The customer picks it at TWO doors now, and this entry is what declares it: with
+       `internal` off, `audit()` REQUIRES `quote` in the consumers below, so the claim
+       cannot quietly rot back to being the office's alone.
+       ⚠ THE PORTAL IS NOT ONE OF THE EIGHT DESTINATIONS, so it cannot be named in
+       `consumers` and its absence from that list is not a gap. WHERE the customer is
+       asked is carried by the prose in docs/build-what-we-can-record.js — the list she
+       actually reads — and that generator now refuses to build if its sentence and this
+       flag disagree about whether a customer is asked at all.
        ⚠ `required` STAYS FALSE AND THERE IS STILL NO DEFAULT, which is the load-bearing
        half and is what makes the question safe to ask again. A default of 'Any' and a
        required flag are exactly how every record ended up claiming a colour nobody picked,
