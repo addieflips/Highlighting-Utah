@@ -60,6 +60,11 @@ export const ROUTES = {
     name: 'Contact',
     title: 'Contact Us | Highlighting Utah Christmas Lights',
     desc: 'Call (801) 901-0011 or send a message to Highlighting Utah for a free Christmas light installation quote in Utah County or Salt Lake County.'
+  },
+  '/privacy': {
+    name: 'Privacy Policy',
+    title: 'Privacy Policy | Highlighting Utah',
+    desc: 'How Highlighting Utah collects, uses and protects the information you give us when you ask for a Christmas light quote or become a customer.'
   }
 };
 
@@ -115,7 +120,8 @@ export const config = {
     '/reviews', '/reviews/',
     '/areas', '/areas/',
     '/faq', '/faq/',
-    '/contact', '/contact/'
+    '/contact', '/contact/',
+    '/privacy', '/privacy/'
   ],
   onError: 'bypass'
 };

@@ -57033,7 +57033,9 @@ suite('308. Sharing the referral link, not opening it');
     if (navSrc && routesSrc && pageIdsSrc && renderShareSrc && linkSrc && canShareSrc) {
       const ids = ['page-home', 'page-how', 'page-gallery', 'page-reviews', 'page-areas',
         'page-faq', 'page-contact', 'page-quote', 'page-quote-details', 'page-payment',
-        'page-share', 'mobilePanel', 'mMoreToggle', 'mMoreSubmenu', 'shareLinkInput',
+        /* page-privacy joined pageIds on 2026-09-19 (the Google Ads privacy page); navigate()
+           clears every page in that map, so a missing one here is a null.classList crash. */
+        'page-privacy', 'page-share', 'mobilePanel', 'mMoreToggle', 'mMoreSubmenu', 'shareLinkInput',
         'shareLinkBtn', 'shareLinkStatus', 'shareLinkQuoteLine', 'shareLinkQuoteLink'];
       const markup = '<div class="nav-dropdown"><div class="nav-links"></div></div>' +
         ids.map(id => id === 'shareLinkInput'

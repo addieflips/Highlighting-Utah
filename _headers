@@ -85,3 +85,6 @@
 
 /contact
   Cache-Control: no-cache
+
+/privacy
+  Cache-Control: no-cache
