@@ -372,6 +372,145 @@ if (index) {
     'reviews this site did not collect');
 }
 
+
+/* ============================================================================
+ * 8. THE HEAD THE SERVER SENDS, BEFORE ANY SCRIPT RUNS (2026-09-19)
+ *
+ * netlify/edge-functions/route-meta.js rewrites the title, description,
+ * canonical and share card of the six marketing paths in the downloaded HTML.
+ * Without it every one of them was downloaded as the homepage (canonical "/")
+ * and only became itself once JavaScript ran. Google reads that first canonical,
+ * and link previews never run the script at all.
+ *
+ * ⚠ ITS TABLE IS ROUTE_META WRITTEN A SECOND TIME, so this compares them. If
+ * they differ, the page says one thing and flips to another the moment the
+ * router runs, which is the exact conflict the function exists to remove.
+ * ========================================================================== */
+const edgeSrc = read('netlify/edge-functions/route-meta.js');
+check('the route-meta edge function exists', !!edgeSrc,
+  'without it the six marketing paths are downloaded with the homepage canonical');
+let edge = null;
+if (edgeSrc) {
+  try {
+    /* It is an ES module and this file is not, and it imports nothing, so the
+       three exports are lifted out and evaluated as plain script. */
+    edge = new Function(edgeSrc
+      .replace(/^export default /m, 'const __handler = ')
+      .replace(/^export (const|function) /gm, '$1 ') +
+      '\nreturn { ROUTES: ROUTES, rewriteHead: rewriteHead, config: config, handler: __handler };')();
+  } catch (e) {
+    check('and it parses', false, String(e && e.message));
+  }
+}
+if (edge && index && PATH_ROUTES.length === 7) {
+  const marketing8 = PATH_ROUTES.filter(r => r !== '/');
+  const metaBlock8 = (index.match(/var ROUTE_META = \{([\s\S]*?)\n\};/) || [])[1] || '';
+  const fromIndex = route => {
+    const at = metaBlock8.indexOf("'" + route + "': {");
+    if (at === -1) return {};
+    let rest = metaBlock8.slice(at);
+    const end = rest.slice(1).search(/\n  '/);
+    if (end !== -1) rest = rest.slice(0, end + 1);
+    const un = v => v === undefined ? v : v.replace(/\\'/g, "'");
+    return {
+      title: un((rest.match(/\btitle:\s*'((?:[^'\\]|\\.)*)'/) || [])[1]),
+      desc: un((rest.match(/\bdesc:\s*'((?:[^'\\]|\\.)*)'/) || [])[1])
+    };
+  };
+  const drift = marketing8.filter(r => {
+    const a = fromIndex(r), b = edge.ROUTES[r] || {};
+    return !a.title || a.title !== b.title || a.desc !== b.desc;
+  });
+  check('the edge function and ROUTE_META say the same thing for every page',
+    drift.length === 0,
+    'different for: [' + drift.join(', ') + ']. They are one list written twice; ' +
+    'change the title or description in both files.');
+  const extra = Object.keys(edge.ROUTES).filter(r => marketing8.indexOf(r) === -1);
+  check('and it rewrites no page that is not a marketing path', extra.length === 0,
+    'extra: [' + extra.join(', ') + ']. /quote, /payment and the token links must keep the homepage head.');
+
+  const paths = (edge.config && edge.config.path) || [];
+  const unrouted = marketing8.filter(r => paths.indexOf(r) === -1 || paths.indexOf(r + '/') === -1);
+  check('and it runs on every marketing path, with and without the slash',
+    unrouted.length === 0, 'not covered: [' + unrouted.join(', ') + ']');
+  check('and a failure falls back to the plain page', edge.config && edge.config.onError === 'bypass',
+    'without bypass a thrown error serves Netlify\'s error page in place of the site');
+
+  /* Run it against the real document, so a changed tag in the head is caught here
+     instead of by a search result that quietly says "homepage" again. */
+  marketing8.forEach(r => {
+    const out = edge.rewriteHead(index, r);
+    const url = CANON + r.slice(1);
+    const head = out.slice(0, out.indexOf('</head>'));
+    const esc = v => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    const want = [
+      ['canonical', '<link rel="canonical" href="' + url + '">'],
+      ['og:url', '<meta property="og:url" content="' + url + '">'],
+      ['title', '<title>' + esc(edge.ROUTES[r].title) + '</title>'],
+      ['description', '<meta name="description" content="' + esc(edge.ROUTES[r].desc) + '">'],
+      ['og:title', '<meta property="og:title" content="' + esc(edge.ROUTES[r].title) + '">'],
+      ['twitter:description', '<meta name="twitter:description" content="' + esc(edge.ROUTES[r].desc) + '">'],
+      ['breadcrumb', '"@type":"BreadcrumbList"']
+    ].filter(w => head.indexOf(w[1]) === -1).map(w => w[0]);
+    check(r + ' is downloaded with its own head', want.length === 0,
+      'not rewritten: [' + want.join(', ') + ']. The tag in index.html no longer has the ' +
+      'shape the edge function looks for, so it is served with the homepage value.');
+  });
+}
+
+/* HOME_TITLE and HOME_DESC are literals, because the head can no longer be read
+   for them: on /faq the downloaded head IS the FAQ's. They have to stay equal to
+   the homepage head in this file, or Home shows a title Google never saw. */
+if (index) {
+  const lit = name => ((index.match(new RegExp('var ' + name + " = '((?:[^'\\\\]|\\\\.)*)';")) || [])[1]);
+  const headTitle = (index.match(/<title>([^<]*)<\/title>/) || [])[1];
+  const headDesc = (index.match(/<meta name="description" content="([^"]*)">/) || [])[1];
+  check('HOME_TITLE matches the <title> in the head', !!lit('HOME_TITLE') && lit('HOME_TITLE') === headTitle,
+    'HOME_TITLE: ' + lit('HOME_TITLE') + '\n        <title>: ' + headTitle);
+  check('and HOME_DESC matches the description in the head', !!lit('HOME_DESC') && lit('HOME_DESC') === headDesc,
+    'HOME_DESC: ' + lit('HOME_DESC') + '\n        head: ' + headDesc);
+  check('and the router drops a breadcrumb for a page the visitor has left',
+    /querySelector\('script#breadcrumbSchema'\)/.test(index) &&
+    !!edgeSrc && edgeSrc.indexOf('id="breadcrumbSchema"') !== -1,
+    'the edge function and the router must name the same id, or the stale breadcrumb stays');
+}
+
+/* ============================================================================
+ * 9. THE OLD SITE'S ADDRESSES GO SOMEWHERE REAL (2026-09-19)
+ * Each 301 in _redirects must land on a page that exists, and must never take
+ * the address of one.
+ * ========================================================================== */
+if (redirects && PATH_ROUTES.length === 7) {
+  const moved = (redirects.match(/^(\/\S*)\s+(\/\S*)\s+301\s*$/gm) || []).map(l => l.trim().split(/\s+/));
+  check('the old site\'s addresses are redirected', moved.length >= 40,
+    'found ' + moved.length + ' 301s; the old city pages and blog posts 404 without them');
+  const dead = moved.filter(m => PATH_ROUTES.indexOf(m[1]) === -1);
+  check('and every one lands on a real page', dead.length === 0,
+    'going nowhere: ' + dead.map(m => m[0] + ' -> ' + m[1]).join(', '));
+  const shadow = moved.filter(m => PATH_ROUTES.indexOf(m[0]) !== -1 || /^\/(q|r|s|home)(\/|$)/.test(m[0]));
+  check('and none of them sits on a live address', shadow.length === 0,
+    'shadowing: ' + shadow.map(m => m[0]).join(', ') + '. The first matching line wins, so ' +
+    'this would redirect a page that exists.');
+  note(moved.length + ' old addresses now 301 to a live page.');
+}
+
+/* ============================================================================
+ * 10. THE PHOTOS ARE ASKED FOR AT THE SIZE THEY ARE SHOWN (2026-09-19)
+ * Every page is this one document, so a non-lazy gallery meant every visit
+ * downloaded ~190 full-size photos (29.6 MB measured on /faq).
+ * ========================================================================== */
+if (index) {
+  const gal = (index.match(/onSnapshot\(collection\(db,'gallery'\)[\s\S]*?\n\}, function/) || [])[0] || '';
+  check('the gallery snapshot was found', gal.length > 100);
+  check('and its photos load lazily', /loading="lazy"/.test(gal),
+    'without it every page downloads the whole gallery, hidden or not');
+  check('and are resized by Cloudinary', /cdnImg\(g\.imageUrl,/.test(gal));
+  check('and describe themselves', !/alt="Christmas light installation"/.test(gal) && /var alt =/.test(gal),
+    'one identical alt on 190 photos tells an image search nothing');
+  check('cdnImg only touches Cloudinary uploads',
+    /function cdnImg[\s\S]{0,200}res\\\.cloudinary\\\.com/.test(index),
+    'a transform spliced into any other URL would break the image');
+}
 console.log('\n' + passed + ' passed, ' + failed + ' failed, ' + notes + ' notes');
 if (failed) {
   console.log('\nFailing: ' + failures.map(f => f.name).join(' | '));
