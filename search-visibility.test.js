@@ -213,12 +213,20 @@ const PATH_ROUTES = (() => {
 
 /* The guard, for the same reason the town list has one: if the declaration is
    renamed this parses to [] and every comparison below passes vacuously. */
-check('PATH_ROUTES was found in index.html', PATH_ROUTES.length === 7,
+/* ⭐ 8 SINCE 2026-09-19: /privacy joined, because Google Ads needs a privacy policy at a
+   real address. It is a marketing path in every sense this file checks. */
+check('PATH_ROUTES was found in index.html', PATH_ROUTES.length === 8,
   'parsed ' + PATH_ROUTES.length + ' routes ' + JSON.stringify(PATH_ROUTES) +
-  ' — expected 7 (/ plus the six marketing pages). If a route was deliberately ' +
+  ' — expected 8 (/ plus the six marketing pages and /privacy). If a route was deliberately ' +
   'added or removed, change this number in the same commit; otherwise the ' +
   'declaration has been renamed and every check below is comparing empty lists.');
 check('and / is one of them', PATH_ROUTES.indexOf('/') !== -1);
+
+/* ⭐ EVERY LATER SECTION GATES ON THIS, NEVER ON A COUNT (2026-09-19). Sections 8 and 9
+   were written as `PATH_ROUTES.length === 7`, copied from the one above; when /privacy
+   made it 8 they skipped themselves and the file stayed green. The count is asserted
+   ONCE, loudly, in the check above — the sections only need to know the list parsed. */
+const ROUTES_FOUND = PATH_ROUTES.length > 0;
 
 const TRANSACTIONAL = ['/quote', '/quote-details', '/payment', '/share'];
 check('and none of the four private routes is a real path',
@@ -255,7 +263,7 @@ if (headers) {
 }
 
 /* ------------------------------------ the sitemap names exactly these paths */
-if (sitemap && PATH_ROUTES.length === 7) {
+if (sitemap && ROUTES_FOUND) {
   const locs2 = (sitemap.match(/<loc>([^<]+)<\/loc>/g) || []).map(x => x.replace(/<\/?loc>/g, ''));
   const expected = PATH_ROUTES.map(r => CANON + (r === '/' ? '' : r.slice(1))).sort();
   check('the sitemap names exactly the real paths and nothing else',
@@ -267,7 +275,7 @@ if (sitemap && PATH_ROUTES.length === 7) {
 }
 
 /* -------------------------- and each of them says something different */
-if (index && PATH_ROUTES.length === 7) {
+if (index && ROUTES_FOUND) {
   const metaBlock = (index.match(/var ROUTE_META = \{([\s\S]*?)\n\};/) || [])[1] || '';
   check('ROUTE_META was found', metaBlock.length > 200,
     'without it the per-route title and description checks below are vacuous');
@@ -320,7 +328,7 @@ if (index && PATH_ROUTES.length === 7) {
       badD.length === 0,
       'outside 70-170 characters: ' +
       badD.map(e => e.route + ' (' + e.meta.desc.length + ')').join(', '));
-    note('7 URLs, each with its own title, description and canonical.');
+    note(PATH_ROUTES.length + ' URLs, each with its own title, description and canonical.');
   }
 
   /* -------------- the head is rewritten per route, not left on the homepage */
@@ -402,7 +410,7 @@ if (edgeSrc) {
     check('and it parses', false, String(e && e.message));
   }
 }
-if (edge && index && PATH_ROUTES.length === 7) {
+if (edge && index && ROUTES_FOUND) {
   const marketing8 = PATH_ROUTES.filter(r => r !== '/');
   const metaBlock8 = (index.match(/var ROUTE_META = \{([\s\S]*?)\n\};/) || [])[1] || '';
   const fromIndex = route => {
@@ -438,7 +446,9 @@ if (edge && index && PATH_ROUTES.length === 7) {
 
   /* Run it against the real document, so a changed tag in the head is caught here
      instead of by a search result that quietly says "homepage" again. */
-  marketing8.forEach(r => {
+  /* ⚠ ONLY THE ROUTES THE EDGE TABLE HAS. A route missing from it is already named by the
+     drift check above; running it here would crash on edge.ROUTES[r].title instead. */
+  marketing8.filter(r => edge.ROUTES[r]).forEach(r => {
     const out = edge.rewriteHead(index, r);
     const url = CANON + r.slice(1);
     const head = out.slice(0, out.indexOf('</head>'));
@@ -480,7 +490,7 @@ if (index) {
  * Each 301 in _redirects must land on a page that exists, and must never take
  * the address of one.
  * ========================================================================== */
-if (redirects && PATH_ROUTES.length === 7) {
+if (redirects && ROUTES_FOUND) {
   const moved = (redirects.match(/^(\/\S*)\s+(\/\S*)\s+301\s*$/gm) || []).map(l => l.trim().split(/\s+/));
   check('the old site\'s addresses are redirected', moved.length >= 40,
     'found ' + moved.length + ' 301s; the old city pages and blog posts 404 without them');
