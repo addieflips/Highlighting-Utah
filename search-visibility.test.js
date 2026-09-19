@@ -222,6 +222,12 @@ check('PATH_ROUTES was found in index.html', PATH_ROUTES.length === 8,
   'declaration has been renamed and every check below is comparing empty lists.');
 check('and / is one of them', PATH_ROUTES.indexOf('/') !== -1);
 
+/* ⭐ EVERY LATER SECTION GATES ON THIS, NEVER ON A COUNT (2026-09-19). Sections 8 and 9
+   were written as `PATH_ROUTES.length === 7`, copied from the one above; when /privacy
+   made it 8 they skipped themselves and the file stayed green. The count is asserted
+   ONCE, loudly, in the check above — the sections only need to know the list parsed. */
+const ROUTES_FOUND = PATH_ROUTES.length > 0;
+
 const TRANSACTIONAL = ['/quote', '/quote-details', '/payment', '/share'];
 check('and none of the four private routes is a real path',
   !TRANSACTIONAL.some(r => PATH_ROUTES.indexOf(r) !== -1),
@@ -257,7 +263,7 @@ if (headers) {
 }
 
 /* ------------------------------------ the sitemap names exactly these paths */
-if (sitemap && PATH_ROUTES.length === 8) {
+if (sitemap && ROUTES_FOUND) {
   const locs2 = (sitemap.match(/<loc>([^<]+)<\/loc>/g) || []).map(x => x.replace(/<\/?loc>/g, ''));
   const expected = PATH_ROUTES.map(r => CANON + (r === '/' ? '' : r.slice(1))).sort();
   check('the sitemap names exactly the real paths and nothing else',
@@ -269,7 +275,7 @@ if (sitemap && PATH_ROUTES.length === 8) {
 }
 
 /* -------------------------- and each of them says something different */
-if (index && PATH_ROUTES.length === 8) {
+if (index && ROUTES_FOUND) {
   const metaBlock = (index.match(/var ROUTE_META = \{([\s\S]*?)\n\};/) || [])[1] || '';
   check('ROUTE_META was found', metaBlock.length > 200,
     'without it the per-route title and description checks below are vacuous');
@@ -404,9 +410,7 @@ if (edgeSrc) {
     check('and it parses', false, String(e && e.message));
   }
 }
-/* ⚠ 8, NOT 7 (2026-09-19): /privacy joined. This guard said 7 when #464 and #465 met,
-   and the whole section skipped itself in silence — green for the worst reason. */
-if (edge && index && PATH_ROUTES.length === 8) {
+if (edge && index && ROUTES_FOUND) {
   const marketing8 = PATH_ROUTES.filter(r => r !== '/');
   const metaBlock8 = (index.match(/var ROUTE_META = \{([\s\S]*?)\n\};/) || [])[1] || '';
   const fromIndex = route => {
@@ -442,7 +446,9 @@ if (edge && index && PATH_ROUTES.length === 8) {
 
   /* Run it against the real document, so a changed tag in the head is caught here
      instead of by a search result that quietly says "homepage" again. */
-  marketing8.forEach(r => {
+  /* ⚠ ONLY THE ROUTES THE EDGE TABLE HAS. A route missing from it is already named by the
+     drift check above; running it here would crash on edge.ROUTES[r].title instead. */
+  marketing8.filter(r => edge.ROUTES[r]).forEach(r => {
     const out = edge.rewriteHead(index, r);
     const url = CANON + r.slice(1);
     const head = out.slice(0, out.indexOf('</head>'));
@@ -484,7 +490,7 @@ if (index) {
  * Each 301 in _redirects must land on a page that exists, and must never take
  * the address of one.
  * ========================================================================== */
-if (redirects && PATH_ROUTES.length === 8) {
+if (redirects && ROUTES_FOUND) {
   const moved = (redirects.match(/^(\/\S*)\s+(\/\S*)\s+301\s*$/gm) || []).map(l => l.trim().split(/\s+/));
   check('the old site\'s addresses are redirected', moved.length >= 40,
     'found ' + moved.length + ' 301s; the old city pages and blog posts 404 without them');
