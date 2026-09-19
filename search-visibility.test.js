@@ -404,7 +404,9 @@ if (edgeSrc) {
     check('and it parses', false, String(e && e.message));
   }
 }
-if (edge && index && PATH_ROUTES.length === 7) {
+/* ⚠ 8, NOT 7 (2026-09-19): /privacy joined. This guard said 7 when #464 and #465 met,
+   and the whole section skipped itself in silence — green for the worst reason. */
+if (edge && index && PATH_ROUTES.length === 8) {
   const marketing8 = PATH_ROUTES.filter(r => r !== '/');
   const metaBlock8 = (index.match(/var ROUTE_META = \{([\s\S]*?)\n\};/) || [])[1] || '';
   const fromIndex = route => {
@@ -482,7 +484,7 @@ if (index) {
  * Each 301 in _redirects must land on a page that exists, and must never take
  * the address of one.
  * ========================================================================== */
-if (redirects && PATH_ROUTES.length === 7) {
+if (redirects && PATH_ROUTES.length === 8) {
   const moved = (redirects.match(/^(\/\S*)\s+(\/\S*)\s+301\s*$/gm) || []).map(l => l.trim().split(/\s+/));
   check('the old site\'s addresses are redirected', moved.length >= 40,
     'found ' + moved.length + ' 301s; the old city pages and blog posts 404 without them');

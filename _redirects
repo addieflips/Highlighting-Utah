@@ -14,8 +14,9 @@
 # meant.
 #
 # ⚠ LEFT OUT ON PURPOSE:
-#   - /privacy, /terms and /accessibility: there is no page for them yet, and
-#     sending them somewhere else would be claiming a policy exists.
+#   - /terms and /accessibility: there is no page for them yet, and sending
+#     them somewhere else would be claiming a policy exists. (/privacy is a real
+#     page since 2026-09-19 and is a 200 rewrite below, not a 301.)
 #   - /rsvp, /payments and the thank-you pages: they were steps in a form, not
 #     search results.
 #   - /gallery: it is a live page again, and a 301 here would shadow it.
