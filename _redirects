@@ -24,6 +24,7 @@
 /areas         /index.html  200
 /faq           /index.html  200
 /contact       /index.html  200
+/privacy       /index.html  200
 
 # /home forces the real homepage past the saved-login redirect — for staff
 # checking the site, not customers who want to land on their pending item.
