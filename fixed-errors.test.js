@@ -301,6 +301,24 @@ check('"Missing or insufficient permissions" is NOT treated as fixed',
     daysBefore('2026-09-18', 4)).data) === null,
   'that was instrumented on 2026-09-18, not fixed — clearing it destroys the reports the fix is waiting for');
 
+check('an entry scoped to the portal does not clear an office error',
+  api.errorFixedBy(
+    row('o', ADMIN_TOPIC, 'admin error|edit customer save failed: cannot read properties of null (reading \'indexof\')',
+      daysBefore('2026-09-10', 2)).data
+  ) === null,
+  'the two null-crash entries are the portal\'s; Edit Customer had its own crash of almost the same wording, fixed on a different day');
+
+check('and the same wording from the portal still is cleared',
+  api.errorFixedBy(
+    row('p2', MEMBER_TOPIC, 'Something broke|Cannot read properties of null (reading \'value\')',
+      daysBefore('2026-09-10', 2)).data
+  ) !== null,
+  'scoping must narrow the entry, not disable it');
+
+check('an entry naming a topic that is neither reporter is named as unusable',
+  api.fixedErrorsBadEntries([{ match: 'some long distinctive fault', topic: 'Admin Errors', fixedOn: '2026-09-09', note: 'plural, so it matches nothing' }]).length === 1,
+  'a typo in a topic silently never matches, which reads exactly like a fault that never got cleared');
+
 check('a fault nobody has fixed survives',
   api.errorFixedBy(row('n', ADMIN_TOPIC,
     'admin error|somethingnobodyhasseen is not defined', daysBefore('2026-09-09', 3)).data) === null);

@@ -23178,9 +23178,9 @@ const FIXED_ERRORS = [
      which means the `doing` half of the key cannot be relied on. What keeps them narrow is
      the floor: every Member Error of this shape before 2026-09-10 was triaged in 6f61d8c as
      that one crash, and anything of this shape since is a different bug and is kept. */
-  { match: 'Cannot read properties of null', fixedOn: '2026-09-10',
+  { match: 'Cannot read properties of null', topic: MEMBER_ERROR_TOPIC, fixedOn: '2026-09-10',
     note: 'Member. changes_outlet_timer / changes_specific_outlet read .value off a radio nothing had ticked and took the whole preferences save down with it — and on an RSVP page, the answer with it. 6f61d8c.' },
-  { match: 'null is not an object', fixedOn: '2026-09-10',
+  { match: 'null is not an object', topic: MEMBER_ERROR_TOPIC, fixedOn: '2026-09-10',
     note: 'Member. Safari wording for the same crash as the entry above. 6f61d8c.' }
 ];
 /* Both sides of the comparison go through this, so an entry above can be typed the way the
@@ -23219,6 +23219,12 @@ function errorFixedBy(d, list){
   if(!when) return null;
   const entries = Array.isArray(list) ? list : FIXED_ERRORS;
   for(const e of entries){
+    /* ⚠ AN ENTRY MAY NAME ITS REPORTER, AND THE TWO NULL-CRASH ONES DO. Their wording is
+       generic enough to turn up on the admin side as well (Edit Customer's own
+       s.indexOf crash reads almost identically), and a fix to the portal says nothing
+       about a fault in the office. No topic means both, which is right for a wording
+       only one reporter can produce. */
+    if(e && e.topic && String(e.topic) !== topic) continue;
     const needle = fixedErrorNeedle(e && e.match);
     if(needle.length < FIXED_ERROR_MIN_MATCH) continue;
     if(key.indexOf(needle) === -1) continue;
@@ -23237,6 +23243,7 @@ function errorFixedBy(d, list){
    the quiet: a typo in a date reads exactly like a fault that never got cleared. */
 function fixedErrorsBadEntries(list){
   return (Array.isArray(list) ? list : FIXED_ERRORS).filter(function(e){
+    if(e && e.topic && e.topic !== MEMBER_ERROR_TOPIC && e.topic !== ADMIN_ERROR_TOPIC) return true;
     return fixedErrorNeedle(e && e.match).length < FIXED_ERROR_MIN_MATCH || !fixedErrorFloor(e && e.fixedOn);
   });
 }
