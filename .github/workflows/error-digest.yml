@@ -42,11 +42,20 @@ jobs:
         with:
           node-version: 22
 
-      # firebase-admin already lives in functions/, so the script runs from
-      # there and resolves it without adding a dependency at the repo root.
-      - name: Install function dependencies
-        working-directory: functions
-        run: npm install
+      # ⚠ NODE RESOLVES require() FROM THE SCRIPT'S OWN DIRECTORY, NOT THE WORKING
+      # DIRECTORY. The first version of this job installed into functions/ and ran
+      # `node ../error-digest.js` from there, which failed instantly with
+      # MODULE_NOT_FOUND: the script lives at the repo root, so Node looked in the
+      # ROOT node_modules and never in functions/. Install it where the script is.
+      #
+      # ⛔ AND THE MAJOR IS PINNED ON PURPOSE. This script uses admin.firestore(),
+      # the namespaced API, which firebase-admin 14 REMOVES — CLAUDE.md records that
+      # by name. Unpinned, this job would keep working until the day npm resolved 14
+      # and then fail with "admin.firestore is not a function", months later and
+      # nowhere near this change. error-digest.test.js holds the pin to the same
+      # major functions/package.json uses, so the two cannot drift apart.
+      - name: Install the Firestore client
+        run: npm install --no-save firebase-admin@^13.10.0
 
       - name: Write service account key to a temp file
         env:
@@ -54,8 +63,7 @@ jobs:
         run: printf '%s' "$SA_JSON" > "$RUNNER_TEMP/firebase-sa.json"
 
       - name: Read the errors
-        working-directory: functions
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
           GOOGLE_CLOUD_PROJECT: highlighting-utah
-        run: node ../error-digest.js
+        run: node error-digest.js
