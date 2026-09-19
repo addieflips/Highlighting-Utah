@@ -244,6 +244,37 @@ check('Safari\'s wording for the portal crash is covered as well as Chrome\'s',
     daysBefore('2026-09-10', 1)).data) !== null,
   'the report that found that crash came off a real iPhone');
 
+/* ⭐ THE THREE WORDINGS `error-digest.js` ACTUALLY FOUND, typed out as they were stored
+   rather than invented. 2176ff2 retried `deadline-exceeded` AND `internal` and only the
+   first got an entry, so five real reports of a fixed fault sat in the badge for a week —
+   a fixture of made-up spellings could have passed throughout. */
+['Answering Yes to the RSVP email|internal',
+ 'Answering No to the RSVP email|internal',
+ 'Answering Back Next Year from the RSVP email|internal'].forEach(function (key) {
+  check('a lost RSVP answer reading "' + key.split('|')[0] + '" is covered',
+    api.errorFixedBy(row('i', MEMBER_TOPIC, key, daysBefore('2026-09-11', 1)).data) !== null,
+    'these are the rows the error folder really held; `internal` was the half 2176ff2 left off');
+});
+
+/* ⚠ AND THE NARROWNESS, which is what makes the entry above safe to carry the `doing` half.
+   `internal` is eight letters that sit inside ordinary words; the needle is scoped to the
+   RSVP email on purpose, so every other portal action keeps its rows. A row kept too long
+   is the only direction this list is allowed to be wrong in. */
+check('another portal action reporting the same code is NOT cleared',
+  api.errorFixedBy(row('i2', MEMBER_TOPIC,
+    'Saving your light colours|internal', daysBefore('2026-09-11', 1)).data) === null,
+  'the needle names the RSVP email so it cannot reach a fault nobody triaged');
+
+check('and an office error carrying those same words is NOT cleared',
+  api.errorFixedBy(row('i3', ADMIN_TOPIC,
+    'admin error|the rsvp email|internal', daysBefore('2026-09-11', 1)).data) === null,
+  'that entry is scoped to the member reporter; an admin row of the same shape is a different fault');
+
+check('an RSVP answer lost AFTER the retries shipped survives',
+  api.errorFixedBy(row('i4', MEMBER_TOPIC,
+    'Answering Yes to the RSVP email|internal', daysAfter('2026-09-11', 2)).data) === null,
+  'all three retries failing is new news — that is the fix not taking, and it must not be swept');
+
 check('the entry that matched is handed back, not just a yes',
   (function () {
     const hit = api.errorFixedBy(row('a', ADMIN_TOPIC,

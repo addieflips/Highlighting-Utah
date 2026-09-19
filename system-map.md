@@ -4197,9 +4197,32 @@ nobody has fixed now; the claim it makes is unchanged.
 ⛔ **"Unhandled promise: Missing or insufficient permissions" is deliberately NOT in the list.**
 That was INSTRUMENTED on 2026-09-18, not fixed — `rejectionWhere()` names the frame so the next
 one can be traced — and clearing it would throw away the very reports that fix is waiting for.
-`fixed-errors.test.js` holds all of it: 31 checks, weighted six-to-eleven towards what must
-SURVIVE rather than what goes, and 15 sabotages red-checked. The two that were not caught are
-no-ops and are labelled as such in the code.
+`fixed-errors.test.js` holds all of it: 42 checks, weighted towards what must SURVIVE rather
+than what goes, and 20 sabotages red-checked. The two that were not caught are no-ops and are
+labelled as such in the code.
+
+⭐ **AND THE FIRST READING PAID FOR ITSELF WITHIN THE HOUR** (2026-09-19). The very first run of
+**Read the error folder** found 302 messages, 20 error reports and 12 distinct faults — and among
+them **five reports of a fault that had already been fixed and had no entry**. Commit 2176ff2's
+own message says all twelve lost RSVP answers reported `deadline-exceeded` **or** `internal`, and
+it retries both; only `deadline-exceeded` got a FIXED_ERRORS entry. So five rows sat in the badge
+for a week looking exactly like a fault nobody had dealt with — the precise failure §9.9 item 7
+exists to prevent, caught by the step that was added the same day.
+⚠ **THE NEEDLE HAS TO CARRY THE `doing` HALF, because `internal` alone cannot.** Eight letters
+that sit inside ordinary words, and even `|internal` is under `FIXED_ERROR_MIN_MATCH` — the floor
+refusing it is the floor working. `the RSVP email|internal`, scoped to the member reporter, clears
+the answers it was raised for and leaves every other portal action's `internal` alone. A row kept
+too long is the only direction this list is allowed to be wrong in.
+⚠ **AND THE FIXTURES ARE THE THREE WORDINGS THE READER ACTUALLY FOUND**, typed as they were
+stored — *Answering Yes*, *Answering No*, *Answering Back Next Year from the RSVP email* — not
+invented spellings, which could have passed throughout the week the entry was missing. 5 further
+sabotages red-checked, admin.html byte-for-byte after each.
+⚠ **What the first reading also corrected, said plainly because it was told to Addie the other
+way:** the wire sweep DOES carry an error wording — *"Wire sweep could not look: No master sheet
+is connected on this computer"* — it is a refusal by design rather than a fault, so it takes no
+entry and is not swept. And the three faults the report flagged as *covered and still present*
+are all dated BEFORE their fix dates, so the sweep had simply not run yet (admin had not been
+reloaded) rather than failing.
 
 ⭐ **THE SECTION CONTROLS ARE ALWAYS VISIBLE NOW** (2026-09-11, [[MSG-23]]). Addie: *"not
 able to add to each section and delete from each section."* Both buttons — `✎` to rename a
