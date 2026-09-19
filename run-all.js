@@ -21039,9 +21039,34 @@ suite('Suite 62. Which sides of the house');
     /const n = houseSideCount\(d\.houseSides\);/.test(admin) &&
     /const newHouseSides = houseSideCount\(\(document\.querySelector\('\.editcust-side-pick:checked'\)/.test(admin) &&
     /houseSides: newHouseSides,/.test(admin));
-  check('S62', 'Add Customer saves it too',
-    /const selectedSides = houseSideCount\(\(document\.querySelector\('\.addcust-side-pick:checked'\)/.test(admin) &&
+  /* ⚠ REPOINTED 2026-09-19, NOT WEAKENED ([[OPT-25]]). This matched the literal
+     `const selectedSides = houseSideCount((document.querySelector('.addcust-side-pick:checked')`
+     — that is, where the count happened to come FROM — so it failed on correct code the
+     moment the ticked boxes started deciding it. Same slow-fuse shape as S82 and S129.
+     What must be true is that Add Customer saves a count at all, and that on a NEW house
+     the count is the names somebody clicked. */
+  check('S62', 'Add Customer saves a side count',
     /houseSides: selectedSides,/.test(admin));
+  {
+    /* ⭐ Addie, 2026-09-19: "from here on it we want to make sure all future houses will
+       be marked by the sides we click." The Install Details form and portalSave already
+       derive the count from the ticks; this form kept a radio that could disagree with
+       its own boxes, and a count that disagrees with the names makes printSidesCell
+       refuse the list and print the bare number — the crew told nothing about a house
+       somebody had just answered for. */
+    const at = stripComments(admin).indexOf('const selectedSides =');
+    const expr = at > 0 ? stripComments(admin).slice(at, stripComments(admin).indexOf(';', at)) : '';
+    check('S62', 'the Add Customer count expression was found', !!expr);
+    check('S62', 'and on a new house the ticked boxes decide the count',
+      /selectedSidesList\.length[\s\S]*\?[\s\S]*selectedSidesList\.length/.test(expr),
+      'a radio saying 3 over boxes reading Front and Back stores a house as three ' +
+      'sides named twice, and the printed sheet then falls back to the bare number');
+    /* ⛔ AND THE RADIO IS STILL THE ANSWER WHEN NOTHING IS TICKED — nought names is
+       "nobody has said", not a house with no lit sides. */
+    check('S62', 'and the radio still answers when no box is ticked',
+      /addcust-side-pick:checked/.test(expr),
+      'dropping it makes an untouched form store a side count of nobody-has-said as 1');
+  }
   /* ⭐ THE POINT OF ASKING ON THE QUOTE AT ALL. */
   check('S62', 'a quote carries its count through to the customer',
     /\.addcust-side-pick/.test(admin),

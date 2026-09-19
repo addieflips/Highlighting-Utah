@@ -2243,6 +2243,24 @@ wrong," it is a second, narrower question the first one never claimed to answer.
     `whWireLabel` already gives for the wire, for the same reason: where the record
     does not know, say so. Asserted as a refusal in run-all Suite 63, so a later
     session has to meet the argument rather than find nothing in its way.
+  - ⭐ **AND SHE CLOSED IT THE NEXT DAY** (2026-09-19, [[OPT-25]]): *"If they says 234
+    sides leave them as it is just from here on it we want to make sure all future
+    houses will be marked by the sides we click."* So: **no backfill, ever**, and the
+    houses already down for 2, 3 or 4 sides are untouched — setting those to Front
+    alone would have cut them to one side, changed their price and re-quoted them.
+    ⭐ **What she asked for instead was already true at all three doors a new house
+    comes in by**: the Install Details form opens with Front ticked and stores the
+    names ([[OPT-23]]), Add Customer opens on Front through
+    `houseSidesAutoFill(HOUSE_SIDES_DEFAULT)` and stores them, and the portal's Sides
+    tab stores them. ⚠ **The one gap was the COUNT.** Add Customer kept a radio that
+    could disagree with its own tick boxes — tick Front and Back while the radio still
+    says 3 and the house is stored as three sides named twice, and `printSidesCell`
+    then refuses the list and prints the bare number, telling the crew nothing about a
+    house somebody had just answered for. `selectedSides` is the ticked names now when
+    there are any, the same rule the other two doors already follow. ⛔ **Edit Customer
+    is deliberately not changed** — that is her *leave them as it is*. ⚠ **And the
+    radio still answers when no box is ticked**, because nought names is "nobody has
+    said" rather than a house with no lit sides.
   - ⚠ **The office half was already done and is NOT this.** [[OPT-07]] fills the Edit
     Customer boxes from the count, front first, labelled — and a record opened and
     saved there does store that fill. That is the cost she took, one house at a time,
@@ -5213,10 +5231,25 @@ map**.
 
 **Pending maps · N**, beside Add a map, is the worklist: houses that still owe a drawing.
 
-A house is pending when it has **no drawing at all** AND it is either a **new quote this
-year** or a **re-quote they have said yes to**. Returning customers with no drawing are
-deliberately left out — nearly the whole book has never been photographed, and listing all
-of them would bury the dozen houses somebody actually has to go and draw.
+A house is pending when it is a **new quote this year with no drawing**, or a **re-quote
+they have said yes to** — whether or not it already has one. Returning customers with no
+drawing are deliberately left out: nearly the whole book has never been photographed, and
+listing all of them would bury the dozen houses somebody actually has to go and draw.
+
+⭐ **A RE-QUOTE STAYS ON THE LIST EVEN WITH A DRAWING ON FILE** (2026-09-19, [[BPM-07]]).
+Addie, asked directly: **include them.** A re-quote is most often a house that moved or
+extended, so the drawing on file can describe a roofline that no longer exists — and until
+this it was *silently absent*, with a confident-looking drawing on its card and nobody ever
+sent to check it. ⚠ **The cost she accepted:** every price-only re-quote lands there too.
+Nothing on the record can say whether an older drawing is still right, so the list asks for
+a look rather than claiming the drawing is wrong — the card reads *Re-quoted — check this
+map is still right* where the copies count would be.
+⛔ **One row per house, not one per drawing.** Every other view is one card per map; here a
+house holding three would be three rows AND would count three on the button, which is the
+number you read to decide whether to open the panel at all.
+⛔ **And nothing prints from the pending list**, so a pending card has no tick box and no
+copies stepper even now that it can carry a drawing. Switch back to the print list and the
+same card has both.
 
 ⚠ **A re-quote nobody has answered yet does NOT count.** It shipped on 2026-09-16 counting
 any **open** re-quote, and Addie read the result straight away: *"I see Rachel Oslund is on
@@ -5283,7 +5316,7 @@ decided per page, because one route can hold both.
 |---|---|
 | The grid is empty | Check the filter button — it opens on **Has a map**. "No maps match" means the filter, not the data; a failed read says so in its own words instead. |
 | A customer is not in the name list | The list is every house in `jobAddresses`. If they are not there they are not a customer yet. |
-| A re-quoted house is not on **Pending maps** | They have not approved it yet — that is the rule, not a fault ([[BPM-04]]). It appears once they approve, and stays until somebody draws it. |
+| A re-quoted house is not on **Pending maps** | They have not approved it yet — that is the rule, not a fault ([[BPM-04]]). It appears once they approve, and stays until somebody draws it. Having an older drawing no longer takes it off ([[BPM-07]]). |
 | A map prints the wrong number of times | The stepper is this session only. The number that survives is **Usual copies** in the detail dialog. |
 | The count on the bar does not match the sheet | It should not be possible — both are built from the same queue. If it happens, `npm run test:blueprint` is the gate that should have caught it. |
 | An upload fails | The dialog stays open and names the reason. A switched-off picture account reads the same here as it does on a quote. |

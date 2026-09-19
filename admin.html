@@ -39898,14 +39898,35 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
   const propertyLabel = document.getElementById('addCustPropertyLabel').value.trim();
   const phone2 = document.getElementById('addCustPhone2').value.replace(/\D/g,'');
   const email2 = document.getElementById('addCustEmail2').value.trim();
-  /* A count, and 0 means nobody has said — which is not the same as "none". */
-  const selectedSides = houseSideCount((document.querySelector('.addcust-side-pick:checked') || {}).value);
   /* ⭐ AND WHICH ONES (2026-09-10, [[OPT-05]]). Null rather than [] when nothing is
      ticked: an empty array is a claim that no side of the house is lit, which is not a
      house, whereas null is this field's own "nobody has said" — the same value the Edit
      Customer save writes when the office clears the boxes, so one absent answer has one
      spelling wherever it is written. */
   const selectedSidesList = houseSidesPickedList('addcust');
+  /* ⭐ THE BOXES DECIDE THE COUNT ON A NEW HOUSE (2026-09-19, [[OPT-25]]). Addie: *"If
+     they says 234 sides leave them as it is just from here on it we want to make sure all
+     future houses will be marked by the sides we click."*
+
+     ⚠ THIS IS THE RULE THE OTHER TWO DOORS ALREADY FOLLOW, not a new one. The Install
+     Details form sets `houseSides: portalSideCount(qdSides)` ([[OPT-23]]) and portalSave
+     sets `updates.houseSides = sanitized.length`; only this form kept a separate radio
+     that could disagree with its own tick boxes. Tick Front and Back while the radio
+     still says 3 and the house is stored as three sides named twice — and
+     `printSidesCell` then refuses the list and prints the bare number, so the crew is
+     told nothing, on a house somebody had just answered for.
+
+     ⛔ NEW HOUSES ONLY. Edit Customer is deliberately NOT changed: two thirds of the book
+     is a count with no names, that form is opened dozens of times a day for reasons that
+     have nothing to do with lights, and a count moving there is a re-quote and a new
+     price. Her sentence is "leave them as it is" for exactly those.
+
+     ⚠ AND THE RADIO STILL ANSWERS WHEN NOTHING IS TICKED, because 0 names is this
+     field's "nobody has said" rather than a house with no lit sides — the same
+     distinction the null above is drawing. */
+  const selectedSides = selectedSidesList.length
+    ? selectedSidesList.length
+    : houseSideCount((document.querySelector('.addcust-side-pick:checked') || {}).value);
   const selectedColors = Array.from(document.querySelectorAll('.addcust-color-check:checked')).map(el => el.value);
   // The free-text "Additional Notes" input under Lights was removed from the
   // form, so the description is just the colours now. Crew-facing detail lives
@@ -75094,17 +75115,37 @@ function bpmItems(){
    has to go and draw, which is the cries-wolf failure this file names in four other
    places. What is outstanding is a house we have just quoted or re-quoted.
 
-   ⚠ AND IT IS "NO MAP", NOT "NO RECENT MAP". A re-quoted house that already carries a
-   drawing is left out: whether that older drawing is now stale is a judgement about
-   this season's work that nothing on the record can answer, and inventing one would
-   put houses on a worklist nobody put there. Named as a default in Q-035. */
+   ⭐ AND A RE-QUOTE STAYS PENDING EVEN WITH A DRAWING ALREADY ON FILE (2026-09-19,
+   [[BPM-07]]). Addie, asked directly whether a re-quoted house that already carries an
+   older drawing belongs on this list: **include them.**
+
+   ⚠ THIS REVERSES Q-035 ITEM 8'S DEFAULT, and the old reasoning is kept because it is
+   the cost she accepted rather than a mistake: whether an older drawing is now stale is
+   a judgement nothing on the record can make, so every price-only re-quote lands here
+   too. What settles it is which way round the mistake falls. A re-quote is most often a
+   house that MOVED or EXTENDED, so the drawing on file can describe a roofline that no
+   longer exists — and under the old default that house was SILENTLY ABSENT, with a
+   confident-looking drawing on its card and nobody ever sent to check it. An extra row
+   somebody glances at and dismisses costs a second; a wrong roofline costs a crew-day.
+
+   ⛔ ONE ROW PER HOUSE, NOT ONE PER DRAWING, and that is not cosmetic — bpmItems emits a
+   row per map, so a re-quoted house holding three drawings would be three pending rows
+   AND would count three on the button. The badge is the number she reads to decide
+   whether to open the panel at all.
+
+   ⚠ AND NOTHING PRINTS FROM THE PENDING LIST, so a pending card carries no checkmark and
+   no copies stepper even when it has a map — see bpmCardHtml. Until today a pending row
+   never had a drawing, so that was true by construction rather than by rule. */
 /* ⛔ AND A RE-QUOTE NOBODY HAS SAID YES TO IS NOT PENDING — see bpmRequoteApproved
    above for Addie's ruling and why the approval has to outlive the quote. A NEW quote
    needs no such test: audienceNeverAsked is already a CLOSED, CONVERTED quote, so that
    house has joined and the drawing is plainly owed. */
 function bpmIsPending(it){
+  /* An approved re-quote is owed a look whether or not a drawing is already on file
+     ([[BPM-07]]) — but only its FIRST row, so a house with three drawings is one row
+     and counts one on the button. A house with none has a single row at index 1. */
+  if(it.stage === 'requote') return !!it.requoteApproved && (!bpmHasMap(it) || it.index === 1);
   if(bpmHasMap(it)) return false;
-  if(it.stage === 'requote') return !!it.requoteApproved;
   return it.stage === 'new';
 }
 function bpmPendingItems(){ return bpmItems().filter(bpmIsPending); }
@@ -75338,6 +75379,12 @@ function bpmCardHtml(it){
   const n = bpmCopiesFor(it);
   const on = bpmIsTicked(it);
   const mapped = bpmHasMap(it);
+  /* ⛔ NOTHING PRINTS FROM THE PENDING LIST ([[BPM-07]]). Until a re-quoted house with a
+     drawing could appear there, every pending row was map-less and so got no checkmark
+     and no stepper anyway; now one can, and a tick that adds to a batch this view cannot
+     print is the control-that-does-nothing this file refuses everywhere else. The same
+     argument as the missing checkmark on a house with no map, one line below. */
+  const canPrint = mapped && bpmView !== 'pending';
   const tagClass = it.stage === 'new' ? ' new' : it.stage === 'requote' ? ' requote' : '';
   return '<article class="bpm-card' + (on && n ? ' queued' : '') + (on ? '' : ' off') + '">' +
     '<div class="bpm-thumbwrap">' +
@@ -75348,7 +75395,7 @@ function bpmCardHtml(it){
       '</button>' +
       /* ⚠ A HOUSE WITH NO MAP GETS NO CHECKMARK AT ALL: nothing to print, nothing to
          select, and a control that can never do anything reads as broken. */
-      (mapped ? '<button type="button" class="bpm-check" data-bpmtick="' + esc(it.key) + '" role="checkbox" aria-checked="' + (on ? 'true' : 'false') + '" ' +
+      (canPrint ? '<button type="button" class="bpm-check" data-bpmtick="' + esc(it.key) + '" role="checkbox" aria-checked="' + (on ? 'true' : 'false') + '" ' +
         'aria-label="' + (on ? 'Leave this map out of the batch' : 'Put this map back in the batch') + '" ' +
         'title="' + (on ? 'Printing — click to leave out' : 'Left out — click to include') + '">&#10003;</button>' : '') +
     '</div>' +
@@ -75358,10 +75405,16 @@ function bpmCardHtml(it){
       '<p class="bpm-maplabel">' + esc(it.label) + (it.of > 1 ? ' &middot; map ' + it.index + ' of ' + it.of : '') + '</p>' +
     '</div>' +
     '<div class="bpm-foot">' +
-      (mapped
+      (canPrint
         ? '<span class="bpm-copies-lbl">' + (on ? 'Copies' : 'Not printing') + '</span>' +
           '<div class="bpm-stepper">' + bpmStepperHtml(it.key, n, bpmSavedCopies(it)) + '</div>'
-        : '<span class="bpm-copies-lbl">No map on file yet</span>') +
+        /* ⚠ AND IT SAYS WHY IT IS ON THE LIST. A card showing a perfectly good drawing,
+           under a heading about what is still owed, reads as a fault in the list unless
+           the row says what it wants — and what it wants is somebody to look, which is
+           the whole of [[BPM-07]]. */
+        : '<span class="bpm-copies-lbl">' +
+            (mapped ? 'Re-quoted — check this map is still right' : 'No map on file yet') +
+          '</span>') +
     '</div>' +
   '</article>';
 }
