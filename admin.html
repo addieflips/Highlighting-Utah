@@ -24127,9 +24127,27 @@ function msgSeverityOf(d){
 
 /* One place that answers "what does the office see on this row", so the list, the
    dashboard counts and the filters cannot disagree about the same message. */
+/* ⭐ WORKED OUT ONCE PER MESSAGE, NOT ONCE PER TAB (2026-09-19). The Inbox sidebar counts
+   every tab by running every message through this, and msgCategories runs about a dozen
+   text patterns over the message body — measured on the live page, ~2 seconds of frozen
+   screen per sidebar draw with 314 messages. The answer is remembered against the message
+   object itself, and ⚠ ONLY WHILE EVERY FIELD IT IS BUILT FROM IS UNCHANGED: the key is
+   those fields, so marking a message read (which edits it in place) is seen at once.
+   ⚠ If a facet function starts reading a new field, add it to the key below or this memo
+   will go on answering from before the change. Callers only READ the result; do not
+   mutate it, because the same object is handed to every caller.
+   ⚠ Everything lives inside this one function because several test sandboxes lift it
+   alone; a helper beside it would be a bare ReferenceError in each of them. */
 function msgFacets(d){
-  return {type: msgTypeOf(d), status: msgStatusOf(d), priority: msgPriorityOf(d),
+  const memo = (d && typeof d === 'object' && typeof WeakMap === 'function')
+    ? (msgFacets._memo || (msgFacets._memo = new WeakMap())) : null;
+  const key = memo ? JSON.stringify([d.topic, d.folder, d.archived, d.status, d.responded, d.read,
+    d.priority, d.important, d.severity, d.tags, d.message]) : '';
+  if(memo){ const hit = memo.get(d); if(hit && hit.key === key) return hit.out; }
+  const out = {type: msgTypeOf(d), status: msgStatusOf(d), priority: msgPriorityOf(d),
           categories: msgCategories(d), severity: msgTypeOf(d) === MSG_TYPE_ERROR ? msgSeverityOf(d) : ''};
+  if(memo) memo.set(d, {key: key, out: out});
+  return out;
 }
 /* ⭐ WHO HIT THE ERROR, WHERE THE PAGE COULD NOT SAY (2026-09-09, [[MSG-10]]). Addie,
    reading a Member Errors folder in which one row was named and the rest were blank: "we
@@ -53541,10 +53559,35 @@ function allCustInvoiceFor(addrItem){
    first opened — and a row that went blank for the whole book until somebody clicked
    Schedule would read as the column being broken. Same three-answer shape as
    `scheduledDayIsReal` and `cnFreePool`: cannot-tell draws what it always drew. */
+/* ⭐ ONE READ OF THE PLAN PER DRAW, NOT ONE PER CUSTOMER (2026-09-19). Dax: "switch to
+   customers then all customers ... and then refresh" and the page stopped answering; he
+   also saw the customer count read 0 while all 957 were safe in the database. All Customers asks this once or twice PER ROW
+   (the Route status column and the next-visit chip), and every call walked the WHOLE
+   season plan, working out each day's crew towns again through `dayCrewTowns`. Measured on
+   the real book: the click was still blocked after 90 seconds, every second of it inside
+   `schedulePlanBookings`. Refresh did not help because the page reopened on the same tab.
+   ⭐ The answer is kept until the current synchronous task ends (cleared on the next
+   microtask). A table draw, its filter and the Member Export are each one loop, so each
+   reads the plan once. The next draw reads it fresh, so an edited plan is never shown stale.
+   ⚠ DISPLAY ONLY. Nothing that WRITES reads this function, which is why a task-long memo is
+   safe here; do not route a write path through it.
+   ⚠ Held on the function itself, not in a module variable, because run-all.js lifts this
+   function into bare sandboxes. It also remembers WHICH schedulePlanBookings answered: the
+   live page never swaps it, and a test that does is read fresh rather than handed the
+   previous plan's answer. */
 function planHangDateFor(custId){
   if(!custId) return null;
   if(typeof window === 'undefined' || typeof window.schedulePlanBookings !== 'function') return null;
-  const plan = window.schedulePlanBookings();
+  let plan;
+  if(planHangDateFor._armed && planHangDateFor._fn === window.schedulePlanBookings){
+    plan = planHangDateFor._plan;
+  } else {
+    plan = window.schedulePlanBookings();
+    planHangDateFor._plan = plan;
+    planHangDateFor._fn = window.schedulePlanBookings;
+    planHangDateFor._armed = true;
+    Promise.resolve().then(function(){ planHangDateFor._armed = false; planHangDateFor._plan = null; });
+  }
   if(!plan) return null;
   /* ⚠ A REAL MAP THAT DOES NOT HOLD THEM IS AN ANSWER — "the schedule has no day for this
      house" — and it has to be distinguishable from "cannot say". '' is that answer. */
