@@ -57,6 +57,7 @@ const SPEC_TARGETS = {
   'rsvp-decline-reason.spec.js': 'index.html',
   'portal-stay-signed-in.spec.js': 'index.html',
   'wire-colour.spec.js': 'index.html',
+  'portal-sides-on-file.spec.js': 'index.html',
   'public.spec.js': 'index.html',
   'admin.spec.js': 'admin.html',
   'crew.spec.js': 'employee.html'
