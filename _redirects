@@ -2,6 +2,81 @@
 # a 200, never a 301, because the app decides what to show from the address it
 # was given.
 #
+# ⭐ THE OLD SITE'S ADDRESSES (added 2026-09-19). Before this app, the domain
+# was a WordPress site with a page per city ("christmas-lights-installation-lehi-
+# utah"), service pages and a blog. Those URLs had years of links and rankings
+# behind them, and Google still listed several (Provo, Lehi, LED vs
+# incandescent). Every one of them answered 404, and a 404 throws the ranking
+# away. A 301 hands it to the page that answers the same question now.
+# The list was taken from the Wayback Machine's index of the domain plus what
+# Google still showed. It is written out path by path, not as a pattern, for the
+# same reason the rewrites below are: a pattern would catch addresses nobody
+# meant.
+#
+# ⚠ LEFT OUT ON PURPOSE:
+#   - /privacy, /terms and /accessibility: there is no page for them yet, and
+#     sending them somewhere else would be claiming a policy exists.
+#   - /rsvp, /payments and the thank-you pages: they were steps in a form, not
+#     search results.
+#   - /gallery: it is a live page again, and a 301 here would shadow it.
+# ⚠ THESE ARE 301s, NOT 200s. search-visibility.test.js reads only the
+# "/index.html 200" lines as routes, so none of these can pass for a page.
+
+# The old city pages. Each one ranked for "christmas lights installation <city>".
+/christmas-lights-installation-alpine-utah-84004            /areas         301
+/christmas-lights-installation-american-fork-utah           /areas         301
+/christmas-lights-installation-bluffdale-utah-84065         /areas         301
+/christmas-lights-installation-cedar-hills-utah             /areas         301
+/christmas-lights-installation-draper-utah-84020            /areas         301
+/christmas-lights-installation-eagle-mountain-utah-84005    /areas         301
+/christmas-lights-installation-herriman-utah-84096          /areas         301
+/christmas-lights-installation-highland-utah                /areas         301
+/christmas-lights-installation-lehi-utah                    /areas         301
+/christmas-lights-installation-lindon-utah-84004-2          /areas         301
+/christmas-lights-installation-orem-utah                    /areas         301
+/christmas-lights-installation-pleasant-grove-utah-84062    /areas         301
+/christmas-lights-installation-provo-utah                   /areas         301
+/christmas-lights-installation-riverton-utah-84065          /areas         301
+/christmas-lights-installation-salt-lake-county-utah        /areas         301
+/christmas-lights-installation-sandy-utah                   /areas         301
+/christmas-lights-installation-saratoga-springs-utah-84004  /areas         301
+/christmas-lights-installation-south-jordan-utah-84095      /areas         301
+/christmas-lights-installation-utah-county                  /areas         301
+/christmas-lilght-installation-lehi-utah                    /areas         301
+/christmas-light-installation-lehi-utah-84043-2             /areas         301
+/christmas-light-installation-provo-ut                      /areas         301
+
+# What the service was and how it ran.
+/christmas-lights-installation-services-utah                /how-it-works  301
+/services                                                   /how-it-works  301
+/christmas-lights                                           /how-it-works  301
+/christmas-light-info                                       /how-it-works  301
+/do-it-yourself                                             /how-it-works  301
+/do-it-yourself-christmas-lights                            /how-it-works  301
+/hanging-christmas-lights-pt-1                              /how-it-works  301
+/video-hanging-christmas-lights-like-a-pro                  /how-it-works  301
+/video-attaching-plugs-to-the-custom-cut-christmas-lights   /how-it-works  301
+/video-splicing-your-custom-cut-christmas-light-cords       /how-it-works  301
+
+# The questions the old blog answered, which the FAQ answers now.
+/christmas-blog                                             /faq           301
+/led-christmas-lights-vs-incandescent-light                 /faq           301
+/are-all-leds-the-same-quality                              /faq           301
+/are-led-lights-really-superior                             /faq           301
+/are-retail-and-commercial-lights-the-same                  /faq           301
+/where-can-i-purchase-professional-christmas-lights         /faq           301
+/made-in-america-please                                     /faq           301
+/pre-season-discounts                                       /faq           301
+/pricing-plans/list                                         /faq           301
+
+# Getting in touch.
+/contact-us                                                 /contact       301
+/free-estimate                                              /contact       301
+/quote1                                                     /contact       301
+/about-us                                                   /              301
+/community-christmas-events                                 /              301
+/i-love-the-lights-of-christmas                             /              301
+
 # ⭐ THE SIX MARKETING PATHS (added 2026-09-12). These are what make the site
 # more than one page to a search engine. Each section used to be reachable only
 # as a hash route (#/faq), and a fragment is not a page: the whole site was the
