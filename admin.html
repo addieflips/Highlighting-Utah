@@ -20164,7 +20164,19 @@ function houseIsOnTheBill(d){
   if(said === 'backnextyear' || d.maybeNextYear === true) return false;
   return true;
 }
+/* ⭐ ONE GROUPING PER DRAW, NOT ONE PER ROW (2026-09-18). "the page keeps becoming
+   unresponsive". renderInvoicesList asks invoiceDisplayName for every row, which asks
+   billedHousesFor, which rebuilt this whole map from all ~957 customers — about a million
+   steps for one draw of the invoice list, and the list was redrawn once per invoice write.
+   Measured on a full-size book: 154 of 271 seconds of a frozen load were spent here.
+   ⚠ THE MEMO ONLY EXISTS INSIDE A DRAW (billingGroupsMemo.depth > 0), and is dropped when
+   the draw ends. Everywhere else — every save path, every test sandbox — this computes
+   fresh exactly as it always did, so a record changed in place can never be read stale.
+   `typeof` guards it because several suites lift this function into a bare sandbox. */
+const billingGroupsMemo = { depth: 0, arr: null, groups: null };
 function billingGroupsByPayer(){
+  const memo = (typeof billingGroupsMemo !== 'undefined') ? billingGroupsMemo : null;
+  if(memo && memo.depth > 0 && memo.groups && memo.arr === jobAddresses) return memo.groups;
   const groups = new Map();
   (jobAddresses||[]).forEach(function(a){
     const d = a.data || {};
@@ -20174,6 +20186,7 @@ function billingGroupsByPayer(){
     if(!groups.has(key)) groups.set(key, []);
     groups.get(key).push(a);
   });
+  if(memo && memo.depth > 0){ memo.arr = jobAddresses; memo.groups = groups; }
   return groups;
 }
 /* Every house on one payer's bill. `who` is a customer record OR a bare key. */
@@ -25837,10 +25850,17 @@ document.getElementById('msgFilterSelect').addEventListener('change', function()
 })();
 function loadMessages(){
   const q = query(collection(db,'messages'), orderBy('createdAt','desc'));
-  onSnapshot(q, function(snap){
-    allMessages = [];
-    snap.forEach(function(docSnap){ allMessages.push({ id: docSnap.id, data: docSnap.data() }); });
-    if(snap.empty){
+  /* ⭐ THE INBOX DRAWS ONCE PER BURST, NOT ONCE PER MESSAGE (2026-09-18). Same fault and
+     same cure as the invoices listener: every System note written in a sweep re-sorted and
+     re-categorised EVERY message (msgFacets runs a dozen regexes over each body) and redrew
+     the list, the System tab and the whole sidebar — so a sweep raising a hundred notes
+     froze the page for as long as it took to do that a hundred times.
+     ⚠ allMessages is still rebuilt on every snapshot, and flushAdminErrors still runs on
+     every one, because the error reporter's repeat check reads allMessages and must never
+     see it stale. Only the drawing waits, on scheduleJobAddressRender's numbers. */
+  let messagesDrawTimer = null, messagesDrawDeadline = 0, messagesWereEmpty = false;
+  function drawMessages(){
+    if(messagesWereEmpty){
       document.getElementById('messagesList').innerHTML = '<div class="empty-note">No messages yet.</div>';
       document.getElementById('badgeMessages').style.display='none';
     } else {
@@ -25849,6 +25869,19 @@ function loadMessages(){
     renderSystemMessagesTab();
     /* Same repoint as above — the sidebar is renderCommNav's now. */
     renderCommNav();
+  }
+  onSnapshot(q, function(snap){
+    allMessages = [];
+    snap.forEach(function(docSnap){ allMessages.push({ id: docSnap.id, data: docSnap.data() }); });
+    messagesWereEmpty = snap.empty;
+    const now = Date.now();
+    if(!messagesDrawDeadline) messagesDrawDeadline = now + JOB_ADDRESS_RENDER_MAX_WAIT_MS;
+    if(messagesDrawTimer) clearTimeout(messagesDrawTimer);
+    messagesDrawTimer = setTimeout(function(){
+      messagesDrawTimer = null;
+      messagesDrawDeadline = 0;
+      drawMessages();
+    }, Math.max(0, Math.min(JOB_ADDRESS_RENDER_DEBOUNCE_MS, messagesDrawDeadline - now)));
     /* Last: the repeat check reads allMessages, so anything held while this was loading can
        only be decided now. */
     flushAdminErrors();
@@ -26091,19 +26124,21 @@ async function noticeArrearsPaidNotApproved(){
 }
 function loadInvoices(){
   const q = query(collection(db,'invoices'), orderBy('updatedAt','desc'));
-  onSnapshot(q, function(snap){
-    currentInvoicesForExport = [];
-    allInvoicesCache = [];
-    /* Keyed lookup for allCustInvoiceFor, which is called once per row of the
-       All Customers table and used to scan the whole invoice list each time —
-       ~967 x ~967 comparisons for one repaint, repeated on every keystroke. */
-    invoiceById = new Map();
-    snap.forEach(function(docSnap){
-      currentInvoicesForExport.push(docSnap.data());
-      const entry = {id: docSnap.id, data: docSnap.data()};
-      allInvoicesCache.push(entry);
-      invoiceById.set(docSnap.id, entry);
-    });
+  /* ⭐ THE CACHES UPDATE ON EVERY SNAPSHOT; THE SCREENS DRAW ONCE PER BURST (2026-09-18).
+     "the page keeps becoming unresponsive" and "when i refresh it never refreshed". This
+     listener redrew the invoice list, All Customers, the route list, takedowns, the
+     dashboard and expenses — and ran two sweeps — on EVERY invoice write, with no batching,
+     while the customer listener beside it has always been coalesced. A run that touches a
+     few hundred invoices (the auto-sync at load does) queued a few hundred full redraws,
+     and the tab locked up for minutes, refresh included. Measured on a full-size book:
+     the load took 271 seconds of frozen page before this, dominated by these redraws.
+     ⚠ THE DATA IS NEVER LATE: allInvoicesCache and invoiceById are rebuilt on every
+     snapshot, before anything reads them. Only the DRAWING waits, and the last write
+     always draws. Same rule and same numbers as scheduleJobAddressRender.
+     ⚠ All Customers, the route list and takedowns go through safeRender now, so a panel
+     that is not open is drawn when it is opened instead of on every payment. */
+  let invoiceDrawTimer = null, invoiceDrawDeadline = 0;
+  function drawAfterInvoiceChange(){
     renderInvoicesList();
     /* ⭐ ALL CUSTOMERS READS INVOICES AND WAS NOT REPAINTED HERE (fixed 2026-09-02).
        Dax: "make sure that after they pay in the member portal that it updates in all
@@ -26122,9 +26157,9 @@ function loadInvoices(){
        ⚠ IT IS CHEAP TO CALL AND EXPENSIVE TO SKIP: the render already runs on every
        keystroke in the search box (see the input handlers), so one more repaint when
        money arrives is well within what it is built for. */
-    if(typeof renderAllCustomersTable === 'function') renderAllCustomersTable();
-    if(typeof renderRouteAddressList === 'function') renderRouteAddressList();
-    if(typeof renderTakedownsList === 'function') renderTakedownsList();
+    if(typeof renderAllCustomersTable === 'function') safeRender('allCustomersTable', renderAllCustomersTable);
+    if(typeof renderRouteAddressList === 'function') safeRender('routeAddressList', renderRouteAddressList);
+    if(typeof renderTakedownsList === 'function') safeRender('takedowns', renderTakedownsList);
     if(typeof populateQuickEmailSelect === 'function') populateQuickEmailSelect();
     if(typeof renderDashboard === 'function') renderDashboard();
     if(typeof renderExpensesList === 'function') renderExpensesList();
@@ -26144,6 +26179,32 @@ function loadInvoices(){
         console.error('[HU] February text reminder failed', err);
       });
     }
+  }
+  function scheduleInvoiceDraw(){
+    const now = Date.now();
+    if(!invoiceDrawDeadline) invoiceDrawDeadline = now + JOB_ADDRESS_RENDER_MAX_WAIT_MS;
+    if(invoiceDrawTimer) clearTimeout(invoiceDrawTimer);
+    const wait = Math.max(0, Math.min(JOB_ADDRESS_RENDER_DEBOUNCE_MS, invoiceDrawDeadline - now));
+    invoiceDrawTimer = setTimeout(function(){
+      invoiceDrawTimer = null;
+      invoiceDrawDeadline = 0;
+      drawAfterInvoiceChange();
+    }, wait);
+  }
+  onSnapshot(q, function(snap){
+    currentInvoicesForExport = [];
+    allInvoicesCache = [];
+    /* Keyed lookup for allCustInvoiceFor, which is called once per row of the
+       All Customers table and used to scan the whole invoice list each time —
+       ~967 x ~967 comparisons for one repaint, repeated on every keystroke. */
+    invoiceById = new Map();
+    snap.forEach(function(docSnap){
+      currentInvoicesForExport.push(docSnap.data());
+      const entry = {id: docSnap.id, data: docSnap.data()};
+      allInvoicesCache.push(entry);
+      invoiceById.set(docSnap.id, entry);
+    });
+    scheduleInvoiceDraw();
   });
 }
 
@@ -26602,6 +26663,9 @@ function syncInvFilterControls(){
   if(sum) sum.textContent = parts.length ? '(Filtered: '+parts.join(', ')+')' : '';
 }
 function renderInvoicesList(){
+  /* One billing grouping for the whole draw — see billingGroupsMemo. */
+  billingGroupsMemo.depth++;
+  try{ /* body left at its old indentation on purpose, so this change stays a few lines */
   const list = document.getElementById('invoicesList');
   renderInvStatusStrip();
   /* Receipts that failed - including ones the server tried to send overnight
@@ -27045,6 +27109,10 @@ function renderInvoicesList(){
     });
   });
   attachDeleteHandlers(list);
+  } finally {
+    billingGroupsMemo.depth--;
+    if(!billingGroupsMemo.depth){ billingGroupsMemo.arr = null; billingGroupsMemo.groups = null; }
+  }
 }
 /* ---------------- ROOF MEASUREMENT TOOL (Quotes) ---------------- */
 const RM_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];

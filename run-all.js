@@ -62067,3 +62067,116 @@ suite('Suite 342. Everything arrives in the Inbox, and a deleted folder stays de
     /if\(!alreadySeeded\)\{/.test(after) && /seededAt: serverTimestamp\(\)/.test(after),
     'written only when folders were made, an existing book is never marked and gets seeded later');
 }
+
+suite('343. A burst of writes draws once, not once per write (the frozen page)');
+{
+  /* ⭐ 2026-09-18. Dax: "the page keeps becoming unresponsive" and "when i refresh it never
+     refreshed". Measured on a full-size book with a fake Firestore that echoes writes the way
+     the real one does: loading admin took 271 seconds of frozen page. The invoices listener
+     redrew the invoice list and five other screens on EVERY invoice write, and the invoice
+     list re-grouped all ~957 customers for EVERY row. After the fix the same load is ~8s.
+     These checks RUN the listeners against a fake snapshot source and count draws. */
+  const invSrc = extractFn(admin, 'loadInvoices');
+  const msgSrc = extractFn(admin, 'loadMessages');
+  check('S343', 'both listeners were found', !!invSrc && !!msgSrc, 'renamed? repoint these lifts');
+
+  // A fake world: onSnapshot hands back the callback so the test can fire it, setTimeout is manual.
+  function harness(src, fnName, extraNames) {
+    const timers = []; let listener = null; const calls = {};
+    const count = n => function () { calls[n] = (calls[n] || 0) + 1; };
+    const names = ['query', 'collection', 'orderBy', 'db', 'onSnapshot', 'setTimeout', 'clearTimeout',
+      'JOB_ADDRESS_RENDER_DEBOUNCE_MS', 'JOB_ADDRESS_RENDER_MAX_WAIT_MS', 'safeRender', 'document'].concat(extraNames);
+    const vals = {
+      query: x => x, collection: () => ({}), orderBy: () => ({}), db: {},
+      onSnapshot: (q, cb) => { listener = cb; return () => {}; },
+      setTimeout: (fn) => { timers.push(fn); return timers.length; },
+      clearTimeout: (id) => { if (id) timers[id - 1] = null; },
+      JOB_ADDRESS_RENDER_DEBOUNCE_MS: 250, JOB_ADDRESS_RENDER_MAX_WAIT_MS: 2500,
+      safeRender: (label, fn) => fn(),
+      document: { getElementById: () => ({ style: {}, innerHTML: '' }) }
+    };
+    extraNames.forEach(n => { vals[n] = count(n); });
+    const fn = new Function(...names, 'let currentInvoicesForExport, allInvoicesCache, invoiceById, allMessages;\n' + src + '\nreturn ' + fnName + ';')(...names.map(n => vals[n]));
+    fn();
+    return {
+      fire(n) { const snap = { empty: false, forEach(f) { f({ id: 'a', data: () => ({}) }); } }; for (let i = 0; i < n; i++) listener(snap); },
+      runTimers() { const due = timers.splice(0); due.forEach(t => t && t()); },
+      calls
+    };
+  }
+
+  const invExtra = ['renderInvoicesList', 'renderAllCustomersTable', 'renderRouteAddressList', 'renderTakedownsList',
+    'populateQuickEmailSelect', 'renderDashboard', 'renderExpensesList', 'noticeArrearsPaidNotApproved', 'maybeShowTextChaseReminder'];
+  if (invSrc) {
+    const h = harness(invSrc, 'loadInvoices', invExtra);
+    // the two sweeps return promises in the page; the counters return undefined, so give them a .catch
+    h.fire(50);
+    check('S343', 'fifty invoice writes in a row draw nothing until the burst settles',
+      !h.calls.renderInvoicesList && !h.calls.renderAllCustomersTable,
+      'drawing inside the listener is what froze the page: ' + JSON.stringify(h.calls));
+  }
+  // Re-run with sweeps that return promises, and let the timer fire.
+  if (invSrc) {
+    const timers = []; let listener = null; const calls = {};
+    const bump = n => function () { calls[n] = (calls[n] || 0) + 1; return (n === 'noticeArrearsPaidNotApproved' || n === 'maybeShowTextChaseReminder') ? Promise.resolve() : undefined; };
+    const names = ['query', 'collection', 'orderBy', 'db', 'onSnapshot', 'setTimeout', 'clearTimeout',
+      'JOB_ADDRESS_RENDER_DEBOUNCE_MS', 'JOB_ADDRESS_RENDER_MAX_WAIT_MS', 'safeRender'].concat(invExtra);
+    const vals = { query: x => x, collection: () => ({}), orderBy: () => ({}), db: {},
+      onSnapshot: (q, cb) => { listener = cb; }, setTimeout: fn => { timers.push(fn); return timers.length; },
+      clearTimeout: id => { if (id) timers[id - 1] = null; }, JOB_ADDRESS_RENDER_DEBOUNCE_MS: 250, JOB_ADDRESS_RENDER_MAX_WAIT_MS: 2500,
+      safeRender: (label, fn) => fn() };
+    invExtra.forEach(n => { vals[n] = bump(n); });
+    const load = new Function(...names, 'let currentInvoicesForExport, allInvoicesCache, invoiceById;\n' + invSrc + '\nreturn loadInvoices;')(...names.map(n => vals[n]));
+    load();
+    let lastCache = null;
+    const snap = { forEach(f) { f({ id: 'k1', data: () => ({ name: 'n' }) }); } };
+    for (let i = 0; i < 50; i++) listener(snap);
+    timers.splice(0).forEach(t => t && t());
+    check('S343', 'and then draws exactly once',
+      calls.renderInvoicesList === 1 && calls.renderAllCustomersTable === 1 && calls.renderDashboard === 1,
+      'the last write must always draw, and only once: ' + JSON.stringify(calls));
+    check('S343', 'and the payment sweeps still run after the burst',
+      calls.noticeArrearsPaidNotApproved === 1 && calls.maybeShowTextChaseReminder === 1,
+      'the paid-but-not-approved note and the February reminder hang off this listener: ' + JSON.stringify(calls));
+  }
+
+  const msgExtra = ['renderMessagesList', 'renderSystemMessagesTab', 'renderCommNav', 'flushAdminErrors'];
+  if (msgSrc) {
+    const h = harness(msgSrc, 'loadMessages', msgExtra);
+    h.fire(40);
+    check('S343', 'forty new messages in a row do not redraw the Inbox forty times',
+      !h.calls.renderCommNav && h.calls.flushAdminErrors === 40,
+      'the sidebar re-categorises every message; the error reporter must still see each snapshot: ' + JSON.stringify(h.calls));
+    h.runTimers();
+    check('S343', 'and the Inbox draws once when the burst settles',
+      h.calls.renderMessagesList === 1 && h.calls.renderSystemMessagesTab === 1 && h.calls.renderCommNav === 1,
+      JSON.stringify(h.calls));
+  }
+
+  /* The billing grouping: memoised INSIDE a draw of the invoice list, fresh everywhere else. */
+  const bgSrc = ['houseIsOnTheBill', 'billingGroupsByPayer'].map(n => extractFn(admin, n)).join('\n');
+  const memoDecl = (admin.match(/const billingGroupsMemo = \{[^}]*\};/) || [''])[0];
+  check('S343', 'the grouping memo is declared', !!memoDecl, 'billingGroupsMemo is gone');
+  if (memoDecl) {
+    const api = new Function('custInvoiceKey', 'let jobAddresses = [];\n' + memoDecl + '\n' + bgSrc +
+      '\nreturn { set(a){ jobAddresses = a; }, groups: billingGroupsByPayer, memo: billingGroupsMemo };')(
+      d => String(d.phone || '').replace(/\D/g, ''));
+    const book = [{ id: 'a', data: { phone: '8015550001' } }, { id: 'b', data: { phone: '8015550001' } }];
+    api.set(book);
+    const out1 = api.groups();
+    book[1].data.phone = '8015550002';
+    const out2 = api.groups();
+    check('S343', 'outside a draw every call is computed fresh',
+      out1 !== out2 && out2.get('8015550002') && out2.get('8015550002').length === 1,
+      'a record changed in place must be seen at once by every save path');
+    api.memo.depth++;
+    const in1 = api.groups(), in2 = api.groups();
+    api.memo.depth--; api.memo.arr = null; api.memo.groups = null;
+    check('S343', 'inside a draw the grouping is built once and reused',
+      in1 === in2, 'rebuilding it for every row is ~1,000,000 steps per draw on the real book');
+    const invList = extractFn(admin, 'renderInvoicesList');
+    check('S343', 'and renderInvoicesList is what opens and closes that draw',
+      /billingGroupsMemo\.depth\+\+/.test(invList) && /finally\s*\{\s*billingGroupsMemo\.depth--/.test(invList),
+      'without the finally, a throw mid-draw would leave the memo open and every later read stale');
+  }
+}
