@@ -301,12 +301,33 @@ check('"Missing or insufficient permissions" is NOT treated as fixed',
     daysBefore('2026-09-18', 4)).data) === null,
   'that was instrumented on 2026-09-18, not fixed — clearing it destroys the reports the fix is waiting for');
 
+/* ⚠ REPOINTED, NOT WEAKENED (2026-09-19). This check used Edit Customer's own crash as its
+   example office error — and that fault now has an entry of its own, so the row it built is
+   legitimately cleared and the check failed on correct code. The CLAIM is unchanged: a
+   portal-scoped entry must never reach an admin row. Its fixture is now a null dereference
+   nobody has fixed, which is the only kind that can prove it. */
 check('an entry scoped to the portal does not clear an office error',
   api.errorFixedBy(
-    row('o', ADMIN_TOPIC, 'admin error|edit customer save failed: cannot read properties of null (reading \'indexof\')',
+    row('o', ADMIN_TOPIC, 'admin error|some unfixed office fault: cannot read properties of null (reading \'value\')',
       daysBefore('2026-09-10', 2)).data
   ) === null,
-  'the two null-crash entries are the portal\'s; Edit Customer had its own crash of almost the same wording, fixed on a different day');
+  'the two null-crash entries are the portal\'s; an office fault of the same wording is a different bug');
+
+check('and Edit Customer\'s own crash IS cleared, by its own entry',
+  (function () {
+    const hit = api.errorFixedBy(
+      row('ec', ADMIN_TOPIC, 'admin error|edit customer save failed: cannot read properties of null (reading \'indexof\')',
+        daysBefore('2026-09-12', 3)).data);
+    return hit && hit.match === 'Edit Customer save failed';
+  })(),
+  'both engine wordings share that prefix, which is why one entry covers the pair');
+
+check('and it is not cleared for a report written after its fix landed',
+  api.errorFixedBy(
+    row('ec2', ADMIN_TOPIC, 'admin error|edit customer save failed: null is not an object (evaluating \'s.indexof\')',
+      daysAfter('2026-09-12', 2)).data
+  ) === null,
+  'the fix went to main at 22:44 on the 12th; a report after that means it did not take');
 
 check('and the same wording from the portal still is cleared',
   api.errorFixedBy(
