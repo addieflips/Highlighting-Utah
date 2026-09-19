@@ -23168,6 +23168,19 @@ const FIXED_ERRORS = [
     note: 'Admin. Not a collision: the SDK retrying a write whose acknowledgement was lost, which skipped the arrearsPaidNoticeAt stamp so the paid-but-not-approved note raised itself again on every sweep. cd2026a.' },
   { match: 'deadline-exceeded', fixedOn: '2026-09-11',
     note: 'Member. A portal answer lost to one slow cold start. callPortalFn retries the no-answer codes now, so a row AFTER this date means all three retries timed out, which is new news and survives. 2176ff2.' },
+  /* ⚠ THE OTHER HALF OF 2176ff2, AND IT WAS LEFT OFF FOR A WEEK. That commit's own message
+     says "every one of the twelve reported `deadline-exceeded` OR `internal`" and it retries
+     both, but only the first got an entry — so five reports of a fault that had been fixed
+     sat in the Errors badge looking exactly like one nobody had dealt with. Found by READING
+     the folder (error-digest.js), which is the whole argument for that step existing.
+     ⚠ THE NEEDLE CARRIES THE `doing` HALF BECAUSE `internal` ALONE CANNOT. It is eight
+     letters that sit inside ordinary words, and even `|internal` is under
+     FIXED_ERROR_MIN_MATCH — the floor refusing it is the floor working. Scoped this way it
+     clears the RSVP-email answers it was raised for and leaves every other portal action's
+     `internal` alone, which is the safe direction: a row kept too long is the only way this
+     is allowed to be wrong. */
+  { match: 'the RSVP email|internal', topic: MEMBER_ERROR_TOPIC, fixedOn: '2026-09-11',
+    note: 'Member. Same lost-answer fault and the same fix as the entry above — `internal` is what the callable client raises when the fetch fails outright rather than timing out. A row after this date means all three retries failed, which is new news and survives. 2176ff2.' },
   { match: 'Edit Customer save failed', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-12',
     note: 'Admin. The null came from us: editCustomerId is module-level and that handler is async, so twelve reads downstream of an await saw it cleared and doc(db,\'jobAddresses\', null) threw from inside Firestore. BOTH engine wordings share this prefix, which is why one entry covers the pair. 4ccd923, on main 2026-09-12 at 22:44 Mountain.' },
   { match: 'could not read nightly billing health', fixedOn: '2026-09-18',
