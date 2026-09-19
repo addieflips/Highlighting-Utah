@@ -2382,7 +2382,11 @@ the balance), `MON-76` (no scheduling until last season is paid in full).
 
 ---
 
-## Q-035 · intent · OPEN · raised 2026-09-16
+## Q-035 · intent · OPEN ON ITEM 6 ONLY · raised 2026-09-16
+**Items 1–4 were factual and were resolved from the code. Items 5, 7 and 8 have been
+answered by Addie ([[BPM-05]], [[BPM-06]], [[BPM-07]]). ITEM 6 is the only one left, and
+it is a default already built and working — it blocks nothing and is listed so it can be
+overturned, not because anything waits on it.**
 Blueprint Maps shipped with seven open questions. Four were factual and are resolved
 below; three are hers and are named here with the default that was taken, so they can be
 overturned rather than discovered.
@@ -2445,8 +2449,17 @@ are recorded here to close them. The three that remain change nothing until she 
    sheets deliberately avoid. One line in `bpmTileRight` and one in the sheet builder if she
    wants more.
 
-8. **Is a re-quoted house that ALREADY has a drawing still "pending"?** *(raised 2026-09-17,
-   with the Pending list.)* **Default taken: no — pending means no drawing at all.**
+8. **ANSWERED 2026-09-19 — see [[BPM-07]]. YES: include them.** Addie, asked directly,
+   chose *"Include them"* over *"Leave it out"*, knowing the cost named below: every
+   price-only re-quote lands on the list too. What settled it is which way round the
+   mistake falls — a moved house with a stale drawing was **silently absent**, with a
+   confident-looking drawing on its card and nobody ever sent to check it, and that costs
+   a crew-day where an extra row costs a glance. Built with one row per house (the badge
+   counts pending rows), no tick box or stepper on a pending card, and the words
+   *Re-quoted — check this map is still right* where the copies count would be.
+   ~~**Default taken: no — pending means no drawing at all.**~~ *(The original default and
+   its reasoning are kept below rather than deleted: it is the cost she accepted, not a
+   mistake, and it is the argument anybody reversing this again has to meet.)*
    Addie asked for *"a place were it sends pending maps which will only show for new
    costumers that were quoted this year or requoted"*, and the literal reading of *pending*
    is *not done yet*. But a re-quote is often a house that moved or extended, so the drawing
