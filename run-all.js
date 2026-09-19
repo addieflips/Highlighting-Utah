@@ -1408,6 +1408,14 @@ check('logic', 'projShouldPruneTest exists', typeof projShouldPruneTest === 'fun
    did rmSkyShift/rmSkyUnshift, which had become the identity everywhere. Their
    suite numbers are not reused: 269 and 270 are spent. */
 const RETIRED_CHECKLIST_TERMS = [
+  /* ⛔ THE SEASON SWITCH NEVER EXISTED AS A CONTROL AFTER 2026-08-27, AND A CHECKLIST ROW
+     WENT ON PRESSING IT FOR THREE WEEKS. SEASON_ELIGIBILITY is a constant whose own comment
+     says nothing in the UI can reach it; the Dashboard row that describes it is read-only.
+     Row 215 v2 still had nine steps pressing these three, and v2 was itself a half-fix made
+     that same day — which is the argument for naming them here rather than fixing the row
+     and moving on. [[RS-22]]. */
+  ['switch to answered yes only', 'the season switch was never a control after 2026-08-27 ([[RS-22]]) — SEASON_ELIGIBILITY is a constant and the Dashboard row is read-only; the work left is Schedule › Waiting on RSVP (checklist row 215 v3)'],
+  ['go back to everyone', 'the other half of the season switch, gone with it on 2026-08-27 — there is nothing to go back to, because the rule was never turned on by a press'],
   ['check the scale', 'removed 2026-08-25 — a known-size object traced and scaled is the pixel-ratio method the owner ruled out: "we want it to find the height through proper geometry, not through a rough estimate of how many pixels tall is the garage"'],
   ['double garage door', 'the known-size list went with the scale check on 2026-08-25'],
   ['trace it and compare', 'the scale check button, removed 2026-08-25'],
