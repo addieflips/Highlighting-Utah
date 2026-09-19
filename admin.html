@@ -23168,6 +23168,8 @@ const FIXED_ERRORS = [
     note: 'Admin. Not a collision: the SDK retrying a write whose acknowledgement was lost, which skipped the arrearsPaidNoticeAt stamp so the paid-but-not-approved note raised itself again on every sweep. cd2026a.' },
   { match: 'deadline-exceeded', fixedOn: '2026-09-11',
     note: 'Member. A portal answer lost to one slow cold start. callPortalFn retries the no-answer codes now, so a row AFTER this date means all three retries timed out, which is new news and survives. 2176ff2.' },
+  { match: 'Edit Customer save failed', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-12',
+    note: 'Admin. The null came from us: editCustomerId is module-level and that handler is async, so twelve reads downstream of an await saw it cleared and doc(db,\'jobAddresses\', null) threw from inside Firestore. BOTH engine wordings share this prefix, which is why one entry covers the pair. 4ccd923, on main 2026-09-12 at 22:44 Mountain.' },
   { match: 'could not read nightly billing health', fixedOn: '2026-09-18',
     note: 'Admin. Firestore naming the Wi-Fi rather than a fault; only a read can fail that way and the ten-minute tick simply reads again. Joined ADMIN_ERROR_IGNORE in e7e96a6, so no new rows are written at all.' },
   /* ⚠ THE TWO BROADEST ENTRIES IN THE LIST, AND WHAT BOUNDS THEM. One crash, two engines:

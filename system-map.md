@@ -4161,6 +4161,16 @@ real error code and also eight letters that sit inside ordinary words.
 admin.html's `errorKeyFor` lowercases and collapses digits, index.html's builds `doing|reason`
 and does neither, so neither spelling can be trusted as it stands. A row with no `errorKey`
 predates the field and is left alone, as is one with no date.
+⚠ **AND ONE ENTRY WAS ADDED LATE BECAUSE IT WAS WRITTEN OFF TOO EARLY** (2026-09-19). The Edit
+Customer save crash was first reported as untraceable — "I could not pin its wording to a commit"
+— and it was traceable all along: this file's own entry a few hundred lines up quotes BOTH engine
+wordings and dates the fix. They share the prefix `Edit Customer save failed`, so one entry covers
+the pair, scoped to the office reporter because the portal's two null-dereference entries must not
+reach an admin row. Look in system-map.md before concluding a fault cannot be identified.
+⚠ That addition FAILED an existing check on correct code, and it was repointed rather than
+weakened: the "a portal entry does not clear an office error" check used Edit Customer's own crash
+as its example office error, which is now legitimately cleared. Its fixture is a null dereference
+nobody has fixed now; the claim it makes is unchanged.
 ⛔ **"Unhandled promise: Missing or insufficient permissions" is deliberately NOT in the list.**
 That was INSTRUMENTED on 2026-09-18, not fixed — `rejectionWhere()` names the frame so the next
 one can be traced — and clearing it would throw away the very reports that fix is waiting for.
