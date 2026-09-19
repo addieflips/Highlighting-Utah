@@ -585,6 +585,37 @@ check('a house with no map gets NO checkmark at all', !/data-bpmtick=/.test(noMa
 check('and no stepper either', !/bpm-stepper/.test(noMapCard));
 check('and says so where the count would be', /No map on file yet/.test(noMapCard));
 
+/* ⛔ AND NOTHING PRINTS FROM THE PENDING LIST ([[BPM-07]]). Until an approved re-quote
+   with a drawing could appear there, every pending row was map-less, so this was true by
+   construction and nothing held it. A tick that adds to a batch this view cannot print is
+   the control-that-does-nothing refused one check above. */
+{
+  S.setView('pending');
+  const rqPending = S.bpmPendingItems().filter(i => S.bpmHasMap(i));
+  check('a pending row with a drawing exists to check', rqPending.length > 0,
+    'without one the three checks below are vacuous');
+  /* ⚠ A GUARD THAT FIRES MUST NOT TAKE THE FILE DOWN WITH IT. Without this the next
+     line is bpmCardHtml(undefined), which THROWS — so the summary never prints, every
+     check below is skipped, and a red-check harness scoring on "N failed" reads the
+     crash as a clean run. That is exactly how the first pass on this change scored a
+     caught sabotage as a miss. */
+  const pendCard = rqPending.length ? S.bpmCardHtml(rqPending[0]) : '';
+  check('a pending card carries NO checkmark even though it has a map',
+    !/data-bpmtick=/.test(pendCard));
+  check('and no stepper', !/bpm-stepper/.test(pendCard));
+  check('and it says why it is on the list',
+    /Re-quoted \u2014 check this map is still right|Re-quoted \u2014 check/.test(pendCard) ||
+    pendCard.indexOf('check this map is still right') !== -1,
+    'a good drawing under a heading about what is owed reads as a fault in the list');
+  /* ⚠ AND THE PRINT VIEW IS UNCHANGED — the same house, same drawing, still tickable. */
+  S.setView('print');
+  const same = rqPending.length
+    ? S.bpmItems().filter(i => i.key === rqPending[0].key)[0] : null;
+  check('and the same card in the print view still has both',
+    !!same && /data-bpmtick=/.test(S.bpmCardHtml(same)) && /bpm-stepper/.test(S.bpmCardHtml(same)));
+  load();
+}
+
 load();
 S.bpmUnticked.add(sorensenKey);
 card = cardOf(sorensenKey);
@@ -905,12 +936,72 @@ check('the fixture holds returning customers with no drawing', returningNoMap.le
   'without one, the exclusion below is proved by nothing');
 check('and NONE of them is pending', returningNoMap.every(i => !S.bpmIsPending(i)));
 
+/* ⚠ REPOINTED 2026-09-19, NOT WEAKENED ([[BPM-07]]). This asserted "a drawing on file
+   takes a house off the pending list", full stop — which was Q-035 item 8's default
+   asserted as code, and Addie has since reversed it for re-quotes: "include them". The
+   NEW QUOTE half of the rule is untouched and is what is held here; the re-quote half
+   is asserted just below, in both directions, so nothing is merely dropped. */
 load();
-const mappedNew = S.bpmItems().filter(i => S.bpmHasMap(i) && (i.stage === 'new' || i.stage === 'requote'));
-check('the fixture holds a new or re-quoted house that DOES have a drawing',
+const mappedNew = S.bpmItems().filter(i => S.bpmHasMap(i) && i.stage === 'new');
+check('the fixture holds a NEW quote that already has a drawing',
   mappedNew.length > 0, 'the has-a-map half of the rule needs one to bite');
-check('and having one takes it off the pending list',
+check('and having one takes a new quote off the pending list',
   mappedNew.every(i => !S.bpmIsPending(i)));
+
+/* ⭐ THE OTHER HALF — an approved re-quote is owed a look WITH a drawing on file, and a
+   re-quote is most often a house that moved or extended, so the drawing can describe a
+   roofline that no longer exists. Under the old default that house was silently absent.
+   ⛔ AND ONE ROW PER HOUSE: bpmItems emits a row per map, and the button's badge counts
+   pending rows, so three drawings must not read as three houses owing a drawing. */
+const mappedRq = S.bpmItems().filter(i => S.bpmHasMap(i) && i.stage === 'requote' && i.requoteApproved);
+check('the fixture holds an APPROVED re-quote that already has a drawing',
+  mappedRq.length > 0, 'without one the reversal below is proved by nothing');
+check('an approved re-quote stays pending even with a drawing on file',
+  mappedRq.some(i => S.bpmIsPending(i)),
+  'a moved house whose old drawing is wrong was silently absent before this');
+{
+  const byHouse = {};
+  S.bpmPendingItems().forEach(function(i){
+    const h = String(i.key).split('::')[0];
+    byHouse[h] = (byHouse[h] || 0) + 1;
+  });
+  const dupes = Object.keys(byHouse).filter(function(h){ return byHouse[h] > 1; });
+  check('and no house is on the pending list twice',
+    dupes.length === 0, dupes.join(', ') || 'one row each');
+}
+/* ⛔ ONE ROW PER HOUSE, PROVED ON A HOUSE THAT REALLY HOLDS SEVERAL DRAWINGS. The shared
+   BOOK's approved re-quote carries ONE, and giving it a second moved two unrelated census
+   checks that count maps across the whole fixture — a worse trade than a scoped book.
+   ⚠ WITHOUT A MULTI-DRAWING HOUSE THIS IS VACUOUS: `every` over an empty list passes, so
+   a pending list counting three rows for one house would sail straight through it. */
+{
+  const MULTI_BOOK = [
+    {id: 'h-multi', data: {name: 'Paula Enfield', address: '9 Kiln Way', city: 'Lehi',
+      phone: '8015550808',
+      blueprintMaps: [map('a', 'Front elevation', 1), map('b', 'Detached garage', 1),
+        map('c', 'Back elevation', 1)]}}
+  ];
+  const MULTI_QUOTES = [
+    {id: 'qm', data: {status: 'new', existingCustomerId: 'h-multi', quotedPrice: 700,
+      approvalStatus: 'approved', quoteSentAt: {seconds: 1}, phone: '8015550808',
+      address: '9 Kiln Way'}}
+  ];
+  load(MULTI_BOOK, MULTI_QUOTES);
+  const multi = S.bpmItems().filter(i => i.stage === 'requote' && i.requoteApproved);
+  check('the fixture holds one approved re-quote carrying three drawings',
+    multi.length === 3 && multi.every(i => S.bpmHasMap(i)), multi.length + ' row(s)');
+  check('and it is ONE pending row, not three',
+    S.bpmPendingItems().length === 1, S.bpmPendingItems().length + ' pending row(s)');
+  check('and the row kept is the first drawing',
+    multi.every(i => S.bpmIsPending(i) === (i.index === 1)));
+  load();
+}
+/* ⛔ AND AN OPEN, UNANSWERED RE-QUOTE IS STILL NOT PENDING — [[BPM-04]] is narrowed by
+   nothing here. A house that may yet decline has nothing to draw. */
+const mappedRqOpen = S.bpmItems().filter(i => S.bpmHasMap(i) && i.stage === 'requote' && !i.requoteApproved);
+check('an unanswered re-quote with a drawing is still left alone',
+  mappedRqOpen.every(i => !S.bpmIsPending(i)),
+  mappedRqOpen.length + ' unanswered re-quote row(s) with a drawing');
 
 /* ---------------------------------------------------------------------------
  * ⭐ A RE-QUOTE COUNTS ONCE THEY HAVE SAID YES ([[BPM-04]], 2026-09-17).
