@@ -2364,6 +2364,16 @@
                  nothing critical breaks if it is simply absent. -->
             <div id="tabPanel-sides" style="display:none;">
               <div style="background:#FDF3E3; border:1px solid #E7C98B; border-radius:10px; padding:11px 14px; margin:0 0 12px; font-size:12.5px; color:#7A5B1E; line-height:1.5;">&#9888;&#65039; <strong>Heads up:</strong> changing which sides of your house are lit changes the amount of lights we hang, so <strong>we will need to re-quote you</strong> before your install.</div>
+              <!-- ⭐ WHAT WE ALREADY HOLD FOR THEM (2026-09-19, OPT-24). Addie: "can we
+                   backfill the sides for existing customers". Nearly the whole book has a
+                   COUNT and no names, and this tab showed those customers four empty boxes
+                   — indistinguishable from a record we hold nothing at all for. So the one
+                   number that decides their price was invisible on the one screen where
+                   they can change it, and an innocent tick of two boxes on a house we have
+                   down as three RE-QUOTES them for a change they did not know they were
+                   making. Filled by portalRenderSides; empty and hidden for a record with
+                   nothing on file. -->
+              <p class="form-note" id="sidesOnFileNote" style="display:none; margin:0 0 8px;"></p>
               <p class="form-note" style="margin:0 0 4px;">Tick every side you would like lit, then save below.</p>
               <!-- ⭐ FROM THE STREET, NOT FROM THE FRONT DOOR (2026-09-07, OPT-03). Addie: "we
                    should be calculating left or right from the street not the front door."
@@ -8670,11 +8680,60 @@ function portalSidesListFromRecord(){
   var v = d.houseSidesList !== undefined ? d.houseSidesList : r.houseSidesList;
   return portalSidesListFromValue(v);
 }
+/* ⭐ THE COUNT WE HOLD, OR NOTHING — NEVER A FLOOR OF 1 (2026-09-19, [[OPT-24]]).
+   Deliberately NOT portalSideCount, which floors an unrecorded house at 1 so the portal
+   and the server cannot disagree about a re-quote. That floor is right there and wrong
+   here: it would tell every record nobody has ever measured "we have 1 side on file for
+   you", which is the invented answer [[OPT-01]] refused, said to the customer in the
+   first person. 0 means nobody has ever said. */
+function portalSidesRawCount(){
+  var d = currentJobAddressData || {};
+  var r = currentLookupRecord || {};
+  var v = d.houseSides !== undefined ? d.houseSides : r.houseSides;
+  if(Array.isArray(v)) return Math.min(4, v.filter(Boolean).length);
+  var n = Number(String(v == null ? "" : v).replace(/[^0-9]/g, ""));
+  return (n >= 1 && n <= 4) ? n : 0;
+}
+/* ⭐ WHAT THIS TAB SAYS WE ALREADY HOLD ([[OPT-24]]). Three states, and the middle one
+   is the ~956 records the question was about.
+
+   ⛔ IT NEVER TICKS A BOX IT CANNOT BACK UP, and that is the whole difference between
+   this and a stored backfill. The office form fills its boxes from the count
+   ([[OPT-07]]) because a guess somebody can SEE and correct before saving is not a
+   claim — the office knows it is the office. Here the person ticking is the customer,
+   so a pre-ticked box they save without reading becomes THEIR answer, on the field
+   [[OPT-03]] says decides which half of a roof gets lit. A sentence tells them what we
+   hold and leaves the answer theirs.
+
+   ⚠ AND IT NAMES THE NUMBER TWICE ON PURPOSE. Sides are the one thing on this tab that
+   changes the PRICE rather than adding a fee, so somebody who cannot see that we have
+   them down as three ticks two and is re-quoted for a change they never meant to make.
+   Saying "as long as you tick 3" is the whole point of the sentence, not a flourish. */
+function portalSidesOnFileText(){
+  var named = portalSidesListFromRecord();
+  if(named.length){
+    return "On file for you: " + named.join(", ") +
+      ". Change them below if that is not right.";
+  }
+  var n = portalSidesRawCount();
+  if(!n) return "";
+  return "We have " + n + " side" + (n === 1 ? "" : "s") +
+    " on file for you, but not which ones. Tick the ones you want — as long as you " +
+    "still tick " + n + ", your price does not change.";
+}
 function portalRenderSides(){
   var haveList = portalSidesListFromRecord();
   document.querySelectorAll(".portal-side-pick").forEach(function(cb){
     cb.checked = haveList.indexOf(cb.value) !== -1;
   });
+  var onFile = document.getElementById("sidesOnFileNote");
+  if(onFile){
+    var text = portalSidesOnFileText();
+    onFile.textContent = text;
+    /* Hidden rather than left empty: an empty paragraph still carries its own margin,
+       so a fresh record would open with a gap where a sentence had been. */
+    onFile.style.display = text ? "" : "none";
+  }
 }
 /* ⚠ THE SELECTOR IS A PARAMETER NOW ([[OPT-23]], 2026-09-18), because the Install Details
    form asks the same question with its own checkboxes. A second copy of this would be a
@@ -8779,6 +8838,12 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
     });
     if(currentJobAddressData){ currentJobAddressData.houseSides = pickedCount; currentJobAddressData.houseSidesList = pickedList; }
     if(currentLookupRecord){ currentLookupRecord.houseSides = pickedCount; currentLookupRecord.houseSidesList = pickedList; }
+    /* ⚠ RE-DRAWN AFTER THE MIRROR, NOT BEFORE ([[OPT-24]]). The boxes are already in the
+       state that was just saved, so the ticks are a no-op — what has to move is the
+       on-file sentence above them, which still reads "we have 3 on file but not which
+       ones" seconds after they told us which ones. A screen saying "Saved." over a line
+       saying we were never told is the answer looking as though it did not land. */
+    portalRenderSides();
     if(!sidesChanged){
       /* Just naming sides for a count that already matched — no footage change,
          no re-quote, nothing for the office to act on. */

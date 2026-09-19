@@ -21148,6 +21148,145 @@ suite('Suite 63. Changing your sides in the Member Portal');
       index.indexOf("getElementById('infoAddress')", sidesCall),
     'an empty set of boxes reads as "we are lighting none of it"');
 
+  /* ⭐ WHAT WE ALREADY HOLD, SAID OUT LOUD (2026-09-19, [[OPT-24]]). Addie: "can we
+     backfill the sides for existing customers". Nearly the whole book has a COUNT and
+     no names, and this tab drew those customers four empty boxes — the same screen a
+     record we hold nothing at all for gets. Two things follow and both are checked
+     here, because both are about a SENTENCE a customer reads rather than a field.
+
+     ⛔ AND THE ANSWER TO HER QUESTION IS A SENTENCE, NOT A WRITE. A stored backfill
+     would fill houseSidesList from the count for ~956 houses, and from that moment
+     nothing anywhere could tell a name somebody GAVE from one we worked out — on the
+     field [[OPT-03]] says decides which half of a roof gets lit. printSidesCell is
+     built on exactly that distinction ("named.length === n"), so the crew sheet would
+     start printing derived names as instructions. Same answer whWireLabel already gives
+     for the wire, and for the same reason: where the record does not know, say so.
+     Checked below as a REFUSAL, so a later session adding the write has to meet this
+     argument first rather than finding nothing in its way. */
+  {
+    const sidesSb = {};
+    /* LIFTED, NEVER STUBBED — portalSidesOnFileText is the thing under test and it
+       reads the record through portalSidesListFromRecord, so a stub of that would
+       decide the very answer being asserted. */
+    new Function(
+      'var currentJobAddressData = null, currentLookupRecord = null;' +
+      'var PORTAL_SIDE_NAMES = ' + JSON.stringify(['Front', 'Left', 'Right', 'Back']) + ';' +
+      extractFn(index, 'portalSidesListFromValue') +
+      extractFn(index, 'portalSidesListFromRecord') +
+      extractFn(index, 'portalSidesRawCount') +
+      extractFn(index, 'portalSidesOnFileText') +
+      extractFn(index, 'portalRenderSides') +
+      'this.text = portalSidesOnFileText; this.raw = portalSidesRawCount;' +
+      'this.render = portalRenderSides;' +
+      'this.set = function(d, doc){ currentJobAddressData = d; currentLookupRecord = {};' +
+      '  if(doc) document = doc; };' +
+      'var document = null;'
+    ).call(sidesSb);
+
+    check('S63', 'the on-file note exists on the sides panel',
+      /id="sidesOnFileNote"/.test(index),
+      'a sentence nothing renders into is a sentence nobody reads');
+
+    /* ⚠ THE FLOOR IS THE TRAP. portalSideCount answers 1 for an unrecorded house so the
+       portal and the server cannot disagree about a re-quote; borrowing it here would
+       tell every never-measured record "we have 1 side on file for you" — the invented
+       answer [[OPT-01]] refused, in the first person. */
+    sidesSb.set({});
+    check('S63', 'a house nobody has measured is not told we hold a count',
+      sidesSb.raw() === 0 && sidesSb.text() === '',
+      'borrowing portalSideCount here invents a "1 side" answer for the whole book');
+
+    sidesSb.set({houseSides: 3});
+    const countOnly = sidesSb.text();
+    check('S63', 'a count with no names says so, and says the number',
+      /3 sides on file/.test(countOnly) && !/Front/.test(countOnly),
+      'four empty boxes is indistinguishable from a record we hold nothing for');
+    /* ⚠ THE NUMBER APPEARS TWICE ON PURPOSE. Sides change the PRICE rather than adding
+       a fee, so somebody who cannot see we have them down as three ticks two and is
+       re-quoted for a change they never meant to make. */
+    check('S63', 'and it says keeping the same number keeps their price',
+      /still tick 3/.test(countOnly) && /price does not change/.test(countOnly),
+      'the re-quote warning at the top says what happens, not how to avoid it');
+
+    sidesSb.set({houseSides: 2, houseSidesList: ['Back', 'Front']});
+    const named = sidesSb.text();
+    check('S63', 'names already on file are read back, in canonical order',
+      named.indexOf('Front, Back') > 0 && !/but not which ones/.test(named),
+      'telling somebody we do not know which sides, under their own answer');
+
+    /* ⛔ THE REFUSAL. The office form ticks its boxes from the count ([[OPT-07]])
+       because a guess somebody SEES and corrects before saving is not a claim. Here the
+       person ticking is the customer, so a pre-ticked box saved without reading becomes
+       THEIR answer. */
+    {
+      const boxes = ['Front', 'Left', 'Right', 'Back'].map(function(v){
+        return {value: v, checked: false};
+      });
+      const note = {textContent: 'stale', style: {display: 'none'}};
+      const doc = {
+        querySelectorAll: function(sel){ return sel === '.portal-side-pick' ? boxes : []; },
+        getElementById: function(id){ return id === 'sidesOnFileNote' ? note : null; }
+      };
+      sidesSb.set({houseSides: 3}, doc);
+      sidesSb.render();
+      check('S63', 'a count alone still ticks no box at all',
+        boxes.every(function(b){ return b.checked === false; }),
+        'a tick the customer did not make, saved without reading, is their answer ' +
+        'to which half of their roof we light');
+      check('S63', 'and the note is filled in and shown',
+        /3 sides on file/.test(note.textContent) && note.style.display === '',
+        'the renderer is where this reaches the screen');
+
+      sidesSb.set({}, doc);
+      sidesSb.render();
+      check('S63', 'and it is hidden again for a record with nothing on file',
+        note.textContent === '' && note.style.display === 'none',
+        'an empty paragraph still carries its margin, so a fresh record opens with a gap');
+    }
+
+    /* ⚠ THE SENTENCE HAS TO MOVE WHEN THEY ANSWER. The mirror updates the record and
+       the boxes are already right, so without a re-draw "Saved." sits above a line
+       still saying we were never told. */
+    {
+      const at = index.indexOf('document.getElementById("sidesSaveBtn")');
+      const end = index.indexOf("document.getElementById('infoSaveBtn')", at);
+      const body = at > 0 && end > at ? index.slice(at, end) : '';
+      const mirror = body.indexOf('currentLookupRecord.houseSidesList = pickedList;');
+      check('S63', 'saving re-draws the on-file line, after the record is mirrored',
+        mirror > 0 && body.indexOf('portalRenderSides();', mirror) > mirror &&
+        body.indexOf('portalRenderSides();', mirror) < body.indexOf('if(!sidesChanged)', mirror),
+        'redrawn before the mirror it reads the old record and nothing appears to save');
+    }
+
+    /* ⛔ THE FILL REACHES A SCREEN, NEVER A BULK WRITE. Asserted rather than left as
+       prose: the write is one line and the argument against it is long, which is the
+       wrong way round for something nobody can undo.
+
+       ⚠ AND THE CLAIM IS EXACT, because a broader one would be false. [[OPT-07]] already
+       accepts that a record the office OPENS AND SAVES stores its front-first fill —
+       that is the cost she took, one house at a time, with the boxes and the "nobody has
+       said which sides" line in front of whoever pressed Save. What has no such person
+       behind it is a sweep over the book, so the invariant is that houseSidesAutoFill
+       only ever reaches houseSidesShowList: it paints boxes and is never handed to a
+       write. A backfill tool has to break this line to exist. */
+    {
+      /* ⚠ COMMENTS STRIPPED. The paragraph above this check names the function twice,
+         and so does the one beside houseSidesAutoFill itself — counted unstripped, an
+         explanation reads as a call and the gate fails a file that is right. Suites 58,
+         274, 275 and 300 each had to learn this; here it would have bitten on the very
+         commit that added the check. */
+      const code = stripComments(admin);
+      const uses = code.split('houseSidesAutoFill').length - 1;
+      const painted = (code.match(/houseSidesShowList\([^;]*houseSidesAutoFill\(/g) || []).length;
+      check('S63', 'the office fill is found at all', uses >= 4 && painted >= 3,
+        'an invariant nothing exercises is an invariant nobody is holding to');
+      check('S63', 'and every use of it paints boxes rather than writing a record',
+        uses === painted + 1 /* + the declaration */,
+        'once a guess is stored, no reader can tell it from an answer — and ' +
+        'printSidesCell prints anything that fits the count as if somebody had said it');
+    }
+  }
+
   /* ---- ⭐ the pop-up ---- */
   {
     const at = index.indexOf('document.getElementById("sidesSaveBtn")');
