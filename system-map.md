@@ -4220,9 +4220,28 @@ sabotages red-checked, admin.html byte-for-byte after each.
 ⚠ **What the first reading also corrected, said plainly because it was told to Addie the other
 way:** the wire sweep DOES carry an error wording — *"Wire sweep could not look: No master sheet
 is connected on this computer"* — it is a refusal by design rather than a fault, so it takes no
-entry and is not swept. And the three faults the report flagged as *covered and still present*
-are all dated BEFORE their fix dates, so the sweep had simply not run yet (admin had not been
-reloaded) rather than failing.
+entry and is not swept.
+
+⛔ **AND "COVERED AND STILL HERE" WAS TWO OPPOSITE ANSWERS UNDER ONE HEADING** (2026-09-19, hours
+after the rest). `coveredBy` matched the needle and the topic and stopped there, while
+`clearFixedErrors` ALSO holds a report to a date floor. So the report counted, as one number, a
+fault waiting to be swept (housekeeping — open admin and it goes) together with a fault that came
+back AFTER its fix shipped (news: the fix did not take). The second hides inside the first, and
+it is the only one worth acting on.
+⭐ **THE REAL FOLDER HELD ONE OF EACH ON DAY ONE, AND THEY WERE READ AS THE SAME THING.** Six
+faults were reported as covered-and-present, of which FIVE are waiting on a reload and ONE —
+*Answering Yes to the RSVP email · deadline-exceeded*, reported **15 September**, four days after
+2176ff2 shipped on the 11th — is a customer's answer lost even WITH the three retries in place.
+That row is not swept, deliberately; it is the evidence the floor exists to keep, and it was
+described to Addie as "dated before its fix, so the sweep just has not run". It was not.
+⚠ `afterTheFix` SPLITS THEM NOW: **FIXED, WAITING TO BE SWEPT** against **THE FIX DID NOT TAKE**,
+counted separately, with the second called out under its own heading at the end. The waiting count
+is given in REPORTS as well as faults, because that is the number she watches the badge drop by.
+⚠ **AND ITS FLOOR IS LOCAL MIDNIGHT, ASSERTED IN A CHILD PROCESS UNDER `America/Denver`** — this
+container runs UTC, where local midnight and `Date.parse('YYYY-MM-DD')` are the same instant, so
+the UTC sabotage sailed through in-process. `fixed-errors.test.js` learned this first. A UTC floor
+sits six hours early: an evening of reports would be reported as predating a fix they postdate.
+6 of 6 sabotages red-checked, error-digest.js byte-for-byte after each.
 
 ⭐ **THE SECTION CONTROLS ARE ALWAYS VISIBLE NOW** (2026-09-11, [[MSG-23]]). Addie: *"not
 able to add to each section and delete from each section."* Both buttons — `✎` to rename a

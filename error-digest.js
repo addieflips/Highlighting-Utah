@@ -95,6 +95,25 @@ function coveredBy(list, d) {
   return null;
 }
 
+/* ⛔ MATCHING THE NEEDLE IS NOT THE WHOLE RULE, AND THE FIRST VERSION OF THIS
+   REPORT PRETENDED IT WAS. `clearFixedErrors` also holds the report to a DATE
+   FLOOR: anything written on or after `fixedOn` survives, because a fix that did
+   not take re-reports itself and sweeping it would delete the evidence.
+   ⚠ SO "covered and still here" LUMPED TWO OPPOSITE ANSWERS TOGETHER. One is
+   housekeeping — the sweep has not run, reload admin. The other is NEWS: the
+   fault came back AFTER its fix shipped, which on an RSVP means a customer's
+   answer was lost anyway and somebody has to ring them. Reported as one number,
+   the second hides inside the first, and it is the only one worth acting on.
+   The first reading of the real folder had exactly one of each and they were
+   read as the same thing. */
+function afterTheFix(entry, when) {
+  if (!entry || !when) return false;
+  const b = String(entry.fixedOn || '').split('-');
+  if (b.length !== 3) return false;
+  const floor = new Date(Number(b[0]), Number(b[1]) - 1, Number(b[2]));
+  return isNaN(floor.getTime()) ? false : when >= floor;
+}
+
 async function main() {
   admin.initializeApp();
   const db = admin.firestore();
@@ -139,13 +158,19 @@ async function main() {
     console.log('  Nothing. No Member Error or Admin Error rows at all.');
   }
 
-  const stillThere = [];
+  const awaitingSweep = [];
+  const cameBack = [];
   list.forEach(function (g, i) {
     console.log((i + 1) + '. [' + g.topic + ']  x' + g.count + '   ' + day(g.first) + ' → ' + day(g.last));
-    if (g.covered) {
-      stillThere.push(g);
-      console.log('   ⚠ COVERED BY AN ENTRY ("' + g.covered.match + '", fixed ' + g.covered.fixedOn +
-        ') AND STILL HERE — either it was written after the fix, or the sweep has not run.');
+    if (g.covered && afterTheFix(g.covered, g.last)) {
+      cameBack.push(g);
+      console.log('   ⛔ THE FIX DID NOT TAKE. Its entry ("' + g.covered.match + '") shipped ' +
+        g.covered.fixedOn + ' and this fault was reported again on ' + day(g.last) +
+        '. It is NOT swept, on purpose — this is new news, not housekeeping.');
+    } else if (g.covered) {
+      awaitingSweep.push(g);
+      console.log('   ⚠ FIXED, WAITING TO BE SWEPT ("' + g.covered.match + '", fixed ' +
+        g.covered.fixedOn + '). It goes on the next admin load.');
     }
     console.log('   key: ' + g.key.slice(0, 160));
     if (g.sample) console.log('     ' + g.sample);
@@ -155,9 +180,15 @@ async function main() {
   console.log('=== What to do with this ===');
   console.log('');
   console.log('A fault with no entry is one nobody has fixed, or one fixed without its entry.');
-  console.log(stillThere.length
-    ? stillThere.length + ' fault(s) are covered by an entry and still present — read the dates before assuming the sweep is broken.'
-    : 'Nothing covered by an entry is still present.');
+  console.log(awaitingSweep.length
+    ? awaitingSweep.length + ' fault(s) (' + awaitingSweep.reduce(function (n, g) { return n + g.count; }, 0) +
+      ' report(s)) are fixed and waiting — open admin and they go. If they are still here after that, the sweep IS broken.'
+    : 'Nothing is sitting fixed-but-unswept.');
+  if (cameBack.length) {
+    console.log('');
+    console.log('⛔ ' + cameBack.length + ' fault(s) came back AFTER their fix shipped. Read those first —');
+    console.log('   a member one means a customer\'s answer was lost anyway and they think they told us.');
+  }
   console.log('');
   console.log('Nobody is named in this report on purpose. Open the Errors badge in admin for who hit what.');
 }

@@ -26,6 +26,7 @@
 'use strict';
 
 const fs = require('fs');
+const { execFileSync } = require('child_process');
 const path = require('path');
 
 const ROOT = __dirname;
@@ -154,6 +155,63 @@ check('its normaliser matches admin.html\'s fixedErrorNeedle',
   ['Edit Customer save failed: 1 of 258', 'DEADLINE-Exceeded', '  spaced   out  ', '', null]
     .every(v => needle(v) === appNeedle(v)),
   'otherwise "covered by an entry" here means something different from what the sweep does');
+
+/* ⛔ THE HALF THE FIRST VERSION LEFT OUT, and the real folder had one of each on day
+   one. `clearFixedErrors` holds a report to a DATE FLOOR as well as a needle, so
+   matching the needle alone reported two opposite things under one heading: a fault
+   waiting to be swept (housekeeping) and a fault that CAME BACK after its fix
+   (news — on an RSVP, a customer's answer lost anyway). Counted together, the
+   second hides inside the first. */
+const afterTheFix = new Function(extractFn(script, 'afterTheFix') + '; return afterTheFix;')();
+const appFloor = new Function(extractFn(admin, 'fixedErrorFloor') + '; return fixedErrorFloor;')();
+
+check('a report from before the fix reads as waiting to be swept',
+  afterTheFix({ fixedOn: '2026-09-11' }, new Date(2026, 8, 10)) === false,
+  'that one is cleared by the next admin load and is not news');
+
+check('a report from after the fix reads as the fix not taking',
+  afterTheFix({ fixedOn: '2026-09-11' }, new Date(2026, 8, 15)) === true,
+  'the real folder held exactly this — an RSVP answer lost four days after the retries shipped');
+
+check('the fix day itself counts as after, matching the sweep',
+  afterTheFix({ fixedOn: '2026-09-11' }, new Date(2026, 8, 11)) === true,
+  'the sweep keeps the fix day too, because nothing knows what hour it landed');
+
+/* ⚠ `fixedErrorFloor` HANDS BACK MILLISECONDS, NOT A DATE, and the first draft of this
+   check assumed a Date and threw. The claim is about the same INSTANT either way. */
+check('its floor is the same instant admin.html builds',
+  afterTheFix({ fixedOn: '2026-09-11' }, new Date(appFloor('2026-09-11'))) === true &&
+  afterTheFix({ fixedOn: '2026-09-11' }, new Date(appFloor('2026-09-11') - 1)) === false,
+  'a report the sweep keeps must never be reported here as one it will clear');
+
+/* ⚠ IN A CHILD PROCESS UNDER MOUNTAIN TIME, and that IS the check. This container runs
+   UTC, where local midnight and Date.parse('YYYY-MM-DD') are the same instant — so
+   in-process this passes whether the floor is built locally or not, which is precisely
+   what the red-check caught it doing. `fixed-errors.test.js` learned this first; the
+   reader has to agree with the sweep about the boundary or it reports a kept row as one
+   about to be cleared. Under America/Denver the two are six hours apart. */
+check('its floor is local midnight, the same as the sweep\'s',
+  (function () {
+    const probe = extractFn(script, 'afterTheFix') + ';' +
+      'const utc = new Date(Date.parse("2026-09-11"));' +
+      'process.stdout.write(JSON.stringify([' +
+      '  afterTheFix({fixedOn:"2026-09-11"}, new Date(2026, 8, 11)),' +
+      '  afterTheFix({fixedOn:"2026-09-11"}, new Date(new Date(2026, 8, 11).getTime() - 1)),' +
+      '  afterTheFix({fixedOn:"2026-09-11"}, new Date(utc.getTime() - 1))' +
+      ']));';
+    const got = JSON.parse(execFileSync(process.execPath, ['-e', probe],
+      { env: Object.assign({}, process.env, { TZ: 'America/Denver' }) }).toString());
+    /* local midnight is after, the instant before it is not, and the instant before UTC
+       midnight — six hours EARLIER that evening — is not either. */
+    return got[0] === true && got[1] === false && got[2] === false;
+  })(),
+  'a UTC floor sits six hours early, so an evening of reports would be swept as though they predated the fix');
+
+check('an unreadable or missing date never claims the fix failed',
+  afterTheFix({ fixedOn: 'whenever' }, new Date(2026, 8, 15)) === false &&
+  afterTheFix({ fixedOn: '2026-09-11' }, null) === false &&
+  afterTheFix(null, new Date(2026, 8, 15)) === false,
+  'the safe direction is housekeeping, not a false alarm about a lost answer');
 
 check('and the shipped list can actually be read out of admin.html',
   (function () {
