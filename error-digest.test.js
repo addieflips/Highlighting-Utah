@@ -62,6 +62,12 @@ function stripComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
 }
 const code = stripComments(script);
+/* ⚠ AND THE WORKFLOW IS STRIPPED TOO, which the first draft forgot. Its own comments
+   quote the very shapes these checks look for — the block explaining the MODULE_NOT_FOUND
+   contains the words `node ../error-digest.js` — so an unstripped search read the
+   explanation as the thing being explained and failed a correct file. Suites 58, 274, 275,
+   300 and the comm-centre leak check each learned this separately; so did this one. */
+const flowCode = flow.split('\n').filter(l => !/^\s*#/.test(l)).join('\n');
 
 console.log('');
 console.log('--- It cannot write ---');
@@ -162,23 +168,49 @@ console.log('--- The workflow ---');
 console.log('');
 
 check('it runs only when somebody asks',
-  /workflow_dispatch/.test(flow),
+  /workflow_dispatch/.test(flowCode),
   'there is no other trigger by design');
 
 check('it has no push trigger',
-  !/^\s*push:/m.test(flow),
+  !/^\s*push:/m.test(flowCode),
   'this reads customer-facing data; it must not fire on a commit');
 
 check('it has no schedule',
-  !/^\s*schedule:/m.test(flow),
+  !/^\s*schedule:/m.test(flowCode),
   'nothing here should run unattended');
 
 check('it uses the service account the deploy already uses',
-  /secrets\.FIREBASE_SERVICE_ACCOUNT/.test(flow),
+  /secrets\.FIREBASE_SERVICE_ACCOUNT/.test(flowCode),
   'no new credential is introduced by this');
 
+/* ⚠ THE FIRST RUN OF THIS JOB FAILED IN 15 SECONDS with MODULE_NOT_FOUND, and these two
+   checks are that failure written down. Node resolves require() from the SCRIPT'S OWN
+   directory, never the working directory — the job installed into functions/ and ran
+   `node ../error-digest.js` from there, so Node looked in the ROOT node_modules and found
+   nothing. The script lives at the root, so the install has to happen at the root. */
+check('firebase-admin is installed where the script will look for it',
+  /npm install [^\n]*firebase-admin/.test(flowCode) && /run: node error-digest\.js/.test(flowCode),
+  'the reader lives at the repo root, so require() resolves against the ROOT node_modules');
+
+check('and the reader is not run from another directory',
+  !/node \.\.\//.test(flowCode),
+  'running it from elsewhere re-creates the MODULE_NOT_FOUND this check exists for');
+
+/* ⛔ THE PIN IS LOAD-BEARING. error-digest.js calls admin.firestore(), the namespaced API,
+   which firebase-admin 14 REMOVES — CLAUDE.md records that by name. Unpinned, this job
+   works until the day npm resolves 14 and then fails months from here, nowhere near the
+   change that caused it. Held to the same major functions/ uses so the two cannot drift. */
+check('the firebase-admin major is pinned, and matches functions/package.json',
+  (function () {
+    const pinned = (flowCode.match(/firebase-admin@\^?(\d+)/) || [])[1];
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'functions/package.json'), 'utf8'));
+    const used = (String(pkg.dependencies['firebase-admin']).match(/(\d+)/) || [])[1];
+    return !!pinned && pinned === used;
+  })(),
+  'the reader uses admin.firestore(), which firebase-admin 14 removes');
+
 check('it runs the reader and nothing else',
-  /node \.\.\/error-digest\.js/.test(flow) && !/firebase deploy/.test(flow),
+  /run: node error-digest\.js/.test(flowCode) && !/firebase deploy/.test(flowCode),
   'a deploy step here would put a write path back into a read-only job');
 
 console.log('');
