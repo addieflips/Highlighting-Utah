@@ -51799,9 +51799,51 @@ suite('291. An RSVP link to text, for everyone with no email');
   /* ⚠ AND THE LIST DOES NOT WRITE TO THE BOOK BY BEING LOOKED AT. Minting a token is a
      write; drawing a list is not a reason to write to a few hundred customer records. */
   const renderFn = extractFn(admin, 'rsvpTextRender') || '';
+  /* ⚠ COMMENTS STRIPPED, and this check taught itself why: the [[RS-65]] handler is
+     introduced by a paragraph explaining that rsvpTextTokenFor WRITES and so must only
+     run on a press — and that prose sits before the first addEventListener, so the raw
+     read found the name in the explanation and failed a correct file. Suites 58, 274,
+     275 and 300 each learned this separately; here it was the comment defending the
+     very rule being checked. */
   check('S287', 'drawing the list mints no tokens',
-    !!renderFn && !/rsvpTextTokenFor/.test(renderFn.split('addEventListener')[0]),
+    !!renderFn && !/rsvpTextTokenFor/.test(stripComments(renderFn).split('addEventListener')[0]),
     'a panel that edits the book by being opened is the kind of thing nobody suspects');
+
+  /* ---- the link itself ([[RS-65]]) ----
+     ⛔ THERE WAS NO LINK ON THIS CARD AT ALL until Addie said so: "I dont see the
+     link for the yes, back next year, and no." Copy their text put the whole SMS on
+     the clipboard with the address buried inside it, and the preview's address is a
+     made-up example that says so on screen. So nothing here could be read out over
+     the phone or pasted anywhere else. */
+  const rowScope = stripComments(renderFn);
+  check('S287', 'each row offers the bare link as well as the whole message',
+    /data-rsvplink=/.test(rowScope) && /data-rsvptext=/.test(rowScope),
+    'the message is what goes into Google Voice; the bare link is every other way of ' +
+    'getting it to somebody, and neither replaces the other');
+  /* ⚠ IT COPIES THE ADDRESS, NOT THE MESSAGE. Both handlers sit in the same function
+     and both mint a token, so the one thing that separates them is what reaches the
+     clipboard — and a Copy link that quietly pasted the whole SMS would look like it
+     worked every time. */
+  const linkHandler = rowScope.slice(rowScope.indexOf("querySelectorAll('[data-rsvplink]"),
+                                     rowScope.indexOf("querySelectorAll('[data-rsvptext]"));
+  check('S287', 'and Copy link copies the address, not the text message',
+    linkHandler.length > 0 &&
+    /writeText\(url\)/.test(linkHandler) && !/rsvpTextMessageParts/.test(linkHandler),
+    'got a handler that reaches for the message builder — Copy link must hand over ' +
+    'the address alone');
+  /* ⛔ AND IT REFUSES TO SHOW HALF AN ADDRESS. A failed token write hands back nothing,
+     and a box holding part of a link is one somebody pastes into a message and sends
+     — [[REF-21]]'s rule, on a different screen. */
+  check('S287', 'and a failed token shows nothing rather than half a link',
+    /if\(!url\)/.test(linkHandler),
+    'half a URL in somebody\'s hands is worse than no link at all');
+  /* ⚠ STOP PEOPLE GET NEITHER BUTTON. The row still SHOWS them with a warning —
+     dropping them silently is how somebody goes missing with no reason given — but a
+     press that produces something to send is not offered. */
+  check('S287', 'and somebody who replied STOP is offered neither button',
+    /stopped\s*$|stopped\s*\r?\n?\s*\?/m.test(rowScope) &&
+    rowScope.indexOf('data-rsvplink') > rowScope.indexOf('replied STOP'),
+    'the two buttons sit in the branch for people we may still contact');
 }
 /* =====================================================================
  * Suite 290 — paying is not the same as saying yes

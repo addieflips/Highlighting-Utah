@@ -126,6 +126,12 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
      them in and records the answer against them — so there is no single address that
      works for everybody, and one press of **Copy all … for texting** gives one line per
      person, phone first, tab-separated for a spreadsheet.
+   - **Each row has two buttons** ([[RS-65]]): **Copy link** gives you just the address,
+     shown in a box on the row so you can read it out or check it; **Copy their text**
+     gives the whole message ready to paste into Google Voice.
+     ⚠ The link does not exist until you press — that press is what creates and saves
+     that customer's token, which is why the address cannot simply be printed against
+     every name on the list.
    - ⚠ Somebody who replied **STOP** is still shown, with a warning in place of the
      button, and is never included in the bulk copy.
    - **What the text SAYS is a template she edits** ([[EM-23]]). The card has a
