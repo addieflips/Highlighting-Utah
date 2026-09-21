@@ -156,17 +156,22 @@ if (linkFn && readerPat) {
 
   /* ⚠ AND THE WHOLE POINT OF THE SHORTENING. The text is held to one 160-character
      segment by run-all's S287, and the address is most of what it spends. */
-  const msgFn = lift(admin, 'rsvpTextMessageFor');
-  if (msgFn) {
-    const buildMsg = new Function(msgFn + '\nreturn rsvpTextMessageFor;')();
-    check('the whole text still fits in one message with the new link',
-      buildMsg({ name: 'Christopherjames Vanderhoeven' }, url).length <= 160,
-      'got ' + buildMsg({ name: 'Christopherjames Vanderhoeven' }, url).length +
-      ' characters for a long first name — over 160 is billed as two');
-    check('and the new link is shorter than the portal one it replaced',
-      url.length < ('https://highlightingutah.com/#/payment?token=' + tok).length,
-      'the move was partly to buy characters back; got ' + url.length);
-  }
+  /* ⚠ THIS USED TO LIFT rsvpTextMessageFor AND RUN IT, and it died with a bare
+     "rsvpTextMessageParts is not defined" the day [[EM-23]] made the wording a template
+     she edits — the extraction trap, and the whole of `npm test` went down with it.
+     ⛔ IT WAS REPOINTED RATHER THAN GIVEN THE CHAIN. Lifting six more functions in here
+     would make this file a second opinion about the WORDING, which is not its job and
+     is exactly what rsvp-text-wording.test.js owns — including the long-name case this
+     check used to make. What belongs here is the ADDRESS, so that is what it asserts:
+     how much of the one segment the link spends, which is a property of the link alone
+     and cannot go stale when she edits a template. */
+  check('the address leaves room for a sentence in the same message',
+    160 - url.length >= 100,
+    'got ' + url.length + ' characters of address, leaving ' + (160 - url.length) +
+    ' for the words — under that there is no wording she could pick that fits');
+  check('and the new link is shorter than the portal one it replaced',
+    url.length < ('https://highlightingutah.com/#/payment?token=' + tok).length,
+    'the move was partly to buy characters back; got ' + url.length);
 }
 
 /* ============================================== 3. the page, run against a real DOM

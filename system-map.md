@@ -116,6 +116,26 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
      ⚠ The card draws nothing at all when there is no token: a share box holding half an
      address is worse than no offer ([[REF-21]]).
    - **Where the office gets it:** Automation Emails › RSVP › *Text the RSVP — no email on file*.
+   - **What the text SAYS is a template she edits** ([[EM-23]]). The card has a
+     **What the text says** picker listing the real email templates, and **Make one I
+     can edit** creates *RSVP Text* in the Text Messages folder holding the wording
+     that has been going out — so the first thing she opens is the message itself,
+     and an edit is an edit rather than a rewrite. The preview under it is the real
+     message, built by the same rule the Copy buttons use.
+     ⚠ A text can carry only **their name** and **the one link**. Every other token an
+     email template holds — the three answer buttons, the referral button, the photo —
+     is a thing on a page, so it is removed and the card says how many were dropped.
+     ⚠ The grey line counts characters for the **longest name on the list**, because
+     that is the person the send breaks for, and warns in red past 160 — a template
+     she can edit is how a message quietly starts being billed as two.
+     ⚠ If the template is renamed or deleted the built-in wording goes out and the
+     card SAYS so; it never refuses. But if the template list simply has not loaded
+     yet, the Copy buttons **wait** rather than falling back — that is the one case
+     where falling back would send the wrong wording to several hundred people with
+     nothing anywhere saying so.
+     **If the text says the wrong thing:** Automation Emails › Templates › the
+     template named in the grey note under the picker.
+
      Who is on that list has not changed: customers with no email, who have not really answered,
      and not in their first year. **There is no Twilio** — the office copies the number and the
      message and sends it from Google Voice ([[QT-48]]).

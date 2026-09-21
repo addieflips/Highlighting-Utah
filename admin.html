@@ -4153,6 +4153,17 @@
         <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128241; Text the RSVP &mdash; no email on file</h3>
         <p class="form-note" style="margin:0 0 12px;">The RSVP email cannot reach these customers, so they are never asked. Each link opens one page that asks <strong>&ldquo;Are you having lights this season?&rdquo;</strong> and carries <strong>Yes</strong>, <strong>Back Next Year</strong> and <strong>No</strong> &mdash; the same three answers as the three buttons in the RSVP email, which a text message cannot carry. Their answer is recorded exactly as an emailed one is, so a texted customer needs nothing chasing up separately. Nobody who has already answered is listed, and nobody in their first year, for the same reason the email skips them.</p>
         <p class="form-note" id="backReferBlock-note" style="margin:0 0 12px; padding:9px 11px; background:var(--paper); border:1px solid var(--gold-dim); border-radius:8px;"><strong>The referral offer is not in the text.</strong> The RSVP email carries it, but a second address takes the message past 160 characters and puts two links in front of somebody who only has to answer one question. They still get it: <strong>Back Next Year</strong> shows them their own link on the answer page, and <strong>Yes</strong> or <strong>No</strong> lands them in their member portal, where Refer a Friend is a tab. &#36;25 comes off <strong>next</strong> season for anyone sitting this one out.</p>
+        <div style="border:1px solid var(--line); border-radius:10px; padding:11px 12px; margin:0 0 12px; background:var(--snow);">
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+            <div class="form-row" style="margin:0; min-width:240px; flex:1;">
+              <label style="margin-bottom:4px;">What the text says</label>
+              <select id="rsvpTextTmpl"><option value="">&mdash; the built-in wording &mdash;</option></select>
+            </div>
+            <button type="button" class="btn btn-outline btn-sm" id="rsvpTextMakeTmplBtn">Make one I can edit</button>
+          </div>
+          <div id="rsvpTextTmplNote" class="form-note" style="margin:8px 0 0;"></div>
+          <div id="rsvpTextPreview" style="margin-top:10px;"></div>
+        </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
           <button type="button" class="btn btn-outline btn-sm" id="rsvpTextFindBtn">Find who has no email</button>
           <button type="button" class="btn btn-gold btn-sm" id="rsvpTextCopyAllBtn" style="display:none;">Copy them all for texting</button>
@@ -9705,11 +9716,95 @@ function rsvpTextLinkFrom(token){
 }
 /* ⚠ PLAIN CHARACTERS, AND THE ADDRESS IS VISIBLE. A text cannot hide a link behind a
    word, so the URL is the message's last line where it is easy to tap and easy to
-   read out over the phone. Kept short on purpose: 160 characters is one message. */
+   read out over the phone. Kept short on purpose: 160 characters is one message.
+
+   ⭐ AND THE WORDING IS A TEMPLATE SHE CAN EDIT (2026-09-21, [[EM-23]]). Addie, told
+   the text card was already in Automation Emails but that its sentence was not:
+   "Okay do it with updated code."
+
+   ⚠ THE RSVP EMAIL HAS ALWAYS BEEN A TEMPLATE AND THIS WAS A SENTENCE IN THIS FILE,
+   so the one message she could not reach from the screen was the one going to the
+   customers the email cannot reach at all. Changing a word meant changing admin.html.
+
+   ⭐ THE PRECEDENT IS THE QUOTE TEXT AND THIS FOLLOWS IT RATHER THAN INVENTING A
+   SECOND WAY: a PICKER, not a name looked up by convention — getEmailTemplateByName
+   is an exact, case-sensitive match, so a rename is a re-pick here instead of a
+   silent failure ([[QT-42]] is what that costs when it is not) — the body pulled
+   live, htmlEmailToPlainText over it, and the address on the last line. What is new
+   is the FALLBACK, which the quote path does not need and this one does.
+
+   ⛔ IT WARNS, IT NEVER REFUSES, and the reason is [[QT-42]]'s own: there is a
+   correct wording sitting right there. A refusal over a renamed template would cost
+   her the send AND leave her on a card with nothing to press. The built-in wording
+   goes out and the card NAMES which wording went and why.
+
+   ⛔ BUT A TEMPLATE LIST THAT HAS NOT LOADED IS NOT A MISSING TEMPLATE, and from
+   getEmailTemplateByName alone those two are the same answer — undefined. Falling
+   back there would quietly send the built-in wording over the top of a template she
+   picked, to several hundred people, with nothing anywhere going red. etTemplatesLoaded
+   separates them and that one case WAITS rather than guessing; it clears itself a
+   second later, so it is a pause and not a dead end. */
+const RSVP_TEXT_TEMPLATE_NAME = 'RSVP Text';
+/* ⚠ A BODY, NOT A SENTENCE, so the built-in wording and a picked template go through
+   the SAME renderer. Written as two branches it would be two answers about what a
+   text may carry, and the one nobody looks at is the built-in one. */
+const RSVP_TEXT_DEFAULT_BODY =
+  'Hi {{name}}, it’s Highlighting Utah. Christmas lights this year? Tell us yes or no:' +
+  '\n{{link}}';
+let rsvpTextTemplateName = '';
+/* ⭐ WHAT A TEXT CAN ACTUALLY CARRY: their name, and one address. Everything else an
+   email template holds — the three answer buttons, the referral button, the photo,
+   the houses block — is a THING ON A PAGE.
+   ⛔ SO EVERY OTHER TOKEN IS REMOVED RATHER THAN SENT, AND COUNTED ON THE WAY OUT.
+   This app has already mailed customers a literal "{{photo}}" once (the bulk nudge,
+   2026-08-17), and the lesson was not that the token was the wrong one — it was that
+   nothing was counting what it could not render. The card says what was dropped.
+   ⚠ AND THE ADDRESS IS APPENDED ONLY IF HER WORDING DID NOT PLACE IT. A {{link}}
+   where she wants it wins; no {{link}} at all still ends on the address, which is
+   what the card promises and what makes it easy to tap and to read down a phone. */
+function rsvpTextRenderBody(body, d, link){
+  const filled = htmlEmailToPlainText(body || '')
+    .split('{{name}}').join(firstName(d && d.name))
+    .split('{{link}}').join(link || '');
+  const dropped = (filled.match(/\{\{[^{}]*\}\}/g) || [])
+    .map(function(t){ return t.replace(/[{}]/g, ''); });
+  let text = filled
+    .replace(/\{\{[^{}]*\}\}/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  /* ⚠ ON ITS OWN LINE, BUT NEVER ON A LINE OF ITS OWN. A body that rendered to
+     nothing — an empty template, or one whose only content was buttons — came back as a
+     newline and then the address, which is not an empty message and so slipped past the
+     blank test above it. Caught by rsvp-text-wording.test.js before it shipped. */
+  if(link && text.indexOf(link) === -1) text = text ? (text + '\n' + link) : link;
+  return { text: text, dropped: dropped };
+}
+/* ⚠ ONE ANSWER, AND THE PREVIEW AND THE COPY BUTTON BOTH ASK IT. Two ways of
+   deciding which wording goes out is how a card shows her one message and puts a
+   different one on the clipboard — and the clipboard is the half that reaches a
+   customer. rsvpTextMessageFor is this, minus the reporting. */
+function rsvpTextMessageParts(d, link){
+  const wanted = String(rsvpTextTemplateName || '').trim();
+  const built = function(source){
+    const out = rsvpTextRenderBody(RSVP_TEXT_DEFAULT_BODY, d, link);
+    return { text: out.text, dropped: out.dropped, source: source, wanted: wanted };
+  };
+  if(!wanted) return built('builtin');
+  if(!etTemplatesLoaded) return { text: '', dropped: [], source: 'loading', wanted: wanted };
+  const tmpl = getEmailTemplateByName(wanted);
+  if(!tmpl) return built('missing');
+  const out = rsvpTextRenderBody((tmpl.data && tmpl.data.body) || '', d, link);
+  /* ⚠ A TEMPLATE WHOSE BODY IS EMPTY, OR WHOSE ONLY CONTENT WAS TOKENS A TEXT CANNOT
+     CARRY, RENDERS DOWN TO THE BARE ADDRESS. Sending a naked link to several hundred
+     people who are not expecting to hear from us reads as a scam, so that falls
+     through to the built-in wording and the card says it did. */
+  if(!out.text || out.text === String(link || '')) return built('blank');
+  return { text: out.text, dropped: out.dropped, source: 'template', wanted: wanted };
+}
 function rsvpTextMessageFor(d, link){
-  const first = String((d && d.name) || '').trim().split(/\s+/)[0] || 'there';
-  return 'Hi ' + first + ', it’s Highlighting Utah. Christmas lights this year? '
-    + 'Tell us yes or no: ' + link;
+  return rsvpTextMessageParts(d, link).text;
 }
 async function getOrCreatePortalToken(phone){
   const phoneDigits = (phone||'').replace(/\D/g,'');
@@ -12492,6 +12587,7 @@ function initData(){
   loadScheduledRoutes();
   loadEmailjsSettings();
   loadQuoteTemplateSettings();
+  loadRsvpTextSettings();
   loadQuoteNudgeSettings();
   loadPortalChangeEmailSettings();
   loadNightlyInvoiceSettings();
@@ -19156,6 +19252,12 @@ function loadEmailTemplates(){
        a deletion or one made by the button on that card has to reach it. Left out, the
        card goes on naming a template that is no longer there. */
     if(typeof renderPortalChangeEmailCard === 'function') renderPortalChangeEmailCard();
+    /* ⚠ AND THE RSVP TEXT PICKER, for the third time and the same reason: it lists
+       real templates, so a rename, a deletion or one made by the button on that card
+       has to reach it — and its PREVIEW is the shipped message, so an edit to the
+       template she picked has to redraw it or the card goes on showing the old words. */
+    if(typeof renderRsvpTextTemplatePicker === 'function') renderRsvpTextTemplatePicker();
+    if(typeof renderRsvpTextPreview === 'function') renderRsvpTextPreview();
   });
 }
 function getEmailTemplateByName(name){
@@ -19770,6 +19872,10 @@ function rsvpTextRender(){
   const copyAll = document.getElementById('rsvpTextCopyAllBtn');
   if(!list) return;
   const targets = rsvpTextTargets();
+  /* The preview is built from this same list — the sample customer and the longest
+     name on it — so it is redrawn whenever the list is. */
+  renderRsvpTextTemplatePicker();
+  renderRsvpTextPreview();
   if(count) count.textContent = targets.length
     ? (targets.length + ' customer' + (targets.length === 1 ? '' : 's') + ' with no email')
     : '';
@@ -19803,8 +19909,18 @@ function rsvpTextRender(){
       try{
         const token = await rsvpTextTokenFor(item);
         if(!token){ btn.textContent = 'Could not make a link'; return; }
-        const msg = rsvpTextMessageFor(item.data, rsvpTextLinkFrom(token));
-        await navigator.clipboard.writeText(msg);
+        /* ⛔ NEVER THE WRONG WORDING RATHER THAN NO WORDING. If she has picked a
+           template and the template list has not landed yet, the fallback would put
+           the built-in sentence on the clipboard and nothing would say so — the one
+           failure here that reaches a customer silently. It waits instead; the list
+           lands a moment later and the button works. */
+        const parts = rsvpTextMessageParts(item.data, rsvpTextLinkFrom(token));
+        if(parts.source === 'loading'){
+          btn.textContent = 'Templates still loading \u2014 try again';
+          btn.disabled = false;
+          return;
+        }
+        await navigator.clipboard.writeText(parts.text);
         btn.textContent = '\u2713 Copied \u2014 paste it into a text';
         setTimeout(function(){ btn.textContent = was; btn.disabled = false; }, 4000);
       }catch(err){
@@ -19815,6 +19931,196 @@ function rsvpTextRender(){
     });
   });
 }
+/* ⭐ THE PICKER LISTS REAL TEMPLATES, so a rename in Automation Emails is a re-pick
+   here rather than a silent failure — the same reasoning, and the same shape, as
+   renderQuoteTemplatePickers. A name that is no longer in the list is kept as a
+   selected "(not found)" option rather than being quietly dropped: dropping it makes
+   the card read as though she never picked anything, which is the one state she
+   cannot tell from a template that has gone.
+   ⚠ AND IT MARKS THE ONES ALREADY WRITTEN AS TEXTS. isTextMessage has been written by
+   the quote text seeder since it existed and read by NOTHING — a field with a writer
+   and no reader, which §1 of CLAUDE.md calls an error rather than a detail. This is
+   its first reader: in a book of thirty email templates, the two or three meant to be
+   sent as characters are the ones worth finding at a glance. */
+function renderRsvpTextTemplatePicker(){
+  const sel = document.getElementById('rsvpTextTmpl');
+  if(!sel) return;
+  const chosen = rsvpTextTemplateName || '';
+  let html = '<option value="">\u2014 the built-in wording \u2014</option>';
+  (emailTemplates || []).forEach(function(t){
+    const n = (t.data && t.data.name) || '';
+    html += '<option value="'+esc(n)+'"'+(n === chosen ? ' selected' : '')+'>'+esc(n)+
+      ((t.data && t.data.isTextMessage) ? ' (text)' : '')+'</option>';
+  });
+  if(chosen && !(emailTemplates || []).some(function(t){ return (t.data && t.data.name) === chosen; })){
+    html += '<option value="'+esc(chosen)+'" selected>'+esc(chosen)+' (not found)</option>';
+  }
+  sel.innerHTML = html;
+}
+/* ⭐ THE PREVIEW IS THE REAL MESSAGE, BUILT BY THE REAL RULE. It asks
+   rsvpTextMessageParts, which is what the Copy buttons ask — a preview with its own
+   idea of the wording is a card that shows one message and puts another on the
+   clipboard, and the clipboard is the half that reaches a customer.
+   ⛔ AND ITS LINK MINTS NOTHING. generatePortalToken is pure, so the example address
+   is exactly as long as a real one and is written to nobody; S287 asserts that
+   drawing this list writes no tokens, and a preview that saved one to the first
+   customer on the list would edit the book by being looked at.
+   ⚠ THE COUNT IS SHOWN AGAINST THE LONGEST NAME ON THE LIST, not the first one. The
+   name is the only part that varies, so a count taken from whoever happens to sort
+   first says nothing about whether the send fits — and the whole reason this number
+   is on screen is that a template she can edit can cross 160 without anything going
+   red. */
+function rsvpTextPreviewLink(){
+  return rsvpTextLinkFrom(generatePortalToken());
+}
+function rsvpTextLongestNameOn(targets){
+  let worst = null;
+  (targets || []).forEach(function(t){
+    const d = (t && t.data) || {};
+    if(!worst || firstName(d.name).length > firstName(worst.name).length) worst = d;
+  });
+  return worst;
+}
+function renderRsvpTextPreview(){
+  const noteEl = document.getElementById('rsvpTextTmplNote');
+  const box = document.getElementById('rsvpTextPreview');
+  if(!noteEl || !box) return;
+  const targets = rsvpTextTargets();
+  const sample = targets.length ? (targets[0].data || {}) : { name: 'Nora Noemail' };
+  const link = rsvpTextPreviewLink();
+  const parts = rsvpTextMessageParts(sample, link);
+
+  if(parts.source === 'loading'){
+    noteEl.style.color = 'var(--slate)';
+    noteEl.textContent = 'Loading the templates\u2026';
+    box.innerHTML = '';
+    return;
+  }
+
+  /* ⚠ THE NOTE ALWAYS SAYS WHICH WORDING WENT AND WHY. "Nothing should fail quietly"
+     applied to a fallback: a card that silently used the built-in wording over the top
+     of a template she picked is indistinguishable from one that used hers. */
+  let note = '', colour = 'var(--slate)';
+  if(parts.source === 'template'){
+    note = 'Pulled live from Automation Emails \u2192 Templates \u2192 ' + esc(parts.wanted) +
+      '. Edit it there and this changes with it.';
+  } else if(parts.source === 'missing'){
+    colour = 'var(--ember)';
+    note = '<strong>Can\u2019t find a template called \u201C' + esc(parts.wanted) + '\u201D</strong> \u2014 ' +
+      'it has been renamed or deleted. The built-in wording below is what will go out. ' +
+      'Pick it again above, or leave it: nothing is broken, it just is not the wording you chose.';
+  } else if(parts.source === 'blank'){
+    colour = 'var(--ember)';
+    note = '<strong>\u201C' + esc(parts.wanted) + '\u201D has nothing a text can carry</strong> \u2014 ' +
+      'a text is plain characters, so buttons and photos leave nothing behind. The built-in ' +
+      'wording below is what will go out.';
+  } else {
+    note = 'The built-in wording. Pick a template above to change it, or press ' +
+      '<strong>Make one I can edit</strong> and it becomes one.';
+  }
+  if(parts.dropped.length){
+    note += '<br><span style="color:var(--slate);">A text cannot carry ' + parts.dropped.length +
+      ' thing' + (parts.dropped.length === 1 ? '' : 's') + ' the email shows on a page \u2014 ' +
+      esc(parts.dropped.join(', ')) + ' \u2014 so ' + (parts.dropped.length === 1 ? 'it was' : 'they were') +
+      ' left out. The one link carries all three answers.</span>';
+  }
+  noteEl.style.color = colour;
+  noteEl.innerHTML = note;
+
+  /* ⚠ THE WORST CASE IS WHAT THE COUNT IS ABOUT, and it is named so the number can be
+     checked rather than believed. */
+  const worst = rsvpTextLongestNameOn(targets) || sample;
+  const worstMsg = rsvpTextMessageFor(worst, link);
+  const segs = smsSegments(worstMsg);
+  const over = segs > 1;
+  box.innerHTML =
+    '<div class="rtext" style="margin-bottom:6px; color:var(--slate);">This is what ' +
+      esc(firstName(sample.name)) + ' gets \u2014 the address is an example of the right length, ' +
+      'not a real one.</div>' +
+    '<div style="background:#E9E9EB; color:#000; border-radius:16px; padding:11px 14px; ' +
+      'font-size:14.5px; line-height:1.45; white-space:pre-wrap; max-width:330px;">' +
+      esc(parts.text) + '</div>' +
+    '<div class="rtext" style="margin-top:8px; color:' + (over ? 'var(--ember)' : 'var(--slate)') +
+      '; font-weight:' + (over ? '700' : '400') + ';">' +
+      worstMsg.length + ' characters for ' + esc(firstName(worst.name)) +
+      ', the longest name on this list \u00b7 billed as ' + segs + ' message' + (segs === 1 ? '' : 's') +
+      (over ? ' \u2014 every one of these is charged twice. Shorten the wording by ' +
+        (worstMsg.length - 160) + ' character' + ((worstMsg.length - 160) === 1 ? '' : 's') +
+        ' to get back to one.' : '') +
+    '</div>';
+}
+/* ⚠ SAVED ON CHANGE, and the preview is redrawn from the SAVED value rather than from
+   the dropdown, so what is on screen is what the Copy buttons will use. A failed write
+   says so rather than leaving the card claiming a choice that did not stick. */
+document.getElementById('rsvpTextTmpl')?.addEventListener('change', async function(){
+  const noteEl = document.getElementById('rsvpTextTmplNote');
+  rsvpTextTemplateName = this.value || '';
+  renderRsvpTextPreview();
+  try{
+    await setDoc(doc(db,'settings','rsvpText'), {textTemplate: rsvpTextTemplateName}, {merge:true});
+  }catch(err){
+    console.error('Could not save the RSVP text template choice', err);
+    if(noteEl){
+      noteEl.style.color = 'var(--ember)';
+      noteEl.textContent = 'Could not save that choice \u2014 it will go back to the old one ' +
+        'when this page is reloaded. Try again.';
+    }
+  }
+});
+async function loadRsvpTextSettings(){
+  try{
+    const snap = await getDoc(doc(db,'settings','rsvpText'));
+    if(snap.exists() && typeof snap.data().textTemplate === 'string'){
+      rsvpTextTemplateName = snap.data().textTemplate;
+    }
+  }catch(err){ /* not saved yet — the built-in wording stands, which is a real answer */ }
+  renderRsvpTextTemplatePicker();
+  renderRsvpTextPreview();
+}
+/* ⭐ ONE PRESS TURNS THE BUILT-IN WORDING INTO A TEMPLATE, which is the whole point of
+   the feature: without it she has a picker with nothing to pick and a blank page to
+   write from. The body it creates IS RSVP_TEXT_DEFAULT_BODY, so the first thing she
+   opens is the message that has been going out, and an edit is an edit rather than a
+   rewrite. Same shape as qMakeTextTmplBtn, and into the same Text Messages folder.
+   ⚠ IT NEVER OVERWRITES ONE THAT EXISTS. Pressed twice, the second press picks the
+   template she has already edited rather than putting the shipped wording back over
+   the top of her own. */
+document.getElementById('rsvpTextMakeTmplBtn')?.addEventListener('click', async function(){
+  const noteEl = document.getElementById('rsvpTextTmplNote');
+  const setNote = function(colour, text){
+    if(!noteEl) return;
+    noteEl.style.color = colour;
+    noteEl.textContent = text;
+  };
+  setNote('var(--slate)', 'Working\u2026');
+  try{
+    let made = false;
+    if(!getEmailTemplateByName(RSVP_TEXT_TEMPLATE_NAME)){
+      let folderId = (emailTemplateFolders || []).find(function(f){ return f.name === 'Text Messages'; })?.id;
+      if(!folderId){
+        const ref = await addDoc(collection(db,'emailTemplateFolders'),
+          {name:'Text Messages', createdAt: serverTimestamp()});
+        folderId = ref.id;
+      }
+      await addDoc(collection(db,'emailTemplates'), {
+        name: RSVP_TEXT_TEMPLATE_NAME, folderId: folderId, body: RSVP_TEXT_DEFAULT_BODY,
+        linkedTokens: ['name','link'], isTextMessage: true, createdAt: serverTimestamp()
+      });
+      made = true;
+    }
+    rsvpTextTemplateName = RSVP_TEXT_TEMPLATE_NAME;
+    await setDoc(doc(db,'settings','rsvpText'), {textTemplate: rsvpTextTemplateName}, {merge:true});
+    renderRsvpTextTemplatePicker();
+    renderRsvpTextPreview();
+    setNote('#2E6B3E', made
+      ? 'Made \u201C' + RSVP_TEXT_TEMPLATE_NAME + '\u201D in the Text Messages folder and picked it. ' +
+        'Edit it in Automation Emails \u2192 Templates.'
+      : 'It already existed \u2014 picked it. Edit it in Automation Emails \u2192 Templates.');
+  }catch(err){
+    console.error('Could not make the RSVP text template', err);
+    setNote('var(--ember)', 'Could not make it: ' + ((err && err.message) || 'try again.'));
+  }
+});
 /* ⚠ ONE LINE PER PERSON, PHONE FIRST AND TAB-SEPARATED, which is what pastes into a
    spreadsheet and into the bulk-texting workflow. A block of prose with the numbers
    buried in it has to be taken apart again by hand. */
@@ -19822,6 +20128,13 @@ async function rsvpTextCopyAll(){
   const statusEl = document.getElementById('rsvpTextStatus');
   const targets = rsvpTextTargets().filter(function(item){ return !(item.data || {}).smsOptedOut; });
   if(!targets.length){ if(statusEl) statusEl.textContent = 'Nobody to copy.'; return 0; }
+  /* ⚠ ASKED ONCE, BEFORE ANY LINK IS MINTED. The per-row button can afford to check
+     inside the loop; this one would otherwise write a portal token to every customer
+     on the list and then refuse. */
+  if(rsvpTextMessageParts({}, 'x').source === 'loading'){
+    if(statusEl) statusEl.textContent = 'The templates have not loaded yet \u2014 press it again in a moment.';
+    return 0;
+  }
   const lines = [];
   for(let i = 0; i < targets.length; i++){
     if(statusEl) statusEl.textContent = 'Making link ' + (i + 1) + ' of ' + targets.length + '\u2026';
@@ -19831,7 +20144,12 @@ async function rsvpTextCopyAll(){
   }
   try{ await navigator.clipboard.writeText(lines.join('\n')); }
   catch(err){ if(statusEl) statusEl.textContent = 'Made the links, but the clipboard refused \u2014 press it again.'; return 0; }
-  if(statusEl) statusEl.textContent = '\u2713 ' + lines.length + ' text' + (lines.length === 1 ? '' : 's') + ' copied \u2014 one line each, phone first.';
+  const wording = rsvpTextMessageParts({}, 'x');
+  if(statusEl) statusEl.textContent = '\u2713 ' + lines.length + ' text' + (lines.length === 1 ? '' : 's') +
+    ' copied \u2014 one line each, phone first. ' +
+    (wording.source === 'template'
+      ? 'Wording from \u201C' + wording.wanted + '\u201D.'
+      : 'The built-in wording' + (wording.wanted ? ' \u2014 \u201C' + wording.wanted + '\u201D could not be used.' : '.'));
   return lines.length;
 }
 /* ⭐ THE TWO CHECKBOX LABELS ARE STAMPED FROM THE CONSTANT (2026-09-03). They are
