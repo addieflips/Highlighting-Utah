@@ -7948,19 +7948,30 @@ if (!JSDOM) {
     ];
     renderWarehouseQueue();
     const l2 = document.getElementById('warehouseQueueList');
-    check('warehouse', 'a member\'s lights and timer sit under one request heading',
-      /Nadia Brooks — extra request/.test(l2.innerHTML) &&
-      (l2.innerHTML.match(/extra request/g) || []).length === 1,
-      'two headings for one person is exactly the "two different requests" problem');
-    check('warehouse', 'the request heading says what to pick up',
-      /6 bundles Warm White · 1 timer/.test(l2.innerHTML),
-      '"0 houses, 7 extra" is true and tells Dad nothing');
+    /* ⭐ THE REQUEST HEADING IS GONE ([[WH-44]], 2026-09-21). These checks asserted the
+       OPPOSITE until Addie put the two pictures side by side: "I dont want it to look like
+       the first picture but I want all of them to look like the second picture even if I
+       add them in warehouse." They are repointed at the new guarantee rather than deleted
+       — the old one was a real decision and is recorded in whBuildQueueGroups, struck
+       rather than removed, with the cost she accepted written beside it.
+       ⚠ AND THE THIRD ONE IS REVERSED OUTRIGHT. It used to prove a member request had NO
+       bulk count box; that suppression is exactly what left a real job on the tab with no
+       way to tick it off, which is what she was pointing at. It proves the box is THERE.
+       ⚠ THESE RUN THE RENDERER rather than matching its source: every claim here is about
+       a heading on a screen, and this repo has shipped a message that was in the source
+       and could never reach the page. */
+    check('warehouse', 'no member request takes a heading of its own',
+      !/extra request/.test(l2.innerHTML),
+      'a titled group is drawn without the bundle maths and without Mark Completed');
+    check('warehouse', 'their request is grouped by colour like everything else',
+      /Warm White/.test(l2.innerHTML) && /Build \d+ bundle/.test(l2.innerHTML),
+      'falling through to the ordinary colour-and-wire key is what gives the bundle line back');
     check('warehouse', 'generic buffer stock still gets its own group',
       /buffer stock/.test(l2.innerHTML),
       'stock with no house attached must not be filed under a member');
-    check('warehouse', 'a member request has no bulk count box',
-      !/whdone-0/.test(l2.innerHTML.slice(0, l2.innerHTML.indexOf('buffer stock'))),
-      'a "houses finished" box on a single person invites the same over-count mistake');
+    check('warehouse', 'a member request now HAS the bulk count box it used to suppress',
+      /whdone-/.test(l2.innerHTML),
+      'the job she could not tick off is the whole reason the heading went');
 
     /* --- The printed sheet ------------------------------------------------
        Same list, same order, flattened to one row per line. Built off

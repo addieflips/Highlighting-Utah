@@ -95,6 +95,16 @@ const QUEUE_SITES = [
      already made in the "Check lights" pile queues it to be made again — a real queueing
      place, declared in the same change that built it. */
   { file: 'admin.html', fn: 'wirePickSet' },
+  /* ⭐ A REQUEST TYPED IN THE WAREHOUSE (added 2026-09-21, [[WH-44]]). Addie: "If I add
+     them in warehouse it should also update there lights in member portal, and costumers."
+     That form used to write a `warehouseExtras` row and leave the customer record alone, so
+     it queued nothing and had no business in this census; it writes the colours onto the
+     house now and queues the build, which makes it a real queueing place. Declared in the
+     same change that built it.
+     ⚠ AND THE QUEUE DATE IS WHAT THE 72-HOUR HOLD READS, so an unstamped house here would
+     not merely lose its journey line — `scheduleHoldEndsMillis` would find no date and the
+     hold she asked for would never start. */
+  { file: 'admin.html', fn: 'whAddRequestToCustomer' },
   { file: 'functions/index.js', fn: 'portalSave' },
   { file: 'functions/index.js', fn: 'seasonYesUpdates' },
   { file: 'functions/index.js', fn: 'portalRsvp' }

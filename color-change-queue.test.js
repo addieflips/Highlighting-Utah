@@ -83,11 +83,21 @@ const portalSites = stampSites(funcs, 'portal');
    stamps the source and charges the $30 exactly as the Edit Customer save does, so it has
    a `lightsChangedVia = 'office'` of its own. The census is what made that visible; the
    number moving is the point of it. */
-check('both office colour-change stamps were found in admin.html',
-  officeSites.length === 2,
-  'found ' + officeSites.length + ' — the Edit Customer save and the All Customers row ' +
-  'panel each have one. A matcher that has stopped matching reports no violations at ' +
-  'all, which is the worst kind of green.');
+/* ⭐ AND A THIRD SINCE [[WH-44]] (2026-09-21). Addie, on adding a build from the warehouse:
+   "If I add them in warehouse it should also update there lights in member portal, and
+   costumers." That form used to write a `warehouseExtras` row and leave the record alone,
+   so it was no kind of colour-change door at all; it writes the colours onto the house now,
+   which makes it one. The number moving is the point of the census — it is written down
+   again rather than loosened, exactly as it was when the second door arrived.
+   ⚠ AND IT CAUGHT THE FIRST DRAFT OF THAT DOOR, which deliberately left `needsColorChange`
+   off on the grounds that a request typed in the warehouse is already on the warehouse's
+   build list. Tidiness lost to the rule this file exists for: a colour change that reaches
+   no list is silence, and the existing bin still has to be dealt with. */
+check('all three office colour-change stamps were found in admin.html',
+  officeSites.length === 3,
+  'found ' + officeSites.length + ' — the Edit Customer save, the All Customers row ' +
+  'panel and the warehouse request each have one. A matcher that has stopped matching ' +
+  'reports no violations at all, which is the worst kind of green.');
 check('both portal colour-change stamps were found in functions/index.js',
   portalSites.length === 2,
   'found ' + portalSites.length + ' — portalSave and the fee transaction each have one');

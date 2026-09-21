@@ -8979,6 +8979,11 @@ const CUSTOMER_FIELD_LABELS = {
   needsLightRecycle: {label: 'Old set to come back', kind: 'yesno'},
   recycleKeepingCustomer: {label: 'Keeping them as a customer', kind: 'yesno'},
   buildTopUpFromFeet: {label: 'Feet already in their bin', kind: 'number'},
+  /* ⭐ [[WH-44]] — the count somebody typed in the warehouse, which beats the one worked
+     out from their footage. Labelled rather than quiet: it changes how many bundles get
+     made, so a history reading "Bundles to build: 3 → 4" is exactly the line somebody
+     needs when a house comes back with the wrong number of lights in its bin. */
+  buildBundleOverride: {label: 'Bundles to build', kind: 'number'},
   binLabelNumber: 'Number painted on their bin',
   requoteKind: 'Why they were re-quoted',
   scheduled: {label: 'On a day', kind: 'yesno'},
@@ -23940,15 +23945,36 @@ function houseBundleNeed(d){
     const price = Number(d.housePrice) || 0;
     if(price && perFootRate){ feet = estimateFeetFromPrice(price, perFootRate); estimated = true; }
   }
+  /* ⭐ A TYPED COUNT WINS, AND THE DERIVED ONE STILL SHOWS (2026-09-21, [[WH-44]]).
+     Addie, adding a build from the warehouse: "The number I type wins but the automatic
+     number should still come up." So the footage answer is still WORKED OUT — the form
+     pre-fills it and every row can print it — and a number somebody typed replaces it.
+     ⚠ THE DERIVED ANSWER IS KEPT ON THE RESULT (`derivedBundles`) RATHER THAN THROWN
+     AWAY. "The automatic number should still come up" is the second half of her sentence
+     and it has nowhere else to come from: once the override is applied, nothing else in
+     the app can re-derive it for a row that is already showing the typed count.
+     ⚠ ZERO AND BLANK ARE NOT AN OVERRIDE. `Number('') || 0` is 0 and so is a cleared box,
+     and a stored 0 would read as "build nothing" for a house that needs a bundle — which
+     is the same shape as the blank-where-an-answer-goes rule `requoteKind` already
+     carries. Only a positive number counts.
+     ⚠ AND IT OVERRIDES EVERY BRANCH, top-up and unknown-footage included. A house with no
+     measured feet answers 1 bundle by default; if somebody has stood in the warehouse and
+     typed 4, 4 is the better answer and refusing it there would send them back to Edit
+     Customer to invent a footage they have not measured. */
+  const typed = Number(d && d.buildBundleOverride) || 0;
+  const withTyped = function(out){
+    if(typed <= 0) return out;
+    return Object.assign({}, out, {bundles: typed, typedBundles: typed, derivedBundles: out.bundles});
+  };
   const have = Number(d.buildTopUpFromFeet) || 0;
   if(have > 0 && feet > have){
     const extra = feet - have;
-    return {feet: extra, bundles: Math.ceil(extra / FEET_PER_BUNDLE), estimated: estimated,
-            unknown: false, topUp: true, have: have, total: feet};
+    return withTyped({feet: extra, bundles: Math.ceil(extra / FEET_PER_BUNDLE), estimated: estimated,
+            unknown: false, topUp: true, have: have, total: feet});
   }
-  if(!feet) return {feet: 0, bundles: 1, estimated: false, unknown: true, topUp: false};
-  return {feet: feet, bundles: Math.ceil(feet / FEET_PER_BUNDLE), estimated: estimated,
-          unknown: false, topUp: false};
+  if(!feet) return withTyped({feet: 0, bundles: 1, estimated: false, unknown: true, topUp: false});
+  return withTyped({feet: feet, bundles: Math.ceil(feet / FEET_PER_BUNDLE), estimated: estimated,
+          unknown: false, topUp: false});
 }
 /* Where a finished bundle goes. Blank for an ordinary build — it goes in a new bin
    with their number on it, which is what the Bin column already says. On a top-up the
@@ -51616,17 +51642,26 @@ function whBuildQueueGroups(){
   });
   warehouseExtras.forEach(function(item){
     if(!item.data.pattern) return;
-    /* An extra tied to a real member is that member's REQUEST — lights and a
-       timer for the same person belong on one heading, not scattered through the
-       buffer-stock groups where nothing says they are the same job. Keyed by id
-       so two customers with the same name can never merge. */
-    const linked = item.data.customerId ? jobAddresses.find(function(a){ return a.id === item.data.customerId; }) : null;
-    if(linked){
-      const key = 'req:' + item.data.customerId;
-      if(!groups[key]) groups[key] = {houses:[], extras:[], title:(linked.data.name || 'Customer') + ' \u2014 extra request', linked:linked};
-      groups[key].extras.push(item);
-      return;
-    }
+    /* ⛔ A MEMBER'S REQUEST NO LONGER TAKES A HEADING OF ITS OWN (2026-09-21, [[WH-44]]).
+       Addie, shown `Doug Smith — extra request` sitting beside an ordinary colour group:
+       "I dont want it to look like the first picture but I want all of them to look like
+       the second picture even if I add them in warehouse."
+
+       ⚠ THE OLD REASONING IS KEPT BECAUSE IT WAS SOUND, and it is the cost she accepted:
+       an extra tied to a member was "that member's REQUEST — lights and a timer for the
+       same person belong on one heading, not scattered through the buffer-stock groups
+       where nothing says they are the same job." That is still true, and somebody with two
+       different requests now reads under two headings. She was shown both and asked for
+       this one (R-024).
+
+       ⚠ WHAT MADE THAT HEADING COSTLY IS WHAT HER TWO PICTURES SHOW. A titled group is
+       drawn WITHOUT the bundle maths and WITHOUT Mark Completed — g.title suppresses both
+       — so a real job sat on the tab with no way to tick it off. Falling through to the
+       ordinary colour-and-wire key gives it both back, which is the whole of picture two.
+
+       ⚠ AND NEW REQUESTS NEVER REACH HERE ANY MORE: whAddRequestToCustomer writes the
+       colours onto the house, so a linked request IS a house and is grouped as one. This
+       path is walked only by rows written before that change. */
     /* Not tied to a member. With a wire colour on it this is the same build as
        a house in those colours on that wire, so it joins that group. Without
        one it still gets its own bucket rather than being folded into a real
@@ -52975,7 +53010,14 @@ function whNoteText(d){
    goes on obeying it. ⚠ The crew portal's whToggleLightsNew is still deliberately outside
    this — it clears the flag and stamps nothing, and that is recorded where it lives. */
 function whBuiltUpdates(){
+  /* ⚠ `buildBundleOverride` IS CLEARED HERE FOR THE SAME REASON `buildTopUpFromFeet` IS
+     ([[WH-44]]). It is a count somebody typed for THIS build. Left set, it silently governs
+     the next one too — so a house re-quoted to twice the roofline next season would still
+     be built to the four bundles somebody typed in a warehouse a year earlier, and nothing
+     on any screen would say why. The footage answer takes back over the moment the bundle
+     is made, which is the same shape as the one-time note clearing on the line below. */
   return {needsLightBuild: false, buildTopUpFromFeet: null, binLabelNumber: null,
+          buildBundleOverride: null,
           lightsMarkedBuiltAt: serverTimestamp(), warehouseOneTimeNote: ''};
 }
 function whNotesCell(d, isTopUp){
@@ -53157,6 +53199,156 @@ function whPrintRecycleSheet(){
       tableHtml: sheet.rows.length ? whSheetTable(sheet.rows, sheet.columns) : ''}],
     'Nothing needs to be recycled right now.');
 }
+/* ⭐ A WAREHOUSE REQUEST FOR A REAL CUSTOMER IS A CHANGE TO THAT CUSTOMER (2026-09-21,
+   [[WH-44]]). Addie, shown a `Doug Smith — extra request` heading sitting beside an
+   ordinary `Red, Warm White — Green wire` group: "I dont want it to look like the first
+   picture but I want all of them to look like the second picture even if I add them in
+   warehouse. If I add them in warehouse it should also update there lights in member
+   portal, and costumers."
+
+   ⛔ IT USED TO WRITE A SECOND RECORD AND TELL NOBODY. A request was a `warehouseExtras`
+   document and nothing else, so Doug's own record still said whatever it said before: the
+   Member Portal showed his old colours, Customers showed his old colours, and the new ones
+   existed only on a warehouse row no other screen reads. The form said so in as many words
+   — "Their customer record is not changed either way" — which was honest, and is exactly
+   what she overruled.
+
+   ⭐ AND THE HEADING FIXES ITSELF, which is why this is a WRITE change and not a rendering
+   one. Once the colours are on the record the house simply IS a house in that colour and
+   wire group, so it lands in the ordinary group with its bundle maths, its badge and its
+   Mark Completed. Nothing renders it specially because nothing has to.
+
+   ⚠ BUFFER STOCK IS UNTOUCHED. With no house picked there is nobody to update, so that
+   path still writes a `warehouseExtras` row exactly as it did — see the caller.
+
+   ⚠ AND IT CHARGES, THROUGH THE ONE RULE. Addie, asked directly whether this door should
+   charge the $30: "Yes should charge the fee." So it goes through `applyLightChange` — the
+   same rule the Edit Customer save and the house-details panel already use, swept against
+   the server copy by money-parity — and through the same `askLightChangeFee` popup, which
+   has three answers and whose Cancel writes nothing at all. The precedent is in this file
+   already: the house-details door was once the door that did NOT charge, and she overruled
+   that for the reason that applies here too — what a customer pays must not depend on
+   which box somebody happened to type into.
+
+   ⚠ IT SETS `needsColorChange` LIKE THE OTHER TWO DOORS, and the first draft did not — the
+   colour-change census caught it. The argument for leaving it off was that this request was
+   typed BY the warehouse, so putting it on their colour-change list as well is one job on
+   two lists. That argument is about tidiness; the rule it would have broken is about
+   silence, and the gate's own words are why it wins: "a colour change that reaches no list
+   is a customer who asked for something and got silence." A house whose colours moved has
+   an existing bin somebody has to deal with, and that is what the colour-change list is
+   for — the build group answers a different question. It does not affect the heading she
+   asked for either way; that comes from the colours and the build flag.
+
+   ⚠ AND THE 72-HOUR HOLD COMES FOR FREE, which is what she confirmed it should do: the
+   build stamp goes through `stampBuildQueued`, `scheduleHoldEndsMillis` reads
+   `lightsQueuedAt`, and that hold is longer than the 48-hour route lock the fee rule sets,
+   so the longer one governs exactly as `houseHoldFrom` already decides. Nothing new
+   decides when they can be scheduled. */
+async function whAddRequestToCustomer(linked, kind, pattern, wireColor, qty){
+  const d = (linked && linked.data) || {};
+  const updates = {};
+  const mirror = {};
+  const wasQueued = !!d.needsLightBuild;
+  let change = null, waived = false;
+
+  if(kind === 'timer'){
+    /* ⚠ THE WARNING THIS REPLACES WAS TELLING THE TRUTH — "the crew portal reads their
+       record — so unless you change it on their customer record too, the crew will not be
+       told to fit one". It is written now, so the warning is gone rather than reworded.
+       ⚠ AND IT ROUTES THROUGH `whTimerOnlyQueue` ([[WH-27]]) rather than setting the build
+       flag outright: a timer for a house with no colours is not a light build, and parking
+       it in the build queue puts it under a heading nobody can act on. */
+    updates.outletTimer = 'Yes';
+    if(whTimerOnlyQueue(d, updates, ['outletTimer'], '')) updates.needsTimerOnly = true;
+    else updates.needsLightBuild = true;
+  } else {
+    const oldLights = houseLightsText(d);
+    change = applyLightChange({
+      /* ⚠ BOTH COLOUR FIELDS, via houseLightsText ([[WH-28]]). Reading `lightsDescription`
+         alone makes every ordinary house — colours in `lightColors`, description empty —
+         look as though it had none, and a first-time colour is not a change and is not
+         charged. That is the hole that let the whole imported book re-colour for free. */
+      oldLights: oldLights,
+      newLights: pattern,
+      lockedUntil: lightsLockMillis(d),
+      invoiceSent: !!d.invoiceEmailSent,
+      scheduled: !!d.scheduled,
+      nowMs: Date.now()
+    });
+    if(change.feeAmount > 0){
+      const answer = await askLightChangeFee(d.name || 'This customer', oldLights, pattern, change.feeDestination);
+      /* Cancel means nothing at all is written — the same order as every other door: ask
+         before the first write, so there is nothing to take back. */
+      if(answer === 'cancel') return {ok: false, cancelled: true};
+      waived = (answer === 'waive');
+    }
+    updates.lightsDescription = pattern;
+    /* ⚠ ONLY WHEN ONE WAS PICKED. A blank wire box is "not answered here", not "they have
+       no wire" — writing '' would erase a colour already on file and head their pile
+       "Check lights" ([[WH-35]]), which is the invented-answer fault pointing backwards. */
+    if(wireColor) updates.wireColor = wireColor;
+    if(change.setLightsChangedAt){
+      updates.lightsChangedAt = serverTimestamp();
+      mirror.lightsChangedAt = new Date();
+      /* 'office' is what `whBuildReasonKey` reads as the REQUEST badge — her own wording,
+         "one we typed in after a call, email or text", which is precisely this form. */
+      updates.lightsChangedVia = 'office';
+    }
+    /* ⚠ ON `isChange`, WHICH IS NARROWER THAN THE STAMP ABOVE, and deliberately so: that
+       rule already refuses a FIRST-TIME colour and a cleared one, and getting it wrong
+       queues a colour change for somebody whose colours are simply being filled in — which
+       swept twelve ordinary new customers onto the Color Changes sheet once already. */
+    if(change.isChange){
+      updates.needsColorChange = true;
+      updates.colorChangeColors = pattern;
+      updates.colorChangeRequestedAt = serverTimestamp();
+      mirror.colorChangeRequestedAt = new Date();
+    }
+    /* ⚠ THE LOCK IS SET EVEN WHEN THE FEE IS WAIVED. It is about the crew, not the money:
+       their pattern may still move, so they must not be routed either way. */
+    if(change.lightsLockedUntil) updates.lightsLockedUntil = new Date(change.lightsLockedUntil);
+    updates.needsLightBuild = true;
+    /* ⭐ THE TYPED COUNT, ONLY WHEN IT DISAGREES ([[WH-44]]). Addie: "The number I type
+       wins but the automatic number should still come up." Storing one that MATCHES the
+       derived answer would be a value that says nothing today and lies tomorrow — the
+       moment their footage is corrected it would pin the build to the old number with
+       nothing on screen saying why. Same rule as `requoteKind`: a blank where an answer
+       goes reads as an answer. */
+    const derived = houseBundleNeed(d).bundles;
+    if(qty > 0 && qty !== derived) updates.buildBundleOverride = qty;
+    if(change.feeAmount > 0 && !waived && change.feeDestination === 'nextSeason'){
+      const carried = lightChangeCarryoverUpdates(d, change);
+      updates.carryoverCharge = carried.carryoverCharge;
+      updates.carryoverChargeNotes = carried.carryoverChargeNotes;
+    }
+  }
+  stampBuildQueued(updates, wasQueued);
+  if(updates.lightsQueuedAt) mirror.lightsQueuedAt = new Date();
+  await updateDoc(doc(db, 'jobAddresses', linked.id), updates);
+  /* The warehouse repaints from the `jobAddresses` cache rather than re-reading Firestore,
+     and a serverTimestamp() sentinel is not a date until it comes back — so the mirror
+     carries real ones. Same optimistic mirror every other write in this panel does. */
+  Object.assign(linked.data, updates, mirror);
+  /* ⚠ AFTER the customer write and guarded on its own: a failed fee must not undo a save
+     that already worked. The office is told to add it by hand rather than this reporting
+     success about something that did not happen. */
+  if(change && change.feeAmount > 0 && !waived && change.feeDestination === 'invoice'){
+    try{
+      await addLightChangeFeeToInvoice(custInvoiceKey(Object.assign({}, d, updates)), change);
+    } catch(e){
+      console.error('Light-change fee could not be added to the invoice', e);
+      toast('Added — but the $30 light-change fee could not be added to their invoice. Add it by hand.');
+    }
+  }
+  logActivity('Warehouse request for ' + (d.name || linked.id) + ' — ' +
+    (kind === 'timer' ? 'timer' : pattern + (wireColor ? ' on ' + wireColor + ' wire' : '')) +
+    (updates.buildBundleOverride ? ', ' + updates.buildBundleOverride + ' bundles' : '') +
+    (change && change.feeAmount > 0 ? (waived ? ', fee waived' : ', $30 charged') : ''),
+    'customers', linked.id);
+  return {ok: true, charged: !!(change && change.feeAmount > 0 && !waived), waived: waived,
+          timer: kind === 'timer', bundles: updates.buildBundleOverride || 0};
+}
 document.getElementById('whAddExtraBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('whAddExtraStatus');
   const kind = document.getElementById('whExtraKind').value === 'timer' ? 'timer' : 'lights';
@@ -53194,6 +53386,61 @@ document.getElementById('whAddExtraBtn').addEventListener('click', async functio
       setTimeout(function(){ if(!whEditingExtraId) statusEl.textContent = ''; }, 2500);
     } catch(err){
       statusEl.textContent = 'Something went wrong — try again.';
+    }
+    return;
+  }
+  /* ⭐ A HOUSE PICKED MEANS THEIR RECORD CHANGES ([[WH-44]]) — see whAddRequestToCustomer
+     for the whole argument. This branch RETURNS, so everything below it now only ever runs
+     for generic buffer stock, which is the one case with no customer to update.
+     ⚠ THE CONFIRM BELOW IT USED TO END "Their customer record is not changed either way",
+     which is the sentence she overruled. It says what will happen now instead: silently
+     rewriting somebody's colours is worse than the disagreement it used to warn about. */
+  if(linked){
+    if(kind === 'lights' && whExtraPatternFromRecord && chosenPattern !== whExtraPatternFromRecord){
+      if(!confirm('Their record says:\n\n  ' + whExtraPatternFromRecord + '\n\nYou have picked:\n\n  ' + chosenPattern +
+                  '\n\nThis CHANGES their record to what you picked — Customers and their Member Portal will show it too.')){
+        statusEl.textContent = 'Nothing added.';
+        return;
+      }
+    }
+    statusEl.textContent = 'Adding…';
+    try{
+      const out = await whAddRequestToCustomer(linked, kind, pattern, wireColor, qty);
+      /* Cancelled at the fee popup: nothing was written, and the form is left exactly as
+         it was so the same press can be made again. */
+      if(!out.ok){ statusEl.textContent = 'Nothing added.'; return; }
+      /* ⚠ A LEGACY `warehouseExtras` ROW FOR THE SAME PERSON IS FOLDED IN, NOT LEFT.
+         Requests written before this change are still real rows, and leaving one beside a
+         record that now carries the same job counts those bundles twice — under two
+         different headings, which is the exact double-listing this change removes. */
+      const stale = whExtraFindExisting(linked.id, kind);
+      if(stale){
+        try{ await deleteDoc(doc(db,'warehouseExtras', stale.id)); }
+        catch(e){ /* the record carries the job either way; a leftover row is visible on the tab and can be deleted by hand, whereas failing the whole add here would lose the change that did land */ }
+      }
+      whSetExtraPattern('');
+      document.getElementById('whExtraQty').value = 1;
+      whSetWireSelect('');
+      document.getElementById('whExtraLabel').value = '';
+      document.getElementById('whExtraLabelMatch').textContent = '';
+      document.getElementById('whExtraQtyNote').textContent = '';
+      document.getElementById('whExtraPatternNote').textContent = '';
+      document.getElementById('whExtraWireNote').textContent = '';
+      document.getElementById('whExtraKind').value = 'lights';
+      whExtraPatternFromRecord = '';
+      whExtraSync();
+      if(whPendingMessageId){
+        await updateDoc(doc(db,'messages', whPendingMessageId), {addedToWarehouseAt: serverTimestamp()})
+          .catch(function(){ /* the build is already queued on their record; losing the Inbox stamp costs a tick on a message, not the job */ });
+        whPendingMessageId = '';
+      }
+      statusEl.textContent = (linked.data.name || 'They') + ' — ' +
+        (out.timer ? 'timer added to their record' : 'lights updated and queued to build') +
+        (out.charged ? ', $30 light-change fee added' : (out.waived ? ', fee waived' : '')) + '.';
+      setTimeout(function(){ statusEl.textContent = ''; }, 6000);
+    } catch(err){
+      console.error('Warehouse request could not be saved', err);
+      statusEl.textContent = 'Something went wrong — ' + ((err && err.message) || 'try again') + '.';
     }
     return;
   }
