@@ -51992,8 +51992,13 @@ function renderWarehouseQueue(){
             : need.unknown
             ? 'no feet on file \u2014 assuming 1 bundle'
             : need.feet + ' ft = ' + need.bundles + ' bundle' + (need.bundles===1?'':'s') + (need.estimated ? ' (estimated from price)' : '');
-          const houseNotes = (h.data.notes ? String(h.data.notes).trim() : '');
-          return '<div style="display:flex; justify-content:space-between; align-items:flex-start; padding:8px 0; gap:10px;">'+
+          /* ⭐ THE WAREHOUSE'S OWN NOTES, NOT JUST THE GENERAL ONE ([[WH-45]]). This read
+             `h.data.notes` alone, so the two boxes written FOR the warehouse were the two
+             it never showed. `whNoteText` is what both printed sheets read, so the tab and
+             the paper cannot disagree about one house. */
+          const houseNotes = whNoteText(h.data);
+          return '<div data-whhouserow="'+h.id+'">'+
+          '<div style="display:flex; justify-content:space-between; align-items:flex-start; padding:8px 0; gap:10px;">'+
             '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+
               '<span style="display:block; font-size:12px; color:'+(need.unknown?'var(--ember)':'var(--slate)')+'; margin-top:2px;">'+esc(needTxt)+'</span>'+
               '<span style="display:block; margin-top:4px; line-height:1.9;">'+whHouseFactsHtml(h.data)+'</span>'+
@@ -52026,6 +52031,11 @@ function renderWarehouseQueue(){
                  The audit box beside this list reads that stamp.
                  ⚠ IT IS NOT A SECOND MARK DONE. It stamps nothing and claims nothing;
                  it takes the row off and says in the log that no bundle was made. */
+              /* ⭐ [[WH-45]] — the note box, opened under the name it belongs to. It says
+                 "Note" rather than "Notes" when there is nothing on file yet, so the list
+                 tells you at a glance which houses somebody has already written about. */
+              '<button type="button" class="btn btn-outline btn-sm" data-whnote="'+h.id+'">'+
+                (whNoteText(h.data) ? 'Notes' : 'Note')+'</button>'+
               '<button type="button" class="btn btn-outline btn-sm" data-whnotneeded="'+h.id+'" '+
                 'title="Take this house off the build list without recording a build">Not needed</button>'+
               /* ⭐ AND THE WAY OUT FOR A HOUSE WHOSE COLOURS NOBODY EVER SAVED ([[WH-27]],
@@ -52042,7 +52052,12 @@ function renderWarehouseQueue(){
                 ? '<button type="button" class="btn btn-outline btn-sm" data-whtimeronly="'+h.id+'">Only needed a timer</button>'
                 : '')+
             '</span>'+
-          '</div>';
+          '</div>'+
+          /* ⭐ [[WH-45]] — typed under their name, on the screen that reads it. Folded away
+             by default: this list is scanned while building, and two textareas per house
+             would bury the colours and the bin number that are what somebody is looking for. */
+          whNoteEditorHtml(h)+
+        '</div>';
         }).join('')+
         g.extras.map(function(e){
           const isTimer = (e.data.kind || 'lights') === 'timer';
@@ -52179,6 +52194,49 @@ function renderWarehouseQueue(){
     btn.addEventListener('click', function(e){
       e.stopPropagation();
       openEditCustomerModal(btn.dataset.wheditcust);
+    });
+  });
+  /* ⭐ [[WH-45]] — opening and saving the warehouse note without leaving the tab. */
+  list.querySelectorAll('[data-whnote]').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      const panel = document.getElementById('whnotepanel-' + btn.dataset.whnote);
+      if(!panel) return;
+      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    });
+  });
+  list.querySelectorAll('[data-whnotesave]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const id = btn.dataset.whnotesave;
+      const panel = document.getElementById('whnotepanel-' + id);
+      const statusEl = panel ? panel.querySelector('.whnote-status') : null;
+      const permEl = panel ? panel.querySelector('.whnote-permanent') : null;
+      const onceEl = panel ? panel.querySelector('.whnote-once') : null;
+      if(!permEl || !onceEl) return;
+      const updates = {
+        warehouseNote: permEl.value.trim(),
+        warehouseOneTimeNote: onceEl.value.trim()
+      };
+      btn.disabled = true;
+      if(statusEl) statusEl.textContent = 'Saving\u2026';
+      try{
+        await updateDoc(doc(db,'jobAddresses', id), updates);
+        /* ⚠ MIRRORED, AND THE PANEL IS DELIBERATELY NOT RE-RENDERED. This list repaints
+           from the `jobAddresses` cache, and a repaint destroys the textareas somebody is
+           still typing in — the exact fault the email-typo note was fixed for. The next
+           natural repaint picks the new text up from the cache. */
+        const item = (jobAddresses || []).find(function(a){ return a.id === id; });
+        if(item) Object.assign(item.data, updates);
+        if(statusEl) statusEl.textContent = 'Saved \u2014 it is on the next build sheet too.';
+        logActivity('Warehouse note for ' + ((item && item.data.name) || id), 'customers', id);
+      } catch(err){
+        console.error('Warehouse note could not be saved', err);
+        /* Nothing fails quietly: a note that looks saved and is not is one nobody writes
+           twice, and the build sheet goes out without it. */
+        if(statusEl) statusEl.textContent = 'Could not save \u2014 ' + ((err && err.message) || 'try again') + '.';
+      }
+      btn.disabled = false;
     });
   });
   /* ⭐ [[WH-27]] — the office saying this house never needed a bundle. It clears the build
@@ -52998,6 +53056,42 @@ function whNoteText(d){
   if(w) parts.push(w);
   if(n) parts.push(n);
   return parts.join(' \u2014 ');
+}
+/* \u2b50 THE WAREHOUSE NOTE IS TYPED WHERE IT IS READ (2026-09-21, [[WH-45]]). Addie: "Can we
+   make it so that Darlene price notes come up under her name if I add notes to warehouse
+   and be able to add those notes inside warehouse under there name."
+
+   \u26d4 BOTH HALVES WERE MISSING AND THE SECOND IS THE ONE THAT BIT. `warehouseNote` and
+   `warehouseOneTimeNote` have printed on both build sheets since [[WH-38]] \u2014 but the
+   warehouse TAB never drew them, and they could only be typed on Add Customer or Edit
+   Customer. So a note written for the warehouse was invisible on the warehouse's own
+   screen until somebody printed, which is indistinguishable from the field not working.
+
+   \u26a0 IT WRITES THE SAME TWO FIELDS, NEVER A THIRD. A second note box here is how the tab
+   and the printed sheet start disagreeing about one house \u2014 the fault `whNotesCell` and
+   `whBinsForHouse` both exist to prevent. The screen reads `whNoteText`, which is what the
+   sheet reads, so a note typed here is on the next sheet by construction.
+
+   \u26a0 AND THE ONE-TIME BOX IS LABELLED AS SUCH, because `whBuiltUpdates` clears it when the
+   bundle is made and the permanent one survives. [[WH-38]]'s own rule: unlabelled, a
+   one-time note is indistinguishable from a standing instruction and goes on being obeyed
+   after the build it belonged to was made. */
+function whNoteEditorHtml(h){
+  const d = h.data || {};
+  return '<div id="whnotepanel-'+esc(h.id)+'" style="display:none; padding:8px 0 10px; border-top:1px dashed var(--line);">'+
+    '<div class="form-row" style="margin:0 0 8px;"><label style="font-size:12px;">Notes for the warehouse '+
+      '<span style="font-weight:400; color:var(--slate);">(stays on their record)</span></label>'+
+      '<textarea class="whnote-permanent" rows="2" data-whnotefor="'+esc(h.id)+'" '+
+        'placeholder="e.g. their bin lives on the top shelf by the door">'+esc(d.warehouseNote||'')+'</textarea></div>'+
+    '<div class="form-row" style="margin:0 0 8px;"><label style="font-size:12px;">This build only '+
+      '<span style="font-weight:400; color:var(--slate);">(clears itself once the bundle is marked done)</span></label>'+
+      '<textarea class="whnote-once" rows="2" data-whnotefor="'+esc(h.id)+'" '+
+        'placeholder="e.g. use the spare warm white from the Miller return">'+esc(d.warehouseOneTimeNote||'')+'</textarea></div>'+
+    '<div style="display:flex; gap:8px; align-items:center;">'+
+      '<button type="button" class="btn btn-gold btn-sm" data-whnotesave="'+esc(h.id)+'">Save note</button>'+
+      '<span class="whnote-status" data-whnotefor="'+esc(h.id)+'" style="font-size:12px; color:var(--slate);"></span>'+
+    '</div>'+
+  '</div>';
 }
 /* ⚠ THE TOP-UP LINE IS NOT A NOTE AND MUST NOT BE LOST BEHIND ONE. It is the instruction
    that stops somebody making a whole new bin for a house that already has one, so it
