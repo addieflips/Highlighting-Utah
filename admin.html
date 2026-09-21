@@ -53839,7 +53839,10 @@ function nextVisitFor(d, todayStr, custId){
   const planned = planHangDateFor(custId);
   const hangDate = planned === null ? (d && d.scheduledDate) : planned;
   if(d && hangDate && !d.completed){
-    out.push({kind:'Hang', date:String(hangDate)});
+    /* ⭐ [[SCH-86]] — WHERE THE DATE CAME FROM TRAVELS WITH IT. A plan date IS the
+       schedule, so nothing may call it "not on the schedule"; only the crew-routes stamp
+       (the cannot-tell fallback) is checked against the crew routes. See nextVisitChip. */
+    out.push({kind:'Hang', date:String(hangDate), fromPlan: planned !== null});
   }
   if(d && d.removalScheduled && d.removalScheduledDate && !d.removalDone){
     out.push({kind:'Takedown', date:String(d.removalScheduledDate)});
@@ -53847,9 +53850,9 @@ function nextVisitFor(d, todayStr, custId){
   if(!out.length) return null;
   const soon = out.filter(function(v){ return v.date >= today; })
                   .sort(function(a,b){ return a.date < b.date ? -1 : 1; });
-  if(soon.length) return {kind:soon[0].kind, date:soon[0].date, overdue:false};
+  if(soon.length) return {kind:soon[0].kind, date:soon[0].date, overdue:false, fromPlan:!!soon[0].fromPlan};
   const past = out.slice().sort(function(a,b){ return a.date < b.date ? 1 : -1; });
-  return {kind:past[0].kind, date:past[0].date, overdue:true};
+  return {kind:past[0].kind, date:past[0].date, overdue:true, fromPlan:!!past[0].fromPlan};
 }
 /* ⭐ IS THAT DAY REAL? (2026-09-11, [[SCH-73]]). Addie, on Darlene Price #680: "It says
    shes scheduled for Oct 16 but I dont see oct 16 on the schedule."
@@ -53931,7 +53934,16 @@ function nextVisitChip(d, custId){
      an orphan gets read as a missed day and left for the sweep that will never find it.
      `=== false` on purpose — the null answer (routes not loaded yet) must draw exactly
      what it drew before, not the warning. */
-  const orphan = scheduledDayIsReal(custId, v.date) === false;
+  /* ⭐⭐ [[SCH-86]] — BUT ONLY A CREW-ROUTES STAMP CAN BE AN ORPHAN. Dax, 2026-09-21: "in
+     all customers it doesnt update what day people are scheduled to be hung ... make that
+     permanent as well for everytime all customers is ever pressed." Measured on the live
+     page: the pills already carried the SCHEDULE's days (SCH-77), but 279 of 298 booked
+     rows also read "⚠ … — not on the schedule", because this check asked the OTHER planner
+     (the crew-routes sweep, which builds its own days) about a date that came from the
+     Schedule. A right date wearing a red "not on the schedule" reads as the page never
+     updating. A plan date is the schedule by definition, so it is never checked here;
+     the stamp fallback (plan not loaded yet) still is, exactly as SCH-73 built it. */
+  const orphan = !v.fromPlan && scheduledDayIsReal(custId, v.date) === false;
   const style = orphan
     ? 'background:#FDE8E8; color:#B42318; border-color:#F5C6C6;'
     : v.overdue

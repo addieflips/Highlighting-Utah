@@ -622,7 +622,13 @@ runs last in `rebuildSeasonDays` and puts every Confirmed customer who is still 
 open day — their own town first, never before their month, office date or hold, never on a
 day inside the 48-hour lock. The button says who it had to place, so the rule that dropped
 them is still named. *If you press Recalculate everything and a Confirmed customer is not on
-a day, that is a bug — the button's message will name them.* Pending is derived and never stored, so paying the bill moves the
+a day, that is a bug — the button's message will name them.*
+⭐⭐ **AND ALL CUSTOMERS SHOWS THAT SAME DAY, EVERY TIME IT IS PRESSED ([[SCH-86]],
+2026-09-21).** The hang day on each row is read from the Schedule on every press. It used to
+show the right day with a red "⚠ … not on the schedule" beside it, because a check asked the
+crew-routes system (which builds its own days) about the Schedule's day. A Schedule day is
+never checked that way now; only the old crew-routes date, shown for a moment before the
+Schedule has loaded, still is. Pending is derived and never stored, so paying the bill moves the
 badge on its own the next time the row is drawn. ⚠ Back Next Year stays its own
 answer rather than folding into Pending — that one the office sets by hand.
 
