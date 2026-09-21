@@ -13,6 +13,29 @@ When two rules disagree, or a rule is missing, stop and ask.
 
 ---
 
+## ⭐⭐ HEADLINE RULE — EVERY CONFIRMED CUSTOMER IS SCHEDULED WHEN RECALCULATE EVERYTHING IS PRESSED
+
+**Confirmed = on a day. After ⚙ Recalculate everything, no exceptions, ever.** This never
+changes, whatever else changes. Dax, 2026-09-21: *"make it so every confirmed is on the
+schedule when we recaclulate and make it so whenever we change anything in the future thats
+a rule that will never change, its a headline every confirmed = scheduled when recaclulate
+everything."* Ruling [[SCH-85]], building on Addie's [[SCH-48]] ("no exceptions").
+
+- **How it is enforced:** `placeConfirmedLeftOff` runs at the end of `rebuildSeasonDays`
+  (both of its building exits). It asks `confirmedNotOnAnyDay` — the Confirmed BADGE, nothing
+  else — and puts anybody still off onto an open day: their own town first, never before their
+  month / office date / hold, never on a day inside the 48-hour lock. The press names who it
+  had to place, so the rule that dropped them can still be found.
+- **The gate:** run-all.js **Suite 346** re-adds a rule that drops Confirmed customers and
+  asserts they still come out on a day. If it goes red, your change broke the headline —
+  fix the change, never the suite.
+- **Adding a scheduling rule?** It may move a Confirmed customer LATER. It may never leave
+  them OFF. If you think a Confirmed customer genuinely should not be scheduled, the fix is
+  that their badge stops saying Confirmed (`seasonBadgeKey` / `isOutForSeason`) — never a
+  gate in the schedule.
+
+---
+
 ## ⭐ R-023 — write the ruling down, in the same change
 
 **If Addie answers a question during this session, add a row to `claude/questions-map.md`

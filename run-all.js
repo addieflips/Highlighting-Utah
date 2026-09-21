@@ -62555,3 +62555,177 @@ suite('345. The Inbox works out each message once, not once per tab');
     }
   }
 }
+
+suite('Suite 346. HEADLINE: every Confirmed customer is on a day after Recalculate everything');
+/* ⭐⭐ [[SCH-85]]. Dax, 2026-09-21: "a lot of people are confirmed and when i click recalculate
+   everything they dont appear on the schedule, make it so every confirmed is on the schedule
+   when we recaclulate and make it so whenever we change anything in the future thats a rule
+   that will never change, its a headline every confirmed = scheduled when recaclulate
+   everything."
+
+   ⭐ SO THIS SUITE BREAKS THE RULES ON PURPOSE. Suite 306 proves the rules as written keep
+   everybody; that is not the promise. The promise is that NO rule, present or future, can
+   leave a Confirmed customer without a day — so every check here runs the real rebuild with a
+   gate deliberately re-added in front of it (the exact shape of [[SCH-48]]'s cause ①, a bare
+   `return` that keeps somebody off the plan) and asserts they come out on a day anyway.
+
+   ⛔ IF ONE OF THESE GOES RED, DO NOT WEAKEN IT. It means a change has made "Confirmed" and
+   "on the schedule" disagree, which is the one thing the owner said must never change. */
+{
+  const planStart = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const planEnd = admin.indexOf('/* Top every day up to the cap.', planStart);
+  const lifts = ['sameTownName', 'townCentres', 'nearbyTowns', 'installPriority', 'pinHorizon',
+                 'seasonStartDate', 'prefSpecificDate', 'houseAllowedFrom', 'houseDeadline',
+                 'houseInstallPriority', 'anyStampMillis', 'lightsLockMillis',
+                 'scheduleHoldMillis', 'scheduleHoldEndsMillis',
+                 'houseHoldFrom', 'isOutForSeason', 'seasonBadgeKey', 'planCustomerFor', 'seasonCustomerIds',
+                 'customersMissingFromSeason', 'confirmedNotOnAnyDay', 'placeConfirmedLeftOff',
+                 'houseFromCustomer', 'rebuildSeasonDays',
+                 'dayAreas', 'dayCrewTowns', 'crewTownsFor'];
+  const gone = lifts.filter(f => !extractFn(admin, f));
+  check('S346', 'the whole rebuild and its safety net lift cleanly', gone.length === 0 && planStart !== -1,
+    'missing: ' + gone.join(', '));
+
+  if (!gone.length && planStart !== -1) {
+    const ctx = {};
+    const TODAY = new Date(2026, 9, 5);            // Monday 5 October 2026
+    new Function('__TODAY',
+      'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+' +
+      '"-"+String(dt.getDate()).padStart(2,"0");}' +
+      'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+      'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;' +
+      'return 2*R*Math.asin(Math.sqrt(q));}' +
+      'function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}' +
+      'function isWeekend(d){const k=d.getDay();return k===0||k===6;}' +
+      'function isWorkingDay(d){return !isWeekend(d);}' +
+      'function isoOf(d){return toDateStr(d);}' +
+      'function daysBetween(a,b){return Math.round((a-b)/86400000);}' +
+      'function mdToDate(md){const p=(""+md).split("-").map(Number);return new Date(2026,p[0]-1,p[1]);}' +
+      'function extractCleanCity(c){return (""+(c==null?"":c)).trim();}' +
+      'function nextWorkingDay(d){const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());' +
+      'let g=0;while(!isWorkingDay(x)&&g++<14)x.setDate(x.getDate()+1);return x;}' +
+      'function dayDate(d){return d._date;}' +
+      'function installDays(){return SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown);}' +
+      'function computeDates(){SEASON.forEach(d=>{if(d.base!=null)d._date=addDays(BASE_START,d.base);});}' +
+      'function planCities(){return [];}' +
+      'function seasonFirstDate(){return new Date(2026,9,1);}' +
+      'function seasonRuleIsLive(){return false;}' +
+      'function houseOwesFromLastSeason(){return false;}' +
+      'var custById=new Map();' +
+      'function hlxResolvePlanHouse(h){const raw=String((h&&h.id)==null?"":h.id);' +
+      'if(raw.indexOf("cust-")===0)return custById.get(raw.slice(5))||null;' +
+      'return customerForHouse(h);}' +
+      'function customerForHouse(h){const num=String((h&&h.cu)==null?"":h.cu).trim();' +
+      'return num?(jobAddresses.filter(function(a){' +
+      'return String((a.data||{}).customerNumber||"")===num;})[0]||null):null;}' +
+      'var CREWS=[{name:"Crew 1",city:""},{name:"Crew 2",city:""}];' +
+      'var jobAddresses=[],BASE_START=new Date(2026,9,1),globalDelta=0,SEASON=[],selSchedule=null;\n' +
+      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
+      'let NEARBY_TOWN_LIST={};' + phantomTownSrc() +
+      'const PIN_HONOURED_BUSINESS_DAYS=2;' +
+      'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/) || [])[1] + ';' +
+      admin.slice(planStart, planEnd) + dayLimitSrc() +
+      extractFn(admin, 'townsAreNeighbours') +
+      'function cityOf(h){return (h.city||"").trim();}' +
+      'function sameCity(a,b){return (""+a).trim().toLowerCase()===(""+b).trim().toLowerCase();}' +
+      'const SCHEDULE_SYNC_FIELDS=[{key:"city",label:"town",read:function(d){return d.city;}},' +
+      '{key:"name",label:"name",read:function(d){return d.name;}},' +
+      '{key:"pref",label:"timing",read:function(d){return d.installPreference;}}];' +
+      lifts.map(f => extractFn(admin, f)).join('\n')
+        .replace('const today=new Date();', 'const today=new Date(__TODAY);') +
+      /* ⚠ THE SABOTAGE, AND IT IS THE POINT OF THE SUITE. A rule that keeps anybody carrying
+         `__gate` off the plan — the same shape as the `needsLightBuild` gate SCH-48 removed.
+         The real function is wrapped, never replaced, so everything else it does still runs. */
+      '\nvar __realMissing=customersMissingFromSeason;' +
+      'customersMissingFromSeason=function(){return __realMissing().filter(function(x){' +
+      'return !(x&&x.data&&x.data.__gate);});};' +
+      '\nthis.run=function(book){jobAddresses=book;custById=new Map();' +
+      'book.forEach(function(c){custById.set(c.id,c);});SEASON=[];' +
+      'const r=rebuildSeasonDays();computeDates();' +
+      'return {r:r,days:SEASON.filter(function(d){return !d.isFixRoute&&!d.isTakedown;})' +
+      '.map(function(d){return {date:isoOf(dayDate(d)),' +
+      'towns:(d.houses||[]).map(function(h){return h.city||"";}),' +
+      'who:(d.houses||[]).map(function(h){return h.id;})};})};};'
+    ).call(ctx, TODAY);
+
+    const base = { city: 'Lehi', installPreference: 'Normal Schedule', lat: 40.391, lng: -111.851 };
+    const soon = { toMillis: () => new Date(2026, 9, 9, 14, 0, 0).getTime() };
+
+    /* ---- A: the rules drop three Confirmed customers; the net must put all three on a day ---- */
+    {
+      const book = [];
+      for (let i = 1; i <= 44; i++) {
+        book.push({ id: 'free' + i, data: Object.assign({ name: 'Free ' + i, customerNumber: String(i) }, base) });
+      }
+      book.push({ id: 'gatedLehi', data: Object.assign({ name: 'Gated Lehi', customerNumber: '801', __gate: true }, base) });
+      book.push({ id: 'gatedFar', data: { name: 'Gated Levan', customerNumber: '802', __gate: true,
+                                          city: 'Levan', installPreference: 'Normal Schedule' } });
+      book.push({ id: 'gatedHeld', data: Object.assign({ name: 'Gated Held', customerNumber: '803', __gate: true,
+                                                         scheduleHoldUntil: soon }, base) });
+      /* Somebody who said NO. The net must never add them: it acts on the badge, and their
+         badge is not Confirmed. A net that added everybody would pass every other check. */
+      book.push({ id: 'saidNo', data: Object.assign({ name: 'Said No', customerNumber: '804', rsvpStatus: 'no' }, base) });
+
+      const out = ctx.run(book);
+      const dayOf = id => (out.days.filter(d => d.who.indexOf('cust-' + id) !== -1)[0] || {});
+      const confirmed = book.filter(c => c.id !== 'saidNo').map(c => c.id);
+      const off = confirmed.filter(id => !dayOf(id).date);
+
+      /* ⭐ THE HEADLINE, IN ONE ASSERTION. */
+      check('S346', 'every Confirmed customer is on a day, even with a rule dropping three of them',
+        off.length === 0,
+        off.length + ' confirmed customer(s) left off every day: ' + off.join(', ') +
+        ' — owner: "every confirmed = scheduled when recaclulate everything"');
+      check('S346', 'and the press reports nobody confirmed still off',
+        out.r && out.r.confirmedOff === 0,
+        'it reported ' + (out.r && out.r.confirmedOff) + ': ' + JSON.stringify(out.r && out.r.confirmedOffNames));
+      check('S346', 'and it says how many the safety net had to place, by name',
+        out.r && out.r.safetyNet === 3 && (out.r.safetyNetNames || []).indexOf('Gated Lehi') !== -1,
+        'got ' + JSON.stringify(out.r && { n: out.r.safetyNet, names: out.r.safetyNetNames }) +
+        ' — the names are how the rule that dropped them gets found, so it must not be silent');
+      check('S346', 'a customer the rules dropped joins a day already working their own town',
+        (dayOf('gatedLehi').towns || []).filter(t => t === 'Lehi').length > 1,
+        'Gated Lehi landed on ' + JSON.stringify(dayOf('gatedLehi')) + ' — a Lehi day exists, so the net ' +
+        'should use it rather than dropping them into some other town');
+      check('S346', 'a hold is still a hold: the held one is placed after it runs out, not before',
+        !!dayOf('gatedHeld').date && dayOf('gatedHeld').date > '2026-10-09',
+        'got ' + dayOf('gatedHeld').date + ' — the hold runs to the afternoon of Friday 9 Oct');
+      check('S346', 'a town with no day of its own still gets one',
+        !!dayOf('gatedFar').date,
+        'Gated Levan came back with no day at all');
+      check('S346', 'and somebody who said no is NOT added — the net acts on the badge, never on everybody',
+        !dayOf('saidNo').date,
+        'Said No was put on ' + dayOf('saidNo').date);
+    }
+
+    /* ---- B: nothing can be built at all (no towns anywhere) — the empty-build exit ---- */
+    {
+      const book = [1, 2, 3].map(i => ({ id: 'nt' + i, data: { name: 'No Town ' + i, customerNumber: '90' + i,
+                                                                 city: '', installPreference: 'Normal Schedule' } }));
+      const out = ctx.run(book);
+      const off = book.filter(c => !out.days.some(d => d.who.indexOf('cust-' + c.id) !== -1));
+      check('S346', 'even a press that can build no day at all still puts every Confirmed customer on one',
+        off.length === 0 && out.r && out.r.safetyNet === 3 && out.r.confirmedOff === 0,
+        'left off: ' + off.map(c => c.id).join(', ') + '; r=' + JSON.stringify(out.r));
+    }
+  }
+
+  /* ---- the wiring, which a behavioural check alone cannot see ---- */
+  const rb = extractFn(admin, 'rebuildSeasonDays');
+  const calls = (rb.match(/placeConfirmedLeftOff\(floorStr, *startStr\)/g) || []).length;
+  check('S346', 'rebuildSeasonDays runs the safety net at BOTH of its building exits',
+    calls === 2,
+    'found ' + calls + ' call(s): the empty-build exit and the normal exit each need one, or a press ' +
+    'that takes the other one leaves people off');
+  const net = extractFn(admin, 'placeConfirmedLeftOff');
+  check('S346', 'the net decides who by the Confirmed badge and nothing else',
+    /confirmedNotOnAnyDay\(\)/.test(net) && !/isOutForSeason|rsvpStatus|needsLightBuild/.test(net),
+    'a second question here is how "Confirmed" and "on the schedule" start disagreeing again');
+  check('S346', 'and it only ever uses days on or after the floor, so a printed day is never touched',
+    /isoOf\(dt\) >= floorStr/.test(net),
+    'the floor is what keeps the 48-hour lock and worked days out of its reach');
+  check('S346', 'Recalculate everything tells the office who the net placed',
+    /r\.safetyNet/.test(admin) && /so every Confirmed is on a day/.test(admin),
+    'a net that works silently hides the rule that dropped them');
+}

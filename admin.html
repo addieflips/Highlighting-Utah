@@ -71971,7 +71971,17 @@ function rebuildSeasonDays(){
     });
   }
   if(newDays.length&&riders.length) newDays[0].houses=newDays[0].houses.concat(riders);
-  if(!newDays.length) return {error:'Nothing could be scheduled — check the towns on these customers.'};
+  /* ⭐ [[SCH-85]]: EVEN WHEN NOTHING NEW COULD BE BUILT, every Confirmed customer still
+     gets a day. The old plan stands, and anybody Confirmed who is not on it is placed on
+     an open day of it (or a new one) — see placeConfirmedLeftOff. */
+  if(!newDays.length){
+    let net0 = {placed: [], still: []};
+    try{ if(typeof placeConfirmedLeftOff === 'function') net0 = placeConfirmedLeftOff(floorStr, startStr); }
+    catch(err){ console.error('Could not put every confirmed customer on a day:', err); }
+    return {error:'Nothing could be scheduled — check the towns on these customers.',
+            safetyNet: net0.placed.length, safetyNetNames: net0.placed.slice(0, 5),
+            confirmedOff: net0.still.length, confirmedOffNames: net0.still.slice(0, 5)};
+  }
   BASE_START=start;
   globalDelta=0;
   SEASON=newDays.concat(keep);
@@ -71987,9 +71997,22 @@ function rebuildSeasonDays(){
   let confirmedOff = [];
   try{ if(typeof confirmedNotOnAnyDay === 'function') confirmedOff = confirmedNotOnAnyDay(); }
   catch(err){ console.error('Could not check that every confirmed customer is on a day:', err); }
+  /* ⭐⭐ [[SCH-85]] — AND THEN THEY ARE PUT ON ONE. The names above are the ones the
+     normal rules dropped, logged so the rule that dropped them can still be found; the
+     safety net below is what makes "every Confirmed = scheduled" true regardless.
+     `confirmedOff` is then re-measured AFTER it, so the ⚠ line on the button only ever
+     fires if somebody could not be placed at all — which should be never. */
+  let net = {placed: [], still: confirmedOff.map(function(x){ return ((x&&x.data&&x.data.name)||'(no name)'); })};
+  if(confirmedOff.length){
+    console.warn('[HU] Recalculate: the scheduling rules left ' + confirmedOff.length +
+      ' Confirmed customer(s) off every day; placing them anyway (SCH-85):', net.still);
+    try{ if(typeof placeConfirmedLeftOff === 'function') net = placeConfirmedLeftOff(floorStr, startStr); }
+    catch(err){ console.error('Could not put every confirmed customer on a day:', err); }
+  }
   return {days:newDays.length, houses:movable.length, unplaced:unplaced.length, locked:locked.length, joined:joined.length, heldToLater:heldToLater,
-          confirmedOff:confirmedOff.length,
-          confirmedOffNames:confirmedOff.slice(0,5).map(function(x){ return ((x&&x.data&&x.data.name)||'(no name)'); }),
+          safetyNet:net.placed.length, safetyNetNames:net.placed.slice(0,5),
+          confirmedOff:net.still.length,
+          confirmedOffNames:net.still.slice(0,5),
           left:left.length, orphans:orphans.length, stillSet:stillSet,
           /* What the three new orderings actually did, so the button can say it.
              `missed` and `rushed` are counted off the pool this rebuild laid out —
@@ -73198,6 +73221,85 @@ function confirmedNotOnAnyDay(){
   });
   return out;
 }
+/* ⭐⭐ THE HEADLINE RULE: EVERY CONFIRMED CUSTOMER IS ON A DAY AFTER RECALCULATE
+   EVERYTHING. NO EXCEPTIONS, AND THIS IS WHAT MAKES IT TRUE ([[SCH-85]], 2026-09-21).
+   Dax: "a lot of people are confirmed and when i click recalculate everything they dont
+   appear on the schedule, make it so every confirmed is on the schedule when we
+   recaclulate and make it so whenever we change anything in the future thats a rule
+   that will never change, its a headline every confirmed = scheduled when recaclulate
+   everything."
+
+   ⛔ THE PROMISE HAD A REPORTER AND NO ENFORCER. confirmedNotOnAnyDay was written on
+   2026-09-04 to NAME anybody the rules dropped, on the argument that a checker which also
+   repaired would hide the rule that dropped them. That argument is kept — the checker is
+   still pure and the names are still reported — but it left the office holding a list of
+   people to fix by hand after every press, which is the opposite of what the button is
+   for. This is the step that fixes them.
+
+   ⚠ IT RUNS LAST, AFTER EVERY OTHER RULE HAS HAD ITS SAY, and it asks the same badge the
+   office reads (seasonBadgeKey via confirmedNotOnAnyDay). So whatever rule a future change
+   adds, and however it goes wrong, a Confirmed customer cannot come out of a Recalculate
+   without a day. Do NOT gate this on anything but the badge: the moment it asks a second
+   question, "Confirmed" and "on the schedule" can disagree again.
+
+   ⚠ IT STILL HONOURS "NOT BEFORE". The earliest day a house may have — their month, the
+   office's own earliest date, a colour-change or warehouse hold — is respected: they go on
+   the first open day on or after it, in their own town if a day there exists, else a day
+   with room for another town, else any open day, and if there is no open day late enough
+   a new one is made. Being on the schedule never means being on an early day.
+
+   ⚠ AND IT NEVER TOUCHES A SET DAY. Only days on or after `floorStr` — after the 48-hour
+   lock and after every day already worked — are open to it, the same floor the rebuild
+   itself builds from. A printed sheet is never changed by this.
+
+   Returns the customers it placed (by name, for the report) and any it still could not
+   place, which should always be empty. */
+function placeConfirmedLeftOff(floorStr, startStr){
+  const res = {placed: [], still: []};
+  if(typeof confirmedNotOnAnyDay !== 'function' || typeof houseFromCustomer !== 'function') return res;
+  const off = confirmedNotOnAnyDay();
+  if(!off.length) return res;
+  const openDays = function(){
+    return SEASON.filter(function(d){
+      if(d.isFixRoute || d.isTakedown) return false;
+      const dt = dayDate(d);
+      return !!dt && isoOf(dt) >= floorStr;
+    }).sort(function(a, b){ return dayDate(a) - dayDate(b); });
+  };
+  const cap = function(d){ return (typeof maxTownsPerDay === 'function') ? maxTownsPerDay(d) : 4; };
+  const towns = function(d){ return (typeof dayTownCount === 'function') ? dayTownCount(d) : 0; };
+  off.forEach(function(item){
+    const h = houseFromCustomer(item);
+    if(!h) return;
+    const d = (item && item.data) || {};
+    let from = (typeof houseAllowedFrom === 'function') ? (houseAllowedFrom(h, startStr) || '') : '';
+    const hold = (typeof houseHoldFrom === 'function') ? houseHoldFrom(d) : '';
+    if(hold && hold > from) from = hold;
+    const t = extractCleanCity(h.city);
+    const late = openDays().filter(function(day){ return isoOf(dayDate(day)) >= from; });
+    let day = late.filter(function(day){
+      return t && (day.houses || []).some(function(x){ return extractCleanCity(x.city) === t; });
+    })[0]
+      || late.filter(function(day){ return !t || towns(day) < cap(day); })[0]
+      || late[0];
+    if(!day){
+      /* Nothing open is late enough: make the day. First working day on or after both
+         the floor and their own earliest day. */
+      const want = (from && from > floorStr) ? from : floorStr;
+      const p = want.split('-').map(Number);
+      const dt = nextWorkingDay(new Date(p[0], p[1] - 1, p[2]));
+      day = {id: 'cf' + Date.now().toString(36) + res.placed.length, base: daysBetween(dt, BASE_START),
+             cascade: 0, pin: null, houses: []};
+      SEASON.push(day);
+      computeDates();
+    }
+    day.houses.push(h);
+    res.placed.push(d.name || '(no name)');
+  });
+  computeDates();
+  res.still = confirmedNotOnAnyDay().map(function(x){ return (x && x.data && x.data.name) || '(no name)'; });
+  return res;
+}
 /* One house, built from the customer record through the SAME field list the sync
    uses to correct an existing house. Written that way on purpose: a field added to
    SCHEDULE_SYNC_FIELDS then arrives on new houses too, instead of new arrivals
@@ -73570,6 +73672,11 @@ RT.addEventListener('click',e=>{const t=e.target;
        ⚠ IT SHOULD NEVER FIRE. Every rule that could drop somebody now holds them to a
        later day instead. If it does fire, something new is dropping people and the names
        are where to start. */
+    /* ⭐ [[SCH-85]] — who the safety net had to place. Every Confirmed customer is on a
+       day after this press; this line says which ones only got there because of the net,
+       so the rule that dropped them is not hidden. */
+    if(r.safetyNet) parts.push(r.safetyNet+' confirmed customer'+(r.safetyNet===1?'':'s')+
+      ' added to the schedule so every Confirmed is on a day: '+(r.safetyNetNames||[]).join(', ')+(r.safetyNet>5?' and others':''));
     if(r.confirmedOff) parts.push('⚠ '+r.confirmedOff+' CONFIRMED customer'+(r.confirmedOff===1?'':'s')+
       ' still not on any day: '+(r.confirmedOffNames||[]).join(', ')+(r.confirmedOff>5?' and others':''));
     /* ⭐ AND THE ONES WHO LEFT ARE NAMED TOO. Owner: "back next year should be on
