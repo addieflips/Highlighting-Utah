@@ -63151,3 +63151,94 @@ suite('Suite 347. HEADLINE: All Customers shows the Schedule\'s day, every time 
     /const orphan = !v\.fromPlan && scheduledDayIsReal\(/.test(chip),
     'drop the !v.fromPlan and every Schedule day reads "not on the schedule" again');
 }
+
+/* ---------------------------------------------------------------------------
+ * 348. The finished email is what the copy button copies
+ *
+ * Addie sent an RSVP by hand and both {{referral_link}} and {{rsvp_link}} arrived as
+ * their own characters. Neither token was broken — she copied the TEMPLATE, out of the
+ * editor's Body box, because she has no automation to send through and pastes into
+ * Gmail. The copy that IS resolved sits a box lower and said nothing about itself, and
+ * it also dropped every href on the way to the clipboard, so a pasted RSVP carried Yes /
+ * No / Back Next Year as dead words. These checks hold the repaired press. [[EM-24]]
+ * ------------------------------------------------------------------------- */
+suite('348. The finished email is what the copy button copies');
+{
+  const stripped = stripComments(admin);
+  const handler = stripped.slice(
+    stripped.indexOf("document.getElementById('etCopyForPreviewBtn').addEventListener"),
+    stripped.indexOf('function referralMissingNote(run){'));
+  check('S348', 'the copy press was found at all',
+    handler.length > 400 && handler.length < 4000,
+    'an empty or runaway slice makes every check below pass on anything');
+
+  /* ⛔ THE CLAIM THE WHOLE FIX RESTS ON. innerText keeps a link's words and throws its
+     address away; a pasted email full of buttons that go nowhere is worse than one with
+     a visible {{code}} in it, because nobody can see that it is wrong. */
+  check('S348', 'the clipboard is given the HTML, so a pasted email keeps its real buttons',
+    /'text\/html': new Blob\(\[html\]/.test(handler),
+    'plain text alone drops every href and the RSVP buttons go nowhere');
+  check('S348', 'and the plain-text half as well, for anywhere that cannot take HTML',
+    /'text\/plain': new Blob\(\[plain\]/.test(handler));
+  check('S348', 'a browser without ClipboardItem still gets every address, never the bare labels',
+    /if\(!copied\)\{[^]{0,200}writeText\(plain\)/.test(handler),
+    'falling back to box.innerText would put the dead-button version on the clipboard');
+
+  /* ⚠ RUN, NOT MATCHED — the whole point is what comes out the far end. */
+  const linkFn = extractFn(admin, 'etPreviewLinksAsText');
+  check('S348', 'the link flattener was found', !!linkFn && linkFn.length > 200);
+  if (linkFn) {
+    /* ⚠ THE FAKE REALLY REWRITES innerHTML WHEN AN ANCHOR IS REPLACED, and that is what
+       makes two of these checks bite at all. A first draft whose replaceChild only
+       collected the text left innerHTML untouched, so deleting the restore changed
+       nothing and the red-check reported it as a MISS — correctly. */
+    const url = 'https://highlightingutah.com/a/abc123';
+    const ref = 'https://highlightingutah.com/r/zzz999';
+    const START = 'Hi there\nA\nB\nThanks';
+    const box = {
+      innerHTML: START,
+      get innerText(){ return this.innerHTML; },
+      querySelectorAll(){ return this.__a; }
+    };
+    const mark = t => ({ parentNode: { replaceChild: n => {
+      box.innerHTML = box.innerHTML.split(t).join(n.__t);
+    } } });
+    box.__a = [
+      Object.assign(mark('A'), { textContent: url, getAttribute: () => url }),
+      Object.assign(mark('B'), { textContent: 'Answer here', getAttribute: () => ref })
+    ];
+    const doc = { createTextNode: t => ({ __t: t }) };
+    const run = new Function('document', 'return (' + linkFn + ')')(doc);
+    const out = run(box);
+    check('S348', 'it returns the whole email, line breaks and all',
+      out === 'Hi there\n' + url + '\nAnswer here: ' + ref + '\nThanks',
+      'a detached clone has no layout, so innerText degrades to textContent and every break goes');
+    check('S348', 'the box is put back exactly as it was found',
+      box.innerHTML === START,
+      'a mangled preview is what the office reads next, and it never said it changed');
+    check('S348', 'a button becomes its words AND its address',
+      out.indexOf('Answer here: ' + ref) !== -1,
+      'the label alone is a dead button in somebody’s inbox');
+    check('S348', 'a link whose words already ARE the address is not said twice',
+      out.indexOf(url) !== -1 && out.indexOf(url + ': ' + url) === -1,
+      '"https://… : https://…" reads as a fault in the thing that wrote it');
+  }
+
+  /* ⚠ "nothing should fail quietly", on the one press meant to hand her a finished
+     email: a code nothing fills in is exactly what she reported. */
+  check('S348', 'anything it could not fill in is named on screen',
+    /match\(\/.{0,30}a-z0-9_.{0,30}\/gi\)/i.test(handler) && /Left as they are/.test(handler),
+    'copying an unfinished email in silence is the bug this whole suite is about');
+  check('S348', 'and the copy says whose links are in it',
+    /etPreviewMemberSelect/.test(handler) && /own copy/.test(handler),
+    'every address carries one member’s token, so a copy cannot be sent to the book');
+
+  /* ⚠ THE HINT IS THE OTHER HALF OF THE FIX and is checked against the RAW source: it is
+     markup, and stripComments blanks the region around it. */
+  check('S348', 'the button says it gives you the finished email',
+    admin.indexOf('>Copy the finished email<') !== -1,
+    '"Copy Preview Text" does not read as the answer to "how do I send this by hand"');
+  check('S348', 'and the Body box is named as the copy that still holds the codes',
+    /Copying out of the Body box above gives you the template/.test(admin),
+    'nothing on screen said which of the two boxes to copy from');
+}

@@ -3940,7 +3940,10 @@
             <div class="form-row"><label>Test Email Address (optional)</label><input type="email" id="etTestEmailInput" placeholder="you@example.com"></div>
             <button type="button" class="btn btn-outline" id="etSendTestBtn" style="margin-bottom:14px;">Send Test</button>
           </div>
-          <button type="button" class="btn btn-outline btn-sm" id="etCopyForPreviewBtn" style="width:auto; margin:-8px 0 16px;">Copy Preview Text</button>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:-8px 0 16px;">
+            <button type="button" class="btn btn-outline btn-sm" id="etCopyForPreviewBtn" style="width:auto; margin:0;">Copy the finished email</button>
+            <span style="font-size:12px; color:var(--slate);">Ready to paste into Gmail &mdash; links and all. Copying out of the Body box above gives you the template, with the <code>{{codes}}</code> still in it.</span>
+          </div>
           <!-- ⭐ ONE BOX THAT ANSWERS "WHO IS THIS GOING TO?" (2026-09-04). Owner:
                "make it so you can filter who you see then you can select all so it
                selects everyone under the filter you chose."
@@ -21964,15 +21967,92 @@ document.getElementById('etClearFiltersBtn')?.addEventListener('click', function
   etResetAudienceFilters();
   etRenderRecipientList();
 });
-document.getElementById('etCopyForPreviewBtn').addEventListener('click', function(){
+/* ⭐ THE FINISHED EMAIL, NOT THE ONE WITH THE CODES STILL IN IT (2026-09-21, [[EM-24]]).
+   Addie, having sent an RSVP by hand: "I sent the RSVP link that was coded but didn't
+   send anything but the [body] exactly like this" — {{referral_link}} and {{rsvp_link}}
+   both arrived as their own characters — then "I don't have a automation to go through
+   so I just have to copy and paste it."
+   ⛔ NEITHER TOKEN WAS BROKEN, and that is the first thing to establish before anybody
+   goes hunting in resolveLinkTokens. Both are resolved there and both are resolved again
+   in rsvpEmailBodyServer; either way the worst they can do is come out EMPTY, because a
+   missing token leaves an empty string where the address would be. Coming out as the
+   literal characters means the renderer never saw that text at all — she copied the
+   TEMPLATE, out of the Body box in the editor above, and a template is by definition the
+   copy that still has the codes in it. The resolved copy has always been one box lower,
+   behind Preview Against, and nothing on screen said so. The hint beside the button is
+   half the fix; this is the other half.
+   ⛔ AND THE BUTTONS CAME OUT AS DEAD WORDS. This copied `box.innerText`, which keeps the
+   label of a link and drops its address — so a pasted RSVP read Yes / No / Back Next Year
+   with nothing behind any of them, and "Answer here" pointed nowhere. That is WORSE than
+   the literal code she reported: a code is obviously wrong and gets fixed, a button that
+   looks right and goes nowhere is sent to somebody ([[REF-21]]'s rule — half a link is
+   worse than no link). The clipboard carries the HTML as well as the text now, so Gmail
+   keeps the real buttons, and the text half spells each address out after its own label
+   for anywhere that cannot take HTML.
+   ⚠ EVERY ADDRESS IN IT BELONGS TO THE ONE MEMBER IN Preview Against. It carries their
+   portal token, which is what signs them in and records the answer against them, so one
+   copied email can never be sent to the book — the same rule as the text card's per-row
+   link ([[RS-64]]). The status line names whose it is rather than leaving that to be
+   worked out from the greeting. */
+function etPreviewLinksAsText(box){
+  /* ⚠ THE LIVE BOX IS MUTATED AND PUT BACK, rather than a clone being read. `innerText`
+     needs layout, and a detached node has none — on a clone it degrades to textContent
+     and every line break in the email disappears, which is a silent wrong answer rather
+     than an error. Restored in a finally, synchronously, so nothing is ever painted. */
+  const wasHtml = box.innerHTML;
+  try{
+    box.querySelectorAll('a[href]').forEach(function(a){
+      const label = (a.textContent || '').trim();
+      const href = a.getAttribute('href') || '';
+      /* ⚠ A LABEL THAT ALREADY IS THE ADDRESS IS NOT SAID TWICE. {{rsvp_link}} and
+         {{referral_link}} render as the bare URL, and "https://… : https://…" reads as
+         a fault in the thing that wrote it. */
+      const out = !href ? label : (!label || label === href) ? href : (label + ': ' + href);
+      a.parentNode.replaceChild(document.createTextNode(out), a);
+    });
+    return box.innerText;
+  } finally {
+    box.innerHTML = wasHtml;
+  }
+}
+document.getElementById('etCopyForPreviewBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('etPreviewSendStatus');
   const box = document.getElementById('etPreviewBox');
   const text = box.innerText;
   if(!text || text.indexOf('Pick a template') === 0){ statusEl.textContent = 'Pick a template and a member to preview first.'; return; }
-  navigator.clipboard.writeText(text).then(function(){
-    statusEl.textContent = 'Copied!';
-    setTimeout(() => { statusEl.textContent = ''; }, 2000);
-  });
+  const html = box.innerHTML;
+  const plain = etPreviewLinksAsText(box);
+  let copied = false;
+  try{
+    if(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write){
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([html], {type:'text/html'}),
+        'text/plain': new Blob([plain], {type:'text/plain'})
+      })]);
+      copied = true;
+    }
+  }catch(err){
+    /* an older browser, or a clipboard permission that only allows writeText — the
+       plain copy below is the fallback and still carries every address */
+  }
+  if(!copied){
+    try{ await navigator.clipboard.writeText(plain); copied = true; }
+    catch(err){
+      console.error('Could not copy the email:', err);
+      statusEl.textContent = 'Could not copy \u2014 select the preview and copy it by hand.';
+      return;
+    }
+  }
+  const sel = document.getElementById('etPreviewMemberSelect');
+  const who = sel && sel.selectedIndex > 0 ? (sel.options[sel.selectedIndex].textContent || '').trim() : '';
+  /* ⚠ AND IT SAYS WHAT IT COULD NOT FILL IN. A code the renderer does not know is copied
+     through as itself, which is exactly the thing she reported — so the one press that is
+     meant to hand her a finished email must never hand her an unfinished one in silence. */
+  const left = (plain.match(/\{\{[a-z0-9_]+\}\}/gi) || []);
+  const leftUniq = left.filter(function(x, i){ return left.indexOf(x) === i; });
+  statusEl.textContent = 'Copied' + (who ? (' \u2014 this is ' + who + '\u2019s own copy, links and all. Their links only work for them.') : '.') +
+    (leftUniq.length ? ('  \u26A0 Left as they are, nothing fills these in: ' + leftUniq.join(', ')) : '');
+  setTimeout(() => { statusEl.textContent = ''; }, leftUniq.length ? 15000 : 8000);
 });
 /* ⭐ ONE SENDER, HOWEVER MANY TEMPLATES A RUN NEEDS (2026-09-07).
  *
