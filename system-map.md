@@ -655,9 +655,16 @@ day* and was never added. The schedule resolves through `planCustomerFor` now: t
 — those rows carry no id to read. Said out loud rather than left as a silent gap.
 ⚠ **And the promise is checked out loud.** `confirmedNotOnAnyDay` asks `seasonBadgeKey`
 — the badge the office actually reads, not the rule behind it — and *Recalculate
-everything* **names** anybody it finds. It should never fire, and it reports rather than
+everything* **names** anybody it finds. The checker itself still reports rather than
 repairs: a checker that quietly added whoever it found would hide the rule that dropped
-them, which is how this went unnoticed for a fortnight. Pending is derived and never stored, so paying the bill moves the
+them, which is how this went unnoticed for a fortnight.
+⭐⭐ **AND SINCE 2026-09-21 THE PRESS ALSO PLACES THEM — A HEADLINE RULE ([[SCH-85]]).**
+Dax: *"every confirmed = scheduled when recaclulate everything."* `placeConfirmedLeftOff`
+runs last in `rebuildSeasonDays` and puts every Confirmed customer who is still off onto an
+open day — their own town first, never before their month, office date or hold, never on a
+day inside the 48-hour lock. The button says who it had to place, so the rule that dropped
+them is still named. *If you press Recalculate everything and a Confirmed customer is not on
+a day, that is a bug — the button's message will name them.* Pending is derived and never stored, so paying the bill moves the
 badge on its own the next time the row is drawn. ⚠ Back Next Year stays its own
 answer rather than folding into Pending — that one the office sets by hand.
 
@@ -3929,6 +3936,13 @@ come around later and want another building."*
   card prints "Prefers:" only when a value exists (older quotes still have one). The
   thank-you text no longer promises "your preferred contact method". ⚠ Get In Touch and
   Send a Message keep their selects. Suite 330.
+  ⭐ **ADMIN'S "ADD A QUOTE BY HAND" IS LOOSER ON PURPOSE ([[QT-50]], 2026-09-21).** Dax:
+  *"in add a quote in admin portal you should be able to add a customer with only a email,
+  phone number or both, but in free quote form, both are always required."* The free quote
+  form above is unchanged. The `qAddByHandBtn` prompts used to need a name and nothing else,
+  so a card could be made that nobody could ring, text or send the price to; they now ask
+  again while the phone AND the email are both blank. Either one alone is fine. Cancel on
+  either prompt stops; a blank answer skips. Suite 330.
 
 **Then the property list went too, one day later.** Dax, 2026-09-04: *"get rid of the add
 a building on the property button on free quote but keep it in all customers."* So the
@@ -6619,6 +6633,12 @@ closed got an answer about an archiving that was undone.
 ⚠ **Two of the three were cleared, which is why it went unnoticed** — two out of three looks
 complete. Nothing anywhere looked at them together, and each on its own is written correctly.
 The bug is only visible in the relationship.
+
+⭐ **The trash can on a quote card archives too** (2026-09-21). Owner: *"when we delete a
+quote they should move to closed."* It used to destroy the document. Now it sets all three
+fields (reason `Deleted in admin`) and moves the screen to **Closed → Archived**, where
+Restore brings the quote back. Only a quote that is **already** archived is really deleted by
+the trash can, so junk can still be cleared out, but only after it has sat in Closed first.
 
 ⚠ **AND THE FIRST CHECK WRITTEN FOR IT PROVED NOTHING.** It grouped by enclosing function,
 and both branches live in one function — so deleting the date from the restore branch left it
