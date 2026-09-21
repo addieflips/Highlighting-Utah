@@ -3894,6 +3894,13 @@ come around later and want another building."*
   card prints "Prefers:" only when a value exists (older quotes still have one). The
   thank-you text no longer promises "your preferred contact method". ⚠ Get In Touch and
   Send a Message keep their selects. Suite 330.
+  ⭐ **ADMIN'S "ADD A QUOTE BY HAND" IS LOOSER ON PURPOSE ([[QT-50]], 2026-09-21).** Dax:
+  *"in add a quote in admin portal you should be able to add a customer with only a email,
+  phone number or both, but in free quote form, both are always required."* The free quote
+  form above is unchanged. The `qAddByHandBtn` prompts used to need a name and nothing else,
+  so a card could be made that nobody could ring, text or send the price to; they now ask
+  again while the phone AND the email are both blank. Either one alone is fine. Cancel on
+  either prompt stops; a blank answer skips. Suite 330.
 
 **Then the property list went too, one day later.** Dax, 2026-09-04: *"get rid of the add
 a building on the property button on free quote but keep it in all customers."* So the
@@ -6584,6 +6591,12 @@ closed got an answer about an archiving that was undone.
 ⚠ **Two of the three were cleared, which is why it went unnoticed** — two out of three looks
 complete. Nothing anywhere looked at them together, and each on its own is written correctly.
 The bug is only visible in the relationship.
+
+⭐ **The trash can on a quote card archives too** (2026-09-21). Owner: *"when we delete a
+quote they should move to closed."* It used to destroy the document. Now it sets all three
+fields (reason `Deleted in admin`) and moves the screen to **Closed → Archived**, where
+Restore brings the quote back. Only a quote that is **already** archived is really deleted by
+the trash can, so junk can still be cleared out, but only after it has sat in Closed first.
 
 ⚠ **AND THE FIRST CHECK WRITTEN FOR IT PROVED NOTHING.** It grouped by enclosing function,
 and both branches live in one function — so deleting the date from the restore branch left it
