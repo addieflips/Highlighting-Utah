@@ -53202,15 +53202,51 @@ const WH_RECYCLE_COLUMNS = [
       return;
     }
     /* ⚠ EVERY MATCH, NOT THE FIRST. Two customers really do share a name in this book,
-       and answering about the wrong one is worse than showing both. */
+       and answering about the wrong one is worse than showing both.
+       ⭐ AND IT PULLS THE PERSON UP, NOT JUST THEIR QUEUE STATE (2026-09-21, [[WH-46]]).
+       Addie: "Also when I type in a name in warehouse it should pull them up just not that
+       they are in the queue."
+       ⛔ THE SEARCH WAS NEVER THE BROKEN HALF, and that was measured before anything was
+       written: it has always read the whole book rather than the build list, and says so
+       when nothing matches. What came back was one sentence about whether they were queued
+       — which answers the one question somebody standing at the shelf has already asked.
+       ⭐ SO THE ROW CARRIES WHAT A BUILD NEEDS: their number, the address, the colour and
+       wire chips, how many bins, and whatever is written in their warehouse notes. The
+       build status keeps its line and its colour underneath, because "why is this house not
+       in my queue" is still a real question — it is no longer the only answer.
+       ⚠ THE CHIPS COME FROM `whHouseFactsHtml` AND THE NOTES FROM `whNoteText`, the same two
+       the queue rows and the printed sheets read. A second way of saying what a house is, is
+       how this screen starts disagreeing with the sheet somebody is holding.
+       ⚠ AND Open GOES TO THE REAL RECORD rather than offering an edit box here: every fact
+       on this row lives on the customer, and a second form is a second answer. */
     out.innerHTML = hits.slice(0, 6).map(function(a){
+      const d = a.data || {};
       const st = whHouseBuildStatus(a);
       const good = st.state === 'building' || st.state === 'extra';
-      return '<div style="padding:5px 0; color:' + (good ? '#2E6B3E' : (st.state === 'blocked' ? '#8A6100' : 'var(--slate)')) + ';">' +
-        esc(whBuildStatusText(a.data.name, st)) +
-        (a.data.customerNumber ? ' <span style="color:var(--slate);">#' + esc(String(a.data.customerNumber)) + '</span>' : '') +
+      const colour = good ? '#2E6B3E' : (st.state === 'blocked' ? '#8A6100' : 'var(--slate)');
+      const bins = whBinsForHouse(d);
+      const note = whNoteText(d);
+      return '<div style="padding:8px 0; border-top:1px solid var(--line);">'+
+        '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">'+
+          '<div>'+
+            '<strong style="font-size:13.5px;">'+esc(d.name || '(no name)')+'</strong>'+
+            (d.customerNumber ? ' <span style="color:var(--slate); font-size:12px;">#'+esc(String(d.customerNumber))+'</span>' : '')+
+            '<div style="font-size:12px; color:var(--slate);">'+esc(d.address || 'no address on file')+
+              (bins ? ' &middot; '+esc(bins)+' bin'+(bins === '1' ? '' : 's') : '')+'</div>'+
+            '<div style="margin-top:4px; line-height:1.9;">'+whHouseFactsHtml(d)+'</div>'+
+            (note ? '<div style="font-size:12px; color:var(--slate); margin-top:4px; white-space:pre-wrap;">'+esc(note)+'</div>' : '')+
+            '<div style="font-size:12px; margin-top:4px; color:'+colour+';">'+esc(whBuildStatusText(d.name, st))+'</div>'+
+          '</div>'+
+          '<button type="button" class="btn btn-outline btn-sm" data-whfindopen="'+a.id+'" style="flex:0 0 auto;">Open</button>'+
+        '</div>'+
       '</div>';
-    }).join('') + (hits.length > 6 ? '<div style="color:var(--slate);">' + (hits.length - 6) + ' more match that — type a bit more.</div>' : '');
+    }).join('') + (hits.length > 6 ? '<div style="color:var(--slate); padding-top:6px;">' + (hits.length - 6) + ' more match that — type a bit more.</div>' : '');
+    /* Bound here rather than delegated: this block is rebuilt on every keystroke, so a
+       listener on the container would be re-added with it and fire several times per click
+       — the compounding-listener fault the Inbox sidebar was fixed for. */
+    out.querySelectorAll('[data-whfindopen]').forEach(function(btn){
+      btn.addEventListener('click', function(){ openEditCustomerModal(btn.dataset.whfindopen); });
+    });
   });
 })();
 (function wireWhPrintButtons(){
