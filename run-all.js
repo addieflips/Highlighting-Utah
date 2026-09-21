@@ -51724,7 +51724,91 @@ suite('291. An RSVP link to text, for everyone with no email');
       /Do not text/.test(admin) && /smsOptedOut/.test(extractFn(admin, 'rsvpTextRender') || ''),
       'dropping them from the list silently is how somebody goes missing without a reason');
 
-    /* ---- the link and the words ---- */
+    /* ---- {{rsvp_link}} / {{rsvp_button}}: one address, two renderers ([[RS-66]]) ----
+     ⛔ THE RSVP EMAIL IS RENDERED TWICE — resolveLinkTokens in admin.html for anything
+     the office sends by hand, and rsvpEmailBodyServer in functions/index.js for the
+     9 AM batch that actually reaches several hundred people. A token added to one of
+     them puts its own literal characters in a real customer's inbox, which this repo
+     has already done once with {{photo}}. So both are checked, and so is the guard
+     that decides whether a portal token is minted at all. */
+  {
+    /* ⚠ extractFn CANNOT LIFT resolveLinkTokens AT ALL, and a check that used it
+       reported the office renderer as MISSING both tokens on a correct file. Its brace
+       counter walks the source character by character and that function is thousands of
+       characters of HTML strings — style attributes and {{token}} literals — so the
+       depth never returns to zero and it answers null. Sliced between two real anchors
+       instead: the rsvp block's own guard, to the guard of the block that follows it.
+       §7's rule, and the reason it bans fixed-length windows in the same breath. */
+    const rsvpBlockStart = admin.indexOf("if(out.indexOf('{{rsvp_yes_link}}')");
+    const rsvpBlockEnd = admin.indexOf("if(out.indexOf('{{quote_yes_button}}')", rsvpBlockStart);
+    const adminTok = (rsvpBlockStart !== -1 && rsvpBlockEnd > rsvpBlockStart)
+      ? admin.slice(rsvpBlockStart, rsvpBlockEnd) : '';
+    const srvTok = extractFn(fnsSrc, 'rsvpEmailBodyServer') || '';
+    check('S287', 'both RSVP email renderers are findable', !!adminTok && !!srvTok,
+      'without both, the comparison below passes on nothing');
+    /* ⚠ THE RESOLUTION, NOT THE MENTION, AND WITH COMMENTS STRIPPED. Two of these
+       checks were MISSED by their own red-check on the first draft, both for that
+       reason: on the office side the token also appears in the mint GUARD, so deleting
+       the line that actually replaces it left the name in the slice; on the server side
+       it appears in the comment explaining why the token must be resolved there at all.
+       Suites 58, 274, 275 and 300's lesson, and the second time in this session that
+       the prose defending a rule satisfied the check for it. */
+    const adminCode = stripComments(adminTok);
+    const srvCode = stripComments(srvTok);
+    ['{{rsvp_link}}', '{{rsvp_button}}'].forEach(function(tok){
+      const resolves = "split('" + tok + "').join";
+      check('S287', 'the office renderer resolves ' + tok,
+        adminCode.indexOf(resolves) !== -1,
+        'an unresolved token is sent as its own characters');
+      /* ⛔ THE ONE THAT REACHES CUSTOMERS. The office can see a bad preview; the 9 AM
+         batch is read by nobody before it goes. */
+      check('S287', 'and so does the 9 AM batch that actually sends it',
+        srvCode.indexOf(resolves) !== -1,
+        tok + ' resolved only in admin.html is a literal token mailed to everybody the ' +
+        'drip reaches — the {{photo}} failure, by name');
+    });
+    /* ⚠ AND THE GUARD, which decides whether a portal token is minted at all. A token
+       left out of it is resolved by code that never runs, so it renders as itself —
+       and the render check above still passes. */
+    const guardLine = (stripComments(adminTok).match(/if\([^\n]*\{\{rsvp_yes_link\}\}[^\n]*\)\{/) || [])[0] || '';
+    check('S287', 'and the mint guard names the new tokens too',
+      guardLine.indexOf('{{rsvp_link}}') !== -1 && guardLine.indexOf('{{rsvp_button}}') !== -1,
+      'left out of the guard the branch never runs, the token renders as itself, and ' +
+      'the check above still passes');
+    /* ⛔ AND THE TWO SPELLINGS OF THE ADDRESS MUST MATCH. functions/index.js cannot
+       import from admin.html, so the path is written out on both sides — the same
+       split {{referral_button}} lives with. This is what keeps it a CHECKED duplicate
+       rather than a silent one. */
+    const adminPath = (extractFn(admin, 'rsvpTextLinkFrom') || '')
+      .match(/'(https:\/\/[^']*\/a\/)'/);
+    const srvPath = srvTok.match(/'(https:\/\/[^']*\/a\/)'/);
+    check('S287', 'and both sides spell the answer-page address identically',
+      !!adminPath && !!srvPath && adminPath[1] === srvPath[1],
+      'got ' + JSON.stringify(adminPath && adminPath[1]) + ' and ' +
+      JSON.stringify(srvPath && srvPath[1]) + ' — two spellings is a texted link and an ' +
+      'emailed link opening different pages');
+    /* ⚠ AND IT NAMES NO ANSWER, on both sides. That is what makes this token safe to
+       put in an email at all: rsvp=yes is a thing a mail scanner can submit, and did,
+       for two customers on work addresses at 3:42am. */
+    /* ⚠ SCOPED TO THE LINE THAT BUILDS IT. The first draft matched /a/ followed by an
+       rsvp= parameter across the whole block and was MISSED, because the office side
+       has no literal /a/ in it at all — the path lives inside rsvpTextLinkFrom — while
+       the three ordinary buttons around it legitimately DO carry rsvp=yes. So the
+       regex could neither see the sabotage nor be widened without flagging correct
+       code. It reads the one assignment now. */
+    const adminAsk = (adminCode.match(/const rsvpAskUrl =[^;]*;/) || [])[0] || '';
+    const srvAsk = (srvCode.match(/const askUrl =[^;]*;/) || [])[0] || '';
+    check('S287', 'both sides build the one-link address and nothing else', 
+      !!adminAsk && !!srvAsk,
+      'without the assignment the check below passes on an empty string');
+    check('S287', 'and neither side bakes an answer into it',
+      !/rsvp=/.test(adminAsk) && !/rsvp=/.test(srvAsk),
+      'got ' + JSON.stringify(adminAsk) + ' / ' + JSON.stringify(srvAsk) +
+      ' — an answer in the address is one a mail scanner can submit on the ' +
+      'customer\'s behalf, which is what /a/ exists to prevent');
+  }
+
+  /* ---- the link and the words ---- */
     /* ⚠ A REAL-LENGTH TOKEN, READ OFF THE GENERATOR. The first version of the
        one-message check used a six-character token and passed while the shipped text
        ran to 172 characters on a real one — a fixture that could not fail. The length

@@ -126,6 +126,13 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
      them in and records the answer against them — so there is no single address that
      works for everybody, and one press of **Copy all … for texting** gives one line per
      person, phone first, tab-separated for a spreadsheet.
+   - **And it can go in an email too** ([[RS-66]]). In Automation Emails → Templates the
+     insert list now offers **All three answers on one page** as a plain URL
+     (`{{rsvp_link}}`) or a button (`{{rsvp_button}}`) — one *Answer here* instead of the
+     three separate Yes / No / Back Next Year buttons. It opens the same page the text
+     link does.
+     ⚠ Unlike the three buttons, this address names no answer, so a mail scanner that
+     opens every link in a message cannot answer on the customer's behalf.
    - **Each row has two buttons** ([[RS-65]]): **Copy link** gives you just the address,
      shown in a box on the row so you can read it out or check it; **Copy their text**
      gives the whole message ready to paste into Google Voice.
