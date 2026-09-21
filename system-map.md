@@ -6585,6 +6585,12 @@ closed got an answer about an archiving that was undone.
 complete. Nothing anywhere looked at them together, and each on its own is written correctly.
 The bug is only visible in the relationship.
 
+⭐ **The trash can on a quote card archives too** (2026-09-21). Owner: *"when we delete a
+quote they should move to closed."* It used to destroy the document. Now it sets all three
+fields (reason `Deleted in admin`) and moves the screen to **Closed → Archived**, where
+Restore brings the quote back. Only a quote that is **already** archived is really deleted by
+the trash can, so junk can still be cleared out, but only after it has sat in Closed first.
+
 ⚠ **AND THE FIRST CHECK WRITTEN FOR IT PROVED NOTHING.** It grouped by enclosing function,
 and both branches live in one function — so deleting the date from the restore branch left it
 written in the archive branch, the function still "touched all three", and two red-check

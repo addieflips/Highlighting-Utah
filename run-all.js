@@ -26754,9 +26754,20 @@ suite('Suite 106. Moving house, and withdrawing a re-quote');
     /QUOTE_RAISED_STATUSES = \['needs_changes', 'address_changed'\]/.test(admin),
     'anything else was put there by something that is not this quote');
 
-  check('S106', 'a quote with no customer behind it still deletes plainly',
-    /Delete this quote\?/.test(delSrc),
+  check('S106', 'a quote with no customer behind it still asks plainly',
+    /\(isRequote \? 'this re-quote for ' : ''\)/.test(delSrc),
     'a first-time lead has no customer to reassure anybody about');
+
+  /* ⭐ DELETING A QUOTE MOVES IT TO CLOSED (2026-09-21). Owner: "when we delete a
+     quote they should move to closed". */
+  check('S106', 'deleting a live quote archives it instead of destroying it',
+    /quoteArchived: true, quoteArchivedAt: serverTimestamp\(\)/.test(delSrc) &&
+    /const permanent = !!qd\.quoteArchived/.test(delSrc) &&
+    /if\(permanent\)\{\s*await deleteDoc/.test(delSrc),
+    'only a quote already sitting in Closed → Archived is removed for good');
+  check('S106', 'and the office follows it to Closed → Archived',
+    /quoteStageFilter = 'closed'/.test(delSrc) && /showArchivedQuotes = true/.test(delSrc),
+    'a card that vanishes from the tab you pressed it on reads as deleted');
 }
 /* ---------------------------------------------------------------------------
  * Suite 92. A day inside 48 hours is printed, and printed is finished
