@@ -5085,6 +5085,84 @@ note server-side and cannot send mail, so the nudge is raised in the browser onc
 returns `{ok:true}`. The ordinary My Info save is deliberately silent ([[QT-35]]) — a
 corrected street spelling is not a move — so do not move this call up into it.
 
+⭐ **AND THE SERVER OBEYS THE SAME RULE NOW (2026-09-21, [[MSG-31]]).**
+Addie: *"No messages coming from members or member portal changes should be going to admin
+inbox. There shouldn't even be duplicated emails in the admin inbox."*
+
+⛔ **EVERYTHING ABOVE THIS LINE WAS ABOUT THE BROWSER, WHICH IS WHY SHE WAS STILL READING
+THEM.** [[MSG-30]] made the Gmail the destination for the twelve member-MESSAGE paths in
+index.html. `functions/index.js` went on writing its own rows unconditionally from five
+member PORTAL ACTIONS — a colour change made after the route was built, a rejoin after
+recycling, an RSVP no or back next year, a declined re-quote and a declined add-on — none
+of which that change could reach. The rule was half-applied and the half nobody could see
+from index.html was the half still filling her Inbox.
+
+⛔ **AND THE COLOUR CHANGE WAS THE LITERAL DUPLICATE.** The browser emails and writes a row
+only when that send fails; the server wrote one every time. One member action, two rows, in
+different words — which is why deleting either side on its own would have been the wrong
+fix. `tellOfficeServer` is the server's `tellOffice`: it sends, and writes the Inbox row
+**only if that send did not go**, carrying the same `alertFailed` / `alertFailReason` marker
+so a row that does appear says why it is there.
+
+⚠ **EACH NOTICE REPORTS ITSELF AND NEVER GUESSES ABOUT THE OTHER SIDE.** The server cannot
+know whether the browser's email went. Two notices about one event are two emails in the
+Gmail, which is where she asked for them; what she asked to stop is rows appearing in the
+Inbox that nobody chose.
+
+⚠ **IT NEEDS THE PRIVATE KEY, unlike the browser.** EmailJS refuses a non-browser origin
+without `accessToken`, so a send that 200s in a page and 403s here would fall back to the
+Inbox for ever while looking exactly like the feature working. It is held to the same three
+keys every other server send in that file already checks.
+
+⛔ **THE BROWSER'S OWN `Quote Declined` REPORT IS KEPT, AND IT IS NOT A DUPLICATE.**
+`declineAsksAboutLastYear` returns *before* its notice when the decliner is not a customer
+of ours, so for a plain quote — somebody who was never converted — that browser note is
+the only report there is. Removing it to stop a double-up for members would silence every
+non-member decline. ⚠ **The cost is named rather than fixed by deleting a notice**: an
+existing member who declines produces two Gmail emails carrying different facts, and no
+Inbox row either way.
+
+⛔ **AND THE DECLINE REASON WOULD HAVE GONE MISSING IN SILENCE.** [[RS-60]] carries the
+reason by PATCHING the decline row, and that row now only exists on the day the Gmail
+refused the send — so on an ordinary day the patch loop finds nothing, does nothing, and
+nothing could notice, because an empty result set is a successful query. The reason is
+emailed on its own when there was nothing to file it under, and only then; with a row
+present the patch already carries it and mailing as well would be the double-up pointed the
+other way. ⚠ **And only for an answer that is actually a decline** — the patch loop's
+query is scoped to the two decline topics, so that guard had to be restated at the new send
+or a call carrying `response: 'yes'` plus a reason would mail the office about somebody who
+said yes.
+
+⚠ **FIVE SERVER NOTICES STAY DIRECT, AND THEY ARE NAMED RATHER THAN COUNTED**: Payment
+With No Bill, Referral Taken Back, Maybe Next Year — New Record, Nightly Billing Needs You,
+Cannot Be Billed. None is a member telling us something; they are about us. [[MSG-17]]'s
+line still holds — system notices email nobody — and making the nightly billing notice
+conditional on the mail service would silence the one notice that exists *because* money did
+not move.
+
+⚠ **`tryFirestore` COULD NOT BE LEFT WRAPPED AROUND THE TWO DECLINES.** It reports a
+failure by catching a THROW, and `tellOfficeServer` is written never to throw — so wrapped
+in it `noted.ok` would have come back true on every call and the add-on decline's "nobody
+has been told the extra is off" warning, the one that file calls the more important of the
+two, would have been permanently dead with the code still looking right. Both read the
+verdict the helper RETURNS now, and the question they ask is whether BOTH channels failed.
+
+⚠ **THREE CENSUS GATES FIRED, EACH CORRECTLY, AND EACH WAS REPOINTED RATHER THAN
+LOOSENED.** run-all's `AFTER_THE_WRITE` census wanted the new await named (and its
+`db.collection` entry has been REPLACED rather than deleted — there is no direct Firestore
+write left after the answer now, and a site leaving is as interesting as one arriving); the
+portalRsvp, Suite 137 and Suite 138 sandboxes each died on a bare `tellOfficeServer is not
+defined` and lift the real helper, never a stub, because a stub decides the very thing under
+test; and `message-fallback.test.js`'s server-side count read `>= 8`, a FLOOR, so it would
+have passed at twelve, ten or nine alike — it was the number going DOWN that finally failed
+it, and it is an exact census naming all five survivors now.
+
+⚠ **THE GATES RUN IT, THEY DO NOT READ IT.** Every word of every notice is unchanged; what
+moved is WHICH of the two channels carries it, which no source scan can see. Suites 117, 137
+and 138 and the portalRsvp harness each drive the real helper against a fake mail service
+that can be switched on, off, or made to refuse — opt-in, so every fixture written before
+this still takes the fallback and reads exactly as it did. 14 of 14 sabotages red-checked.
+
 ⭐ **WHERE A MESSAGE CAN BE FILED — ONE ANSWER** (2026-09-11, [[MSG-20]]). Addie: *"I still
 can't drag and drop emails."*
 
