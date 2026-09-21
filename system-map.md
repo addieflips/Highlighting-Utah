@@ -670,7 +670,10 @@ a day, that is a bug — the button's message will name them.*
 show the right day with a red "⚠ … not on the schedule" beside it, because a check asked the
 crew-routes system (which builds its own days) about the Schedule's day. A Schedule day is
 never checked that way now; only the old crew-routes date, shown for a moment before the
-Schedule has loaded, still is. Pending is derived and never stored, so paying the bill moves the
+Schedule has loaded, still is.
+⛔ **BOTH RULES ARE LOCKED** (Dax, 2026-09-21: *"make sure that that is permanent and no code can
+change this system"*). `headline-rules.test.js` fails the build — and so blocks any merge — if either
+rule, its tests, its headline or the wiring that runs them is removed or weakened. Pending is derived and never stored, so paying the bill moves the
 badge on its own the next time the row is drawn. ⚠ Back Next Year stays its own
 answer rather than folding into Pending — that one the office sets by hand.
 
