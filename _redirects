@@ -107,7 +107,16 @@
 /home  /index.html  200
 
 # The customer token links. The token in the path IS the credential, which is
-# why robots.txt Disallows all three.
+# why robots.txt Disallows all four.
+#
+# ⭐ /a/ IS THE RSVP ANSWER LINK (added 2026-09-21). A text message is plain
+# characters — it cannot hide three links behind three buttons the way the RSVP
+# email does — so the text carries ONE address and the page it opens carries the
+# three answers. The segment after /a/ is the customer's portal token, exactly
+# as /q/ carries a quote token, so there is no short-code table to keep in step.
+# ⚠ AND IT IS SHORT BECAUSE A TEXT IS BILLED IN 160-CHARACTER SEGMENTS. The old
+# text sent them "…/#/payment?token=<20>" at 65 characters; "…/a/<20>" is 51.
 /q/*  /index.html  200
 /r/*  /index.html  200
 /s/*  /index.html  200
+/a/*  /index.html  200

@@ -1558,7 +1558,8 @@ const RETIRED_CHECKLIST_TERMS = [
       221,  // whether a flagged email is REALLY wrong for that customer, in the live book
       222,  // a real charge to real customers, and only she knows if they paid
       223,  // a real auto-reply arriving, and whether it reads the way she would say it
-      224   // a phone camera on a pencil drawing, and eight of them read off paper
+      224,  // a phone camera on a pencil drawing, and eight of them read off paper
+      225   // a real text, through Google Voice, tapped on a real phone
     ];
     const have = SEED_ROWS.map(function (r) { return r[0]; });
     const missing = MANUAL_ONLY_IDS.filter(function (id) { return !have.includes(id); });
@@ -51463,10 +51464,20 @@ suite('287. The routine route sweep does not bury the notice that matters');
    email on file." The RSVP goes out by email, so these customers are never asked
    at all.
 
-   ⚠ NOTHING NEW WAS NEEDED ON THE CUSTOMER'S SIDE and the checks say so, because
-   the next person to touch this will be tempted to build a page for it:
-   `#/payment?token=…` with no rsvp parameter signs them in, and the FIRST block on
-   that page asks the question with all three answers on it. */
+   ⛔ SUPERSEDED 2026-09-21 — A PAGE WAS BUILT FOR IT, AND ADDIE ASKED FOR IT BY NAME:
+   "We need to send out a text message RSVP which means we need one link which will
+   take people to a page that says Yes, Back Next year and No."
+   ⚠ THE OLD PARAGRAPH IS KEPT BECAUSE IT WAS RIGHT ABOUT THE MECHANISM, and reads
+   convincingly to whoever finds it first. It said: "NOTHING NEW WAS NEEDED ON THE
+   CUSTOMER'S SIDE and the checks say so, because the next person to touch this will
+   be tempted to build a page for it: `#/payment?token=…` with no rsvp parameter signs
+   them in, and the FIRST block on that page asks the question with all three answers
+   on it." Every word of that is still true — the portal link worked, and nothing was
+   broken. What it did not weigh is that the portal draws the whole ACCOUNT first, so
+   on a phone the question we texted somebody is below the fold. `/a/<token>` is the
+   question and nothing else; it still records through handleRsvpLink and
+   handleBackNextYear, so there is still no second opinion about what an answer does.
+   rsvp-text-link.test.js holds the new half. */
 suite('291. An RSVP link to text, for everyone with no email');
 {
   const NL287 = String.fromCharCode(10);
@@ -51556,9 +51567,20 @@ suite('291. An RSVP link to text, for everyone with no email');
       'message fits in one text');
     const realTok = 'a'.repeat(tokLen || 20);
     const link = api(book).link(realTok);
-    check('S287', 'the link is the portal, with no answer baked into it',
-      link === 'https://highlightingutah.com/#/payment?token=' + realTok,
+    /* ⚠ REPOINTED, NOT WEAKENED (2026-09-21). This asserted the PORTAL address,
+       '…/#/payment?token=' + tok, and it correctly went red when the text-message RSVP
+       moved the link to the answer page. The guarantee it was really protecting is the
+       second half of its own old failure message — "an rsvp=yes link ANSWERS for them;
+       this one asks" — and that is unchanged and asserted below: /a/ names no answer,
+       so a link opened by a mail scanner still submits nothing. What changed is only
+       WHICH asking page it opens. */
+    check('S287', 'the link is the answer page, with no answer baked into it',
+      link === 'https://highlightingutah.com/a/' + realTok,
       'got ' + link + ' — an rsvp=yes link ANSWERS for them; this one asks');
+    check('S287', 'and the link names no answer at all',
+      !/rsvp=(yes|no|back)/.test(link),
+      'got ' + link + ' — the whole reason a scanner cannot answer for them is that ' +
+      'there is no answer in the address to submit');
     check('S287', 'and no link at all without a token',
       api(book).link('') === '' && api(book).link(null) === '',
       'half a URL in a text is worse than no text');

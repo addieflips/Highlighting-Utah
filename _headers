@@ -39,6 +39,13 @@
 /s/*
   Cache-Control: no-cache
 
+# And /a/<token>, the RSVP answer page sent by text, for the fourth. This one
+# matters most of the four: a stale copy here is a customer tapping Yes on an
+# old build of the page that decides whether they get a crew this season, and
+# the only symptom would be an answer that never arrives.
+/a/*
+  Cache-Control: no-cache
+
 /js/*
   Cache-Control: no-cache
 

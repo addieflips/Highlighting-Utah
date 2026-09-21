@@ -882,6 +882,16 @@ async function tapRsvpConfirm(page, url) {
      A helper that had to be applied selectively is one that gets missed. */
   const m = /[?&]rsvp=([a-z]+)/i.exec(String(url || ''));
   if (!m) return false;
+  /* ⚠ `rsvp=ask` IS THE TEXT-MESSAGE LINK, AND THERE IS NOTHING HERE TO CONFIRM
+     (2026-09-21). /a/<token> opens a page carrying all three answers, so the tap that
+     records one is a CHOICE — Yes, Back Next Year or No — which this helper cannot make
+     on the caller's behalf. It answers false and leaves the page alone.
+     ⚠ WITHOUT THIS IT WOULD HANG. The pattern above matches "ask" perfectly well, so
+     the old body waited fifteen seconds for #rsvpTapRow, which that page never shows,
+     and every spec that opened an /a/ link would fail on a timeout that had nothing to
+     do with the thing under test. Specs for that page click the button they mean —
+     see test/rsvp-text-link.spec.js. */
+  if (m[1].toLowerCase() === 'ask') return false;
   const back = m[1].toLowerCase() === 'back';
   const row = back ? '#backTapRow' : '#rsvpTapRow';
   const btn = back ? '#backTapConfirmBtn' : '#rsvpTapConfirmBtn';

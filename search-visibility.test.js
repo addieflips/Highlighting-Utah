@@ -142,10 +142,13 @@ if (index) {
 
 /* ------------------------------------------------------------ 5. robots.txt */
 if (robots) {
-  ['/q/', '/r/', '/s/'].forEach(p => {
+  /* ⚠ /a/ JOINED THEM 2026-09-21 — the RSVP answer link sent by text. It is the one
+     of the four where fetching is itself the harm: the page it opens is the one that
+     decides whether a customer gets a crew this season. */
+  ['/q/', '/r/', '/s/', '/a/'].forEach(p => {
     check('robots.txt keeps crawlers off ' + p,
       new RegExp('^Disallow: ' + p.replace(/\//g, '\\/') + '\\s*$', 'm').test(robots),
-      'that path carries a customer portal token — the whole of the credential in their email');
+      'that path carries a customer portal token — the whole of the credential in their email or text');
   });
   check('and it points at the sitemap',
     new RegExp('^Sitemap: ' + CANON + 'sitemap\\.xml\\s*$', 'm').test(robots));

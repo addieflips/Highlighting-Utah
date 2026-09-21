@@ -4151,7 +4151,7 @@
       <div class="rsvp-subtab-panel" id="rsvpsub-text" hidden>
       <div class="card" id="rsvpTextCard" style="margin-bottom:22px; border-color:var(--gold-dim);">
         <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128241; Text the RSVP &mdash; no email on file</h3>
-        <p class="form-note" style="margin:0 0 12px;">The RSVP email cannot reach these customers, so they are never asked. Each link signs that person into their own portal, where the first thing on the page is <strong>&ldquo;Are you having lights this season?&rdquo;</strong> with Yes, Back next year and Not this season &mdash; so one short link is the whole RSVP. Nobody who has already answered is listed, and nobody in their first year, for the same reason the email skips them.</p>
+        <p class="form-note" style="margin:0 0 12px;">The RSVP email cannot reach these customers, so they are never asked. Each link opens one page that asks <strong>&ldquo;Are you having lights this season?&rdquo;</strong> and carries <strong>Yes</strong>, <strong>Back Next Year</strong> and <strong>No</strong> &mdash; the same three answers as the three buttons in the RSVP email, which a text message cannot carry. Their answer is recorded exactly as an emailed one is, so a texted customer needs nothing chasing up separately. Nobody who has already answered is listed, and nobody in their first year, for the same reason the email skips them.</p>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
           <button type="button" class="btn btn-outline btn-sm" id="rsvpTextFindBtn">Find who has no email</button>
           <button type="button" class="btn btn-gold btn-sm" id="rsvpTextCopyAllBtn" style="display:none;">Copy them all for texting</button>
@@ -9690,7 +9690,17 @@ async function rsvpTextTokenFor(item){
   return token;
 }
 function rsvpTextLinkFrom(token){
-  return token ? ('https://highlightingutah.com/#/payment?token=' + token) : '';
+  /* ⭐ /a/<token>, NOT THE PORTAL (2026-09-21). Addie: "we need one link which
+     will take people to a page that says Yes, Back Next year and No."
+     ⚠ THIS USED TO BE #/payment?token=… and the old reasoning is kept because it
+     was sound rather than wrong: that address signs them in, and the FIRST block on
+     the portal really does ask the question with all three answers on it, so the
+     link worked. What it could not do is BE the question — on a phone their whole
+     account draws first, invoice and tabs and all, and the one thing we asked them
+     for is below the fold.
+     ⚠ AND IT IS 14 CHARACTERS SHORTER, which is not cosmetic here: rsvpTextMessageFor
+     is held to one 160-character segment and the address is most of what it spends. */
+  return token ? ('https://highlightingutah.com/a/' + token) : '';
 }
 /* ⚠ PLAIN CHARACTERS, AND THE ADDRESS IS VISIBLE. A text cannot hide a link behind a
    word, so the URL is the message's last line where it is easy to tap and easy to
