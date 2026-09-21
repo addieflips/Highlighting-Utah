@@ -268,6 +268,14 @@ jobs:
       # failure here is a wrong answer nobody can find afterwards, not a broken page.
       - name: Pick a wire colour (the one door that answers it)
         run: npm run test:wirepick
+      # Named on its own because its failure is the silent kind. The texted address is
+      # ONE CLAIM WRITTEN TWICE — admin.html builds it, index.html parses it — so a
+      # change to either side leaves the office texting several hundred customers a link
+      # that opens the marketing site, with nothing on screen and no error anywhere. The
+      # other half it holds is the confirm-tap bypass the answer page needs: that guard
+      # exists because a mail scanner really did answer for two customers at 3:42am.
+      - name: One link, three answers (the text-message RSVP)
+        run: npm run test:textrsvp
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 

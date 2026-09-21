@@ -1558,7 +1558,8 @@ const RETIRED_CHECKLIST_TERMS = [
       221,  // whether a flagged email is REALLY wrong for that customer, in the live book
       222,  // a real charge to real customers, and only she knows if they paid
       223,  // a real auto-reply arriving, and whether it reads the way she would say it
-      224   // a phone camera on a pencil drawing, and eight of them read off paper
+      224,  // a phone camera on a pencil drawing, and eight of them read off paper
+      225   // a real text, through Google Voice, tapped on a real phone
     ];
     const have = SEED_ROWS.map(function (r) { return r[0]; });
     const missing = MANUAL_ONLY_IDS.filter(function (id) { return !have.includes(id); });
@@ -3705,8 +3706,26 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     /RSVP_NO_TOPIC/.test(rsvpConstSrc) && /RSVP_DECLINE_REASONS/.test(rsvpConstSrc),
     'without them the note write throws into its own catch and every check about it ' +
     'passes against a note that was never raised');
+  /* ⭐ AND THE REFERRAL-TOKEN CHAIN, LIFTED ([[REF-43]], 2026-09-21). portalRsvp mints
+     the link the Back Next Year card shows, and `ensureReferralToken` drags in
+     `generateReferralToken`, its alphabet and `referralSeasonNow` — so all four come
+     across together or the sandbox dies on whichever is missing.
+     ⚠ LIFTED, NEVER STUBBED. A stub would answer a token whatever the real one does, and
+     the claim this suite makes about that write — that it is guarded, and that a failure
+     costs the offer rather than the answer — is exactly what a stub decides for us. */
+  const referralTokenSrc = [
+    (fnSrc.match(/const REFERRAL_TOKEN_ALPHABET = '[^']*';/) || [''])[0],
+    extractFn(fnSrc, 'generateReferralToken'),
+    extractFn(fnSrc, 'referralSeasonNow'),
+    (function(){ const f = extractFn(fnSrc, 'ensureReferralToken'); return f ? 'async ' + f : ''; })()
+  ].filter(Boolean).join('\n');
+  check('flow', 'the referral-token chain portalRsvp calls was found',
+    /REFERRAL_TOKEN_ALPHABET/.test(referralTokenSrc) &&
+    /ensureReferralToken/.test(referralTokenSrc) && /referralSeasonNow/.test(referralTokenSrc),
+    'a missing one leaves every Back Next Year throwing a bare ReferenceError, which ' +
+    'reads as "an async suite crashed" rather than as one name missing from a list');
   const fullSrc = [todayStrSrc, rsvpConstSrc, stampSrcs, arrearsSrcs.filter(Boolean).join('\n'),
-                   referralSrcs.filter(Boolean).join('\n'),
+                   referralSrcs.filter(Boolean).join('\n'), referralTokenSrc,
                    seasonYesSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
     .filter(Boolean).join('\n');
   /* ⭐ AND THE SANDBOX IS CHECKED AGAINST WHAT IT CALLS (2026-08-22). This exact
@@ -8288,7 +8307,17 @@ if (!JSDOM) {
           'install — its whole body is inside a try/catch, and it answers nought on a bad read',
         'db.collection':
           'the Rejoined After Recycling note — a direct Firestore call, wrapped in its own ' +
-          'try/catch at the call site rather than inside a helper'
+          'try/catch at the call site rather than inside a helper',
+        /* ⭐ ADDED 2026-09-21 ([[REF-43]]), AND THIS CENSUS IS WHAT FOUND THE BUG. The
+           Back Next Year card shows the customer their own referral link, which needs a
+           token, and the first version awaited it unguarded — so a throw would have told
+           somebody their RSVP failed for an answer already written, and filed an error
+           saying it was lost, over a share link. It catches at the call site AND the
+           helper catches its own write; a blank token simply draws no offer. */
+        ensureReferralToken:
+          'mints the referral link for the Back Next Year card — its own body catches its ' +
+          'write, and the call site catches on top, failing to a blank token that draws ' +
+          'no offer rather than costing the customer their answer'
       };
       const called = [];
       const re = /await\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(/g;
@@ -51474,10 +51503,20 @@ suite('287. The routine route sweep does not bury the notice that matters');
    email on file." The RSVP goes out by email, so these customers are never asked
    at all.
 
-   ⚠ NOTHING NEW WAS NEEDED ON THE CUSTOMER'S SIDE and the checks say so, because
-   the next person to touch this will be tempted to build a page for it:
-   `#/payment?token=…` with no rsvp parameter signs them in, and the FIRST block on
-   that page asks the question with all three answers on it. */
+   ⛔ SUPERSEDED 2026-09-21 — A PAGE WAS BUILT FOR IT, AND ADDIE ASKED FOR IT BY NAME:
+   "We need to send out a text message RSVP which means we need one link which will
+   take people to a page that says Yes, Back Next year and No."
+   ⚠ THE OLD PARAGRAPH IS KEPT BECAUSE IT WAS RIGHT ABOUT THE MECHANISM, and reads
+   convincingly to whoever finds it first. It said: "NOTHING NEW WAS NEEDED ON THE
+   CUSTOMER'S SIDE and the checks say so, because the next person to touch this will
+   be tempted to build a page for it: `#/payment?token=…` with no rsvp parameter signs
+   them in, and the FIRST block on that page asks the question with all three answers
+   on it." Every word of that is still true — the portal link worked, and nothing was
+   broken. What it did not weigh is that the portal draws the whole ACCOUNT first, so
+   on a phone the question we texted somebody is below the fold. `/a/<token>` is the
+   question and nothing else; it still records through handleRsvpLink and
+   handleBackNextYear, so there is still no second opinion about what an answer does.
+   rsvp-text-link.test.js holds the new half. */
 suite('291. An RSVP link to text, for everyone with no email');
 {
   const NL287 = String.fromCharCode(10);
@@ -51567,9 +51606,20 @@ suite('291. An RSVP link to text, for everyone with no email');
       'message fits in one text');
     const realTok = 'a'.repeat(tokLen || 20);
     const link = api(book).link(realTok);
-    check('S287', 'the link is the portal, with no answer baked into it',
-      link === 'https://highlightingutah.com/#/payment?token=' + realTok,
+    /* ⚠ REPOINTED, NOT WEAKENED (2026-09-21). This asserted the PORTAL address,
+       '…/#/payment?token=' + tok, and it correctly went red when the text-message RSVP
+       moved the link to the answer page. The guarantee it was really protecting is the
+       second half of its own old failure message — "an rsvp=yes link ANSWERS for them;
+       this one asks" — and that is unchanged and asserted below: /a/ names no answer,
+       so a link opened by a mail scanner still submits nothing. What changed is only
+       WHICH asking page it opens. */
+    check('S287', 'the link is the answer page, with no answer baked into it',
+      link === 'https://highlightingutah.com/a/' + realTok,
       'got ' + link + ' — an rsvp=yes link ANSWERS for them; this one asks');
+    check('S287', 'and the link names no answer at all',
+      !/rsvp=(yes|no|back)/.test(link),
+      'got ' + link + ' — the whole reason a scanner cannot answer for them is that ' +
+      'there is no answer in the address to submit');
     check('S287', 'and no link at all without a token',
       api(book).link('') === '' && api(book).link(null) === '',
       'half a URL in a text is worse than no text');

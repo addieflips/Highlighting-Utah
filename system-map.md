@@ -83,6 +83,48 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    | **No** | `#/payment?token=…&rsvp=no` | `no` | recorded, then **straight into the member portal** on the Cancel tab (RS-33) |
    | **Back Next Year** | `#/?token=…&rsvp=back` | `backnextyear` | a **pop-up card** — "We look forward to seeing you next year!" (RS-34) |
 
+   ⭐ **AND BY TEXT IT IS ONE LINK, NOT THREE** (2026-09-21, [[RS-63]]). Addie: *"We need to send
+   out a text message RSVP which means we need one link which will take people to a page that says
+   Yes, Back Next year and No."* A text message is plain characters — it cannot hide an address
+   behind a word — so the three buttons above have nowhere to go. The text carries **one** address
+   and the **page** carries the three answers.
+
+   | | Link | What opens |
+   |---|---|---|
+   | **The text** | `highlightingutah.com/a/<token>` | one page asking *"Are you having lights this season?"* with **Yes**, **Back Next Year** and **No** on it |
+
+   - **It answers nothing itself.** Each button hands straight to the function the matching email
+     button already uses — `handleRsvpLink` for yes and no, `handleBackNextYear` for back — so a
+     texted answer and an emailed one are the same write, the same gate-code pop-up, the same
+     decline-reason picker and the same failure message. There is no second opinion about what a
+     no does.
+   - **`/a/` is a Netlify rewrite**, exactly like `/q/` and `/r/`: the bit after it IS the portal
+     token, so there is no lookup table. It is in `_redirects`, `_headers` (no-cache) and
+     robots.txt (Disallow) — the token is the whole of the credential in that customer's text.
+   - **The link names no answer**, and that is what makes it safe to send. `rsvp=yes` is something
+     a mail scanner can submit — it did, for two customers on work addresses at 3:42am. `rsvp=ask`
+     names nothing, so opening the page leaves no answer behind. The tap on one of the three
+     buttons is the human action, so there is no second "are you sure?" step on this route.
+   - **The referral offer is NOT in the text, and that is deliberate** ([[REF-43]]). The
+     message runs 129–143 characters and a second address takes it past 160, so the text
+     would arrive as two — and two links in front of somebody with one question to answer
+     is what the one-link design exists to avoid. They still get the offer:
+     **Back Next Year** is shown their own link on the answer page, and **Yes** or **No**
+     lands them in the member portal where Refer a Friend is a tab. The $25 comes off
+     **next** season for anybody sitting this one out — [[REF-23]] — which is why the
+     card says "next season" where the email says "this season".
+     ⚠ The card draws nothing at all when there is no token: a share box holding half an
+     address is worse than no offer ([[REF-21]]).
+   - **Where the office gets it:** Automation Emails › RSVP › *Text the RSVP — no email on file*.
+     Who is on that list has not changed: customers with no email, who have not really answered,
+     and not in their first year. **There is no Twilio** — the office copies the number and the
+     message and sends it from Google Voice ([[QT-48]]).
+   - **It replaced a portal link**, and the old reasoning was right rather than wrong:
+     `#/payment?token=…` signs them in and the first block on the portal does ask the question. But
+     the portal draws the whole account first, so on a phone the thing we texted them about is
+     below the fold. It is also 14 characters shorter, which matters when the whole message is held
+     to one 160-character segment.
+
    ⚠ **AND THE TOKEN IN THOSE LINKS MUST HAVE BEEN SAVED FIRST** (2026-09-11). `ensureToken` mints one for a record that has none and writes it to `jobAddresses`. It used to swallow a failed write and return the fresh token anyway, commented *"worst case they get a fresh one next visit"* — but the token **is** the link, `findByToken` looks for exactly that string, and there is no next visit: one lost write is a link that can NEVER work for as long as that email sits in their inbox, and the customer is told we cannot find their account. The catch logged **nothing**, so the one failure that silently poisons an outgoing email left no trace to find it by. It now logs an error, **re-reads** the record in case another writer won the race (the nightly batch and a `portalLookup` can both reach a token-less record within a second of each other, and the loser must send the WINNER's token), and returns **empty** rather than a token that cannot resolve — which all three callers already spell for, so the button lands on the ordinary sign-in page instead of on an apology.
 
    ⭐ **A YES ENDS IN THE PORTAL, NOT ON A QUESTION** (changed 2026-09-01, RS-33). Dax: the RSVP buttons

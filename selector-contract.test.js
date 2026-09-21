@@ -55,6 +55,7 @@ const SPEC_TARGETS = {
   'referral-token.spec.js': 'index.html',
   'address-move.spec.js': 'index.html',
   'rsvp-decline-reason.spec.js': 'index.html',
+  'rsvp-text-link.spec.js': 'index.html',
   'portal-stay-signed-in.spec.js': 'index.html',
   'wire-colour.spec.js': 'index.html',
   'portal-sides-on-file.spec.js': 'index.html',
