@@ -68385,20 +68385,45 @@ function attachDeleteHandlers(container){
       const cust = linkedId && typeof jobAddresses !== 'undefined'
         ? jobAddresses.find(function(a){ return a.id === linkedId; }) : null;
       const isRequote = !!cust;
-      if(!confirm(isRequote
-        ? ('Delete this re-quote for ' + ((cust.data && cust.data.name) || 'this customer') + '?' +
-           '\n\nThe QUOTE goes. They stay a customer, keep their number, their invoice ' +
-           'and their place on the schedule \u2014 nothing about them is deleted.' +
+      /* \u2b50 DELETING A QUOTE MOVES IT TO CLOSED (2026-09-21). Owner: "when we delete a
+         quote they should move to closed". The trash can used to destroy the document,
+         so a quote deleted by mistake \u2014 or a customer who comes back next week \u2014 left
+         nothing to find. It now archives, exactly as the Archive button does, and the
+         office follows the card to Closed \u2192 Archived where Restore brings it back.
+         \u26a0 ONLY AN ALREADY-ARCHIVED QUOTE IS REALLY DELETED. The trash can on a card
+         that is already in Closed \u2192 Archived still removes it for good, so junk can
+         be cleared out \u2014 but only after it has sat in Closed first. */
+      const permanent = !!qd.quoteArchived;
+      const who = isRequote ? ((cust.data && cust.data.name) || 'this customer') : (qd.name || 'this quote');
+      if(!confirm(permanent
+        ? ('Permanently delete ' + (isRequote ? 'this re-quote for ' : '') + who + '?' +
+           (isRequote ? '\n\nThe QUOTE goes. They stay a customer \u2014 nothing about them is deleted.' : '') +
            '\n\nThis cannot be undone.')
-        : 'Delete this quote? This cannot be undone.')) return;
+        : ('Delete ' + (isRequote ? 'this re-quote for ' : '') + who + '?' +
+           '\n\nIt moves to Closed \u2192 Archived, where you can restore it.' +
+           (isRequote ? ' They stay a customer, keep their number, their invoice ' +
+             'and their place on the schedule \u2014 nothing about them is deleted.' : '')))) return;
       try{
-        await deleteDoc(doc(db, 'quotes', id));
+        if(permanent){
+          await deleteDoc(doc(db, 'quotes', id));
+        } else {
+          await updateDoc(doc(db, 'quotes', id), {quoteArchived: true, quoteArchivedAt: serverTimestamp(),
+            quoteArchivedReason: 'Deleted in admin'});
+          if(q){
+            Object.assign(q.data, {quoteArchived: true, quoteArchivedReason: 'Deleted in admin'});
+            quoteStageFilter = 'closed';
+            showArchivedQuotes = true;
+            if(typeof renderQuotesList === 'function') renderQuotesList();
+          }
+        }
         if(cust && QUOTE_RAISED_STATUSES.indexOf((cust.data || {}).seasonStatus) !== -1
            && quoteAnswerMayClearStatus(cust.data)){
           await updateDoc(doc(db,'jobAddresses', cust.id), {seasonStatus: 'confirmed'})
             .catch(function(){ /* the quote is gone either way; say so below */ });
         }
-        toast(isRequote ? 'Re-quote deleted \u2014 customer kept' : 'Deleted');
+        toast(permanent
+          ? (isRequote ? 'Re-quote deleted \u2014 customer kept' : 'Deleted')
+          : (isRequote ? 'Re-quote moved to Closed \u2192 Archived \u2014 customer kept' : 'Moved to Closed \u2192 Archived'));
       }catch(err){
         toast('Could not delete that \u2014 try again.');
       }
