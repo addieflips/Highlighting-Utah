@@ -34,6 +34,22 @@ everything."* Ruling [[SCH-85]], building on Addie's [[SCH-48]] ("no exceptions"
   that their badge stops saying Confirmed (`seasonBadgeKey` / `isOutForSeason`) — never a
   gate in the schedule.
 
+## ⭐⭐ HEADLINE RULE — ALL CUSTOMERS SHOWS THE SCHEDULE'S DAY, EVERY TIME IT IS PRESSED
+
+**The hang day on every All Customers row is the day the Schedule has them on — read fresh
+on every press of All Customers, and after every Recalculate.** Dax, 2026-09-21: *"still in
+all customers it doesnt update what day people are scheduled to be hung fix that and make
+that permanent as well for everytime all customers is ever pressed."* Ruling [[SCH-86]].
+
+- **The Schedule is the only source.** `planHangDateFor` → `window.schedulePlanBookings`.
+  The crew-routes stamp (`scheduledDate`) is only a fallback for the moment before the plan
+  has loaded, and the crew-routes system is NEVER asked whether a Schedule day is "real" —
+  it builds its own days, so it always says no. That is what made 279 of 298 correct rows
+  read "⚠ … not on the schedule" on 2026-09-21.
+- **Every press redraws** (`setupDraggableTabBar('custSectionTabs'…)` → `renderAllCustomersTable`),
+  the plan memo lasts one draw only, and `renderAll` / the plan reader call `schedulePlanChanged`.
+- **The gate:** run-all.js **Suite 347**. If it goes red, fix the change, never the suite.
+
 ---
 
 ## ⭐ R-023 — write the ruling down, in the same change

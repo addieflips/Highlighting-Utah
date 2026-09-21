@@ -62729,3 +62729,99 @@ suite('Suite 346. HEADLINE: every Confirmed customer is on a day after Recalcula
     /r\.safetyNet/.test(admin) && /so every Confirmed is on a day/.test(admin),
     'a net that works silently hides the rule that dropped them');
 }
+
+suite('Suite 347. HEADLINE: All Customers shows the Schedule\'s day, every time it is pressed');
+/* ⭐⭐ [[SCH-86]]. Dax, 2026-09-21: "still in all customers it doesnt update what day people
+   are scheduled to be hung fix that and make that permanent as well for everytime all
+   customers is ever pressed."
+
+   ⛔ WHAT WAS WRONG, MEASURED ON THE LIVE PAGE: the pills already carried the Schedule's
+   days, but 279 of the 298 booked rows ALSO read "⚠ … — not on the schedule". The check
+   behind that asks the crew-routes sweep, which builds its own days, whether it holds the
+   house on the Schedule's day. It never does — so every correct date wore a red "not on the
+   schedule", which reads exactly like the page never updating.
+
+   ⛔ IF ONE OF THESE GOES RED, DO NOT WEAKEN IT — All Customers is showing somebody a day
+   that is not the one the Schedule has them on, or calling a real day unreal. */
+{
+  const src = admin.slice(admin.indexOf('function planHangDateFor('),
+                          admin.indexOf('function allCustRouteStatus'));
+  const stSrc = admin.slice(admin.indexOf('function allCustRouteStatus('), admin.indexOf('let allCustPlanStale'));
+  check('S347', 'the All Customers date helpers lift cleanly',
+    !!src && src.indexOf('function nextVisitChip') !== -1 && !!stSrc,
+    'renamed? repoint these lifts rather than deleting the suite');
+  if (src && stSrc) {
+    const saved = { w: global.window, l: global.scheduledRoutesLoaded, c: global.scheduledRoutesCache, e: global.esc };
+    global.esc = real('esc');
+    const api = eval(src + '\n' + stSrc + '\n;({next: nextVisitFor, chip: nextVisitChip, status: allCustRouteStatus, plan: planHangDateFor})');
+    /* The crew-routes system has LOADED and holds NOBODY on any day — the live state that
+       made every plan date read as an orphan. */
+    global.scheduledRoutesLoaded = true;
+    global.scheduledRoutesCache = {};
+    const STAMP = { scheduled: true, scheduledDate: '2026-10-16' };   // the crew-routes system's invented day
+    let PLAN = { c1: { date: '2026-10-02', crew: '1' } };
+    global.window = { schedulePlanBookings: function(){ return PLAN; } };
+
+    const pill = api.chip(STAMP, 'c1');
+    check('S347', 'a customer the Schedule has on a day shows THAT day',
+      /Oct 2/.test(pill) && !/Oct 16/.test(pill),
+      'drew: ' + pill.replace(/<[^>]+>/g, '') + ' — the stamp from the crew-routes system must never win over the Schedule');
+    check('S347', 'and a Schedule day is never called "not on the schedule"',
+      !/not on the schedule/.test(pill) && !/#B42318/.test(pill),
+      'drew: ' + pill.replace(/<[^>]+>/g, '') + ' — that red is what made the page look like it never updated');
+    check('S347', 'and the word above it agrees: Scheduled',
+      api.status(STAMP, 'c1') === 'Scheduled');
+    check('S347', 'a customer the Schedule does not hold reads Unscheduled, whatever the stamp says',
+      api.status(STAMP, 'nobody') === 'Unscheduled' && /No day booked yet/.test(api.chip({}, 'nobody')),
+      'a leftover crew-routes stamp must not keep promising a day');
+
+    /* ⭐ EVERY PRESS READS THE PLAN AGAIN. Recalculate moves somebody; the next draw must
+       show the new day. The per-draw memo must never outlive the draw. */
+    (function(){
+      pendingAsync.push(Promise.resolve().then(function(){ return new Promise(function(r){ setTimeout(r, 0); }); }).then(function(){
+        global.window = { schedulePlanBookings: function(){ return PLAN; } };
+        global.scheduledRoutesLoaded = true; global.scheduledRoutesCache = {};
+        const first = api.plan('c1');
+        PLAN = { c1: { date: '2026-11-03', crew: '2' } };
+        const sameDraw = api.plan('c1');
+        return Promise.resolve().then(function(){}).then(function(){
+          const nextDraw = api.plan('c1');
+          check('S347', 'the next draw after a Recalculate shows the NEW day',
+            first === '2026-10-02' && nextDraw === '2026-11-03',
+            'first ' + first + ', same draw ' + sameDraw + ', next draw ' + nextDraw +
+            ' — a memo that outlives one draw is the page "not updating"');
+          /* The fallback, unchanged: with no plan to ask, a stamp is still checked against
+             the crew routes exactly as SCH-73 built it. */
+          global.window = { schedulePlanBookings: function(){ return null; } };
+          return Promise.resolve().then(function(){}).then(function(){
+            check('S347', 'while the plan cannot answer, an orphaned crew-routes stamp is still flagged',
+              /not on the schedule/.test(api.chip(STAMP, 'c1')),
+              'SCH-73 still stands for the stamp fallback');
+            global.window = saved.w; global.scheduledRoutesLoaded = saved.l;
+            global.scheduledRoutesCache = saved.c; global.esc = saved.e;
+          });
+        });
+      }));
+    })();
+  }
+}
+{
+  /* ---- the wiring that makes it "every time All Customers is pressed" ---- */
+  const tabs = admin.slice(admin.indexOf("setupDraggableTabBar('custSectionTabs'"),
+                           admin.indexOf('function loadHouseMapsIdSet'));
+  check('S347', 'pressing the All Customers tab redraws the table, every press',
+    /if\(tabName === 'all'\) renderAllCustomersTable\(\);/.test(tabs),
+    'a press that shows the last draw shows the days from before the last Recalculate');
+  check('S347', 'every draw makes sure the saved Schedule is being followed',
+    /function renderAllCustomersTable\(\)\{[^]{0,400}window\.scheduleFollowPlanForReaders\(\)/.test(admin));
+  const reader = admin.slice(admin.indexOf('window.scheduleFollowPlanForReaders=function(){'),
+                             admin.indexOf('let __started=false;'));
+  check('S347', 'a Schedule arriving from any device redraws All Customers',
+    /hydrate\(s\.data\(\)\)[^]*window\.schedulePlanChanged\(\)/.test(reader));
+  check('S347', 'and so does every change to the Schedule on this device, Recalculate included',
+    /function renderAll\(\)\{[^]*?window\.schedulePlanChanged\(\);\}/.test(admin));
+  const chip = extractFn(admin, 'nextVisitChip');
+  check('S347', 'the orphan warning is only ever asked about a date that did NOT come from the Schedule',
+    /const orphan = !v\.fromPlan && scheduledDayIsReal\(/.test(chip),
+    'drop the !v.fromPlan and every Schedule day reads "not on the schedule" again');
+}
