@@ -126,6 +126,37 @@ test.describe('One link opens the three answers', () => {
       .toBe('backnextyear');
   });
 
+  /* ⭐ THE REFERRAL OFFER ([[REF-43]]). The text cannot carry the link — a second
+     address takes the message past one 160-character segment — so the offer lives on
+     the page. Back Next Year is the only answer that never loads the portal, so it is
+     the only screen that has to carry it; a yes and a no are handed to the portal,
+     where Refer a Friend is a tab.
+     ⚠ THIS IS A BROWSER SPEC BECAUSE THE CLAIM IS A BOX ON A SCREEN carrying a real
+     address, drawn only after the answer came back. A regex over index.html cannot see
+     any of that, and this repo has shipped a message that was in the source and could
+     never reach the page at least three times. */
+  test('Back Next Year is shown their own referral link', async ({ page }) => {
+    await openTextLink(page);
+    await page.locator('#rsvpAskBackBtn').click();
+    await expect(page.locator('#backReferBlock')).toBeVisible();
+    await expect(page.locator('#backReferLink'))
+      .toHaveValue(new RegExp('/r/' + CUSTOMERS.standard.record.referralToken + '$'));
+    /* ⚠ AND IT PROMISES THE RIGHT SEASON. [[REF-23]]: somebody sitting this one out has
+       no bill for the $25 to come off, so it is next season's. */
+    await expect(page.locator('#backReferBlock')).toContainText(/next season/i);
+  });
+
+  /* ⛔ THE "YES DOES NOT DRAW IT" CHECK IS DELIBERATELY NOT HERE, and that is worth
+     writing down rather than leaving as a gap. It was written, it passed, and the
+     red-check proved it COULD NOT FAIL: #backReferBlock lives in #page-home, which
+     `rsvp-minimal` without `rsvp-back` hides with !important — so on a yes it is hidden
+     because its whole PAGE is, not because anything decided not to draw it. Making the
+     stub hand a token to every answer left all eleven tests green.
+     ⭐ SO THAT CLAIM IS HELD WHERE IT CAN BITE: rsvp-text-link.test.js asserts
+     showBackReferral is called from handleBackNextYear and from nowhere else, and that
+     the server mints a token for that answer alone. A check that cannot fail is worse
+     than no check, because it reads as coverage. */
+
   /* ⚠ AN IMPATIENT DOUBLE TAP MUST NOT SEND TWO DIFFERENT ANSWERS. On a phone the
      second tap lands on whatever is under the finger, which is a different button —
      and the last answer written is the one that decides whether a crew is sent. */

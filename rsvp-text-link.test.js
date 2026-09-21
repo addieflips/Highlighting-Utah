@@ -382,6 +382,154 @@ check('the texted link asks rather than answering',
   /rsvp=ask/.test(codeOnly) && !/\/a\/[^'"]*rsvp=(yes|no|back)/.test(codeOnly),
   'an answer in the address is a thing a mail scanner can submit');
 
+/* ========================================== 5. the referral offer ([[REF-43]])
+ * The RSVP email carries {{referral_button}} whatever the customer answers, so an
+ * emailed customer always has their link. A texted one has none: measured, the message
+ * runs 129–143 characters and a second address takes it to 199–213, against a 160-
+ * character segment — and two links in front of somebody who has one question to answer
+ * is the thing /a/ was built to avoid. So the offer lives on the PAGE.
+ *
+ * ⛔ AND ONLY ON THE BACK NEXT YEAR CARD, because that is the only answer whose screen
+ * is the end of the journey. A yes and a no are handed to the portal, which draws Refer
+ * a Friend from the token portalLookup mints. Back Next Year never loads the portal —
+ * so that customer, and only that customer, had no route to their own link at all.
+ * ============================================================================== */
+const fns = read('functions/index.js');
+
+check('the text itself carries no referral link, deliberately',
+  linkFn && !/\/r\//.test(lift(admin, 'rsvpTextMessageFor') || ''),
+  'a second address takes the message past one 160-character segment and puts two ' +
+  'links in front of somebody who has one question to answer — the offer is the page\'s job');
+/* ⚠ [[REF-21]]'s RULE IS THAT AN RSVP SEND WITH NO OFFER IN IT SAYS SO. A referral that
+   silently is not going out produced the same green "Done — sent 312" as one where
+   everybody got theirs, and only reading the code could answer why. */
+check('and the office is told where the offer appears instead',
+  /The referral offer is not in the text/.test(admin) &&
+  /Refer a Friend is a tab/.test(admin),
+  'a send carrying no referral must say so before it goes, not leave it to be discovered');
+
+/* ---- the server hands back a token, and only for the one answer that needs it ---- */
+const rsvpFn = (() => {
+  const at = fns.indexOf('exports.portalRsvp');
+  if (at === -1) return '';
+  const end = fns.indexOf('\n});', at);
+  return end === -1 ? '' : fns.slice(at, end + 4);
+})();
+check('portalRsvp is findable', !!rsvpFn, 'nothing below is looking at the server');
+if (rsvpFn) {
+  const body = stripComments(rsvpFn);
+  check('it returns a referral token only for Back Next Year',
+    /response === 'backnextyear'[\s\S]{0,120}ensureReferralToken/.test(body) &&
+    /referralToken:/.test(body),
+    'a yes and a no go to the portal, which mints and draws its own — returning one ' +
+    'for them is a field nobody reads, and minting one is a write nobody asked for');
+  /* ⚠ THE SEASON RULE IS ensureReferralToken's AND IS NOT RE-DECIDED HERE. [[REF-25]]
+     and [[REF-42]] govern what a link from a previous season is worth; minting a raw one
+     would hand out a token that bypasses all of it. */
+  check('and it mints through ensureReferralToken, never a bare generate',
+    /ensureReferralToken\(match\.id, match\.data\)/.test(body) &&
+    !/generateReferralToken\(/.test(body),
+    'a raw token here would sidestep the season stamp every other referral path respects');
+}
+
+/* ---- the card, run against a real DOM ---- */
+const backFn = lift(index, 'showBackReferral');
+check('index.html has showBackReferral', !!backFn, 'the block the card draws');
+const backHtml = sliceCard('backNextYearCard');
+check('the Back Next Year card markup is findable',
+  !!backHtml && backHtml.indexOf('backReferBlock') !== -1,
+  'the offer lives inside #backNextYearCard');
+
+/* ⚠ "NEXT SEASON'S", THE ONE WORD THAT DIFFERS FROM THE EMAIL'S OWN SENTENCE. [[REF-23]]:
+   somebody who shares while sitting the season out has no bill this year, so their $25
+   comes off the next one. This is the single audience for whom "this season" cannot be
+   true, so the email's wording copied across would be a promise against a bill that will
+   never exist. */
+if (backHtml) {
+  check('the offer says the $25 comes off NEXT season',
+    /next season/i.test(backHtml) && !/off this season/i.test(backHtml),
+    'REF-23: this customer has no bill this year, so "this season" is a discount ' +
+    'against a bill that will never exist');
+}
+
+if (JSDOM && backFn && backHtml) {
+  function runBack(token) {
+    const dom = new JSDOM('<!doctype html><body>' + backHtml + '</body>');
+    const doc = dom.window.document;
+    const shared = [];
+    /* portalReferralLink is LIFTED — the address is the thing under test, and a stub
+       would let this card start handing out a link that differs from the portal's.
+       portalShareLink is a recorder: what it does is the portal's behaviour, already
+       proved there; what matters here is that the button reaches it at all. */
+    const fn = new Function('document', 'window', 'SHARED',
+      (lift(index, 'portalReferralLink') || '') +
+      '\nvar portalShareLink = function(i, s){ SHARED.push(i && i.value); };' +
+      backFn + '\nreturn showBackReferral;')(doc, dom.window, shared);
+    fn(token);
+    return { doc, shared, block: doc.getElementById('backReferBlock') };
+  }
+
+  const withTok = runBack('ab12cd34');
+  check('a real token draws the offer with the portal\'s own address',
+    withTok.block.style.display === 'block' &&
+    /\/r\/ab12cd34$/.test(withTok.doc.getElementById('backReferLink').value),
+    'got display ' + JSON.stringify(withTok.block.style.display) + ' and link ' +
+    JSON.stringify(withTok.doc.getElementById('backReferLink').value));
+  check('and the button hands the link to the portal\'s own share handler',
+    (withTok.doc.getElementById('backReferShareBtn').click(), withTok.shared.length === 1 &&
+     /\/r\/ab12cd34$/.test(withTok.shared[0])),
+    'got ' + JSON.stringify(withTok.shared) + ' — a second share implementation here ' +
+    'would be the one that breaks in the in-app browser a texted link opens in');
+
+  /* ⛔ THE GUARD [[REF-21]] ASKS FOR: nothing rather than a dead link. */
+  ['', null, undefined, '   '].forEach(t => {
+    const none = runBack(t);
+    check('no token (' + JSON.stringify(t) + ') draws no offer at all',
+      none.block.style.display !== 'block',
+      'a share box holding half an address is worse than no offer');
+  });
+}
+
+/* ⚠ AND IT IS DRAWN AFTER THE ANSWER IS RECORDED, never before or on a failure. Above
+   the confirmation it reads as something to do before their answer counts; on the error
+   path it invites somebody to share a link while being told we could not save what they
+   said. */
+const backHandler = lift(index, 'handleBackNextYear');
+if (backHandler) {
+  const b = stripComments(backHandler);
+  const call = b.indexOf('showBackReferral(');
+  const okMsg = b.indexOf('look forward to seeing you next year');
+  check('the offer is drawn only after the answer comes back ok',
+    call !== -1 && okMsg !== -1 && call > okMsg,
+    'it must sit inside the success branch, after the confirmation');
+  check('and never on the failure path',
+    !/catch\([\s\S]*showBackReferral/.test(b),
+    'inviting somebody to share a link while telling them their answer was not saved');
+}
+/* ⛔ AND IT IS DRAWN FOR THAT ANSWER AND NO OTHER — asserted HERE because a browser spec
+   cannot express it. One was written and the red-check proved it could not fail:
+   #backReferBlock sits in #page-home, which `rsvp-minimal` without `rsvp-back` hides
+   with !important, so on a yes it is invisible because its whole PAGE is rather than
+   because anything decided not to draw it. Making the stub hand a token to every answer
+   left every test green. This one bites: wire the call into handleRsvpLink — the tidy-up
+   somebody will reach for, reasoning that everybody should see the offer — and it fails. */
+const askFnBody = askFn ? stripComments(askFn) : '';
+const linkHandler = lift(index, 'handleRsvpLink');
+/* ⚠ THE DECLARATION IS NOT A CALL, and the first draft of this counted it as one and so
+   failed on correct code — `function showBackReferral(` matches any "name followed by a
+   bracket" pattern just as well as a call does. Subtract it rather than loosening the
+   match, which would stop counting the calls too. */
+const codeIdx = stripComments(index);
+const refCalls = (codeIdx.match(/(?:^|[^.\w])showBackReferral\s*\(/g) || []).length -
+                 (codeIdx.match(/function\s+showBackReferral\s*\(/g) || []).length;
+check('showBackReferral is called from the Back Next Year handler and nowhere else',
+  refCalls === 1 &&
+  !/showBackReferral\s*\(/.test(askFnBody) &&
+  !/showBackReferral\s*\(/.test(stripComments(linkHandler || '')),
+  'a yes and a no are handed to the portal, which draws its own Refer a Friend tab — ' +
+  'a second offer on the card would compete with it, and on those routes the card is ' +
+  'torn down anyway, so it would be drawn where nobody can see it');
+
 /* ------------------------------------------------------------------ summary */
 console.log('');
 console.log('rsvp-text-link — one link, three answers');

@@ -105,6 +105,16 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
      a mail scanner can submit — it did, for two customers on work addresses at 3:42am. `rsvp=ask`
      names nothing, so opening the page leaves no answer behind. The tap on one of the three
      buttons is the human action, so there is no second "are you sure?" step on this route.
+   - **The referral offer is NOT in the text, and that is deliberate** ([[REF-43]]). The
+     message runs 129–143 characters and a second address takes it past 160, so the text
+     would arrive as two — and two links in front of somebody with one question to answer
+     is what the one-link design exists to avoid. They still get the offer:
+     **Back Next Year** is shown their own link on the answer page, and **Yes** or **No**
+     lands them in the member portal where Refer a Friend is a tab. The $25 comes off
+     **next** season for anybody sitting this one out — [[REF-23]] — which is why the
+     card says "next season" where the email says "this season".
+     ⚠ The card draws nothing at all when there is no token: a share box holding half an
+     address is worse than no offer ([[REF-21]]).
    - **Where the office gets it:** Automation Emails › RSVP › *Text the RSVP — no email on file*.
      Who is on that list has not changed: customers with no email, who have not really answered,
      and not in their first year. **There is no Twilio** — the office copies the number and the

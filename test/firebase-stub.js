@@ -403,9 +403,22 @@ const FAKE_FUNCTIONS_MODULE = `
       /* The gate code rides back on the answer, exactly as the real one does,
          so the step that follows can CONFIRM a code we hold rather than ask a
          customer who already told us. */
+      /* ⭐ AND THE REFERRAL TOKEN, FOR BACK NEXT YEAR ONLY ([[REF-43]], 2026-09-21) —
+         the same condition the real one applies, for the same reason. That card is the
+         one answer that never loads the portal, so it is the only screen that has to be
+         handed a link; a yes and a no are given the portal, which mints and draws its
+         own. ⚠ MIRRORING THE CONDITION MATTERS AS MUCH AS THE FIELD: a fake that
+         returned one for every answer would let a spec prove the offer appears on a
+         screen the real server leaves blank — which is the stale-stub trap this file's
+         own header records, where a spec went green for eight days against the reverse
+         of what the app did. */
+      const referralToken = response === 'backnextyear'
+        ? String((hit.record && hit.record.referralToken) || '')
+        : '';
       return { ok: true, rsvpStatus: response,
                arrearsOutstanding: arrearsOutstanding,
                arrearsSeason: arrearsSeason,
+               referralToken: referralToken,
                /* ⚠ AND WHETHER A REASON IS ALREADY ON FILE ([[RS-60]]), exactly as the
                   server returns it — the portal on this route has no other way to know,
                   and a fake that left it out would let a spec prove the picker is not

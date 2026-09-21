@@ -3706,8 +3706,26 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     /RSVP_NO_TOPIC/.test(rsvpConstSrc) && /RSVP_DECLINE_REASONS/.test(rsvpConstSrc),
     'without them the note write throws into its own catch and every check about it ' +
     'passes against a note that was never raised');
+  /* ⭐ AND THE REFERRAL-TOKEN CHAIN, LIFTED ([[REF-43]], 2026-09-21). portalRsvp mints
+     the link the Back Next Year card shows, and `ensureReferralToken` drags in
+     `generateReferralToken`, its alphabet and `referralSeasonNow` — so all four come
+     across together or the sandbox dies on whichever is missing.
+     ⚠ LIFTED, NEVER STUBBED. A stub would answer a token whatever the real one does, and
+     the claim this suite makes about that write — that it is guarded, and that a failure
+     costs the offer rather than the answer — is exactly what a stub decides for us. */
+  const referralTokenSrc = [
+    (fnSrc.match(/const REFERRAL_TOKEN_ALPHABET = '[^']*';/) || [''])[0],
+    extractFn(fnSrc, 'generateReferralToken'),
+    extractFn(fnSrc, 'referralSeasonNow'),
+    (function(){ const f = extractFn(fnSrc, 'ensureReferralToken'); return f ? 'async ' + f : ''; })()
+  ].filter(Boolean).join('\n');
+  check('flow', 'the referral-token chain portalRsvp calls was found',
+    /REFERRAL_TOKEN_ALPHABET/.test(referralTokenSrc) &&
+    /ensureReferralToken/.test(referralTokenSrc) && /referralSeasonNow/.test(referralTokenSrc),
+    'a missing one leaves every Back Next Year throwing a bare ReferenceError, which ' +
+    'reads as "an async suite crashed" rather than as one name missing from a list');
   const fullSrc = [todayStrSrc, rsvpConstSrc, stampSrcs, arrearsSrcs.filter(Boolean).join('\n'),
-                   referralSrcs.filter(Boolean).join('\n'),
+                   referralSrcs.filter(Boolean).join('\n'), referralTokenSrc,
                    seasonYesSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
     .filter(Boolean).join('\n');
   /* ⭐ AND THE SANDBOX IS CHECKED AGAINST WHAT IT CALLS (2026-08-22). This exact
@@ -8289,7 +8307,17 @@ if (!JSDOM) {
           'install — its whole body is inside a try/catch, and it answers nought on a bad read',
         'db.collection':
           'the Rejoined After Recycling note — a direct Firestore call, wrapped in its own ' +
-          'try/catch at the call site rather than inside a helper'
+          'try/catch at the call site rather than inside a helper',
+        /* ⭐ ADDED 2026-09-21 ([[REF-43]]), AND THIS CENSUS IS WHAT FOUND THE BUG. The
+           Back Next Year card shows the customer their own referral link, which needs a
+           token, and the first version awaited it unguarded — so a throw would have told
+           somebody their RSVP failed for an answer already written, and filed an error
+           saying it was lost, over a share link. It catches at the call site AND the
+           helper catches its own write; a blank token simply draws no offer. */
+        ensureReferralToken:
+          'mints the referral link for the Back Next Year card — its own body catches its ' +
+          'write, and the call site catches on top, failing to a blank token that draws ' +
+          'no offer rather than costing the customer their answer'
       };
       const called = [];
       const re = /await\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(/g;

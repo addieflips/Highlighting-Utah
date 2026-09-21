@@ -1194,6 +1194,30 @@
       <div id="backTapRow" style="display:none; justify-content:center; margin-top:18px;">
         <button type="button" class="btn btn-gold" id="backTapConfirmBtn"></button>
       </div>
+      <!-- ⭐ THEIR REFERRAL LINK, ON THE ONE ANSWER THAT NEVER REACHES THE PORTAL
+           (2026-09-21, [[REF-43]]). A yes and a no are both handed to the portal, which
+           has a Refer a Friend tab; Back Next Year ends here, so from a texted RSVP
+           ([[RS-63]]) this customer had no route to their own link at all. The RSVP
+           EMAIL carries {{referral_button}} whatever they answer, so an emailed customer
+           always had one — a texted one had none, and the text cannot carry it because
+           the whole message is held to one 160-character segment.
+
+           ⚠ "NEXT SEASON'S BILL", NOT "THIS SEASON'S" — the one word that differs from
+           the email's own sentence, and [[REF-23]] is why: somebody who shares while
+           sitting the season out has no bill this year, so their $25 comes off the next
+           one. Saying "this season" to the one audience it cannot be true for would be
+           the page promising a discount against a bill that will never exist.
+
+           ⚠ HIDDEN UNTIL THERE IS A REAL TOKEN. [[REF-21]]'s rule is that these paths
+           emit nothing rather than a dead link, and a share box holding half a URL is
+           worse than no offer. showBackReferral returns without drawing anything. -->
+      <div id="backReferBlock" style="display:none; margin-top:22px; padding-top:18px; border-top:1px solid var(--line); text-align:left;">
+        <div style="font-size:15px; font-weight:700; color:var(--ink); margin-bottom:6px;">Know somebody who wants lights?</div>
+        <p style="font-size:13.5px; color:var(--slate); line-height:1.55; margin:0 0 12px;">Send them your own link and we take <strong>$25 off next season&rsquo;s bill</strong> when they sign up &mdash; as many times as you like.</p>
+        <input type="text" id="backReferLink" readonly value="" style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--snow); font-family:inherit; font-size:13px; color:var(--ink);">
+        <button type="button" class="btn btn-gold btn-block" id="backReferShareBtn" style="margin-top:10px;">Copy My Link</button>
+        <p id="backReferStatus" role="status" aria-live="polite" style="font-size:13px; color:var(--slate); margin:8px 0 0;"></p>
+      </div>
     </div>
   </div>
 
@@ -6921,6 +6945,40 @@ function handleRsvpLink(token, rsvpValue, opts){
     if(confirmMsg) confirmMsg.textContent = rsvpMaybeSavedText(err, rsvpValue === 'yes' ? 'Answering Yes to the RSVP email' : 'Answering No to the RSVP email');
   }
 }
+/* ⭐ THE REFERRAL OFFER ON THE BACK NEXT YEAR CARD (2026-09-21, [[REF-43]]).
+ *
+ * ⛔ IT NEVER DRAWS WITHOUT A REAL TOKEN. portalRsvp returns one only for this answer,
+ * and returns '' if anything went wrong minting it — [[REF-21]]'s rule is that every
+ * referral path emits NOTHING rather than a dead link, because a share box holding half
+ * an address is worse than no offer at all. Returning early is the whole guard.
+ *
+ * ⚠ THE ADDRESS IS BUILT BY portalReferralLink, THE PORTAL'S OWN BUILDER, and the
+ * sharing is done by portalShareLink, the portal's own handler — neither is reimplemented
+ * here. That matters more than it looks: portalShareLink already knows that a dismissed
+ * share sheet is not a failure, that navigator.clipboard is absent over plain http and
+ * inside some in-app browsers, and to fall back to select-and-execCommand. An in-app
+ * browser is exactly where a TEXTED link is opened, so a second copy written here would
+ * be the one that breaks for the audience this whole feature is for.
+ *
+ * ⚠ onclick, NOT addEventListener, for the reason rsvpAwaitConfirmTap gives: a second
+ * RSVP link opened in the same tab re-runs this, and listeners would stack.
+ */
+function showBackReferral(token){
+  var block = document.getElementById('backReferBlock');
+  var input = document.getElementById('backReferLink');
+  var btn = document.getElementById('backReferShareBtn');
+  var status = document.getElementById('backReferStatus');
+  if(!block || !input || !btn) return;
+  var t = String(token || '').trim();
+  if(!t) return;
+  input.value = (typeof portalReferralLink === 'function') ? portalReferralLink(t) : '';
+  if(!input.value) return;
+  if(status) status.textContent = '';
+  btn.onclick = function(){
+    if(typeof portalShareLink === 'function') portalShareLink(input, status);
+  };
+  block.style.display = 'block';
+}
 /* ⚠ `opts` IS ONLY EVER {tapped:true}, AND ONLY EVER FROM handleRsvpAsk — see
    rsvpAwaitConfirmTap. The router calls this with one argument, as it always has. */
 function handleBackNextYear(token, opts){
@@ -6947,6 +7005,11 @@ function handleBackNextYear(token, opts){
     }
     if(title) title.style.display = 'block';
     if(msg) msg.textContent = 'We look forward to seeing you next year!';
+    /* ⚠ AFTER THE ANSWER IS RECORDED, NEVER BEFORE. The offer is a thank-you, not a
+       condition — drawn above the confirmation it would read as something to do before
+       their answer counts. And on a failure below it is never drawn at all, so nobody
+       is invited to share a link while being told we could not save what they said. */
+    showBackReferral(res && res.referralToken);
   }).catch(function(err){
     if(msg) msg.textContent = rsvpMaybeSavedText(err, 'Answering Back Next Year from the RSVP email');
   });
