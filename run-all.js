@@ -5004,10 +5004,24 @@ console.log('\n=== 7. Health check engine ===');
     if (at > 0) { for (end = index.indexOf('{', at);; end++) { if (index[end] === '{') d++; else if (index[end] === '}') { d--; if (!d) break; } } }
     const notify = at > 0 ? index.slice(at, end + 1) : '';
     check('health', 'the "new message" alert was found', !!notify);
+    /* ⚠ REPOINTED FOR [[MSG-30]], NOT WEAKENED. It matched `emailjs.send(...).catch(`
+       — the shape the handling happened to take — and the send is `.then().catch()`
+       now because the outcome has to be REPORTED rather than swallowed. The guarantee
+       is unchanged and is asserted directly: a refused send is still handled here and
+       never left as an unhandled rejection. §7's slow-fuse shape, again. */
     check('health', 'a send the mail service refuses is caught, not an unhandled rejection',
-      /emailjs\.send\([^;]*\)\s*\r?\n?\s*\.catch\(/.test(notify),
+      /emailjs\.send\([\s\S]*?\)\s*\r?\n?\s*\.then\(/.test(notify) &&
+      /\.catch\(function\(err\)\{[\s\S]*?ok:\s*false/.test(stripComments(notify)),
       'emailjs.send returns a promise; the try/catch around it only ever caught a ' +
       'synchronous throw, which is not how a refused send arrives');
+    /* ⛔ AND EVERY EXIT ANSWERS. This is the half [[MSG-30]] made load-bearing: the
+       Inbox copy is now written only when this function says the Gmail did not go, so
+       an exit that reported nothing — or reported success — would lose the message at
+       both ends. Counted, because three exits and one success path is four answers. */
+    check('health', 'every path out of the alert reports whether it sent',
+      (stripComments(notify).match(/ok:\s*(true|false)/g) || []).length >= 4,
+      'a path that answers nothing is read as a failure at best and as a success at ' +
+      'worst — one loses the Gmail, the other loses the message entirely');
     /* ⚠ EACH EXIT, NOT A TOTAL. The first version counted console calls and asked for
        three or more — which passed with one of the three exits made silent again,
        because the others made up the number. Red-checking caught it. */
@@ -8563,9 +8577,29 @@ if (!JSDOM) {
   const cancelSrc = cancelStart > -1 ? sectionFrom(idx, cancelStart) : '';
   check('cancel-flow', 'cancelFinalBtn handler found in index.html', cancelStart > -1,
     'renamed or removed — update this test rather than deleting it');
+  /* ⚠ REPOINTED FOR [[MSG-30]], AND THE GUARANTEE GOT WIDER RATHER THAN NARROWER.
+     It matched `updateDoc(cancelMsgRef` — a PATCH applied to an Inbox row that was
+     always written first. Gmail-first means there usually is no row to patch, so the
+     warning is folded into the message text before it is sent, which is why the office
+     now reads it wherever the message lands instead of only in the Inbox copy. */
   check('cancel-flow', 'a failed account-status save is surfaced, not just console.error\'d',
-    /catch\(cancelErr\)\{[\s\S]{0,700}updateDoc\(cancelMsgRef/.test(cancelSrc),
-    'the office\'s Inbox message would read like nothing went wrong even when the account never actually got flagged');
+    /catch\(cancelErr\)\{[\s\S]{0,700}cancelReason \+=/.test(stripComments(cancelSrc)) &&
+    /could not be flagged Cancellation Requested/.test(cancelSrc),
+    'the office\'s message would read like nothing went wrong even when the account never actually got flagged');
+  /* ⛔ AND THE WARNING HAS TO REACH THE THING THAT IS ACTUALLY SENT. Folding it into a
+     variable proves nothing if the telling still uses the untouched reason — that is the
+     mechanism-without-wiring trap this repo has shipped twice. */
+  check('cancel-flow', 'the folded warning is what gets sent, not the bare reason',
+    /tellOffice\(\{[\s\S]*?message:\s*cancelReason[\s\S]*?\},\s*\{[\s\S]*?message:\s*cancelReason/.test(stripComments(cancelSrc)),
+    'the warning would be composed and then dropped — the office hears about the ' +
+    'cancellation and never that the account was left unflagged');
+  /* ⛔ AND THE SAVE IS TRIED BEFORE THE TELLING, which is the whole ordering. The other
+     way round the message goes out saying nothing is wrong and the failure arrives after
+     there is anywhere left to put it. */
+  check('cancel-flow', 'the account save is attempted before the office is told',
+    cancelSrc.indexOf("section: 'cancel'") > -1 &&
+    cancelSrc.indexOf("section: 'cancel'") < cancelSrc.indexOf('tellOffice('),
+    'telling the office first makes the flag warning unreachable');
 })();
 
 // =====================================================================
@@ -21352,9 +21386,18 @@ suite('Suite 63. Changing your sides in the Member Portal');
       /portalSidesListsEqual\(pickedList, beforeList\) && pickedCount === beforeCount/.test(body) &&
       /statusEl\.textContent = "That is already what we have/.test(body),
       'warning on a save that changes nothing trains people to dismiss the one that matters');
+    /* ⚠ REPOINTED FOR [[MSG-30]]. It named `notifyBusinessOfMessage` — the sender —
+       and this path calls `tellOffice`, the funnel that sends and then falls back to
+       the Inbox. The guarantee is the same sentence it always was and is what is
+       asserted: somebody hears about it. */
     check('S63', 'the office is told, not just the customer',
-      /Existing Customer - Sides Changed/.test(body) && /notifyBusinessOfMessage/.test(body),
+      /Existing Customer - Sides Changed/.test(body) && /tellOffice\(/.test(body),
       'a promise of a re-quote that reaches nobody is worse than no promise');
+    /* ⛔ AND THIS PATH USED TO HAVE NO SECOND CHANCE AT ALL — it emailed and wrote
+       nothing, so a refused send told nobody a member was owed a re-quote. */
+    check('S63', 'and a refused email still leaves a record',
+      /tellOffice\(\{[\s\S]*?\},\s*\{[\s\S]*?folder:\s*'Inbox'/.test(stripComments(body)),
+      'Gmail-only on this path means a blocked send loses the re-quote silently');
   }
 
   /* ---- ⭐ and the server makes it real ---- */
@@ -61170,11 +61213,15 @@ suite('331. The colours a customer ticked reach the Gmail alert');
      calls the function itself: delete `colors` from the two form handlers and every
      behavioural check here stays green while nothing reaches a real inbox. That is the
      exact miss red-checking found on the Edit Customer tab strip. */
+  /* ⚠ REPOINTED FOR [[MSG-30]]: both forms call `tellOffice` now, which hands the email
+     half straight to the function above. The claim is unchanged — the ticked colours
+     reach the ALERT — and it is still asserted on the email argument, which is the first
+     one, never on the Inbox row that only exists when the send failed. */
   [['contactFormEl',      'the home-page contact form'],
    ['quickMessageFormEl', 'the home-page Send a Message form']].forEach(function(pair){
     const body = sectionFrom(idx, idx.indexOf('var ' + pair[0]));
     check('S331', pair[1] + ' hands its ticked colours to the alert',
-      /notifyBusinessOfMessage\(\{[\s\S]*colors:\s*fd\.getAll\('colors'\)/.test(body),
+      /tellOffice\(\{[\s\S]*?colors:\s*fd\.getAll\('colors'\)[\s\S]*?\},\s*\{/.test(stripComments(body)),
       'this form collects colours, stores them, and still tells the email nothing');
   });
 }
@@ -62201,15 +62248,30 @@ suite('Suite 342. Everything arrives in the Inbox, and a deleted folder stays de
   /* ⚠ sectionFrom, NEVER a fixed-length window. This file's own structure gate refuses
      `slice(at, at + N)` by name and caught the first draft doing it — those pass today and
      fail on correct code the moment the block above them grows. */
+  /* ⚠ REPOINTED FOR [[MSG-30]], AND THE DOOR IT WATCHES MOVED. These two read the
+     SERVER's copy of the move note, because `portalSave` used to write it there on every
+     move while the browser emailed the Gmail — the double-post Addie asked to end. The
+     server write is gone and the browser owns the note now, writing it only when the
+     Gmail did not go. The [[MSG-28]] rule it was really protecting — this topic lands in
+     the Inbox, never in a folder we picked — is unchanged and is asserted on the copy
+     that actually gets written. */
+  const publicSrc = read('index.html');
   const moveNote = (() => {
-    const at = fns.indexOf("topic: 'Existing Customer - Address Changed',");
-    return at === -1 ? '' : sectionFrom(fns, at);
+    const at = publicSrc.indexOf("topic: 'Existing Customer - Address Changed', folder:");
+    return at === -1 ? '' : sectionFrom(publicSrc, at);
   })();
-  check('S342', 'the move note was found in functions/index.js', !!moveNote,
-    'an empty slice passes the check below without reading the server at all');
-  check('S342', 'and the server files it to the Inbox too',
+  check('S342', 'the move note was found in index.html', !!moveNote,
+    'an empty slice passes the check below without reading the fallback row at all');
+  check('S342', 'and the fallback row is filed to the Inbox',
     /folder: 'Inbox'/.test(moveNote) && !/folder: 'Member Portal'/.test(moveNote),
-    'browser-side alone leaves the same topic in two folders depending on the door');
+    'a folder of our choosing puts the same topic in two places depending on the door');
+  /* ⛔ AND THE SERVER MUST NOT WRITE ITS OWN COPY ANY MORE, which is the whole of
+     [[MSG-30]] for this path. Re-adding it there restores the double-post silently:
+     both notes are individually correct, and only a comparison can see there are two. */
+  check('S342', 'the server no longer writes a move note of its own',
+    !/collection\('messages'\)\.add\(\{[\s\S]{0,400}Existing Customer - Address Changed/
+      .test(stripComments(fns)),
+    'one move would reach the Gmail AND the Inbox every time, whatever the browser did');
 
   /* ⭐ THE SECOND FAULT. Every folder already had a delete button and it did not work — not
      because the delete failed, but because the seeder re-created it on the next login. */

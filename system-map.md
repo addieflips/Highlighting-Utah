@@ -4914,6 +4914,52 @@ the *To Email* on the EmailJS template, set on emailjs.com. Three filled boxes m
 was SENT, never that it arrived — the "handed to the mail service" distinction the test
 invoice already draws.
 
+⭐ **AND THE GMAIL IS THE DESTINATION NOW, NOT THE SECOND DESTINATION (2026-09-19, [[MSG-30]]).**
+Addie: *"Currently we have the admin inbox and the gmail inbox but messages are getting sent
+to gmail and admin. I only want them sent to gmail and if they fail to send to gmail they
+will send to admin inbox but that is the only reason. Also with Have a question on home page
+those should be sent to gmail and not admin inbox."* Every member message used to write its
+Inbox row FIRST and email afterwards, so one message reliably produced two records in two
+places. `tellOffice` in index.html is the one funnel all twelve paths call: it sends, and it
+writes the Inbox row **only if that send did not go**.
+
+⛔ **THIS CLOSES THE "OTHER HALF" THE PARAGRAPH ABOVE CALLS THE GAP WORTH CLOSING NEXT.** A
+send refused by EmailJS used to log to a console nobody has open; it now lands in the Inbox
+as an ordinary message carrying `alertFailed` and `alertFailReason`, and
+`msgAlertFailedNoteHtml` prints a red line on the row saying the Gmail did not get this one
+and why. It is not filed into Errors → Admin Errors — it is the message itself, arriving
+where somebody will act on it, which is better than a fault report about it.
+
+⛔ **THE THREE SILENT EXITS BECAME LOAD-BEARING IN THE SAME CHANGE.**
+`notifyBusinessOfMessage` returns `{ok, why}` instead of swallowing every outcome, and each
+of its early exits — unconfigured, script missing, synchronous throw — must answer
+`ok:false`. Under the old design those cost only the nudge; under this one an exit that
+reported success would send every customer message to a Gmail that was never configured and
+write nothing anywhere. That is not hypothetical: it is precisely the day `settings/emailjs`
+went staff-only. The fallback turns that outage into a visible pile in the Inbox, and
+`msgAlertOffNoteHtml` was reworded to match — it used to reassure that "messages still
+arrive in this Inbox", which would now describe a total outage as business as usual.
+
+⛔ **AND THE SERVER STOPPED WRITING ITS MOVE NOTE.** `portalSave` added an Inbox row for
+every address change while the browser emailed every address change — the clearest instance
+of the double-post. The browser owns it now, because the outcome of a send is knowable only
+on the side that made it. ⚠ **The cost is named rather than hidden**: a browser that dies in
+the moment between the save and the telling informs nobody. The move itself survives that —
+the pending fields and the Moved badge are what the office works from, and the note always
+described itself as the nudge toward them.
+
+⚠ **TWO COSTS THAT ARE REAL AND WERE ACCEPTED.** EmailJS answering OK is not delivery (the
+`gmai.com` lesson), so a message it accepts and Gmail never shows now exists nowhere, where
+the Inbox used to be the backstop. And the **Communication Centre goes quiet** — its Needs
+Reply queue, tabs and counts are all written in terms of these rows, so it will hold errors,
+system notices and already-filed mail only. Nothing already filed is touched, so the
+decision is reversible.
+
+⚠ **ERRORS AND SYSTEM NOTICES ARE DELIBERATELY UNTOUCHED**, which is [[MSG-17]]'s own line:
+they stay in the admin Inbox and email nobody, so they were never part of the double-post.
+Routing the Member Errors reporter through `tellOffice` would make an error report
+conditional on the mail service that may be the very thing that failed.
+
 ⭐ **And both directions are now driven in a real browser.** `test/address-move.spec.js`
 presses the button and reads the alert back, and presses **Save Information** on My Info and
 asserts NO alert — the regression guard that matters, because moving the call up into that

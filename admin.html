@@ -25464,6 +25464,30 @@ function renderCommDash(){
    invoice already draws ("handed to the mail service"). The note says where to look next
    when all three boxes are full, because "everything looks right" with no next step is
    what sends somebody hunting for a bug in code that is working. */
+/* ⭐ WHY THIS ONE IS HERE AT ALL ([[MSG-30]], 2026-09-19). Addie: "I only want them sent
+   to gmail and if they fail to send to gmail they will send to admin inbox but that is
+   the only reason." So a customer message in this Inbox is no longer the ordinary case —
+   it is the exception, and the row has to say so.
+   ⛔ WITHOUT THIS LINE THE CHANGE IS INVISIBLE AND READS AS BROKEN. A fallback row looks
+   exactly like the double-posted row it replaced, so the first thing anybody would
+   conclude on seeing one is that messages are still going to both places. "Nothing should
+   fail quietly" pointed at a fallback rather than a failure.
+   ⚠ IT NAMES THE REASON THE SENDER GAVE, not "something went wrong" — the three are
+   genuinely different jobs: settings to fill in, a script that did not load, and a send
+   the mail service refused. A row that cannot tell them apart sends somebody to check all
+   three, which is the argument `msgAlertOffNoteHtml` below already makes.
+   ⚠ AND IT DRAWS NOTHING FOR EVERY OTHER ROW. Errors and system notices never went to the
+   Gmail and never will ([[MSG-17]]), so a banner on those would be claiming a failure
+   that never happened — the cries-wolf shape this file names in five other places. */
+function msgAlertFailedNoteHtml(d){
+  if(!d || d.alertFailed !== true) return '';
+  const why = (d.alertFailReason || '').toString().trim();
+  return '<div style="background:#FDECEA; border:1px solid #F3C8C2; border-left:4px solid ' +
+    'var(--ember); border-radius:8px; padding:8px 10px; margin:6px 0; font-size:12.5px; ' +
+    'line-height:1.5;"><b>This one is here because the Gmail did not get it.</b>' +
+    (why ? ' ' + esc(why.charAt(0).toUpperCase() + why.slice(1)) + '.' : '') +
+    ' Everything else goes straight to your Gmail.</div>';
+}
 function msgAlertOffNoteHtml(cfg){
   if(!cfg) return '';
   const missing = [];
@@ -25474,9 +25498,15 @@ function msgAlertOffNoteHtml(cfg){
   return '<div style="background:#FDECEA; border:1px solid #F3C8C2; border-left:4px solid ' +
     'var(--ember); border-radius:10px; padding:12px 14px; margin-bottom:14px; font-size:13px; ' +
     'line-height:1.55;"><b>Nothing here is being emailed to your Gmail.</b><br>' +
-    'Messages still arrive in this Inbox, but the website cannot send you the heads-up ' +
-    'email, because ' + (missing.length === 1 ? 'this box is blank' : 'these boxes are blank') +
-    ' under <b>Automation Emails \u2192 Email Setup</b>: <b>' + missing.join('</b>, <b>') + '</b>.' +
+    /* \u26a0 THE SECOND SENTENCE WAS CORRECTED FOR [[MSG-30]] and it mattered: it used to read
+       "Messages still arrive in this Inbox", which was a reassurance while the Inbox got a
+       copy of everything regardless. It is now the ONLY place they arrive, and every one
+       of them is a message the Gmail lost \u2014 so the same wording would read as "nothing is
+       wrong here" on the screen that is quietly absorbing the whole outage. */
+    'Every message is falling back to this Inbox instead, because ' +
+    (missing.length === 1 ? 'this box is blank' : 'these boxes are blank') +
+    ' under <b>Automation Emails \u2192 Email Setup</b>: <b>' + missing.join('</b>, <b>') + '</b>. ' +
+    'Nothing is lost \u2014 but fill them in and new messages go to your Gmail again.' +
     '</div>';
 }
 /* ⭐ THE PICK-A-WIRE CARD. Drawn inside a System notice row, by BOTH renderers — the
@@ -25779,6 +25809,7 @@ function renderMessagesList(){
            alone. Shown in both places the small grey copy is the one that keeps being read,
            and two copies of one fact is how they start disagreeing. */
         '<div class="rmeta">'+fmtDate(d.createdAt)+'</div>'+
+        msgAlertFailedNoteHtml(d)+
         '<div class="rtext">'+esc(d.message)+'</div>'+
         (d.colors && d.colors.length ? '<div class="rtext" style="margin-top:4px;"><strong>Colors requested:</strong> '+d.colors.map(esc).join(', ')+'</div>' : '')+
         (feetEstimate ? '<div class="rtext" style="margin-top:4px; font-weight:600; color:var(--dusk);">'+esc(feetEstimate)+'</div>' : '')+
@@ -64849,6 +64880,7 @@ function systemNoticeRow(item){
         '<h4>'+esc(d.name || 'System')+(d.topic ? ' <span class="status-pill status-new">'+esc(d.topic)+'</span>' : '')+'</h4>'+
         (address ? '<div class="row-phone-line">'+esc(address)+'</div>' : '')+
         '<div class="rmeta">'+fmtDate(d.createdAt)+'</div>'+
+        msgAlertFailedNoteHtml(d)+
         '<div class="rtext">'+esc(d.message)+'</div>'+
         (d.colors && d.colors.length ? '<div class="rtext" style="margin-top:4px;"><strong>Colors requested:</strong> '+d.colors.map(esc).join(', ')+'</div>' : '')+
         (feetEstimate ? '<div class="rtext" style="margin-top:4px; font-weight:600; color:var(--dusk);">'+esc(feetEstimate)+'</div>' : '')+
