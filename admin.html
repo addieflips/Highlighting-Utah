@@ -3727,7 +3727,7 @@
            order. This is those three, in one press, with the breakdown shown first. -->
       <div class="card" id="rsvpWholeCard" style="margin-bottom:22px; border-color:var(--gold);">
         <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#127876; Send the whole RSVP</h3>
-        <p class="form-note" style="margin:0 0 12px;">One press sends both RSVP emails: the ordinary one to everybody who is straight, and the <b>Not Paid RSVP</b> to everybody who owes from last season &mdash; so each customer gets the one that fits them, and nobody gets both. Anyone with no email on file is listed under <b>RSVP &rarr; Text the RSVP</b> for texting instead. <b>Check first</b> shows exactly who would get what without sending anything.</p>
+        <p class="form-note" style="margin:0 0 12px;">One press sends both RSVP emails: the ordinary one to everybody who is straight, and the <b>Not Paid RSVP</b> to everybody who owes from last season &mdash; so each customer gets the one that fits them, and nobody gets both. Anyone the email cannot reach — and anyone who simply never replies — is listed under <b>RSVP &rarr; Text the RSVP</b>, with their own link to text. <b>Check first</b> shows exactly who would get what without sending anything.</p>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
           <button type="button" class="btn btn-outline btn-sm" id="rsvpWholeCheckBtn">Check first &mdash; who gets what</button>
           <button type="button" class="btn btn-gold" id="rsvpWholeSendBtn">Send the whole RSVP</button>
@@ -4150,8 +4150,8 @@
       </div>
       <div class="rsvp-subtab-panel" id="rsvpsub-text" hidden>
       <div class="card" id="rsvpTextCard" style="margin-bottom:22px; border-color:var(--gold-dim);">
-        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128241; Text the RSVP &mdash; no email on file</h3>
-        <p class="form-note" style="margin:0 0 12px;">The RSVP email cannot reach these customers, so they are never asked. Each link opens one page that asks <strong>&ldquo;Are you having lights this season?&rdquo;</strong> and carries <strong>Yes</strong>, <strong>Back Next Year</strong> and <strong>No</strong> &mdash; the same three answers as the three buttons in the RSVP email, which a text message cannot carry. Their answer is recorded exactly as an emailed one is, so a texted customer needs nothing chasing up separately. Nobody who has already answered is listed, and nobody in their first year, for the same reason the email skips them.</p>
+        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128241; Text the RSVP &mdash; everyone still to answer</h3>
+        <p class="form-note" style="margin:0 0 12px;">Everyone here still has to answer. Each link is <strong>their own</strong> — it carries their token, which is what signs them in and records the answer against them, so there is no one address that works for everybody. The ones marked <strong>No email</strong> cannot be reached by the RSVP email at all, so a text is the only thing that will ever ask them — they are listed first. Each link opens one page that asks <strong>&ldquo;Are you having lights this season?&rdquo;</strong> and carries <strong>Yes</strong>, <strong>Back Next Year</strong> and <strong>No</strong> &mdash; the same three answers as the three buttons in the RSVP email, which a text message cannot carry. Their answer is recorded exactly as an emailed one is, so a texted customer needs nothing chasing up separately. Nobody who has already answered is listed, and nobody in their first year, for the same reason the email skips them.</p>
         <p class="form-note" id="backReferBlock-note" style="margin:0 0 12px; padding:9px 11px; background:var(--paper); border:1px solid var(--gold-dim); border-radius:8px;"><strong>The referral offer is not in the text.</strong> The RSVP email carries it, but a second address takes the message past 160 characters and puts two links in front of somebody who only has to answer one question. They still get it: <strong>Back Next Year</strong> shows them their own link on the answer page, and <strong>Yes</strong> or <strong>No</strong> lands them in their member portal, where Refer a Friend is a tab. &#36;25 comes off <strong>next</strong> season for anyone sitting this one out.</p>
         <div style="border:1px solid var(--line); border-radius:10px; padding:11px 12px; margin:0 0 12px; background:var(--snow);">
           <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
@@ -4165,9 +4165,15 @@
           <div id="rsvpTextPreview" style="margin-top:10px;"></div>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
-          <button type="button" class="btn btn-outline btn-sm" id="rsvpTextFindBtn">Find who has no email</button>
+          <button type="button" class="btn btn-outline btn-sm" id="rsvpTextFindBtn">Find who still has to answer</button>
           <button type="button" class="btn btn-gold btn-sm" id="rsvpTextCopyAllBtn" style="display:none;">Copy them all for texting</button>
           <span id="rsvpTextCount" style="font-size:12.5px; color:var(--slate);"></span>
+        </div>
+        <div id="rsvpTextFilterWrap" style="display:none; margin:0 0 10px;">
+          <label style="display:inline-flex; align-items:center; gap:7px; font-size:13px; cursor:pointer;">
+            <input type="checkbox" id="rsvpTextOnlyNoEmail">
+            <span>Only the ones with no email &mdash; the people the RSVP email cannot reach</span>
+          </label>
         </div>
         <div id="rsvpTextStatus" class="form-note" style="margin:0 0 10px;"></div>
         <div id="rsvpTextList"></div>
@@ -9669,16 +9675,62 @@ function scheduleHoldEndsMillis(d){
    raw field: a bare 'yes' with no reply behind it is an import or the assumed yes
    written at conversion, and texting those people is asking a question they think
    they have answered. */
+/* ⭐ EVERYONE WHO HAS NOT ANSWERED, NOT ONLY THE PEOPLE WITH NO EMAIL (2026-09-21,
+   [[RS-64]]). Addie: "I need a link for everyone that has not responded."
+
+   ⚠ THIS WIDENS [[RS-63]]'s OWN AUDIENCE and that line is corrected rather than
+   deleted, because its reasoning is still why the no-email group is SHOWN FIRST: those
+   customers cannot be reached by the RSVP email at all, so for them a text is the only
+   route and nothing else will ever ask them. What was wrong was treating that as the
+   only reason to want the link. Somebody who has an email and has simply not replied
+   is the commonest case in the book, and a text is how you reach them.
+
+   ⛔ AND THE LINK IS PER-CUSTOMER, WHICH IS THE WHOLE MECHANISM RATHER THAN A LIMIT.
+   Each address carries that customer's own portal token, and the token is what signs
+   them in and records the answer against them. There is no single address that works
+   for everybody, and there must never be one: a shared link would sign every customer
+   into whichever account it belonged to. So the list is one row per person, and the
+   bulk copy is one LINE per person.
+
+   ⚠ A PHONE IS STILL REQUIRED. A text needs somewhere to go; somebody with neither an
+   email nor a phone is a phone call the office has to make from a paper list, and
+   putting them here would produce a row with nothing to copy.
+
+   ⚠ AND THE OTHER TWO EXCLUSIONS ARE UNCHANGED AND MUST STAY. audienceNeverAsked is
+   what takes a first-year customer out of the RSVP send — "will you be getting lights
+   hung AGAIN this year?" is nonsense to somebody who never has — and asking it here is
+   what stops the text list and the email list disagreeing about one person.
+   effectiveRsvpStatus, not the raw field: a bare 'yes' with no reply behind it is an
+   import or the assumed yes written at conversion, and texting those people asks a
+   question they think they have answered. */
 function rsvpTextTargets(){
   if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)) return [];
   return jobAddresses.filter(function(item){
     const d = (item && item.data) || null;
     if(!d) return false;
-    if(String(d.email || '').trim() || String(d.email2 || '').trim()) return false;
     if(!String(d.phone || '').replace(/\D/g,'')) return false;
     if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)) return false;
     if(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus(d)) return false;
     return true;
+  });
+}
+/* ⚠ THE EMAIL CANNOT REACH THEM AT ALL, which is a different question from whether
+   they have answered and is why it still has a name. It decides the order of the list,
+   the badge on the row and the narrowing filter — never who is on it. */
+function rsvpTextHasNoEmail(d){
+  return !String((d && d.email) || '').trim() && !String((d && d.email2) || '').trim();
+}
+/* ⚠ THE PEOPLE THE EMAIL CANNOT REACH COME FIRST, because for them this list is the
+   only thing that will ever ask. Everybody else is a chase-up. Within each group the
+   order is by name, so two presses of the button produce the same list — the office
+   works down it over days and a list that reshuffles itself cannot be worked down. */
+function rsvpTextSorted(targets){
+  return (targets || []).slice().sort(function(a, b){
+    const an = rsvpTextHasNoEmail(a && a.data) ? 0 : 1;
+    const bn = rsvpTextHasNoEmail(b && b.data) ? 0 : 1;
+    if(an !== bn) return an - bn;
+    return String((a && a.data && a.data.name) || '')
+      .localeCompare(String((b && b.data && b.data.name) || ''));
   });
 }
 /* ⚠ KEYED TO THE RECORD, NOT TO THE PHONE NUMBER, and this is the one thing here
@@ -9752,6 +9804,11 @@ const RSVP_TEXT_DEFAULT_BODY =
   'Hi {{name}}, it’s Highlighting Utah. Christmas lights this year? Tell us yes or no:' +
   '\n{{link}}';
 let rsvpTextTemplateName = '';
+/* ⚠ NOT SAVED ANYWHERE, ON PURPOSE. It is which half of the list she is looking at
+   right now, not a setting — remembered across a reload it would silently hide most
+   of the list from somebody who had forgotten ticking it, on the one screen whose job
+   is to say who is still outstanding. */
+let rsvpTextOnlyNoEmail = false;
 /* ⭐ WHAT A TEXT CAN ACTUALLY CARRY: their name, and one address. Everything else an
    email template holds — the three answer buttons, the referral button, the photo,
    the houses block — is a THING ON A PAGE.
@@ -19871,17 +19928,41 @@ function rsvpTextRender(){
   const count = document.getElementById('rsvpTextCount');
   const copyAll = document.getElementById('rsvpTextCopyAllBtn');
   if(!list) return;
-  const targets = rsvpTextTargets();
+  const everyone = rsvpTextSorted(rsvpTextTargets());
+  /* ⚠ THE FILTER NARROWS WHAT IS SHOWN AND COPIED, NEVER WHAT COUNTS AS UNANSWERED.
+     The line above is the whole list, so the card can always say how many people are
+     really outstanding even while she is working through one group of them. */
+  const noEmail = everyone.filter(function(x){ return rsvpTextHasNoEmail(x.data); });
+  const targets = rsvpTextOnlyNoEmail ? noEmail : everyone;
   /* The preview is built from this same list — the sample customer and the longest
      name on it — so it is redrawn whenever the list is. */
   renderRsvpTextTemplatePicker();
   renderRsvpTextPreview();
-  if(count) count.textContent = targets.length
-    ? (targets.length + ' customer' + (targets.length === 1 ? '' : 's') + ' with no email')
+  /* ⚠ BOTH NUMBERS, ALWAYS. "412 have not answered" and "38 of them cannot be emailed
+     at all" are different facts and the second is the one that decides what to do
+     first; a single count hides whichever one is not being shown. */
+  if(count) count.textContent = everyone.length
+    ? (everyone.length + ' still to answer' +
+       (noEmail.length ? ' \u00b7 ' + noEmail.length + ' with no email' : '') +
+       (rsvpTextOnlyNoEmail ? ' \u00b7 showing the no-email ones' : ''))
     : '';
-  if(copyAll) copyAll.style.display = targets.length ? '' : 'none';
+  const filterWrap = document.getElementById('rsvpTextFilterWrap');
+  if(filterWrap) filterWrap.style.display = noEmail.length && everyone.length > noEmail.length ? '' : 'none';
+  const filterBox = document.getElementById('rsvpTextOnlyNoEmail');
+  if(filterBox) filterBox.checked = !!rsvpTextOnlyNoEmail;
+  if(copyAll){
+    copyAll.style.display = targets.length ? '' : 'none';
+    /* ⚠ THE BUTTON SAYS WHAT IT WILL COPY. "Copy them all" beside a filtered list is
+       the one wording that can mean either, and this press can put several hundred
+       lines on the clipboard. */
+    copyAll.textContent = 'Copy all ' + targets.length +
+      (rsvpTextOnlyNoEmail ? ' with no email' : '') + ' for texting';
+  }
   if(!targets.length){
-    list.innerHTML = '<p class="form-note" style="margin:0;">Everybody who still needs to answer has an email address on file &mdash; there is nobody to text.</p>';
+    list.innerHTML = '<p class="form-note" style="margin:0;">' + (everyone.length
+      ? 'Everybody still to answer has an email address on file. Untick the box above to text them anyway.'
+      : 'Nobody is waiting to answer \u2014 everyone has replied, or is in their first year and is not asked.') +
+      '</p>';
     return;
   }
   list.innerHTML = targets.map(function(item){
@@ -19893,6 +19974,12 @@ function rsvpTextRender(){
     return '<div style="display:flex; gap:10px; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--line);">' +
       '<div style="min-width:0;"><strong>' + esc(d.name || '(no name)') + '</strong>' +
         (d.customerNumber ? ' <span style="color:var(--slate); font-size:12px;">#' + esc(d.customerNumber) + '</span>' : '') +
+        /* ⚠ THE BADGE MARKS THE PEOPLE THE EMAIL CANNOT REACH, not the people who have
+           not replied — everybody on this list has not replied, so a badge saying that
+           would be on every row and mean nothing. */
+        (rsvpTextHasNoEmail(d)
+          ? ' <span class="status-pill" style="background:#FFF4DC; color:#7A5B12;">No email</span>'
+          : '') +
         '<br><span style="font-size:12.5px; color:var(--slate);">' + esc(d.phone || '') + '</span></div>' +
       (stopped
         ? '<span class="status-pill" style="background:#FDECEA; color:#B91C1C;">Do not text &mdash; they replied STOP</span>'
@@ -20067,6 +20154,14 @@ document.getElementById('rsvpTextTmpl')?.addEventListener('change', async functi
     }
   }
 });
+/* ⚠ IT REDRAWS THE LIST RATHER THAN HIDING ROWS. The bulk copy reads the same rule
+   this render does, so a filter that only hid rows on screen would put the whole list
+   on the clipboard while showing part of it — several hundred people texted from a
+   press that looked like it covered thirty. */
+document.getElementById('rsvpTextOnlyNoEmail')?.addEventListener('change', function(){
+  rsvpTextOnlyNoEmail = !!this.checked;
+  rsvpTextRender();
+});
 async function loadRsvpTextSettings(){
   try{
     const snap = await getDoc(doc(db,'settings','rsvpText'));
@@ -20124,9 +20219,27 @@ document.getElementById('rsvpTextMakeTmplBtn')?.addEventListener('click', async 
 /* ⚠ ONE LINE PER PERSON, PHONE FIRST AND TAB-SEPARATED, which is what pastes into a
    spreadsheet and into the bulk-texting workflow. A block of prose with the numbers
    buried in it has to be taken apart again by hand. */
+/* ⭐ WHO THE BULK PRESS WILL ACTUALLY WRITE A LINE FOR — ITS OWN FUNCTION SO A TEST
+   CAN RUN IT (2026-09-21). Inline in the handler the only thing a gate could do was
+   match its text, and a red-check proved that is worth nothing here: deleting the
+   filter and deleting the STOP guard were BOTH missed, and each one texts people
+   nobody meant to text — one press, several hundred numbers.
+   ⚠ THE SAME LIST THE SCREEN IS SHOWING, filter included, so a filtered card and a
+   full clipboard can never disagree; sorted, so the clipboard is in the order she
+   just read down.
+   ⛔ AND STOP MEANS STOP. Carriers block a number that has replied STOP, and the
+   request was to stop hearing from us rather than from one system. They are still
+   SHOWN on the card, with the button replaced by a warning — dropping them from the
+   list silently is how somebody goes missing with no reason given — but they are
+   never handed to a press that produces a message to paste. */
+function rsvpTextCopyList(){
+  return rsvpTextSorted(rsvpTextTargets())
+    .filter(function(item){ return rsvpTextOnlyNoEmail ? rsvpTextHasNoEmail(item.data) : true; })
+    .filter(function(item){ return !(item.data || {}).smsOptedOut; });
+}
 async function rsvpTextCopyAll(){
   const statusEl = document.getElementById('rsvpTextStatus');
-  const targets = rsvpTextTargets().filter(function(item){ return !(item.data || {}).smsOptedOut; });
+  const targets = rsvpTextCopyList();
   if(!targets.length){ if(statusEl) statusEl.textContent = 'Nobody to copy.'; return 0; }
   /* ⚠ ASKED ONCE, BEFORE ANY LINK IS MINTED. The per-row button can afford to check
      inside the loop; this one would otherwise write a portal token to every customer

@@ -51545,7 +51545,7 @@ suite('291. An RSVP link to text, for everyone with no email');
     check('S287', 'the built-in wording is findable', !!defBody,
       'without it the sandbox renders an empty body and every wording check below ' +
       'passes or fails on nothing');
-    const api = new Function('jobAddresses',
+    const api = new Function('jobAddresses', 'onlyNoEmail',
       extractFn(admin, 'audienceNeverAsked') + NL287 +
       /* ⚠ ITS OWN HELPER TOO. audienceNeverAsked asks audienceQuoteJoinYear, and a
          sandbox given only the outer function dies with a bare ReferenceError — the
@@ -51564,7 +51564,15 @@ suite('291. An RSVP link to text, for everyone with no email');
       extractFn(admin, 'rsvpTextRenderBody') + NL287 +
       extractFn(admin, 'rsvpTextMessageParts') + NL287 +
       srcs.join(NL287) + NL287 +
-      'return {targets: rsvpTextTargets, link: rsvpTextLinkFrom, msg: rsvpTextMessageFor};');
+      extractFn(admin, 'rsvpTextHasNoEmail') + NL287 +
+      extractFn(admin, 'rsvpTextSorted') + NL287 +
+      /* ⚠ THE FILTER FLAG IS A PARAMETER HERE, not a stub of the rule that reads it.
+         Which half of the list she is looking at is the input; what the press copies
+         is the claim. */
+      'let rsvpTextOnlyNoEmail = onlyNoEmail;' + NL287 +
+      extractFn(admin, 'rsvpTextCopyList') + NL287 +
+      'return {targets: rsvpTextTargets, link: rsvpTextLinkFrom, msg: rsvpTextMessageFor,\n' +
+      '        noEmail: rsvpTextHasNoEmail, sorted: rsvpTextSorted, copyList: rsvpTextCopyList};');
 
     const book = [
       { id: 'noemail', data: { name: 'Nora Noemail', phone: '8015550001' } },
@@ -51579,14 +51587,111 @@ suite('291. An RSVP link to text, for everyone with no email');
                                    chargeNewMemberFee: true } },
       { id: 'stopped', data: { name: 'Replied STOP', phone: '8015550007', smsOptedOut: true } }
     ];
-    const ids = api(book).targets().map(x => x.id);
+    const ids = api(book, false).targets().map(x => x.id);
 
     check('S287', 'somebody with no email and no answer is on the list',
       ids.indexOf('noemail') !== -1, 'got ' + JSON.stringify(ids));
-    check('S287', 'anybody the email can reach is not',
-      ids.indexOf('hasemail') === -1 && ids.indexOf('email2') === -1,
-      'got ' + JSON.stringify(ids) + ' — a second address is still an address, and ' +
-      'texting somebody the email already reached asks them twice');
+    /* ⚠ REPOINTED, NOT WEAKENED (2026-09-21, [[RS-64]]). This asserted that anybody
+       with an email address was NOT on the list, which was [[RS-63]]'s audience stated
+       as code, and it correctly went red when Addie asked for "a link for everyone that
+       has not responded". Having an email is not having answered — it is the commonest
+       case in the book — and a text is how somebody who never replies gets reached.
+       ⭐ WHAT THAT CHECK WAS REALLY PROTECTING IS UNCHANGED AND IS STILL BELOW: nobody
+       is texted a question they have already answered, and a first-year customer is
+       never asked. Those are the two that would harm a customer. */
+    check('S287', 'somebody who has an email but has not answered is on the list now',
+      ids.indexOf('hasemail') !== -1 && ids.indexOf('email2') !== -1,
+      'got ' + JSON.stringify(ids) + ' — an unanswered RSVP is the reason to text ' +
+      'somebody, and an address they are ignoring is not a reason not to');
+    /* ⛔ AND THE PEOPLE THE EMAIL CANNOT REACH ARE STILL ON IT AND STILL COME FIRST.
+       They are why this card exists: nothing else will ever ask them, so a widening
+       that buried them among several hundred chase-ups would have cost the original
+       purpose to serve the new one. */
+    const sortedRows = api(book, false).sorted(api(book, false).targets());
+    const sorted = sortedRows.map(x => x.id);
+    /* ⚠ EVERY no-email ROW BEFORE EVERY EMAILED ONE, not one named id at the front.
+       The first draft asserted sorted[0] === 'noemail' and failed on correct code: this
+       fixture holds THREE customers with no email and they are ordered by name, so
+       'Assumed Yes At Conversion' leads the group. A check pinned to where one fixture
+       row happens to land is the slow fuse §7 names — this states the rule. */
+    const firstEmailed = sortedRows.findIndex(x => !api(book, false).noEmail(x.data));
+    const lastNoEmail = sortedRows.map(x => api(book, false).noEmail(x.data)).lastIndexOf(true);
+    check('S287', 'and the ones with no email are still listed first',
+      firstEmailed !== -1 && lastNoEmail !== -1 && lastNoEmail < firstEmailed,
+      'got ' + JSON.stringify(sorted) + ' — for them this list is the only thing that ' +
+      'will ever ask, so they lead it');
+    /* ⚠ AND THE FIXTURE REALLY REACHES BOTH GROUPS, or the comparison above is vacuous:
+       with nobody emailed on the list, findIndex answers -1 and any ordering passes. */
+    check('S287', 'and the fixture holds both groups, so that ordering means something',
+      firstEmailed > 0 && lastNoEmail >= 0,
+      'a list that is all one group proves nothing about the order of two');
+
+    /* ---- what ONE PRESS puts on the clipboard ----
+       ⛔ THIS PATH HAD NO COVERAGE AT ALL until a red-check said so: deleting the
+       filter and deleting the STOP guard were both MISSED while every other check
+       stayed green. Each is a press that texts people nobody meant to text, a few
+       hundred at a time, so the list the press walks is its own function and is RUN
+       here rather than matched. */
+    const copyOff = api(book, false).copyList().map(x => x.id);
+    const copyOn  = api(book, true).copyList().map(x => x.id);
+    check('S287', 'the bulk press copies everyone shown when nothing is filtered',
+      copyOff.indexOf('noemail') !== -1 && copyOff.indexOf('hasemail') !== -1,
+      'got ' + JSON.stringify(copyOff));
+    /* ⚠ A FILTERED CARD AND A FULL CLIPBOARD IS THE FAILURE, and it is silent: the
+       press reports the number it copied, so nothing on screen contradicts it. */
+    check('S287', 'and only the no-email ones when the filter is on',
+      copyOn.indexOf('noemail') !== -1 && copyOn.indexOf('hasemail') === -1 &&
+      copyOn.indexOf('email2') === -1,
+      'got ' + JSON.stringify(copyOn) + ' — a filtered list and a full clipboard is ' +
+      'several hundred people texted from a press that looked like it covered thirty');
+    /* ⛔ STOP MEANS STOP, in BOTH states. They stay on the CARD with the button
+       replaced by a warning — dropping them silently is how somebody goes missing
+       with no reason — but never in a press that produces messages to paste. */
+    check('S287', 'and somebody who replied STOP is in neither',
+      copyOff.indexOf('stopped') === -1 && copyOn.indexOf('stopped') === -1,
+      'got ' + JSON.stringify(copyOff) + ' / ' + JSON.stringify(copyOn) +
+      ' — carriers block a number that has replied STOP, and the request was to stop ' +
+      'hearing from us rather than from one system');
+    /* ⚠ AND THE FIXTURE REALLY CARRIES ONE, or the two checks above pass on nothing. */
+    check('S287', 'and the fixture holds somebody who replied STOP',
+      book.some(x => x.data.smsOptedOut),
+      'without one, the STOP check cannot fail');
+    /* ⚠ THE ORDER IS STABLE. The office works down this list over days; a list that
+       reshuffles between two presses cannot be worked down.
+       ⛔ AND IT IS ASSERTED AGAINST A FIXTURE OF ITS OWN, not the shared book, because
+       a red-check proved the shared one cannot hold the claim: with three names in one
+       group and two in the other, replacing the comparator with Math.random() still
+       produced the same order often enough to pass. That is a FLAKY check, which §9.7
+       says is fixed or deleted — so this one names ten customers and asserts the exact
+       sequence, where a random comparator matching is one permutation in millions. */
+    const orderBook = [
+      { id: 'n3', data: { name: 'Carol NoMail',  phone: '1' } },
+      { id: 'e2', data: { name: 'Brian Mailed',  phone: '2', email: 'b@x.com' } },
+      { id: 'n1', data: { name: 'Alice NoMail',  phone: '3' } },
+      { id: 'e4', data: { name: 'Dawn Mailed',   phone: '4', email: 'd@x.com' } },
+      { id: 'n2', data: { name: 'Bob NoMail',    phone: '5' } },
+      { id: 'e1', data: { name: 'Alan Mailed',   phone: '6', email: 'a@x.com' } },
+      { id: 'n5', data: { name: 'Erica NoMail',  phone: '7' } },
+      { id: 'e3', data: { name: 'Clive Mailed',  phone: '8', email: 'c@x.com' } },
+      { id: 'n4', data: { name: 'Dan NoMail',    phone: '9' } },
+      { id: 'n6', data: { name: 'Frank NoMail',  phone: '10' } }
+    ];
+    const WANT = ['n1','n2','n3','n4','n5','n6','e1','e2','e3','e4'];
+    const orderOnce = api(orderBook, false).sorted(api(orderBook, false).targets()).map(x => x.id);
+    check('S287', 'the list is the no-email people by name, then everybody else by name',
+      JSON.stringify(orderOnce) === JSON.stringify(WANT),
+      'got ' + JSON.stringify(orderOnce) + ', wanted ' + JSON.stringify(WANT));
+    check('S287', 'and the order is the same whichever way the book arrives',
+      JSON.stringify(api(orderBook.slice().reverse(), false).sorted(
+        api(orderBook.slice().reverse(), false).targets()).map(x => x.id)) === JSON.stringify(WANT),
+      'the office works down this list over days; one that reshuffles between two ' +
+      'presses cannot be worked down');
+    check('S287', 'and the no-email test reads both address fields',
+      api(book, false).noEmail({ email: '', email2: '' }) === true &&
+      api(book, false).noEmail({ email2: 'b@x.com' }) === false &&
+      api(book, false).noEmail({ email: 'a@x.com' }) === false,
+      'a second address is still an address — somebody with only email2 can be ' +
+      'written to by hand, so they are not in the group nothing can reach');
     check('S287', 'and neither is somebody with no phone number',
       ids.indexOf('nophone') === -1,
       'a text needs somewhere to go; they are a phone call, not a list entry');
@@ -51630,7 +51735,7 @@ suite('291. An RSVP link to text, for everyone with no email');
       'without it this suite is guessing at the only number that decides whether the ' +
       'message fits in one text');
     const realTok = 'a'.repeat(tokLen || 20);
-    const link = api(book).link(realTok);
+    const link = api(book, false).link(realTok);
     /* ⚠ REPOINTED, NOT WEAKENED (2026-09-21). This asserted the PORTAL address,
        '…/#/payment?token=' + tok, and it correctly went red when the text-message RSVP
        moved the link to the answer page. The guarantee it was really protecting is the
@@ -51646,9 +51751,9 @@ suite('291. An RSVP link to text, for everyone with no email');
       'got ' + link + ' — the whole reason a scanner cannot answer for them is that ' +
       'there is no answer in the address to submit');
     check('S287', 'and no link at all without a token',
-      api(book).link('') === '' && api(book).link(null) === '',
+      api(book, false).link('') === '' && api(book, false).link(null) === '',
       'half a URL in a text is worse than no text');
-    const msg = api(book).msg({name: 'Nora Noemail'}, link);
+    const msg = api(book, false).msg({name: 'Nora Noemail'}, link);
     check('S287', 'the message names them and ends on the address',
       /^Hi Nora,/.test(msg) && msg.indexOf(link) === msg.length - link.length,
       'got ' + JSON.stringify(msg) + ' — a text cannot hide a link behind a word, so ' +
@@ -51659,20 +51764,20 @@ suite('291. An RSVP link to text, for everyone with no email');
     /* ⚠ AND IT STILL FITS FOR SOMEBODY WITH A LONG FIRST NAME. The name is the only
        part that varies, so a check against one short name proves the least of it. */
     check('S287', 'and still fits for a long first name',
-      api(book).msg({name: 'Christopherjames Vanderhoeven'}, link).length <= 160,
-      'got ' + api(book).msg({name: 'Christopherjames Vanderhoeven'}, link).length +
+      api(book, false).msg({name: 'Christopherjames Vanderhoeven'}, link).length <= 160,
+      'got ' + api(book, false).msg({name: 'Christopherjames Vanderhoeven'}, link).length +
       ' characters for a sixteen-letter first name');
     check('S287', 'somebody with no name still gets a sentence that reads',
-      /^Hi there,/.test(api(book).msg({}, link)),
-      'got ' + JSON.stringify(api(book).msg({}, link)));
+      /^Hi there,/.test(api(book, false).msg({}, link)),
+      'got ' + JSON.stringify(api(book, false).msg({}, link)));
     /* ⚠ AND THE GREETING IS THE APP'S OWN RULE, not a split on the first space. The
        built-in wording went through its own .split(/\s+/)[0] until [[EM-23]] moved it
        onto a {{name}} token — and that split renders "The Hollands" as "Hi The,",
        which is the exact case firstName exists for. A household name on an RSVP text
        is not rare. */
     check('S287', 'and a household name is not cut in half',
-      /^Hi The Hollands,/.test(api(book).msg({name: 'The Hollands'}, link)),
-      'got ' + JSON.stringify(api(book).msg({name: 'The Hollands'}, link)) +
+      /^Hi The Hollands,/.test(api(book, false).msg({name: 'The Hollands'}, link)),
+      'got ' + JSON.stringify(api(book, false).msg({name: 'The Hollands'}, link)) +
       ' — "Hi The," is what a bare first-word split does to a household');
   }
 
