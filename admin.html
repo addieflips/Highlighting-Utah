@@ -4170,6 +4170,9 @@
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
           <button type="button" class="btn btn-outline btn-sm" id="rsvpTextFindBtn">Find who still has to answer</button>
           <button type="button" class="btn btn-gold btn-sm" id="rsvpTextCopyAllBtn" style="display:none;">Copy them all for texting</button>
+          <button type="button" class="btn btn-outline btn-sm" id="rsvpLinkSheetBtn">Copy everyone&rsquo;s links &mdash; for a spreadsheet</button>
+          <button type="button" class="btn btn-outline btn-sm" id="rsvpPhonesBtn">Copy every phone number</button>
+          <button type="button" class="btn btn-outline btn-sm" id="rsvpNoPhoneBtn">Who has no number</button>
           <span id="rsvpTextCount" style="font-size:12.5px; color:var(--slate);"></span>
         </div>
         <div id="rsvpTextFilterWrap" style="display:none; margin:0 0 10px;">
@@ -20348,6 +20351,238 @@ async function rsvpTextCopyAll(){
       : 'The built-in wording' + (wording.wanted ? ' \u2014 \u201C' + wording.wanted + '\u201D could not be used.' : '.'));
   return lines.length;
 }
+/* ⭐ EVERYONE'S OWN TWO LINKS, AS A SPREADSHEET (2026-09-21, [[REF-44]]). Addie, sending
+   by hand because she has no automation to go through: "is there any possible way I can
+   send everyone there own link and there own referal link?"
+   ⛔ YES, AND THE REASON IT TAKES A SHEET IS THE SAME REASON THERE IS NO ONE LINK. Both
+   addresses carry that customer's OWN token — /a/<portalToken> is what signs them in and
+   records their answer, /r/<referralToken> is what credits their $25 — so one message
+   cannot serve two people ([[RS-64]]). Preview & Send already does this per customer, in
+   one press; this is the other route, for sending from Gmail by hand or through a mail
+   merge, which needs the links as DATA rather than as an email.
+   ⚠ TAB-SEPARATED WITH A HEADER ROW, because that is what pastes into Excel and Google
+   Sheets as columns. A comma would split every "Smith, Bob" in the book.
+   ⚠ AND IT IS A DIFFERENT AUDIENCE FROM THE TEXT LIST, deliberately: no phone is
+   required. rsvpTextTargets demands one because a text needs somewhere to go; an email
+   does not, and requiring one here would silently drop the people this is for. */
+function rsvpLinkSheetTargets(){
+  if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)) return [];
+  return jobAddresses.filter(function(item){
+    const d = (item && item.data) || null;
+    if(!d) return false;
+    /* The two exclusions that protect a customer, the same pair the text list keeps:
+       nobody is asked a question they have already answered, and a first-year customer
+       is never asked whether they want lights AGAIN. */
+    if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)) return false;
+    if(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus(d)) return false;
+    return true;
+  }).sort(function(a, b){
+    /* ⛔ STOP ROWS SORT LAST, and that is about the bulk TEXT tool rather than tidiness:
+       a sheet is pasted in blocks, and a marked row sitting among the others is one that
+       gets sent anyway. At the bottom, under a heading that says so, the top of the sheet
+       is safe to take wholesale. They are still ON it — dropping them is how somebody
+       goes missing with no reason given. */
+    const as = (a && a.data && a.data.smsOptedOut) ? 1 : 0;
+    const bs = (b && b.data && b.data.smsOptedOut) ? 1 : 0;
+    if(as !== bs) return as - bs;
+    return String((a && a.data && a.data.name) || '')
+      .localeCompare(String((b && b.data && b.data.name) || ''));
+  });
+}
+/* ⚠ A TAB OR A NEWLINE INSIDE A NAME WOULD SHUNT EVERY COLUMN AFTER IT ALONG BY ONE,
+   silently, for that one row — so the sheet would look right and one customer's links
+   would sit under somebody else's heading. */
+function rsvpSheetCell(v){
+  return String(v == null ? '' : v).replace(/[\t\r\n]+/g, ' ').trim();
+}
+/* ⭐ A Message COLUMN, BECAUSE THE TEXTS GO OUT THROUGH A BULK TOOL (2026-09-21).
+   Addie: "just to make sure were clear I'll send out all texts through google workspace
+   bulk text." A bulk sender takes a SHEET, not a clipboard of lines, so the ready-made
+   message belongs in a column beside the phone number it goes to.
+   ⚠ IT IS THE SAME rsvpTextMessageFor THE COPY BUTTON USES — never a second wording.
+   Two answers about what the text says is how the one nobody looks at goes out. */
+const RSVP_LINK_SHEET_HEADER =
+  ['Name','Phone','Email','Do not text','Their RSVP link','Their referral link','Text message'];
+function rsvpLinkSheetRow(d, rsvpUrl, refUrl, message){
+  const rec = d || {};
+  return [
+    rsvpSheetCell(rec.name),
+    rsvpSheetCell(rec.phone),
+    rsvpSheetCell(rec.email || rec.email2),
+    /* ⚠ STOP PEOPLE STAY ON THE SHEET. Replying STOP means do not TEXT them; it says
+       nothing about email, and dropping them here would lose them from the one list
+       that was meant to reach everybody. The column is what stops them being texted
+       off a sheet that also carries phone numbers. */
+    rec.smsOptedOut ? 'DO NOT TEXT' : '',
+    rsvpSheetCell(rsvpUrl),
+    /* ⛔ THE REFERRAL LINK IS A COLUMN, NEVER PART OF THE TEXT. [[REF-43]] measured it:
+       the message runs 129–143 characters and a second address takes it to 199–213
+       against a 160-character segment — and two links in front of somebody with one
+       question to answer is what the /a/ page exists to avoid. They get the offer on
+       the page they land on. The column is here so it can be sent on its own. */
+    rsvpSheetCell(refUrl),
+    rsvpSheetCell(message)
+  ].join('\t');
+}
+function rsvpLinkSheetText(rows){
+  return [RSVP_LINK_SHEET_HEADER.join('\t')].concat(rows || []).join('\n');
+}
+/* ⭐ THE NUMBERS ON THEIR OWN, AND THE PEOPLE WHO HAVE NONE (2026-09-21, [[RS-67]]).
+   Addie: "I also need a way to copy all the numbers and have a list of people that don't
+   have a number."
+   ⛔ THIS IS A RECIPIENT LIST, SO STOP IS AN EXCLUSION HERE AND NOT A COLUMN. The link
+   sheet keeps somebody who replied STOP and marks them, because that sheet is read; this
+   one is PASTED STRAIGHT INTO A SENDER, and a marker nothing reads is no protection at
+   all. They are counted out loud instead, so nobody goes missing in silence.
+   ⚠ DIGITS ONLY, ONE PER LINE. A bulk sender is handed a column of numbers, and the
+   book holds "(801) 555-0111" beside "801-555-0111" — one shape in, or the tool refuses
+   a row for a reason that looks like a bad number. A leading 1 on an 11-digit number is
+   the country code and is dropped; anything that is not then 10 digits is KEPT AS IT IS
+   and counted, because silently discarding somebody's number is worse than an odd row
+   she can look at. */
+function rsvpPhoneDigits(raw){
+  let d = String(raw || '').replace(/\D/g, '');
+  if(d.length === 11 && d.charAt(0) === '1') d = d.slice(1);
+  return d;
+}
+function rsvpPhoneListRows(targets){
+  const out = {numbers: [], odd: [], stopped: 0};
+  (targets || []).forEach(function(item){
+    const d = (item && item.data) || {};
+    if(d.smsOptedOut){ out.stopped++; return; }
+    const digits = rsvpPhoneDigits(d.phone);
+    if(!digits) return;
+    out.numbers.push(digits);
+    if(digits.length !== 10) out.odd.push(rsvpSheetCell(d.name) + ' \u2014 ' + rsvpSheetCell(d.phone));
+  });
+  return out;
+}
+/* ⚠ NO PHONE MEANS NO DIGITS AT ALL, not a blank field — the book holds "n/a" and
+   "none" in that column, and both are somebody with no number exactly like an empty one.
+   The same rule Health Check's phoneNotDigits row already applies. */
+function rsvpNoPhoneRows(targets){
+  return (targets || []).filter(function(item){
+    return !rsvpPhoneDigits(((item && item.data) || {}).phone);
+  }).map(function(item){
+    const d = item.data || {};
+    return rsvpSheetCell(d.name) + '\t' + rsvpSheetCell(d.email || d.email2) +
+      '\t' + rsvpSheetCell(d.street || d.address);
+  });
+}
+async function rsvpCopyPhones(){
+  const statusEl = document.getElementById('rsvpTextStatus');
+  const res = rsvpPhoneListRows(rsvpLinkSheetTargets());
+  if(!res.numbers.length){
+    if(statusEl) statusEl.textContent = 'No numbers to copy \u2014 nobody is waiting to answer, or none of them has a phone.';
+    return 0;
+  }
+  try{ await navigator.clipboard.writeText(res.numbers.join('\n')); }
+  catch(err){
+    console.error('Could not copy the numbers:', err);
+    if(statusEl) statusEl.textContent = 'The clipboard refused \u2014 press it again.';
+    return 0;
+  }
+  if(statusEl) statusEl.textContent = '\u2713 ' + res.numbers.length + ' number' +
+    (res.numbers.length === 1 ? '' : 's') + ' copied, one per line, digits only.' +
+    (res.stopped ? '  ' + res.stopped + ' left out \u2014 they replied STOP.' : '') +
+    (res.odd.length ? '  \u26A0 ' + res.odd.length + ' are not 10 digits and went in as they are: ' +
+      res.odd.slice(0, 5).join('; ') + (res.odd.length > 5 ? ' and others' : '') : '');
+  return res.numbers.length;
+}
+async function rsvpShowNoPhone(){
+  const statusEl = document.getElementById('rsvpTextStatus');
+  const list = document.getElementById('rsvpTextList');
+  const rows = rsvpNoPhoneRows(rsvpLinkSheetTargets());
+  if(list){
+    list.innerHTML = rows.length
+      ? '<h4 style="margin:0 0 8px; font-size:14px;">No phone number on file \u2014 ' + rows.length +
+        ' still to answer</h4>' +
+        '<p class="form-note" style="margin:0 0 10px;">A text cannot reach these. ' +
+        'Anybody with an email is in the RSVP email; anybody with neither has to be rung or posted.</p>' +
+        '<table class="data-table"><thead><tr><th>Name</th><th>Email</th><th>Address</th></tr></thead><tbody>' +
+        rows.map(function(r){
+          const c = r.split('\t');
+          return '<tr><td>' + esc(c[0] || '') + '</td><td>' + esc(c[1] || '\u2014') +
+            '</td><td>' + esc(c[2] || '\u2014') + '</td></tr>';
+        }).join('') + '</tbody></table>'
+      : '<p class="form-note" style="margin:0;">Everybody still to answer has a phone number on file.</p>';
+  }
+  if(!rows.length){
+    if(statusEl) statusEl.textContent = 'Everybody still to answer has a number.';
+    return 0;
+  }
+  try{ await navigator.clipboard.writeText(
+    ['Name\tEmail\tAddress'].concat(rows).join('\n')); }
+  catch(err){
+    /* The table above is the answer; the clipboard is the convenience. */
+    if(statusEl) statusEl.textContent = rows.length + ' with no number \u2014 listed below. The clipboard refused.';
+    return rows.length;
+  }
+  if(statusEl) statusEl.textContent = '\u2713 ' + rows.length +
+    ' with no number \u2014 listed below and copied for a spreadsheet.';
+  return rows.length;
+}
+async function rsvpCopyLinkSheet(){
+  const statusEl = document.getElementById('rsvpTextStatus');
+  const targets = rsvpLinkSheetTargets();
+  if(!targets.length){
+    if(statusEl) statusEl.textContent = 'Nobody is waiting to answer \u2014 nothing to copy.';
+    return 0;
+  }
+  /* ⚠ ASKED ONCE, BEFORE ANY LINK IS MINTED, and the count is the whole of the question:
+     a link does not exist until it is asked for, so this writes two fields to every one
+     of these records. rsvpTextCopyAll asks the same way and for the same reason. */
+  if(!confirm('Make and copy links for ' + targets.length + ' customer' +
+      (targets.length === 1 ? '' : 's') + '?\n\nEach one gets their own RSVP link and ' +
+      'their own referral link. This saves a link on each of their records, so it may ' +
+      'take a moment.')){
+    if(statusEl) statusEl.textContent = 'Left it alone.';
+    return 0;
+  }
+  /* ⚠ ASKED BEFORE ANY LINK IS MINTED, the same order rsvpTextCopyAll keeps: the
+     message column comes from the picked template, so a list built before it landed
+     would carry the built-in wording over the top of the one she chose. */
+  if(rsvpTextMessageParts({}, 'x').source === 'loading'){
+    if(statusEl) statusEl.textContent = 'The templates have not loaded yet \u2014 press it again in a moment.';
+    return 0;
+  }
+  const rows = [];
+  let failed = 0;
+  let stopped = 0;
+  for(let i = 0; i < targets.length; i++){
+    if(statusEl) statusEl.textContent = 'Making links \u2014 ' + (i + 1) + ' of ' + targets.length + '\u2026';
+    let rsvpUrl = '', refUrl = '';
+    /* ⚠ ONE BAD RECORD MUST NOT END THE RUN. Nine hundred rows and a throw on row four
+       is a press that looks like it did nothing; the count at the end says how many
+       came back short instead. */
+    try{
+      const pt = await rsvpTextTokenFor(targets[i]);
+      rsvpUrl = rsvpTextLinkFrom(pt);
+    }catch(err){ console.error('No RSVP link for', targets[i] && targets[i].id, err); }
+    try{
+      const rt = await referralTokenFor(targets[i]);
+      refUrl = referralLinkFromToken(rt);
+    }catch(err){ console.error('No referral link for', targets[i] && targets[i].id, err); }
+    if(!rsvpUrl || !refUrl) failed++;
+    if((targets[i].data || {}).smsOptedOut) stopped++;
+    /* ⚠ NO LINK, NO MESSAGE. A text whose address failed to mint is one somebody
+       pastes and sends, and the customer is asked to tap nothing — [[REF-21]]'s rule
+       about half a link, in the one column that gets sent verbatim. */
+    rows.push(rsvpLinkSheetRow(targets[i].data, rsvpUrl, refUrl,
+      rsvpUrl ? rsvpTextMessageFor(targets[i].data, rsvpUrl) : ''));
+  }
+  try{ await navigator.clipboard.writeText(rsvpLinkSheetText(rows)); }
+  catch(err){
+    console.error('Could not copy the link sheet:', err);
+    if(statusEl) statusEl.textContent = 'Made the links, but the clipboard refused \u2014 press it again.';
+    return 0;
+  }
+  if(statusEl) statusEl.textContent = '\u2713 ' + rows.length + ' row' + (rows.length === 1 ? '' : 's') +
+    ' copied \u2014 paste into a spreadsheet. Each person\u2019s own links, and their own text ready to send.' +
+    (stopped ? '  ' + stopped + ' replied STOP and are at the BOTTOM, marked DO NOT TEXT.' : '') +
+    (failed ? '  \u26A0 ' + failed + ' came back without one of the two links \u2014 check those rows.' : '');
+  return rows.length;
+}
 /* ⭐ THE TWO CHECKBOX LABELS ARE STAMPED FROM THE CONSTANT (2026-09-03). They are
    static markup, so they cannot interpolate it the way every other sentence about the
    fee now does — and a price written into the page is a price that goes stale the
@@ -21149,6 +21384,24 @@ function etUpdateSelectionUi(shownCount){
 (function(){
   const findBtn = document.getElementById('rsvpTextFindBtn');
   if(findBtn) findBtn.addEventListener('click', rsvpTextRender);
+  const phonesBtn = document.getElementById('rsvpPhonesBtn');
+  if(phonesBtn) phonesBtn.addEventListener('click', async function(){
+    phonesBtn.disabled = true;
+    try{ await rsvpCopyPhones(); }
+    finally{ phonesBtn.disabled = false; }
+  });
+  const noPhoneBtn = document.getElementById('rsvpNoPhoneBtn');
+  if(noPhoneBtn) noPhoneBtn.addEventListener('click', async function(){
+    noPhoneBtn.disabled = true;
+    try{ await rsvpShowNoPhone(); }
+    finally{ noPhoneBtn.disabled = false; }
+  });
+  const sheetBtn = document.getElementById('rsvpLinkSheetBtn');
+  if(sheetBtn) sheetBtn.addEventListener('click', async function(){
+    sheetBtn.disabled = true;
+    try{ await rsvpCopyLinkSheet(); }
+    finally{ sheetBtn.disabled = false; }
+  });
   const allBtn = document.getElementById('rsvpTextCopyAllBtn');
   if(allBtn) allBtn.addEventListener('click', async function(){
     allBtn.disabled = true;

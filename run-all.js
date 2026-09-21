@@ -63242,3 +63242,255 @@ suite('348. The finished email is what the copy button copies');
     /Copying out of the Body box above gives you the template/.test(admin),
     'nothing on screen said which of the two boxes to copy from');
 }
+
+/* ---------------------------------------------------------------------------
+ * 349. Everyone's own two links, as a spreadsheet
+ *
+ * Addie, sending by hand: "is there any possible way I can send everyone there own link
+ * and there own referal link?" One copied message cannot — both addresses carry that
+ * customer's own token. A sheet can, because a mail merge sends one email per row.
+ * [[REF-44]]
+ * ------------------------------------------------------------------------- */
+suite('349. Everyone\'s own two links, as a spreadsheet');
+{
+  const strippedA = stripComments(admin);
+
+  /* ⚠ RUN, NOT MATCHED — every claim here is about what lands in a cell. */
+  const rowFn = extractFn(admin, 'rsvpLinkSheetRow');
+  const cellFn = extractFn(admin, 'rsvpSheetCell');
+  const textFn = extractFn(admin, 'rsvpLinkSheetText');
+  const hdr = (strippedA.match(/const RSVP_LINK_SHEET_HEADER\s*=\s*([^]*?);/) || [])[1];
+  check('S349', 'the sheet builders were all found',
+    !!rowFn && !!cellFn && !!textFn && !!hdr);
+
+  if (rowFn && cellFn && textFn && hdr) {
+    const run = new Function(
+      'const RSVP_LINK_SHEET_HEADER = ' + hdr + ';\n' +
+      cellFn + '\n' + rowFn + '\n' + textFn + '\n' +
+      'return {rsvpLinkSheetRow, rsvpLinkSheetText, RSVP_LINK_SHEET_HEADER};')();
+
+    const A = 'https://highlightingutah.com/a/aaaaaaaaaaaaaaaaaaaa';
+    const R = 'https://highlightingutah.com/r/rrrrrrrr';
+    const row = run.rsvpLinkSheetRow(
+      {name: 'Dana Reed', phone: '(801) 555-0111', email: 'dana@x.com'}, A, R, 'Hi Dana, ' + A);
+    const cells = row.split('\t');
+
+    check('S349', 'a row is one tab-separated line, one column per heading',
+      cells.length === run.RSVP_LINK_SHEET_HEADER.length,
+      'a short row shunts every column after it along by one, for that customer only');
+    check('S349', 'and it carries BOTH of that customer’s links',
+      cells.indexOf(A) !== -1 && cells.indexOf(R) !== -1,
+      'the whole request was their own RSVP link AND their own referral link');
+    check('S349', 'the two links are in the columns the headings name',
+      cells[run.RSVP_LINK_SHEET_HEADER.indexOf('Their RSVP link')] === A &&
+      cells[run.RSVP_LINK_SHEET_HEADER.indexOf('Their referral link')] === R,
+      'swapped, every customer mails their referral link as the RSVP one');
+
+    /* ⛔ THE ONE THAT SILENTLY MISFILES SOMEBODY'S LINKS. */
+    const nasty = run.rsvpLinkSheetRow(
+      {name: 'Reed,\tDana\nJr', phone: '801\t555', email: 'd@x.com'}, A, R, 'Hi\tthere\nnow');
+    check('S349', 'a tab or a newline inside a name cannot add a column',
+      nasty.split('\t').length === run.RSVP_LINK_SHEET_HEADER.length &&
+      nasty.indexOf('\n') === -1,
+      'one stray tab puts that row’s links under the wrong headings, and the sheet looks fine');
+
+    /* ⚠ STOP is about texting, not email — they stay on the sheet, marked. */
+    const stopped = run.rsvpLinkSheetRow({name: 'X', phone: '801', smsOptedOut: true}, A, R, '');
+    check('S349', 'somebody who replied STOP is kept, and the row says do not text them',
+      stopped.split('\t')[run.RSVP_LINK_SHEET_HEADER.indexOf('Do not text')] === 'DO NOT TEXT',
+      'dropping them loses them from the list meant to reach everybody; unmarked, they get texted');
+    check('S349', 'and an ordinary customer’s row leaves that column empty',
+      cells[run.RSVP_LINK_SHEET_HEADER.indexOf('Do not text')] === '',
+      'a warning on every row is one nobody reads');
+
+    /* ⭐ THE COLUMN THE BULK TEXT TOOL ACTUALLY SENDS. */
+    check('S349', 'the ready-made text sits in its own column, beside the number',
+      cells[run.RSVP_LINK_SHEET_HEADER.indexOf('Text message')] === 'Hi Dana, ' + A,
+      'a bulk sender takes a sheet, not a clipboard of lines');
+    check('S349', 'and the referral link is NOT inside that message',
+      cells[run.RSVP_LINK_SHEET_HEADER.indexOf('Text message')].indexOf(R) === -1,
+      '[[REF-43]] measured it: a second address takes the text past one 160-character segment');
+
+    const sheet = run.rsvpLinkSheetText([row, stopped]);
+    check('S349', 'the sheet leads with the heading row, then one line per customer',
+      sheet.split('\n').length === 3 &&
+      sheet.split('\n')[0] === run.RSVP_LINK_SHEET_HEADER.join('\t'),
+      'without headings nobody can tell which column is which link');
+  }
+
+  /* ⚠ THE AUDIENCE IS WIDER THAN THE TEXT LIST ON PURPOSE. */
+  const tgt = stripComments(extractFn(admin, 'rsvpLinkSheetTargets') || '');
+  check('S349', 'the link sheet was found', tgt.length > 200);
+  check('S349', 'it does NOT require a phone number',
+    !/d\.phone/.test(tgt),
+    'an email needs no phone, and demanding one drops exactly the people this is for');
+  check('S349', 'it still skips anybody who has already answered',
+    /effectiveRsvpStatus\(d\)/.test(tgt),
+    'asking somebody a question they answered is the thing the text list guards too');
+  /* \u26d4 THE ORDER IS RUN, because it is the whole protection on a sheet that gets
+     pasted in blocks: a STOP row among the others is one that gets sent anyway. The two
+     audience predicates are stubbed false on purpose \u2014 this claim is about the sort,
+     and both are asserted as rules a few lines above. */
+  if (tgt) {
+    const order = new Function('jobAddresses',
+      'const audienceNeverAsked = function(){ return false; };' +
+      'const effectiveRsvpStatus = function(){ return ""; };' +
+      (extractFn(admin, 'rsvpLinkSheetTargets') || '') +
+      'return rsvpLinkSheetTargets();')([
+        {id:'1', data:{name:'Zoe'}},
+        {id:'2', data:{name:'Abe', smsOptedOut:true}},
+        {id:'3', data:{name:'Mia'}}
+      ]).map(function(x){ return x.data.name; });
+    check('S349', 'STOP rows sort to the very bottom, whatever their name',
+      order.join(',') === 'Mia,Zoe,Abe',
+      'a marked row among the others is one somebody pastes into the sender anyway');
+  }
+
+  check('S349', 'and still skips a first-year customer',
+    /audienceNeverAsked\(d\)/.test(tgt),
+    '"lights AGAIN this year?" is nonsense to somebody who has never had any');
+
+  /* ⛔ IT WRITES TWO FIELDS TO EVERY RECORD ON THE LIST, so the press asks first. */
+  const copyFn = stripComments(extractFn(admin, 'rsvpCopyLinkSheet') || '');
+  check('S349', 'the copy press was found', copyFn.length > 400);
+  /* ⚠ THE CONDITION, NOT THE CALL. `if(false && confirm(…))` leaves every word of the
+     ask in place while it can never refuse — the trap this repo names by hand, and the
+     red-check caught the first draft of this exact line. */
+  check('S349', 'it asks before it mints anything, naming the count',
+    /if\(!confirm\('Make and copy links for ' \+ targets\.length/.test(copyFn) &&
+    copyFn.indexOf('confirm(') < copyFn.indexOf('rsvpTextTokenFor'),
+    'a link does not exist until it is asked for, so this writes to every one of them');
+  check('S349', 'it mints both kinds, per customer',
+    /rsvpTextTokenFor\(targets\[i\]\)/.test(copyFn) &&
+    /referralTokenFor\(targets\[i\]\)/.test(copyFn),
+    'one of the two missing is half the request');
+  /* ⚠ EACH MINT INSIDE ITS OWN try, asserted one at a time. A count of catch blocks
+     passes with one of them deleted, because the clipboard has one of its own — which
+     is what the red-check reported. */
+  check('S349', 'one bad RSVP link does not end the run',
+    /try\{[^}]*rsvpTextTokenFor\(targets\[i\]\)[^]{0,120}\}catch/.test(copyFn),
+    'a throw on row four of nine hundred is a press that looks like it did nothing');
+  check('S349', 'and neither does one bad referral link',
+    /try\{[^}]*referralTokenFor\(targets\[i\]\)[^]{0,120}\}catch/.test(copyFn),
+    'the same, on the half of the request that is newer');
+  check('S349', 'the message column is built by the SAME rule the copy button uses',
+    /rsvpTextMessageFor\(targets\[i\]\.data, rsvpUrl\)/.test(copyFn),
+    'a second wording is two answers about what the text says, and nobody reads the other one');
+  check('S349', 'a row whose link failed carries no message at all',
+    /rsvpUrl \? rsvpTextMessageFor/.test(copyFn),
+    'a text with a dead address is one somebody pastes and sends');
+  check('S349', 'it waits for the templates rather than sending the built-in wording over hers',
+    copyFn.indexOf("source === 'loading'") !== -1 &&
+    copyFn.indexOf("source === 'loading'") < copyFn.indexOf('rsvpTextTokenFor'),
+    'the message column comes from the picked template, so a list built too early is the wrong words to everybody');
+  check('S349', 'and it says how many came back short',
+    /failed/.test(copyFn),
+    'a row with a blank link is one she would paste into a real email');
+
+  /* ⚠ AND THE GUARD IS READ, for the same reason: `if(false) btn.addEventListener(…)`
+     keeps the wiring in the source and never runs it. */
+  check('S349', 'the button is on the card and wired to the press',
+    admin.indexOf('id="rsvpLinkSheetBtn"') !== -1 &&
+    /if\(sheetBtn\) sheetBtn\.addEventListener\('click'/.test(strippedA) &&
+    /rsvpLinkSheetBtn'\)[^]{0,200}rsvpCopyLinkSheet\(\)/.test(strippedA),
+    'a button with no handler looks identical to a working one');
+}
+
+/* ---------------------------------------------------------------------------
+ * 350. The numbers on their own, and the people who have none
+ *
+ * Addie: "I also need a way to copy all the numbers and have a list of people that
+ * don't have a number", sending through Google Workspace bulk text. [[RS-67]]
+ * ------------------------------------------------------------------------- */
+suite('350. The numbers on their own, and the people who have none');
+{
+  const strippedA = stripComments(admin);
+  const digitsFn = extractFn(admin, 'rsvpPhoneDigits');
+  const listFn = extractFn(admin, 'rsvpPhoneListRows');
+  const noneFn = extractFn(admin, 'rsvpNoPhoneRows');
+  const cellFn = extractFn(admin, 'rsvpSheetCell');
+  check('S350', 'the three builders were found', !!digitsFn && !!listFn && !!noneFn);
+
+  if (digitsFn && listFn && noneFn && cellFn) {
+    const run = new Function(cellFn + '\n' + digitsFn + '\n' + listFn + '\n' + noneFn +
+      '\nreturn {rsvpPhoneDigits, rsvpPhoneListRows, rsvpNoPhoneRows};')();
+
+    check('S350', 'a formatted number and a plain one come out the same',
+      run.rsvpPhoneDigits('(801) 555-0111') === '8015550111' &&
+      run.rsvpPhoneDigits('801-555-0111') === '8015550111',
+      'one shape in, or the bulk sender refuses a row for what looks like a bad number');
+    check('S350', 'a leading country code is dropped',
+      run.rsvpPhoneDigits('1 (801) 555-0111') === '8015550111',
+      '11 digits is the same phone, and a sender may read it as a different one');
+    check('S350', 'words in the phone column are not a number',
+      run.rsvpPhoneDigits('n/a') === '' && run.rsvpPhoneDigits('none') === '',
+      'the book really holds those, and they are somebody with no number');
+
+    const book = [
+      {id:'a', data:{name:'Ann',  phone:'(801) 555-0111'}},
+      {id:'b', data:{name:'Bob',  phone:'801-555-0222', smsOptedOut:true}},
+      {id:'c', data:{name:'Cara', phone:'n/a', email:'cara@x.com'}},
+      {id:'d', data:{name:'Dan',  phone:'1 801 555 0333'}},
+      {id:'e', data:{name:'Eve',  phone:'555-0444'}},
+      {id:'f', data:{name:'Fay'}}
+    ];
+    const res = run.rsvpPhoneListRows(book);
+
+    /* \u26d4 THE CHECK THAT EARNS THIS SUITE. */
+    check('S350', 'somebody who replied STOP is NOT in the list of numbers',
+      res.numbers.indexOf('8015550222') === -1 && res.stopped === 1,
+      'this list is pasted straight into a sender \u2014 a marker nothing reads is no protection');
+    check('S350', 'and they are counted rather than dropped in silence',
+      res.stopped === 1,
+      'somebody going missing with no reason given is the other failure');
+    check('S350', 'everybody with a real number is in it, once, normalised',
+      res.numbers.length === 3 &&
+      res.numbers.indexOf('8015550111') !== -1 &&
+      res.numbers.indexOf('8015550333') !== -1);
+    check('S350', 'a number that is not 10 digits is kept AND flagged',
+      res.numbers.indexOf('5550444') !== -1 && res.odd.length === 1 &&
+      /Eve/.test(res.odd[0]),
+      'discarding somebody\u2019s number silently is worse than an odd row she can look at');
+
+    const none = run.rsvpNoPhoneRows(book);
+    check('S350', 'the no-number list holds exactly the people with no digits',
+      none.length === 2 && /Cara/.test(none.join('|')) && /Fay/.test(none.join('|')),
+      '"n/a" is somebody with no number exactly like an empty field');
+    check('S350', 'and it carries what is left to reach them by',
+      /cara@x\.com/.test(none.join('|')),
+      'a name alone does not say whether the RSVP email can still get to them');
+    check('S350', 'somebody who replied STOP is still ON the no-number list rule',
+      none.join('|').indexOf('Bob') === -1,
+      'Bob has a number \u2014 he belongs to the STOP count, not to this one');
+  }
+
+  const copyFn = stripComments(extractFn(admin, 'rsvpCopyPhones') || '');
+  check('S350', 'the numbers press was found', copyFn.length > 300);
+  check('S350', 'it copies one per line',
+    /numbers\.join\('\\n'\)/.test(copyFn),
+    'a bulk sender is handed a column');
+  check('S350', 'it says how many were left out for STOP',
+    /res\.stopped/.test(copyFn),
+    'a silent exclusion is how somebody goes missing');
+
+  const showFn = stripComments(extractFn(admin, 'rsvpShowNoPhone') || '');
+  /* \u26a0 THE GUARD, NOT THE ASSIGNMENT. `if(false){ list.innerHTML = \u2026 }` keeps the
+     drawing in the source and never runs it \u2014 the red-check caught this line's first
+     draft doing exactly that. */
+  check('S350', 'the no-number press draws the list on screen, not only on the clipboard',
+    /if\(list\)\{[^]{0,80}list\.innerHTML/.test(showFn),
+    'the clipboard is the convenience; the answer is the list she can read');
+  /* \u26a0 SCOPED TO THE CATCH'S OWN BODY. A 300-character window reached past the closing
+     brace and matched the SUCCESS path's `return rows.length`, so the sabotage that made
+     the catch return 0 sailed through \u2014 \u00a77's fixed-window trap, inside the gate. */
+  check('S350', 'and a refused clipboard still leaves the list up',
+    /catch\(err\)\{(?:[^{}]|\{[^{}]*\})*return rows\.length;/.test(showFn),
+    'the table is the answer \u2014 losing it to a clipboard failure loses the whole press');
+
+  check('S350', 'both buttons are on the card and wired',
+    admin.indexOf('id="rsvpPhonesBtn"') !== -1 &&
+    admin.indexOf('id="rsvpNoPhoneBtn"') !== -1 &&
+    /if\(phonesBtn\) phonesBtn\.addEventListener\('click'/.test(strippedA) &&
+    /if\(noPhoneBtn\) noPhoneBtn\.addEventListener\('click'/.test(strippedA),
+    'a button with no handler looks identical to a working one');
+}
