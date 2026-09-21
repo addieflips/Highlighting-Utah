@@ -15292,14 +15292,29 @@ document.getElementById('qBuildTestBtn').addEventListener('click', async functio
   btn.disabled = false;
 });
 document.getElementById('qAddByHandBtn')?.addEventListener('click', async function(){
-  const name = prompt('Name? (that is all you need \u2014 you can come back and finish it later)');
+  const name = prompt('Name?');
   if(!name || !name.trim()) return;
-  const phone = prompt('Phone number? (optional \u2014 leave blank to add later)') || '';
-  const email = prompt('Email address? (optional \u2014 needed before you can send them anything)') || '';
+  /* \u2b50 A PHONE, AN EMAIL, OR BOTH \u2014 BUT NOT NEITHER ([[QT-50]], 2026-09-21). Dax: "in add a
+     quote in admin portal you should be able to add a customer with only a email, phone
+     number or both, but in free quote form, both are always required." A name alone was a
+     card nobody could ring, text or send the quote to.
+     \u26a0 THE PUBLIC FORM STAYS STRICTER ([[QT-45]]): the office adds by hand the people who rang
+     or walked up, and some of them only ever give one of the two.
+     \u26a0 CANCEL STOPS, BLANK SKIPS \u2014 so asking again when both are blank never traps anybody. */
+  let phone = '', email = '';
+  for(;;){
+    const p = prompt('Phone number? (leave blank if you only have an email)');
+    if(p === null) return;
+    const e = prompt('Email address?' + (p.trim() ? ' (optional \u2014 needed before you can email them the quote)' : ' (needed \u2014 there is no phone number)'));
+    if(e === null) return;
+    phone = p.trim(); email = e.trim();
+    if(phone || email) break;
+    alert('A quote needs a phone number, an email, or both. Try again, or press Cancel to stop.');
+  }
   const address = prompt('Address? (optional)') || '';
   try{
     await addDoc(collection(db,'quotes'), {
-      name: name.trim(), phone: phone.trim(), email: email.trim().toLowerCase(),
+      name: name.trim(), phone: phone, email: email.toLowerCase(),
       address: address.trim(), contactMethod: '', frontPhotoUrl: '',
       quoteToken: generatePortalToken(), formCompleted: false,
       addedByHand: true, status: 'new', createdAt: serverTimestamp()
