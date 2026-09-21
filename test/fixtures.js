@@ -38,6 +38,13 @@ const CUSTOMERS = {
       email: 'dana@example.com',
       address: '742 Evergreen Ln, Pleasant Grove, UT 84062',
       gateCode: '4417',
+      /* ⭐ A REFERRAL TOKEN ([[REF-43]], 2026-09-21). It has always been in
+         PORTAL_READ_FIELDS and no fixture carried one, so the Refer a Friend tab and —
+         since the text-message RSVP — the Back Next Year card both drew against a blank.
+         A fixture that cannot reach the state proves nothing about it, which is this
+         repo's most-repeated lesson. Eight characters from the server's own alphabet
+         (REFERRAL_TOKEN_ALPHABET — no l, o or 0/1), so it is shaped like a real one. */
+      referralToken: 'ab23cd45',
       lightsDescription: 'Warm White',
       installPreference: 'Any',
       /* ⛔ NO wireColor. It left PORTAL_READ_FIELDS on 2026-09-17 with the control that

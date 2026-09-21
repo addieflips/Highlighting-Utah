@@ -3092,12 +3092,56 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
      without this the reason picker is offered again on every visit to somebody who has
      already used it, which reads as their answer not having saved. The server is the only
      thing on this path that knows. */
+  /* ⭐ AND THEIR REFERRAL LINK, FOR BACK NEXT YEAR ONLY (2026-09-21, [[REF-43]]).
+     The text-message RSVP ([[RS-63]]) carries no referral offer — it cannot, because the
+     whole message is held to one 160-character segment and a second link takes it to
+     ~200. So the offer has to live on the page instead, and this is the token it needs.
+
+     ⛔ BACK NEXT YEAR IS THE ONLY ANSWER WHOSE SCREEN IS THE END OF THE JOURNEY, which
+     is the whole reason this is conditional rather than always. A yes and a no are both
+     handed straight to the portal (openPortalAfterYes / loadPortalByToken), which loads
+     the customer through portalLookup and draws the Refer a Friend tab from the token IT
+     mints — so returning one here for those two is a field nobody reads. Back Next Year
+     stays on #backNextYearConfirm and never loads the portal at all, so before this that
+     customer had no route to their own link from a texted RSVP.
+
+     ⭐ AND [[REF-23]] IS WHY THE OFFER BELONGS THERE AT ALL rather than being tactless:
+     Addie settled that somebody who shares while sitting the season out still earns the
+     $25, against NEXT season's bill. They are earning something real, and until now the
+     one answer that earns it next season was the one answer that could not see the link.
+
+     ⚠ THE TOKEN, NEVER THE ADDRESS. index.html builds it with portalReferralLink, the
+     same builder the Refer a Friend tab uses; a URL assembled here would be a THIRD
+     spelling of an address whose own comment says two that differ by a slash are one
+     referral that credits nobody.
+     ⚠ AND THE SEASON RULE IS ensureReferralToken's, not re-decided here — it hands back
+     whatever is on the record and mints only when there is none, exactly as portalLookup
+     already does. [[REF-25]] and [[REF-42]] govern what an old link is worth.
+
+     ⛔ AND IT IS WRAPPED, BECAUSE IT RUNS AFTER THE ANSWER IS ALREADY WRITTEN. run-all's
+     own census caught this: a throw here rejects the whole callable, so the customer is
+     told their RSVP failed for an answer we have saved, and the Errors folder is told it
+     was lost — over a share link. `ensureReferralToken` already catches its own write,
+     which is not the same as the call being safe, and naming it in AFTER_THE_WRITE is
+     not the guard either. Failing to '' degrades to exactly the right thing: the offer
+     is not drawn (showBackReferral returns on a blank token) and the answer still lands. */
+  let referralToken = '';
+  if (response === 'backnextyear') {
+    try {
+      referralToken = await ensureReferralToken(match.id, match.data);
+    } catch (err) {
+      console.error('[HU] could not mint a referral token for the Back Next Year card', err);
+      referralToken = '';
+    }
+  }
+
   return { ok: true, rsvpStatus: response,
            rejoinedAfterRecycle: rejoinedAfterRecycle,
            removedFromRoutes: removedFrom,
            arrearsOutstanding: owed.outstanding,
            arrearsSeason: owed.season,
            declineReason: String(oldData.rsvpDeclineReason || ''),
+           referralToken: String(referralToken || ''),
            gateCode: String(oldData.gateCode || '') };
 });
 

@@ -1558,7 +1558,8 @@ const RETIRED_CHECKLIST_TERMS = [
       221,  // whether a flagged email is REALLY wrong for that customer, in the live book
       222,  // a real charge to real customers, and only she knows if they paid
       223,  // a real auto-reply arriving, and whether it reads the way she would say it
-      224   // a phone camera on a pencil drawing, and eight of them read off paper
+      224,  // a phone camera on a pencil drawing, and eight of them read off paper
+      225   // a real text, through Google Voice, tapped on a real phone
     ];
     const have = SEED_ROWS.map(function (r) { return r[0]; });
     const missing = MANUAL_ONLY_IDS.filter(function (id) { return !have.includes(id); });
@@ -3705,8 +3706,26 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     /RSVP_NO_TOPIC/.test(rsvpConstSrc) && /RSVP_DECLINE_REASONS/.test(rsvpConstSrc),
     'without them the note write throws into its own catch and every check about it ' +
     'passes against a note that was never raised');
+  /* ⭐ AND THE REFERRAL-TOKEN CHAIN, LIFTED ([[REF-43]], 2026-09-21). portalRsvp mints
+     the link the Back Next Year card shows, and `ensureReferralToken` drags in
+     `generateReferralToken`, its alphabet and `referralSeasonNow` — so all four come
+     across together or the sandbox dies on whichever is missing.
+     ⚠ LIFTED, NEVER STUBBED. A stub would answer a token whatever the real one does, and
+     the claim this suite makes about that write — that it is guarded, and that a failure
+     costs the offer rather than the answer — is exactly what a stub decides for us. */
+  const referralTokenSrc = [
+    (fnSrc.match(/const REFERRAL_TOKEN_ALPHABET = '[^']*';/) || [''])[0],
+    extractFn(fnSrc, 'generateReferralToken'),
+    extractFn(fnSrc, 'referralSeasonNow'),
+    (function(){ const f = extractFn(fnSrc, 'ensureReferralToken'); return f ? 'async ' + f : ''; })()
+  ].filter(Boolean).join('\n');
+  check('flow', 'the referral-token chain portalRsvp calls was found',
+    /REFERRAL_TOKEN_ALPHABET/.test(referralTokenSrc) &&
+    /ensureReferralToken/.test(referralTokenSrc) && /referralSeasonNow/.test(referralTokenSrc),
+    'a missing one leaves every Back Next Year throwing a bare ReferenceError, which ' +
+    'reads as "an async suite crashed" rather than as one name missing from a list');
   const fullSrc = [todayStrSrc, rsvpConstSrc, stampSrcs, arrearsSrcs.filter(Boolean).join('\n'),
-                   referralSrcs.filter(Boolean).join('\n'),
+                   referralSrcs.filter(Boolean).join('\n'), referralTokenSrc,
                    seasonYesSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
     .filter(Boolean).join('\n');
   /* ⭐ AND THE SANDBOX IS CHECKED AGAINST WHAT IT CALLS (2026-08-22). This exact
@@ -8299,7 +8318,17 @@ if (!JSDOM) {
           'install — its whole body is inside a try/catch, and it answers nought on a bad read',
         'db.collection':
           'the Rejoined After Recycling note — a direct Firestore call, wrapped in its own ' +
-          'try/catch at the call site rather than inside a helper'
+          'try/catch at the call site rather than inside a helper',
+        /* ⭐ ADDED 2026-09-21 ([[REF-43]]), AND THIS CENSUS IS WHAT FOUND THE BUG. The
+           Back Next Year card shows the customer their own referral link, which needs a
+           token, and the first version awaited it unguarded — so a throw would have told
+           somebody their RSVP failed for an answer already written, and filed an error
+           saying it was lost, over a share link. It catches at the call site AND the
+           helper catches its own write; a blank token simply draws no offer. */
+        ensureReferralToken:
+          'mints the referral link for the Back Next Year card — its own body catches its ' +
+          'write, and the call site catches on top, failing to a blank token that draws ' +
+          'no offer rather than costing the customer their answer'
       };
       const called = [];
       const re = /await\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(/g;
@@ -51485,10 +51514,20 @@ suite('287. The routine route sweep does not bury the notice that matters');
    email on file." The RSVP goes out by email, so these customers are never asked
    at all.
 
-   ⚠ NOTHING NEW WAS NEEDED ON THE CUSTOMER'S SIDE and the checks say so, because
-   the next person to touch this will be tempted to build a page for it:
-   `#/payment?token=…` with no rsvp parameter signs them in, and the FIRST block on
-   that page asks the question with all three answers on it. */
+   ⛔ SUPERSEDED 2026-09-21 — A PAGE WAS BUILT FOR IT, AND ADDIE ASKED FOR IT BY NAME:
+   "We need to send out a text message RSVP which means we need one link which will
+   take people to a page that says Yes, Back Next year and No."
+   ⚠ THE OLD PARAGRAPH IS KEPT BECAUSE IT WAS RIGHT ABOUT THE MECHANISM, and reads
+   convincingly to whoever finds it first. It said: "NOTHING NEW WAS NEEDED ON THE
+   CUSTOMER'S SIDE and the checks say so, because the next person to touch this will
+   be tempted to build a page for it: `#/payment?token=…` with no rsvp parameter signs
+   them in, and the FIRST block on that page asks the question with all three answers
+   on it." Every word of that is still true — the portal link worked, and nothing was
+   broken. What it did not weigh is that the portal draws the whole ACCOUNT first, so
+   on a phone the question we texted somebody is below the fold. `/a/<token>` is the
+   question and nothing else; it still records through handleRsvpLink and
+   handleBackNextYear, so there is still no second opinion about what an answer does.
+   rsvp-text-link.test.js holds the new half. */
 suite('291. An RSVP link to text, for everyone with no email');
 {
   const NL287 = String.fromCharCode(10);
@@ -51502,7 +51541,22 @@ suite('291. An RSVP link to text, for everyone with no email');
        asked is the whole claim — a stub here would let this list and the email's
        audience drift apart while the suite stayed green, which is the exact failure
        the shared predicate exists to stop. */
-    const api = new Function('jobAddresses',
+    /* ⚠ THE WORDING IS A TEMPLATE NOW ([[EM-23]], 2026-09-21), so rsvpTextMessageFor
+       no longer holds its own sentence — it asks rsvpTextMessageParts, which asks the
+       renderer, which asks firstName and htmlEmailToPlainText. This sandbox died with a
+       bare "rsvpTextMessageParts is not defined" the moment that shipped: the extraction
+       trap, for the twelfth time in this file's history.
+       ⛔ EVERY ONE OF THEM IS LIFTED, NEVER STUBBED. What these checks are about is what
+       the Copy button puts on the clipboard, so a stubbed renderer would decide the very
+       thing under test — and this is the message several hundred customers get.
+       ⚠ THE SANDBOX IS SEEDED WITH NO TEMPLATE PICKED AND THE LIST LOADED, which is the
+       built-in wording: that is what the checks below are about, and what every book
+       that has never opened the card is on. The template path has its own file. */
+    const defBody = (admin.match(/const RSVP_TEXT_DEFAULT_BODY =[\s\S]*?;\r?\n/) || [])[0] || '';
+    check('S287', 'the built-in wording is findable', !!defBody,
+      'without it the sandbox renders an empty body and every wording check below ' +
+      'passes or fails on nothing');
+    const api = new Function('jobAddresses', 'onlyNoEmail',
       extractFn(admin, 'audienceNeverAsked') + NL287 +
       /* ⚠ ITS OWN HELPER TOO. audienceNeverAsked asks audienceQuoteJoinYear, and a
          sandbox given only the outer function dies with a bare ReferenceError — the
@@ -51510,8 +51564,26 @@ suite('291. An RSVP link to text, for everyone with no email');
       extractFn(admin, 'audienceQuoteJoinYear') + NL287 +
       extractFn(admin, 'enrollmentYearOf') + NL287 +
       extractFn(admin, 'effectiveRsvpStatus') + NL287 +
+      defBody + NL287 +
+      'let rsvpTextTemplateName = "";' + NL287 +
+      'let etTemplatesLoaded = true;' + NL287 +
+      'let emailTemplates = [];' + NL287 +
+      extractFn(admin, 'getEmailTemplateByName') + NL287 +
+      extractFn(admin, 'htmlEmailToPlainText') + NL287 +
+      extractFn(admin, 'properName') + NL287 +
+      extractFn(admin, 'firstName') + NL287 +
+      extractFn(admin, 'rsvpTextRenderBody') + NL287 +
+      extractFn(admin, 'rsvpTextMessageParts') + NL287 +
       srcs.join(NL287) + NL287 +
-      'return {targets: rsvpTextTargets, link: rsvpTextLinkFrom, msg: rsvpTextMessageFor};');
+      extractFn(admin, 'rsvpTextHasNoEmail') + NL287 +
+      extractFn(admin, 'rsvpTextSorted') + NL287 +
+      /* ⚠ THE FILTER FLAG IS A PARAMETER HERE, not a stub of the rule that reads it.
+         Which half of the list she is looking at is the input; what the press copies
+         is the claim. */
+      'let rsvpTextOnlyNoEmail = onlyNoEmail;' + NL287 +
+      extractFn(admin, 'rsvpTextCopyList') + NL287 +
+      'return {targets: rsvpTextTargets, link: rsvpTextLinkFrom, msg: rsvpTextMessageFor,\n' +
+      '        noEmail: rsvpTextHasNoEmail, sorted: rsvpTextSorted, copyList: rsvpTextCopyList};');
 
     const book = [
       { id: 'noemail', data: { name: 'Nora Noemail', phone: '8015550001' } },
@@ -51526,14 +51598,111 @@ suite('291. An RSVP link to text, for everyone with no email');
                                    chargeNewMemberFee: true } },
       { id: 'stopped', data: { name: 'Replied STOP', phone: '8015550007', smsOptedOut: true } }
     ];
-    const ids = api(book).targets().map(x => x.id);
+    const ids = api(book, false).targets().map(x => x.id);
 
     check('S287', 'somebody with no email and no answer is on the list',
       ids.indexOf('noemail') !== -1, 'got ' + JSON.stringify(ids));
-    check('S287', 'anybody the email can reach is not',
-      ids.indexOf('hasemail') === -1 && ids.indexOf('email2') === -1,
-      'got ' + JSON.stringify(ids) + ' — a second address is still an address, and ' +
-      'texting somebody the email already reached asks them twice');
+    /* ⚠ REPOINTED, NOT WEAKENED (2026-09-21, [[RS-64]]). This asserted that anybody
+       with an email address was NOT on the list, which was [[RS-63]]'s audience stated
+       as code, and it correctly went red when Addie asked for "a link for everyone that
+       has not responded". Having an email is not having answered — it is the commonest
+       case in the book — and a text is how somebody who never replies gets reached.
+       ⭐ WHAT THAT CHECK WAS REALLY PROTECTING IS UNCHANGED AND IS STILL BELOW: nobody
+       is texted a question they have already answered, and a first-year customer is
+       never asked. Those are the two that would harm a customer. */
+    check('S287', 'somebody who has an email but has not answered is on the list now',
+      ids.indexOf('hasemail') !== -1 && ids.indexOf('email2') !== -1,
+      'got ' + JSON.stringify(ids) + ' — an unanswered RSVP is the reason to text ' +
+      'somebody, and an address they are ignoring is not a reason not to');
+    /* ⛔ AND THE PEOPLE THE EMAIL CANNOT REACH ARE STILL ON IT AND STILL COME FIRST.
+       They are why this card exists: nothing else will ever ask them, so a widening
+       that buried them among several hundred chase-ups would have cost the original
+       purpose to serve the new one. */
+    const sortedRows = api(book, false).sorted(api(book, false).targets());
+    const sorted = sortedRows.map(x => x.id);
+    /* ⚠ EVERY no-email ROW BEFORE EVERY EMAILED ONE, not one named id at the front.
+       The first draft asserted sorted[0] === 'noemail' and failed on correct code: this
+       fixture holds THREE customers with no email and they are ordered by name, so
+       'Assumed Yes At Conversion' leads the group. A check pinned to where one fixture
+       row happens to land is the slow fuse §7 names — this states the rule. */
+    const firstEmailed = sortedRows.findIndex(x => !api(book, false).noEmail(x.data));
+    const lastNoEmail = sortedRows.map(x => api(book, false).noEmail(x.data)).lastIndexOf(true);
+    check('S287', 'and the ones with no email are still listed first',
+      firstEmailed !== -1 && lastNoEmail !== -1 && lastNoEmail < firstEmailed,
+      'got ' + JSON.stringify(sorted) + ' — for them this list is the only thing that ' +
+      'will ever ask, so they lead it');
+    /* ⚠ AND THE FIXTURE REALLY REACHES BOTH GROUPS, or the comparison above is vacuous:
+       with nobody emailed on the list, findIndex answers -1 and any ordering passes. */
+    check('S287', 'and the fixture holds both groups, so that ordering means something',
+      firstEmailed > 0 && lastNoEmail >= 0,
+      'a list that is all one group proves nothing about the order of two');
+
+    /* ---- what ONE PRESS puts on the clipboard ----
+       ⛔ THIS PATH HAD NO COVERAGE AT ALL until a red-check said so: deleting the
+       filter and deleting the STOP guard were both MISSED while every other check
+       stayed green. Each is a press that texts people nobody meant to text, a few
+       hundred at a time, so the list the press walks is its own function and is RUN
+       here rather than matched. */
+    const copyOff = api(book, false).copyList().map(x => x.id);
+    const copyOn  = api(book, true).copyList().map(x => x.id);
+    check('S287', 'the bulk press copies everyone shown when nothing is filtered',
+      copyOff.indexOf('noemail') !== -1 && copyOff.indexOf('hasemail') !== -1,
+      'got ' + JSON.stringify(copyOff));
+    /* ⚠ A FILTERED CARD AND A FULL CLIPBOARD IS THE FAILURE, and it is silent: the
+       press reports the number it copied, so nothing on screen contradicts it. */
+    check('S287', 'and only the no-email ones when the filter is on',
+      copyOn.indexOf('noemail') !== -1 && copyOn.indexOf('hasemail') === -1 &&
+      copyOn.indexOf('email2') === -1,
+      'got ' + JSON.stringify(copyOn) + ' — a filtered list and a full clipboard is ' +
+      'several hundred people texted from a press that looked like it covered thirty');
+    /* ⛔ STOP MEANS STOP, in BOTH states. They stay on the CARD with the button
+       replaced by a warning — dropping them silently is how somebody goes missing
+       with no reason — but never in a press that produces messages to paste. */
+    check('S287', 'and somebody who replied STOP is in neither',
+      copyOff.indexOf('stopped') === -1 && copyOn.indexOf('stopped') === -1,
+      'got ' + JSON.stringify(copyOff) + ' / ' + JSON.stringify(copyOn) +
+      ' — carriers block a number that has replied STOP, and the request was to stop ' +
+      'hearing from us rather than from one system');
+    /* ⚠ AND THE FIXTURE REALLY CARRIES ONE, or the two checks above pass on nothing. */
+    check('S287', 'and the fixture holds somebody who replied STOP',
+      book.some(x => x.data.smsOptedOut),
+      'without one, the STOP check cannot fail');
+    /* ⚠ THE ORDER IS STABLE. The office works down this list over days; a list that
+       reshuffles between two presses cannot be worked down.
+       ⛔ AND IT IS ASSERTED AGAINST A FIXTURE OF ITS OWN, not the shared book, because
+       a red-check proved the shared one cannot hold the claim: with three names in one
+       group and two in the other, replacing the comparator with Math.random() still
+       produced the same order often enough to pass. That is a FLAKY check, which §9.7
+       says is fixed or deleted — so this one names ten customers and asserts the exact
+       sequence, where a random comparator matching is one permutation in millions. */
+    const orderBook = [
+      { id: 'n3', data: { name: 'Carol NoMail',  phone: '1' } },
+      { id: 'e2', data: { name: 'Brian Mailed',  phone: '2', email: 'b@x.com' } },
+      { id: 'n1', data: { name: 'Alice NoMail',  phone: '3' } },
+      { id: 'e4', data: { name: 'Dawn Mailed',   phone: '4', email: 'd@x.com' } },
+      { id: 'n2', data: { name: 'Bob NoMail',    phone: '5' } },
+      { id: 'e1', data: { name: 'Alan Mailed',   phone: '6', email: 'a@x.com' } },
+      { id: 'n5', data: { name: 'Erica NoMail',  phone: '7' } },
+      { id: 'e3', data: { name: 'Clive Mailed',  phone: '8', email: 'c@x.com' } },
+      { id: 'n4', data: { name: 'Dan NoMail',    phone: '9' } },
+      { id: 'n6', data: { name: 'Frank NoMail',  phone: '10' } }
+    ];
+    const WANT = ['n1','n2','n3','n4','n5','n6','e1','e2','e3','e4'];
+    const orderOnce = api(orderBook, false).sorted(api(orderBook, false).targets()).map(x => x.id);
+    check('S287', 'the list is the no-email people by name, then everybody else by name',
+      JSON.stringify(orderOnce) === JSON.stringify(WANT),
+      'got ' + JSON.stringify(orderOnce) + ', wanted ' + JSON.stringify(WANT));
+    check('S287', 'and the order is the same whichever way the book arrives',
+      JSON.stringify(api(orderBook.slice().reverse(), false).sorted(
+        api(orderBook.slice().reverse(), false).targets()).map(x => x.id)) === JSON.stringify(WANT),
+      'the office works down this list over days; one that reshuffles between two ' +
+      'presses cannot be worked down');
+    check('S287', 'and the no-email test reads both address fields',
+      api(book, false).noEmail({ email: '', email2: '' }) === true &&
+      api(book, false).noEmail({ email2: 'b@x.com' }) === false &&
+      api(book, false).noEmail({ email: 'a@x.com' }) === false,
+      'a second address is still an address — somebody with only email2 can be ' +
+      'written to by hand, so they are not in the group nothing can reach');
     check('S287', 'and neither is somebody with no phone number',
       ids.indexOf('nophone') === -1,
       'a text needs somewhere to go; they are a phone call, not a list entry');
@@ -51577,14 +51746,25 @@ suite('291. An RSVP link to text, for everyone with no email');
       'without it this suite is guessing at the only number that decides whether the ' +
       'message fits in one text');
     const realTok = 'a'.repeat(tokLen || 20);
-    const link = api(book).link(realTok);
-    check('S287', 'the link is the portal, with no answer baked into it',
-      link === 'https://highlightingutah.com/#/payment?token=' + realTok,
+    const link = api(book, false).link(realTok);
+    /* ⚠ REPOINTED, NOT WEAKENED (2026-09-21). This asserted the PORTAL address,
+       '…/#/payment?token=' + tok, and it correctly went red when the text-message RSVP
+       moved the link to the answer page. The guarantee it was really protecting is the
+       second half of its own old failure message — "an rsvp=yes link ANSWERS for them;
+       this one asks" — and that is unchanged and asserted below: /a/ names no answer,
+       so a link opened by a mail scanner still submits nothing. What changed is only
+       WHICH asking page it opens. */
+    check('S287', 'the link is the answer page, with no answer baked into it',
+      link === 'https://highlightingutah.com/a/' + realTok,
       'got ' + link + ' — an rsvp=yes link ANSWERS for them; this one asks');
+    check('S287', 'and the link names no answer at all',
+      !/rsvp=(yes|no|back)/.test(link),
+      'got ' + link + ' — the whole reason a scanner cannot answer for them is that ' +
+      'there is no answer in the address to submit');
     check('S287', 'and no link at all without a token',
-      api(book).link('') === '' && api(book).link(null) === '',
+      api(book, false).link('') === '' && api(book, false).link(null) === '',
       'half a URL in a text is worse than no text');
-    const msg = api(book).msg({name: 'Nora Noemail'}, link);
+    const msg = api(book, false).msg({name: 'Nora Noemail'}, link);
     check('S287', 'the message names them and ends on the address',
       /^Hi Nora,/.test(msg) && msg.indexOf(link) === msg.length - link.length,
       'got ' + JSON.stringify(msg) + ' — a text cannot hide a link behind a word, so ' +
@@ -51595,12 +51775,21 @@ suite('291. An RSVP link to text, for everyone with no email');
     /* ⚠ AND IT STILL FITS FOR SOMEBODY WITH A LONG FIRST NAME. The name is the only
        part that varies, so a check against one short name proves the least of it. */
     check('S287', 'and still fits for a long first name',
-      api(book).msg({name: 'Christopherjames Vanderhoeven'}, link).length <= 160,
-      'got ' + api(book).msg({name: 'Christopherjames Vanderhoeven'}, link).length +
+      api(book, false).msg({name: 'Christopherjames Vanderhoeven'}, link).length <= 160,
+      'got ' + api(book, false).msg({name: 'Christopherjames Vanderhoeven'}, link).length +
       ' characters for a sixteen-letter first name');
     check('S287', 'somebody with no name still gets a sentence that reads',
-      /^Hi there,/.test(api(book).msg({}, link)),
-      'got ' + JSON.stringify(api(book).msg({}, link)));
+      /^Hi there,/.test(api(book, false).msg({}, link)),
+      'got ' + JSON.stringify(api(book, false).msg({}, link)));
+    /* ⚠ AND THE GREETING IS THE APP'S OWN RULE, not a split on the first space. The
+       built-in wording went through its own .split(/\s+/)[0] until [[EM-23]] moved it
+       onto a {{name}} token — and that split renders "The Hollands" as "Hi The,",
+       which is the exact case firstName exists for. A household name on an RSVP text
+       is not rare. */
+    check('S287', 'and a household name is not cut in half',
+      /^Hi The Hollands,/.test(api(book, false).msg({name: 'The Hollands'}, link)),
+      'got ' + JSON.stringify(api(book, false).msg({name: 'The Hollands'}, link)) +
+      ' — "Hi The," is what a bare first-word split does to a household');
   }
 
   /* ⚠ THE TOKEN IS KEYED TO THE RECORD, NOT THE PHONE, and this is the one thing here
@@ -51621,9 +51810,51 @@ suite('291. An RSVP link to text, for everyone with no email');
   /* ⚠ AND THE LIST DOES NOT WRITE TO THE BOOK BY BEING LOOKED AT. Minting a token is a
      write; drawing a list is not a reason to write to a few hundred customer records. */
   const renderFn = extractFn(admin, 'rsvpTextRender') || '';
+  /* ⚠ COMMENTS STRIPPED, and this check taught itself why: the [[RS-65]] handler is
+     introduced by a paragraph explaining that rsvpTextTokenFor WRITES and so must only
+     run on a press — and that prose sits before the first addEventListener, so the raw
+     read found the name in the explanation and failed a correct file. Suites 58, 274,
+     275 and 300 each learned this separately; here it was the comment defending the
+     very rule being checked. */
   check('S287', 'drawing the list mints no tokens',
-    !!renderFn && !/rsvpTextTokenFor/.test(renderFn.split('addEventListener')[0]),
+    !!renderFn && !/rsvpTextTokenFor/.test(stripComments(renderFn).split('addEventListener')[0]),
     'a panel that edits the book by being opened is the kind of thing nobody suspects');
+
+  /* ---- the link itself ([[RS-65]]) ----
+     ⛔ THERE WAS NO LINK ON THIS CARD AT ALL until Addie said so: "I dont see the
+     link for the yes, back next year, and no." Copy their text put the whole SMS on
+     the clipboard with the address buried inside it, and the preview's address is a
+     made-up example that says so on screen. So nothing here could be read out over
+     the phone or pasted anywhere else. */
+  const rowScope = stripComments(renderFn);
+  check('S287', 'each row offers the bare link as well as the whole message',
+    /data-rsvplink=/.test(rowScope) && /data-rsvptext=/.test(rowScope),
+    'the message is what goes into Google Voice; the bare link is every other way of ' +
+    'getting it to somebody, and neither replaces the other');
+  /* ⚠ IT COPIES THE ADDRESS, NOT THE MESSAGE. Both handlers sit in the same function
+     and both mint a token, so the one thing that separates them is what reaches the
+     clipboard — and a Copy link that quietly pasted the whole SMS would look like it
+     worked every time. */
+  const linkHandler = rowScope.slice(rowScope.indexOf("querySelectorAll('[data-rsvplink]"),
+                                     rowScope.indexOf("querySelectorAll('[data-rsvptext]"));
+  check('S287', 'and Copy link copies the address, not the text message',
+    linkHandler.length > 0 &&
+    /writeText\(url\)/.test(linkHandler) && !/rsvpTextMessageParts/.test(linkHandler),
+    'got a handler that reaches for the message builder — Copy link must hand over ' +
+    'the address alone');
+  /* ⛔ AND IT REFUSES TO SHOW HALF AN ADDRESS. A failed token write hands back nothing,
+     and a box holding part of a link is one somebody pastes into a message and sends
+     — [[REF-21]]'s rule, on a different screen. */
+  check('S287', 'and a failed token shows nothing rather than half a link',
+    /if\(!url\)/.test(linkHandler),
+    'half a URL in somebody\'s hands is worse than no link at all');
+  /* ⚠ STOP PEOPLE GET NEITHER BUTTON. The row still SHOWS them with a warning —
+     dropping them silently is how somebody goes missing with no reason given — but a
+     press that produces something to send is not offered. */
+  check('S287', 'and somebody who replied STOP is offered neither button',
+    /stopped\s*$|stopped\s*\r?\n?\s*\?/m.test(rowScope) &&
+    rowScope.indexOf('data-rsvplink') > rowScope.indexOf('replied STOP'),
+    'the two buttons sit in the branch for people we may still contact');
 }
 /* =====================================================================
  * Suite 290 — paying is not the same as saying yes
@@ -61124,6 +61355,25 @@ suite('330. One box on the two contact forms; phone AND email on the free quote 
     !/name="contact"/.test(quoteForm),
     'a leftover one-box field would be a third required input nobody can satisfy sensibly');
 
+  /* ⭐ ADMIN'S "ADD A QUOTE BY HAND" TAKES EITHER, BUT NOT NEITHER ([[QT-50]], Dax 2026-09-21:
+     "in add a quote in admin portal you should be able to add a customer with only a email,
+     phone number or both"). The public form above stays stricter on purpose. */
+  {
+    const hAt = admin.indexOf("document.getElementById('qAddByHandBtn')");
+    const hand = hAt === -1 ? '' : admin.slice(hAt, admin.indexOf('function hasOpenQuote', hAt));
+    check('S330', 'the add-a-quote-by-hand handler was found', hand !== '',
+      'renamed or gone — the checks below would pass vacuously on an empty slice');
+    check('S330', 'adding a quote by hand refuses a card with neither a phone nor an email',
+      /if\(phone \|\| email\) break;/.test(hand),
+      'a name-only card is a quote nobody can ring, text or send the price to');
+    check('S330', 'and Cancel still gets out of the loop',
+      (hand.match(/=== null\) return;/g) || []).length >= 2,
+      'asking again with no way out traps the office in prompts');
+    check('S330', 'and neither one is demanded on its own',
+      !/if\(!phone\)|if\(!email\)/.test(hand),
+      'QT-50 lets the office add somebody with only a phone or only an email');
+  }
+
   /* ⚠ ONE SPLITTER, TWO FORMS. A second reading of "is this an email" is how one form
      starts filing an address in the phone field — and that field is `custInvoiceKey`.
      The definition plus the two contact handlers. */
@@ -62546,4 +62796,274 @@ suite('345. The Inbox works out each message once, not once per tab');
         JSON.stringify([x, y]));
     }
   }
+}
+
+suite('Suite 346. HEADLINE: every Confirmed customer is on a day after Recalculate everything');
+/* ⭐⭐ [[SCH-85]]. Dax, 2026-09-21: "a lot of people are confirmed and when i click recalculate
+   everything they dont appear on the schedule, make it so every confirmed is on the schedule
+   when we recaclulate and make it so whenever we change anything in the future thats a rule
+   that will never change, its a headline every confirmed = scheduled when recaclulate
+   everything."
+
+   ⭐ SO THIS SUITE BREAKS THE RULES ON PURPOSE. Suite 306 proves the rules as written keep
+   everybody; that is not the promise. The promise is that NO rule, present or future, can
+   leave a Confirmed customer without a day — so every check here runs the real rebuild with a
+   gate deliberately re-added in front of it (the exact shape of [[SCH-48]]'s cause ①, a bare
+   `return` that keeps somebody off the plan) and asserts they come out on a day anyway.
+
+   ⛔ IF ONE OF THESE GOES RED, DO NOT WEAKEN IT. It means a change has made "Confirmed" and
+   "on the schedule" disagree, which is the one thing the owner said must never change. */
+{
+  const planStart = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const planEnd = admin.indexOf('/* Top every day up to the cap.', planStart);
+  const lifts = ['sameTownName', 'townCentres', 'nearbyTowns', 'installPriority', 'pinHorizon',
+                 'seasonStartDate', 'prefSpecificDate', 'houseAllowedFrom', 'houseDeadline',
+                 'houseInstallPriority', 'anyStampMillis', 'lightsLockMillis',
+                 'scheduleHoldMillis', 'scheduleHoldEndsMillis',
+                 'houseHoldFrom', 'isOutForSeason', 'seasonBadgeKey', 'planCustomerFor', 'seasonCustomerIds',
+                 'customersMissingFromSeason', 'confirmedNotOnAnyDay', 'placeConfirmedLeftOff',
+                 'houseFromCustomer', 'rebuildSeasonDays',
+                 'dayAreas', 'dayCrewTowns', 'crewTownsFor'];
+  const gone = lifts.filter(f => !extractFn(admin, f));
+  check('S346', 'the whole rebuild and its safety net lift cleanly', gone.length === 0 && planStart !== -1,
+    'missing: ' + gone.join(', '));
+
+  if (!gone.length && planStart !== -1) {
+    const ctx = {};
+    const TODAY = new Date(2026, 9, 5);            // Monday 5 October 2026
+    new Function('__TODAY',
+      'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+' +
+      '"-"+String(dt.getDate()).padStart(2,"0");}' +
+      'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+      'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;' +
+      'return 2*R*Math.asin(Math.sqrt(q));}' +
+      'function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}' +
+      'function isWeekend(d){const k=d.getDay();return k===0||k===6;}' +
+      'function isWorkingDay(d){return !isWeekend(d);}' +
+      'function isoOf(d){return toDateStr(d);}' +
+      'function daysBetween(a,b){return Math.round((a-b)/86400000);}' +
+      'function mdToDate(md){const p=(""+md).split("-").map(Number);return new Date(2026,p[0]-1,p[1]);}' +
+      'function extractCleanCity(c){return (""+(c==null?"":c)).trim();}' +
+      'function nextWorkingDay(d){const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());' +
+      'let g=0;while(!isWorkingDay(x)&&g++<14)x.setDate(x.getDate()+1);return x;}' +
+      'function dayDate(d){return d._date;}' +
+      'function installDays(){return SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown);}' +
+      'function computeDates(){SEASON.forEach(d=>{if(d.base!=null)d._date=addDays(BASE_START,d.base);});}' +
+      'function planCities(){return [];}' +
+      'function seasonFirstDate(){return new Date(2026,9,1);}' +
+      'function seasonRuleIsLive(){return false;}' +
+      'function houseOwesFromLastSeason(){return false;}' +
+      'var custById=new Map();' +
+      'function hlxResolvePlanHouse(h){const raw=String((h&&h.id)==null?"":h.id);' +
+      'if(raw.indexOf("cust-")===0)return custById.get(raw.slice(5))||null;' +
+      'return customerForHouse(h);}' +
+      'function customerForHouse(h){const num=String((h&&h.cu)==null?"":h.cu).trim();' +
+      'return num?(jobAddresses.filter(function(a){' +
+      'return String((a.data||{}).customerNumber||"")===num;})[0]||null):null;}' +
+      'var CREWS=[{name:"Crew 1",city:""},{name:"Crew 2",city:""}];' +
+      'var jobAddresses=[],BASE_START=new Date(2026,9,1),globalDelta=0,SEASON=[],selSchedule=null;\n' +
+      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
+      'let NEARBY_TOWN_LIST={};' + phantomTownSrc() +
+      'const PIN_HONOURED_BUSINESS_DAYS=2;' +
+      'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/) || [])[1] + ';' +
+      admin.slice(planStart, planEnd) + dayLimitSrc() +
+      extractFn(admin, 'townsAreNeighbours') +
+      'function cityOf(h){return (h.city||"").trim();}' +
+      'function sameCity(a,b){return (""+a).trim().toLowerCase()===(""+b).trim().toLowerCase();}' +
+      'const SCHEDULE_SYNC_FIELDS=[{key:"city",label:"town",read:function(d){return d.city;}},' +
+      '{key:"name",label:"name",read:function(d){return d.name;}},' +
+      '{key:"pref",label:"timing",read:function(d){return d.installPreference;}}];' +
+      lifts.map(f => extractFn(admin, f)).join('\n')
+        .replace('const today=new Date();', 'const today=new Date(__TODAY);') +
+      /* ⚠ THE SABOTAGE, AND IT IS THE POINT OF THE SUITE. A rule that keeps anybody carrying
+         `__gate` off the plan — the same shape as the `needsLightBuild` gate SCH-48 removed.
+         The real function is wrapped, never replaced, so everything else it does still runs. */
+      '\nvar __realMissing=customersMissingFromSeason;' +
+      'customersMissingFromSeason=function(){return __realMissing().filter(function(x){' +
+      'return !(x&&x.data&&x.data.__gate);});};' +
+      '\nthis.run=function(book){jobAddresses=book;custById=new Map();' +
+      'book.forEach(function(c){custById.set(c.id,c);});SEASON=[];' +
+      'const r=rebuildSeasonDays();computeDates();' +
+      'return {r:r,days:SEASON.filter(function(d){return !d.isFixRoute&&!d.isTakedown;})' +
+      '.map(function(d){return {date:isoOf(dayDate(d)),' +
+      'towns:(d.houses||[]).map(function(h){return h.city||"";}),' +
+      'who:(d.houses||[]).map(function(h){return h.id;})};})};};'
+    ).call(ctx, TODAY);
+
+    const base = { city: 'Lehi', installPreference: 'Normal Schedule', lat: 40.391, lng: -111.851 };
+    const soon = { toMillis: () => new Date(2026, 9, 9, 14, 0, 0).getTime() };
+
+    /* ---- A: the rules drop three Confirmed customers; the net must put all three on a day ---- */
+    {
+      const book = [];
+      for (let i = 1; i <= 44; i++) {
+        book.push({ id: 'free' + i, data: Object.assign({ name: 'Free ' + i, customerNumber: String(i) }, base) });
+      }
+      book.push({ id: 'gatedLehi', data: Object.assign({ name: 'Gated Lehi', customerNumber: '801', __gate: true }, base) });
+      book.push({ id: 'gatedFar', data: { name: 'Gated Levan', customerNumber: '802', __gate: true,
+                                          city: 'Levan', installPreference: 'Normal Schedule' } });
+      book.push({ id: 'gatedHeld', data: Object.assign({ name: 'Gated Held', customerNumber: '803', __gate: true,
+                                                         scheduleHoldUntil: soon }, base) });
+      /* Somebody who said NO. The net must never add them: it acts on the badge, and their
+         badge is not Confirmed. A net that added everybody would pass every other check. */
+      book.push({ id: 'saidNo', data: Object.assign({ name: 'Said No', customerNumber: '804', rsvpStatus: 'no' }, base) });
+
+      const out = ctx.run(book);
+      const dayOf = id => (out.days.filter(d => d.who.indexOf('cust-' + id) !== -1)[0] || {});
+      const confirmed = book.filter(c => c.id !== 'saidNo').map(c => c.id);
+      const off = confirmed.filter(id => !dayOf(id).date);
+
+      /* ⭐ THE HEADLINE, IN ONE ASSERTION. */
+      check('S346', 'every Confirmed customer is on a day, even with a rule dropping three of them',
+        off.length === 0,
+        off.length + ' confirmed customer(s) left off every day: ' + off.join(', ') +
+        ' — owner: "every confirmed = scheduled when recaclulate everything"');
+      check('S346', 'and the press reports nobody confirmed still off',
+        out.r && out.r.confirmedOff === 0,
+        'it reported ' + (out.r && out.r.confirmedOff) + ': ' + JSON.stringify(out.r && out.r.confirmedOffNames));
+      check('S346', 'and it says how many the safety net had to place, by name',
+        out.r && out.r.safetyNet === 3 && (out.r.safetyNetNames || []).indexOf('Gated Lehi') !== -1,
+        'got ' + JSON.stringify(out.r && { n: out.r.safetyNet, names: out.r.safetyNetNames }) +
+        ' — the names are how the rule that dropped them gets found, so it must not be silent');
+      check('S346', 'a customer the rules dropped joins a day already working their own town',
+        (dayOf('gatedLehi').towns || []).filter(t => t === 'Lehi').length > 1,
+        'Gated Lehi landed on ' + JSON.stringify(dayOf('gatedLehi')) + ' — a Lehi day exists, so the net ' +
+        'should use it rather than dropping them into some other town');
+      check('S346', 'a hold is still a hold: the held one is placed after it runs out, not before',
+        !!dayOf('gatedHeld').date && dayOf('gatedHeld').date > '2026-10-09',
+        'got ' + dayOf('gatedHeld').date + ' — the hold runs to the afternoon of Friday 9 Oct');
+      check('S346', 'a town with no day of its own still gets one',
+        !!dayOf('gatedFar').date,
+        'Gated Levan came back with no day at all');
+      check('S346', 'and somebody who said no is NOT added — the net acts on the badge, never on everybody',
+        !dayOf('saidNo').date,
+        'Said No was put on ' + dayOf('saidNo').date);
+    }
+
+    /* ---- B: nothing can be built at all (no towns anywhere) — the empty-build exit ---- */
+    {
+      const book = [1, 2, 3].map(i => ({ id: 'nt' + i, data: { name: 'No Town ' + i, customerNumber: '90' + i,
+                                                                 city: '', installPreference: 'Normal Schedule' } }));
+      const out = ctx.run(book);
+      const off = book.filter(c => !out.days.some(d => d.who.indexOf('cust-' + c.id) !== -1));
+      check('S346', 'even a press that can build no day at all still puts every Confirmed customer on one',
+        off.length === 0 && out.r && out.r.safetyNet === 3 && out.r.confirmedOff === 0,
+        'left off: ' + off.map(c => c.id).join(', ') + '; r=' + JSON.stringify(out.r));
+    }
+  }
+
+  /* ---- the wiring, which a behavioural check alone cannot see ---- */
+  const rb = extractFn(admin, 'rebuildSeasonDays');
+  const calls = (rb.match(/placeConfirmedLeftOff\(floorStr, *startStr\)/g) || []).length;
+  check('S346', 'rebuildSeasonDays runs the safety net at BOTH of its building exits',
+    calls === 2,
+    'found ' + calls + ' call(s): the empty-build exit and the normal exit each need one, or a press ' +
+    'that takes the other one leaves people off');
+  const net = extractFn(admin, 'placeConfirmedLeftOff');
+  check('S346', 'the net decides who by the Confirmed badge and nothing else',
+    /confirmedNotOnAnyDay\(\)/.test(net) && !/isOutForSeason|rsvpStatus|needsLightBuild/.test(net),
+    'a second question here is how "Confirmed" and "on the schedule" start disagreeing again');
+  check('S346', 'and it only ever uses days on or after the floor, so a printed day is never touched',
+    /isoOf\(dt\) >= floorStr/.test(net),
+    'the floor is what keeps the 48-hour lock and worked days out of its reach');
+  check('S346', 'Recalculate everything tells the office who the net placed',
+    /r\.safetyNet/.test(admin) && /so every Confirmed is on a day/.test(admin),
+    'a net that works silently hides the rule that dropped them');
+}
+
+suite('Suite 347. HEADLINE: All Customers shows the Schedule\'s day, every time it is pressed');
+/* ⭐⭐ [[SCH-86]]. Dax, 2026-09-21: "still in all customers it doesnt update what day people
+   are scheduled to be hung fix that and make that permanent as well for everytime all
+   customers is ever pressed."
+
+   ⛔ WHAT WAS WRONG, MEASURED ON THE LIVE PAGE: the pills already carried the Schedule's
+   days, but 279 of the 298 booked rows ALSO read "⚠ … — not on the schedule". The check
+   behind that asks the crew-routes sweep, which builds its own days, whether it holds the
+   house on the Schedule's day. It never does — so every correct date wore a red "not on the
+   schedule", which reads exactly like the page never updating.
+
+   ⛔ IF ONE OF THESE GOES RED, DO NOT WEAKEN IT — All Customers is showing somebody a day
+   that is not the one the Schedule has them on, or calling a real day unreal. */
+{
+  const src = admin.slice(admin.indexOf('function planHangDateFor('),
+                          admin.indexOf('function allCustRouteStatus'));
+  const stSrc = admin.slice(admin.indexOf('function allCustRouteStatus('), admin.indexOf('let allCustPlanStale'));
+  check('S347', 'the All Customers date helpers lift cleanly',
+    !!src && src.indexOf('function nextVisitChip') !== -1 && !!stSrc,
+    'renamed? repoint these lifts rather than deleting the suite');
+  if (src && stSrc) {
+    const saved = { w: global.window, l: global.scheduledRoutesLoaded, c: global.scheduledRoutesCache, e: global.esc };
+    global.esc = real('esc');
+    const api = eval(src + '\n' + stSrc + '\n;({next: nextVisitFor, chip: nextVisitChip, status: allCustRouteStatus, plan: planHangDateFor})');
+    /* The crew-routes system has LOADED and holds NOBODY on any day — the live state that
+       made every plan date read as an orphan. */
+    global.scheduledRoutesLoaded = true;
+    global.scheduledRoutesCache = {};
+    const STAMP = { scheduled: true, scheduledDate: '2026-10-16' };   // the crew-routes system's invented day
+    let PLAN = { c1: { date: '2026-10-02', crew: '1' } };
+    global.window = { schedulePlanBookings: function(){ return PLAN; } };
+
+    const pill = api.chip(STAMP, 'c1');
+    check('S347', 'a customer the Schedule has on a day shows THAT day',
+      /Oct 2/.test(pill) && !/Oct 16/.test(pill),
+      'drew: ' + pill.replace(/<[^>]+>/g, '') + ' — the stamp from the crew-routes system must never win over the Schedule');
+    check('S347', 'and a Schedule day is never called "not on the schedule"',
+      !/not on the schedule/.test(pill) && !/#B42318/.test(pill),
+      'drew: ' + pill.replace(/<[^>]+>/g, '') + ' — that red is what made the page look like it never updated');
+    check('S347', 'and the word above it agrees: Scheduled',
+      api.status(STAMP, 'c1') === 'Scheduled');
+    check('S347', 'a customer the Schedule does not hold reads Unscheduled, whatever the stamp says',
+      api.status(STAMP, 'nobody') === 'Unscheduled' && /No day booked yet/.test(api.chip({}, 'nobody')),
+      'a leftover crew-routes stamp must not keep promising a day');
+
+    /* ⭐ EVERY PRESS READS THE PLAN AGAIN. Recalculate moves somebody; the next draw must
+       show the new day. The per-draw memo must never outlive the draw. */
+    (function(){
+      pendingAsync.push(Promise.resolve().then(function(){ return new Promise(function(r){ setTimeout(r, 0); }); }).then(function(){
+        global.window = { schedulePlanBookings: function(){ return PLAN; } };
+        global.scheduledRoutesLoaded = true; global.scheduledRoutesCache = {};
+        const first = api.plan('c1');
+        PLAN = { c1: { date: '2026-11-03', crew: '2' } };
+        const sameDraw = api.plan('c1');
+        return Promise.resolve().then(function(){}).then(function(){
+          const nextDraw = api.plan('c1');
+          check('S347', 'the next draw after a Recalculate shows the NEW day',
+            first === '2026-10-02' && nextDraw === '2026-11-03',
+            'first ' + first + ', same draw ' + sameDraw + ', next draw ' + nextDraw +
+            ' — a memo that outlives one draw is the page "not updating"');
+          /* The fallback, unchanged: with no plan to ask, a stamp is still checked against
+             the crew routes exactly as SCH-73 built it. */
+          global.window = { schedulePlanBookings: function(){ return null; } };
+          return Promise.resolve().then(function(){}).then(function(){
+            check('S347', 'while the plan cannot answer, an orphaned crew-routes stamp is still flagged',
+              /not on the schedule/.test(api.chip(STAMP, 'c1')),
+              'SCH-73 still stands for the stamp fallback');
+            global.window = saved.w; global.scheduledRoutesLoaded = saved.l;
+            global.scheduledRoutesCache = saved.c; global.esc = saved.e;
+          });
+        });
+      }));
+    })();
+  }
+}
+{
+  /* ---- the wiring that makes it "every time All Customers is pressed" ---- */
+  const tabs = admin.slice(admin.indexOf("setupDraggableTabBar('custSectionTabs'"),
+                           admin.indexOf('function loadHouseMapsIdSet'));
+  check('S347', 'pressing the All Customers tab redraws the table, every press',
+    /if\(tabName === 'all'\) renderAllCustomersTable\(\);/.test(tabs),
+    'a press that shows the last draw shows the days from before the last Recalculate');
+  check('S347', 'every draw makes sure the saved Schedule is being followed',
+    /function renderAllCustomersTable\(\)\{[^]{0,400}window\.scheduleFollowPlanForReaders\(\)/.test(admin));
+  const reader = admin.slice(admin.indexOf('window.scheduleFollowPlanForReaders=function(){'),
+                             admin.indexOf('let __started=false;'));
+  check('S347', 'a Schedule arriving from any device redraws All Customers',
+    /hydrate\(s\.data\(\)\)[^]*window\.schedulePlanChanged\(\)/.test(reader));
+  check('S347', 'and so does every change to the Schedule on this device, Recalculate included',
+    /function renderAll\(\)\{[^]*?window\.schedulePlanChanged\(\);\}/.test(admin));
+  const chip = extractFn(admin, 'nextVisitChip');
+  check('S347', 'the orphan warning is only ever asked about a date that did NOT come from the Schedule',
+    /const orphan = !v\.fromPlan && scheduledDayIsReal\(/.test(chip),
+    'drop the !v.fromPlan and every Schedule day reads "not on the schedule" again');
 }

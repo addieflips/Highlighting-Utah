@@ -3727,7 +3727,7 @@
            order. This is those three, in one press, with the breakdown shown first. -->
       <div class="card" id="rsvpWholeCard" style="margin-bottom:22px; border-color:var(--gold);">
         <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#127876; Send the whole RSVP</h3>
-        <p class="form-note" style="margin:0 0 12px;">One press sends both RSVP emails: the ordinary one to everybody who is straight, and the <b>Not Paid RSVP</b> to everybody who owes from last season &mdash; so each customer gets the one that fits them, and nobody gets both. Anyone with no email on file is listed under <b>RSVP &rarr; Text the RSVP</b> for texting instead. <b>Check first</b> shows exactly who would get what without sending anything.</p>
+        <p class="form-note" style="margin:0 0 12px;">One press sends both RSVP emails: the ordinary one to everybody who is straight, and the <b>Not Paid RSVP</b> to everybody who owes from last season &mdash; so each customer gets the one that fits them, and nobody gets both. Anyone the email cannot reach — and anyone who simply never replies — is listed under <b>RSVP &rarr; Text the RSVP</b>, with their own link to text. <b>Check first</b> shows exactly who would get what without sending anything.</p>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
           <button type="button" class="btn btn-outline btn-sm" id="rsvpWholeCheckBtn">Check first &mdash; who gets what</button>
           <button type="button" class="btn btn-gold" id="rsvpWholeSendBtn">Send the whole RSVP</button>
@@ -4150,12 +4150,30 @@
       </div>
       <div class="rsvp-subtab-panel" id="rsvpsub-text" hidden>
       <div class="card" id="rsvpTextCard" style="margin-bottom:22px; border-color:var(--gold-dim);">
-        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128241; Text the RSVP &mdash; no email on file</h3>
-        <p class="form-note" style="margin:0 0 12px;">The RSVP email cannot reach these customers, so they are never asked. Each link signs that person into their own portal, where the first thing on the page is <strong>&ldquo;Are you having lights this season?&rdquo;</strong> with Yes, Back next year and Not this season &mdash; so one short link is the whole RSVP. Nobody who has already answered is listed, and nobody in their first year, for the same reason the email skips them.</p>
+        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128241; Text the RSVP &mdash; everyone still to answer</h3>
+        <p class="form-note" style="margin:0 0 12px;">Everyone here still has to answer. Each link is <strong>their own</strong> — it carries their token, which is what signs them in and records the answer against them, so there is no one address that works for everybody. The ones marked <strong>No email</strong> cannot be reached by the RSVP email at all, so a text is the only thing that will ever ask them — they are listed first. Each link opens one page that asks <strong>&ldquo;Are you having lights this season?&rdquo;</strong> and carries <strong>Yes</strong>, <strong>Back Next Year</strong> and <strong>No</strong> &mdash; the same three answers as the three buttons in the RSVP email, which a text message cannot carry. Their answer is recorded exactly as an emailed one is, so a texted customer needs nothing chasing up separately. Nobody who has already answered is listed, and nobody in their first year, for the same reason the email skips them.</p>
+        <p class="form-note" id="backReferBlock-note" style="margin:0 0 12px; padding:9px 11px; background:var(--paper); border:1px solid var(--gold-dim); border-radius:8px;"><strong>The referral offer is not in the text.</strong> The RSVP email carries it, but a second address takes the message past 160 characters and puts two links in front of somebody who only has to answer one question. They still get it: <strong>Back Next Year</strong> shows them their own link on the answer page, and <strong>Yes</strong> or <strong>No</strong> lands them in their member portal, where Refer a Friend is a tab. &#36;25 comes off <strong>next</strong> season for anyone sitting this one out.</p>
+        <div style="border:1px solid var(--line); border-radius:10px; padding:11px 12px; margin:0 0 12px; background:var(--snow);">
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+            <div class="form-row" style="margin:0; min-width:240px; flex:1;">
+              <label style="margin-bottom:4px;">What the text says</label>
+              <select id="rsvpTextTmpl"><option value="">&mdash; the built-in wording &mdash;</option></select>
+            </div>
+            <button type="button" class="btn btn-outline btn-sm" id="rsvpTextMakeTmplBtn">Make one I can edit</button>
+          </div>
+          <div id="rsvpTextTmplNote" class="form-note" style="margin:8px 0 0;"></div>
+          <div id="rsvpTextPreview" style="margin-top:10px;"></div>
+        </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
-          <button type="button" class="btn btn-outline btn-sm" id="rsvpTextFindBtn">Find who has no email</button>
+          <button type="button" class="btn btn-outline btn-sm" id="rsvpTextFindBtn">Find who still has to answer</button>
           <button type="button" class="btn btn-gold btn-sm" id="rsvpTextCopyAllBtn" style="display:none;">Copy them all for texting</button>
           <span id="rsvpTextCount" style="font-size:12.5px; color:var(--slate);"></span>
+        </div>
+        <div id="rsvpTextFilterWrap" style="display:none; margin:0 0 10px;">
+          <label style="display:inline-flex; align-items:center; gap:7px; font-size:13px; cursor:pointer;">
+            <input type="checkbox" id="rsvpTextOnlyNoEmail">
+            <span>Only the ones with no email &mdash; the people the RSVP email cannot reach</span>
+          </label>
         </div>
         <div id="rsvpTextStatus" class="form-note" style="margin:0 0 10px;"></div>
         <div id="rsvpTextList"></div>
@@ -9662,16 +9680,62 @@ function scheduleHoldEndsMillis(d){
    raw field: a bare 'yes' with no reply behind it is an import or the assumed yes
    written at conversion, and texting those people is asking a question they think
    they have answered. */
+/* ⭐ EVERYONE WHO HAS NOT ANSWERED, NOT ONLY THE PEOPLE WITH NO EMAIL (2026-09-21,
+   [[RS-64]]). Addie: "I need a link for everyone that has not responded."
+
+   ⚠ THIS WIDENS [[RS-63]]'s OWN AUDIENCE and that line is corrected rather than
+   deleted, because its reasoning is still why the no-email group is SHOWN FIRST: those
+   customers cannot be reached by the RSVP email at all, so for them a text is the only
+   route and nothing else will ever ask them. What was wrong was treating that as the
+   only reason to want the link. Somebody who has an email and has simply not replied
+   is the commonest case in the book, and a text is how you reach them.
+
+   ⛔ AND THE LINK IS PER-CUSTOMER, WHICH IS THE WHOLE MECHANISM RATHER THAN A LIMIT.
+   Each address carries that customer's own portal token, and the token is what signs
+   them in and records the answer against them. There is no single address that works
+   for everybody, and there must never be one: a shared link would sign every customer
+   into whichever account it belonged to. So the list is one row per person, and the
+   bulk copy is one LINE per person.
+
+   ⚠ A PHONE IS STILL REQUIRED. A text needs somewhere to go; somebody with neither an
+   email nor a phone is a phone call the office has to make from a paper list, and
+   putting them here would produce a row with nothing to copy.
+
+   ⚠ AND THE OTHER TWO EXCLUSIONS ARE UNCHANGED AND MUST STAY. audienceNeverAsked is
+   what takes a first-year customer out of the RSVP send — "will you be getting lights
+   hung AGAIN this year?" is nonsense to somebody who never has — and asking it here is
+   what stops the text list and the email list disagreeing about one person.
+   effectiveRsvpStatus, not the raw field: a bare 'yes' with no reply behind it is an
+   import or the assumed yes written at conversion, and texting those people asks a
+   question they think they have answered. */
 function rsvpTextTargets(){
   if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)) return [];
   return jobAddresses.filter(function(item){
     const d = (item && item.data) || null;
     if(!d) return false;
-    if(String(d.email || '').trim() || String(d.email2 || '').trim()) return false;
     if(!String(d.phone || '').replace(/\D/g,'')) return false;
     if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)) return false;
     if(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus(d)) return false;
     return true;
+  });
+}
+/* ⚠ THE EMAIL CANNOT REACH THEM AT ALL, which is a different question from whether
+   they have answered and is why it still has a name. It decides the order of the list,
+   the badge on the row and the narrowing filter — never who is on it. */
+function rsvpTextHasNoEmail(d){
+  return !String((d && d.email) || '').trim() && !String((d && d.email2) || '').trim();
+}
+/* ⚠ THE PEOPLE THE EMAIL CANNOT REACH COME FIRST, because for them this list is the
+   only thing that will ever ask. Everybody else is a chase-up. Within each group the
+   order is by name, so two presses of the button produce the same list — the office
+   works down it over days and a list that reshuffles itself cannot be worked down. */
+function rsvpTextSorted(targets){
+  return (targets || []).slice().sort(function(a, b){
+    const an = rsvpTextHasNoEmail(a && a.data) ? 0 : 1;
+    const bn = rsvpTextHasNoEmail(b && b.data) ? 0 : 1;
+    if(an !== bn) return an - bn;
+    return String((a && a.data && a.data.name) || '')
+      .localeCompare(String((b && b.data && b.data.name) || ''));
   });
 }
 /* ⚠ KEYED TO THE RECORD, NOT TO THE PHONE NUMBER, and this is the one thing here
@@ -9695,15 +9759,114 @@ async function rsvpTextTokenFor(item){
   return token;
 }
 function rsvpTextLinkFrom(token){
-  return token ? ('https://highlightingutah.com/#/payment?token=' + token) : '';
+  /* ⭐ /a/<token>, NOT THE PORTAL (2026-09-21). Addie: "we need one link which
+     will take people to a page that says Yes, Back Next year and No."
+     ⚠ THIS USED TO BE #/payment?token=… and the old reasoning is kept because it
+     was sound rather than wrong: that address signs them in, and the FIRST block on
+     the portal really does ask the question with all three answers on it, so the
+     link worked. What it could not do is BE the question — on a phone their whole
+     account draws first, invoice and tabs and all, and the one thing we asked them
+     for is below the fold.
+     ⚠ AND IT IS 14 CHARACTERS SHORTER, which is not cosmetic here: rsvpTextMessageFor
+     is held to one 160-character segment and the address is most of what it spends. */
+  return token ? ('https://highlightingutah.com/a/' + token) : '';
 }
 /* ⚠ PLAIN CHARACTERS, AND THE ADDRESS IS VISIBLE. A text cannot hide a link behind a
    word, so the URL is the message's last line where it is easy to tap and easy to
-   read out over the phone. Kept short on purpose: 160 characters is one message. */
+   read out over the phone. Kept short on purpose: 160 characters is one message.
+
+   ⭐ AND THE WORDING IS A TEMPLATE SHE CAN EDIT (2026-09-21, [[EM-23]]). Addie, told
+   the text card was already in Automation Emails but that its sentence was not:
+   "Okay do it with updated code."
+
+   ⚠ THE RSVP EMAIL HAS ALWAYS BEEN A TEMPLATE AND THIS WAS A SENTENCE IN THIS FILE,
+   so the one message she could not reach from the screen was the one going to the
+   customers the email cannot reach at all. Changing a word meant changing admin.html.
+
+   ⭐ THE PRECEDENT IS THE QUOTE TEXT AND THIS FOLLOWS IT RATHER THAN INVENTING A
+   SECOND WAY: a PICKER, not a name looked up by convention — getEmailTemplateByName
+   is an exact, case-sensitive match, so a rename is a re-pick here instead of a
+   silent failure ([[QT-42]] is what that costs when it is not) — the body pulled
+   live, htmlEmailToPlainText over it, and the address on the last line. What is new
+   is the FALLBACK, which the quote path does not need and this one does.
+
+   ⛔ IT WARNS, IT NEVER REFUSES, and the reason is [[QT-42]]'s own: there is a
+   correct wording sitting right there. A refusal over a renamed template would cost
+   her the send AND leave her on a card with nothing to press. The built-in wording
+   goes out and the card NAMES which wording went and why.
+
+   ⛔ BUT A TEMPLATE LIST THAT HAS NOT LOADED IS NOT A MISSING TEMPLATE, and from
+   getEmailTemplateByName alone those two are the same answer — undefined. Falling
+   back there would quietly send the built-in wording over the top of a template she
+   picked, to several hundred people, with nothing anywhere going red. etTemplatesLoaded
+   separates them and that one case WAITS rather than guessing; it clears itself a
+   second later, so it is a pause and not a dead end. */
+const RSVP_TEXT_TEMPLATE_NAME = 'RSVP Text';
+/* ⚠ A BODY, NOT A SENTENCE, so the built-in wording and a picked template go through
+   the SAME renderer. Written as two branches it would be two answers about what a
+   text may carry, and the one nobody looks at is the built-in one. */
+const RSVP_TEXT_DEFAULT_BODY =
+  'Hi {{name}}, it’s Highlighting Utah. Christmas lights this year? Tell us yes or no:' +
+  '\n{{link}}';
+let rsvpTextTemplateName = '';
+/* ⚠ NOT SAVED ANYWHERE, ON PURPOSE. It is which half of the list she is looking at
+   right now, not a setting — remembered across a reload it would silently hide most
+   of the list from somebody who had forgotten ticking it, on the one screen whose job
+   is to say who is still outstanding. */
+let rsvpTextOnlyNoEmail = false;
+/* ⭐ WHAT A TEXT CAN ACTUALLY CARRY: their name, and one address. Everything else an
+   email template holds — the three answer buttons, the referral button, the photo,
+   the houses block — is a THING ON A PAGE.
+   ⛔ SO EVERY OTHER TOKEN IS REMOVED RATHER THAN SENT, AND COUNTED ON THE WAY OUT.
+   This app has already mailed customers a literal "{{photo}}" once (the bulk nudge,
+   2026-08-17), and the lesson was not that the token was the wrong one — it was that
+   nothing was counting what it could not render. The card says what was dropped.
+   ⚠ AND THE ADDRESS IS APPENDED ONLY IF HER WORDING DID NOT PLACE IT. A {{link}}
+   where she wants it wins; no {{link}} at all still ends on the address, which is
+   what the card promises and what makes it easy to tap and to read down a phone. */
+function rsvpTextRenderBody(body, d, link){
+  const filled = htmlEmailToPlainText(body || '')
+    .split('{{name}}').join(firstName(d && d.name))
+    .split('{{link}}').join(link || '');
+  const dropped = (filled.match(/\{\{[^{}]*\}\}/g) || [])
+    .map(function(t){ return t.replace(/[{}]/g, ''); });
+  let text = filled
+    .replace(/\{\{[^{}]*\}\}/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  /* ⚠ ON ITS OWN LINE, BUT NEVER ON A LINE OF ITS OWN. A body that rendered to
+     nothing — an empty template, or one whose only content was buttons — came back as a
+     newline and then the address, which is not an empty message and so slipped past the
+     blank test above it. Caught by rsvp-text-wording.test.js before it shipped. */
+  if(link && text.indexOf(link) === -1) text = text ? (text + '\n' + link) : link;
+  return { text: text, dropped: dropped };
+}
+/* ⚠ ONE ANSWER, AND THE PREVIEW AND THE COPY BUTTON BOTH ASK IT. Two ways of
+   deciding which wording goes out is how a card shows her one message and puts a
+   different one on the clipboard — and the clipboard is the half that reaches a
+   customer. rsvpTextMessageFor is this, minus the reporting. */
+function rsvpTextMessageParts(d, link){
+  const wanted = String(rsvpTextTemplateName || '').trim();
+  const built = function(source){
+    const out = rsvpTextRenderBody(RSVP_TEXT_DEFAULT_BODY, d, link);
+    return { text: out.text, dropped: out.dropped, source: source, wanted: wanted };
+  };
+  if(!wanted) return built('builtin');
+  if(!etTemplatesLoaded) return { text: '', dropped: [], source: 'loading', wanted: wanted };
+  const tmpl = getEmailTemplateByName(wanted);
+  if(!tmpl) return built('missing');
+  const out = rsvpTextRenderBody((tmpl.data && tmpl.data.body) || '', d, link);
+  /* ⚠ A TEMPLATE WHOSE BODY IS EMPTY, OR WHOSE ONLY CONTENT WAS TOKENS A TEXT CANNOT
+     CARRY, RENDERS DOWN TO THE BARE ADDRESS. Sending a naked link to several hundred
+     people who are not expecting to hear from us reads as a scam, so that falls
+     through to the built-in wording and the card says it did. */
+  if(!out.text || out.text === String(link || '')) return built('blank');
+  return { text: out.text, dropped: out.dropped, source: 'template', wanted: wanted };
+}
 function rsvpTextMessageFor(d, link){
-  const first = String((d && d.name) || '').trim().split(/\s+/)[0] || 'there';
-  return 'Hi ' + first + ', it’s Highlighting Utah. Christmas lights this year? '
-    + 'Tell us yes or no: ' + link;
+  return rsvpTextMessageParts(d, link).text;
 }
 async function getOrCreatePortalToken(phone){
   const phoneDigits = (phone||'').replace(/\D/g,'');
@@ -12486,6 +12649,7 @@ function initData(){
   loadScheduledRoutes();
   loadEmailjsSettings();
   loadQuoteTemplateSettings();
+  loadRsvpTextSettings();
   loadQuoteNudgeSettings();
   loadPortalChangeEmailSettings();
   loadNightlyInvoiceSettings();
@@ -15297,14 +15461,29 @@ document.getElementById('qBuildTestBtn').addEventListener('click', async functio
   btn.disabled = false;
 });
 document.getElementById('qAddByHandBtn')?.addEventListener('click', async function(){
-  const name = prompt('Name? (that is all you need \u2014 you can come back and finish it later)');
+  const name = prompt('Name?');
   if(!name || !name.trim()) return;
-  const phone = prompt('Phone number? (optional \u2014 leave blank to add later)') || '';
-  const email = prompt('Email address? (optional \u2014 needed before you can send them anything)') || '';
+  /* \u2b50 A PHONE, AN EMAIL, OR BOTH \u2014 BUT NOT NEITHER ([[QT-50]], 2026-09-21). Dax: "in add a
+     quote in admin portal you should be able to add a customer with only a email, phone
+     number or both, but in free quote form, both are always required." A name alone was a
+     card nobody could ring, text or send the quote to.
+     \u26a0 THE PUBLIC FORM STAYS STRICTER ([[QT-45]]): the office adds by hand the people who rang
+     or walked up, and some of them only ever give one of the two.
+     \u26a0 CANCEL STOPS, BLANK SKIPS \u2014 so asking again when both are blank never traps anybody. */
+  let phone = '', email = '';
+  for(;;){
+    const p = prompt('Phone number? (leave blank if you only have an email)');
+    if(p === null) return;
+    const e = prompt('Email address?' + (p.trim() ? ' (optional \u2014 needed before you can email them the quote)' : ' (needed \u2014 there is no phone number)'));
+    if(e === null) return;
+    phone = p.trim(); email = e.trim();
+    if(phone || email) break;
+    alert('A quote needs a phone number, an email, or both. Try again, or press Cancel to stop.');
+  }
   const address = prompt('Address? (optional)') || '';
   try{
     await addDoc(collection(db,'quotes'), {
-      name: name.trim(), phone: phone.trim(), email: email.trim().toLowerCase(),
+      name: name.trim(), phone: phone, email: email.toLowerCase(),
       address: address.trim(), contactMethod: '', frontPhotoUrl: '',
       quoteToken: generatePortalToken(), formCompleted: false,
       addedByHand: true, status: 'new', createdAt: serverTimestamp()
@@ -19135,6 +19314,12 @@ function loadEmailTemplates(){
        a deletion or one made by the button on that card has to reach it. Left out, the
        card goes on naming a template that is no longer there. */
     if(typeof renderPortalChangeEmailCard === 'function') renderPortalChangeEmailCard();
+    /* ⚠ AND THE RSVP TEXT PICKER, for the third time and the same reason: it lists
+       real templates, so a rename, a deletion or one made by the button on that card
+       has to reach it — and its PREVIEW is the shipped message, so an edit to the
+       template she picked has to redraw it or the card goes on showing the old words. */
+    if(typeof renderRsvpTextTemplatePicker === 'function') renderRsvpTextTemplatePicker();
+    if(typeof renderRsvpTextPreview === 'function') renderRsvpTextPreview();
   });
 }
 function getEmailTemplateByName(name){
@@ -19748,13 +19933,41 @@ function rsvpTextRender(){
   const count = document.getElementById('rsvpTextCount');
   const copyAll = document.getElementById('rsvpTextCopyAllBtn');
   if(!list) return;
-  const targets = rsvpTextTargets();
-  if(count) count.textContent = targets.length
-    ? (targets.length + ' customer' + (targets.length === 1 ? '' : 's') + ' with no email')
+  const everyone = rsvpTextSorted(rsvpTextTargets());
+  /* ⚠ THE FILTER NARROWS WHAT IS SHOWN AND COPIED, NEVER WHAT COUNTS AS UNANSWERED.
+     The line above is the whole list, so the card can always say how many people are
+     really outstanding even while she is working through one group of them. */
+  const noEmail = everyone.filter(function(x){ return rsvpTextHasNoEmail(x.data); });
+  const targets = rsvpTextOnlyNoEmail ? noEmail : everyone;
+  /* The preview is built from this same list — the sample customer and the longest
+     name on it — so it is redrawn whenever the list is. */
+  renderRsvpTextTemplatePicker();
+  renderRsvpTextPreview();
+  /* ⚠ BOTH NUMBERS, ALWAYS. "412 have not answered" and "38 of them cannot be emailed
+     at all" are different facts and the second is the one that decides what to do
+     first; a single count hides whichever one is not being shown. */
+  if(count) count.textContent = everyone.length
+    ? (everyone.length + ' still to answer' +
+       (noEmail.length ? ' \u00b7 ' + noEmail.length + ' with no email' : '') +
+       (rsvpTextOnlyNoEmail ? ' \u00b7 showing the no-email ones' : ''))
     : '';
-  if(copyAll) copyAll.style.display = targets.length ? '' : 'none';
+  const filterWrap = document.getElementById('rsvpTextFilterWrap');
+  if(filterWrap) filterWrap.style.display = noEmail.length && everyone.length > noEmail.length ? '' : 'none';
+  const filterBox = document.getElementById('rsvpTextOnlyNoEmail');
+  if(filterBox) filterBox.checked = !!rsvpTextOnlyNoEmail;
+  if(copyAll){
+    copyAll.style.display = targets.length ? '' : 'none';
+    /* ⚠ THE BUTTON SAYS WHAT IT WILL COPY. "Copy them all" beside a filtered list is
+       the one wording that can mean either, and this press can put several hundred
+       lines on the clipboard. */
+    copyAll.textContent = 'Copy all ' + targets.length +
+      (rsvpTextOnlyNoEmail ? ' with no email' : '') + ' for texting';
+  }
   if(!targets.length){
-    list.innerHTML = '<p class="form-note" style="margin:0;">Everybody who still needs to answer has an email address on file &mdash; there is nobody to text.</p>';
+    list.innerHTML = '<p class="form-note" style="margin:0;">' + (everyone.length
+      ? 'Everybody still to answer has an email address on file. Untick the box above to text them anyway.'
+      : 'Nobody is waiting to answer \u2014 everyone has replied, or is in their first year and is not asked.') +
+      '</p>';
     return;
   }
   list.innerHTML = targets.map(function(item){
@@ -19766,12 +19979,72 @@ function rsvpTextRender(){
     return '<div style="display:flex; gap:10px; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--line);">' +
       '<div style="min-width:0;"><strong>' + esc(d.name || '(no name)') + '</strong>' +
         (d.customerNumber ? ' <span style="color:var(--slate); font-size:12px;">#' + esc(d.customerNumber) + '</span>' : '') +
+        /* ⚠ THE BADGE MARKS THE PEOPLE THE EMAIL CANNOT REACH, not the people who have
+           not replied — everybody on this list has not replied, so a badge saying that
+           would be on every row and mean nothing. */
+        (rsvpTextHasNoEmail(d)
+          ? ' <span class="status-pill" style="background:#FFF4DC; color:#7A5B12;">No email</span>'
+          : '') +
         '<br><span style="font-size:12.5px; color:var(--slate);">' + esc(d.phone || '') + '</span></div>' +
+      /* ⭐ THE LINK ITSELF, NOT ONLY THE MESSAGE AROUND IT (2026-09-21, [[RS-65]]).
+         Addie: "I dont see the link for the yes, back next year, and no." She was
+         right and it was not a rendering fault — there was no link on this card at
+         all. Copy their text put the whole SMS on the clipboard with the address
+         buried inside it, and the preview's address is a made-up example that says
+         so. So there was no way to read one out over the phone, paste one into an
+         email or a Facebook message, or look at what a customer is sent.
+         ⚠ BOTH BUTTONS, NOT ONE INSTEAD OF THE OTHER. The message is what goes into
+         Google Voice and is still the common case; the bare link is for every other
+         way of getting it to somebody. */
       (stopped
         ? '<span class="status-pill" style="background:#FDECEA; color:#B91C1C;">Do not text &mdash; they replied STOP</span>'
-        : '<button type="button" class="btn btn-outline btn-sm" data-rsvptext="' + esc(item.id) + '">Copy their text</button>') +
+        : '<span style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">' +
+            '<button type="button" class="btn btn-outline btn-sm" data-rsvplink="' + esc(item.id) + '">Copy link</button>' +
+            '<button type="button" class="btn btn-outline btn-sm" data-rsvptext="' + esc(item.id) + '">Copy their text</button>' +
+          '</span>') +
     '</div>';
   }).join('');
+  /* ⛔ THE TOKEN IS MINTED ON THE PRESS, NEVER ON THE RENDER. rsvpTextTokenFor WRITES
+     to the customer record when they have no token yet, and S287 asserts that drawing
+     this list mints none — a few hundred writes for opening a tab is a panel that edits
+     the book by being looked at. That is also why the address cannot simply be printed
+     on every row: it does not exist until somebody asks for it.
+     ⭐ AND IT IS SHOWN AS WELL AS COPIED, because the clipboard is no use for the thing
+     she asked for — reading it out over the phone, or checking it looks right. The box
+     replaces the two buttons on that row until the list is redrawn. */
+  list.querySelectorAll('[data-rsvplink]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const item = jobAddresses.find(function(x){ return x.id === btn.dataset.rsvplink; });
+      if(!item) return;
+      btn.disabled = true;
+      const was = btn.textContent;
+      btn.textContent = 'Making the link\u2026';
+      try{
+        const token = await rsvpTextTokenFor(item);
+        const url = rsvpTextLinkFrom(token);
+        /* ⚠ HALF A LINK IS WORSE THAN NO LINK — [[REF-21]]'s rule. A failed token write
+           hands back nothing, and a box holding part of an address is one somebody
+           pastes into a message and sends. */
+        if(!url){ btn.textContent = 'Could not make a link'; btn.disabled = false; return; }
+        try{ await navigator.clipboard.writeText(url); }
+        catch(err){ /* the box below is the fallback — it can be selected by hand */ }
+        const wrap = btn.parentNode;
+        if(wrap){
+          wrap.innerHTML = '<input type="text" readonly value="' + esc(url) + '" ' +
+            'aria-label="Their RSVP link" onclick="this.select()" ' +
+            'style="flex:1 1 280px; min-width:200px; font-size:11.5px; padding:3px 7px;">' +
+            '<span style="font-size:11.5px; color:#2E6B3E; align-self:center;">\u2713 Copied</span>';
+        } else {
+          btn.textContent = '\u2713 Copied';
+          setTimeout(function(){ btn.textContent = was; btn.disabled = false; }, 4000);
+        }
+      }catch(err){
+        console.error('Could not copy the RSVP link:', err);
+        btn.textContent = 'Could not copy';
+        btn.disabled = false;
+      }
+    });
+  });
   list.querySelectorAll('[data-rsvptext]').forEach(function(btn){
     btn.addEventListener('click', async function(){
       const item = jobAddresses.find(function(x){ return x.id === btn.dataset.rsvptext; });
@@ -19782,8 +20055,18 @@ function rsvpTextRender(){
       try{
         const token = await rsvpTextTokenFor(item);
         if(!token){ btn.textContent = 'Could not make a link'; return; }
-        const msg = rsvpTextMessageFor(item.data, rsvpTextLinkFrom(token));
-        await navigator.clipboard.writeText(msg);
+        /* ⛔ NEVER THE WRONG WORDING RATHER THAN NO WORDING. If she has picked a
+           template and the template list has not landed yet, the fallback would put
+           the built-in sentence on the clipboard and nothing would say so — the one
+           failure here that reaches a customer silently. It waits instead; the list
+           lands a moment later and the button works. */
+        const parts = rsvpTextMessageParts(item.data, rsvpTextLinkFrom(token));
+        if(parts.source === 'loading'){
+          btn.textContent = 'Templates still loading \u2014 try again';
+          btn.disabled = false;
+          return;
+        }
+        await navigator.clipboard.writeText(parts.text);
         btn.textContent = '\u2713 Copied \u2014 paste it into a text';
         setTimeout(function(){ btn.textContent = was; btn.disabled = false; }, 4000);
       }catch(err){
@@ -19794,13 +20077,236 @@ function rsvpTextRender(){
     });
   });
 }
+/* ⭐ THE PICKER LISTS REAL TEMPLATES, so a rename in Automation Emails is a re-pick
+   here rather than a silent failure — the same reasoning, and the same shape, as
+   renderQuoteTemplatePickers. A name that is no longer in the list is kept as a
+   selected "(not found)" option rather than being quietly dropped: dropping it makes
+   the card read as though she never picked anything, which is the one state she
+   cannot tell from a template that has gone.
+   ⚠ AND IT MARKS THE ONES ALREADY WRITTEN AS TEXTS. isTextMessage has been written by
+   the quote text seeder since it existed and read by NOTHING — a field with a writer
+   and no reader, which §1 of CLAUDE.md calls an error rather than a detail. This is
+   its first reader: in a book of thirty email templates, the two or three meant to be
+   sent as characters are the ones worth finding at a glance. */
+function renderRsvpTextTemplatePicker(){
+  const sel = document.getElementById('rsvpTextTmpl');
+  if(!sel) return;
+  const chosen = rsvpTextTemplateName || '';
+  let html = '<option value="">\u2014 the built-in wording \u2014</option>';
+  (emailTemplates || []).forEach(function(t){
+    const n = (t.data && t.data.name) || '';
+    html += '<option value="'+esc(n)+'"'+(n === chosen ? ' selected' : '')+'>'+esc(n)+
+      ((t.data && t.data.isTextMessage) ? ' (text)' : '')+'</option>';
+  });
+  if(chosen && !(emailTemplates || []).some(function(t){ return (t.data && t.data.name) === chosen; })){
+    html += '<option value="'+esc(chosen)+'" selected>'+esc(chosen)+' (not found)</option>';
+  }
+  sel.innerHTML = html;
+}
+/* ⭐ THE PREVIEW IS THE REAL MESSAGE, BUILT BY THE REAL RULE. It asks
+   rsvpTextMessageParts, which is what the Copy buttons ask — a preview with its own
+   idea of the wording is a card that shows one message and puts another on the
+   clipboard, and the clipboard is the half that reaches a customer.
+   ⛔ AND ITS LINK MINTS NOTHING. generatePortalToken is pure, so the example address
+   is exactly as long as a real one and is written to nobody; S287 asserts that
+   drawing this list writes no tokens, and a preview that saved one to the first
+   customer on the list would edit the book by being looked at.
+   ⚠ THE COUNT IS SHOWN AGAINST THE LONGEST NAME ON THE LIST, not the first one. The
+   name is the only part that varies, so a count taken from whoever happens to sort
+   first says nothing about whether the send fits — and the whole reason this number
+   is on screen is that a template she can edit can cross 160 without anything going
+   red. */
+function rsvpTextPreviewLink(){
+  return rsvpTextLinkFrom(generatePortalToken());
+}
+function rsvpTextLongestNameOn(targets){
+  let worst = null;
+  (targets || []).forEach(function(t){
+    const d = (t && t.data) || {};
+    if(!worst || firstName(d.name).length > firstName(worst.name).length) worst = d;
+  });
+  return worst;
+}
+function renderRsvpTextPreview(){
+  const noteEl = document.getElementById('rsvpTextTmplNote');
+  const box = document.getElementById('rsvpTextPreview');
+  if(!noteEl || !box) return;
+  const targets = rsvpTextTargets();
+  const sample = targets.length ? (targets[0].data || {}) : { name: 'Nora Noemail' };
+  const link = rsvpTextPreviewLink();
+  const parts = rsvpTextMessageParts(sample, link);
+
+  if(parts.source === 'loading'){
+    noteEl.style.color = 'var(--slate)';
+    noteEl.textContent = 'Loading the templates\u2026';
+    box.innerHTML = '';
+    return;
+  }
+
+  /* ⚠ THE NOTE ALWAYS SAYS WHICH WORDING WENT AND WHY. "Nothing should fail quietly"
+     applied to a fallback: a card that silently used the built-in wording over the top
+     of a template she picked is indistinguishable from one that used hers. */
+  let note = '', colour = 'var(--slate)';
+  if(parts.source === 'template'){
+    note = 'Pulled live from Automation Emails \u2192 Templates \u2192 ' + esc(parts.wanted) +
+      '. Edit it there and this changes with it.';
+  } else if(parts.source === 'missing'){
+    colour = 'var(--ember)';
+    note = '<strong>Can\u2019t find a template called \u201C' + esc(parts.wanted) + '\u201D</strong> \u2014 ' +
+      'it has been renamed or deleted. The built-in wording below is what will go out. ' +
+      'Pick it again above, or leave it: nothing is broken, it just is not the wording you chose.';
+  } else if(parts.source === 'blank'){
+    colour = 'var(--ember)';
+    note = '<strong>\u201C' + esc(parts.wanted) + '\u201D has nothing a text can carry</strong> \u2014 ' +
+      'a text is plain characters, so buttons and photos leave nothing behind. The built-in ' +
+      'wording below is what will go out.';
+  } else {
+    note = 'The built-in wording. Pick a template above to change it, or press ' +
+      '<strong>Make one I can edit</strong> and it becomes one.';
+  }
+  if(parts.dropped.length){
+    note += '<br><span style="color:var(--slate);">A text cannot carry ' + parts.dropped.length +
+      ' thing' + (parts.dropped.length === 1 ? '' : 's') + ' the email shows on a page \u2014 ' +
+      esc(parts.dropped.join(', ')) + ' \u2014 so ' + (parts.dropped.length === 1 ? 'it was' : 'they were') +
+      ' left out. The one link carries all three answers.</span>';
+  }
+  noteEl.style.color = colour;
+  noteEl.innerHTML = note;
+
+  /* ⚠ THE WORST CASE IS WHAT THE COUNT IS ABOUT, and it is named so the number can be
+     checked rather than believed. */
+  const worst = rsvpTextLongestNameOn(targets) || sample;
+  const worstMsg = rsvpTextMessageFor(worst, link);
+  const segs = smsSegments(worstMsg);
+  const over = segs > 1;
+  box.innerHTML =
+    '<div class="rtext" style="margin-bottom:6px; color:var(--slate);">This is what ' +
+      esc(firstName(sample.name)) + ' gets \u2014 the address is an example of the right length, ' +
+      'not a real one.</div>' +
+    '<div style="background:#E9E9EB; color:#000; border-radius:16px; padding:11px 14px; ' +
+      'font-size:14.5px; line-height:1.45; white-space:pre-wrap; max-width:330px;">' +
+      esc(parts.text) + '</div>' +
+    '<div class="rtext" style="margin-top:8px; color:' + (over ? 'var(--ember)' : 'var(--slate)') +
+      '; font-weight:' + (over ? '700' : '400') + ';">' +
+      worstMsg.length + ' characters for ' + esc(firstName(worst.name)) +
+      ', the longest name on this list \u00b7 billed as ' + segs + ' message' + (segs === 1 ? '' : 's') +
+      (over ? ' \u2014 every one of these is charged twice. Shorten the wording by ' +
+        (worstMsg.length - 160) + ' character' + ((worstMsg.length - 160) === 1 ? '' : 's') +
+        ' to get back to one.' : '') +
+    '</div>';
+}
+/* ⚠ SAVED ON CHANGE, and the preview is redrawn from the SAVED value rather than from
+   the dropdown, so what is on screen is what the Copy buttons will use. A failed write
+   says so rather than leaving the card claiming a choice that did not stick. */
+document.getElementById('rsvpTextTmpl')?.addEventListener('change', async function(){
+  const noteEl = document.getElementById('rsvpTextTmplNote');
+  rsvpTextTemplateName = this.value || '';
+  renderRsvpTextPreview();
+  try{
+    await setDoc(doc(db,'settings','rsvpText'), {textTemplate: rsvpTextTemplateName}, {merge:true});
+  }catch(err){
+    console.error('Could not save the RSVP text template choice', err);
+    if(noteEl){
+      noteEl.style.color = 'var(--ember)';
+      noteEl.textContent = 'Could not save that choice \u2014 it will go back to the old one ' +
+        'when this page is reloaded. Try again.';
+    }
+  }
+});
+/* ⚠ IT REDRAWS THE LIST RATHER THAN HIDING ROWS. The bulk copy reads the same rule
+   this render does, so a filter that only hid rows on screen would put the whole list
+   on the clipboard while showing part of it — several hundred people texted from a
+   press that looked like it covered thirty. */
+document.getElementById('rsvpTextOnlyNoEmail')?.addEventListener('change', function(){
+  rsvpTextOnlyNoEmail = !!this.checked;
+  rsvpTextRender();
+});
+async function loadRsvpTextSettings(){
+  try{
+    const snap = await getDoc(doc(db,'settings','rsvpText'));
+    if(snap.exists() && typeof snap.data().textTemplate === 'string'){
+      rsvpTextTemplateName = snap.data().textTemplate;
+    }
+  }catch(err){ /* not saved yet — the built-in wording stands, which is a real answer */ }
+  renderRsvpTextTemplatePicker();
+  renderRsvpTextPreview();
+}
+/* ⭐ ONE PRESS TURNS THE BUILT-IN WORDING INTO A TEMPLATE, which is the whole point of
+   the feature: without it she has a picker with nothing to pick and a blank page to
+   write from. The body it creates IS RSVP_TEXT_DEFAULT_BODY, so the first thing she
+   opens is the message that has been going out, and an edit is an edit rather than a
+   rewrite. Same shape as qMakeTextTmplBtn, and into the same Text Messages folder.
+   ⚠ IT NEVER OVERWRITES ONE THAT EXISTS. Pressed twice, the second press picks the
+   template she has already edited rather than putting the shipped wording back over
+   the top of her own. */
+document.getElementById('rsvpTextMakeTmplBtn')?.addEventListener('click', async function(){
+  const noteEl = document.getElementById('rsvpTextTmplNote');
+  const setNote = function(colour, text){
+    if(!noteEl) return;
+    noteEl.style.color = colour;
+    noteEl.textContent = text;
+  };
+  setNote('var(--slate)', 'Working\u2026');
+  try{
+    let made = false;
+    if(!getEmailTemplateByName(RSVP_TEXT_TEMPLATE_NAME)){
+      let folderId = (emailTemplateFolders || []).find(function(f){ return f.name === 'Text Messages'; })?.id;
+      if(!folderId){
+        const ref = await addDoc(collection(db,'emailTemplateFolders'),
+          {name:'Text Messages', createdAt: serverTimestamp()});
+        folderId = ref.id;
+      }
+      await addDoc(collection(db,'emailTemplates'), {
+        name: RSVP_TEXT_TEMPLATE_NAME, folderId: folderId, body: RSVP_TEXT_DEFAULT_BODY,
+        linkedTokens: ['name','link'], isTextMessage: true, createdAt: serverTimestamp()
+      });
+      made = true;
+    }
+    rsvpTextTemplateName = RSVP_TEXT_TEMPLATE_NAME;
+    await setDoc(doc(db,'settings','rsvpText'), {textTemplate: rsvpTextTemplateName}, {merge:true});
+    renderRsvpTextTemplatePicker();
+    renderRsvpTextPreview();
+    setNote('#2E6B3E', made
+      ? 'Made \u201C' + RSVP_TEXT_TEMPLATE_NAME + '\u201D in the Text Messages folder and picked it. ' +
+        'Edit it in Automation Emails \u2192 Templates.'
+      : 'It already existed \u2014 picked it. Edit it in Automation Emails \u2192 Templates.');
+  }catch(err){
+    console.error('Could not make the RSVP text template', err);
+    setNote('var(--ember)', 'Could not make it: ' + ((err && err.message) || 'try again.'));
+  }
+});
 /* ⚠ ONE LINE PER PERSON, PHONE FIRST AND TAB-SEPARATED, which is what pastes into a
    spreadsheet and into the bulk-texting workflow. A block of prose with the numbers
    buried in it has to be taken apart again by hand. */
+/* ⭐ WHO THE BULK PRESS WILL ACTUALLY WRITE A LINE FOR — ITS OWN FUNCTION SO A TEST
+   CAN RUN IT (2026-09-21). Inline in the handler the only thing a gate could do was
+   match its text, and a red-check proved that is worth nothing here: deleting the
+   filter and deleting the STOP guard were BOTH missed, and each one texts people
+   nobody meant to text — one press, several hundred numbers.
+   ⚠ THE SAME LIST THE SCREEN IS SHOWING, filter included, so a filtered card and a
+   full clipboard can never disagree; sorted, so the clipboard is in the order she
+   just read down.
+   ⛔ AND STOP MEANS STOP. Carriers block a number that has replied STOP, and the
+   request was to stop hearing from us rather than from one system. They are still
+   SHOWN on the card, with the button replaced by a warning — dropping them from the
+   list silently is how somebody goes missing with no reason given — but they are
+   never handed to a press that produces a message to paste. */
+function rsvpTextCopyList(){
+  return rsvpTextSorted(rsvpTextTargets())
+    .filter(function(item){ return rsvpTextOnlyNoEmail ? rsvpTextHasNoEmail(item.data) : true; })
+    .filter(function(item){ return !(item.data || {}).smsOptedOut; });
+}
 async function rsvpTextCopyAll(){
   const statusEl = document.getElementById('rsvpTextStatus');
-  const targets = rsvpTextTargets().filter(function(item){ return !(item.data || {}).smsOptedOut; });
+  const targets = rsvpTextCopyList();
   if(!targets.length){ if(statusEl) statusEl.textContent = 'Nobody to copy.'; return 0; }
+  /* ⚠ ASKED ONCE, BEFORE ANY LINK IS MINTED. The per-row button can afford to check
+     inside the loop; this one would otherwise write a portal token to every customer
+     on the list and then refuse. */
+  if(rsvpTextMessageParts({}, 'x').source === 'loading'){
+    if(statusEl) statusEl.textContent = 'The templates have not loaded yet \u2014 press it again in a moment.';
+    return 0;
+  }
   const lines = [];
   for(let i = 0; i < targets.length; i++){
     if(statusEl) statusEl.textContent = 'Making link ' + (i + 1) + ' of ' + targets.length + '\u2026';
@@ -19810,7 +20316,12 @@ async function rsvpTextCopyAll(){
   }
   try{ await navigator.clipboard.writeText(lines.join('\n')); }
   catch(err){ if(statusEl) statusEl.textContent = 'Made the links, but the clipboard refused \u2014 press it again.'; return 0; }
-  if(statusEl) statusEl.textContent = '\u2713 ' + lines.length + ' text' + (lines.length === 1 ? '' : 's') + ' copied \u2014 one line each, phone first.';
+  const wording = rsvpTextMessageParts({}, 'x');
+  if(statusEl) statusEl.textContent = '\u2713 ' + lines.length + ' text' + (lines.length === 1 ? '' : 's') +
+    ' copied \u2014 one line each, phone first. ' +
+    (wording.source === 'template'
+      ? 'Wording from \u201C' + wording.wanted + '\u201D.'
+      : 'The built-in wording' + (wording.wanted ? ' \u2014 \u201C' + wording.wanted + '\u201D could not be used.' : '.'));
   return lines.length;
 }
 /* ⭐ THE TWO CHECKBOX LABELS ARE STAMPED FROM THE CONSTANT (2026-09-03). They are
@@ -54201,7 +54712,10 @@ function nextVisitFor(d, todayStr, custId){
   const planned = planHangDateFor(custId);
   const hangDate = planned === null ? (d && d.scheduledDate) : planned;
   if(d && hangDate && !d.completed){
-    out.push({kind:'Hang', date:String(hangDate)});
+    /* ⭐ [[SCH-86]] — WHERE THE DATE CAME FROM TRAVELS WITH IT. A plan date IS the
+       schedule, so nothing may call it "not on the schedule"; only the crew-routes stamp
+       (the cannot-tell fallback) is checked against the crew routes. See nextVisitChip. */
+    out.push({kind:'Hang', date:String(hangDate), fromPlan: planned !== null});
   }
   if(d && d.removalScheduled && d.removalScheduledDate && !d.removalDone){
     out.push({kind:'Takedown', date:String(d.removalScheduledDate)});
@@ -54209,9 +54723,9 @@ function nextVisitFor(d, todayStr, custId){
   if(!out.length) return null;
   const soon = out.filter(function(v){ return v.date >= today; })
                   .sort(function(a,b){ return a.date < b.date ? -1 : 1; });
-  if(soon.length) return {kind:soon[0].kind, date:soon[0].date, overdue:false};
+  if(soon.length) return {kind:soon[0].kind, date:soon[0].date, overdue:false, fromPlan:!!soon[0].fromPlan};
   const past = out.slice().sort(function(a,b){ return a.date < b.date ? 1 : -1; });
-  return {kind:past[0].kind, date:past[0].date, overdue:true};
+  return {kind:past[0].kind, date:past[0].date, overdue:true, fromPlan:!!past[0].fromPlan};
 }
 /* ⭐ IS THAT DAY REAL? (2026-09-11, [[SCH-73]]). Addie, on Darlene Price #680: "It says
    shes scheduled for Oct 16 but I dont see oct 16 on the schedule."
@@ -54293,7 +54807,16 @@ function nextVisitChip(d, custId){
      an orphan gets read as a missed day and left for the sweep that will never find it.
      `=== false` on purpose — the null answer (routes not loaded yet) must draw exactly
      what it drew before, not the warning. */
-  const orphan = scheduledDayIsReal(custId, v.date) === false;
+  /* ⭐⭐ [[SCH-86]] — BUT ONLY A CREW-ROUTES STAMP CAN BE AN ORPHAN. Dax, 2026-09-21: "in
+     all customers it doesnt update what day people are scheduled to be hung ... make that
+     permanent as well for everytime all customers is ever pressed." Measured on the live
+     page: the pills already carried the SCHEDULE's days (SCH-77), but 279 of 298 booked
+     rows also read "⚠ … — not on the schedule", because this check asked the OTHER planner
+     (the crew-routes sweep, which builds its own days) about a date that came from the
+     Schedule. A right date wearing a red "not on the schedule" reads as the page never
+     updating. A plan date is the schedule by definition, so it is never checked here;
+     the stamp fallback (plan not loaded yet) still is, exactly as SCH-73 built it. */
+  const orphan = !v.fromPlan && scheduledDayIsReal(custId, v.date) === false;
   const style = orphan
     ? 'background:#FDE8E8; color:#B42318; border-color:#F5C6C6;'
     : v.overdue
@@ -72333,7 +72856,17 @@ function rebuildSeasonDays(){
     });
   }
   if(newDays.length&&riders.length) newDays[0].houses=newDays[0].houses.concat(riders);
-  if(!newDays.length) return {error:'Nothing could be scheduled — check the towns on these customers.'};
+  /* ⭐ [[SCH-85]]: EVEN WHEN NOTHING NEW COULD BE BUILT, every Confirmed customer still
+     gets a day. The old plan stands, and anybody Confirmed who is not on it is placed on
+     an open day of it (or a new one) — see placeConfirmedLeftOff. */
+  if(!newDays.length){
+    let net0 = {placed: [], still: []};
+    try{ if(typeof placeConfirmedLeftOff === 'function') net0 = placeConfirmedLeftOff(floorStr, startStr); }
+    catch(err){ console.error('Could not put every confirmed customer on a day:', err); }
+    return {error:'Nothing could be scheduled — check the towns on these customers.',
+            safetyNet: net0.placed.length, safetyNetNames: net0.placed.slice(0, 5),
+            confirmedOff: net0.still.length, confirmedOffNames: net0.still.slice(0, 5)};
+  }
   BASE_START=start;
   globalDelta=0;
   SEASON=newDays.concat(keep);
@@ -72349,9 +72882,22 @@ function rebuildSeasonDays(){
   let confirmedOff = [];
   try{ if(typeof confirmedNotOnAnyDay === 'function') confirmedOff = confirmedNotOnAnyDay(); }
   catch(err){ console.error('Could not check that every confirmed customer is on a day:', err); }
+  /* ⭐⭐ [[SCH-85]] — AND THEN THEY ARE PUT ON ONE. The names above are the ones the
+     normal rules dropped, logged so the rule that dropped them can still be found; the
+     safety net below is what makes "every Confirmed = scheduled" true regardless.
+     `confirmedOff` is then re-measured AFTER it, so the ⚠ line on the button only ever
+     fires if somebody could not be placed at all — which should be never. */
+  let net = {placed: [], still: confirmedOff.map(function(x){ return ((x&&x.data&&x.data.name)||'(no name)'); })};
+  if(confirmedOff.length){
+    console.warn('[HU] Recalculate: the scheduling rules left ' + confirmedOff.length +
+      ' Confirmed customer(s) off every day; placing them anyway (SCH-85):', net.still);
+    try{ if(typeof placeConfirmedLeftOff === 'function') net = placeConfirmedLeftOff(floorStr, startStr); }
+    catch(err){ console.error('Could not put every confirmed customer on a day:', err); }
+  }
   return {days:newDays.length, houses:movable.length, unplaced:unplaced.length, locked:locked.length, joined:joined.length, heldToLater:heldToLater,
-          confirmedOff:confirmedOff.length,
-          confirmedOffNames:confirmedOff.slice(0,5).map(function(x){ return ((x&&x.data&&x.data.name)||'(no name)'); }),
+          safetyNet:net.placed.length, safetyNetNames:net.placed.slice(0,5),
+          confirmedOff:net.still.length,
+          confirmedOffNames:net.still.slice(0,5),
           left:left.length, orphans:orphans.length, stillSet:stillSet,
           /* What the three new orderings actually did, so the button can say it.
              `missed` and `rushed` are counted off the pool this rebuild laid out —
@@ -73560,6 +74106,85 @@ function confirmedNotOnAnyDay(){
   });
   return out;
 }
+/* ⭐⭐ THE HEADLINE RULE: EVERY CONFIRMED CUSTOMER IS ON A DAY AFTER RECALCULATE
+   EVERYTHING. NO EXCEPTIONS, AND THIS IS WHAT MAKES IT TRUE ([[SCH-85]], 2026-09-21).
+   Dax: "a lot of people are confirmed and when i click recalculate everything they dont
+   appear on the schedule, make it so every confirmed is on the schedule when we
+   recaclulate and make it so whenever we change anything in the future thats a rule
+   that will never change, its a headline every confirmed = scheduled when recaclulate
+   everything."
+
+   ⛔ THE PROMISE HAD A REPORTER AND NO ENFORCER. confirmedNotOnAnyDay was written on
+   2026-09-04 to NAME anybody the rules dropped, on the argument that a checker which also
+   repaired would hide the rule that dropped them. That argument is kept — the checker is
+   still pure and the names are still reported — but it left the office holding a list of
+   people to fix by hand after every press, which is the opposite of what the button is
+   for. This is the step that fixes them.
+
+   ⚠ IT RUNS LAST, AFTER EVERY OTHER RULE HAS HAD ITS SAY, and it asks the same badge the
+   office reads (seasonBadgeKey via confirmedNotOnAnyDay). So whatever rule a future change
+   adds, and however it goes wrong, a Confirmed customer cannot come out of a Recalculate
+   without a day. Do NOT gate this on anything but the badge: the moment it asks a second
+   question, "Confirmed" and "on the schedule" can disagree again.
+
+   ⚠ IT STILL HONOURS "NOT BEFORE". The earliest day a house may have — their month, the
+   office's own earliest date, a colour-change or warehouse hold — is respected: they go on
+   the first open day on or after it, in their own town if a day there exists, else a day
+   with room for another town, else any open day, and if there is no open day late enough
+   a new one is made. Being on the schedule never means being on an early day.
+
+   ⚠ AND IT NEVER TOUCHES A SET DAY. Only days on or after `floorStr` — after the 48-hour
+   lock and after every day already worked — are open to it, the same floor the rebuild
+   itself builds from. A printed sheet is never changed by this.
+
+   Returns the customers it placed (by name, for the report) and any it still could not
+   place, which should always be empty. */
+function placeConfirmedLeftOff(floorStr, startStr){
+  const res = {placed: [], still: []};
+  if(typeof confirmedNotOnAnyDay !== 'function' || typeof houseFromCustomer !== 'function') return res;
+  const off = confirmedNotOnAnyDay();
+  if(!off.length) return res;
+  const openDays = function(){
+    return SEASON.filter(function(d){
+      if(d.isFixRoute || d.isTakedown) return false;
+      const dt = dayDate(d);
+      return !!dt && isoOf(dt) >= floorStr;
+    }).sort(function(a, b){ return dayDate(a) - dayDate(b); });
+  };
+  const cap = function(d){ return (typeof maxTownsPerDay === 'function') ? maxTownsPerDay(d) : 4; };
+  const towns = function(d){ return (typeof dayTownCount === 'function') ? dayTownCount(d) : 0; };
+  off.forEach(function(item){
+    const h = houseFromCustomer(item);
+    if(!h) return;
+    const d = (item && item.data) || {};
+    let from = (typeof houseAllowedFrom === 'function') ? (houseAllowedFrom(h, startStr) || '') : '';
+    const hold = (typeof houseHoldFrom === 'function') ? houseHoldFrom(d) : '';
+    if(hold && hold > from) from = hold;
+    const t = extractCleanCity(h.city);
+    const late = openDays().filter(function(day){ return isoOf(dayDate(day)) >= from; });
+    let day = late.filter(function(day){
+      return t && (day.houses || []).some(function(x){ return extractCleanCity(x.city) === t; });
+    })[0]
+      || late.filter(function(day){ return !t || towns(day) < cap(day); })[0]
+      || late[0];
+    if(!day){
+      /* Nothing open is late enough: make the day. First working day on or after both
+         the floor and their own earliest day. */
+      const want = (from && from > floorStr) ? from : floorStr;
+      const p = want.split('-').map(Number);
+      const dt = nextWorkingDay(new Date(p[0], p[1] - 1, p[2]));
+      day = {id: 'cf' + Date.now().toString(36) + res.placed.length, base: daysBetween(dt, BASE_START),
+             cascade: 0, pin: null, houses: []};
+      SEASON.push(day);
+      computeDates();
+    }
+    day.houses.push(h);
+    res.placed.push(d.name || '(no name)');
+  });
+  computeDates();
+  res.still = confirmedNotOnAnyDay().map(function(x){ return (x && x.data && x.data.name) || '(no name)'; });
+  return res;
+}
 /* One house, built from the customer record through the SAME field list the sync
    uses to correct an existing house. Written that way on purpose: a field added to
    SCHEDULE_SYNC_FIELDS then arrives on new houses too, instead of new arrivals
@@ -73932,6 +74557,11 @@ RT.addEventListener('click',e=>{const t=e.target;
        ⚠ IT SHOULD NEVER FIRE. Every rule that could drop somebody now holds them to a
        later day instead. If it does fire, something new is dropping people and the names
        are where to start. */
+    /* ⭐ [[SCH-85]] — who the safety net had to place. Every Confirmed customer is on a
+       day after this press; this line says which ones only got there because of the net,
+       so the rule that dropped them is not hidden. */
+    if(r.safetyNet) parts.push(r.safetyNet+' confirmed customer'+(r.safetyNet===1?'':'s')+
+      ' added to the schedule so every Confirmed is on a day: '+(r.safetyNetNames||[]).join(', ')+(r.safetyNet>5?' and others':''));
     if(r.confirmedOff) parts.push('⚠ '+r.confirmedOff+' CONFIRMED customer'+(r.confirmedOff===1?'':'s')+
       ' still not on any day: '+(r.confirmedOffNames||[]).join(', ')+(r.confirmedOff>5?' and others':''));
     /* ⭐ AND THE ONES WHO LEFT ARE NAMED TOO. Owner: "back next year should be on

@@ -1194,6 +1194,30 @@
       <div id="backTapRow" style="display:none; justify-content:center; margin-top:18px;">
         <button type="button" class="btn btn-gold" id="backTapConfirmBtn"></button>
       </div>
+      <!-- ⭐ THEIR REFERRAL LINK, ON THE ONE ANSWER THAT NEVER REACHES THE PORTAL
+           (2026-09-21, [[REF-43]]). A yes and a no are both handed to the portal, which
+           has a Refer a Friend tab; Back Next Year ends here, so from a texted RSVP
+           ([[RS-63]]) this customer had no route to their own link at all. The RSVP
+           EMAIL carries {{referral_button}} whatever they answer, so an emailed customer
+           always had one — a texted one had none, and the text cannot carry it because
+           the whole message is held to one 160-character segment.
+
+           ⚠ "NEXT SEASON'S BILL", NOT "THIS SEASON'S" — the one word that differs from
+           the email's own sentence, and [[REF-23]] is why: somebody who shares while
+           sitting the season out has no bill this year, so their $25 comes off the next
+           one. Saying "this season" to the one audience it cannot be true for would be
+           the page promising a discount against a bill that will never exist.
+
+           ⚠ HIDDEN UNTIL THERE IS A REAL TOKEN. [[REF-21]]'s rule is that these paths
+           emit nothing rather than a dead link, and a share box holding half a URL is
+           worse than no offer. showBackReferral returns without drawing anything. -->
+      <div id="backReferBlock" style="display:none; margin-top:22px; padding-top:18px; border-top:1px solid var(--line); text-align:left;">
+        <div style="font-size:15px; font-weight:700; color:var(--ink); margin-bottom:6px;">Know somebody who wants lights?</div>
+        <p style="font-size:13.5px; color:var(--slate); line-height:1.55; margin:0 0 12px;">Send them your own link and we take <strong>$25 off next season&rsquo;s bill</strong> when they sign up &mdash; as many times as you like.</p>
+        <input type="text" id="backReferLink" readonly value="" style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--snow); font-family:inherit; font-size:13px; color:var(--ink);">
+        <button type="button" class="btn btn-gold btn-block" id="backReferShareBtn" style="margin-top:10px;">Copy My Link</button>
+        <p id="backReferStatus" role="status" aria-live="polite" style="font-size:13px; color:var(--slate); margin:8px 0 0;"></p>
+      </div>
     </div>
   </div>
 
@@ -2066,6 +2090,33 @@
                screen together. -->
           <div id="rsvpTapRow" style="display:none; justify-content:center; margin-bottom:6px;">
             <button type="button" class="btn btn-gold" id="rsvpTapConfirmBtn"></button>
+          </div>
+          <!-- ⭐ THE THREE ANSWERS, FOR THE TEXT-MESSAGE RSVP (2026-09-21). Addie:
+               "one link which will take people to a page that says Yes, Back Next year
+               and No." The email says the same three things as three separate links;
+               a text cannot, so they are buttons on the page the one link opens.
+
+               ⚠ THE WORDS ARE THE EMAIL'S, NOT THE PORTAL'S. The blocks further down
+               this page say "Yes, I'm in" / "Back next year" / "Not this season",
+               which is right for somebody already inside their account and looking at
+               a setting. This is the SAME QUESTION the RSVP email asks, reaching the
+               same customer by a different channel, so it uses the email's three
+               words — and they are the three Addie named, in the order she named them.
+
+               ⚠ ITS OWN ROW, NEVER folded into #rsvpConfirmBtnRow. That row is reused
+               AFTER an answer for the portal buttons, so sharing it would put "Yes,
+               Take Me to My Portal" beside an unanswered "No" — the same argument that
+               gave #rsvpTapRow a row of its own.
+
+               ⚠ AND THESE BUTTONS DO NOT CARRY data-portalrsvp, deliberately. That
+               attribute is handled by a delegated listener that answers for the
+               SIGNED-IN record, and nobody is signed in here — the token in the link is
+               all we have. These hand to handleRsvpLink / handleBackNextYear, which are
+               the two functions built to answer from a token. -->
+          <div id="rsvpAskRow" style="display:none; gap:8px; justify-content:center; flex-wrap:wrap; margin-bottom:6px;">
+            <button type="button" class="btn btn-gold" id="rsvpAskYesBtn">Yes</button>
+            <button type="button" class="btn btn-outline-dark" id="rsvpAskBackBtn">Back Next Year</button>
+            <button type="button" class="btn btn-outline-dark" id="rsvpAskNoBtn">No</button>
           </div>
           <div id="rsvpConfirmBtnRow" style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
             <button type="button" class="btn btn-gold" id="rsvpOpenPortalBtn" style="display:none;">Yes, Take Me to My Portal</button>
@@ -3418,7 +3469,17 @@ function navigate(){
     var rsvp = params.get('rsvp');
     var contactParam = params.get('c');
     var lastNameParam = params.get('ln');
-    if(token && (rsvp === 'yes' || rsvp === 'no') && typeof handleRsvpLink === 'function'){
+    if(token && rsvp === 'ask' && typeof handleRsvpAsk === 'function'){
+      /* ⭐ THE TEXT-MESSAGE RSVP — /a/<token>, rewritten to this by the reader above.
+         Same rsvp-minimal as the two branches below, for the same reason: the answer
+         card lives in #page-payment and nothing else on that page should be on screen.
+         ⚠ IT MUST BE TESTED BEFORE THE loadPortalByToken FALLBACK. That branch matches
+         on the token alone, so an `ask` added after it would sign the customer into
+         their whole account and never draw the three buttons — which is precisely the
+         thing this link exists to stop them landing on. */
+      document.body.classList.add('rsvp-minimal');
+      handleRsvpAsk(token);
+    } else if(token && (rsvp === 'yes' || rsvp === 'no') && typeof handleRsvpLink === 'function'){
       /* ⚠ rsvp-minimal, NOT quote-minimal. THE TWO CLASSES SHOW DIFFERENT
          PAGES and this line held the wrong one, so every RSVP button in every
          email landed the customer on the new-customer install-details form:
@@ -3727,6 +3788,51 @@ function readReferralToken(){
   /* Tidy /q/<token> out of the address bar, exactly as /home does below. */
   try{ window.history.replaceState(null, '', '/' + window.location.hash); }
   catch(e){ /* quiet on purpose: cosmetic. A blocked replaceState leaves /q/<token> showing and changes nothing about which page opens */ }
+})();
+/* ⭐ THE RSVP ANSWER LINK — /a/<token> (2026-09-21, the text-message RSVP).
+ *
+ * Addie: "We need to send out a text message RSVP which means we need one link
+ * which will take people to a page that says Yes, Back Next year and No."
+ *
+ * ⚠ THE EMAIL RSVP IS THREE LINKS AND A TEXT CANNOT BE. The email carries
+ * {{rsvp_yes_button}}, {{rsvp_no_button}} and {{rsvp_back_button}} — three
+ * addresses hidden behind three words — and a text message is plain characters,
+ * so it can hide nothing behind anything. Putting all three URLs in the message
+ * is three 50-character addresses in a body billed in 160-character segments,
+ * and asks somebody to read three near-identical links and pick one. So the text
+ * carries ONE address and the PAGE carries the three answers.
+ *
+ * ⚠ THIS IS NOT A FOURTH WAY TO RECORD AN RSVP. The three buttons hand straight
+ * off to handleRsvpLink and handleBackNextYear — the same two functions the email
+ * links have always used, with the same portalRsvp call, the same gate-code step,
+ * the same decline-reason picker and the same failure messages. A page that
+ * recorded answers itself would be a second opinion about what a "no" does, which
+ * is the shape this file already records under seasonYesUpdates.
+ *
+ * ⚠ EXACTLY THE /q/ MECHANISM ABOVE: a Netlify 200-rewrite and the segment after
+ * /a/ IS the token. No short-code table, no extra Firestore read.
+ *
+ * ⚠ AND IT SITS BELOW THE OTHER THREE READERS ON PURPOSE. run-all.js anchors its
+ * short-link checks on the nearest `var m = null;` before the pattern it is
+ * testing, and S282 anchors on the FIRST one in the file — so a fourth reader
+ * added above /s/ or between the others silently repoints those slices at this
+ * block. Added last, every existing anchor keeps the reader it was written for.
+ */
+(function(){
+  var m = null;
+  try{
+    m = /^\/a\/([A-Za-z0-9_-]+)\/?$/.exec(window.location.pathname || '');
+  } catch(e){ /* quiet on purpose: no readable location means this is not a /a/ link, and the ordinary hash route below is already the right answer */ }
+  if(!m) return;
+  /* ⚠ rsvp=ask, AND IT IS NOT AN ANSWER. `rsvp=yes` and `rsvp=no` each name the
+     answer in the address, which is why a mail scanner fetching one used to be
+     able to give it. "ask" names no answer at all — there is nothing for a fetch
+     to submit — so this link is the only one of the four that is safe to open by
+     machine even before the confirm tap is considered. */
+  window.location.hash = '/payment?token=' + encodeURIComponent(m[1]) + '&rsvp=ask';
+  /* Tidy /a/<token> out of the address bar, exactly as /q/ does above. */
+  try{ window.history.replaceState(null, '', '/' + window.location.hash); }
+  catch(e){ /* quiet on purpose: cosmetic. A blocked replaceState leaves /a/<token> showing, which still carries the token and still works on a reload */ }
 })();
 (function(){
   // Visiting /home (a Netlify rewrite to this same file — see _redirects) or a plain
@@ -6406,7 +6512,28 @@ function showRsvpGateCodeStep(token, existingGateCode, thenFn){
    rather than proceeding — proceeding would silently restore the exact behaviour this
    was written to remove, and a customer who cannot answer rings us, which is visible.
    selector-contract.test.js is what keeps the ids honest. */
-function rsvpAwaitConfirmTap(answer, msgEl, rowEl, btnEl, proceed){
+function rsvpAwaitConfirmTap(answer, msgEl, rowEl, btnEl, proceed, opts){
+  /* ⭐ UNLESS THE TAP HAS ALREADY HAPPENED, ON OUR OWN PAGE (2026-09-21, the
+     text-message RSVP). handleRsvpAsk draws Yes / Back Next Year / No and calls the
+     two handlers below only from inside a click handler on one of them — so the
+     human tap this whole function exists to require has already been made, on a
+     button we drew, one line of code earlier. Asking for a second tap on the same
+     screen would be the page saying "are you sure?" to somebody who has not been
+     asked anything yet, and every customer who closes the tab at that point is an
+     answer lost for no protection gained.
+
+     ⛔ AND IT CAN NEVER BE REACHED FROM AN ADDRESS. This is the one dangerous thing
+     here, because a flag that means "skip the guard" is exactly what the guard is
+     protecting against. So: `rsvp=ask` names no answer, nothing parses a query into
+     this argument, and the router passes no options at all — the ONLY callers that
+     pass it are the three onclick handlers in handleRsvpAsk. A scanner fetching
+     /a/<token> gets a page with three buttons and submits nothing, which is the same
+     protection by a different route. rsvp-text-link.test.js asserts all of that, and
+     it is the check to keep if any of the rest of this is ever rewritten.
+
+     ⚠ STRICTLY `=== true`, never truthy. A stray object, a string, a 1 arriving from
+     somewhere nobody intended must not switch the guard off. */
+  if(opts && opts.tapped === true){ proceed(); return; }
   /* ⚠ THE TABLE LIVES IN HERE, AND THAT IS NOT TIDINESS. Written as a module-level
      `var` beside this function it was HOISTED AS undefined and read before its own
      assignment line had run: navigate() is called some 2,500 lines above this point and
@@ -6439,7 +6566,86 @@ function rsvpAwaitConfirmTap(answer, msgEl, rowEl, btnEl, proceed){
     proceed();
   };
 }
-function handleRsvpLink(token, rsvpValue){
+/* ⭐ THE PAGE ONE LINK OPENS — Yes, Back Next Year, No (2026-09-21).
+ *
+ * Addie: "We need to send out a text message RSVP which means we need one link which
+ * will take people to a page that says Yes, Back Next year and No."
+ *
+ * ⭐ IT ANSWERS NOTHING ITSELF, and that is the whole design. Each button hands to the
+ * function the RSVP email's matching button has always used — handleRsvpLink for yes
+ * and no, handleBackNextYear for back — so a text answer and an email answer are the
+ * same write, the same gate-code step, the same decline-reason picker, the same
+ * failure sentence and the same Errors row. A page with three buttons and its own
+ * portalRsvp call would be a fourth copy of what a "no" means, and this file already
+ * records what the second and third cost.
+ *
+ * ⚠ WHY IT IS NOT JUST THE PORTAL LINK, which is what the text used to carry.
+ * `#/payment?token=…` signs them into their whole account — the invoice, the tabs,
+ * the change forms — with the RSVP block somewhere down the page. That is a lot of
+ * screen between a text message and a one-word answer, and on a phone the question
+ * is below the fold. This is the question and nothing else.
+ *
+ * ⚠ AND THE ANSWER IS NOT IN THE ADDRESS. The email's three links each name their
+ * answer (`rsvp=yes`), which is why a mail scanner opening one could give it —
+ * measured here, on two real work addresses. `rsvp=ask` names none, so there is
+ * nothing for a fetch to submit and the tap on one of these buttons is the human
+ * action rsvpAwaitConfirmTap exists to require. That is why these three go through
+ * with {tapped:true} rather than asking a second time.
+ *
+ * ⚠ IT FAILS TOWARDS NOT RECORDING, exactly as rsvpAwaitConfirmTap does: with the
+ * buttons missing it says so and gives them a phone number, rather than falling
+ * through to the portal — a customer who cannot answer rings us, which is visible.
+ */
+function handleRsvpAsk(token){
+  var lookupFormWrap = document.getElementById('lookupFormWrap');
+  var confirmCard = document.getElementById('rsvpConfirmCard');
+  var confirmMsg  = document.getElementById('rsvpConfirmMsg');
+  var askRow = document.getElementById('rsvpAskRow');
+  var yesBtn  = document.getElementById('rsvpAskYesBtn');
+  var backBtn = document.getElementById('rsvpAskBackBtn');
+  var noBtn   = document.getElementById('rsvpAskNoBtn');
+  if(lookupFormWrap) lookupFormWrap.style.display = 'none';
+  if(confirmCard) confirmCard.style.display = 'block';
+  if(confirmMsg) confirmMsg.style.display = 'block';
+  if(!askRow || !yesBtn || !backBtn || !noBtn){
+    console.error('[HU] the RSVP answer buttons are missing, so nothing can be answered');
+    if(confirmMsg) confirmMsg.textContent = "Sorry — something is wrong with this page. " +
+      "Please call or text us at (801) 901-0011 and we'll take your answer down.";
+    return;
+  }
+  /* The same question the email asks and the same one the portal block asks, so a
+     customer who gets both is answering one question rather than two. */
+  confirmMsg.textContent = 'Are you having lights this season?';
+  askRow.style.display = 'flex';
+  /* ⚠ onclick, NOT addEventListener, for the reason rsvpAwaitConfirmTap gives: a second
+     /a/ link opened in the same tab re-runs this, and listeners would stack until one
+     tap sent the answer once per link opened. Assigning replaces. */
+  function answered(go){
+    return function(){
+      /* ⚠ THE ROW GOES FIRST AND ALL THREE HANDLERS ARE DROPPED. Without it a second
+         tap — the ordinary impatient double-tap on a phone — reaches a different
+         button and sends a different answer on top of the first. */
+      askRow.style.display = 'none';
+      yesBtn.onclick = backBtn.onclick = noBtn.onclick = null;
+      go();
+    };
+  }
+  yesBtn.onclick = answered(function(){ handleRsvpLink(token, 'yes', {tapped: true}); });
+  noBtn.onclick  = answered(function(){ handleRsvpLink(token, 'no',  {tapped: true}); });
+  backBtn.onclick = answered(function(){
+    /* ⚠ BACK NEXT YEAR LIVES ON A DIFFERENT PAGE. Its confirmation is
+       #backNextYearConfirm inside #page-home, which only `rsvp-back` opens, while
+       this card is inside #page-payment — so the class is what moves them there, and
+       without it they would watch this card sit unchanged while the answer recorded
+       out of sight. Same pairing the router's own rsvp=back branch makes. */
+    document.body.classList.add('rsvp-minimal', 'rsvp-back');
+    if(confirmCard) confirmCard.style.display = 'none';
+    handleBackNextYear(token, {tapped: true});
+  });
+}
+/* ⚠ `opts` IS ONLY EVER {tapped:true}, AND ONLY EVER FROM handleRsvpAsk. The router
+   calls this with two arguments, exactly as it always has. See rsvpAwaitConfirmTap. */
+function handleRsvpLink(token, rsvpValue, opts){
   var lookupFormWrap = document.getElementById('lookupFormWrap');
   var confirmCard = document.getElementById('rsvpConfirmCard');
   var confirmMsg = document.getElementById('rsvpConfirmMsg');
@@ -6459,6 +6665,12 @@ function handleRsvpLink(token, rsvpValue){
      left showing from a previous render would sit above the wrong message. */
   var gateCodeStep = document.getElementById('rsvpGateCodeStep');
   var confirmBtnRow = document.getElementById('rsvpConfirmBtnRow');
+  /* ⚠ AND THE THREE ANSWER BUTTONS, which this route never draws but the
+     text-message route does. Both land on this one card, so opening an email
+     link in a tab that had already opened an /a/ link would otherwise leave
+     Yes / Back Next Year / No sitting above the answer being confirmed. */
+  var askRow = document.getElementById('rsvpAskRow');
+  if(askRow) askRow.style.display = 'none';
   if(gateCodeStep) gateCodeStep.style.display = 'none';
   if(confirmMsg) confirmMsg.style.display = 'block';
   if(confirmBtnRow) confirmBtnRow.style.display = 'flex';
@@ -6598,7 +6810,7 @@ function handleRsvpLink(token, rsvpValue){
       }
     }
   }).catch(rsvpLinkFailed);
-  });
+  }, opts);
 
   /* ⭐ WHAT THE CUSTOMER IS TOLD WHEN AN RSVP LINK FAILS (fixed 2026-08-31).
      Addie: "Approve and Decline don't seem to be working."
@@ -6733,7 +6945,43 @@ function handleRsvpLink(token, rsvpValue){
     if(confirmMsg) confirmMsg.textContent = rsvpMaybeSavedText(err, rsvpValue === 'yes' ? 'Answering Yes to the RSVP email' : 'Answering No to the RSVP email');
   }
 }
-function handleBackNextYear(token){
+/* ⭐ THE REFERRAL OFFER ON THE BACK NEXT YEAR CARD (2026-09-21, [[REF-43]]).
+ *
+ * ⛔ IT NEVER DRAWS WITHOUT A REAL TOKEN. portalRsvp returns one only for this answer,
+ * and returns '' if anything went wrong minting it — [[REF-21]]'s rule is that every
+ * referral path emits NOTHING rather than a dead link, because a share box holding half
+ * an address is worse than no offer at all. Returning early is the whole guard.
+ *
+ * ⚠ THE ADDRESS IS BUILT BY portalReferralLink, THE PORTAL'S OWN BUILDER, and the
+ * sharing is done by portalShareLink, the portal's own handler — neither is reimplemented
+ * here. That matters more than it looks: portalShareLink already knows that a dismissed
+ * share sheet is not a failure, that navigator.clipboard is absent over plain http and
+ * inside some in-app browsers, and to fall back to select-and-execCommand. An in-app
+ * browser is exactly where a TEXTED link is opened, so a second copy written here would
+ * be the one that breaks for the audience this whole feature is for.
+ *
+ * ⚠ onclick, NOT addEventListener, for the reason rsvpAwaitConfirmTap gives: a second
+ * RSVP link opened in the same tab re-runs this, and listeners would stack.
+ */
+function showBackReferral(token){
+  var block = document.getElementById('backReferBlock');
+  var input = document.getElementById('backReferLink');
+  var btn = document.getElementById('backReferShareBtn');
+  var status = document.getElementById('backReferStatus');
+  if(!block || !input || !btn) return;
+  var t = String(token || '').trim();
+  if(!t) return;
+  input.value = (typeof portalReferralLink === 'function') ? portalReferralLink(t) : '';
+  if(!input.value) return;
+  if(status) status.textContent = '';
+  btn.onclick = function(){
+    if(typeof portalShareLink === 'function') portalShareLink(input, status);
+  };
+  block.style.display = 'block';
+}
+/* ⚠ `opts` IS ONLY EVER {tapped:true}, AND ONLY EVER FROM handleRsvpAsk — see
+   rsvpAwaitConfirmTap. The router calls this with one argument, as it always has. */
+function handleBackNextYear(token, opts){
   var wrap = document.getElementById('backNextYearConfirm');
   var msg = document.getElementById('backNextYearConfirmMsg');
   /* ⚠ THE HEADING IS THE PROOF, SO IT WAITS FOR THE ANSWER. It reads "that's
@@ -6757,10 +7005,15 @@ function handleBackNextYear(token){
     }
     if(title) title.style.display = 'block';
     if(msg) msg.textContent = 'We look forward to seeing you next year!';
+    /* ⚠ AFTER THE ANSWER IS RECORDED, NEVER BEFORE. The offer is a thank-you, not a
+       condition — drawn above the confirmation it would read as something to do before
+       their answer counts. And on a failure below it is never drawn at all, so nobody
+       is invited to share a link while being told we could not save what they said. */
+    showBackReferral(res && res.referralToken);
   }).catch(function(err){
     if(msg) msg.textContent = rsvpMaybeSavedText(err, 'Answering Back Next Year from the RSVP email');
   });
-  });
+  }, opts);
 }
 /* ⭐ WHAT A CUSTOMER IS TOLD WHEN THEIR LINK FAILS (fixed 2026-08-31). Addie,
    sent a screenshot of "Something went wrong" from a quote approve link:

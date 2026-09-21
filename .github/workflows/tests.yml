@@ -270,6 +270,21 @@ jobs:
       # failure here is a wrong answer nobody can find afterwards, not a broken page.
       - name: Pick a wire colour (the one door that answers it)
         run: npm run test:wirepick
+      # Named on its own because its failure is the silent kind. The texted address is
+      # ONE CLAIM WRITTEN TWICE — admin.html builds it, index.html parses it — so a
+      # change to either side leaves the office texting several hundred customers a link
+      # that opens the marketing site, with nothing on screen and no error anywhere. The
+      # other half it holds is the confirm-tap bypass the answer page needs: that guard
+      # exists because a mail scanner really did answer for two customers at 3:42am.
+      - name: One link, three answers (the text-message RSVP)
+        run: npm run test:textrsvp
+      # And what that one link SAYS. The wording is a template she edits in Automation
+      # Emails now, so the failure this names is a silent one: a template renamed or
+      # deleted answers exactly like a template list that has not loaded, and falling
+      # back in the second case sends the built-in sentence over the top of the wording
+      # she chose, to several hundred people, with every other gate green.
+      - name: What the RSVP text actually says
+        run: npm run test:textwording
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 
@@ -304,6 +319,12 @@ jobs:
       # error.
       - name: Every collection is written down
         run: npm run test:collections
+
+      # ⭐⭐ THE HEADLINE RULES (SCH-85, SCH-86): every Confirmed customer is on a day
+      # after Recalculate, and All Customers shows the Schedule's day. Its own named step
+      # so a red here reads as "a headline rule was broken" — see headline-rules.test.js.
+      - name: The headline rules still hold (Confirmed = scheduled, All Customers = Schedule)
+        run: npm run test:headline
 
       - name: Run the fast suite
         run: npm test

@@ -6,14 +6,22 @@
 User-agent: *
 Allow: /
 
-# CUSTOMER LINKS, and this is the entry that matters. /q/, /r/ and /s/ are the
-# Netlify rewrites in _redirects, and the token in the path is the WHOLE of the
-# credential in that customer's email - the same one the portal signs them in
-# with. A crawler must never fetch one, so these are Disallow (do not look) and
-# not noindex (look, then forget).
+# CUSTOMER LINKS, and this is the entry that matters. /q/, /r/, /s/ and /a/ are
+# the Netlify rewrites in _redirects, and the token in the path is the WHOLE of
+# the credential in that customer's email or text - the same one the portal signs
+# them in with. A crawler must never fetch one, so these are Disallow (do not
+# look) and not noindex (look, then forget).
+#
+# ⚠ /a/ IS THE ONE WHERE FETCHING IS ITSELF THE HARM. It is the RSVP answer page
+# sent by text, so a crawler that followed it would be opening the page that
+# decides whether a customer gets a crew this season. The three answers still
+# need a TAP and so cannot be given by a fetch - see rsvpAwaitConfirmTap, and the
+# two work addresses whose RSVP links a mail scanner really did open - but this
+# line is what keeps the fetch from happening at all.
 Disallow: /q/
 Disallow: /r/
 Disallow: /s/
+Disallow: /a/
 
 # The staff screens - admin.html, employee.html, connections.html - are NOT
 # listed here on purpose. Each carries <meta name="robots" content="noindex">,
