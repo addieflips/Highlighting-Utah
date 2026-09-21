@@ -1570,12 +1570,19 @@ console.log('--- nothing here hides until you hover ---');
     /Automation Emails/.test(only),
     'a fault with no next step sends somebody hunting for a bug in working code');
 
-  /* ⚠ AND IT MUST NOT READ AS THE MESSAGE BEING LOST. The Inbox write is unconditional and
-     separate; only the nudge fails. Saying otherwise would start a hunt for missing
-     customer messages that are all present. */
+  /* ⚠ AND IT MUST NOT READ AS THE MESSAGE BEING LOST. Saying otherwise would start a hunt
+     for missing customer messages that are all present.
+     ⛔ REPOINTED FOR [[MSG-30]], AND THE OLD WORDING WOULD NOW BE A LIE OF REASSURANCE.
+     It matched "still arrive in this Inbox" — true while the Inbox write was
+     unconditional and separate, so only the nudge was failing. The Inbox is the FALLBACK
+     now, so with these boxes blank every message is landing here because the Gmail lost
+     it, and "still arrive" would describe an outage as business as usual on the one
+     screen absorbing it. The guarantee it protects is unchanged and is what is asserted:
+     nothing is lost, and the row still has to say so. */
   check('it says the messages themselves still arrived',
-    /still arrive in this Inbox/.test(only),
-    'the message saved fine — it is the heads-up email that did not go');
+    /Nothing is lost/.test(only) && /falling back to this Inbox/.test(only),
+    'the message is safe — it is the Gmail that did not get it, and a banner that ' +
+    'sounds like data loss starts a hunt for messages that are all present');
 
   const all = html({});
   ['EmailJS Service ID','Message Notification Template ID','EmailJS Public Key']

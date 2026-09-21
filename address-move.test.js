@@ -292,29 +292,48 @@ step('note', runMove({ token: 'goodtoken', street: '9 Oak St', city: 'Springvill
      now that place. admin.html's MESSAGE_HOME_FOLDER stopped diverting the same topic in the
      same change; if only one of the two moves, this topic lands in two different folders
      depending on which door the customer came through. */
-  check('a note is filed under the topic the office filters on, in the Inbox',
-    m.topic === 'Existing Customer - Address Changed' && m.folder === 'Inbox',
-    'filed away before she sees it, the Inbox reads empty while the note sits in a folder she did not choose');
-  check('and it names both addresses',
-    /1 Elm St/.test(m.message || '') && /9 Oak St/.test(m.message || ''),
-    '"they moved" with only the new address gives the office no way to tell a real ' +
-    'move from a corrected flat number — which is the judgement this door exists to ' +
-    'put in front of a person');
-  check('and it says nothing has been applied',
-    /still holds the old address/i.test(m.message || ''),
-    'the office reads the record, sees the old address and files a bug about the portal');
+  /* ⛔ REPOINTED FOR [[MSG-30]] (2026-09-19), AND THE WHOLE POINT IS THAT `m` IS NOW
+     EMPTY. Addie: "messages are getting sent to gmail and admin. I only want them sent
+     to gmail and if they fail to send to gmail they will send to admin inbox but that is
+     the only reason." This function wrote the note on EVERY move while the browser
+     emailed on every move, so one move reliably produced one Gmail and one Inbox row —
+     the clearest case of the double-post she is describing. The decision moved to the
+     browser, which is the only side that can know whether the Gmail went.
+     ⚠ THE OLD REASONING ABOVE IS KEPT because the rule it protects is not repealed: the
+     note still lands in the Inbox and still carries that exact topic. It is asserted on
+     index.html's fallback row below, which is the copy that now gets written. */
+  check('the server writes no note of its own for a move',
+    (r.wrote.messages || []).length === 0,
+    'the Gmail and the Inbox would both get one every time, whatever the browser did — ' +
+    'and nothing here could tell a delivered alert from a refused one');
 });
 
-/* ⚠ BEST EFFORT, AND ASSERTED AS SUCH. The write is already done by the time the
-   note is attempted; a customer who has told us they moved must not be handed an
-   error because an Inbox row failed. */
-step('note-throws', runMove(
-  { token: 'goodtoken', street: '9 Oak St', city: 'Springville' }, { notesThrow: true }
-), (r) => {
-  check('a failed note does not lose the move',
-    r.ok && !!(r.wrote.updates || {}).pendingAddress,
-    'the customer would be told it went wrong when their move was safely recorded');
-});
+/* ⚠ AND THE WORDING IS CHECKED WHERE IT NOW LIVES. These three claims are about what a
+   person reads, so losing them with the server write would be losing the guarantee, not
+   the duplicate. `tellOffice` is handed the email FIRST and the Inbox row second, and
+   both have to carry the same facts — the office reads whichever one arrives. */
+{
+  /* ⚠ ANCHORED ON THE CALL, NOT ON THE TOPIC. The topic's first occurrence is INSIDE the
+     email argument, so a slice starting there begins after `await tellOffice(` and the
+     funnel check below fails on correct code — which is exactly what the first draft did. */
+  const topicAt = idx.indexOf("topic: 'Existing Customer - Address Changed',");
+  const at = topicAt === -1 ? -1 : idx.lastIndexOf('await tellOffice(', topicAt);
+  const moveTell = at === -1 ? '' : idx.slice(at, idx.indexOf('portalRenderPendingMove()', at));
+  check('the browser move notice was found', !!moveTell,
+    'an empty slice passes every check below without reading anything');
+  check('the fallback row carries the topic the office filters on, in the Inbox',
+    /topic: 'Existing Customer - Address Changed', folder: 'Inbox'/.test(moveTell),
+    'filed away before she sees it, the Inbox reads empty while the note sits in a folder she did not choose');
+  check('and both the email and the row name the new address',
+    (moveTell.match(/res && res\.pendingAddress/g) || []).length >= 2,
+    'one of the two would say a customer moved without saying where to');
+  check('and both say nothing has been applied',
+    (moveTell.match(/still holds the old address on purpose/g) || []).length >= 2,
+    'the office reads the record, sees the old address and files a bug about the portal');
+  check('and it goes through the one funnel, not a bare write',
+    /await tellOffice\(/.test(moveTell) && !/addDoc\(/.test(moveTell),
+    'a direct addDoc here is the double-post again, moved a file to the left');
+}
 
 /* ---- ⭐ ANYONE MAY REPORT A MOVE, PAID UP OR NOT (2026-09-10, QT-36) --------
  * Addie, answering Q-033: "Yes anyone can report a move but when we requote the person

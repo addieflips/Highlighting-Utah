@@ -3286,37 +3286,24 @@ exports.portalChangeAddress = onCall({ cors: true }, async (request) => {
   stampSeasonStatusServer(updates, oldData.seasonStatus);
   await db.collection('jobAddresses').doc(match.id).update(updates);
 
-  /* The office is told through the Inbox, not email. This topic is already
-     routed to the Member Portal folder by messageFolderOf in admin.html
-     (MSG-07), so it files itself alongside the other portal notices instead of
-     landing in the main pile.
-
-     ⚠ BEST EFFORT. The write above is already safely done, and a failed note
-     must never roll it back — the customer has told us they moved either way.
-     The pending fields and the badge are what the office actually works from;
-     this is the nudge that gets them looking. */
-  try {
-    await db.collection('messages').add({
-      topic: 'Existing Customer - Address Changed',
-      /* ⭐ THE INBOX, NOT A FOLDER WE PICKED ([[MSG-28]], 2026-09-18). Addie: "I need
-         everything to go into inbox than be able to add my own filters and sub folders."
-         This is the one server write that filed a customer message somewhere else, and
-         admin.html's MESSAGE_HOME_FOLDER was doing the same thing from the other end — both
-         had to go, or the topic lands in the Inbox for some customers and in Member Portal
-         for others depending on which door they came through. */
-      folder: 'Inbox',
-      name: oldData.name || '', phone: oldData.phone || '', email: oldData.email || '',
-      contactMethod: '',
-      message: (oldData.name || 'A customer') + ' has moved from "' +
-               (oldAddress || 'no address on file') + '" to "' + pendingAddress + '"' +
-               (moveDate ? ', in by ' + moveDate : '') + '. Their record still holds the ' +
-               'old address on purpose — nothing has been re-quoted and no pin has moved. ' +
-               'Open them in Customers and press Apply on the move to put the new address ' +
-               'on the record, which re-quotes the new house and re-points their route.',
-      autoQueuedToWarehouse: false, needsReassign: false,
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-  } catch (e) { console.error('[HU] address-change note failed:', e); }
+  /* ⛔ THE INBOX NOTE THAT USED TO BE WRITTEN HERE IS GONE ([[MSG-30]], 2026-09-19).
+     Addie: "messages are getting sent to gmail and admin. I only want them sent to gmail
+     and if they fail to send to gmail they will send to admin inbox but that is the only
+     reason." A move was the clearest case of the double-post she is describing — this
+     function wrote the Inbox note every time while the browser emailed the Gmail every
+     time, so one event reliably produced two records in two places.
+     ⛔ IT MOVED RATHER THAN BEING DELETED. index.html's move handler now calls
+     `tellOffice`, which emails first and writes this same note ONLY if that email did not
+     go. The decision has to live there because the outcome of the send is knowable only
+     in the browser that made it; nothing on this side can tell a delivered alert from a
+     refused one, so a note written here can only ever be unconditional.
+     ⚠ WHAT IS LOST, SAID PLAINLY: a browser that dies between the write above and that
+     call tells nobody. The window is a moment, and the MOVE survives it regardless — the
+     pending fields and the Moved badge are what the office works from, and this note
+     always described itself as the nudge that gets them looking rather than the record.
+     ⚠ AND THE WORDING WENT WITH IT, including [[MSG-28]]'s `folder: 'Inbox'` — Addie's
+     "I need everything to go into inbox than be able to add my own filters and sub
+     folders". Do not re-add a folder of our choosing at either end. */
 
   /* ⚠ `seasonConfirmed` IS REPORTED BACK so the portal can redraw as confirmed rather
      than going on offering the reason picker to somebody it has just put back in. The

@@ -4474,23 +4474,25 @@ contactFormEl.addEventListener('submit', function(e){
   var topicVal = fd.get('topic') || 'General Question';
   var split = splitPhoneOrEmail(fd.get('contact'));
   var methodVal = split.email ? 'Email' : (fd.get('contact_method') || '');
-  addDoc(collection(db,'messages'), {
+  /* ⭐ GMAIL, AND THE INBOX ONLY IF THAT FAILED ([[MSG-30]]). Addie named this form
+     by itself: "Also with Have a question on home page those should be sent to gmail
+     and not admin inbox." It used to write the row FIRST and email afterwards, so
+     every question landed in both places. */
+  tellOffice({
+    customer_name: fd.get('name') || '', customer_phone: split.phone,
+    customer_email: split.email, topic: topicVal, message: fd.get('message') || '',
+    /* The same list the Inbox row draws — folded into the message by
+       notifyBusinessOfMessage, never sent as its own template variable. */
+    colors: fd.getAll('colors')
+  }, {
     topic: topicVal, folder: 'Inbox',
     name: fd.get('name'), email: split.email, phone: split.phone,
     contactMethod: methodVal, message: fd.get('message'),
-    colors: fd.getAll('colors'),
-    createdAt: serverTimestamp()
+    colors: fd.getAll('colors')
   }).then(function(){
     contactFormEl.style.display = 'none';
     document.getElementById('contactSuccess').classList.add('show');
     trackSafely('contactSent');
-    notifyBusinessOfMessage({
-      customer_name: fd.get('name') || '', customer_phone: split.phone,
-      customer_email: split.email, topic: topicVal, message: fd.get('message') || '',
-      /* The same list the Inbox row draws — folded into the message by
-         notifyBusinessOfMessage, never sent as its own template variable. */
-      colors: fd.getAll('colors')
-    });
   }).catch(function(){
     alert('Something went wrong sending your message. Please call (801) 901-0011 instead.');
   });
@@ -4515,22 +4517,20 @@ if(quickMessageFormEl){
     var topicVal = fd.get('topic') || 'General Question';
     var split = splitPhoneOrEmail(fd.get('contact'));
     var methodVal = split.email ? 'Email' : (fd.get('contact_method') || '');
-    addDoc(collection(db,'messages'), {
+    tellOffice({
+      customer_name: fd.get('name') || '', customer_phone: split.phone,
+      customer_email: split.email, topic: topicVal, message: fd.get('message') || '',
+      /* The same list the Inbox row draws — folded into the message by
+         notifyBusinessOfMessage, never sent as its own template variable. */
+      colors: fd.getAll('colors')
+    }, {
       topic: topicVal, folder: 'Inbox',
       name: fd.get('name'), email: split.email, phone: split.phone,
       contactMethod: methodVal, message: fd.get('message'),
-      colors: fd.getAll('colors'),
-      createdAt: serverTimestamp()
+      colors: fd.getAll('colors')
     }).then(function(){
       quickMessageFormEl.style.display = 'none';
       document.getElementById('quickMessageSuccess').classList.add('show');
-      notifyBusinessOfMessage({
-        customer_name: fd.get('name') || '', customer_phone: split.phone,
-        customer_email: split.email, topic: topicVal, message: fd.get('message') || '',
-        /* The same list the Inbox row draws — folded into the message by
-           notifyBusinessOfMessage, never sent as its own template variable. */
-        colors: fd.getAll('colors')
-      });
     }).catch(function(){
       alert('Something went wrong sending your message. Please call (801) 901-0011 instead.');
     });
@@ -4607,25 +4607,40 @@ function notifyBusinessOfMessage(params){
       '\n\nColors requested: ' + pickedColors.join(', ');
   }
   if(params) delete params.colors;
-  /* ⚠ THE THREE SILENT EXITS BELOW ARE THE REAL FAILURE, not the catch. When
+  /* ⭐ IT REPORTS WHETHER IT WENT, AND THAT IS THE WHOLE OF [[MSG-30]] (2026-09-19).
+     Addie: "I only want them sent to gmail and if they fail to send to gmail they will
+     send to admin inbox but that is the only reason." The Inbox copy is now a FALLBACK,
+     so something has to be able to tell a send that happened from one that did not —
+     and this function used to swallow every outcome and return undefined.
+     ⛔ SO IT IS A PROMISE OF {ok, why}, NEVER A THROW. Every caller is a customer
+     pressing a button, and an alert that rejects must not surface to them as an error
+     when the fallback is about to catch it. `why` is what the Inbox row prints.
+     ⛔ AND IT IS DELIBERATELY NOT `async`. run-all's `extractFn` cuts from
+     `function NAME(`, so the keyword would be dropped on the way into every sandbox
+     that lifts this and the body would arrive full of bare `await` — a parse error
+     that kills a whole suite with no clue which function did it (§5 records that
+     happening three times). Promises are returned by hand for that reason.
+     ⚠ THE THREE SILENT EXITS BELOW ARE THE REAL FAILURE, not the catch. When
      settings/emailjs is unset — or, as happened once, readable only by staff so the
      public site was denied it — EVERY "you have a new message" email stops, for every
-     customer, with nothing anywhere saying so. It is not detectable from here: this
-     page has no login and cannot write anywhere the office would look without
-     spamming the Inbox on behalf of a customer who asked for none of it. So it is
-     said in the console with a reason, and the DETECTOR lives in the dashboard's
-     Health Check ("New-message alerts are switched off"), which is where the office
-     already goes to be told something is wrong. The message itself is safely in
-     Firestore either way — only the nudge is lost. */
+     customer, with nothing anywhere saying so.
+     ⛔ EACH ONE MUST ANSWER `ok:false`, AND THAT IS NOW LOAD-BEARING RATHER THAN
+     TIDY. Under the old design these cost only the nudge and the message was safe in
+     Firestore regardless; under the new one, an exit that reported success would send
+     every customer message to a Gmail that was never configured and write nothing
+     anywhere — the whole book of messages lost, silently, exactly as the day
+     settings/emailjs went staff-only. The fallback turns that outage into a visible
+     pile in the Inbox instead, which is the answer to "it is not detectable from here".
+     The Health Check row ("New-message alerts are switched off") still stands. */
   if(!emailjsSettings || !emailjsSettings.serviceId || !emailjsSettings.notifyTemplateId || !emailjsSettings.publicKey){
     console.warn('[HU] no "new message" alert sent: EmailJS is not configured for the public site. ' +
-      'The message itself saved fine. Admin → Automation Emails has the settings.');
-    return;
+      'Admin → Automation Emails has the settings. Falling back to the admin Inbox.');
+    return Promise.resolve({ ok: false, why: 'EmailJS is not set up on the website yet' });
   }
   if(!window.emailjs){
     console.warn('[HU] no "new message" alert sent: the EmailJS script did not load. ' +
-      'The message itself saved fine.');
-    return;
+      'Falling back to the admin Inbox.');
+    return Promise.resolve({ ok: false, why: 'the EmailJS script did not load' });
   }
   try{
     emailjs.init(emailjsSettings.publicKey);
@@ -4633,18 +4648,53 @@ function notifyBusinessOfMessage(params){
        a PROMISE, so a rejected send — a bad template id, a blocked request, EmailJS
        over quota — was an unhandled rejection, not something this caught. The catch
        was documented and still wrong about what it was documenting. */
-    emailjs.send(emailjsSettings.serviceId, emailjsSettings.notifyTemplateId, params)
+    return emailjs.send(emailjsSettings.serviceId, emailjsSettings.notifyTemplateId, params)
+      .then(function(){ return { ok: true }; })
       .catch(function(err){
-        console.error('[HU] the "new message" alert was refused by EmailJS. The message ' +
-          'itself saved fine; only the alert failed.', err);
+        console.error('[HU] the "new message" alert was refused by EmailJS. ' +
+          'Falling back to the admin Inbox.', err);
+        return { ok: false, why: 'the email service refused it' };
       });
   } catch(err){
-    /* Synchronous throw — a malformed init, or emailjs replaced by an extension.
-       Notification is a nice-to-have and must never block the message from saving,
-       so it is still swallowed here; what it is not is silent. */
-    console.error('[HU] the "new message" alert could not be sent at all. The message ' +
-      'itself saved fine.', err);
+    /* Synchronous throw — a malformed init, or emailjs replaced by an extension. */
+    console.error('[HU] the "new message" alert could not be sent at all. ' +
+      'Falling back to the admin Inbox.', err);
+    return Promise.resolve({ ok: false, why: 'the email service could not be reached' });
   }
+}
+
+/* ⭐ TELL THE OFFICE — GMAIL FIRST, THE INBOX ONLY IF THE GMAIL DID NOT GO
+   ([[MSG-30]], 2026-09-19). Addie: "Currently we have the admin inbox and the gmail
+   inbox but messages are getting sent to gmail and admin. I only want them sent to
+   gmail and if they fail to send to gmail they will send to admin inbox but that is
+   the only reason."
+   ⛔ ONE FUNNEL, BECAUSE THE RULE IS ONE DECISION. Ten call sites each did their own
+   `addDoc` and then their own alert, so "which of the two got it" was written out ten
+   times; the eleventh place somebody adds would double-post again with nothing going
+   red. Every one of them calls this instead, and the ordering — alert, THEN the
+   conditional write — exists in exactly one body.
+   ⛔ THE ROW SAYS WHY IT IS THERE. `alertFailed` and `alertFailReason` are what stop
+   this reading as the old double-post: without them a message in the Inbox is
+   indistinguishable from the behaviour she asked to have removed, and the first thing
+   she would conclude is that the change did not work. "Nothing should fail quietly"
+   applied to a fallback.
+   ⚠ A REFUSED WRITE IS ALLOWED TO THROW, and the callers' own catch tells the
+   customer to phone instead. That is the one case where both channels are gone, and
+   it is exactly what the old `addDoc(...).catch` already covered.
+   ⚠ AND `createdAt` IS SET HERE, never by the caller — a row whose time came from the
+   caller is a row that can arrive undated the day somebody forgets it. */
+function tellOffice(emailParams, inboxRow){
+  return notifyBusinessOfMessage(emailParams).then(function(verdict){
+    if(verdict && verdict.ok) return { sent: true, ref: null };
+    var row = Object.assign({}, inboxRow, {
+      alertFailed: true,
+      alertFailReason: (verdict && verdict.why) || 'the alert did not go',
+      createdAt: serverTimestamp()
+    });
+    return addDoc(collection(db,'messages'), row).then(function(ref){
+      return { sent: false, ref: ref };
+    });
+  });
 }
 var HM_INV_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
 function hmEsc(s){ return (s||'').toString().replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
@@ -8167,18 +8217,16 @@ async function notifyLightsChange(finalDescription){
   var email = (currentLookupRecord && currentLookupRecord.email) || (currentJobAddressData && currentJobAddressData.email) || '';
   var messageText = 'Updated their light color/pattern to: ' + (finalDescription || '(none selected)');
   try{
-    await addDoc(collection(db,'messages'), {
+    await tellOffice({
+      customer_name: name, customer_phone: phone,
+      customer_email: email, topic: 'Light Color Change', message: messageText
+    }, {
       topic: 'Light Color Change', folder: 'System',
       name: name, phone: phone, email: email,
       contactMethod: '', message: messageText,
       // The change already went to the Warehouse when it saved, so this message
       // is a heads-up rather than a job. Flagged so the Inbox says so.
-      autoQueuedToWarehouse: true,
-      createdAt: serverTimestamp()
-    });
-    notifyBusinessOfMessage({
-      customer_name: name, customer_phone: phone,
-      customer_email: email, topic: 'Light Color Change', message: messageText
+      autoQueuedToWarehouse: true
     });
   } catch(err){ /* Firestore already has the updated color either way */ }
 }
@@ -9048,11 +9096,24 @@ document.getElementById("sidesSaveBtn") && document.getElementById("sidesSaveBtn
     /* The office hears about it the same way an address change is announced —
        the flag on the record is what puts them in a list, and this is what
        puts them in somebody's inbox today. */
-    notifyBusinessOfMessage({
+    /* ⚠ THIS ONE HAD NO INBOX COPY AT ALL, and [[MSG-30]] closes that rather than
+       opening it. It emailed and nothing else, so a refused send meant NOBODY was told
+       a member was sitting on a re-quote that had been raised — the exact invisibility
+       Member Errors exists for, on a path with no error to report. Gmail still wins;
+       the Inbox now catches what the Gmail drops. */
+    await tellOffice({
       customer_name: (currentLookupRecord && currentLookupRecord.name) || "",
       customer_phone: (currentLookupRecord && currentLookupRecord.phone) || "",
       customer_email: (currentLookupRecord && currentLookupRecord.email) || "",
       topic: "Existing Customer - Sides Changed",
+      message: "Customer changed which sides they want lit, from " + portalSidesWords(beforeList, beforeCount) +
+               " to " + portalSidesWords(pickedList, pickedCount) + ". They need re-quoting before install."
+    }, {
+      topic: "Existing Customer - Sides Changed", folder: 'Inbox',
+      name: (currentLookupRecord && currentLookupRecord.name) || "",
+      phone: (currentLookupRecord && currentLookupRecord.phone) || "",
+      email: (currentLookupRecord && currentLookupRecord.email) || "",
+      contactMethod: '',
       message: "Customer changed which sides they want lit, from " + portalSidesWords(beforeList, beforeCount) +
                " to " + portalSidesWords(pickedList, pickedCount) + ". They need re-quoting before install."
     });
@@ -9244,10 +9305,18 @@ document.getElementById('movedSaveBtn').addEventListener('click', async function
        below owns that path, so this line is unreachable unless the pending address really
        was recorded. An email about a move that did not save is worse than no email.
 
-       ⚠ BEST EFFORT, LIKE EVERY OTHER CALLER. notifyBusinessOfMessage swallows and logs its
-       own failures; the move is already safely stored and the Inbox note already written,
-       so a refused send must never reach the customer as an error. */
-    notifyBusinessOfMessage({
+       ⚠ BEST EFFORT, LIKE EVERY OTHER CALLER. The move is already safely stored, so a
+       refused send must never reach the customer as an error — `tellOffice` falls back to
+       the Inbox and only a failure of BOTH could throw, which the catch below owns.
+       ⭐ AND THE BROWSER OWNS THE INBOX COPY NOW ([[MSG-30]]). `portalSave` used to write
+       that note on the server, unconditionally, while this line emailed — one event, two
+       destinations, every time, which is the double-post Addie asked to end. The server
+       cannot know whether this send worked, so the decision moved to the one place that
+       does. ⚠ THE COST IS NAMED RATHER THAN HIDDEN: a browser that dies between the save
+       and this line now tells nobody. That window is a moment long, and the move itself is
+       NOT lost — the pending fields and the badge are what the office works from, which
+       the server's own note called itself a nudge towards. */
+    await tellOffice({
       customer_name: (currentLookupRecord && currentLookupRecord.name) || (currentJobAddressData && currentJobAddressData.name) || '',
       customer_phone: (currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || '',
       customer_email: (currentLookupRecord && currentLookupRecord.email) || (currentJobAddressData && currentJobAddressData.email) || '',
@@ -9256,6 +9325,18 @@ document.getElementById('movedSaveBtn').addEventListener('click', async function
         (when ? ', in by ' + when : '') + '. Their record still holds the old address on purpose — ' +
         'open them in Customers and press Apply on the move to re-quote the new house and ' +
         're-point their route.'
+    }, {
+      topic: 'Existing Customer - Address Changed', folder: 'Inbox',
+      name: (currentLookupRecord && currentLookupRecord.name) || (currentJobAddressData && currentJobAddressData.name) || '',
+      phone: (currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || '',
+      email: (currentLookupRecord && currentLookupRecord.email) || (currentJobAddressData && currentJobAddressData.email) || '',
+      contactMethod: '',
+      message: 'They have moved to "' + ((res && res.pendingAddress) || (street + ', ' + city)) + '"' +
+        (when ? ', in by ' + when : '') + '. Their record still holds the old address on purpose — ' +
+        'nothing has been re-quoted and no pin has moved. Open them in Customers and press ' +
+        'Apply on the move to put the new address on the record, which re-quotes the new ' +
+        'house and re-points their route.',
+      autoQueuedToWarehouse: false, needsReassign: false
     });
     statusEl.textContent = '';
     portalRenderPendingMove();
@@ -9347,29 +9428,25 @@ document.getElementById('changesSaveBtn').addEventListener('click', async functi
     statusEl.textContent = 'Saved!';
     setTimeout(function(){ statusEl.textContent = ''; }, 1500);
     if(notesChanged && newNotes){
-      await addDoc(collection(db,'messages'), {
-        topic: 'Note Added', folder: 'Inbox', important: true,
-        name: contactName, phone: contactPhone, email: contactEmail,
-        contactMethod: '', message: newNotes,
-        createdAt: serverTimestamp()
-      });
-      notifyBusinessOfMessage({
+      await tellOffice({
         customer_name: contactName, customer_phone: contactPhone,
         customer_email: contactEmail, topic: 'Note Added',
         message: newNotes
+      }, {
+        topic: 'Note Added', folder: 'Inbox', important: true,
+        name: contactName, phone: contactPhone, email: contactEmail,
+        contactMethod: '', message: newNotes
       });
     }
     if(outletTimerChanged){
-      await addDoc(collection(db,'messages'), {
-        topic: 'Outlet Timer Change', folder: 'System',
-        name: contactName, phone: contactPhone, email: contactEmail,
-        contactMethod: '', message: 'Changed their outlet timer preference to: ' + newOutletTimer,
-        createdAt: serverTimestamp()
-      });
-      notifyBusinessOfMessage({
+      await tellOffice({
         customer_name: contactName, customer_phone: contactPhone,
         customer_email: contactEmail, topic: 'Outlet Timer Change',
         message: 'Changed their outlet timer preference to: ' + newOutletTimer
+      }, {
+        topic: 'Outlet Timer Change', folder: 'System',
+        name: contactName, phone: contactPhone, email: contactEmail,
+        contactMethod: '', message: 'Changed their outlet timer preference to: ' + newOutletTimer
       });
     }
   } catch(err){
@@ -9406,12 +9483,18 @@ document.getElementById('cancelFinalBtn').addEventListener('click', async functi
   var contactPhone = (currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || '';
   var contactEmail = (currentLookupRecord && currentLookupRecord.email) || (currentJobAddressData && currentJobAddressData.email) || '';
   try{
-    var cancelMsgRef = await addDoc(collection(db,'messages'), {
-      topic: 'Cancellation Request', folder: 'Inbox', important: true,
-      name: contactName, phone: contactPhone, email: contactEmail,
-      contactMethod: '', message: reason || 'No reason given',
-      createdAt: serverTimestamp()
-    });
+    /* ⭐ THE SAVE IS ATTEMPTED FIRST NOW, AND THE WARNING RIDES THE MESSAGE ITSELF
+       ([[MSG-30]]). This used to write the Inbox row, try the save, and then PATCH that
+       row when the save failed — which only works while there is always a row to patch.
+       Under Gmail-first there usually is not.
+       ⭐ AND THAT IS A REPAIR, NOT A COMPROMISE. The old warning ("set it by hand")
+       reached the Inbox copy alone, so the office reading this in the Gmail — which is
+       now the normal place — was never told the account had not been flagged. Folding it
+       into the message text tells whoever reads it, wherever they read it.
+       ⚠ A FAILED FLAG MUST NOT LOSE THE REQUEST. The save is caught and the telling
+       happens either way: somebody trying to LEAVE is the one customer who never rings
+       to chase, so silence here is the most expensive silence in the portal. */
+    var cancelReason = reason || 'No reason given';
     try{
       await callPortalFn('portalSave', {
         token: getActivePortalToken(),
@@ -9419,23 +9502,17 @@ document.getElementById('cancelFinalBtn').addEventListener('click', async functi
         data: {cancellationReason: reason || ''}
       });
     }catch(cancelErr){
-      /* The message above is the reliable path — it just went through, so the
-         office WILL see this request. But their account's own Cancellation
-         Requested status (and the warehouse recycle flag it drives) failed to
-         set, and that failure used to be swallowed here with nothing but a
-         console.error nobody reads. Flag it right on the message they're
-         about to read instead, so it isn't invisible. */
       console.error('[HU] cancel status save failed:', cancelErr);
-      try{
-        await updateDoc(cancelMsgRef, {
-          message: (reason || 'No reason given') +
-            '\n\n⚠ Their account could not be flagged Cancellation Requested automatically — please set it by hand in Edit Customer.'
-        });
-      }catch(flagErr){ console.error('[HU] could not flag the cancel message either:', flagErr); }
+      cancelReason += '\n\n⚠ Their account could not be flagged Cancellation Requested ' +
+        'automatically — please set it by hand in Edit Customer.';
     }
-    notifyBusinessOfMessage({
+    await tellOffice({
       customer_name: contactName, customer_phone: contactPhone,
-      customer_email: contactEmail, topic: 'Cancellation Request', message: reason || 'No reason given'
+      customer_email: contactEmail, topic: 'Cancellation Request', message: cancelReason
+    }, {
+      topic: 'Cancellation Request', folder: 'Inbox', important: true,
+      name: contactName, phone: contactPhone, email: contactEmail,
+      contactMethod: '', message: cancelReason
     });
     btn.style.display = 'none';
     document.getElementById('cancelConfirmMsg').style.display = 'block';
@@ -9462,15 +9539,13 @@ document.getElementById('portalContactSendBtn').addEventListener('click', async 
   var contactPhone = (currentLookupRecord && currentLookupRecord.phone) || (currentJobAddressData && currentJobAddressData.phone) || '';
   var contactEmail = (currentLookupRecord && currentLookupRecord.email) || (currentJobAddressData && currentJobAddressData.email) || '';
   try{
-    await addDoc(collection(db,'messages'), {
-      topic: topic, folder: 'Inbox',
-      name: contactName, phone: contactPhone, email: contactEmail,
-      contactMethod: '', message: msgText,
-      createdAt: serverTimestamp()
-    });
-    notifyBusinessOfMessage({
+    await tellOffice({
       customer_name: contactName, customer_phone: contactPhone,
       customer_email: contactEmail, topic: topic, message: msgText
+    }, {
+      topic: topic, folder: 'Inbox',
+      name: contactName, phone: contactPhone, email: contactEmail,
+      contactMethod: '', message: msgText
     });
     btn.style.display = 'none';
     document.getElementById('portalContactSuccess').style.display = 'block';
@@ -9494,16 +9569,14 @@ document.getElementById('quoteApproveBtn').addEventListener('click', async funct
       statusEl.textContent = "We couldn't process that — please call or text us at (801) 901-0011.";
       return;
     }
-    await addDoc(collection(db,'messages'), {
-      topic: 'Quote Approved', folder: 'Inbox', important: true,
-      name: currentQuoteData.name || '', phone: currentQuoteData.phone || '', email: currentQuoteData.email || '',
-      contactMethod: '', message: 'Approved quote of ' + fmt(currentQuoteData.quotedPrice) + ' for ' + (currentQuoteData.address || 'their address') + '.',
-      createdAt: serverTimestamp()
-    });
-    notifyBusinessOfMessage({
+    await tellOffice({
       customer_name: currentQuoteData.name || '', customer_phone: currentQuoteData.phone || '',
       customer_email: currentQuoteData.email || '', topic: 'Quote Approved',
       message: 'Approved quote of ' + fmt(currentQuoteData.quotedPrice) + ' for ' + (currentQuoteData.address || 'their address') + '.'
+    }, {
+      topic: 'Quote Approved', folder: 'Inbox', important: true,
+      name: currentQuoteData.name || '', phone: currentQuoteData.phone || '', email: currentQuoteData.email || '',
+      contactMethod: '', message: 'Approved quote of ' + fmt(currentQuoteData.quotedPrice) + ' for ' + (currentQuoteData.address || 'their address') + '.'
     });
     /* ⭐ A MEMBER APPROVING FROM INSIDE THEIR OWN PORTAL IS ALREADY WHERE THEY
        NEED TO BE. Owner, 2026-08-19: "if they approve in there member portal
@@ -9557,16 +9630,14 @@ document.getElementById('quoteMaybeBtn').addEventListener('click', async functio
       statusEl.textContent = "We couldn't process that — please call or text us at (801) 901-0011.";
       return;
     }
-    await addDoc(collection(db,'messages'), {
-      topic: 'Quote - Maybe Next Year', folder: 'Inbox',
-      name: currentQuoteData.name || '', phone: currentQuoteData.phone || '', email: currentQuoteData.email || '',
-      contactMethod: '', message: 'Said "maybe next year" for quote of ' + fmt(currentQuoteData.quotedPrice) + ' for ' + (currentQuoteData.address || 'their address') + '.',
-      createdAt: serverTimestamp()
-    });
-    notifyBusinessOfMessage({
+    await tellOffice({
       customer_name: currentQuoteData.name || '', customer_phone: currentQuoteData.phone || '',
       customer_email: currentQuoteData.email || '', topic: 'Quote - Maybe Next Year',
       message: 'Said "maybe next year" for quote of ' + fmt(currentQuoteData.quotedPrice) + ' for ' + (currentQuoteData.address || 'their address') + '.'
+    }, {
+      topic: 'Quote - Maybe Next Year', folder: 'Inbox',
+      name: currentQuoteData.name || '', phone: currentQuoteData.phone || '', email: currentQuoteData.email || '',
+      contactMethod: '', message: 'Said "maybe next year" for quote of ' + fmt(currentQuoteData.quotedPrice) + ' for ' + (currentQuoteData.address || 'their address') + '.'
     });
     statusEl.textContent = '';
     document.getElementById('quoteApproveBtn').style.display = 'none';
@@ -9588,16 +9659,14 @@ document.getElementById('quoteDeclineBtn').addEventListener('click', async funct
       statusEl.textContent = "We couldn't process that — please call or text us at (801) 901-0011.";
       return;
     }
-    await addDoc(collection(db,'messages'), {
-      topic: 'Quote Declined', folder: 'Inbox',
-      name: currentQuoteData.name || '', phone: currentQuoteData.phone || '', email: currentQuoteData.email || '',
-      contactMethod: '', message: 'Declined quote of ' + fmt(currentQuoteData.quotedPrice) + ' for ' + (currentQuoteData.address || 'their address') + '.',
-      createdAt: serverTimestamp()
-    });
-    notifyBusinessOfMessage({
+    await tellOffice({
       customer_name: currentQuoteData.name || '', customer_phone: currentQuoteData.phone || '',
       customer_email: currentQuoteData.email || '', topic: 'Quote Declined',
       message: 'Declined quote of ' + fmt(currentQuoteData.quotedPrice) + ' for ' + (currentQuoteData.address || 'their address') + '.'
+    }, {
+      topic: 'Quote Declined', folder: 'Inbox',
+      name: currentQuoteData.name || '', phone: currentQuoteData.phone || '', email: currentQuoteData.email || '',
+      contactMethod: '', message: 'Declined quote of ' + fmt(currentQuoteData.quotedPrice) + ' for ' + (currentQuoteData.address || 'their address') + '.'
     });
     statusEl.textContent = '';
     document.getElementById('quoteApproveBtn').style.display = 'none';
