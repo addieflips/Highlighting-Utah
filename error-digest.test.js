@@ -145,6 +145,108 @@ check('and the fault itself survives the scrub',
   'a report scrubbed of the fault is no use for fixing it');
 
 console.log('');
+console.log('--- It counts the environments instead of sampling one ---');
+console.log('');
+
+/* ⛔ THE DEFECT THIS REPLACES: the report printed ONE report's `Browser:` line, so a fault
+   seen five times across three browsers on two machines was described as "all from an
+   iPhone, iOS 18.7 Safari" — the first of the five happened to be. A Safari-only fault and
+   an everywhere fault have different causes, so that misread sends the next person to the
+   wrong place. These are the REAL agents off the five rows Addie pasted, not invented ones:
+   an invented set agrees with whatever the parser does. */
+const uaLabel = new Function(extractFn(script, 'uaLabel') + '; return uaLabel;')();
+const uaFromMessage = new Function(extractFn(script, 'uaLabel') + ';' +
+  extractFn(script, 'uaFromMessage') + '; return uaFromMessage;')();
+
+const REAL = {
+  win153: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36',
+  mac148: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+  iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1',
+  macSaf: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15'
+};
+
+check('the five real agents come back as three distinct environments',
+  (function () {
+    const seen = [REAL.win153, REAL.mac148, REAL.iphone, REAL.win153, REAL.iphone].map(uaLabel);
+    return new Set(seen).size === 3 &&
+      seen.filter(function (s) { return s === 'Chrome on Windows'; }).length === 2 &&
+      seen.filter(function (s) { return s === 'Safari on iPhone'; }).length === 2 &&
+      seen.filter(function (s) { return s === 'Chrome on Mac'; }).length === 1;
+  })(),
+  'reported as one sample this group read as iPhone-only, which it is not');
+
+/* ⚠ CHROME'S AGENT SAYS "Safari" AND EDGE'S SAYS "Chrome". Read in the wrong order every
+   Chrome report files itself as Safari — which is precisely the wrong answer this exists
+   to stop giving. */
+check('Chrome is not read as Safari, and Mac Safari still is',
+  uaLabel(REAL.win153) === 'Chrome on Windows' &&
+  uaLabel(REAL.mac148) === 'Chrome on Mac' &&
+  uaLabel(REAL.macSaf) === 'Safari on Mac',
+  'both those agents carry the string Safari/');
+
+check('Edge and Opera are not read as Chrome',
+  uaLabel('Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0') === 'Edge on Windows' &&
+  uaLabel('Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36 OPR/99.0.0.0') === 'Opera on Windows',
+  'both carry Chrome/ as well as their own token');
+
+check('it reads the agent out of the body, where the reporters put it',
+  uaFromMessage('Something went wrong on the admin page.\n\nWhere: (the dashboard)\nBrowser: ' + REAL.iphone) === 'Safari on iPhone',
+  'there is no browser FIELD — both reporters write it as a line in the message');
+
+check('a report with no browser line says so rather than guessing',
+  uaFromMessage('Something went wrong.\nWhere: (the dashboard)') === '(no browser recorded)' &&
+  uaLabel('') === '(no browser recorded)',
+  'inventing an environment is the same fault as sampling one');
+
+/* ⛔ THE REPORT NAMES NOBODY, and a full user agent is the most fingerprint-like thing in
+   it. The census must SHORTEN, never pass the raw string through. */
+check('no raw user agent survives into the label',
+  Object.keys(REAL).every(function (k) {
+    const out = uaLabel(REAL[k]);
+    return out.length < 30 && out.indexOf('Mozilla') === -1 && out.indexOf('AppleWebKit') === -1 &&
+      !/\d/.test(out);
+  }),
+  'a version number is identifying and is not what anybody reads this line for');
+
+/* ⚠ STRUCTURAL, AND SAYS SO. The sample is built inside main(), which needs Firestore, so
+   this cannot be run the way the checks above are. The claim is narrow: the raw `Browser:`
+   line is dropped from the printed sample, because the census now states it for every
+   report rather than for one — and left in, it is the very line that was read as the whole
+   group. */
+check('the raw browser line is dropped from the printed sample (structural)',
+  /filter\([^)]*\)[\s\S]{0,120}Browser:/.test(code) || /!\/\^\\s\*Browser:\/i\.test/.test(code),
+  'the census replaces it; carrying both invites the same misread back');
+
+check('and the census is printed for every fault (structural)',
+  /seen on: /.test(code) && /g\.envs/.test(code),
+  'a census nothing prints is a census nobody reads');
+
+/* ⛔ THE TALLY IS RUN, NOT MATCHED, and the red-check is why. While it was written inline in
+   main() the only check possible was that the words `g.envs` appear somewhere — and a
+   sabotage that counted the FIRST report and ignored every one after it passed that
+   happily. That is this file's own defect one level down: a census that samples. */
+const tallyEnv = new Function(extractFn(script, 'tallyEnv') + '; return tallyEnv;')();
+
+check('every report is counted, not just the first of its kind',
+  (function () {
+    const m = new Map();
+    ['Chrome on Windows', 'Safari on iPhone', 'Chrome on Windows',
+     'Chrome on Mac', 'Safari on iPhone', 'Chrome on Windows'].forEach(function (e) { tallyEnv(m, e); });
+    return m.get('Chrome on Windows') === 3 && m.get('Safari on iPhone') === 2 &&
+      m.get('Chrome on Mac') === 1 && m.size === 3;
+  })(),
+  'a census that stops at one report is the very fault this whole change is about');
+
+/* ⚠ THE CALL MUST STAND ALONE, and that is not pedantry — the red-check's last survivor was
+   `if (!g.envs.size) tallyEnv(...)`, which leaves a perfectly correct tally wired up behind a
+   guard that lets exactly one report through. A bare mention of the name cannot tell the two
+   apart; a statement on its own line can. Same shape as asserting the wiring separately from
+   the mechanism, which this repo has been caught needing three times. */
+check('and the loop tallies every report through it, unguarded (structural)',
+  /^[ \t]*tallyEnv\(g\.envs, env\);[ \t]*$/m.test(code),
+  'a guarded call counts the first report of each fault and silently drops the rest');
+
+console.log('');
 console.log('--- It agrees with the app about what a fault is ---');
 console.log('');
 

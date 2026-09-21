@@ -1919,7 +1919,7 @@ member's bill — with nobody in the office typing anything.
     ⚠ **All four spots that build this HTML got it**: `referralEmailBlock` and
     `resolveLinkTokens` in admin.html (mirroring `QUOTE_LINK_BUTTON_STYLE` with a new
     `SHARE_ICON_BUTTON_STYLE`), and both copies inside `runArrearsRsvpBatch` in
-    functions/index.js (a matching `shareIconBtn` style). The **$25 Off** button text
+    functions/index.js (a matching `SHARE_ICON_BUTTON_STYLE_SERVER`). The **$25 Off** button text
     itself was not touched anywhere, so every existing test pinned to it — including the
     cross-file "both renderers send it character for character" check — still passes
     unmodified.
@@ -3260,8 +3260,11 @@ never removed them from the pool, and scored a season that skipped a third of th
 measurement harness needs that assertion as much as the app does.
 
 *Where it is proved*: nowhere in run-all.js — there is no behaviour change to pin.
-The scripts are `scratchpad/revisit.js`, `borrow-measure.js`, `borrow-sig.js` and
-`reblock.js`.
+The scripts were scratchpad/revisit.js, borrow-measure.js, borrow-sig.js and
+reblock.js. ⚠ **None of the four is in the repo** — they were session scratch files and
+were never committed, so do not go looking for them. The measurement is not reproducible
+from main; what survives is the finding above and the harness bug it turned on. Named
+without backticks for that reason (2026-09-19).
 *Rulings*: [[SCH-75]] in `claude/questions-map.md`.
 
 ### Why a route went far out at stop 11 and came back beside stop 2
@@ -4285,6 +4288,33 @@ container runs UTC, where local midnight and `Date.parse('YYYY-MM-DD')` are the 
 the UTC sabotage sailed through in-process. `fixed-errors.test.js` learned this first. A UTC floor
 sits six hours early: an evening of reports would be reported as predating a fix they postdate.
 6 of 6 sabotages red-checked, error-digest.js byte-for-byte after each.
+
+⛔ **AND ONE SAMPLE WAS BEING READ AS THE WHOLE GROUP** (2026-09-19, the same evening, found by
+Addie pasting the real badge list). The report printed the FIRST report's `Browser:` line and
+nothing else, so the five `Missing or insufficient permissions` rows — Chrome on Windows twice,
+Safari on iPhone twice, Chrome on Mac once — were described to her as *"all from an iPhone, iOS
+18.7 Safari"*, because the first of the five happened to be. A Safari-only fault and an
+everywhere fault have different causes, so that one line sends whoever picks it up to the wrong
+place.
+⭐ **THE ENVIRONMENTS ARE COUNTED NOW, NOT SAMPLED** — `seen on: Chrome on Windows x2, Safari on
+iPhone x2, Chrome on Mac x1`. That also answers what one line never could: whether a fault is one
+machine repeating itself or the whole office hitting it.
+⚠ **A FAMILY, NEVER THE RAW AGENT, AND IT REPLACES THE SAMPLE'S LINE RATHER THAN JOINING IT.** A
+full user agent is the most fingerprint-like thing in a report built to name nobody, so the census
+carries no version numbers and the raw line is dropped from the printed sample — the report ends
+up holding LESS about any one person than before. Asserted: no label reaches 30 characters or
+contains a digit.
+⚠ **THE ORDER OF THE BROWSER TESTS IS THE WHOLE PARSER.** Chrome's agent contains `Safari/` and
+Edge's contains `Chrome/`, so tested the obvious way round every Chrome report files itself as
+Safari — precisely the wrong answer this exists to stop giving. The iPhone test leads for the same
+reason: its agent says `Mac OS X`. The fixtures are the five REAL agents off Addie's paste, because
+an invented set agrees with whatever the parser happens to do.
+⚠ **AND `tallyEnv` IS ITS OWN FUNCTION SO A TEST CAN RUN IT.** Inline in `main()` the only possible
+check was that the words `g.envs` appear somewhere, and the red-check duly proved a census counting
+the FIRST report and ignoring the rest sailed through — this file's own defect one level down. The
+call site is asserted separately, as a statement on its own line, because `if (!g.envs.size)
+tallyEnv(…)` leaves a correct tally behind a guard that admits one report. 10 of 10 sabotages
+red-checked; 36 checks.
 
 ⭐ **THE SECTION CONTROLS ARE ALWAYS VISIBLE NOW** (2026-09-11, [[MSG-23]]). Addie: *"not
 able to add to each section and delete from each section."* Both buttons — `✎` to rename a
@@ -7566,10 +7596,14 @@ and the gate stayed green, because the suite that lifts that function still name
 anchor "existed" in a file whose only job is to talk about the code.
 
 ⚠ **And the first version cried wolf on all three of its findings** — an element id
-(`#rmDifficulty`), a Firestore path (`settings/measureAlign`) and a value on a record
-(`kind:'carried'`), each of which leads exactly where it says. On a gate whose whole job is to
-be believed, three false alarms out of three is worse than finding nothing, so an anchor is
-broken into the names inside it and every one must exist. ⚠ **Its own limit, stated rather than
+(`#rmDifficulty`), a Firestore path (settings/measureAlign) and a value on a record
+(`kind:'carried'`), each of which led exactly where it said *at the time*. On a gate whose whole
+job is to be believed, three false alarms out of three is worse than finding nothing, so an
+anchor is broken into the names inside it and every one must exist. ⚠ **The middle example has
+since stopped being a false alarm, which is why it now wears no backticks:** the whole
+picture-alignment feature went on 2026-08-27, that document exists nowhere, and the gate
+correctly caught QT-13 still naming it — see that row, marked `Superseded → MR-06`. Kept as
+written because the *argument* is about the first version's behaviour, not about that path. ⚠ **Its own limit, stated rather than
 overclaimed:** it proves a name appears *somewhere in source*, so a definition renamed while
 its callers still use the old name reads as present. The suites that *lift* those functions
 are what catch that.

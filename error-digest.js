@@ -49,6 +49,51 @@ function scrub(text) {
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '(email removed)');
 }
 
+/* ⛔ ONE SAMPLE IS NOT THE GROUP, AND READING IT AS ONE SENT A DIAGNOSIS THE WRONG WAY.
+   The report printed the first report's `Browser:` line and nothing else, so a fault seen
+   five times across three browsers on two machines was described to Addie as "all from an
+   iPhone, iOS 18.7 Safari" — because the first of the five happened to be. That is not a
+   near miss: a Safari-only fault and an everywhere fault have different causes, and the
+   wrong one sends whoever picks it up looking at the wrong thing.
+   ⭐ SO THE ENVIRONMENTS ARE COUNTED, NOT SAMPLED. `Chrome on Windows x2` also answers a
+   question one line never could — whether a fault is one machine repeating itself or the
+   whole office hitting it.
+   ⚠ A FAMILY, NEVER THE RAW STRING. The full user agent is the most fingerprint-like thing
+   in a report that exists to name nobody, and this REPLACES the raw line in the sample
+   rather than sitting beside it — so the report ends up carrying less about any one person
+   than it did before, not more. */
+function uaLabel(ua) {
+  const s = String(ua || '');
+  if (!s) return '(no browser recorded)';
+  const os = /iPhone|iPad/.test(s) ? 'iPhone' :
+    /Android/.test(s) ? 'Android' :
+    /Windows/.test(s) ? 'Windows' :
+    /Mac OS X/.test(s) ? 'Mac' :
+    /Linux/.test(s) ? 'Linux' : 'an unknown system';
+  /* Order matters: Edge and Chrome both say "Chrome", Chrome says "Safari" too. */
+  const browser = /Edg\//.test(s) ? 'Edge' :
+    /OPR\//.test(s) ? 'Opera' :
+    /Chrome\//.test(s) ? 'Chrome' :
+    /Firefox\//.test(s) ? 'Firefox' :
+    /Safari\//.test(s) ? 'Safari' : 'an unknown browser';
+  return browser + ' on ' + os;
+}
+
+/* The reporters write the agent into the BODY, as its own line — there is no field. */
+function uaFromMessage(text) {
+  const m = /^\s*Browser:\s*(.+)$/im.exec(String(text || ''));
+  return m ? uaLabel(m[1]) : uaLabel('');
+}
+
+/* ⚠ ITS OWN FUNCTION SO A TEST CAN RUN IT, and that is not a nicety here: written inline in
+   main() the only thing a check could do was confirm the words `g.envs` appear somewhere,
+   and the red-check duly proved a census that counted the FIRST report and ignored the rest
+   sailed through — which is this file's original defect exactly, one level down. */
+function tallyEnv(map, env) {
+  map.set(env, (map.get(env) || 0) + 1);
+  return map;
+}
+
 function asDate(v) {
   if (!v) return null;
   if (typeof v.toDate === 'function') { try { return v.toDate(); } catch (err) { return null; } }
@@ -132,16 +177,26 @@ async function main() {
     const key = String(d.errorKey || '(no errorKey)');
     let g = groups.get(key);
     if (!g) {
-      g = { key: key, topic: topic, count: 0, first: null, last: null, sample: '', covered: coveredBy(fixed, d) };
+      g = { key: key, topic: topic, count: 0, first: null, last: null, sample: '',
+            envs: new Map(), covered: coveredBy(fixed, d) };
       groups.set(key, g);
     }
     g.count++;
+    const env = uaFromMessage(d.message);
+    tallyEnv(g.envs, env);
     const when = asDate(d.createdAt);
     if (when) {
       if (!g.first || when < g.first) g.first = when;
       if (!g.last || when > g.last) g.last = when;
     }
-    if (!g.sample) g.sample = scrub(d.message).split('\n').filter(Boolean).slice(0, 6).join('\n     ');
+    /* ⚠ THE RAW `Browser:` LINE IS DROPPED FROM THE SAMPLE, because the census above says
+       it properly for every report rather than for one. Left in, it is the same single
+       line that was read as the whole group once already. */
+    if (!g.sample) {
+      g.sample = scrub(d.message).split('\n')
+        .filter(function (l) { return l.trim() && !/^\s*Browser:/i.test(l); })
+        .slice(0, 6).join('\n     ');
+    }
   });
 
   const list = Array.from(groups.values()).sort(function (a, b) { return b.count - a.count; });
@@ -173,6 +228,10 @@ async function main() {
         g.covered.fixedOn + '). It goes on the next admin load.');
     }
     console.log('   key: ' + g.key.slice(0, 160));
+    /* Commonest environment first: what most of them were on is the lead, and a lone
+       outlier reading x1 beside it is exactly the shape worth noticing. */
+    const envs = Array.from(g.envs.entries()).sort(function (a, b) { return b[1] - a[1]; });
+    console.log('   seen on: ' + envs.map(function (e) { return e[0] + ' x' + e[1]; }).join(', '));
     if (g.sample) console.log('     ' + g.sample);
     console.log('');
   });
