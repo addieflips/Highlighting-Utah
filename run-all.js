@@ -51530,6 +51530,21 @@ suite('291. An RSVP link to text, for everyone with no email');
        asked is the whole claim — a stub here would let this list and the email's
        audience drift apart while the suite stayed green, which is the exact failure
        the shared predicate exists to stop. */
+    /* ⚠ THE WORDING IS A TEMPLATE NOW ([[EM-23]], 2026-09-21), so rsvpTextMessageFor
+       no longer holds its own sentence — it asks rsvpTextMessageParts, which asks the
+       renderer, which asks firstName and htmlEmailToPlainText. This sandbox died with a
+       bare "rsvpTextMessageParts is not defined" the moment that shipped: the extraction
+       trap, for the twelfth time in this file's history.
+       ⛔ EVERY ONE OF THEM IS LIFTED, NEVER STUBBED. What these checks are about is what
+       the Copy button puts on the clipboard, so a stubbed renderer would decide the very
+       thing under test — and this is the message several hundred customers get.
+       ⚠ THE SANDBOX IS SEEDED WITH NO TEMPLATE PICKED AND THE LIST LOADED, which is the
+       built-in wording: that is what the checks below are about, and what every book
+       that has never opened the card is on. The template path has its own file. */
+    const defBody = (admin.match(/const RSVP_TEXT_DEFAULT_BODY =[\s\S]*?;\r?\n/) || [])[0] || '';
+    check('S287', 'the built-in wording is findable', !!defBody,
+      'without it the sandbox renders an empty body and every wording check below ' +
+      'passes or fails on nothing');
     const api = new Function('jobAddresses',
       extractFn(admin, 'audienceNeverAsked') + NL287 +
       /* ⚠ ITS OWN HELPER TOO. audienceNeverAsked asks audienceQuoteJoinYear, and a
@@ -51538,6 +51553,16 @@ suite('291. An RSVP link to text, for everyone with no email');
       extractFn(admin, 'audienceQuoteJoinYear') + NL287 +
       extractFn(admin, 'enrollmentYearOf') + NL287 +
       extractFn(admin, 'effectiveRsvpStatus') + NL287 +
+      defBody + NL287 +
+      'let rsvpTextTemplateName = "";' + NL287 +
+      'let etTemplatesLoaded = true;' + NL287 +
+      'let emailTemplates = [];' + NL287 +
+      extractFn(admin, 'getEmailTemplateByName') + NL287 +
+      extractFn(admin, 'htmlEmailToPlainText') + NL287 +
+      extractFn(admin, 'properName') + NL287 +
+      extractFn(admin, 'firstName') + NL287 +
+      extractFn(admin, 'rsvpTextRenderBody') + NL287 +
+      extractFn(admin, 'rsvpTextMessageParts') + NL287 +
       srcs.join(NL287) + NL287 +
       'return {targets: rsvpTextTargets, link: rsvpTextLinkFrom, msg: rsvpTextMessageFor};');
 
@@ -51640,6 +51665,15 @@ suite('291. An RSVP link to text, for everyone with no email');
     check('S287', 'somebody with no name still gets a sentence that reads',
       /^Hi there,/.test(api(book).msg({}, link)),
       'got ' + JSON.stringify(api(book).msg({}, link)));
+    /* ⚠ AND THE GREETING IS THE APP'S OWN RULE, not a split on the first space. The
+       built-in wording went through its own .split(/\s+/)[0] until [[EM-23]] moved it
+       onto a {{name}} token — and that split renders "The Hollands" as "Hi The,",
+       which is the exact case firstName exists for. A household name on an RSVP text
+       is not rare. */
+    check('S287', 'and a household name is not cut in half',
+      /^Hi The Hollands,/.test(api(book).msg({name: 'The Hollands'}, link)),
+      'got ' + JSON.stringify(api(book).msg({name: 'The Hollands'}, link)) +
+      ' — "Hi The," is what a bare first-word split does to a household');
   }
 
   /* ⚠ THE TOKEN IS KEYED TO THE RECORD, NOT THE PHONE, and this is the one thing here

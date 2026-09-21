@@ -276,6 +276,13 @@ jobs:
       # exists because a mail scanner really did answer for two customers at 3:42am.
       - name: One link, three answers (the text-message RSVP)
         run: npm run test:textrsvp
+      # And what that one link SAYS. The wording is a template she edits in Automation
+      # Emails now, so the failure this names is a silent one: a template renamed or
+      # deleted answers exactly like a template list that has not loaded, and falling
+      # back in the second case sends the built-in sentence over the top of the wording
+      # she chose, to several hundred people, with every other gate green.
+      - name: What the RSVP text actually says
+        run: npm run test:textwording
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 
