@@ -318,6 +318,12 @@ jobs:
       - name: Every collection is written down
         run: npm run test:collections
 
+      # ⭐⭐ THE HEADLINE RULES (SCH-85, SCH-86): every Confirmed customer is on a day
+      # after Recalculate, and All Customers shows the Schedule's day. Its own named step
+      # so a red here reads as "a headline rule was broken" — see headline-rules.test.js.
+      - name: The headline rules still hold (Confirmed = scheduled, All Customers = Schedule)
+        run: npm run test:headline
+
       - name: Run the fast suite
         run: npm test
 

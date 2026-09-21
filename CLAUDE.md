@@ -50,6 +50,8 @@ that permanent as well for everytime all customers is ever pressed."* Ruling [[S
   the plan memo lasts one draw only, and `renderAll` / the plan reader call `schedulePlanChanged`.
 - **The gate:** run-all.js **Suite 347**. If it goes red, fix the change, never the suite.
 
+⛔ **AND THE GATES ARE LOCKED** (Dax, 2026-09-21: *"make sure that that is permanent and no code can change this system"*). `headline-rules.test.js` (`npm run test:headline`, its own required-CI step) fails the build if either headline above, Suite 346 or 347 (or their checks), the code that makes each rule true, the SCH-85/SCH-86 rows, or the test and CI wiring that runs them is removed or weakened. The ONLY legitimate way to change either rule is a new ruling from Dax or Addie that supersedes SCH-85/SCH-86 in the map — then edit that file in the same commit and say so.
+
 ---
 
 ## ⭐ R-023 — write the ruling down, in the same change
