@@ -115,7 +115,19 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
      card says "next season" where the email says "this season".
      ⚠ The card draws nothing at all when there is no token: a share box holding half an
      address is worse than no offer ([[REF-21]]).
-   - **Where the office gets it:** Automation Emails › RSVP › *Text the RSVP — no email on file*.
+   - **Where the office gets it:** Automation Emails › RSVP › *Text the RSVP*, then
+     **Find who still has to answer**.
+   - **It lists everyone who has not responded** ([[RS-64]]), not only the people with
+     no email. Those are badged **No email** and sorted to the top, because for them
+     the RSVP email cannot reach them at all and this list is the only thing that will
+     ever ask; tick the box to narrow to just those. Anyone who has already answered,
+     anyone in their first year, and anyone with no phone number is left out.
+   - ⚠ **Each link is that customer's own.** It carries their token, which is what signs
+     them in and records the answer against them — so there is no single address that
+     works for everybody, and one press of **Copy all … for texting** gives one line per
+     person, phone first, tab-separated for a spreadsheet.
+   - ⚠ Somebody who replied **STOP** is still shown, with a warning in place of the
+     button, and is never included in the bulk copy.
    - **What the text SAYS is a template she edits** ([[EM-23]]). The card has a
      **What the text says** picker listing the real email templates, and **Make one I
      can edit** creates *RSVP Text* in the Text Messages folder holding the wording
