@@ -19981,11 +19981,65 @@ function rsvpTextRender(){
           ? ' <span class="status-pill" style="background:#FFF4DC; color:#7A5B12;">No email</span>'
           : '') +
         '<br><span style="font-size:12.5px; color:var(--slate);">' + esc(d.phone || '') + '</span></div>' +
+      /* ⭐ THE LINK ITSELF, NOT ONLY THE MESSAGE AROUND IT (2026-09-21, [[RS-65]]).
+         Addie: "I dont see the link for the yes, back next year, and no." She was
+         right and it was not a rendering fault — there was no link on this card at
+         all. Copy their text put the whole SMS on the clipboard with the address
+         buried inside it, and the preview's address is a made-up example that says
+         so. So there was no way to read one out over the phone, paste one into an
+         email or a Facebook message, or look at what a customer is sent.
+         ⚠ BOTH BUTTONS, NOT ONE INSTEAD OF THE OTHER. The message is what goes into
+         Google Voice and is still the common case; the bare link is for every other
+         way of getting it to somebody. */
       (stopped
         ? '<span class="status-pill" style="background:#FDECEA; color:#B91C1C;">Do not text &mdash; they replied STOP</span>'
-        : '<button type="button" class="btn btn-outline btn-sm" data-rsvptext="' + esc(item.id) + '">Copy their text</button>') +
+        : '<span style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">' +
+            '<button type="button" class="btn btn-outline btn-sm" data-rsvplink="' + esc(item.id) + '">Copy link</button>' +
+            '<button type="button" class="btn btn-outline btn-sm" data-rsvptext="' + esc(item.id) + '">Copy their text</button>' +
+          '</span>') +
     '</div>';
   }).join('');
+  /* ⛔ THE TOKEN IS MINTED ON THE PRESS, NEVER ON THE RENDER. rsvpTextTokenFor WRITES
+     to the customer record when they have no token yet, and S287 asserts that drawing
+     this list mints none — a few hundred writes for opening a tab is a panel that edits
+     the book by being looked at. That is also why the address cannot simply be printed
+     on every row: it does not exist until somebody asks for it.
+     ⭐ AND IT IS SHOWN AS WELL AS COPIED, because the clipboard is no use for the thing
+     she asked for — reading it out over the phone, or checking it looks right. The box
+     replaces the two buttons on that row until the list is redrawn. */
+  list.querySelectorAll('[data-rsvplink]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const item = jobAddresses.find(function(x){ return x.id === btn.dataset.rsvplink; });
+      if(!item) return;
+      btn.disabled = true;
+      const was = btn.textContent;
+      btn.textContent = 'Making the link\u2026';
+      try{
+        const token = await rsvpTextTokenFor(item);
+        const url = rsvpTextLinkFrom(token);
+        /* ⚠ HALF A LINK IS WORSE THAN NO LINK — [[REF-21]]'s rule. A failed token write
+           hands back nothing, and a box holding part of an address is one somebody
+           pastes into a message and sends. */
+        if(!url){ btn.textContent = 'Could not make a link'; btn.disabled = false; return; }
+        try{ await navigator.clipboard.writeText(url); }
+        catch(err){ /* the box below is the fallback — it can be selected by hand */ }
+        const wrap = btn.parentNode;
+        if(wrap){
+          wrap.innerHTML = '<input type="text" readonly value="' + esc(url) + '" ' +
+            'aria-label="Their RSVP link" onclick="this.select()" ' +
+            'style="flex:1 1 280px; min-width:200px; font-size:11.5px; padding:3px 7px;">' +
+            '<span style="font-size:11.5px; color:#2E6B3E; align-self:center;">\u2713 Copied</span>';
+        } else {
+          btn.textContent = '\u2713 Copied';
+          setTimeout(function(){ btn.textContent = was; btn.disabled = false; }, 4000);
+        }
+      }catch(err){
+        console.error('Could not copy the RSVP link:', err);
+        btn.textContent = 'Could not copy';
+        btn.disabled = false;
+      }
+    });
+  });
   list.querySelectorAll('[data-rsvptext]').forEach(function(btn){
     btn.addEventListener('click', async function(){
       const item = jobAddresses.find(function(x){ return x.id === btn.dataset.rsvptext; });
