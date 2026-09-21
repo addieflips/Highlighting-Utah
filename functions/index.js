@@ -6474,6 +6474,21 @@ async function rsvpEmailBodyServer(custId, d, templateBody) {
   body = body.split('{{rsvp_yes_button}}').join('<a href="' + yesUrl + '" style="' + btn + ' background:#2E6B3E; color:#ffffff;">Yes</a>');
   body = body.split('{{rsvp_no_button}}').join('<a href="' + noUrl + '" style="' + btn + ' background:#8A8F9C; color:#ffffff;">No</a>');
   body = body.split('{{rsvp_back_button}}').join('<a href="' + backUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>');
+  /* ⭐ THE ONE-ADDRESS ANSWER PAGE, THE OTHER HALF OF [[RS-66]]. This is the renderer
+     that actually SENDS the 9 AM batch, so a token resolved only in admin.html puts a
+     literal "{{rsvp_link}}" in a real customer's inbox — the {{photo}} failure this
+     file already records by name, and the reason the referral token above says the
+     same thing. resolveLinkTokens in admin.html is the other copy: change both in the
+     same push.
+     ⚠ THE PATH IS WRITTEN OUT HERE because functions/index.js cannot import from
+     admin.html, which is the same split {{referral_button}} and the three buttons above
+     already live with. run-all.js Suite 291 compares the two spellings and fails if
+     they ever disagree, so this is a checked duplicate rather than a silent one. */
+  const askUrl = token ? ('https://highlightingutah.com/a/' + token) : '';
+  body = body.split('{{rsvp_link}}').join(askUrl);
+  body = body.split('{{rsvp_button}}').join(askUrl
+    ? '<a href="' + askUrl + '" style="' + btn + ' background:#1E3B2C; color:#ffffff;">Answer here</a>'
+    : '');
   /* ⭐ AND THEIR REFERRAL LINK, RENDERED HERE TOO (2026-09-04, REF-07). Both RSVP
      templates carry {{referral_button}}, and THIS is the renderer that sends them —
      so a token resolved only in admin.html would put a literal "{{referral_button}}"

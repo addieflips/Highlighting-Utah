@@ -10588,7 +10588,10 @@ async function resolveLinkTokens(text, phone, amount, opts){
     out = out.split('{{venmo_link}}').join(venmoUrl);
     out = out.split('{{venmo_button}}').join('<a href="'+venmoUrl+'" style="'+btnStyleGold+'">Pay with Venmo</a>');
   }
-  if(out.indexOf('{{rsvp_yes_link}}') !== -1 || out.indexOf('{{rsvp_no_link}}') !== -1 || out.indexOf('{{rsvp_back_link}}') !== -1 || out.indexOf('{{rsvp_yes_button}}') !== -1 || out.indexOf('{{rsvp_no_button}}') !== -1 || out.indexOf('{{rsvp_back_button}}') !== -1){
+  /* ⚠ {{rsvp_link}} AND {{rsvp_button}} ARE IN THIS GUARD TOO. It decides whether a
+     portal token is minted at all, so a token left out of it renders as itself — the
+     literal characters — in a real customer's inbox. */
+  if(out.indexOf('{{rsvp_yes_link}}') !== -1 || out.indexOf('{{rsvp_no_link}}') !== -1 || out.indexOf('{{rsvp_back_link}}') !== -1 || out.indexOf('{{rsvp_yes_button}}') !== -1 || out.indexOf('{{rsvp_no_button}}') !== -1 || out.indexOf('{{rsvp_back_button}}') !== -1 || out.indexOf('{{rsvp_link}}') !== -1 || out.indexOf('{{rsvp_button}}') !== -1){
     const rsvpToken = await getOrCreatePortalToken(phone);
     const rsvpBase = 'https://highlightingutah.com/#/payment' + (rsvpToken ? ('?token='+rsvpToken) : '');
     const rsvpYesUrl = rsvpBase + (rsvpToken ? '&rsvp=yes' : '');
@@ -10601,6 +10604,24 @@ async function resolveLinkTokens(text, phone, amount, opts){
     out = out.split('{{rsvp_yes_button}}').join('<a href="'+rsvpYesUrl+'" style="'+btnStyle+' background:#2E6B3E; color:#ffffff;">Yes</a>');
     out = out.split('{{rsvp_no_button}}').join('<a href="'+rsvpNoUrl+'" style="'+btnStyle+' background:#8A8F9C; color:#ffffff;">No</a>');
     out = out.split('{{rsvp_back_button}}').join('<a href="'+rsvpBackUrl+'" style="'+btnStyle+' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>');
+    /* ⭐ ONE ADDRESS CARRYING ALL THREE ANSWERS (2026-09-21, [[RS-66]]). Addie, having
+       been given it on the text card: "it should be added in the insert code on
+       automation email." The three tokens above are three DIFFERENT addresses, each
+       naming its answer in the URL; this is the /a/ page the text-message RSVP opens,
+       which names no answer and asks the question on screen.
+       ⚠ IT IS THE SAME ADDRESS rsvpTextLinkFrom BUILDS, from the same token, so the
+       emailed version and the texted version cannot become two different pages. A
+       second way of writing that path is exactly what rsvp-text-link.test.js's round
+       trip exists to catch.
+       ⛔ AND IT IS SAFE IN A WAY THE OTHER THREE ARE NOT: a mail scanner that fetches
+       every link in a message cannot answer through this one, because there is no
+       answer in the address to submit. That really happened — rsvp=yes was fetched for
+       two customers on work addresses at 3:42am. */
+    const rsvpAskUrl = rsvpToken ? rsvpTextLinkFrom(rsvpToken) : '';
+    out = out.split('{{rsvp_link}}').join(rsvpAskUrl);
+    out = out.split('{{rsvp_button}}').join(rsvpAskUrl
+      ? '<a href="'+rsvpAskUrl+'" style="'+btnStyle+' background:#1E3B2C; color:#ffffff;">Answer here</a>'
+      : '');
   }
   if(out.indexOf('{{quote_yes_button}}') !== -1 || out.indexOf('{{quote_decline_button}}') !== -1 || out.indexOf('{{quote_maybe_button}}') !== -1){
     /* ⭐ THE QUOTE IN HAND WINS OVER THE PHONE LOOKUP (2026-09-17).
@@ -23266,7 +23287,9 @@ const IC_CODES = {
     {token:'{{rsvp_no_link}}', label:'RSVP No (plain URL)'},
     {token:'{{rsvp_no_button}}', label:'RSVP No (button)'},
     {token:'{{rsvp_back_link}}', label:'RSVP Back Next Year (plain URL)'},
-    {token:'{{rsvp_back_button}}', label:'RSVP Back Next Year (button)'}
+    {token:'{{rsvp_back_button}}', label:'RSVP Back Next Year (button)'},
+    {token:'{{rsvp_link}}', label:'All three answers on one page (plain URL)'},
+    {token:'{{rsvp_button}}', label:'All three answers on one page (button)'}
   ],
   quote: [
     {token:'{{name}}', label:'Customer name'},
