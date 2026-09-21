@@ -254,6 +254,8 @@ jobs:
       # and only noticed by somebody standing at a shelf with the wrong paper.
       - name: Warehouse note (both build sheets carry it)
         run: npm run test:whnote
+      - name: Warehouse request (it changes the customer, and it charges)
+        run: npm run test:whrequest
       # Named on its own because the failure it catches is a send that does not
       # happen. The re-quote template is looked up by EXACT name, so a template
       # called anything but "ReQuotes" made every re-quote off an existing customer
