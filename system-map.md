@@ -613,9 +613,16 @@ day* and was never added. The schedule resolves through `planCustomerFor` now: t
 — those rows carry no id to read. Said out loud rather than left as a silent gap.
 ⚠ **And the promise is checked out loud.** `confirmedNotOnAnyDay` asks `seasonBadgeKey`
 — the badge the office actually reads, not the rule behind it — and *Recalculate
-everything* **names** anybody it finds. It should never fire, and it reports rather than
+everything* **names** anybody it finds. The checker itself still reports rather than
 repairs: a checker that quietly added whoever it found would hide the rule that dropped
-them, which is how this went unnoticed for a fortnight. Pending is derived and never stored, so paying the bill moves the
+them, which is how this went unnoticed for a fortnight.
+⭐⭐ **AND SINCE 2026-09-21 THE PRESS ALSO PLACES THEM — A HEADLINE RULE ([[SCH-85]]).**
+Dax: *"every confirmed = scheduled when recaclulate everything."* `placeConfirmedLeftOff`
+runs last in `rebuildSeasonDays` and puts every Confirmed customer who is still off onto an
+open day — their own town first, never before their month, office date or hold, never on a
+day inside the 48-hour lock. The button says who it had to place, so the rule that dropped
+them is still named. *If you press Recalculate everything and a Confirmed customer is not on
+a day, that is a bug — the button's message will name them.* Pending is derived and never stored, so paying the bill moves the
 badge on its own the next time the row is drawn. ⚠ Back Next Year stays its own
 answer rather than folding into Pending — that one the office sets by hand.
 
