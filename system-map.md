@@ -7093,6 +7093,11 @@ Addie: *"everyone will be scheduled as normal unless we push earliest or latest"
 - **Start New Season clears it** ([[SCH-93]]), in the same write that clears `removalDone`,
   so a choice made this season does not carry into the next.
 
+**The Fixes and Takedowns tabs have their own name search** (2026-09-23), the same box the
+Scheduling tab has — name, address, town or phone, over that tab's own days only. One
+renderer (`renderSearchIn`) serves all three, so a match found on any tab keeps its own
+controls. Proved in run-all.js Suite 352.
+
 Proved in run-all.js **Suite 351**.
 
 ### A finished takedown resets with the season
