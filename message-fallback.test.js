@@ -288,6 +288,25 @@ const MAIL = { customer_name: 'Addie', customer_phone: '3853584716', customer_em
    * ======================================================================== */
   const bareFns = stripComments(fns);
 
+  /* ⛔ THE SERVER SEND IS REFUSED WITHOUT THE PRIVATE KEY, AND THAT IS NOT A TIDY
+     THREE-FIELD CHECK. The browser sends with the public key alone; EmailJS refuses a
+     NON-BROWSER origin unless `accessToken` is supplied. So a helper that only required
+     the service and the template would 403 on every send and fall back to the Inbox for
+     ever — the exact behaviour [[MSG-31]] exists to remove, wearing the look of the
+     feature working. Every other server send in that file already checks all three.
+     ⚠ THIS CHECK EXISTS BECAUSE A RED-CHECK SAID IT WAS MISSING. Dropping `privateKey`
+     from the guard left every gate in this repo green — the harnesses seed a config that
+     carries all four keys, so no fixture could reach the case. A source check is the
+     honest tool for it: the failure is a request the fake mail service never sees. */
+  const tellServerSrc = lift(fns, 'tellOfficeServer') || '';
+  check('the server notifier refuses to send without all three EmailJS keys',
+    /!cfg\.serviceId \|\| !cfg\.notifyTemplateId \|\| !cfg\.privateKey/.test(stripComments(tellServerSrc)),
+    'without the private key EmailJS 403s a non-browser origin, so every notice would ' +
+    'fall back to the Inbox for ever while looking exactly like the feature working');
+  check('and it passes that key as accessToken, the way every other server send does',
+    /accessToken: cfg\.privateKey/.test(stripComments(tellServerSrc)),
+    'the public key alone is what the BROWSER sends with — it is not enough here');
+
   const serverFunnel = (bareFns.match(/tellOfficeServer\(/g) || []).length;
   check('every member-action notice on the server goes through the one funnel',
     serverFunnel === 7,

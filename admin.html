@@ -54512,6 +54512,24 @@ document.getElementById('deleteAllAddressesBtn').addEventListener('click', async
   for(const item of jobAddresses.slice()){
     statusEl.textContent = 'Deleting ' + (deleted+failed+1) + ' of ' + jobAddresses.length + '…';
     try{
+      /* ⭐ A COPY IS KEPT BEFORE ANYTHING IS DESTROYED ([[ARCH-01]], 2026-09-23). Addie:
+         "any person who gets deleted by the trash bin or delete costumer or say no
+         through quotes or RSVP should be archived."
+         ⛔ THIS WAS THE ONE DOOR WITH NO COPY AT ALL. Delete Customer has archived since
+         2026-08-20 and the quote trash can archives to Closed; this button wiped the
+         whole book — every address, phone, price and colour — leaving nothing anywhere.
+         It is also the one that cannot be undone a record at a time, so it is the door
+         where the absence cost the most.
+         ⚠ FIRST, AND IT IS ALLOWED TO STOP THE DELETE. Archiving after the delete is
+         archiving nothing. The catch below counts this row as failed and moves on to
+         the next customer, which is the right way round: one record kept by mistake is
+         a nuisance, one lost with no copy is unrecoverable.
+         ⚠ AND IT QUEUES NO RECYCLE. `archiveCustomerSnapshot` writes no `recycled`
+         field, so these rows are not in the warehouse queue — exactly as this button
+         has always behaved. Sending ~962 rows to that queue is a different decision and
+         one nobody has made. */
+      await archiveCustomerSnapshot(item.id, item.data,
+        {reason: 'deleted with Delete All Customers', stillACustomer: false});
       const custKey = custInvoiceKey(item.data);
       if(custKey){
         const invSnap = await getDoc(doc(db,'invoices',custKey));
@@ -57131,6 +57149,55 @@ async function hlxMarkJobDone(target, kind, done, opts) {
   } catch (e) { /* the console line above is the record */ }
   return {ok: true, id: id, fields: fields};
 }
+/* ⭐ NOTHING ABOUT A CUSTOMER IS LOST WITHOUT A COPY BEING KEPT ([[ARCH-01]], 2026-09-23).
+   Addie: "any person who gets deleted by the trash bin or delete costumer or say no
+   through quotes or RSVP should be archived."
+
+   ⚠ TWO OF THE FOUR DOORS SHE NAMED WERE ALREADY SHUT, and saying so is what keeps the
+   other two in proportion. The quote trash can archives to Closed → Archived rather
+   than destroying the card, and Delete Customer has written `archivedCustomers` since
+   2026-08-20. A quote declined by the customer archives its own card too. What had no
+   copy anywhere was **Delete All Customers** — which wipes the whole book — and an
+   **RSVP no**, where she asked for the customer to be KEPT and a copy taken.
+
+   ⛔ ONE WRITER, BECAUSE ONE COLLECTION IS ONE SHAPE. `archRender` reads
+   `r.data.customer` and the warehouse recycle queue reads `recycled`; a second place
+   building that row is how the Archive screen starts showing two shapes and the queue
+   starts missing people. Every door goes through here, including the removal path,
+   which passes the two fields only it can know.
+
+   ⛔ `recycled` IS WRITTEN ONLY WHEN THE CALLER SAYS SO, AND THE ABSENCE IS THE POINT.
+   `whWatchArchivedPending` asks `where('recycled','==',false)`, and Firestore cannot
+   match an absent field — so a row without it is simply not in the recycle queue. That
+   is what lets an RSVP no take a copy without the warehouse being sent to a house twice
+   (the live record already carries `needsLightRecycle`), and it is why Delete All
+   Customers behaves exactly as it does today rather than posting ~962 rows to a queue
+   nobody asked to fill. Writing `recycled: true` instead would be a claim that somebody
+   collected their lights, which nobody did.
+
+   ⛔ AND `stillACustomer` IS NOT DECORATION. The Archive row says "Removed"; for an RSVP
+   no that would be false — they are still on the books, still on a bill — and a screen
+   somebody searches for a lost record is the last place that may lie about what it
+   holds. It decides the word on the row.
+
+   ⚠ IT THROWS RATHER THAN SWALLOWING. Every caller archives BEFORE it destroys anything,
+   so a refused write must stop the delete: a customer still on file is a nuisance, a
+   customer gone with no copy anywhere is unrecoverable — which is the whole of why she
+   asked. */
+async function archiveCustomerSnapshot(id, d, opts){
+  const o = opts || {};
+  const row = {
+    customer: d || {},
+    archivedAt: serverTimestamp(),
+    archivedBy: paymentLedgerUser(),
+    reason: o.reason || 'archived',
+    stillACustomer: !!o.stillACustomer
+  };
+  if(o.recycled !== undefined) row.recycled = !!o.recycled;
+  if(o.customerNumberWas !== undefined) row.customerNumberWas = o.customerNumberWas || '';
+  await setDoc(doc(db, 'archivedCustomers', id), row);
+  return row;
+}
 async function hlxRemoveCustomerToRecycle(item, opts){
   const o = opts || {};
   const d = (item && item.data) || {};
@@ -57168,11 +57235,13 @@ async function hlxRemoveCustomerToRecycle(item, opts){
      which is the right way round " + M + " a customer still on file is a nuisance, a customer
      gone with no copy anywhere is unrecoverable. */
   say("Archiving their record…");
-  await setDoc(doc(db, 'archivedCustomers', item.id), {
-    customer: d,
-    archivedAt: serverTimestamp(),
-    archivedBy: paymentLedgerUser(),
+  /* ⚠ THROUGH THE ONE WRITER ([[ARCH-01]]) — this row used to be built here, and the
+     argument below is why it still passes `recycled` and the old number itself: they
+     are the two things only this path knows. Nothing else about the shape is decided
+     twice. */
+  await archiveCustomerSnapshot(item.id, d, {
     reason: o.reason || 'recycled',
+    stillACustomer: false,
     /* ⭐ STILL TO BE RECYCLED. Owner, 2026-08-20, looking at an empty Recycle
        queue: "liz frome isnt in the recycle section, you dont need them in their as a
        customer data you have all that data it should just need the data."
@@ -57474,7 +57543,12 @@ function archRender(){
       (num ? ' <span class="status-pill">#' + esc(String(num)) + '</span>' : '') + '</h4>' +
       '<div class="rtext">' + esc(c.address || c.street || 'no address on file') + '</div>' +
       '<div class="rtext">' + esc(c.phone || '') + (c.email ? ' \u00b7 ' + esc(c.email) : '') + '</div>' +
-      '<div class="rtext" style="color:var(--slate);">Removed' + (when ? ' ' + esc(when) : '') +
+      /* ⚠ "Removed" IS A CLAIM, AND FOR AN RSVP NO IT IS FALSE ([[ARCH-01]]). That
+         customer is still on the books and still on a bill; the copy is a snapshot of
+         the day they answered. A screen somebody searches for a lost record is the last
+         place that may be wrong about what it is holding. */
+      '<div class="rtext" style="color:var(--slate);">' +
+      ((r.data && r.data.stillACustomer) ? 'Copy kept' : 'Removed') + (when ? ' ' + esc(when) : '') +
       (who ? ' by ' + esc(who) : '') + (r.data && r.data.reason ? ' \u00b7 ' + esc(r.data.reason) : '') + '</div>' +
       '</div></div>';
   }).join('');
@@ -58761,6 +58835,33 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        without this. */
     if(newRsvp === 'no' && item.data.rsvpStatus !== 'no'){
       await clawBackReferralIfAny(savingCustomerId, Object.assign({}, item.data, addrUpdates));
+    }
+    /* ⭐ AND A COPY OF THEM IS KEPT ([[ARCH-01]], 2026-09-23). Addie: "any person who
+       gets deleted by the trash bin or delete costumer or say no through quotes or RSVP
+       should be archived", and asked which way for this case she chose to KEEP them and
+       add an archive copy — they stay a customer, their money is untouched, and a
+       snapshot goes to the Archive.
+       ⚠ SO IT IS A SNAPSHOT, NOT A REMOVAL: `stillACustomer` is true, nothing is
+       deleted, and no `recycled` field is written — the live record already carries
+       `needsLightRecycle`, and a second row would put this house in the warehouse queue
+       twice.
+       ⚠ ON THE TRANSITION ONLY, sharing the exact condition the clawback above uses.
+       Re-saving somebody who already said no would otherwise overwrite the snapshot with
+       a later one every time the record is touched — and the whole value of a snapshot
+       is that it is what they looked like when they said it.
+       ⚠ AND IT IS PASSED THE RECORD AS IT WILL BE, not as it was, for the same reason
+       the clawback is: the cached copy is one write out of date by this line.
+       ⚠ BEST EFFORT, unlike the delete paths. Nothing is being destroyed here, so a
+       failed copy must not cost the office a save that is otherwise correct — the
+       customer and their answer are both already written. */
+    if(newRsvp === 'no' && item.data.rsvpStatus !== 'no'){
+      try{
+        await archiveCustomerSnapshot(savingCustomerId,
+          Object.assign({}, item.data, addrUpdates),
+          {reason: 'said no to this season', stillACustomer: true});
+      } catch(err){
+        console.error('[HU] could not archive a copy of the customer who said no:', err);
+      }
     }
     let inv = allCustInvoiceFor(item);
     let resyncPayerAfter = null;

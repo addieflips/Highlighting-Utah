@@ -5085,6 +5085,70 @@ note server-side and cannot send mail, so the nudge is raised in the browser onc
 returns `{ok:true}`. The ordinary My Info save is deliberately silent ([[QT-35]]) — a
 corrected street spelling is not a move — so do not move this call up into it.
 
+⭐ **NOTHING ABOUT A CUSTOMER IS LOST WITHOUT A COPY BEING KEPT (2026-09-23, [[ARCH-01]]).**
+Addie: *"any person who gets deleted by the trash bin or delete costumer or say no through
+quotes or RSVP should be archived."* Asked which way for the RSVP case, she chose to **keep
+them and add a copy** — they stay a customer, their money is untouched, and a snapshot goes
+to the Archive.
+
+⭐ **TWO OF THE FOUR DOORS SHE NAMED WERE ALREADY SHUT**, and saying so is what keeps the
+other two in proportion. The quote trash can archives to Closed → Archived rather than
+destroying the card; a quote the customer declines archives its own card; and Delete Customer
+has written `archivedCustomers` since 2026-08-20.
+
+⛔ **WHAT HAD NO COPY ANYWHERE WAS Delete All Customers.** That button wiped the whole book
+— every address, phone, price and colour — and it is the one delete that cannot be undone a
+record at a time, which is why the absence cost the most there. It now archives each record
+**before** it destroys anything, and a refused archive stops that record's delete: a customer
+still on file is a nuisance, a customer gone with no copy is unrecoverable.
+
+⛔ **AND AN RSVP NO LEFT NOTHING, THROUGH EITHER DOOR.** `archiveCustomerSnapshot` in
+admin.html and `archiveCustomerSnapshotServer` in functions/index.js take the copy. Two doors
+because nearly every no arrives through the **link** — a browser-only rule would copy the
+handful the office types in and none of the several hundred who answer their email, which is
+the shape [[WH-34]] already records going wrong.
+
+⛔ **ONE WRITER, BECAUSE ONE COLLECTION IS ONE SHAPE.** Four doors build that row through a
+single function, the removal path included. `archRender` reads `customer` and
+`whWatchArchivedPending` reads `recycled`; a second place building it is how the Archive
+screen starts showing two shapes and the warehouse queue starts missing people.
+
+⛔ **`recycled` IS WRITTEN ONLY WHEN THE CALLER SAYS SO, AND THE ABSENCE IS THE POINT.**
+That queue asks `where('recycled','==',false)`, and Firestore cannot match an absent field —
+so a snapshot simply is not in it. That is what lets an RSVP no take a copy without sending
+somebody to the same house twice (the live record already carries `needsLightRecycle`), and
+what keeps Delete All Customers behaving exactly as it always has rather than posting ~962
+rows to a queue nobody asked to fill. Writing `recycled: true` instead would be a claim that
+somebody collected their lights, which nobody did.
+
+⚠ **AND THE ARCHIVE ROW STOPPED SAYING "Removed" ABOUT SOMEBODY WHO IS STILL A CUSTOMER.**
+`stillACustomer` decides the word — "Copy kept" or "Removed". A screen somebody searches for
+a lost record is the last place that may be wrong about what it is holding.
+
+⚠ **ON THE TRANSITION ONLY, ON BOTH DOORS**, sharing the referral clawback's own condition.
+Re-opening the link, or re-saving the record, would otherwise replace the snapshot with a
+later one every time — and the whole value of a snapshot is that it is what they looked like
+when they answered. **Back Next Year takes no copy**: that customer has not cancelled, they
+are on the books for the season after, and filing one under "said no" would put a decision in
+the Archive that nobody made.
+
+⚠ **THREE EXISTING CHECKS IN SUITE 88 FAILED ON CORRECT CODE and were repointed, not
+weakened.** They tested the literal `setDoc(doc(db, 'archivedCustomers', item.id), {` — that
+is, where the write happened to SIT — so they went red the moment four doors started sharing
+one writer. §7's slow fuse, and the answer is the same as every other time: the suite RUNS
+the writer now and asserts what must be true of the row, with each door's wiring asserted
+separately (delete the call and the behavioural checks all stay green while nothing is
+archived at all).
+
+⛔ **AND THE RED-CHECK HARNESS ITSELF WAS THE FIRST THING THAT HAD TO BE FIXED.** It drove
+the suite through `execSync` with `stdio:'pipe'` and the default 1 MB buffer; run-all.js
+prints about 2.4 MB, so **every run threw `ENOBUFS` and was scored as a catch** — a harness
+that reported a catch it never got, which is worse than none because it reads as coverage.
+Pass `maxBuffer` or write the output to a file. With it fixed, three real misses appeared at
+once: the office's own RSVP-no door had no check at all, nothing looked at the word on the
+Archive row, and the server-copy check passed on a copy carrying the name alone. 15 of 15
+after those were written.
+
 ⭐ **AND THE SERVER OBEYS THE SAME RULE NOW (2026-09-21, [[MSG-31]]).**
 Addie: *"No messages coming from members or member portal changes should be going to admin
 inbox. There shouldn't even be duplicated emails in the admin inbox."*

@@ -3739,12 +3739,26 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     const f = extractFn(fnSrc, 'tellOfficeServer');
     return f ? 'async ' + f : '';
   })();
+  /* ⭐ AND THE ARCHIVE WRITER, LIFTED ([[ARCH-01]], 2026-09-23) — never stubbed, for the
+     same reason as the notifier above. portalRsvp takes a copy of anybody who says no,
+     and that call is guarded, so a missing one does NOT fail the sandbox: it logs and
+     carries on, and every check about the copy would pass against a copy that was never
+     written. A stub would also decide the one thing that matters about that row — which
+     fields it carries. */
+  const archiveSrc = (function () {
+    const f = extractFn(fnSrc, 'archiveCustomerSnapshotServer');
+    return f ? 'async ' + f : '';
+  })();
+  check('flow', 'the archive writer portalRsvp copies a decliner into was found',
+    /stillACustomer/.test(archiveSrc) && /archivedCustomers/.test(archiveSrc),
+    'renamed or removed — without it the copy throws into its own catch and every ' +
+    'check about it passes against a row that was never written');
   check('flow', 'the office notifier portalRsvp raises its notes through was found',
     /db\.collection\('settings'\)/.test(tellOfficeSrc) && /alertFailed/.test(tellOfficeSrc),
     'renamed or removed — without it every note write throws into its own catch and ' +
     'every check about those notes passes against a note that was never raised');
   const fullSrc = [todayStrSrc, rsvpConstSrc, stampSrcs, arrearsSrcs.filter(Boolean).join('\n'),
-                   referralSrcs.filter(Boolean).join('\n'), referralTokenSrc, tellOfficeSrc,
+                   referralSrcs.filter(Boolean).join('\n'), referralTokenSrc, tellOfficeSrc, archiveSrc,
                    seasonYesSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
     .filter(Boolean).join('\n');
   /* ⭐ AND THE SANDBOX IS CHECKED AGAINST WHAT IT CALLS (2026-08-22). This exact
@@ -3776,6 +3790,11 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
        working asks for it by name, the same way `seasonRuleLiveSrc` makes strictness
        something you request rather than something you inherit by accident. */
     const mailSent = [];
+    /* ⚠ THE FAKE HAD NO `set` UNTIL [[ARCH-01]], and that is worth knowing rather than
+       just fixing: `archiveCustomerSnapshotServer` catches its own write, so a missing
+       `set` would not have failed anything — the copy would silently never happen and
+       every check about it would pass. */
+    const archived = [];
     const ctx = {
       exports: {},
       onCall: (opts, handler) => handler,
@@ -3835,6 +3854,7 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
           const query = (filters) => ({
             doc: (id) => ({
               update: async (u) => { Object.assign(written, u); },
+              set: async (row) => { archived.push(Object.assign({__col: name, __id: id}, row)); },
               /* The one document `tellOfficeServer` reads. Absent unless a fixture asks
                  for a working mail service, so the default is the fallback path. */
               get: async () => ({
@@ -3867,7 +3887,7 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     const names = Object.keys(ctx);
     new Function(...names, fullSrc)(...names.map(n => ctx[n]));
     return ctx.exports.portalRsvp({ data: Object.assign({ token: 't', response }, (opts && opts.body) || {}) })
-      .then(res => ({ res, written, added, routeWrites, noteWrites, mailSent }));
+      .then(res => ({ res, written, added, routeWrites, noteWrites, mailSent, archived }));
   }
 
   const notes = a => a.filter(m => m.__col === 'messages' && m.topic === 'Rejoined After Recycling');
@@ -4169,6 +4189,69 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
       yesWithReason.mailSent.length === 0 && yesWithReason.added.length === 0,
       'a reason against a yes is not an answer to anything, and a public callable is ' +
       'reachable by whoever holds the token');
+
+    /* =======================================================================
+       ⭐ SAYING NO KEEPS A COPY OF THEM ([[ARCH-01]], 2026-09-23). Addie: "any person
+       who gets deleted by the trash bin or delete costumer or say no through quotes or
+       RSVP should be archived", and asked which way for this case she chose to KEEP
+       them and add an archive copy.
+       ⛔ RUN, NOT MATCHED, because every claim is about a ROW THAT EXISTS and about the
+       fields on it. The helper catches its own write, so a source check would stay green
+       through a copy that never happened.
+       ======================================================================= */
+    const noCopy = await runRsvp({ name: 'Gone', phone: '8015550100', rsvpStatus: '',
+                                   needsLightRecycle: false }, 'no');
+    const arch = noCopy.archived.filter(a => a.__col === 'archivedCustomers');
+    check('flow', 'answering no keeps a copy of the customer in the archive',
+      arch.length === 1 && arch[0].__id === 'h1' && (arch[0].customer || {}).name === 'Gone',
+      'the record itself is untouched by a no, so without a copy there is nothing ' +
+      'anywhere saying what they looked like on the day they answered');
+    /* ⛔ THE WHOLE RECORD, NOT A SUMMARY. A summary is a decision about what mattered,
+       taken by somebody who is not the one who will need it — and the red-check proved
+       this needed saying: the check above passes on a copy carrying the name alone,
+       which is exactly the shape somebody would "tidy" it into. Every field the record
+       arrived with has to come out the other side. */
+    check('flow', 'and it is the whole record, not a summary of it',
+      ['name', 'phone', 'rsvpStatus', 'needsLightRecycle']
+        .every(k => k in ((arch[0] || {}).customer || {})),
+      'got ' + JSON.stringify(Object.keys(((arch[0] || {}).customer) || {})));
+    /* ⛔ NOTHING IS DELETED. She chose to keep them — the copy is a snapshot beside a
+       live customer, not a removal. */
+    check('flow', 'and they are still a customer, with the row saying so',
+      arch[0].stillACustomer === true && noCopy.written.rsvpStatus === 'no',
+      'the Archive row reads "Removed" otherwise, which about this customer is false');
+    /* ⛔ AND IT WRITES NO `recycled` FIELD. The live record already carries
+       `needsLightRecycle`; a row with the flag joins the warehouse queue a second time
+       and somebody is sent to the same house twice. */
+    check('flow', 'and the copy is not a second row in the warehouse recycle queue',
+      !('recycled' in arch[0]),
+      'whWatchArchivedPending asks where(recycled,==,false), and Firestore cannot ' +
+      'match an absent field — which is exactly what keeps this row out of it');
+
+    /* ⚠ ON THE TRANSITION ONLY. Re-opening the link would otherwise overwrite the
+       snapshot with a later one every time, and the value of a snapshot is that it is
+       what they looked like when they answered. */
+    const againNo = await runRsvp({ name: 'Gone', rsvpStatus: 'no',
+                                    needsLightRecycle: false }, 'no');
+    check('flow', 'answering no a second time does not overwrite the copy',
+      againNo.archived.filter(a => a.__col === 'archivedCustomers').length === 0,
+      'a stale retry, or somebody re-opening their email, would replace the snapshot ' +
+      'with one taken long after the decision');
+
+    /* ⛔ AND BACK NEXT YEAR IS NOT A NO. That customer has not cancelled — they are on
+       the books for the season after — so filing a copy under "said no" would put a
+       decision in the Archive that nobody made. */
+    const bnyCopy = await runRsvp({ name: 'Later', rsvpStatus: '',
+                                    needsLightRecycle: false }, 'backnextyear');
+    check('flow', 'back next year keeps no copy, because it is not a cancellation',
+      bnyCopy.archived.filter(a => a.__col === 'archivedCustomers').length === 0,
+      'the Archive is where somebody looks for a customer who went — putting a ' +
+      'returning one in it is the screen making a claim nobody made');
+    const yesCopy = await runRsvp({ name: 'Staying', rsvpStatus: '',
+                                    needsLightRecycle: false }, 'yes');
+    check('flow', 'and neither does a yes',
+      yesCopy.archived.filter(a => a.__col === 'archivedCustomers').length === 0,
+      'a copy per yes would fill the Archive with the whole book');
   })());
 })();
 
@@ -8462,7 +8545,15 @@ if (!JSDOM) {
         ensureReferralToken:
           'mints the referral link for the Back Next Year card — its own body catches its ' +
           'write, and the call site catches on top, failing to a blank token that draws ' +
-          'no offer rather than costing the customer their answer'
+          'no offer rather than costing the customer their answer',
+        /* ⭐ ADDED 2026-09-23 ([[ARCH-01]]). A customer who says no keeps a copy of
+           themselves in the Archive, and that write runs after their answer is saved —
+           so a throw there would tell somebody their RSVP failed for an answer we
+           already have, over a record nobody was going to read today. Its whole body is
+           inside a try/catch and it returns {archived:false} rather than rejecting. */
+        archiveCustomerSnapshotServer:
+          'keeps a copy of a customer who said no — its whole body is inside a ' +
+          'try/catch and it answers {archived:false} rather than throwing'
       };
       const called = [];
       const re = /await\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(/g;
@@ -30868,35 +30959,162 @@ suite('Suite 88. A removed customer still exists, in the archive');
   const rm = extractFn(admin, 'hlxRemoveCustomerToRecycle');
   check('S88', 'the removal path exists', !!rm);
 
-  /* ⚠ REACHABLE, not merely present. A red-check putting if(0) in front of the
-     write left every word of it in the file and passed. */
-  check('S88', 'the archive write is not behind a dead condition',
-    /\n  await setDoc\(doc\(db, .archivedCustomers./.test(rm),
-    'text being present is not the same as text that runs');
-  check('S88', 'the whole record is written to the archive',
-    /setDoc\(doc\(db, 'archivedCustomers', item\.id\)/.test(rm) &&
-    /customer: d,/.test(rm),
-    'the whole record, not a summary — a summary is a decision about what mattered, ' +
-    'taken by somebody who is not the one who will need it');
+  /* ⭐ THE ROW IS BUILT IN ONE PLACE NOW ([[ARCH-01]], 2026-09-23), SO IT IS RUN RATHER
+     THAN MATCHED. Three checks here used to test the literal
+     `setDoc(doc(db, 'archivedCustomers', item.id), {` — that is, where the write
+     happened to SIT — and they failed on correct code the moment four doors started
+     sharing one writer. §7's slow fuse, and the answer is the same as every other time:
+     assert what must be TRUE of the row, not where it is typed. */
+  const snapSrc = (function(){
+    const f = extractFn(admin, 'archiveCustomerSnapshot');
+    return f ? 'async ' + f : '';
+  })();
+  check('S88', 'the one archive writer was found', !!snapSrc,
+    'renamed or gone — every check below runs it, so an empty lift would make the ' +
+    'sandbox throw rather than quietly passing');
+
+  if (snapSrc) {
+    /* Run it against a fake Firestore and read the document a customer would really
+       have left behind. */
+    const runSnap = (id, d, opts) => {
+      let wrote = null;
+      const ctx = {
+        db: {}, doc: (db, col, i) => ({ col, i }),
+        setDoc: async (ref, row) => { wrote = { ref, row }; },
+        serverTimestamp: () => '__ts__',
+        paymentLedgerUser: () => 'somebody@example.com'
+      };
+      const names = Object.keys(ctx);
+      const fn = new Function(...names, snapSrc + ';return archiveCustomerSnapshot;')(
+        ...names.map(n => ctx[n]));
+      return fn(id, d, opts).then(() => wrote);
+    };
+
+    pendingAsync.push((async () => {
+      const rachelRec = { name: 'Rachel Oslund', phone: '8015550100', address: '209 S 850 W',
+                          lightsDescription: 'Warm White', customerNumber: '894' };
+      const w = await runSnap('c1', rachelRec,
+        { reason: 'recycled', stillACustomer: false, recycled: false, customerNumberWas: '894' });
+
+      check('S88', 'the archive row lands in archivedCustomers under the customer id',
+        !!w && w.ref.col === 'archivedCustomers' && w.ref.i === 'c1',
+        'a row filed under anything else cannot be found again by the one thing ' +
+        'anybody knows about that customer');
+      /* ⚠ THE WHOLE RECORD, NOT A SUMMARY. A summary is a decision about what mattered,
+         taken by somebody who is not the one who will need it. Compared as an object
+         rather than by naming fields, so a field added to a customer later is covered
+         without anybody remembering to add it here. */
+      check('S88', 'the whole record is written to the archive',
+        !!w && JSON.stringify(w.row.customer) === JSON.stringify(rachelRec),
+        'got ' + JSON.stringify((w || {}).row && w.row.customer));
+      check('S88', 'it records when, who and why',
+        !!w && w.row.archivedAt === '__ts__' && !!w.row.archivedBy && !!w.row.reason,
+        'six months on, "why is this person in here" is the only question anybody asks');
+      check('S88', 'and the customer number they held',
+        !!w && w.row.customerNumberWas === '894',
+        'the number goes back into the pool on removal, so the record would otherwise ' +
+        'lose the one thing that ties them to a bin in the warehouse');
+
+      /* ⛔ AND THE ABSENCE OF `recycled` IS LOAD-BEARING, NOT A DEFAULT.
+         `whWatchArchivedPending` asks `where('recycled','==',false)` and Firestore
+         cannot match an absent field — so a row without it is not in the warehouse
+         recycle queue. That is what lets an RSVP no take a copy without sending
+         somebody to the same house twice, and what keeps Delete All Customers from
+         posting ~962 rows to a queue nobody asked to fill. Writing `recycled: true`
+         instead would be a claim that somebody collected their lights. */
+      const kept = await runSnap('c2', rachelRec,
+        { reason: 'said no to this season', stillACustomer: true });
+      check('S88', 'a snapshot of somebody who is STILL a customer writes no recycled flag',
+        !!kept && !('recycled' in kept.row) && kept.row.stillACustomer === true,
+        'with the flag present they join the warehouse recycle queue a second time, ' +
+        'beside the live record that is already in it');
+      check('S88', 'and a removal writes it explicitly, so the queue can find them',
+        !!w && w.row.recycled === false && w.row.stillACustomer === false,
+        'Firestore cannot query for an absent field, so an explicit false is the only ' +
+        'thing that puts a removed customer in front of the warehouse');
+    })());
+  }
+
+  /* ---- the wiring, asserted separately from the row ---------------------- *
+   * ⚠ EVERY CHECK ABOVE CALLS THE WRITER DIRECTLY. Delete the call from the removal
+   * path and all of them stay green while nothing is archived at all — the
+   * mechanism-without-wiring trap this repo has shipped twice.
+   * ------------------------------------------------------------------------ */
+  check('S88', 'the removal path goes through that one writer',
+    /\n  await archiveCustomerSnapshot\(item\.id, d, \{/.test(rm),
+    'reachable, not merely present: a red-check putting if(0) in front of the write ' +
+    'left every word of it in the file and passed');
 
   /* ⚠ ORDER IS THE WHOLE THING. Archiving after the delete is archiving nothing. */
   check('S88', 'and it is archived BEFORE anything is deleted',
-    rm.indexOf("'archivedCustomers'") < rm.indexOf('deleteDoc'),
+    rm.indexOf('archiveCustomerSnapshot') < rm.indexOf('deleteDoc'),
     'afterwards there is no record left to copy');
   check('S88', 'a failed archive stops the removal',
-    rm.indexOf("'archivedCustomers'") < rm.indexOf("deleteDoc(doc(db,'jobAddresses'") &&
-    !/try{[\s\S]{0,200}archivedCustomers[\s\S]{0,200}catch/.test(rm),
+    rm.indexOf('archiveCustomerSnapshot') < rm.indexOf("deleteDoc(doc(db,'jobAddresses'") &&
+    !/try{[\s\S]{0,200}archiveCustomerSnapshot[\s\S]{0,200}catch/.test(rm),
     'a customer still on file is a nuisance; a customer gone with no copy anywhere ' +
     'cannot be got back, so this one is deliberately NOT best-effort');
 
-  check('S88', 'it records when, who and why',
-    /archivedAt: serverTimestamp\(\)/.test(rm) && /archivedBy:/.test(rm) &&
-    /reason:/.test(rm),
-    'six months on, \"why is this person in here\" is the only question anybody asks');
-  check('S88', 'and the customer number they held',
-    /customerNumberWas:/.test(rm),
-    'the number goes back into the pool on removal, so the record would otherwise ' +
-    'lose the one thing that ties them to a bin in the warehouse');
+  /* ⭐ AND THE DOOR THAT HAD NO COPY AT ALL ([[ARCH-01]]). Delete All Customers wiped
+     the whole book — every address, phone, price and colour — leaving nothing anywhere.
+     It is also the one delete that cannot be undone a record at a time, which is why
+     the absence cost the most there. */
+  const delAll = (function(){
+    const a = admin.indexOf("document.getElementById('deleteAllAddressesBtn').addEventListener('click'");
+    return a === -1 ? '' : admin.slice(a, admin.indexOf('\n});', a));
+  })();
+  check('S88', 'Delete All Customers was found to check', !!delAll,
+    'renamed or moved — repoint this rather than dropping it; the check below is the ' +
+    'only thing standing between that button and the whole book going with no copy');
+  check('S88', 'Delete All Customers archives each record before destroying it',
+    /await archiveCustomerSnapshot\(item\.id, item\.data,/.test(delAll) &&
+    delAll.indexOf('archiveCustomerSnapshot') < delAll.indexOf('deleteDoc'),
+    'this button wipes ~962 records at once; afterwards there is nothing left to copy');
+  check('S88', 'and it takes the copy before the invoice is deleted too',
+    delAll.indexOf('archiveCustomerSnapshot') < delAll.indexOf("deleteDoc(doc(db,'invoices'"),
+    'the invoice goes first otherwise, and what they had paid goes with it');
+
+  /* ⭐ AND THE OFFICE'S OWN RSVP NO KEEPS A COPY TOO ([[ARCH-01]]).
+     ⛔ THIS CHECK EXISTS BECAUSE A RED-CHECK SAID IT WAS MISSING. Deleting the call
+     outright left every gate in this repo green: the portalRsvp harness proves the
+     RSVP LINK keeps a copy, and nothing anywhere looked at the door the office types
+     through. Two doors, one answer — [[WH-34]]'s rule, and the half without coverage
+     is the half that goes. */
+  /* ⚠ CUT BETWEEN TWO REAL ANCHORS, never a character count. §7 bans a fixed-length
+     window by name and the structure suite enforces it — a first draft of this used
+     `a + 3000` and went red within the minute, which is the rule earning its place. */
+  const editSave = (function(){
+    const a = admin.indexOf("if(newRsvp === 'no' && item.data.rsvpStatus !== 'no'){");
+    if(a === -1) return '';
+    const b = admin.indexOf('let inv = allCustInvoiceFor(item);', a);
+    return b === -1 ? '' : admin.slice(a, b);
+  })();
+  check('S88', 'the office RSVP-no branch was found', !!editSave,
+    'renamed or moved — repoint this rather than dropping it');
+  check('S88', 'setting somebody to No in the office keeps a copy of them too',
+    /await archiveCustomerSnapshot\(savingCustomerId,/.test(editSave) &&
+    /stillACustomer: true/.test(editSave),
+    'the RSVP link takes a copy and the dropdown would not, so which door the customer ' +
+    'came through would decide whether there is any record of them at all');
+  /* ⚠ ON THE TRANSITION ONLY, sharing the clawback's own condition. Re-saving somebody
+     who already said no would replace the snapshot with a later one every time the
+     record is touched, and the value of a snapshot is that it is what they looked like
+     when they answered. */
+  check('S88', 'and only on the transition, so a later save cannot replace it',
+    /if\(newRsvp === 'no' && item\.data\.rsvpStatus !== 'no'\)\{[\s\S]{0,1400}archiveCustomerSnapshot/
+      .test(admin),
+    'outside that guard the snapshot is retaken on every save of a customer who said ' +
+    'no months ago');
+
+  /* ⭐ AND THE ARCHIVE ROW SAYS WHICH IT IS. "Removed" about somebody who is still a
+     customer is false — they are on the books and on a bill — and a screen somebody
+     searches for a lost record is the last place that may be wrong about what it holds.
+     ⛔ ALSO ADDED BECAUSE A RED-CHECK SAID SO: hard-coding "Removed" back passed
+     everything. */
+  check('S88', 'the Archive row does not call a kept customer Removed',
+    /stillACustomer\) \? 'Copy kept' : 'Removed'/.test(admin),
+    'an RSVP no keeps the customer, so a row reading "Removed" is the Archive making ' +
+    'a claim about them that is not true');
 
   /* ⚠ A COLLECTION WITH NO RULE IS A WRITE THAT IS DENIED. */
   check('S88', 'the archive is declared in the security rules',

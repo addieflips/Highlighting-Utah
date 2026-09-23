@@ -2049,6 +2049,55 @@ function portalChangeLabels(oldData, updates) {
  * somebody forgets it.
  * ⚠ AND IT NEVER THROWS. Every caller has already written the thing the member did, and
  * an alert that rejects must not turn a recorded answer into an error on their screen. */
+/* ⭐ A COPY OF THE CUSTOMER IS KEPT WHEN THEY SAY NO ([[ARCH-01]], 2026-09-23).
+ * Addie: "any person who gets deleted by the trash bin or delete costumer or say no
+ * through quotes or RSVP should be archived."
+ *
+ * ⛔ SHE CHOSE TO KEEP THEM AND ADD A COPY, not to remove them — so nothing here
+ * deletes anything. They stay a customer, their money is untouched, their place on the
+ * books is untouched, and a snapshot of what they looked like on the day they answered
+ * goes to the Archive.
+ *
+ * ⚠ TWO DOORS, ONE ANSWER, AND THIS IS THE ONE THAT MATTERS MOST. The office's own
+ * dropdown writes its copy in admin.html's Edit Customer save; this is the RSVP LINK,
+ * which is how nearly every no actually arrives. A browser-only rule would take a copy
+ * of the handful the office types in and none of the several hundred who answer their
+ * email, which is the shape [[WH-34]] already records going wrong.
+ *
+ * ⛔ IT WRITES NO `recycled` FIELD, AND THE ABSENCE IS DELIBERATE. The warehouse recycle
+ * queue asks `where('recycled','==',false)`, and Firestore cannot match an absent field
+ * — so this row is not in that queue. The live customer record already carries
+ * `needsLightRecycle`, and a second row would send somebody to the same house twice.
+ * ⛔ AND `stillACustomer` IS TRUE. The Archive row says "Removed" otherwise, which about
+ * this customer is simply false — a screen somebody searches for a lost record is the
+ * last place that may lie about what it holds.
+ *
+ * ⚠ THE SHAPE IS `archiveCustomerSnapshot`'s IN admin.html AND THE TWO ARE COMPARED.
+ * One collection read by one screen and one queue, written from two files: the row
+ * built here and the row built there must carry the same keys or the Archive starts
+ * showing two shapes. `archive-customer.test.js` runs both and requires the same keys
+ * out.
+ * ⚠ AND IT NEVER THROWS. Their answer is already written by the time this runs, and a
+ * failed copy must not turn a recorded decision into an error on their screen. */
+async function archiveCustomerSnapshotServer(id, d, opts) {
+  const o = opts || {};
+  const row = {
+    customer: d || {},
+    archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+    archivedBy: 'the RSVP link',
+    reason: o.reason || 'archived',
+    stillACustomer: !!o.stillACustomer
+  };
+  if (o.recycled !== undefined) row.recycled = !!o.recycled;
+  if (o.customerNumberWas !== undefined) row.customerNumberWas = o.customerNumberWas || '';
+  try {
+    await db.collection('archivedCustomers').doc(id).set(row);
+    return { archived: true, row: row };
+  } catch (err) {
+    console.error('[HU] could not archive a copy of the customer who said no:', err);
+    return { archived: false, row: row };
+  }
+}
 async function tellOfficeServer(emailParams, row) {
   let why = '';
   try {
@@ -3132,6 +3181,20 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
      earned, and oldData on its own is one write out of date by this line. */
   if (response === 'no' && String(oldData.rsvpStatus || '') !== 'no') {
     await clawBackReferralServer(match.id, Object.assign({}, oldData, updates));
+    /* ⭐ AND A COPY OF THEM IS KEPT ([[ARCH-01]], 2026-09-23) — see
+       archiveCustomerSnapshotServer for why it keeps them rather than removing them,
+       and why it writes no `recycled` field.
+       ⚠ ON THE TRANSITION ONLY, sharing the exact condition the clawback above uses:
+       re-opening the link would otherwise overwrite the snapshot with a later one every
+       time, and the whole value of a snapshot is that it is what they looked like when
+       they answered.
+       ⚠ AND ONLY FOR A FLAT NO, never Back Next Year. That customer has not cancelled —
+       they are still on the books for the season after — so filing a copy of them under
+       "said no" would put a decision in the Archive that nobody made.
+       ⚠ IT IS PASSED THE RECORD AS IT NOW IS, like the clawback: oldData on its own is
+       one write out of date by this line. */
+    await archiveCustomerSnapshotServer(match.id, Object.assign({}, oldData, updates),
+      { reason: 'said no to this season', stillACustomer: true });
   }
 
   /* No customer number is assigned here on purpose. Taking one from the pool
