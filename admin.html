@@ -57829,6 +57829,29 @@ document.getElementById('editCustDeleteBtn').addEventListener('click', async fun
    panel is opened and not before. */
 /* ⭐ READING THE ARCHIVE. Loaded when the tab is opened rather than on every page
    load: it grows for ever and almost nobody opens it. */
+/* ⭐ WHEN AN ARCHIVE ROW MAY NOT BE DELETED ([[ARCH-02]], 2026-09-23).
+   ⛔ `recycled === false` MEANS THEIR LIGHTS ARE STILL ON A SHELF SOMEWHERE, and that
+   row is the ONLY thing saying so. `whWatchArchivedPending` builds the warehouse recycle
+   queue from exactly this query, and the customer record itself is already gone — so
+   deleting here takes a real job off a real list with nothing left to rebuild it from,
+   silently, and there is no way back. That is the one outcome in this screen that cannot
+   be undone by anybody.
+   ⭐ AND IT REFUSES RATHER THAN WARNING BECAUSE THERE IS A DOOR TO POINT AT — [[QT-42]]'s
+   rule. Warehouse → the recycle queue → Mark Recycled sets `recycled: true` on this very
+   row, which is the office saying the bin came back. Delete is available the moment it
+   does. A refusal with no way out would just be the button not working.
+   ⚠ AN ABSENT `recycled` IS NOT A BLOCK. [[ARCH-01]]'s snapshots deliberately carry no
+   such field (they are not in that queue at all), and a row written before this existed
+   carries none either — reading "unknown" as "still out" would lock the whole archive.
+   The block is the explicit false, which is the only value the queue can match.
+   ⚠ AND `stillACustomer` IS NEVER BLOCKED whatever else it says: that customer is on the
+   books, this is only a snapshot of the day they answered, and the warehouse is working
+   from their live record. */
+function archRowBlocksDelete(row){
+  if(!row) return false;
+  if(row.stillACustomer) return false;
+  return row.recycled === false;
+}
 let archCache = null;
 async function archLoad(force){
   const list = document.getElementById('archList');
@@ -57888,10 +57911,73 @@ function archRender(){
       '<div class="rtext" style="color:var(--slate);">' +
       ((r.data && r.data.stillACustomer) ? 'Copy kept' : 'Removed') + (when ? ' ' + esc(when) : '') +
       (who ? ' by ' + esc(who) : '') + (r.data && r.data.reason ? ' \u00b7 ' + esc(r.data.reason) : '') + '</div>' +
-      '</div></div>';
+      /* ⭐ AND EACH ROW CAN BE DELETED ([[ARCH-02]], 2026-09-23). Addie: "can we make a
+         place to delete people in archive on each individual one."
+         ⛔ EXCEPT WHILE THEIR LIGHTS ARE STILL OUT THERE, and that refusal is the whole
+         care in this feature — see archRowBlocksDelete for the argument. The row SAYS so
+         rather than offering a button that then says no: a control that refuses on press
+         is one somebody presses again.
+         ⚠ ONE ROW AT A TIME, NEVER A CLEAR-THE-LOT. She asked for "each individual one",
+         and a button that empties this screen would undo [[ARCH-01]] in one press. */
+      (archRowBlocksDelete(r.data)
+        ? '<div class="rtext" style="color:var(--ember);">Their lights are ' +
+          'still out. Mark them recycled in the Warehouse first, then this can be deleted.</div>'
+        : '') +
+      '</div><div><button type="button" class="btn btn-outline btn-sm" data-archdel="' +
+      esc(r.id) + '"' + (archRowBlocksDelete(r.data) ? ' disabled style="opacity:.4;"' : '') +
+      '>Delete</button></div></div>';
   }).join('');
 }
 document.getElementById('archSearch')?.addEventListener('input', function(){ try{ archRender(); }catch(e){ /* quiet on purpose: a search box redrawing a list. The next keystroke calls it again, so a one-off failure fixes itself; nothing is written and nothing is lost. */ } });
+/* ⭐ DELETING ONE ARCHIVED RECORD ([[ARCH-02]]).
+   ⚠ DELEGATED ON THE CONTAINER, BOUND ONCE. `archRender` rebuilds `#archList` wholesale
+   on every search keystroke, so binding per row inside it would stack a listener per
+   render — the Inbox drop that fired 2815 writes, in a new place.
+   ⛔ IT TOUCHES NOTHING BUT THIS ROW. The customer number was handed back to the pool when
+   they were removed and may since have been given to somebody new, so pooling it again
+   here would put a live label on a second bin; and for a "Copy kept" row the LIVE customer
+   still holds their number. Their invoice, their routes and their record are all either
+   already gone or deliberately none of this screen's business.
+   ⚠ THE GUARD IS ASKED AGAIN HERE, not merely on the button. A disabled button is still
+   reachable by keyboard, and the row could have been drawn before somebody else marked
+   them recycled. Same reason [[WH-43]]'s two handlers re-ask.
+   ⚠ AND IT NAMES THEM AND SAYS WHAT IS LOST. For a removed customer this row is the last
+   copy of their address, phone, price and colours; for a snapshot it is only the
+   snapshot. Those are different losses and one sentence cannot cover both. */
+document.getElementById('archList')?.addEventListener('click', async function(e){
+  const btn = e.target.closest ? e.target.closest('[data-archdel]') : null;
+  if(!btn) return;
+  const id = btn.dataset.archdel;
+  const row = (archCache || []).find(function(r){ return r.id === id; });
+  if(!row) return;
+  const c = (row.data && row.data.customer) || {};
+  const who = c.name || 'this record';
+  if(archRowBlocksDelete(row.data)){
+    alert(who + ' still has lights out.\n\nThey are on the Warehouse recycle list, and ' +
+      'this row is the only thing keeping them there. Mark them recycled in the Warehouse ' +
+      'first, then you can delete this.');
+    return;
+  }
+  const kept = !!(row.data && row.data.stillACustomer);
+  if(!confirm('Delete the archive record for ' + who + '?' +
+    (kept
+      ? '\n\nThey are STILL A CUSTOMER — nothing about them changes. This only removes ' +
+        'the snapshot of the day they said no.'
+      : '\n\nThis is the last copy of them. Their address, phone, price and light ' +
+        'colours go with it.') +
+    '\n\nThis cannot be undone.')) return;
+  btn.disabled = true;
+  try{
+    await deleteDoc(doc(db, 'archivedCustomers', id));
+    archCache = (archCache || []).filter(function(r){ return r.id !== id; });
+    archRender();
+    toast(who + ' removed from the archive.');
+    logActivity('Deleted the archive record for ' + who, 'customers', id);
+  } catch(err){
+    btn.disabled = false;
+    toast('Could not delete that one \u2014 ' + ((err && err.message) || 'try again.'));
+  }
+});
 document.getElementById('archReload')?.addEventListener('click', function(){ archLoad(true); });
 document.querySelector('.nav-item[data-panel="archive"]')?.addEventListener('click', function(){ archLoad(false); });
 function formPreviewShow(src){
