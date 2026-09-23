@@ -3724,8 +3724,41 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     /ensureReferralToken/.test(referralTokenSrc) && /referralSeasonNow/.test(referralTokenSrc),
     'a missing one leaves every Back Next Year throwing a bare ReferenceError, which ' +
     'reads as "an async suite crashed" rather than as one name missing from a list');
+  /* ⭐ AND THE OFFICE NOTIFIER, LIFTED ([[MSG-31]], 2026-09-21) — not stubbed, and the
+     reason is the same one that made the RSVP constants load-bearing above. portalRsvp
+     raises both of its notes through `tellOfficeServer` now, and both call sites wrap it
+     in a best-effort try/catch — so a missing one does NOT fail the sandbox, it logs
+     "[HU] rejoin-after-recycle message failed: tellOfficeServer is not defined" and every
+     check about those notes passes against a note that was never raised. A green run for
+     the worst possible reason.
+     ⚠ AND A STUB WOULD DECIDE THE VERY THING UNDER TEST. The whole claim of [[MSG-31]] is
+     WHICH of the two channels a notice takes — a stub that always wrote the row would
+     agree with the old behaviour for ever. The real body runs against the fake mail
+     service below, which this harness can switch on and off. */
+  const tellOfficeSrc = (function () {
+    const f = extractFn(fnSrc, 'tellOfficeServer');
+    return f ? 'async ' + f : '';
+  })();
+  /* ⭐ AND THE ARCHIVE WRITER, LIFTED ([[ARCH-01]], 2026-09-23) — never stubbed, for the
+     same reason as the notifier above. portalRsvp takes a copy of anybody who says no,
+     and that call is guarded, so a missing one does NOT fail the sandbox: it logs and
+     carries on, and every check about the copy would pass against a copy that was never
+     written. A stub would also decide the one thing that matters about that row — which
+     fields it carries. */
+  const archiveSrc = (function () {
+    const f = extractFn(fnSrc, 'archiveCustomerSnapshotServer');
+    return f ? 'async ' + f : '';
+  })();
+  check('flow', 'the archive writer portalRsvp copies a decliner into was found',
+    /stillACustomer/.test(archiveSrc) && /archivedCustomers/.test(archiveSrc),
+    'renamed or removed — without it the copy throws into its own catch and every ' +
+    'check about it passes against a row that was never written');
+  check('flow', 'the office notifier portalRsvp raises its notes through was found',
+    /db\.collection\('settings'\)/.test(tellOfficeSrc) && /alertFailed/.test(tellOfficeSrc),
+    'renamed or removed — without it every note write throws into its own catch and ' +
+    'every check about those notes passes against a note that was never raised');
   const fullSrc = [todayStrSrc, rsvpConstSrc, stampSrcs, arrearsSrcs.filter(Boolean).join('\n'),
-                   referralSrcs.filter(Boolean).join('\n'), referralTokenSrc,
+                   referralSrcs.filter(Boolean).join('\n'), referralTokenSrc, tellOfficeSrc, archiveSrc,
                    seasonYesSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
     .filter(Boolean).join('\n');
   /* ⭐ AND THE SANDBOX IS CHECKED AGAINST WHAT IT CALLS (2026-08-22). This exact
@@ -3735,7 +3768,7 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
      helper in it, and the run finishes. */
   assertSandbox('flow', 'portalRsvp', fullSrc, fnSrc,
     ['admin', 'db', 'HttpsError', 'onCall', 'findByToken', 'contactIndexFields',
-     'exports', 'request', 'console', 'String', 'Number', 'Boolean', 'Object',
+     'exports', 'request', 'console', 'fetch', 'String', 'Number', 'Boolean', 'Object',
      'Array', 'Date', 'Math', 'JSON', 'Set', 'Map', 'Promise', 'require']);
 
   // Fake Firestore + callable wrapper. update() merges what would have been
@@ -3750,6 +3783,18 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     const added = [];
     const routeWrites = [];
     const noteWrites = [];
+    /* ⚠ `opts.mail` IS OPT-IN, AND THAT DIRECTION IS DELIBERATE ([[MSG-31]]). Left out,
+       settings/emailjs reads as absent, `tellOfficeServer` reports "not set up" and falls
+       back to the Inbox row — which is the behaviour every fixture in this suite was
+       written against, so none of them had to change. A fixture that wants the Gmail
+       working asks for it by name, the same way `seasonRuleLiveSrc` makes strictness
+       something you request rather than something you inherit by accident. */
+    const mailSent = [];
+    /* ⚠ THE FAKE HAD NO `set` UNTIL [[ARCH-01]], and that is worth knowing rather than
+       just fixing: `archiveCustomerSnapshotServer` catches its own write, so a missing
+       `set` would not have failed anything — the copy would silently never happen and
+       every check about it would pass. */
+    const archived = [];
     const ctx = {
       exports: {},
       onCall: (opts, handler) => handler,
@@ -3807,7 +3852,17 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
             throw new Error('this harness does not model ' + f.op);
           };
           const query = (filters) => ({
-            doc: () => ({ update: async (u) => { Object.assign(written, u); } }),
+            doc: (id) => ({
+              update: async (u) => { Object.assign(written, u); },
+              set: async (row) => { archived.push(Object.assign({__col: name, __id: id}, row)); },
+              /* The one document `tellOfficeServer` reads. Absent unless a fixture asks
+                 for a working mail service, so the default is the fallback path. */
+              get: async () => ({
+                exists: name === 'settings' && id === 'emailjs' && !!(opts && opts.mail),
+                data: () => ({ serviceId: 's', notifyTemplateId: 't',
+                               publicKey: 'pk', privateKey: 'sk' })
+              })
+            }),
             add: async (m) => { added.push(Object.assign({ __col: name }, m)); },
             where: (field, op, value) => query(filters.concat([{ field, op, value }])),
             get: async () => {
@@ -3819,12 +3874,20 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
           return query([]);
         }
       },
+      /* ⚠ THE FAKE MAIL SERVICE RECORDS WHAT WAS SENT rather than only whether it was
+         called. What reaches the office is the whole point of [[MSG-31]] — a notice that
+         emails an empty body has taken the Inbox row away and put nothing in its place. */
+      fetch: async (url, init) => {
+        mailSent.push(JSON.parse((init && init.body) || '{}'));
+        return { ok: (opts && opts.mail) === 'sends',
+                 text: async () => 'the email service said no' };
+      },
       console
     };
     const names = Object.keys(ctx);
     new Function(...names, fullSrc)(...names.map(n => ctx[n]));
     return ctx.exports.portalRsvp({ data: Object.assign({ token: 't', response }, (opts && opts.body) || {}) })
-      .then(res => ({ res, written, added, routeWrites, noteWrites }));
+      .then(res => ({ res, written, added, routeWrites, noteWrites, mailSent, archived }));
   }
 
   const notes = a => a.filter(m => m.__col === 'messages' && m.topic === 'Rejoined After Recycling');
@@ -4044,6 +4107,151 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     check('flow', 'a reason with no note to move still saves',
       noNotes.written.rsvpDeclineReason === 'Moved' && noNotes.res.reasonSaved === true,
       'the note is best effort; the field is not');
+
+    /* =======================================================================
+       ⭐ GMAIL FIRST, THE INBOX ONLY ON FAILURE — THE SERVER HALF ([[MSG-31]],
+       2026-09-21). Addie: "No messages coming from members or member portal changes
+       should be going to admin inbox. There shouldn't even be duplicated emails in the
+       admin inbox."
+       ⛔ NONE OF THIS CAN BE A TEXT MATCH. The words of every notice are unchanged —
+       what moved is WHICH of the two channels carries them, which is a fact about what
+       ran, not about what the file says. `opts.mail` is opt-in, so every fixture above
+       still takes the fallback and reads exactly as it did before this existed.
+       ======================================================================= */
+    const sentNo = await runRsvp({ name: 'Gone', rsvpStatus: '', needsLightRecycle: false },
+      'no', [], { mail: 'sends' });
+    check('flow', 'with the Gmail working an RSVP no writes no Inbox row',
+      sentNo.added.length === 0,
+      'this is the rule she asked for — a member portal change belongs in the Gmail, ' +
+      'and a row written unconditionally beside it is the duplication she reported');
+    check('flow', 'and the office is emailed instead, carrying who and what happens next',
+      sentNo.mailSent.length === 1 &&
+      /Gone/.test((sentNo.mailSent[0].template_params || {}).message || '') &&
+      /off every upcoming route/.test((sentNo.mailSent[0].template_params || {}).message || ''),
+      'taking the row away and sending nothing in its place loses the single most ' +
+      'consequential answer in the season, which is the silence [[RS-59]] closed');
+    check('flow', 'and the answer itself is written whichever channel carried it',
+      sentNo.written.rsvpStatus === 'no',
+      'the notice is best effort; the answer is not, and a send must not cost it');
+
+    /* ⚠ AND A REFUSED SEND STILL FILES, MARKED AS A FALLBACK. Without `alertFailed` the
+       row is indistinguishable from the double-post she asked to have removed. */
+    const refusedNo = await runRsvp({ name: 'Gone', rsvpStatus: '', needsLightRecycle: false },
+      'no', [], { mail: 'refuses' });
+    check('flow', 'a refused send falls back to the Inbox, marked as a fallback',
+      refusedNo.added.length === 1 && refusedNo.added[0].alertFailed === true &&
+      refusedNo.added[0].custId === 'h1',
+      'the Inbox is the safety net for an outage that would otherwise lose every ' +
+      'member notice in silence');
+    /* ⛔ AND THE FALLBACK ROW KEEPS `custId`, WHICH IS WHAT [[RS-60]] FILES BY. That row
+       only exists on the day the Gmail is down, and that is exactly the day the folder
+       sections are the only place a decline can be read. */
+    check('flow', 'and that row is still findable by the reason follow-up',
+      refusedNo.added[0].custId === 'h1' &&
+      refusedNo.added[0].topic === declineNote.topic,
+      'the reason call finds the note by custId and topic — lose either and the ' +
+      'reason has nowhere to be filed on the one day rows exist');
+
+    /* ⭐ AND WHEN THERE IS NO ROW TO FILE, THE REASON IS EMAILED ON ITS OWN. This is the
+       half that would have gone missing in silence: [[RS-60]] carries the reason by
+       PATCHING the decline row, and under [[MSG-31]] that row only exists when the Gmail
+       refused the send — so on an ordinary day the patch loop finds nothing, does
+       nothing, and the one thing she asked to be told ("why") never reaches her. An
+       empty result set is a successful query, so nothing could notice. */
+    const whySent = await runRsvp(declined, 'no', [],
+      { mail: 'sends', body: { declineReason: 'Moved', declineNote: 'New house in Lehi' },
+        notes: [] });
+    check('flow', 'a reason with no note to move is emailed on its own',
+      whySent.mailSent.length === 1 &&
+      /Moved/.test((whySent.mailSent[0].template_params || {}).message || '') &&
+      /New house in Lehi/.test((whySent.mailSent[0].template_params || {}).message || ''),
+      'the reason is on the record, but the office is told by the note — and the note ' +
+      'is the thing that stopped existing');
+    check('flow', 'and it writes no Inbox row of its own',
+      whySent.added.length === 0,
+      'a second row about one decline is the duplication this change exists to remove');
+    /* ⚠ AND ONLY WHEN THERE WAS NOTHING TO FILE. With a row present the patch already
+       carries the reason and the words, so mailing as well is the double-up. */
+    const whyFiled = await runRsvp(declined, 'no', [],
+      { mail: 'sends', body: { declineReason: 'Moved' }, notes: [declineNote] });
+    check('flow', 'but a reason that DID find a note to move sends no second email',
+      whyFiled.mailSent.length === 0 && whyFiled.noteWrites.length === 1,
+      'the patch and the email are two ways of saying one thing — doing both is the ' +
+      'duplication, pointed the other way');
+    /* ⛔ AND A YES NEVER RAISES IT. `response` is validated to one of three words and a
+       reason is meaningless against a yes; without the guard a call carrying
+       response:'yes' plus a reason would mail the office about somebody who said yes.
+       The patch loop could never do that — its query is scoped to the two decline
+       topics — so the guard has to be restated at the new send. */
+    const yesWithReason = await runRsvp({ name: 'Staying', rsvpStatus: '', needsLightRecycle: false },
+      'yes', [], { mail: 'sends', body: { declineReason: 'Moved' }, notes: [] });
+    check('flow', 'and a yes carrying a reason tells the office nothing',
+      yesWithReason.mailSent.length === 0 && yesWithReason.added.length === 0,
+      'a reason against a yes is not an answer to anything, and a public callable is ' +
+      'reachable by whoever holds the token');
+
+    /* =======================================================================
+       ⭐ SAYING NO KEEPS A COPY OF THEM ([[ARCH-01]], 2026-09-23). Addie: "any person
+       who gets deleted by the trash bin or delete costumer or say no through quotes or
+       RSVP should be archived", and asked which way for this case she chose to KEEP
+       them and add an archive copy.
+       ⛔ RUN, NOT MATCHED, because every claim is about a ROW THAT EXISTS and about the
+       fields on it. The helper catches its own write, so a source check would stay green
+       through a copy that never happened.
+       ======================================================================= */
+    const noCopy = await runRsvp({ name: 'Gone', phone: '8015550100', rsvpStatus: '',
+                                   needsLightRecycle: false }, 'no');
+    const arch = noCopy.archived.filter(a => a.__col === 'archivedCustomers');
+    check('flow', 'answering no keeps a copy of the customer in the archive',
+      arch.length === 1 && arch[0].__id === 'h1' && (arch[0].customer || {}).name === 'Gone',
+      'the record itself is untouched by a no, so without a copy there is nothing ' +
+      'anywhere saying what they looked like on the day they answered');
+    /* ⛔ THE WHOLE RECORD, NOT A SUMMARY. A summary is a decision about what mattered,
+       taken by somebody who is not the one who will need it — and the red-check proved
+       this needed saying: the check above passes on a copy carrying the name alone,
+       which is exactly the shape somebody would "tidy" it into. Every field the record
+       arrived with has to come out the other side. */
+    check('flow', 'and it is the whole record, not a summary of it',
+      ['name', 'phone', 'rsvpStatus', 'needsLightRecycle']
+        .every(k => k in ((arch[0] || {}).customer || {})),
+      'got ' + JSON.stringify(Object.keys(((arch[0] || {}).customer) || {})));
+    /* ⛔ NOTHING IS DELETED. She chose to keep them — the copy is a snapshot beside a
+       live customer, not a removal. */
+    check('flow', 'and they are still a customer, with the row saying so',
+      arch[0].stillACustomer === true && noCopy.written.rsvpStatus === 'no',
+      'the Archive row reads "Removed" otherwise, which about this customer is false');
+    /* ⛔ AND IT WRITES NO `recycled` FIELD. The live record already carries
+       `needsLightRecycle`; a row with the flag joins the warehouse queue a second time
+       and somebody is sent to the same house twice. */
+    check('flow', 'and the copy is not a second row in the warehouse recycle queue',
+      !('recycled' in arch[0]),
+      'whWatchArchivedPending asks where(recycled,==,false), and Firestore cannot ' +
+      'match an absent field — which is exactly what keeps this row out of it');
+
+    /* ⚠ ON THE TRANSITION ONLY. Re-opening the link would otherwise overwrite the
+       snapshot with a later one every time, and the value of a snapshot is that it is
+       what they looked like when they answered. */
+    const againNo = await runRsvp({ name: 'Gone', rsvpStatus: 'no',
+                                    needsLightRecycle: false }, 'no');
+    check('flow', 'answering no a second time does not overwrite the copy',
+      againNo.archived.filter(a => a.__col === 'archivedCustomers').length === 0,
+      'a stale retry, or somebody re-opening their email, would replace the snapshot ' +
+      'with one taken long after the decision');
+
+    /* ⛔ AND BACK NEXT YEAR IS NOT A NO. That customer has not cancelled — they are on
+       the books for the season after — so filing a copy under "said no" would put a
+       decision in the Archive that nobody made. */
+    const bnyCopy = await runRsvp({ name: 'Later', rsvpStatus: '',
+                                    needsLightRecycle: false }, 'backnextyear');
+    check('flow', 'back next year keeps no copy, because it is not a cancellation',
+      bnyCopy.archived.filter(a => a.__col === 'archivedCustomers').length === 0,
+      'the Archive is where somebody looks for a customer who went — putting a ' +
+      'returning one in it is the screen making a claim nobody made');
+    const yesCopy = await runRsvp({ name: 'Staying', rsvpStatus: '',
+                                    needsLightRecycle: false }, 'yes');
+    check('flow', 'and neither does a yes',
+      yesCopy.archived.filter(a => a.__col === 'archivedCustomers').length === 0,
+      'a copy per yes would fill the Archive with the whole book');
   })());
 })();
 
@@ -8316,9 +8524,18 @@ if (!JSDOM) {
         arrearsForCustomer:
           'reads what they owe from last season so the confirmation can stop promising an ' +
           'install — its whole body is inside a try/catch, and it answers nought on a bad read',
-        'db.collection':
-          'the Rejoined After Recycling note — a direct Firestore call, wrapped in its own ' +
-          'try/catch at the call site rather than inside a helper',
+        /* ⭐ THIS ENTRY REPLACED `db.collection` ON 2026-09-21 ([[MSG-31]]), AND THE
+           DISAPPEARANCE IS WRITTEN DOWN RATHER THAN THE LINE BEING DELETED. Both notes
+           this callable raises after the answer — Rejoined After Recycling, and the RSVP
+           no / back next year — were raw `db.collection('messages').add` calls until the
+           Gmail became the destination and the Inbox the fallback. There is no direct
+           Firestore write left after the write now; a census that quietly lost an entry
+           would say nothing about that, and a site leaving is as interesting as one
+           arriving. */
+        tellOfficeServer:
+          'the Rejoined After Recycling note and the RSVP decline note — it emails the ' +
+          'office and writes an Inbox row only if that send did not go. Both of its own ' +
+          'failure paths are caught inside it, and both call sites catch on top',
         /* ⭐ ADDED 2026-09-21 ([[REF-43]]), AND THIS CENSUS IS WHAT FOUND THE BUG. The
            Back Next Year card shows the customer their own referral link, which needs a
            token, and the first version awaited it unguarded — so a throw would have told
@@ -8328,7 +8545,15 @@ if (!JSDOM) {
         ensureReferralToken:
           'mints the referral link for the Back Next Year card — its own body catches its ' +
           'write, and the call site catches on top, failing to a blank token that draws ' +
-          'no offer rather than costing the customer their answer'
+          'no offer rather than costing the customer their answer',
+        /* ⭐ ADDED 2026-09-23 ([[ARCH-01]]). A customer who says no keeps a copy of
+           themselves in the Archive, and that write runs after their answer is saved —
+           so a throw there would tell somebody their RSVP failed for an answer we
+           already have, over a record nobody was going to read today. Its whole body is
+           inside a try/catch and it returns {archived:false} rather than rejecting. */
+        archiveCustomerSnapshotServer:
+          'keeps a copy of a customer who said no — its whole body is inside a ' +
+          'try/catch and it answers {archived:false} rather than throwing'
       };
       const called = [];
       const re = /await\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(/g;
@@ -30734,35 +30959,162 @@ suite('Suite 88. A removed customer still exists, in the archive');
   const rm = extractFn(admin, 'hlxRemoveCustomerToRecycle');
   check('S88', 'the removal path exists', !!rm);
 
-  /* ⚠ REACHABLE, not merely present. A red-check putting if(0) in front of the
-     write left every word of it in the file and passed. */
-  check('S88', 'the archive write is not behind a dead condition',
-    /\n  await setDoc\(doc\(db, .archivedCustomers./.test(rm),
-    'text being present is not the same as text that runs');
-  check('S88', 'the whole record is written to the archive',
-    /setDoc\(doc\(db, 'archivedCustomers', item\.id\)/.test(rm) &&
-    /customer: d,/.test(rm),
-    'the whole record, not a summary — a summary is a decision about what mattered, ' +
-    'taken by somebody who is not the one who will need it');
+  /* ⭐ THE ROW IS BUILT IN ONE PLACE NOW ([[ARCH-01]], 2026-09-23), SO IT IS RUN RATHER
+     THAN MATCHED. Three checks here used to test the literal
+     `setDoc(doc(db, 'archivedCustomers', item.id), {` — that is, where the write
+     happened to SIT — and they failed on correct code the moment four doors started
+     sharing one writer. §7's slow fuse, and the answer is the same as every other time:
+     assert what must be TRUE of the row, not where it is typed. */
+  const snapSrc = (function(){
+    const f = extractFn(admin, 'archiveCustomerSnapshot');
+    return f ? 'async ' + f : '';
+  })();
+  check('S88', 'the one archive writer was found', !!snapSrc,
+    'renamed or gone — every check below runs it, so an empty lift would make the ' +
+    'sandbox throw rather than quietly passing');
+
+  if (snapSrc) {
+    /* Run it against a fake Firestore and read the document a customer would really
+       have left behind. */
+    const runSnap = (id, d, opts) => {
+      let wrote = null;
+      const ctx = {
+        db: {}, doc: (db, col, i) => ({ col, i }),
+        setDoc: async (ref, row) => { wrote = { ref, row }; },
+        serverTimestamp: () => '__ts__',
+        paymentLedgerUser: () => 'somebody@example.com'
+      };
+      const names = Object.keys(ctx);
+      const fn = new Function(...names, snapSrc + ';return archiveCustomerSnapshot;')(
+        ...names.map(n => ctx[n]));
+      return fn(id, d, opts).then(() => wrote);
+    };
+
+    pendingAsync.push((async () => {
+      const rachelRec = { name: 'Rachel Oslund', phone: '8015550100', address: '209 S 850 W',
+                          lightsDescription: 'Warm White', customerNumber: '894' };
+      const w = await runSnap('c1', rachelRec,
+        { reason: 'recycled', stillACustomer: false, recycled: false, customerNumberWas: '894' });
+
+      check('S88', 'the archive row lands in archivedCustomers under the customer id',
+        !!w && w.ref.col === 'archivedCustomers' && w.ref.i === 'c1',
+        'a row filed under anything else cannot be found again by the one thing ' +
+        'anybody knows about that customer');
+      /* ⚠ THE WHOLE RECORD, NOT A SUMMARY. A summary is a decision about what mattered,
+         taken by somebody who is not the one who will need it. Compared as an object
+         rather than by naming fields, so a field added to a customer later is covered
+         without anybody remembering to add it here. */
+      check('S88', 'the whole record is written to the archive',
+        !!w && JSON.stringify(w.row.customer) === JSON.stringify(rachelRec),
+        'got ' + JSON.stringify((w || {}).row && w.row.customer));
+      check('S88', 'it records when, who and why',
+        !!w && w.row.archivedAt === '__ts__' && !!w.row.archivedBy && !!w.row.reason,
+        'six months on, "why is this person in here" is the only question anybody asks');
+      check('S88', 'and the customer number they held',
+        !!w && w.row.customerNumberWas === '894',
+        'the number goes back into the pool on removal, so the record would otherwise ' +
+        'lose the one thing that ties them to a bin in the warehouse');
+
+      /* ⛔ AND THE ABSENCE OF `recycled` IS LOAD-BEARING, NOT A DEFAULT.
+         `whWatchArchivedPending` asks `where('recycled','==',false)` and Firestore
+         cannot match an absent field — so a row without it is not in the warehouse
+         recycle queue. That is what lets an RSVP no take a copy without sending
+         somebody to the same house twice, and what keeps Delete All Customers from
+         posting ~962 rows to a queue nobody asked to fill. Writing `recycled: true`
+         instead would be a claim that somebody collected their lights. */
+      const kept = await runSnap('c2', rachelRec,
+        { reason: 'said no to this season', stillACustomer: true });
+      check('S88', 'a snapshot of somebody who is STILL a customer writes no recycled flag',
+        !!kept && !('recycled' in kept.row) && kept.row.stillACustomer === true,
+        'with the flag present they join the warehouse recycle queue a second time, ' +
+        'beside the live record that is already in it');
+      check('S88', 'and a removal writes it explicitly, so the queue can find them',
+        !!w && w.row.recycled === false && w.row.stillACustomer === false,
+        'Firestore cannot query for an absent field, so an explicit false is the only ' +
+        'thing that puts a removed customer in front of the warehouse');
+    })());
+  }
+
+  /* ---- the wiring, asserted separately from the row ---------------------- *
+   * ⚠ EVERY CHECK ABOVE CALLS THE WRITER DIRECTLY. Delete the call from the removal
+   * path and all of them stay green while nothing is archived at all — the
+   * mechanism-without-wiring trap this repo has shipped twice.
+   * ------------------------------------------------------------------------ */
+  check('S88', 'the removal path goes through that one writer',
+    /\n  await archiveCustomerSnapshot\(item\.id, d, \{/.test(rm),
+    'reachable, not merely present: a red-check putting if(0) in front of the write ' +
+    'left every word of it in the file and passed');
 
   /* ⚠ ORDER IS THE WHOLE THING. Archiving after the delete is archiving nothing. */
   check('S88', 'and it is archived BEFORE anything is deleted',
-    rm.indexOf("'archivedCustomers'") < rm.indexOf('deleteDoc'),
+    rm.indexOf('archiveCustomerSnapshot') < rm.indexOf('deleteDoc'),
     'afterwards there is no record left to copy');
   check('S88', 'a failed archive stops the removal',
-    rm.indexOf("'archivedCustomers'") < rm.indexOf("deleteDoc(doc(db,'jobAddresses'") &&
-    !/try{[\s\S]{0,200}archivedCustomers[\s\S]{0,200}catch/.test(rm),
+    rm.indexOf('archiveCustomerSnapshot') < rm.indexOf("deleteDoc(doc(db,'jobAddresses'") &&
+    !/try{[\s\S]{0,200}archiveCustomerSnapshot[\s\S]{0,200}catch/.test(rm),
     'a customer still on file is a nuisance; a customer gone with no copy anywhere ' +
     'cannot be got back, so this one is deliberately NOT best-effort');
 
-  check('S88', 'it records when, who and why',
-    /archivedAt: serverTimestamp\(\)/.test(rm) && /archivedBy:/.test(rm) &&
-    /reason:/.test(rm),
-    'six months on, \"why is this person in here\" is the only question anybody asks');
-  check('S88', 'and the customer number they held',
-    /customerNumberWas:/.test(rm),
-    'the number goes back into the pool on removal, so the record would otherwise ' +
-    'lose the one thing that ties them to a bin in the warehouse');
+  /* ⭐ AND THE DOOR THAT HAD NO COPY AT ALL ([[ARCH-01]]). Delete All Customers wiped
+     the whole book — every address, phone, price and colour — leaving nothing anywhere.
+     It is also the one delete that cannot be undone a record at a time, which is why
+     the absence cost the most there. */
+  const delAll = (function(){
+    const a = admin.indexOf("document.getElementById('deleteAllAddressesBtn').addEventListener('click'");
+    return a === -1 ? '' : admin.slice(a, admin.indexOf('\n});', a));
+  })();
+  check('S88', 'Delete All Customers was found to check', !!delAll,
+    'renamed or moved — repoint this rather than dropping it; the check below is the ' +
+    'only thing standing between that button and the whole book going with no copy');
+  check('S88', 'Delete All Customers archives each record before destroying it',
+    /await archiveCustomerSnapshot\(item\.id, item\.data,/.test(delAll) &&
+    delAll.indexOf('archiveCustomerSnapshot') < delAll.indexOf('deleteDoc'),
+    'this button wipes ~962 records at once; afterwards there is nothing left to copy');
+  check('S88', 'and it takes the copy before the invoice is deleted too',
+    delAll.indexOf('archiveCustomerSnapshot') < delAll.indexOf("deleteDoc(doc(db,'invoices'"),
+    'the invoice goes first otherwise, and what they had paid goes with it');
+
+  /* ⭐ AND THE OFFICE'S OWN RSVP NO KEEPS A COPY TOO ([[ARCH-01]]).
+     ⛔ THIS CHECK EXISTS BECAUSE A RED-CHECK SAID IT WAS MISSING. Deleting the call
+     outright left every gate in this repo green: the portalRsvp harness proves the
+     RSVP LINK keeps a copy, and nothing anywhere looked at the door the office types
+     through. Two doors, one answer — [[WH-34]]'s rule, and the half without coverage
+     is the half that goes. */
+  /* ⚠ CUT BETWEEN TWO REAL ANCHORS, never a character count. §7 bans a fixed-length
+     window by name and the structure suite enforces it — a first draft of this used
+     `a + 3000` and went red within the minute, which is the rule earning its place. */
+  const editSave = (function(){
+    const a = admin.indexOf("if(newRsvp === 'no' && item.data.rsvpStatus !== 'no'){");
+    if(a === -1) return '';
+    const b = admin.indexOf('let inv = allCustInvoiceFor(item);', a);
+    return b === -1 ? '' : admin.slice(a, b);
+  })();
+  check('S88', 'the office RSVP-no branch was found', !!editSave,
+    'renamed or moved — repoint this rather than dropping it');
+  check('S88', 'setting somebody to No in the office keeps a copy of them too',
+    /await archiveCustomerSnapshot\(savingCustomerId,/.test(editSave) &&
+    /stillACustomer: true/.test(editSave),
+    'the RSVP link takes a copy and the dropdown would not, so which door the customer ' +
+    'came through would decide whether there is any record of them at all');
+  /* ⚠ ON THE TRANSITION ONLY, sharing the clawback's own condition. Re-saving somebody
+     who already said no would replace the snapshot with a later one every time the
+     record is touched, and the value of a snapshot is that it is what they looked like
+     when they answered. */
+  check('S88', 'and only on the transition, so a later save cannot replace it',
+    /if\(newRsvp === 'no' && item\.data\.rsvpStatus !== 'no'\)\{[\s\S]{0,1400}archiveCustomerSnapshot/
+      .test(admin),
+    'outside that guard the snapshot is retaken on every save of a customer who said ' +
+    'no months ago');
+
+  /* ⭐ AND THE ARCHIVE ROW SAYS WHICH IT IS. "Removed" about somebody who is still a
+     customer is false — they are on the books and on a bill — and a screen somebody
+     searches for a lost record is the last place that may be wrong about what it holds.
+     ⛔ ALSO ADDED BECAUSE A RED-CHECK SAID SO: hard-coding "Removed" back passed
+     everything. */
+  check('S88', 'the Archive row does not call a kept customer Removed',
+    /stillACustomer\) \? 'Copy kept' : 'Removed'/.test(admin),
+    'an RSVP no keeps the customer, so a row reading "Removed" is the Archive making ' +
+    'a claim about them that is not true');
 
   /* ⚠ A COLLECTION WITH NO RULE IS A WRITE THAT IS DENIED. */
   check('S88', 'the archive is declared in the security rules',
@@ -34442,11 +34794,21 @@ suite('Suite 117. The colour-change fee, actually charged');
      would answer it for itself and the suite would prove nothing. The extraction-list trap,
      hit a fifth time and caught a fifth time by the suite failing loudly. */
   const lightsTextSrc = extractFn(fns, 'houseLightsTextServer');
-  check('S117', 'and the rule, the timestamp reader and the colour reader are all findable',
-    !!ruleSrc && !!toMillisSrc && !!lightsTextSrc,
+  /* ⚠ AND THE OFFICE NOTIFIER ([[MSG-31]], 2026-09-21) — lifted, never stubbed, and the
+     reason is the same one the colour reader carries above. The reassign note is raised
+     through it now, and the call site wraps it in a best-effort try/catch — so a missing
+     one does NOT fail this harness, it logs "tellOfficeServer is not defined" and the
+     note checks below pass against a note that was never raised. And a stub would decide
+     the very thing [[MSG-31]] is about: WHICH of the two channels the notice takes. */
+  const tellOfficeSrc = (function () {
+    const f = extractFn(fns, 'tellOfficeServer');
+    return f ? 'async ' + f : '';
+  })();
+  check('S117', 'and the rule, the timestamp reader, the colour reader and the notifier are all findable',
+    !!ruleSrc && !!toMillisSrc && !!lightsTextSrc && !!tellOfficeSrc,
     'extracted rather than stubbed on purpose: a stub would agree with itself');
 
-  if (a !== -1 && b > a && ruleSrc && toMillisSrc && lightsTextSrc) {
+  if (a !== -1 && b > a && ruleSrc && toMillisSrc && lightsTextSrc && tellOfficeSrc) {
     const blockSrc = fns.slice(a, b);
 
     /* A fake Firestore that records what was written. Deliberately small, and
@@ -34469,6 +34831,17 @@ suite('Suite 117. The colour-change fee, actually charged');
           if (!docs[path]) return Promise.reject(new Error('no such doc ' + path));
           Object.assign(docs[path], o);
           return Promise.resolve();
+        },
+        /* ⚠ settings/emailjs IS THE ONE DOCUMENT `tellOfficeServer` READS, and it is
+           absent unless a fixture seeds it. That direction is deliberate: left out, the
+           notice reports "not set up" and falls back to the Inbox row — the behaviour
+           every fixture in this suite was written against, so none of them had to
+           change. A fixture that wants the Gmail working seeds it by name. */
+        get: function () {
+          return Promise.resolve({
+            exists: Object.prototype.hasOwnProperty.call(docs, path),
+            data: function () { return docs[path]; }
+          });
         }
       });
       const db = {
@@ -34523,20 +34896,35 @@ suite('Suite 117. The colour-change fee, actually charged');
 
     /* Runs the real block. `cust` and `inv` are the documents as they stand before
        the save; `newLights` is what the member picked. */
-    const runLights = function (cust, inv, newLights) {
+    const runLights = function (cust, inv, newLights, mail) {
       const seed = { 'jobAddresses/c1': Object.assign({}, cust) };
       if (inv) seed['invoices/8015550100'] = Object.assign({}, inv);
+      /* ⚠ OPT-IN, LIKE THE SETTINGS DOC ITSELF. Without `mail` there is no EmailJS
+         config, so the notice falls back to the Inbox exactly as every fixture below
+         expects; pass 'sends' or 'refuses' to reach the other branch. */
+      if (mail) seed['settings/emailjs'] = { serviceId: 's', notifyTemplateId: 't',
+                                             publicKey: 'pk', privateKey: 'sk' };
       const db = makeDb(seed);
       const updates = { lightsDescription: newLights };
+      /* ⚠ IT RECORDS WHAT WAS SENT, not merely that it was called: a notice that emails
+         an empty body has taken the Inbox row away and put nothing in its place. */
+      const mailSent = [];
+      const fakeFetch = function (url, init) {
+        mailSent.push(JSON.parse((init && init.body) || '{}'));
+        return Promise.resolve({ ok: mail === 'sends',
+                                 text: function () { return Promise.resolve('refused'); } });
+      };
       return new Function('db', 'admin', 'toMillis', 'section', 'updates', 'oldData',
-        'oldKey', 'match', 'console',
-        ruleSrc + '\n' + lightsTextSrc + '\nconst LIGHT_CHANGE_FEE = 30;\nconst LIGHT_WINDOW_MS = 48*60*60*1000;\n' +
+        'oldKey', 'match', 'console', 'fetch',
+        ruleSrc + '\n' + lightsTextSrc + '\n' + tellOfficeSrc +
+        '\nconst LIGHT_CHANGE_FEE = 30;\nconst LIGHT_WINDOW_MS = 48*60*60*1000;\n' +
         'return (async function(){\n' + blockSrc + '\nreturn lightFeeInfo;\n})();')
         (db, fakeAdmin, new Function('return ' + toMillisSrc + ';toMillis')(),
-         'lights', updates, cust, inv ? '8015550100' : '', { id: 'c1' }, console)
+         'lights', updates, cust, inv ? '8015550100' : '', { id: 'c1' }, console, fakeFetch)
         .then(function (info) {
           return { info: info, cust: db._docs['jobAddresses/c1'],
-                   inv: db._docs['invoices/8015550100'], messages: db._messages };
+                   inv: db._docs['invoices/8015550100'], messages: db._messages,
+                   mailSent: mailSent };
         });
     };
 
@@ -34632,10 +35020,56 @@ suite('Suite 117. The colour-change fee, actually charged');
         { name: 'Routed', lightsDescription: 'Warm White', invoiceEmailSent: false,
           scheduled: true },
         { changeFees: 0 }, 'Red, Green');
+      /* ⚠ THE GMAIL IS OFF IN THIS FIXTURE, so this is the FALLBACK ([[MSG-31]]) — and
+         the row must SAY it is one. Without `alertFailed` a row in the Inbox is
+         indistinguishable from the double-post she asked to have removed, and the first
+         thing she would conclude is that the change did not work. */
       check('S117', 'a customer already on a route gets exactly one System note',
         r6.messages.length === 1 && r6.messages[0].folder === 'System' &&
-        r6.messages[0].needsReassign === true,
+        r6.messages[0].needsReassign === true && r6.messages[0].alertFailed === true,
         'the crew is holding a card that no longer matches the house');
+
+      /* ⭐ AND WITH THE GMAIL WORKING THERE IS NO ROW AT ALL ([[MSG-31]], 2026-09-21).
+         Addie: "No messages coming from members or member portal changes should be going
+         to admin inbox."
+         ⛔ THIS IS THE CHECK THAT EARNS THE CHANGE, and it is the one a source scan could
+         never make: the words of the notice did not move, only WHICH of the two channels
+         carries them. It is also the duplicate she reported — index.html's colour-change
+         path already emails and writes its own fallback row, so a server that wrote
+         unconditionally put two rows in the Inbox for one save, in different words.
+         ⚠ AND IT ASSERTS WHAT WAS EMAILED, not merely that a send happened. A notice that
+         mails an empty body has taken the row away and put nothing in its place. */
+      const r6mail = await runLights(
+        { name: 'Routed', lightsDescription: 'Warm White', invoiceEmailSent: false,
+          scheduled: true },
+        { changeFees: 0 }, 'Red, Green', 'sends');
+      check('S117', 'with the Gmail working the same change writes no Inbox row',
+        r6mail.messages.length === 0,
+        'the browser already emails and falls back for this same save, so a row written ' +
+        'here unconditionally is the duplication she reported');
+      check('S117', 'and the office is emailed instead, carrying who and what',
+        r6mail.mailSent.length === 1 &&
+        /Routed/.test((r6mail.mailSent[0].template_params || {}).message || '') &&
+        /Red, Green/.test((r6mail.mailSent[0].template_params || {}).message || '') &&
+        (r6mail.mailSent[0].template_params || {}).topic === 'Lights Changed After Assignment',
+        'taking the Inbox row away and sending nothing in its place loses the change ' +
+        'entirely — the crew keeps driving to a house whose card is wrong');
+      check('S117', 'and the record is still flagged whichever channel carried it',
+        (r6mail.cust || {}).lightsChangedAfterAssign === true,
+        'Routes reads the badge off the customer, not off the note — a send that went ' +
+        'must not cost the flag');
+      check('S117', 'and a refused send falls back to the Inbox, marked as a fallback',
+        await (async function () {
+          const r = await runLights(
+            { name: 'Routed', lightsDescription: 'Warm White', invoiceEmailSent: false,
+              scheduled: true },
+            { changeFees: 0 }, 'Red, Green', 'refuses');
+          return r.mailSent.length === 1 && r.messages.length === 1 &&
+                 r.messages[0].alertFailed === true &&
+                 /refused/.test(r.messages[0].alertFailReason || '');
+        })(),
+        'the Inbox is the safety net for exactly this — an outage that lost every ' +
+        'member notice in silence is the failure MSG-30 was written against');
       check('S117', 'and is flagged on their own record too',
         (r6.cust || {}).lightsChangedAfterAssign === true,
         'the note is in the inbox; the badge is on the customer, and Routes reads it');
@@ -36956,7 +37390,13 @@ suite('Suite 137. A decline asks a question, it does not cancel their season');
     /* ⚠ LIFTED, NOT STUBBED (2026-09-11). It decides whether the decline is
        ALLOWED to clear the status, so a stub answering true makes the pending-move
        check below pass on code that never consults it. */
-    'quoteAnswerMayClearStatusServer'];
+    'quoteAnswerMayClearStatusServer',
+    /* ⚠ LIFTED, NOT STUBBED (2026-09-21, [[MSG-31]]). The decline note is raised
+       through it now, and this suite's whole claim about that note — that it lands,
+       that a failure to land is reported back as a follow-up — is decided inside it.
+       A stub would answer that question with itself. sandboxDeps named it the moment
+       the real function gained the call, which is exactly what that guard is for. */
+    'tellOfficeServer'];
   const src = {};
   NEEDED.forEach(n => { src[n] = extractFn(fns, n); });
   const missing = NEEDED.filter(n => !src[n]);
@@ -36973,7 +37413,8 @@ suite('Suite 137. A decline asks a question, it does not cancel their season');
     'a second answer to the same question is the one that goes wrong');
 
   const ASYNC = ['declineAsksAboutLastYear', 'quoteCustomerRef',
-    'quoteMatchesExistingCustomer', 'tryFirestore', 'flagQuoteFollowUp'];
+    'quoteMatchesExistingCustomer', 'tryFirestore', 'flagQuoteFollowUp',
+    'tellOfficeServer'];
   ASYNC.forEach(n => {
     check('S137', n + ' is still async in the real file',
       new RegExp('async function ' + n + '\\(').test(fns),
@@ -37035,6 +37476,19 @@ suite('Suite 137. A decline asks a question, it does not cancel their season');
               messages.push(m); return Promise.resolve({});
             } };
           }
+          /* ⚠ settings/emailjs, THE ONE DOCUMENT `tellOfficeServer` READS, and it is
+             absent unless a fixture asks for a working mail service. That direction is
+             deliberate: left out, the notice reports "not set up" and falls back to the
+             Inbox row, which is the behaviour every fixture here was written against — so
+             none of them had to change, and `o.failMessage` still means both channels
+             are gone. A fixture that wants the Gmail working asks for it by name. */
+          if (c === 'settings') {
+            return { doc: (id) => ({ get: () => Promise.resolve({
+              exists: id === 'emailjs' && !!o.mail,
+              data: () => ({ serviceId: 's', notifyTemplateId: 't',
+                             publicKey: 'pk', privateKey: 'sk' })
+            }) }) };
+          }
           if (c === 'quotes') {
             return { doc: (id) => ({ update: (patch) => {
               quoteWrites.push({ id, patch }); return Promise.resolve();
@@ -37044,12 +37498,23 @@ suite('Suite 137. A decline asks a question, it does not cancel their season');
         }
       };
 
-      const run = new Function('db', 'admin', 'console',
+      /* ⚠ IT RECORDS WHAT WAS SENT, not merely that it was called. What reaches the
+         office is the whole point of [[MSG-31]]: a notice that emails an empty body has
+         taken the Inbox row away and put nothing in its place. */
+      const mailSent = [];
+      const fakeFetch = (url, init) => {
+        mailSent.push(JSON.parse((init && init.body) || '{}'));
+        return Promise.resolve({ ok: o.mail === 'sends',
+                                 text: () => Promise.resolve('the email service said no') });
+      };
+
+      const run = new Function('db', 'admin', 'console', 'fetch',
         body + ';return declineAsksAboutLastYear;')(db,
         { firestore: { FieldValue: { serverTimestamp: () => '@ts' } } },
-        { error: (...a) => errors.push(a.join(' ')), log: () => {} });
+        { error: (...a) => errors.push(a.join(' ')), log: () => {} },
+        fakeFetch);
 
-      return { run, customers, messages, quoteWrites, errors };
+      return { run, customers, messages, quoteWrites, errors, mailSent };
     }
 
     /* A member mid-season: lights going up, on a route, and sitting in Needs
@@ -37146,6 +37611,37 @@ suite('Suite 137. A decline asks a question, it does not cancel their season');
           w.messages[0].read === undefined,
           'the badge counts every unread message whatever its folder — that is ' +
           'the inbox notification, and a note marked read on arrival is invisible');
+        /* ⚠ AND THE GMAIL IS OFF IN THIS FIXTURE, so the row above is the FALLBACK
+           ([[MSG-31]]) and must say so. A row with no marker is indistinguishable from
+           the double-post she asked to have removed. */
+        check('S137', 'and it says it is only here because the Gmail did not take it',
+          w.messages[0].alertFailed === true && !!w.messages[0].alertFailReason,
+          'unmarked, an Inbox row reads as the duplication that was meant to stop');
+      }
+
+      /* ---- 1b. with the Gmail working, the office is emailed and no row is written --
+         ⭐ [[MSG-31]], 2026-09-21. Addie: "No messages coming from members or member
+         portal changes should be going to admin inbox."
+         ⛔ THIS CANNOT BE A TEXT MATCH. Every word of the notice is unchanged — what
+         moved is WHICH of the two channels carries it. `o.mail` is opt-in, so the
+         fixtures above still take the fallback and read exactly as they always did. */
+      {
+        const w = makeWorld({ customers: { c1: member() }, mail: 'sends' });
+        await w.run({ existingCustomerId: 'c1', name: 'Rachel Oslund' }, 'q1');
+        check('S137', 'with the Gmail working a declined re-quote writes no Inbox row',
+          w.messages.length === 0,
+          'a member portal change belongs in the Gmail — a row written beside it is ' +
+          'the duplication she reported');
+        check('S137', 'and the office is emailed instead, with the same words',
+          w.mailSent.length === 1 &&
+          /not a cancellation/i.test((w.mailSent[0].template_params || {}).message || '') &&
+          /Rachel Oslund/.test((w.mailSent[0].template_params || {}).message || '') &&
+          (w.mailSent[0].template_params || {}).topic === 'Re-quote Declined',
+          'taking the row away and sending nothing in its place leaves a question ' +
+          'outstanding with no trace anywhere');
+        check('S137', 'and the customer is still asked about last year',
+          w.customers.c1.askSameAsLastYear === true,
+          'the notice is best effort; the record is not');
       }
 
       /* ---- 2. a new lead has nothing to be asked about ------------------ */
@@ -37440,7 +37936,11 @@ suite('Suite 138. Declining an add-on refuses the add-on, not the season');
   const NEED = ['declineAddOnOnly', 'quoteCustomerRef', 'quoteMatchesExistingCustomer',
     'quoteMatchAddressServer', 'digitsOnly', 'tryFirestore', 'flagQuoteFollowUp',
     /* ⚠ LIFTED, NOT STUBBED (2026-09-11) — see the same entry in Suite 137. */
-    'quoteAnswerMayClearStatusServer'];
+    'quoteAnswerMayClearStatusServer',
+    /* ⚠ LIFTED, NOT STUBBED (2026-09-21, [[MSG-31]]) — same entry in Suite 137. The
+       add-on note is raised through it, and this suite's strongest claim is about what
+       happens when that note does NOT land. A stub would answer that itself. */
+    'tellOfficeServer'];
   const parts = {};
   NEED.forEach(n => { parts[n] = lift(fns, n); });
   const gone = NEED.filter(n => !parts[n]);
@@ -37454,7 +37954,7 @@ suite('Suite 138. Declining an add-on refuses the add-on, not the season');
 
   if (!gone.length && statusDecl) {
     const ASYNC = ['declineAddOnOnly', 'quoteCustomerRef', 'quoteMatchesExistingCustomer',
-      'tryFirestore', 'flagQuoteFollowUp'];
+      'tryFirestore', 'flagQuoteFollowUp', 'tellOfficeServer'];
     ASYNC.forEach(n => {
       check('S138', n + ' is still async in the real file',
         new RegExp('async function ' + n + '\\(').test(fns),
@@ -37502,14 +38002,33 @@ suite('Suite 138. Declining an add-on refuses the add-on, not the season');
           if (c === 'messages') {
             return { add: (m) => { if (o.failMessage) return Promise.reject(new Error('too long')); messages.push(m); return Promise.resolve({}); } };
           }
+          /* ⚠ settings/emailjs, THE ONE DOCUMENT `tellOfficeServer` READS, absent unless
+             a fixture asks for a working mail service — see the same note in Suite 137.
+             The default is the fallback path, so `o.failMessage` still means both
+             channels are gone and every fixture here reads as it always did. */
+          if (c === 'settings') {
+            return { doc: (id) => ({ get: () => Promise.resolve({
+              exists: id === 'emailjs' && !!o.mail,
+              data: () => ({ serviceId: 's', notifyTemplateId: 't',
+                             publicKey: 'pk', privateKey: 'sk' })
+            }) }) };
+          }
           throw new Error('unexpected collection: ' + c);
         }
       };
       const adminNs = { firestore: { FieldValue: { serverTimestamp: () => '@ts' } } };
-      const run = new Function('db', 'admin', 'console',
+      /* ⚠ IT KEEPS WHAT WAS SENT, not merely that it was called — a notice that emails
+         an empty body has taken the Inbox row away and put nothing in its place. */
+      const mailSent = [];
+      const fakeFetch = (url, init) => {
+        mailSent.push(JSON.parse((init && init.body) || '{}'));
+        return Promise.resolve({ ok: o.mail === 'sends',
+                                 text: () => Promise.resolve('the email service said no') });
+      };
+      const run = new Function('db', 'admin', 'console', 'fetch',
         body + ';return declineAddOnOnly;')(db, adminNs,
-        { error: (...a) => errors.push(a.join(' ')), log: () => {} });
-      return { run, customers, messages, errors };
+        { error: (...a) => errors.push(a.join(' ')), log: () => {} }, fakeFetch);
+      return { run, customers, messages, errors, mailSent };
     }
 
     /* A customer mid-season with a garage on order: lights up, on a route, and
@@ -37573,6 +38092,56 @@ suite('Suite 138. Declining an add-on refuses the add-on, not the season');
           /Rachel Oslund/.test(w.messages[0].message || ''),
           'a note headed "declined" beside a customer who is staying is worse ' +
           'than no note — somebody acts on it');
+        /* ⚠ AND THE GMAIL IS OFF IN THIS FIXTURE, so the row above is the FALLBACK
+           ([[MSG-31]]) and has to say so. Unmarked it reads as the double-post she
+           asked to have removed. */
+        check('S138', 'and it says it is only here because the Gmail did not take it',
+          w.messages[0].alertFailed === true && !!w.messages[0].alertFailReason,
+          'unmarked, an Inbox row reads as the duplication that was meant to stop');
+      }
+
+      /* ---- with the Gmail working, the office is emailed and no row is written ----
+         ⭐ [[MSG-31]], 2026-09-21. Addie: "No messages coming from members or member
+         portal changes should be going to admin inbox."
+         ⛔ THIS CANNOT BE A TEXT MATCH — every word of the notice is unchanged and only
+         the channel moved. `o.mail` is opt-in, so every fixture above still takes the
+         fallback and reads exactly as it always did.
+         ⚠ AND THIS NOTICE MATTERS MORE THAN THE SEASON DECLINE'S. An add-on refusal
+         leaves NO other trace anywhere — nothing drops off a route, nobody appears on
+         the recycle list — so a channel that silently carried nothing would be the
+         whole of what the office ever hears. */
+      {
+        const w = makeWorld({ c1: inSeason() }, { mail: 'sends' });
+        const res = await w.run({ existingCustomerId: 'c1', requoteKind: 'addition' });
+        check('S138', 'with the Gmail working a declined add-on writes no Inbox row',
+          w.messages.length === 0,
+          'a member portal change belongs in the Gmail — a row written beside it is ' +
+          'the duplication she reported');
+        check('S138', 'and the office is emailed instead, with the same words',
+          w.mailSent.length === 1 &&
+          /not a cancellation/i.test((w.mailSent[0].template_params || {}).message || '') &&
+          /Rachel Oslund/.test((w.mailSent[0].template_params || {}).message || '') &&
+          (w.mailSent[0].template_params || {}).topic === 'Add-On Declined',
+          'this is the one decline with no other trace anywhere — an empty send is ' +
+          'the office never hearing about it at all');
+        check('S138', 'and a send that went raises no follow-up flag',
+          res.followUpFlagged !== true,
+          'the flag means nobody was told; raised on a send that worked it would ' +
+          'send somebody chasing a decline that was already reported');
+      }
+
+      /* ⛔ AND BOTH CHANNELS FAILING IS STILL REPORTED. `tryFirestore` used to catch
+         the throw; `tellOfficeServer` does not throw, so the verdict it RETURNS is what
+         the warning reads now — get that wrong and this warning is permanently dead
+         while the list of problems still looks right. */
+      {
+        const w = makeWorld({ c1: inSeason() }, { mail: 'refuses', failMessage: true });
+        const res = await w.run({ existingCustomerId: 'c1', requoteKind: 'addition' });
+        check('S138', 'and a decline nobody could be told about is flagged for follow-up',
+          res.followUpFlagged === true && w.messages.length === 0 &&
+          w.mailSent.length === 1,
+          'an add-on refusal leaves no other trace, so a notice that reached neither ' +
+          'channel in silence is the extra simply never being cancelled');
       }
 
       /* ---- address_changed is cleared too; a cancellation is NOT ------- */

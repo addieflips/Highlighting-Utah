@@ -1995,6 +1995,147 @@ function portalChangeLabels(oldData, updates) {
   return out;
 }
 
+/* ⭐ THE SERVER TELLS THE OFFICE THE SAME WAY THE BROWSER DOES ([[MSG-31]], 2026-09-21).
+ * Addie: "No messages coming from members or member portal changes should be going to
+ * admin inbox. There shouldn't even be duplicated emails in the admin inbox."
+ *
+ * ⛔ [[MSG-30]] ONLY EVER TOUCHED THE BROWSER, WHICH IS WHY SHE WAS STILL READING THEM.
+ * `tellOffice` in index.html made the Gmail the destination and the Inbox the fallback
+ * for the twelve member-MESSAGE paths two days ago. This file went on writing its own
+ * rows unconditionally from five member PORTAL ACTIONS — a colour change made after the
+ * route was built, a rejoin after recycling, an RSVP no or back-next-year, a declined
+ * re-quote and a declined add-on — none of which that change could reach. The rule was
+ * half-applied and the half nobody could see from index.html was the half still filling
+ * her Inbox.
+ * ⛔ AND THE COLOUR CHANGE WROTE BOTH SIDES. The browser emails and writes a row only
+ * when that send fails; the server wrote one every time. One member action, two rows,
+ * different wording — which is the duplication she is describing, and why deleting
+ * either side on its own would have been the wrong fix.
+ *
+ * ⚠ THIS SUPERSEDES PART OF [[RS-59]] (R-024) AND THAT ROW IS MARKED, NOT DELETED. Ten
+ * days ago she asked for the RSVP declines to have "there own section" in the Inbox and
+ * to land "in the folder with the response they choose". Today she has asked for member
+ * portal changes to stay out of the Inbox altogether. The newer answer wins, and the
+ * older one is still why the FOLDER machinery is kept rather than ripped out: it is what
+ * files a decline the day the Gmail is down, which is the one day those rows exist.
+ *
+ * ⚠ EACH NOTICE REPORTS ITSELF AND NEVER GUESSES ABOUT THE OTHER SIDE. The server cannot
+ * know whether the browser's email went, so it sends its own and writes its own row only
+ * if its OWN send did not go. Two notices about one event are two emails in the Gmail,
+ * which is where she asked for them; what she asked to stop is rows appearing in the
+ * Inbox that nobody chose.
+ *
+ * ⚠ IT READS `settings/emailjs` DIRECTLY, which only the server can. The public page has
+ * to go through `publicConfig` because that document is staff-only — the very read
+ * that was denied for weeks and silently switched off every alert.
+ * ⚠ AND IT NEEDS THE PRIVATE KEY. EmailJS refuses a non-browser origin without
+ * `accessToken`, while the browser sends with the public key alone. A send that 200s in a
+ * browser and 403s here is exactly the shape of that mistake, and it would fall back to
+ * the Inbox for ever while looking like the feature working. Every other send in this
+ * file already passes it; this one is held to the same three keys they are.
+ *
+ * ⛔ THE ROW IS WRITTEN ON EVERY FAILURE PATH, A THROW INCLUDED. These notices are the
+ * only record that a member did something — a lost decline is a customer who told us and
+ * was never heard. Silence is the one outcome that must be impossible here, which is why
+ * the catch FILES rather than logs, and why the last resort logs both reasons together:
+ * the mail failure and the write failure are different faults, and the second one alone
+ * sends somebody hunting for the wrong problem.
+ * ⚠ AND `alertFailed` / `alertFailReason` RIDE ON THE ROW, exactly as the browser's do.
+ * `msgAlertFailedNoteHtml` already prints them on both row renderers, and a row with no
+ * marker is indistinguishable from the double-post she asked to have removed — the first
+ * thing she would conclude is that this change did not work.
+ * ⚠ `createdAt` IS SET HERE, never by the caller, for the same reason `tellOffice` does
+ * it: a row whose time came from the caller is a row that arrives undated the day
+ * somebody forgets it.
+ * ⚠ AND IT NEVER THROWS. Every caller has already written the thing the member did, and
+ * an alert that rejects must not turn a recorded answer into an error on their screen. */
+/* ⭐ A COPY OF THE CUSTOMER IS KEPT WHEN THEY SAY NO ([[ARCH-01]], 2026-09-23).
+ * Addie: "any person who gets deleted by the trash bin or delete costumer or say no
+ * through quotes or RSVP should be archived."
+ *
+ * ⛔ SHE CHOSE TO KEEP THEM AND ADD A COPY, not to remove them — so nothing here
+ * deletes anything. They stay a customer, their money is untouched, their place on the
+ * books is untouched, and a snapshot of what they looked like on the day they answered
+ * goes to the Archive.
+ *
+ * ⚠ TWO DOORS, ONE ANSWER, AND THIS IS THE ONE THAT MATTERS MOST. The office's own
+ * dropdown writes its copy in admin.html's Edit Customer save; this is the RSVP LINK,
+ * which is how nearly every no actually arrives. A browser-only rule would take a copy
+ * of the handful the office types in and none of the several hundred who answer their
+ * email, which is the shape [[WH-34]] already records going wrong.
+ *
+ * ⛔ IT WRITES NO `recycled` FIELD, AND THE ABSENCE IS DELIBERATE. The warehouse recycle
+ * queue asks `where('recycled','==',false)`, and Firestore cannot match an absent field
+ * — so this row is not in that queue. The live customer record already carries
+ * `needsLightRecycle`, and a second row would send somebody to the same house twice.
+ * ⛔ AND `stillACustomer` IS TRUE. The Archive row says "Removed" otherwise, which about
+ * this customer is simply false — a screen somebody searches for a lost record is the
+ * last place that may lie about what it holds.
+ *
+ * ⚠ THE SHAPE IS `archiveCustomerSnapshot`'s IN admin.html AND THE TWO ARE COMPARED.
+ * One collection read by one screen and one queue, written from two files: the row
+ * built here and the row built there must carry the same keys or the Archive starts
+ * showing two shapes. `archive-customer.test.js` runs both and requires the same keys
+ * out.
+ * ⚠ AND IT NEVER THROWS. Their answer is already written by the time this runs, and a
+ * failed copy must not turn a recorded decision into an error on their screen. */
+async function archiveCustomerSnapshotServer(id, d, opts) {
+  const o = opts || {};
+  const row = {
+    customer: d || {},
+    archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+    archivedBy: 'the RSVP link',
+    reason: o.reason || 'archived',
+    stillACustomer: !!o.stillACustomer
+  };
+  if (o.recycled !== undefined) row.recycled = !!o.recycled;
+  if (o.customerNumberWas !== undefined) row.customerNumberWas = o.customerNumberWas || '';
+  try {
+    await db.collection('archivedCustomers').doc(id).set(row);
+    return { archived: true, row: row };
+  } catch (err) {
+    console.error('[HU] could not archive a copy of the customer who said no:', err);
+    return { archived: false, row: row };
+  }
+}
+async function tellOfficeServer(emailParams, row) {
+  let why = '';
+  try {
+    const snap = await db.collection('settings').doc('emailjs').get();
+    const cfg = snap.exists ? (snap.data() || {}) : {};
+    if (!cfg.serviceId || !cfg.notifyTemplateId || !cfg.privateKey) {
+      why = 'EmailJS is not set up for the server yet';
+    } else {
+      const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          service_id: cfg.serviceId,
+          template_id: cfg.notifyTemplateId,
+          user_id: cfg.publicKey || '',
+          accessToken: cfg.privateKey,
+          template_params: emailParams
+        })
+      });
+      if (res.ok) return { sent: true, why: '' };
+      why = 'the email service refused it: ' + String(await res.text()).slice(0, 200);
+    }
+  } catch (err) {
+    why = (err && err.message) || 'the email service could not be reached';
+  }
+  try {
+    await db.collection('messages').add(Object.assign({}, row, {
+      alertFailed: true,
+      alertFailReason: why,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    }));
+    return { sent: false, filed: true, why: why };
+  } catch (err) {
+    console.error('[HU] office notice could not be emailed OR filed. mail:', why, 'write:', err);
+    return { sent: false, filed: false, why: why };
+  }
+}
+
 /* ⚠ BEST EFFORT, AND IT NEVER THROWS. Every caller has already written the change; an email
    that cannot be sent must not turn a save that worked into an error on the member's screen.
    The reason is returned rather than swallowed so the log says which of the seven quiet exits
@@ -2554,18 +2695,33 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
             lightsChangedAfterAssignAt: admin.firestore.FieldValue.serverTimestamp()
           });
         } catch (e) { console.error('[HU] reassign flag failed:', e); }
+        /* ⛔ THIS ONE WROTE A ROW WHILE THE BROWSER WAS ALREADY WRITING ITS OWN, and it
+           is the duplicate [[MSG-31]] was reported over: index.html's colour-change path
+           goes through `tellOffice`, so on a failed send there were two rows about one
+           save, in different words. Through the shared rule both sides now fall back
+           only when their own send did not go. */
+        const reassignWords = (oldData.name || 'A customer') + ' changed their lights to "' +
+          updates.lightsDescription + '" after being assigned to an install route. Remove ' +
+          'them from that route and add them back once their 48-hour change window closes.';
         try {
-          await db.collection('messages').add({
+          await tellOfficeServer({
+            customer_name: oldData.name || '', customer_phone: oldData.phone || '',
+            customer_email: oldData.email || '',
+            topic: 'Lights Changed After Assignment', message: reassignWords
+          }, {
             topic: 'Lights Changed After Assignment', folder: 'System',
             name: oldData.name || '', phone: oldData.phone || '', email: oldData.email || '',
-            contactMethod: '',
-            message: (oldData.name || 'A customer') + ' changed their lights to "' + updates.lightsDescription +
-                     '" after being assigned to an install route. Remove them from that route and add them back once their 48-hour change window closes.',
+            contactMethod: '', message: reassignWords,
             autoQueuedToWarehouse: false,
-            needsReassign: true,
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
+            needsReassign: true
           });
-        } catch (e) { console.error('[HU] reassign flag message failed:', e); }
+        } catch (e) {
+          /* The helper is written not to throw — both of its own failure paths are
+             caught inside it — so this can only fire if that ever stops being true.
+             The money and the flag above are already written and must not roll back
+             over a notice. */
+          console.error('[HU] reassign flag message failed:', e);
+        }
       }
     } catch (err) {
       console.error('[HU] invoice lights/fee sync failed:', err);
@@ -2866,6 +3022,7 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
        ⚠ BEST EFFORT. The reason is already on the customer by this line, which is the
        part the office can filter and report on; a failed move must not fail the call
        and lose it. */
+    let filed = 0;
     try {
       const notes = await db.collection('messages')
         .where('custId', '==', match.id)
@@ -2878,8 +3035,57 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
            office acts on. */
         if (note) patch.message = String(n.data().message || '') + '\n\nThey said why: ' + note;
         await n.ref.update(patch);
+        filed++;
       }
     } catch (e) { console.error('[HU] could not file the decline note under its reason:', e); }
+    /* ⭐ AND WHEN THERE IS NOTHING TO FILE, THE REASON IS EMAILED ON ITS OWN ([[MSG-31]]).
+       ⛔ THIS IS THE HALF THAT WOULD HAVE GONE MISSING IN SILENCE. [[RS-60]] carries the
+       reason by PATCHING the decline row, and under [[MSG-31]] that row only exists on
+       the day the Gmail refused the send — so on an ordinary day the loop above finds
+       nothing, does nothing, and the one thing she asked to be told ("why") never
+       reaches her. The loop cannot notice: an empty result set is a successful query.
+       ⚠ IT IS A SECOND EMAIL AND NOT A SECOND INBOX ROW, which is the point. The reason
+       arrives in a SECOND call a moment after the answer, so it cannot ride in the first
+       email — there is nothing to wait for and nothing to hold back. Two emails in the
+       Gmail carrying different facts is not the duplication she reported; two rows in
+       the Inbox saying the same thing was.
+       ⚠ AND ONLY WHEN NOTHING WAS FILED. With a row present the patch above already
+       carries the reason and the words, so mailing as well would be the double-up.
+       ⚠ THE REASON IS ALREADY ON THE CUSTOMER by this line (`rsvpDeclineReason`), which
+       is what the audience filters and the reports read. This is the telling, not the
+       recording, so it is best effort and never fails the call. */
+    /* ⚠ AND ONLY FOR AN ANSWER THAT IS ACTUALLY A DECLINE. `response` is validated to
+       one of three words and a reason is meaningless against a yes; without this a call
+       carrying `response: 'yes'` plus a reason would mail the office about a customer
+       who said yes. The patch loop above could never do that — its query is scoped to
+       the two decline topics — so the guard has to be restated here. */
+    if (!filed && (response === 'no' || response === 'backnextyear')) {
+      const d = match.data || {};
+      const topic = response === 'no' ? RSVP_NO_TOPIC : RSVP_BNY_TOPIC;
+      try {
+        await tellOfficeServer({
+          customer_name: d.name || '', customer_phone: d.phone || '',
+          customer_email: d.email || '',
+          topic: topic,
+          message: (d.name || 'A customer') + ' said why they answered: ' + reason +
+                   (note ? '.\n\nIn their words: ' + note : '.')
+        }, {
+          topic: topic,
+          /* ⚠ THE FOLDER IS THE REASON, exactly as the patch above would have set it.
+             This row only exists when the Gmail is down, and that is precisely the day
+             [[RS-59]]'s sections are the only place a decline can be read. */
+          folder: reason,
+          custId: match.id,
+          rsvpDeclineReason: reason,
+          name: d.name || '', phone: d.phone || '', email: d.email || '',
+          contactMethod: '',
+          message: (d.name || 'A customer') + ' said why they answered: ' + reason +
+                   (note ? '.\n\nIn their words: ' + note : '.'),
+          autoQueuedToWarehouse: false,
+          needsReassign: false
+        });
+      } catch (e) { console.error('[HU] could not pass on the decline reason:', e); }
+    }
     return { ok: true, reasonSaved: true };
   }
 
@@ -2975,24 +3181,41 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
      earned, and oldData on its own is one write out of date by this line. */
   if (response === 'no' && String(oldData.rsvpStatus || '') !== 'no') {
     await clawBackReferralServer(match.id, Object.assign({}, oldData, updates));
+    /* ⭐ AND A COPY OF THEM IS KEPT ([[ARCH-01]], 2026-09-23) — see
+       archiveCustomerSnapshotServer for why it keeps them rather than removing them,
+       and why it writes no `recycled` field.
+       ⚠ ON THE TRANSITION ONLY, sharing the exact condition the clawback above uses:
+       re-opening the link would otherwise overwrite the snapshot with a later one every
+       time, and the whole value of a snapshot is that it is what they looked like when
+       they answered.
+       ⚠ AND ONLY FOR A FLAT NO, never Back Next Year. That customer has not cancelled —
+       they are still on the books for the season after — so filing a copy of them under
+       "said no" would put a decision in the Archive that nobody made.
+       ⚠ IT IS PASSED THE RECORD AS IT NOW IS, like the clawback: oldData on its own is
+       one write out of date by this line. */
+    await archiveCustomerSnapshotServer(match.id, Object.assign({}, oldData, updates),
+      { reason: 'said no to this season', stillACustomer: true });
   }
 
   /* No customer number is assigned here on purpose. Taking one from the pool
      programmatically could collide with one the office has just written on a
      bin by hand, so the office decides — this note is how they find out. */
   if (rejoinedAfterRecycle) {
+    const rejoinWords = (oldData.name || 'A customer') + ' said no earlier this season, so their ' +
+      'lights were recycled and their customer number went back to the available pool. They have ' +
+      'now said yes again. Their lights need building again — they are in the Warehouse build ' +
+      'queue — and they need a customer number assigned before they go on a route.';
     try {
-      await db.collection('messages').add({
+      await tellOfficeServer({
+        customer_name: oldData.name || '', customer_phone: oldData.phone || '',
+        customer_email: oldData.email || '',
+        topic: 'Rejoined After Recycling', message: rejoinWords
+      }, {
         topic: 'Rejoined After Recycling', folder: 'System',
         name: oldData.name || '', phone: oldData.phone || '', email: oldData.email || '',
-        contactMethod: '',
-        message: (oldData.name || 'A customer') + ' said no earlier this season, so their lights were ' +
-                 'recycled and their customer number went back to the available pool. They have now ' +
-                 'said yes again. Their lights need building again — they are in the Warehouse ' +
-                 'build queue — and they need a customer number assigned before they go on a route.',
+        contactMethod: '', message: rejoinWords,
         autoQueuedToWarehouse: false,
-        needsReassign: false,
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        needsReassign: false
       });
     } catch (e) { console.error('[HU] rejoin-after-recycle message failed:', e); }
   }
@@ -3032,29 +3255,37 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
      written by this line. */
   if ((response === 'no' || response === 'backnextyear') &&
       String(oldData.rsvpStatus || '') !== response) {
+    const declineTopic = response === 'no' ? RSVP_NO_TOPIC : RSVP_BNY_TOPIC;
+    const declineWords = (oldData.name || 'A customer') +
+      (response === 'no'
+        ? ' answered NO to this season\'s RSVP. They are off every upcoming route' +
+          (removedFrom ? ' (' + removedFrom + ' removed)' : '') +
+          ', their lights are queued to be recycled, and their customer number goes back ' +
+          'to the pool once the warehouse has them.'
+        : ' answered BACK NEXT YEAR. They are off every upcoming route' +
+          (removedFrom ? ' (' + removedFrom + ' removed)' : '') +
+          ' and nothing is being built for them this season, but they are still on the ' +
+          'books — they have not cancelled.');
     try {
-      await db.collection('messages').add({
-        topic: response === 'no' ? RSVP_NO_TOPIC : RSVP_BNY_TOPIC,
+      await tellOfficeServer({
+        customer_name: oldData.name || '', customer_phone: oldData.phone || '',
+        customer_email: oldData.email || '',
+        topic: declineTopic, message: declineWords
+      }, {
+        topic: declineTopic,
         folder: 'System',
         /* ⭐ WHOSE NOTE THIS IS ([[RS-60]]). The reason arrives in a SECOND call a moment
            later and has to find this row to file it under the reason chosen — by the
-           customer the token proves, never by an id the browser supplies. */
+           customer the token proves, never by an id the browser supplies.
+           ⚠ IT IS ON THE FALLBACK ROW AND NOT ONLY ON THE EMAIL, because the row is the
+           only one of the two that can be moved into a folder afterwards. Under
+           [[MSG-31]] that row exists only when the Gmail refused the send, so the
+           reason's own follow-up carries the words when there is nothing to file. */
         custId: match.id,
         name: oldData.name || '', phone: oldData.phone || '', email: oldData.email || '',
-        contactMethod: '',
-        message: (oldData.name || 'A customer') +
-          (response === 'no'
-            ? ' answered NO to this season\'s RSVP. They are off every upcoming route' +
-              (removedFrom ? ' (' + removedFrom + ' removed)' : '') +
-              ', their lights are queued to be recycled, and their customer number goes back ' +
-              'to the pool once the warehouse has them.'
-            : ' answered BACK NEXT YEAR. They are off every upcoming route' +
-              (removedFrom ? ' (' + removedFrom + ' removed)' : '') +
-              ' and nothing is being built for them this season, but they are still on the ' +
-              'books — they have not cancelled.'),
+        contactMethod: '', message: declineWords,
         autoQueuedToWarehouse: false,
-        needsReassign: false,
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        needsReassign: false
       });
     } catch (e) { console.error('[HU] RSVP decline note failed:', e); }
   }
@@ -3678,27 +3909,40 @@ async function declineAsksAboutLastYear(quoteData, quoteId) {
      no trace at all that a question is outstanding. Best-effort: the answer is
      recorded and must not be lost because a note could not be written. */
   const who = (cust.data && cust.data.name) || quoteData.name || 'A customer';
-  const noted = await tryFirestore('decline note', () =>
-    db.collection('messages').add({
+  /* ⚠ IN HER OWN WORDS. Owner: "we can email them asking them if they want
+     to do there normal lights with there normal bill instead." A note that
+     says "declined" and stops is one somebody acts on as a cancellation. */
+  const declinedWords = who + ' turned down their re-quote. This is NOT a cancellation — ' +
+    'they are still in for the season, their lights are unchanged and they stay on their ' +
+    'route. Email them and ask whether they just want their normal lights at their normal ' +
+    'bill instead: pick "Declined a re-quote" in the Automation Emails audience list to ' +
+    'reach everyone waiting on that question.';
+  /* ⛔ THE BROWSER'S OWN "Quote Declined" REPORT IS DELIBERATELY LEFT ALONE, and it is
+     not a duplicate of this one. `declineAsksAboutLastYear` returns before it ever
+     reaches this line when the decliner is not a customer of ours, so for a plain quote
+     — somebody who was never converted — the browser's note is the only report there is.
+     Removing it to stop a double-up for members would silence every non-member decline. */
+  /* ⚠ NOT THROUGH `tryFirestore`, AND THAT IS NOT AN OVERSIGHT. That helper reports a
+     failure by catching a THROW, and `tellOfficeServer` is written never to throw — so
+     wrapped in it `noted.ok` would come back true on every single call and the warning
+     below could never fire again. It returns its own verdict instead, and the warning
+     asks the question that actually matters: did BOTH channels fail. */
+  const noted = await tellOfficeServer({
+      customer_name: (cust.data && cust.data.name) || quoteData.name || '',
+      customer_phone: (cust.data && cust.data.phone) || quoteData.phone || '',
+      customer_email: (cust.data && cust.data.email) || quoteData.email || '',
+      topic: 'Re-quote Declined', message: declinedWords
+    }, {
       topic: 'Re-quote Declined', folder: 'System',
       name: (cust.data && cust.data.name) || quoteData.name || '',
       phone: (cust.data && cust.data.phone) || quoteData.phone || '',
       email: (cust.data && cust.data.email) || quoteData.email || '',
       contactMethod: '',
-      /* ⚠ IN HER OWN WORDS. Owner: "we can email them asking them if they want
-         to do there normal lights with there normal bill instead." A note that
-         says "declined" and stops is one somebody acts on as a cancellation. */
-      message: who + ' turned down their re-quote. This is NOT a cancellation — ' +
-               'they are still in for the season, their lights are unchanged and ' +
-               'they stay on their route. Email them and ask whether they just ' +
-               'want their normal lights at their normal bill instead: pick ' +
-               '"Declined a re-quote" in the Automation Emails audience list to ' +
-               'reach everyone waiting on that question.',
+      message: declinedWords,
       autoQueuedToWarehouse: false,
-      needsReassign: false,
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
-    }));
-  if (!noted.ok) problems.push(who + ' declined their re-quote and the office ' +
+      needsReassign: false
+    });
+  if (!noted.sent && !noted.filed) problems.push(who + ' declined their re-quote and the office ' +
     'could not be sent a note, so nobody has been told to ask them about last year');
   await flagQuoteFollowUp(quoteId, problems);
 
@@ -3842,27 +4086,34 @@ async function declineAddOnOnly(quoteData, quoteId) {
      go on expecting a garage that is not coming. Best-effort: the answer is
      already recorded and must not fail because a note could not be written. */
   const who = (cust.data && cust.data.name) || quoteData.name || 'A customer';
-  const noted = await tryFirestore('add-on decline note', () =>
-    db.collection('messages').add({
+  const addOnWords = who + ' said no to the extra lights they were re-quoted for' +
+    (quoteData.requoteKindNote ? ' (' + quoteData.requoteKindNote + ')' : '') +
+    '. This is NOT a cancellation — they are still in for the season, their existing ' +
+    'lights are unchanged, and they stay on their route. Nothing needs doing unless you ' +
+    'had already started building the extra.';
+  /* ⚠ NOT THROUGH `tryFirestore` — see the re-quote decline above. It catches throws,
+     and this helper does not throw, so `ok` would be permanently true and the warning
+     below — the one this file calls the more important of the two — would be dead. */
+  const noted = await tellOfficeServer({
+      customer_name: (cust.data && cust.data.name) || quoteData.name || '',
+      customer_phone: (cust.data && cust.data.phone) || quoteData.phone || '',
+      customer_email: (cust.data && cust.data.email) || quoteData.email || '',
+      topic: 'Add-On Declined', message: addOnWords
+    }, {
       topic: 'Add-On Declined', folder: 'System',
       name: (cust.data && cust.data.name) || quoteData.name || '',
       phone: (cust.data && cust.data.phone) || quoteData.phone || '',
       email: (cust.data && cust.data.email) || quoteData.email || '',
       contactMethod: '',
-      message: who + ' said no to the extra lights they were re-quoted for' +
-               (quoteData.requoteKindNote ? ' (' + quoteData.requoteKindNote + ')' : '') +
-               '. This is NOT a cancellation — they are still in for the season, ' +
-               'their existing lights are unchanged, and they stay on their route. ' +
-               'Nothing needs doing unless you had already started building the extra.',
+      message: addOnWords,
       autoQueuedToWarehouse: false,
-      needsReassign: false,
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
-    }));
+      needsReassign: false
+    });
   /* ⚠ THIS ONE MATTERS MORE THAN THE SEASON DECLINE'S NOTE. An add-on refusal
      leaves NO other trace anywhere — nothing drops off a route, nobody appears
      on the recycle list — so if the note does not land there is genuinely
      nothing for the office to notice. */
-  if (!noted.ok) problems.push(who + ' turned down their add-on and the office ' +
+  if (!noted.sent && !noted.filed) problems.push(who + ' turned down their add-on and the office ' +
     'could not be sent a note, so nobody has been told the extra is off');
   await flagQuoteFollowUp(quoteId, problems);
 

@@ -1,5 +1,6 @@
 /*
  * GMAIL FIRST, THE ADMIN INBOX ONLY IF THE GMAIL DID NOT GO  ([[MSG-30]], 2026-09-19)
+ * ...ON THE SERVER TOO  ([[MSG-31]], 2026-09-21 — see the second half of this file)
  *
  * Addie: "Currently we have the admin inbox and the gmail inbox but messages are getting
  * sent to gmail and admin. I only want them sent to gmail and if they fail to send to
@@ -262,13 +263,98 @@ const MAIL = { customer_name: 'Addie', customer_phone: '3853584716', customer_em
     'an error report that depends on the email service cannot report the email ' +
     'service being down — which is one of the things it exists to report');
 
-  /* ⛔ AND THE SERVER'S SYSTEM NOTICES ARE UNTOUCHED. [[MSG-17]] settled that they email
-     nobody, so they were never part of the double-post and must stay unconditional. */
-  const sysNotices = (stripComments(fns).match(/collection\('messages'\)\.add\(/g) || []).length;
-  check('the server still writes its system notices unconditionally',
-    sysNotices >= 8,
-    'found ' + sysNotices + ' — these never went to the Gmail, so making them ' +
-    'conditional on it would silence the nightly billing and reconcile notices');
+  /* ======================================================================== *
+   * ⭐ AND THE SERVER OBEYS THE SAME RULE ([[MSG-31]], 2026-09-21)
+   *
+   * Addie: "No messages coming from members or member portal changes should be going
+   * to admin inbox. There shouldn't even be duplicated emails in the admin inbox."
+   *
+   * ⛔ [[MSG-30]] ONLY EVER TOUCHED index.html, AND THAT IS WHY SHE WAS STILL READING
+   * THEM. Everything above this line is about the browser. functions/index.js went on
+   * writing its own rows unconditionally from five member PORTAL ACTIONS — a colour
+   * change made after the route was built, a rejoin after recycling, an RSVP no or back
+   * next year, a declined re-quote and a declined add-on. The rule was half-applied, and
+   * the half nobody could see from index.html was the half still filling her Inbox.
+   * ⛔ AND THE COLOUR CHANGE WAS THE LITERAL DUPLICATE. The browser emails and writes a
+   * row only when that send fails; the server wrote one every time. One member action,
+   * two rows, different wording.
+   *
+   * ⚠ WHAT IS CHECKED HERE IS OWNERSHIP, NOT BEHAVIOUR. run-all's Suites 117, 137, 138
+   * and the portalRsvp harness RUN `tellOfficeServer` against a fake mail service and
+   * prove both branches — that a successful send writes no row, that a refusal files one
+   * marked `alertFailed`. What only a census can hold is that no SIXTH member action
+   * quietly goes back to writing its own row beside it, which is exactly how this came
+   * back the first time.
+   * ======================================================================== */
+  const bareFns = stripComments(fns);
+
+  /* ⛔ THE SERVER SEND IS REFUSED WITHOUT THE PRIVATE KEY, AND THAT IS NOT A TIDY
+     THREE-FIELD CHECK. The browser sends with the public key alone; EmailJS refuses a
+     NON-BROWSER origin unless `accessToken` is supplied. So a helper that only required
+     the service and the template would 403 on every send and fall back to the Inbox for
+     ever — the exact behaviour [[MSG-31]] exists to remove, wearing the look of the
+     feature working. Every other server send in that file already checks all three.
+     ⚠ THIS CHECK EXISTS BECAUSE A RED-CHECK SAID IT WAS MISSING. Dropping `privateKey`
+     from the guard left every gate in this repo green — the harnesses seed a config that
+     carries all four keys, so no fixture could reach the case. A source check is the
+     honest tool for it: the failure is a request the fake mail service never sees. */
+  const tellServerSrc = lift(fns, 'tellOfficeServer') || '';
+  check('the server notifier refuses to send without all three EmailJS keys',
+    /!cfg\.serviceId \|\| !cfg\.notifyTemplateId \|\| !cfg\.privateKey/.test(stripComments(tellServerSrc)),
+    'without the private key EmailJS 403s a non-browser origin, so every notice would ' +
+    'fall back to the Inbox for ever while looking exactly like the feature working');
+  check('and it passes that key as accessToken, the way every other server send does',
+    /accessToken: cfg\.privateKey/.test(stripComments(tellServerSrc)),
+    'the public key alone is what the BROWSER sends with — it is not enough here');
+
+  const serverFunnel = (bareFns.match(/tellOfficeServer\(/g) || []).length;
+  check('every member-action notice on the server goes through the one funnel',
+    serverFunnel === 7,
+    'found ' + serverFunnel + ', expected 7 (one declaration + six callers: the colour ' +
+    'change after routing, the rejoin, the RSVP decline, the decline reason follow-up, ' +
+    'the re-quote decline and the add-on decline) — either a path stopped telling the ' +
+    'office at all, or a new one is writing its own row beside it');
+
+  /* ⚠ A CENSUS, NOT A FLOOR, AND THE FLOOR IS WHY. This check read `>= 8` until today
+     and passed at twelve, at ten and at nine alike — so five member notices could be
+     added to the Inbox with nothing going red. It was the count going DOWN that finally
+     failed it. Six is five notices that are genuinely about US plus the funnel's own
+     fallback write. Change it deliberately, in the same commit, the way this repo writes
+     down its other censuses: a writer vanishing is as interesting as one arriving. */
+  const sysNotices = (bareFns.match(/collection\('messages'\)\.add\(/g) || []).length;
+  check('and the six direct writes left on the server are all about us, not about a member',
+    sysNotices === 6,
+    'found ' + sysNotices + ' — expected 6: Payment With No Bill, Referral Taken Back, ' +
+    'Maybe Next Year — New Record, Nightly Billing Needs You, Cannot Be Billed, and ' +
+    'the funnel\'s own fallback write');
+
+  /* ⛔ AND EACH OF THOSE FIVE IS NAMED, because a bare number cannot tell a member
+     notice sneaking back in from one of these being renamed. [[MSG-17]] settled that
+     system notices email nobody — they were never part of the double-post, and making
+     them conditional on the mail service would silence the nightly billing run, which
+     is the one notice that exists because money did not move. */
+  const STAY_DIRECT = ['Payment With No Bill', 'Referral Taken Back',
+    'Maybe Next Year — New Record', 'Nightly Billing Needs You', 'Cannot Be Billed'];
+  const lost = STAY_DIRECT.filter(t => bareFns.indexOf("topic: '" + t + "'") === -1);
+  check('and the five that stay direct are still there by name',
+    lost.length === 0,
+    'missing: ' + lost.join(', ') + ' — a count alone cannot tell one of these being ' +
+    'renamed from a member notice quietly taking its place');
+
+  /* ⛔ THE BROWSER'S OWN "Quote Declined" REPORT IS DELIBERATELY KEPT, AND IT IS NOT A
+     DUPLICATE. `declineAsksAboutLastYear` returns BEFORE its notice when the decliner is
+     not a customer of ours, so for a plain quote — somebody who was never converted —
+     the browser's note is the only report there is. Removing it to stop a double-up for
+     members would silence every non-member decline. The cost, stated rather than fixed
+     by deleting a notice: an existing member who declines produces two Gmail emails
+     carrying different facts, and no Inbox row either way. */
+  const declineFn = lift(fns, 'declineAsksAboutLastYear') || '';
+  const guardAt = stripComments(declineFn).indexOf('if (!cust) return');
+  const noticeAt = stripComments(declineFn).indexOf('tellOfficeServer(');
+  check('a decline by somebody who is not a customer raises no server notice at all',
+    guardAt > -1 && noticeAt > -1 && guardAt < noticeAt,
+    'if that guard ever moves below the notice, the browser\'s Quote Declined really ' +
+    'does become a duplicate — and until then it is the only report a plain quote gets');
 
   console.log('');
   failures.forEach(f => console.log('  FAIL  ' + f + '\n'));

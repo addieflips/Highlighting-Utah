@@ -25,6 +25,12 @@ const AREAS = {
   CN: 'Customer numbers', DUP: 'Duplicates', MSG: 'Messages',
   PR: 'Printing', HC: 'Health Check', FIX: 'Fixes', OPT: 'Options',
   MR: 'Measure Roof', REF: 'Referrals',
+  /* ⚠ NOT `DUP`. That family is two records of one person and which to keep. This
+     one is what survives a record being lost on purpose — who gets a copy kept, and
+     where it goes. A delete that archives and a duplicate that merges look alike and
+     answer opposite questions: one is about keeping information, the other about
+     having too much of it. */
+  ARCH: 'The archive',
   /* ⚠ NOT `PR`. That family is the printed sheet — ink on paper for a crew. This one is
      the MEMBER PORTAL: signing in, staying signed in, and getting back out to the site.
      Nothing a customer sees on their phone belongs under Printing. */
