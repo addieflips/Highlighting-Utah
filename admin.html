@@ -11549,6 +11549,11 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              happened, and `seasonResetAt` below is the line that stops it reading as this
              season's. Clearing the flag and keeping the date is the whole design here. */
           removalDone: false,
+          /* ⭐ [[SCH-93]] AND A SOONEST / LATEST TAKEDOWN CHOICE IS THIS SEASON'S TOO.
+             Addie, 2026-09-23: "yes clear it each season". Somebody who asked for their
+             lights down early this year has not asked for next year. Null, not '' —
+             takedownTimingOf reads both as normal, and null says nobody has asked. */
+          takedownTiming: null,
           /* ⭐ THEY ARE NOT A NEW CUSTOMER ANY MORE. Owner: "if someone came from
              quotes this year but we are in 2027 than they are no longer a new
              costumer." Nothing else in the app has ever cleared this, while the

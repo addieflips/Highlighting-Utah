@@ -7032,8 +7032,8 @@ Addie: *"everyone will be scheduled as normal unless we push earliest or latest"
   ordinary houses from the same towns and their neighbours, so a first day is never short.
 - **Latest** customers go on the last days, and those days are NOT filled up — that would
   push other people to the back for no reason.
-- ⚠ `takedownTiming` is **not** cleared by Start New Season (yet), so a choice made this
-  season is still set next season until somebody presses Normal.
+- **Start New Season clears it** ([[SCH-93]]), in the same write that clears `removalDone`,
+  so a choice made this season does not carry into the next.
 
 Proved in run-all.js **Suite 351**.
 

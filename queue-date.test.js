@@ -426,6 +426,12 @@ check('the one place that sets the flag without queuing is still excluded',
       'left standing, a customer whose lights came down last December reads "Removed" all ' +
       'the way through the new season — the one job-done flag nothing else ever clears');
 
+    /* ⭐ [[SCH-93]] A Soonest / Latest takedown choice is this season's and resets with it.
+       Addie: "yes clear it each season". In THIS write, for the same reason as above. */
+    check('and a Soonest / Latest takedown choice is cleared with the season',
+      /takedownTiming\s*:\s*null/.test(write),
+      'left standing, somebody who asked for early takedown this year is taken down first every year after');
+
     /* ⚠ AND ITS DATE SURVIVES, which is the other half of the same ruling and the half a
        "tidy" fix would take with it. The flag says what is true of the season starting now;
        the date says when last season's takedown happened, and the history needs it. */
