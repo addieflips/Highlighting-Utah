@@ -52887,7 +52887,7 @@ function renderWarehouseQueue(){
                 : '')+
               /* Notes last, because they are the long bit and the facts above
                  are what gets read at a glance while building. */
-              (houseNotes ? '<span style="display:block; font-size:12px; color:var(--slate); margin-top:4px; white-space:pre-wrap;">'+esc(houseNotes)+'</span>' : '')+
+              (houseNotes ? whNoteBoxHtml(h.data) : '')+
             '</span>'+
             /* Everything on this row — the colours, the wire, the feet, the
                timer, the bin number — lives on the customer record, so Edit
@@ -53948,6 +53948,30 @@ function whNoteText(d){
    bundle is made and the permanent one survives. [[WH-38]]'s own rule: unlabelled, a
    one-time note is indistinguishable from a standing instruction and goes on being obeyed
    after the build it belonged to was made. */
+/* ⭐ THE NOTE HAS TO BE SEEN, NOT FOUND ([[WH-47]], 2026-09-23). Addie: "for warehouse I
+   need the warehouse note to be more well seen. It's to small right now". It was 12px grey
+   at the bottom of the row — the same size and colour as the bundle count above it, so a
+   note somebody wrote FOR the builder read like a footnote and got built past.
+   A box of its own now: a tinted panel, a label, 14px dark text, and the one-time note in
+   red on its own line because it is the only part that stops being true next week.
+   ⚠ ONE RENDERER FOR BOTH PLACES THE TAB SHOWS A NOTE — the build row and the find box —
+   so the two cannot drift. ⚠ THE WORDS ARE UNCHANGED: the same three fields whNoteText
+   reads, in the same order, so the screen still says exactly what the printed sheet says.
+   ⚠ AND NOTHING IS DRAWN WHEN THERE IS NO NOTE — an empty box on every row is noise. */
+function whNoteBoxHtml(d){
+  const once = String((d && d.warehouseOneTimeNote) || '').trim();
+  const w = String((d && d.warehouseNote) || '').trim();
+  const n = String((d && d.notes) || '').trim();
+  if(!once && !w && !n) return '';
+  return '<span class="wh-notebox" style="display:block; margin-top:8px; padding:8px 11px; '+
+      'background:#FFF8E1; border:1px solid #E4C77A; border-left:5px solid #C99A2E; border-radius:8px; '+
+      'font-size:14px; line-height:1.45; color:#2B2B2B; white-space:pre-wrap;">'+
+    '<span style="display:block; font-size:11px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:#8A6100; margin-bottom:3px;">\ud83d\udcdd Warehouse note</span>'+
+    (once ? '<span style="display:block; font-weight:800; color:#B02A37;">THIS BUILD ONLY: '+esc(once)+'</span>' : '')+
+    (w ? '<span style="display:block; font-weight:700;">'+esc(w)+'</span>' : '')+
+    (n ? '<span style="display:block;">'+esc(n)+'</span>' : '')+
+  '</span>';
+}
 function whNoteEditorHtml(h){
   const d = h.data || {};
   return '<div id="whnotepanel-'+esc(h.id)+'" style="display:none; padding:8px 0 10px; border-top:1px dashed var(--line);">'+
@@ -54106,7 +54130,7 @@ const WH_RECYCLE_COLUMNS = [
             '<div style="font-size:12px; color:var(--slate);">'+esc(d.address || 'no address on file')+
               (bins ? ' &middot; '+esc(bins)+' bin'+(bins === '1' ? '' : 's') : '')+'</div>'+
             '<div style="margin-top:4px; line-height:1.9;">'+whHouseFactsHtml(d)+'</div>'+
-            (note ? '<div style="font-size:12px; color:var(--slate); margin-top:4px; white-space:pre-wrap;">'+esc(note)+'</div>' : '')+
+            (note ? whNoteBoxHtml(d) : '')+
             '<div style="font-size:12px; margin-top:4px; color:'+colour+';">'+esc(whBuildStatusText(d.name, st))+'</div>'+
           '</div>'+
           '<button type="button" class="btn btn-outline btn-sm" data-whfindopen="'+a.id+'" style="flex:0 0 auto;">Open</button>'+

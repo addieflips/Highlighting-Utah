@@ -64325,3 +64325,28 @@ suite('352. Fixes and Takedowns have a name search too');
   check('S352', 'and each has a Clear button that is handled',
     /t\.id==='fixClearBtn'/.test(strippedA) && /t\.id==='takeClearBtn'/.test(strippedA));
 }
+suite('353. The warehouse note is drawn big enough to be seen');
+{
+  /* [[WH-47]] Addie, 2026-09-23: "for warehouse I need the warehouse note to be more well
+   * seen. It's to small right now". RUNS the one renderer both warehouse screens use. */
+  const strippedA = stripComments(admin);
+  const boxFn = extractFn(admin, 'whNoteBoxHtml');
+  check('S353', 'the note box renderer exists', !!boxFn);
+  if (boxFn) {
+    const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const box = new Function('esc', boxFn + '\nreturn whNoteBoxHtml;')(esc);
+    const html = box({warehouseNote: 'Bin on top shelf', warehouseOneTimeNote: 'Use Miller spare', notes: 'Gate 4412'});
+    check('S353', 'the note is 14px, not the 12px it was', /font-size:14px/.test(html), html);
+    check('S353', 'it sits in its own tinted, labelled box', /background:#FFF8E1/.test(html) && /Warehouse note/.test(html));
+    check('S353', 'all three notes are in it, the one-time note first and in red',
+      html.indexOf('THIS BUILD ONLY: Use Miller spare') !== -1 &&
+      html.indexOf('THIS BUILD ONLY') < html.indexOf('Bin on top shelf') &&
+      html.indexOf('Bin on top shelf') < html.indexOf('Gate 4412') &&
+      /color:#B02A37;">THIS BUILD ONLY/.test(html));
+    check('S353', 'no note draws nothing — no empty box on every row', box({}) === '' && box({warehouseNote: '  '}) === '');
+    check('S353', 'what somebody typed is escaped, not run', box({warehouseNote: '<b>x</b>'}).indexOf('<b>x</b>') === -1);
+  }
+  check('S353', 'the build row and the find box both draw it',
+    /\(houseNotes \? whNoteBoxHtml\(h\.data\) : ''\)/.test(strippedA) && /\(note \? whNoteBoxHtml\(d\) : ''\)/.test(strippedA),
+    'one screen showing it big and the other small is two answers about one house');
+}
