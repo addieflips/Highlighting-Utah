@@ -7061,6 +7061,12 @@ had long since rearranged.
 
 **Now ⚙ Recalculate everything rebuilds them from the customer records** (`rebuildTakedownDays`):
 
+- **Planned ahead** ([[SCH-94]]): anybody on an **install day** of the plan is given a
+  planned takedown before they are hung, so the whole takedown season can be seen and
+  printed in September. Until they are hung, their install day stands in for the hang
+  date. If they then say **No** or **Back Next Year**, or are **deleted**, the customer
+  sync notices within minutes and rebuilds the takedown days on its own — no button.
+  A takedown day inside the 48-hour lock is never touched.
 - **Who:** lights up (`completed`) and not down yet (`removalDone`). Nobody who said **No**
   or **Back Next Year** (either the RSVP answer or the office badge), and nobody never hung.
   Anyone hung who then said No is **named on the press**, because that is lights left on a
