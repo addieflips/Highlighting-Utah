@@ -64063,3 +64063,163 @@ suite('350. The numbers on their own, and the people who have none');
     /if\(noPhoneBtn\) noPhoneBtn\.addEventListener\('click'/.test(strippedA),
     'a button with no handler looks identical to a working one');
 }
+suite('351. Takedown days are built from the customers, busiest town first');
+{
+  /* [[SCH-88]]–[[SCH-91]]. RUNS the three rules and the rebuild rather than matching
+   * their source — every claim here is about who ends up on which takedown day. */
+  const saidNoFn = extractFn(admin, 'takedownSaidNo');
+  const timingFn = extractFn(admin, 'takedownTimingOf');
+  const owedFn = extractFn(admin, 'takedownOwed');
+  const planFn = extractFn(admin, 'planTakedownDays');
+  const rebuildFn = extractFn(admin, 'rebuildTakedownDays');
+  const perDayM = admin.match(/const TAKEDOWN_PER_DAY\s*=\s*(\d+)/);
+  check('S351', 'the takedown builder was found', !!(saidNoFn && timingFn && owedFn && planFn && rebuildFn && perDayM));
+  check('S351', 'a takedown day holds 40', perDayM && perDayM[1] === '40', 'Addie: "40 per day for takedown."');
+
+  if (saidNoFn && owedFn && planFn && rebuildFn && perDayM) {
+    const R = new Function('const TAKEDOWN_PER_DAY=' + perDayM[1] + ';\n' + saidNoFn + '\n' + timingFn + '\n' + owedFn + '\n' + planFn +
+      '\nreturn {takedownSaidNo, takedownTimingOf, takedownOwed, planTakedownDays};')();
+
+    const book = [
+      {id:'a', data:{name:'Hung', completed:true}},
+      {id:'b', data:{name:'Down already', completed:true, removalDone:true}},
+      {id:'c', data:{name:'Never hung', completed:false}},
+      {id:'d', data:{name:'Said no', completed:true, rsvpStatus:'No'}},
+      {id:'e', data:{name:'Back next year', completed:true, rsvpStatus:'backnextyear'}},
+      {id:'f', data:{name:'Office badge', completed:true, maybeNextYear:true}},
+      {id:'g', data:{name:'Said yes', completed:true, rsvpStatus:'yes'}}
+    ];
+    const split = R.takedownOwed(book);
+    const owedIds = split.owed.map(x => x.id).sort().join(',');
+    check('S351', 'only hung, not-yet-down houses that did not say no are owed a takedown', owedIds === 'a,g', owedIds);
+    check('S351', 'never hung means no takedown', owedIds.indexOf('c') === -1);
+    check('S351', 'No, Back Next Year and the office badge all mean no takedown — and are counted, not lost',
+      split.saidNo.map(x => x.id).sort().join(',') === 'd,e,f');
+
+    // Busiest town first; inside a town, first hung first down.
+    const mk = (town, n, t0) => Array.from({length:n}, (_, i) => ({town, name: town + i, at: t0 + (n - i) * 1000, ref: town + i}));
+    const pool = mk('Lehi', 50, 0).concat(mk('Draper', 30, 0), mk('Alpine', 5, 0));
+    const near = (a, b) => (a === 'Lehi' && b === 'Alpine') || (a === 'Alpine' && b === 'Lehi');
+    const days = R.planTakedownDays(pool, {perDay: 40, maxTowns: 4, near});
+    const towns = d => Array.from(new Set(d.map(w => w.town))).join('+');
+    check('S351', 'day one is the busiest town, full', days[0].length === 40 && towns(days[0]) === 'Lehi', towns(days[0]));
+    check('S351', 'the count is redone before the next day', towns(days[1]) === 'Draper', days.map(towns).join(' / '));
+    check('S351', 'a short town is topped up from a NEIGHBOUR, never from across the valley',
+      towns(days[2]) === 'Lehi+Alpine' && days[2].length === 15, days.map(towns).join(' / '));
+    check('S351', 'everybody is placed exactly once',
+      days.reduce((n, d) => n + d.length, 0) === 85 && new Set([].concat(...days).map(w => w.ref)).size === 85);
+    const lehi = days[0].map(w => w.at);
+    check('S351', 'inside a town, first hung comes down first',
+      lehi.every((v, i) => i === 0 || lehi[i - 1] <= v) && days[0][0].ref === 'Lehi49');
+    const undated = R.planTakedownDays([{town:'X', name:'b', at:null}, {town:'X', name:'a', at:5}], {perDay:40});
+    check('S351', 'a house with no hang date goes after the dated ones, not first', undated[0][0].name === 'a');
+    const same1 = R.planTakedownDays(pool.slice(), {perDay:40, near}).map(towns).join('/');
+    const same2 = R.planTakedownDays(pool.slice().reverse(), {perDay:40, near}).map(towns).join('/');
+    check('S351', 'the same book gives the same days whatever order it arrives in', same1 === same2);
+    const four = R.planTakedownDays(mk('A',1,0).concat(mk('B',1,0),mk('C',1,0),mk('D',1,0),mk('E',1,0)),
+      {perDay:40, maxTowns:4, near:()=>true});
+    check('S351', 'never more towns on a day than a day may hold', four.every(d => new Set(d.map(w => w.town)).size <= 4));
+
+    // [[SCH-92]] Soonest / Latest possible, one customer at a time.
+    check('S351', 'nobody marked is normal, and only the two words count',
+      R.takedownTimingOf({}) === '' && R.takedownTimingOf({takedownTiming:null}) === '' &&
+      R.takedownTimingOf({takedownTiming:'Soonest'}) === 'soonest' && R.takedownTimingOf({takedownTiming:'latest'}) === 'latest' &&
+      R.takedownTimingOf({takedownTiming:'someday'}) === '');
+    const tpool = mk('Lehi', 60, 0).concat(mk('Draper', 30, 0), mk('Alpine', 3, 0));
+    tpool.find(w => w.ref === 'Alpine0').timing = 'soonest';
+    tpool.find(w => w.ref === 'Lehi0').timing = 'latest';
+    const tdays = R.planTakedownDays(tpool, {perDay: 40, maxTowns: 4, near});
+    const refs = d => d.map(w => w.ref);
+    check('S351', 'a Soonest customer is on the first takedown day, whatever their town',
+      refs(tdays[0]).indexOf('Alpine0') !== -1, tdays.map(towns).join(' / '));
+    check('S351', 'the Soonest day is filled up to 40, not left short',
+      tdays[0].length === 40, String(tdays[0].length));
+    check('S351', 'and it is filled from its own town and neighbours only',
+      tdays[0].every(w => w.town === 'Alpine' || w.town === 'Lehi'), towns(tdays[0]));
+    check('S351', 'a Latest customer is on the very last takedown day',
+      refs(tdays[tdays.length - 1]).indexOf('Lehi0') !== -1, tdays.map(towns).join(' / '));
+    check('S351', 'the Latest day holds only the Latest customers — nobody else is pushed back',
+      tdays[tdays.length - 1].every(w => w.timing === 'latest'));
+    const plainDays = R.planTakedownDays(mk('Lehi', 60, 0).concat(mk('Draper', 30, 0), mk('Alpine', 3, 0)), {perDay: 40, maxTowns: 4, near});
+    check('S351', 'with nobody marked, the season is laid out exactly as the normal rule',
+      plainDays.map(towns).join(' / ') === 'Lehi / Draper / Lehi+Alpine', plainDays.map(towns).join(' / '));
+    check('S351', 'everybody is still placed exactly once with timings set',
+      tdays.reduce((n, d) => n + d.length, 0) === 93 && new Set([].concat(...tdays).map(w => w.ref)).size === 93);
+
+    // The rebuild itself, against a small plan.
+    const DAYMS = 86400000;
+    const T0 = new Date(2027, 0, 4);
+    const src = 'const TAKEDOWN_PER_DAY=40;\n' + saidNoFn + '\n' + timingFn + '\n' + owedFn + '\n' + planFn + '\n' + rebuildFn +
+      '\nreturn rebuildTakedownDays;';
+    const run = (season, cust, lockedDates, takeDelta) => {
+      const env = {
+        SEASON: season, jobAddresses: cust, TAKE_BASE_START: T0, takeDelta: takeDelta || 0,
+        addDays: (d, n) => new Date(d.getTime() + n * DAYMS),
+        daysBetween: (a, b) => Math.round((a - b) / DAYMS),
+        isoOf: d => d.toISOString().slice(0, 10),
+        dayDate: d => d._date, pinHorizon: () => new Date(2026, 8, 25),
+        routeDayIsLocked: s => (lockedDates || []).indexOf(s) !== -1,
+        hlxResolvePlanHouse: h => ({id: String(h.srcId).replace('cust-', '')}),
+        houseFromCustomer: it => ({id: 'cust-' + it.id, name: it.data.name, city: it.data.city}),
+        toJsDate: v => v ? new Date(v) : null, extractCleanCity: c => c,
+        maxTownsPerDay: () => 4, townsAreNeighbours: () => false
+      };
+      const names = Object.keys(env);
+      const fn = new Function(...names, src.replace('return rebuildTakedownDays;', 'const r = rebuildTakedownDays(); return {r, SEASON};'));
+      return fn(...names.map(k => env[k]));
+    };
+    const cust = [
+      {id:'old', data:{name:'Imported', city:'Lehi', completed:true, completedAt: 1}},
+      {id:'new', data:{name:'Rachel New', city:'Lehi', completed:true, completedAt: 2}},
+      {id:'early', data:{name:'Early Bird', city:'Draper', completed:true, completedAt: 9, takedownTiming:'soonest'}},
+      {id:'no',  data:{name:'Declined', city:'Lehi', completed:true, rsvpStatus:'no'}}
+    ];
+    const imported = [{id:'d0', houses:[]},
+      {id:'td0', isTakedown:true, base:0, cascade:0, houses:[{id:'t0', srcId:'cust-old', done:false}], _date:T0}];
+    const out = run(imported, cust);
+    const tds = out.SEASON.filter(d => d.isTakedown);
+    const ids = [].concat(...tds.map(d => d.houses.map(h => h.srcId))).sort().join(',');
+    check('S351', 'a customer added after the import gets a takedown day', ids.indexOf('cust-new') !== -1, ids);
+    check('S351', 'nobody is on two takedown days, and a No gets none', ids === 'cust-early,cust-new,cust-old', ids);
+    const firstNew = tds.filter(d => d.id !== 'td0').sort((a, b) => a.base - b.base)[0];
+    check('S351', 'the rebuild reads the stored Soonest choice off the customer',
+      firstNew && firstNew.houses.some(h => h.srcId === 'cust-early'), JSON.stringify(tds.map(d => [d.base, d.houses.map(h => h.srcId)])));
+    check('S351', 'install days are not touched', out.SEASON.some(d => d.id === 'd0'));
+    check('S351', 'every takedown row points at its customer by id',
+      tds.every(d => d.houses.every(h => h.isTakedown === true && /^cust-/.test(h.srcId))));
+    check('S351', 'new takedown days start at the Takedown start box (4 Jan)',
+      tds.every(d => d.base === 0 || d.base > 0) && tds[0].base === 0, JSON.stringify(tds.map(d => d.base)));
+    const earlier = run(imported.map(d => Object.assign({}, d, {houses: d.houses.slice()})), cust, [], -10);
+    const eTd = earlier.SEASON.filter(d => d.isTakedown);
+    check('S351', 'moving the Takedown start box earlier moves the new days with it',
+      eTd[0].base + (-10) === -10, JSON.stringify(eTd.map(d => d.base)));
+    const worked = [{id:'td0', isTakedown:true, base:0, cascade:0, _date:T0,
+      houses:[{id:'t0', srcId:'cust-old', done:true}, {id:'t1', srcId:'cust-new', done:false}]}];
+    const w = run(worked, cust);
+    const wIds = [].concat(...w.SEASON.filter(d => d.isTakedown).map(d => d.houses.map(h => h.srcId + (h.done ? '*' : '')))).sort().join(',');
+    check('S351', 'a ticked takedown stays as the record and is not laid out again', wIds === 'cust-early,cust-new,cust-old*', wIds);
+    const locked = [{id:'td0', isTakedown:true, base:0, cascade:0, _date:T0,
+      houses:[{id:'t1', srcId:'cust-new', done:false}]}];
+    const l = run(locked, cust, ['2027-01-04']);
+    const lDay = l.SEASON.find(d => d.id === 'td0');
+    check('S351', 'a takedown day inside the 48-hour lock is kept whole',
+      lDay && lDay.houses.length === 1 && lDay.houses[0].srcId === 'cust-new',
+      JSON.stringify(l.SEASON.map(d => d.id)));
+  }
+
+  const strippedA = stripComments(admin);
+  const recalc = strippedA.indexOf('function runRecalculateEverything(');
+  const body = recalc === -1 ? '' : strippedA.slice(recalc, strippedA.indexOf('\n  }', recalc));
+  check('S351', 'Recalculate everything rebuilds the takedowns before it generates the routes',
+    body.indexOf('rebuildTakedownDays()') !== -1 && body.indexOf('rebuildTakedownDays()') < body.indexOf('generateAllRoutes()'),
+    'without this the builder exists and nothing ever calls it');
+  check('S351', 'the press names who was left off for saying No',
+    /td\.saidNo\)\s*parts\.push/.test(body), 'a hung house with no takedown is lights left on a roof');
+  check('S351', 'the Soonest / Latest buttons are drawn on a takedown row and handled',
+    /data-taketiming="soonest"/.test(admin) && /data-taketiming="latest"/.test(admin) &&
+    /if\(t\.dataset\.taketiming\)\{setTakedownTiming\(/.test(strippedA),
+    'a button with no handler looks identical to a working one');
+  const setFn = extractFn(strippedA, 'setTakedownTiming');
+  check('S351', 'the choice is saved on the CUSTOMER, so a Recalculate keeps it',
+    !!setFn && /updateDoc\(doc\(db,\s*'jobAddresses',\s*cust\.id\),\s*\{takedownTiming:/.test(setFn));
+}
