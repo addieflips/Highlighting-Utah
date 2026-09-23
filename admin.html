@@ -71280,15 +71280,49 @@ async function setTakedownTiming(houseId, value){
   renderAll(); scheduleSave();
   toast((f.house.name || 'They') + ' marked ' + (v === 'soonest' ? 'soonest' : 'latest') + ' possible');
 }
-function takedownOwed(list){
+/* ⭐ [[SCH-94]] PLANNED FROM THE INSTALL SCHEDULE, NOT ONLY FROM WHAT IS HUNG (2026-09-23).
+   Addie, told that the takedown tab stays empty until October: "do 1 and if they change
+   to no or back next year or costumer is deleted than reschedule takedowns since those
+   won't be hunged". So a customer is owed a takedown when their lights are up OR they are
+   on an install day of the plan (`scheduled`, a map of customer id -> that day's date),
+   and not yet down.
+   ⚠ THE THREE WAYS OFF ARE HERS: said No or Back Next Year, or deleted. A deleted customer
+   is not in jobAddresses at all, so they are never listed here; the other two are
+   takedownSaidNo. Somebody hung who then said no is still COUNTED in `saidNo` so the
+   press can name them — their lights are on a roof. Somebody who said no before being
+   hung is simply not owed one and needs no name. */
+function takedownOwed(list, scheduled){
   const owed = [], saidNo = [];
+  const sched = scheduled || {};
   (list || []).forEach(function(item){
     const d = (item && item.data) || {};
-    if(d.completed !== true || d.removalDone === true) return;
-    if(takedownSaidNo(d)){ saidNo.push(item); return; }
+    if(d.removalDone === true) return;
+    const hung = d.completed === true;
+    if(!hung && !Object.prototype.hasOwnProperty.call(sched, item.id)) return;
+    if(takedownSaidNo(d)){ if(hung) saidNo.push(item); return; }
     owed.push(item);
   });
   return {owed: owed, saidNo: saidNo};
+}
+/* Every customer on an install day of the plan, with the earliest such day (ms). Houses
+   already ticked done are included — their takedown still matters — and fixes are not
+   installs. Resolved by id first (planCustomerFor), so a reissued customer number cannot
+   hand somebody else's day to the wrong person. */
+function takedownInstallDates(){
+  const out = {};
+  (typeof SEASON === 'undefined' ? [] : SEASON).forEach(function(day){
+    if(!day || day.isTakedown || day.isFixRoute) return;
+    const dt = dayDate(day);
+    (day.houses || []).forEach(function(h){
+      if(!h || h.isFix) return;
+      const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h)
+        : ((typeof hlxResolvePlanHouse === 'function') ? hlxResolvePlanHouse(h) : null);
+      if(!c) return;
+      const t = dt ? dt.getTime() : null;
+      if(!(c.id in out) || (t !== null && (out[c.id] === null || t < out[c.id]))) out[c.id] = t;
+    });
+  });
+  return out;
 }
 /* ⭐ SOONEST AND LATEST, ONE CUSTOMER AT A TIME ([[SCH-92]], 2026-09-23). Addie: "option 1
    for each customer", then "However everyone will be scheduled as normal unless we push
@@ -71380,15 +71414,19 @@ function rebuildTakedownDays(){
       if(c) placed.add(c.id);
     });
   });
-  const split = takedownOwed(jobAddresses);
+  const installAt = takedownInstallDates();
+  const split = takedownOwed(jobAddresses, installAt);
   res.saidNo = split.saidNo.length;
   res.saidNoNames = split.saidNo.slice(0, 5).map(function(x){ return (x.data && x.data.name) || '(no name)'; });
   const pool = split.owed.filter(function(item){ return !placed.has(item.id); }).map(function(item){
     const d = item.data || {};
-    const when = (typeof toJsDate === 'function') ? toJsDate(d.completedAt) : null;
+    /* First hung, first down: the real hang date once there is one, and until then the
+       day they are planned to be hung on. */
+    const when = (d.completed === true && typeof toJsDate === 'function') ? toJsDate(d.completedAt) : null;
+    const planned = installAt[item.id];
     return {item: item, name: d.name || '', timing: takedownTimingOf(d),
             town: (typeof extractCleanCity === 'function' ? extractCleanCity(d.city) : d.city) || 'Unknown',
-            at: when ? when.getTime() : null};
+            at: when ? when.getTime() : (typeof planned === 'number' ? planned : null)};
   });
   const plan = planTakedownDays(pool, {
     perDay: TAKEDOWN_PER_DAY,
@@ -71418,6 +71456,29 @@ function rebuildTakedownDays(){
   res.houses = pool.length;
   res.kept = keep.length;
   return res;
+}
+/* ⭐ [[SCH-94]] — "if they change to no or back next year or costumer is deleted than
+   reschedule takedowns". Asked on every customer sync, so a takedown day stops holding
+   somebody who will not be hung WITHOUT anybody pressing Recalculate. Answers who on an
+   OPEN takedown day (not locked, not ticked) is no longer owed one: deleted (resolves to
+   nobody), or said No / Back Next Year. The caller then rebuilds the takedown days —
+   the same rebuild the button runs, so the gap is re-packed rather than left short.
+   ⚠ A LOCKED DAY IS NEVER TOUCHED: it is printed, and the crew is holding that sheet. */
+function takedownsNoLongerOwed(){
+  const gone = [];
+  if(typeof jobAddresses === 'undefined' || !jobAddresses.length) return gone;
+  (typeof SEASON === 'undefined' ? [] : SEASON).forEach(function(day){
+    if(!day || !day.isTakedown) return;
+    const dt = dayDate(day);
+    if(dt && typeof routeDayIsLocked === 'function' && routeDayIsLocked(isoOf(dt))) return;
+    (day.houses || []).forEach(function(h){
+      if(!h || h.done) return;
+      const c = (typeof hlxResolvePlanHouse === 'function') ? hlxResolvePlanHouse(h) : null;
+      if(!c) { gone.push({name: h.name || '(no name)', why: 'deleted'}); return; }
+      if(takedownSaidNo(c.data)) gone.push({name: (c.data && c.data.name) || h.name || '(no name)', why: 'said no'});
+    });
+  });
+  return gone;
 }
 /* ---------- area matching / fixes / signups (available for phase 2 wiring) ---------- */
 function areaScore(h,day){
@@ -76495,6 +76556,15 @@ function exportCSV(){
     try{ rejoin=placeUnscheduledOnNextDay(); }catch(err){ console.error("Rejoin placement failed:",err); }
     let timing={moved:[],stuck:[]};
     try{ timing=enforceInstallTiming(); }catch(err){ console.error("Timing sweep failed:",err); }
+    /* ⭐ [[SCH-94]] AND THE TAKEDOWN DAYS FOLLOW. Somebody who has just said No or Back
+       Next Year, or been deleted, will not be hung, so they come off their takedown day
+       and the takedown days are laid out again. Only when somebody actually went — a
+       rebuild on every tick would reshuffle January for no reason. */
+    let tdGone=[];
+    try{
+      tdGone=takedownsNoLongerOwed();
+      if(tdGone.length){ rebuildTakedownDays(); computeDates(); }
+    }catch(err){ console.error('Takedown reschedule failed:',err); tdGone=[]; }
     /* ⚠ THE DROP COUNTS BELONG HERE OR THE WHOLE FIX IS DEAD. A tick whose only
        finding is that somebody left the season would return before renderAll and
        scheduleSave, so the house would come off the plan in memory and go straight
@@ -76502,7 +76572,8 @@ function exportCSV(){
     if(!moved.length && !timing.moved.length && !timing.stuck.length
        && !rejoin.placed.length && !rejoin.stuck.length
        && !leftSeason.dropped.length && !leftSeason.locked.length
-       && !rehome.moved.length && !rehome.stuck.length && !rehome.locked.length) return 0;
+       && !rehome.moved.length && !rehome.stuck.length && !rehome.locked.length
+       && !tdGone.length) return 0;
     /* ⭐ A HOUSE THAT HAS JUST CHANGED DAY OR TOWN IS SITTING OUT OF ORDER.
        enforceInstallTiming puts it on the END of its new day, and a corrected
        town can hand it to the other crew — either way the driving order the day
@@ -76544,6 +76615,9 @@ function exportCSV(){
       /* ⚠ AND THE ONES NOTHING CAN BE DONE ABOUT ARE SAID OUT LOUD RATHER THAN SKIPPED.
          A day inside 48 hours is printed and loaded, so the crew is still holding this
          house — that is a phone call, not a silence. */
+      if(tdGone.length) bits.push(tdGone.length===1
+        ? (tdGone[0].name+(tdGone[0].why==='deleted'?' was deleted':' said no')+" \u2014 takedowns rescheduled")
+        : (tdGone.length+" will not be hung \u2014 takedowns rescheduled"));
       if(leftSeason.locked.length) bits.push(leftSeason.locked.length+
         " out for the season but still on a day the crew has \u2014 ring them");
       /* ⚠ A MOVE IS NAMED, ALWAYS. "Somebody left Tuesday" with no explanation is how

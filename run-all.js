@@ -64069,11 +64069,13 @@ suite('351. Takedown days are built from the customers, busiest town first');
    * their source — every claim here is about who ends up on which takedown day. */
   const saidNoFn = extractFn(admin, 'takedownSaidNo');
   const timingFn = extractFn(admin, 'takedownTimingOf');
+  const installFn = extractFn(admin, 'takedownInstallDates');
+  const goneFn = extractFn(admin, 'takedownsNoLongerOwed');
   const owedFn = extractFn(admin, 'takedownOwed');
   const planFn = extractFn(admin, 'planTakedownDays');
   const rebuildFn = extractFn(admin, 'rebuildTakedownDays');
   const perDayM = admin.match(/const TAKEDOWN_PER_DAY\s*=\s*(\d+)/);
-  check('S351', 'the takedown builder was found', !!(saidNoFn && timingFn && owedFn && planFn && rebuildFn && perDayM));
+  check('S351', 'the takedown builder was found', !!(saidNoFn && timingFn && installFn && goneFn && owedFn && planFn && rebuildFn && perDayM));
   check('S351', 'a takedown day holds 40', perDayM && perDayM[1] === '40', 'Addie: "40 per day for takedown."');
 
   if (saidNoFn && owedFn && planFn && rebuildFn && perDayM) {
@@ -64092,7 +64094,17 @@ suite('351. Takedown days are built from the customers, busiest town first');
     const split = R.takedownOwed(book);
     const owedIds = split.owed.map(x => x.id).sort().join(',');
     check('S351', 'only hung, not-yet-down houses that did not say no are owed a takedown', owedIds === 'a,g', owedIds);
-    check('S351', 'never hung means no takedown', owedIds.indexOf('c') === -1);
+    check('S351', 'never hung and on no install day means no takedown', owedIds.indexOf('c') === -1);
+    // [[SCH-94]] planned from the install schedule.
+    const planned = R.takedownOwed(book.concat([
+      {id:'p', data:{name:'On an install day', completed:false}},
+      {id:'q', data:{name:'On a day, then said no', completed:false, rsvpStatus:'no'}}
+    ]), {c: 1, p: 2, q: 3});
+    const pIds = planned.owed.map(x => x.id).sort().join(',');
+    check('S351', 'somebody on an install day gets a planned takedown before they are hung', pIds === 'a,c,g,p', pIds);
+    check('S351', 'somebody on an install day who then said no gets none', pIds.indexOf('q') === -1);
+    check('S351', 'and is not named as a hung house left up — they were never hung',
+      planned.saidNo.map(x => x.id).indexOf('q') === -1);
     check('S351', 'No, Back Next Year and the office badge all mean no takedown — and are counted, not lost',
       split.saidNo.map(x => x.id).sort().join(',') === 'd,e,f');
 
@@ -64149,7 +64161,7 @@ suite('351. Takedown days are built from the customers, busiest town first');
     // The rebuild itself, against a small plan.
     const DAYMS = 86400000;
     const T0 = new Date(2027, 0, 4);
-    const src = 'const TAKEDOWN_PER_DAY=40;\n' + saidNoFn + '\n' + timingFn + '\n' + owedFn + '\n' + planFn + '\n' + rebuildFn +
+    const src = 'const TAKEDOWN_PER_DAY=40;\n' + saidNoFn + '\n' + timingFn + '\n' + installFn + '\n' + goneFn + '\n' + owedFn + '\n' + planFn + '\n' + rebuildFn +
       '\nreturn rebuildTakedownDays;';
     const run = (season, cust, lockedDates, takeDelta) => {
       const env = {
@@ -64162,10 +64174,11 @@ suite('351. Takedown days are built from the customers, busiest town first');
         hlxResolvePlanHouse: h => ({id: String(h.srcId).replace('cust-', '')}),
         houseFromCustomer: it => ({id: 'cust-' + it.id, name: it.data.name, city: it.data.city}),
         toJsDate: v => v ? new Date(v) : null, extractCleanCity: c => c,
-        maxTownsPerDay: () => 4, townsAreNeighbours: () => false
+        maxTownsPerDay: () => 4, townsAreNeighbours: () => false,
+        planCustomerFor: h => { const r = String(h.srcId || h.id); return r.indexOf('cust-') === 0 ? {id: r.slice(5)} : null; }
       };
       const names = Object.keys(env);
-      const fn = new Function(...names, src.replace('return rebuildTakedownDays;', 'const r = rebuildTakedownDays(); return {r, SEASON};'));
+      const fn = new Function(...names, src.replace('return rebuildTakedownDays;', 'const r = rebuildTakedownDays(); return {r, SEASON, gone: takedownsNoLongerOwed()};'));
       return fn(...names.map(k => env[k]));
     };
     const cust = [
@@ -64193,6 +64206,45 @@ suite('351. Takedown days are built from the customers, busiest town first');
     const eTd = earlier.SEASON.filter(d => d.isTakedown);
     check('S351', 'moving the Takedown start box earlier moves the new days with it',
       eTd[0].base + (-10) === -10, JSON.stringify(eTd.map(d => d.base)));
+    // [[SCH-94]] a house on an install day, not hung yet, gets a planned takedown ordered by that day.
+    const planCust = [
+      {id:'late', data:{name:'Hung Nov', city:'Lehi', completed:false}},
+      {id:'soon', data:{name:'Hung Oct', city:'Lehi', completed:false}},
+      {id:'nope', data:{name:'Said no', city:'Lehi', completed:false, rsvpStatus:'backnextyear'}},
+      {id:'none', data:{name:'Not on any day', city:'Lehi', completed:false}}
+    ];
+    const planSeason = [
+      {id:'i1', houses:[{id:'cust-late'}], _date:new Date(2026, 10, 3)},
+      {id:'i0', houses:[{id:'cust-soon'}, {id:'cust-nope'}], _date:new Date(2026, 9, 2)}
+    ];
+    const pr = run(planSeason, planCust);
+    const pTd = pr.SEASON.filter(d => d.isTakedown);
+    const pOrder = [].concat(...pTd.map(d => d.houses.map(h => h.srcId))).join(',');
+    check('S351', 'before anybody is hung, the install schedule plans the takedowns, first planned first down',
+      pOrder === 'cust-soon,cust-late', pOrder);
+    check('S351', 'Back Next Year and customers on no install day get no planned takedown',
+      pOrder.indexOf('cust-nope') === -1 && pOrder.indexOf('cust-none') === -1, pOrder);
+    const offPlan = run([{id:'i0', houses:[{id:'cust-soon'}], _date:new Date(2026, 9, 2)},
+      {id:'td5', isTakedown:true, base:0, cascade:0, _date:T0, houses:[{id:'tk-none', srcId:'cust-none', done:false}]}], planCust);
+    const offIds = [].concat(...offPlan.SEASON.filter(d => d.isTakedown).map(d => d.houses.map(h => h.srcId))).join(',');
+    check('S351', 'a takedown row alone does not count as being on an install day — somebody off the install plan loses their planned takedown',
+      offIds === 'cust-soon', offIds);
+    // [[SCH-94]] said no / deleted after being planned -> found, and only on open days.
+    const stale = [{id:'td9', isTakedown:true, base:0, cascade:0, _date:T0, houses:[
+      {id:'tk-nope', srcId:'cust-nope', name:'Said no'}, {id:'tk-soon', srcId:'cust-soon', name:'Hung Oct'},
+      {id:'tk-x', srcId:'cust-x', name:'Deleted'}]}];
+    const runGone = (season, cust, locked) => {
+      const env = {SEASON: season, jobAddresses: cust, dayDate: d => d._date, isoOf: d => d.toISOString().slice(0, 10),
+        routeDayIsLocked: s => (locked || []).indexOf(s) !== -1,
+        hlxResolvePlanHouse: h => cust.find(c => 'cust-' + c.id === h.srcId) || null};
+      const names = Object.keys(env);
+      return new Function(...names, saidNoFn + '\n' + goneFn + '\nreturn takedownsNoLongerOwed();')(...names.map(k => env[k]));
+    };
+    const g = runGone(stale, planCust);
+    check('S351', 'somebody who said no or was deleted is found on their takedown day',
+      g.map(x => x.why).sort().join(',') === 'deleted,said no', JSON.stringify(g));
+    check('S351', 'but a takedown day the crew already has is left alone',
+      runGone(stale, planCust, ['2027-01-04']).length === 0);
     const worked = [{id:'td0', isTakedown:true, base:0, cascade:0, _date:T0,
       houses:[{id:'t0', srcId:'cust-old', done:true}, {id:'t1', srcId:'cust-new', done:false}]}];
     const w = run(worked, cust);
@@ -64222,4 +64274,8 @@ suite('351. Takedown days are built from the customers, busiest town first');
   const setFn = extractFn(strippedA, 'setTakedownTiming');
   check('S351', 'the choice is saved on the CUSTOMER, so a Recalculate keeps it',
     !!setFn && /updateDoc\(doc\(db,\s*'jobAddresses',\s*cust\.id\),\s*\{takedownTiming:/.test(setFn));
+  check('S351', 'the customer sync reschedules takedowns when somebody will not be hung',
+    /tdGone=takedownsNoLongerOwed\(\);\s*if\(tdGone\.length\)\{\s*rebuildTakedownDays\(\)/.test(strippedA) &&
+    /&& !tdGone\.length\) return 0;/.test(strippedA),
+    'without this a No or a deletion only reaches the takedown days when somebody presses Recalculate');
 }
