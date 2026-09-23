@@ -256,6 +256,13 @@ jobs:
         run: npm run test:whnote
       - name: Warehouse request (it changes the customer, and it charges)
         run: npm run test:whrequest
+      # Named on its own because of what it protects rather than how often it
+      # changes: the Archive is the LAST copy of anybody the office removed, and
+      # this is the one button that can destroy it. A row whose `recycled` is
+      # false is also that customer's only place on the warehouse recycle queue —
+      # deleting it loses a real job with nothing left to rebuild it from.
+      - name: Deleting one archived record (the last copy)
+        run: npm run test:archdel
       # Named on its own because the failure it catches is a send that does not
       # happen. The re-quote template is looked up by EXACT name, so a template
       # called anything but "ReQuotes" made every re-quote off an existing customer
