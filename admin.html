@@ -71192,6 +71192,158 @@ function seedTakedowns(){
   inst.forEach((d,i)=>{const houses=d.houses.filter(h=>!h.isFix).map(h=>({id:'t'+(k++),srcId:h.id,name:h.name,address:h.address,city:h.city,zip:h.zip,phone:h.phone,cu:h.cu,price:0,details:'Takedown / removal',isTakedown:true,done:false}));
     SEASON.push({id:'td'+i,isTakedown:true,base:i,cascade:0,pin:null,houses:houses});});
 }
+/* ⭐ TAKEDOWN DAYS ARE BUILT FROM THE CUSTOMERS, NOT COPIED FROM THE IMPORT
+   ([[SCH-88]]–[[SCH-91]], 2026-09-23). Addie, asked how the takedown gap should be
+   closed: "Jan 4 is fine, first hung first down, but make it so we can move it sooner
+   if necessary", "Lets do the bussiest town first", "No people that say no or back
+   next year don't get takedown", "Never hung no takedown", "40 per day for takedown."
+
+   ⛔ WHAT THIS REPLACES. seedTakedowns above ran ONCE, when the CSV was imported, and
+   nothing ever made another takedown row: anybody added after the import (every new
+   hang, everyone Recalculate pulled in from All Customers) was on an install day and
+   on NO takedown day, and a takedown day went on grouping houses by the install day
+   they had in a spreadsheet the Recalculate has long since rearranged. seedTakedowns
+   is kept for the import itself; Recalculate everything now rebuilds from here.
+
+   WHO IS OWED ONE (takedownOwed): lights up (`completed`), not yet down
+   (`removalDone`), and NOT somebody who answered No or Back Next Year. ⚠ THAT LAST
+   CLAUSE IS HER RULING AND IT NARROWS [[SCH-39]]'s aside that somebody sitting the
+   season out "still needs theirs taking down" (R-024). ⚠ They are COUNTED and named on
+   the button, never dropped silently — a hung house with no takedown is lights left on
+   a roof, and the office should see who that is.
+
+   HOW A DAY IS FILLED (planTakedownDays, pure so a test can RUN it):
+   ⭐ THE BUSIEST TOWN LEADS — the town with the most takedowns still waiting seeds
+   each day, recounted before the next day, the way the install builder walks. ⭐ INSIDE
+   A TOWN, FIRST HUNG FIRST DOWN — earliest `completedAt` first. That is how her two
+   answers fit together: the town is chosen by size, the houses in it by age. ⚠ A day
+   holds TAKEDOWN_PER_DAY (40). A town that cannot fill it is topped up from its
+   NEIGHBOURS only (townsAreNeighbours — the same typed list and tape measure the
+   installs use), busiest neighbour first, never more towns than maxTownsPerDay().
+   A town with no neighbour left simply makes a short day; it is never paired with a
+   town across the valley.
+
+   WHAT IS KEPT: a takedown day inside the 48-hour lock is kept whole (it is printed);
+   a day with a house already ticked keeps its ticked houses as the record. Nobody on a
+   kept day is placed twice. Everything else is laid out fresh.
+
+   WHEN: new days start at the Takedown start box (4 Jan by default — TAKE_BASE_START
+   plus takeDelta), or after the lock if that date has already passed. ⚠ The box can be
+   set EARLIER as well as later and every new day follows it, which is "move it sooner
+   if necessary". */
+const TAKEDOWN_PER_DAY = 40;
+function takedownSaidNo(d){
+  d = d || {};
+  const s = String(d.rsvpStatus == null ? '' : d.rsvpStatus).trim().toLowerCase();
+  return s === 'no' || s === 'backnextyear' || d.maybeNextYear === true;
+}
+function takedownOwed(list){
+  const owed = [], saidNo = [];
+  (list || []).forEach(function(item){
+    const d = (item && item.data) || {};
+    if(d.completed !== true || d.removalDone === true) return;
+    if(takedownSaidNo(d)){ saidNo.push(item); return; }
+    owed.push(item);
+  });
+  return {owed: owed, saidNo: saidNo};
+}
+function planTakedownDays(owed, opts){
+  const o = opts || {};
+  const perDay = o.perDay || TAKEDOWN_PER_DAY;
+  const maxTowns = o.maxTowns || 4;
+  const near = o.near || function(){ return false; };
+  const byTown = {};
+  (owed || []).forEach(function(w){
+    const t = w.town || 'Unknown';
+    (byTown[t] = byTown[t] || []).push(w);
+  });
+  Object.keys(byTown).forEach(function(t){
+    byTown[t].sort(function(a, b){
+      const aa = (typeof a.at === 'number' && isFinite(a.at)) ? a.at : Infinity;
+      const bb = (typeof b.at === 'number' && isFinite(b.at)) ? b.at : Infinity;
+      if(aa !== bb) return aa < bb ? -1 : 1;
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+  });
+  const busiest = function(towns){
+    return towns.filter(function(t){ return byTown[t].length; }).sort(function(a, b){
+      return (byTown[b].length - byTown[a].length) || a.localeCompare(b);
+    });
+  };
+  const days = [];
+  let guard = 0;
+  while(guard++ < 10000){
+    const order = busiest(Object.keys(byTown));
+    if(!order.length) break;
+    const seed = order[0];
+    const day = byTown[seed].splice(0, perDay);
+    const towns = [seed];
+    const others = busiest(order.slice(1).filter(function(t){ return near(seed, t); }));
+    for(let i = 0; i < others.length && day.length < perDay && towns.length < maxTowns; i++){
+      const t = others[i];
+      Array.prototype.push.apply(day, byTown[t].splice(0, perDay - day.length));
+      towns.push(t);
+    }
+    days.push(day);
+  }
+  return days;
+}
+function rebuildTakedownDays(){
+  const res = {days: 0, houses: 0, kept: 0, saidNo: 0, saidNoNames: []};
+  if(typeof jobAddresses === 'undefined' || !jobAddresses.length) return res;
+  const keep = [], placed = new Set();
+  SEASON.forEach(function(d){
+    if(!d.isTakedown) return;
+    const dt = dayDate(d);
+    const locked = !!(dt && typeof routeDayIsLocked === 'function' && routeDayIsLocked(isoOf(dt)));
+    const houses = locked ? (d.houses || []) : (d.houses || []).filter(function(h){ return h.done; });
+    if(!houses.length) return;
+    d.houses = houses;
+    keep.push(d);
+    houses.forEach(function(h){
+      const c = (typeof hlxResolvePlanHouse === 'function') ? hlxResolvePlanHouse(h) : null;
+      if(c) placed.add(c.id);
+    });
+  });
+  const split = takedownOwed(jobAddresses);
+  res.saidNo = split.saidNo.length;
+  res.saidNoNames = split.saidNo.slice(0, 5).map(function(x){ return (x.data && x.data.name) || '(no name)'; });
+  const pool = split.owed.filter(function(item){ return !placed.has(item.id); }).map(function(item){
+    const d = item.data || {};
+    const when = (typeof toJsDate === 'function') ? toJsDate(d.completedAt) : null;
+    return {item: item, name: d.name || '',
+            town: (typeof extractCleanCity === 'function' ? extractCleanCity(d.city) : d.city) || 'Unknown',
+            at: when ? when.getTime() : null};
+  });
+  const plan = planTakedownDays(pool, {
+    perDay: TAKEDOWN_PER_DAY,
+    maxTowns: (typeof maxTownsPerDay === 'function') ? maxTownsPerDay() : 4,
+    near: function(a, b){ return typeof townsAreNeighbours === 'function' && townsAreNeighbours(a, b, null); }
+  });
+  /* The first new day: the Takedown start box, or the first day past the lock if that
+     date has already gone by. Expressed as a base off TAKE_BASE_START so the box still
+     moves every one of them together, earlier or later. */
+  const takeStart = addDays(TAKE_BASE_START, takeDelta);
+  const afterLock = (typeof pinHorizon === 'function') ? addDays(pinHorizon(), 1) : takeStart;
+  const floor = takeStart > afterLock ? takeStart : afterLock;
+  const base0 = daysBetween(floor, TAKE_BASE_START) - takeDelta;
+  const used = new Set(SEASON.map(function(d){ return d.id; }));
+  let n = 0;
+  const nextId = function(){ let id; do { id = 'td' + (n++); } while(used.has(id)); used.add(id); return id; };
+  const newDays = plan.map(function(list, i){
+    const houses = list.map(function(w){
+      const h = houseFromCustomer(w.item);
+      return Object.assign(h, {id: 'tk-' + w.item.id, srcId: 'cust-' + w.item.id, price: 0,
+        details: 'Takedown / removal', isTakedown: true, done: false});
+    });
+    return {id: nextId(), isTakedown: true, base: base0 + i, cascade: 0, pin: null, houses: houses};
+  });
+  SEASON = SEASON.filter(function(d){ return !d.isTakedown; }).concat(keep, newDays);
+  res.days = newDays.length;
+  res.houses = pool.length;
+  res.kept = keep.length;
+  return res;
+}
 /* ---------- area matching / fixes / signups (available for phase 2 wiring) ---------- */
 function areaScore(h,day){
   const sc=cityOf(h).toLowerCase();
@@ -74971,6 +75123,12 @@ RT.addEventListener('click',e=>{const t=e.target;
        may still have moved and the routes still need generating, so its error
        is reported at the end rather than abandoning the other two. */
     const r=rebuildSeasonDays();
+    /* ⭐ [[SCH-88]] — the takedown days are rebuilt from the customers on the same press,
+       BEFORE the routes are generated so the new takedown days are put in driving order
+       too. Guarded on its own: a takedown fault must not cost the install rebuild. */
+    let td=null;
+    try{ td=rebuildTakedownDays(); computeDates(); }
+    catch(err){ console.error('[HU] takedown rebuild failed',err); }
     const routes=generateAllRoutes();
     /* ⭐ AND THE RECORDS STOP CLAIMING A DAY THEY NO LONGER HAVE. Addie asked for
        this to happen on THIS button — "make sure that this updates when you
@@ -75036,6 +75194,13 @@ RT.addEventListener('click',e=>{const t=e.target;
        or one already worked, so the crew may be holding that sheet — a rebuild cannot
        un-print paper, and pretending otherwise is worse than saying so. */
     if(r.stillSet) parts.push(r.stillSet+' out for the season but still on a day that is set — check those by hand');
+    /* ⭐ [[SCH-88]]–[[SCH-91]] — what the takedown rebuild did, and who it left off by
+       her ruling. A hung house with no takedown is lights left on a roof, so those
+       names are said out loud rather than dropped. */
+    if(td){
+      parts.push(td.days?('takedowns: '+td.houses+' house'+(td.houses===1?'':'s')+' on '+td.days+' day'+(td.days===1?'':'s')+', busiest town first'):'takedowns: nothing new to lay out');
+      if(td.saidNo) parts.push(td.saidNo+' hung but said No or Back Next Year — no takedown: '+td.saidNoNames.join(', ')+(td.saidNo>5?' and others':''));
+    }
     parts.push(routes.days?('routes generated for '+routes.days+' day'+(routes.days===1?'':'s')):'no routes needed generating');
     /* ⭐ AND IT NAMES WHAT IT COULD NOT PUT IN ORDER. See houseHasPin: these are
        on their day and on the sheet, just at the bottom of it, because there is

@@ -6995,6 +6995,35 @@ as S82 and S129: pinned to where a string sat rather than to what must be true, 
 on correct code the moment the copy had to change. What must be true is that the alert
 **names** them.
 
+### How the takedown days are made
+
+Addie, 2026-09-23 ([[SCH-88]] to [[SCH-91]]): *"Jan 4 is fine, first hung first down, but
+make it so we can move it sooner if necessary"*, *"Lets do the bussiest town first"*,
+*"No people that say no or beack next year don't get takedown"*, *"40 per day for
+takedown."*
+
+**Until then the takedown days were copied once, from the imported CSV** (`seedTakedowns`),
+and nothing ever made another. Anybody added after the import had an install day and no
+takedown day, and a takedown day went on grouping houses by an install day that Recalculate
+had long since rearranged.
+
+**Now ⚙ Recalculate everything rebuilds them from the customer records** (`rebuildTakedownDays`):
+
+- **Who:** lights up (`completed`) and not down yet (`removalDone`). Nobody who said **No**
+  or **Back Next Year** (either the RSVP answer or the office badge), and nobody never hung.
+  Anyone hung who then said No is **named on the press**, because that is lights left on a
+  roof and the office should see who.
+- **Order:** the town with the most takedowns waiting leads each day, recounted before the
+  next day. Inside a town, **first hung comes down first** (`completedAt`).
+- **Size:** 40 a day. A town that cannot fill a day borrows from its **neighbours** only —
+  the same nearby-towns list and distance test the installs use.
+- **When:** from the **Takedown start** box, 4 January by default. The box moves every new
+  day earlier or later. If that date has already gone by, they start after the 48-hour lock.
+- **What stays put:** a takedown day inside the 48-hour lock is kept whole, and a takedown
+  already ticked stays as the record. The install days are not touched by any of this.
+
+Proved in run-all.js **Suite 351**.
+
 ### A finished takedown resets with the season
 
 Addie, 2026-08-29, asked directly: *"Oh so if we removed lights from someone's house that
