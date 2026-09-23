@@ -31138,7 +31138,14 @@ suite('Suite 88. A removed customer still exists, in the archive');
   /* ---- alphabetical, and it stays that way ---- */
   const renderSrc = extractFn(admin, 'archRender');
   check('S88', 'the archive renderer exists', !!renderSrc);
-  if (renderSrc) {
+  /* ⚠ LIFTED, NEVER STUBBED — the extraction-list trap, caught here the day [[ARCH-02]]
+     gave the row a Delete button: this harness died with a bare
+     `archRowBlocksDelete is not defined` and took the whole suite with it. A stub would
+     decide which rows this renderer draws as blocked, which is the thing under test. */
+  const blocksSrc = extractFn(admin, 'archRowBlocksDelete');
+  check('S88', 'the archive delete rule was lifted into the renderer harness', !!blocksSrc,
+    'a stub here would decide which rows draw as blocked — the thing under test');
+  if (renderSrc && blocksSrc) {
     const run = new Function('rows', 'term',
       'let list = {innerHTML: \'\'};' +
       'const esc = function(v){ return String(v == null ? \'\' : v); };' +
@@ -31146,6 +31153,7 @@ suite('Suite 88. A removed customer still exists, in the archive');
       'const document = {getElementById: function(id){' +
       '  return id === \'archList\' ? list : {value: term}; }};' +
       'const archCache = rows;' +
+      blocksSrc +
       renderSrc + 'archRender(); return list.innerHTML;');
 
     const who = (name) => ({id: name, data: {customer: {name: name}}});

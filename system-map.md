@@ -5085,6 +5085,58 @@ note server-side and cannot send mail, so the nudge is raised in the browser onc
 returns `{ok:true}`. The ordinary My Info save is deliberately silent ([[QT-35]]) — a
 corrected street spelling is not a move — so do not move this call up into it.
 
+⭐ **AND ONE ARCHIVED RECORD CAN BE DELETED, ONE AT A TIME (2026-09-23, [[ARCH-02]]).**
+Addie: *"Okay can we make a place to delete people in archive on each individual one."* A
+**Delete** on every Archive row.
+
+⚠ **ONE AT A TIME, NEVER A CLEAR-THE-LOT.** She asked for "each individual one", and a
+button that emptied this screen would undo [[ARCH-01]] in one press — that work exists
+because Delete All Customers had no copy anywhere.
+
+⛔ **AND THE ONE ROW IT REFUSES IS THE WHOLE CARE IN IT.** `recycled === false` means their
+lights are still on a shelf somewhere, and that row **is** their place on the warehouse
+recycle queue — `whWatchArchivedPending` builds that list from exactly this query, and the
+customer record itself is already gone. So deleting there takes a real job off a real list
+with nothing left to rebuild it from, silently, and nobody can undo it. That is the one
+outcome on this screen that cannot be put right.
+
+⭐ **IT REFUSES RATHER THAN WARNING BECAUSE THERE IS A DOOR TO POINT AT** — [[QT-42]]'s
+rule. Warehouse → the recycle queue → **Mark Recycled** writes `recycled: true` on this very
+row, which is the office saying the bin came back, and Delete opens the moment it does. A
+refusal with no way through is just the button not working.
+
+⚠ **AN ABSENT `recycled` IS NOT A BLOCK, AND THAT HALF WOULD HAVE LOCKED THE WHOLE SCREEN.**
+[[ARCH-01]]'s snapshots deliberately carry no such field (they are not in that queue at
+all), and every row written before this existed carries none either — reading "unknown" as
+"still out" would refuse the entire archive while looking like a safety feature. The block
+is the explicit `false`, which is the only value the queue can match. ⚠ And `stillACustomer`
+is never blocked whatever else the row says: the warehouse is working from that customer's
+live record, so losing the snapshot costs nobody a bin.
+
+⚠ **THE GUARD IS ASKED AGAIN IN THE HANDLER, not merely on the button.** A disabled button
+is still reachable by keyboard, and the row may have been drawn before somebody else marked
+them recycled — [[WH-43]]'s two handlers re-ask for the same reason. The row also **says**
+why it cannot be deleted yet rather than only greying out: a control that refuses on press
+with no reason on screen is one somebody presses again.
+
+⚠ **THE CONFIRMATION SAYS WHICH LOSS IT IS.** For a removed customer this row is the last
+copy of their address, phone, price and colours; for a "Copy kept" snapshot it is only the
+snapshot. Those are different losses and one sentence cannot cover both — telling somebody
+"this is the last copy of them" about a customer who is still on the books is the screen
+frightening her out of a delete that costs nothing.
+
+⚠ **AND IT TOUCHES NOTHING BUT THIS ROW.** Their customer number went back to the pool when
+they were removed and may since have been handed to somebody new, so pooling it again here
+would put a live label on a second bin.
+
+⚠ **DELEGATED ON THE CONTAINER, BOUND ONCE.** `archRender` rebuilds `#archList` wholesale on
+every search keystroke, so a bind per row inside it would stack a listener per render — the
+Inbox drop that fired 2815 Firestore writes, in a new place. `archive-delete.test.js`
+(`npm run test:archdel`, its own required CI step) RUNS the rule and the real handler against
+a fake list and a fake Firestore rather than reading them, because every claim here is about
+which rows refuse and what a press actually writes. 22 checks, 16 of 16 sabotages
+red-checked, admin.html byte-for-byte after every one.
+
 ⭐ **NOTHING ABOUT A CUSTOMER IS LOST WITHOUT A COPY BEING KEPT (2026-09-23, [[ARCH-01]]).**
 Addie: *"any person who gets deleted by the trash bin or delete costumer or say no through
 quotes or RSVP should be archived."* Asked which way for the RSVP case, she chose to **keep
