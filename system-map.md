@@ -7022,6 +7022,19 @@ had long since rearranged.
 - **What stays put:** a takedown day inside the 48-hour lock is kept whole, and a takedown
   already ticked stays as the record. The install days are not touched by any of this.
 
+**Soonest possible / Latest possible, one customer at a time** ([[SCH-92]]). Every takedown
+row on the Schedule's Takedowns tab carries two buttons (and **Normal** once one is set).
+The choice is saved on the customer as `takedownTiming`, so a Recalculate keeps it, and
+the house moves straight away to the first or last takedown day that is not locked.
+Addie: *"everyone will be scheduled as normal unless we push earliest or latest"*.
+
+- **Soonest** customers go on the first takedown days. Those days are filled up to 40 with
+  ordinary houses from the same towns and their neighbours, so a first day is never short.
+- **Latest** customers go on the last days, and those days are NOT filled up — that would
+  push other people to the back for no reason.
+- ⚠ `takedownTiming` is **not** cleared by Start New Season (yet), so a choice made this
+  season is still set next season until somebody presses Normal.
+
 Proved in run-all.js **Suite 351**.
 
 ### A finished takedown resets with the season
