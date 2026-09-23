@@ -64287,3 +64287,41 @@ suite('351. Takedown days are built from the customers, busiest town first');
     /&& !tdGone\.length\) return 0;/.test(strippedA),
     'without this a No or a deletion only reaches the takedown days when somebody presses Recalculate');
 }
+suite('352. Fixes and Takedowns have a name search too');
+{
+  /* Addie, 2026-09-23: "there isn't a search bar on every category so fixes and take downs
+   * should have a search bar for names too." RUNS the shared search against each tab's own
+   * days, and checks the two new boxes are drawn, listened to and read by their own tab. */
+  const strippedA = stripComments(admin);
+  const inFn = extractFn(admin, 'renderSearchIn');
+  check('S352', 'one shared search renderer exists', !!inFn);
+  check('S352', 'the Scheduling search still goes through it, over install days only',
+    /function renderSearch\(q\)\{ renderSearchIn\(q, installDays\(\), 'panel'\); \}/.test(admin));
+  if (inFn) {
+    const panels = {};
+    const RT = {getElementById: id => (panels[id] = panels[id] || {innerHTML: ''})};
+    const run = new Function('RT', 'personName', 'esc', 'dlabel', 'dayDate', 'dayMainArea', 'stopHTML', 'renderDayMaps',
+      inFn + '\nreturn renderSearchIn;')(RT, n => n, x => String(x), () => ({wd: 'Mon', full: 'Jan 4'}), d => d._date,
+      () => 'Lehi', (h, n) => '<div class="stop">' + h.name + '</div>', () => {});
+    const take = [{id: 'td0', houses: [{name: 'Rachel Oslund', address: '1 Elm'}, {name: 'Ashley Wray', address: '2 Oak'}]},
+                  {id: 'td1', houses: [{name: 'Bob Smith', address: '3 Pine', phone: '8015550111'}]}];
+    run('wray', take, 'takePanel');
+    check('S352', 'a name finds its takedown row, and only that row',
+      /Ashley Wray/.test(panels.takePanel.innerHTML) && !/Rachel/.test(panels.takePanel.innerHTML) &&
+      /1 match/.test(panels.takePanel.innerHTML), panels.takePanel.innerHTML);
+    run('8015550111', take, 'takePanel');
+    check('S352', 'a phone number finds them too', /Bob Smith/.test(panels.takePanel.innerHTML));
+    run('nobody', take, 'fixPanel');
+    check('S352', 'no match says so, in the panel of the tab being searched',
+      /No matches/.test(panels.fixPanel.innerHTML) && !/No matches/.test(panels.takePanel.innerHTML));
+  }
+  check('S352', 'both new search boxes are drawn',
+    admin.indexOf('id=\\"fixQ\\"') !== -1 && admin.indexOf('id=\\"takeQ\\"') !== -1);
+  check('S352', 'each tab reads its own box and searches its own days',
+    /const fq=RT\.getElementById\('fixQ'\)[^;]*;if\(fq\)renderSearchIn\(fq,fr,'fixPanel'\)/.test(strippedA) &&
+    /const tq=RT\.getElementById\('takeQ'\)[^;]*;if\(tq\)renderSearchIn\(tq,td,'takePanel'\)/.test(strippedA));
+  check('S352', 'typing in either box redraws — a box with no listener looks identical to a working one',
+    /\['q','fixQ','takeQ'\]\.forEach\(function\(id\)\{RT\.getElementById\(id\)\.addEventListener\('input'/.test(strippedA));
+  check('S352', 'and each has a Clear button that is handled',
+    /t\.id==='fixClearBtn'/.test(strippedA) && /t\.id==='takeClearBtn'/.test(strippedA));
+}
