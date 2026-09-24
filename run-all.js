@@ -64502,31 +64502,32 @@ suite('355. Phone numbers a batch at a time, commas by default');
         sl.total === 3 && sl.list.join() === '8015550004,8015550005,8015550006');
       check('S355', 'the last batch holds what is left, and past the end is the last batch',
         r.api.phoneBatchSlice(nums, 3, 9).list.join() === '8015550007');
-      check('S355', 'commas are the default, one per line is the other choice',
+      /* RS-73: one per line is the panel's default now; the joiner itself is unchanged. */
+      check('S355', 'the two layouts: commas, or one per line',
         r.api.phoneBatchJoin(['1', '2']) === '1, 2' && r.api.phoneBatchJoin(['1', '2'], 'line') === '1\n2',
         'one per line into a single-line To box is what did not paste');
 
       r.store['hu.phoneBatchSize'] = '3';
       r.api.phoneBatchRender(r.host, nums, 0);
       const box = () => r.host.querySelector('[data-pb="box"]');
-      check('S355', 'the box on screen holds batch 1, comma-separated',
-        box().value === '8015550001, 8015550002, 8015550003',
+      check('S355', 'the box on screen holds batch 1, one per line by default',
+        box().value === '8015550001\n8015550002\n8015550003',
         'a copy the browser refuses must still leave the numbers where they can be selected');
       check('S355', 'it says which batch this is and how many there are',
         /Batch 1 of 3/.test(r.host.textContent) && /1–3 of 7/.test(r.host.textContent));
       await r.api.phoneBatchCopyCurrent(r.host);
       check('S355', 'Copy puts exactly that batch on the clipboard',
-        r.copied[0] === '8015550001, 8015550002, 8015550003');
+        r.copied[0] === '8015550001\n8015550002\n8015550003');
       r.host.querySelector('[data-pb="next"]').click();
-      check('S355', 'Next moves to batch 2', box().value === '8015550004, 8015550005, 8015550006' &&
+      check('S355', 'Next moves to batch 2', box().value === '8015550004\n8015550005\n8015550006' &&
         /Batch 2 of 3/.test(r.host.textContent));
       r.host.querySelector('[data-pb="next"]').click();
       check('S355', 'and the last batch cannot go further',
         box().value === '8015550007' && r.host.querySelector('[data-pb="next"]').disabled);
       const sel = r.host.querySelector('[data-pb="sep"]');
-      sel.value = 'line'; sel.dispatchEvent(new r.w.Event('change'));
-      check('S355', 'choosing one per line redraws the box and is remembered',
-        box().value === '8015550007' && r.store['hu.phoneBatchSep'] === 'line' &&
+      sel.value = 'comma'; sel.dispatchEvent(new r.w.Event('change'));
+      check('S355', 'choosing commas redraws the box and is remembered',
+        box().value === '8015550007' && r.store['hu.phoneBatchLayout'] === 'comma' &&
         /Batch 3 of 3/.test(r.host.textContent));
       const size = r.host.querySelector('[data-pb="size"]');
       const copyBtnBefore = r.host.querySelector('[data-pb="copy"]');
@@ -64541,7 +64542,7 @@ suite('355. Phone numbers a batch at a time, commas by default');
       check('S355', 'a box left blank goes back to the saved size rather than to nothing',
         size.value === '5' && r.store['hu.phoneBatchSize'] === '5');
       check('S355', 'typing how many at a time starts again at batch 1 and is remembered',
-        box().value === nums.slice(0, 5).join('\n') && r.store['hu.phoneBatchSize'] === '5');
+        box().value === nums.slice(0, 5).join(', ') && r.store['hu.phoneBatchSize'] === '5');
     })());
     pending.push((async function () {
       const r = await run(false, true);
@@ -64605,22 +64606,23 @@ suite('356. Names next to the numbers, number first');
       const host = w.document.getElementById('h');
       const box = () => host.querySelector('[data-pb="box"]').value;
       api.phoneBatchRender(host, res.numbers, 0, res.names);
-      check('S356', 'names are on by default, number first, as her box asks',
-        box() === '8015550001 Ann Smith, 8015550004 Smith Dan',
-        'her paste box is labelled "Numbers, names"');
-      check('S356', 'a comma inside a name cannot split one person into two',
-        box().split(', ').length === 2);
+      /* RS-73: "123 / 456 / 789 instead of a paragraph" — one per line, number space name. */
+      check('S356', 'names are on by default, one person per line, number first',
+        box() === '8015550001 Ann Smith\n8015550004 Smith, Dan',
+        'she asked for a column, not a paragraph');
+      check('S356', 'no tab between number and name — a tab jumps to the next field',
+        box().indexOf('\t') === -1);
       await api.phoneBatchCopyCurrent(host);
-      check('S356', 'the copy carries the names and counts people, not commas',
+      check('S356', 'the copy carries the names and counts people, not lines of text',
         copied[0] === box() && /Copied 2 numbers/.test(host.textContent));
       const sel = host.querySelector('[data-pb="sep"]');
-      sel.value = 'line'; sel.dispatchEvent(new w.Event('change'));
-      check('S356', 'one per line puts a tab between, for two spreadsheet columns',
-        box() === '8015550001\tAnn Smith\n8015550004\tSmith, Dan');
+      sel.value = 'comma'; sel.dispatchEvent(new w.Event('change'));
+      check('S356', 'with commas, a comma inside a name cannot split one person into two',
+        box() === '8015550001 Ann Smith, 8015550004 Smith Dan' && box().split(', ').length === 2);
       const cb = host.querySelector('[data-pb="names"]');
       cb.checked = false; cb.dispatchEvent(new w.Event('change'));
       check('S356', 'unticking goes back to bare numbers, and is remembered',
-        box() === '8015550001\n8015550004' && store['hu.phoneBatchNames'] === '0' &&
+        box() === '8015550001, 8015550004' && store['hu.phoneBatchNames'] === '0' &&
         !host.querySelector('[data-pb="names"]').checked);
     })());
   }
@@ -64659,4 +64661,23 @@ suite('357. Copying phone numbers means the pending ones');
   check('S357', 'and the only thing that copies is the Copy batch button',
     /q\('copy'\)\.addEventListener\('click', async function\(\)\{ await phoneBatchCopyCurrent\(host\); \}\);/
       .test(stripComments(extractFn(admin, 'phoneBatchRender') || '')));
+}
+
+/* Suite 358. One per line, even on a browser that already saved commas (RS-73). */
+suite('358. One per line is the default, whatever was saved before');
+{
+  const prefsSrc = extractFn(admin, 'phoneBatchPrefs');
+  check('S358', 'the preferences reader was found', !!prefsSrc);
+  if (prefsSrc) {
+    const read = function (store) {
+      return new Function('localStorage', 'const PHONE_BATCH_DEFAULT = 50;' + prefsSrc + ';return phoneBatchPrefs();')(
+        { getItem: k => (k in store ? store[k] : null) });
+    };
+    check('S358', 'a fresh browser gets one per line', read({}).sep === 'line');
+    check('S358', 'a browser holding the OLD saved "comma" still gets one per line',
+      read({ 'hu.phoneBatchSep': 'comma' }).sep === 'line',
+      'the old key was written on every size change, so it says comma without her choosing it');
+    check('S358', 'a choice of commas made on the new setting is kept',
+      read({ 'hu.phoneBatchLayout': 'comma' }).sep === 'comma');
+  }
 }
