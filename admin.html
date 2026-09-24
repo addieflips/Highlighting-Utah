@@ -4057,11 +4057,17 @@
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:0 0 10px;">
             <button type="button" class="btn btn-outline btn-sm" id="etSelectAllBtn" style="width:auto;">Select everyone matching</button>
             <button type="button" class="btn btn-outline btn-sm" id="etSelectNoneBtn" style="width:auto;">Clear selection</button>
+            <!-- ⭐ THE SAME AUDIENCE, AS PHONE NUMBERS (2026-09-24). Addie: "I need to filter out
+                 pending numbers on automation email then RSVP then text the RSVP." Filter the
+                 list (RSVP Status → Not answered yet), send the RSVP, then press this and paste
+                 the column into the bulk texter. See etCopyFilteredPhones. -->
+            <button type="button" class="btn btn-outline btn-sm" id="etCopyPhonesBtn" style="width:auto;">Copy their phone numbers</button>
             <!-- The running total, where the eye already is when the buttons are pressed.
                  It is the same number the Send button and the confirm dialog quote. -->
             <span id="etSelectedPill" style="margin-left:auto; font-size:12px; font-weight:600; padding:5px 11px; border-radius:999px; background:var(--paper); color:var(--slate); border:1px solid var(--line);">Nobody selected yet</span>
           </div>
           <div id="etRecipientCount" style="font-size:12px; color:var(--slate); margin:-4px 0 8px;"></div>
+          <div id="etPhonesStatus" style="font-size:12px; color:var(--slate); margin:-4px 0 8px;"></div>
           <div id="etRecipientList" style="max-height:220px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:16px;"></div>
           <div style="display:flex; gap:10px;">
             <button type="button" class="btn btn-outline" id="etSendCloseBtn" style="flex:1;">Close</button>
@@ -21104,6 +21110,15 @@ let etFilterDoNotSend = 'hide';
    change would carry them straight past that. So: changing a FILTER drops anyone it
    excludes, and typing in the SEARCH box drops nobody. */
 let etSelectedRecipientIds = new Set();
+/* ⭐ WHO THE FILTERS MATCHED, BEFORE "HAS AN EMAIL" IS ASKED (2026-09-24). Written by
+   etRenderRecipientList on every draw and read only by Copy their phone numbers, so the
+   numbers are always the audience on screen — one rule deciding both, never a second
+   copy of the ten filters.
+   ⚠ TAKEN BEFORE THE NO-EMAIL SPLIT ON PURPOSE. An email needs an address; a text does
+   not, and the people with no email are exactly the ones a text is the only way to ask.
+   ⚠ AND AFTER THE DO-NOT-SEND LIST: that list says "never write to them, whatever the
+   other filters say", and a text is still writing to them. */
+let etTextAudience = [];
 function etNoAutomationEmails(d){ return (d || {}).noAutomationEmails === true; }
 function etRenderRecipientList(){
   const list = document.getElementById('etRecipientList');
@@ -21185,6 +21200,7 @@ function etRenderRecipientList(){
   const manageMode = (etFilterDoNotSend === 'only');
   members = members.filter(m => manageMode ? etNoAutomationEmails(m.data) : !etNoAutomationEmails(m.data));
   const doNotSendHidden = manageMode ? 0 : (beforeDoNotSend - members.length);
+  etTextAudience = manageMode ? [] : members.slice();
   /* ⭐ AND THE ONES WITH NO ADDRESS TO SEND TO (added 2026-08-21). Owner asked for
      this to be said at the moment of sending, not only findable in Customers: "the
      count line". Excluding them is right — there is nothing to send to — but doing it
@@ -22214,6 +22230,66 @@ document.getElementById('etSelectAllBtn').addEventListener('click', function(){
 /* ⚠ CLEARS THE WHOLE SELECTION, not just the rows on screen. Unticking only what is
    visible while a search is active would leave ticks behind that nothing on screen
    shows — the exact confusion this panel was rebuilt to remove. */
+/* ⭐ COPY THEIR PHONE NUMBERS — the list above, as a column for the bulk texter
+   (2026-09-24, [[RS-68]]). Addie: "I need to filter out pending numbers on automation
+   email then RSVP then text the RSVP."
+   ⚠ THE FILTERS, NOT THE TICKS AND NOT THE SEARCH BOX — the same audience the count
+   line counts, so "312 match these filters" and "312 numbers copied" can be compared.
+   ⚠ THE PEOPLE WITH NO EMAIL ARE IN IT (see etTextAudience) and are counted out loud,
+   because they are the ones the RSVP email just skipped.
+   ⚠ rsvpPhoneListRows IS THE ONE RULE for turning a book into numbers — digits only, one
+   per line, STOP left out and counted — shared with the Text the RSVP card so the two
+   copy buttons cannot disagree about what a number is or who replied STOP. */
+function etPhoneCopySummary(audience){
+  const res = rsvpPhoneListRows(audience || []);
+  let noNumber = 0, noEmail = 0;
+  (audience || []).forEach(function(m){
+    const d = (m && m.data) || {};
+    if(!rsvpPhoneDigits(d.phone)) noNumber++;
+    else if(!d.smsOptedOut && !custCanBeEmailed(d)) noEmail++;
+  });
+  let msg;
+  if(!res.numbers.length){
+    msg = (audience || []).length
+      ? 'Nobody these filters match has a phone number that can be texted.'
+      : 'Nobody matches these filters — no numbers to copy.';
+  } else {
+    msg = '\u2713 ' + res.numbers.length + ' number' + (res.numbers.length === 1 ? '' : 's') +
+      ' copied, one per line, digits only — the people these filters match.';
+  }
+  if(noEmail) msg += '  ' + noEmail + ' of them have no usable email, so the email never reached them — this text is the only thing that will.';
+  if(res.stopped) msg += '  ' + res.stopped + ' left out — they replied STOP.';
+  if(noNumber) msg += '  ' + noNumber + ' left out — no phone number on file.';
+  if(res.odd.length) msg += '  \u26A0 ' + res.odd.length + ' are not 10 digits and went in as they are: ' +
+    res.odd.slice(0, 5).join('; ') + (res.odd.length > 5 ? ' and others' : '');
+  return {numbers: res.numbers, text: msg};
+}
+async function etCopyFilteredPhones(){
+  const statusEl = document.getElementById('etPhonesStatus');
+  if(etFilterDoNotSend === 'only'){
+    if(statusEl) statusEl.textContent = 'This is the do-not-send list — set "Do-not-send list" back to "Leave them out" first.';
+    return 0;
+  }
+  const sum = etPhoneCopySummary(etTextAudience);
+  if(!sum.numbers.length){
+    if(statusEl) statusEl.textContent = sum.text;
+    return 0;
+  }
+  try{ await navigator.clipboard.writeText(sum.numbers.join('\n')); }
+  catch(err){
+    console.error('Could not copy the numbers:', err);
+    if(statusEl) statusEl.textContent = 'The clipboard refused — press it again.';
+    return 0;
+  }
+  if(statusEl) statusEl.textContent = sum.text;
+  return sum.numbers.length;
+}
+document.getElementById('etCopyPhonesBtn')?.addEventListener('click', async function(){
+  const btn = this;
+  btn.disabled = true;
+  try{ await etCopyFilteredPhones(); }
+  finally{ btn.disabled = false; }
+});
 document.getElementById('etSelectNoneBtn').addEventListener('click', function(){
   etSelectedRecipientIds.clear();
   document.querySelectorAll('.et-recipient-cb').forEach(cb => { cb.checked = false; });
