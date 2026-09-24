@@ -20510,9 +20510,10 @@ function phoneBatchSlice(numbers, size, index){
    A tick box, ON by default because she asked for it, and one click to turn off: a
    texting tool's To box may refuse "8015550111 Ann Smith" where it takes a bare number,
    and the choice is remembered on that browser.
-   ⚠ ONE PER LINE PUTS A TAB BETWEEN THEM, so a spreadsheet takes two columns, number then
-   name. With commas it is "8015550111 Ann Smith", and a comma INSIDE a name ("Smith, Ann")
-   is turned into a space, or it would split one person into two entries.
+   ⚠ A SPACE BETWEEN NUMBER AND NAME IN BOTH LAYOUTS ([[RS-73]]) — it was a tab in the
+   one-per-line layout, for spreadsheet columns, but one per line is now what she pastes into
+   her texting tool, and a tab there jumps to the next field. With commas, a comma INSIDE a
+   name ("Smith, Ann") is turned into a space, or it would split one person into two entries.
    ⚠ A NAME'S TABS AND LINE BREAKS ARE SPACES TOO — one stray tab shunts the number into
    the wrong column for that person alone. */
 function phoneBatchName(name, sep){
@@ -20525,16 +20526,20 @@ function phoneBatchJoin(list, sep, names){
     if(!names) return num;
     const nm = phoneBatchName(names[i], sep);
     if(!nm) return num;
-    return sep === 'line' ? (num + '\t' + nm) : (num + ' ' + nm);
+    return num + ' ' + nm;
   });
   return rows.join(sep === 'line' ? '\n' : ', ');
 }
 function phoneBatchPrefs(){
-  let size = PHONE_BATCH_DEFAULT, sep = 'comma', names = true;
+  let size = PHONE_BATCH_DEFAULT, sep = 'line', names = true;
   try{
     const z = Number(localStorage.getItem('hu.phoneBatchSize'));
     if(z >= 1) size = Math.floor(z);
-    if(localStorage.getItem('hu.phoneBatchSep') === 'line') sep = 'line';
+    /* ⚠ A NEW KEY, NOT hu.phoneBatchSep ([[RS-73]]). One per line became the default on
+       2026-09-24, and the old key was written on EVERY size change, so her browser already
+       holds 'comma' without her ever having chosen it — reading it would keep the paragraph
+       she asked to be rid of. Only a choice made on the new key counts. */
+    if(localStorage.getItem('hu.phoneBatchLayout') === 'comma') sep = 'comma';
     names = localStorage.getItem('hu.phoneBatchNames') !== '0';
   }catch(err){ /* private browsing or blocked storage: the defaults are used and nothing is lost. */ }
   return {size: size, sep: sep, names: names};
@@ -20542,7 +20547,7 @@ function phoneBatchPrefs(){
 function phoneBatchSavePrefs(size, sep, names){
   try{
     localStorage.setItem('hu.phoneBatchSize', String(size));
-    localStorage.setItem('hu.phoneBatchSep', sep);
+    localStorage.setItem('hu.phoneBatchLayout', sep);
     if(names !== undefined) localStorage.setItem('hu.phoneBatchNames', names ? '1' : '0');
   }catch(err){ /* not remembered on this browser; the panel still works with what is on screen. */ }
 }
@@ -20589,8 +20594,8 @@ function phoneBatchRender(host, numbers, index, names){
       '<div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px; font-size:13px;">' +
         '<label>How many at a time <input type="number" min="1" step="1" data-pb="size" value="' + prefs.size + '" style="width:80px; margin-left:4px;"></label>' +
         '<label>Separate with <select data-pb="sep" style="margin-left:4px;">' +
-          '<option value="comma"' + (prefs.sep === 'comma' ? ' selected' : '') + '>Commas (for a To box)</option>' +
-          '<option value="line"' + (prefs.sep === 'line' ? ' selected' : '') + '>One per line (for a spreadsheet)</option>' +
+          '<option value="line"' + (prefs.sep === 'line' ? ' selected' : '') + '>One per line</option>' +
+          '<option value="comma"' + (prefs.sep === 'comma' ? ' selected' : '') + '>Commas, all on one line</option>' +
         '</select></label>' +
         (host._phoneNames
           ? '<label style="display:inline-flex; align-items:center; gap:5px;"><input type="checkbox" data-pb="names"' +
