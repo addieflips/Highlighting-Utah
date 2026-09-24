@@ -64350,3 +64350,103 @@ suite('353. The warehouse note is drawn big enough to be seen');
     /\(houseNotes \? whNoteBoxHtml\(h\.data\) : ''\)/.test(strippedA) && /\(note \? whNoteBoxHtml\(d\) : ''\)/.test(strippedA),
     'one screen showing it big and the other small is two answers about one house');
 }
+
+/* =====================================================================
+ * Suite 354. Copy their phone numbers — the Automation Emails audience,
+ * as a column for the bulk texter (2026-09-24, RS-68). Addie: "I need to
+ * filter out pending numbers on automation email then RSVP then text the
+ * RSVP." RUNS the real renderer with RSVP = Not answered yet, then RUNS the
+ * summary over what it recorded — the claim is that the numbers ARE the
+ * filtered audience, which only running both halves together can show.
+ * ===================================================================== */
+suite('354. Copy their phone numbers — the filtered audience, for texting');
+{
+  const renderSrc = extractFn(admin, 'etRenderRecipientList');
+  const sumSrc = extractFn(admin, 'etPhoneCopySummary');
+  const copySrc = stripComments(extractFn(admin, 'etCopyFilteredPhones') || '');
+  check('S354', 'the renderer, the summary and the press were found',
+    !!renderSrc && !!sumSrc && copySrc.length > 200,
+    'a gate that cannot find its target must FAIL, never skip');
+
+  if (renderSrc && sumSrc) {
+    const env = new Function('document', 'MEMBERS', 'RSVP', 'MODE',
+      (extractFn(admin, 'emailAddressProblem') || '') +
+      (extractFn(admin, 'custCanBeEmailed') || '') +
+      (extractFn(admin, 'etNoAutomationEmails') || '') +
+      (extractFn(admin, 'etUpdateSelectionUi') || '') +
+      (extractFn(admin, 'rsvpSheetCell') || '') +
+      (extractFn(admin, 'rsvpPhoneDigits') || '') +
+      (extractFn(admin, 'rsvpPhoneListRows') || '') +
+      'let etSelectedRecipientIds = new Set();' +
+      'let etTextAudience = [];' +
+      'let etRecipientSearchTerm = "";' +
+      'let etFilterGateCode = "all", etFilterPayment = "all", etFilterRsvp = RSVP;' +
+      'let etFilterPaidLast = "all", etFilterOrderedLast = "all", etFilterNew = "all";' +
+      'let etFilterGroup = "all", etFilterOutlet = "all", etFilterInstalled = "all";' +
+      'let etRsvpAudienceAutoSet = false;' +
+      'let etFilterDoNotSend = MODE;' +
+      'function etGetMembers(){ return MEMBERS; }' +
+      'function etRsvpAnswered(d){ return !!(d && d.rsvpStatus && d.rsvpStatus !== "unanswered"); }' +
+      'function effectiveRsvpStatus(d){ return (d && d.rsvpStatus) || ""; }' +
+      'function getLiveInvoiceStatus(){ return "Paid in Full"; }' +
+      'function audienceBillingGroup(){ return "own"; }' +
+      'function audienceNeverAsked(){ return false; }' +
+      'function audiencePaidLastYear(){ return "paid"; }' +
+      'function audienceOrderedLastYear(){ return "yes"; }' +
+      'function audienceHasLastSeason(){ return true; }' +
+      'function esc(s){ return String(s == null ? "" : s); }' +
+      renderSrc + sumSrc +
+      ';return { go: etRenderRecipientList, sum: function(){ return etPhoneCopySummary(etTextAudience); } };');
+    const doc = { getElementById: function(id){
+      if (id === 'etRecipientList' || id === 'etRecipientCount') return { innerHTML: '', textContent: '' };
+      return null; } };
+    const book = [
+      { id: 'a', data: { name: 'Ann Pending',   email: 'ann@x.com', phone: '(801) 555-0111' } },
+      { id: 'b', data: { name: 'Bob Answered',  email: 'bob@x.com', phone: '801-555-0222', rsvpStatus: 'yes' } },
+      { id: 'c', data: { name: 'Cara NoEmail',  phone: '801 555 0333', rsvpStatus: 'unanswered' } },
+      { id: 'd', data: { name: 'Dan Stop',      email: 'dan@x.com', phone: '8015550444', smsOptedOut: true } },
+      { id: 'e', data: { name: 'Eve NoPhone',   email: 'eve@x.com' } },
+      { id: 'f', data: { name: 'Fay DoNotSend', email: 'fay@x.com', phone: '8015550666', noAutomationEmails: true } }
+    ];
+    const r = env(doc, book, 'pending', 'hide');
+    r.go();
+    const out = r.sum();
+
+    /* ⛔ THE CHECK THAT EARNS THE SUITE: the numbers are the filtered audience. */
+    check('S354', 'only the people still to answer are copied — somebody who said Yes is not',
+      out.numbers.indexOf('8015550222') === -1 && out.numbers.indexOf('8015550111') !== -1,
+      'texting "are you having lights?" to somebody who already said yes');
+    check('S354', 'somebody with NO email is in the numbers',
+      out.numbers.indexOf('8015550333') !== -1 && /no usable email/.test(out.text),
+      'the email list drops them — a text is the only thing that reaches them');
+    check('S354', 'STOP is left out AND said',
+      out.numbers.indexOf('8015550444') === -1 && /STOP/.test(out.text),
+      'this column is pasted straight into a sender');
+    check('S354', 'the do-not-send list stays out of the texts too',
+      out.numbers.indexOf('8015550666') === -1,
+      'that list means never write to them, whatever the other filters say');
+    check('S354', 'somebody with no phone is counted, not dropped in silence',
+      /no phone number on file/.test(out.text));
+    check('S354', 'exactly the right two numbers, digits only',
+      out.numbers.length === 2);
+
+    const all = env(doc, book, 'all', 'hide'); all.go();
+    check('S354', 'a different filter gives a different column — it follows the filters',
+      all.sum().numbers.indexOf('8015550222') !== -1,
+      'a copy that ignores the filters is the whole-book list under a different button');
+    const mg = env(doc, book, 'pending', 'only'); mg.go();
+    check('S354', 'the do-not-send manage view offers nobody',
+      mg.sum().numbers.length === 0);
+  }
+
+  check('S354', 'the press copies one per line and is wired to its button',
+    /sum\.numbers\.join\('\\n'\)/.test(copySrc) &&
+    admin.indexOf('id="etCopyPhonesBtn"') !== -1 &&
+    /getElementById\('etCopyPhonesBtn'\)\?\.addEventListener\('click'/.test(stripComments(admin)),
+    'a button with no handler looks identical to a working one');
+  check('S354', 'the renderer records the audience BEFORE the no-email split',
+    (function(){ const s = stripComments(renderSrc || '');
+      const a = s.indexOf('etTextAudience ='), b = s.indexOf('custCanBeEmailed(m.data)');
+      return a !== -1 && b !== -1 && a < b; })(),
+    'recorded after it, the people the email cannot reach vanish from the texts');
+}
