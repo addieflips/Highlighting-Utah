@@ -7180,6 +7180,12 @@ onAuthStateChanged(auth, function(user){
        sign-out in another tab. Without this, those cases leave every listener
        open and produce exactly the permission-denied log this was built for. */
     detachAllListeners();
+    /* ⚠ AND THE PREFS OWNER GOES WITH THE SESSION. It was left set, so it outlived the
+       sign-out and pointed at whoever had just left — and `adminUserPrefs/{uid}` is the
+       one rule that checks WHO, so the next write was refused rather than merely
+       pointless. Two people use this dashboard, and signing in as the other without a
+       reload is the shape that bites. */
+    projUserPrefsUid = null;
     loginScreen.style.display = 'flex';
     appEl.classList.remove('show');
   }
@@ -7304,9 +7310,26 @@ function prefsLocalFallback(){
     };
   }catch(err){ return { pinnedPanels: [], navCollapsed: {}, sidebarCollapsed: false, tabOrders: {} }; }
 }
+/* ⚠ THE ONLY FLOATING WRITE IN THIS FILE THAT A SIGNED-IN PERSON CAN BE REFUSED, which
+   is why it is worth the three guards (2026-09-24). `adminUserPrefs/{uid}` is the one
+   rule in firestore.rules carrying a second condition — `request.auth.uid == uid` — so
+   every other write here succeeds the moment somebody is logged in, and this one still
+   has to be pointed at the right person.
+   ⚠ IT WAS UNCAUGHT, AND UNCAUGHT IS THE WHOLE COMPLAINT. A refusal here surfaced as
+   "Unhandled promise: Missing or insufficient permissions." with nothing naming the
+   write, which is the row that has reached the Errors folder five times and is still
+   open. Whatever else turns out to be behind those, this one can no longer be it: a
+   refusal now says which write it was, and console.error is what files it.
+   ⚠ AND THE SIGNED-OUT GUARD IS NOT THE SAME AS THE uid ONE. `projUserPrefsUid` outlives
+   the session — onAuthStateChanged clears it now, but a pref write racing a token expiry
+   still has a uid in hand and no auth behind it, which is `whileSignedIn`'s fault in a
+   place a timer guard cannot reach. */
 function savePrefs(){
-  if(!projUserPrefsUid) return;
-  setDoc(doc(db,'adminUserPrefs',projUserPrefsUid), projUserPrefs, {merge:true});
+  if(!projUserPrefsUid || HU_SIGNED_OUT) return;
+  setDoc(doc(db,'adminUserPrefs',projUserPrefsUid), projUserPrefs, {merge:true})
+    .catch(function(err){
+      console.error('[HU] your sidebar and favourites could not be saved', err);
+    });
 }
 async function loadUserPrefs(user){
   projUserPrefsUid = user && user.uid ? user.uid : null;
@@ -24596,7 +24619,37 @@ function errorAlreadyReported(topic, key){
    or insufficient permissions". That was INSTRUMENTED on 2026-09-18, not fixed —
    `rejectionWhere()` now appends the first frame from our own files so the NEXT one can be
    traced. Clearing it would throw away the very reports that fix is waiting for. It goes
-   in only when something actually repairs it. */
+   in only when something actually repairs it.
+   ⚠ AND THAT INSTRUMENTATION CANNOT ANSWER IT. MEASURED 2026-09-24, in node, both ways:
+   an error THROWN in our own async chain does carry `at async ourFunction` frames, which
+   is the shape the two fixtures in error-inbox.test.js are written in — but a Firestore
+   permission denial is not thrown by us. The SDK CONSTRUCTS it in the network callback
+   that reads the server's answer, and `.stack` is captured where an Error is built, so
+   the whole stack is gstatic and there is no frame of ours to find. Awaiting the call
+   does not change it: the rejection is detached from the caller either way, and only an
+   in-process throw gets the async frames. So `rejectionWhere` returns '' for THIS error
+   class by construction — which is exactly what the 9/18 row shows, and why the check
+   next to those fixtures ("a stack with none of our frames adds nothing") is the one
+   describing real life.
+   ⚠ SO THE FIXTURES PROVE THE PARSER, NOT THE FEATURE. They are hand-written stacks that
+   contain our frames, which is the vacuous-fixture trap this repo names in a dozen
+   places: a fixture that cannot reach the state says nothing about it. Left in place —
+   the parser is still right for the errors that DO carry frames — but do not read that
+   suite as evidence that the next permissions row will be traceable, because it will not.
+   ⚠ WHAT WOULD ACTUALLY NAME IT is a breadcrumb taken at CALL time, where the caller is
+   still on the stack — the collection and operation recorded as each read or write
+   starts, and the last few appended when a denial arrives with no frame. That is the
+   `onSnapshot as onSnapshotRaw` trick applied to the doc-level calls, and it is a change
+   to the import block of a 2.6MB file, so it is written down here rather than smuggled in
+   beside four unrelated entries.
+   ⚠ AND THE SHORTLIST IS ALREADY NARROW. For a signed-in user every rule in
+   firestore.rules answers `request.auth != null` and allows it; the only ones that can
+   still refuse are `adminUserPrefs/{uid}` (the uid must match), a `messages` create over
+   5,000 characters or claiming read/responded, a `quotes` create carrying a price or an
+   approval, and a write to the three Cloud-Function-owned collections. Every `messages`
+   and `quotes` create in this file is inside a try/catch, so none of them can surface as
+   an UNHANDLED rejection — which leaves a floating write, and `savePrefs` is the only
+   floating write in the file that a signed-in person can be refused. */
 const FIXED_ERROR_MIN_MATCH = 12;
 const FIXED_ERRORS = [
   { match: 'renderFolderSidebar is not defined', fixedOn: '2026-09-09',
@@ -24633,7 +24686,22 @@ const FIXED_ERRORS = [
   { match: 'Cannot read properties of null', topic: MEMBER_ERROR_TOPIC, fixedOn: '2026-09-10',
     note: 'Member. changes_outlet_timer / changes_specific_outlet read .value off a radio nothing had ticked and took the whole preferences save down with it — and on an RSVP page, the answer with it. 6f61d8c.' },
   { match: 'null is not an object', topic: MEMBER_ERROR_TOPIC, fixedOn: '2026-09-10',
-    note: 'Member. Safari wording for the same crash as the entry above. 6f61d8c.' }
+    note: 'Member. Safari wording for the same crash as the entry above. 6f61d8c.' },
+  /* ⚠ THE FOUR BELOW ARE ONE FINDING, NOT FOUR (2026-09-24). Reading the folder turned up
+     four faults that had each been REPAIRED and none of which had an entry here, so their
+     reports sat in the badge looking exactly like faults nobody had dealt with — which is
+     the 2176ff2 miss recorded above happening four more times. Three of the four were
+     repaired by a session that also wrote the RULING down and still did not come back
+     here, so the map knew and the badge did not. Item 7 of §9.9 is the only thing that
+     closes that gap and nothing can check it. */
+  { match: 'activity log read failed', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-11',
+    note: 'Admin. The ten-minute health-check beat running against a session that had already ended — renderActivityToday reached from runHealthCheckAuto, which setInterval kept ticking after a token expiry. Its twin ("could not read nightly billing health") is four entries up and got one; this one was fixed by the same whileSignedIn guard on the same day and was simply never written down. The "Signed in as: nobody" on the row is the tell, and it is why the needle does not name the denial: the wording that matters is whose read it was.' },
+  { match: 'Twilio send failed', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-18',
+    note: 'Admin. Dax, on these very rows: "we dont use twillo at all thats a bug" ([[QT-48]]). sendSms and twilioSendRaw are gone from the server and nothing anywhere posts to Twilio now. Dated the day the SERVER half went, not 2026-09-12 when the quote button stopped calling it: QT-48 records that the 9/15 row came from an admin tab left open since before that, so the earlier date would leave it uncleared.' },
+  { match: 'cloud_name is disabled', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-18',
+    note: 'Admin. The Cloudinary account had been switched off and nothing warned anybody first ([[PROC-34]]). It has been upgraded since — Plus plan, checked through the usage API — and cloudinaryUsageWatch now reads that usage every morning and leaves one Inbox note at 80%, one at 95%, and one on the day the account is off. ⚠ THE NEEDLE CARRIES NO DIGITS on purpose: errorKeyFor collapses every run of them to #, so a needle naming the 401 would be comparing # against # and would match far more than this.' },
+  { match: 'recipients address is corrupted', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-12',
+    note: 'Admin. EmailJS answers a bad recipient with a 422 naming no part of the problem, and the whole send stops — so one unusable address on the book cost a run of 258 its last rows. emailSendSkipReason now reads the address BEFORE the send, skips that one recipient with a sentence saying which part is wrong, and lets the rest go. A row after this date means the guard let something through, which is news and survives.' }
 ];
 /* Both sides of the comparison go through this, so an entry above can be typed the way the
    error actually reads rather than in whichever key spelling it happens to land in. */
@@ -24762,6 +24830,32 @@ function adminErrorIsNoise(text){
 function adminErrorWhoNow(){
   return (auth && auth.currentUser && auth.currentUser.email) || 'nobody';
 }
+/* ⭐ WHICH PANEL WAS OPEN (2026-09-24). The "Where:" line on every admin error ever
+   filed reads "(the dashboard)", and it is not that they all happened there — it was
+   `location.hash`, and THIS PAGE DOES NOT ROUTE ON THE HASH. switchToAdminPanel moves a
+   class; the address bar never changes. So the fallback was the only branch that could
+   ever run, on every row, and the one field meant to say where a fault happened has
+   never said anything at all.
+   ⚠ IT IS THE PANEL KEY, NOT THE NAV LABEL. The label carries the badge count beside it
+   ("Quote Requests 3"), so two reports of one fault would read as different places
+   depending on how much post had arrived. The key is what switchToAdminPanel is given.
+   ⚠ AND IT CHANGES NO DEDUPE. `errorKeyFor` is built from the error TEXT, never from this
+   line, so nothing here can move an existing key out from under FIXED_ERRORS or under
+   errorAlreadyReported — checked before it was written, because a "Where" that split one
+   fault into six rows would be worse than one that said nothing.
+   ⚠ THE HASH IS STILL READ, LAST. employee.html and index.html do route on it, and if a
+   panel cannot be found the hash is better than nothing. */
+function adminErrorWhereNow(){
+  try{
+    const open = document.querySelector('.panel.active');
+    if(open && open.id) return open.id.replace(/^panel-/, '');
+    const nav = document.querySelector('.nav-item[data-panel].active');
+    if(nav && nav.getAttribute('data-panel')) return nav.getAttribute('data-panel');
+  }catch(err){ /* quiet on purpose: this IS the error reporter, and a reporter that can
+                  throw takes down the page it was reporting on. The line below still
+                  names something, and the message it sits under is already enough to file. */ }
+  return String((location && location.hash) || '(no panel open)');
+}
 function reportAdminError(text, whoAtCatch){
   try{
     text = String(text || '').trim();
@@ -24798,7 +24892,7 @@ function reportAdminError(text, whoAtCatch){
         errorKey: key, staffEmail: signedInAs,
         message: 'Something went wrong on the admin page.' + String.fromCharCode(10,10) +
           text.slice(0, 1500) + String.fromCharCode(10,10) +
-          'Where: ' + String((location && location.hash) || '(the dashboard)').slice(0, 120) + String.fromCharCode(10) +
+          'Where: ' + adminErrorWhereNow().slice(0, 120) + String.fromCharCode(10) +
           'Signed in as: ' + signedInAs + String.fromCharCode(10) +
           'Browser: ' + String(navigator.userAgent || '').slice(0, 200),
         autoQueuedToWarehouse: false, needsReassign: false,
@@ -62828,7 +62922,213 @@ function planNewCrewDays(waiting, taken, opts){
       return haversine(ca.lat, ca.lng, cb.lat, cb.lng);
     }
   });
-  return renumberCrewsByDate(packed.days, taken || {});
+  /* ⭐ AND A HOUSE LEFT OUT ON ITS OWN JOINS THE DAY THE CREW IS IN ITS AREA
+     ([[SCH-96]]). Guarded, like the forecast and the day shape: several suites lift this
+     builder without it, and there it must lay the season out exactly as before. */
+  const gathered = (o.gather !== false && typeof gatherStrayHouses === 'function')
+    ? gatherStrayHouses(packed.days, {
+        cap: cap, dayShape: o.dayShape,
+        house: function(id){ return wById[id] || null; }
+      })
+    : packed.days;
+  return renumberCrewsByDate(gathered, taken || {});
+}
+/* ⭐ A HOUSE WAY OUT OF THE WAY GOES ON THE DAY THE CREW IS ALREADY IN ITS AREA
+   ([[SCH-96]], Dax, 2026-09-24): "on the schedule I noticed we do a house in Lehi way
+   out of the way and then two days later we are going to be in that same area of Lehi
+   so I would rather they got put in a day where we are in that area."
+
+   ⚠ HOW IT HAPPENS. A crew-day short of the cap tops up from the nearest neighbouring
+   area (the borrow step in planNewCrewDays), and a one-man outlier gets a day of its
+   own ([[SCH-69]]). Either way one house can land miles from everything else on its
+   sheet while, a few days either side, a crew works the street it is on.
+
+   ⛔ THIS IS NOT [[SCH-75]] COME BACK. That row measured rebuilding whole days to stop
+   the crew returning to an AREA, and every version cost crew-days. This moves single
+   houses between days that already exist: it never adds a crew-day, never drops
+   anybody, and every move shortens the drive by construction — from 3+ miles out on
+   its own sheet to within 1.5 miles of a house on the new one.
+
+   The rules a move must keep, all of them standing rulings:
+   - never before the house's own earliest day ([[SCH-06]]) or past its last one
+     ([[SCH-07]]);
+   - LATER only by a week at most, and never for anybody the plan is hurrying — asked
+     sooner, a new hang, missed before ([[SCH-61]]), running out of time ([[SCH-58]]) or
+     a named day. Earlier is always allowed, since earlier costs nobody anything;
+   - only onto a crew-day that already holds a house in the SAME TOWN, so the crews'
+     towns ([[SCH-02]]) and the sheet's label do not change;
+   - only where there is room, and never tipping a date over a staffing line: one
+     person (ONE_MAN_MAX_HOUSES) to a crew, or one crew to two ([[SCH-09]]).
+   Days inside the 48-hour lock never reach here: rebuildSeasonDays keeps them out of
+   the pool, so nothing printed moves.
+
+   PURE: crew-days in, crew-days out ({date, crew, city, towns, areas, ids}). */
+const STRAY_FAR_MILES = 3;
+const STRAY_NEAR_MILES = 1.5;
+const STRAY_LATER_MAX_DAYS = 7;
+function gatherStrayHouses(days, opts){
+  /* Guarded, because several suites lift the builder into a sandbox with no tape measure;
+     there it must hand the plan back exactly as built. The page always has one. */
+  if(typeof haversine !== 'function') return days;
+  const o = opts || {};
+  const house = typeof o.house === 'function' ? o.house : function(){ return null; };
+  const cap = o.cap || MAX_STOPS_PER_ROUTE;
+  const dayShape = typeof o.dayShape === 'function' ? o.dayShape : function(){ return null; };
+  const capOnDate = function(ds){
+    const sh = dayShape(ds);
+    return (sh && sh.cap > 0) ? Math.min(cap, sh.cap) : cap;
+  };
+  const oneMax = (typeof ONE_MAN_MAX_HOUSES === 'number') ? ONE_MAN_MAX_HOUSES : 8;
+  /* One person, one crew, two crews — the staffing a date's total asks for. */
+  const staffing = function(n){ return n <= oneMax ? 0 : (n < cap ? 1 : 2); };
+  const pinOf = function(id){
+    const w = house(id);
+    const st = w && w.stop;
+    return (st && typeof st.lat === 'number' && typeof st.lng === 'number' &&
+            isFinite(st.lat) && isFinite(st.lng)) ? st : null;
+  };
+  const townOf = function(id){ const w = house(id); return (w && w.city) || ''; };
+  const nearest = function(p, ids, skip){
+    let best = Infinity, bestId = null;
+    ids.forEach(function(id){
+      if(id === skip) return;
+      const q = pinOf(id);
+      if(!q) return;
+      const d = haversine(p.lat, p.lng, q.lat, q.lng);
+      if(d < best){ best = d; bestId = id; }
+    });
+    return {miles: best, id: bestId};
+  };
+  const dayMs = 86400000;
+  const daysApart = function(a, b){
+    return Math.round((Date.UTC(+b.slice(0,4), +b.slice(5,7) - 1, +b.slice(8,10)) -
+                       Date.UTC(+a.slice(0,4), +a.slice(5,7) - 1, +a.slice(8,10))) / dayMs);
+  };
+  /* Anybody the plan is hurrying keeps the day it was given or an earlier one. Tiers
+     below 20 are asked-sooner, new hangs and missed; a tier ending in 5 is one that is
+     running out of time — see houseInstallPriority. */
+  const mayWait = function(w){
+    if(!w) return false;
+    const p = (typeof w.priority === 'number') ? w.priority : 40;
+    return p >= 20 && p % 10 === 0 && !w.missed && !w.rush && !w.named;
+  };
+  const list = (days || []).slice();
+  const dateTotal = function(ds){
+    let n = 0;
+    list.forEach(function(cd){ if(cd.date === ds) n += cd.ids.length; });
+    return n;
+  };
+  /* May this house go from one crew-day to another at all? The date rules only. */
+  const canGo = function(id, from, to){
+    const w = house(id);
+    const lo = (w && w.from) || '', hi = (w && w.until) || '';
+    if(lo && to.date < lo) return false;
+    if(hi && to.date > hi) return false;
+    if(to.date > from.date &&
+       (!mayWait(w) || daysApart(from.date, to.date) > STRAY_LATER_MAX_DAYS)) return false;
+    return true;
+  };
+  const holdsTown = function(ids, town, skip){
+    return ids.some(function(x){ return x !== skip && townOf(x) === town; });
+  };
+  const moved = [], touched = {};
+  for(let guard = 0; guard < 500; guard++){
+    let best = null;
+    const offer = function(c){
+      /* Biggest saving wins; on a tie, the sooner day. */
+      if(!best || c.gain > best.gain || (c.gain === best.gain && c.dst.date < best.dst.date)) best = c;
+    };
+    list.forEach(function(src){
+      src.ids.forEach(function(id){
+        if(touched[id]) return;
+        const p = pinOf(id);
+        if(!p) return;
+        const here = nearest(p, src.ids, id).miles;
+        if(here < STRAY_FAR_MILES) return;
+        const town = townOf(id);
+        if(!town) return;
+        list.forEach(function(dst){
+          if(dst === src || dst.date === src.date) return;
+          if(!canGo(id, src, dst)) return;
+          if(!holdsTown(dst.ids, town, null)) return;
+          const there = nearest(p, dst.ids, null);
+          if(there.miles > STRAY_NEAR_MILES) return;
+          if(dst.ids.length < capOnDate(dst.date)){
+            const total = dateTotal(dst.date);
+            if(staffing(total + 1) !== staffing(total)) return;
+            /* and the run itself: a one-person run beside a full one stays one person
+               ([[SCH-69]], crewIsOneMan). */
+            if((dst.ids.length + 1 <= oneMax) !== (dst.ids.length <= oneMax)) return;
+            offer({id: id, src: src, dst: dst, near: there.id, was: here, now: there.miles,
+                   gain: (isFinite(here) ? here : STRAY_FAR_MILES * 10) - there.miles});
+            return;
+          }
+          /* ⭐ THE DAY IN ITS AREA IS FULL — SO TRADE. Measured before this was added:
+             every stray left behind that had a crew in its area was blocked only by a
+             full sheet, because days are filled to the cap on purpose ([[SCH-68]]).
+             One of that day's houses takes the stray's place instead, and only when the
+             swap shortens BOTH drives' worth of stray miles together — the traded house
+             must itself land beside a house on its new sheet, in a town that sheet
+             already works, on a date its own rules allow. Head-counts do not change, so
+             staffing cannot. */
+          const rest = src.ids.filter(function(x){ return x !== id; });
+          dst.ids.forEach(function(t){
+            if(touched[t]) return;
+            const tp = pinOf(t);
+            if(!tp) return;
+            const tt = townOf(t);
+            if(!tt || !holdsTown(rest, tt, null)) return;
+            if(!canGo(t, dst, src)) return;
+            const tHere = nearest(tp, dst.ids, t).miles;
+            const tThere = nearest(tp, rest, null);
+            if(tThere.miles > STRAY_NEAR_MILES) return;
+            const sThere = nearest(p, dst.ids, t);
+            if(sThere.miles > STRAY_NEAR_MILES) return;
+            const gain = (isFinite(here) ? here : STRAY_FAR_MILES * 10) - sThere.miles +
+                         (isFinite(tHere) ? tHere : 0) - tThere.miles;
+            if(gain < STRAY_NEAR_MILES) return;
+            offer({id: id, src: src, dst: dst, near: sThere.id, was: here, now: sThere.miles, gain: gain,
+                   swap: t, swapNear: tThere.id});
+          });
+        });
+      });
+    });
+    if(!best) break;
+    const b = best;
+    b.src.ids = b.src.ids.filter(function(x){ return x !== b.id; });
+    if(b.swap != null){
+      b.dst.ids = b.dst.ids.filter(function(x){ return x !== b.swap; });
+      b.src.ids.push(b.swap);
+    }
+    b.dst.ids.push(b.id);
+    /* Each house joins the block it is now worked in, so townsAreNeighbours reads it
+       the way the crew will drive it. */
+    const joinArea = function(id, near, day){
+      const w = house(id), nw = house(near);
+      if(w && nw && nw.area) w.area = nw.area;
+      if(w && w.area && Array.isArray(day.areas) && day.areas.indexOf(w.area) === -1) day.areas.push(w.area);
+    };
+    joinArea(b.id, b.near, b.dst);
+    if(b.swap != null) joinArea(b.swap, b.swapNear, b.src);
+    /* And a day stops naming a town it no longer holds. */
+    [b.src, b.dst].forEach(function(day){
+      const left = {};
+      day.ids.forEach(function(x){ const t = townOf(x); if(t) left[t] = (left[t] || 0) + 1; });
+      if(Array.isArray(day.towns)) day.towns = day.towns.filter(function(t){ return left[t]; });
+      if(day.ids.length && !left[day.city]){
+        day.city = Object.keys(left).sort(function(x, y){ return left[y] - left[x] || (x < y ? -1 : 1); })[0] || day.city;
+      }
+    });
+    touched[b.id] = true;
+    moved.push({id: b.id, from: b.src.date, to: b.dst.date, was: b.was, now: b.now});
+    if(b.swap != null){
+      touched[b.swap] = true;
+      moved.push({id: b.swap, from: b.dst.date, to: b.src.date, swappedFor: b.id});
+    }
+    if(!b.src.ids.length) list.splice(list.indexOf(b.src), 1);
+  }
+  list.gathered = moved;
+  return list;
 }
 /* ⭐ THE DRIBBLE AT THE END OF THE SEASON, SWEPT UP.
    Owner, 2026-08-18: "near the end of the season days start to look like this

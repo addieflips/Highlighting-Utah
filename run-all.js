@@ -5387,7 +5387,7 @@ suite('8. Quote decline / maybe next year');
      vocabulary for an RSVP state. The quote flow keeps its own wording untouched. */
   check('quoteresp', 'every customer reads Confirmed, On hold or Back Next Year',
     /* REPOINTED 2026-09-24 (RS-76): the Back Next Year word comes from backNextYearLabel,
-       which says "Back in 2028" once a year is picked; Suite 361 runs it. */
+       which says "Back in 2028" once a year is picked; Suite 362 runs it. */
     maybeCell.includes('backNextYearLabel(r.d)') &&
     /'Back Next Year'/.test(extractFn(admin, 'backNextYearLabel') || '') && maybeCell.includes('Confirmed<') &&
     maybeCell.includes('On hold<'),
@@ -18429,10 +18429,15 @@ suite('Suite 51. The dribble at the end of the season');
   {
     const start = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
     const end = admin.indexOf('/* Top every day up to the cap.', start);
+    /* ⚠ REPOINTED 2026-09-24 (SCH-96), NOT WEAKENED. The packed plan now passes through
+       gatherStrayHouses on its way to the numbering, so the old literal
+       `renumberCrewsByDate(packed.days, …)` stopped existing. What must stay true is that
+       the PACKED days are what is handed back — either gathered, or as they are. */
     check('S51', 'the builder runs the packer before handing the plan back',
       /if\(o\.pack === false\) return out;/.test(admin) &&
       /const packed = packTailCrewDays\(out, \{/.test(admin) &&
-      /return renumberCrewsByDate\(packed\.days, taken \|\| \{\}\);/.test(admin));
+      /gatherStrayHouses\(packed\.days, \{/.test(admin) &&
+      /: packed\.days;\r?\n  return renumberCrewsByDate\(gathered, taken \|\| \{\}\);/.test(admin));
 
     const api = new Function(
       'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");}' +
@@ -64860,35 +64865,35 @@ suite('360. Phone batches are kept, and each one can be ticked as sent');
 }
 
 /* =====================================================================
- * Suite 361. Back in which year (2026-09-24, RS-76). Addie: "on back next
+ * Suite 362. Back in which year (2026-09-24, RS-76). Addie: "on back next
  * year I also need a place when I can choose what year they will be back
  * for people serving missions and stuff like that." RUNS the year rules
  * and the picker; reads the Move-everyone-to-Unanswered handler.
  * ===================================================================== */
-suite('361. Back Next Year can name the year they come back');
+suite('362. Back Next Year can name the year they come back');
 {
   const names = ['backInYearOf', 'backInYearHasCome', 'backNextYearLabel', 'editCustSyncBackInYearRow', 'editCustFillBackInYear'];
   const srcs = names.map(n => extractFn(admin, n));
-  check('S361', 'the year rules and the picker were found', srcs.every(Boolean),
+  check('S362', 'the year rules and the picker were found', srcs.every(Boolean),
     'a gate that cannot find its target must FAIL, never skip');
   if (srcs.every(Boolean)) {
     const api = new Function('document', srcs.join('\n') +
       ';return { backInYearOf, backInYearHasCome, backNextYearLabel, editCustFillBackInYear };')({ getElementById: () => null });
-    check('S361', 'a stored year is read, and junk is not a year',
+    check('S362', 'a stored year is read, and junk is not a year',
       api.backInYearOf({ backInYear: 2028 }) === 2028 && api.backInYearOf({ backInYear: '2029' }) === 2029 &&
       api.backInYearOf({}) === 0 && api.backInYearOf({ backInYear: 'soon' }) === 0 && api.backInYearOf(null) === 0);
-    check('S361', 'their year has come in that year and after, not before',
+    check('S362', 'their year has come in that year and after, not before',
       api.backInYearHasCome({ backInYear: 2028 }, 2028) && api.backInYearHasCome({ backInYear: 2027 }, 2028) &&
       !api.backInYearHasCome({ backInYear: 2029 }, 2028),
       'a missionary back in 2029 must not be asked in 2028');
-    check('S361', 'no year picked never counts as their year having come',
+    check('S362', 'no year picked never counts as their year having come',
       !api.backInYearHasCome({}, 2099) && !api.backInYearHasCome({ maybeNextYear: true }, 2099),
       'her answer for the ones already on Back Next Year: they stay out until a year is chosen');
-    check('S361', 'the badge names the year, and says Back Next Year when there is none',
+    check('S362', 'the badge names the year, and says Back Next Year when there is none',
       api.backNextYearLabel({ backInYear: 2028 }) === 'Back in 2028' && api.backNextYearLabel({}) === 'Back Next Year');
     let JSDOM = null;
     try { JSDOM = require('jsdom').JSDOM; } catch (e) { /* noted below */ }
-    if (!JSDOM) note('S361: jsdom missing — the picker was not driven');
+    if (!JSDOM) note('S362: jsdom missing — the picker was not driven');
     else {
       const w = new JSDOM('<select id="editCustRsvp"><option value="">-</option><option value="backnextyear">B</option></select>' +
         '<div id="editCustBackInYearRow" style="display:none"><select id="editCustBackInYear"></select></div>').window;
@@ -64897,38 +64902,196 @@ suite('361. Back Next Year can name the year they come back');
       w.document.getElementById('editCustRsvp').value = 'backnextyear';
       ui.editCustFillBackInYear({ backInYear: now + 2 });
       const sel = w.document.getElementById('editCustBackInYear');
-      check('S361', 'the picker offers the coming years and shows the one on file',
+      check('S362', 'the picker offers the coming years and shows the one on file',
         sel.value === String(now + 2) && sel.options[0].value === '' && sel.options[1].value === String(now + 1) &&
         w.document.getElementById('editCustBackInYearRow').style.display === '');
       ui.editCustFillBackInYear({});
-      check('S361', 'a customer with no year opens on Not picked yet — the next house never inherits one',
+      check('S362', 'a customer with no year opens on Not picked yet — the next house never inherits one',
         sel.value === '');
       w.document.getElementById('editCustRsvp').value = '';
       ui.editCustFillBackInYear({});
-      check('S361', 'and the box is hidden unless they are Back Next Year',
+      check('S362', 'and the box is hidden unless they are Back Next Year',
         w.document.getElementById('editCustBackInYearRow').style.display === 'none');
     }
   }
   const stripped = stripComments(admin);
   const rs = stripped.indexOf("getElementById('rsvpResetBtn')?.addEventListener('click'");
   const reset = rs === -1 ? '' : stripped.slice(rs, stripped.indexOf("getElementById('deleteAllConfirmInput')", rs));
-  check('S361', 'Move everyone to Unanswered was found', reset.length > 500);
-  check('S361', 'it brings back anybody whose year has come — flag, date and year cleared together',
+  check('S362', 'Move everyone to Unanswered was found', reset.length > 500);
+  check('S362', 'it brings back anybody whose year has come — flag, date and year cleared together',
     /return String\(d\.rsvpStatus \|\| ''\) !== 'unanswered' \|\| backInYearHasCome\(d, thisYear\);/.test(reset) &&
     /\? \{rsvpStatus: 'unanswered', rsvpRespondedAt: null, maybeNextYear: false, maybeNextYearAt: null, backInYear: null\}/.test(reset),
     'clearing the answer but not the flag leaves them out of the season and never asked');
-  check('S361', 'and leaves everyone else on Back Next Year exactly as they were',
+  check('S362', 'and leaves everyone else on Back Next Year exactly as they were',
     /: \{rsvpStatus: 'unanswered', rsvpRespondedAt: null\};/.test(reset) &&
     /const back = backInYearHasCome\(item\.data \|\| \{\}, thisYear\);/.test(reset),
     'a missionary whose year has not come would be put back in a year early');
-  check('S361', 'the confirm names who is coming back before anything is written',
+  check('S362', 'the confirm names who is coming back before anything is written',
     reset.indexOf('comingBack.length') !== -1 && reset.indexOf('comingBack.length') < reset.indexOf('updateDoc('));
   const save = stripped.slice(stripped.indexOf('const seasonMaybeChosen ='));
-  check('S361', 'the Edit Customer save stores the year and clears it when they stop being Back Next Year',
+  check('S362', 'the Edit Customer save stores the year and clears it when they stop being Back Next Year',
     /addrUpdates\.backInYear = backInYearOf\(\{backInYear: backYearEl\.value\}\) \|\| null;/.test(save) &&
     /if\(!seasonMaybeChosen && item\.data\.backInYear\) addrUpdates\.backInYear = null;/.test(save));
-  check('S361', 'the picker is filled every time the form opens, and the badge names the year',
+  check('S362', 'the picker is filled every time the form opens, and the badge names the year',
     /rsvpSel\.value = d\.rsvpStatus \|\| '';\s*editCustFillBackInYear\(d\);/.test(stripped) &&
     stripped.indexOf("esc(backNextYearLabel(r.d))") !== -1 &&
     admin.indexOf('id="editCustBackInYear"') !== -1);
+}
+
+/* =====================================================================
+ * Suite 361. A house way out of the way joins the day the crew is in its
+ * area (2026-09-24, SCH-96). Dax: "on the schedule I noticed we do a house
+ * in Lehi way out of the way and then two days later we are going to be in
+ * that same area of Lehi so I would rather they got put in a day where we
+ * are in that area, make sure to not mess up the schedule system we already
+ * have but fix/improve that for me."
+ *
+ * RUNS gatherStrayHouses against crew-days, because every claim here is about
+ * which day a house ENDS UP on. The rules it must keep are the standing ones
+ * (the month, the deadline, the town, the staffing lines, nobody dropped), so
+ * most checks below are refusals.
+ * ===================================================================== */
+suite('361. A stray house joins the day the crew is in its area');
+{
+  const src = extractFn(admin, 'gatherStrayHouses');
+  const consts = ['STRAY_FAR_MILES', 'STRAY_NEAR_MILES', 'STRAY_LATER_MAX_DAYS'].map(function (n) {
+    const m = admin.match(new RegExp('const ' + n + ' = [^;]+;'));
+    return m ? m[0] : null;
+  });
+  check('S361', 'the stray gatherer and its three distances are findable',
+    !!src && consts.every(Boolean), 'a gate that cannot find its target must FAIL, never skip');
+  if (src && consts.every(Boolean)) {
+    const LF_ = String.fromCharCode(10);
+    const gather = new Function(
+      'const MAX_STOPS_PER_ROUTE = 20; const ONE_MAN_MAX_HOUSES = 8;' + LF_ +
+      'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+      'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}' + LF_ +
+      consts.join(LF_) + LF_ + src + LF_ + 'return gatherStrayHouses;')();
+
+    /* One degree of latitude is ~69 miles, so 0.001 is ~0.07 mi. Lehi's stray sits in
+       north Lehi; its day is otherwise in Orem, ~11 miles south. */
+    const LEHI = { lat: 40.4300, lng: -111.8500 }, OREM = { lat: 40.2969, lng: -111.6946 };
+    const mk = (id, town, at, i, extra) => Object.assign({ id: id, city: town, priority: 40, from: '2026-10-01',
+      until: '', stop: { lat: at.lat + i * 0.001, lng: at.lng } }, extra || {});
+    const book = {};
+    const put = w => { book[w.id] = w; return w.id; };
+    const run = (days, opts) => gather(days, Object.assign({ cap: 20, house: id => book[id] || null }, opts || {}));
+    const dayOf = (days, id) => { const d = days.find(cd => cd.ids.indexOf(id) !== -1); return d ? d.date : null; };
+    const ids = days => days.reduce((a, d) => a.concat(d.ids), []).sort();
+
+    /* The owner's case: Oct 5 is an Orem day carrying one Lehi house, Oct 7 works Lehi. */
+    const scene = (strayExtra, lehiDate, lehiCount) => {
+      Object.keys(book).forEach(k => delete book[k]);
+      const orem = []; for (let i = 0; i < 12; i++) orem.push(put(mk('o' + i, 'Orem', OREM, i)));
+      const stray = put(mk('stray', 'Lehi', LEHI, 0, strayExtra));
+      const lehi = []; for (let i = 0; i < (lehiCount || 12); i++) lehi.push(put(mk('l' + i, 'Lehi', LEHI, i + 2)));
+      return [
+        { date: '2026-10-05', crew: '1', city: 'Orem', towns: ['Orem', 'Lehi'], areas: ['g:1', 'g:2'], ids: orem.concat([stray]) },
+        { date: lehiDate || '2026-10-07', crew: '1', city: 'Lehi', towns: ['Lehi'], areas: ['g:2'], ids: lehi }
+      ];
+    };
+
+    {
+      const out = run(scene());
+      check('S361', 'the lone Lehi house moves to the day the crew is working Lehi',
+        dayOf(out, 'stray') === '2026-10-07', 'got ' + dayOf(out, 'stray'));
+      const orem = out.find(d => d.date === '2026-10-05');
+      check('S361', 'and the day it left stops naming a town it no longer holds',
+        orem && orem.towns.join() === 'Orem' && orem.city === 'Orem', JSON.stringify(orem && orem.towns));
+      check('S361', 'nobody is lost or doubled', ids(out).join() === ids(scene()).join());
+      check('S361', 'and the move is reported, with how far it was out and how close it is now',
+        Array.isArray(out.gathered) && out.gathered.length === 1 && out.gathered[0].was >= 3 && out.gathered[0].now <= 1.5);
+    }
+    check('S361', 'a house somebody is hurrying is never moved LATER (a new hang)',
+      dayOf(run(scene({ priority: 10 })), 'stray') === '2026-10-05');
+    check('S361', 'nor a house running out of time (a tier ending in 5)',
+      dayOf(run(scene({ priority: 35 })), 'stray') === '2026-10-05');
+    check('S361', 'nor one the crew missed before, one moved up by the office, or one that named a day',
+      dayOf(run(scene({ missed: 1 })), 'stray') === '2026-10-05' &&
+      dayOf(run(scene({ rush: true })), 'stray') === '2026-10-05' &&
+      dayOf(run(scene({ named: true })), 'stray') === '2026-10-05');
+    check('S361', 'but EARLIER is fine for anybody, a new hang included',
+      dayOf(run(scene({ priority: 10 }, '2026-10-02')), 'stray') === '2026-10-02');
+    check('S361', 'never before the first day they allow (their month, their office date, a hold)',
+      dayOf(run(scene({ from: '2026-10-05' }, '2026-10-02')), 'stray') === '2026-10-05');
+    check('S361', 'never past their last day (October means October)',
+      dayOf(run(scene({ until: '2026-10-06' })), 'stray') === '2026-10-05');
+    check('S361', 'and never more than a week later',
+      dayOf(run(scene({}, '2026-10-13')), 'stray') === '2026-10-05');
+
+    {
+      /* Two towns a block apart are still two towns to the crew sheet. */
+      const days = scene();
+      book.stray.city = 'Highland';
+      check('S361', 'only onto a day that already works the house’s own town',
+        dayOf(run(days), 'stray') === '2026-10-05');
+    }
+    {
+      /* The date's staffing line: 8 houses is one person, 9 is a crew. */
+      const days = scene({}, '2026-10-07', 8);
+      check('S361', 'never tips a date from one person to a crew',
+        dayOf(run(days), 'stray') === '2026-10-05');
+    }
+    {
+      /* ⚠ THE DATE LINE, NOT THE RUN'S: the Lehi run of 12 stays one crew either way, but a
+         second run of 7 beside it takes the DATE from 19 to 20 — one crew to two. The
+         red-check caught the fixture above being unable to tell the two rules apart. */
+      const days = scene();
+      const other = []; for (let i = 0; i < 7; i++) other.push(put(mk('h' + i, 'Highland', { lat: 40.43, lng: -111.79 }, i)));
+      days.push({ date: '2026-10-07', crew: '2', city: 'Highland', towns: ['Highland'], areas: ['g:3'], ids: other });
+      check('S361', 'never tips a DATE from one crew to two, even when the run itself stays one crew',
+        dayOf(run(days), 'stray') === '2026-10-05');
+    }
+    {
+      /* A house far from everything stays where it is — Levan is an outlier, not a stray. */
+      const days = scene();
+      book.stray.stop = { lat: 39.55, lng: -111.86 };
+      check('S361', 'a genuine outlier with no crew near it is left alone',
+        dayOf(run(days), 'stray') === '2026-10-05');
+    }
+    {
+      /* An outlier's own one-house day, and a crew in its area two days later. */
+      Object.keys(book).forEach(k => delete book[k]);
+      const stray = put(mk('stray', 'Lehi', LEHI, 0));
+      const lehi = []; for (let i = 0; i < 12; i++) lehi.push(put(mk('l' + i, 'Lehi', LEHI, i + 2)));
+      const out = run([
+        { date: '2026-10-05', crew: '2', city: 'Lehi', towns: ['Lehi'], areas: ['x:stray'], ids: [stray] },
+        { date: '2026-10-07', crew: '1', city: 'Lehi', towns: ['Lehi'], areas: ['g:2'], ids: lehi }]);
+      check('S361', 'a one-house day whose house joins a crew already there disappears',
+        out.length === 1 && dayOf(out, 'stray') === '2026-10-07' && book.stray.area === undefined);
+    }
+    {
+      /* The Lehi day is FULL, and one of its houses sits beside the Orem crew. */
+      const days = scene({}, '2026-10-07', 20);
+      const swap = days[1].ids[19];
+      book[swap].city = 'Orem';
+      book[swap].stop = { lat: OREM.lat + 0.02, lng: OREM.lng };
+      days[1].towns = ['Lehi', 'Orem'];
+      const out = run(days);
+      check('S361', 'when the day in its area is full, it trades places with the house on that day nearest the other crew',
+        dayOf(out, 'stray') === '2026-10-07' && dayOf(out, swap) === '2026-10-05',
+        'stray on ' + dayOf(out, 'stray') + ', traded house on ' + dayOf(out, swap));
+      check('S361', 'and a trade changes no head-count, so nobody’s staffing moves',
+        out.find(d => d.date === '2026-10-05').ids.length === 13 && out.find(d => d.date === '2026-10-07').ids.length === 20);
+    }
+    {
+      /* Full, and nothing on it belongs anywhere near the other day: no trade. */
+      const days = scene({}, '2026-10-07', 20);
+      check('S361', 'a full day with nothing worth trading is left full, not overfilled',
+        dayOf(run(days), 'stray') === '2026-10-05' && run(scene({}, '2026-10-07', 20)).every(d => d.ids.length <= 20));
+    }
+
+    /* ---- the wiring, asserted apart from the mechanism ----
+       Everything above calls gatherStrayHouses itself, so deleting the call from the
+       builder would leave it all green while no real season ever gathers anything. */
+    const plan = stripComments(extractFn(admin, 'planNewCrewDays') || '');
+    check('S361', 'the season builder runs it on the swept plan, before the crews are numbered',
+      /gatherStrayHouses\(packed\.days,/.test(plan) &&
+      /return renumberCrewsByDate\(gathered, taken \|\| \{\}\);/.test(plan) &&
+      plan.indexOf('gatherStrayHouses(packed.days,') > plan.indexOf('packTailCrewDays(out,'));
+    check('S361', 'and hands it each house’s own dates and pin, not a copy',
+      /house: function\(id\)\{ return wById\[id\] \|\| null; \}/.test(plan));
+    check('S361', 'it can be switched off for a measurement, and a builder lifted without it still works',
+      /o\.gather !== false && typeof gatherStrayHouses === 'function'/.test(plan));
+  }
 }

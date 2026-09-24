@@ -3372,6 +3372,47 @@ from main; what survives is the finding above and the harness bug it turned on. 
 without backticks for that reason (2026-09-19).
 *Rulings*: [[SCH-75]] in `claude/questions-map.md`.
 
+**A house left out on its own joins the day the crew is in its area** (2026-09-24,
+[[SCH-96]]). Dax: *"we do a house in Lehi way out of the way and then two days later we
+are going to be in that same area of Lehi so I would rather they got put in a day where
+we are in that area."* The builder above cannot see it: a crew-day that is short tops up
+from the nearest neighbouring area, and an outlier gets a day of its own, so one house can
+sit miles from the rest of its sheet while a crew works its street a couple of days away.
+
+`gatherStrayHouses` runs once, after the tail sweep and before the crews are numbered. It
+looks for a house **3 miles or more** from everything else on its crew-day
+(`STRAY_FAR_MILES`) and a crew-day on another date with a house **within 1.5 miles**
+(`STRAY_NEAR_MILES`), and moves it there. What it never does:
+
+- move anybody before their first allowed day or after their last;
+- move anybody **later** by more than a week (`STRAY_LATER_MAX_DAYS`), or at all if the
+  plan is hurrying them (asked sooner, a new hang, missed before, running out of time,
+  or a named day). **Earlier** is always fine;
+- put a house on a crew-day that does not already work its town, so the crews' towns and
+  the sheet label stay as they were;
+- tip a date from one person to a crew or from one crew to two, or a one-person run into
+  a crew run;
+- add a crew-day, or drop anybody. A crew-day it empties (an outlier's own day) goes away.
+
+When the crew-day in the stray's area is **already full**, it trades: one of that day's
+houses that sits beside the other crew goes the other way, only when both land within
+1.5 miles of a house on their new sheet and both are allowed on their new date. Neither
+day's head-count changes.
+
+⛔ **This is not SCH-75 coming back.** That row measured rebuilding whole days so the crew
+never returns to an area, and every version cost crew-days. This only swaps single houses
+between days that already exist. Measured on 12 simulated books: lone houses 17 → 11, and
+the 11 left are real outliers or November houses whose area was worked in October. Same
+408 crew-days, nobody lost, 18 fewer miles in total.
+
+⚠ **Nothing inside the 48-hour lock can move**: those days are kept out of the rebuild pool
+before the builder runs. It is guarded like the forecast, so a suite that lifts the builder
+without it gets the old plan back unchanged.
+
+*Where it is proved*: run-all.js **Suite 361** runs it against crew-days, one check per rule
+above, plus the wiring into `planNewCrewDays`.
+*Rulings*: [[SCH-96]] in `claude/questions-map.md`.
+
 ### Why a route went far out at stop 11 and came back beside stop 2
 
 Added 2026-09-10. Dax, reading a crew route off the map: *"1 2 3 4 5 6 7 can make
@@ -4375,6 +4416,34 @@ too long is the only direction this list is allowed to be wrong in.
 stored — *Answering Yes*, *Answering No*, *Answering Back Next Year from the RSVP email* — not
 invented spellings, which could have passed throughout the week the entry was missing. 5 further
 sabotages red-checked, admin.html byte-for-byte after each.
+
+⛔ **AND THEN IT HAPPENED FOUR MORE TIMES AT ONCE** (2026-09-24, reading the folder Addie
+pasted in). Four faults had each been REPAIRED and none of them had an entry, so their reports
+were still sitting in the red badge looking exactly like faults nobody had dealt with:
+
+| The row in the badge | Repaired by | On |
+|---|---|---|
+| `[HU] activity log read failed` | `whileSignedIn` — the ten-minute health-check beat running against a session that had already ended | 2026-09-11 |
+| `Twilio send failed: Authentication Error` | [[QT-48]] — `sendSms` and `twilioSendRaw` taken out of the server entirely | 2026-09-18 |
+| `Cloudinary 401: cloud_name is disabled` | [[PROC-34]] — the account upgraded, and `cloudinaryUsageWatch` added so the next one is announced first | 2026-09-18 |
+| `The recipients address is corrupted` | `emailSendSkipReason` — the address is read BEFORE the send now, so one bad row no longer stops the other 257 | 2026-09-12 |
+
+⚠ **THE ACTIVITY-LOG ONE IS THE ARGUMENT, because its TWIN got an entry.** "could not read
+nightly billing health" and "[HU] activity log read failed" arrived within a minute of each
+other on 2026-09-10, are the same fault — a `setInterval` outliving the session — and were
+fixed by the same guard on the same day. One was written down here and one was not. Nothing
+anywhere could notice.
+⭐ **AND THREE OF THE FOUR WERE WRITTEN UP AS RULINGS IN THE SAME CHANGE THAT FIXED THEM.** So
+those sessions did remember R-023 and did not remember item 7 — the questions map knew and the
+badge did not. A rule that is obeyed only when it happens to sit beside another one is a rule
+that needs a gate, which is what **P-006** proposes: the digest should NAME any fault group
+that has gone quiet and is covered by no entry. It names rather than fails, because no machine
+can know a fix happened — but "this stopped happening and nobody wrote it down" is a question
+worth putting to a person, and the digest is already the report a person reads.
+⚠ **WHAT IS STILL OPEN, and deliberately carries no entry**: "Unhandled promise: Missing or
+insufficient permissions", five rows between 8 and 18 September. See *An unhandled promise says
+where it started* below — the 2026-09-18 instrumentation cannot answer it, and that was
+measured rather than argued.
 ⚠ **What the first reading also corrected, said plainly because it was told to Addie the other
 way:** the wire sweep DOES carry an error wording — *"Wire sweep could not look: No master sheet
 is connected on this computer"* — it is a refusal by design rather than a fault, so it takes no
@@ -5663,6 +5732,56 @@ a login-screen fault reads "Signed in as: nobody", which is the truth.
 
 *Gated by* `error-inbox.test.js` (`npm run test:errors`), which runs both reporters against
 a fake Firestore rather than reading their source; 16 sabotages red-checked.
+
+⛔ **BUT `rejectionWhere` CANNOT ANSWER A FIRESTORE DENIAL, AND THAT WAS MEASURED**
+(2026-09-24). Run in node both ways: an error THROWN in our own async chain does carry
+`at async ourFunction` frames — which is the shape the two fixtures in
+`error-inbox.test.js` are written in — but a Firestore permission denial is not thrown by
+us. The SDK CONSTRUCTS it in the network callback that reads the server’s answer, and a
+stack is captured where the Error is built, so the whole thing is `gstatic` and there is no
+frame of ours to find. **Awaiting the call does not change it**: the rejection is detached
+from the caller either way. So that helper returns `''` for this error class by
+construction — which is exactly what the 9/18 row shows, and why the check sitting next to
+those fixtures (*a stack with none of our frames adds nothing*) is the one describing real
+life.
+⚠ **SO THE FIXTURES PROVE THE PARSER, NOT THE FEATURE.** They are hand-written stacks that
+contain our frames — the vacuous-fixture trap this repo names in a dozen places. They are
+left in place, because the parser is still right for errors that DO carry frames; what must
+not happen is reading that suite as evidence that the next permissions row will be
+traceable. It will not be.
+⭐ **WHAT WOULD ACTUALLY NAME IT** is a breadcrumb taken at CALL time, where the caller is
+still on the stack: the collection and operation recorded as each read or write starts, and
+the last few appended when a denial arrives with no frame. That is the `onSnapshot as
+onSnapshotRaw` trick applied to the doc-level calls. Written down rather than built, because
+it is a change to the import block of a 2.6MB file and deserves its own change.
+
+⚠ **AND THE SHORTLIST IS ALREADY NARROW.** For a signed-in user every rule in
+`firestore.rules` answers `request.auth != null` and allows it. The only ones that can still
+refuse are `adminUserPrefs/{uid}` (the uid must match), a `messages` create over 5,000
+characters or claiming `read`/`responded`, a `quotes` create carrying a price or an approval,
+and a write to the three Cloud-Function-owned collections. Every `messages` and `quotes`
+create in `admin.html` is inside a try/catch, so none can surface as an UNHANDLED rejection —
+which leaves a floating write, and **`savePrefs` was the only floating write in the file a
+signed-in person could be refused**. It has a catch now, a signed-out guard, and
+`projUserPrefsUid` is cleared on sign-out instead of outliving the session and pointing at
+whoever just left. ⛔ **That is one candidate ruled out, not a claim to have found the bug** —
+which is why the fault still carries no `FIXED_ERRORS` entry and its five rows are still in
+the badge.
+⚠ **THE OTHER HALF OF THE ANSWER IS ABOVE AND IS EASY TO MISS**: the payment-import read
+really was running on the login screen and really was fixed the same day. If no new row
+appears after 2026-09-18, that WAS the whole of it and the entry can be written then. Until
+a date passes with none, keeping the rows is the cautious direction and the one this list
+is allowed to be wrong in.
+
+⭐ **AND THE `Where:` LINE FINALLY SAYS SOMETHING** (2026-09-24). Every admin error ever
+filed reads *Where: (the dashboard)* — and it was not that they all happened there. It was
+`location.hash`, and **this page does not route on the hash**: `switchToAdminPanel` moves a
+class and never touches the address bar, so the fallback was the only branch that could ever
+run. `adminErrorWhereNow` reads the open panel instead. ⚠ It is the panel KEY, not the nav
+label, which carries the badge count beside it — two reports of one fault would otherwise
+read as different places depending on how much post had arrived. ⚠ And it changes no dedupe:
+`errorKeyFor` is built from the error TEXT, never this line, so it cannot split one fault
+into six rows or move a key out from under `FIXED_ERRORS`. Asserted, not assumed.
 
 ---
 
