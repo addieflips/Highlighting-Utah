@@ -4178,7 +4178,7 @@
           <button type="button" class="btn btn-outline btn-sm" id="rsvpTextFindBtn">Find who still has to answer</button>
           <button type="button" class="btn btn-gold btn-sm" id="rsvpTextCopyAllBtn" style="display:none;">Copy them all for texting</button>
           <button type="button" class="btn btn-outline btn-sm" id="rsvpLinkSheetBtn">Copy everyone&rsquo;s links &mdash; for a spreadsheet</button>
-          <button type="button" class="btn btn-outline btn-sm" id="rsvpPhonesBtn">Copy every phone number</button>
+          <button type="button" class="btn btn-outline btn-sm" id="rsvpPhonesBtn">Copy pending phone numbers</button>
           <button type="button" class="btn btn-outline btn-sm" id="rsvpNoPhoneBtn">Who has no number</button>
           <span id="rsvpTextCount" style="font-size:12.5px; color:var(--slate);"></span>
         </div>
@@ -20459,13 +20459,15 @@ function rsvpPhoneDigits(raw){
   return d;
 }
 function rsvpPhoneListRows(targets){
-  const out = {numbers: [], odd: [], stopped: 0};
+  /* ⚠ names[i] IS numbers[i]'s NAME — pushed together, never sorted apart ([[RS-70]]). */
+  const out = {numbers: [], names: [], odd: [], stopped: 0};
   (targets || []).forEach(function(item){
     const d = (item && item.data) || {};
     if(d.smsOptedOut){ out.stopped++; return; }
     const digits = rsvpPhoneDigits(d.phone);
     if(!digits) return;
     out.numbers.push(digits);
+    out.names.push(String(d.name || ''));
     if(digits.length !== 10) out.odd.push(rsvpSheetCell(d.name) + ' \u2014 ' + rsvpSheetCell(d.phone));
   });
   return out;
@@ -20502,22 +20504,51 @@ function phoneBatchSlice(numbers, size, index){
   const i = Math.min(Math.max(0, Math.floor(Number(index) || 0)), total - 1);
   return {size: n, total: total, index: i, from: i * n, list: list.slice(i * n, i * n + n)};
 }
-function phoneBatchJoin(list, sep){
-  return (list || []).join(sep === 'line' ? '\n' : ', ');
+/* ⭐ NAMES NEXT TO THE NUMBERS (2026-09-24, [[RS-70]]). Addie: "can you put names next to
+   numbers when I copy it and paste it?", then a screenshot of the box she pastes into,
+   labelled "Numbers, names" — so the NUMBER COMES FIRST and the name after it.
+   A tick box, ON by default because she asked for it, and one click to turn off: a
+   texting tool's To box may refuse "8015550111 Ann Smith" where it takes a bare number,
+   and the choice is remembered on that browser.
+   ⚠ A SPACE BETWEEN NUMBER AND NAME IN BOTH LAYOUTS ([[RS-73]]) — it was a tab in the
+   one-per-line layout, for spreadsheet columns, but one per line is now what she pastes into
+   her texting tool, and a tab there jumps to the next field. With commas, a comma INSIDE a
+   name ("Smith, Ann") is turned into a space, or it would split one person into two entries.
+   ⚠ A NAME'S TABS AND LINE BREAKS ARE SPACES TOO — one stray tab shunts the number into
+   the wrong column for that person alone. */
+function phoneBatchName(name, sep){
+  let n = String(name == null ? '' : name).replace(/[\t\r\n]+/g, ' ');
+  if(sep !== 'line') n = n.replace(/,/g, ' ');
+  return n.replace(/\s+/g, ' ').trim();
+}
+function phoneBatchJoin(list, sep, names){
+  const rows = (list || []).map(function(num, i){
+    if(!names) return num;
+    const nm = phoneBatchName(names[i], sep);
+    if(!nm) return num;
+    return num + ' ' + nm;
+  });
+  return rows.join(sep === 'line' ? '\n' : ', ');
 }
 function phoneBatchPrefs(){
-  let size = PHONE_BATCH_DEFAULT, sep = 'comma';
+  let size = PHONE_BATCH_DEFAULT, sep = 'line', names = true;
   try{
     const z = Number(localStorage.getItem('hu.phoneBatchSize'));
     if(z >= 1) size = Math.floor(z);
-    if(localStorage.getItem('hu.phoneBatchSep') === 'line') sep = 'line';
+    /* ⚠ A NEW KEY, NOT hu.phoneBatchSep ([[RS-73]]). One per line became the default on
+       2026-09-24, and the old key was written on EVERY size change, so her browser already
+       holds 'comma' without her ever having chosen it — reading it would keep the paragraph
+       she asked to be rid of. Only a choice made on the new key counts. */
+    if(localStorage.getItem('hu.phoneBatchLayout') === 'comma') sep = 'comma';
+    names = localStorage.getItem('hu.phoneBatchNames') !== '0';
   }catch(err){ /* private browsing or blocked storage: the defaults are used and nothing is lost. */ }
-  return {size: size, sep: sep};
+  return {size: size, sep: sep, names: names};
 }
-function phoneBatchSavePrefs(size, sep){
+function phoneBatchSavePrefs(size, sep, names){
   try{
     localStorage.setItem('hu.phoneBatchSize', String(size));
-    localStorage.setItem('hu.phoneBatchSep', sep);
+    localStorage.setItem('hu.phoneBatchLayout', sep);
+    if(names !== undefined) localStorage.setItem('hu.phoneBatchNames', names ? '1' : '0');
   }catch(err){ /* not remembered on this browser; the panel still works with what is on screen. */ }
 }
 /* ⚠ THE CLIPBOARD, THEN THE OLD WAY, THEN THE BOX. navigator.clipboard can refuse (a
@@ -20543,51 +20574,109 @@ async function phoneBatchCopyText(text, box){
     return false;
   }
 }
-function phoneBatchRender(host, numbers, index){
+/* ⚠ BUILT ONCE, THEN UPDATED IN PLACE (2026-09-24, [[RS-71]]). Addie: "I type how many I
+   want at a time but the number will automatically save." It does save — but the first
+   version rebuilt the whole panel with innerHTML on the size box's `change`, and `change`
+   fires on BLUR. So typing 10 and clicking Copy batch straight away blurred the box, the
+   panel was rebuilt between mousedown and mouseup, and the click landed on a button that no
+   longer existed: nothing copied, silently. The same trap as the email-typo note's Use it
+   button (CLAUDE.md). Now the shell is drawn once per press of a copy button and every
+   control after that changes TEXT only — no node a pointer can be holding is ever replaced.
+   ⚠ AND THE SIZE APPLIES AS YOU TYPE (`input`), saved on each keystroke that makes a real
+   number; a box left blank or at 0 goes back to the saved size when she leaves it. */
+function phoneBatchRender(host, numbers, index, names){
   if(!host) return;
   host._phoneNumbers = numbers || [];
+  host._phoneNames = names || null;
   const prefs = phoneBatchPrefs();
-  const b = phoneBatchSlice(host._phoneNumbers, prefs.size, index);
-  host._phoneIndex = b.index;
   host.innerHTML =
     '<div style="border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:0 0 12px; background:var(--snow);">' +
       '<div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px; font-size:13px;">' +
-        '<label>How many at a time <input type="number" min="1" step="1" data-pb="size" value="' + b.size + '" style="width:80px; margin-left:4px;"></label>' +
+        '<label>How many at a time <input type="number" min="1" step="1" data-pb="size" value="' + prefs.size + '" style="width:80px; margin-left:4px;"></label>' +
         '<label>Separate with <select data-pb="sep" style="margin-left:4px;">' +
-          '<option value="comma"' + (prefs.sep === 'comma' ? ' selected' : '') + '>Commas (for a To box)</option>' +
-          '<option value="line"' + (prefs.sep === 'line' ? ' selected' : '') + '>One per line (for a spreadsheet)</option>' +
+          '<option value="line"' + (prefs.sep === 'line' ? ' selected' : '') + '>One per line</option>' +
+          '<option value="comma"' + (prefs.sep === 'comma' ? ' selected' : '') + '>Commas, all on one line</option>' +
         '</select></label>' +
+        (host._phoneNames
+          ? '<label style="display:inline-flex; align-items:center; gap:5px;"><input type="checkbox" data-pb="names"' +
+            (prefs.names ? ' checked' : '') + '> Include names</label>'
+          : '') +
+        '<span data-pb="saved" style="font-size:12px; color:var(--slate);"></span>' +
       '</div>' +
-      '<div data-pb="where" style="font-size:13px; font-weight:600; margin-bottom:6px;">Batch ' + (b.index + 1) + ' of ' + b.total +
-        ' &mdash; numbers ' + (b.list.length ? (b.from + 1) + '&ndash;' + (b.from + b.list.length) : '0') + ' of ' + host._phoneNumbers.length + '</div>' +
-      '<textarea readonly data-pb="box" rows="4" style="width:100%; font-family:monospace; font-size:12.5px;">' + esc(phoneBatchJoin(b.list, prefs.sep)) + '</textarea>' +
+      '<div data-pb="where" style="font-size:13px; font-weight:600; margin-bottom:6px;"></div>' +
+      '<textarea readonly data-pb="box" rows="4" style="width:100%; font-family:monospace; font-size:12.5px;"></textarea>' +
       '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;">' +
-        '<button type="button" class="btn btn-outline btn-sm" data-pb="prev"' + (b.index === 0 ? ' disabled' : '') + '>&#9664; Previous batch</button>' +
-        '<button type="button" class="btn btn-gold btn-sm" data-pb="copy">Copy batch ' + (b.index + 1) + '</button>' +
-        '<button type="button" class="btn btn-outline btn-sm" data-pb="next"' + (b.index >= b.total - 1 ? ' disabled' : '') + '>Next batch &#9654;</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-pb="prev">&#9664; Previous batch</button>' +
+        '<button type="button" class="btn btn-gold btn-sm" data-pb="copy">Copy batch</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-pb="next">Next batch &#9654;</button>' +
         '<span data-pb="msg" style="font-size:12.5px; color:var(--slate);"></span>' +
       '</div>' +
     '</div>';
   const q = function(k){ return host.querySelector('[data-pb="' + k + '"]'); };
-  const redraw = function(i){ phoneBatchRender(host, host._phoneNumbers, i); };
+  const show = function(i){ phoneBatchShow(host, i); };
+  q('size').addEventListener('input', function(){
+    const v = Math.floor(Number(this.value) || 0);
+    if(v < 1) return;
+    const pr = phoneBatchPrefs();
+    phoneBatchSavePrefs(v, pr.sep);
+    const saved = q('saved');
+    if(saved) saved.textContent = '✓ Saved — ' + v + ' at a time';
+    show(0);
+  });
   q('size').addEventListener('change', function(){
     const v = Math.floor(Number(this.value) || 0);
-    phoneBatchSavePrefs(v >= 1 ? v : PHONE_BATCH_DEFAULT, phoneBatchPrefs().sep);
-    redraw(0);
+    if(v < 1) this.value = String(phoneBatchPrefs().size);
   });
   q('sep').addEventListener('change', function(){
     phoneBatchSavePrefs(phoneBatchPrefs().size, this.value === 'line' ? 'line' : 'comma');
-    redraw(host._phoneIndex);
+    show(host._phoneIndex);
   });
-  q('prev').addEventListener('click', function(){ redraw(host._phoneIndex - 1); });
-  q('next').addEventListener('click', function(){ redraw(host._phoneIndex + 1); });
+  if(q('names')) q('names').addEventListener('change', function(){
+    const pr = phoneBatchPrefs();
+    phoneBatchSavePrefs(pr.size, pr.sep, this.checked);
+    show(host._phoneIndex);
+  });
+  q('prev').addEventListener('click', function(){ show(host._phoneIndex - 1); });
+  q('next').addEventListener('click', function(){ show(host._phoneIndex + 1); });
   q('copy').addEventListener('click', async function(){ await phoneBatchCopyCurrent(host); });
+  show(index);
+}
+/* ⛔ OPENING THE PANEL COPIES NOTHING (2026-09-24, [[RS-72]]). Addie: "Okay but I told you
+   I don't want to copy all phone numbers just a small bulk at a time." The press used to copy
+   batch 1 straight away at the saved size — 50 until she changes it — so on a list shorter
+   than that, one press put EVERY pending number on the clipboard before she had chosen a
+   size at all. Now the press opens the panel with the size box ready, and only Copy batch
+   copies anything. */
+function phoneBatchFocusSize(host){
+  const size = host && host.querySelector('[data-pb="size"]');
+  if(!size) return;
+  try{ size.focus(); size.select(); }catch(err){ /* focus is a convenience; the box is on screen either way. */ }
+}
+/* Text only: the heading, the box, the Copy label and whether Previous / Next can go
+   further. Never innerHTML on anything a click could be resting on. */
+function phoneBatchShow(host, index){
+  const q = function(k){ return host.querySelector('[data-pb="' + k + '"]'); };
+  const prefs = phoneBatchPrefs();
+  const b = phoneBatchSlice(host._phoneNumbers || [], prefs.size, index);
+  host._phoneIndex = b.index;
+  host._phoneBatchCount = b.list.length;
+  const batchNames = (host._phoneNames && prefs.names)
+    ? host._phoneNames.slice(b.from, b.from + b.list.length) : null;
+  q('where').textContent = 'Batch ' + (b.index + 1) + ' of ' + b.total + ' — numbers ' +
+    (b.list.length ? (b.from + 1) + '–' + (b.from + b.list.length) : '0') +
+    ' of ' + (host._phoneNumbers || []).length;
+  q('box').value = phoneBatchJoin(b.list, prefs.sep, batchNames);
+  q('copy').textContent = 'Copy batch ' + (b.index + 1);
+  q('prev').disabled = b.index === 0;
+  q('next').disabled = b.index >= b.total - 1;
+  const msg = q('msg');
+  if(msg) msg.textContent = '';
 }
 async function phoneBatchCopyCurrent(host){
   const box = host && host.querySelector('[data-pb="box"]');
   const msg = host && host.querySelector('[data-pb="msg"]');
   if(!box) return false;
-  const count = box.value ? box.value.split(/,\s*|\n/).filter(Boolean).length : 0;
+  const count = box.value ? (host._phoneBatchCount || 0) : 0;
   const ok = await phoneBatchCopyText(box.value, box);
   if(msg) msg.textContent = ok
     ? '\u2713 Copied ' + count + ' number' + (count === 1 ? '' : 's') + ' \u2014 paste them, then press Next batch.'
@@ -20602,10 +20691,10 @@ async function rsvpCopyPhones(){
     return 0;
   }
   const host = document.getElementById('rsvpPhonesBatch');
-  phoneBatchRender(host, res.numbers, 0);
-  await phoneBatchCopyCurrent(host);
+  phoneBatchRender(host, res.numbers, 0, res.names);
+  phoneBatchFocusSize(host);
   if(statusEl) statusEl.textContent = res.numbers.length + ' number' +
-    (res.numbers.length === 1 ? '' : 's') + ', digits only \u2014 batch 1 is copied; the rest are below, a batch at a time.' +
+    (res.numbers.length === 1 ? '' : 's') + ' of people still pending (not answered yet), digits only \u2014 nothing is copied yet: type how many at a time below, then press Copy batch 1.' +
     (res.stopped ? '  ' + res.stopped + ' left out \u2014 they replied STOP.' : '') +
     (res.odd.length ? '  \u26A0 ' + res.odd.length + ' are not 10 digits and went in as they are: ' +
       res.odd.slice(0, 5).join('; ') + (res.odd.length > 5 ? ' and others' : '') : '');
@@ -22366,14 +22455,14 @@ function etPhoneCopySummary(audience){
       : 'Nobody matches these filters — no numbers to copy.';
   } else {
     msg = res.numbers.length + ' number' + (res.numbers.length === 1 ? '' : 's') +
-      ', digits only \u2014 the people these filters match. Batch 1 is copied; the rest are below, a batch at a time.';
+      ', digits only \u2014 the people these filters match. Nothing is copied yet: type how many at a time below, then press Copy batch 1.';
   }
   if(noEmail) msg += '  ' + noEmail + ' of them have no usable email, so the email never reached them — this text is the only thing that will.';
   if(res.stopped) msg += '  ' + res.stopped + ' left out — they replied STOP.';
   if(noNumber) msg += '  ' + noNumber + ' left out — no phone number on file.';
   if(res.odd.length) msg += '  \u26A0 ' + res.odd.length + ' are not 10 digits and went in as they are: ' +
     res.odd.slice(0, 5).join('; ') + (res.odd.length > 5 ? ' and others' : '');
-  return {numbers: res.numbers, text: msg};
+  return {numbers: res.numbers, names: res.names, text: msg};
 }
 async function etCopyFilteredPhones(){
   const statusEl = document.getElementById('etPhonesStatus');
@@ -22387,9 +22476,16 @@ async function etCopyFilteredPhones(){
     return 0;
   }
   const host = document.getElementById('etPhonesBatch');
-  phoneBatchRender(host, sum.numbers, 0);
-  await phoneBatchCopyCurrent(host);
-  if(statusEl) statusEl.textContent = sum.text;
+  phoneBatchRender(host, sum.numbers, 0, sum.names);
+  phoneBatchFocusSize(host);
+  /* ⚠ SAID WHEN THE RSVP FILTER IS NOT "Not answered yet" ([[RS-72]]). Addie: "I only
+     want to copy every phone number that is pending now every phone number." This button
+     copies whatever the filters match, so with RSVP Status on All it is the whole book —
+     correct, and exactly what she did not want. Warned rather than forced: a text to the
+     people who said Yes is a real send somebody may want. */
+  if(statusEl) statusEl.textContent = sum.text + (etFilterRsvp !== 'pending'
+    ? '  \u26A0 RSVP Status is not set to \u201CNot answered yet\u201D, so this includes people who have already answered. Set it there for pending only.'
+    : '');
   return sum.numbers.length;
 }
 document.getElementById('etCopyPhonesBtn')?.addEventListener('click', async function(){
