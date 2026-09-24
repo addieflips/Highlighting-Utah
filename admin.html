@@ -20459,13 +20459,15 @@ function rsvpPhoneDigits(raw){
   return d;
 }
 function rsvpPhoneListRows(targets){
-  const out = {numbers: [], odd: [], stopped: 0};
+  /* ⚠ names[i] IS numbers[i]'s NAME — pushed together, never sorted apart ([[RS-70]]). */
+  const out = {numbers: [], names: [], odd: [], stopped: 0};
   (targets || []).forEach(function(item){
     const d = (item && item.data) || {};
     if(d.smsOptedOut){ out.stopped++; return; }
     const digits = rsvpPhoneDigits(d.phone);
     if(!digits) return;
     out.numbers.push(digits);
+    out.names.push(String(d.name || ''));
     if(digits.length !== 10) out.odd.push(rsvpSheetCell(d.name) + ' \u2014 ' + rsvpSheetCell(d.phone));
   });
   return out;
@@ -20502,22 +20504,46 @@ function phoneBatchSlice(numbers, size, index){
   const i = Math.min(Math.max(0, Math.floor(Number(index) || 0)), total - 1);
   return {size: n, total: total, index: i, from: i * n, list: list.slice(i * n, i * n + n)};
 }
-function phoneBatchJoin(list, sep){
-  return (list || []).join(sep === 'line' ? '\n' : ', ');
+/* ⭐ NAMES NEXT TO THE NUMBERS (2026-09-24, [[RS-70]]). Addie: "can you put names next to
+   numbers when I copy it and paste it?", then a screenshot of the box she pastes into,
+   labelled "Numbers, names" — so the NUMBER COMES FIRST and the name after it.
+   A tick box, ON by default because she asked for it, and one click to turn off: a
+   texting tool's To box may refuse "8015550111 Ann Smith" where it takes a bare number,
+   and the choice is remembered on that browser.
+   ⚠ ONE PER LINE PUTS A TAB BETWEEN THEM, so a spreadsheet takes two columns, number then
+   name. With commas it is "8015550111 Ann Smith", and a comma INSIDE a name ("Smith, Ann")
+   is turned into a space, or it would split one person into two entries.
+   ⚠ A NAME'S TABS AND LINE BREAKS ARE SPACES TOO — one stray tab shunts the number into
+   the wrong column for that person alone. */
+function phoneBatchName(name, sep){
+  let n = String(name == null ? '' : name).replace(/[\t\r\n]+/g, ' ');
+  if(sep !== 'line') n = n.replace(/,/g, ' ');
+  return n.replace(/\s+/g, ' ').trim();
+}
+function phoneBatchJoin(list, sep, names){
+  const rows = (list || []).map(function(num, i){
+    if(!names) return num;
+    const nm = phoneBatchName(names[i], sep);
+    if(!nm) return num;
+    return sep === 'line' ? (num + '\t' + nm) : (num + ' ' + nm);
+  });
+  return rows.join(sep === 'line' ? '\n' : ', ');
 }
 function phoneBatchPrefs(){
-  let size = PHONE_BATCH_DEFAULT, sep = 'comma';
+  let size = PHONE_BATCH_DEFAULT, sep = 'comma', names = true;
   try{
     const z = Number(localStorage.getItem('hu.phoneBatchSize'));
     if(z >= 1) size = Math.floor(z);
     if(localStorage.getItem('hu.phoneBatchSep') === 'line') sep = 'line';
+    names = localStorage.getItem('hu.phoneBatchNames') !== '0';
   }catch(err){ /* private browsing or blocked storage: the defaults are used and nothing is lost. */ }
-  return {size: size, sep: sep};
+  return {size: size, sep: sep, names: names};
 }
-function phoneBatchSavePrefs(size, sep){
+function phoneBatchSavePrefs(size, sep, names){
   try{
     localStorage.setItem('hu.phoneBatchSize', String(size));
     localStorage.setItem('hu.phoneBatchSep', sep);
+    if(names !== undefined) localStorage.setItem('hu.phoneBatchNames', names ? '1' : '0');
   }catch(err){ /* not remembered on this browser; the panel still works with what is on screen. */ }
 }
 /* ⚠ THE CLIPBOARD, THEN THE OLD WAY, THEN THE BOX. navigator.clipboard can refuse (a
@@ -20543,12 +20569,16 @@ async function phoneBatchCopyText(text, box){
     return false;
   }
 }
-function phoneBatchRender(host, numbers, index){
+function phoneBatchRender(host, numbers, index, names){
   if(!host) return;
   host._phoneNumbers = numbers || [];
+  host._phoneNames = names || null;
   const prefs = phoneBatchPrefs();
   const b = phoneBatchSlice(host._phoneNumbers, prefs.size, index);
   host._phoneIndex = b.index;
+  host._phoneBatchCount = b.list.length;
+  const batchNames = (host._phoneNames && prefs.names)
+    ? host._phoneNames.slice(b.from, b.from + b.list.length) : null;
   host.innerHTML =
     '<div style="border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:0 0 12px; background:var(--snow);">' +
       '<div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px; font-size:13px;">' +
@@ -20557,10 +20587,14 @@ function phoneBatchRender(host, numbers, index){
           '<option value="comma"' + (prefs.sep === 'comma' ? ' selected' : '') + '>Commas (for a To box)</option>' +
           '<option value="line"' + (prefs.sep === 'line' ? ' selected' : '') + '>One per line (for a spreadsheet)</option>' +
         '</select></label>' +
+        (host._phoneNames
+          ? '<label style="display:inline-flex; align-items:center; gap:5px;"><input type="checkbox" data-pb="names"' +
+            (prefs.names ? ' checked' : '') + '> Include names</label>'
+          : '') +
       '</div>' +
       '<div data-pb="where" style="font-size:13px; font-weight:600; margin-bottom:6px;">Batch ' + (b.index + 1) + ' of ' + b.total +
         ' &mdash; numbers ' + (b.list.length ? (b.from + 1) + '&ndash;' + (b.from + b.list.length) : '0') + ' of ' + host._phoneNumbers.length + '</div>' +
-      '<textarea readonly data-pb="box" rows="4" style="width:100%; font-family:monospace; font-size:12.5px;">' + esc(phoneBatchJoin(b.list, prefs.sep)) + '</textarea>' +
+      '<textarea readonly data-pb="box" rows="4" style="width:100%; font-family:monospace; font-size:12.5px;">' + esc(phoneBatchJoin(b.list, prefs.sep, batchNames)) + '</textarea>' +
       '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;">' +
         '<button type="button" class="btn btn-outline btn-sm" data-pb="prev"' + (b.index === 0 ? ' disabled' : '') + '>&#9664; Previous batch</button>' +
         '<button type="button" class="btn btn-gold btn-sm" data-pb="copy">Copy batch ' + (b.index + 1) + '</button>' +
@@ -20569,7 +20603,7 @@ function phoneBatchRender(host, numbers, index){
       '</div>' +
     '</div>';
   const q = function(k){ return host.querySelector('[data-pb="' + k + '"]'); };
-  const redraw = function(i){ phoneBatchRender(host, host._phoneNumbers, i); };
+  const redraw = function(i){ phoneBatchRender(host, host._phoneNumbers, i, host._phoneNames); };
   q('size').addEventListener('change', function(){
     const v = Math.floor(Number(this.value) || 0);
     phoneBatchSavePrefs(v >= 1 ? v : PHONE_BATCH_DEFAULT, phoneBatchPrefs().sep);
@@ -20577,6 +20611,11 @@ function phoneBatchRender(host, numbers, index){
   });
   q('sep').addEventListener('change', function(){
     phoneBatchSavePrefs(phoneBatchPrefs().size, this.value === 'line' ? 'line' : 'comma');
+    redraw(host._phoneIndex);
+  });
+  if(q('names')) q('names').addEventListener('change', function(){
+    const pr = phoneBatchPrefs();
+    phoneBatchSavePrefs(pr.size, pr.sep, this.checked);
     redraw(host._phoneIndex);
   });
   q('prev').addEventListener('click', function(){ redraw(host._phoneIndex - 1); });
@@ -20587,7 +20626,7 @@ async function phoneBatchCopyCurrent(host){
   const box = host && host.querySelector('[data-pb="box"]');
   const msg = host && host.querySelector('[data-pb="msg"]');
   if(!box) return false;
-  const count = box.value ? box.value.split(/,\s*|\n/).filter(Boolean).length : 0;
+  const count = box.value ? (host._phoneBatchCount || 0) : 0;
   const ok = await phoneBatchCopyText(box.value, box);
   if(msg) msg.textContent = ok
     ? '\u2713 Copied ' + count + ' number' + (count === 1 ? '' : 's') + ' \u2014 paste them, then press Next batch.'
@@ -20602,7 +20641,7 @@ async function rsvpCopyPhones(){
     return 0;
   }
   const host = document.getElementById('rsvpPhonesBatch');
-  phoneBatchRender(host, res.numbers, 0);
+  phoneBatchRender(host, res.numbers, 0, res.names);
   await phoneBatchCopyCurrent(host);
   if(statusEl) statusEl.textContent = res.numbers.length + ' number' +
     (res.numbers.length === 1 ? '' : 's') + ', digits only \u2014 batch 1 is copied; the rest are below, a batch at a time.' +
@@ -22373,7 +22412,7 @@ function etPhoneCopySummary(audience){
   if(noNumber) msg += '  ' + noNumber + ' left out — no phone number on file.';
   if(res.odd.length) msg += '  \u26A0 ' + res.odd.length + ' are not 10 digits and went in as they are: ' +
     res.odd.slice(0, 5).join('; ') + (res.odd.length > 5 ? ' and others' : '');
-  return {numbers: res.numbers, text: msg};
+  return {numbers: res.numbers, names: res.names, text: msg};
 }
 async function etCopyFilteredPhones(){
   const statusEl = document.getElementById('etPhonesStatus');
@@ -22387,7 +22426,7 @@ async function etCopyFilteredPhones(){
     return 0;
   }
   const host = document.getElementById('etPhonesBatch');
-  phoneBatchRender(host, sum.numbers, 0);
+  phoneBatchRender(host, sum.numbers, 0, sum.names);
   await phoneBatchCopyCurrent(host);
   if(statusEl) statusEl.textContent = sum.text;
   return sum.numbers.length;

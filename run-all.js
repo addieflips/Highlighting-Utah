@@ -64046,7 +64046,7 @@ suite('350. The numbers on their own, and the people who have none');
   /* REPOINTED 2026-09-24 (RS-69): the press opens the batch panel and copies batch 1
      rather than the whole list one per line. The separator is Suite 355's. */
   check('S350', 'it hands the numbers to the batch panel and copies the first batch',
-    /phoneBatchRender\(host, res\.numbers, 0\)/.test(copyFn) &&
+    /phoneBatchRender\(host, res\.numbers, 0, res\.names\)/.test(copyFn) &&
     /await phoneBatchCopyCurrent\(host\)/.test(copyFn),
     'the whole list in one paste is what did not paste');
   check('S350', 'it says how many were left out for STOP',
@@ -64443,7 +64443,7 @@ suite('354. Copy their phone numbers — the filtered audience, for texting');
   }
 
   check('S354', 'the press opens the batch panel and is wired to its button',
-    /phoneBatchRender\(host, sum\.numbers, 0\)/.test(copySrc) &&
+    /phoneBatchRender\(host, sum\.numbers, 0, sum\.names\)/.test(copySrc) &&
     admin.indexOf('id="etCopyPhonesBtn"') !== -1 &&
     /getElementById\('etCopyPhonesBtn'\)\?\.addEventListener\('click'/.test(stripComments(admin)),
     'a button with no handler looks identical to a working one');
@@ -64462,7 +64462,7 @@ suite('354. Copy their phone numbers — the filtered audience, for texting');
  * ===================================================================== */
 suite('355. Phone numbers a batch at a time, commas by default');
 {
-  const names = ['phoneBatchSlice', 'phoneBatchJoin', 'phoneBatchPrefs', 'phoneBatchSavePrefs',
+  const names = ['phoneBatchSlice', 'phoneBatchName', 'phoneBatchJoin', 'phoneBatchPrefs', 'phoneBatchSavePrefs',
     'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchCopyCurrent'];
   const liftAsync = function (n) {
     const i = admin.indexOf('async function ' + n + '(');
@@ -64547,4 +64547,74 @@ suite('355. Phone numbers a batch at a time, commas by default');
     })());
     pendingAsync.push(Promise.all(pending));
   }
+}
+
+/* =====================================================================
+ * Suite 356. Names next to the numbers (2026-09-24, RS-70). Addie: "can
+ * you put names next to numbers when I copy it and paste it?", then a
+ * screenshot of her paste box labelled "Numbers, names". RUNS the panel.
+ * ===================================================================== */
+suite('356. Names next to the numbers, number first');
+{
+  const lift = function (n) {
+    const i = admin.indexOf('async function ' + n + '(');
+    return i === -1 ? extractFn(admin, n) : 'async ' + extractFn(admin, n);
+  };
+  const srcs = ['phoneBatchSlice', 'phoneBatchName', 'phoneBatchJoin', 'phoneBatchPrefs',
+    'phoneBatchSavePrefs', 'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchCopyCurrent'].map(lift);
+  const rowsSrc = ['rsvpSheetCell', 'rsvpPhoneDigits', 'rsvpPhoneListRows'].map(n => extractFn(admin, n));
+  check('S356', 'the panel and the row builder were found', srcs.every(Boolean) && rowsSrc.every(Boolean));
+  let JSDOM = null;
+  try { JSDOM = require('jsdom').JSDOM; } catch (e) { /* no jsdom: noted below. */ }
+  if (!JSDOM) note('S356: jsdom missing — run npm install; the names were not driven');
+  if (srcs.every(Boolean) && rowsSrc.every(Boolean) && JSDOM) {
+    const rows = new Function(rowsSrc.join('\n') + ';return rsvpPhoneListRows;')();
+    const res = rows([
+      { data: { name: 'Ann Smith', phone: '(801) 555-0001' } },
+      { data: { name: 'Bob Stop', phone: '8015550002', smsOptedOut: true } },
+      { data: { name: 'Cara NoPhone' } },
+      { data: { name: 'Smith, Dan', phone: '801-555-0004' } }
+    ]);
+    check('S356', 'each name stays beside its own number',
+      res.numbers.join() === '8015550001,8015550004' && res.names.join('|') === 'Ann Smith|Smith, Dan',
+      'a name one row out of step texts somebody by the wrong name');
+
+    pendingAsync.push((async function () {
+      const w = new JSDOM('<div id="h"></div>').window;
+      const store = {}; const copied = [];
+      const api = new Function('document', 'navigator', 'localStorage', 'console',
+        'const PHONE_BATCH_DEFAULT = 50;' +
+        'function esc(s){ return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;"); }' +
+        srcs.join('\n') + ';return { phoneBatchRender, phoneBatchCopyCurrent };')(
+        w.document, { clipboard: { writeText: async t => { copied.push(t); } } },
+        { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } },
+        { error: function () {} });
+      const host = w.document.getElementById('h');
+      const box = () => host.querySelector('[data-pb="box"]').value;
+      api.phoneBatchRender(host, res.numbers, 0, res.names);
+      check('S356', 'names are on by default, number first, as her box asks',
+        box() === '8015550001 Ann Smith, 8015550004 Smith Dan',
+        'her paste box is labelled "Numbers, names"');
+      check('S356', 'a comma inside a name cannot split one person into two',
+        box().split(', ').length === 2);
+      await api.phoneBatchCopyCurrent(host);
+      check('S356', 'the copy carries the names and counts people, not commas',
+        copied[0] === box() && /Copied 2 numbers/.test(host.textContent));
+      const sel = host.querySelector('[data-pb="sep"]');
+      sel.value = 'line'; sel.dispatchEvent(new w.Event('change'));
+      check('S356', 'one per line puts a tab between, for two spreadsheet columns',
+        box() === '8015550001\tAnn Smith\n8015550004\tSmith, Dan');
+      const cb = host.querySelector('[data-pb="names"]');
+      cb.checked = false; cb.dispatchEvent(new w.Event('change'));
+      check('S356', 'unticking goes back to bare numbers, and is remembered',
+        box() === '8015550001\n8015550004' && store['hu.phoneBatchNames'] === '0' &&
+        !host.querySelector('[data-pb="names"]').checked);
+    })());
+  }
+  const strippedA = stripComments(admin);
+  check('S356', 'both copy buttons hand the names over',
+    /phoneBatchRender\(host, res\.numbers, 0, res\.names\)/.test(strippedA) &&
+    /phoneBatchRender\(host, sum\.numbers, 0, sum\.names\)/.test(strippedA) &&
+    /names: res\.names, text: msg/.test(strippedA),
+    'a tick box that is never drawn because no names reached it looks like it was never built');
 }
