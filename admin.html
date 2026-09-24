@@ -9760,7 +9760,7 @@ function rsvpTextTargets(){
     if(!d) return false;
     if(!String(d.phone || '').replace(/\D/g,'')) return false;
     if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)) return false;
-    if(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus(d)) return false;
+    if(typeof effectiveRsvpStatus === 'function' && rsvpHasAnswered(d)) return false;
     return true;
   });
 }
@@ -20418,7 +20418,7 @@ function rsvpLinkSheetTargets(){
        nobody is asked a question they have already answered, and a first-year customer
        is never asked whether they want lights AGAIN. */
     if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)) return false;
-    if(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus(d)) return false;
+    if(typeof effectiveRsvpStatus === 'function' && rsvpHasAnswered(d)) return false;
     return true;
   }).sort(function(a, b){
     /* ⛔ STOP ROWS SORT LAST, and that is about the bulk TEXT tool rather than tidiness:
@@ -23870,7 +23870,7 @@ function rsvpSendSkipReason(d){
   const rec = d || {};
   if(typeof isTestRecordData === 'function' && isTestRecordData(rec)) return 'test';
   if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(rec)) return 'new';
-  if(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus(rec)) return 'answered';
+  if(typeof effectiveRsvpStatus === 'function' && rsvpHasAnswered(rec)) return 'answered';
   if(typeof etNoAutomationEmails === 'function' && etNoAutomationEmails(rec)) return 'optedout';
   if(!String(rec.email || '').trim()) return 'noemail';
   if(rec.rsvpEmailedAt || rec.arrearsRsvpEmailAt) return 'emailed';
@@ -27824,11 +27824,62 @@ const arrearsNoticedThisSession = new Set();
    bare stored 'yes' with no reply behind it. */
 function paidButNotApproved(d, inv){
   if(!d || !inv) return false;
-  if(effectiveRsvpStatus(d)) return false;
+  if(rsvpHasAnswered(d)) return false;
+  /* ⛔ A PAYMENT TOWARD THIS SEASON IS NOW THE APPROVAL ITSELF ([[RS-77]]), so there is
+     nothing left to ask them and no note to raise — approvePaidThisSeason says yes for them.
+     Only the old-debt case is left: paying off last season is not saying yes to this one. */
+  if(paidThisSeason(inv)) return false;
   if(arrearsOnInvoice(inv) > 0) return arrearsPaidNotApproved(d, inv);
-  /* ⚠ MONEY THAT ACTUALLY ARRIVED, not a balance of zero. An unpriced or empty
-     invoice has paid nothing and must not raise a note about a payment. */
-  return (Number(inv.deposit) || 0) > 0;
+  return false;
+}
+/* ⭐ PAID THIS SEASON MEANS APPROVED (2026-09-24, [[RS-77]]). Addie, asked whether somebody who
+   has paid but never pressed Yes should count as approved: "if they paid this season it should
+   approve there quote".
+   ⛔ THIS REVERSES [[RS-40]]'s "MONEY IS NOT CONSENT" for this season's money (the newer ruling
+   wins — R-024), and that line's worry is kept because it is why the old-debt case is left out:
+   a payment that only clears LAST season's bill says nothing about this one, so it still raises
+   the Paid Last Season note and waits for a real yes.
+   ⚠ "THIS SEASON" IS MONEY BEYOND THE CARRIED DEBT. Start New Season writes deposit: 0 on every
+   invoice, so a deposit is this season's; oldest debt is paid first (arrearsSettled's rule), so
+   anything over the arrears line is money toward this year. A credit is not a payment.
+   ⚠ ONLY SOMEBODY WHO HAS SAID NOTHING. A no, a Back Next Year or a yes already on file is left
+   exactly as it is — money never overrules an answer somebody gave. */
+function paidThisSeason(inv){
+  if(!inv) return false;
+  const paid = Math.round((Number(inv.deposit) || 0) * 100);
+  const carried = Math.round((arrearsOnInvoice(inv) || 0) * 100);
+  return paid > 0 && paid > carried;
+}
+function approvedByPayment(d, inv){
+  return !!d && !!inv && !rsvpHasAnswered(d) && paidThisSeason(inv);
+}
+const paidApprovedThisSession = new Set();
+async function approvePaidThisSeason(){
+  if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)) return 0;
+  if(typeof invoiceById === 'undefined' || !invoiceById) return 0;
+  let n = 0;
+  for(const item of jobAddresses){
+    const d = (item && item.data) || {};
+    if(paidApprovedThisSession.has(item.id)) continue;
+    /* The bill this house is actually on — the same expression the paid note and the hold use. */
+    const key = String(d.billToPhone || '').replace(/\D/g,'') || custInvoiceKey(d);
+    const inv = key ? invoiceById.get(key) : null;
+    if(!inv || !approvedByPayment(d, inv.data || {})) continue;
+    paidApprovedThisSession.add(item.id);
+    try{
+      await updateDoc(doc(db,'jobAddresses', item.id), {rsvpStatus: 'yes', rsvpRespondedAt: serverTimestamp()});
+      /* Local mirror so the rows repaint as Confirmed without waiting for the snapshot. */
+      d.rsvpStatus = 'yes';
+      d.rsvpRespondedAt = new Date();
+      n++;
+      logActivity('Approved for the season by their payment: ' + (d.name || item.id), 'customers', item.id);
+    }catch(err){
+      /* ⚠ NEVER QUIET: logged, and the session marker cleared so the next sweep tries again. */
+      paidApprovedThisSession.delete(item.id);
+      console.error('[HU] could not approve a paid customer', item.id, err);
+    }
+  }
+  return n;
 }
 function arrearsPaidNotApproved(d, inv){
   if(!d || !inv) return false;
@@ -27836,7 +27887,7 @@ function arrearsPaidNotApproved(d, inv){
   if(arrearsOnInvoice(inv) <= 0) return false;
   if(!arrearsSettled(inv)) return false;
   /* '' means pending, unanswered, or a bare yes with no reply — nobody has answered. */
-  return !effectiveRsvpStatus(d);
+  return !rsvpHasAnswered(d);
 }
 async function noticeArrearsPaidNotApproved(){
   if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)) return;
@@ -27965,6 +28016,13 @@ function loadInvoices(){
     /* ⚠ AFTER the caches are rebuilt, because the sweep reads invoiceById. Not
        awaited: a note is a side effect of a payment landing and must never hold up
        the screens above, and it can never throw into this listener. */
+    /* RS-77: a payment toward this season approves them — before the note sweep, which then
+       has nothing to say about them. */
+    if(typeof approvePaidThisSeason === 'function'){
+      approvePaidThisSeason().catch(function(err){
+        console.error('[HU] paid-this-season approval sweep failed', err);
+      });
+    }
     if(typeof noticeArrearsPaidNotApproved === 'function'){
       noticeArrearsPaidNotApproved().catch(function(err){
         console.error('[HU] paid-but-not-approved sweep failed', err);
@@ -51381,6 +51439,19 @@ function effectiveRsvpStatus(d){
      and reads as Pending until somebody actually asks them. */
   if(audienceNeverAsked(dd)) return 'yes';
   return said;
+}
+/* ⭐ HAVE THEY ANSWERED — 'unanswered' IS NOT AN ANSWER (2026-09-24). effectiveRsvpStatus hands
+   back 'unanswered' as itself, because the Dashboard counts that card on its own ("asked, no
+   reply yet"). Five places asked it "have they answered?" by testing it for truth, and
+   'unanswered' is a truthy word: so after Move everyone to Unanswered, those customers were
+   dropped from the pending phone numbers, the RSVP text list, the RSVP link sheet and the
+   200-a-day RSVP plan, and never raised the paid-not-approved note — exactly the people
+   every one of those exists for. The comments beside them already said '' covered unanswered;
+   the code did not. This is the one answer to that question now; the server mirrors it in
+   rsvpStillOwedServer. */
+function rsvpHasAnswered(d){
+  const said = effectiveRsvpStatus(d);
+  return !!said && said !== 'unanswered';
 }
 function rsvpStatusLabel(v){
   const t = String(v == null ? '' : v).toLowerCase();

@@ -784,6 +784,7 @@ function seasonResetWrite() {
     'const arrearsSettled = ' + money.arrearsSettled.toString() + ';',
     'function effectiveRsvpStatus(d){ let s = String((d||{}).rsvpStatus||"").toLowerCase();' +
       ' if(s === "yes" && !(d||{}).rsvpRespondedAt) s = ""; return s; }',
+    lift('rsvpHasAnswered'),
     lift('arrearsPaidNotApproved'),
     'return { arrearsPaidNotApproved };'
   ].join('\n');
