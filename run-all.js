@@ -64078,7 +64078,8 @@ suite('350. The numbers on their own, and the people who have none');
   check('S350', 'it hands the numbers to the batch panel and copies nothing until Copy batch',
     /* REPOINTED 2026-09-24 (RS-75): the list goes through phoneBatchOpen, which reopens the
        saved batches or makes new ones from exactly this list. */
-    /phoneBatchOpen\(host, 'rsvp', function\(\)\{\s*const r = rsvpPhoneListRows\(rsvpLinkSheetTargets\(\)\);\s*return \{numbers: r\.numbers, names: r\.names\};/.test(copyFn) &&
+    /* REPOINTED again 2026-09-24 (RS-78): the pending people are first narrowed to those not texted yet. */
+    /phoneBatchOpen\(host, 'rsvp', function\(\)\{\s*const pick = phoneNotTextedYet\(rsvpLinkSheetTargets\(\)\);\s*const r = rsvpPhoneListRows\(pick\.items\);\s*return \{numbers: r\.numbers, names: r\.names, textedOut: pick\.textedOut\};/.test(copyFn) &&
     !/phoneBatchCopyCurrent|clipboard/.test(copyFn),
     'the whole list in one paste is what did not paste');
   check('S350', 'it says how many were left out for STOP',
@@ -64488,7 +64489,8 @@ suite('354. Copy their phone numbers — the filtered audience, for texting');
 
   check('S354', 'the press opens the batch panel and is wired to its button',
     /* REPOINTED 2026-09-24 (RS-75): through phoneBatchOpen, built from the filtered audience. */
-    /phoneBatchOpen\(host, 'et', function\(\)\{\s*const s = etPhoneCopySummary\(etTextAudience\);\s*return \{numbers: s\.numbers, names: s\.names\};/.test(copySrc) &&
+    /* REPOINTED again 2026-09-24 (RS-78): the filtered audience, minus anybody texted this season. */
+    /phoneBatchOpen\(host, 'et', function\(\)\{\s*const pick = phoneNotTextedYet\(etTextAudience\);\s*const s = etPhoneCopySummary\(pick\.items\);\s*return \{numbers: s\.numbers, names: s\.names, textedOut: pick\.textedOut\};/.test(copySrc) &&
     admin.indexOf('id="etCopyPhonesBtn"') !== -1 &&
     /getElementById\('etCopyPhonesBtn'\)\?\.addEventListener\('click'/.test(stripComments(admin)),
     'a button with no handler looks identical to a working one');
@@ -64674,8 +64676,8 @@ suite('356. Names next to the numbers, number first');
   const strippedA = stripComments(admin);
   check('S356', 'both copy buttons hand the names over',
     /* REPOINTED 2026-09-24 (RS-75): both now open the panel through phoneBatchOpen. */
-    /return \{numbers: r\.numbers, names: r\.names\};/.test(strippedA) &&
-    /return \{numbers: s\.numbers, names: s\.names\};/.test(strippedA) &&
+    /return \{numbers: r\.numbers, names: r\.names, textedOut: pick\.textedOut\};/.test(strippedA) &&
+    /return \{numbers: s\.numbers, names: s\.names, textedOut: pick\.textedOut\};/.test(strippedA) &&
     /phoneBatchRender\(host, c\.numbers, 0, c\.names,/.test(strippedA) &&
     /names: res\.names, text: msg/.test(strippedA),
     'a tick box that is never drawn because no names reached it looks like it was never built');
@@ -65012,6 +65014,66 @@ suite('363. A payment toward this season approves them; Unanswered is still pend
   check('S363', 'and the already-emailed guard is untouched — nobody gets the RSVP twice (EM-04)',
     /if \(rec\.rsvpEmailedAt \|\| rec\.arrearsRsvpEmailAt\) return 'emailed';/.test(serverGate) &&
     /if\(rec\.rsvpEmailedAt \|\| rec\.arrearsRsvpEmailAt\) return 'emailed';/.test(stripComments(extractFn(admin, 'rsvpSendSkipReason') || '')));
+}
+
+/* =====================================================================
+ * Suite 364. Who has already been texted is written on the customer
+ * (2026-09-24, RS-78). Addie: "I'm seeing a lot of people I already sent
+ * messages to on that list", then "Anything after Lacey Broadhead was not
+ * sent". RUNS the rules, the marker and the panel.
+ * ===================================================================== */
+suite('364. Texted people stay off every new list');
+{
+  const lift = n => { const i = admin.indexOf('async function ' + n + '(');
+    return i === -1 ? extractFn(admin, n) : 'async ' + extractFn(admin, n); };
+  const names = ['rsvpPhoneDigits', 'rsvpTextedThisSeason', 'phoneNumbersFromPaste', 'phoneMarkTexted', 'phoneNotTextedYet', 'phoneRunUpTo',
+    'phoneRunBuild', 'phoneRunNumbers', 'phoneRunNames'];
+  const srcs = names.map(lift);
+  check('S364', 'the texted rules were found', srcs.every(Boolean));
+  if (srcs.every(Boolean)) {
+    const writes = [];
+    const book = [
+      { id: 'a', data: { name: 'Ann', phone: '(801) 555-0001' } },
+      { id: 'a2', data: { name: 'Ann Jr', phone: '8015550001' } },
+      { id: 'b', data: { name: 'Bob', phone: '8015550002', rsvpStatus: 'unanswered' } },
+      { id: 'c', data: { name: 'Cara', phone: '8015550003', rsvpTextedAt: new Date(2025, 10, 1).getTime() } }
+    ];
+    const F = new Function('jobAddresses', 'updateDoc', 'doc', 'db', 'const PHONE_BATCH_DEFAULT = 50;' + srcs.join('\n') +
+      ';return { rsvpTextedThisSeason, phoneNumbersFromPaste, phoneMarkTexted, phoneNotTextedYet, phoneRunUpTo, phoneRunBuild };')(
+      book, async (ref, upd) => { writes.push([ref.id, upd]); }, (_d, _c, id) => ({ id: id }), {});
+    const now = Date.now();
+    check('S364', 'texted counts for this season only — last year\'s stamp does not keep anybody off',
+      F.rsvpTextedThisSeason({ rsvpTextedAt: now }) && !F.rsvpTextedThisSeason({ rsvpTextedAt: new Date(2020, 0, 1).getTime() }) &&
+      !F.rsvpTextedThisSeason({}));
+    check('S364', 'a paste finds each number however it is written, once',
+      F.phoneNumbersFromPaste('8015550001 Ann Smith\n(801) 555-0002, 1-801-555-0003\n8015550001\nhello').join() === '8015550001,8015550002,8015550003');
+    const pick = F.phoneNotTextedYet([{ data: { rsvpTextedAt: now } }, { data: {} }, { data: {} }]);
+    check('S364', 'a new list leaves out anybody texted this season, and counts them', pick.items.length === 2 && pick.textedOut === 1);
+    const run = F.phoneRunBuild(['1', '2', '3', '4'], ['Ann', 'Lacey Broadhead', 'Mo', 'Zed'], 2);
+    const up = F.phoneRunUpTo(run, '  lacey   broadhead ');
+    check('S364', '"up to and including a name" is everybody on the list through that person',
+      up && up.numbers.join() === '1,2' && up.name === 'Lacey Broadhead' && F.phoneRunUpTo(run, 'Nobody') === null);
+    pendingAsync.push((async function () {
+      const r = await F.phoneMarkTexted(['8015550001', '8015550002'], true, { skipUnanswered: true });
+      const ids = writes.map(w => w[0]).sort().join();
+      check('S364', 'marking stamps every customer on the number, and leaves an Unanswered one alone when asked',
+        ids === 'a,a2' && r.skipped === 1 && writes.every(w => typeof w[1].rsvpTextedAt === 'number'), 'got ' + ids);
+      const again = await F.phoneMarkTexted(['8015550001'], true);
+      check('S364', 'and marking twice writes nothing new', again.marked === 0 && writes.length === 2);
+      const off = await F.phoneMarkTexted(['8015550001'], false);
+      check('S364', 'unticking takes the stamp off', off.marked === 2 && writes.slice(-2).every(w => w[1].rsvpTextedAt === null));
+    })());
+  }
+  const stripped = stripComments(admin);
+  const panel = stripComments(extractFn(admin, 'phoneBatchRender') || '');
+  check('S364', 'ticking a batch Sent writes it on each customer too',
+    /const r = await opts\.markTexted\(\(b && b\.numbers\) \|\| \[\], on\);/.test(panel),
+    'a tick kept only on the list is lost the moment she presses Start a new list — which is what happened');
+  check('S364', 'both copy buttons build new lists from people not texted yet',
+    (stripped.match(/const pick = phoneNotTextedYet\(/g) || []).length === 2);
+  check('S364', 'the paste box and the up-to-a-name box are both wired',
+    /q\('markpaste'\)\.addEventListener\('click'/.test(panel) && /q\('markupto'\)\.addEventListener\('click'/.test(panel) &&
+    /if\(!confirm\('Mark the first '/.test(panel));
 }
 
 /* =====================================================================
