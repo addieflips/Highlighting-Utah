@@ -446,6 +446,61 @@ const sweepChecks = (async function () {
 })();
 
 /* ---------------------------------------------------------------------------
+ * The four entries added 2026-09-24, against the wordings the office actually
+ * pasted.
+ *
+ * ⚠ THE FIXTURES ARE THE REAL ROWS, TYPED AS THEY WERE STORED, for the reason
+ * error-digest.js already learned from a set of invented user agents: a wording
+ * I make up agrees with whatever I wrote, and every one of these entries is a
+ * DELETE. The key each row carries is what `errorKeyFor` builds — topic, pipe,
+ * lowercased, digits collapsed — so these go in as that function leaves them.
+ *
+ * ⛔ AND THE CHECK THAT EARNS THE BLOCK IS THE LAST ONE. "Unhandled promise:
+ * Missing or insufficient permissions." is the one fault here that is NOT fixed
+ * — it was only instrumented — and two of these four entries are about reads
+ * that were refused for exactly that reason. A needle that reached it would
+ * delete the only evidence anybody has of the open bug, silently, and the
+ * folder would look reassuringly empty. It is asserted per entry, not once.
+ * ------------------------------------------------------------------------- */
+{
+  const key = t => 'admin error|' + String(t).toLowerCase().replace(/[0-9]+/g, '#').replace(/\s+/g, ' ').trim();
+  const FOUR = [
+    { what: 'the activity-log read refused after the session ended', on: '2026-09-11',
+      real: '[HU] activity log read failed Missing or insufficient permissions.' },
+    { what: 'the quote text posting to Twilio', on: '2026-09-18',
+      real: 'Quote text send failed: Twilio send failed: Authentication Error - invalid username' },
+    { what: 'the Cloudinary account switched off', on: '2026-09-18',
+      real: 'Attach: a picture would not upload — Cloudinary 401: cloud_name is disabled' },
+    { what: 'an address EmailJS would not take', on: '2026-09-12',
+      real: 'Emails did not send: 1 of 258 failed. The email service said: The recipients address is corrupted' }
+  ];
+  for (const f of FOUR) {
+    check('cleared: ' + f.what,
+      api.errorFixedBy(row('x', ADMIN_TOPIC, key(f.real), daysBefore(f.on, 2)).data) !== null,
+      'the real report is still in the badge after the fix shipped');
+
+    check('but a fresh one survives: ' + f.what,
+      api.errorFixedBy(row('x', ADMIN_TOPIC, key(f.real), daysAfter(f.on, 1)).data) === null,
+      'a fix that did not take must be able to re-report itself');
+
+    /* Every one of the four is scoped to the admin reporter. The member side has
+       its own wordings and its own fix dates, and index.html builds `doing|reason`
+       rather than a sentence — so a member row must never be answered by these. */
+    check('and the member side is left alone: ' + f.what,
+      api.errorFixedBy(row('x', MEMBER_TOPIC, key(f.real), daysBefore(f.on, 2)).data) === null,
+      'an admin-scoped entry reached a member report');
+  }
+
+  /* ⛔ THE OPEN BUG. Nothing in the list may touch it, whatever the date. */
+  const STILL_OPEN = 'Unhandled promise: Missing or insufficient permissions.';
+  check('and nothing clears the permissions fault that is still open',
+    api.FIXED_ERRORS.every(e =>
+      api.errorFixedBy(row('x', ADMIN_TOPIC, key(STILL_OPEN), daysAfter('2026-09-30', 1)).data, [e]) === null &&
+      api.errorFixedBy(row('x', ADMIN_TOPIC, key(STILL_OPEN), daysBefore('2026-09-01', 1)).data, [e]) === null),
+    'one of the entries reaches the unhandled-promise rows, which are the evidence for a bug nobody has diagnosed');
+}
+
+/* ---------------------------------------------------------------------------
  * Wiring. STRUCTURAL, and said so on purpose.
  * ------------------------------------------------------------------------- */
 const loadMessages = extractFn(admin, 'loadMessages');

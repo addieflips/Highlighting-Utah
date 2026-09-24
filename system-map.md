@@ -4373,6 +4373,34 @@ too long is the only direction this list is allowed to be wrong in.
 stored — *Answering Yes*, *Answering No*, *Answering Back Next Year from the RSVP email* — not
 invented spellings, which could have passed throughout the week the entry was missing. 5 further
 sabotages red-checked, admin.html byte-for-byte after each.
+
+⛔ **AND THEN IT HAPPENED FOUR MORE TIMES AT ONCE** (2026-09-24, reading the folder Addie
+pasted in). Four faults had each been REPAIRED and none of them had an entry, so their reports
+were still sitting in the red badge looking exactly like faults nobody had dealt with:
+
+| The row in the badge | Repaired by | On |
+|---|---|---|
+| `[HU] activity log read failed` | `whileSignedIn` — the ten-minute health-check beat running against a session that had already ended | 2026-09-11 |
+| `Twilio send failed: Authentication Error` | [[QT-48]] — `sendSms` and `twilioSendRaw` taken out of the server entirely | 2026-09-18 |
+| `Cloudinary 401: cloud_name is disabled` | [[PROC-34]] — the account upgraded, and `cloudinaryUsageWatch` added so the next one is announced first | 2026-09-18 |
+| `The recipients address is corrupted` | `emailSendSkipReason` — the address is read BEFORE the send now, so one bad row no longer stops the other 257 | 2026-09-12 |
+
+⚠ **THE ACTIVITY-LOG ONE IS THE ARGUMENT, because its TWIN got an entry.** "could not read
+nightly billing health" and "[HU] activity log read failed" arrived within a minute of each
+other on 2026-09-10, are the same fault — a `setInterval` outliving the session — and were
+fixed by the same guard on the same day. One was written down here and one was not. Nothing
+anywhere could notice.
+⭐ **AND THREE OF THE FOUR WERE WRITTEN UP AS RULINGS IN THE SAME CHANGE THAT FIXED THEM.** So
+those sessions did remember R-023 and did not remember item 7 — the questions map knew and the
+badge did not. A rule that is obeyed only when it happens to sit beside another one is a rule
+that needs a gate, which is what **P-006** proposes: the digest should NAME any fault group
+that has gone quiet and is covered by no entry. It names rather than fails, because no machine
+can know a fix happened — but "this stopped happening and nobody wrote it down" is a question
+worth putting to a person, and the digest is already the report a person reads.
+⚠ **WHAT IS STILL OPEN, and deliberately carries no entry**: "Unhandled promise: Missing or
+insufficient permissions", five rows between 8 and 18 September. See *An unhandled promise says
+where it started* below — the 2026-09-18 instrumentation cannot answer it, and that was
+measured rather than argued.
 ⚠ **What the first reading also corrected, said plainly because it was told to Addie the other
 way:** the wire sweep DOES carry an error wording — *"Wire sweep could not look: No master sheet
 is connected on this computer"* — it is a refusal by design rather than a fault, so it takes no
@@ -5661,6 +5689,56 @@ a login-screen fault reads "Signed in as: nobody", which is the truth.
 
 *Gated by* `error-inbox.test.js` (`npm run test:errors`), which runs both reporters against
 a fake Firestore rather than reading their source; 16 sabotages red-checked.
+
+⛔ **BUT `rejectionWhere` CANNOT ANSWER A FIRESTORE DENIAL, AND THAT WAS MEASURED**
+(2026-09-24). Run in node both ways: an error THROWN in our own async chain does carry
+`at async ourFunction` frames — which is the shape the two fixtures in
+`error-inbox.test.js` are written in — but a Firestore permission denial is not thrown by
+us. The SDK CONSTRUCTS it in the network callback that reads the server’s answer, and a
+stack is captured where the Error is built, so the whole thing is `gstatic` and there is no
+frame of ours to find. **Awaiting the call does not change it**: the rejection is detached
+from the caller either way. So that helper returns `''` for this error class by
+construction — which is exactly what the 9/18 row shows, and why the check sitting next to
+those fixtures (*a stack with none of our frames adds nothing*) is the one describing real
+life.
+⚠ **SO THE FIXTURES PROVE THE PARSER, NOT THE FEATURE.** They are hand-written stacks that
+contain our frames — the vacuous-fixture trap this repo names in a dozen places. They are
+left in place, because the parser is still right for errors that DO carry frames; what must
+not happen is reading that suite as evidence that the next permissions row will be
+traceable. It will not be.
+⭐ **WHAT WOULD ACTUALLY NAME IT** is a breadcrumb taken at CALL time, where the caller is
+still on the stack: the collection and operation recorded as each read or write starts, and
+the last few appended when a denial arrives with no frame. That is the `onSnapshot as
+onSnapshotRaw` trick applied to the doc-level calls. Written down rather than built, because
+it is a change to the import block of a 2.6MB file and deserves its own change.
+
+⚠ **AND THE SHORTLIST IS ALREADY NARROW.** For a signed-in user every rule in
+`firestore.rules` answers `request.auth != null` and allows it. The only ones that can still
+refuse are `adminUserPrefs/{uid}` (the uid must match), a `messages` create over 5,000
+characters or claiming `read`/`responded`, a `quotes` create carrying a price or an approval,
+and a write to the three Cloud-Function-owned collections. Every `messages` and `quotes`
+create in `admin.html` is inside a try/catch, so none can surface as an UNHANDLED rejection —
+which leaves a floating write, and **`savePrefs` was the only floating write in the file a
+signed-in person could be refused**. It has a catch now, a signed-out guard, and
+`projUserPrefsUid` is cleared on sign-out instead of outliving the session and pointing at
+whoever just left. ⛔ **That is one candidate ruled out, not a claim to have found the bug** —
+which is why the fault still carries no `FIXED_ERRORS` entry and its five rows are still in
+the badge.
+⚠ **THE OTHER HALF OF THE ANSWER IS ABOVE AND IS EASY TO MISS**: the payment-import read
+really was running on the login screen and really was fixed the same day. If no new row
+appears after 2026-09-18, that WAS the whole of it and the entry can be written then. Until
+a date passes with none, keeping the rows is the cautious direction and the one this list
+is allowed to be wrong in.
+
+⭐ **AND THE `Where:` LINE FINALLY SAYS SOMETHING** (2026-09-24). Every admin error ever
+filed reads *Where: (the dashboard)* — and it was not that they all happened there. It was
+`location.hash`, and **this page does not route on the hash**: `switchToAdminPanel` moves a
+class and never touches the address bar, so the fallback was the only branch that could ever
+run. `adminErrorWhereNow` reads the open panel instead. ⚠ It is the panel KEY, not the nav
+label, which carries the badge count beside it — two reports of one fault would otherwise
+read as different places depending on how much post had arrived. ⚠ And it changes no dedupe:
+`errorKeyFor` is built from the error TEXT, never this line, so it cannot split one fault
+into six rows or move a key out from under `FIXED_ERRORS`. Asserted, not assumed.
 
 ---
 
