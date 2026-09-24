@@ -9011,6 +9011,7 @@ const CUSTOMER_FIELD_LABELS = {
   earliestInstallDate: {label: 'Earliest install date', kind: 'date'},
   rsvpStatus: 'RSVP answer',
   maybeNextYear: {label: 'Back next year', kind: 'yesno'},
+  rsvpTextedAt: 'Texted the RSVP',
   backInYear: {label: 'Back in which year'},
   billToPhone: 'Billed to',
   paidBeforeBillTo: {label: 'Payment carried onto the new bill', kind: 'money'},
@@ -20733,6 +20734,77 @@ function phoneRunStore(key, run, who){
 /* Both copy buttons open the panel through here: the saved list if there is one, a new one
    (written down straight away) if there is not. `current` rebuilds today's list, for Start a
    new list and for counting who is new. */
+/* ⭐ WHO HAS ALREADY BEEN TEXTED, WRITTEN ON THE CUSTOMER (2026-09-24, [[RS-78]]). Addie, having
+   pressed Start a new list: "everyone who wasn't sent yet is on that list cause I'm seeing a lot
+   of people I already sent messages to on that list".
+   ⛔ A NEW LIST WAS "NOT ANSWERED", NEVER "NOT TEXTED" — the texts go out through her own
+   texting tool, so nothing in the app knew who had been sent one, and the only record (the Sent
+   ticks) belonged to the list she had just replaced. So everybody texted who had not yet replied
+   came straight back.
+   ⭐ NOW IT IS WRITTEN WHERE IT CANNOT BE REPLACED: ticking a batch Sent stamps `rsvpTextedAt` on
+   each customer in it (unticking takes it off), and a paste box marks anybody texted before this
+   existed. Every new list leaves them out.
+   ⚠ THIS SEASON ONLY — the stamp is a date and only this calendar year counts, so next season
+   starts with everybody textable and nothing has to be cleared.
+   ⚠ MATCHED BY THE NUMBER, which is what was texted: every customer on that number is marked,
+   because one text reached all of them. */
+function rsvpTextedThisSeason(d, year){
+  const t = Number(d && d.rsvpTextedAt) || 0;
+  if(!t) return false;
+  return new Date(t).getFullYear() === (Number(year) || new Date().getFullYear());
+}
+function phoneNumbersFromPaste(text){
+  const seen = new Set();
+  String(text || '').split(/[\n,;\t]+/).forEach(function(chunk){
+    const d = rsvpPhoneDigits(chunk);
+    if(d.length === 10) seen.add(d);
+  });
+  return Array.from(seen);
+}
+async function phoneMarkTexted(numbers, on, o){
+  const want = new Set((numbers || []).map(function(n){ return rsvpPhoneDigits(n); }).filter(Boolean));
+  const out = {marked: 0, failed: 0, skipped: 0, matched: new Set()};
+  if(!want.size || typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)) return out;
+  for(const item of jobAddresses){
+    const d = (item && item.data) || {};
+    const dg = rsvpPhoneDigits(d.phone);
+    if(!dg || !want.has(dg)) continue;
+    /* "Up to this person" rebuilds a list made BEFORE Unanswered counted as pending
+       (2026-09-24): anybody on Unanswered was not on that list, so was never texted from it. */
+    if(o && o.skipUnanswered && String(d.rsvpStatus || '').trim().toLowerCase() === 'unanswered'){ out.skipped++; continue; }
+    out.matched.add(dg);
+    if(on ? rsvpTextedThisSeason(d) : !d.rsvpTextedAt) continue;
+    const v = on ? Date.now() : null;
+    try{
+      await updateDoc(doc(db, 'jobAddresses', item.id), {rsvpTextedAt: v});
+      d.rsvpTextedAt = v;
+      out.marked++;
+    }catch(err){
+      out.failed++;
+      console.error('[HU] could not record the RSVP text for', item.id, err);
+    }
+  }
+  return out;
+}
+/* The people a NEW list may hold: not texted this season. Counted, never dropped in silence. */
+/* Everybody on the list, in its order, up to and including the LAST person with this name. */
+function phoneRunUpTo(run, name){
+  const want = String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  if(!want) return null;
+  const nums = phoneRunNumbers(run), names = phoneRunNames(run) || [];
+  let last = -1;
+  names.forEach(function(n, i){ if(String(n || '').trim().replace(/\s+/g, ' ').toLowerCase() === want) last = i; });
+  if(last === -1) return null;
+  return {numbers: nums.slice(0, last + 1), name: names[last]};
+}
+function phoneNotTextedYet(items){
+  const out = {items: [], textedOut: 0};
+  (items || []).forEach(function(it){
+    if(rsvpTextedThisSeason((it && it.data) || {})) out.textedOut++;
+    else out.items.push(it);
+  });
+  return out;
+}
 async function phoneBatchOpen(host, key, current){
   if(!host) return {saved: false, count: 0};
   const who = (auth && auth.currentUser && auth.currentUser.email) || '';
@@ -20741,9 +20813,10 @@ async function phoneBatchOpen(host, key, current){
   const opts = {
     key: key, who: who,
     save: function(run){ return phoneRunStore(key, run, who); },
+    markTexted: function(nums, on, o){ return phoneMarkTexted(nums, on, o); },
     fresh: function(){
       const c = current();
-      phoneBatchRender(host, c.numbers, 0, c.names, Object.assign({}, opts, {run: null, extra: null}));
+      phoneBatchRender(host, c.numbers, 0, c.names, Object.assign({}, opts, {run: null, extra: null, textedOut: c.textedOut || 0}));
     }
   };
   if(saved){
@@ -20753,7 +20826,7 @@ async function phoneBatchOpen(host, key, current){
     return {saved: true, count: phoneRunNumbers(saved).length, run: saved};
   }
   if(!now.numbers.length) return {saved: false, count: 0};
-  phoneBatchRender(host, now.numbers, 0, now.names, opts);
+  phoneBatchRender(host, now.numbers, 0, now.names, Object.assign({}, opts, {textedOut: now.textedOut || 0}));
   return {saved: false, count: now.numbers.length};
 }
 async function phoneRunPersist(host){
@@ -20816,6 +20889,15 @@ function phoneBatchRender(host, numbers, index, names, opts){
         (typeof opts.fresh === 'function'
           ? '<button type="button" class="btn btn-outline btn-sm" data-pb="fresh">Start a new list</button>' : '') +
       '</div>' +
+      (typeof opts.markTexted === 'function'
+        ? '<details style="margin-top:8px; font-size:12.5px;"><summary style="cursor:pointer;">Already texted some of these? Paste their numbers to take them off</summary>' +
+          '<textarea data-pb="paste" rows="3" placeholder="One number per line, or separated by commas" style="width:100%; margin-top:6px; font-family:monospace; font-size:12.5px;"></textarea>' +
+          '<button type="button" class="btn btn-outline btn-sm" data-pb="markpaste" style="margin-top:6px;">Mark them as already texted</button> ' +
+          '<span data-pb="pastemsg" style="color:var(--slate);"></span>' +
+          '<div style="margin-top:10px;">Or: I texted everyone on this list up to and including ' +
+          '<input type="text" data-pb="uptoname" placeholder="their name, as shown" style="width:200px;"> ' +
+          '<button type="button" class="btn btn-outline btn-sm" data-pb="markupto">Mark them as texted</button></div></details>'
+        : '') +
     '</div>';
   const q = function(k){ return host.querySelector('[data-pb="' + k + '"]'); };
   const show = function(i){ phoneBatchShow(host, i); };
@@ -20861,9 +20943,16 @@ function phoneBatchRender(host, numbers, index, names, opts){
   });
   q('sent').addEventListener('change', async function(){
     const i = host._phoneIndex;
-    phoneRunSetSent(host._phoneRun, i, this.checked, opts.who);
+    const on = this.checked;
+    phoneRunSetSent(host._phoneRun, i, on, opts.who);
     show(i);
-    const ok = await phoneRunPersist(host);
+    let ok = await phoneRunPersist(host);
+    /* RS-78: the tick is also written on each customer, so no later list offers them again. */
+    if(typeof opts.markTexted === 'function'){
+      const b = host._phoneRun.batches[i];
+      const r = await opts.markTexted((b && b.numbers) || [], on);
+      if(r.failed) ok = false;
+    }
     const msg = q('msg');
     if(msg) msg.textContent = ok
       ? (this.checked ? '✓ Batch ' + (i + 1) + ' marked sent.' : 'Batch ' + (i + 1) + ' is no longer marked sent.')
@@ -20876,6 +20965,45 @@ function phoneBatchRender(host, numbers, index, names, opts){
     host._phoneNumbers = phoneRunNumbers(host._phoneRun);
     phoneRunPersist(host);
     show(first);
+  });
+  if(q('markpaste')) q('markpaste').addEventListener('click', async function(){
+    const pm = q('pastemsg');
+    const nums = phoneNumbersFromPaste(q('paste').value);
+    if(!nums.length){ if(pm) pm.textContent = 'No 10-digit phone numbers found in that.'; return; }
+    this.disabled = true;
+    const r = await opts.markTexted(nums, true);
+    this.disabled = false;
+    const text = r.matched.size + ' of ' + nums.length + ' number' + (nums.length === 1 ? '' : 's') +
+      ' matched a customer and ' + (r.matched.size === 1 ? 'is' : 'are') + ' now marked as texted' +
+      (r.failed ? ' \u2014 \u26A0 ' + r.failed + ' could not be saved, try again' : '') + '.';
+    /* Nothing ticked yet means nothing to lose: the list is made again without them. */
+    if(!phoneRunAnySent(host._phoneRun) && typeof opts.fresh === 'function'){
+      opts.fresh();
+      const m = host.querySelector('[data-pb="msg"]');
+      if(m) m.textContent = text + ' The list has been made again without them.';
+    } else if(pm){
+      pm.textContent = text + ' This list keeps its batches; they are left out of the next new list.';
+    }
+  });
+  if(q('markupto')) q('markupto').addEventListener('click', async function(){
+    const pm = q('pastemsg');
+    const r = phoneRunUpTo(host._phoneRun, q('uptoname').value);
+    if(!r){ if(pm) pm.textContent = 'Nobody on this list has that name \u2014 type it exactly as it shows in the box.'; return; }
+    if(!confirm('Mark the first ' + r.numbers.length + ' people on this list \u2014 everyone up to and including ' +
+      r.name + ' \u2014 as already texted?\n\nThey will be left out of every new list this season.')) return;
+    this.disabled = true;
+    const res = await opts.markTexted(r.numbers, true, {skipUnanswered: true});
+    this.disabled = false;
+    const text = res.matched.size + ' number' + (res.matched.size === 1 ? '' : 's') + ' marked as texted, up to ' + r.name +
+      (res.skipped ? ' (' + res.skipped + ' on Unanswered left alone \u2014 they were not on your earlier list)' : '') +
+      (res.failed ? ' \u2014 \u26A0 ' + res.failed + ' could not be saved, try again' : '') + '.';
+    if(!phoneRunAnySent(host._phoneRun) && typeof opts.fresh === 'function'){
+      opts.fresh();
+      const m = host.querySelector('[data-pb="msg"]');
+      if(m) m.textContent = text + ' The list has been made again, starting after them.';
+    } else if(pm){
+      pm.textContent = text + ' This list keeps its batches; they are left out of the next new list.';
+    }
   });
   if(q('fresh')) q('fresh').addEventListener('click', function(){
     const sent = phoneRunSentCount(host._phoneRun);
@@ -20945,6 +21073,9 @@ function phoneBatchShow(host, index){
         run.batches.length + ' batch' + (run.batches.length === 1 ? '' : 'es') + ' sent. ' +
         'The batches stay as they are until you press Start a new list.'
       : 'Nobody on this list.';
+    const textedOut = (host._phoneOpts && host._phoneOpts.textedOut) || 0;
+    if(textedOut && !(host._phoneOpts && host._phoneOpts.run)) t += '  ' + textedOut + ' already texted this season ' +
+      (textedOut === 1 ? 'is' : 'are') + ' left out.';
     if(host._phoneExtra) t += '  ' + host._phoneExtra.numbers.length + ' ' +
       (host._phoneExtra.numbers.length === 1 ? 'person is' : 'people are') + ' pending now and on no batch.';
     note.textContent = t;
@@ -20975,8 +21106,10 @@ async function rsvpCopyPhones(){
   const host = document.getElementById('rsvpPhonesBatch');
   /* RS-75: the saved list if there is one — never re-cut from who is pending today. */
   const opened = await phoneBatchOpen(host, 'rsvp', function(){
-    const r = rsvpPhoneListRows(rsvpLinkSheetTargets());
-    return {numbers: r.numbers, names: r.names};
+    /* RS-78: nobody already texted this season. */
+    const pick = phoneNotTextedYet(rsvpLinkSheetTargets());
+    const r = rsvpPhoneListRows(pick.items);
+    return {numbers: r.numbers, names: r.names, textedOut: pick.textedOut};
   });
   if(!opened.count){
     if(statusEl) statusEl.textContent = 'No numbers to copy \u2014 nobody is waiting to answer, or none of them has a phone.';
@@ -22769,8 +22902,10 @@ async function etCopyFilteredPhones(){
   /* RS-75: the saved list if there is one. "Start a new list" reads the filters as they are
      at that moment; until then the batches are the ones she already worked through. */
   const opened = await phoneBatchOpen(host, 'et', function(){
-    const s = etPhoneCopySummary(etTextAudience);
-    return {numbers: s.numbers, names: s.names};
+    /* RS-78: nobody already texted this season. */
+    const pick = phoneNotTextedYet(etTextAudience);
+    const s = etPhoneCopySummary(pick.items);
+    return {numbers: s.numbers, names: s.names, textedOut: pick.textedOut};
   });
   if(!opened.count){
     if(statusEl) statusEl.textContent = sum.text;
