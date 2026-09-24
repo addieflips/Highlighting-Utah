@@ -4178,7 +4178,7 @@
           <button type="button" class="btn btn-outline btn-sm" id="rsvpTextFindBtn">Find who still has to answer</button>
           <button type="button" class="btn btn-gold btn-sm" id="rsvpTextCopyAllBtn" style="display:none;">Copy them all for texting</button>
           <button type="button" class="btn btn-outline btn-sm" id="rsvpLinkSheetBtn">Copy everyone&rsquo;s links &mdash; for a spreadsheet</button>
-          <button type="button" class="btn btn-outline btn-sm" id="rsvpPhonesBtn">Copy every phone number</button>
+          <button type="button" class="btn btn-outline btn-sm" id="rsvpPhonesBtn">Copy pending phone numbers</button>
           <button type="button" class="btn btn-outline btn-sm" id="rsvpNoPhoneBtn">Who has no number</button>
           <span id="rsvpTextCount" style="font-size:12.5px; color:var(--slate);"></span>
         </div>
@@ -20482,13 +20482,15 @@ function rsvpPhoneDigits(raw){
   return d;
 }
 function rsvpPhoneListRows(targets){
-  const out = {numbers: [], odd: [], stopped: 0};
+  /* ⚠ names[i] IS numbers[i]'s NAME — pushed together, never sorted apart ([[RS-70]]). */
+  const out = {numbers: [], names: [], odd: [], stopped: 0};
   (targets || []).forEach(function(item){
     const d = (item && item.data) || {};
     if(d.smsOptedOut){ out.stopped++; return; }
     const digits = rsvpPhoneDigits(d.phone);
     if(!digits) return;
     out.numbers.push(digits);
+    out.names.push(String(d.name || ''));
     if(digits.length !== 10) out.odd.push(rsvpSheetCell(d.name) + ' \u2014 ' + rsvpSheetCell(d.phone));
   });
   return out;
@@ -20525,22 +20527,51 @@ function phoneBatchSlice(numbers, size, index){
   const i = Math.min(Math.max(0, Math.floor(Number(index) || 0)), total - 1);
   return {size: n, total: total, index: i, from: i * n, list: list.slice(i * n, i * n + n)};
 }
-function phoneBatchJoin(list, sep){
-  return (list || []).join(sep === 'line' ? '\n' : ', ');
+/* ⭐ NAMES NEXT TO THE NUMBERS (2026-09-24, [[RS-70]]). Addie: "can you put names next to
+   numbers when I copy it and paste it?", then a screenshot of the box she pastes into,
+   labelled "Numbers, names" — so the NUMBER COMES FIRST and the name after it.
+   A tick box, ON by default because she asked for it, and one click to turn off: a
+   texting tool's To box may refuse "8015550111 Ann Smith" where it takes a bare number,
+   and the choice is remembered on that browser.
+   ⚠ A SPACE BETWEEN NUMBER AND NAME IN BOTH LAYOUTS ([[RS-73]]) — it was a tab in the
+   one-per-line layout, for spreadsheet columns, but one per line is now what she pastes into
+   her texting tool, and a tab there jumps to the next field. With commas, a comma INSIDE a
+   name ("Smith, Ann") is turned into a space, or it would split one person into two entries.
+   ⚠ A NAME'S TABS AND LINE BREAKS ARE SPACES TOO — one stray tab shunts the number into
+   the wrong column for that person alone. */
+function phoneBatchName(name, sep){
+  let n = String(name == null ? '' : name).replace(/[\t\r\n]+/g, ' ');
+  if(sep !== 'line') n = n.replace(/,/g, ' ');
+  return n.replace(/\s+/g, ' ').trim();
+}
+function phoneBatchJoin(list, sep, names){
+  const rows = (list || []).map(function(num, i){
+    if(!names) return num;
+    const nm = phoneBatchName(names[i], sep);
+    if(!nm) return num;
+    return num + ' ' + nm;
+  });
+  return rows.join(sep === 'line' ? '\n' : ', ');
 }
 function phoneBatchPrefs(){
-  let size = PHONE_BATCH_DEFAULT, sep = 'comma';
+  let size = PHONE_BATCH_DEFAULT, sep = 'line', names = true;
   try{
     const z = Number(localStorage.getItem('hu.phoneBatchSize'));
     if(z >= 1) size = Math.floor(z);
-    if(localStorage.getItem('hu.phoneBatchSep') === 'line') sep = 'line';
+    /* ⚠ A NEW KEY, NOT hu.phoneBatchSep ([[RS-73]]). One per line became the default on
+       2026-09-24, and the old key was written on EVERY size change, so her browser already
+       holds 'comma' without her ever having chosen it — reading it would keep the paragraph
+       she asked to be rid of. Only a choice made on the new key counts. */
+    if(localStorage.getItem('hu.phoneBatchLayout') === 'comma') sep = 'comma';
+    names = localStorage.getItem('hu.phoneBatchNames') !== '0';
   }catch(err){ /* private browsing or blocked storage: the defaults are used and nothing is lost. */ }
-  return {size: size, sep: sep};
+  return {size: size, sep: sep, names: names};
 }
-function phoneBatchSavePrefs(size, sep){
+function phoneBatchSavePrefs(size, sep, names){
   try{
     localStorage.setItem('hu.phoneBatchSize', String(size));
-    localStorage.setItem('hu.phoneBatchSep', sep);
+    localStorage.setItem('hu.phoneBatchLayout', sep);
+    if(names !== undefined) localStorage.setItem('hu.phoneBatchNames', names ? '1' : '0');
   }catch(err){ /* not remembered on this browser; the panel still works with what is on screen. */ }
 }
 /* ⚠ THE CLIPBOARD, THEN THE OLD WAY, THEN THE BOX. navigator.clipboard can refuse (a
@@ -20566,51 +20597,364 @@ async function phoneBatchCopyText(text, box){
     return false;
   }
 }
-function phoneBatchRender(host, numbers, index){
+/* ⭐ THE BATCHES STAY PUT, AND EACH ONE CAN BE TICKED AS SENT (2026-09-24, [[RS-75]]).
+   Addie: "No I don't want to re batchevery time based on who is pending now and who is not.
+   I want every bath I was on to have a check mark so I can mark off that I sent them
+   amessage."
+   ⛔ A LIST IS MADE ONCE AND KEPT. It used to be rebuilt from whoever was pending on every
+   press, so the moment somebody answered, everybody after them slid up a place: "batch 3"
+   the next day was a different thirty people, some already texted and some skipped. Now the
+   batches are written down — who is in each one, in order — in settings/phoneBatchRun_<list>,
+   and every later press reopens THAT list, on any computer, until she presses Start a new
+   list. Somebody who answers after being batched stays in their batch; that is the point.
+   ⚠ NEW PEOPLE ARE OFFERED, NEVER SLOTTED IN. Anybody pending now who is on no batch is
+   counted, and Add them puts them in NEW batches at the end — never into a batch already
+   made, which would change a batch she may already have ticked.
+   ⚠ THE SIZE IS LOCKED ONCE ANY BATCH IS TICKED. Re-cutting the list after a tick moves
+   people across batch lines, and the tick would then vouch for people who were never sent
+   anything. Until the first tick, changing the size re-cuts it exactly as before.
+   ⛔ THIS REPLACES [[RS-74]] (R-024: her newer answer wins), which had the panel remember
+   who was COPIED on that browser and leave them out next time, so batch 1 was always the
+   next person not yet texted. Its reasoning still holds — a saved batch NUMBER over a
+   shrinking list lands on different people — and that is exactly why the batches
+   themselves are now saved rather than a number: a kept batch cannot drift. What she
+   rejected was the list re-cutting itself, and a copy is not a send; the tick is hers.
+   ⚠ THE TIMES ARE NUMBERS (Date.now()), NEVER serverTimestamp(): Firestore refuses a
+   sentinel inside an array, and would reject the whole save — ticks and all. */
+function phoneRunBuild(numbers, names, size){
+  const list = numbers || [];
+  const n = Math.max(1, Math.floor(Number(size) || 0) || PHONE_BATCH_DEFAULT);
+  const batches = [];
+  for(let i = 0; i < list.length; i += n){
+    batches.push({numbers: list.slice(i, i + n), names: names ? names.slice(i, i + n) : null,
+      sentAt: 0, sentBy: ''});
+  }
+  return {size: n, createdAt: Date.now(), batches: batches};
+}
+function phoneRunAnySent(run){
+  return !!(run && (run.batches || []).some(function(b){ return !!(b && b.sentAt); }));
+}
+function phoneRunSentCount(run){
+  return ((run && run.batches) || []).filter(function(b){ return !!(b && b.sentAt); }).length;
+}
+function phoneRunNumbers(run){
+  return ((run && run.batches) || []).reduce(function(all, b){ return all.concat(b.numbers || []); }, []);
+}
+function phoneRunNames(run){
+  const bs = (run && run.batches) || [];
+  if(!bs.length || bs.some(function(b){ return !b.names; })) return null;
+  return bs.reduce(function(all, b){ return all.concat(b.names); }, []);
+}
+/* Re-cut to a new size — ONLY while nothing is ticked. Answers null when a tick would be
+   moved onto people it never covered. */
+function phoneRunResize(run, size){
+  if(phoneRunAnySent(run)) return null;
+  const fresh = phoneRunBuild(phoneRunNumbers(run), phoneRunNames(run), size);
+  if(run && run.createdAt) fresh.createdAt = run.createdAt;
+  return fresh;
+}
+function phoneRunSetSent(run, index, on, who){
+  const b = run && run.batches && run.batches[index];
+  if(!b) return false;
+  b.sentAt = on ? Date.now() : 0;
+  b.sentBy = on ? String(who || '') : '';
+  return true;
+}
+/* Where to open: the first batch not yet ticked, or the last one when all are. */
+function phoneRunFirstOpen(run){
+  const bs = (run && run.batches) || [];
+  const i = bs.findIndex(function(b){ return !b.sentAt; });
+  return i === -1 ? Math.max(0, bs.length - 1) : i;
+}
+/* Pending now and on no batch — matched by the number, which is what gets texted. */
+function phoneRunNewPeople(run, numbers, names){
+  const have = new Set(phoneRunNumbers(run));
+  const out = {numbers: [], names: names ? [] : null};
+  (numbers || []).forEach(function(num, i){
+    if(have.has(num)) return;
+    have.add(num);
+    out.numbers.push(num);
+    if(out.names) out.names.push(names[i]);
+  });
+  return out;
+}
+/* Appends the new people as NEW batches at the end; answers the index of the first one. */
+function phoneRunAddNew(run, extra){
+  const first = run.batches.length;
+  const more = phoneRunBuild(extra.numbers, extra.names, run.size).batches;
+  more.forEach(function(b){
+    if(!b.names && phoneRunNames(run)) b.names = b.numbers.map(function(){ return ''; });
+    run.batches.push(b);
+  });
+  return first;
+}
+/* A stored list is only trusted when it has the shape this code writes. */
+function phoneRunFromDoc(data){
+  if(!data || !Array.isArray(data.batches) || !data.batches.length) return null;
+  const size = Math.max(1, Math.floor(Number(data.size) || 0) || PHONE_BATCH_DEFAULT);
+  const batches = data.batches.map(function(b){
+    b = b || {};
+    return {numbers: Array.isArray(b.numbers) ? b.numbers.map(String) : [],
+      names: Array.isArray(b.names) ? b.names.map(String) : null,
+      sentAt: Number(b.sentAt) || 0, sentBy: String(b.sentBy || '')};
+  });
+  return {size: size, createdAt: Number(data.createdAt) || 0, batches: batches};
+}
+function phoneRunWhen(ms){
+  try{
+    return new Date(ms).toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'});
+  }catch(err){ /* an odd locale setting: the bare date still says when. */
+    return new Date(ms).toDateString();
+  }
+}
+async function phoneRunLoad(key){
+  try{
+    const snap = await getDoc(doc(db, 'settings', 'phoneBatchRun_' + key));
+    return snap.exists() ? phoneRunFromDoc(snap.data()) : null;
+  }catch(err){
+    console.error('Could not read the saved phone batches:', err);
+    return null;
+  }
+}
+function phoneRunStore(key, run, who){
+  return setDoc(doc(db, 'settings', 'phoneBatchRun_' + key), {
+    size: run.size, createdAt: run.createdAt || Date.now(), batches: run.batches,
+    updatedAt: Date.now(), updatedBy: String(who || '')
+  });
+}
+/* Both copy buttons open the panel through here: the saved list if there is one, a new one
+   (written down straight away) if there is not. `current` rebuilds today's list, for Start a
+   new list and for counting who is new. */
+async function phoneBatchOpen(host, key, current){
+  if(!host) return {saved: false, count: 0};
+  const who = (auth && auth.currentUser && auth.currentUser.email) || '';
+  const saved = await phoneRunLoad(key);
+  const now = current();
+  const opts = {
+    key: key, who: who,
+    save: function(run){ return phoneRunStore(key, run, who); },
+    fresh: function(){
+      const c = current();
+      phoneBatchRender(host, c.numbers, 0, c.names, Object.assign({}, opts, {run: null, extra: null}));
+    }
+  };
+  if(saved){
+    const extra = phoneRunNewPeople(saved, now.numbers, now.names);
+    phoneBatchRender(host, now.numbers, phoneRunFirstOpen(saved), now.names,
+      Object.assign({}, opts, {run: saved, extra: extra.numbers.length ? extra : null}));
+    return {saved: true, count: phoneRunNumbers(saved).length, run: saved};
+  }
+  if(!now.numbers.length) return {saved: false, count: 0};
+  phoneBatchRender(host, now.numbers, 0, now.names, opts);
+  return {saved: false, count: now.numbers.length};
+}
+async function phoneRunPersist(host){
+  const opts = host._phoneOpts || {};
+  if(typeof opts.save !== 'function') return true;
+  try{ await opts.save(host._phoneRun); return true; }
+  catch(err){ console.error('Could not save the phone batches:', err); return false; }
+}
+/* ⚠ BUILT ONCE, THEN UPDATED IN PLACE (2026-09-24, [[RS-71]]). Addie: "I type how many I
+   want at a time but the number will automatically save." It does save — but the first
+   version rebuilt the whole panel with innerHTML on the size box's `change`, and `change`
+   fires on BLUR. So typing 10 and clicking Copy batch straight away blurred the box, the
+   panel was rebuilt between mousedown and mouseup, and the click landed on a button that no
+   longer existed: nothing copied, silently. The same trap as the email-typo note's Use it
+   button (CLAUDE.md). Now the shell is drawn once per press of a copy button and every
+   control after that changes TEXT only — no node a pointer can be holding is ever replaced.
+   ⚠ AND THE SIZE APPLIES AS YOU TYPE (`input`), saved on each keystroke that makes a real
+   number; a box left blank or at 0 goes back to the saved size when she leaves it.
+   ⚠ THE ONE EXCEPTION IS THE ROW OF BATCH NUMBERS ([[RS-75]]), redrawn when a batch is
+   ticked or picked. It is rebuilt only from its own click or from the tick box's `change`,
+   both of which fire AFTER the click they belong to has landed. */
+function phoneBatchRender(host, numbers, index, names, opts){
   if(!host) return;
-  host._phoneNumbers = numbers || [];
+  opts = opts || {};
   const prefs = phoneBatchPrefs();
-  const b = phoneBatchSlice(host._phoneNumbers, prefs.size, index);
-  host._phoneIndex = b.index;
+  host._phoneOpts = opts;
+  host._phoneRun = opts.run || phoneRunBuild(numbers, names, prefs.size);
+  host._phoneExtra = opts.extra || null;
+  host._phoneNames = phoneRunNames(host._phoneRun) || (host._phoneRun.batches.length ? null : (names || null));
+  host._phoneNumbers = phoneRunNumbers(host._phoneRun);
+  if(!opts.run) phoneRunPersist(host);
   host.innerHTML =
     '<div style="border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:0 0 12px; background:var(--snow);">' +
+      '<div data-pb="runnote" style="font-size:12.5px; color:var(--slate); margin-bottom:8px;"></div>' +
       '<div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px; font-size:13px;">' +
-        '<label>How many at a time <input type="number" min="1" step="1" data-pb="size" value="' + b.size + '" style="width:80px; margin-left:4px;"></label>' +
+        '<label>How many at a time <input type="number" min="1" step="1" data-pb="size" value="' + host._phoneRun.size + '" style="width:80px; margin-left:4px;"></label>' +
         '<label>Separate with <select data-pb="sep" style="margin-left:4px;">' +
-          '<option value="comma"' + (prefs.sep === 'comma' ? ' selected' : '') + '>Commas (for a To box)</option>' +
-          '<option value="line"' + (prefs.sep === 'line' ? ' selected' : '') + '>One per line (for a spreadsheet)</option>' +
+          '<option value="line"' + (prefs.sep === 'line' ? ' selected' : '') + '>One per line</option>' +
+          '<option value="comma"' + (prefs.sep === 'comma' ? ' selected' : '') + '>Commas, all on one line</option>' +
         '</select></label>' +
+        (host._phoneNames
+          ? '<label style="display:inline-flex; align-items:center; gap:5px;"><input type="checkbox" data-pb="names"' +
+            (prefs.names ? ' checked' : '') + '> Include names</label>'
+          : '') +
+        '<span data-pb="saved" style="font-size:12px; color:var(--slate);"></span>' +
       '</div>' +
-      '<div data-pb="where" style="font-size:13px; font-weight:600; margin-bottom:6px;">Batch ' + (b.index + 1) + ' of ' + b.total +
-        ' &mdash; numbers ' + (b.list.length ? (b.from + 1) + '&ndash;' + (b.from + b.list.length) : '0') + ' of ' + host._phoneNumbers.length + '</div>' +
-      '<textarea readonly data-pb="box" rows="4" style="width:100%; font-family:monospace; font-size:12.5px;">' + esc(phoneBatchJoin(b.list, prefs.sep)) + '</textarea>' +
+      '<div data-pb="chips" style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:8px;"></div>' +
+      '<div data-pb="where" style="font-size:13px; font-weight:600; margin-bottom:6px;"></div>' +
+      '<textarea readonly data-pb="box" rows="4" style="width:100%; font-family:monospace; font-size:12.5px;"></textarea>' +
       '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;">' +
-        '<button type="button" class="btn btn-outline btn-sm" data-pb="prev"' + (b.index === 0 ? ' disabled' : '') + '>&#9664; Previous batch</button>' +
-        '<button type="button" class="btn btn-gold btn-sm" data-pb="copy">Copy batch ' + (b.index + 1) + '</button>' +
-        '<button type="button" class="btn btn-outline btn-sm" data-pb="next"' + (b.index >= b.total - 1 ? ' disabled' : '') + '>Next batch &#9654;</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-pb="prev">&#9664; Previous batch</button>' +
+        '<button type="button" class="btn btn-gold btn-sm" data-pb="copy">Copy batch</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-pb="next">Next batch &#9654;</button>' +
+        '<label style="display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:600; margin-left:6px; cursor:pointer;">' +
+          '<input type="checkbox" data-pb="sent" style="width:18px; height:18px;"> <span data-pb="sentlabel">Sent</span></label>' +
         '<span data-pb="msg" style="font-size:12.5px; color:var(--slate);"></span>' +
+      '</div>' +
+      '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; padding-top:8px; border-top:1px solid var(--line);">' +
+        '<button type="button" class="btn btn-outline btn-sm" data-pb="addnew" style="display:none;"></button>' +
+        (typeof opts.fresh === 'function'
+          ? '<button type="button" class="btn btn-outline btn-sm" data-pb="fresh">Start a new list</button>' : '') +
       '</div>' +
     '</div>';
   const q = function(k){ return host.querySelector('[data-pb="' + k + '"]'); };
-  const redraw = function(i){ phoneBatchRender(host, host._phoneNumbers, i); };
+  const show = function(i){ phoneBatchShow(host, i); };
+  let sizeTimer = null;
+  q('size').addEventListener('input', function(){
+    const v = Math.floor(Number(this.value) || 0);
+    if(v < 1) return;
+    const saved = q('saved');
+    const resized = phoneRunResize(host._phoneRun, v);
+    if(!resized){
+      this.value = String(host._phoneRun.size);
+      if(saved) saved.textContent = '🔒 Locked — a batch is already ticked as sent. Start a new list to change the size.';
+      return;
+    }
+    const pr = phoneBatchPrefs();
+    phoneBatchSavePrefs(v, pr.sep);
+    host._phoneRun = resized;
+    host._phoneNumbers = phoneRunNumbers(resized);
+    if(saved) saved.textContent = '✓ Saved — ' + v + ' at a time';
+    clearTimeout(sizeTimer);
+    sizeTimer = setTimeout(function(){ phoneRunPersist(host); }, 600);
+    show(0);
+  });
   q('size').addEventListener('change', function(){
     const v = Math.floor(Number(this.value) || 0);
-    phoneBatchSavePrefs(v >= 1 ? v : PHONE_BATCH_DEFAULT, phoneBatchPrefs().sep);
-    redraw(0);
+    if(v < 1) this.value = String(host._phoneRun.size);
   });
   q('sep').addEventListener('change', function(){
     phoneBatchSavePrefs(phoneBatchPrefs().size, this.value === 'line' ? 'line' : 'comma');
-    redraw(host._phoneIndex);
+    show(host._phoneIndex);
   });
-  q('prev').addEventListener('click', function(){ redraw(host._phoneIndex - 1); });
-  q('next').addEventListener('click', function(){ redraw(host._phoneIndex + 1); });
+  if(q('names')) q('names').addEventListener('change', function(){
+    const pr = phoneBatchPrefs();
+    phoneBatchSavePrefs(pr.size, pr.sep, this.checked);
+    show(host._phoneIndex);
+  });
+  q('prev').addEventListener('click', function(){ show(host._phoneIndex - 1); });
+  q('next').addEventListener('click', function(){ show(host._phoneIndex + 1); });
   q('copy').addEventListener('click', async function(){ await phoneBatchCopyCurrent(host); });
+  q('chips').addEventListener('click', function(e){
+    const chip = e.target && e.target.closest ? e.target.closest('[data-pbchip]') : null;
+    if(chip) show(Number(chip.getAttribute('data-pbchip')));
+  });
+  q('sent').addEventListener('change', async function(){
+    const i = host._phoneIndex;
+    phoneRunSetSent(host._phoneRun, i, this.checked, opts.who);
+    show(i);
+    const ok = await phoneRunPersist(host);
+    const msg = q('msg');
+    if(msg) msg.textContent = ok
+      ? (this.checked ? '✓ Batch ' + (i + 1) + ' marked sent.' : 'Batch ' + (i + 1) + ' is no longer marked sent.')
+      : '⚠ Not saved — check the connection and tick it again, or it will not be remembered.';
+  });
+  q('addnew').addEventListener('click', function(){
+    if(!host._phoneExtra) return;
+    const first = phoneRunAddNew(host._phoneRun, host._phoneExtra);
+    host._phoneExtra = null;
+    host._phoneNumbers = phoneRunNumbers(host._phoneRun);
+    phoneRunPersist(host);
+    show(first);
+  });
+  if(q('fresh')) q('fresh').addEventListener('click', function(){
+    const sent = phoneRunSentCount(host._phoneRun);
+    if(sent && !confirm('Start a new list from the people pending now?\n\n' + sent + ' batch' +
+      (sent === 1 ? ' is' : 'es are') + ' ticked as sent on this one, and those ticks will be gone.')) return;
+    opts.fresh();
+  });
+  show(index);
+}
+/* ⛔ OPENING THE PANEL COPIES NOTHING (2026-09-24, [[RS-72]]). Addie: "Okay but I told you
+   I don't want to copy all phone numbers just a small bulk at a time." The press used to copy
+   batch 1 straight away at the saved size — 50 until she changes it — so on a list shorter
+   than that, one press put EVERY pending number on the clipboard before she had chosen a
+   size at all. Now the press opens the panel with the size box ready, and only Copy batch
+   copies anything. */
+function phoneBatchFocusSize(host){
+  const size = host && host.querySelector('[data-pb="size"]');
+  if(!size) return;
+  try{ size.focus(); size.select(); }catch(err){ /* focus is a convenience; the box is on screen either way. */ }
+}
+/* Text only: the heading, the box, the Copy label and whether Previous / Next can go
+   further. Never innerHTML on anything a click could be resting on — the batch-number row
+   aside, see phoneBatchRender. */
+function phoneBatchShow(host, index){
+  const q = function(k){ return host.querySelector('[data-pb="' + k + '"]'); };
+  const prefs = phoneBatchPrefs();
+  const run = host._phoneRun || {batches: []};
+  const total = Math.max(1, run.batches.length);
+  const i = Math.min(Math.max(0, Math.floor(Number(index) || 0)), total - 1);
+  const b = run.batches[i] || {numbers: [], names: null, sentAt: 0};
+  let from = 0;
+  for(let k = 0; k < i; k++) from += run.batches[k].numbers.length;
+  host._phoneIndex = i;
+  host._phoneBatchCount = b.numbers.length;
+  const batchNames = (host._phoneNames && prefs.names) ? b.names : null;
+  q('where').textContent = 'Batch ' + (i + 1) + ' of ' + total + ' — numbers ' +
+    (b.numbers.length ? (from + 1) + '–' + (from + b.numbers.length) : '0') +
+    ' of ' + (host._phoneNumbers || []).length;
+  q('box').value = phoneBatchJoin(b.numbers, prefs.sep, batchNames);
+  q('copy').textContent = 'Copy batch ' + (i + 1);
+  q('prev').disabled = i === 0;
+  q('next').disabled = i >= total - 1;
+  const sent = q('sent');
+  if(sent){
+    sent.checked = !!b.sentAt;
+    sent.disabled = !run.batches.length;
+  }
+  const sentLabel = q('sentlabel');
+  if(sentLabel) sentLabel.textContent = b.sentAt
+    ? 'Sent batch ' + (i + 1) + ' — ' + phoneRunWhen(b.sentAt) + (b.sentBy ? ' by ' + b.sentBy : '')
+    : 'I sent batch ' + (i + 1);
+  const chips = q('chips');
+  if(chips) chips.innerHTML = run.batches.map(function(bb, k){
+    const cur = k === i;
+    return '<button type="button" data-pbchip="' + k + '" title="Batch ' + (k + 1) +
+      (bb.sentAt ? ' — sent' : ' — not sent yet') + '" style="min-width:34px; padding:3px 7px; font-size:12px; ' +
+      'border-radius:6px; cursor:pointer; border:' + (cur ? '2px solid var(--navy, #1b2a41)' : '1px solid var(--line)') + '; ' +
+      'background:' + (bb.sentAt ? '#DFF3E4' : '#fff') + '; color:' + (bb.sentAt ? '#1E6B34' : 'inherit') + ';' +
+      (cur ? ' font-weight:700;' : '') + '">' + (bb.sentAt ? '✓ ' : '') + (k + 1) + '</button>';
+  }).join('');
+  const note = q('runnote');
+  if(note){
+    const done = phoneRunSentCount(run);
+    let t = run.batches.length
+      ? (host._phoneOpts && host._phoneOpts.run ? 'Your saved list' : 'A new list') +
+        (run.createdAt ? ' from ' + phoneRunWhen(run.createdAt) : '') + ' — ' + done + ' of ' +
+        run.batches.length + ' batch' + (run.batches.length === 1 ? '' : 'es') + ' sent. ' +
+        'The batches stay as they are until you press Start a new list.'
+      : 'Nobody on this list.';
+    if(host._phoneExtra) t += '  ' + host._phoneExtra.numbers.length + ' ' +
+      (host._phoneExtra.numbers.length === 1 ? 'person is' : 'people are') + ' pending now and on no batch.';
+    note.textContent = t;
+  }
+  const addNew = q('addnew');
+  if(addNew){
+    const n = host._phoneExtra ? host._phoneExtra.numbers.length : 0;
+    addNew.style.display = n ? '' : 'none';
+    addNew.textContent = n ? 'Add the ' + n + ' new ' + (n === 1 ? 'person' : 'people') + ' as new batches at the end' : '';
+  }
+  const msg = q('msg');
+  if(msg) msg.textContent = '';
 }
 async function phoneBatchCopyCurrent(host){
   const box = host && host.querySelector('[data-pb="box"]');
   const msg = host && host.querySelector('[data-pb="msg"]');
   if(!box) return false;
-  const count = box.value ? box.value.split(/,\s*|\n/).filter(Boolean).length : 0;
+  const count = box.value ? (host._phoneBatchCount || 0) : 0;
   const ok = await phoneBatchCopyText(box.value, box);
   if(msg) msg.textContent = ok
     ? '\u2713 Copied ' + count + ' number' + (count === 1 ? '' : 's') + ' \u2014 paste them, then press Next batch.'
@@ -20620,15 +20964,23 @@ async function phoneBatchCopyCurrent(host){
 async function rsvpCopyPhones(){
   const statusEl = document.getElementById('rsvpTextStatus');
   const res = rsvpPhoneListRows(rsvpLinkSheetTargets());
-  if(!res.numbers.length){
+  const host = document.getElementById('rsvpPhonesBatch');
+  /* RS-75: the saved list if there is one — never re-cut from who is pending today. */
+  const opened = await phoneBatchOpen(host, 'rsvp', function(){
+    const r = rsvpPhoneListRows(rsvpLinkSheetTargets());
+    return {numbers: r.numbers, names: r.names};
+  });
+  if(!opened.count){
     if(statusEl) statusEl.textContent = 'No numbers to copy \u2014 nobody is waiting to answer, or none of them has a phone.';
     return 0;
   }
-  const host = document.getElementById('rsvpPhonesBatch');
-  phoneBatchRender(host, res.numbers, 0);
-  await phoneBatchCopyCurrent(host);
+  phoneBatchFocusSize(host);
+  if(opened.saved){
+    if(statusEl) statusEl.textContent = 'Your saved list is open, the same batches as before. Tick each batch as you send it.';
+    return opened.count;
+  }
   if(statusEl) statusEl.textContent = res.numbers.length + ' number' +
-    (res.numbers.length === 1 ? '' : 's') + ', digits only \u2014 batch 1 is copied; the rest are below, a batch at a time.' +
+    (res.numbers.length === 1 ? '' : 's') + ' of people still pending (not answered yet), digits only \u2014 nothing is copied yet: type how many at a time below, then press Copy batch 1.' +
     (res.stopped ? '  ' + res.stopped + ' left out \u2014 they replied STOP.' : '') +
     (res.odd.length ? '  \u26A0 ' + res.odd.length + ' are not 10 digits and went in as they are: ' +
       res.odd.slice(0, 5).join('; ') + (res.odd.length > 5 ? ' and others' : '') : '');
@@ -22389,14 +22741,14 @@ function etPhoneCopySummary(audience){
       : 'Nobody matches these filters — no numbers to copy.';
   } else {
     msg = res.numbers.length + ' number' + (res.numbers.length === 1 ? '' : 's') +
-      ', digits only \u2014 the people these filters match. Batch 1 is copied; the rest are below, a batch at a time.';
+      ', digits only \u2014 the people these filters match. Nothing is copied yet: type how many at a time below, then press Copy batch 1.';
   }
   if(noEmail) msg += '  ' + noEmail + ' of them have no usable email, so the email never reached them — this text is the only thing that will.';
   if(res.stopped) msg += '  ' + res.stopped + ' left out — they replied STOP.';
   if(noNumber) msg += '  ' + noNumber + ' left out — no phone number on file.';
   if(res.odd.length) msg += '  \u26A0 ' + res.odd.length + ' are not 10 digits and went in as they are: ' +
     res.odd.slice(0, 5).join('; ') + (res.odd.length > 5 ? ' and others' : '');
-  return {numbers: res.numbers, text: msg};
+  return {numbers: res.numbers, names: res.names, text: msg};
 }
 async function etCopyFilteredPhones(){
   const statusEl = document.getElementById('etPhonesStatus');
@@ -22405,14 +22757,30 @@ async function etCopyFilteredPhones(){
     return 0;
   }
   const sum = etPhoneCopySummary(etTextAudience);
-  if(!sum.numbers.length){
+  const host = document.getElementById('etPhonesBatch');
+  /* RS-75: the saved list if there is one. "Start a new list" reads the filters as they are
+     at that moment; until then the batches are the ones she already worked through. */
+  const opened = await phoneBatchOpen(host, 'et', function(){
+    const s = etPhoneCopySummary(etTextAudience);
+    return {numbers: s.numbers, names: s.names};
+  });
+  if(!opened.count){
     if(statusEl) statusEl.textContent = sum.text;
     return 0;
   }
-  const host = document.getElementById('etPhonesBatch');
-  phoneBatchRender(host, sum.numbers, 0);
-  await phoneBatchCopyCurrent(host);
-  if(statusEl) statusEl.textContent = sum.text;
+  phoneBatchFocusSize(host);
+  if(opened.saved){
+    if(statusEl) statusEl.textContent = 'Your saved list is open, the same batches as before — the filters are not re-read until you press Start a new list. Tick each batch as you send it.';
+    return opened.count;
+  }
+  /* ⚠ SAID WHEN THE RSVP FILTER IS NOT "Not answered yet" ([[RS-72]]). Addie: "I only
+     want to copy every phone number that is pending now every phone number." This button
+     copies whatever the filters match, so with RSVP Status on All it is the whole book —
+     correct, and exactly what she did not want. Warned rather than forced: a text to the
+     people who said Yes is a real send somebody may want. */
+  if(statusEl) statusEl.textContent = sum.text + (etFilterRsvp !== 'pending'
+    ? '  \u26A0 RSVP Status is not set to \u201CNot answered yet\u201D, so this includes people who have already answered. Set it there for pending only.'
+    : '');
   return sum.numbers.length;
 }
 document.getElementById('etCopyPhonesBtn')?.addEventListener('click', async function(){
@@ -54197,14 +54565,21 @@ function whOpenPrintWindow(title, sections, emptyNote){
    cell at all — the same argument the crew sheet makes by printing "(this visit only)"
    in its own colour. Unlabelled it is indistinguishable from a standing instruction and
    would go on being obeyed after the bundle it belonged to was made. */
+/* ⛔ THE CREW'S NOTES ARE NOT THE WAREHOUSE'S ([[WH-48]], 2026-09-23). Addie: "I put a note
+   for crew and warehouse but the one for crew was showing for warehouse." Permanent Notes
+   (`notes`) is the CREW's box — it prints on their route sheet — and this used to append it
+   after the warehouse note, so the build list and both printed build sheets carried the
+   crew's instructions too. That was [[WH-37]]'s own call ("that cell has always carried the
+   general note and somebody is relying on it"); her newer answer wins (R-024).
+   Only the two boxes written FOR the warehouse are shown now. ⚠ ONE RULE, SO EVERY
+   WAREHOUSE VIEW FOLLOWS IT: the tab, the find box (both via whNoteBoxHtml) and both
+   printed build sheets (via whNotesCell) all read this. */
 function whNoteText(d){
   const parts = [];
   const once = String((d && d.warehouseOneTimeNote) || '').trim();
   const w = String((d && d.warehouseNote) || '').trim();
-  const n = String((d && d.notes) || '').trim();
   if(once) parts.push('THIS BUILD ONLY: ' + once);
   if(w) parts.push(w);
-  if(n) parts.push(n);
   return parts.join(' \u2014 ');
 }
 /* \u2b50 THE WAREHOUSE NOTE IS TYPED WHERE IT IS READ (2026-09-21, [[WH-45]]). Addie: "Can we
@@ -54239,15 +54614,14 @@ function whNoteText(d){
 function whNoteBoxHtml(d){
   const once = String((d && d.warehouseOneTimeNote) || '').trim();
   const w = String((d && d.warehouseNote) || '').trim();
-  const n = String((d && d.notes) || '').trim();
-  if(!once && !w && !n) return '';
+  /* [[WH-48]] — the crew's Permanent Notes are not drawn here; see whNoteText. */
+  if(!once && !w) return '';
   return '<span class="wh-notebox" style="display:block; margin-top:8px; padding:8px 11px; '+
       'background:#FFF8E1; border:1px solid #E4C77A; border-left:5px solid #C99A2E; border-radius:8px; '+
       'font-size:14px; line-height:1.45; color:#2B2B2B; white-space:pre-wrap;">'+
     '<span style="display:block; font-size:11px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:#8A6100; margin-bottom:3px;">\ud83d\udcdd Warehouse note</span>'+
     (once ? '<span style="display:block; font-weight:800; color:#B02A37;">THIS BUILD ONLY: '+esc(once)+'</span>' : '')+
     (w ? '<span style="display:block; font-weight:700;">'+esc(w)+'</span>' : '')+
-    (n ? '<span style="display:block;">'+esc(n)+'</span>' : '')+
   '</span>';
 }
 function whNoteEditorHtml(h){
