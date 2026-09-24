@@ -226,6 +226,44 @@ it parses; nothing can check it is TRUE, and a back-dated row defeats this rule 
 
 Not active. Do not follow until moved into the numbered set above.
 
+### P-006 · proposed 2026-09-24
+Rule: `error-digest.js` must NAME any fault group in the Errors folder whose newest
+      report predates the run by more than a set number of days and which no
+      `FIXED_ERRORS` entry covers. A fault that has stopped happening was either
+      repaired without its entry or went away on its own, and only a person can say
+      which — so the digest asks rather than decides.
+Why: promotion, not a new idea. §9.9 item 7 is a `read` rule, and §6 says one
+      violated twice becomes `code` or `hook`. It has now been missed FIVE times.
+      The first is already written down in `admin.html`: commit 2176ff2 retried
+      `deadline-exceeded` **or** `internal` and only the first got an entry, so five
+      reports of a repaired fault sat in the badge for a week. The other four were
+      all found in one reading on 2026-09-24 — the activity-log read fixed by
+      `whileSignedIn` on 09-11, whose own TWIN got an entry that same day; the Twilio
+      rows [[QT-48]] closed on 09-18; the Cloudinary 401 [[PROC-34]] closed on 09-18;
+      and the corrupted recipient address `emailSendSkipReason` closed on 09-12.
+      ⭐ THE ARGUMENT THAT SETTLES IT: three of those four were written up as RULINGS
+      in the same change that repaired them. So the session did remember R-023 and
+      did not remember item 7 — the map knew and the badge did not, which is the same
+      shape as P-005's gated-file-self-corrected argument pointing at a different
+      pair of documents. A rule that is remembered only when it sits beside another
+      one is a rule that needs a gate.
+Would have caught: all four of the 2026-09-24 set. Each had a newest report days
+      before any run and no entry naming it. ⚠ NOT the 2176ff2 miss, and that is
+      worth saying rather than glossing: its sibling entry (`deadline-exceeded`) DID
+      exist, so the group would have read as covered. This catches a fault nobody
+      wrote down at all, not half a fault written down twice — `coveredBy` and
+      `afterTheFix` already split the other cases.
+Might wrongly block: nothing — it names, it does not fail. That is deliberate and
+      it is the whole reason this is safe to propose at the size it is. A fault that
+      genuinely stopped on its own (a browser updated, a network settled) would be
+      named every run until somebody writes it down, which is the cries-wolf cost
+      this repo names in a dozen places; the answer is that the digest is already a
+      dispatch-only report a person reads, not a gate that blocks a merge. ⚠ AND THE
+      DAY COUNT IS THE WHOLE RISK: too low and every quiet week is an accusation,
+      too high and a fix ships a fortnight before anybody is asked about it.
+Enforcement: code
+Tier: 3
+
 ### P-005 · proposed 2026-09-19
 Rule: The anchor check that reads `claude/questions-map.md` must also read
       `CLAUDE.md` and `system-map.md` — a backticked identifier in either that no
@@ -337,6 +375,7 @@ Every change to this file gets a line. Never silently edit a rule.
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-09-24 | Proposed P-006 | Reading the Errors folder found FOUR faults that had each been repaired without the `FIXED_ERRORS` entry that clears their reports, so the red badge was carrying reports of bugs that were already fixed — indistinguishable from ones nobody had dealt with, which is exactly what §9.9 item 7 exists to prevent and the same failure already recorded against commit 2176ff2. Proposed as `code` per §6, which says a `read` rule violated twice must be promoted. ⭐ Three of the four were written up as RULINGS in the change that repaired them, so R-023 was remembered and item 7 was not — a rule obeyed only when it sits beside another one needs a gate. It NAMES rather than fails: no machine can know a fix happened, but a fault that has gone quiet and is covered by no entry is a question worth putting to a person, and `error-digest.js` is already the report a person reads. |
 | 2026-09-19 | Proposed P-005 | A sweep of every doc for backticked names no source file mentions found CLAUDE.md describing the picture-alignment feature three weeks after it was deleted, and `claude/multi-property-plan.md` listing `repeatQuoteButtonsServer` as shipped a month after Addie had it removed. `claude/questions-map.md` caught its own copy of the first one, because a gate reads that file and nothing reads the other two. §6 promotion, not a new idea. |
 | 2026-08-28 | Added R-024, and amended CLAUDE.md §2 | Addie: "can we make it a rule if I answer the same question twice in different ways than the most recent one is the one to trust." §2 said the opposite in as many words — "Do not pick the newer one" — so this reverses that half of it FOR HER ANSWERS, and leaves it untouched for two numbered rules colliding. Prompted by Q-023, which sat open six days because two of her rulings disagreed and nothing was allowed to choose. ⚠ The cost is recorded in the rule: a newer answer can be narrower than the one it displaces, so the older row is kept and marked, and applying the rule is said out loud. ⚠ And it makes the map's Decided column load-bearing for correctness — a back-dated row now defeats the rule silently, which nothing can check. |
 | 2026-08-21 | Created R-001 – R-022 | Initial rulebook, seeded from the data-integrity plan |
