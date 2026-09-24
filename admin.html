@@ -20584,10 +20584,48 @@ async function phoneBatchCopyText(text, box){
    control after that changes TEXT only — no node a pointer can be holding is ever replaced.
    ⚠ AND THE SIZE APPLIES AS YOU TYPE (`input`), saved on each keystroke that makes a real
    number; a box left blank or at 0 goes back to the saved size when she leaves it. */
+/* ⭐ IT REMEMBERS WHERE SHE GOT TO (2026-09-24, [[RS-74]]). Addie: "Make it so that
+   whatever batch we are on it saves being on that batch so if I close out I don't forget
+   what batch I'm on."
+   ⛔ IT REMEMBERS WHO WAS COPIED, NOT A BATCH NUMBER, and that is the whole design. The
+   pending list shrinks as people answer, so "batch 3" saved on Monday holds different
+   people on Tuesday — somebody is skipped and somebody is texted twice, with nothing on
+   screen to say so. A number that was copied is a fact that does not move. So a copied
+   number is saved, and next time the panel opens they are LEFT OUT and batch 1 starts
+   with the next person not yet texted.
+   ⚠ ONE LIST FOR BOTH BUTTONS (hu.phoneBatchCopied): somebody copied off Automation
+   Emails must not be offered again on Text the RSVP.
+   ⚠ WITHIN ONE OPENING THE LIST IS FIXED — a batch just copied stays where it is, so
+   Previous batch still finds it. Only the NEXT opening leaves them out.
+   ⚠ PER BROWSER, like the size: another computer starts from the top.
+   ⚠ AND "Start over" CLEARS IT, which is how a new round of texts begins. */
+function phoneBatchCopiedLoad(){
+  try{
+    const raw = JSON.parse(localStorage.getItem('hu.phoneBatchCopied') || '[]');
+    return new Set(Array.isArray(raw) ? raw.map(String) : []);
+  }catch(err){ /* blocked or corrupt storage reads as nothing copied: everyone is offered, nobody is lost. */ }
+  return new Set();
+}
+function phoneBatchCopiedSave(set){
+  try{ localStorage.setItem('hu.phoneBatchCopied', JSON.stringify(Array.from(set))); }
+  catch(err){ /* not remembered on this browser; the panel still works for this sitting. */ }
+}
 function phoneBatchRender(host, numbers, index, names){
   if(!host) return;
-  host._phoneNumbers = numbers || [];
-  host._phoneNames = names || null;
+  const allNumbers = numbers || [];
+  const allNames = names || null;
+  host._phoneAllNumbers = allNumbers;
+  host._phoneAllNames = allNames;
+  const copied = phoneBatchCopiedLoad();
+  const keepNums = [], keepNames = [];
+  allNumbers.forEach(function(num, i){
+    if(copied.has(String(num))) return;
+    keepNums.push(num);
+    keepNames.push(allNames ? allNames[i] : '');
+  });
+  host._phoneSkipped = allNumbers.length - keepNums.length;
+  host._phoneNumbers = keepNums;
+  host._phoneNames = allNames ? keepNames : null;
   const prefs = phoneBatchPrefs();
   host.innerHTML =
     '<div style="border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:0 0 12px; background:var(--snow);">' +
@@ -20603,6 +20641,12 @@ function phoneBatchRender(host, numbers, index, names){
           : '') +
         '<span data-pb="saved" style="font-size:12px; color:var(--slate);"></span>' +
       '</div>' +
+      (host._phoneSkipped
+        ? '<div data-pb="resume" style="font-size:12.5px; margin-bottom:6px; padding:6px 9px; background:var(--paper); border:1px solid var(--gold-dim); border-radius:8px;">' +
+          'Picking up where you left off — <strong>' + host._phoneSkipped + '</strong> already copied before ' +
+          (host._phoneSkipped === 1 ? 'is' : 'are') + ' left out, so nobody gets two texts. ' +
+          '<button type="button" class="btn btn-outline btn-sm" data-pb="restart" style="margin-left:6px;">Start over</button></div>'
+        : '') +
       '<div data-pb="where" style="font-size:13px; font-weight:600; margin-bottom:6px;"></div>' +
       '<textarea readonly data-pb="box" rows="4" style="width:100%; font-family:monospace; font-size:12.5px;"></textarea>' +
       '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;">' +
@@ -20639,6 +20683,11 @@ function phoneBatchRender(host, numbers, index, names){
   q('prev').addEventListener('click', function(){ show(host._phoneIndex - 1); });
   q('next').addEventListener('click', function(){ show(host._phoneIndex + 1); });
   q('copy').addEventListener('click', async function(){ await phoneBatchCopyCurrent(host); });
+  if(q('restart')) q('restart').addEventListener('click', function(){
+    if(!confirm('Start over from the first person? Everyone you already copied will be offered again.')) return;
+    phoneBatchCopiedSave(new Set());
+    phoneBatchRender(host, host._phoneAllNumbers, 0, host._phoneAllNames);
+  });
   show(index);
 }
 /* ⛔ OPENING THE PANEL COPIES NOTHING (2026-09-24, [[RS-72]]). Addie: "Okay but I told you
@@ -20660,6 +20709,7 @@ function phoneBatchShow(host, index){
   const b = phoneBatchSlice(host._phoneNumbers || [], prefs.size, index);
   host._phoneIndex = b.index;
   host._phoneBatchCount = b.list.length;
+  host._phoneBatchList = b.list;
   const batchNames = (host._phoneNames && prefs.names)
     ? host._phoneNames.slice(b.from, b.from + b.list.length) : null;
   q('where').textContent = 'Batch ' + (b.index + 1) + ' of ' + b.total + ' — numbers ' +
@@ -20678,6 +20728,12 @@ async function phoneBatchCopyCurrent(host){
   if(!box) return false;
   const count = box.value ? (host._phoneBatchCount || 0) : 0;
   const ok = await phoneBatchCopyText(box.value, box);
+  /* Only a copy that WORKED is remembered — a refused one leaves them to be offered again. */
+  if(ok && host._phoneBatchList && host._phoneBatchList.length){
+    const copied = phoneBatchCopiedLoad();
+    host._phoneBatchList.forEach(function(n){ copied.add(String(n)); });
+    phoneBatchCopiedSave(copied);
+  }
   if(msg) msg.textContent = ok
     ? '\u2713 Copied ' + count + ' number' + (count === 1 ? '' : 's') + ' \u2014 paste them, then press Next batch.'
     : 'The browser would not copy. The numbers are selected in the box \u2014 press Ctrl+C (\u2318C on a Mac).';

@@ -64490,7 +64490,7 @@ suite('354. Copy their phone numbers — the filtered audience, for texting');
 suite('355. Phone numbers a batch at a time, commas by default');
 {
   const names = ['phoneBatchSlice', 'phoneBatchName', 'phoneBatchJoin', 'phoneBatchPrefs', 'phoneBatchSavePrefs',
-    'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent'];
+    'phoneBatchCopyText', 'phoneBatchCopiedLoad', 'phoneBatchCopiedSave', 'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent'];
   const liftAsync = function (n) {
     const i = admin.indexOf('async function ' + n + '(');
     return i === -1 ? extractFn(admin, n) : 'async ' + extractFn(admin, n);
@@ -64599,7 +64599,7 @@ suite('356. Names next to the numbers, number first');
     return i === -1 ? extractFn(admin, n) : 'async ' + extractFn(admin, n);
   };
   const srcs = ['phoneBatchSlice', 'phoneBatchName', 'phoneBatchJoin', 'phoneBatchPrefs',
-    'phoneBatchSavePrefs', 'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent'].map(lift);
+    'phoneBatchSavePrefs', 'phoneBatchCopyText', 'phoneBatchCopiedLoad', 'phoneBatchCopiedSave', 'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent'].map(lift);
   const rowsSrc = ['rsvpSheetCell', 'rsvpPhoneDigits', 'rsvpPhoneListRows'].map(n => extractFn(admin, n));
   check('S356', 'the panel and the row builder were found', srcs.every(Boolean) && rowsSrc.every(Boolean));
   let JSDOM = null;
@@ -64703,5 +64703,86 @@ suite('358. One per line is the default, whatever was saved before');
       'the old key was written on every size change, so it says comma without her choosing it');
     check('S358', 'a choice of commas made on the new setting is kept',
       read({ 'hu.phoneBatchLayout': 'comma' }).sep === 'comma');
+  }
+}
+
+/* =====================================================================
+ * Suite 359. It remembers where she got to (2026-09-24, RS-74). Addie:
+ * "whatever batch we are on it saves being on that batch so if I close out
+ * I don't forget what batch I'm on." RUNS the panel, closes it, opens it
+ * again against a list that has SHRUNK, and checks nobody is skipped or
+ * offered twice — the case a saved batch NUMBER would get wrong.
+ * ===================================================================== */
+suite('359. The phone panel picks up where she left off');
+{
+  const lift = function (n) {
+    const i = admin.indexOf('async function ' + n + '(');
+    return i === -1 ? extractFn(admin, n) : 'async ' + extractFn(admin, n);
+  };
+  const srcs = ['phoneBatchSlice', 'phoneBatchName', 'phoneBatchJoin', 'phoneBatchPrefs',
+    'phoneBatchSavePrefs', 'phoneBatchCopyText', 'phoneBatchCopiedLoad', 'phoneBatchCopiedSave',
+    'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent'].map(lift);
+  check('S359', 'every piece was found', srcs.every(Boolean));
+  let JSDOM = null;
+  try { JSDOM = require('jsdom').JSDOM; } catch (e) { /* no jsdom: noted below. */ }
+  if (!JSDOM) note('S359: jsdom missing — run npm install; the resume was not driven');
+  if (srcs.every(Boolean) && JSDOM) {
+    pendingAsync.push((async function () {
+      const store = { 'hu.phoneBatchSize': '2' };
+      let clipOk = true; let confirmAnswer = true;
+      const open = function () {
+        const w = new JSDOM('<div id="h"></div>').window;
+        w.confirm = () => confirmAnswer;
+        const api = new Function('document', 'navigator', 'localStorage', 'console', 'confirm',
+          'const PHONE_BATCH_DEFAULT = 50;' +
+          'function esc(s){ return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;"); }' +
+          srcs.join('\n') + ';return { phoneBatchRender, phoneBatchCopyCurrent };')(
+          w.document, { clipboard: { writeText: async () => { if (!clipOk) throw new Error('no'); } } },
+          { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } },
+          { error: function () {} }, () => confirmAnswer);
+        return { api, w, host: w.document.getElementById('h') };
+      };
+      const box = h => h.querySelector('[data-pb="box"]').value;
+      const nums = ['8015550001', '8015550002', '8015550003', '8015550004', '8015550005'];
+      const names = ['Ann', 'Bob', 'Cara', 'Dan', 'Eve'];
+
+      let a = open();
+      a.api.phoneBatchRender(a.host, nums, 0, names);
+      await a.api.phoneBatchCopyCurrent(a.host);                 // batch 1: Ann, Bob
+      a.host.querySelector('[data-pb="next"]').click();
+      await a.api.phoneBatchCopyCurrent(a.host);                 // batch 2: Cara, Dan
+      check('S359', 'within one opening the list does not move under her',
+        box(a.host) === '8015550003 Cara\n8015550004 Dan' &&
+        !a.host.querySelector('[data-pb="resume"]'));
+
+      /* Closed and opened again — and Bob has answered, so the list is SHORTER. */
+      let b = open();
+      b.api.phoneBatchRender(b.host, ['8015550001', '8015550003', '8015550004', '8015550005'], 0,
+        ['Ann', 'Cara', 'Dan', 'Eve']);
+      check('S359', 'opening again starts with the next person not yet copied',
+        box(b.host) === '8015550005 Eve',
+        'a saved batch NUMBER would land on the wrong people once the list has shrunk');
+      check('S359', 'and says how many were left out, so nothing looks lost',
+        /3<\/strong> already copied before are left out/.test(b.host.innerHTML) &&
+        /Batch 1 of 1/.test(b.host.textContent));
+
+      clipOk = false;
+      await b.api.phoneBatchCopyCurrent(b.host);
+      let c = open();
+      c.api.phoneBatchRender(c.host, nums, 0, names);
+      check('S359', 'a copy the browser refused is NOT remembered — they are offered again',
+        /8015550005/.test(box(c.host)));
+      clipOk = true;
+
+      confirmAnswer = false;
+      c.host.querySelector('[data-pb="restart"]').click();
+      check('S359', 'Start over asks first, and a No changes nothing',
+        !/8015550001/.test(box(c.host)));
+      confirmAnswer = true;
+      c.host.querySelector('[data-pb="restart"]').click();
+      check('S359', 'Start over brings everyone back from the first person',
+        box(c.host) === '8015550001 Ann\n8015550002 Bob' && !c.host.querySelector('[data-pb="resume"]') &&
+        store['hu.phoneBatchCopied'] === '[]');
+    })());
   }
 }
