@@ -7165,6 +7165,12 @@ onAuthStateChanged(auth, function(user){
        sign-out in another tab. Without this, those cases leave every listener
        open and produce exactly the permission-denied log this was built for. */
     detachAllListeners();
+    /* ⚠ AND THE PREFS OWNER GOES WITH THE SESSION. It was left set, so it outlived the
+       sign-out and pointed at whoever had just left — and `adminUserPrefs/{uid}` is the
+       one rule that checks WHO, so the next write was refused rather than merely
+       pointless. Two people use this dashboard, and signing in as the other without a
+       reload is the shape that bites. */
+    projUserPrefsUid = null;
     loginScreen.style.display = 'flex';
     appEl.classList.remove('show');
   }
@@ -7289,9 +7295,26 @@ function prefsLocalFallback(){
     };
   }catch(err){ return { pinnedPanels: [], navCollapsed: {}, sidebarCollapsed: false, tabOrders: {} }; }
 }
+/* ⚠ THE ONLY FLOATING WRITE IN THIS FILE THAT A SIGNED-IN PERSON CAN BE REFUSED, which
+   is why it is worth the three guards (2026-09-24). `adminUserPrefs/{uid}` is the one
+   rule in firestore.rules carrying a second condition — `request.auth.uid == uid` — so
+   every other write here succeeds the moment somebody is logged in, and this one still
+   has to be pointed at the right person.
+   ⚠ IT WAS UNCAUGHT, AND UNCAUGHT IS THE WHOLE COMPLAINT. A refusal here surfaced as
+   "Unhandled promise: Missing or insufficient permissions." with nothing naming the
+   write, which is the row that has reached the Errors folder five times and is still
+   open. Whatever else turns out to be behind those, this one can no longer be it: a
+   refusal now says which write it was, and console.error is what files it.
+   ⚠ AND THE SIGNED-OUT GUARD IS NOT THE SAME AS THE uid ONE. `projUserPrefsUid` outlives
+   the session — onAuthStateChanged clears it now, but a pref write racing a token expiry
+   still has a uid in hand and no auth behind it, which is `whileSignedIn`'s fault in a
+   place a timer guard cannot reach. */
 function savePrefs(){
-  if(!projUserPrefsUid) return;
-  setDoc(doc(db,'adminUserPrefs',projUserPrefsUid), projUserPrefs, {merge:true});
+  if(!projUserPrefsUid || HU_SIGNED_OUT) return;
+  setDoc(doc(db,'adminUserPrefs',projUserPrefsUid), projUserPrefs, {merge:true})
+    .catch(function(err){
+      console.error('[HU] your sidebar and favourites could not be saved', err);
+    });
 }
 async function loadUserPrefs(user){
   projUserPrefsUid = user && user.uid ? user.uid : null;
@@ -24036,7 +24059,37 @@ function errorAlreadyReported(topic, key){
    or insufficient permissions". That was INSTRUMENTED on 2026-09-18, not fixed —
    `rejectionWhere()` now appends the first frame from our own files so the NEXT one can be
    traced. Clearing it would throw away the very reports that fix is waiting for. It goes
-   in only when something actually repairs it. */
+   in only when something actually repairs it.
+   ⚠ AND THAT INSTRUMENTATION CANNOT ANSWER IT. MEASURED 2026-09-24, in node, both ways:
+   an error THROWN in our own async chain does carry `at async ourFunction` frames, which
+   is the shape the two fixtures in error-inbox.test.js are written in — but a Firestore
+   permission denial is not thrown by us. The SDK CONSTRUCTS it in the network callback
+   that reads the server's answer, and `.stack` is captured where an Error is built, so
+   the whole stack is gstatic and there is no frame of ours to find. Awaiting the call
+   does not change it: the rejection is detached from the caller either way, and only an
+   in-process throw gets the async frames. So `rejectionWhere` returns '' for THIS error
+   class by construction — which is exactly what the 9/18 row shows, and why the check
+   next to those fixtures ("a stack with none of our frames adds nothing") is the one
+   describing real life.
+   ⚠ SO THE FIXTURES PROVE THE PARSER, NOT THE FEATURE. They are hand-written stacks that
+   contain our frames, which is the vacuous-fixture trap this repo names in a dozen
+   places: a fixture that cannot reach the state says nothing about it. Left in place —
+   the parser is still right for the errors that DO carry frames — but do not read that
+   suite as evidence that the next permissions row will be traceable, because it will not.
+   ⚠ WHAT WOULD ACTUALLY NAME IT is a breadcrumb taken at CALL time, where the caller is
+   still on the stack — the collection and operation recorded as each read or write
+   starts, and the last few appended when a denial arrives with no frame. That is the
+   `onSnapshot as onSnapshotRaw` trick applied to the doc-level calls, and it is a change
+   to the import block of a 2.6MB file, so it is written down here rather than smuggled in
+   beside four unrelated entries.
+   ⚠ AND THE SHORTLIST IS ALREADY NARROW. For a signed-in user every rule in
+   firestore.rules answers `request.auth != null` and allows it; the only ones that can
+   still refuse are `adminUserPrefs/{uid}` (the uid must match), a `messages` create over
+   5,000 characters or claiming read/responded, a `quotes` create carrying a price or an
+   approval, and a write to the three Cloud-Function-owned collections. Every `messages`
+   and `quotes` create in this file is inside a try/catch, so none of them can surface as
+   an UNHANDLED rejection — which leaves a floating write, and `savePrefs` is the only
+   floating write in the file that a signed-in person can be refused. */
 const FIXED_ERROR_MIN_MATCH = 12;
 const FIXED_ERRORS = [
   { match: 'renderFolderSidebar is not defined', fixedOn: '2026-09-09',
@@ -24073,7 +24126,22 @@ const FIXED_ERRORS = [
   { match: 'Cannot read properties of null', topic: MEMBER_ERROR_TOPIC, fixedOn: '2026-09-10',
     note: 'Member. changes_outlet_timer / changes_specific_outlet read .value off a radio nothing had ticked and took the whole preferences save down with it — and on an RSVP page, the answer with it. 6f61d8c.' },
   { match: 'null is not an object', topic: MEMBER_ERROR_TOPIC, fixedOn: '2026-09-10',
-    note: 'Member. Safari wording for the same crash as the entry above. 6f61d8c.' }
+    note: 'Member. Safari wording for the same crash as the entry above. 6f61d8c.' },
+  /* ⚠ THE FOUR BELOW ARE ONE FINDING, NOT FOUR (2026-09-24). Reading the folder turned up
+     four faults that had each been REPAIRED and none of which had an entry here, so their
+     reports sat in the badge looking exactly like faults nobody had dealt with — which is
+     the 2176ff2 miss recorded above happening four more times. Three of the four were
+     repaired by a session that also wrote the RULING down and still did not come back
+     here, so the map knew and the badge did not. Item 7 of §9.9 is the only thing that
+     closes that gap and nothing can check it. */
+  { match: 'activity log read failed', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-11',
+    note: 'Admin. The ten-minute health-check beat running against a session that had already ended — renderActivityToday reached from runHealthCheckAuto, which setInterval kept ticking after a token expiry. Its twin ("could not read nightly billing health") is four entries up and got one; this one was fixed by the same whileSignedIn guard on the same day and was simply never written down. The "Signed in as: nobody" on the row is the tell, and it is why the needle does not name the denial: the wording that matters is whose read it was.' },
+  { match: 'Twilio send failed', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-18',
+    note: 'Admin. Dax, on these very rows: "we dont use twillo at all thats a bug" ([[QT-48]]). sendSms and twilioSendRaw are gone from the server and nothing anywhere posts to Twilio now. Dated the day the SERVER half went, not 2026-09-12 when the quote button stopped calling it: QT-48 records that the 9/15 row came from an admin tab left open since before that, so the earlier date would leave it uncleared.' },
+  { match: 'cloud_name is disabled', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-18',
+    note: 'Admin. The Cloudinary account had been switched off and nothing warned anybody first ([[PROC-34]]). It has been upgraded since — Plus plan, checked through the usage API — and cloudinaryUsageWatch now reads that usage every morning and leaves one Inbox note at 80%, one at 95%, and one on the day the account is off. ⚠ THE NEEDLE CARRIES NO DIGITS on purpose: errorKeyFor collapses every run of them to #, so a needle naming the 401 would be comparing # against # and would match far more than this.' },
+  { match: 'recipients address is corrupted', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-12',
+    note: 'Admin. EmailJS answers a bad recipient with a 422 naming no part of the problem, and the whole send stops — so one unusable address on the book cost a run of 258 its last rows. emailSendSkipReason now reads the address BEFORE the send, skips that one recipient with a sentence saying which part is wrong, and lets the rest go. A row after this date means the guard let something through, which is news and survives.' }
 ];
 /* Both sides of the comparison go through this, so an entry above can be typed the way the
    error actually reads rather than in whichever key spelling it happens to land in. */
@@ -24202,6 +24270,32 @@ function adminErrorIsNoise(text){
 function adminErrorWhoNow(){
   return (auth && auth.currentUser && auth.currentUser.email) || 'nobody';
 }
+/* ⭐ WHICH PANEL WAS OPEN (2026-09-24). The "Where:" line on every admin error ever
+   filed reads "(the dashboard)", and it is not that they all happened there — it was
+   `location.hash`, and THIS PAGE DOES NOT ROUTE ON THE HASH. switchToAdminPanel moves a
+   class; the address bar never changes. So the fallback was the only branch that could
+   ever run, on every row, and the one field meant to say where a fault happened has
+   never said anything at all.
+   ⚠ IT IS THE PANEL KEY, NOT THE NAV LABEL. The label carries the badge count beside it
+   ("Quote Requests 3"), so two reports of one fault would read as different places
+   depending on how much post had arrived. The key is what switchToAdminPanel is given.
+   ⚠ AND IT CHANGES NO DEDUPE. `errorKeyFor` is built from the error TEXT, never from this
+   line, so nothing here can move an existing key out from under FIXED_ERRORS or under
+   errorAlreadyReported — checked before it was written, because a "Where" that split one
+   fault into six rows would be worse than one that said nothing.
+   ⚠ THE HASH IS STILL READ, LAST. employee.html and index.html do route on it, and if a
+   panel cannot be found the hash is better than nothing. */
+function adminErrorWhereNow(){
+  try{
+    const open = document.querySelector('.panel.active');
+    if(open && open.id) return open.id.replace(/^panel-/, '');
+    const nav = document.querySelector('.nav-item[data-panel].active');
+    if(nav && nav.getAttribute('data-panel')) return nav.getAttribute('data-panel');
+  }catch(err){ /* quiet on purpose: this IS the error reporter, and a reporter that can
+                  throw takes down the page it was reporting on. The line below still
+                  names something, and the message it sits under is already enough to file. */ }
+  return String((location && location.hash) || '(no panel open)');
+}
 function reportAdminError(text, whoAtCatch){
   try{
     text = String(text || '').trim();
@@ -24238,7 +24332,7 @@ function reportAdminError(text, whoAtCatch){
         errorKey: key, staffEmail: signedInAs,
         message: 'Something went wrong on the admin page.' + String.fromCharCode(10,10) +
           text.slice(0, 1500) + String.fromCharCode(10,10) +
-          'Where: ' + String((location && location.hash) || '(the dashboard)').slice(0, 120) + String.fromCharCode(10) +
+          'Where: ' + adminErrorWhereNow().slice(0, 120) + String.fromCharCode(10) +
           'Signed in as: ' + signedInAs + String.fromCharCode(10) +
           'Browser: ' + String(navigator.userAgent || '').slice(0, 200),
         autoQueuedToWarehouse: false, needsReassign: false,

@@ -240,6 +240,11 @@ function adminHarness(opts) {
     allMessages: opts.allMessages || [],
     toJsDate: ts => (ts instanceof Date ? ts : null),
     auth: opts.auth || { currentUser: { email: 'office@highlightingutah.com' } },
+    /* ⚠ null, NOT absent, and opt-in per harness. Without it `adminErrorWhereNow` takes a
+       ReferenceError into its own catch and falls back to the hash — which is the right
+       behaviour and is checked below, but it means the panel branch is never reached, so
+       every "Where:" check would pass on a function that could not read a panel at all. */
+    document: opts.document || null,
     location: { hash: '#/dashboard' },
     navigator: { userAgent: 'TestBrowser/1.0' },
     window: win,
@@ -727,8 +732,160 @@ console.log('--- the admin half ---');
     'held is only acceptable because it is flushed — dropped, the first error after ' +
     'login is the one that never gets reported. Got ' + h.writes.length);
   check('the report names who was signed in',
-    h.writes[0].data.message.indexOf('office@highlightingutah.com') !== -1,
+    /* ⚠ GUARDED rather than indexed straight in. Nothing is weakened — the message must
+       still carry the address — but a change that stops the report being FILED at all
+       used to throw a TypeError out of this line and kill the run, so the checks below
+       that would have named the real fault never got to say so. */
+    !!h.writes[0] && h.writes[0].data.message.indexOf('office@highlightingutah.com') !== -1,
     'two people use this dashboard; which of them saw it is half the diagnosis');
+}
+
+{
+  /* ⭐ AND WHICH PANEL WAS OPEN (2026-09-24). The "Where:" line read "(the dashboard)" on
+     every admin error ever filed, and it was not that they all happened there — it was
+     `location.hash`, and admin.html does not route on the hash. `switchToAdminPanel`
+     moves a class and never touches the address bar, so the fallback was the only branch
+     that could run and the field said nothing on every row.
+     ⚠ THE PANEL IS READ FROM THE DOM, so these drive a fake document rather than matching
+     source: the claim is about what the line SAYS, which no regex can see. */
+  const fakeDoc = o => ({
+    querySelector(sel) {
+      if (sel === '.panel.active') return o.panel ? { id: 'panel-' + o.panel } : null;
+      if (sel === '.nav-item[data-panel].active') return o.nav ? { getAttribute: () => o.nav } : null;
+      return null;
+    }
+  });
+  const whereFor = doc => {
+    const h = adminHarness({ document: doc });
+    h.flushAdminErrors();
+    h.reportAdminError('Could not save the invoice');
+    /* Guarded: a change that stops the report being filed at all is named by the
+       throw-while-reading check below, not by a TypeError out of this helper. */
+    if (!h.writes[0]) return '(nothing was filed)';
+    return (h.writes[0].data.message.match(/Where: (.*)/) || [])[1];
+  };
+
+  check('the report names the panel that was open',
+    whereFor(fakeDoc({ panel: 'warehouse' })) === 'warehouse',
+    'got ' + JSON.stringify(whereFor(fakeDoc({ panel: 'warehouse' }))) +
+    ' — the one field meant to say where a fault happened');
+
+  check('the nav item answers when no panel carries the class',
+    whereFor(fakeDoc({ nav: 'customers' })) === 'customers',
+    'a panel can be missing while the nav still knows which one is lit');
+
+  check('and the hash is still the last resort, not the first',
+    whereFor(fakeDoc({})) === '#/dashboard' && whereFor(null) === '#/dashboard',
+    'employee.html and index.html do route on the hash, and a throw reading the DOM must ' +
+    'not take the reporter down — it is called from the global error handler');
+
+  check('nothing reports "(the dashboard)" any more',
+    admin.indexOf("'(the dashboard)'") === -1,
+    'that string was the hash fallback, and it was every row this page has ever filed');
+
+  /* ⛔ THE SAFETY PROPERTY, AND IT IS THE ONE WORTH KEEPING IF THE REST IS REWRITTEN.
+     The "Where:" line is built INSIDE reportAdminError's own try, and that function's
+     outer catch swallows everything — so a throw while reading the DOM would not crash
+     the page, it would silently file NOTHING, and the error would be lost outright.
+     Adding a field to a report must never cost the report. */
+  const throwingDoc = { querySelector() { throw new Error('detached node'); } };
+  const t = adminHarness({ document: throwingDoc });
+  t.flushAdminErrors();
+  t.reportAdminError('Could not save the invoice');
+  check('a throw while working out the panel still files the report',
+    t.writes.length === 1 && /Where: /.test(t.writes[0].data.message),
+    'the report was lost working out a line that is only there to help read it');
+
+  /* ⚠ THE ONE THING THIS MUST NOT HAVE DONE. `errorKeyFor` is built from the error TEXT,
+     never the message body, so naming the panel cannot split one fault into six rows or
+     move a key out from under FIXED_ERRORS. Asserted rather than reasoned about. */
+  const k1 = adminHarness({ document: fakeDoc({ panel: 'warehouse' }) });
+  const k2 = adminHarness({ document: fakeDoc({ panel: 'invoices' }) });
+  k1.flushAdminErrors(); k2.flushAdminErrors();
+  k1.reportAdminError('Could not save the invoice');
+  k2.reportAdminError('Could not save the invoice');
+  check('and the same fault on two panels is still one key',
+    k1.writes[0].data.errorKey === k2.writes[0].data.errorKey,
+    'the panel reached the dedupe key, so one fault now reports once per panel and ' +
+    'FIXED_ERRORS can no longer match it');
+}
+
+{
+  /* ⭐ THE ONE FLOATING WRITE A SIGNED-IN PERSON CAN BE REFUSED (2026-09-24).
+     `adminUserPrefs/{uid}` is the only rule in firestore.rules carrying a second
+     condition — `request.auth.uid == uid` — so every other write in admin.html succeeds
+     the moment somebody is logged in and this one still has to be aimed at the right
+     person. Uncaught, a refusal here surfaced as exactly the line that has reached the
+     Errors folder five times and is still open: "Unhandled promise: Missing or
+     insufficient permissions.", with nothing naming the write.
+     ⛔ THIS DOES NOT CLAIM TO BE THAT BUG. It is the one candidate that could be ruled
+     out, and it now is — a refusal says which write it was. The open fault keeps its
+     reports, and FIXED_ERRORS carries no entry for it.
+     ⚠ THE CATCH IS CHECKED SYNCHRONOUSLY, by handing back a thenable whose `.catch`
+     records what it was given. Waiting on a real rejection would make the check depend on
+     node's unhandled-rejection timing, and a check that can go green because a tick
+     landed early is worse than none. */
+  const savePrefsSrc = extractFn(admin, 'savePrefs');
+  check('savePrefs was found to run',
+    savePrefsSrc.indexOf('adminUserPrefs') !== -1,
+    'the lift stopped matching — repoint it, do not paste a copy in here');
+
+  const runSave = o => {
+    const calls = [];
+    let onReject = null;
+    const scope = {
+      projUserPrefsUid: 'uid' in o ? o.uid : 'addie-uid',
+      HU_SIGNED_OUT: !!o.signedOut,
+      projUserPrefs: { pinnedPanels: ['warehouse'] },
+      db: {},
+      doc: (_db, col, id) => ({ col, id }),
+      setDoc: (ref, data) => { calls.push({ ref, data }); return { catch(fn) { onReject = fn; return {}; } }; },
+      console: { error(...a) { calls.push({ reported: a[0] }); } }
+    };
+    const names = Object.keys(scope);
+    new Function(...names, savePrefsSrc + '\nsavePrefs();')(...names.map(n => scope[n]));
+    return { calls, onReject };
+  };
+
+  const ok = runSave({});
+  check('it writes to the signed-in person\'s own preferences document',
+    ok.calls.length === 1 && ok.calls[0].ref.col === 'adminUserPrefs' && ok.calls[0].ref.id === 'addie-uid',
+    'wrote ' + JSON.stringify(ok.calls[0] && ok.calls[0].ref));
+
+  check('a refusal is caught rather than left as an unhandled promise',
+    typeof ok.onReject === 'function',
+    'uncaught, this is indistinguishable from the permissions rejection nobody can trace');
+
+  /* ⚠ GUARDED, so removing the catch fails the check ABOVE by name instead of throwing a
+     TypeError out of this line — a red that names the wrong line is how the next person
+     starts in the wrong place. Caught doing exactly that by the red-check pass. */
+  if (typeof ok.onReject === 'function') ok.onReject(new Error('Missing or insufficient permissions.'));
+  check('and it says which write it was',
+    ok.calls.some(c => typeof c.reported === 'string' && /favourites|sidebar/i.test(c.reported)),
+    'a catch that swallows silently is worse than the unhandled rejection it replaced — ' +
+    'at least that one reached the badge');
+
+  check('nothing is attempted once the session has ended',
+    runSave({ signedOut: true }).calls.length === 0,
+    'a write racing a token expiry has a uid in hand and no auth behind it — ' +
+    'whileSignedIn guards the timers and cannot reach this');
+
+  check('and nothing is attempted before anybody has signed in',
+    runSave({ uid: null }).calls.length === 0,
+    'doc(db, "adminUserPrefs", null) throws from inside Firestore');
+
+  /* ⚠ AND THE OWNER GOES WITH THE SESSION. Left set, it outlived the sign-out and pointed
+     at whoever had just left — and this is the one rule that checks WHO, so the next write
+     was refused rather than merely pointless. Two people use this dashboard, and signing
+     in as the other without a reload is the shape that bites. Structural: it is one line
+     in an auth callback this file has no harness for, and said so rather than implied. */
+  const signedOutBranch = between(admin, 'detachAllListeners();\r\n    /* ⚠ AND THE PREFS OWNER',
+    "loginScreen.style.display = 'flex';", 'the sign-out branch') ||
+    between(admin, 'detachAllListeners();\n    /* ⚠ AND THE PREFS OWNER',
+    "loginScreen.style.display = 'flex';", 'the sign-out branch');
+  check('signing out forgets whose preferences they were (structural)',
+    !!signedOutBranch && /projUserPrefsUid\s*=\s*null/.test(signedOutBranch),
+    'the uid outlives the session, so the next write is aimed at the person who left');
 }
 
 {
