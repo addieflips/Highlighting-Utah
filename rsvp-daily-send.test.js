@@ -103,7 +103,7 @@ const skipRule = (function () {
   const src = liftFrom(admin, 'rsvpSendSkipReason');
   if (!src) return null;
   return new Function('isTestRecordData', 'audienceNeverAsked', 'effectiveRsvpStatus',
-    'etNoAutomationEmails', src + '\nreturn rsvpSendSkipReason;')(
+    'etNoAutomationEmails', src + '\n' + liftFrom(admin, 'rsvpHasAnswered') + '\nreturn rsvpSendSkipReason;')(
     function (d) { return d.isTestRecord === true; },
     function (d) { return d.newThisYear === true; },
     function (d) { return d.answered ? 'yes' : ''; },

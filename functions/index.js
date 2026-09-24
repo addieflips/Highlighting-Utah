@@ -6880,7 +6880,8 @@ function rsvpStillOwedServer(d) {
   if (digitsOnly(rec.phone) === '3853912235' && String(rec.name || '').trim().toLowerCase() === 'test') return 'test';
   let said = String(rec.rsvpStatus || '').trim().toLowerCase();
   if (said === 'yes' && !rec.rsvpRespondedAt) said = '';
-  if (said || rec.maybeNextYear === true) return 'answered';
+  /* 'unanswered' means asked and no reply yet — not an answer (admin.html rsvpHasAnswered). */
+  if ((said && said !== 'unanswered') || rec.maybeNextYear === true) return 'answered';
   if (rec.noAutomationEmails === true) return 'optedout';
   if (!String(rec.email || '').trim()) return 'noemail';
   if (rec.rsvpEmailedAt || rec.arrearsRsvpEmailAt) return 'emailed';

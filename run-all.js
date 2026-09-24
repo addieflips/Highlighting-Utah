@@ -5386,7 +5386,10 @@ suite('8. Quote decline / maybe next year');
      and Maybe Next Year is the QUOTE's word. The office row was using the quote's
      vocabulary for an RSVP state. The quote flow keeps its own wording untouched. */
   check('quoteresp', 'every customer reads Confirmed, On hold or Back Next Year',
-    maybeCell.includes('Back Next Year<') && maybeCell.includes('Confirmed<') &&
+    /* REPOINTED 2026-09-24 (RS-76): the Back Next Year word comes from backNextYearLabel,
+       which says "Back in 2028" once a year is picked; Suite 362 runs it. */
+    maybeCell.includes('backNextYearLabel(r.d)') &&
+    /'Back Next Year'/.test(extractFn(admin, 'backNextYearLabel') || '') && maybeCell.includes('Confirmed<') &&
     maybeCell.includes('On hold<'),
     'a blank cell is ambiguous between "confirmed" and "nobody has looked yet"');
   /* ⚠ AND THE BADGE HAS TO DRIVE THEM. A red-check proved the line above is not
@@ -52158,6 +52161,7 @@ suite('291. An RSVP link to text, for everyone with no email');
       extractFn(admin, 'audienceQuoteJoinYear') + NL287 +
       extractFn(admin, 'enrollmentYearOf') + NL287 +
       extractFn(admin, 'effectiveRsvpStatus') + NL287 +
+      extractFn(admin, 'rsvpHasAnswered') + NL287 +
       defBody + NL287 +
       'let rsvpTextTemplateName = "";' + NL287 +
       'let etTemplatesLoaded = true;' + NL287 +
@@ -52555,11 +52559,11 @@ suite('291. An RSVP link to text, for everyone with no email');
   const parts = ['seasonBadgeKey', 'isOutForSeason', 'houseArrearsTag',
                  'effectiveRsvpStatus', 'audienceNeverAsked', 'audienceQuoteJoinYear',
                  'seasonRuleIsLive', 'houseOwesFromLastSeason', 'paidButNotApproved',
-                 'arrearsPaidNotApproved'].map(liftAdmin);
+                 'arrearsPaidNotApproved', 'rsvpHasAnswered', 'paidThisSeason', 'approvedByPayment'].map(liftAdmin);
   const missing = ['seasonBadgeKey', 'isOutForSeason', 'houseArrearsTag',
                    'effectiveRsvpStatus', 'audienceNeverAsked', 'audienceQuoteJoinYear',
                    'seasonRuleIsLive', 'houseOwesFromLastSeason', 'paidButNotApproved',
-                   'arrearsPaidNotApproved'].filter((n, i) => !parts[i]);
+                   'arrearsPaidNotApproved', 'rsvpHasAnswered', 'paidThisSeason', 'approvedByPayment'].filter((n, i) => !parts[i]);
 
   check('S290', 'the season rules could all be lifted out of admin.html',
     missing.length === 0, 'missing: ' + missing.join(', '));
@@ -52585,7 +52589,7 @@ suite('291. An RSVP link to text, for everyone with no email');
       };
       const keys = Object.keys(sandbox);
       const F = new Function(...keys, parts.join('\n') +
-        '\nreturn {seasonBadgeKey, houseArrearsTag, effectiveRsvpStatus, paidButNotApproved};'
+        '\nreturn {seasonBadgeKey, houseArrearsTag, effectiveRsvpStatus, paidButNotApproved, approvedByPayment};'
       )(...keys.map(k => sandbox[k]));
 
       /* One customer, one invoice, three states of the same bill: nothing owed but
@@ -52656,9 +52660,13 @@ suite('291. An RSVP link to text, for everyone with no email');
          new branch is never reached. A red-check proved exactly that — two sabotages
          of the new code went UNCAUGHT until these three arrived. */
       const plain = (deposit) => ({ install: 450, removal: 0, deposit, credits: 0, changeFees: 0, changeFeeNotes: [] });
-      check('S290', 'somebody with no old debt who pays and never answers raises the note',
-        F.paidButNotApproved({ phone: '(801) 555-0101' }, plain(450)) === true,
-        'this is the ordinary case Dax asked for: paying for the season without a yes behind it');
+      /* REPOINTED 2026-09-24 (RS-77 supersedes RS-40's "money is not consent" for this
+         season's money): paying for the season IS the yes now, so there is no note to raise —
+         the payment approves them instead. Suite 363 runs the approval itself. */
+      check('S290', 'somebody with no old debt who pays and never answers is approved by the payment, not noted',
+        F.paidButNotApproved({ phone: '(801) 555-0101' }, plain(450)) === false &&
+        F.approvedByPayment({ phone: '(801) 555-0101' }, plain(450)) === true,
+        'Addie: "if they paid this season it should approve there quote"');
       check('S290', 'the same customer raises nothing once they have answered',
         F.paidButNotApproved({ phone: '(801) 555-0101', rsvpStatus: 'yes', rsvpRespondedAt: new Date() }, plain(450)) === false,
         'an answer is an answer, and a note here would be noise on a settled row');
@@ -58806,7 +58814,7 @@ suite('Suite 310. The whole RSVP, in one press');
         'function effectiveRsvpStatus(d){ return d.answered ? "yes" : ""; }' +
         'function etNoAutomationEmails(d){ return d.noAutomationEmails === true; }' +
         'function houseOwesFromLastSeason(d){ return d.owes === true; }' +
-        skipSrc +
+        skipSrc + extractFn(admin, 'rsvpHasAnswered') +
         planSrc +
         'return rsvpWholePlan();');
       return env(book, loaded);
@@ -63919,7 +63927,8 @@ suite('349. Everyone\'s own two links, as a spreadsheet');
     !/d\.phone/.test(tgt),
     'an email needs no phone, and demanding one drops exactly the people this is for');
   check('S349', 'it still skips anybody who has already answered',
-    /effectiveRsvpStatus\(d\)/.test(tgt),
+    /* REPOINTED 2026-09-24: through rsvpHasAnswered, so Unanswered is not read as an answer. */
+    /rsvpHasAnswered\(d\)/.test(tgt),
     'asking somebody a question they answered is the thing the text list guards too');
   /* \u26d4 THE ORDER IS RUN, because it is the whole protection on a sheet that gets
      pasted in blocks: a STOP row among the others is one that gets sent anyway. The two
@@ -63929,6 +63938,7 @@ suite('349. Everyone\'s own two links, as a spreadsheet');
     const order = new Function('jobAddresses',
       'const audienceNeverAsked = function(){ return false; };' +
       'const effectiveRsvpStatus = function(){ return ""; };' +
+      extractFn(admin, 'rsvpHasAnswered') +
       (extractFn(admin, 'rsvpLinkSheetTargets') || '') +
       'return rsvpLinkSheetTargets();')([
         {id:'1', data:{name:'Zoe'}},
@@ -64682,7 +64692,8 @@ suite('357. Copying phone numbers means the pending ones');
     'a button called "every" that copies only the pending reads as the wrong list');
   const targetsSrc = stripComments(extractFn(admin, 'rsvpLinkSheetTargets') || '');
   check('S357', 'and it really does drop everyone who has answered',
-    /if\(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus\(d\)\) return false;/.test(targetsSrc) &&
+    /* REPOINTED 2026-09-24: through rsvpHasAnswered, so Unanswered people stay on the list. */
+    /if\(typeof effectiveRsvpStatus === 'function' && rsvpHasAnswered\(d\)\) return false;/.test(targetsSrc) &&
     /rsvpPhoneListRows\(rsvpLinkSheetTargets\(\)\)/.test(stripComments(extractFn(admin, 'rsvpCopyPhones') || '')));
   const etSrc = stripComments(extractFn(admin, 'etCopyFilteredPhones') || '');
   check('S357', 'the Automation Emails copy warns when the RSVP filter is not pending',
@@ -64859,6 +64870,148 @@ suite('360. Phone batches are kept, and each one can be ticked as sent');
   check('S360', 'both copy buttons open through it',
     /await phoneBatchOpen\(host, 'rsvp',/.test(stripComments(lift('rsvpCopyPhones') || '')) &&
     /await phoneBatchOpen\(host, 'et',/.test(stripComments(lift('etCopyFilteredPhones') || '')));
+}
+
+/* =====================================================================
+ * Suite 362. Back in which year (2026-09-24, RS-76). Addie: "on back next
+ * year I also need a place when I can choose what year they will be back
+ * for people serving missions and stuff like that." RUNS the year rules
+ * and the picker; reads the Move-everyone-to-Unanswered handler.
+ * ===================================================================== */
+suite('362. Back Next Year can name the year they come back');
+{
+  const names = ['backInYearOf', 'backInYearHasCome', 'backNextYearLabel', 'editCustSyncBackInYearRow', 'editCustFillBackInYear'];
+  const srcs = names.map(n => extractFn(admin, n));
+  check('S362', 'the year rules and the picker were found', srcs.every(Boolean),
+    'a gate that cannot find its target must FAIL, never skip');
+  if (srcs.every(Boolean)) {
+    const api = new Function('document', srcs.join('\n') +
+      ';return { backInYearOf, backInYearHasCome, backNextYearLabel, editCustFillBackInYear };')({ getElementById: () => null });
+    check('S362', 'a stored year is read, and junk is not a year',
+      api.backInYearOf({ backInYear: 2028 }) === 2028 && api.backInYearOf({ backInYear: '2029' }) === 2029 &&
+      api.backInYearOf({}) === 0 && api.backInYearOf({ backInYear: 'soon' }) === 0 && api.backInYearOf(null) === 0);
+    check('S362', 'their year has come in that year and after, not before',
+      api.backInYearHasCome({ backInYear: 2028 }, 2028) && api.backInYearHasCome({ backInYear: 2027 }, 2028) &&
+      !api.backInYearHasCome({ backInYear: 2029 }, 2028),
+      'a missionary back in 2029 must not be asked in 2028');
+    check('S362', 'no year picked never counts as their year having come',
+      !api.backInYearHasCome({}, 2099) && !api.backInYearHasCome({ maybeNextYear: true }, 2099),
+      'her answer for the ones already on Back Next Year: they stay out until a year is chosen');
+    check('S362', 'the badge names the year, and says Back Next Year when there is none',
+      api.backNextYearLabel({ backInYear: 2028 }) === 'Back in 2028' && api.backNextYearLabel({}) === 'Back Next Year');
+    let JSDOM = null;
+    try { JSDOM = require('jsdom').JSDOM; } catch (e) { /* noted below */ }
+    if (!JSDOM) note('S362: jsdom missing — the picker was not driven');
+    else {
+      const w = new JSDOM('<select id="editCustRsvp"><option value="">-</option><option value="backnextyear">B</option></select>' +
+        '<div id="editCustBackInYearRow" style="display:none"><select id="editCustBackInYear"></select></div>').window;
+      const ui = new Function('document', srcs.join('\n') + ';return { editCustFillBackInYear };')(w.document);
+      const now = new Date().getFullYear();
+      w.document.getElementById('editCustRsvp').value = 'backnextyear';
+      ui.editCustFillBackInYear({ backInYear: now + 2 });
+      const sel = w.document.getElementById('editCustBackInYear');
+      check('S362', 'the picker offers the coming years and shows the one on file',
+        sel.value === String(now + 2) && sel.options[0].value === '' && sel.options[1].value === String(now + 1) &&
+        w.document.getElementById('editCustBackInYearRow').style.display === '');
+      ui.editCustFillBackInYear({});
+      check('S362', 'a customer with no year opens on Not picked yet — the next house never inherits one',
+        sel.value === '');
+      w.document.getElementById('editCustRsvp').value = '';
+      ui.editCustFillBackInYear({});
+      check('S362', 'and the box is hidden unless they are Back Next Year',
+        w.document.getElementById('editCustBackInYearRow').style.display === 'none');
+    }
+  }
+  const stripped = stripComments(admin);
+  const rs = stripped.indexOf("getElementById('rsvpResetBtn')?.addEventListener('click'");
+  const reset = rs === -1 ? '' : stripped.slice(rs, stripped.indexOf("getElementById('deleteAllConfirmInput')", rs));
+  check('S362', 'Move everyone to Unanswered was found', reset.length > 500);
+  check('S362', 'it brings back anybody whose year has come — flag, date and year cleared together',
+    /return String\(d\.rsvpStatus \|\| ''\) !== 'unanswered' \|\| backInYearHasCome\(d, thisYear\);/.test(reset) &&
+    /\? \{rsvpStatus: 'unanswered', rsvpRespondedAt: null, maybeNextYear: false, maybeNextYearAt: null, backInYear: null\}/.test(reset),
+    'clearing the answer but not the flag leaves them out of the season and never asked');
+  check('S362', 'and leaves everyone else on Back Next Year exactly as they were',
+    /: \{rsvpStatus: 'unanswered', rsvpRespondedAt: null\};/.test(reset) &&
+    /const back = backInYearHasCome\(item\.data \|\| \{\}, thisYear\);/.test(reset),
+    'a missionary whose year has not come would be put back in a year early');
+  check('S362', 'the confirm names who is coming back before anything is written',
+    reset.indexOf('comingBack.length') !== -1 && reset.indexOf('comingBack.length') < reset.indexOf('updateDoc('));
+  const save = stripped.slice(stripped.indexOf('const seasonMaybeChosen ='));
+  check('S362', 'the Edit Customer save stores the year and clears it when they stop being Back Next Year',
+    /addrUpdates\.backInYear = backInYearOf\(\{backInYear: backYearEl\.value\}\) \|\| null;/.test(save) &&
+    /if\(!seasonMaybeChosen && item\.data\.backInYear\) addrUpdates\.backInYear = null;/.test(save));
+  check('S362', 'the picker is filled every time the form opens, and the badge names the year',
+    /rsvpSel\.value = d\.rsvpStatus \|\| '';\s*editCustFillBackInYear\(d\);/.test(stripped) &&
+    stripped.indexOf("esc(backNextYearLabel(r.d))") !== -1 &&
+    admin.indexOf('id="editCustBackInYear"') !== -1);
+}
+
+/* =====================================================================
+ * Suite 363. Paid this season means approved, and Unanswered is not an
+ * answer (2026-09-24, RS-77). Addie: "if they paid this season it should
+ * approve there quote". RUNS the rules and the approval sweep against a
+ * fake Firestore.
+ * ===================================================================== */
+suite('363. A payment toward this season approves them; Unanswered is still pending');
+{
+  const lift = n => { const i = admin.indexOf('async function ' + n + '(');
+    return i === -1 ? extractFn(admin, n) : 'async ' + extractFn(admin, n); };
+  const names = ['effectiveRsvpStatus', 'rsvpHasAnswered', 'paidThisSeason', 'approvedByPayment', 'approvePaidThisSeason'];
+  const srcs = names.map(lift);
+  check('S363', 'the approval rules were found', srcs.every(Boolean));
+  if (srcs.every(Boolean)) {
+    const arrearsSrc = 'const ARREARS_KIND = "arrears";' + extractFn(money, 'arrearsOnInvoice');
+    const writes = [];
+    const logs = [];
+    const env = new Function('jobAddresses', 'invoiceById', 'updateDoc', 'doc', 'db', 'serverTimestamp', 'logActivity', 'custInvoiceKey',
+      arrearsSrc + '\nfunction audienceNeverAsked(){ return false; }\nconst paidApprovedThisSession = new Set();\n' +
+      srcs.join('\n') + '\nreturn { rsvpHasAnswered, paidThisSeason, approvedByPayment, approvePaidThisSeason };');
+    const inv = (deposit, arrears) => ({ install: 450, deposit: deposit, credits: 0,
+      changeFeeNotes: arrears ? [{ kind: 'arrears', amount: arrears }] : [] });
+    const book = [
+      { id: 'silent', data: { name: 'Silent', phone: '8015550001' } },
+      { id: 'unans', data: { name: 'Unans', phone: '8015550002', rsvpStatus: 'unanswered' } },
+      { id: 'said', data: { name: 'Said No', phone: '8015550003', rsvpStatus: 'no' } },
+      { id: 'owed', data: { name: 'Old Debt', phone: '8015550004' } },
+      { id: 'more', data: { name: 'Debt Plus', phone: '8015550005' } },
+      { id: 'none', data: { name: 'Not Paid', phone: '8015550006' } },
+      { id: 'bny', data: { name: 'Bny', phone: '8015550007', maybeNextYear: true } }
+    ];
+    const invs = new Map([['8015550001', { data: inv(450) }], ['8015550002', { data: inv(100) }],
+      ['8015550003', { data: inv(450) }], ['8015550004', { data: inv(300, 300) }], ['8015550005', { data: inv(400, 300) }],
+      ['8015550006', { data: inv(0) }], ['8015550007', { data: inv(450) }]]);
+    const F = env(book, invs,
+      async (ref, upd) => { writes.push([ref.id, upd]); }, (_d, _c, id) => ({ id: id }), {}, () => 'TS',
+      (w) => { logs.push(w); }, d => String(d.phone || ''));
+    check('S363', 'Unanswered is NOT an answer — asked, and still waiting',
+      F.rsvpHasAnswered({ rsvpStatus: 'unanswered' }) === false && F.rsvpHasAnswered({}) === false &&
+      F.rsvpHasAnswered({ rsvpStatus: 'no' }) === true && F.rsvpHasAnswered({ rsvpStatus: 'yes', rsvpRespondedAt: 1 }) === true,
+      'read as an answer, Move everyone to Unanswered dropped them from every RSVP send and text list');
+    check('S363', 'money beyond last season\'s debt is a payment toward this season; paying only the debt is not',
+      F.paidThisSeason(inv(450)) && !F.paidThisSeason(inv(0)) && !F.paidThisSeason(inv(300, 300)) && F.paidThisSeason(inv(400, 300)));
+    pendingAsync.push((async function () {
+      const n = await F.approvePaidThisSeason();
+      const ids = writes.map(w => w[0]).sort().join();
+      check('S363', 'the sweep approves exactly the people who paid this season and had said nothing',
+        n === 3 && ids === 'more,silent,unans', 'got ' + ids);
+      check('S363', 'an approval is a real, dated yes',
+        writes.every(w => w[1].rsvpStatus === 'yes' && w[1].rsvpRespondedAt === 'TS') && logs.length === 3);
+      check('S363', 'a no, a Back Next Year, an old-debt-only payment and nobody-paid are all left alone',
+        !/said|bny|owed|none/.test(ids));
+      const again = await F.approvePaidThisSeason();
+      check('S363', 'and it approves nobody twice', again === 0 && writes.length === 3);
+    })());
+  }
+  const stripped = stripComments(admin);
+  check('S363', 'the sweep runs on every invoice change, before the paid-not-approved note',
+    /approvePaidThisSeason\(\)\.catch\(/.test(stripped) &&
+    stripped.indexOf('approvePaidThisSeason().catch(') < stripped.indexOf('noticeArrearsPaidNotApproved().catch('));
+  const serverGate = stripComments(extractFn(fnsSrc, 'rsvpStillOwedServer') || '');
+  check('S363', 'the server\'s 200-a-day gate reads Unanswered the same way',
+    /\(said && said !== 'unanswered'\) \|\| rec\.maybeNextYear === true/.test(serverGate));
+  check('S363', 'and the already-emailed guard is untouched — nobody gets the RSVP twice (EM-04)',
+    /if \(rec\.rsvpEmailedAt \|\| rec\.arrearsRsvpEmailAt\) return 'emailed';/.test(serverGate) &&
+    /if\(rec\.rsvpEmailedAt \|\| rec\.arrearsRsvpEmailAt\) return 'emailed';/.test(stripComments(extractFn(admin, 'rsvpSendSkipReason') || '')));
 }
 
 /* =====================================================================

@@ -1684,13 +1684,24 @@ check('badging Back Next Year clears the build but not the recycle',
     }
     src += '\n' + '}'.repeat(Math.max(0, depth));
 
-    const run = (prevFlag, dropdown) => {
+    /* RS-76: the block reads the Back-in-which-year box, so the harness hands it a fake
+       page and the REAL backInYearOf, lifted rather than stubbed. */
+    const byMatch = /function backInYearOf\(d\)\{[\s\S]*?\n\}/.exec(admin);
+    const backInYearOfSrc = byMatch ? byMatch[0] : '';
+    check('backInYearOf was found to lift', !!backInYearOfSrc);
+    const run = (prevFlag, dropdown, pickedYear) => {
       const addrUpdates = { rsvpStatus: dropdown };
-      new Function('item', 'newRsvp', 'addrUpdates', 'serverTimestamp', src)(
+      const fakeDoc = { getElementById: function (id) {
+        return id === 'editCustBackInYear' ? { value: pickedYear == null ? '' : String(pickedYear) } : null; } };
+      new Function('item', 'newRsvp', 'addrUpdates', 'serverTimestamp', 'document', backInYearOfSrc + '\n' + src)(
         { data: { maybeNextYear: prevFlag } }, dropdown, addrUpdates,
-        function () { return 'STAMPED'; });
+        function () { return 'STAMPED'; }, fakeDoc);
       return addrUpdates;
     };
+    check('RS-76: Back Next Year with a year picked stores that year',
+      run(false, 'backnextyear', 2029).backInYear === 2029);
+    check('RS-76: Back Next Year with no year picked stores none, rather than guessing',
+      run(false, 'backnextyear', '').backInYear === null);
 
     /* ⭐ HER CASE. The flag was already on from earlier testing and the office picks
        Back Next Year in the dropdown. With the radio still there this came out blank. */

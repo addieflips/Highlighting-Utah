@@ -87,7 +87,7 @@ function stripComments(s) {
    ⚠ AND IT CRASHED RATHER THAN FAILING A CHECK, which is why it reached CI: a crash prints
    no "N failed" line and no FAIL row, so a local run verified by grepping for those words
    looks clean. Check the EXIT CODE of `npm test`, never its text. */
-const LIFTS = ['rsvpSendSkipReason', 'rsvpWholePlan', 'rsvpMarkOneRows', 'rsvpMarkOneRender', 'rsvpMarkOneAsked'];
+const LIFTS = ['rsvpSendSkipReason', 'rsvpHasAnswered', 'rsvpWholePlan', 'rsvpMarkOneRows', 'rsvpMarkOneRender', 'rsvpMarkOneAsked'];
 LIFTS.forEach(function (n) {
   check('lifted ' + n + ' and it parses', liftOk(lift(n)),
     'a truncated lift answers confidently and wrongly while the suite reports green');
@@ -466,7 +466,7 @@ const BOOK = function () {
       /* ⚠ `rsvpSendSkipReason` FIRST — see the note on LIFTS at the top. All THREE sandboxes
          in this file lift `rsvpWholePlan`, so all three need the rule it calls; fixing one and
          running it is what sent a bare ReferenceError to CI. Run the WHOLE file. */
-      const CHECK_LIFTS = ['rsvpSendSkipReason', 'dupNormName', 'rsvpWholePlan', 'rsvpCheckListNames',
+      const CHECK_LIFTS = ['rsvpSendSkipReason', 'rsvpHasAnswered', 'dupNormName', 'rsvpWholePlan', 'rsvpCheckListNames',
         'rsvpCheckListIndex', 'rsvpCheckListCompare', 'rsvpCheckListRenderReport',
         'rsvpCheckListRefresh', 'rsvpCheckListRun'];
       CHECK_LIFTS.forEach(function (n) {
@@ -785,7 +785,7 @@ const BOOK = function () {
         check('lifted ssnChunk by line and it parses', liftOk(ssnChunkSrc),
           'a stubbed chunker that drops a batch would pass silently');
 
-        const BULK_LIFTS = ['rsvpSendSkipReason', 'dupNormName', 'rsvpWholePlan', 'rsvpCheckListNames',
+        const BULK_LIFTS = ['rsvpSendSkipReason', 'rsvpHasAnswered', 'dupNormName', 'rsvpWholePlan', 'rsvpCheckListNames',
           'rsvpCheckListIndex', 'rsvpCheckListCompare', 'rsvpCheckListRenderReport',
           'rsvpCheckListRefresh', 'rsvpCheckListRun', 'rsvpCheckListBulkTargets',
           'rsvpCheckListMarkAll', 'rsvpCheckListUndoTick'];
