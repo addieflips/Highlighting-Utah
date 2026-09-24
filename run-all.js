@@ -5386,7 +5386,10 @@ suite('8. Quote decline / maybe next year');
      and Maybe Next Year is the QUOTE's word. The office row was using the quote's
      vocabulary for an RSVP state. The quote flow keeps its own wording untouched. */
   check('quoteresp', 'every customer reads Confirmed, On hold or Back Next Year',
-    maybeCell.includes('Back Next Year<') && maybeCell.includes('Confirmed<') &&
+    /* REPOINTED 2026-09-24 (RS-76): the Back Next Year word comes from backNextYearLabel,
+       which says "Back in 2028" once a year is picked; Suite 361 runs it. */
+    maybeCell.includes('backNextYearLabel(r.d)') &&
+    /'Back Next Year'/.test(extractFn(admin, 'backNextYearLabel') || '') && maybeCell.includes('Confirmed<') &&
     maybeCell.includes('On hold<'),
     'a blank cell is ambiguous between "confirmed" and "nobody has looked yet"');
   /* ⚠ AND THE BADGE HAS TO DRIVE THEM. A red-check proved the line above is not
@@ -64854,4 +64857,78 @@ suite('360. Phone batches are kept, and each one can be ticked as sent');
   check('S360', 'both copy buttons open through it',
     /await phoneBatchOpen\(host, 'rsvp',/.test(stripComments(lift('rsvpCopyPhones') || '')) &&
     /await phoneBatchOpen\(host, 'et',/.test(stripComments(lift('etCopyFilteredPhones') || '')));
+}
+
+/* =====================================================================
+ * Suite 361. Back in which year (2026-09-24, RS-76). Addie: "on back next
+ * year I also need a place when I can choose what year they will be back
+ * for people serving missions and stuff like that." RUNS the year rules
+ * and the picker; reads the Move-everyone-to-Unanswered handler.
+ * ===================================================================== */
+suite('361. Back Next Year can name the year they come back');
+{
+  const names = ['backInYearOf', 'backInYearHasCome', 'backNextYearLabel', 'editCustSyncBackInYearRow', 'editCustFillBackInYear'];
+  const srcs = names.map(n => extractFn(admin, n));
+  check('S361', 'the year rules and the picker were found', srcs.every(Boolean),
+    'a gate that cannot find its target must FAIL, never skip');
+  if (srcs.every(Boolean)) {
+    const api = new Function('document', srcs.join('\n') +
+      ';return { backInYearOf, backInYearHasCome, backNextYearLabel, editCustFillBackInYear };')({ getElementById: () => null });
+    check('S361', 'a stored year is read, and junk is not a year',
+      api.backInYearOf({ backInYear: 2028 }) === 2028 && api.backInYearOf({ backInYear: '2029' }) === 2029 &&
+      api.backInYearOf({}) === 0 && api.backInYearOf({ backInYear: 'soon' }) === 0 && api.backInYearOf(null) === 0);
+    check('S361', 'their year has come in that year and after, not before',
+      api.backInYearHasCome({ backInYear: 2028 }, 2028) && api.backInYearHasCome({ backInYear: 2027 }, 2028) &&
+      !api.backInYearHasCome({ backInYear: 2029 }, 2028),
+      'a missionary back in 2029 must not be asked in 2028');
+    check('S361', 'no year picked never counts as their year having come',
+      !api.backInYearHasCome({}, 2099) && !api.backInYearHasCome({ maybeNextYear: true }, 2099),
+      'her answer for the ones already on Back Next Year: they stay out until a year is chosen');
+    check('S361', 'the badge names the year, and says Back Next Year when there is none',
+      api.backNextYearLabel({ backInYear: 2028 }) === 'Back in 2028' && api.backNextYearLabel({}) === 'Back Next Year');
+    let JSDOM = null;
+    try { JSDOM = require('jsdom').JSDOM; } catch (e) { /* noted below */ }
+    if (!JSDOM) note('S361: jsdom missing — the picker was not driven');
+    else {
+      const w = new JSDOM('<select id="editCustRsvp"><option value="">-</option><option value="backnextyear">B</option></select>' +
+        '<div id="editCustBackInYearRow" style="display:none"><select id="editCustBackInYear"></select></div>').window;
+      const ui = new Function('document', srcs.join('\n') + ';return { editCustFillBackInYear };')(w.document);
+      const now = new Date().getFullYear();
+      w.document.getElementById('editCustRsvp').value = 'backnextyear';
+      ui.editCustFillBackInYear({ backInYear: now + 2 });
+      const sel = w.document.getElementById('editCustBackInYear');
+      check('S361', 'the picker offers the coming years and shows the one on file',
+        sel.value === String(now + 2) && sel.options[0].value === '' && sel.options[1].value === String(now + 1) &&
+        w.document.getElementById('editCustBackInYearRow').style.display === '');
+      ui.editCustFillBackInYear({});
+      check('S361', 'a customer with no year opens on Not picked yet — the next house never inherits one',
+        sel.value === '');
+      w.document.getElementById('editCustRsvp').value = '';
+      ui.editCustFillBackInYear({});
+      check('S361', 'and the box is hidden unless they are Back Next Year',
+        w.document.getElementById('editCustBackInYearRow').style.display === 'none');
+    }
+  }
+  const stripped = stripComments(admin);
+  const rs = stripped.indexOf("getElementById('rsvpResetBtn')?.addEventListener('click'");
+  const reset = rs === -1 ? '' : stripped.slice(rs, stripped.indexOf("getElementById('deleteAllConfirmInput')", rs));
+  check('S361', 'Move everyone to Unanswered was found', reset.length > 500);
+  check('S361', 'it brings back anybody whose year has come — flag, date and year cleared together',
+    /return String\(d\.rsvpStatus \|\| ''\) !== 'unanswered' \|\| backInYearHasCome\(d, thisYear\);/.test(reset) &&
+    /\? \{rsvpStatus: 'unanswered', rsvpRespondedAt: null, maybeNextYear: false, maybeNextYearAt: null, backInYear: null\}/.test(reset),
+    'clearing the answer but not the flag leaves them out of the season and never asked');
+  check('S361', 'and leaves everyone else on Back Next Year exactly as they were',
+    /: \{rsvpStatus: 'unanswered', rsvpRespondedAt: null\};/.test(reset) &&
+    /const back = backInYearHasCome\(item\.data \|\| \{\}, thisYear\);/.test(reset),
+    'a missionary whose year has not come would be put back in a year early');
+  check('S361', 'the confirm names who is coming back before anything is written',
+    reset.indexOf('comingBack.length') !== -1 && reset.indexOf('comingBack.length') < reset.indexOf('updateDoc('));
+  const save = stripped.slice(stripped.indexOf('const seasonMaybeChosen ='));
+  check('S361', 'the Edit Customer save stores the year and clears it when they stop being Back Next Year',
+    /addrUpdates\.backInYear = backInYearOf\(\{backInYear: backYearEl\.value\}\) \|\| null;/.test(save) &&
+    /if\(!seasonMaybeChosen && item\.data\.backInYear\) addrUpdates\.backInYear = null;/.test(save));
+  check('S361', 'the picker is filled every time the form opens, and the badge names the year',
+    /rsvpSel\.value = d\.rsvpStatus \|\| '';\s*editCustFillBackInYear\(d\);/.test(stripped) &&
+    stripped.indexOf("esc(backNextYearLabel(r.d))") !== -1 &&
+    admin.indexOf('id="editCustBackInYear"') !== -1);
 }

@@ -83,6 +83,8 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    | **No** | `#/payment?token=…&rsvp=no` | `no` | recorded, then **straight into the member portal** on the Cancel tab (RS-33) |
    | **Back Next Year** | `#/?token=…&rsvp=back` | `backnextyear` | a **pop-up card** — "We look forward to seeing you next year!" (RS-34) |
 
+   ⭐ **BACK IN WHICH YEAR** (2026-09-24, [[RS-76]]). Edit Customer shows a **Back in which year?** box whenever the RSVP dropdown says Back Next Year, for missionaries and anybody away more than one season. It is stored as `backInYear`, and the badge on All Customers reads **Back in 2028** instead of Back Next Year. Nothing else reads it until that year: they stay out of the season, off the bill and unasked, exactly as Back Next Year always has. When that year comes, **Move everyone to Unanswered** clears their Back Next Year badge along with the answer, so they are pending like everybody else and get the RSVP; its confirm names them first. A Back Next Year customer with no year picked is left exactly as before, until the office picks one.
+
    ⭐ **AND BY TEXT IT IS ONE LINK, NOT THREE** (2026-09-21, [[RS-63]]). Addie: *"We need to send
    out a text message RSVP which means we need one link which will take people to a page that says
    Yes, Back Next year and No."* A text message is plain characters — it cannot hide an address

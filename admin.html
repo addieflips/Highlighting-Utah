@@ -2575,6 +2575,13 @@
                 <option value="backnextyear">Back Next Year</option>
               </select>
             </div>
+            <!-- ⭐ WHICH YEAR THEY ARE BACK ([[RS-76]], 2026-09-24). Addie: "on back next year I also need
+                 a place when I can choose what year they will be back for people serving missions and
+                 stuff like that." Shown only while the dropdown says Back Next Year. -->
+            <div class="form-row" id="editCustBackInYearRow" style="display:none;"><label>Back in which year?</label>
+              <select id="editCustBackInYear"></select>
+              <p style="font-size:11.5px; color:var(--slate); margin:6px 0 0; line-height:1.5;">For missionaries and anybody away more than one season. When that year comes, <b>Move everyone to Unanswered</b> puts them back and they get the RSVP with everyone else. Left on <i>Not picked yet</i>, they stay Back Next Year until you choose.</p>
+            </div>
             <div class="form-row"><label>Install Closest To This Date (staff only)</label><input type="date" id="editCustEarliestInstall"></div>
           </div>
           <p class="form-note" style="margin:-4px 0 16px;">Customers never see or can change this &mdash; use it when someone needs us to hold off until a specific date (e.g. they're out of town until then). We will <b>never</b> hang them before it, and the schedule now aims to hang them <b>within a week of it</b> (five working days) rather than whenever we are next in their town. It puts them behind new members and ahead of everyone else, and it does not move them into a month they did not ask for. Takes effect the next time you press <b>Recalculate everything</b> on the Schedule tab. Leave blank for no restriction.</p>
@@ -8981,6 +8988,7 @@ const CUSTOMER_FIELD_LABELS = {
   earliestInstallDate: {label: 'Earliest install date', kind: 'date'},
   rsvpStatus: 'RSVP answer',
   maybeNextYear: {label: 'Back next year', kind: 'yesno'},
+  backInYear: {label: 'Back in which year'},
   billToPhone: 'Billed to',
   paidBeforeBillTo: {label: 'Payment carried onto the new bill', kind: 'money'},
   carryoverCharge: {label: 'Charge carried to next season', kind: 'money'},
@@ -51177,6 +51185,52 @@ function seasonYesUpdates(oldData, ts){
   }
   return updates;
 }
+/* ⭐ BACK IN WHICH YEAR (2026-09-24, [[RS-76]]). Addie: "on back next year I also need a place
+   when I can choose what year they will be back for people serving missions and stuff like
+   that", then, asked what happens when that year comes: "Yes perfect" to coming back on their
+   own, and for the customers already on Back Next Year: "We'll choose a year once they hit
+   that year they will be sent an email with all the RSVP people".
+   ⛔ IT IS THE YEAR THEY COME BACK, AND NOTHING READS IT UNTIL THAT YEAR. Until then they are
+   Back Next Year exactly as before — out of the season, off the bill, not asked — because
+   every one of those rules reads maybeNextYear, and this field leaves that flag alone.
+   ⭐ WHEN THE YEAR ARRIVES, Move everyone to Unanswered clears the flag along with the answer
+   (backInYearHasCome), so they are pending like everybody else and the RSVP reaches them.
+   ⚠ NO YEAR MEANS NO CHANGE. A Back Next Year customer with nothing picked stays out until
+   the office picks one — her answer for the ones already on it. Guessing "next year" for
+   them would put a missionary back on the list a year early. */
+function backInYearOf(d){
+  const y = Math.floor(Number(d && d.backInYear) || 0);
+  return (y >= 2000 && y <= 2100) ? y : 0;
+}
+function backInYearHasCome(d, year){
+  const y = backInYearOf(d);
+  return !!y && y <= Math.floor(Number(year) || 0);
+}
+function backNextYearLabel(d){
+  const y = backInYearOf(d);
+  return y ? 'Back in ' + y : 'Back Next Year';
+}
+function editCustSyncBackInYearRow(){
+  const row = document.getElementById('editCustBackInYearRow');
+  const sel = document.getElementById('editCustRsvp');
+  if(row) row.style.display = (sel && sel.value === 'backnextyear') ? '' : 'none';
+}
+/* ⚠ REFILLED ON EVERY OPEN: the house tabs repoint this form at a sibling without closing
+   it, and a year left behind would be saved onto the wrong house. */
+function editCustFillBackInYear(d){
+  const sel = document.getElementById('editCustBackInYear');
+  if(!sel) return;
+  const now = new Date().getFullYear();
+  const have = backInYearOf(d);
+  const years = [];
+  for(let y = now + 1; y <= now + 6; y++) years.push(y);
+  if(have && years.indexOf(have) === -1) years.unshift(have);
+  sel.innerHTML = '<option value="">Not picked yet</option>' +
+    years.map(function(y){ return '<option value="' + y + '">' + y + '</option>'; }).join('');
+  sel.value = have ? String(have) : '';
+  editCustSyncBackInYearRow();
+}
+document.getElementById('editCustRsvp')?.addEventListener('change', editCustSyncBackInYearRow);
 function effectiveRsvpStatus(d){
   const dd = d || {};
   let said = String(dd.rsvpStatus || '').trim().toLowerCase();
@@ -55386,9 +55440,13 @@ document.getElementById('rsvpResetConfirmInput')?.addEventListener('input', func
 });
 document.getElementById('rsvpResetBtn')?.addEventListener('click', async function(){
   const statusEl = document.getElementById('rsvpResetStatus');
+  /* RS-76: anybody Back Next Year whose chosen year has come is brought back here too. */
+  const thisYear = new Date().getFullYear();
   const who = (jobAddresses || []).filter(function(a){
-    return String((a.data || {}).rsvpStatus || '') !== 'unanswered';
+    const d = a.data || {};
+    return String(d.rsvpStatus || '') !== 'unanswered' || backInYearHasCome(d, thisYear);
   });
+  const comingBack = who.filter(function(a){ return backInYearHasCome(a.data || {}, thisYear); });
   if(!who.length){ statusEl.textContent = 'Everybody is already Unanswered.'; return; }
   /* Say what is about to be thrown away, in the words on the cards above. */
   const tally = {};
@@ -55399,20 +55457,28 @@ document.getElementById('rsvpResetBtn')?.addEventListener('click', async functio
   const lines = Object.keys(tally).map(function(k){ return '  ' + tally[k] + ' ' + k; }).join('\n');
   if(!confirm('Move ' + who.length + ' customer(s) to Unanswered?\n\n' + lines +
     '\n\nTheir answers from last season are overwritten and cannot be got back. ' +
-    'Maybe Next Year and the recycle queue are left alone.')) return;
-  let done = 0, failed = 0;
+    (comingBack.length ? '\n\n' + comingBack.length + ' Back Next Year customer(s) whose year is ' + thisYear +
+      ' or earlier come back into the season and will get the RSVP: ' +
+      comingBack.slice(0, 8).map(function(a){ return (a.data || {}).name || '(no name)'; }).join(', ') +
+      (comingBack.length > 8 ? ' and others' : '') + '.\n\n' : '') +
+    'Everyone else on Back Next Year, and the recycle queue, is left alone.')) return;
+  let done = 0, failed = 0, returned = 0;
   for(const item of who){
     statusEl.textContent = 'Moving ' + (done + failed + 1) + ' of ' + who.length + '…';
     try{
-      await updateDoc(doc(db, 'jobAddresses', item.id), {
-        rsvpStatus: 'unanswered', rsvpRespondedAt: null });
-      item.data.rsvpStatus = 'unanswered';
-      item.data.rsvpRespondedAt = null;
+      const back = backInYearHasCome(item.data || {}, thisYear);
+      const upd = back
+        ? {rsvpStatus: 'unanswered', rsvpRespondedAt: null, maybeNextYear: false, maybeNextYearAt: null, backInYear: null}
+        : {rsvpStatus: 'unanswered', rsvpRespondedAt: null};
+      await updateDoc(doc(db, 'jobAddresses', item.id), upd);
+      Object.assign(item.data, upd);
+      if(back) returned++;
       done++;
     } catch(err){ failed++; }
   }
   if(done) logActivity('Started a new RSVP round: ' + done + ' customer(s) moved to Unanswered', 'customers', '');
-  statusEl.textContent = done + ' moved to Unanswered' + (failed ? ', ' + failed + ' could not be' : '') + '.';
+  statusEl.textContent = done + ' moved to Unanswered' + (returned ? ' (' + returned + ' back from Back Next Year because their year has come)' : '') +
+    (failed ? ', ' + failed + ' could not be' : '') + '.';
   document.getElementById('rsvpResetConfirmInput').value = '';
   document.getElementById('rsvpResetBtn').disabled = true;
   document.getElementById('rsvpResetBtn').style.opacity = '.4';
@@ -56253,7 +56319,7 @@ function renderAllCustomersTable(){
     const maybeCell = badgeKey === 'no'
       ? '<span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-weight:700;" title="They answered No, so they are out for this season until they say otherwise">No</span>'+unpaidPill
       : badgeKey === 'maybe'
-      ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Back Next Year</span>'+unpaidPill
+      ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">' + esc(backNextYearLabel(r.d)) + '</span>'+unpaidPill
       : badgeKey === 'pending'
       ? '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;" title="In for the season but blocked by the reason beside it — this clears itself the moment that does">On hold</span>'+unpaidPill
       : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+unpaidPill;
@@ -57349,6 +57415,7 @@ function openEditCustomerModal(id){
     rsvpNoOpt.remove();
   }
   rsvpSel.value = d.rsvpStatus || '';
+  editCustFillBackInYear(d);
   /* ⚠ REFILLED ON EVERY OPEN, and the function empties the wrap first — the house-tab
      strip repoints this same form at a sibling without closing it, so a list that
      appended would show the previous house's buildings underneath this one's. */
@@ -59327,6 +59394,9 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       addrUpdates.scheduled = false;
       addrUpdates.scheduledDate = null;
       addrUpdates.assignedCrew = null;
+      /* RS-76: the year they are back, or nothing when it has not been picked. */
+      const backYearEl = document.getElementById('editCustBackInYear');
+      if(backYearEl) addrUpdates.backInYear = backInYearOf({backInYear: backYearEl.value}) || null;
     } else if(item.data.maybeNextYear){
       /* ⭐ THE FLAG ITSELF, not just its timestamp (fixed 2026-08-21). This
          branch is "the office has unticked Back Next Year", and it nulled
@@ -59347,6 +59417,8 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
          answer, and restoring it alongside a single control would blank the
          RSVP of everybody the office brings back in. */
     }
+    /* RS-76: a year only means something while they are Back Next Year; anything else clears it. */
+    if(!seasonMaybeChosen && item.data.backInYear) addrUpdates.backInYear = null;
     /* ⚠ LAST OF ALL, AFTER EVERYTHING THAT CAN MOVE EITHER FLAG — the colours ternary,
        the wire/timer re-queue, the rejoin-after-recycle, both re-quote answers, and the
        Maybe Next Year block directly above, which CLEARS the build. Anywhere earlier and
