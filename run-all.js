@@ -64043,9 +64043,12 @@ suite('350. The numbers on their own, and the people who have none');
 
   const copyFn = stripComments(extractFn(admin, 'rsvpCopyPhones') || '');
   check('S350', 'the numbers press was found', copyFn.length > 300);
-  check('S350', 'it copies one per line',
-    /numbers\.join\('\\n'\)/.test(copyFn),
-    'a bulk sender is handed a column');
+  /* REPOINTED 2026-09-24 (RS-69): the press opens the batch panel and copies batch 1
+     rather than the whole list one per line. The separator is Suite 355's. */
+  check('S350', 'it hands the numbers to the batch panel and copies the first batch',
+    /phoneBatchRender\(host, res\.numbers, 0\)/.test(copyFn) &&
+    /await phoneBatchCopyCurrent\(host\)/.test(copyFn),
+    'the whole list in one paste is what did not paste');
   check('S350', 'it says how many were left out for STOP',
     /res\.stopped/.test(copyFn),
     'a silent exclusion is how somebody goes missing');
@@ -64439,8 +64442,8 @@ suite('354. Copy their phone numbers — the filtered audience, for texting');
       mg.sum().numbers.length === 0);
   }
 
-  check('S354', 'the press copies one per line and is wired to its button',
-    /sum\.numbers\.join\('\\n'\)/.test(copySrc) &&
+  check('S354', 'the press opens the batch panel and is wired to its button',
+    /phoneBatchRender\(host, sum\.numbers, 0\)/.test(copySrc) &&
     admin.indexOf('id="etCopyPhonesBtn"') !== -1 &&
     /getElementById\('etCopyPhonesBtn'\)\?\.addEventListener\('click'/.test(stripComments(admin)),
     'a button with no handler looks identical to a working one');
@@ -64449,4 +64452,99 @@ suite('354. Copy their phone numbers — the filtered audience, for texting');
       const a = s.indexOf('etTextAudience ='), b = s.indexOf('custCanBeEmailed(m.data)');
       return a !== -1 && b !== -1 && a < b; })(),
     'recorded after it, the people the email cannot reach vanish from the texts');
+}
+
+/* =====================================================================
+ * Suite 355. The numbers, a batch at a time, in a box you can see
+ * (2026-09-24, RS-69). Addie: "I copy numbers and they don't paste also I
+ * need to choose how many to paste at a time." RUNS the real panel against
+ * jsdom — every claim is about what is in the box and what gets copied.
+ * ===================================================================== */
+suite('355. Phone numbers a batch at a time, commas by default');
+{
+  const names = ['phoneBatchSlice', 'phoneBatchJoin', 'phoneBatchPrefs', 'phoneBatchSavePrefs',
+    'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchCopyCurrent'];
+  const liftAsync = function (n) {
+    const i = admin.indexOf('async function ' + n + '(');
+    return i === -1 ? extractFn(admin, n) : 'async ' + extractFn(admin, n);
+  };
+  const srcs = names.map(liftAsync);
+  check('S355', 'every piece of the batch panel was found', srcs.every(Boolean),
+    'a gate that cannot find its target must FAIL, never skip');
+  let JSDOM = null;
+  try { JSDOM = require('jsdom').JSDOM; } catch (e) { /* no jsdom: the note below says so. */ }
+  if (!JSDOM) note('S355: jsdom missing — run npm install; the panel was not driven');
+  if (srcs.every(Boolean) && JSDOM) {
+    const run = async function (clipOk, execOk) {
+      const dom = new JSDOM('<div id="h"></div>');
+      const w = dom.window;
+      const store = {};
+      const copied = [];
+      const env = new Function('document', 'navigator', 'localStorage', 'console',
+        'const PHONE_BATCH_DEFAULT = 50;' +
+        'function esc(s){ return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;"); }' +
+        srcs.join('\n') + ';return { phoneBatchSlice, phoneBatchJoin, phoneBatchRender, phoneBatchCopyCurrent };');
+      w.document.execCommand = function () { if (execOk) copied.push('exec'); return execOk; };
+      const nav = { clipboard: { writeText: async function (t) { if (!clipOk) throw new Error('no'); copied.push(t); } } };
+      const ls = { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } };
+      const api = env(w.document, nav, ls, { error: function () {} });
+      return { api, w, host: w.document.getElementById('h'), copied, store };
+    };
+    const nums = ['8015550001', '8015550002', '8015550003', '8015550004', '8015550005', '8015550006', '8015550007'];
+    const pending = [];
+    pending.push((async function () {
+      const r = await run(true, true);
+      const sl = r.api.phoneBatchSlice(nums, 3, 1);
+      check('S355', 'a batch is exactly the numbers in that range',
+        sl.total === 3 && sl.list.join() === '8015550004,8015550005,8015550006');
+      check('S355', 'the last batch holds what is left, and past the end is the last batch',
+        r.api.phoneBatchSlice(nums, 3, 9).list.join() === '8015550007');
+      check('S355', 'commas are the default, one per line is the other choice',
+        r.api.phoneBatchJoin(['1', '2']) === '1, 2' && r.api.phoneBatchJoin(['1', '2'], 'line') === '1\n2',
+        'one per line into a single-line To box is what did not paste');
+
+      r.store['hu.phoneBatchSize'] = '3';
+      r.api.phoneBatchRender(r.host, nums, 0);
+      const box = () => r.host.querySelector('[data-pb="box"]');
+      check('S355', 'the box on screen holds batch 1, comma-separated',
+        box().value === '8015550001, 8015550002, 8015550003',
+        'a copy the browser refuses must still leave the numbers where they can be selected');
+      check('S355', 'it says which batch this is and how many there are',
+        /Batch 1 of 3/.test(r.host.textContent) && /1–3 of 7/.test(r.host.textContent));
+      await r.api.phoneBatchCopyCurrent(r.host);
+      check('S355', 'Copy puts exactly that batch on the clipboard',
+        r.copied[0] === '8015550001, 8015550002, 8015550003');
+      r.host.querySelector('[data-pb="next"]').click();
+      check('S355', 'Next moves to batch 2', box().value === '8015550004, 8015550005, 8015550006' &&
+        /Batch 2 of 3/.test(r.host.textContent));
+      r.host.querySelector('[data-pb="next"]').click();
+      check('S355', 'and the last batch cannot go further',
+        box().value === '8015550007' && r.host.querySelector('[data-pb="next"]').disabled);
+      const sel = r.host.querySelector('[data-pb="sep"]');
+      sel.value = 'line'; sel.dispatchEvent(new r.w.Event('change'));
+      check('S355', 'choosing one per line redraws the box and is remembered',
+        box().value === '8015550007' && r.store['hu.phoneBatchSep'] === 'line' &&
+        /Batch 3 of 3/.test(r.host.textContent));
+      const size = r.host.querySelector('[data-pb="size"]');
+      size.value = '5'; size.dispatchEvent(new r.w.Event('change'));
+      check('S355', 'changing how many at a time starts again at batch 1 and is remembered',
+        box().value === nums.slice(0, 5).join('\n') && r.store['hu.phoneBatchSize'] === '5');
+    })());
+    pending.push((async function () {
+      const r = await run(false, true);
+      r.api.phoneBatchRender(r.host, nums, 0);
+      const ok = await r.api.phoneBatchCopyCurrent(r.host);
+      check('S355', 'a refused clipboard falls back to the older copy',
+        ok && r.copied[0] === 'exec' && /Copied 7 numbers/.test(r.host.textContent));
+    })());
+    pending.push((async function () {
+      const r = await run(false, false);
+      r.api.phoneBatchRender(r.host, nums, 0);
+      const ok = await r.api.phoneBatchCopyCurrent(r.host);
+      check('S355', 'when both refuse it NEVER says copied, and says press Ctrl+C',
+        !ok && !/Copied/.test(r.host.textContent) && /Ctrl\+C/.test(r.host.textContent),
+        'a green tick with nothing on the clipboard is the failure she reported');
+    })());
+    pendingAsync.push(Promise.all(pending));
+  }
 }

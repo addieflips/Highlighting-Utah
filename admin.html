@@ -4068,6 +4068,7 @@
           </div>
           <div id="etRecipientCount" style="font-size:12px; color:var(--slate); margin:-4px 0 8px;"></div>
           <div id="etPhonesStatus" style="font-size:12px; color:var(--slate); margin:-4px 0 8px;"></div>
+          <div id="etPhonesBatch"></div>
           <div id="etRecipientList" style="max-height:220px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:16px;"></div>
           <div style="display:flex; gap:10px;">
             <button type="button" class="btn btn-outline" id="etSendCloseBtn" style="flex:1;">Close</button>
@@ -4188,6 +4189,7 @@
           </label>
         </div>
         <div id="rsvpTextStatus" class="form-note" style="margin:0 0 10px;"></div>
+        <div id="rsvpPhonesBatch"></div>
         <div id="rsvpTextList"></div>
       </div>
       </div>
@@ -20480,6 +20482,118 @@ function rsvpNoPhoneRows(targets){
       '\t' + rsvpSheetCell(d.street || d.address);
   });
 }
+/* ⭐ HOW MANY AT A TIME, AND A BOX YOU CAN SEE (2026-09-24, [[RS-69]]). Addie: "I copy
+   numbers and they don't paste also I need to choose how many to paste at a time."
+   ⚠ ONE PER LINE WAS THE LIKELY REASON NOTHING PASTED. A bulk texter's To box is a single
+   line, and a single-line box keeps the first line of a paste or nothing at all — so a
+   column that pastes perfectly into a spreadsheet arrives as one number or none. Commas
+   are the default now; one per line is still offered for pasting into a sheet.
+   ⚠ THE NUMBERS ARE ALSO DRAWN IN A BOX ON SCREEN, so a copy the browser quietly refuses
+   still leaves them there to select by hand. "Copied" in green with nothing on the
+   clipboard is the exact failure she reported; a box she can see cannot fail that way.
+   ⚠ ONE PANEL, TWO BUTTONS. Copy their phone numbers (Automation Emails) and Copy every
+   phone number (Text the RSVP) both open it, so the batch size, the separator and what a
+   batch is cannot differ between them. */
+const PHONE_BATCH_DEFAULT = 50;
+function phoneBatchSlice(numbers, size, index){
+  const list = numbers || [];
+  const n = Math.max(1, Math.floor(Number(size) || 0) || PHONE_BATCH_DEFAULT);
+  const total = Math.max(1, Math.ceil(list.length / n));
+  const i = Math.min(Math.max(0, Math.floor(Number(index) || 0)), total - 1);
+  return {size: n, total: total, index: i, from: i * n, list: list.slice(i * n, i * n + n)};
+}
+function phoneBatchJoin(list, sep){
+  return (list || []).join(sep === 'line' ? '\n' : ', ');
+}
+function phoneBatchPrefs(){
+  let size = PHONE_BATCH_DEFAULT, sep = 'comma';
+  try{
+    const z = Number(localStorage.getItem('hu.phoneBatchSize'));
+    if(z >= 1) size = Math.floor(z);
+    if(localStorage.getItem('hu.phoneBatchSep') === 'line') sep = 'line';
+  }catch(err){ /* private browsing or blocked storage: the defaults are used and nothing is lost. */ }
+  return {size: size, sep: sep};
+}
+function phoneBatchSavePrefs(size, sep){
+  try{
+    localStorage.setItem('hu.phoneBatchSize', String(size));
+    localStorage.setItem('hu.phoneBatchSep', sep);
+  }catch(err){ /* not remembered on this browser; the panel still works with what is on screen. */ }
+}
+/* ⚠ THE CLIPBOARD, THEN THE OLD WAY, THEN THE BOX. navigator.clipboard can refuse (a
+   lost focus, a browser setting); execCommand on the selected box is the older route that
+   still works in most of those cases; and if both fail the box is selected and the line
+   says press Ctrl+C. Never a green tick for a copy that did not happen. */
+async function phoneBatchCopyText(text, box){
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(text);
+      if(box){ box.focus(); box.select(); }
+      return true;
+    }
+  }catch(err){
+    console.error('Clipboard write refused, trying the older copy:', err);
+  }
+  if(!box) return false;
+  try{
+    box.focus(); box.select();
+    return !!document.execCommand('copy');
+  }catch(err){
+    console.error('Older copy refused too:', err);
+    return false;
+  }
+}
+function phoneBatchRender(host, numbers, index){
+  if(!host) return;
+  host._phoneNumbers = numbers || [];
+  const prefs = phoneBatchPrefs();
+  const b = phoneBatchSlice(host._phoneNumbers, prefs.size, index);
+  host._phoneIndex = b.index;
+  host.innerHTML =
+    '<div style="border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:0 0 12px; background:var(--snow);">' +
+      '<div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px; font-size:13px;">' +
+        '<label>How many at a time <input type="number" min="1" step="1" data-pb="size" value="' + b.size + '" style="width:80px; margin-left:4px;"></label>' +
+        '<label>Separate with <select data-pb="sep" style="margin-left:4px;">' +
+          '<option value="comma"' + (prefs.sep === 'comma' ? ' selected' : '') + '>Commas (for a To box)</option>' +
+          '<option value="line"' + (prefs.sep === 'line' ? ' selected' : '') + '>One per line (for a spreadsheet)</option>' +
+        '</select></label>' +
+      '</div>' +
+      '<div data-pb="where" style="font-size:13px; font-weight:600; margin-bottom:6px;">Batch ' + (b.index + 1) + ' of ' + b.total +
+        ' &mdash; numbers ' + (b.list.length ? (b.from + 1) + '&ndash;' + (b.from + b.list.length) : '0') + ' of ' + host._phoneNumbers.length + '</div>' +
+      '<textarea readonly data-pb="box" rows="4" style="width:100%; font-family:monospace; font-size:12.5px;">' + esc(phoneBatchJoin(b.list, prefs.sep)) + '</textarea>' +
+      '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;">' +
+        '<button type="button" class="btn btn-outline btn-sm" data-pb="prev"' + (b.index === 0 ? ' disabled' : '') + '>&#9664; Previous batch</button>' +
+        '<button type="button" class="btn btn-gold btn-sm" data-pb="copy">Copy batch ' + (b.index + 1) + '</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-pb="next"' + (b.index >= b.total - 1 ? ' disabled' : '') + '>Next batch &#9654;</button>' +
+        '<span data-pb="msg" style="font-size:12.5px; color:var(--slate);"></span>' +
+      '</div>' +
+    '</div>';
+  const q = function(k){ return host.querySelector('[data-pb="' + k + '"]'); };
+  const redraw = function(i){ phoneBatchRender(host, host._phoneNumbers, i); };
+  q('size').addEventListener('change', function(){
+    const v = Math.floor(Number(this.value) || 0);
+    phoneBatchSavePrefs(v >= 1 ? v : PHONE_BATCH_DEFAULT, phoneBatchPrefs().sep);
+    redraw(0);
+  });
+  q('sep').addEventListener('change', function(){
+    phoneBatchSavePrefs(phoneBatchPrefs().size, this.value === 'line' ? 'line' : 'comma');
+    redraw(host._phoneIndex);
+  });
+  q('prev').addEventListener('click', function(){ redraw(host._phoneIndex - 1); });
+  q('next').addEventListener('click', function(){ redraw(host._phoneIndex + 1); });
+  q('copy').addEventListener('click', async function(){ await phoneBatchCopyCurrent(host); });
+}
+async function phoneBatchCopyCurrent(host){
+  const box = host && host.querySelector('[data-pb="box"]');
+  const msg = host && host.querySelector('[data-pb="msg"]');
+  if(!box) return false;
+  const count = box.value ? box.value.split(/,\s*|\n/).filter(Boolean).length : 0;
+  const ok = await phoneBatchCopyText(box.value, box);
+  if(msg) msg.textContent = ok
+    ? '\u2713 Copied ' + count + ' number' + (count === 1 ? '' : 's') + ' \u2014 paste them, then press Next batch.'
+    : 'The browser would not copy. The numbers are selected in the box \u2014 press Ctrl+C (\u2318C on a Mac).';
+  return ok;
+}
 async function rsvpCopyPhones(){
   const statusEl = document.getElementById('rsvpTextStatus');
   const res = rsvpPhoneListRows(rsvpLinkSheetTargets());
@@ -20487,14 +20601,11 @@ async function rsvpCopyPhones(){
     if(statusEl) statusEl.textContent = 'No numbers to copy \u2014 nobody is waiting to answer, or none of them has a phone.';
     return 0;
   }
-  try{ await navigator.clipboard.writeText(res.numbers.join('\n')); }
-  catch(err){
-    console.error('Could not copy the numbers:', err);
-    if(statusEl) statusEl.textContent = 'The clipboard refused \u2014 press it again.';
-    return 0;
-  }
-  if(statusEl) statusEl.textContent = '\u2713 ' + res.numbers.length + ' number' +
-    (res.numbers.length === 1 ? '' : 's') + ' copied, one per line, digits only.' +
+  const host = document.getElementById('rsvpPhonesBatch');
+  phoneBatchRender(host, res.numbers, 0);
+  await phoneBatchCopyCurrent(host);
+  if(statusEl) statusEl.textContent = res.numbers.length + ' number' +
+    (res.numbers.length === 1 ? '' : 's') + ', digits only \u2014 batch 1 is copied; the rest are below, a batch at a time.' +
     (res.stopped ? '  ' + res.stopped + ' left out \u2014 they replied STOP.' : '') +
     (res.odd.length ? '  \u26A0 ' + res.odd.length + ' are not 10 digits and went in as they are: ' +
       res.odd.slice(0, 5).join('; ') + (res.odd.length > 5 ? ' and others' : '') : '');
@@ -22254,8 +22365,8 @@ function etPhoneCopySummary(audience){
       ? 'Nobody these filters match has a phone number that can be texted.'
       : 'Nobody matches these filters — no numbers to copy.';
   } else {
-    msg = '\u2713 ' + res.numbers.length + ' number' + (res.numbers.length === 1 ? '' : 's') +
-      ' copied, one per line, digits only — the people these filters match.';
+    msg = res.numbers.length + ' number' + (res.numbers.length === 1 ? '' : 's') +
+      ', digits only \u2014 the people these filters match. Batch 1 is copied; the rest are below, a batch at a time.';
   }
   if(noEmail) msg += '  ' + noEmail + ' of them have no usable email, so the email never reached them — this text is the only thing that will.';
   if(res.stopped) msg += '  ' + res.stopped + ' left out — they replied STOP.';
@@ -22275,12 +22386,9 @@ async function etCopyFilteredPhones(){
     if(statusEl) statusEl.textContent = sum.text;
     return 0;
   }
-  try{ await navigator.clipboard.writeText(sum.numbers.join('\n')); }
-  catch(err){
-    console.error('Could not copy the numbers:', err);
-    if(statusEl) statusEl.textContent = 'The clipboard refused — press it again.';
-    return 0;
-  }
+  const host = document.getElementById('etPhonesBatch');
+  phoneBatchRender(host, sum.numbers, 0);
+  await phoneBatchCopyCurrent(host);
   if(statusEl) statusEl.textContent = sum.text;
   return sum.numbers.length;
 }
