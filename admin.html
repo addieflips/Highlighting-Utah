@@ -62850,7 +62850,213 @@ function planNewCrewDays(waiting, taken, opts){
       return haversine(ca.lat, ca.lng, cb.lat, cb.lng);
     }
   });
-  return renumberCrewsByDate(packed.days, taken || {});
+  /* ⭐ AND A HOUSE LEFT OUT ON ITS OWN JOINS THE DAY THE CREW IS IN ITS AREA
+     ([[SCH-96]]). Guarded, like the forecast and the day shape: several suites lift this
+     builder without it, and there it must lay the season out exactly as before. */
+  const gathered = (o.gather !== false && typeof gatherStrayHouses === 'function')
+    ? gatherStrayHouses(packed.days, {
+        cap: cap, dayShape: o.dayShape,
+        house: function(id){ return wById[id] || null; }
+      })
+    : packed.days;
+  return renumberCrewsByDate(gathered, taken || {});
+}
+/* ⭐ A HOUSE WAY OUT OF THE WAY GOES ON THE DAY THE CREW IS ALREADY IN ITS AREA
+   ([[SCH-96]], Dax, 2026-09-24): "on the schedule I noticed we do a house in Lehi way
+   out of the way and then two days later we are going to be in that same area of Lehi
+   so I would rather they got put in a day where we are in that area."
+
+   ⚠ HOW IT HAPPENS. A crew-day short of the cap tops up from the nearest neighbouring
+   area (the borrow step in planNewCrewDays), and a one-man outlier gets a day of its
+   own ([[SCH-69]]). Either way one house can land miles from everything else on its
+   sheet while, a few days either side, a crew works the street it is on.
+
+   ⛔ THIS IS NOT [[SCH-75]] COME BACK. That row measured rebuilding whole days to stop
+   the crew returning to an AREA, and every version cost crew-days. This moves single
+   houses between days that already exist: it never adds a crew-day, never drops
+   anybody, and every move shortens the drive by construction — from 3+ miles out on
+   its own sheet to within 1.5 miles of a house on the new one.
+
+   The rules a move must keep, all of them standing rulings:
+   - never before the house's own earliest day ([[SCH-06]]) or past its last one
+     ([[SCH-07]]);
+   - LATER only by a week at most, and never for anybody the plan is hurrying — asked
+     sooner, a new hang, missed before ([[SCH-61]]), running out of time ([[SCH-58]]) or
+     a named day. Earlier is always allowed, since earlier costs nobody anything;
+   - only onto a crew-day that already holds a house in the SAME TOWN, so the crews'
+     towns ([[SCH-02]]) and the sheet's label do not change;
+   - only where there is room, and never tipping a date over a staffing line: one
+     person (ONE_MAN_MAX_HOUSES) to a crew, or one crew to two ([[SCH-09]]).
+   Days inside the 48-hour lock never reach here: rebuildSeasonDays keeps them out of
+   the pool, so nothing printed moves.
+
+   PURE: crew-days in, crew-days out ({date, crew, city, towns, areas, ids}). */
+const STRAY_FAR_MILES = 3;
+const STRAY_NEAR_MILES = 1.5;
+const STRAY_LATER_MAX_DAYS = 7;
+function gatherStrayHouses(days, opts){
+  /* Guarded, because several suites lift the builder into a sandbox with no tape measure;
+     there it must hand the plan back exactly as built. The page always has one. */
+  if(typeof haversine !== 'function') return days;
+  const o = opts || {};
+  const house = typeof o.house === 'function' ? o.house : function(){ return null; };
+  const cap = o.cap || MAX_STOPS_PER_ROUTE;
+  const dayShape = typeof o.dayShape === 'function' ? o.dayShape : function(){ return null; };
+  const capOnDate = function(ds){
+    const sh = dayShape(ds);
+    return (sh && sh.cap > 0) ? Math.min(cap, sh.cap) : cap;
+  };
+  const oneMax = (typeof ONE_MAN_MAX_HOUSES === 'number') ? ONE_MAN_MAX_HOUSES : 8;
+  /* One person, one crew, two crews — the staffing a date's total asks for. */
+  const staffing = function(n){ return n <= oneMax ? 0 : (n < cap ? 1 : 2); };
+  const pinOf = function(id){
+    const w = house(id);
+    const st = w && w.stop;
+    return (st && typeof st.lat === 'number' && typeof st.lng === 'number' &&
+            isFinite(st.lat) && isFinite(st.lng)) ? st : null;
+  };
+  const townOf = function(id){ const w = house(id); return (w && w.city) || ''; };
+  const nearest = function(p, ids, skip){
+    let best = Infinity, bestId = null;
+    ids.forEach(function(id){
+      if(id === skip) return;
+      const q = pinOf(id);
+      if(!q) return;
+      const d = haversine(p.lat, p.lng, q.lat, q.lng);
+      if(d < best){ best = d; bestId = id; }
+    });
+    return {miles: best, id: bestId};
+  };
+  const dayMs = 86400000;
+  const daysApart = function(a, b){
+    return Math.round((Date.UTC(+b.slice(0,4), +b.slice(5,7) - 1, +b.slice(8,10)) -
+                       Date.UTC(+a.slice(0,4), +a.slice(5,7) - 1, +a.slice(8,10))) / dayMs);
+  };
+  /* Anybody the plan is hurrying keeps the day it was given or an earlier one. Tiers
+     below 20 are asked-sooner, new hangs and missed; a tier ending in 5 is one that is
+     running out of time — see houseInstallPriority. */
+  const mayWait = function(w){
+    if(!w) return false;
+    const p = (typeof w.priority === 'number') ? w.priority : 40;
+    return p >= 20 && p % 10 === 0 && !w.missed && !w.rush && !w.named;
+  };
+  const list = (days || []).slice();
+  const dateTotal = function(ds){
+    let n = 0;
+    list.forEach(function(cd){ if(cd.date === ds) n += cd.ids.length; });
+    return n;
+  };
+  /* May this house go from one crew-day to another at all? The date rules only. */
+  const canGo = function(id, from, to){
+    const w = house(id);
+    const lo = (w && w.from) || '', hi = (w && w.until) || '';
+    if(lo && to.date < lo) return false;
+    if(hi && to.date > hi) return false;
+    if(to.date > from.date &&
+       (!mayWait(w) || daysApart(from.date, to.date) > STRAY_LATER_MAX_DAYS)) return false;
+    return true;
+  };
+  const holdsTown = function(ids, town, skip){
+    return ids.some(function(x){ return x !== skip && townOf(x) === town; });
+  };
+  const moved = [], touched = {};
+  for(let guard = 0; guard < 500; guard++){
+    let best = null;
+    const offer = function(c){
+      /* Biggest saving wins; on a tie, the sooner day. */
+      if(!best || c.gain > best.gain || (c.gain === best.gain && c.dst.date < best.dst.date)) best = c;
+    };
+    list.forEach(function(src){
+      src.ids.forEach(function(id){
+        if(touched[id]) return;
+        const p = pinOf(id);
+        if(!p) return;
+        const here = nearest(p, src.ids, id).miles;
+        if(here < STRAY_FAR_MILES) return;
+        const town = townOf(id);
+        if(!town) return;
+        list.forEach(function(dst){
+          if(dst === src || dst.date === src.date) return;
+          if(!canGo(id, src, dst)) return;
+          if(!holdsTown(dst.ids, town, null)) return;
+          const there = nearest(p, dst.ids, null);
+          if(there.miles > STRAY_NEAR_MILES) return;
+          if(dst.ids.length < capOnDate(dst.date)){
+            const total = dateTotal(dst.date);
+            if(staffing(total + 1) !== staffing(total)) return;
+            /* and the run itself: a one-person run beside a full one stays one person
+               ([[SCH-69]], crewIsOneMan). */
+            if((dst.ids.length + 1 <= oneMax) !== (dst.ids.length <= oneMax)) return;
+            offer({id: id, src: src, dst: dst, near: there.id, was: here, now: there.miles,
+                   gain: (isFinite(here) ? here : STRAY_FAR_MILES * 10) - there.miles});
+            return;
+          }
+          /* ⭐ THE DAY IN ITS AREA IS FULL — SO TRADE. Measured before this was added:
+             every stray left behind that had a crew in its area was blocked only by a
+             full sheet, because days are filled to the cap on purpose ([[SCH-68]]).
+             One of that day's houses takes the stray's place instead, and only when the
+             swap shortens BOTH drives' worth of stray miles together — the traded house
+             must itself land beside a house on its new sheet, in a town that sheet
+             already works, on a date its own rules allow. Head-counts do not change, so
+             staffing cannot. */
+          const rest = src.ids.filter(function(x){ return x !== id; });
+          dst.ids.forEach(function(t){
+            if(touched[t]) return;
+            const tp = pinOf(t);
+            if(!tp) return;
+            const tt = townOf(t);
+            if(!tt || !holdsTown(rest, tt, null)) return;
+            if(!canGo(t, dst, src)) return;
+            const tHere = nearest(tp, dst.ids, t).miles;
+            const tThere = nearest(tp, rest, null);
+            if(tThere.miles > STRAY_NEAR_MILES) return;
+            const sThere = nearest(p, dst.ids, t);
+            if(sThere.miles > STRAY_NEAR_MILES) return;
+            const gain = (isFinite(here) ? here : STRAY_FAR_MILES * 10) - sThere.miles +
+                         (isFinite(tHere) ? tHere : 0) - tThere.miles;
+            if(gain < STRAY_NEAR_MILES) return;
+            offer({id: id, src: src, dst: dst, near: sThere.id, was: here, now: sThere.miles, gain: gain,
+                   swap: t, swapNear: tThere.id});
+          });
+        });
+      });
+    });
+    if(!best) break;
+    const b = best;
+    b.src.ids = b.src.ids.filter(function(x){ return x !== b.id; });
+    if(b.swap != null){
+      b.dst.ids = b.dst.ids.filter(function(x){ return x !== b.swap; });
+      b.src.ids.push(b.swap);
+    }
+    b.dst.ids.push(b.id);
+    /* Each house joins the block it is now worked in, so townsAreNeighbours reads it
+       the way the crew will drive it. */
+    const joinArea = function(id, near, day){
+      const w = house(id), nw = house(near);
+      if(w && nw && nw.area) w.area = nw.area;
+      if(w && w.area && Array.isArray(day.areas) && day.areas.indexOf(w.area) === -1) day.areas.push(w.area);
+    };
+    joinArea(b.id, b.near, b.dst);
+    if(b.swap != null) joinArea(b.swap, b.swapNear, b.src);
+    /* And a day stops naming a town it no longer holds. */
+    [b.src, b.dst].forEach(function(day){
+      const left = {};
+      day.ids.forEach(function(x){ const t = townOf(x); if(t) left[t] = (left[t] || 0) + 1; });
+      if(Array.isArray(day.towns)) day.towns = day.towns.filter(function(t){ return left[t]; });
+      if(day.ids.length && !left[day.city]){
+        day.city = Object.keys(left).sort(function(x, y){ return left[y] - left[x] || (x < y ? -1 : 1); })[0] || day.city;
+      }
+    });
+    touched[b.id] = true;
+    moved.push({id: b.id, from: b.src.date, to: b.dst.date, was: b.was, now: b.now});
+    if(b.swap != null){
+      touched[b.swap] = true;
+      moved.push({id: b.swap, from: b.dst.date, to: b.src.date, swappedFor: b.id});
+    }
+    if(!b.src.ids.length) list.splice(list.indexOf(b.src), 1);
+  }
+  list.gathered = moved;
+  return list;
 }
 /* ⭐ THE DRIBBLE AT THE END OF THE SEASON, SWEPT UP.
    Owner, 2026-08-18: "near the end of the season days start to look like this
