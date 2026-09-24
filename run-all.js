@@ -64463,7 +64463,7 @@ suite('354. Copy their phone numbers — the filtered audience, for texting');
 suite('355. Phone numbers a batch at a time, commas by default');
 {
   const names = ['phoneBatchSlice', 'phoneBatchName', 'phoneBatchJoin', 'phoneBatchPrefs', 'phoneBatchSavePrefs',
-    'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchCopyCurrent'];
+    'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent'];
   const liftAsync = function (n) {
     const i = admin.indexOf('async function ' + n + '(');
     return i === -1 ? extractFn(admin, n) : 'async ' + extractFn(admin, n);
@@ -64526,8 +64526,18 @@ suite('355. Phone numbers a batch at a time, commas by default');
         box().value === '8015550007' && r.store['hu.phoneBatchSep'] === 'line' &&
         /Batch 3 of 3/.test(r.host.textContent));
       const size = r.host.querySelector('[data-pb="size"]');
-      size.value = '5'; size.dispatchEvent(new r.w.Event('change'));
-      check('S355', 'changing how many at a time starts again at batch 1 and is remembered',
+      const copyBtnBefore = r.host.querySelector('[data-pb="copy"]');
+      size.value = '5'; size.dispatchEvent(new r.w.Event('input'));
+      /* RS-71: typing then clicking Copy straight away lost the click, because the
+         panel was rebuilt under the pointer. The Copy button must be the SAME node. */
+      check('S355', 'typing a size never replaces the Copy button under the pointer',
+        r.host.querySelector('[data-pb="copy"]') === copyBtnBefore,
+        'a rebuilt button between mousedown and mouseup swallows the click');
+      check('S355', 'and it says the size was saved', /Saved/.test(r.host.textContent));
+      size.value = ''; size.dispatchEvent(new r.w.Event('input')); size.dispatchEvent(new r.w.Event('change'));
+      check('S355', 'a box left blank goes back to the saved size rather than to nothing',
+        size.value === '5' && r.store['hu.phoneBatchSize'] === '5');
+      check('S355', 'typing how many at a time starts again at batch 1 and is remembered',
         box().value === nums.slice(0, 5).join('\n') && r.store['hu.phoneBatchSize'] === '5');
     })());
     pending.push((async function () {
@@ -64561,7 +64571,7 @@ suite('356. Names next to the numbers, number first');
     return i === -1 ? extractFn(admin, n) : 'async ' + extractFn(admin, n);
   };
   const srcs = ['phoneBatchSlice', 'phoneBatchName', 'phoneBatchJoin', 'phoneBatchPrefs',
-    'phoneBatchSavePrefs', 'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchCopyCurrent'].map(lift);
+    'phoneBatchSavePrefs', 'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent'].map(lift);
   const rowsSrc = ['rsvpSheetCell', 'rsvpPhoneDigits', 'rsvpPhoneListRows'].map(n => extractFn(admin, n));
   check('S356', 'the panel and the row builder were found', srcs.every(Boolean) && rowsSrc.every(Boolean));
   let JSDOM = null;
