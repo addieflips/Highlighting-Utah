@@ -8044,7 +8044,8 @@ if (!JSDOM) {
     global.jobAddresses = [
       { id: 'h1', data: { name: 'Nadia Brooks', address: '18 Frost Ln', needsLightBuild: true,
           lightsDescription: 'Warm White', wireColor: 'White', measuredFeet: 240,
-          outletTimer: 'Yes', customerNumber: '', notes: 'Steep pitch over the entry' } },
+          outletTimer: 'Yes', customerNumber: '', notes: 'Steep pitch over the entry',
+          warehouseNote: 'Bin is on the top shelf' } },
       { id: 'h2', data: { name: 'Owen Hale', address: '92 Birch Way', needsLightBuild: true,
           lightsDescription: 'Warm White', wireColor: 'White', measuredFeet: 200,
           outletTimer: 'No', customerNumber: '1421' } }
@@ -8090,9 +8091,15 @@ if (!JSDOM) {
       'a bundle with no number on it cannot be binned or handed to a crew');
     check('warehouse', 'an existing customer shows their number instead',
       /#1421/.test(body.innerHTML));
-    check('warehouse', 'the house notes come through',
-      /Steep pitch over the entry/.test(body.innerHTML),
+    check('warehouse', 'the warehouse note comes through',
+      /Bin is on the top shelf/.test(body.innerHTML),
       'notes sit at the bottom of the row, under the facts');
+    /* [[WH-48]] Addie: "want only crew to show for crews and warehouse to show for
+       warehouse". This asserted the crew's Permanent Notes reached this row; under the
+       new ruling that is exactly the fault, so it is repointed rather than deleted. */
+    check('warehouse', 'and the crew\'s Permanent Notes do not',
+      !/Steep pitch over the entry/.test(body.innerHTML),
+      'the crew note belongs on the crew sheet, not the build list');
     check('warehouse', 'timers are rolled up against the houses that asked for one',
       /Timers/.test(list.innerHTML) && /1 house in this build needs a timer/.test(list.innerHTML),
       'without this the count of timers to pull off the shelf is guesswork');
@@ -8207,7 +8214,8 @@ if (!JSDOM) {
     global.jobAddresses = [
       { id: 'h1', data: { name: 'Nadia Brooks', address: '18 Frost Ln', needsLightBuild: true,
           lightsDescription: 'Warm White', wireColor: 'White', measuredFeet: 240,
-          outletTimer: 'Yes', customerNumber: '', notes: 'Steep pitch over the entry' } },
+          outletTimer: 'Yes', customerNumber: '', notes: 'Steep pitch over the entry',
+          warehouseNote: 'Bin is on the top shelf' } },
       { id: 'h2', data: { name: 'Owen Hale', address: '92 Birch Way', needsLightBuild: true,
           lightsDescription: 'Warm White', wireColor: 'White', customerNumber: '1421' } }
     ];
@@ -29519,12 +29527,16 @@ suite('Suite 112. The number on the bin');
     check('S112', 'and still names whose bin, and how much to make',
       !!addOn && addOn.putInto === 'Ashley Wray #894' && addOn.bundles === '+3',
       'got ' + JSON.stringify(addOn && addOn.bundles));
-    check('S112', 'and their own note is not thrown away for it',
-      /GOES INTO THE BIN[\s\S]*ladder round the back/.test(
-        build({name: 'A', customerNumber: '9', needsLightBuild: true,
+    /* [[WH-48]] — the warehouse note rides with the add-on line; the crew's Permanent
+       Notes (`notes`) belong on the crew sheet and no longer reach this one. */
+    const addOnNoted = build({name: 'A', customerNumber: '9', needsLightBuild: true,
                lightsDescription: 'Warm White', measuredFeet: 300,
-               buildTopUpFromFeet: 180, notes: 'ladder round the back'}).notes),
-      'the crew still needs what the customer told them');
+               buildTopUpFromFeet: 180, notes: 'ladder round the back',
+               warehouseNote: 'old bin is by the door'}).notes;
+    check('S112', 'and the warehouse note is not thrown away for it',
+      /GOES INTO THE BIN[\s\S]*old bin is by the door/.test(addOnNoted), addOnNoted);
+    check('S112', 'but the crew\'s note is not on the build sheet',
+      !/ladder round the back/.test(addOnNoted), addOnNoted);
 
     const ordinary = build({name: 'Plain', customerNumber: '5', needsLightBuild: true,
       lightsDescription: 'Warm White', measuredFeet: 300});
@@ -64344,17 +64356,29 @@ suite('353. The warehouse note is drawn big enough to be seen');
     const html = box({warehouseNote: 'Bin on top shelf', warehouseOneTimeNote: 'Use Miller spare', notes: 'Gate 4412'});
     check('S353', 'the note is 14px, not the 12px it was', /font-size:14px/.test(html), html);
     check('S353', 'it sits in its own tinted, labelled box', /background:#FFF8E1/.test(html) && /Warehouse note/.test(html));
-    check('S353', 'all three notes are in it, the one-time note first and in red',
+    check('S353', 'both warehouse notes are in it, the one-time note first and in red',
       html.indexOf('THIS BUILD ONLY: Use Miller spare') !== -1 &&
       html.indexOf('THIS BUILD ONLY') < html.indexOf('Bin on top shelf') &&
-      html.indexOf('Bin on top shelf') < html.indexOf('Gate 4412') &&
       /color:#B02A37;">THIS BUILD ONLY/.test(html));
+    check('S353', 'the crew\'s Permanent Notes are NOT in it ([[WH-48]])',
+      html.indexOf('Gate 4412') === -1 && box({notes: 'Dog in the yard'}) === '',
+      'Addie: "the one for crew was showing for warehouse"');
     check('S353', 'no note draws nothing — no empty box on every row', box({}) === '' && box({warehouseNote: '  '}) === '');
     check('S353', 'what somebody typed is escaped, not run', box({warehouseNote: '<b>x</b>'}).indexOf('<b>x</b>') === -1);
   }
   check('S353', 'the build row and the find box both draw it',
     /\(houseNotes \? whNoteBoxHtml\(h\.data\) : ''\)/.test(strippedA) && /\(note \? whNoteBoxHtml\(d\) : ''\)/.test(strippedA),
     'one screen showing it big and the other small is two answers about one house');
+  const crewFn = extractFn(admin, 'printCrewNotes');
+  check('S353', 'and the other way round: a warehouse note never reaches the crew sheet ([[WH-48]])',
+    !!crewFn && (function(){
+      const f = new Function(crewFn + '\nreturn printCrewNotes;')();
+      const out = f({notes: 'Dog in yard', oneTimeNote: 'Park on street',
+                     warehouseNote: 'Top shelf', warehouseOneTimeNote: 'Use Miller spare'}, {});
+      return /Dog in yard/.test(out) && /Park on street/.test(out) &&
+             !/Top shelf/.test(out) && !/Miller spare/.test(out);
+    })(),
+    'Addie: "want only crew to show for crews and warehouse to show for warehouse"');
 }
 
 /* =====================================================================

@@ -78,17 +78,18 @@ check('a warehouse note reaches the cell',
   cell({warehouseNote: 'Short strands only'}, false) === 'Short strands only',
   'got ' + JSON.stringify(cell({warehouseNote: 'Short strands only'}, false)));
 
-/* ⚠ THE OLD BEHAVIOUR MUST SURVIVE. Permanent Notes is what this cell has always
-   carried and somebody is relying on it; answering her request by taking that away
-   would be a worse bug than the one being fixed. */
-check('and Permanent Notes still reaches it on its own',
-  cell({notes: 'Dog in the yard'}, false) === 'Dog in the yard');
+/* ⛔ [[WH-48]] REVERSES WH-37's "Permanent Notes still follows". Addie, 2026-09-23: "I put
+   a note for crew and warehouse but the one for crew was showing for warehouse."
+   Permanent Notes is the CREW's box. The old check here asserted the opposite and was
+   right under the ruling it guarded; it is repointed, not deleted, so a change that puts
+   the crew's note back on the warehouse sheet goes red. */
+check('the crew\'s Permanent Notes do NOT reach the warehouse cell',
+  cell({notes: 'Dog in the yard'}, false) === '',
+  'got ' + JSON.stringify(cell({notes: 'Dog in the yard'}, false)));
 
-check('both together lead with the warehouse note',
-  cell({warehouseNote: 'Top shelf', notes: 'Dog in the yard'}, false) ===
-    'Top shelf ' + DASH + ' Dog in the yard',
-  'the warehouse note is the one written FOR the person holding this sheet, so it ' +
-  'reads first: got ' + JSON.stringify(cell({warehouseNote: 'Top shelf', notes: 'Dog in the yard'}, false)));
+check('with both on file, only the warehouse note is there',
+  cell({warehouseNote: 'Top shelf', notes: 'Dog in the yard'}, false) === 'Top shelf',
+  'got ' + JSON.stringify(cell({warehouseNote: 'Top shelf', notes: 'Dog in the yard'}, false)));
 
 check('nothing on file is an empty cell, never the word undefined',
   cell({}, false) === '' && cell(null, false) === '',
@@ -129,14 +130,14 @@ check('it leads the permanent one',
   'it is the only line in the cell that is true this morning and false next week: got ' +
   JSON.stringify(cell({warehouseOneTimeNote: 'Old bin back', warehouseNote: 'Top shelf'}, false)));
 
-check('and all three read in order, once only, nothing dropped',
+check('both warehouse notes read in order, and the crew note is left out ([[WH-48]])',
   cell({warehouseOneTimeNote: 'A', warehouseNote: 'B', notes: 'C'}, false) ===
-    'THIS BUILD ONLY: A ' + DASH + ' B ' + DASH + ' C',
+    'THIS BUILD ONLY: A ' + DASH + ' B',
   'got ' + JSON.stringify(cell({warehouseOneTimeNote: 'A', warehouseNote: 'B', notes: 'C'}, false)));
 
 check('a top-up still leads the lot',
   cell({warehouseOneTimeNote: 'A', notes: 'C'}, true) ===
-    'GOES INTO THE BIN THEY ALREADY HAVE ' + DASH + ' THIS BUILD ONLY: A ' + DASH + ' C');
+    'GOES INTO THE BIN THEY ALREADY HAVE ' + DASH + ' THIS BUILD ONLY: A');
 
 /* ⛔ AND IT HAS TO BE CLEARED WHEN THE BUNDLE IS MADE, or it is a standing instruction
    wearing a one-time label. */
