@@ -64045,9 +64045,12 @@ suite('350. The numbers on their own, and the people who have none');
   check('S350', 'the numbers press was found', copyFn.length > 300);
   /* REPOINTED 2026-09-24 (RS-69): the press opens the batch panel and copies batch 1
      rather than the whole list one per line. The separator is Suite 355's. */
-  check('S350', 'it hands the numbers to the batch panel and copies the first batch',
+  /* REPOINTED AGAIN 2026-09-24 (RS-72): the press opens the panel and copies NOTHING —
+     copying batch 1 at the saved size put every pending number on the clipboard whenever
+     fewer than 50 were pending. Copy batch is the only thing that copies. */
+  check('S350', 'it hands the numbers to the batch panel and copies nothing until Copy batch',
     /phoneBatchRender\(host, res\.numbers, 0, res\.names\)/.test(copyFn) &&
-    /await phoneBatchCopyCurrent\(host\)/.test(copyFn),
+    !/phoneBatchCopyCurrent|clipboard/.test(copyFn),
     'the whole list in one paste is what did not paste');
   check('S350', 'it says how many were left out for STOP',
     /res\.stopped/.test(copyFn),
@@ -64627,4 +64630,33 @@ suite('356. Names next to the numbers, number first');
     /phoneBatchRender\(host, sum\.numbers, 0, sum\.names\)/.test(strippedA) &&
     /names: res\.names, text: msg/.test(strippedA),
     'a tick box that is never drawn because no names reached it looks like it was never built');
+}
+
+/* Suite 357. Pending means pending (2026-09-24, RS-72). Addie: "I only want to
+ * copy every phone number that is pending now every phone number." */
+suite('357. Copying phone numbers means the pending ones');
+{
+  const strippedA = stripComments(admin);
+  check('S357', 'the Text the RSVP button is named for what it copies',
+    admin.indexOf('id="rsvpPhonesBtn">Copy pending phone numbers</button>') !== -1 &&
+    admin.indexOf('>Copy every phone number<') === -1,
+    'a button called "every" that copies only the pending reads as the wrong list');
+  const targetsSrc = stripComments(extractFn(admin, 'rsvpLinkSheetTargets') || '');
+  check('S357', 'and it really does drop everyone who has answered',
+    /if\(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus\(d\)\) return false;/.test(targetsSrc) &&
+    /rsvpPhoneListRows\(rsvpLinkSheetTargets\(\)\)/.test(stripComments(extractFn(admin, 'rsvpCopyPhones') || '')));
+  const etSrc = stripComments(extractFn(admin, 'etCopyFilteredPhones') || '');
+  check('S357', 'the Automation Emails copy warns when the RSVP filter is not pending',
+    /etFilterRsvp !== 'pending'/.test(etSrc) && /Not answered yet/.test(etSrc),
+    'with RSVP Status on All it copies the whole book, and says nothing');
+  /* ⛔ THE CHECK THAT EARNS THIS HALF: opening the panel copies nothing. */
+  const rsvpSrc = stripComments(extractFn(admin, 'rsvpCopyPhones') || '');
+  check('S357', 'neither copy button copies anything until Copy batch is pressed',
+    rsvpSrc.length > 100 && etSrc.length > 100 &&
+    !/phoneBatchCopyCurrent|clipboard/.test(rsvpSrc) && !/phoneBatchCopyCurrent|clipboard/.test(etSrc) &&
+    /phoneBatchFocusSize\(host\)/.test(rsvpSrc) && /phoneBatchFocusSize\(host\)/.test(etSrc),
+    'batch 1 copied on the press was every pending number whenever fewer than 50 were pending');
+  check('S357', 'and the only thing that copies is the Copy batch button',
+    /q\('copy'\)\.addEventListener\('click', async function\(\)\{ await phoneBatchCopyCurrent\(host\); \}\);/
+      .test(stripComments(extractFn(admin, 'phoneBatchRender') || '')));
 }
