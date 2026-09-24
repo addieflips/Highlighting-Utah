@@ -4178,7 +4178,7 @@
           <button type="button" class="btn btn-outline btn-sm" id="rsvpTextFindBtn">Find who still has to answer</button>
           <button type="button" class="btn btn-gold btn-sm" id="rsvpTextCopyAllBtn" style="display:none;">Copy them all for texting</button>
           <button type="button" class="btn btn-outline btn-sm" id="rsvpLinkSheetBtn">Copy everyone&rsquo;s links &mdash; for a spreadsheet</button>
-          <button type="button" class="btn btn-outline btn-sm" id="rsvpPhonesBtn">Copy every phone number</button>
+          <button type="button" class="btn btn-outline btn-sm" id="rsvpPhonesBtn">Copy pending phone numbers</button>
           <button type="button" class="btn btn-outline btn-sm" id="rsvpNoPhoneBtn">Who has no number</button>
           <span id="rsvpTextCount" style="font-size:12.5px; color:var(--slate);"></span>
         </div>
@@ -20636,6 +20636,17 @@ function phoneBatchRender(host, numbers, index, names){
   q('copy').addEventListener('click', async function(){ await phoneBatchCopyCurrent(host); });
   show(index);
 }
+/* ⛔ OPENING THE PANEL COPIES NOTHING (2026-09-24, [[RS-72]]). Addie: "Okay but I told you
+   I don't want to copy all phone numbers just a small bulk at a time." The press used to copy
+   batch 1 straight away at the saved size — 50 until she changes it — so on a list shorter
+   than that, one press put EVERY pending number on the clipboard before she had chosen a
+   size at all. Now the press opens the panel with the size box ready, and only Copy batch
+   copies anything. */
+function phoneBatchFocusSize(host){
+  const size = host && host.querySelector('[data-pb="size"]');
+  if(!size) return;
+  try{ size.focus(); size.select(); }catch(err){ /* focus is a convenience; the box is on screen either way. */ }
+}
 /* Text only: the heading, the box, the Copy label and whether Previous / Next can go
    further. Never innerHTML on anything a click could be resting on. */
 function phoneBatchShow(host, index){
@@ -20676,9 +20687,9 @@ async function rsvpCopyPhones(){
   }
   const host = document.getElementById('rsvpPhonesBatch');
   phoneBatchRender(host, res.numbers, 0, res.names);
-  await phoneBatchCopyCurrent(host);
+  phoneBatchFocusSize(host);
   if(statusEl) statusEl.textContent = res.numbers.length + ' number' +
-    (res.numbers.length === 1 ? '' : 's') + ', digits only \u2014 batch 1 is copied; the rest are below, a batch at a time.' +
+    (res.numbers.length === 1 ? '' : 's') + ' of people still pending (not answered yet), digits only \u2014 nothing is copied yet: type how many at a time below, then press Copy batch 1.' +
     (res.stopped ? '  ' + res.stopped + ' left out \u2014 they replied STOP.' : '') +
     (res.odd.length ? '  \u26A0 ' + res.odd.length + ' are not 10 digits and went in as they are: ' +
       res.odd.slice(0, 5).join('; ') + (res.odd.length > 5 ? ' and others' : '') : '');
@@ -22439,7 +22450,7 @@ function etPhoneCopySummary(audience){
       : 'Nobody matches these filters — no numbers to copy.';
   } else {
     msg = res.numbers.length + ' number' + (res.numbers.length === 1 ? '' : 's') +
-      ', digits only \u2014 the people these filters match. Batch 1 is copied; the rest are below, a batch at a time.';
+      ', digits only \u2014 the people these filters match. Nothing is copied yet: type how many at a time below, then press Copy batch 1.';
   }
   if(noEmail) msg += '  ' + noEmail + ' of them have no usable email, so the email never reached them — this text is the only thing that will.';
   if(res.stopped) msg += '  ' + res.stopped + ' left out — they replied STOP.';
@@ -22461,8 +22472,15 @@ async function etCopyFilteredPhones(){
   }
   const host = document.getElementById('etPhonesBatch');
   phoneBatchRender(host, sum.numbers, 0, sum.names);
-  await phoneBatchCopyCurrent(host);
-  if(statusEl) statusEl.textContent = sum.text;
+  phoneBatchFocusSize(host);
+  /* ⚠ SAID WHEN THE RSVP FILTER IS NOT "Not answered yet" ([[RS-72]]). Addie: "I only
+     want to copy every phone number that is pending now every phone number." This button
+     copies whatever the filters match, so with RSVP Status on All it is the whole book —
+     correct, and exactly what she did not want. Warned rather than forced: a text to the
+     people who said Yes is a real send somebody may want. */
+  if(statusEl) statusEl.textContent = sum.text + (etFilterRsvp !== 'pending'
+    ? '  \u26A0 RSVP Status is not set to \u201CNot answered yet\u201D, so this includes people who have already answered. Set it there for pending only.'
+    : '');
   return sum.numbers.length;
 }
 document.getElementById('etCopyPhonesBtn')?.addEventListener('click', async function(){
