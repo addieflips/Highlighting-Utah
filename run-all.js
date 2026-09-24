@@ -64061,7 +64061,9 @@ suite('350. The numbers on their own, and the people who have none');
      copying batch 1 at the saved size put every pending number on the clipboard whenever
      fewer than 50 were pending. Copy batch is the only thing that copies. */
   check('S350', 'it hands the numbers to the batch panel and copies nothing until Copy batch',
-    /phoneBatchRender\(host, res\.numbers, 0, res\.names\)/.test(copyFn) &&
+    /* REPOINTED 2026-09-24 (RS-75): the list goes through phoneBatchOpen, which reopens the
+       saved batches or makes new ones from exactly this list. */
+    /phoneBatchOpen\(host, 'rsvp', function\(\)\{\s*const r = rsvpPhoneListRows\(rsvpLinkSheetTargets\(\)\);\s*return \{numbers: r\.numbers, names: r\.names\};/.test(copyFn) &&
     !/phoneBatchCopyCurrent|clipboard/.test(copyFn),
     'the whole list in one paste is what did not paste');
   check('S350', 'it says how many were left out for STOP',
@@ -64470,7 +64472,8 @@ suite('354. Copy their phone numbers — the filtered audience, for texting');
   }
 
   check('S354', 'the press opens the batch panel and is wired to its button',
-    /phoneBatchRender\(host, sum\.numbers, 0, sum\.names\)/.test(copySrc) &&
+    /* REPOINTED 2026-09-24 (RS-75): through phoneBatchOpen, built from the filtered audience. */
+    /phoneBatchOpen\(host, 'et', function\(\)\{\s*const s = etPhoneCopySummary\(etTextAudience\);\s*return \{numbers: s\.numbers, names: s\.names\};/.test(copySrc) &&
     admin.indexOf('id="etCopyPhonesBtn"') !== -1 &&
     /getElementById\('etCopyPhonesBtn'\)\?\.addEventListener\('click'/.test(stripComments(admin)),
     'a button with no handler looks identical to a working one');
@@ -64490,7 +64493,9 @@ suite('354. Copy their phone numbers — the filtered audience, for texting');
 suite('355. Phone numbers a batch at a time, commas by default');
 {
   const names = ['phoneBatchSlice', 'phoneBatchName', 'phoneBatchJoin', 'phoneBatchPrefs', 'phoneBatchSavePrefs',
-    'phoneBatchCopyText', 'phoneBatchCopiedLoad', 'phoneBatchCopiedSave', 'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent'];
+    'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent',
+    /* RS-75: the panel keeps its batches as a saved list; lifted, never stubbed. */
+    'phoneRunBuild', 'phoneRunAnySent', 'phoneRunSentCount', 'phoneRunNumbers', 'phoneRunNames', 'phoneRunResize', 'phoneRunSetSent', 'phoneRunAddNew', 'phoneRunWhen', 'phoneRunPersist'];
   const liftAsync = function (n) {
     const i = admin.indexOf('async function ' + n + '(');
     return i === -1 ? extractFn(admin, n) : 'async ' + extractFn(admin, n);
@@ -64599,7 +64604,8 @@ suite('356. Names next to the numbers, number first');
     return i === -1 ? extractFn(admin, n) : 'async ' + extractFn(admin, n);
   };
   const srcs = ['phoneBatchSlice', 'phoneBatchName', 'phoneBatchJoin', 'phoneBatchPrefs',
-    'phoneBatchSavePrefs', 'phoneBatchCopyText', 'phoneBatchCopiedLoad', 'phoneBatchCopiedSave', 'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent'].map(lift);
+    'phoneBatchSavePrefs', 'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent',
+    'phoneRunBuild', 'phoneRunAnySent', 'phoneRunSentCount', 'phoneRunNumbers', 'phoneRunNames', 'phoneRunResize', 'phoneRunSetSent', 'phoneRunAddNew', 'phoneRunWhen', 'phoneRunPersist'].map(lift);
   const rowsSrc = ['rsvpSheetCell', 'rsvpPhoneDigits', 'rsvpPhoneListRows'].map(n => extractFn(admin, n));
   check('S356', 'the panel and the row builder were found', srcs.every(Boolean) && rowsSrc.every(Boolean));
   let JSDOM = null;
@@ -64652,8 +64658,10 @@ suite('356. Names next to the numbers, number first');
   }
   const strippedA = stripComments(admin);
   check('S356', 'both copy buttons hand the names over',
-    /phoneBatchRender\(host, res\.numbers, 0, res\.names\)/.test(strippedA) &&
-    /phoneBatchRender\(host, sum\.numbers, 0, sum\.names\)/.test(strippedA) &&
+    /* REPOINTED 2026-09-24 (RS-75): both now open the panel through phoneBatchOpen. */
+    /return \{numbers: r\.numbers, names: r\.names\};/.test(strippedA) &&
+    /return \{numbers: s\.numbers, names: s\.names\};/.test(strippedA) &&
+    /phoneBatchRender\(host, c\.numbers, 0, c\.names,/.test(strippedA) &&
     /names: res\.names, text: msg/.test(strippedA),
     'a tick box that is never drawn because no names reached it looks like it was never built');
 }
@@ -64707,82 +64715,143 @@ suite('358. One per line is the default, whatever was saved before');
 }
 
 /* =====================================================================
- * Suite 359. It remembers where she got to (2026-09-24, RS-74). Addie:
- * "whatever batch we are on it saves being on that batch so if I close out
- * I don't forget what batch I'm on." RUNS the panel, closes it, opens it
- * again against a list that has SHRUNK, and checks nobody is skipped or
- * offered twice — the case a saved batch NUMBER would get wrong.
+ * Suite 359 — RETIRED 2026-09-24. It was "The phone panel picks up where she
+ * left off" (RS-74): copied numbers remembered on the browser and left out
+ * next time. RS-75 replaced that design the same day (her newer answer wins,
+ * R-024). Its guarantee — nobody skipped and nobody offered twice across a
+ * close and reopen, even after the pending list shrinks — is asserted by
+ * Suite 360's reopen checks. The number stays retired rather than reused.
  * ===================================================================== */
-suite('359. The phone panel picks up where she left off');
+
+/* =====================================================================
+ * Suite 360. The batches stay put, and each can be ticked as sent
+ * (2026-09-24, RS-75). Addie: "No I don't want to re batchevery time based
+ * on who is pending now and who is not. I want every bath I was on to have a
+ * check mark so I can mark off that I sent them amessage." RUNS the panel
+ * against a fake save, then reopens what was saved with a changed list.
+ * ===================================================================== */
+suite('360. Phone batches are kept, and each one can be ticked as sent');
 {
   const lift = function (n) {
     const i = admin.indexOf('async function ' + n + '(');
     return i === -1 ? extractFn(admin, n) : 'async ' + extractFn(admin, n);
   };
-  const srcs = ['phoneBatchSlice', 'phoneBatchName', 'phoneBatchJoin', 'phoneBatchPrefs',
-    'phoneBatchSavePrefs', 'phoneBatchCopyText', 'phoneBatchCopiedLoad', 'phoneBatchCopiedSave',
-    'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent'].map(lift);
-  check('S359', 'every piece was found', srcs.every(Boolean));
+  const names = ['phoneBatchSlice', 'phoneBatchName', 'phoneBatchJoin', 'phoneBatchPrefs', 'phoneBatchSavePrefs',
+    'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent',
+    'phoneRunBuild', 'phoneRunAnySent', 'phoneRunSentCount', 'phoneRunNumbers', 'phoneRunNames', 'phoneRunResize',
+    'phoneRunSetSent', 'phoneRunFirstOpen', 'phoneRunNewPeople', 'phoneRunAddNew', 'phoneRunFromDoc', 'phoneRunWhen',
+    'phoneRunPersist'];
+  const srcs = names.map(lift);
+  check('S360', 'every piece of the kept-batches panel was found', srcs.every(Boolean),
+    'a gate that cannot find its target must FAIL, never skip');
   let JSDOM = null;
   try { JSDOM = require('jsdom').JSDOM; } catch (e) { /* no jsdom: noted below. */ }
-  if (!JSDOM) note('S359: jsdom missing — run npm install; the resume was not driven');
+  if (!JSDOM) note('S360: jsdom missing — run npm install; the panel was not driven');
   if (srcs.every(Boolean) && JSDOM) {
     pendingAsync.push((async function () {
-      const store = { 'hu.phoneBatchSize': '2' };
-      let clipOk = true; let confirmAnswer = true;
-      const open = function () {
-        const w = new JSDOM('<div id="h"></div>').window;
-        w.confirm = () => confirmAnswer;
-        const api = new Function('document', 'navigator', 'localStorage', 'console', 'confirm',
-          'const PHONE_BATCH_DEFAULT = 50;' +
-          'function esc(s){ return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;"); }' +
-          srcs.join('\n') + ';return { phoneBatchRender, phoneBatchCopyCurrent };')(
-          w.document, { clipboard: { writeText: async () => { if (!clipOk) throw new Error('no'); } } },
-          { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } },
-          { error: function () {} }, () => confirmAnswer);
-        return { api, w, host: w.document.getElementById('h') };
-      };
-      const box = h => h.querySelector('[data-pb="box"]').value;
+      const w = new JSDOM('<div id="h"></div>').window;
+      let answerConfirm = false;
+      const api = new Function('document', 'navigator', 'localStorage', 'console', 'confirm',
+        'const PHONE_BATCH_DEFAULT = 50;' + srcs.join('\n') +
+        ';return { phoneBatchRender, phoneRunFromDoc, phoneRunNewPeople, phoneRunFirstOpen };')(
+        w.document, { clipboard: { writeText: async function () {} } },
+        { getItem: k => (k === 'hu.phoneBatchSize' ? '2' : null), setItem: function () {} },
+        { error: function () {} }, function () { return answerConfirm; });
+      const host = w.document.getElementById('h');
+      const q = k => host.querySelector('[data-pb="' + k + '"]');
+      const tick = async function () { await new Promise(r => setTimeout(r, 0)); };
+      const saves = [];
+      let failSave = false;
+      const save = async function (run) { if (failSave) throw new Error('offline'); saves.push(JSON.parse(JSON.stringify(run))); };
+      let freshCalls = 0;
+      const opts = { save: save, who: 'office@x.com', fresh: function () { freshCalls++; } };
+
       const nums = ['8015550001', '8015550002', '8015550003', '8015550004', '8015550005'];
-      const names = ['Ann', 'Bob', 'Cara', 'Dan', 'Eve'];
+      const who = ['Ann', 'Bob', 'Cara', 'Dan', 'Eve'];
+      api.phoneBatchRender(host, nums, 0, who, opts);
+      await tick();
+      check('S360', 'a new list is written down as soon as it is made',
+        saves.length === 1 && saves[0].batches.length === 3 &&
+        saves[0].batches[1].numbers.join() === '8015550003,8015550004',
+        'a list kept only on screen is re-cut the next time the button is pressed');
 
-      let a = open();
-      a.api.phoneBatchRender(a.host, nums, 0, names);
-      await a.api.phoneBatchCopyCurrent(a.host);                 // batch 1: Ann, Bob
-      a.host.querySelector('[data-pb="next"]').click();
-      await a.api.phoneBatchCopyCurrent(a.host);                 // batch 2: Cara, Dan
-      check('S359', 'within one opening the list does not move under her',
-        box(a.host) === '8015550003 Cara\n8015550004 Dan' &&
-        !a.host.querySelector('[data-pb="resume"]'));
+      q('next').click();
+      const sent = q('sent');
+      sent.checked = true; sent.dispatchEvent(new w.Event('change'));
+      await tick();
+      const last = () => saves[saves.length - 1];
+      check('S360', 'ticking batch 2 saves it as sent, with when and who',
+        last().batches[1].sentAt > 0 && last().batches[1].sentBy === 'office@x.com' &&
+        !last().batches[0].sentAt && !last().batches[2].sentAt);
+      check('S360', 'the batch row shows batch 2 ticked and the others not',
+        /✓ 2/.test(q('chips').textContent) && !/✓ 1/.test(q('chips').textContent) &&
+        /Sent batch 2/.test(host.textContent) && /1 of 3 batches sent/.test(host.textContent));
 
-      /* Closed and opened again — and Bob has answered, so the list is SHORTER. */
-      let b = open();
-      b.api.phoneBatchRender(b.host, ['8015550001', '8015550003', '8015550004', '8015550005'], 0,
-        ['Ann', 'Cara', 'Dan', 'Eve']);
-      check('S359', 'opening again starts with the next person not yet copied',
-        box(b.host) === '8015550005 Eve',
-        'a saved batch NUMBER would land on the wrong people once the list has shrunk');
-      check('S359', 'and says how many were left out, so nothing looks lost',
-        /3<\/strong> already copied before are left out/.test(b.host.innerHTML) &&
-        /Batch 1 of 1/.test(b.host.textContent));
+      const size = q('size');
+      size.value = '4'; size.dispatchEvent(new w.Event('input'));
+      await tick();
+      check('S360', 'once a batch is ticked the size cannot re-cut the list',
+        size.value === '2' && /Locked/.test(host.textContent) &&
+        last().batches.length === 3 && last().batches[1].numbers.join() === '8015550003,8015550004',
+        'a re-cut moves people across batch lines and the tick then vouches for people never texted');
 
-      clipOk = false;
-      await b.api.phoneBatchCopyCurrent(b.host);
-      let c = open();
-      c.api.phoneBatchRender(c.host, nums, 0, names);
-      check('S359', 'a copy the browser refused is NOT remembered — they are offered again',
-        /8015550005/.test(box(c.host)));
-      clipOk = true;
+      q('fresh').click();
+      check('S360', 'Start a new list asks first when batches are ticked, and No keeps them',
+        freshCalls === 0 && last().batches[1].sentAt > 0);
 
-      confirmAnswer = false;
-      c.host.querySelector('[data-pb="restart"]').click();
-      check('S359', 'Start over asks first, and a No changes nothing',
-        !/8015550001/.test(box(c.host)));
-      confirmAnswer = true;
-      c.host.querySelector('[data-pb="restart"]').click();
-      check('S359', 'Start over brings everyone back from the first person',
-        box(c.host) === '8015550001 Ann\n8015550002 Bob' && !c.host.querySelector('[data-pb="resume"]') &&
-        store['hu.phoneBatchCopied'] === '[]');
+      /* Reopen what was saved: Bob has since answered, and Fay is newly pending. */
+      const kept = api.phoneRunFromDoc(JSON.parse(JSON.stringify(last())));
+      const today = ['8015550001', '8015550003', '8015550004', '8015550005', '8015550006'];
+      const todayNames = ['Ann', 'Cara', 'Dan', 'Eve', 'Fay'];
+      const extra = api.phoneRunNewPeople(kept, today, todayNames);
+      api.phoneBatchRender(host, today, api.phoneRunFirstOpen(kept), todayNames,
+        Object.assign({}, opts, { run: kept, extra: extra }));
+      await tick();
+      check('S360', 'reopening shows the SAME batches, even though somebody has since answered',
+        kept.batches[0].numbers.join() === '8015550001,8015550002' &&
+        kept.batches[1].numbers.join() === '8015550003,8015550004' && kept.batches[1].sentAt > 0,
+        'she asked for exactly this: no re-batching from who is pending today');
+      check('S360', 'and reopening writes nothing on its own', saves.length === 2);
+      check('S360', 'it opens on the first batch not yet ticked',
+        /Batch 1 of 3/.test(host.textContent) && q('box').value.indexOf('8015550002') !== -1);
+      check('S360', 'somebody newly pending is counted, not slotted into an existing batch',
+        /1 person is pending now and on no batch/.test(host.textContent) &&
+        q('addnew').style.display !== 'none');
+      q('addnew').click();
+      await tick();
+      check('S360', 'Add them puts them in a NEW batch at the end, leaving the rest alone',
+        last().batches.length === 4 && last().batches[3].numbers.join() === '8015550006' &&
+        last().batches[2].numbers.join() === '8015550005' && last().batches[1].sentAt > 0 &&
+        /Batch 4 of 4/.test(host.textContent));
+
+      failSave = true;
+      q('prev').click();
+      const s2 = q('sent'); s2.checked = true; s2.dispatchEvent(new w.Event('change'));
+      await tick();
+      check('S360', 'a tick that could not be saved says so, never a quiet green',
+        /Not saved/.test(host.textContent));
+
+      answerConfirm = true;
+      q('fresh').click();
+      check('S360', 'and Yes to Start a new list does start one', freshCalls === 1);
+
+      check('S360', 'it reopens where she left off — the first batch not ticked, or the last when all are',
+        api.phoneRunFirstOpen({ batches: [{ sentAt: 1 }, { sentAt: 1 }, { sentAt: 0 }, { sentAt: 0 }] }) === 2 &&
+        api.phoneRunFirstOpen({ batches: [{ sentAt: 1 }, { sentAt: 1 }] }) === 1);
+      check('S360', 'a stored list with the wrong shape is not trusted',
+        api.phoneRunFromDoc(null) === null && api.phoneRunFromDoc({ batches: [] }) === null &&
+        api.phoneRunFromDoc({ batches: 'x' }) === null);
     })());
   }
+  const storeSrc = stripComments(extractFn(admin, 'phoneRunStore') || '');
+  check('S360', 'the list is kept in settings, one document per button, with no server timestamp',
+    /doc\(db, 'settings', 'phoneBatchRun_' \+ key\)/.test(storeSrc) && !/serverTimestamp/.test(storeSrc),
+    'Firestore refuses a server timestamp inside an array and would drop every tick with it');
+  const openSrc = stripComments(lift('phoneBatchOpen') || '');
+  check('S360', 'a saved list is reopened as it is, and only a missing one is rebuilt',
+    /const saved = await phoneRunLoad\(key\);/.test(openSrc) && /run: saved/.test(openSrc) &&
+    /phoneRunFirstOpen\(saved\)/.test(openSrc));
+  check('S360', 'both copy buttons open through it',
+    /await phoneBatchOpen\(host, 'rsvp',/.test(stripComments(lift('rsvpCopyPhones') || '')) &&
+    /await phoneBatchOpen\(host, 'et',/.test(stripComments(lift('etCopyFilteredPhones') || '')));
 }
