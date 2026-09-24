@@ -54255,14 +54255,21 @@ function whOpenPrintWindow(title, sections, emptyNote){
    cell at all — the same argument the crew sheet makes by printing "(this visit only)"
    in its own colour. Unlabelled it is indistinguishable from a standing instruction and
    would go on being obeyed after the bundle it belonged to was made. */
+/* ⛔ THE CREW'S NOTES ARE NOT THE WAREHOUSE'S ([[WH-48]], 2026-09-23). Addie: "I put a note
+   for crew and warehouse but the one for crew was showing for warehouse." Permanent Notes
+   (`notes`) is the CREW's box — it prints on their route sheet — and this used to append it
+   after the warehouse note, so the build list and both printed build sheets carried the
+   crew's instructions too. That was [[WH-37]]'s own call ("that cell has always carried the
+   general note and somebody is relying on it"); her newer answer wins (R-024).
+   Only the two boxes written FOR the warehouse are shown now. ⚠ ONE RULE, SO EVERY
+   WAREHOUSE VIEW FOLLOWS IT: the tab, the find box (both via whNoteBoxHtml) and both
+   printed build sheets (via whNotesCell) all read this. */
 function whNoteText(d){
   const parts = [];
   const once = String((d && d.warehouseOneTimeNote) || '').trim();
   const w = String((d && d.warehouseNote) || '').trim();
-  const n = String((d && d.notes) || '').trim();
   if(once) parts.push('THIS BUILD ONLY: ' + once);
   if(w) parts.push(w);
-  if(n) parts.push(n);
   return parts.join(' \u2014 ');
 }
 /* \u2b50 THE WAREHOUSE NOTE IS TYPED WHERE IT IS READ (2026-09-21, [[WH-45]]). Addie: "Can we
@@ -54297,15 +54304,14 @@ function whNoteText(d){
 function whNoteBoxHtml(d){
   const once = String((d && d.warehouseOneTimeNote) || '').trim();
   const w = String((d && d.warehouseNote) || '').trim();
-  const n = String((d && d.notes) || '').trim();
-  if(!once && !w && !n) return '';
+  /* [[WH-48]] — the crew's Permanent Notes are not drawn here; see whNoteText. */
+  if(!once && !w) return '';
   return '<span class="wh-notebox" style="display:block; margin-top:8px; padding:8px 11px; '+
       'background:#FFF8E1; border:1px solid #E4C77A; border-left:5px solid #C99A2E; border-radius:8px; '+
       'font-size:14px; line-height:1.45; color:#2B2B2B; white-space:pre-wrap;">'+
     '<span style="display:block; font-size:11px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:#8A6100; margin-bottom:3px;">\ud83d\udcdd Warehouse note</span>'+
     (once ? '<span style="display:block; font-weight:800; color:#B02A37;">THIS BUILD ONLY: '+esc(once)+'</span>' : '')+
     (w ? '<span style="display:block; font-weight:700;">'+esc(w)+'</span>' : '')+
-    (n ? '<span style="display:block;">'+esc(n)+'</span>' : '')+
   '</span>';
 }
 function whNoteEditorHtml(h){
