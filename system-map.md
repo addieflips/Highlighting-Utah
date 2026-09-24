@@ -3370,6 +3370,47 @@ from main; what survives is the finding above and the harness bug it turned on. 
 without backticks for that reason (2026-09-19).
 *Rulings*: [[SCH-75]] in `claude/questions-map.md`.
 
+**A house left out on its own joins the day the crew is in its area** (2026-09-24,
+[[SCH-96]]). Dax: *"we do a house in Lehi way out of the way and then two days later we
+are going to be in that same area of Lehi so I would rather they got put in a day where
+we are in that area."* The builder above cannot see it: a crew-day that is short tops up
+from the nearest neighbouring area, and an outlier gets a day of its own, so one house can
+sit miles from the rest of its sheet while a crew works its street a couple of days away.
+
+`gatherStrayHouses` runs once, after the tail sweep and before the crews are numbered. It
+looks for a house **3 miles or more** from everything else on its crew-day
+(`STRAY_FAR_MILES`) and a crew-day on another date with a house **within 1.5 miles**
+(`STRAY_NEAR_MILES`), and moves it there. What it never does:
+
+- move anybody before their first allowed day or after their last;
+- move anybody **later** by more than a week (`STRAY_LATER_MAX_DAYS`), or at all if the
+  plan is hurrying them (asked sooner, a new hang, missed before, running out of time,
+  or a named day). **Earlier** is always fine;
+- put a house on a crew-day that does not already work its town, so the crews' towns and
+  the sheet label stay as they were;
+- tip a date from one person to a crew or from one crew to two, or a one-person run into
+  a crew run;
+- add a crew-day, or drop anybody. A crew-day it empties (an outlier's own day) goes away.
+
+When the crew-day in the stray's area is **already full**, it trades: one of that day's
+houses that sits beside the other crew goes the other way, only when both land within
+1.5 miles of a house on their new sheet and both are allowed on their new date. Neither
+day's head-count changes.
+
+⛔ **This is not SCH-75 coming back.** That row measured rebuilding whole days so the crew
+never returns to an area, and every version cost crew-days. This only swaps single houses
+between days that already exist. Measured on 12 simulated books: lone houses 17 → 11, and
+the 11 left are real outliers or November houses whose area was worked in October. Same
+408 crew-days, nobody lost, 18 fewer miles in total.
+
+⚠ **Nothing inside the 48-hour lock can move**: those days are kept out of the rebuild pool
+before the builder runs. It is guarded like the forecast, so a suite that lifts the builder
+without it gets the old plan back unchanged.
+
+*Where it is proved*: run-all.js **Suite 361** runs it against crew-days, one check per rule
+above, plus the wiring into `planNewCrewDays`.
+*Rulings*: [[SCH-96]] in `claude/questions-map.md`.
+
 ### Why a route went far out at stop 11 and came back beside stop 2
 
 Added 2026-09-10. Dax, reading a crew route off the map: *"1 2 3 4 5 6 7 can make
