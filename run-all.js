@@ -64882,7 +64882,7 @@ suite('360. Phone batches are kept, and each one can be ticked as sent');
  * ===================================================================== */
 suite('362. Back Next Year can name the year they come back');
 {
-  const names = ['backInYearOf', 'backInYearHasCome', 'backNextYearLabel', 'editCustSyncBackInYearRow', 'editCustFillBackInYear'];
+  const names = ['backNextYearStampYear', 'backInYearOf', 'backInYearHasCome', 'backNextYearLabel', 'editCustSyncBackInYearRow', 'editCustFillBackInYear'];
   const srcs = names.map(n => extractFn(admin, n));
   check('S362', 'the year rules and the picker were found', srcs.every(Boolean),
     'a gate that cannot find its target must FAIL, never skip');
@@ -64896,9 +64896,21 @@ suite('362. Back Next Year can name the year they come back');
       api.backInYearHasCome({ backInYear: 2028 }, 2028) && api.backInYearHasCome({ backInYear: 2027 }, 2028) &&
       !api.backInYearHasCome({ backInYear: 2029 }, 2028),
       'a missionary back in 2029 must not be asked in 2028');
-    check('S362', 'no year picked never counts as their year having come',
-      !api.backInYearHasCome({}, 2099) && !api.backInYearHasCome({ maybeNextYear: true }, 2099),
-      'her answer for the ones already on Back Next Year: they stay out until a year is chosen');
+    /* REPOINTED 2026-09-25 (RS-79 supersedes RS-76's "no year means no change"): with no year
+       picked, Back Next Year means the year AFTER they said it. */
+    check('S362', 'no year picked means the year after they said Back Next Year',
+      api.backInYearOf({ maybeNextYear: true, maybeNextYearAt: new Date(2026, 8, 20) }) === 2027 &&
+      api.backInYearOf({ rsvpStatus: 'backnextyear', rsvpRespondedAt: { seconds: new Date(2027, 9, 1).getTime() / 1000 } }) === 2028 &&
+      api.backInYearOf({ maybeNextYear: true, maybeNextYearAt: { toDate: () => new Date(2026, 9, 3) } }) === 2027,
+      'Addie: "next consecutive year to be default"');
+    check('S362', 'a picked year always wins over the default',
+      api.backInYearOf({ maybeNextYear: true, maybeNextYearAt: new Date(2026, 8, 20), backInYear: 2029 }) === 2029);
+    check('S362', 'the default is anchored to when they said it, so it cannot slide a year every time it is read',
+      api.backInYearHasCome({ maybeNextYear: true, maybeNextYearAt: new Date(2026, 8, 20) }, 2027) &&
+      !api.backInYearHasCome({ maybeNextYear: true, maybeNextYearAt: new Date(2026, 8, 20) }, 2026));
+    check('S362', 'somebody not on Back Next Year has no year, and a record with no date at all has none either',
+      api.backInYearOf({ rsvpRespondedAt: new Date(2026, 1, 1) }) === 0 && api.backInYearOf({ maybeNextYear: true }) === 0 &&
+      !api.backInYearHasCome({}, 2099));
     check('S362', 'the badge names the year, and says Back Next Year when there is none',
       api.backNextYearLabel({ backInYear: 2028 }) === 'Back in 2028' && api.backNextYearLabel({}) === 'Back Next Year');
     let JSDOM = null;
@@ -64913,11 +64925,12 @@ suite('362. Back Next Year can name the year they come back');
       ui.editCustFillBackInYear({ backInYear: now + 2 });
       const sel = w.document.getElementById('editCustBackInYear');
       check('S362', 'the picker offers the coming years and shows the one on file',
-        sel.value === String(now + 2) && sel.options[0].value === '' && sel.options[1].value === String(now + 1) &&
+        sel.value === String(now + 2) && sel.options[0].value === String(now + 1) &&
         w.document.getElementById('editCustBackInYearRow').style.display === '');
       ui.editCustFillBackInYear({});
-      check('S362', 'a customer with no year opens on Not picked yet — the next house never inherits one',
-        sel.value === '');
+      /* REPOINTED 2026-09-25 (RS-79): no blank option any more — it opens on next year. */
+      check('S362', 'a customer with no year opens on next year — the next house never inherits one',
+        sel.value === String(now + 1) && !Array.from(sel.options).some(o => o.value === ''));
       w.document.getElementById('editCustRsvp').value = '';
       ui.editCustFillBackInYear({});
       check('S362', 'and the box is hidden unless they are Back Next Year',

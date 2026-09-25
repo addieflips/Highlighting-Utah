@@ -2580,7 +2580,7 @@
                  stuff like that." Shown only while the dropdown says Back Next Year. -->
             <div class="form-row" id="editCustBackInYearRow" style="display:none;"><label>Back in which year?</label>
               <select id="editCustBackInYear"></select>
-              <p style="font-size:11.5px; color:var(--slate); margin:6px 0 0; line-height:1.5;">For missionaries and anybody away more than one season. When that year comes, <b>Move everyone to Unanswered</b> puts them back and they get the RSVP with everyone else. Left on <i>Not picked yet</i>, they stay Back Next Year until you choose.</p>
+              <p style="font-size:11.5px; color:var(--slate); margin:6px 0 0; line-height:1.5;">Starts on next year. For missionaries and anybody away longer, pick a later year. When that year comes, <b>Move everyone to Unanswered</b> puts them back and they get the RSVP with everyone else.</p>
             </div>
             <div class="form-row"><label>Install Closest To This Date (staff only)</label><input type="date" id="editCustEarliestInstall"></div>
           </div>
@@ -51485,9 +51485,31 @@ function seasonYesUpdates(oldData, ts){
    ⚠ NO YEAR MEANS NO CHANGE. A Back Next Year customer with nothing picked stays out until
    the office picks one — her answer for the ones already on it. Guessing "next year" for
    them would put a missionary back on the list a year early. */
+/* ⭐ THE DEFAULT IS THE NEXT YEAR (2026-09-25, [[RS-79]]). Addie: "Just save as 2027 unless we
+   say otherwise as default", then "Or sorry next consecutive year to be default". So a Back Next
+   Year customer with no year picked is back the year AFTER they said it — derived from when they
+   said it (maybeNextYearAt, else rsvpRespondedAt), never from today, or a 2026 answer would slide
+   to 2028 when read in 2027 and never arrive. This replaces RS-76's "no year means no change".
+   ⚠ A RECORD WITH NO DATE AT ALL still has no year: nothing says which season they sat out, and
+   guessing "now" would move every time it was read. The office picking a year fixes it. */
+function backNextYearStampYear(v){
+  if(!v) return 0;
+  let ms = 0;
+  if(typeof v.toDate === 'function') ms = v.toDate().getTime();
+  else if(typeof v.seconds === 'number') ms = v.seconds * 1000;
+  else if(v instanceof Date) ms = v.getTime();
+  else if(typeof v === 'number') ms = v;
+  else ms = Date.parse(String(v)) || 0;
+  return ms ? new Date(ms).getFullYear() : 0;
+}
 function backInYearOf(d){
   const y = Math.floor(Number(d && d.backInYear) || 0);
-  return (y >= 2000 && y <= 2100) ? y : 0;
+  if(y >= 2000 && y <= 2100) return y;
+  const dd = d || {};
+  const sittingOut = dd.maybeNextYear === true || String(dd.rsvpStatus || '').trim().toLowerCase() === 'backnextyear';
+  if(!sittingOut) return 0;
+  const said = backNextYearStampYear(dd.maybeNextYearAt) || backNextYearStampYear(dd.rsvpRespondedAt);
+  return said ? said + 1 : 0;
 }
 function backInYearHasCome(d, year){
   const y = backInYearOf(d);
@@ -51508,13 +51530,13 @@ function editCustFillBackInYear(d){
   const sel = document.getElementById('editCustBackInYear');
   if(!sel) return;
   const now = new Date().getFullYear();
-  const have = backInYearOf(d);
+  /* RS-79: opens on their year, else next year — never blank. */
+  const have = backInYearOf(d) || (now + 1);
   const years = [];
   for(let y = now + 1; y <= now + 6; y++) years.push(y);
-  if(have && years.indexOf(have) === -1) years.unshift(have);
-  sel.innerHTML = '<option value="">Not picked yet</option>' +
-    years.map(function(y){ return '<option value="' + y + '">' + y + '</option>'; }).join('');
-  sel.value = have ? String(have) : '';
+  if(years.indexOf(have) === -1) years.unshift(have);
+  sel.innerHTML = years.map(function(y){ return '<option value="' + y + '">' + y + '</option>'; }).join('');
+  sel.value = String(have);
   editCustSyncBackInYearRow();
 }
 document.getElementById('editCustRsvp')?.addEventListener('change', editCustSyncBackInYearRow);
