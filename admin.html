@@ -24787,6 +24787,8 @@ function errorAlreadyReported(topic, key){
    floating write in the file that a signed-in person can be refused. */
 const FIXED_ERROR_MIN_MATCH = 12;
 const FIXED_ERRORS = [
+  { match: 'Wire sweep could not look', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-17',
+    note: 'Admin. The sweep refused outright on a computer with no master sheet; since 9/17 (eeb54d1) the sheet is optional and only the comparison is skipped.' },
   { match: 'renderFolderSidebar is not defined', fixedOn: '2026-09-09',
     note: 'Admin. Two calls left pointing at a function the Communication Centre had deleted, so both threw on every page load. Repointed to renderCommNav in 255d321.' },
   { match: 'Document already exists', fixedOn: '2026-09-11',
@@ -26068,14 +26070,52 @@ function msgErrorWhoIs(d){
 }
 /* What to print in place of a name. Empty string when there is nothing honest to say, so
    the heading is unchanged for every ordinary message. */
+/* ⭐ A LINK THAT MATCHES NOBODY IS LOOKED UP AMONG THE DELETED (2026-09-25). Addie pasted a
+   Member Error from 9/24: "Account not found" on an RSVP link, "no customer matches this link
+   (…k84mdq)". A portal link stops working when its customer is deleted or merged into another
+   record — the token goes with them — so that row is somebody real, and the office could not
+   tell who. `archivedCustomers` keeps a copy of everybody deleted since [[ARCH-01]], so the
+   tail is looked up there too, ONCE, and the row names them as deleted rather than as a match.
+   ⚠ READ ONLY WHEN A ROW NEEDS IT, and only once a session: that collection is not otherwise
+   loaded on this screen, and an Inbox with no such row costs nothing. Until it lands (or if it
+   is refused) the row says exactly what it said before. */
+let msgArchivedTokens = null;
+let msgArchivedLoading = false;
+function msgArchivedLookup(tail){
+  if(msgArchivedTokens) return msgArchivedTokens.get(tail) || [];
+  if(msgArchivedLoading || typeof getDocs !== 'function' || (typeof HU_SIGNED_OUT !== 'undefined' && HU_SIGNED_OUT)) return null;
+  msgArchivedLoading = true;
+  getDocs(collection(db, 'archivedCustomers')).then(function(snap){
+    const m = new Map();
+    snap.forEach(function(ds){
+      const raw = ds.data() || {};
+      const c = raw.customer || raw;
+      const t = String(c.portalToken || '').toLowerCase();
+      if(t.length < 6) return;
+      const k = t.slice(-6);
+      if(!m.has(k)) m.set(k, []);
+      m.get(k).push({name: c.name || '', num: c.customerNumber || ''});
+    });
+    msgArchivedTokens = m;
+    try{ renderMessagesList(); }catch(err){ /* quiet on purpose: the lookup landed and is kept; the rows pick it up on the next draw. */ }
+  }).catch(function(err){
+    msgArchivedLoading = false;
+    console.error('[HU] could not look up deleted customers for an error row', err);
+  });
+  return null;
+}
 function msgErrorWhoLabel(d){
   if(d && d.name) return '';
   const found = msgErrorWhoIs(d);
   if(!found) return '';
   if(!found.cust){
-    return found.ambiguous
-      ? 'more than one customer matches this link'
-      : 'no customer matches this link (…' + found.tail + ')';
+    if(found.ambiguous) return 'more than one customer matches this link';
+    const gone = msgArchivedLookup(found.tail);
+    if(gone && gone.length === 1){
+      return 'no current customer — this link belonged to ' + (gone[0].name || '(no name)') +
+        (gone[0].num ? ' #' + gone[0].num : '') + ', who has since been deleted';
+    }
+    return 'no customer matches this link (…' + found.tail + ')';
   }
   const c = found.cust.data || {};
   const num = c.customerNumber ? ' #' + c.customerNumber : '';

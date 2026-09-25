@@ -5671,6 +5671,10 @@ what it looked like:
   down; the office holds `portalToken` on every customer, so the Inbox now matches the two
   and prints the name, marked *"matched by their link"* so it is never mistaken for one the
   page reported.
+  ⭐ **And a link that matches nobody is looked up among the deleted** (2026-09-25). A portal
+  link stops working when its customer is deleted or merged away, so the Inbox reads
+  `archivedCustomers` once, when a row needs it, and names them: *"this link belonged to Jane
+  Doe #512, who has since been deleted"*. Two deleted matches name neither.
 
 ⚠ **It reads the rows already filed**, not just new ones — those carry the tail only inside
 the page address as prose, and they are the rows she was looking at. New reports also write

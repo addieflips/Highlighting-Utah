@@ -1551,8 +1551,11 @@ console.log('--- wiring ---');
   ];
   const sb = {};
   new Function('jobAddresses',
+    'let msgArchivedTokens = null; let msgArchivedLoading = false;' +
+    liftFn(admin, 'msgArchivedLookup') +
     liftFn(admin, 'msgErrorTokenTail') + liftFn(admin, 'msgErrorWhoIs') + liftFn(admin, 'msgErrorWhoLabel') +
-    'this.label = msgErrorWhoLabel; this.tail = msgErrorTokenTail;').call(sb, BOOK);
+    'this.label = msgErrorWhoLabel; this.tail = msgErrorTokenTail;' +
+    'this.setArchived = function(m){ msgArchivedTokens = m; };').call(sb, BOOK);
 
   /* ⚠ THE ACTUAL ROW FROM THE FOLDER, not an invented one. A fixture of made-up shapes
      can pass while missing the one that happened — the rule Suite 274 was corrected under. */
@@ -1598,6 +1601,17 @@ console.log('--- wiring ---');
   check('and a portal tail that matches nobody says so rather than going quiet',
     /no customer matches/.test(sb.label({ name: '', message: '?token=\u2026zzzzzz' })),
     'a blank heading is what she reported; "nobody matches" is at least an answer');
+
+  /* 2026-09-25: the 9/24 row "Account not found … (…k84mdq)" — a link whose customer had been
+     deleted. Once the archived tokens have landed, the row names who it was, as deleted. */
+  sb.setArchived(new Map([['k84mdq', [{ name: 'Gone Customer', num: 512 }]], ['twotwo', [{ name: 'A' }, { name: 'B' }]]]));
+  check('a link whose customer was deleted names them, and says they were deleted',
+    sb.label({ name: '', message: '?token=\u2026k84mdq' }) === 'no current customer — this link belonged to Gone Customer #512, who has since been deleted',
+    'got: ' + JSON.stringify(sb.label({ name: '', message: '?token=\u2026k84mdq' })));
+  check('but two deleted customers on one tail name neither',
+    /no customer matches/.test(sb.label({ name: '', message: '?token=\u2026twotwo' })));
+  check('and a live customer still wins over the archive',
+    /^Ashley Wray/.test(sb.label(REAL_BLANK_ROW)));
 
   /* ⚠ TWO CANDIDATES IS NO MATCH. Naming the wrong customer on a report about a failure
      is worse than naming none — "a number never outranks a name that disagrees". */
