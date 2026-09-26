@@ -3216,6 +3216,8 @@ falls back to the first crew when the stored one has since been removed — wron
 *who* beats a printed sheet with nothing on it). The rules themselves are unchanged: a
 crew is still its own town plus at most one neighbouring one, still twenty houses, and
 the hand-back is still a hand-back rather than a leveller.
+⛔ **That last clause is no longer true — see "The crews on a day are even" below
+([[SCH-97]], 2026-09-26).** The hand-back still runs first; a leveller now runs after it.
 
 *Proved by run-all.js suite 304, which runs all of it — the two-crew answers are
 re-asserted beside the three-crew ones, because the expensive failure is not "three does
@@ -3415,6 +3417,57 @@ without it gets the old plan back unchanged.
 above, plus the wiring into `planNewCrewDays`.
 *Rulings*: [[SCH-96]] in `claude/questions-map.md`.
 
+**…or the day it lies on the way to** (2026-09-26, [[SCH-97]]). Dax: *"try to do houses
+like that on the way there, meaning it should be in between Lehi and the desired area but
+dont add a massive detour, find a way to do it that saves the most miles."* A stray may
+also join a crew-day whose houses it sits on the road to from the yard (209 S 850 W): the
+extra driving to call on it on the way out — yard → it → that house, against yard → that
+house — must be **2 miles or less** (`ON_THE_WAY_MAX_DETOUR_MILES`), and it must be at
+least 1.5 miles cheaper than where it is now. ⚠ **This one may cross a town line** — a
+house in American Fork on the way from Lehi to Orem is the whole case — so the day's town
+list gains its town. Every other rule in the list above still applies. ⚠ Only
+Recalculate everything knows where the yard is (`routeHomePoint` lives inside the Schedule
+widget); the fifteen-minute crew-routes sweep is not handed it, so its strays join a day in
+their own area only, as before.
+
+### The crews on a day are even
+
+Added 2026-09-26 ([[SCH-97]]). Dax: *"we never want one of the crews to have more than
+three more houses than the other crew, that doesnt mean subtract houses from a crew though,
+that means pick an area for both crews where you can make that possible, we want them to
+have the same amount if possible though."*
+
+**In the builder, the short crew is given more.** `evenCrewDates` runs after the stray
+gatherer and before the crews are numbered. On any date with two crews, it tops the short
+crew up with houses from **other days** that sit within **2 miles** of a house already on
+its run (`CREW_EVEN_NEAR_MILES`) until it matches the long crew. The long crew is never
+touched. A house only moves by the same rules as a stray: never before its first allowed
+day or after its last, never more than a week later, never later at all if the plan is
+hurrying them. The day it leaves may not be tipped over a staffing line (unless it empties,
+which saves a crew-day). It also may not be made more uneven than one apart — or three,
+when the day being fixed is itself more than three apart. A one-man outlier run and a date
+the office set to one crew are left alone. What it could not even is returned as `uneven`.
+
+**On the screen and the sheets, the day's own houses are levelled.** `dayCrewHouses`
+works each day's split out from its towns, and that alone can turn a builder's 20/20 into
+26/14. After the old cap hand-back, it now moves houses from the bigger crew to the smaller
+one, picking the house cheapest for the smaller crew. Cost is the cheaper of a round trip
+to its nearest house and the detour of calling on it on the way out from the yard. **Past
+three apart** a move may cost up to `NEARBY_TOWN_MILES` (8); **within three**, only up to
+2 miles. With no pins to measure it moves nothing: a house moved blind can land on a crew
+forty miles away.
+
+⚠ **Measured on 8 simulated seasons (~570 houses each, 15 Utah County towns):** two-crew
+days more than three apart went **28 → 11 of 138** in the builder and to about **3** once
+the sheet split has levelled what it can. Every one of the 3 left is a pair of crews more
+than 8 miles apart on a day whose spare houses are held off by their own dates (the October
+/ November line). Level days 93 → 97 in the builder. Crew-days **293 → 293**, miles
+**6,823 → 6,818**, nobody lost. The script was session scratch and is not in the repo.
+
+*Where it is proved*: run-all.js **Suite 365** runs `evenCrewDates`, the `dayCrewHouses`
+leveller, the on-the-way stray and the mid-day lift, plus their wiring.
+*Rulings*: [[SCH-97]] in `claude/questions-map.md`.
+
 ### Why a route went far out at stop 11 and came back beside stop 2
 
 Added 2026-09-10. Dax, reading a crew route off the map: *"1 2 3 4 5 6 7 can make
@@ -3449,9 +3502,21 @@ Both shapes are built now and the shorter one is driven:
 
 | the day | what happens |
 |---|---|
-| the far group really is on the way home | it goes last, exactly as it always did |
-| the far group is a knot beside the yard | it goes first, on the way out |
-| the two are within `FAR_FIRST_MARGIN_MILES` | her rule keeps the tie |
+| going last is shorter by more than `ON_THE_WAY_MARGIN_MILES` | it goes last, on the way home |
+| going first is shorter | it goes first, on the way out |
+| the two are within the margin | ⛔ **it goes FIRST, on the way there** (since 2026-09-26, [[SCH-97]]) |
+
+⛔ **The tie changed sides on 2026-09-26.** Dax: *"try to do houses like that on the way
+there."* The constant was `FAR_FIRST_MARGIN_MILES` and protected Addie's "on their way back
+home"; it is `ON_THE_WAY_MARGIN_MILES` now and protects the start. The paragraph below is
+kept because the margin's argument is the same either way round.
+
+⭐ **And nothing way out of the way is left in the middle of an ordinary day.** On a day
+with no far group, `liftMidDayDetours` looks at every stop except the first two and last
+two. Any stop costing more than `MID_DAY_DETOUR_MAX_MILES` (2.5, the same "long drive" as
+`OUTLIER_MIN_MILES`) is moved to whichever end of the day is cheaper, the start on a tie.
+A house the crew missed last time keeps stop 1. Measured on the same 8 simulated seasons:
+it changed **5 of 223** ordinary routes and added **9.6 miles in total**.
 
 ⚠ **The margin is 0.5 miles and it is not decoration.** A round trip driven backwards
 is nearly the same round trip, so a bare `<` would flip a standing instruction on

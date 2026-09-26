@@ -18432,12 +18432,16 @@ suite('Suite 51. The dribble at the end of the season');
     /* ⚠ REPOINTED 2026-09-24 (SCH-96), NOT WEAKENED. The packed plan now passes through
        gatherStrayHouses on its way to the numbering, so the old literal
        `renumberCrewsByDate(packed.days, …)` stopped existing. What must stay true is that
-       the PACKED days are what is handed back — either gathered, or as they are. */
+       the PACKED days are what is handed back — either gathered, or as they are.
+       ⚠ REPOINTED AGAIN 2026-09-26 ([[SCH-97]]): the gathered days now pass through
+       evenCrewDates before the numbering. Still the packed days, gathered, then evened. */
     check('S51', 'the builder runs the packer before handing the plan back',
       /if\(o\.pack === false\) return out;/.test(admin) &&
       /const packed = packTailCrewDays\(out, \{/.test(admin) &&
       /gatherStrayHouses\(packed\.days, \{/.test(admin) &&
-      /: packed\.days;\r?\n  return renumberCrewsByDate\(gathered, taken \|\| \{\}\);/.test(admin));
+      /: packed\.days;\r?\n/.test(admin) &&
+      /evenCrewDates\(gathered, \{/.test(admin) &&
+      /: gathered;\r?\n  return renumberCrewsByDate\(evened, taken \|\| \{\}\);/.test(admin));
 
     const api = new Function(
       'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");}' +
@@ -24467,7 +24471,12 @@ suite('Suite 93. Two crews, two towns, twenty each');
        two towns". The only move worth making is the one that gets a crew off a
        sheet it cannot work, so it stops the moment the big pile is down to the cap
        and leaves the rest of the gap alone. Nineteen and twenty-one is exactly that
-       case, and it is the one the owner actually reported. */
+       case, and it is the one the owner actually reported.
+       ⛔ NARROWED 2026-09-26 BY [[SCH-97]]: a day is now evened to within three, and level
+       where the houses are close — but ONLY WHERE THE HOUSES CAN BE MEASURED. These
+       fixtures carry no pins, and a house moved blind can land on a crew working forty
+       miles away, so here the cap hand-back is still the only move. Suite 365 proves the
+       levelling on a day that has pins. */
     check('S93', 'a lopsided day is evened only as far as the cap allows',
       sizes(bigOut) === '20/14',
       'got ' + sizes(bigOut) + ' — the over-cap crew comes down to twenty and it ' +
@@ -34385,9 +34394,14 @@ suite('77. Schedule route generator');
        crew, so generateDayRoutes tacked it on after both runs. It is carried by the
        Lehi crew now and driven inside THEIR run — L1,L3,L4,L2,Nowhere then A1,A3,A2 —
        which is the difference between a stop somebody drives to and a stop printed
-       underneath everybody. */
+       underneath everybody.
+       ⚠ REPOINTED AGAIN 2026-09-26 BY [[SCH-97]], and both changes are the ruling working:
+       (1) Nowhere is 130 miles out and the two shapes of the Lehi run cost the same, so it
+       is now done FIRST, on the way there, rather than last; (2) Lehi then holds five and
+       Alpine three, and L1 sits 0.7 mi from A1 on this interleaved street, so it crosses
+       to level the crews at four each. Still inside the Lehi crew's run, still one crew. */
     check('S77', "a house in neither crew's town is driven inside a crew's run",
-      d2.houses.map(h => h.name).join() === 'L1,L3,L4,L2,Nowhere,A1,A3,A2',
+      d2.houses.map(h => h.name).join() === 'Nowhere,L2,L4,L3,A1,L1,A3,A2',
       'it still has to be driven to, and by somebody in particular — got [' +
       d2.houses.map(h => h.name).join() + ']');
 
@@ -35806,7 +35820,14 @@ suite('123. The two crew maps, actually rendered');
 }
 
 /*
- * Suite 124. The house out on its own goes last, on the way home.
+ * Suite 124. The house out on its own goes to an END of the day — first, on the way
+ * there, unless last is really shorter.
+ *
+ * ⛔ THE END IT GOES TO CHANGED 2026-09-26 ([[SCH-97]]). Dax: "try to do houses like that
+ * on the way there, meaning it should be in between Lehi and the desired area ... find a
+ * way to do it that saves the most miles." The shorter shape wins by a real margin; on a
+ * tie the far house now opens the day. What Addie's ruling below was protecting — no
+ * long drive in the MIDDLE of the day — is unchanged, and is still what this suite holds.
  *
  * Owner, 2026-08-21: "if there are people that are a little furthur out than
  * everyone else than they fall at the end of the route while still remembering
@@ -35826,7 +35847,7 @@ suite('123. The two crew maps, actually rendered');
  * and splitting it would invent a two-part route out of one ordinary one. Most
  * of what is checked below is the refusals.
  */
-suite('124. The house out on its own goes last, on the way home');
+suite('124. The house out on its own goes to an end of the day, on the way there by default');
 {
   const crewStart = admin.indexOf('function cityOf(h)');
   const crewEnd = admin.indexOf('/* ---------- build from imported rows', crewStart);
@@ -35869,8 +35890,11 @@ suite('124. The house out on its own goes last, on the way home');
       out.push(api.hav(prev.lat, prev.lng, HOME.lat, HOME.lng));
       return out;
     };
+    /* ⚠ THE LEGS TOUCHING THE FIRST AND LAST STOP ARE THE DRIVE OUT AND THE DRIVE HOME.
+       With the far house FIRST ([[SCH-97]]) its long leg is the second one — yard, far
+       house, then the street — and that is the drive there, not the middle of the day. */
     const worstMiddle = order => {
-      const L = legs(order).slice(1, -2);          // neither the drive out nor the drive home
+      const L = legs(order).slice(2, -2);          // neither the drive out nor the drive home
       return L.length ? Math.max.apply(null, L) : 0;
     };
     const total = order => legs(order).reduce((a, b) => a + b, 0);
@@ -35881,9 +35905,15 @@ suite('124. The house out on its own goes last, on the way home');
     check('S124', 'the plain shortest tour really does bury the far house mid-day',
       plain.indexOf(far) > 2 && plain.indexOf(far) < plain.length - 2,
       'the fixture proves nothing unless it does — got position ' + plain.indexOf(far));
-    check('S124', 'and the far house is now the last stop of the day',
-      held[held.length - 1] === far,
-      'got ' + held.map(h => h.name).join(',').slice(-40));
+    check('S124', 'and the far house is now at an end of the day',
+      held[0] === far || held[held.length - 1] === far,
+      'got ' + held.map(h => h.name).join(','));
+    /* ⚠ AND ON THIS FIXTURE THE TWO ENDS COST THE SAME — the far house sits north of the
+       middle of a street the yard is south of — so the tie decides, and the tie is now
+       the way THERE. That is the half of [[SCH-97]] only a tie can show. */
+    check('S124', 'on a tie it is the FIRST stop, on the way there',
+      held[0] === far,
+      'got ' + held.map(h => h.name).join(',').slice(0, 40) + ' — the tie used to go to the way home');
     check('S124', 'the long drive is off the middle of the day',
       worstMiddle(held) < worstMiddle(plain) / 2,
       'worst mid-day leg ' + worstMiddle(plain).toFixed(1) + ' mi -> ' +
@@ -35941,9 +35971,8 @@ suite('124. The house out on its own goes last, on the way home');
     const withBare = day.concat([{ name: 'no pin', city: 'Lehi' }]);
     const ordered = api.order(withBare);
     check('S124', 'a house with no position at all is still the very last',
-      ordered[ordered.length - 1].name === 'no pin' &&
-      ordered[ordered.length - 2] === far,
-      'got ' + ordered.slice(-2).map(h => h.name).join(' then '));
+      ordered[ordered.length - 1].name === 'no pin' && ordered[0] === far,
+      'got ' + ordered[0].name + ' first and ' + ordered[ordered.length - 1].name + ' last');
   }
 }
 
@@ -56506,7 +56535,10 @@ suite('304. As many crews as she has, named');
       'got ' + JSON.stringify(none) + ' — a missing slot is a sheet that throws');
     /* ⚠ STILL A HAND-BACK, NOT A LEVELLER. Thirty and four and one stays thirty-capped
        rather than being flattened to twelve each, because levelling drags houses over
-       town lines — the opposite of one crew one town. */
+       town lines — the opposite of one crew one town.
+       ⛔ NARROWED 2026-09-26 BY [[SCH-97]]: true now only for houses with no pins, which is
+       what this fixture holds. With pins the crews are evened as far as the houses sit
+       close enough — Suite 365. */
     const uneven = split({houses: many(30, 'Lehi').concat(many(4, 'Payson'), many(1, 'Logan'))}, t3);
     check('S304', 'it stops at the cap rather than levelling the day out',
       uneven.map((x) => x.length).join('/') === '20/9/6' ||
@@ -59429,6 +59461,13 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
          to the crew carrying least. If a fixture here ever stops carrying coordinates,
          lift the real one — otherwise this suite is grading against a stub. */
       'function estimatedPinFromAddress(){ return null; }' +
+      /* ⛔ AND THE YARD, FOR THE SAME REASON ([[SCH-97]]). The crew leveller in
+         dayCrewHouses prices a move by the cheaper of a round trip to the nearest house
+         and the detour of calling on it from the yard; routeHomePoint places the yard
+         through the same address grid stubbed above. null means "no yard", and the
+         leveller then prices by the nearest house alone — a narrower answer, never a
+         different kind. Suite 365 runs the leveller WITH a yard. */
+      'function routeHomePoint(){ return null; }' +
       'const NEIGH = ' + JSON.stringify(NEIGH314) + ';' +
       'function townsAreNeighbours(a,b){ if(sameCity(a,b)) return true;' +
       ' return NEIGH.some(function(p){ return (sameCity(p[0],a)&&sameCity(p[1],b))||' +
@@ -59438,7 +59477,7 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
     assertSandbox('S314', 'dayCrewTowns', body314, admin,
       ['MAX_TOWNS_PER_CREW', 'MAX_STOPS_PER_ROUTE', 'ONE_MAN_MAX_HOUSES', 'CREWS',
        'crewCount', 'crewName', 'sameCity', 'cityOf', 'dayLimitFor', 'NEIGH',
-       'townsAreNeighbours', 'allHouses', 'estimatedPinFromAddress'].concat(need314));
+       'townsAreNeighbours', 'allHouses', 'estimatedPinFromAddress', 'routeHomePoint'].concat(need314));
 
     const sb314 = {};
     new Function(body314 +
@@ -60384,9 +60423,13 @@ suite('Suite 317. The day finishes pointing at where the crews go next');
       for (let i = 0; i < 16; i++) street.push(mk('s' + i, 40.400, -111.900 + i * 0.0055));
       const far = mk('FAR', 40.325, -111.860);
       const out = api.order(street.concat([far]), { aim: nextCentre });
-      check('S317', 'a day with a real outlier still ends on it, on the way home',
-        out[out.length - 1] === far,
-        'Suite 124 holds her rule and this one must not have quietly taken it over');
+      /* ⚠ REPOINTED 2026-09-26 BY [[SCH-97]]: the far house now goes to whichever END is
+         shorter, the start on a tie — no longer always the last. What this check exists
+         for is unchanged: the aim at tomorrow must not drag it into the MIDDLE. */
+      check('S317', 'a day with a real outlier still does it at an end, not mid-day',
+        out[0] === far || out[out.length - 1] === far,
+        'Suite 124 holds the far-house rule and this one must not have quietly taken it over — got position ' +
+        out.indexOf(far) + ' of ' + out.length);
       check('S317', 'and the aim really does pull the other way, so that proves something',
         dTo(far, nextCentre) > dTo(street[0], nextCentre),
         'the outlier must be FURTHER from tomorrow than the street, or the aimed path would finish on it by accident and this check would be vacuous');
@@ -61106,7 +61149,7 @@ suite('322. A stop in the wrong place gets moved, and far is measured from the r
 
     const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(geoStart, geoEnd) +
       LF_ + admin.slice(crewStart, crewEnd) + LF_ +
-      ';({order: orderHousesForDriving, plain: reorderFlatStops, two: twoOptImprove,  or: orOptImprove, miles: tourMiles, hav: haversine, split: outlyingStops,  point: houseStopPoint, margin: FAR_FIRST_MARGIN_MILES})');
+      ';({order: orderHousesForDriving, plain: reorderFlatStops, two: twoOptImprove,  or: orOptImprove, miles: tourMiles, hav: haversine, split: outlyingStops,  point: houseStopPoint, margin: ON_THE_WAY_MARGIN_MILES})');
 
     const mk = (name, lat, lng) => ({ name, city: 'Lehi', _cust: { lat, lng } });
     const pts = day => day.map(api.point);
@@ -61257,9 +61300,14 @@ suite('322. A stop in the wrong place gets moved, and far is measured from the r
       tieSplit.out.length === 4 && tieSplit.out.every(p => p.ref.name.indexOf('near') === 0),
       'held back: ' + tieSplit.out.map(p => p.ref.name).join(','));
     const tieDriven = api.order(tie.slice());
-    check('S322', 'but a saving smaller than the margin does not overturn her rule',
-      tieDriven[tieDriven.length - 1].name.indexOf('near') === 0,
-      'got ' + ids(tieDriven) + ' — going first saves 0.21 mi here, and Addie’s "at the end of the day on their way back home" is not worth giving up for that');
+    /* ⛔ REPOINTED 2026-09-26 BY [[SCH-97]]. This asserted the knot went LAST — Addie's
+       "on their way back home" keeping a 0.21-mile tie. Dax reversed the preference:
+       "try to do houses like that on the way there". Going first is shorter here AND is
+       now the default, so both halves of the rule agree on this day. The margin's own
+       check, where last is shorter by less than the margin, is the one after it. */
+    check('S322', 'a near-the-yard knot is done on the way there',
+      tieDriven[0].name.indexOf('near') === 0,
+      'got ' + ids(tieDriven) + ' — going first saves 0.21 mi here and is the way there');
     check('S322', 'and the margin is a named number, not a bare comparison',
       typeof api.margin === 'number' && api.margin > 0.05 && api.margin < 2,
       'without a margin the two shapes trade places on rounding, and the far house lands first for no reason anybody can see');
@@ -65105,11 +65153,12 @@ suite('364. Texted people stay off every new list');
 suite('361. A stray house joins the day the crew is in its area');
 {
   const src = extractFn(admin, 'gatherStrayHouses');
-  const consts = ['STRAY_FAR_MILES', 'STRAY_NEAR_MILES', 'STRAY_LATER_MAX_DAYS'].map(function (n) {
+  const consts = ['STRAY_FAR_MILES', 'STRAY_NEAR_MILES', 'STRAY_LATER_MAX_DAYS',
+                  'ON_THE_WAY_MAX_DETOUR_MILES'].map(function (n) {
     const m = admin.match(new RegExp('const ' + n + ' = [^;]+;'));
     return m ? m[0] : null;
   });
-  check('S361', 'the stray gatherer and its three distances are findable',
+  check('S361', 'the stray gatherer and its four distances are findable',
     !!src && consts.every(Boolean), 'a gate that cannot find its target must FAIL, never skip');
   if (src && consts.every(Boolean)) {
     const LF_ = String.fromCharCode(10);
@@ -65238,11 +65287,322 @@ suite('361. A stray house joins the day the crew is in its area');
     const plan = stripComments(extractFn(admin, 'planNewCrewDays') || '');
     check('S361', 'the season builder runs it on the swept plan, before the crews are numbered',
       /gatherStrayHouses\(packed\.days,/.test(plan) &&
-      /return renumberCrewsByDate\(gathered, taken \|\| \{\}\);/.test(plan) &&
+      /* ⚠ REPOINTED 2026-09-26 ([[SCH-97]]): the gathered plan is evened before it is
+         numbered, so what reaches renumberCrewsByDate is `evened`, built FROM it. */
+      /evenCrewDates\(gathered, \{/.test(plan) &&
+      /return renumberCrewsByDate\(evened, taken \|\| \{\}\);/.test(plan) &&
       plan.indexOf('gatherStrayHouses(packed.days,') > plan.indexOf('packTailCrewDays(out,'));
     check('S361', 'and hands it each house’s own dates and pin, not a copy',
       /house: function\(id\)\{ return wById\[id\] \|\| null; \}/.test(plan));
     check('S361', 'it can be switched off for a measurement, and a builder lifted without it still works',
       /o\.gather !== false && typeof gatherStrayHouses === 'function'/.test(plan));
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite 365. The crews on a day are even, and a house out of the way is done on the way.
+ *
+ * Dax, 2026-09-26 ([[SCH-97]]): "I noticed on the schedule, crews aerent always even, we
+ * never want one of the crews to have more than three more houses than the other crew,
+ * that doesnt mean subtract houses from a crew though, that means pick an area for both
+ * crews where you can make that possible, we want them to have the same amount if
+ * possible though, also we should never put a house way out of the way in the middle of
+ * a route, try to do houses like that on the way there, meaning it should be in between
+ * Lehi and the desired area but dont add a massive detour, find a way to do it that saves
+ * the most miles."
+ *
+ * Four mechanisms, each RUN rather than read — every claim is about which crew or which
+ * day a house ends up on, or where in a route it sits:
+ *   evenCrewDates      — the builder gives the SHORT crew more, from other days nearby
+ *   dayCrewHouses      — the day's own split is levelled as far as the houses are close
+ *   gatherStrayHouses  — a stray may join a day it lies on the way to from the yard
+ *   liftMidDayDetours  — no long side-trip left in the middle of a route
+ * and the wiring that makes the builder and the orderer actually call them.
+ *
+ * One degree of latitude is ~69 miles, so 0.001 is ~0.07 mi.
+ * --------------------------------------------------------------------------- */
+suite('365. The crews on a day are even, and a house out of the way is done on the way');
+{
+  const LF_ = String.fromCharCode(10);
+  const HAV = 'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+    'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}';
+  const constOf = n => { const m = admin.match(new RegExp('const ' + n + ' = [^;]+;')); return m ? m[0] : null; };
+  const YARD = { lat: 40.3866, lng: -111.8616 };           // 209 S 850 W, Lehi
+  const LEHI = { lat: 40.4300, lng: -111.8500 }, OREM = { lat: 40.2969, lng: -111.6946 };
+  const AF = { lat: 40.3770, lng: -111.7960 };              // American Fork, between the two
+
+  /* ================= evenCrewDates — give the short crew more ================= */
+  const evenSrc = extractFn(admin, 'evenCrewDates');
+  const evenConsts = ['CREW_EVEN_MAX_GAP', 'CREW_EVEN_NEAR_MILES', 'STRAY_LATER_MAX_DAYS'].map(constOf);
+  check('S365', 'the crew evener and its distances are findable',
+    !!evenSrc && evenConsts.every(Boolean), 'a gate that cannot find its target must FAIL, never skip');
+  if (evenSrc && evenConsts.every(Boolean)) {
+    const even = new Function('const MAX_STOPS_PER_ROUTE = 20; const ONE_MAN_MAX_HOUSES = 8;' + LF_ +
+      HAV + LF_ + evenConsts.join(LF_) + LF_ + evenSrc + LF_ + 'return evenCrewDates;')();
+    const book = {};
+    const mk = (id, town, at, i, extra) => (book[id] = Object.assign({ id: id, city: town, priority: 40,
+      from: '2026-10-01', until: '', stop: { lat: at.lat + i * 0.001, lng: at.lng } }, extra || {}), id);
+    const run = (days, opts) => even(days, Object.assign({ cap: 20, house: id => book[id] || null }, opts || {}));
+    const on = (days, date) => days.filter(d => d.date === date).map(d => d.ids.length).sort((a, b) => b - a).join('/');
+    const reset = () => Object.keys(book).forEach(k => delete book[k]);
+    /* Oct 5: Lehi 20, Orem 14. Oct 8: six more Orem houses, beside the Orem crew. */
+    const scene = (extra, laterDate) => {
+      reset();
+      const lehi = [], orem = [], later = [];
+      for (let i = 0; i < 20; i++) lehi.push(mk('l' + i, 'Lehi', LEHI, i));
+      for (let i = 0; i < 14; i++) orem.push(mk('o' + i, 'Orem', OREM, i));
+      for (let i = 0; i < 6; i++) later.push(mk('x' + i, 'Orem', OREM, 14 + i, extra));
+      return [
+        { date: '2026-10-05', crew: '1', city: 'Lehi', towns: ['Lehi'], areas: ['g:1'], ids: lehi },
+        { date: '2026-10-05', crew: '2', city: 'Orem', towns: ['Orem'], areas: ['g:2'], ids: orem },
+        { date: laterDate || '2026-10-08', crew: '1', city: 'Orem', towns: ['Orem'], areas: ['g:3'], ids: later }
+      ];
+    };
+    {
+      const days = scene();
+      const lehiBefore = days[0].ids.slice();
+      const out = run(days);
+      check('S365', '20 and 14 becomes 20 and 20, by giving the short crew the houses beside it',
+        on(out, '2026-10-05') === '20/20', 'got ' + on(out, '2026-10-05'));
+      check('S365', 'and the long crew keeps every house it had — nothing is subtracted',
+        out.find(d => d.date === '2026-10-05' && d.crew === '1').ids.join() === lehiBefore.join());
+      check('S365', 'a day that gives away everything it had disappears — a crew-day saved',
+        !out.some(d => d.date === '2026-10-08'));
+      check('S365', 'nobody is lost or doubled',
+        out.reduce((a, d) => a.concat(d.ids), []).sort().join() === Object.keys(book).sort().join());
+      check('S365', 'and every move is reported',
+        Array.isArray(out.evened) && out.evened.length === 6 && out.evened.every(m => m.to === '2026-10-05'));
+    }
+    {
+      /* The only spare houses are three miles away from the Orem crew. */
+      const days = scene();
+      days[2].ids.forEach(id => { book[id].stop = { lat: OREM.lat - 0.045, lng: OREM.lng }; });
+      const out = run(days);
+      check('S365', 'houses more than two miles from the short crew are not pulled in',
+        on(out, '2026-10-05') === '20/14', 'got ' + on(out, '2026-10-05'));
+      check('S365', 'and a day it could not even is reported, with the gap',
+        Array.isArray(out.uneven) && out.uneven.length === 1 && out.uneven[0].date === '2026-10-05' && out.uneven[0].gap === 6,
+        JSON.stringify(out.uneven));
+    }
+    check('S365', 'a house the plan is hurrying (a new hang) is never moved LATER to even a day',
+      on(run(scene({ priority: 10 }, '2026-10-02')), '2026-10-05') === '20/14');
+    check('S365', 'but anybody may move EARLIER',
+      on(run(scene({ priority: 10 })), '2026-10-05') === '20/20');
+    check('S365', 'never before the first day a house allows',
+      on(run(scene({ from: '2026-10-06' })), '2026-10-05') === '20/14');
+    check('S365', 'and never more than a week later',
+      on(run(scene({}, '2026-09-25')), '2026-10-05') === '20/14');
+    {
+      /* A one-crew donor of nine: taking one makes it a one-man day. */
+      const days = scene();
+      const nine = []; for (let i = 0; i < 9; i++) nine.push(mk('n' + i, 'Orem', OREM, 30 + i));
+      days[2] = { date: '2026-10-08', crew: '1', city: 'Orem', towns: ['Orem'], areas: ['g:3'], ids: nine };
+      Object.keys(book).filter(k => k[0] === 'x').forEach(k => delete book[k]);
+      const out = run(days);
+      check('S365', 'never tips the day it takes from from a crew to one person',
+        out.find(d => d.date === '2026-10-08').ids.length === 9, 'got ' + on(out, '2026-10-08'));
+    }
+    {
+      const days = scene();
+      days[1].areas = ['x:o0'];
+      check('S365', 'a one-man outlier run is not a crew and is not evened',
+        on(run(days), '2026-10-05') === '20/14');
+    }
+    check('S365', 'a date the office set to one crew is left alone',
+      on(run(scene(), { dayShape: ds => ds === '2026-10-05' ? { crews: 1 } : null }), '2026-10-05') === '20/14');
+    {
+      /* Never past the long crew: 20 and 16 with fourteen nearby comes out 20 and 20, and
+         the ten left behind stay a crew-day of their own. */
+      reset();
+      const a = [], b = [], spare = [];
+      for (let i = 0; i < 20; i++) a.push(mk('a' + i, 'Lehi', LEHI, i));
+      for (let i = 0; i < 16; i++) b.push(mk('b' + i, 'Orem', OREM, i));
+      for (let i = 0; i < 14; i++) spare.push(mk('s' + i, 'Orem', OREM, 16 + i));
+      const out = run([
+        { date: '2026-10-05', crew: '1', city: 'Lehi', towns: ['Lehi'], areas: ['g:1'], ids: a },
+        { date: '2026-10-05', crew: '2', city: 'Orem', towns: ['Orem'], areas: ['g:2'], ids: b },
+        { date: '2026-10-06', crew: '1', city: 'Orem', towns: ['Orem'], areas: ['g:3'], ids: spare }]);
+      check('S365', 'it fills the short crew to match the long one and no further',
+        on(out, '2026-10-05') === '20/20' && out.find(d => d.date === '2026-10-06').ids.length === 10,
+        'got ' + on(out, '2026-10-05') + ' and ' + on(out, '2026-10-06'));
+    }
+    /* The wiring, asserted apart from the mechanism: everything above calls the function
+       itself, so deleting the call from the builder would leave it all green. */
+    const plan = stripComments(extractFn(admin, 'planNewCrewDays') || '');
+    check('S365', 'the builder evens the crews after gathering strays, before numbering',
+      /evenCrewDates\(gathered, \{/.test(plan) &&
+      /return renumberCrewsByDate\(evened, taken \|\| \{\}\);/.test(plan) &&
+      plan.indexOf('evenCrewDates(gathered,') > plan.indexOf('gatherStrayHouses(packed.days,'));
+    check('S365', 'and it can be switched off for a measurement',
+      /o\.even !== false && typeof evenCrewDates === 'function'/.test(plan));
+  }
+
+  /* ============ dayCrewHouses — level the day's own split where close ============ */
+  const need = ['dayCrewHouses', 'crewIndexes', 'crewCap', 'daySoloCrew', 'houseStopPoint',
+                'houseGeoPoint', 'customerForHouse', 'haversine'];
+  const lifted = {};
+  need.forEach(n => { lifted[n] = extractFn(admin, n); });
+  const evConsts = ['CREW_EVEN_MAX_GAP', 'ON_THE_WAY_MAX_DETOUR_MILES'].map(constOf);
+  check('S365', 'the crew split and what it measures with are findable',
+    need.every(n => lifted[n]) && evConsts.every(Boolean));
+  if (need.every(n => lifted[n]) && evConsts.every(Boolean)) {
+    /* ⛔ TWO DELIBERATE STUBS, each for the reason Suite 314 gives: routeHomePoint and
+       estimatedPinFromAddress both drag the whole address grid in. The yard here is a
+       FIXED point handed in, so the leveller's on-the-way pricing is exercised for real;
+       every fixture house carries a real pin, so the estimate is never reached. */
+    const split = (houses, towns, yard, crewCount, crewsOnBook) => new Function('day', 'towns', 'YARD', 'N', 'C',
+      'const MAX_STOPS_PER_ROUTE = 20; const NEARBY_TOWN_MILES = 8;' +
+      evConsts.join('') +
+      'const CREWS = Array.from({length: C}, function(_, i){ return {name: "Crew " + (i + 1), city: ""}; });' +
+      'const cityOf = function(h){ return h.city; };' +
+      'const sameCity = function(a,b){ return String(a).toLowerCase() === String(b).toLowerCase(); };' +
+      'const crewTownsFor = function(i){ return towns[i] || []; };' +
+      'const dayCrewCount = function(){ return N; };' +
+      'const custByNumber = new Map(day.houses.map(function(h){ return [h.cu, {data: h._at}]; }));' +
+      'function estimatedPinFromAddress(){ return null; }' +
+      'function routeHomePoint(){ return YARD; }' +
+      need.map(n => lifted[n]).join(LF_) + LF_ +
+      'return dayCrewHouses(day);')({ houses: houses }, towns, yard, crewCount || 2, crewsOnBook || 2);
+    let cu = 0;
+    const H = (town, at, i, dLng) => ({ cu: String(++cu), city: town, name: town + i,
+      _at: { lat: at.lat + i * 0.001, lng: at.lng + (dLng || 0) } });
+    const sizes = out => out.map(x => x.length).join('/');
+    {
+      /* Twenty-six houses on one street, all in Lehi: the town split puts all of them on
+         crew 1, and the day wants two crews. */
+      const hs = []; for (let i = 0; i < 26; i++) hs.push(H('Lehi', LEHI, i));
+      const out = split(hs, { 0: ['Lehi'], 1: [] }, YARD);
+      check('S365', 'a two-crew day held in one town is split level, 13 and 13',
+        sizes(out) === '13/13', 'got ' + sizes(out));
+    }
+    {
+      /* 20 in Lehi and 14 in Orem, twelve miles apart. Lehi houses are on the way from
+         the yard (in Lehi) to Orem, so calling on a few of them on the way out costs the
+         Orem crew almost nothing — the hard rule and the preference both take them. */
+      const hs = [];
+      for (let i = 0; i < 20; i++) hs.push(H('Lehi', YARD, i - 10, 0.004));
+      for (let i = 0; i < 14; i++) hs.push(H('Orem', OREM, i));
+      const out = split(hs, { 0: ['Lehi'], 1: ['Orem'] }, YARD);
+      check('S365', 'houses on the way from the yard are handed to the short crew until level',
+        sizes(out) === '17/17', 'got ' + sizes(out));
+      /* The same day with NO yard: a Lehi house costs the Orem crew a 24-mile round trip,
+         past the reach even the hard rule allows. The builder is what should have evened
+         this day; the split will not drag a house across the valley to do it. */
+      const noYard = split(hs, { 0: ['Lehi'], 1: ['Orem'] }, null);
+      check('S365', 'but a house is never dragged past the reach of a nearby town to even a day',
+        sizes(noYard) === '20/14', 'got ' + sizes(noYard));
+    }
+    {
+      /* 20 and 18 a mile apart, not on the way: within three, so levelling is only a
+         preference — and it takes a house only if it costs the receiving crew two miles
+         or less. A round trip to a house a mile off is two miles: it goes. */
+      const hs = [];
+      for (let i = 0; i < 20; i++) hs.push(H('Lehi', LEHI, i));
+      for (let i = 0; i < 18; i++) hs.push(H('Highland', LEHI, i, 0.018));
+      const out = split(hs, { 0: ['Lehi'], 1: ['Highland'] }, null);
+      check('S365', 'inside three apart, a close house still levels the crews',
+        sizes(out) === '19/19', 'got ' + sizes(out));
+      const far = [];
+      for (let i = 0; i < 20; i++) far.push(H('Lehi', LEHI, i));
+      for (let i = 0; i < 18; i++) far.push(H('Draper', LEHI, i, 0.06));   // a 6.3-mile round trip: inside the hard reach, outside the soft one
+      check('S365', 'but a preference never pays more than two miles',
+        sizes(split(far, { 0: ['Lehi'], 1: ['Draper'] }, null)) === '20/18');
+    }
+    {
+      /* Three crews on the books, two out today, already level: the third is idle and
+         must stay empty — evening across every crew on the books would send it out. */
+      const hs = [];
+      for (let i = 0; i < 13; i++) hs.push(H('Lehi', LEHI, i));
+      for (let i = 0; i < 13; i++) hs.push(H('Highland', LEHI, i, 0.01));
+      check('S365', 'a crew that is not out that day is never handed anything',
+        sizes(split(hs, { 0: ['Lehi'], 1: ['Highland'], 2: [] }, YARD, 2, 3)) === '13/13/0',
+        'got ' + sizes(split(hs, { 0: ['Lehi'], 1: ['Highland'], 2: [] }, YARD, 2, 3)));
+    }
+  }
+
+  /* ============ gatherStrayHouses — on the way there ============ */
+  const gSrc = extractFn(admin, 'gatherStrayHouses');
+  const gConsts = ['STRAY_FAR_MILES', 'STRAY_NEAR_MILES', 'STRAY_LATER_MAX_DAYS', 'ON_THE_WAY_MAX_DETOUR_MILES'].map(constOf);
+  check('S365', 'the stray gatherer and the on-the-way distance are findable', !!gSrc && gConsts.every(Boolean));
+  if (gSrc && gConsts.every(Boolean)) {
+    const gather = new Function('const MAX_STOPS_PER_ROUTE = 20; const ONE_MAN_MAX_HOUSES = 8;' + LF_ +
+      HAV + LF_ + gConsts.join(LF_) + LF_ + gSrc + LF_ + 'return gatherStrayHouses;')();
+    const book = {};
+    const mk = (id, town, at, i, dLng) => (book[id] = { id: id, city: town, priority: 40, from: '2026-10-01',
+      until: '', stop: { lat: at.lat + i * 0.001, lng: at.lng + (dLng || 0) } }, id);
+    const dayOf = (days, id) => { const d = days.find(cd => cd.ids.indexOf(id) !== -1); return d ? d.date : null; };
+    /* Oct 5 is a west-Lehi day carrying one American Fork house six miles from any of
+       them; Oct 7 is an Orem day with room. Driving from the yard to Orem goes through
+       American Fork. */
+    const scene = strayAt => {
+      Object.keys(book).forEach(k => delete book[k]);
+      const west = [], orem = [];
+      for (let i = 0; i < 12; i++) west.push(mk('w' + i, 'Lehi', LEHI, i, -0.06));
+      for (let i = 0; i < 12; i++) orem.push(mk('o' + i, 'Orem', OREM, i));
+      mk('af', 'American Fork', strayAt || AF, 0);
+      return [
+        { date: '2026-10-05', crew: '1', city: 'Lehi', towns: ['Lehi', 'American Fork'], areas: ['g:1'], ids: west.concat(['af']) },
+        { date: '2026-10-07', crew: '1', city: 'Orem', towns: ['Orem'], areas: ['g:2'], ids: orem }
+      ];
+    };
+    const run = (days, home) => gather(days, { cap: 20, house: id => book[id] || null, home: home });
+    {
+      const out = run(scene(), YARD);
+      check('S365', 'a stray joins the day it lies on the way to from the yard, in another town',
+        dayOf(out, 'af') === '2026-10-07', 'got ' + dayOf(out, 'af'));
+      check('S365', 'and the move says it was on the way',
+        Array.isArray(out.gathered) && out.gathered.length === 1 && out.gathered[0].onTheWay === true);
+      check('S365', 'and the day it joined now names the town it brought',
+        out.find(d => d.date === '2026-10-07').towns.indexOf('American Fork') !== -1);
+    }
+    check('S365', 'with no yard to measure from, nothing is on the way — it stays',
+      dayOf(run(scene(), null), 'af') === '2026-10-05');
+    /* ⚠ SIZED TO BITE: 2.46 miles off the road — just past the two-mile line — while
+       still fourteen miles cheaper than where it sits, so ONLY the detour cap keeps it. */
+    check('S365', 'a house well off the road there is not "on the way" — no massive detour',
+      dayOf(run(scene({ lat: AF.lat + 0.03, lng: AF.lng + 0.02 }), YARD), 'af') === '2026-10-05');
+  }
+
+  /* ============ liftMidDayDetours — nothing way out of the way mid-day ============ */
+  const lSrc = extractFn(admin, 'liftMidDayDetours');
+  const lConsts = ['OUTLIER_MIN_MILES', 'ON_THE_WAY_MARGIN_MILES', 'MID_DAY_DETOUR_MAX_MILES'].map(constOf);
+  check('S365', 'the mid-day lifter is findable', !!lSrc && lConsts.every(Boolean) &&
+    !!extractFn(admin, 'stopHasPin') && !!extractFn(admin, 'tourMiles'));
+  if (lSrc && lConsts.every(Boolean)) {
+    const lift = new Function(HAV + LF_ + lConsts.join(LF_) + LF_ + extractFn(admin, 'stopHasPin') + LF_ +
+      extractFn(admin, 'tourMiles') + LF_ + lSrc + LF_ + 'return liftMidDayDetours;')();
+    const P = (name, lat, lng) => ({ name: name, lat: lat, lng: lng });
+    /* A street of ten east of the yard, and one house four miles north buried at stop 6. */
+    const street = []; for (let i = 0; i < 10; i++) street.push(P('s' + i, 40.40, -111.85 + i * 0.004));
+    const north = P('N', 40.46, -111.83);
+    const day = street.slice(0, 5).concat([north], street.slice(5));
+    const out = lift(day, YARD, YARD, false);
+    const names = out.map(p => p.name);
+    check('S365', 'a house four miles off, buried mid-day, is moved to an end of the day',
+      names[0] === 'N' || names[names.length - 1] === 'N', names.join(','));
+    check('S365', 'nobody is dropped by moving it', out.length === day.length && new Set(names).size === day.length);
+    /* ⚠ HERE THE LIFTED HOUSE WOULD GO TO THE START ON ITS OWN, so only keepFirst holds
+       the missed house in front of it. */
+    const westN = P('N', 40.44, -111.87);
+    const kept = lift([P('miss', 40.40, -111.851)].concat(street.slice(1, 5), [westN], street.slice(5)), YARD, YARD, true);
+    check('S365', 'a missed house that opens the day keeps stop 1 — the lifted one goes behind it',
+      kept[0].name === 'miss' && (kept[1].name === 'N' || kept[kept.length - 1].name === 'N'),
+      kept.map(p => p.name).join(','));
+    const tight = street.slice();
+    check('S365', 'a tidy street with nothing out of the way is left exactly as it was',
+      lift(tight, YARD, YARD, false).map(p => p.name).join() === tight.map(p => p.name).join());
+    const order = stripComments(extractFn(admin, 'orderHousesForDriving') || '');
+    check('S365', 'the orderer lifts mid-day detours on an ordinary day',
+      /liftMidDayDetours\(pinnedOrder, home, aim, !!missedAt\)/.test(order));
+  }
+
+  /* ============ the yard reaches the builder, from the place that can see it ============ */
+  {
+    const rebuild = stripComments(extractFn(admin, 'rebuildSeasonDays') || '');
+    check('S365', 'Recalculate everything hands the builder the yard',
+      /home:\(typeof routeHomePoint==='function'\?routeHomePoint\(\):null\)/.test(rebuild));
+    const plan = stripComments(extractFn(admin, 'planNewCrewDays') || '');
+    check('S365', 'and the builder hands it on to the stray gatherer',
+      /home: o\.home \|\| null/.test(plan));
   }
 }

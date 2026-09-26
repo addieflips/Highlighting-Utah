@@ -63196,10 +63196,20 @@ function planNewCrewDays(waiting, taken, opts){
   const gathered = (o.gather !== false && typeof gatherStrayHouses === 'function')
     ? gatherStrayHouses(packed.days, {
         cap: cap, dayShape: o.dayShape,
-        house: function(id){ return wById[id] || null; }
+        house: function(id){ return wById[id] || null; },
+        home: o.home || null
       })
     : packed.days;
-  return renumberCrewsByDate(gathered, taken || {});
+  /* ⭐ [[SCH-97]]: and then the crews on each date are evened, by giving the short one
+     more rather than the long one less. After the strays, so a house already placed on
+     the way somewhere is not handed on again. */
+  const evened = (o.even !== false && typeof evenCrewDates === 'function')
+    ? evenCrewDates(gathered, {
+        cap: cap, dayShape: o.dayShape,
+        house: function(id){ return wById[id] || null; }
+      })
+    : gathered;
+  return renumberCrewsByDate(evened, taken || {});
 }
 /* ⭐ A HOUSE WAY OUT OF THE WAY GOES ON THE DAY THE CREW IS ALREADY IN ITS AREA
    ([[SCH-96]], Dax, 2026-09-24): "on the schedule I noticed we do a house in Lehi way
@@ -63234,6 +63244,21 @@ function planNewCrewDays(waiting, taken, opts){
 const STRAY_FAR_MILES = 3;
 const STRAY_NEAR_MILES = 1.5;
 const STRAY_LATER_MAX_DAYS = 7;
+/* ⭐ OR ON THE WAY THERE ([[SCH-97]], Dax, 2026-09-26): "try to do houses like that on
+   the way there, meaning it should be in between Lehi and the desired area but dont add
+   a massive detour, find a way to do it that saves the most miles." A stray may also join
+   a crew-day whose houses it lies on the road to from the yard (209 S 850 W): the extra
+   driving to call on it on the way — yard → it → that house, against yard → that house —
+   must be no more than this. It is the "massive detour" line, in miles.
+   ⚠ IT DOES NOT NEED THE SAME TOWN. The whole point is a house in the town you drive
+   THROUGH — American Fork on the way from Lehi to Orem — so the same-town rule the
+   near-a-house move keeps would refuse every case this exists for. Every other rule a
+   move keeps (dates, a week later at most, hurried people never later, staffing lines,
+   the 48-hour lock) is unchanged, and [[SCH-67]] still puts it on a sheet.
+   ⚠ AND IT MUST SAVE MILES: its cost where it is (the cheaper of its detour there and a
+   round trip to its nearest neighbour; a whole trip out when it is alone) has to beat
+   its detour on the new day by STRAY_NEAR_MILES, the same bar a trade has to clear. */
+const ON_THE_WAY_MAX_DETOUR_MILES = 2;
 function gatherStrayHouses(days, opts){
   /* Guarded, because several suites lift the builder into a sandbox with no tape measure;
      there it must hand the plan back exactly as built. The page always has one. */
@@ -63256,6 +63281,23 @@ function gatherStrayHouses(days, opts){
             isFinite(st.lat) && isFinite(st.lng)) ? st : null;
   };
   const townOf = function(id){ const w = house(id); return (w && w.city) || ''; };
+  const home = (o.home && typeof o.home.lat === 'number' && typeof o.home.lng === 'number' &&
+                isFinite(o.home.lat) && isFinite(o.home.lng)) ? o.home : null;
+  /* The cheapest way to call on p while driving out to one of these houses: the extra
+     miles of yard → p → q over yard → q, at the q that makes it smallest. */
+  const onTheWay = function(p, ids, skip){
+    if(!home) return {miles: Infinity, id: null};
+    const toP = haversine(home.lat, home.lng, p.lat, p.lng);
+    let best = Infinity, bestId = null;
+    ids.forEach(function(id){
+      if(id === skip) return;
+      const q = pinOf(id);
+      if(!q) return;
+      const extra = toP + haversine(p.lat, p.lng, q.lat, q.lng) - haversine(home.lat, home.lng, q.lat, q.lng);
+      if(extra < best){ best = extra; bestId = id; }
+    });
+    return {miles: best, id: bestId};
+  };
   const nearest = function(p, ids, skip){
     let best = Infinity, bestId = null;
     ids.forEach(function(id){
@@ -63315,12 +63357,29 @@ function gatherStrayHouses(days, opts){
         if(here < STRAY_FAR_MILES) return;
         const town = townOf(id);
         if(!town) return;
+        /* What it costs where it is now, for the on-the-way comparison ([[SCH-97]]). */
+        const others = src.ids.filter(function(x){ return x !== id; });
+        const hereCost = others.length
+          ? Math.min(isFinite(here) ? 2 * here : Infinity, onTheWay(p, others, null).miles)
+          : (home ? 2 * haversine(home.lat, home.lng, p.lat, p.lng) : STRAY_FAR_MILES * 10);
+        /* Does it belong on this sheet — beside a house in its own town, or on the way
+           to one? skip is a house being traded OFF that sheet, which cannot count. */
+        const landing = function(ids, skip){
+          if(holdsTown(ids, town, skip)){
+            const n = nearest(p, ids, skip);
+            if(n.miles <= STRAY_NEAR_MILES) return {miles: n.miles, id: n.id, gain: (isFinite(here) ? here : STRAY_FAR_MILES * 10) - n.miles};
+          }
+          const w = onTheWay(p, ids, skip);
+          if(w.miles <= ON_THE_WAY_MAX_DETOUR_MILES && hereCost - w.miles >= STRAY_NEAR_MILES){
+            return {miles: w.miles, id: w.id, gain: hereCost - w.miles, onTheWay: true};
+          }
+          return null;
+        };
         list.forEach(function(dst){
           if(dst === src || dst.date === src.date) return;
           if(!canGo(id, src, dst)) return;
-          if(!holdsTown(dst.ids, town, null)) return;
-          const there = nearest(p, dst.ids, null);
-          if(there.miles > STRAY_NEAR_MILES) return;
+          const there = landing(dst.ids, null);
+          if(!there) return;
           if(dst.ids.length < capOnDate(dst.date)){
             const total = dateTotal(dst.date);
             if(staffing(total + 1) !== staffing(total)) return;
@@ -63328,7 +63387,7 @@ function gatherStrayHouses(days, opts){
                ([[SCH-69]], crewIsOneMan). */
             if((dst.ids.length + 1 <= oneMax) !== (dst.ids.length <= oneMax)) return;
             offer({id: id, src: src, dst: dst, near: there.id, was: here, now: there.miles,
-                   gain: (isFinite(here) ? here : STRAY_FAR_MILES * 10) - there.miles});
+                   gain: there.gain, onTheWay: !!there.onTheWay});
             return;
           }
           /* ⭐ THE DAY IN ITS AREA IS FULL — SO TRADE. Measured before this was added:
@@ -63350,13 +63409,12 @@ function gatherStrayHouses(days, opts){
             const tHere = nearest(tp, dst.ids, t).miles;
             const tThere = nearest(tp, rest, null);
             if(tThere.miles > STRAY_NEAR_MILES) return;
-            const sThere = nearest(p, dst.ids, t);
-            if(sThere.miles > STRAY_NEAR_MILES) return;
-            const gain = (isFinite(here) ? here : STRAY_FAR_MILES * 10) - sThere.miles +
-                         (isFinite(tHere) ? tHere : 0) - tThere.miles;
+            const sThere = landing(dst.ids, t);
+            if(!sThere) return;
+            const gain = sThere.gain + (isFinite(tHere) ? tHere : 0) - tThere.miles;
             if(gain < STRAY_NEAR_MILES) return;
             offer({id: id, src: src, dst: dst, near: sThere.id, was: here, now: sThere.miles, gain: gain,
-                   swap: t, swapNear: tThere.id});
+                   swap: t, swapNear: tThere.id, onTheWay: !!sThere.onTheWay});
           });
         });
       });
@@ -63378,17 +63436,21 @@ function gatherStrayHouses(days, opts){
     };
     joinArea(b.id, b.near, b.dst);
     if(b.swap != null) joinArea(b.swap, b.swapNear, b.src);
-    /* And a day stops naming a town it no longer holds. */
+    /* And a day stops naming a town it no longer holds — and starts naming one a house
+       on the way there brought with it ([[SCH-97]]), or the sheet's label is short. */
     [b.src, b.dst].forEach(function(day){
       const left = {};
       day.ids.forEach(function(x){ const t = townOf(x); if(t) left[t] = (left[t] || 0) + 1; });
-      if(Array.isArray(day.towns)) day.towns = day.towns.filter(function(t){ return left[t]; });
+      if(Array.isArray(day.towns)){
+        day.towns = day.towns.filter(function(t){ return left[t]; });
+        Object.keys(left).forEach(function(t){ if(day.towns.indexOf(t) === -1) day.towns.push(t); });
+      }
       if(day.ids.length && !left[day.city]){
         day.city = Object.keys(left).sort(function(x, y){ return left[y] - left[x] || (x < y ? -1 : 1); })[0] || day.city;
       }
     });
     touched[b.id] = true;
-    moved.push({id: b.id, from: b.src.date, to: b.dst.date, was: b.was, now: b.now});
+    moved.push({id: b.id, from: b.src.date, to: b.dst.date, was: b.was, now: b.now, onTheWay: !!b.onTheWay});
     if(b.swap != null){
       touched[b.swap] = true;
       moved.push({id: b.swap, from: b.dst.date, to: b.src.date, swappedFor: b.id});
@@ -63396,6 +63458,192 @@ function gatherStrayHouses(days, opts){
     if(!b.src.ids.length) list.splice(list.indexOf(b.src), 1);
   }
   list.gathered = moved;
+  return list;
+}
+/* ⭐ THE CREWS ON A DAY CARRY THE SAME, AND NEVER MORE THAN THREE APART ([[SCH-97]]).
+   Dax, 2026-09-26: "crews arent always even, we never want one of the crews to have more
+   than three more houses than the other crew, that doesnt mean subtract houses from a crew
+   though, that means pick an area for both crews where you can make that possible, we
+   want them to have the same amount if possible though."
+
+   ⚠ HOW A DAY COMES OUT UNEVEN. Each crew on a date is sent to its own area (a block of
+   about twenty) and tops up from ONE neighbouring area. Late in the season, or when the
+   only area left near the second crew is small, the second crew comes out 14 beside a
+   first crew of 20 — and nothing afterwards evened it: the old split in dayCrewHouses
+   deliberately handed houses back only when a crew was OVER the cap.
+
+   ⭐ SO THE SHORT CREW IS GIVEN MORE, NOT THE LONG ONE LESS. "That doesnt mean subtract
+   houses from a crew" — the short crew is topped up with houses from OTHER days that sit
+   beside its own (within CREW_EVEN_NEAR_MILES of a house already on its run, [[SCH-65]]'s
+   two miles), until it matches the long one. Taking from the long crew would even the
+   numbers by making the day smaller, which is the answer he ruled out.
+
+   The rules a move keeps are the ones every house already keeps ([[SCH-96]]'s list):
+   - never before a house's first allowed day, never past its last;
+   - LATER only by a week at most, and never for anybody the plan is hurrying — earlier is
+     always allowed;
+   - never tipping the date it LEAVES over a staffing line (one person / one crew / two),
+     unless the run it leaves disappears entirely, which is a crew-day saved;
+   - never making the date it leaves more uneven than it already was, or than one apart
+     — three apart when the day being fixed is itself more than three apart, since that
+     trade turns a broken rule into two days inside it;
+   - never over the cap. Days inside the 48-hour lock never reach here.
+   ⚠ A ONE-MAN OUTLIER RUN ([[SCH-69]], an 'x:' area) is not a crew and is not evened.
+   ⚠ AND IT CANNOT ALWAYS SUCCEED — at the tail of the season there may be nobody left
+   nearby to give. What it could not even is returned in `uneven`, so the button can say
+   so; dayCrewHouses then evens the day's own houses as far as geography allows.
+   PURE: crew-days in, crew-days out ({date, crew, city, towns, areas, ids}). */
+const CREW_EVEN_MAX_GAP = 3;
+const CREW_EVEN_NEAR_MILES = 2;
+function evenCrewDates(days, opts){
+  /* Guarded like gatherStrayHouses: a sandbox with no tape measure gets the plan back as built. */
+  if(typeof haversine !== 'function') return days;
+  const o = opts || {};
+  const house = typeof o.house === 'function' ? o.house : function(){ return null; };
+  const cap = o.cap || MAX_STOPS_PER_ROUTE;
+  const dayShape = typeof o.dayShape === 'function' ? o.dayShape : function(){ return null; };
+  const capOnDate = function(ds){
+    const sh = dayShape(ds);
+    return (sh && sh.cap > 0) ? Math.min(cap, sh.cap) : cap;
+  };
+  const oneMax = (typeof ONE_MAN_MAX_HOUSES === 'number') ? ONE_MAN_MAX_HOUSES : 8;
+  const staffing = function(n){ return n <= oneMax ? 0 : (n < cap ? 1 : 2); };
+  const pinOf = function(id){
+    const w = house(id);
+    const st = w && w.stop;
+    return (st && typeof st.lat === 'number' && typeof st.lng === 'number' &&
+            isFinite(st.lat) && isFinite(st.lng)) ? st : null;
+  };
+  const townOf = function(id){ const w = house(id); return (w && w.city) || ''; };
+  const nearest = function(p, ids){
+    let best = Infinity, bestId = null;
+    ids.forEach(function(id){
+      const q = pinOf(id);
+      if(!q) return;
+      const d = haversine(p.lat, p.lng, q.lat, q.lng);
+      if(d < best){ best = d; bestId = id; }
+    });
+    return {miles: best, id: bestId};
+  };
+  const daysApart = function(a, b){
+    return Math.round((Date.UTC(+b.slice(0,4), +b.slice(5,7) - 1, +b.slice(8,10)) -
+                       Date.UTC(+a.slice(0,4), +a.slice(5,7) - 1, +a.slice(8,10))) / 86400000);
+  };
+  /* The same hurry rule as gatherStrayHouses — see houseInstallPriority. */
+  const mayWait = function(w){
+    if(!w) return false;
+    const p = (typeof w.priority === 'number') ? w.priority : 40;
+    return p >= 20 && p % 10 === 0 && !w.missed && !w.rush && !w.named;
+  };
+  const canGo = function(id, from, to){
+    const w = house(id);
+    const lo = (w && w.from) || '', hi = (w && w.until) || '';
+    if(lo && to.date < lo) return false;
+    if(hi && to.date > hi) return false;
+    if(to.date > from.date &&
+       (!mayWait(w) || daysApart(from.date, to.date) > STRAY_LATER_MAX_DAYS)) return false;
+    return true;
+  };
+  const isOutlierRun = function(cd){
+    return Array.isArray(cd.areas) && cd.areas.length > 0 &&
+           cd.areas.every(function(a){ return String(a).indexOf('x:') === 0; });
+  };
+  const list = (days || []).slice();
+  const runsOn = function(ds){
+    return list.filter(function(cd){ return cd.date === ds && cd.ids.length && !isOutlierRun(cd); });
+  };
+  const spread = function(ds){
+    const r = runsOn(ds);
+    if(r.length < 2) return 0;
+    let hi = 0, lo = Infinity;
+    r.forEach(function(cd){ hi = Math.max(hi, cd.ids.length); lo = Math.min(lo, cd.ids.length); });
+    return hi - lo;
+  };
+  const dateTotal = function(ds){
+    let n = 0;
+    list.forEach(function(cd){ if(cd.date === ds) n += cd.ids.length; });
+    return n;
+  };
+  const moved = [], touched = {};
+  const dates = [];
+  list.forEach(function(cd){ if(dates.indexOf(cd.date) === -1) dates.push(cd.date); });
+  dates.sort();
+  dates.forEach(function(ds){
+    const sh = dayShape(ds);
+    if(sh && sh.crews === 1) return;
+    for(let guard = 0; guard < 200; guard++){
+      const runs = runsOn(ds).sort(function(a, b){ return a.ids.length - b.ids.length; });
+      if(runs.length < 2) return;
+      const short = runs[0], long = runs[runs.length - 1];
+      /* Level means the same: houses are being ADDED, so 20 and 19 can still become 20
+         and 20 — only a split of what is already there stops at one apart. */
+      if(short.ids.length >= long.ids.length) return;
+      if(short.ids.length >= capOnDate(ds)) return;
+      let best = null;
+      list.forEach(function(src){
+        if(src.date === ds) return;
+        src.ids.forEach(function(id){
+          if(touched[id]) return;
+          const p = pinOf(id);
+          if(!p) return;
+          if(!canGo(id, src, short)) return;
+          const near = nearest(p, short.ids);
+          if(near.miles > CREW_EVEN_NEAR_MILES) return;
+          const empties = src.ids.length === 1;
+          if(!empties){
+            const total = dateTotal(src.date);
+            if(staffing(total - 1) !== staffing(total)) return;
+            if((src.ids.length - 1 <= oneMax) !== (src.ids.length <= oneMax)) return;
+            const before = spread(src.date);
+            const keep = src.ids;
+            src.ids = keep.filter(function(x){ return x !== id; });
+            const after = spread(src.date);
+            src.ids = keep;
+            /* A day more than three apart breaks the rule, so it may borrow from a day
+               that then sits up to three apart — inside the rule. A day only one or two
+               apart is a preference, and may not unsettle a level day to get it. */
+            const room = (long.ids.length - short.ids.length > CREW_EVEN_MAX_GAP) ? CREW_EVEN_MAX_GAP : 1;
+            if(after > Math.max(before, room)) return;
+          }
+          /* A day dissolved beats everything; then a house served SOONER (it leaves a
+             later day, so nobody waits longer for it); then the nearest. */
+          const c = {id: id, src: src, near: near, empties: empties,
+                     sooner: src.date > ds ? 0 : 1};
+          if(!best || (c.empties !== best.empties ? c.empties :
+                       c.sooner !== best.sooner ? c.sooner < best.sooner :
+                       c.near.miles < best.near.miles)) best = c;
+        });
+      });
+      if(!best) return;
+      const b = best;
+      b.src.ids = b.src.ids.filter(function(x){ return x !== b.id; });
+      short.ids.push(b.id);
+      touched[b.id] = true;
+      /* It joins the block it is now worked in, as a gathered stray does. */
+      const w = house(b.id), nw = house(b.near.id);
+      if(w && nw && nw.area) w.area = nw.area;
+      if(w && w.area && Array.isArray(short.areas) && short.areas.indexOf(w.area) === -1) short.areas.push(w.area);
+      [b.src, short].forEach(function(day){
+        const left = {};
+        day.ids.forEach(function(x){ const t = townOf(x); if(t) left[t] = (left[t] || 0) + 1; });
+        if(Array.isArray(day.towns)){
+          day.towns = day.towns.filter(function(t){ return left[t]; });
+          Object.keys(left).forEach(function(t){ if(day.towns.indexOf(t) === -1) day.towns.push(t); });
+        }
+        if(day.ids.length && !left[day.city]){
+          day.city = Object.keys(left).sort(function(x, y){ return left[y] - left[x] || (x < y ? -1 : 1); })[0] || day.city;
+        }
+      });
+      moved.push({id: b.id, from: b.src.date, to: ds, near: b.near.miles});
+      if(!b.src.ids.length) list.splice(list.indexOf(b.src), 1);
+    }
+  });
+  const uneven = [];
+  dates.forEach(function(ds){
+    if(spread(ds) > CREW_EVEN_MAX_GAP) uneven.push({date: ds, gap: spread(ds)});
+  });
+  list.evened = moved;
+  list.uneven = uneven;
   return list;
 }
 /* ⭐ THE DRIBBLE AT THE END OF THE SEASON, SWEPT UP.
@@ -64255,6 +64503,10 @@ async function reconcileUpcomingRoutes(){
         coldBelow: (typeof COLD_DAY_MAX_F === 'number' ? COLD_DAY_MAX_F : 31),
         chillyBelow: (typeof COLD_DAY_CHILLY_F === 'number' ? COLD_DAY_CHILLY_F : 35),
         warmBand: (typeof WARMTH_BAND_F === 'number' ? WARMTH_BAND_F : 10)
+        /* ⚠ NO `home` HERE, unlike rebuildSeasonDays ([[SCH-97]]). The yard is worked out by
+           routeHomePoint, which lives inside the Schedule widget and is out of scope in the
+           main app — so this planner's strays join only a day in their own area, as before.
+           The Schedule is the plan the office reads; this sweep only stamps crew routes. */
       });
       for(let i = 0; i < newDays.length; i++){
         const nd = newDays[i];
@@ -71992,6 +72244,110 @@ function dayCrewHouses(day){
     if(small===-1) break;
     out[small].push(out[big].pop());
   }
+  /* ⭐ AND THEN THE CREWS ARE EVENED — NEVER MORE THAN THREE APART, LEVEL WHERE THE
+     HOUSES ALLOW IT ([[SCH-97]], Dax, 2026-09-26): "we never want one of the crews to have
+     more than three more houses than the other crew ... we want them to have the same
+     amount if possible though."
+     ⛔ THIS SUPERSEDES "A HAND-BACK, NOT A LEVELLER" ABOVE, whose thirty-and-four stayed
+     twenty-and-fourteen. That comment is kept because its worry is still the right one —
+     a house dragged over to a crew working somewhere else — and it is answered here by
+     WHICH house moves (the one cheapest for the receiving crew) and by how far a move may
+     reach, not by refusing to even the day.
+     ⚠ THE BUILDER DOES THE REAL WORK. evenCrewDates gives the short crew MORE houses from
+     other days — "pick an area for both crews where you can make that possible" — so a
+     day reaching here is usually level already. This only re-divides the houses the day
+     already holds, because the town split above can turn a builder's 20/20 into 26/14.
+     ⚠ TWO REACHES, ON PURPOSE. Past three apart the rule is hard, so a house may move if
+     it costs the receiving crew no more than a nearby-town hop (NEARBY_TOWN_MILES).
+     Inside three, levelling is a preference, so a house moves only if it sits on that
+     crew's way ([[SCH-97]]'s own ON_THE_WAY_MAX_DETOUR_MILES). What it costs a crew is the
+     cheaper of a round trip to its nearest house and the detour of calling on it on the
+     way out from the yard.
+     ⚠ WITH NOTHING TO MEASURE (no pins, a sandbox) IT MOVES NOTHING. A house moved blind
+     can land on a crew working forty miles away, which is worse than the uneven count it
+     was fixing; the cap hand-back above is still the only blind move. The builder's pass
+     is what keeps such a day even in the first place. */
+  {
+    /* The crews actually out that day: every crew holding houses, plus empty ones only
+       where the day's size asks for more crews than are holding anything (twenty-six
+       houses all in one town is still two crews). With no way to ask, nobody is added. */
+    const want = (typeof dayCrewCount === 'function') ? dayCrewCount(day) : 0;
+    const working = [];
+    crewIndexes().forEach(function(i){ if(out[i].length) working.push(i); });
+    crewIndexes().forEach(function(i){
+      if(working.length < want && working.indexOf(i) === -1) working.push(i);
+    });
+    if(working.length >= 2){
+      const canMeasure = typeof houseStopPoint === 'function' &&
+                         typeof customerForHouse === 'function' &&
+                         typeof houseGeoPoint === 'function' &&
+                         typeof haversine === 'function';
+      const pts = new Map();
+      const pointOf = function(h){
+        if(!canMeasure) return null;
+        if(!pts.has(h)){
+          const p = houseStopPoint(h);
+          pts.set(h, (p && typeof p.lat === 'number' && typeof p.lng === 'number' &&
+                      isFinite(p.lat) && isFinite(p.lng)) ? p : null);
+        }
+        return pts.get(h);
+      };
+      const yard = (canMeasure && typeof routeHomePoint === 'function') ? routeHomePoint() : null;
+      const costFor = function(h, list){
+        const p = pointOf(h);
+        if(!p) return Infinity;
+        let best = Infinity;
+        const toP = yard ? haversine(yard.lat, yard.lng, p.lat, p.lng) : 0;
+        list.forEach(function(other){
+          const q = pointOf(other);
+          if(!q) return;
+          const d = haversine(p.lat, p.lng, q.lat, q.lng);
+          best = Math.min(best, 2 * d);
+          if(yard) best = Math.min(best, toP + d - haversine(yard.lat, yard.lng, q.lat, q.lng));
+        });
+        return best;
+      };
+      const hardReach = (typeof NEARBY_TOWN_MILES === 'number') ? NEARBY_TOWN_MILES : 8;
+      const softReach = (typeof ON_THE_WAY_MAX_DETOUR_MILES === 'number') ? ON_THE_WAY_MAX_DETOUR_MILES : 2;
+      const hardGap = (typeof CREW_EVEN_MAX_GAP === 'number') ? CREW_EVEN_MAX_GAP : 3;
+      for(let g = 0; g < 400; g++){
+        let big = working[0], small = working[0];
+        working.forEach(function(i){
+          if(out[i].length > out[big].length) big = i;
+          if(out[i].length < out[small].length) small = i;
+        });
+        const gap = out[big].length - out[small].length;
+        if(gap <= 1) break;
+        if(out[small].length >= cap) break;
+        let pick = -1, pickCost = Infinity;
+        if(!out[small].length){
+          /* A crew with nothing yet has to start somewhere: the house at the far edge of
+             the big pile, so the two crews split it into two patches rather than one
+             crew taking every other house down the same street. */
+          const pinned = out[big].map(pointOf).filter(Boolean);
+          if(pinned.length){
+            const mid = function(a){ const s = a.slice().sort(function(x, y){ return x - y; }); return s[Math.floor(s.length / 2)]; };
+            const c = {lat: mid(pinned.map(function(p){ return p.lat; })), lng: mid(pinned.map(function(p){ return p.lng; }))};
+            let far = -1;
+            out[big].forEach(function(h, k){
+              const p = pointOf(h);
+              if(!p) return;
+              const d = haversine(c.lat, c.lng, p.lat, p.lng);
+              if(d > far){ far = d; pick = k; }
+            });
+            pickCost = 0;
+          }
+        } else {
+          out[big].forEach(function(h, k){
+            const c = costFor(h, out[small]);
+            if(c < pickCost){ pickCost = c; pick = k; }
+          });
+        }
+        if(pick === -1 || pickCost > (gap > hardGap ? hardReach : softReach)) break;
+        out[small].push(out[big].splice(pick, 1)[0]);
+      }
+    }
+  }
   return out;
 }
 /* ⚠ THE SHEET READS THE EVENED SPLIT. Everything that prints, counts or orders a
@@ -72196,12 +72552,25 @@ function routeHomePoint(){
 const OUTLIER_MIN_MILES = 2.5;    /* below this it is not "a long drive" at all */
 const OUTLIER_FACTOR = 2.5;       /* ...and it must be this much worse than normal */
 const OUTLIER_MAX_SHARE = 1 / 3;  /* more than this and the day is just spread out */
-/* How much cheaper the day has to be before the far houses are done FIRST instead of
-   last. Below this, Addie’s standing rule wins — see the outlier branch of
-   orderHousesForDriving. Half a mile is about a minute of driving: enough to be worth
-   contradicting an instruction over, small enough that a real out-and-back still
-   qualifies (the worst day measured saved 4.1). */
-const FAR_FIRST_MARGIN_MILES = 0.5;
+/* How much cheaper the day has to be before the far houses are done LAST instead of
+   first ([[SCH-97]], 2026-09-26 — it used to be the other way round). Below this, the
+   far houses are done on the way THERE. Half a mile is about a minute of driving:
+   enough to be worth overturning the standing preference, small enough that a real
+   out-and-back still qualifies.
+   ⚠ THE PREFERENCE FLIPPED AND THE MARGIN DID NOT. Addie, 2026-08-21, wanted the far
+   house at the end "on their way back home", and this margin used to protect that.
+   Dax, 2026-09-26: "try to do houses like that on the way there, meaning it should be in
+   between Lehi and the desired area ... find a way to do it that saves the most miles."
+   So the shorter shape still always wins by a real margin — only the TIE changed sides.
+   A far house done first is also one the crew can never run out of time for. */
+const ON_THE_WAY_MARGIN_MILES = 0.5;
+/* ⭐ NO LONG SIDE-TRIP IN THE MIDDLE OF A DAY ([[SCH-97]]). Dax, 2026-09-26: "we should
+   never put a house way out of the way in the middle of a route." A stop whose detour —
+   the extra driving it costs where it sits, prev → it → next against prev → next — is
+   more than this is lifted to the start or the end of the day, whichever costs fewer
+   miles, with the start winning a tie. Same number as "a long drive" above, so the two
+   rules cannot disagree about what counts as out of the way. */
+const MID_DAY_DETOUR_MAX_MILES = OUTLIER_MIN_MILES;
 
 function stopHasPin(p){
   return !!p && typeof p.lat === 'number' && typeof p.lng === 'number' &&
@@ -72269,6 +72638,8 @@ function outlyingStops(points){
    was protecting costs that and no more. ⛔ HER FAR-HOUSE RULE IS UNTOUCHED: a day
    holding a real outlier still ends on it, on the way home (outlyingStops, the branch
    below, and Suite 124). This owns the ordinary path only.
+   ⚠ [[SCH-97]] (2026-09-26): "ends on it" is now "does it at whichever END is shorter,
+   the START on a tie" — on the way there. It is still never the middle.
 
    ⚠ AIM IS OPTIONAL AND ITS ABSENCE IS THE OLD BEHAVIOUR EXACTLY. A caller that names
    none — the fixer route, a lifted sandbox, anything written before this — gets the
@@ -72292,6 +72663,51 @@ function stopFarthestFrom(points, from){
    ⚠ THE ONE FURTHEST FROM WHERE THE DAY IS HEADED, where there are several, so the
    day still sweeps inward from the back rather than starting in the middle and
    doubling back over itself. */
+/* ⭐ AND NOTHING WAY OUT OF THE WAY IS LEFT IN THE MIDDLE ([[SCH-97]]). The orderer
+   minimises total miles, and the cheapest place for a house off to one side can be
+   stop 9 of 18 — a long drive out and back with half the day still to do. That is the
+   exact thing Dax ruled out, so any stop costing more than MID_DAY_DETOUR_MAX_MILES
+   where it sits is moved to whichever END of the day costs least: the start (on the way
+   there) or the end (on the way to `end`). The start wins a tie.
+   ⚠ IT CAN COST MILES, BY DESIGN — or-opt has already put every stop in its cheapest
+   place, so a stop that is still a long detour mid-day is one whose ends cost more.
+   That is the trade he chose. ⚠ The first two stops and the last two are never
+   touched: they are the drive out and the drive home, which is exactly where a far
+   house is meant to be. Points without a pin are skipped — they cannot be measured.
+   ⚠ AND ONLY ON AN ORDINARY DAY. A day with a real outlier group is laid out by the
+   branch below it, which already puts the far houses at an end. */
+function liftMidDayDetours(ordered, start, end, keepFirst){
+  const list = (ordered || []).slice();
+  /* A house the crew missed last time opens the day ([[SCH-62]]), so it keeps stop 1
+     and a lifted house goes in behind it rather than in front. */
+  const lead = keepFirst ? list.splice(0, 1) : [];
+  const from = lead.length ? lead[0] : start;
+  if(list.length < 5) return lead.concat(list);
+  const d = function(a, b){
+    return (a && b && stopHasPin(a) && stopHasPin(b)) ? haversine(a.lat, a.lng, b.lat, b.lng) : 0;
+  };
+  for(let guard = 0; guard < list.length * 2; guard++){
+    let worst = -1, worstCost = MID_DAY_DETOUR_MAX_MILES;
+    /* The MIDDLE: not the first two stops (the drive out) nor the last two (the drive
+       home). A house second on the list is one the crew passes on the way there — the
+       very shape this rule is asking for — and moving it measured seven miles worse on
+       Suite 322's lopsided day. */
+    for(let i = 2; i < list.length - 2; i++){
+      const p = list[i];
+      if(!stopHasPin(p) || !stopHasPin(list[i - 1]) || !stopHasPin(list[i + 1])) continue;
+      const cost = d(list[i - 1], p) + d(p, list[i + 1]) - d(list[i - 1], list[i + 1]);
+      if(cost > worstCost){ worstCost = cost; worst = i; }
+    }
+    if(worst === -1) break;
+    const p = list.splice(worst, 1)[0];
+    const atStart = [p].concat(list), atEnd = list.concat([p]);
+    const s = tourMiles(atStart, from, end), e = tourMiles(atEnd, from, end);
+    const next = (e < s - ON_THE_WAY_MARGIN_MILES) ? atEnd : atStart;
+    list.length = 0;
+    next.forEach(function(x){ list.push(x); });
+  }
+  return lead.concat(list);
+}
 function missedStopStart(points, aim){
   if(typeof houseMissedCount !== "function") return null;
   const missed = (points || []).filter(function(p){
@@ -72319,8 +72735,14 @@ function orderHousesForDriving(list, opts){
       /* No aim means no next area to point at — the last day of the season, a fixer
          route, a sandbox — and then this is the yard-to-yard trip it always was. */
       const aim = (opts && opts.aim && stopHasPin(opts.aim)) ? opts.aim : home;
-      const start = missedStopStart(points, aim) || home;
+      const missedAt = missedStopStart(points, aim);
+      const start = missedAt || home;
       ordered = reorderFlatStops(points, start, aim);
+      /* [[SCH-97]]: whatever the orderer found cheapest, nothing way out of the way is
+         left in the middle of the day. Only the pinned stops are measured; a stop with
+         no pin rides on the end exactly as before. */
+      const pinnedOrder = ordered.filter(stopHasPin), bareOrder = ordered.filter(function(p){ return !stopHasPin(p); });
+      ordered = liftMidDayDetours(pinnedOrder, home, aim, !!missedAt).concat(bareOrder);
     } else {
       /* ⭐ THE FAR HOUSES GO LAST IF THAT IS ON THE WAY HOME, AND FIRST IF IT IS NOT
          (added 2026-09-10). Addie, 2026-08-21, is the reason this branch exists at all:
@@ -72334,6 +72756,10 @@ function orderHousesForDriving(list, opts){
          morning, worked the far side, drove all the way back for them, and went home.
          Dax, looking at exactly that: *"you get to 11 and youre way far out and then 12
          is back where 2 was, so it shouldve just been knocked out when you were there."*
+
+         ⛔ SUPERSEDED IN ONE RESPECT BY [[SCH-97]] (2026-09-26): THE TIE NOW GOES TO
+         FIRST, "on the way there", not to last. The paragraph below is kept because
+         the margin's argument still holds — it simply protects the other end now.
 
          So both shapes are built and the shorter one is driven. ⚠ AND HER RULE KEEPS
          THE TIE. On a round trip the two are often within yards of each other — it is
@@ -72359,9 +72785,15 @@ function orderHousesForDriving(list, opts){
          rather than finishing wherever and then crossing back over itself. */
       const farLast = runFrom(split.core, split.out, toward);
       const farFirst = runFrom(split.out, split.core, outward);
-      ordered = (tourMiles(farFirst, home, home) <
-                 tourMiles(farLast, home, home) - FAR_FIRST_MARGIN_MILES
-        ? farFirst : farLast).concat(bare);
+      /* ⭐ [[SCH-97]]: ON THE WAY THERE unless the way home is really shorter. This line
+         used to keep the far houses LAST on a tie; Dax reversed the preference on
+         2026-09-26. The margin now protects the start, not the end. */
+      const shape = (tourMiles(farLast, home, home) <
+                     tourMiles(farFirst, home, home) - ON_THE_WAY_MARGIN_MILES
+        ? farLast : farFirst);
+      /* No mid-day lift here: this branch already puts the far houses at an end by
+         construction, and lifting inside it re-cut a day it had just got right. */
+      ordered = shape.concat(bare);
     }
   }
   catch(err){ console.error('Route order failed:', err); return houses; }
@@ -74848,7 +75280,9 @@ function rebuildSeasonDays(){
                                               dayShape:dayShapeOn, tempFor:tempFor,
                                               coldBelow:(typeof COLD_DAY_MAX_F==='number'?COLD_DAY_MAX_F:31),
                                               chillyBelow:(typeof COLD_DAY_CHILLY_F==='number'?COLD_DAY_CHILLY_F:35),
-                                              warmBand:(typeof WARMTH_BAND_F==='number'?WARMTH_BAND_F:10)});
+                                              warmBand:(typeof WARMTH_BAND_F==='number'?WARMTH_BAND_F:10),
+                                              /* [[SCH-97]]: the yard, so a stray can join a day it lies on the way to. */
+                                              home:(typeof routeHomePoint==='function'?routeHomePoint():null)});
   /* ⭐ WHAT THE COLD RULE COULD NOT AVOID, counted off the plan that came back rather
      than reported from inside the builder. Every one of these is the owner's "unless"
      firing: the crew-day was left on a freezing town because nothing warmer had a
