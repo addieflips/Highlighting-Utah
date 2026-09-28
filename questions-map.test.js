@@ -56,7 +56,15 @@ const QLOG_PATH = path.join(__dirname, 'docs', 'open-questions.md');
 const MAP_BORN = '2026-08-26';
 
 const STATUSES = ['Standing', 'Superseded', 'Closed', 'Decided — not built'];
-const ID_RE    = /^[A-Z]{2,5}-\d{2}$/;
+/* ⚠ TWO OR THREE DIGITS. This was `\d{2}` and the SCH series reached 100 on 2026-09-28
+   ([[SCH-100]]) — so that row was INVISIBLE to every check in this file: its status was not
+   validated, its columns were not counted, and a future `Superseded → #SCH-100` would have
+   been reported as pointing at a row that does not exist. Nothing went red, because a row
+   the parser skips is indistinguishable from a row nobody wrote. The ceiling was an
+   assumption about how many rulings there would ever be, and it expired.
+   ⚠ NOT \d+ — an unbounded count would match a year or a price in the prose scan below,
+   which is what ID_RE is also used for. Three digits is the series' real range. */
+const ID_RE    = /^[A-Z]{2,5}-\d{2,3}$/;
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -120,9 +128,38 @@ lines(map).forEach((line, i) => {
   if (line.slice(0, 1) !== '|') return;
   const cells = line.split('|').slice(1, -1).map(c => c.trim());
   if (!cells.length) return;
-  if (!/^[A-Z]{2,5}-\d{2}$/.test(cells[0].replace(/^~~|~~$/g, ''))) return;
+  if (!ID_RE.test(cells[0].replace(/^~~|~~$/g, ''))) return;
   rows.push({ line: i + 1, cells, id: cells[0].replace(/^~~|~~$/g, '') });
 });
+
+/* ⛔ AND NOTHING ID-SHAPED IS SILENTLY SKIPPED. This check exists because the parser's
+   id pattern quietly stopped covering the map on 2026-09-28: the SCH series reached 100 and
+   `\d{2}` did not match it, so SCH-100 was invisible to every check in this file — its
+   status unvalidated, its column count unchecked, and a future `Superseded → #SCH-100`
+   would have been reported as pointing at a row that does not exist. NOTHING WENT RED,
+   because a row the parser skips reads exactly like a row nobody wrote, which is the worst
+   shape of green this repo keeps re-learning.
+   ⚠ IT CANNOT BE CAUGHT BY A NARROWER PATTERN, so it is caught by a WIDER one: any first
+   cell that looks like LETTERS-DASH-DIGITS at all must have been parsed. The next time the
+   series outgrows the pattern — SCH-1000, or a five-digit anything — this fails and names
+   the row instead of losing it. */
+{
+  const idish = [];
+  lines(map).forEach((line, i) => {
+    if (line.slice(0, 1) !== '|') return;
+    const cells = line.split('|').slice(1, -1).map(c => c.trim());
+    if (!cells.length) return;
+    const first = cells[0].replace(/^~~|~~$/g, '');
+    if (!/^[A-Z]{2,6}-\d+$/.test(first)) return;
+    if (!rows.some(r => r.line === i + 1)) idish.push(first + ' (line ' + (i + 1) + ')');
+  });
+  check('every row that looks like a ruling was actually parsed', idish.length === 0, {
+    problem: 'the parser skipped ' + idish.length + ' row(s) that look like rulings: ' +
+             idish.join(', '),
+    fix: 'widen ID_RE to cover them. A skipped row is checked by nothing in this file and ' +
+         'reads exactly like a row that was never written.'
+  });
+}
 
 check('the map holds rulings at all', rows.length > 0, {
   problem: 'no ruling rows were found at all',
@@ -405,7 +442,7 @@ rows.forEach(r => {
   const status = r.cells[5];
   if (status.indexOf('Superseded') !== 0) return;
 
-  const m = /→\s*#?([A-Z]{2,5}-\d{2})/.exec(status);
+  const m = /→\s*#?([A-Z]{2,5}-\d{2,3})/.exec(status);
   check('row ' + r.id + ' says what superseded it', !!m, {
     line: r.line, id: r.id, subject: subjectOf(r),
     problem: 'marked Superseded but does not say what replaced it',
@@ -432,7 +469,7 @@ rows.forEach(r => {
 // Any ID named anywhere in the prose resolves too, so a rewrite of the header
 // cannot quietly reference a row that has gone.
 const prose = map.replace(/^\|.*$/gm, '');
-const referenced = new Set((prose.match(/\b[A-Z]{2,5}-\d{2}\b/g) || []));
+const referenced = new Set((prose.match(/\b[A-Z]{2,5}-\d{2,3}\b/g) || []));
 [...referenced].forEach(id => {
   if (id === 'MON-01' && !ids.has(id)) { /* example in the header prose */ }
   check('prose reference to ' + id + ' resolves', ids.has(id), {
@@ -526,7 +563,7 @@ if (!fs.existsSync(QLOG_PATH)) {
 
   // From MAP_BORN, an answered intent question must name a row here.
   answeredIntent.forEach(e => {
-    const named = (e.body.match(/\b[A-Z]{2,5}-\d{2}\b/g) || []).filter(x => ids.has(x));
+    const named = (e.body.match(/\b[A-Z]{2,5}-\d{2,3}\b/g) || []).filter(x => ids.has(x));
     const isNew = e.date && e.date >= MAP_BORN;
     if (isNew) {
       check(e.id + ' names the map row it created', named.length > 0, {

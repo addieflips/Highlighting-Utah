@@ -3016,6 +3016,74 @@ agree; each says it where it actually ranks.
 are untouched by any of them, so a November customer who is rushed, or who was missed, is
 taken first on the first **November** day and not one day earlier. The box says so on screen.
 
+### Their own calendar, and being stuck on a day (added 2026-09-28)
+
+Three new things on **Add a Customer** and **Edit Customer**, all under **Their Own
+Calendar**. None of them changes the **Installation Timing Preference** dropdown — October,
+November, November before Thanksgiving, After Thanksgiving and a named day all still decide
+exactly what they always decided. Addie asked for that explicitly, and `away-calendar.test.js`
+holds it by running all five with no calendar set and requiring the old answers.
+
+All three take effect on the next **⚙ Recalculate everything**, and all three are carried onto
+the plan by `SCHEDULE_SYNC_FIELDS`, so the five-minute customer sync keeps a saved season in
+step with them too. **Clearing a box clears it on the plan** (`blankClears`) — without that, a
+date typed once would hold that house for the rest of the season with nothing on screen able to
+take it back.
+
+**1. When they are away — never schedule these days.** A list of date ranges (`awayDates` on
+the customer, up to 12). No crew is sent on those days; the schedule works around them and
+puts the house on the next day that suits. Ruling **SCH-98**.
+
+- This is the **first date rule in the app that is a hole rather than an edge**. Every other
+  one is a floor (`houseAllowedFrom`) or a ceiling (`houseDeadline`) — one day, compared once
+  — and neither can say *any day but these*. So an away window is asked **per candidate day**,
+  through `houseAwayOn`, at eight places: the builder's town head-count, its pick, its
+  neighbour scoring and its borrow; both stray gatherers; the tail packer's whole-day ride and
+  its per-house move; and `nextInstallDayFor`, which is what the five-minute sync uses.
+- **Both dates are needed.** A row with one end filled in is dropped and the save says so. Read
+  as "gone from then on" it would silently block the rest of that customer's season, and the
+  first anybody would know is a crew at an empty house.
+- Both named days count as away — somebody gone "the 10th to the 20th" means both of them.
+
+**2. When they want it done.** A from/until pair (`wantedFrom` / `wantedTo`). We never hang them
+before the first date and the schedule aims to have them done by the second. Ruling **SCH-99**.
+
+- It is a **window**, which is a shape the app already had, so it rides the two functions that
+  already do floors and ceilings rather than becoming a third mechanism.
+- **The latest of the floors always wins** — their month, the office's date box, their own
+  window. A window opening 20 October does **not** pull a November customer into October. A
+  window can delay somebody; it can never drag them into a month they ruled out.
+- A window whose **end sits before their own month opens** is a contradiction, not a window, so
+  the last day is dropped and the floor still holds. The tail packer reads an impossible window
+  as *this house may never move*, which would pin the customer wherever the builder first put
+  them, silently.
+
+**3. Stuck on one exact day.** One date (`stuckOnDate`). Pins them there and **nothing moves
+them off it** — not Recalculate everything, not the tidy-up sweeps, not the five-minute sync.
+Ruling **SCH-100**.
+
+- It is expressed as **a window one day wide**: `houseAllowedFrom` and `houseDeadline` both
+  return the pinned day. Every mover in the app already refuses a day outside that window, so
+  one rule in two functions holds the house in all eight places at once.
+- **It overrules everything else** — their month, the office's date box, their wanted window and
+  their away dates. A pin is not a preference to be weighed; it is somebody in the office saying
+  this house is on this day.
+- `placeStuckHouses` is what actually puts them on the day, at the end of Recalculate everything
+  and **after** the Confirmed safety net: the net guarantees everybody has *a* day, this moves
+  the pinned few onto the *exact* day.
+- **A pin onto a day inside the next two working days is refused**, because that sheet is already
+  printed, and the press names whose pin it was so you can re-print or pick another day.
+- **Start New Season clears it**, like the Soonest/Latest takedown choice. A day agreed for last
+  Christmas is not a day agreed for next.
+- Pinning somebody onto a day they said they are away is allowed — the pin wins — and the save
+  says so, so you can decide which is right.
+
+⛔ **None of the three can leave a Confirmed customer off the schedule.** That is the headline
+rule, and all three only ever move somebody **later**. `placeConfirmedLeftOff` walks past an away
+window rather than giving up inside it, and the builder treats a town that is entirely away today
+as *ask again when they are home* rather than as nobody left to place — which is where this could
+have broken in silence, with the rest of the season falling off the plan and no error anywhere.
+
 ### Who counts as a new hang, on the tab and in the builder (changed 2026-09-05, SCH-81)
 
 ⛔ **PUT BACK 2026-09-18 ([[SCH-84]]).** Dax: *"just figure out how we had it and put it back like that"*. `isNewMemberHouse` is the closed quote alone again, so everything below describing the fee-box half of the union is history. The builder's own reading of the fee box (`houseInstallPriority`) was never changed by SCH-81 and still stands.

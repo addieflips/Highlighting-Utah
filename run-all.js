@@ -16978,7 +16978,17 @@ suite('Suite 46. Nobody is hung before the month they asked for');
       'houseAllowedFrom', 'extractCleanCity', 'maxStopsPerWorkingDay', 'BASE_START',
       'prefSpecificDate', 'routeDayIsLocked', 'String', 'Number', 'Boolean', 'Object',
       'Array', 'Date', 'Math', 'JSON', 'Set', 'Map'];
+    /* ⭐ THEIR OWN CALENDAR ([[SCH-98]], 2026-09-28). LIFTED, NEVER STUBBED. This sweep is
+       what moves a house off a day its family is away on, and it runs on the five-minute
+       customer sync — long after Recalculate everything. A stubbed houseAwayOn answering
+       "never away" would keep every check below green while the sweep quietly put customers
+       back onto their own holidays minutes after the rebuild had honoured them. */
+    const AWAY_SRC =
+      'const AWAY_MAX_RANGES=' + ((admin.match(/const AWAY_MAX_RANGES = (\d+);/)||[])[1] || 12) + ';' +
+      (admin.match(/const AWAY_ISO_DAY = [^;]+;/) || [''])[0] +
+      fn('awayDayAfter') + fn('awayKeyToList') + fn('houseAwayOn') + fn('awayClearFrom');
     const SWEEP_BODY =
+      AWAY_SRC +
       'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' +
       /* ⚠ maxTownsPerDay NOW ASKS dayLimitFor (2026-09-03) — a date the office has
          marked one crew is allowed two towns, not four. isoOf and dayDate arrive as
@@ -30119,6 +30129,21 @@ suite('Suite 108. The Edit Customer save, actually run');
       'document',
       'return ' + extractFn(admin, 'editCustReadBuildings') + ';editCustReadBuildings'
     )({ getElementById: function(){ return null; } });
+    /* ⭐ THEIR OWN CALENDAR AND THE PIN ([[SCH-98]] / [[SCH-99]] / [[SCH-100]], 2026-09-28).
+       LIFTED, NEVER STUBBED. The Edit Customer save writes awayDates / wantedFrom / wantedTo /
+       stuckOnDate through this one reader, and those four decide whether a crew is sent at
+       all — a stub returning empties would let this suite stay green through a change to what
+       the save records about somebody's holidays.
+       ⚠ HANDED A DOCUMENT WITH NOTHING IN IT, the same honest default editCustReadBuildings
+       above is given: these fixtures have no calendar boxes, so the reader answers "no away
+       rows, no window, no pin" and the handler proceeds exactly as it does for a customer who
+       has none. A fixture that wants some supplies its own document. */
+    ctx.calendarFieldsFrom = new Function(
+      'document', 'AWAY_MAX_RANGES',
+      extractFn(admin, 'awayReadHost') +
+      ';return ' + extractFn(admin, 'calendarFieldsFrom') + ';calendarFieldsFrom'
+    )({ getElementById: function(){ return null; } },
+       Number((admin.match(/const AWAY_MAX_RANGES = (\d+);/) || [])[1]) || 12);
     /* ⭐ THE REAL INVOICE FEE WRITER, LIFTED — not a stub ([[MON-78]], 2026-09-11). It
        was inline in this handler until today; the All Customers panel now charges the
        same $30, so it is one named function and both callers ask it. Four checks below
@@ -59971,6 +59996,14 @@ suite('Suite 316. Closest to a date the office typed');
     'const DEADLINE_PRESSURE_DAYS=' + num('DEADLINE_PRESSURE_DAYS') + ';' +
     'const NEW_HANG_TARGET_DAYS=' + num('NEW_HANG_TARGET_DAYS') + ';' +
     'const NEW_HANG_LIMIT_DAYS=' + num('NEW_HANG_LIMIT_DAYS') + ';' +
+    /* ⭐ AND THEIR OWN CALENDAR ([[SCH-98]] / [[SCH-99]] / [[SCH-100]], 2026-09-28).
+       houseAllowedFrom steps its floor past an away window and houseDeadline reads the
+       wanted window and the pin, so all three arrive here. LIFTED, never stubbed — a stub
+       of awayClearFrom answering "never away" leaves every check in this suite green while
+       the floor stops honouring a holiday, and this is the suite that owns the floor. */
+    'const AWAY_MAX_RANGES=' + (num('AWAY_MAX_RANGES') || 12) + ';' +
+    (admin.match(/const AWAY_ISO_DAY = [^;]+;/) || [''])[0] +
+    fn('awayDayAfter') + fn('awayKeyToList') + fn('houseAwayOn') + fn('awayClearFrom') +
     fn('isoOf') + fn('thanksgivingDate') + fn('isThanksgivingDay') + fn('isWorkingDay') +
     fn('anyStampMillis') + fn('prefSpecificDate') +
     fn('isoToLocalDate') + fn('addWorkingDays') + fn('workingDaysBetween') +
@@ -63550,7 +63583,15 @@ suite('Suite 346. HEADLINE: every Confirmed customer is on a day after Recalcula
 {
   const planStart = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
   const planEnd = admin.indexOf('/* Top every day up to the cap.', planStart);
+  /* ⭐ THEIR OWN CALENDAR AND THE PIN ([[SCH-98]] / [[SCH-99]] / [[SCH-100]], 2026-09-28).
+     This suite is the HEADLINE RULE's own gate, and all three of those features can only ever
+     move somebody LATER — so the safety net and the pin placer both have to be RUN here with
+     the real rules behind them. A stub answering "never away" would prove nothing about the
+     one case that matters: a Confirmed customer whose away window covers every open day.
+     placeConfirmedLeftOff reads AWAY_MAX_RANGES directly, so the constant is supplied too. */
   const lifts = ['sameTownName', 'townCentres', 'nearbyTowns', 'installPriority', 'pinHorizon',
+                 'awayDayAfter', 'awayKeyToList', 'houseAwayOn', 'awayClearFrom',
+                 'placeStuckHouses',
                  'seasonStartDate', 'prefSpecificDate', 'houseAllowedFrom', 'houseDeadline',
                  'houseInstallPriority', 'anyStampMillis', 'lightsLockMillis',
                  'scheduleHoldMillis', 'scheduleHoldEndsMillis',
@@ -63566,6 +63607,11 @@ suite('Suite 346. HEADLINE: every Confirmed customer is on a day after Recalcula
     const ctx = {};
     const TODAY = new Date(2026, 9, 5);            // Monday 5 October 2026
     new Function('__TODAY',
+      /* ⚠ THE AWAY CONSTANTS, READ OUT OF admin.html RATHER THAN TYPED. placeConfirmedLeftOff
+         and awayClearFrom both name them, and a copy typed here would go on passing against a
+         cap the app no longer has — the trap seven fixtures fell into over CN_DOUBLE_BIN_FEET. */
+      'const AWAY_MAX_RANGES=' + ((admin.match(/const AWAY_MAX_RANGES = (\d+);/)||[])[1] || 12) + ';' +
+      (admin.match(/const AWAY_ISO_DAY = [^;]+;/) || [''])[0] +
       'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+' +
       '"-"+String(dt.getDate()).padStart(2,"0");}' +
       'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +

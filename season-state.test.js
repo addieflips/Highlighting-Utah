@@ -770,7 +770,16 @@ if (portalRsvp) {
   const addAt = admin.indexOf('newAddrRef = await addDoc');
   check('the Add Customer write is findable', addAt !== -1,
     'renamed — retarget this rather than deleting it');
-  const addCust = addAt === -1 ? '' : admin.slice(addAt, addAt + 8000);
+  /* ⚠ SLICED TO THE END OF THE WRITE, NOT TO A CHARACTER COUNT. This read
+     `addAt + 8000` and went red on correct code the moment the Add Customer record gained
+     four more fields ([[SCH-98]]/[[SCH-99]]/[[SCH-100]], 2026-09-28) — needsDayAssignedAt is
+     still exactly where it was, it had simply moved past the 8000th character. §7 bans
+     fixed-length extraction windows by name and this is the slow fuse it is about: the
+     check was pinned to how long the object happened to be rather than to what must be
+     true. Anchored on the awaited write that follows it instead. */
+  const addEnd = addAt === -1 ? -1 : admin.indexOf('await addDoc', addAt + 20);
+  const addCust = addAt === -1 ? ''
+    : admin.slice(addAt, addEnd > addAt ? addEnd : admin.length);
   check('creating a customer asks for a day straight away',
     /needsDayAssignedAt: serverTimestamp\(\)/.test(addCust),
     'without it a converted quote waits for a button press to reach the schedule');
