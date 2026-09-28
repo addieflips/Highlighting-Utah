@@ -4519,6 +4519,13 @@ console.log('\n=== 7. Health check engine ===');
       extractFn(admin, 'audienceQuoteJoinYear'),
       extractFn(admin, 'audienceNeverAsked'),
       extractFn(admin, 'seasonEligibilityWouldDrop'),
+      /* ⚠ LIFTED 2026-09-28 WITH THE billHeld ROW, and it crashed hcRunChecks partway
+         through before it was — the extraction-list trap, which this file records having
+         been caught by nine times. Real one, never a stub: the All Customers filter and
+         the chip on the row read this same function, and a stub here would let the panel
+         and the screen start disagreeing about whose bill is held while this stayed
+         green. */
+      extractFn(admin, 'custBillHeld'),
       extractFn(admin, 'toDateStr')
     ].filter(Boolean).join('\n') + '\n';
   let hc;
@@ -4911,9 +4918,12 @@ console.log('\n=== 7. Health check engine ===');
      number is the only thing that notices two people adding a row at once. */
   /* 26 → 27 on 2026-09-09: rsvpNeverReached (EM-04). Bumped in the same edit that adds
      the row, which this count's own reasoning demands — a check silently disappearing
-     is exactly the kind of thing nobody notices. */
-  check('health', 'all 27 checks present',
-    all.length === 27, 'got ' + all.length);
+     is exactly the kind of thing nobody notices.
+     27 → 28 on 2026-09-28: billHeld. A bill held by an unfinished house was a bare
+     count in the nightly summary and nothing else, so a payer who HAD had work done
+     went unbilled all season with nobody named anywhere. */
+  check('health', 'all 28 checks present',
+    all.length === 28, 'got ' + all.length);
 
   /* ---- a card payment that found no bill (2026-08-30) -------------------
      Addie, asked where these should show: "Put that in health check." The money was
@@ -31771,34 +31781,43 @@ suite('Suite 83. Whose name goes on a shared bill');
 
   /* ---- the server writes the name the customer reads ---------------------- */
   {
-    const at = fnsSrc.indexOf('const payerSort = function');
-    const blk = at < 0 ? '' : fnsSrc.slice(at, fnsSrc.indexOf('const withEmail', at));
+    /* ⚠ REPOINTED 2026-09-28, NOT WEAKENED. This sliced from `const payerSort = function`
+       to `const withEmail` — that is, it was pinned to WHERE the rule happened to sit
+       inside runInvoiceBatch. The rule was extracted to payerHouseOfServer so the held-bill
+       report could ask the same question (a tag landing on a different house than the
+       bill's own name is the very disagreement this suite exists to catch), and the old
+       slice then began inside the new function and ran past its end — failing with
+       `Unexpected token 'const'` on a file that is right. It RUNS the shipped function now,
+       which is what it always meant to assert. Same §7 slow-fuse shape as S82 and S129. */
+    const blk = extractFn(fnsSrc, 'payerHouseOfServer');
     check('S83', 'the nightly run chooses a payer the same way', !!blk,
       'runInvoiceBatch writes name onto a new invoice and greets the customer by it ' +
       'in the invoice email');
     if (blk) {
-      const srv = new Function('active', 'invoiceKey', 'digitsOnly', 'invoiceKeyFor',
-        blk + 'return payer;');
+      const srv = new Function('digitsOnly', 'invoiceKeyFor',
+        blk + 'return payerHouseOfServer;')(
+          (v) => String(v == null ? '' : v).replace(/[^0-9]/g, ''),
+          (d) => String(d.phone == null ? '' : d.phone).replace(/[^0-9]/g, ''));
       const d0 = (v) => String(v == null ? '' : v).replace(/[^0-9]/g, '');
       const kf = (d) => d0(d.phone);
       check('S83', 'and it names Heather too, in either order',
-        srv(andersons, K, d0, kf).id === 'heather' &&
-        srv(andersons.slice().reverse(), K, d0, kf).id === 'heather',
+        srv(K, andersons).id === 'heather' &&
+        srv(K, andersons.slice().reverse()).id === 'heather',
         'the admin screen and the customer’s emailed invoice must agree');
       check('S83', 'a group that is all bill-to houses still answers the same way twice',
-        srv([{id: 'zz', data: {name: 'Z', phone: K, billToPhone: '8015559999'}},
-             {id: 'aa', data: {name: 'A', phone: K, billToPhone: '8015559999'}}], K, d0, kf).id === 'aa' &&
-        srv([{id: 'aa', data: {name: 'A', phone: K, billToPhone: '8015559999'}},
-             {id: 'zz', data: {name: 'Z', phone: K, billToPhone: '8015559999'}}], K, d0, kf).id === 'aa',
+        srv(K, [{id: 'zz', data: {name: 'Z', phone: K, billToPhone: '8015559999'}},
+                {id: 'aa', data: {name: 'A', phone: K, billToPhone: '8015559999'}}]).id === 'aa' &&
+        srv(K, [{id: 'aa', data: {name: 'A', phone: K, billToPhone: '8015559999'}},
+                {id: 'zz', data: {name: 'Z', phone: K, billToPhone: '8015559999'}}]).id === 'aa',
         'the old fallback was active[0], which is arrival order');
       /* A group where one house is the payer and a lower-numbered one is billed to
          them. Sorting the whole group rather than the payer's own houses picks the
          house somebody else is paying for, which is the wrong name on the bill. */
       check('S83', 'and a house billed elsewhere is never the payer server-side',
-        srv([{id: 'tenant', data: {name: 'Tenant', phone: K, customerNumber: '5',
-                                   billToPhone: '8015559999'}},
-             {id: 'owner',  data: {name: 'Owner',  phone: K, customerNumber: '900'}}],
-            K, d0, kf).id === 'owner',
+        srv(K, [{id: 'tenant', data: {name: 'Tenant', phone: K, customerNumber: '5',
+                                      billToPhone: '8015559999'}},
+                {id: 'owner',  data: {name: 'Owner',  phone: K, customerNumber: '900'}}]
+           ).id === 'owner',
         'billToPhone means somebody else pays for them, which is the whole signal');
     }
   }

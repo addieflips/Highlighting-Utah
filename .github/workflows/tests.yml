@@ -203,6 +203,16 @@ jobs:
       # different thing to go and look at than a line inside the big suite.
       - name: Last season's unpaid bill (carried, and holding the season)
         run: npm run test:arrears
+      # ⛔ THE 7PM BILLING RUN, ACTUALLY EXECUTED. Named separately because nothing ran
+      # runInvoiceBatch at all until 2026-09-28, and a one-word crash in it had billed
+      # every new member nobody for ten days: `nowMs` is not declared in that function,
+      # the throw was swallowed by the per-payer catch, and the payer was skipped before
+      # the invoice was ever written. Nine text checks over that same function passed
+      # throughout, because the source looks right — a regex cannot see scope. A failure
+      # here means somebody's lights are up and no bill exists, which is the most
+      # expensive silence in the app and the hardest to notice from any screen.
+      - name: The nightly billing run (executed, not read)
+        run: npm run test:nightly
       # ⭐ WHEN SOMETHING GOES WRONG, SOMEBODY IS TOLD. Named separately because a
       # failure here is invisible in production by construction: the whole feature is
       # about reporting faults nobody was watching, so if the reporter itself breaks,

@@ -4599,6 +4599,7 @@
                 <label><input type="checkbox" id="filterNotCompleted"> Not Done Yet</label>
                 <label><input type="checkbox" id="filterNeedsRemoval"> Needs Removal</label>
                 <label><input type="checkbox" id="filterCannotBill"> Cannot Be Billed</label>
+                <label><input type="checkbox" id="filterBillHeld"> Bill Held</label>
               </div>
               <button type="button" class="btn btn-gold btn-sm" id="applyFilterBtn" style="width:100%; margin-top:10px;">Apply</button>
             </div>
@@ -8246,6 +8247,12 @@ const HISTORY_STEPS = [
      It is a note in the Inbox once, and then nothing until somebody notices. */
   { field: 'cannotBillNoEmailAt',      from: 'cust',
     what: 'Finished, but there was nobody to send the bill to' },
+  /* ⚠ THIS ONE IS MONEY SITTING STILL TOO, and for the opposite reason to the line
+     above: there IS somewhere to send the bill, and the bill has not been worked out
+     yet because another house on it is unfinished. The rule is Addie's and it is right;
+     what was missing is that a held bill said nothing to anybody. See reportHeldBill. */
+  { field: 'billHeldAt',               from: 'cust',
+    what: 'Their bill was held, waiting on another house on it' },
   /* ⭐ THE ONE SHE NAMED FIRST, AND THE HISTORY DID NOT SHOW IT (added 2026-08-29).
      Addie's list opened with "asked for different lights on this date". `lightsChangedAt`
      has existed for a while, is written by the portal, by Edit Customer and by the sheet
@@ -11243,6 +11250,14 @@ document.getElementById('sendInvoicesNowBtn')?.addEventListener('click', async f
     // A customer with no email can never be billed at all — that is a lost bill,
     // not a postponed one, so it is never folded into the generic skip counts.
     if(r.skippedNoEmail) msg += ', ' + r.skippedNoEmail + ' could NOT be billed (no email address)';
+    /* ⭐ NAMED, NOT COUNTED (2026-09-28). The two skip counts above say how many bills
+       were held and nothing about whose, so a payer whose lights are up and whose bill
+       is stuck behind one unfinished house read as an ordinary skip. heldNames only
+       carries the ones where work has actually been done — see reportHeldBill. */
+    if(Array.isArray(r.heldNames) && r.heldNames.length){
+      msg += '. Work done but held: ' + r.heldNames.slice(0, 3).join('; ') +
+        (r.heldNames.length > 3 ? ' +' + (r.heldNames.length - 3) + ' more' : '');
+    }
     if(r.errorCount){ msg += ', ' + r.errorCount + ' error(s)'; statusEl.style.color = 'var(--ember)'; }
     else { statusEl.style.color = 'var(--emerald)'; }
     statusEl.textContent = msg;
@@ -11888,6 +11903,8 @@ async function loadNightlyInvoiceLog(){
         ((r.errorCount||0) ? ', <span style="color:var(--ember);">'+r.errorCount+' error(s)</span>' : '')+
         ((r.skippedNoEmail||0) && Array.isArray(r.noEmailNames) && r.noEmailNames.length
           ? '<div style="font-size:12px; color:var(--slate); margin-top:3px;">No email: '+esc(r.noEmailNames.join(', '))+'</div>' : '')+
+        (Array.isArray(r.heldNames) && r.heldNames.length
+          ? '<div style="font-size:12px; color:#8A6D1F; margin-top:3px;">Work done but held: '+esc(r.heldNames.join('; '))+'</div>' : '')+
         '</div>';
     });
     el.innerHTML = html;
@@ -48617,6 +48634,32 @@ function custCannotBeBilled(d){
   return !String(dd.email || '').trim() && !String(dd.email2 || '').trim();
 }
 let activeCannotBillFilter = false;
+/* ⭐ WHOSE BILL IS BEING HELD BY AN UNFINISHED HOUSE (added 2026-09-28).
+   The nightly run sets billHeld on the PAYER when work on their bill has been
+   finished for more than BILL_HELD_DAYS and the bill is still being held — one house
+   not marked done, or a fix nobody has cleared. See reportHeldBill in
+   functions/index.js for the rule and why it waits.
+
+   ⚠ WHY THIS IS NOT THE FULL DERIVED RE-CHECK custCannotBeBilled DOES. That one
+   re-asks its own question live, because "do they have an email" is one field on the
+   record in front of you and the office fixes it on this very screen — so a tag
+   surviving the fix would read as broken. This one cannot be answered from the record
+   alone: the blocker is a DIFFERENT house on the same bill, so re-deriving it means
+   grouping the whole book per row, which is ~900,000 comparisons a draw and the exact
+   shape that has locked this page up before.
+   ⚠ AND IT WOULD BE THE WRONG ANSWER ANYWAY. Marking the last house done does not
+   bill anybody — the run does that at 7 PM — so "their bill is held" stays TRUE until
+   it actually goes out. The stored flag is the honest answer here, not a stale one.
+   ⚠ WHAT IS CHECKED LIVE IS THE ONE THING THAT MAKES IT DEFINITELY WRONG: the bill
+   having gone out. `invoiceEmailSent` is on the payer's own record, so it costs
+   nothing, and the nightly run clears the flag on the same pass — this only covers
+   the hours between the two. */
+function custBillHeld(d){
+  const dd = d || {};
+  if(dd.billHeld !== true) return false;
+  return dd.invoiceEmailSent !== true;
+}
+let activeBillHeldFilter = false;
 let activeNeedsRemovalFilter = false;
 let activeCityFilter = 'all';
 let searchTerm = '';
@@ -48994,7 +49037,7 @@ function buildAddressRowHtml(item){
       timingBadgesHtml+
       '<button type="button" class="fix-toggle-btn" data-toggledetails="'+item.id+'" style="margin-top:8px;">Show Details &#9662;</button>'+
       '<div id="rowdetails-'+item.id+'" style="display:none; margin-top:10px;">'+
-        '<div style="margin-bottom:8px;"><span class="status-pill diff-'+diff+'">'+diff+'</span>'+(d.scheduled ? ' <span class="status-pill status-paid">Install Scheduled</span>' : '')+(needsFix ? ' <span class="status-pill diff-Fix">Needs Fix</span>'+(d.fixScheduled ? ' <span class="status-pill status-paid">Fix Scheduled</span>' : '') : '')+(completed ? ' <span class="status-pill status-paid">&#10003; Done</span>' : '')+(needsRemoval ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Removal</span>' : '')+(d.removalDone ? ' <span class="status-pill status-paid">&#10003; Removed</span>' : '')+(seasonStatusLabel ? ' <span class="status-pill '+seasonStatusClasses[d.seasonStatus]+'">'+seasonStatusLabel+'</span>' : '')+(d.askSameAsLastYear ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Ask about last year</span>' : '')+(custCannotBeBilled(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Cannot Be Billed \u2014 no email</span>' : '')+(needsQuote ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Quote</span>' : '')+'</div>'+
+        '<div style="margin-bottom:8px;"><span class="status-pill diff-'+diff+'">'+diff+'</span>'+(d.scheduled ? ' <span class="status-pill status-paid">Install Scheduled</span>' : '')+(needsFix ? ' <span class="status-pill diff-Fix">Needs Fix</span>'+(d.fixScheduled ? ' <span class="status-pill status-paid">Fix Scheduled</span>' : '') : '')+(completed ? ' <span class="status-pill status-paid">&#10003; Done</span>' : '')+(needsRemoval ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Removal</span>' : '')+(d.removalDone ? ' <span class="status-pill status-paid">&#10003; Removed</span>' : '')+(seasonStatusLabel ? ' <span class="status-pill '+seasonStatusClasses[d.seasonStatus]+'">'+seasonStatusLabel+'</span>' : '')+(d.askSameAsLastYear ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Ask about last year</span>' : '')+(custCannotBeBilled(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Cannot Be Billed \u2014 no email</span>' : '')+(custBillHeld(d) ? ' <span class="status-pill" style="background:#FFF8E9; color:#8A6D1F;" title="'+esc(d.billHeldWhy || '')+'">Bill Held</span>' : '')+(needsQuote ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Quote</span>' : '')+'</div>'+
         (d.phone ? '<div class="row-phone-line">'+esc(d.phone)+'</div>' : '')+
         priceLine+
         (crewLines.length ? '<div class="row-phone-line">'+crewLines.join(' &middot; ')+'</div>' : '')+
@@ -49726,6 +49769,7 @@ function renderRouteAddressList(){
   if(activeNotCompletedFilter) filtered = filtered.filter(a => !a.data.completed);
   if(activeNeedsRemovalFilter) filtered = filtered.filter(a => a.data.completed && !a.data.removalDone);
   if(activeCannotBillFilter) filtered = filtered.filter(a => custCannotBeBilled(a.data));
+  if(activeBillHeldFilter) filtered = filtered.filter(a => custBillHeld(a.data));
   if(searchTerm){
     const t = searchTerm.toLowerCase();
     filtered = filtered.filter(a =>
@@ -49816,6 +49860,7 @@ document.getElementById('applyFilterBtn').addEventListener('click', function(){
   activeNotCompletedFilter = document.getElementById('filterNotCompleted').checked;
   activeNeedsRemovalFilter = document.getElementById('filterNeedsRemoval').checked;
   activeCannotBillFilter = document.getElementById('filterCannotBill').checked;
+  activeBillHeldFilter = document.getElementById('filterBillHeld').checked;
   const parts = [];
   if(activeDiffFilters.length) parts.push(activeDiffFilters.join('/'));
   if(activeNeedsFixFilter) parts.push('Needs Fix');
@@ -49824,6 +49869,7 @@ document.getElementById('applyFilterBtn').addEventListener('click', function(){
   if(activeNotCompletedFilter) parts.push('Not Done');
   if(activeNeedsRemovalFilter) parts.push('Needs Removal');
   if(activeCannotBillFilter) parts.push('Cannot Be Billed');
+  if(activeBillHeldFilter) parts.push('Bill Held');
   document.getElementById('activeFilterSummary').textContent = parts.length ? parts.join(', ') : '';
   document.getElementById('filterDropdown').classList.remove('open');
   renderRouteAddressList();
@@ -69531,6 +69577,38 @@ function hcRunChecks(){
         detail: (hcAddr(first) || 'no address') +
           (g.members.length > 1 ? ' — and ' + (g.members.length - 1) + ' more on this bill' : '') +
           ' — no email anywhere on the bill'
+      };
+    })
+  });
+  /* ⭐ WORK DONE AND THE BILL STILL HELD (added 2026-09-28).
+     The nightly run holds a whole bill until every house on it is finished — Addie's
+     own rule, "After the last persons house is done ... is when they will be charged"
+     — and until now a held bill was a bare count in the nightly summary. One house
+     nobody marks done, or one fix flag nobody clears, therefore stopped that payer
+     being billed for the whole season with nothing anywhere naming them.
+
+     ⚠ IT READS THE FLAG THE RUN WROTE, IT DOES NOT RE-DECIDE THE HOLD. The run has
+     the whole book and a clock; this panel would have to group every customer to
+     answer the same question, and would then be a second opinion about who is held.
+     The run also waits BILL_HELD_DAYS before setting it, which is what keeps the
+     ordinary case — a crew that simply has not been to the second house yet — out of
+     here. See reportHeldBill in functions/index.js.
+     ⚠ AND THE ROW SAYS WHICH HOUSE. The flag is on the PAYER and the blocker is a
+     different house, so a row naming only the payer sends somebody back to the screen
+     to work out what to do; billHeldWhy carries the addresses. */
+  checks.push({
+    id: 'billHeld',
+    title: 'Work done, but the bill is being held',
+    why: 'Their lights are up and nobody has been charged. The bill waits for every house on it to be finished, which is right — but nothing was naming the ones that have been waiting a long time, so the money simply sat there.',
+    fix: null,
+    fixNote: 'No button: mark the last house done, or clear its fix, and the next nightly run bills them by itself.',
+    rows: jobAddresses.filter(function(c){ return custBillHeld(c.data); }).map(function(c){
+      const d = c.data || {};
+      const since = d.billHeldAt && typeof toJsDate === 'function' ? toJsDate(d.billHeldAt) : null;
+      return {
+        label: hcName(d),
+        detail: (d.billHeldWhy || 'a house on this bill is not finished') +
+          (since ? ' — flagged ' + since.toLocaleDateString() : '')
       };
     })
   });
