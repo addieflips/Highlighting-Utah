@@ -35,6 +35,10 @@ const admin = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8');
 
 let pass = 0, fail = 0;
 const fails = [];
+/* ⚠ ANYTHING ASYNC GOES ON HERE AND THE SUMMARY AWAITS IT. A check that scores AFTER the
+   summary has printed can never fail the build — it reports into nothing. Same reason
+   run-all.js keeps its own pendingAsync list. */
+const pendingAsync = [];
 function check(title, ok, why) {
   if (ok) { pass++; console.log('  PASS  ' + title); }
   else { fail++; fails.push(title); console.log('  FAIL  ' + title + (why ? '\n          ' + why : '')); }
@@ -585,5 +589,173 @@ suite('The two customer forms fill from the record');
     src.indexOf('awayFillHost') < src.indexOf('editCustDirtySnapshot = editCustSnapshot()'));
 }
 
-console.log('\n' + pass + ' passed, ' + fail + ' failed');
-if (fail) { console.log('\nFailed:\n  - ' + fails.join('\n  - ')); process.exit(1); }
+/* ===================================================================== */
+suite('Stuck here — the one-click toggle on the day panel');
+/* ⭐ Addie asked for this after the typed field shipped: "yes add the toggle on the schedule
+   day panel." It is a SECOND DOOR onto `stuckOnDate`, never a second mechanism — so the
+   checks that matter are that it writes the same field, that it toggles, and that it mirrors
+   both caches before the repaint. */
+{
+  const NEED2 = ['setStuckHere', 'stuckDayOf', 'dayIsoById', 'fmtDayLabel'];
+  const gone = NEED2.filter(n => !lift(admin, n));
+  check('the toggle and its helpers are findable', gone.length === 0, 'missing: ' + gone.join(', '));
+
+  const src = bare(admin);
+  /* ⚠ THE BUTTON IS ON INSTALL STOPS ONLY. A takedown has its own Soonest/Latest choice and
+     a fixer route is its own day; neither is placed by the rules this pin works through, so
+     a button there would look like it did something and do nothing. */
+  check('the button is drawn on install stops only',
+    /else if\(!h\.isTakedown\)\{[\s\S]{0,1400}data-stuck="/.test(src),
+    'it sits inside the not-a-takedown, not-a-fix branch');
+  /* ⚠ THREE STATES, NOT TWO. A pin pointing at some OTHER day drawn as "not pinned" is the
+     office's own instruction disappearing off the screen. */
+  check('a pin on another day is drawn as itself, and pressing it moves the pin here',
+    /pinnedElse\s*=\s*!!sd\s*&&\s*!pinnedHere/.test(src) && /Stuck on '\+esc\(sd\)\+' — pin here/.test(src));
+  check('and the pressed state is drawn as pressed', /data-stuck="'\+h\.id\+'"/.test(src) &&
+    /class="qbtn stuck'\+\(pinnedHere\?' on':''\)\+'"/.test(src));
+  check('the press is wired to the handler',
+    /if\(t\.dataset\.stuck\)\{setStuckHere\(t\.dataset\.stuck\);return;\}/.test(src),
+    'a control nobody wired renders perfectly and does nothing — this repo has shipped one');
+  /* ⚠ AND THE BADGE HAS A CLASS THAT EXISTS. A badge whose class is undeclared renders as
+     unstyled text, which is the same failure shape as the undeclared --evergreen colour that
+     Suite 277 caught in this very change. */
+  check('the STUCK badge is drawn and its class is declared',
+    /class="stuckbadge"/.test(src) && /\.stuckbadge\{/.test(admin) && /\.qbtn\.stuck\{/.test(admin));
+  /* ⛔ THE PER-STOP COST. findHouse walks every day's houses looking for one id and this runs
+     once per stop — on the real book ~40 × ~1,000 comparisons a repaint, the shape that has
+     locked this page up on a keystroke before. */
+  check('the day is resolved by id over the days, never by scanning every house',
+    /dayIsoById\(dayId\)/.test(src) &&
+    !/const hereIso=\(function\(\)\{const dd=dayDate\(findHouse/.test(src),
+    'findHouse per stop is a full scan of the plan per stop');
+}
+
+suite('And the toggle itself, run against fakes');
+{
+  const body = [lift(admin, 'fmtDayLabel'), lift(admin, 'setStuckHere')].join(LF);
+  const mk = function (opts) {
+    const o = opts || {};
+    const custData = o.custData === undefined ? {} : o.custData;
+    const cust = o.noCust ? null : {id: 'c1', data: custData};
+    const house = {id: 'cust-c1', name: 'Test House', stuck: o.houseStuck || ''};
+    if (o.isTakedown) house.isTakedown = true;
+    if (o.isFix) house.isFix = true;
+    const state = {writes: [], toasts: [], rendered: 0, saved: 0};
+    const api = new Function('findHouse', 'dayDate', 'isoOf', 'hlxResolvePlanHouse',
+      'updateDoc', 'doc', 'db', 'serverTimestamp', 'toast', 'renderAll', 'scheduleSave',
+      'personName', 'console',
+      body + LF + 'return {go: setStuckHere, label: fmtDayLabel};')(
+      function (id) { return String(id) === house.id ? {house: house, day: {id: 'd1'}} : null; },
+      function () { return o.noDate ? null : new Date(2026, 10, 12); },
+      function (d) { return '2026-11-12'; },
+      function () { return cust; },
+      function (ref, data) {
+        if (o.writeThrows) return Promise.reject(new Error('nope'));
+        state.writes.push(data); return Promise.resolve();
+      },
+      function (_db, col, id) { return {col: col, id: id}; }, {},
+      function () { return 'NOW'; },
+      function (m) { state.toasts.push(m); },
+      function () { state.rendered++; }, function () { state.saved++; },
+      function (n) { return n; }, {error: function () {}, warn: function () {}});
+    return {api: api, state: state, house: house, cust: cust};
+  };
+
+  /* Not pinned -> pinned to the day you are looking at. The DATE COMES FROM THE DAY, which is
+     the whole point of the button: nothing to type and nothing to get wrong. */
+  {
+    const t = mk({});
+    pendingAsync.push(t.api.go('cust-c1').then(function () {
+      check('pressing it on an unpinned stop pins them to that day',
+        t.state.writes.length === 1 && t.state.writes[0].stuckOnDate === '2026-11-12');
+      /* ⚠ MIRRORED INTO BOTH CACHES BEFORE THE REPAINT. The panel redraws from the plan and
+         the customer list, not from Firestore, so without this the button visibly springs
+         back and somebody presses it again — two writes in flight over one pin. */
+      check('and both caches are mirrored, so the button does not spring back',
+        t.cust.data.stuckOnDate === '2026-11-12' && t.house.stuck === '2026-11-12');
+      check('and the panel is redrawn and the plan saved',
+        t.state.rendered === 1 && t.state.saved === 1);
+      check('and it says what it did, naming the day',
+        t.state.toasts.some(function (m) { return /stuck on/i.test(m) && /12 Nov/.test(m); }));
+    }));
+  }
+  /* Pinned to THIS day -> pressing it unpins. A toggle that could only ever pin would leave
+     no way back off a day except opening the customer's record. */
+  {
+    const t = mk({custData: {stuckOnDate: '2026-11-12'}});
+    pendingAsync.push(t.api.go('cust-c1').then(function () {
+      check('pressing it again unpins them',
+        t.state.writes.length === 1 && t.state.writes[0].stuckOnDate === null,
+        'null, not the empty string — the field is cleared, the same as the form clearing it');
+      check('and the caches are cleared with it',
+        !t.cust.data.stuckOnDate && t.house.stuck === '');
+      check('and it says they will be scheduled normally again',
+        t.state.toasts.some(function (m) { return /no longer stuck/i.test(m); }));
+    }));
+  }
+  /* Pinned to ANOTHER day -> pressing it here MOVES the pin. That is what pressing it on
+     this stop means; refusing would leave the office with no way to correct a pin from the
+     day they are actually looking at. */
+  {
+    const t = mk({custData: {stuckOnDate: '2026-10-08'}});
+    pendingAsync.push(t.api.go('cust-c1').then(function () {
+      check('a pin on another day is moved to this one, not toggled off',
+        t.state.writes.length === 1 && t.state.writes[0].stuckOnDate === '2026-11-12');
+    }));
+  }
+  /* ⛔ THE STORED ANSWER DECIDES, NEVER THE PLAN ROW. A stale `stuck` on the plan would
+     otherwise make the button toggle the opposite way to what the record says. */
+  {
+    const t = mk({custData: {stuckOnDate: '2026-11-12'}, houseStuck: ''});
+    pendingAsync.push(t.api.go('cust-c1').then(function () {
+      check('the record decides, not the plan row',
+        t.state.writes.length === 1 && t.state.writes[0].stuckOnDate === null,
+        'the customer says pinned here, so the press must UNPIN even though the plan row is blank');
+    }));
+  }
+  /* ⛔ AN IMPORTED CSV ROW CANNOT BE PINNED — there is no customer record to write to, and
+     those rows carry no id and never will. Said out loud: a button that silently does nothing
+     is exactly what this repo shipped once with the recycle "bin says" box. */
+  {
+    const t = mk({noCust: true});
+    pendingAsync.push(t.api.go('cust-c1').then(function () {
+      check('a stop with no customer record is refused out loud, never silently',
+        t.state.writes.length === 0 && t.state.toasts.length === 1 &&
+        /All Customers/.test(t.state.toasts[0]));
+    }));
+  }
+  /* ⚠ A DAY WITH NO DATE YET cannot be pinned to, and says so rather than writing a blank. */
+  {
+    const t = mk({noDate: true});
+    pendingAsync.push(t.api.go('cust-c1').then(function () {
+      check('a day with no date is refused out loud',
+        t.state.writes.length === 0 && /no date/i.test(t.state.toasts[0] || ''));
+    }));
+  }
+  /* ⚠ AND A FAILED WRITE MIRRORS NOTHING. Mirroring first would leave the screen showing a
+     pin that is not saved anywhere — worse than the press appearing not to work. */
+  {
+    const t = mk({writeThrows: true});
+    pendingAsync.push(t.api.go('cust-c1').then(function () {
+      check('a failed write changes neither cache, and says so',
+        t.house.stuck === '' && t.state.rendered === 0 &&
+        t.state.toasts.some(function (m) { return /Could not save/.test(m); }));
+    }));
+  }
+  /* Takedowns and fixes are left alone — see the button's own note. */
+  ['isTakedown', 'isFix'].forEach(function (k) {
+    const t = mk((function () { const o = {}; o[k] = true; return o; })());
+    pendingAsync.push(t.api.go('cust-c1').then(function () {
+      check('a ' + (k === 'isFix' ? 'fix' : 'takedown') + ' stop is never pinned by this',
+        t.state.writes.length === 0 && t.state.toasts.length === 0);
+    }));
+  });
+}
+
+Promise.all(pendingAsync).then(function () {
+  console.log('\n' + pass + ' passed, ' + fail + ' failed');
+  if (fail) { console.log('\nFailed:\n  - ' + fails.join('\n  - ')); process.exit(1); }
+}, function (err) {
+  console.log('  FAIL  an async check crashed\n          ' + (err && err.stack || err));
+  process.exit(1);
+});

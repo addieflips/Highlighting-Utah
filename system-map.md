@@ -3062,6 +3062,17 @@ before the first date and the schedule aims to have them done by the second. Rul
 them off it** — not Recalculate everything, not the tidy-up sweeps, not the five-minute sync.
 Ruling **SCH-100**.
 
+- **The quickest way to set it is on the Schedule tab**, not here: every install stop's control
+  row has a 📌 **Stuck here** button, which pins them to the day you are looking at. Press it
+  again to unpin. A stop that is pinned carries a 📌 STUCK badge on its name so it reads while
+  you scan the day. The button and this date box are **the same field** — either one sets it.
+- The button has **three states**: not pinned, *Stuck here — unpin*, and *Stuck on <date> — pin
+  here* when the pin points at a different day, where pressing it moves the pin to the day you
+  are on.
+- It is on install stops only. A takedown has its own Soonest/Latest choice and a fixer route is
+  its own day. And a stop that came in from an imported CSV cannot be pinned, because there is no
+  customer record to write to — it says so rather than doing nothing.
+
 - It is expressed as **a window one day wide**: `houseAllowedFrom` and `houseDeadline` both
   return the pinned day. Every mover in the app already refuses a day outside that window, so
   one rule in two functions holds the house in all eight places at once.
